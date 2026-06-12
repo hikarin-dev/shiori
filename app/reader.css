@@ -1,0 +1,298 @@
+:root {
+  --bg: #0a0a0c; --surface: #16161a; --border: #2a2a30;
+  --accent: #ed2754; --accent2: #ffd166; --text: #e8e8f0; --muted: #6b6b80;
+  --topbar-h: 54px; --botbar-h: 32px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; }
+body { min-height: 100vh; }
+
+/* ── Top bar ── */
+#topbar {
+  position: sticky; top: 0; z-index: 200; width: 100%;
+  height: var(--topbar-h);
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px; padding: 0 12px;
+}
+
+.tb-brand   { display: flex; align-items: center; gap: 6px; text-decoration: none; }
+.tb-brand:hover { opacity: 0.8; }
+.tb-icon    { width: 22px; height: 22px; border-radius: 5px; overflow: hidden; flex-shrink: 0; }
+.tb-icon img { width: 100%; height: 100%; display: block; }
+.tb-logo    { font-size: 13px; font-weight: 700; color: var(--accent); white-space: nowrap; letter-spacing: -0.3px; }
+.tb-sep     { color: var(--border); font-size: 10px; }
+.tb-gallery { font-size: 11px; color: var(--accent); white-space: nowrap; text-decoration: none; }
+.tb-gallery.local { color: var(--accent2); }
+.tb-gallery[href]:hover { text-decoration: underline; }
+.tb-title   { font-size: 10px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; flex-shrink: 1; text-decoration: none; }
+.tb-title[href]:hover { opacity: 0.8; text-decoration: underline; }
+.tb-spacer  { flex: 1; min-width: 8px; }
+#pageCounter { font-size: 11px; color: var(--muted); white-space: nowrap; min-width: 52px; text-align: right; }
+
+/* Mode button group */
+.mode-group { display: flex; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
+.mode-btn {
+  background: none; border: none; border-right: 1px solid var(--border);
+  color: var(--muted); padding: 5px 9px; cursor: pointer;
+  font-size: 14px; line-height: 1; transition: all 0.12s;
+}
+.mode-btn:last-child { border-right: none; }
+.mode-btn:hover  { background: #1e1e24; color: var(--text); }
+.mode-btn.active { background: var(--accent); color: white; }
+
+.tb-btn {
+  background: none; border: 1px solid var(--border); color: var(--muted);
+  font-family: inherit; font-size: 11px; padding: 4px 9px;
+  border-radius: 4px; cursor: pointer; transition: all 0.12s;
+  white-space: nowrap; text-decoration: none; display: inline-flex; align-items: center;
+}
+.tb-btn:hover  { border-color: var(--accent); color: var(--accent); }
+.tb-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+
+/* ── SINGLE mode ── */
+#singleView { display: none; }
+#singleView.active { display: block; }
+
+#singleInner {
+  display: flex; justify-content: center;
+  padding-bottom: var(--botbar-h);
+}
+
+#singleZones {
+  position: fixed; inset: 0;
+  display: flex; pointer-events: none; z-index: 50;
+}
+#clickPrev, #clickNext {
+  flex: 1; height: 100%;
+  cursor: pointer; pointer-events: all;
+}
+
+#mainImg {
+  display: block; max-width: min(1280px, 100vw); width: 100%;
+  height: auto; user-select: none;
+}
+
+/* ── DOUBLE mode ── */
+#doubleView { display: none; }
+#doubleView.active { display: block; }
+
+#doubleInner {
+  display: flex; justify-content: center; gap: 2px;
+  padding-bottom: var(--botbar-h);
+}
+
+#doubleView .d-zones {
+  position: fixed; inset: 0;
+  display: flex; pointer-events: none; z-index: 50;
+}
+#dClickPrev, #dClickNext {
+  flex: 1; height: 100%;
+  cursor: pointer; pointer-events: all;
+}
+
+.dImg {
+  display: block; width: 50%; max-width: 900px; height: auto;
+  user-select: none;
+}
+
+/* ── STRIP mode ── */
+#stripView {
+  display: none;
+  flex-direction: column; align-items: center; gap: 4px;
+  padding-bottom: 20px;
+}
+#stripView.active { display: flex; }
+/* Default aspect-ratio reserves approximate height before each page is measured, so the
+   document/scrollbar size is correct from the start. JS later sets style.aspect-ratio per image
+   to the exact natural ratio. object-fit: contain prevents stretching during the brief window
+   between src-set and the load event (matters for double-wide pages whose true ratio differs). */
+.page-img {
+  max-width: min(1280px, 100vw); width: 100%; display: block;
+  aspect-ratio: 2 / 3;
+  object-fit: contain;
+}
+
+/* ── Thumbnail strip ── */
+:root { --thumb-h: 88px; --zoom-inv: 1; }
+#thumbStrip {
+  position: fixed; bottom: var(--botbar-h); left: 0; right: 0;
+  height: 0; overflow: hidden;
+  zoom: var(--zoom-inv);
+  background: rgba(10,10,12,0.97); border-top: 1px solid var(--border);
+  transition: height 0.2s ease;
+  display: flex; align-items: flex-end; gap: 5px; padding: 0 10px 7px;
+  overflow-x: auto; overflow-y: hidden; z-index: 150;
+  cursor: pointer;
+}
+#thumbStrip.dragging { cursor: grabbing; user-select: none; }
+#thumbStrip.resizing { transition: none; }
+body.bar-hidden #thumbStrip { bottom: 0; }
+#thumbStrip.open { height: var(--thumb-h); }
+#thumbStrip::-webkit-scrollbar { height: 3px; }
+#thumbStrip::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+#thumbResizeHandle {
+  position: fixed; left: 0; right: 0; height: 6px;
+  bottom: calc(var(--botbar-h) + var(--thumb-h) - 3px);
+  cursor: ns-resize; z-index: 160; display: none;
+  transition: background 0.12s;
+  zoom: var(--zoom-inv);
+}
+body.bar-hidden #thumbResizeHandle { bottom: calc(var(--thumb-h) - 3px); }
+#thumbResizeHandle.show { display: block; }
+#thumbResizeHandle:hover, #thumbResizeHandle.active { background: var(--accent); }
+
+/* Indicator only shown while dragging. Matches a thumb's height and aspect (A4-like) so it
+   looks like a "currently selected page" outline — width is NOT derived from how many pages
+   are visible in the reader viewport, only from the thumb's own height + aspect. */
+#thumbViewport {
+  position: absolute;
+  bottom: 7px;
+  height: calc(var(--thumb-h) - 14px);
+  aspect-ratio: 52 / 74;
+  background: rgba(237, 39, 84, 0.18);
+  border-radius: 4px;
+  z-index: 1;
+  display: none;
+  pointer-events: none;
+}
+#thumbStrip.dragging #thumbViewport { display: block; }
+/* Active-page border is redundant with the viewport overlay during drag — hide it so
+   the translucent area is the only highlight. */
+#thumbStrip.dragging .thumb-item.active { border-color: transparent; }
+
+/* Suppress text selection across the whole page while dragging the thumbnail strip —
+   stops "selection trails" that appear when the cursor passes over reader content. */
+body.thumb-dragging,
+body.thumb-dragging * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  cursor: grabbing !important;
+}
+
+.thumb-item {
+  flex-shrink: 0;
+  height: calc(var(--thumb-h) - 14px);
+  width: calc((var(--thumb-h) - 14px) * 52 / 74);
+  border-radius: 3px; overflow: hidden; border: 2px solid transparent;
+  cursor: pointer; transition: border-color 0.22s ease-out; background: #111;
+  position: relative;
+}
+.thumb-item img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.thumb-item.active { border-color: var(--accent); }
+.thumb-item:hover:not(.active) { border-color: var(--muted); }
+.thumb-num {
+  position: absolute; bottom: 2px; right: 3px;
+  font-size: 8px; color: rgba(255,255,255,0.6);
+  text-shadow: 0 1px 2px #000; pointer-events: none;
+}
+
+/* ── Bottom bar ── */
+#bottombar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: var(--botbar-h);
+  background: var(--surface); border-top: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 10px; gap: 8px;
+  transition: opacity 0.25s; z-index: 200;
+  zoom: var(--zoom-inv);
+}
+#bottombar.hidden { opacity: 0; pointer-events: none; }
+
+#scrubWrap { flex: 1; display: flex; align-items: center; gap: 8px; }
+#scrubWrap.hidden { display: none; }
+
+#scrubber {
+  flex: 1; -webkit-appearance: none; appearance: none;
+  height: 2px; background: var(--border); border-radius: 1px; outline: none; cursor: pointer;
+}
+#scrubber::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--accent); cursor: pointer;
+}
+#scrubberLabel { font-size: 10px; color: var(--muted); white-space: nowrap; }
+
+.bar-icon-btn {
+  background: none; border: 1px solid var(--border); color: var(--muted);
+  font-size: 13px; width: 22px; height: 22px; border-radius: 4px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.12s; flex-shrink: 0;
+}
+.bar-icon-btn:hover  { border-color: var(--text); color: var(--text); }
+.bar-icon-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+
+/* ── Keybind modal ── */
+#keybindModal {
+  display: none; position: fixed; inset: 0; z-index: 400;
+  background: rgba(0,0,0,0.65);
+  align-items: center; justify-content: center;
+}
+#keybindModal.show { display: flex; }
+#keybindBox {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 20px 24px;
+  min-width: 300px; max-width: 420px; width: 90%;
+}
+.kb-heading {
+  font-size: 12px; font-weight: 700; color: var(--text);
+  margin-bottom: 14px;
+}
+.kb-section {
+  font-size: 9px; color: var(--muted); text-transform: uppercase;
+  letter-spacing: 1px; margin: 12px 0 5px;
+}
+.kb-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.kb-row:last-child { border-bottom: none; }
+.kb-desc { color: var(--muted); }
+.kb-keys { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.kb-key {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 4px; padding: 2px 6px;
+  font-size: 10px; color: var(--text); font-family: inherit; white-space: nowrap;
+}
+
+/* ── Unpinned: topbar scrolls with page; JS floats it back on scroll-up ── */
+body.reader-unpinned #topbar { position: relative; }
+/* ── All modes use document scroll ── */
+html.reader-scroll, body.reader-scroll { height: auto; }
+
+/* ── Scroll-to-top button (strip mode only) ── */
+#scrollTopBtn {
+  position: fixed; bottom: 28px; right: 18px; z-index: 300;
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.2s, border-color 0.12s, color 0.12s;
+}
+#scrollTopBtn.visible { opacity: 1; pointer-events: all; }
+#scrollTopBtn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Loading / Empty ── */
+#loadingScreen {
+  position: fixed; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 14px; background: var(--bg); z-index: 300;
+  /* Stay invisible for the first 400ms — a fast load comes and goes without a spinner flash. */
+  animation: loadingReveal 0.2s ease 0.4s backwards;
+}
+@keyframes loadingReveal { from { opacity: 0; } to { opacity: 1; } }
+.spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#loadingText { font-size: 11px; color: var(--muted); }
+
+#emptyScreen { display: none; position: fixed; inset: 0; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: var(--bg); z-index: 300; }
+#emptyScreen.show { display: flex; }
+.empty-icon { font-size: 48px; }
+.empty-msg  { font-size: 12px; color: var(--muted); text-align: center; line-height: 1.8; }
+.empty-link { color: var(--accent); text-decoration: none; font-size: 11px; }
+.empty-link:hover { text-decoration: underline; }
+#tip {
+  position: fixed; pointer-events: none; z-index: 9999;
+  background: #222; color: #eee; border: 1px solid #555;
+  padding: 3px 7px; border-radius: 4px; font-size: 11px;
+  white-space: nowrap; display: none;
+}

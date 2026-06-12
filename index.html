@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shiori</title>
+  <style>html,body{margin:0;height:100%;background:#111;color:#888;font:14px system-ui,sans-serif}
+    a{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#6cf;text-decoration:none}</style>
+</head>
+<body>
+  <!-- Landing redirect into the app (which lives under /app/). Also retires the service worker
+       a previous Shiori layout registered at this root scope, so it can't shadow the new app. -->
+  <a href="app/library.html">Open Shiori library →</a>
+  <script>
+    (async () => {
+      if ('serviceWorker' in navigator) {
+        try {
+          for (const r of await navigator.serviceWorker.getRegistrations()) {
+            if (r.scope === location.origin + '/') await r.unregister();
+          }
+        } catch {}
+      }
+      location.replace('app/library.html');
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Shiori Agent</title>
+  <!-- The app's database agent. The extension embeds this page in an invisible iframe inside
+       its offscreen document; because the extension has host permissions for this origin,
+       Chrome exempts the frame from storage partitioning and it operates on the real app
+       database. All capture/serve/download logic runs here, in app code. -->
+</head>
+<body>
+  <script type="module" src="js/agent.js"></script>
+</body>
+</html>

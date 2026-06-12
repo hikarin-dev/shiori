@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Shiori</title>
+  <style>html,body{margin:0;height:100%;background:#111;color:#888;font:14px system-ui,sans-serif;display:flex;align-items:center;justify-content:center}</style>
+</head>
+<body>
+<script>
+  // Static-host fallback (e.g. GitHub Pages) for clean URLs on a first visit, before the
+  // app's service worker controls the origin: /app/library → /app/library.html, keeping
+  // query and hash. Once the worker is active it handles the mapping itself.
+  (() => {
+    const p = location.pathname;
+    if (!/\.[^/]+$/.test(p) && !p.endsWith('/')) {
+      location.replace(p + '.html' + location.search + location.hash);
+    } else {
+      document.body.textContent = 'Not found.';
+    }
+  })();
+</script>
+<noscript>Not found.</noscript>
+</body>
+</html>

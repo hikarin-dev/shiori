@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" href="../icons/icon32.png">
+  <title>Shiori — Settings</title>
+  <meta name="shiori-app" content="options">
+  <script src="font-init.js"></script>
+  <link rel="stylesheet" href="settings.css">
+  <!-- Preload the whole module graph in one parallel wave instead of a 4-level import waterfall. -->
+  <link rel="modulepreload" href="js/settings.js">
+  <link rel="modulepreload" href="js/boot.js">
+  <link rel="modulepreload" href="js/platform.js">
+  <link rel="modulepreload" href="js/services.js">
+  <link rel="modulepreload" href="js/db.js">
+  <link rel="modulepreload" href="js/translate.js">
+  <link rel="modulepreload" href="js/backup.js">
+  <link rel="modulepreload" href="js/ext-bridge.js">
+  <link rel="modulepreload" href="js/submit-job.js">
+  <link rel="modulepreload" href="js/jobs-runner.js">
+  <link rel="modulepreload" href="js/import-cbz.js">
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <a class="brand-wrap" href="library">
+      <div class="brand-icon"><img src="../icons/shiori-logo.svg" alt=""></div>
+      <span class="brand-text">Shiori</span>
+    </a>
+    <span class="brand-sep">/</span>
+    <span class="brand-page">Settings</span>
+  </div>
+  <div class="header-right">
+    <button class="btn-about" id="aboutBtn">About</button>
+  </div>
+</header>
+
+<div class="content">
+  <!-- The API Key and Behaviour cards are extension concerns — the extension's content script
+       (extension/content/settings-app.js) injects them at the top of this container when it is
+       installed. The app itself has no capture or key logic. -->
+
+  <!-- Translation -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">Translation</div>
+    </div>
+    <div class="section-body">
+      <div class="field">
+        <div class="field-label">Translation server</div>
+        <div class="field-desc">Base URL of your self-hosted <a href="https://github.com/zyddnys/manga-image-translator" target="_blank">manga-image-translator</a> server. The "Translate" button on a gallery sends each cached page here and stores a translated copy alongside the original.</div>
+        <input class="field-input" type="text" id="translateServerInput" placeholder="http://127.0.0.1:5003" autocomplete="off" spellcheck="false">
+        <div style="display:flex; align-items:center; gap:8px; margin-top:8px; flex-wrap:wrap;">
+          <span id="translateStatusBadge" class="key-status-badge unset">○ Checking…</span>
+          <button class="btn-mini" id="checkTranslateBtn" type="button">Check connection</button>
+          <button class="btn-mini" id="openTranslateModalBtn" type="button">⚙ Translator settings…</button>
+        </div>
+      </div>
+      <div class="field-desc" id="translateSummary" style="margin-top:2px;"></div>
+      <div class="actions-row">
+        <div class="status-msg hidden" id="translateStatus"></div>
+        <button class="btn-save" id="saveTranslateBtn">Save</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Library Backup -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">Library Backup</div>
+    </div>
+    <div class="section-body">
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-name">Export backup</div>
+          <div class="toggle-desc">Lightweight metadata-only backup (<code>.shi</code> — tags, titles, source links) or a full backup of the entire library including images (<code>.shioridb</code>) for moving between browsers or machines. You'll be asked which.</div>
+        </div>
+        <button class="btn-save" id="exportBackupBtn">Export…</button>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-name">Import backup</div>
+          <div class="toggle-desc">Restore a <code>.shi</code> or <code>.shioridb</code> backup into this library. The format is detected automatically.</div>
+        </div>
+        <label class="btn-save" for="backupImportFile" style="cursor:pointer">Import…</label>
+        <input type="file" id="backupImportFile" accept=".shi,.shioridb,application/octet-stream,application/json" style="display:none">
+      </div>
+      <div class="status-msg hidden" id="backupStatus"></div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">Stats</div>
+    </div>
+    <div class="section-body">
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-name">Total Disk Writes</div>
+          <div class="toggle-desc">Total image data ever written to IndexedDB across all sessions. Counts CDN downloads and local CBZ imports.</div>
+        </div>
+        <span class="writes-count" id="totalWritesCount">—</span>
+      </div>
+      <div class="actions-row">
+        <div class="status-msg hidden" id="writesStatus"></div>
+        <button class="btn-clear-key" id="resetWritesBtn">Reset</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Danger Zone -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title" style="color:var(--danger)">Danger Zone</div>
+    </div>
+    <div class="section-body">
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-name">Clear All Cache</div>
+          <div class="toggle-desc">Permanently deletes every cached gallery and image. Cannot be undone.</div>
+        </div>
+        <button class="btn-clear-all" id="clearAllBtn">✕ Clear All</button>
+      </div>
+      <div class="status-msg hidden" id="clearAllStatus"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Backup choice modal -->
+<div id="backupModal" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.55);align-items:center;justify-content:center;">
+  <div style="background:var(--bg-card,#16161a);border:1px solid var(--border,#2a2a30);border-radius:10px;padding:22px;width:340px;max-width:90vw;">
+    <div style="font-weight:700;margin-bottom:6px;">Export backup</div>
+    <div class="field-desc" style="margin-bottom:16px;">Pick what to include.</div>
+    <button class="btn-save" id="backupMetaBtn" style="width:100%;margin-bottom:8px;">Metadata only (.shi) — lightweight</button>
+    <button class="btn-save" id="backupFullBtn" style="width:100%;margin-bottom:14px;">Full library (.shioridb) — everything, incl. images</button>
+    <button class="btn-clear-key" id="backupCancelBtn" style="width:100%;">Cancel</button>
+  </div>
+</div>
+
+<!-- About modal -->
+<div id="aboutModal">
+  <div id="aboutBox">
+    <div class="about-header">
+      <div class="about-brand">
+        <div class="brand-icon"><img src="../icons/shiori-logo.svg" alt=""></div>
+        <span class="brand-text">Shiori</span>
+        <span class="about-version" id="aboutVersion"></span>
+      </div>
+      <button class="about-close" id="aboutClose">✕</button>
+    </div>
+    <div class="about-scroll" id="aboutChangelog"></div>
+  </div>
+</div>
+
+<!-- Translator settings modal -->
+<div id="translateModal">
+  <div id="translateBox">
+    <div class="about-header">
+      <div class="about-brand"><span class="brand-text">Translator settings</span></div>
+      <button class="about-close" id="translateClose">✕</button>
+    </div>
+    <div class="about-scroll">
+      <div class="tcfg-grid">
+
+        <div class="tcfg-h">Translator</div>
+        <div class="tcfg-field tcfg-wide">
+          <label>Engine</label>
+          <select class="field-input" id="cfgTranslator">
+            <option value="sugoi">Sugoi — offline JA→EN, no key</option>
+            <option value="qwen2_big">Qwen2-7B — local HuggingFace (fast, no Ollama needed)</option>
+            <option value="chatgpt">Qwen2.5-7B + cross-page context — requires Ollama running</option>
+            <option value="gemini">Gemini Flash — cloud, needs API key (smart, rate-limited)</option>
+            <option value="deepseek">DeepSeek V4 Flash — cloud, needs API key</option>
+            <option value="m2m100">M2M100 — offline, multilingual</option>
+            <option value="nllb">NLLB — offline, multilingual</option>
+            <option value="offline">Offline — auto-select</option>
+            <option value="deepl">DeepL — needs API key on server</option>
+            <option value="sakura">Sakura — local LLM endpoint</option>
+            <option value="none">None — typeset only, no translation</option>
+          </select>
+        </div>
+        <div class="tcfg-field tcfg-wide">
+          <label>Translate to</label>
+          <select class="field-input" id="cfgTargetLang">
+            <option value="ENG">English</option>
+            <option value="CHS">Chinese (Simplified)</option>
+            <option value="CHT">Chinese (Traditional)</option>
+            <option value="JPN">Japanese</option>
+            <option value="KOR">Korean</option>
+            <option value="VIN">Vietnamese</option>
+            <option value="FRA">French</option>
+            <option value="DEU">German</option>
+            <option value="ESP">Spanish</option>
+            <option value="RUS">Russian</option>
+            <option value="PTB">Portuguese (Brazil)</option>
+            <option value="IND">Indonesian</option>
+          </select>
+        </div>
+        <div class="tcfg-field tcfg-wide">
+          <label>Clearing preset</label>
+          <select class="field-input" id="cfgClearingPreset">
+            <option value="fast">Fast — quickest, may leave residue on busy art</option>
+            <option value="balanced">Balanced — recommended</option>
+            <option value="thorough">Thorough — best clearing, slowest</option>
+            <option value="custom">Custom — manual (Inpainting section)</option>
+          </select>
+        </div>
+
+        <div class="tcfg-h">Content Screening</div>
+        <div class="tcfg-field tcfg-wide tcfg-check">
+          <label><input type="checkbox" id="cfgScreenEnabled"> Pre-screen bubbles before cloud translator — routes explicit text to local model instead</label>
+        </div>
+        <div class="tcfg-field tcfg-wide">
+          <label>Screen model</label>
+          <select class="field-input" id="cfgScreenTranslator">
+            <option value="qwen2_big">Qwen2-7B (accurate)</option>
+            <option value="qwen2">Qwen2-1.5B (lighter)</option>
+          </select>
+        </div>
+        <div class="tcfg-field tcfg-wide">
+          <label>Fallback model (for flagged bubbles)</label>
+          <select class="field-input" id="cfgScreenFallback">
+            <option value="qwen2_big">Qwen2-7B</option>
+            <option value="qwen2">Qwen2-1.5B</option>
+            <option value="sugoi">Sugoi (JA→EN only)</option>
+          </select>
+        </div>
+        <div class="tcfg-field tcfg-wide">
+          <label>Screen prompt</label>
+          <textarea class="field-input" id="cfgScreenPrompt" rows="3" spellcheck="false" style="resize:vertical;font-size:11px;line-height:1.4;"></textarea>
+        </div>
+
+        <div class="tcfg-h tcfg-collapsible" id="cfgAdvancedHeader">Advanced settings</div>
+        <div class="tcfg-h">Detection</div>
+        <div class="tcfg-field">
+          <label>Detector</label>
+          <select class="field-input" id="cfgDetector">
+            <option value="default">Default</option>
+            <option value="ctd">CTD (comic text detector)</option>
+            <option value="dbconvnext">DBConvNext</option>
+            <option value="paddle">Paddle</option>
+            <option value="craft">CRAFT (not for manga)</option>
+            <option value="none">None</option>
+          </select>
+        </div>
+        <div class="tcfg-field">
+          <label>Detection size</label>
+          <select class="field-input" id="cfgDetectionSize">
+            <option value="1024">1024 (fastest)</option>
+            <option value="1536">1536</option>
+            <option value="2048">2048 (default)</option>
+            <option value="2560">2560 (most thorough)</option>
+          </select>
+        </div>
+        <div class="tcfg-field"><label>Text threshold (0–1)</label><input class="field-input" type="number" id="cfgTextThreshold" step="0.05" min="0" max="1"></div>
+        <div class="tcfg-field"><label>Box threshold (0–1)</label><input class="field-input" type="number" id="cfgBoxThreshold" step="0.05" min="0" max="1"></div>
+        <div class="tcfg-field"><label>Unclip ratio</label><input class="field-input" type="number" id="cfgUnclipRatio" step="0.1" min="0"></div>
+
+        <div class="tcfg-h">OCR</div>
+        <div class="tcfg-field tcfg-wide">
+          <label>OCR model</label>
+          <select class="field-input" id="cfgOcr">
+            <option value="48px">48px (default, fast)</option>
+            <option value="48px_ctc">48px CTC</option>
+            <option value="32px">32px</option>
+            <option value="mocr">manga-ocr (accurate, slower)</option>
+          </select>
+        </div>
+
+        <div class="tcfg-h">Inpainting &amp; text removal</div>
+        <div class="tcfg-field">
+          <label>Inpainter</label>
+          <select class="field-input" id="cfgInpainter">
+            <option value="lama_large">Lama Large (best)</option>
+            <option value="lama_mpe">Lama MPE</option>
+            <option value="default">Default</option>
+            <option value="sd">Stable Diffusion (slow)</option>
+            <option value="original">Original (no neural)</option>
+            <option value="none">None (don't erase)</option>
+          </select>
+        </div>
+        <div class="tcfg-field">
+          <label>Inpainting size</label>
+          <select class="field-input" id="cfgInpaintingSize">
+            <option value="1024">1024 (fastest)</option>
+            <option value="1536">1536</option>
+            <option value="2048">2048 (cleanest)</option>
+          </select>
+        </div>
+        <div class="tcfg-field">
+          <label>Precision</label>
+          <select class="field-input" id="cfgInpaintingPrecision">
+            <option value="bf16">bf16</option>
+            <option value="fp16">fp16</option>
+            <option value="fp32">fp32</option>
+          </select>
+        </div>
+        <div class="tcfg-field"><label>Mask dilation (clear residue)</label><input class="field-input" type="number" id="cfgMaskDilation" step="1" min="0"></div>
+        <div class="tcfg-field"><label>Cleanup kernel (odd)</label><input class="field-input" type="number" id="cfgKernelSize" step="2" min="1"></div>
+
+        <div class="tcfg-h">Appearance (rendering)</div>
+        <div class="tcfg-field">
+          <label>Renderer</label>
+          <select class="field-input" id="cfgRenderer">
+            <option value="default">Default</option>
+            <option value="manga2eng">manga2eng (English typesetting)</option>
+            <option value="manga2eng_pillow">manga2eng (Pillow)</option>
+            <option value="none">None</option>
+          </select>
+        </div>
+        <div class="tcfg-field">
+          <label>Direction</label>
+          <select class="field-input" id="cfgDirection">
+            <option value="auto">Auto</option>
+            <option value="horizontal">Horizontal</option>
+            <option value="vertical">Vertical</option>
+          </select>
+        </div>
+        <div class="tcfg-field">
+          <label>Alignment</label>
+          <select class="field-input" id="cfgAlignment">
+            <option value="auto">Auto</option>
+            <option value="left">Left</option>
+            <option value="center">Center</option>
+            <option value="right">Right</option>
+          </select>
+        </div>
+        <div class="tcfg-field"><label>Font size offset</label><input class="field-input" type="number" id="cfgFontSizeOffset" step="1"></div>
+        <div class="tcfg-field"><label>Font color (hex, blank = auto)</label><input class="field-input" type="text" id="cfgFontColor" placeholder="auto" spellcheck="false"></div>
+        <div class="tcfg-field tcfg-check"><label><input type="checkbox" id="cfgUppercase"> Force uppercase</label></div>
+        <div class="tcfg-field tcfg-check"><label><input type="checkbox" id="cfgNoHyphenation"> No hyphenation</label></div>
+
+        <div class="tcfg-h">Batch size (cloud LLM — pages per request)</div>
+        <div class="tcfg-note">Cloud LLMs translate a whole chunk of pages in one call, for story context and fewer requests. Keep these small — too many pages overflow the model's input limit and text gets dropped.</div>
+        <div class="tcfg-field"><label>Gemini</label><input class="field-input" type="number" id="cfgCapGemini" step="1" min="1"></div>
+        <div class="tcfg-field"><label>DeepSeek</label><input class="field-input" type="number" id="cfgCapDeepseek" step="1" min="1"></div>
+        <div class="tcfg-field"><label>Ollama (cross-page)</label><input class="field-input" type="number" id="cfgCapChatgpt" step="1" min="1"></div>
+
+        <div class="tcfg-h">Cost estimate (USD / 1M tokens — Gemini only)</div>
+        <div class="tcfg-field"><label>Input $/1M</label><input class="field-input" type="number" id="cfgPriceIn" step="0.01" min="0"></div>
+        <div class="tcfg-field"><label>Output $/1M</label><input class="field-input" type="number" id="cfgPriceOut" step="0.01" min="0"></div>
+
+      </div>
+    </div>
+    <div class="tcfg-footer">
+      <button class="btn-clear-key" id="resetTranslateBtn" type="button">Reset to defaults</button>
+      <div class="status-msg hidden" id="translateModalStatus" style="flex:1; text-align:right;"></div>
+      <button class="btn-save" id="saveTranslateModalBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="../vendor/marked.min.js"></script>
+<script type="module" src="js/settings.js"></script>
+</body>
+</html>

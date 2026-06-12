@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" href="../icons/icon32.png">
+  <title>Shiori — Library</title>
+  <script src="font-init.js"></script>
+  <link rel="stylesheet" href="library.css">
+  <!-- Preload the whole module graph in one parallel wave instead of a 4-level import waterfall. -->
+  <link rel="modulepreload" href="js/library.js">
+  <link rel="modulepreload" href="js/boot.js">
+  <link rel="modulepreload" href="js/platform.js">
+  <link rel="modulepreload" href="js/services.js">
+  <link rel="modulepreload" href="js/db.js">
+  <link rel="modulepreload" href="js/api.js">
+  <link rel="modulepreload" href="js/store.js">
+  <link rel="modulepreload" href="js/backup.js">
+  <link rel="modulepreload" href="js/translate.js">
+  <link rel="modulepreload" href="js/ext-bridge.js">
+  <link rel="modulepreload" href="js/submit-job.js">
+  <link rel="modulepreload" href="js/jobs-runner.js">
+  <link rel="modulepreload" href="js/import-cbz.js">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#111111">
+  <meta name="shiori-app" content="library">  <!-- lets the extension's bridge recognise the app -->
+
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <a class="brand-wrap" href="library">
+      <div class="brand-icon"><img src="../icons/shiori-logo.svg" alt=""></div>
+      <span class="brand-text">Shiori</span>
+    </a>
+    <span class="brand-sep">/</span>
+    <span class="brand-page">Library</span>
+    <div class="search-wrap">
+      <input class="header-search" id="searchBox" type="text" placeholder="Search by ID, title or tags…">
+      <button class="search-clear" id="searchClear" data-tip="Clear search"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+    <button class="btn-pin" id="pinBtn" data-tip="Unpin header"></button>
+  </div>
+  <div class="header-right">
+    <button class="burger-btn" id="burgerBtn" data-tip="Menu">☰</button>
+    <div class="collapsible-group" id="collapsibleGroup">
+      <div class="hstat">
+        <div class="hstat-val" id="hTotalGalleries">—</div>
+        <div class="hstat-label">Galleries</div>
+      </div>
+      <div class="hstat">
+        <div class="hstat-val" id="hTotalImages">—</div>
+        <div class="hstat-label">Images</div>
+      </div>
+      <div class="hstat" id="hSizeStat" data-tip="" data-tip-shift="">
+        <div class="hstat-val" id="hTotalSize">—</div>
+        <div class="hstat-label">Stored</div>
+      </div>
+      <div class="hstat">
+        <div class="hstat-val" id="hLoadCount">—</div>
+        <div class="hstat-label">Loads</div>
+      </div>
+      <div class="header-divider"></div>
+      <button class="btn-upload" id="uploadCbzBtn"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:5px"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>Upload</button>
+    </div>
+    <button class="btn-safe" id="safeBtn" data-tip="Enable Safe Mode (blur content for sharing)"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg></button>
+    <button class="btn-settings" id="settingsBtn" data-tip="Settings"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg></button>
+  </div>
+</header>
+
+<div class="toolbar">
+  <select class="sort-select" id="sortSelect">
+    <option value="added">Most Recent</option>
+    <option value="updated">Last Updated</option>
+    <option value="size">Largest</option>
+    <option value="count">Most Pages</option>
+    <option value="id">Gallery ID</option>
+  </select>
+</div>
+<input type="file" id="cbzFileInput" accept=".cbz,.zip,.shi,.shioridb" multiple style="display:none">
+<input type="file" id="replaceImgInput" accept=".cbz,.zip" style="display:none">
+<div id="dl-tooltip"></div>
+
+
+<div class="grid" id="grid"></div>
+
+<div id="pagination"></div>
+
+<script type="module" src="js/library.js"></script>
+</body>
+</html>

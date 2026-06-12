@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" href="../icons/icon32.png">
+  <title>Shiori — Reader</title>
+  <script src="font-init.js"></script>
+  <link rel="stylesheet" href="reader.css">
+  <!-- Preload the whole module graph in one parallel wave instead of a 4-level import waterfall. -->
+  <link rel="modulepreload" href="js/reader.js">
+  <link rel="modulepreload" href="js/boot.js">
+  <link rel="modulepreload" href="js/platform.js">
+  <link rel="modulepreload" href="js/services.js">
+  <link rel="modulepreload" href="js/db.js">
+  <link rel="modulepreload" href="js/translate.js">
+  <link rel="modulepreload" href="js/ext-bridge.js">
+  <link rel="modulepreload" href="js/submit-job.js">
+  <link rel="modulepreload" href="js/jobs-runner.js">
+  <link rel="modulepreload" href="js/import-cbz.js">
+  <meta name="shiori-app" content="reader">
+</head>
+<body>
+
+<div id="loadingScreen">
+  <div class="spinner"></div>
+  <div id="loadingText">Loading…</div>
+</div>
+
+<div id="emptyScreen">
+  <div class="empty-icon">📭</div>
+  <div class="empty-msg">No cached pages found for this gallery.<br>Browse it on the source site first.</div>
+  <a class="empty-link" id="emptyLink" href="#" target="_blank" style="display:none"></a>
+  <a class="empty-link" href="library">← Back to Library</a>
+</div>
+
+<!-- Top bar -->
+<div id="topbar">
+  <a class="tb-brand" href="library">
+    <div class="tb-icon"><img src="../icons/shiori-logo.svg" alt=""></div>
+    <span class="tb-logo">Shiori</span>
+  </a>
+  <span class="tb-sep">/</span>
+  <a class="tb-gallery" id="tbGallery">#—</a>
+  <span class="tb-sep">·</span>
+  <a class="tb-title" id="tbTitle"></a>
+  <div class="tb-spacer"></div>
+  <span id="pageCounter">— / —</span>
+
+  <div class="mode-group">
+    <button class="mode-btn" id="btnPageSubToggle" data-tip="Toggle single / double page" style="display:none"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3v18"/><rect width="12" height="18" x="6" y="3" rx="2"/><path d="M22 3v18"/></svg></button>
+    <button class="mode-btn active" id="btnLayoutToggle" data-tip="Toggle scroll / page view"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2h18"/><rect width="18" height="12" x="3" y="6" rx="2"/><path d="M3 22h18"/></svg></button>
+  </div>
+
+  <button class="tb-btn" id="translateToggle" data-tip="Show translation" style="display:none"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg></button>
+  <button class="tb-btn" id="thumbBtn" data-tip="Thumbnails">⊞</button>
+  <a class="tb-btn" id="onlineBtn" href="#" target="_blank" data-tip="Open on source site" style="display:none">↗</a>
+  <button class="tb-btn" id="keybindBtn" data-tip="Keyboard shortcuts"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><path d="M6 9h.01"/><path d="M10 9h.01"/><path d="M14 9h.01"/><path d="M18 9h.01"/><path d="M6 13h.01"/><path d="M10 13h.01"/><path d="M14 13h.01"/><path d="M18 13h.01"/><path d="M10 17h4"/></svg></button>
+  <button class="tb-btn" id="readerPinBtn" data-tip="Pin header"></button>
+</div>
+
+<!-- Viewport -->
+<div id="viewport">
+
+  <!-- Single view -->
+  <div id="singleView" class="active">
+    <div id="singleInner">
+      <img id="mainImg" src="" alt="">
+    </div>
+    <div id="singleZones">
+      <div id="clickPrev"></div>
+      <div id="clickNext"></div>
+    </div>
+  </div>
+
+  <!-- Double view -->
+  <div id="doubleView">
+    <div id="doubleInner">
+      <img id="imgLeft"  class="dImg" src="" alt="">
+      <img id="imgRight" class="dImg" src="" alt="">
+    </div>
+    <div class="d-zones">
+      <div id="dClickPrev"></div>
+      <div id="dClickNext"></div>
+    </div>
+  </div>
+
+  <!-- Strip view -->
+  <div id="stripView"></div>
+
+</div>
+
+<!-- Thumbnail strip -->
+<div id="thumbResizeHandle"></div>
+<div id="thumbStrip"></div>
+
+<!-- Bottom bar -->
+<div id="bottombar">
+  <button class="bar-icon-btn" id="scrubToggle" data-tip="Toggle scrubber">⇔</button>
+  <div id="scrubWrap">
+    <input type="range" id="scrubber" min="1" value="1">
+    <span id="scrubberLabel">1 / —</span>
+  </div>
+</div>
+
+<button id="scrollTopBtn" data-tip="Back to top">
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
+</button>
+
+<div id="keybindModal">
+  <div id="keybindBox">
+    <div class="kb-heading">Keyboard Shortcuts</div>
+
+    <div class="kb-section">Navigation</div>
+    <div class="kb-row"><span class="kb-desc">Next page</span><div class="kb-keys"><kbd class="kb-key">→</kbd><kbd class="kb-key">↓</kbd><kbd class="kb-key">Space</kbd><kbd class="kb-key">S</kbd><kbd class="kb-key">D</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc">Previous page</span><div class="kb-keys"><kbd class="kb-key">←</kbd><kbd class="kb-key">↑</kbd><kbd class="kb-key">W</kbd><kbd class="kb-key">A</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc">First page</span><div class="kb-keys"><kbd class="kb-key">Home</kbd><kbd class="kb-key">Shift+←</kbd><kbd class="kb-key">Shift+↑</kbd><kbd class="kb-key">Shift+W</kbd><kbd class="kb-key">Shift+A</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc">Last page</span><div class="kb-keys"><kbd class="kb-key">End</kbd><kbd class="kb-key">Shift+→</kbd><kbd class="kb-key">Shift+↓</kbd><kbd class="kb-key">Shift+S</kbd><kbd class="kb-key">Shift+D</kbd></div></div>
+
+    <div class="kb-section">View Mode</div>
+    <div class="kb-row"><span class="kb-desc">Single page</span><div class="kb-keys"><kbd class="kb-key">1</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc">Double page</span><div class="kb-keys"><kbd class="kb-key">2</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc">Scroll strip</span><div class="kb-keys"><kbd class="kb-key">3</kbd></div></div>
+
+    <div class="kb-section">Interface</div>
+    <div class="kb-row"><span class="kb-desc">Toggle thumbnails</span><div class="kb-keys"><kbd class="kb-key">T</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc">Swipe thumbnails</span><div class="kb-keys"><kbd class="kb-key">Drag</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc">Scrub to page</span><div class="kb-keys"><kbd class="kb-key">Shift+Drag</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc">This help</span><div class="kb-keys"><kbd class="kb-key">?</kbd><kbd class="kb-key">Esc</kbd></div></div>
+  </div>
+</div>
+
+<div id="tip"></div>
+<script type="module" src="js/reader.js"></script>
+</body>
+</html>

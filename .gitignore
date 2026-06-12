@@ -1,0 +1,13 @@
+# Private companion extension — the public repo is the app only.
+extension/
+
+# Private docs & tooling
+ARCHITECTURE.md
+CLAUDE.md
+handoff.md
+.claude/
+.mcp.json
+graphify-out/
+
+# Release artifacts
+shiori-v*.zip
