@@ -5,6 +5,12 @@
 // server, and stores the translated variants. The caller passes the settings object and a progress
 // callback — the app wires its own, the extension wires its job reporter.
 //
+// The whole gallery goes up in ONE /translate/gallery/stream request. The server pipelines the
+// stages (detect/OCR page by page, every `batch_size` pages share one translation call that runs
+// while later pages keep preprocessing, finished pages render and stream back as status-5 frames),
+// so the progress reads Reading → Translating → Rendering even though the stages overlap.
+// batch_size is the token/cost knob for cloud LLM translators; per-page translators use 1.
+//
 // CORS: a web origin POSTing to the translate server needs permissive CORS headers from that server
 // (the extension bypassed CORS via host permissions). See ARCHITECTURE-v2 §12 and the translator
 // patches noted in the project memory.
@@ -15,7 +21,9 @@ import {
 } from './db.js';
 
 const _pageNumOf = (url) => parseInt(url.match(/\/(\d+)\.\w+$/)?.[1] || '999999');
-const BATCHABLE = new Set(['gemini', 'deepseek', 'chatgpt']);
+// Translators whose batch size is a real token/cost knob (one LLM call per batch).
+// Everything else translates page by page (batch_size 1) but still rides the pipeline.
+const BATCH_CAPPED = new Set(['gemini', 'deepseek', 'chatgpt']);
 const DEFAULT_BATCH_CAPS = { gemini: 8, deepseek: 8, chatgpt: 6 };
 const _translating = new Set();
 
@@ -80,36 +88,15 @@ function buildConfig(ts) {
   };
 }
 
-// POST one page; the stream returns framed status(1) + size(4 BE) + data. status 0 = final image,
-// 2 = error, 1/3/4 = progress we ignore.
-async function translateOneImage(serverUrl, config, img) {
-  const form = new FormData();
-  form.append('image', await imageToBlob(img), 'page.png');
-  form.append('config', JSON.stringify(config));
-  const resp = await fetch(`${serverUrl}/translate/with-form/image/stream`, { method: 'POST', body: form });
-  if (!resp.ok) throw new Error(`server responded ${resp.status}`);
-  const buf = new Uint8Array(await resp.arrayBuffer());
-  let off = 0, resultBytes = null, errMsg = null;
-  while (off + 5 <= buf.length) {
-    const status = buf[off];
-    const size = ((buf[off + 1] << 24) | (buf[off + 2] << 16) | (buf[off + 3] << 8) | buf[off + 4]) >>> 0;
-    const data = buf.subarray(off + 5, off + 5 + size);
-    off += 5 + size;
-    if (status === 0) resultBytes = data;
-    else if (status === 2) errMsg = new TextDecoder().decode(data);
-  }
-  if (errMsg) throw new Error(errMsg);
-  if (!resultBytes) throw new Error('server returned no image');
-  return imageToDataUrl(new Blob([resultBytes], { type: 'image/png' }));
-}
-
-// Translate a chunk of pages in one server request (shared translation call). Streams:
-// status 1 = progress state → onProgress(state); 5 = finished page (4-byte BE index + PNG) →
-// onPage(idx, dataUrl); 0 = final JSON summary; 2 = error.
-async function translateGalleryChunk(serverUrl, config, pages, onProgress, onPage) {
+// POST the whole gallery in one streaming request. Frames: status(1) + size(4 BE) + data.
+// status 3 = queue position, 4 = dispatched to a worker, 1 = progress state string,
+// 5 = finished page (4-byte BE index + PNG) → onPage(idx, dataUrl), 0 = final JSON
+// summary, 2 = error. onEvent receives { queue } | { start } | { state }.
+async function translateGalleryStream(serverUrl, config, pages, batchSize, onEvent, onPage) {
   const form = new FormData();
   for (const p of pages) form.append('image', await imageToBlob(p.blob ?? p.dataUrl), 'page.png');
   form.append('config', JSON.stringify(config));
+  form.append('batch_size', String(batchSize));
   const resp = await fetch(`${serverUrl}/translate/gallery/stream`, { method: 'POST', body: form });
   if (!resp.ok) throw new Error(`server responded ${resp.status}`);
   const reader = resp.body.getReader();
@@ -127,7 +114,9 @@ async function translateGalleryChunk(serverUrl, config, pages, onProgress, onPag
       if (buf.length - off < 5 + size) break;
       const data = buf.subarray(off + 5, off + 5 + size);
       off += 5 + size;
-      if (status === 1) { onProgress(dec.decode(data)); }
+      if (status === 1) { onEvent({ state: dec.decode(data) }); }
+      else if (status === 3) { onEvent({ queue: parseInt(dec.decode(data), 10) || 0 }); }
+      else if (status === 4) { onEvent({ start: true }); }
       else if (status === 5) {
         const idx = ((data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]) >>> 0;
         const dataUrl = await imageToDataUrl(new Blob([data.subarray(4)], { type: 'image/png' }));
@@ -153,10 +142,11 @@ export async function translateGallery(galleryId, ts, onProgress = () => {}) {
     ts = ts || {};
     const serverUrl = serverUrlFromSettings(ts);
     const config = buildConfig(ts);
-    const isContextMode = (config.translator.translator === 'chatgpt');
-    const localHF = ['qwen2', 'qwen2_big', 'sugoi', 'nllb', 'nllb_big', 'm2m100', 'm2m100_big'].includes(config.translator.translator);
-    const sequential = isContextMode || ['gemini', 'deepseek'].includes(config.translator.translator) || localHF;
-    const isBatchable = BATCHABLE.has(config.translator.translator);
+    const tlName = config.translator.translator;
+    const caps = { ...DEFAULT_BATCH_CAPS, ...(ts.batchCaps || {}) };
+    const cap = BATCH_CAPPED.has(tlName)
+      ? Math.max(1, parseInt(caps[tlName], 10) || DEFAULT_BATCH_CAPS[tlName] || 8)
+      : 1;
 
     const records = (await getGalleryImageRecords(gid)).filter(r => r.blob ?? r.dataUrl);
     const total = records.length;
@@ -171,46 +161,42 @@ export async function translateGallery(galleryId, ts, onProgress = () => {}) {
     }
     send({ status: 'started', done, total });
 
-    if (isContextMode || isBatchable) await fetch(`${serverUrl}/reset-context`, { method: 'POST' }).catch(() => {});
-
-    let failed = 0, firstError = null, cap = 0;
-    if (isBatchable) {
-      const caps = { ...DEFAULT_BATCH_CAPS, ...(ts.batchCaps || {}) };
-      cap = Math.max(1, parseInt(caps[config.translator.translator], 10) || DEFAULT_BATCH_CAPS[config.translator.translator] || 8);
-      for (let i = 0; i < pending.length; i += cap) {
-        const chunk = pending.slice(i, i + cap);
-        const stored = new Set();
-        let ocrCount = 0;
-        try {
-          await translateGalleryChunk(serverUrl, config, chunk,
-            (state) => {
-              if (state === 'ocr') { ocrCount++; send({ status: 'progress', done, total, label: `Extracting text ${Math.min(ocrCount, chunk.length)}/${chunk.length}` }); }
-              else if (state === 'translating') { send({ status: 'progress', done, total, label: `Translating ${chunk.length} page${chunk.length > 1 ? 's' : ''}…` }); }
-            },
-            async (idx, dataUrl) => {
-              const rec = chunk[idx];
-              if (rec) { await putTranslatedImage(rec.url, dataUrl); stored.add(idx); }
-              done++;
-              send({ status: 'progress', done, total, label: 'Rendering' });
-            });
-        } catch (e) { if (!firstError) firstError = e.message; }
-        for (let k = 0; k < chunk.length; k++) { if (!stored.has(k)) { failed++; done++; } }
-        send({ status: 'progress', done, total });
-      }
-    } else {
-      let cursor = 0;
-      const worker = async () => {
-        while (cursor < pending.length) {
-          const rec = pending[cursor++];
-          try { await putTranslatedImage(rec.url, await translateOneImage(serverUrl, config, rec.blob ?? rec.dataUrl)); }
-          catch (e) { failed++; if (!firstError) firstError = e.message; }
+    // The label tracks the furthest pipeline stage (the server overlaps them); the
+    // bar itself tracks rendered pages arriving as status-5 frames.
+    const batches = Math.ceil(pending.length / cap);
+    let pre = 0, tlStarted = 0, tlDone = 0, queued = 0, waiting = false;
+    const label = () => {
+      if (waiting) return queued > 0 ? `Waiting for server (${queued} ahead)` : 'Waiting for server…';
+      if (pre < pending.length) return `Reading text ${pre}/${pending.length}`;
+      if (tlDone < batches) return batches > 1 ? `Translating batch ${Math.max(tlStarted, tlDone + 1)}/${batches}` : 'Translating…';
+      return 'Rendering';
+    };
+    const stored = new Set();
+    let failed = 0, firstError = null;
+    try {
+      await translateGalleryStream(serverUrl, config, pending, cap,
+        (ev) => {
+          if (ev.queue !== undefined) { waiting = true; queued = ev.queue; }
+          else if (ev.start) { waiting = false; }
+          else if (ev.state) {
+            waiting = false;
+            const m = ev.state.match(/^gallery-(pre|tl|tl-done):(\d+)\/(\d+)$/);
+            if (!m) return;
+            if (m[1] === 'pre') pre = +m[2];
+            else if (m[1] === 'tl') tlStarted = +m[2];
+            else tlDone = +m[2];
+          } else return;
+          send({ status: 'progress', done, total, label: label() });
+        },
+        async (idx, dataUrl) => {
+          const rec = pending[idx];
+          if (rec) { await putTranslatedImage(rec.url, dataUrl); stored.add(idx); }
           done++;
-          send({ status: 'progress', done, total });
-        }
-      };
-      const CONCURRENCY = sequential ? 1 : 2;
-      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pending.length) }, worker));
-    }
+          send({ status: 'progress', done, total, label: label() });
+        });
+    } catch (e) { firstError = e.message; }
+    for (let k = 0; k < pending.length; k++) { if (!stored.has(k)) { failed++; done++; } }
+    send({ status: 'progress', done, total });
 
     if (failed === pending.length) { send({ status: 'error', error: firstError || 'translation failed' }); return; }
 
@@ -218,14 +204,13 @@ export async function translateGallery(galleryId, ts, onProgress = () => {}) {
     if (meta && !meta.translated) await metaPut({ ...meta, translated: true });
 
     let costNote = '';
-    if (config.translator.translator === 'gemini') {
+    if (tlName === 'gemini') {
       const n = pending.length;
-      const chunks = cap > 0 ? Math.ceil(n / cap) : n;
-      const estIn = chunks * 800 + n * 215;
+      const estIn = batches * 800 + n * 215;
       const estOut = n * 600;
       const priceIn = Number(ts.priceIn ?? 1.5), priceOut = Number(ts.priceOut ?? 9);
       const usd = (estIn * priceIn + estOut * priceOut) / 1e6;
-      costNote = `${chunks} call${chunks > 1 ? 's' : ''} · ~${((estIn + estOut) / 1000).toFixed(1)}K tokens · ~$${usd.toFixed(2)} est.`;
+      costNote = `${batches} call${batches > 1 ? 's' : ''} · ~${((estIn + estOut) / 1000).toFixed(1)}K tokens · ~$${usd.toFixed(2)} est.`;
     }
     send({ status: 'done', done, total, failed, costNote });
   } catch (e) {
