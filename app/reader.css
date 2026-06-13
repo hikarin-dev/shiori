@@ -235,6 +235,9 @@ body.thumb-dragging * {
   align-items: center; justify-content: center;
 }
 #keybindModal.show { display: flex; }
+/* Lock page scroll while the shortcuts modal is open so wheeling over it doesn't move the
+   pages behind it. */
+html:has(#keybindModal.show), body:has(#keybindModal.show) { overflow: hidden; }
 #keybindBox {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 10px; padding: 20px 24px;
@@ -303,8 +306,8 @@ body.thumbs-open.bar-hidden #scrollTopBtn {
 .empty-msg  { font-size: 12px; color: var(--muted); text-align: center; line-height: 1.8; }
 .empty-link { color: var(--accent); text-decoration: none; font-size: 11px; }
 .empty-link:hover { text-decoration: underline; }
-#tip {
-  position: fixed; pointer-events: none; z-index: 9999;
+.shiori-tip {
+  position: fixed; left: 0; top: 0; pointer-events: none; z-index: 9999;
   background: #222; color: #eee; border: 1px solid #555;
   padding: 3px 7px; border-radius: 4px; font-size: 11px;
   white-space: nowrap; display: none;

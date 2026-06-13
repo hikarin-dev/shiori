@@ -382,8 +382,8 @@ html:has(.modal-overlay.show) { overflow: hidden; }
 .open-inner   { display: flex; align-items: center; justify-content: center; }
 .export-inner { display: flex; align-items: center; justify-content: center; }
 .del-inner    { display: flex; align-items: center; justify-content: center; }
-#dl-tooltip {
-  position: fixed;
+.shiori-tip {
+  position: fixed; left: 0; top: 0;
   pointer-events: none;
   z-index: 9999;
   background: #222;

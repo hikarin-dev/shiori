@@ -225,7 +225,14 @@ input:checked + .slider::before { transform: translateX(18px); background: white
 
 .about-scroll {
   overflow-y: auto; padding: 20px;
+  overscroll-behavior: contain;   /* don't chain scroll to the page when this reaches its end */
 }
+
+/* Lock the page behind an open modal so wheeling inside/over it never scrolls the content
+   behind. (:has is fine — the app is Chrome-only.) */
+html:has(#aboutModal.show),
+html:has(#translateModal.show),
+html:has(#backupModal[style*="flex"]) { overflow: hidden; }
 .about-scroll::-webkit-scrollbar { width: 4px; }
 .about-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 

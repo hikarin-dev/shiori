@@ -8,6 +8,7 @@ import { request as extRequest, available as extAvailable } from './ext-bridge.j
 import * as store from './store.js';
 import * as platform from './platform.js';
 import { t, getLang } from './i18n.js';
+import { initTooltips, refreshTooltip } from './tooltip.js';
 
 // ── Source sites — learned at runtime, never hard-coded ─────────────────────────────────────
 // The app is site-agnostic. What sites exist, whether they support downloads, and how their
@@ -846,7 +847,6 @@ let _hoveredDelBtn     = null;
 let _hoveredTrBtn      = null;
 let _hoveredShiftEl    = null;
 let _operatingOnCard   = null;
-const _dlTooltip = document.getElementById('dl-tooltip');
 
 function _makeFlipBtn(innerClass) {
   let timer = null;
@@ -898,13 +898,15 @@ const _REVERT_SVG       = '<svg xmlns="http://www.w3.org/2000/svg" width="14" he
 const _TRANSLATE_ICON   = '<span class="tr-inner">' + _TRANSLATE_SVG + '</span>';
 
 document.addEventListener('keydown', e => {
-  if (e.key !== 'Shift') return;
+  // Ignore key auto-repeat (e.repeat): a held Shift fires keydown continuously, which would
+  // otherwise restart the icon flip every tick and make it jitter forever.
+  if (e.key !== 'Shift' || e.repeat) return;
   _shiftHeld = true;
+  document.body.classList.add('shift-held');
   if (_hoveredShiftEl && !_hoveredShiftEl.disabled) {
     _hoveredShiftEl.dataset.tipOrig = _hoveredShiftEl.dataset.tip;
     _hoveredShiftEl.dataset.tip = _hoveredShiftEl.dataset.tipShift;
-    _dlTooltip.textContent = _hoveredShiftEl.dataset.tipShift;
-    _dlTooltip.style.display = 'block';
+    refreshTooltip();
   }
   if (_hoveredDlBtn && !_hoveredDlBtn.disabled) _dlFlip.to(_hoveredDlBtn, _UPLOAD_ICON);
   if (_hoveredOpenBtn && _hoveredOpenBtn.dataset.tipShift) _openFlip.to(_hoveredOpenBtn, _OPEN_SHIFT_ICON);
@@ -915,11 +917,11 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => {
   if (e.key !== 'Shift') return;
   _shiftHeld = false;
+  document.body.classList.remove('shift-held');
   if (_hoveredShiftEl && 'tipOrig' in _hoveredShiftEl.dataset) {
     _hoveredShiftEl.dataset.tip = _hoveredShiftEl.dataset.tipOrig;
     delete _hoveredShiftEl.dataset.tipOrig;
-    _dlTooltip.textContent = _hoveredShiftEl.dataset.tip;
-    if (!_hoveredShiftEl.dataset.tip) _dlTooltip.style.display = 'none';
+    refreshTooltip();
   }
   if (_hoveredDlBtn) _dlFlip.to(_hoveredDlBtn, _DL_SVG);
   if (_hoveredOpenBtn && _hoveredOpenBtn.dataset.tipShift) _openFlip.to(_hoveredOpenBtn, _hoveredOpenBtn._baseInner);
@@ -929,9 +931,11 @@ document.addEventListener('keyup', e => {
 });
 window.addEventListener('focus', () => {
   _shiftHeld = false;
+  document.body.classList.remove('shift-held');
   if (_hoveredShiftEl && 'tipOrig' in _hoveredShiftEl.dataset) {
     _hoveredShiftEl.dataset.tip = _hoveredShiftEl.dataset.tipOrig;
     delete _hoveredShiftEl.dataset.tipOrig;
+    refreshTooltip();
   }
   if (_hoveredDlBtn) _dlFlip.to(_hoveredDlBtn, _DL_SVG);
   if (_hoveredOpenBtn && _hoveredOpenBtn.dataset.tipShift) _openFlip.to(_hoveredOpenBtn, _hoveredOpenBtn._baseInner);
@@ -946,29 +950,24 @@ window.addEventListener('focus', () => {
     c.style.pointerEvents = '';
   }
 });
+// Swap a hovered element's data-tip to its Shift action label while Shift is held; the shared
+// tooltip module reads data-tip and renders/positions it. This listener is registered before
+// initTooltips() so the swap lands before the tooltip reads it on the same mousemove.
 document.addEventListener('mousemove', e => {
   const el = e.target.closest('[data-tip]');
   const newShiftEl = (el && el.dataset.tipShift) ? el : null;
-  if (newShiftEl !== _hoveredShiftEl) {
-    if (_hoveredShiftEl && 'tipOrig' in _hoveredShiftEl.dataset) {
-      _hoveredShiftEl.dataset.tip = _hoveredShiftEl.dataset.tipOrig;
-      delete _hoveredShiftEl.dataset.tipOrig;
-    }
-    _hoveredShiftEl = newShiftEl;
-    if (_hoveredShiftEl && _shiftHeld && !_hoveredShiftEl.disabled) {
-      _hoveredShiftEl.dataset.tipOrig = _hoveredShiftEl.dataset.tip;
-      _hoveredShiftEl.dataset.tip = _hoveredShiftEl.dataset.tipShift;
-    }
+  if (newShiftEl === _hoveredShiftEl) return;
+  if (_hoveredShiftEl && 'tipOrig' in _hoveredShiftEl.dataset) {
+    _hoveredShiftEl.dataset.tip = _hoveredShiftEl.dataset.tipOrig;
+    delete _hoveredShiftEl.dataset.tipOrig;
   }
-  _dlTooltip.style.left = (e.clientX + 14) + 'px';
-  _dlTooltip.style.top  = (e.clientY + 16) + 'px';
-  if (el && el.dataset.tip) {
-    _dlTooltip.textContent = el.dataset.tip;
-    _dlTooltip.style.display = 'block';
-  } else {
-    _dlTooltip.style.display = 'none';
+  _hoveredShiftEl = newShiftEl;
+  if (_hoveredShiftEl && _shiftHeld && !_hoveredShiftEl.disabled) {
+    _hoveredShiftEl.dataset.tipOrig = _hoveredShiftEl.dataset.tip;
+    _hoveredShiftEl.dataset.tip = _hoveredShiftEl.dataset.tipShift;
   }
 });
+initTooltips();
 
 // ── Local CBZ import (staged in OPFS, run by the most durable runner available) ──
 

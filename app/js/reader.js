@@ -5,6 +5,7 @@ import { openDB, imageToBlob } from './db.js';
 import { request as extRequest, available as extAvailable } from './ext-bridge.js';
 import * as platform from './platform.js';
 import { t } from './i18n.js';
+import { initTooltips } from './tooltip.js';
 
 // Site link templates are runtime knowledge handed over by the extension; the app itself is
 // site-agnostic. A gallery's exact sourceUrl (stored with it) always wins.
@@ -1165,19 +1166,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '3') setMode('strip');
 });
 
-const _tip = document.getElementById('tip');
-document.addEventListener('mousemove', e => {
-  const el = e.target.closest('[data-tip]');
-  if (el) {
-    _tip.textContent = el.dataset.tip;
-    _tip.style.display = 'block';
-    const _tipW = _tip.offsetWidth;
-    _tip.style.left = Math.min(e.clientX + 14, window.innerWidth - _tipW - 10) + 'px';
-    _tip.style.top  = (e.clientY + 16) + 'px';
-  } else {
-    _tip.style.display = 'none';
-  }
-});
+initTooltips();
 
 // Keep the thumbnail strip, resize handle, and bottom bar at a fixed physical size
 // regardless of browser zoom. window.devicePixelRatio encodes the zoom level (on a
