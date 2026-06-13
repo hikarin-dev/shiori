@@ -39,11 +39,20 @@ export async function pingServer(serverUrl) {
   finally { clearTimeout(timer); }
 }
 
+// manga-image-translator target-language codes → the card flag's language code.
+const TARGET_LANG_TO_CODE = {
+  ENG: 'en', CHS: 'zh', CHT: 'zh-TW', JPN: 'ja', KOR: 'ko', VIN: 'vi',
+  FRA: 'fr', DEU: 'de', ESP: 'es', RUS: 'ru', PTB: 'pt-BR', IND: 'id',
+};
+
 export async function revertGallery(galleryId) {
   const gid = String(galleryId);
   await clearGalleryTranslations(gid);
   const meta = await metaGet(gid);
-  if (meta?.translated) await metaPut({ ...meta, translated: false });
+  if (meta?.translated || meta?.translatedLang) {
+    const { translatedLang, ...rest } = meta;   // drop the override so the flag reverts
+    await metaPut({ ...rest, translated: false });
+  }
 }
 
 function buildConfig(ts) {
@@ -143,6 +152,7 @@ export async function translateGallery(galleryId, ts, onProgress = () => {}) {
     const serverUrl = serverUrlFromSettings(ts);
     const config = buildConfig(ts);
     const tlName = config.translator.translator;
+    const langCode = TARGET_LANG_TO_CODE[ts.targetLang || 'ENG'] || '';   // for the card language flag
     const caps = { ...DEFAULT_BATCH_CAPS, ...(ts.batchCaps || {}) };
     const cap = BATCH_CAPPED.has(tlName)
       ? Math.max(1, parseInt(caps[tlName], 10) || DEFAULT_BATCH_CAPS[tlName] || 8)
@@ -155,7 +165,7 @@ export async function translateGallery(galleryId, ts, onProgress = () => {}) {
 
     if (pending.length === 0) {
       const meta = await metaGet(gid);
-      if (meta && !meta.translated) await metaPut({ ...meta, translated: true });
+      if (meta && (!meta.translated || meta.translatedLang !== langCode)) await metaPut({ ...meta, translated: true, translatedLang: langCode });
       send({ status: 'done', done, total });
       return;
     }
@@ -201,7 +211,7 @@ export async function translateGallery(galleryId, ts, onProgress = () => {}) {
     if (failed === pending.length) { send({ status: 'error', error: firstError || 'translation failed' }); return; }
 
     const meta = await metaGet(gid);
-    if (meta && !meta.translated) await metaPut({ ...meta, translated: true });
+    if (meta && (!meta.translated || meta.translatedLang !== langCode)) await metaPut({ ...meta, translated: true, translatedLang: langCode });
 
     let costNote = '';
     if (tlName === 'gemini') {

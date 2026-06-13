@@ -11,7 +11,9 @@
 import * as platform from './js/platform.js';
 import { RUNNERS } from './js/jobs-runner.js';
 
-const CACHE = 'shiori-shell-v10';
+const CACHE = 'shiori-shell-v11';
+const FLAGS = ['BR','CN','DE','ES','FR','GB','ID','IT','JP','KR','NL','PL','PT','RU','TH','TW','UA','US','VN']
+  .map((c) => `flags/${c}.svg`);
 const SHELL = [
   './', 'library.html', 'reader.html', 'settings.html', 'agent.html',
   'manifest.webmanifest', 'font-init.js',
@@ -21,6 +23,7 @@ const SHELL = [
   'js/jobs-runner.js', 'js/submit-job.js', 'js/services.js', 'js/ext-bridge.js', 'js/boot.js',
   'js/i18n.js', 'js/locales.js',
   'js/library.js', 'js/reader.js', 'js/settings.js', 'js/agent.js',
+  ...FLAGS,
   '../icons/icon16.png', '../icons/icon32.png', '../icons/icon48.png', '../icons/icon128.png',
   '../icons/icon192.png', '../icons/icon512.png', '../icons/shiori-logo.svg',
   '../vendor/marked.min.js', '../CHANGELOG.md',

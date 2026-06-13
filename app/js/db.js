@@ -309,6 +309,28 @@ async function coverDelete(galleryId) {
 
 // Merge a gallery's stat record + metadata into the single entity shape every UI
 // surface consumes. Intentionally excludes the heavy cover blob (loaded lazily).
+// Source language names → ISO-ish codes used for the card language flag. Covers every language
+// the translator can output to, plus the common source-site language names.
+const _LANG_NAME_TO_CODE = {
+  english: 'en', japanese: 'ja', chinese: 'zh', 'chinese (simplified)': 'zh',
+  'chinese (traditional)': 'zh-TW', korean: 'ko', german: 'de', french: 'fr',
+  spanish: 'es', russian: 'ru', portuguese: 'pt', 'portuguese (brazil)': 'pt-BR',
+  italian: 'it', vietnamese: 'vi', indonesian: 'id', thai: 'th', dutch: 'nl',
+  polish: 'pl', ukrainian: 'uk',
+};
+
+// A gallery's display language code: a translated copy's target language wins (set when the
+// gallery is translated), then a 'language'-type tag, then the source metadata's language.
+function _deriveLang(m) {
+  if (!m) return '';
+  if (m.translatedLang) return m.translatedLang;
+  const langTag = Array.isArray(m.tags) && m.tags.find(t => t.type === 'language');
+  if (langTag && langTag.name) return _LANG_NAME_TO_CODE[langTag.name.toLowerCase()] || '';
+  const sm = m.sourceMetadata && m.sourceMetadata.language;
+  if (sm) return _LANG_NAME_TO_CODE[String(sm).toLowerCase()] || '';
+  return '';
+}
+
 function _entityFrom(id, gal, meta) {
   const g = gal || {};
   const m = meta || {};
@@ -331,6 +353,8 @@ function _entityFrom(id, gal, meta) {
     sourceUrl: m.sourceUrl || '',
     fetchedAt: m.fetchedAt,
     translated: m.translated || false,
+    translatedLang: m.translatedLang || '',
+    language: _deriveLang(m),
   };
 }
 
@@ -684,7 +708,7 @@ export async function getGalleriesByIds(ids) {
 
 const _META_FIELDS = new Set([
   'title', 'titlePretty', 'titleEnglish', 'numPages', 'tags', 'mediaId', 'pageExts',
-  'isLocalImport', 'source', 'sourceId', 'sourceUrl', 'fetchedAt', 'translated', 'isStub', 'sourceMetadata',
+  'isLocalImport', 'source', 'sourceId', 'sourceUrl', 'fetchedAt', 'translated', 'translatedLang', 'isStub', 'sourceMetadata',
 ]);
 
 // Merge a patch into a gallery's metadata and/or stat record, then announce the change

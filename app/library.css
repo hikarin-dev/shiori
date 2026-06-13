@@ -264,6 +264,22 @@ body.safe-mode .card-thumb-placeholder {
 .card-tag.artist { color: var(--accent2); border-color: #3a3a20; }
 .card-tag.artist:hover { border-color: var(--accent2); }
 
+/* While Shift is held, hovering a tag previews its deletion (Shift+click deletes) with the same
+   colour as the card's delete button. The flag (no .card-tag class) and '+' chip are excluded. */
+body.shift-held .card-tag:not(.card-tag-add):hover {
+  background: var(--danger); color: white; border-color: var(--danger);
+}
+
+/* Language flag chip — first tag; clickable (adds a language filter). Sized to match text tags. */
+.card-tag-flag {
+  display: inline-flex; align-items: center; flex-shrink: 0; cursor: pointer; height: 14px;
+}
+.card-tag-flag .flag-img {
+  height: 14px; width: auto; display: block;
+  border: 1px solid var(--border); border-radius: 3px; transition: border-color 0.12s;
+}
+.card-tag-flag:hover .flag-img { border-color: var(--accent); }
+
 /* '+' add-tag chip — same shape/rounding as a tag, revealed only while the card is hovered. */
 .card-tag-add {
   display: none; align-items: center; justify-content: center;

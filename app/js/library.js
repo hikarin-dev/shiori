@@ -7,7 +7,7 @@ import { importBackup } from './backup.js';
 import { request as extRequest, available as extAvailable } from './ext-bridge.js';
 import * as store from './store.js';
 import * as platform from './platform.js';
-import { t } from './i18n.js';
+import { t, getLang } from './i18n.js';
 
 // ── Source sites — learned at runtime, never hard-coded ─────────────────────────────────────
 // The app is site-agnostic. What sites exist, whether they support downloads, and how their
@@ -189,18 +189,55 @@ function initFromUrl() {
 
 // ── Card rendering ──
 
-function buildCardTags(tags) {
+// Language code → country flag (SVG file saved under app/flags/) + display name, for the
+// leading card flag chip. Covers every translator target language and common source languages.
+const _LANG_FLAG = {
+  en: 'GB', ja: 'JP', zh: 'CN', 'zh-CN': 'CN', 'zh-TW': 'TW', ko: 'KR', de: 'DE', fr: 'FR',
+  es: 'ES', ru: 'RU', pt: 'PT', 'pt-BR': 'BR', it: 'IT', vi: 'VN', id: 'ID', th: 'TH',
+  nl: 'NL', pl: 'PL', uk: 'UA',
+};
+const _LANG_DISPLAY = {
+  en: 'English', ja: '日本語', zh: '中文（简体）', 'zh-CN': '中文（简体）', 'zh-TW': '中文（繁體）',
+  ko: '한국어', de: 'Deutsch', fr: 'Français', es: 'Español', ru: 'Русский', pt: 'Português',
+  'pt-BR': 'Português (BR)', it: 'Italiano', vi: 'Tiếng Việt', id: 'Bahasa Indonesia',
+  th: 'ไทย', nl: 'Nederlands', pl: 'Polski', uk: 'Українська',
+};
+// Language code → the lowercase English name galleries are tagged with, for the flag's search filter.
+const _LANG_SEARCH = {
+  en: 'english', ja: 'japanese', zh: 'chinese', 'zh-TW': 'chinese', ko: 'korean', de: 'german',
+  fr: 'french', es: 'spanish', ru: 'russian', pt: 'portuguese', 'pt-BR': 'portuguese', it: 'italian',
+  vi: 'vietnamese', id: 'indonesian', th: 'thai', nl: 'dutch', pl: 'polish', uk: 'ukrainian',
+};
+// The app language as a base code (zh-CN → zh) — the flag for a gallery in this language is hidden.
+const _langBase = (code) => String(code || '').split('-')[0];
+// Language name shown in the app's current language (e.g. JP flag → "Japanese" in English).
+let _dnInst = null, _dnLang = null;
+function _langDisplayName(code) {
+  const lang = getLang();
+  try {
+    if (_dnLang !== lang) { _dnInst = new Intl.DisplayNames([lang], { type: 'language' }); _dnLang = lang; }
+    return _dnInst.of(code) || _LANG_DISPLAY[code] || code;
+  } catch { return _LANG_DISPLAY[code] || code; }
+}
+
+function buildCardTags(tags, language) {
   const list = Array.isArray(tags) ? tags : [];
   const artists = list.filter(t => t.type === 'artist');
   const regular = list.filter(t => t.type === 'tag');
   const female  = list.filter(t => t.type === 'tag:female');
   const male    = list.filter(t => t.type === 'tag:male');
-  const chips = [
+  const chips = [];
+  // Language flag — first chip; hidden when it matches the app's current language. Clickable like
+  // a tag (adds a language filter); tooltip shows the language name in the app's language.
+  if (language && _LANG_FLAG[language] && _langBase(language) !== _langBase(getLang())) {
+    chips.push(`<span class="card-tag-flag" data-lang-name="${escHtml(_LANG_SEARCH[language] || language)}" data-tip="${escHtml(_langDisplayName(language))}"><img class="flag-img" src="flags/${_LANG_FLAG[language]}.svg" alt="${escHtml(language)}" loading="lazy"></span>`);
+  }
+  chips.push(
     ...artists.map(t => `<span class="card-tag artist" data-type="artist" data-original="${escHtml(t.name)}">${escHtml(t.name)}</span>`),
     ...regular.map(t => `<span class="card-tag" data-type="tag" data-original="${escHtml(t.name)}">${escHtml(t.name)}</span>`),
     ...female.map(t => `<span class="card-tag" data-type="tag:female" data-original="${escHtml(t.name)}">${escHtml(t.name)} ♀</span>`),
     ...male.map(t => `<span class="card-tag" data-type="tag:male" data-original="${escHtml(t.name)}">${escHtml(t.name)} ♂</span>`),
-  ];
+  );
   // Trailing '+' chip — opens the add-metadata modal (shown only while the card is hovered).
   chips.push(`<span class="card-tag card-tag-add" data-tip="${t('card.tip_addtag')}">+</span>`);
   return `<div class="card-tags">${chips.join('')}</div>`;
@@ -236,7 +273,7 @@ function buildCard(g) {
   const totalCount = g.numPages ? ` / ${g.numPages}` : '';
   const metaLine = `${cachedCount}${totalCount} ${t('card.pages')} · ${formatSize(g.size)}`;
 
-  const tagHtml = buildCardTags(g.tags);
+  const tagHtml = buildCardTags(g.tags, g.language);
 
   const canDownload  = _canDownload(g);
   const visitUrl     = galleryLink(g, 1);
@@ -1265,7 +1302,28 @@ searchClear.addEventListener('click', () => {
 });
 document.getElementById('sortSelect').addEventListener('change', () => { currentPage = 1; applyFilters(); });
 
+// Append a search token, re-filter, and only steal focus to the search box if it was already
+// active (so a hovered card stays expanded). Shared by tag clicks and the flag chip.
+function _addSearchToken(token) {
+  const box = document.getElementById('searchBox');
+  const wasSearchActive = document.activeElement === box;
+  const cur = box.value.trim();
+  box.value = cur ? `${cur} ${token}` : token;
+  currentPage = 1;
+  applyFilters();
+  updateClearBtn();
+  if (wasSearchActive) box.focus();
+}
+
 document.getElementById('grid').addEventListener('click', (e) => {
+  // Language flag → add a language filter to search (treated like a tag).
+  const flagChip = e.target.closest('.card-tag-flag');
+  if (flagChip) {
+    e.preventDefault(); e.stopPropagation();
+    if (flagChip.dataset.langName) _addSearchToken(`language:"${flagChip.dataset.langName}"`);
+    return;
+  }
+
   // '+' chip → open the add-metadata modal for this card's gallery.
   const addBtn = e.target.closest('.card-tag-add');
   if (addBtn) {
@@ -1294,17 +1352,7 @@ document.getElementById('grid').addEventListener('click', (e) => {
     return;
   }
 
-  const token = type ? `${type}:"${name}"` : name;
-  const box   = document.getElementById('searchBox');
-  // Don't steal focus to the search box unless it's already active — so a hovered card stays
-  // expanded when its tags are clicked.
-  const wasSearchActive = document.activeElement === box;
-  const cur   = box.value.trim();
-  box.value   = cur ? `${cur} ${token}` : token;
-  currentPage = 1;
-  applyFilters();
-  updateClearBtn();
-  if (wasSearchActive) box.focus();
+  _addSearchToken(type ? `${type}:"${name}"` : name);
 });
 
 // ── Add-metadata-tag modal ──
@@ -1593,6 +1641,9 @@ updateExtStatus();
 setTimeout(updateExtStatus, 800);
 setTimeout(updateExtStatus, 2500);
 setTimeout(updateExtStatus, 6500);   // first probe past the grace window — reconciles a stale cached "available"
+
+// Language changed (in this or another tab) — re-render so the per-card language flags update.
+window.addEventListener('shiori-lang-change', () => applyFilters());
 
 initFromUrl();
 
