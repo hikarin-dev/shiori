@@ -87,6 +87,30 @@
 
 <div id="pagination"></div>
 
+<!-- Add-metadata-tag modal (opened by the per-card '+' chip on hover) -->
+<div id="addTagModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title">Add metadata tag</div>
+    <label class="modal-label" for="addTagCategory">Category</label>
+    <select class="modal-select" id="addTagCategory">
+      <option value="tag">Tag</option>
+      <option value="tag:female">Tag · female</option>
+      <option value="tag:male">Tag · male</option>
+      <option value="artist">Artist</option>
+      <option value="group">Group</option>
+      <option value="parody">Parody</option>
+      <option value="character">Character</option>
+      <option value="language">Language</option>
+    </select>
+    <label class="modal-label" for="addTagValue">Value</label>
+    <input class="modal-input" id="addTagValue" type="text" placeholder="e.g. romance" autocomplete="off" spellcheck="false">
+    <div class="modal-actions">
+      <button class="modal-btn-cancel" id="addTagCancel">Cancel</button>
+      <button class="modal-btn-confirm" id="addTagConfirm">Add</button>
+    </div>
+  </div>
+</div>
+
 <script type="module" src="js/library.js"></script>
 </body>
 </html>

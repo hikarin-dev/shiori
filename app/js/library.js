@@ -189,17 +189,19 @@ function initFromUrl() {
 // ── Card rendering ──
 
 function buildCardTags(tags) {
-  if (!tags || tags.length === 0) return '<div class="card-tags"></div>';
-  const artists = tags.filter(t => t.type === 'artist');
-  const regular = tags.filter(t => t.type === 'tag');
-  const female  = tags.filter(t => t.type === 'tag:female');
-  const male    = tags.filter(t => t.type === 'tag:male');
+  const list = Array.isArray(tags) ? tags : [];
+  const artists = list.filter(t => t.type === 'artist');
+  const regular = list.filter(t => t.type === 'tag');
+  const female  = list.filter(t => t.type === 'tag:female');
+  const male    = list.filter(t => t.type === 'tag:male');
   const chips = [
     ...artists.map(t => `<span class="card-tag artist" data-type="artist" data-original="${escHtml(t.name)}">${escHtml(t.name)}</span>`),
     ...regular.map(t => `<span class="card-tag" data-type="tag" data-original="${escHtml(t.name)}">${escHtml(t.name)}</span>`),
     ...female.map(t => `<span class="card-tag" data-type="tag:female" data-original="${escHtml(t.name)}">${escHtml(t.name)} ♀</span>`),
     ...male.map(t => `<span class="card-tag" data-type="tag:male" data-original="${escHtml(t.name)}">${escHtml(t.name)} ♂</span>`),
   ];
+  // Trailing '+' chip — opens the add-metadata modal (shown only while the card is hovered).
+  chips.push(`<span class="card-tag card-tag-add" data-tip="Add metadata tag">+</span>`);
   return `<div class="card-tags">${chips.join('')}</div>`;
 }
 
@@ -1260,20 +1262,80 @@ searchClear.addEventListener('click', () => {
 document.getElementById('sortSelect').addEventListener('change', () => { currentPage = 1; applyFilters(); });
 
 document.getElementById('grid').addEventListener('click', (e) => {
+  // '+' chip → open the add-metadata modal for this card's gallery.
+  const addBtn = e.target.closest('.card-tag-add');
+  if (addBtn) {
+    e.preventDefault(); e.stopPropagation();
+    const gid = addBtn.closest('.card')?.dataset.galleryId;
+    if (gid) openAddTagModal(gid);
+    return;
+  }
+
   const tag = e.target.closest('.card-tag');
   if (!tag) return;
   e.preventDefault();
   e.stopPropagation();
   const name  = (tag.dataset.original || tag.textContent).trim();
   const type  = tag.dataset.type;
+
+  // Shift+click → delete this tag from the gallery (with confirmation).
+  if (e.shiftKey) {
+    const gid = tag.closest('.card')?.dataset.galleryId;
+    if (!gid) return;
+    const label = type === 'tag' ? 'tag'
+      : type && type.startsWith('tag:') ? type.slice(4) + ' tag'
+      : (type || 'tag');
+    if (!confirm(`Remove the ${label} “${name}” from this gallery?`)) return;
+    const g = _pageItems.find(x => x.id === gid);
+    if (!g || !Array.isArray(g.tags)) return;
+    store.mutate(gid, { tags: g.tags.filter(t => !(t.type === type && t.name === name)) });
+    return;
+  }
+
   const token = type ? `${type}:"${name}"` : name;
   const box   = document.getElementById('searchBox');
+  // Don't steal focus to the search box unless it's already active — so a hovered card stays
+  // expanded when its tags are clicked.
+  const wasSearchActive = document.activeElement === box;
   const cur   = box.value.trim();
   box.value   = cur ? `${cur} ${token}` : token;
   currentPage = 1;
   applyFilters();
   updateClearBtn();
-  box.focus();
+  if (wasSearchActive) box.focus();
+});
+
+// ── Add-metadata-tag modal ──
+let _addTagGid = null;
+const _addTagModal = document.getElementById('addTagModal');
+function openAddTagModal(gid) {
+  _addTagGid = gid;
+  document.getElementById('addTagValue').value = '';
+  _addTagModal.classList.add('show');
+  setTimeout(() => document.getElementById('addTagValue').focus(), 30);
+}
+function closeAddTagModal() {
+  _addTagModal.classList.remove('show');
+  _addTagGid = null;
+}
+async function confirmAddTag() {
+  const gid = _addTagGid;
+  if (!gid) return;
+  const type = document.getElementById('addTagCategory').value;
+  const name = document.getElementById('addTagValue').value.trim().toLowerCase();
+  if (!name) { document.getElementById('addTagValue').focus(); return; }
+  const g = _pageItems.find(x => x.id === gid);
+  const tags = Array.isArray(g?.tags) ? [...g.tags] : [];
+  if (!tags.some(t => t.type === type && t.name === name)) tags.push({ type, name, url: '' });
+  await store.mutate(gid, { tags });
+  closeAddTagModal();
+}
+document.getElementById('addTagConfirm').addEventListener('click', confirmAddTag);
+document.getElementById('addTagCancel').addEventListener('click', closeAddTagModal);
+_addTagModal.addEventListener('click', (e) => { if (e.target === _addTagModal) closeAddTagModal(); });
+document.getElementById('addTagValue').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); confirmAddTag(); }
+  if (e.key === 'Escape') closeAddTagModal();
 });
 
 document.getElementById('settingsBtn').addEventListener('click', () => {

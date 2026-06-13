@@ -264,6 +264,45 @@ body.safe-mode .card-thumb-placeholder {
 .card-tag.artist { color: var(--accent2); border-color: #3a3a20; }
 .card-tag.artist:hover { border-color: var(--accent2); }
 
+/* '+' add-tag chip — same shape/rounding as a tag, revealed only while the card is hovered. */
+.card-tag-add {
+  display: none; align-items: center; justify-content: center;
+  font-weight: 700; padding: 1px 7px; color: var(--muted);
+}
+.card:hover .card-tag-add { display: inline-flex; }
+.card-tag-add:hover { color: var(--accent2); border-color: var(--accent2); }
+
+/* ── Shared modal (add-tag) ── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; z-index: 400;
+  background: rgba(0,0,0,0.65); align-items: center; justify-content: center;
+}
+.modal-overlay.show { display: flex; }
+html:has(.modal-overlay.show) { overflow: hidden; }
+.modal-box {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px; width: 340px; max-width: 92vw;
+  display: flex; flex-direction: column; gap: 8px;
+  overscroll-behavior: contain;
+}
+.modal-title { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+.modal-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin-top: 4px; }
+.modal-select, .modal-input {
+  padding: 8px 10px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); font-family: inherit; font-size: 12px;
+  outline: none; transition: border-color 0.15s;
+}
+.modal-select:focus, .modal-input:focus { border-color: var(--accent); }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.modal-btn-cancel, .modal-btn-confirm {
+  padding: 8px 16px; border-radius: 6px; font-family: inherit; font-size: 11px; font-weight: 600;
+  cursor: pointer; transition: all 0.15s; border: 1px solid var(--border);
+}
+.modal-btn-cancel { background: transparent; color: var(--muted); }
+.modal-btn-cancel:hover { color: var(--text); border-color: var(--muted); }
+.modal-btn-confirm { background: var(--accent); border-color: var(--accent); color: white; }
+.modal-btn-confirm:hover { filter: brightness(1.1); }
+
 .card-progress { display: none; padding: 6px 0 2px; }
 .card-body.downloading .card-meta,
 .card-body.downloading .card-tags { display: none; }
