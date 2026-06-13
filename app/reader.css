@@ -12,19 +12,21 @@ body { min-height: 100vh; }
   position: sticky; top: 0; z-index: 200; width: 100%;
   height: var(--topbar-h);
   background: var(--surface); border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; gap: 8px; padding: 0 12px;
+  display: flex; align-items: center; gap: 8px; padding: 0 20px;
 }
 
-.tb-brand   { display: flex; align-items: center; gap: 6px; text-decoration: none; }
+/* Brand cluster mirrors the main library nav (icon size, logo text, separator) so the two
+   headers read as the same chrome. */
+.tb-brand   { display: flex; align-items: center; gap: 8px; text-decoration: none; }
 .tb-brand:hover { opacity: 0.8; }
-.tb-icon    { width: 22px; height: 22px; border-radius: 5px; overflow: hidden; flex-shrink: 0; }
+.tb-icon    { width: 24px; height: 24px; border-radius: 6px; overflow: hidden; flex-shrink: 0; }
 .tb-icon img { width: 100%; height: 100%; display: block; }
-.tb-logo    { font-size: 13px; font-weight: 700; color: var(--accent); white-space: nowrap; letter-spacing: -0.3px; }
-.tb-sep     { color: var(--border); font-size: 10px; }
-.tb-gallery { font-size: 11px; color: var(--accent); white-space: nowrap; text-decoration: none; }
+.tb-logo    { font-size: 15px; font-weight: 700; color: var(--accent); white-space: nowrap; letter-spacing: -0.3px; }
+.tb-sep     { color: var(--border); font-size: 13px; }
+.tb-gallery { font-size: 13px; color: var(--accent); white-space: nowrap; text-decoration: none; }
 .tb-gallery.local { color: var(--accent2); }
 .tb-gallery[href]:hover { text-decoration: underline; }
-.tb-title   { font-size: 10px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; flex-shrink: 1; text-decoration: none; }
+.tb-title   { font-size: 13px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; flex-shrink: 1; text-decoration: none; }
 .tb-title[href]:hover { opacity: 0.8; text-decoration: underline; }
 .tb-spacer  { flex: 1; min-width: 8px; }
 #pageCounter { font-size: 11px; color: var(--muted); white-space: nowrap; min-width: 52px; text-align: right; }
@@ -119,11 +121,16 @@ body { min-height: 100vh; }
   height: 0; overflow: hidden;
   zoom: var(--zoom-inv);
   background: rgba(10,10,12,0.97); border-top: 1px solid var(--border);
-  transition: height 0.2s ease;
+  transition: height 0.2s ease, padding 0.2s ease, border-width 0.2s ease;
   display: flex; align-items: flex-end; gap: 5px; padding: 0 10px 7px;
   overflow-x: auto; overflow-y: hidden; z-index: 150;
   cursor: pointer;
 }
+/* When closed the strip is height:0, but its border-top + bottom padding still render an
+   8px sliver (border-box can't shrink padding/border below their own size, and the strip's
+   background still paints under a transparent border). Collapse both to zero so a hidden
+   strip leaves no trace; they animate back in alongside the height. */
+#thumbStrip:not(.open) { padding-top: 0; padding-bottom: 0; border-top-width: 0; }
 #thumbStrip.dragging { cursor: grabbing; user-select: none; }
 #thumbStrip.resizing { transition: none; }
 body.bar-hidden #thumbStrip { bottom: 0; }
@@ -267,7 +274,12 @@ html.reader-scroll, body.reader-scroll { height: auto; }
   color: var(--muted); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   opacity: 0; pointer-events: none;
-  transition: opacity 0.2s, border-color 0.12s, color 0.12s;
+  transition: opacity 0.2s, border-color 0.12s, color 0.12s, bottom 0.2s ease;
+}
+/* Push the button up so it rides above the thumbnail strip instead of sitting on top of it.
+   The strip is counter-scaled by --zoom-inv, so its visual height is thumb-h × zoom-inv. */
+body.thumbs-open.bar-hidden #scrollTopBtn {
+  bottom: calc(var(--thumb-h) * var(--zoom-inv) + 20px);
 }
 #scrollTopBtn.visible { opacity: 1; pointer-events: all; }
 #scrollTopBtn:hover { border-color: var(--accent); color: var(--accent); }

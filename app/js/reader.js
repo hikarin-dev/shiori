@@ -447,6 +447,7 @@ function setThumbsOpen(open) {
   thumbStrip.classList.toggle('open', open);
   thumbBtn.classList.toggle('active', open);
   thumbResizeHandle.classList.toggle('show', open);
+  document.body.classList.toggle('thumbs-open', open);   // lets the scroll-top button ride above it
   platform.kv.set({ readerThumbsOpen: open });
   if (open) {
     _enqueueAllThumbs();
@@ -1026,6 +1027,14 @@ window.addEventListener('scroll', () => {
 
 // Thumbs
 thumbBtn.addEventListener('click', () => setThumbsOpen(!thumbsOpen));
+
+// Clicking anywhere in the page viewport closes an open thumbnail strip. Capture phase +
+// stopPropagation so that first click only dismisses the strip and doesn't also page-flip.
+viewport.addEventListener('click', (e) => {
+  if (!thumbsOpen) return;
+  e.stopPropagation();
+  setThumbsOpen(false);
+}, true);
 
 // Translation view toggle — swaps between stored translated variants and originals.
 translateToggle.addEventListener('click', () => {
