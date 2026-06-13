@@ -369,7 +369,9 @@ body.translator-offline .card-btn-translate { display: none; }
   padding: 6px 11px; border-radius: 5px; cursor: pointer;
   transition: all 0.12s; min-width: 32px; text-align: center;
 }
-.page-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+/* Exclude .active: on the highlighted page the accent background + accent hover text would
+   render the number invisible. */
+.page-btn:hover:not(:disabled):not(.active) { border-color: var(--accent); color: var(--accent); }
 .page-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
 .page-btn:disabled { opacity: 0.3; cursor: default; }
 .page-ellipsis { color: var(--muted); font-size: 11px; padding: 0 3px; user-select: none; }

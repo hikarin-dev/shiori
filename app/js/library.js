@@ -392,13 +392,18 @@ function buildCard(g) {
   });
 
   card.querySelectorAll('.card-btn-open').forEach(b => {
+    // Remember the button's resting icon (the site favicon) once, up front. Flipping always
+    // targets this stored base or the shift icon — never the live DOM — so spamming Shift can
+    // never capture a half-flipped frame and lose the favicon.
+    const _innerEl = b.querySelector('.open-inner');
+    b._baseInner = _innerEl ? _innerEl.innerHTML : '';
     if (b.dataset.tipShift) {
       b.addEventListener('mouseenter', () => {
         _hoveredOpenBtn = b;
-        if (_shiftHeld && !_openBtnOrigHtml) { const _i = b.querySelector('.open-inner'); if (_i) { _openBtnOrigHtml = _i.innerHTML; _openFlip.to(b, _OPEN_SHIFT_ICON); } }
+        if (_shiftHeld) _openFlip.to(b, _OPEN_SHIFT_ICON);
       });
       b.addEventListener('mouseleave', () => {
-        if (_openBtnOrigHtml) { _openFlip.to(b, _openBtnOrigHtml); _openBtnOrigHtml = ''; }
+        if (_shiftHeld) _openFlip.to(b, b._baseInner);
         _hoveredOpenBtn = null;
       });
     }
@@ -443,7 +448,7 @@ function buildCard(g) {
       }
 
       // Replace card so listeners reflect the new source state.
-      _hoveredOpenBtn = null; _openBtnOrigHtml = '';
+      _hoveredOpenBtn = null;
       if ($card) $card.replaceWith(buildCard(liveEntry || g));
     } else {
       window.open(curVisitUrl, '_blank');
@@ -796,7 +801,6 @@ let _hoveredOpenBtn    = null;
 let _hoveredExportBtn  = null;
 let _hoveredDelBtn     = null;
 let _hoveredTrBtn      = null;
-let _openBtnOrigHtml   = '';
 let _hoveredShiftEl    = null;
 let _operatingOnCard   = null;
 const _dlTooltip = document.getElementById('dl-tooltip');
@@ -860,7 +864,7 @@ document.addEventListener('keydown', e => {
     _dlTooltip.style.display = 'block';
   }
   if (_hoveredDlBtn && !_hoveredDlBtn.disabled) _dlFlip.to(_hoveredDlBtn, _UPLOAD_ICON);
-  if (_hoveredOpenBtn && _hoveredOpenBtn.dataset.tipShift && !_openBtnOrigHtml) { const _i = _hoveredOpenBtn.querySelector('.open-inner'); if (_i) { _openBtnOrigHtml = _i.innerHTML; _openFlip.to(_hoveredOpenBtn, _OPEN_SHIFT_ICON); } }
+  if (_hoveredOpenBtn && _hoveredOpenBtn.dataset.tipShift) _openFlip.to(_hoveredOpenBtn, _OPEN_SHIFT_ICON);
   if (_hoveredExportBtn && !_hoveredExportBtn.disabled) _exportFlip.to(_hoveredExportBtn, _EXPORT_SHIFT_SVG);
   if (_hoveredDelBtn) _delFlip.to(_hoveredDelBtn, _DELETE_SHIFT_SVG);
   if (_hoveredTrBtn && _hoveredTrBtn.dataset.tipShift && !_hoveredTrBtn.disabled) _trFlip.to(_hoveredTrBtn, _REVERT_SVG);
@@ -875,7 +879,7 @@ document.addEventListener('keyup', e => {
     if (!_hoveredShiftEl.dataset.tip) _dlTooltip.style.display = 'none';
   }
   if (_hoveredDlBtn) _dlFlip.to(_hoveredDlBtn, _DL_SVG);
-  if (_hoveredOpenBtn && _openBtnOrigHtml) { _openFlip.to(_hoveredOpenBtn, _openBtnOrigHtml); _openBtnOrigHtml = ''; }
+  if (_hoveredOpenBtn && _hoveredOpenBtn.dataset.tipShift) _openFlip.to(_hoveredOpenBtn, _hoveredOpenBtn._baseInner);
   if (_hoveredExportBtn) _exportFlip.to(_hoveredExportBtn, _EXPORT_SVG);
   if (_hoveredDelBtn) _delFlip.to(_hoveredDelBtn, _DELETE_SVG);
   if (_hoveredTrBtn && _hoveredTrBtn.dataset.tipShift) _trFlip.to(_hoveredTrBtn, _TRANSLATE_SVG);
@@ -887,7 +891,7 @@ window.addEventListener('focus', () => {
     delete _hoveredShiftEl.dataset.tipOrig;
   }
   if (_hoveredDlBtn) _dlFlip.to(_hoveredDlBtn, _DL_SVG);
-  if (_hoveredOpenBtn && _openBtnOrigHtml) { _openFlip.to(_hoveredOpenBtn, _openBtnOrigHtml); _openBtnOrigHtml = ''; }
+  if (_hoveredOpenBtn && _hoveredOpenBtn.dataset.tipShift) _openFlip.to(_hoveredOpenBtn, _hoveredOpenBtn._baseInner);
   if (_hoveredExportBtn) _exportFlip.to(_hoveredExportBtn, _EXPORT_SVG);
   if (_hoveredDelBtn) _delFlip.to(_hoveredDelBtn, _DELETE_SVG);
   if (_hoveredTrBtn && _hoveredTrBtn.dataset.tipShift) _trFlip.to(_hoveredTrBtn, _TRANSLATE_SVG);
