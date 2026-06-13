@@ -1447,10 +1447,51 @@ document.addEventListener('keydown', (e) => {
   if (isReload) { e.preventDefault(); _bumpLoadCount(); loadAll(); return; }
 }, true);
 
+// ── W/S continuous scroll (no key-repeat delay) ──
+// A rAF loop scrolls the window the instant a key goes down, skipping the OS auto-repeat
+// pause. A/D and arrows still flip library pages.
+const SCROLL_SPEED = 22;
+const _scrollHeld = new Set();
+let _scrollRaf = null;
+function _scrollLoop() {
+  let dir = 0;
+  if (_scrollHeld.has('down')) dir += 1;
+  if (_scrollHeld.has('up'))   dir -= 1;
+  if (dir === 0) { _scrollRaf = null; return; }
+  window.scrollBy(0, dir * SCROLL_SPEED);
+  _scrollRaf = requestAnimationFrame(_scrollLoop);
+}
+function _pressScroll(dir) {
+  if (_scrollHeld.has(dir)) return;
+  _scrollHeld.add(dir);
+  if (!_scrollRaf) _scrollRaf = requestAnimationFrame(_scrollLoop);
+}
+const _stopScroll = () => _scrollHeld.clear();
+document.addEventListener('keyup', (e) => {
+  if (e.key === 'w' || e.key === 'W') _scrollHeld.delete('up');
+  if (e.key === 's' || e.key === 'S') _scrollHeld.delete('down');
+});
+window.addEventListener('blur', _stopScroll);
+
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
-  const fwd = e.key === 'ArrowRight' || e.key === 's' || e.key === 'S' || e.key === 'd' || e.key === 'D';
-  const bck = e.key === 'ArrowLeft'  || e.key === 'w' || e.key === 'W' || e.key === 'a' || e.key === 'A';
+
+  // W / S → continuous scroll (Shift jumps to the ends).
+  if (e.key === 'w' || e.key === 'W') {
+    e.preventDefault();
+    if (e.shiftKey) { _stopScroll(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    else _pressScroll('up');
+    return;
+  }
+  if (e.key === 's' || e.key === 'S') {
+    e.preventDefault();
+    if (e.shiftKey) { _stopScroll(); window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }
+    else _pressScroll('down');
+    return;
+  }
+
+  const fwd = e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D';
+  const bck = e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A';
   if (!fwd && !bck) return;
   e.preventDefault();
   const totalPages = Math.max(1, Math.ceil(_total / PAGE_SIZE));

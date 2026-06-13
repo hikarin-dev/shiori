@@ -41,6 +41,7 @@ let scrubVisible  = true;
 let translateView = false; // show stored translated variants when true
 let lastPageMode  = 'single';
 let _stripObservers = [];
+let _pageZoom     = 1;     // +/- page scale factor
 
 // Page images are served as blob: URLs. A blob URL references the IndexedDB-backed Blob — the
 // bytes stay on disk until an <img> actually needs them, and the browser discards decoded
@@ -288,8 +289,9 @@ async function init() {
   scrubber.value = 1;
 
   buildThumbs();
-  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight']);
+  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom']);
   applyThumbHeight(saved.readerThumbHeight || _thumbHeight);
+  if (saved.readerPageZoom) { _pageZoom = saved.readerPageZoom; document.documentElement.style.setProperty('--page-zoom', _pageZoom); }
   if (saved.readerLastPageMode) lastPageMode = saved.readerLastPageMode;
   setMode(saved.readerMode || 'strip', true);
   goTo(1);
@@ -1054,9 +1056,66 @@ keybindModal.addEventListener('click', (e) => {
 
 readerPinBtn.addEventListener('click', () => applyReaderPin(!readerPinned));
 
+// ── Page zoom (+/-) ──
+const ZOOM_MIN = 0.4, ZOOM_MAX = 3, ZOOM_STEP = 0.1;
+function setPageZoom(z) {
+  _pageZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(z * 100) / 100));
+  document.documentElement.style.setProperty('--page-zoom', _pageZoom);
+  platform.kv.set({ readerPageZoom: _pageZoom });
+}
+
+// ── Continuous W/S scroll (no key-repeat delay) ──
+// A rAF loop drives the scroll the moment a key goes down, so there's none of the OS
+// auto-repeat pause before the second step. Held keys are tracked so releasing one key
+// while the other is still down keeps scrolling in the remaining direction.
+const SCROLL_SPEED = 22; // px per frame (~1320px/s at 60fps)
+const _scrollHeld = new Set();
+let _scrollRaf = null;
+function _scrollLoop() {
+  let dir = 0;
+  if (_scrollHeld.has('down')) dir += 1;
+  if (_scrollHeld.has('up'))   dir -= 1;
+  if (dir === 0) { _scrollRaf = null; return; }
+  window.scrollBy(0, dir * SCROLL_SPEED);
+  _scrollRaf = requestAnimationFrame(_scrollLoop);
+}
+function _pressScroll(dir) {
+  if (_scrollHeld.has(dir)) return;
+  _scrollHeld.add(dir);
+  if (!_scrollRaf) _scrollRaf = requestAnimationFrame(_scrollLoop);
+}
+function _releaseScroll(dir) { _scrollHeld.delete(dir); }
+function _stopScroll() { _scrollHeld.clear(); }
+
+document.addEventListener('keyup', (e) => {
+  if (e.key === 'w' || e.key === 'W') _releaseScroll('up');
+  if (e.key === 's' || e.key === 'S') _releaseScroll('down');
+});
+window.addEventListener('blur', _stopScroll);
+document.addEventListener('visibilitychange', () => { if (document.hidden) _stopScroll(); });
+
 // Keyboard
 document.addEventListener('keydown', (e) => {
   if (e.target === scrubber) return;
+
+  // W / S → continuous scroll (Shift jumps to the ends, like Home/End).
+  if (e.key === 'w' || e.key === 'W') {
+    e.preventDefault();
+    if (e.shiftKey) { _stopScroll(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    else _pressScroll('up');
+    return;
+  }
+  if (e.key === 's' || e.key === 'S') {
+    e.preventDefault();
+    if (e.shiftKey) { _stopScroll(); window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }
+    else _pressScroll('down');
+    return;
+  }
+
+  // +/- zoom the in-view pages.
+  if (e.key === '+' || e.key === '=') { e.preventDefault(); setPageZoom(_pageZoom + ZOOM_STEP); return; }
+  if (e.key === '-' || e.key === '_') { e.preventDefault(); setPageZoom(_pageZoom - ZOOM_STEP); return; }
+  if (e.key === '0' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); setPageZoom(1); return; }
 
   if (e.key === 'Escape' && keybindModal.classList.contains('show')) {
     setKeybindOpen(false);
@@ -1069,8 +1128,8 @@ document.addEventListener('keydown', (e) => {
   }
 
   const step = mode === 'double' ? 2 : 1;
-  const fwd  = e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ' || e.key === 's' || e.key === 'S' || e.key === 'd' || e.key === 'D';
-  const bck  = e.key === 'ArrowLeft'  || e.key === 'ArrowUp'   || e.key === 'w' || e.key === 'W' || e.key === 'a' || e.key === 'A';
+  const fwd  = e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ' || e.key === 'd' || e.key === 'D';
+  const bck  = e.key === 'ArrowLeft'  || e.key === 'ArrowUp'   || e.key === 'a' || e.key === 'A';
 
   if (mode === 'strip') {
     if (fwd || bck) {

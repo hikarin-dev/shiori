@@ -2,6 +2,7 @@
   --bg: #0a0a0c; --surface: #16161a; --border: #2a2a30;
   --accent: #ed2754; --accent2: #ffd166; --text: #e8e8f0; --muted: #6b6b80;
   --topbar-h: 54px; --botbar-h: 32px;
+  --page-zoom: 1;   /* +/- keys scale the in-view pages around this factor */
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; }
@@ -70,7 +71,7 @@ body { min-height: 100vh; }
 }
 
 #mainImg {
-  display: block; max-width: min(1280px, 100vw); width: 100%;
+  display: block; width: calc(min(1280px, 100vw) * var(--page-zoom)); max-width: none;
   height: auto; user-select: none;
 }
 
@@ -93,7 +94,7 @@ body { min-height: 100vh; }
 }
 
 .dImg {
-  display: block; width: 50%; max-width: 900px; height: auto;
+  display: block; width: calc(min(50%, 900px) * var(--page-zoom)); max-width: none; height: auto;
   user-select: none;
 }
 
@@ -109,7 +110,7 @@ body { min-height: 100vh; }
    to the exact natural ratio. object-fit: contain prevents stretching during the brief window
    between src-set and the load event (matters for double-wide pages whose true ratio differs). */
 .page-img {
-  max-width: min(1280px, 100vw); width: 100%; display: block;
+  width: calc(min(1280px, 100vw) * var(--page-zoom)); max-width: none; display: block;
   aspect-ratio: 2 / 3;
   object-fit: contain;
 }
