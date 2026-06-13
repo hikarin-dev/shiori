@@ -775,6 +775,7 @@ function setKeybindOpen(open) {
 
 // ── Header pin ──
 let readerPinned = localStorage.getItem('shiori-reader-pin') === '1'; // default: unpinned
+let _resetTopbarFloat = () => {};   // assigned by the float IIFE below
 
 function applyScrollLayout() {
   document.documentElement.classList.add('reader-scroll');
@@ -787,7 +788,14 @@ function applyReaderPin(p) {
   readerPinBtn.innerHTML = p ? READER_PIN_SVG : READER_UNPIN_SVG;
   readerPinBtn.dataset.tip = p ? t('rd.tip_unpin') : t('rd.tip_pin');
   localStorage.setItem('shiori-reader-pin', p ? '1' : '0');
+  // When pinned, offset programmatic scrolls (page nav, scrubber, Home/End) by the header height
+  // so a navigated page lands just below the sticky header instead of behind it.
+  document.documentElement.style.scrollPaddingTop = p ? 'var(--topbar-h)' : '';
   applyScrollLayout();
+  // Pinning while the topbar was floated would otherwise leave its inline position:fixed +
+  // spacer in place (the scroll handler stops running once pinned, so floatOut never fires),
+  // which drops the sticky header out of flow and lets the pages slide under it. Reset it.
+  if (p) _resetTopbarFloat();
 }
 applyReaderPin(readerPinned);
 
@@ -813,12 +821,11 @@ applyReaderPin(readerPinned);
   }
 
   function floatOut() {
-    if (!floating) return;
     floating = false;
     topbar.style.cssText = '';
-    placeholder.remove();
-    placeholder = null;
+    if (placeholder) { placeholder.remove(); placeholder = null; }
   }
+  _resetTopbarFloat = floatOut;   // let applyReaderPin clear a leftover floated header when pinning
 
   window.addEventListener('scroll', () => {
     if (readerPinned) return;
