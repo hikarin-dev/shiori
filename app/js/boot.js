@@ -4,6 +4,11 @@
 
 import * as platform from './platform.js';
 import { services } from './services.js';
+import { applyTranslations } from './i18n.js';
+
+// Localize the page's static markup as early as possible (this module is imported first by
+// every page, and runs after the DOM is parsed), so non-English users don't see an English flash.
+applyTranslations(document);
 
 platform.registerServices(services);
 

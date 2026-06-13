@@ -7,6 +7,7 @@ import { importBackup } from './backup.js';
 import { request as extRequest, available as extAvailable } from './ext-bridge.js';
 import * as store from './store.js';
 import * as platform from './platform.js';
+import { t } from './i18n.js';
 
 // ── Source sites — learned at runtime, never hard-coded ─────────────────────────────────────
 // The app is site-agnostic. What sites exist, whether they support downloads, and how their
@@ -201,13 +202,20 @@ function buildCardTags(tags) {
     ...male.map(t => `<span class="card-tag" data-type="tag:male" data-original="${escHtml(t.name)}">${escHtml(t.name)} ♂</span>`),
   ];
   // Trailing '+' chip — opens the add-metadata modal (shown only while the card is hovered).
-  chips.push(`<span class="card-tag card-tag-add" data-tip="Add metadata tag">+</span>`);
+  chips.push(`<span class="card-tag card-tag-add" data-tip="${t('card.tip_addtag')}">+</span>`);
   return `<div class="card-tags">${chips.join('')}</div>`;
 }
 
 function escHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+// Tag-category → i18n key, for the add/remove-tag flows.
+const _TAG_CAT_KEY = {
+  'tag': 'addtag.cat_tag', 'tag:female': 'addtag.cat_tagf', 'tag:male': 'addtag.cat_tagm',
+  'artist': 'addtag.cat_artist', 'group': 'addtag.cat_group', 'parody': 'addtag.cat_parody',
+  'character': 'addtag.cat_character', 'language': 'addtag.cat_language',
+};
 
 
 function buildCard(g) {
@@ -226,23 +234,23 @@ function buildCard(g) {
 
   const cachedCount = g.count;
   const totalCount = g.numPages ? ` / ${g.numPages}` : '';
-  const metaLine = `${cachedCount}${totalCount} pages · ${formatSize(g.size)}`;
+  const metaLine = `${cachedCount}${totalCount} ${t('card.pages')} · ${formatSize(g.size)}`;
 
   const tagHtml = buildCardTags(g.tags);
 
   const canDownload  = _canDownload(g);
   const visitUrl     = galleryLink(g, 1);
   const siteName     = _siteName(g.source);
-  const openTitle    = visitUrl ? `${siteName}: ${visitUrl}` : 'Set source site';
-  const dlTitle      = g.numPages ? `Download all ${g.numPages} pages` : 'Fetch metadata & download all';
+  const openTitle    = visitUrl ? `${siteName}: ${visitUrl}` : t('card.tip_setsource');
+  const dlTitle      = g.numPages ? t('card.tip_dl', { n: g.numPages }) : t('card.tip_dl_meta');
 
   const actionsHtml = `
     <div class="card-actions">
-      <button class="card-btn card-btn-dl" data-id="${g.id}" data-tip="${canDownload ? dlTitle : 'Replace images from CBZ'}" ${canDownload ? 'data-tip-shift="Replace images from CBZ"' : ''}>${canDownload ? _DL_ICON : _UPLOAD_ICON}</button>
-      <button class="card-btn card-btn-translate${g.translated ? ' done' : ''}" data-id="${g.id}" data-tip="${g.translated ? 'Translate any new pages' : 'Translate gallery'}"${g.translated ? ' data-tip-shift="Revert to original"' : ''}>${_TRANSLATE_ICON}</button>
-      <button class="card-btn card-btn-open" data-id="${g.id}" data-tip="${openTitle}"${visitUrl ? ' data-tip-shift="Edit source link"' : ''}><span class="open-inner">${_makeOpenBtnInner(g.source)}</span></button>
-      <button class="card-btn card-btn-export" data-id="${g.id}" data-tip="Export gallery" data-tip-shift="Export metadata">${_EXPORT_ICON}</button>
-      <button class="card-btn card-btn-del" data-id="${g.id}" data-tip="Delete gallery" data-tip-shift="Quick delete">${_DELETE_ICON}</button>
+      <button class="card-btn card-btn-dl" data-id="${g.id}" data-tip="${canDownload ? dlTitle : t('card.tip_replace')}" ${canDownload ? `data-tip-shift="${t('card.tip_replace')}"` : ''}>${canDownload ? _DL_ICON : _UPLOAD_ICON}</button>
+      <button class="card-btn card-btn-translate${g.translated ? ' done' : ''}" data-id="${g.id}" data-tip="${g.translated ? t('card.tip_translate_new') : t('card.tip_translate')}"${g.translated ? ` data-tip-shift="${t('card.tip_revert')}"` : ''}>${_TRANSLATE_ICON}</button>
+      <button class="card-btn card-btn-open" data-id="${g.id}" data-tip="${escHtml(openTitle)}"${visitUrl ? ` data-tip-shift="${t('card.tip_editsource')}"` : ''}><span class="open-inner">${_makeOpenBtnInner(g.source)}</span></button>
+      <button class="card-btn card-btn-export" data-id="${g.id}" data-tip="${t('card.tip_export')}" data-tip-shift="${t('card.tip_export_meta')}">${_EXPORT_ICON}</button>
+      <button class="card-btn card-btn-del" data-id="${g.id}" data-tip="${t('card.tip_delete')}" data-tip-shift="${t('card.tip_quickdelete')}">${_DELETE_ICON}</button>
     </div>`;
 
   card.innerHTML = `
@@ -278,7 +286,7 @@ function buildCard(g) {
       if (_shiftHeld) _delFlip.to(b, _DELETE_SVG);
     });
     b.addEventListener('click', async (e) => {
-      if (!e.shiftKey && !confirm(`Delete all cached images for gallery #${g.id}?`)) return;
+      if (!e.shiftKey && !confirm(t('confirm.delete_gallery', { id: g.id }))) return;
       await sendMsg({ type: 'DELETE_GALLERY', galleryId: g.id });
       applyFilters();
       updateHeaderStats();
@@ -302,7 +310,7 @@ function buildCard(g) {
         if (e.shiftKey) await exportMetadataZip(g.id);
         else            await exportGalleryZip(g.id);
       } catch (err) {
-        alert('Export failed: ' + err.message);
+        alert(t('alert.export_failed', { msg: err.message }));
       } finally {
         card.querySelectorAll('.card-btn-export').forEach(x => { x.disabled = false; _exportFlip.snap(x, _EXPORT_SVG); });
       }
@@ -335,7 +343,7 @@ function buildCard(g) {
       if ([...btns].some(x => x.disabled)) return;
 
       const alreadyComplete = g.numPages > 0 && g.count >= g.numPages;
-      if (alreadyComplete && !confirm(`Re-download all ${g.numPages} pages and overwrite the existing cache?`)) return;
+      if (alreadyComplete && !confirm(t('confirm.redownload', { n: g.numPages }))) return;
 
       btns.forEach(x => { x.disabled = true; x.innerHTML = '…'; });
 
@@ -343,7 +351,7 @@ function buildCard(g) {
       const labelEl = document.getElementById(`proglabel-${g.id}`);
 
       if (progEl) progEl.closest('.card-body').classList.add('downloading');
-      if (labelEl) labelEl.textContent = 'Fetching metadata…';
+      if (labelEl) labelEl.textContent = t('prog.fetching_meta');
 
       await sendMsg({ type: 'CACHE_ALL_PAGES', galleryId: g.id, source: g.source, overwrite: alreadyComplete });
     });
@@ -364,7 +372,7 @@ function buildCard(g) {
 
       // Shift+click on an already-translated gallery → revert to the originals.
       if (e.shiftKey && g.translated) {
-        if (!confirm(`Remove translated copies for #${g.sourceId || g.id} and revert to the originals?`)) return;
+        if (!confirm(t('confirm.revert', { id: g.sourceId || g.id }))) return;
         btns.forEach(x => x.disabled = true);
         await sendMsg({ type: 'REVERT_GALLERY', galleryId: g.id });
         g.translated = false;
@@ -375,19 +383,15 @@ function buildCard(g) {
         return;
       }
 
-      if (g.count === 0) { alert('No cached pages to translate — download the gallery first.'); return; }
+      if (g.count === 0) { alert(t('alert.no_pages_translate')); return; }
 
-      if (!g.translated && !confirm(
-        `Translate all ${g.count} cached pages of #${g.sourceId || g.id}?\n\n` +
-        `Each page is sent to your translation server and a translated copy is stored ` +
-        `alongside the original (originals are kept). Shift+click later to revert.`
-      )) return;
+      if (!g.translated && !confirm(t('confirm.translate', { n: g.count, id: g.sourceId || g.id }))) return;
 
       btns.forEach(x => x.disabled = true);
       const progEl  = document.getElementById(`prog-${g.id}`);
       const labelEl = document.getElementById(`proglabel-${g.id}`);
       if (progEl) progEl.closest('.card-body').classList.add('downloading');
-      if (labelEl) labelEl.textContent = 'Translating…';
+      if (labelEl) labelEl.textContent = t('prog.translating');
 
       await sendMsg({ type: 'TRANSLATE_GALLERY', galleryId: g.id });
     });
@@ -421,7 +425,7 @@ function buildCard(g) {
       }
       // Skip the prompt if clipboard gave us a usable URL and we're not editing.
       const autoApply = !e.shiftKey && !curVisitUrl && prefill && _looksLikeUrl(prefill);
-      const input = autoApply ? prefill : prompt('Source URL (paste the gallery’s page address):', prefill);
+      const input = autoApply ? prefill : prompt(t('prompt.source_url'), prefill);
       if (input === null) return;
 
       const parsed = await parseSourceInput(input);
@@ -468,7 +472,7 @@ function renderGrid(galleries) {
   grid.querySelectorAll('img.card-thumb').forEach(img => { img.src = ''; });
 
   if (galleries.length === 0) {
-    grid.innerHTML = '<div class="empty">No galleries found.<br>Capture from a supported site or upload a CBZ to get started.</div>';
+    grid.innerHTML = `<div class="empty">${escHtml(t('lib.empty_title'))}<br>${escHtml(t('lib.empty_sub'))}</div>`;
     return;
   }
 
@@ -562,7 +566,7 @@ function applyJob(job) {
   if (status === 'error') {
     if (body) body.classList.add('downloading');
     if (fillEl) fillEl.classList.remove('done', 'indeterminate');
-    if (labelEl) labelEl.textContent = `Error: ${job.error || 'unknown'}`;
+    if (labelEl) labelEl.textContent = `${t('prog.error')}: ${job.error || 'unknown'}`;
     btns.forEach(b => { b.disabled = false; });
     if (kind === 'upload') store.load(gid).then(g => { if (!g || g.count === 0) store.remove(gid); });
     return;
@@ -588,13 +592,13 @@ function applyJob(job) {
   }
   if (status === 'extracting') {
     if (fillEl) { fillEl.classList.remove('indeterminate'); fillEl.style.width = '85%'; }
-    if (labelEl) labelEl.textContent = 'Extracting…';
+    if (labelEl) labelEl.textContent = t('prog.extracting');
     btns.forEach(b => { b.disabled = true; });
     return;
   }
   if (status === 'started') {
     if (fillEl) { fillEl.classList.remove('indeterminate', 'done'); fillEl.style.width = '0%'; }
-    if (labelEl) labelEl.textContent = job.label || (job.total ? `0 / ${job.total}` : 'Starting…');
+    if (labelEl) labelEl.textContent = job.label || (job.total ? `0 / ${job.total}` : t('prog.starting'));
     btns.forEach(b => { b.disabled = true; });
     return;
   }
@@ -609,15 +613,15 @@ function applyJob(job) {
       fillEl.style.width = pct + '%';
       fillEl.classList.toggle('done', status === 'done');
     }
-    const skippedNote = job.skipped > 0 ? ` (${job.skipped} already cached)` : '';
+    const skippedNote = job.skipped > 0 ? ` (${t('prog.already_cached', { n: job.skipped })})` : '';
     if (labelEl) {
       if (isTranslate) {
         labelEl.textContent = status === 'done'
-          ? `Translated ${done}/${total}${job.failed ? ` (${job.failed} failed)` : ''}${job.costNote ? ` · ${job.costNote}` : ''}`
-          : job.label ? `${job.label} · ${done}/${total}` : `Translating ${done} / ${total}`;
+          ? `${t('prog.translated')} ${done}/${total}${job.failed ? ` (${job.failed} failed)` : ''}${job.costNote ? ` · ${job.costNote}` : ''}`
+          : job.label ? `${job.label} · ${done}/${total}` : `${t('prog.translating')} ${done} / ${total}`;
       } else {
         labelEl.textContent = status === 'done'
-          ? `Done — ${done}/${total}${skippedNote}`
+          ? `${t('prog.done')} — ${done}/${total}${skippedNote}`
           : job.label ? `${job.label} · ${done}/${total}${skippedNote}` : `${done} / ${total}${skippedNote}`;
       }
     }
@@ -651,7 +655,7 @@ async function hydrateJobs() {
       const labelEl = document.getElementById(`proglabel-${gid}`);
       const body = labelEl && labelEl.closest('.card-body');
       if (body) body.classList.add('downloading');
-      if (labelEl) labelEl.textContent = 'Interrupted — run again to resume';
+      if (labelEl) labelEl.textContent = t('prog.interrupted');
       continue;
     }
     applyJob(job);
@@ -776,7 +780,7 @@ async function updateHeaderStats() {
   const sizeStat = document.getElementById('hSizeStat');
   if (sizeStat) {
     const avg = stats.totalImages > 0 ? Math.round(stats.totalSize / stats.totalImages) : 0;
-    sizeStat.dataset.tipShift = avg > 0 ? `avg ${formatSize(avg)} / image` : '';
+    sizeStat.dataset.tipShift = avg > 0 ? t('lib.avg_per_image', { size: formatSize(avg) }) : '';
   }
 }
 
@@ -942,12 +946,12 @@ async function replaceGalleryImages(gid, file) {
   dlBtns.forEach(b => { b.disabled = true; b.innerHTML = '…'; });
   if (progEl) progEl.closest('.card-body')?.classList.add('downloading');
 
-  setLabel('Reading file…');
+  setLabel(t('prog.reading_file'));
   let buffer;
   try { buffer = await file.arrayBuffer(); }
-  catch { setLabel('Error: could not read file.'); dlBtns.forEach(b => { b.disabled = false; b.innerHTML = _DL_ICON; }); return; }
+  catch { setLabel(t('prog.err_read')); dlBtns.forEach(b => { b.disabled = false; b.innerHTML = _DL_ICON; }); return; }
 
-  setLabel('Uploading…');
+  setLabel(t('prog.uploading'));
   const tempName = `cbz-${gid}-${Date.now()}.bin`;
   try {
     const root     = await navigator.storage.getDirectory();
@@ -956,7 +960,7 @@ async function replaceGalleryImages(gid, file) {
     await writable.write(buffer);
     await writable.close();
   } catch (e) {
-    setLabel('Error: could not stage file.');
+    setLabel(t('prog.err_stage'));
     dlBtns.forEach(b => { b.disabled = false; b.innerHTML = _DL_ICON; });
     return;
   }
@@ -984,12 +988,12 @@ async function importSingleFile(file, gid) {
   const setLabel = (txt) => { if (labelEl) labelEl.textContent = txt; };
   if (progEl) progEl.closest('.card-body')?.classList.add('downloading');
 
-  setLabel('Reading file…');
+  setLabel(t('prog.reading_file'));
   let buffer;
   try { buffer = await file.arrayBuffer(); }
-  catch (err) { setLabel('Error: could not read file.'); if (progEl) progEl.closest('.card-body')?.classList.remove('downloading'); return; }
+  catch (err) { setLabel(t('prog.err_read')); if (progEl) progEl.closest('.card-body')?.classList.remove('downloading'); return; }
 
-  setLabel('Uploading…');
+  setLabel(t('prog.uploading'));
   const tempName = `cbz-${gid}-${Date.now()}.bin`;
   try {
     const root     = await navigator.storage.getDirectory();
@@ -998,7 +1002,7 @@ async function importSingleFile(file, gid) {
     await writable.write(buffer);
     await writable.close();
   } catch (e) {
-    setLabel('Error: could not stage file.');
+    setLabel(t('prog.err_stage'));
     if (progEl) progEl.closest('.card-body')?.classList.remove('downloading');
     return;
   }
@@ -1014,9 +1018,9 @@ async function _handleImportFiles(files) {
     try {
       const { kind, counts } = await importBackup(accepted[0]);
       alert(kind === 'metadata'
-        ? `Imported metadata for ${counts.galleries} galleries.`
-        : `Imported ${counts.galleries} galleries / ${counts.images} images.`);
-    } catch (err) { alert('Backup import failed: ' + err.message); }
+        ? t('alert.import_meta', { n: counts.galleries })
+        : t('alert.import_full', { g: counts.galleries, i: counts.images }));
+    } catch (err) { alert(t('alert.backup_import_failed', { msg: err.message })); }
     await loadAll();
     return;
   }
@@ -1282,10 +1286,8 @@ document.getElementById('grid').addEventListener('click', (e) => {
   if (e.shiftKey) {
     const gid = tag.closest('.card')?.dataset.galleryId;
     if (!gid) return;
-    const label = type === 'tag' ? 'tag'
-      : type && type.startsWith('tag:') ? type.slice(4) + ' tag'
-      : (type || 'tag');
-    if (!confirm(`Remove the ${label} “${name}” from this gallery?`)) return;
+    const label = t(_TAG_CAT_KEY[type] || 'addtag.cat_tag');
+    if (!confirm(t('confirm.remove_tag', { label, name }))) return;
     const g = _pageItems.find(x => x.id === gid);
     if (!g || !Array.isArray(g.tags)) return;
     store.mutate(gid, { tags: g.tags.filter(t => !(t.type === type && t.name === name)) });
@@ -1394,12 +1396,12 @@ function setSafeMode(enabled) {
   const btn = document.getElementById('safeBtn');
   if (enabled) {
     btn.classList.add('active');
-    btn.dataset.tip = 'Disable Safe Mode';
+    btn.dataset.tip = t('nav.safe_off');
     btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
     applyGibberishToGrid();
   } else {
     btn.classList.remove('active');
-    btn.dataset.tip = 'Enable Safe Mode (blur content for sharing)';
+    btn.dataset.tip = t('nav.safe_on');
     btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>';
     restoreTagsInGrid();
   }
@@ -1419,7 +1421,7 @@ const UNPIN_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14
   function applyPin(p) {
     pinned = p;
     header.style.position = p ? 'sticky' : 'relative';
-    pinBtn.dataset.tip = p ? 'Unpin header' : 'Pin header';
+    pinBtn.dataset.tip = p ? t('nav.unpin') : t('nav.pin');
     pinBtn.innerHTML = p ? PIN_SVG : UNPIN_SVG;
     localStorage.setItem('shiori-header-pin', p ? '1' : '0');
   }

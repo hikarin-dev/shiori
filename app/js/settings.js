@@ -7,6 +7,22 @@ import { clearAll } from './db.js';
 import * as platform from './platform.js';
 import { pingServer, serverUrlFromSettings } from './translate.js';
 import { exportMetadata, exportFull, importBackup } from './backup.js';
+import { t, getLang, setLang, SUPPORTED, LANG_NAMES } from './i18n.js';
+
+// ── Language selector ──────────────────────────────────────────────────────
+(function initLanguage() {
+  const sel = document.getElementById('langSelect');
+  if (!sel) return;
+  for (const code of SUPPORTED) {
+    const o = document.createElement('option');
+    o.value = code; o.textContent = LANG_NAMES[code] || code;
+    sel.appendChild(o);
+  }
+  sel.value = getLang();
+  sel.addEventListener('change', () => { setLang(sel.value); });
+})();
+// Re-render anything JS-built when the language changes.
+window.addEventListener('shiori-lang-change', () => { setTranslatorBadge(_lastBadge); updateTranslateSummary(); });
 
 function showStatus(id, msg, type, durationMs = 2500) {
   const el = document.getElementById(id);
@@ -33,11 +49,13 @@ document.getElementById('clearAllBtn').addEventListener('click', async () => {
 
 // ── Translation server status ───────────────────────────────────────────────
 
+let _lastBadge = 'checking';
 function setTranslatorBadge(state) {
+  _lastBadge = state;
   const b = document.getElementById('translateStatusBadge');
-  if (state === 'checking') { b.className = 'key-status-badge unset'; b.textContent = '○ Checking…'; }
-  else if (state === 'online') { b.className = 'key-status-badge set'; b.textContent = '● Server online'; }
-  else { b.className = 'key-status-badge unset'; b.textContent = '○ Server offline — run start-translator.bat'; }
+  if (state === 'checking') { b.className = 'key-status-badge unset'; b.textContent = t('set.tr_checking'); }
+  else if (state === 'online') { b.className = 'key-status-badge set'; b.textContent = t('set.tr_online'); }
+  else { b.className = 'key-status-badge unset'; b.textContent = t('set.tr_offline'); }
 }
 
 async function checkTranslatorStatus() {

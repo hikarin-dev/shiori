@@ -9,6 +9,8 @@
   <!-- Preload the whole module graph in one parallel wave instead of a 4-level import waterfall. -->
   <link rel="modulepreload" href="js/library.js">
   <link rel="modulepreload" href="js/boot.js">
+  <link rel="modulepreload" href="js/i18n.js">
+  <link rel="modulepreload" href="js/locales.js">
   <link rel="modulepreload" href="js/platform.js">
   <link rel="modulepreload" href="js/services.js">
   <link rel="modulepreload" href="js/db.js">
@@ -34,48 +36,48 @@
       <span class="brand-text">Shiori</span>
     </a>
     <span class="brand-sep">/</span>
-    <span class="brand-page">Library</span>
+    <span class="brand-page" data-i18n="nav.library">Library</span>
     <div class="search-wrap">
-      <input class="header-search" id="searchBox" type="text" placeholder="Search by ID, title or tags…">
-      <button class="search-clear" id="searchClear" data-tip="Clear search"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      <input class="header-search" id="searchBox" type="text" placeholder="Search by ID, title or tags…" data-i18n-ph="lib.search_ph">
+      <button class="search-clear" id="searchClear" data-tip="Clear search" data-i18n-tip="lib.clear_search"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
     </div>
     <button class="btn-pin" id="pinBtn" data-tip="Unpin header"></button>
   </div>
   <div class="header-right">
-    <button class="burger-btn" id="burgerBtn" data-tip="Menu">☰</button>
+    <button class="burger-btn" id="burgerBtn" data-tip="Menu" data-i18n-tip="nav.menu">☰</button>
     <div class="collapsible-group" id="collapsibleGroup">
       <div class="hstat">
         <div class="hstat-val" id="hTotalGalleries">—</div>
-        <div class="hstat-label">Galleries</div>
+        <div class="hstat-label" data-i18n="stat.galleries">Galleries</div>
       </div>
       <div class="hstat">
         <div class="hstat-val" id="hTotalImages">—</div>
-        <div class="hstat-label">Images</div>
+        <div class="hstat-label" data-i18n="stat.images">Images</div>
       </div>
       <div class="hstat" id="hSizeStat" data-tip="" data-tip-shift="">
         <div class="hstat-val" id="hTotalSize">—</div>
-        <div class="hstat-label">Stored</div>
+        <div class="hstat-label" data-i18n="stat.stored">Stored</div>
       </div>
       <div class="hstat">
         <div class="hstat-val" id="hLoadCount">—</div>
-        <div class="hstat-label">Loads</div>
+        <div class="hstat-label" data-i18n="stat.loads">Loads</div>
       </div>
     </div>
     <!-- Upload stays in the bar at every width; when the nav minimizes it drops its label and
          keeps just the icon (handled in CSS), so it is never hidden behind the burger. -->
-    <button class="btn-upload" id="uploadCbzBtn" data-tip="Upload"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="btn-upload-icon"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg><span class="btn-upload-label">Upload</span></button>
-    <button class="btn-safe" id="safeBtn" data-tip="Enable Safe Mode (blur content for sharing)"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg></button>
-    <button class="btn-settings" id="settingsBtn" data-tip="Settings"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg></button>
+    <button class="btn-upload" id="uploadCbzBtn" data-tip="Upload" data-i18n-tip="nav.upload"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="btn-upload-icon"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg><span class="btn-upload-label" data-i18n="nav.upload">Upload</span></button>
+    <button class="btn-safe" id="safeBtn" data-tip="Enable Safe Mode (blur content for sharing)" data-i18n-tip="nav.safe_on"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg></button>
+    <button class="btn-settings" id="settingsBtn" data-tip="Settings" data-i18n-tip="nav.settings"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg></button>
   </div>
 </header>
 
 <div class="toolbar">
   <select class="sort-select" id="sortSelect">
-    <option value="added">Most Recent</option>
-    <option value="updated">Last Updated</option>
-    <option value="size">Largest</option>
-    <option value="count">Most Pages</option>
-    <option value="id">Gallery ID</option>
+    <option value="added" data-i18n="sort.added">Most Recent</option>
+    <option value="updated" data-i18n="sort.updated">Last Updated</option>
+    <option value="size" data-i18n="sort.size">Largest</option>
+    <option value="count" data-i18n="sort.count">Most Pages</option>
+    <option value="id" data-i18n="sort.id">Gallery ID</option>
   </select>
 </div>
 <input type="file" id="cbzFileInput" accept=".cbz,.zip,.shi,.shioridb" multiple style="display:none">
@@ -90,23 +92,23 @@
 <!-- Add-metadata-tag modal (opened by the per-card '+' chip on hover) -->
 <div id="addTagModal" class="modal-overlay">
   <div class="modal-box">
-    <div class="modal-title">Add metadata tag</div>
-    <label class="modal-label" for="addTagCategory">Category</label>
+    <div class="modal-title" data-i18n="addtag.title">Add metadata tag</div>
+    <label class="modal-label" for="addTagCategory" data-i18n="addtag.category">Category</label>
     <select class="modal-select" id="addTagCategory">
-      <option value="tag">Tag</option>
-      <option value="tag:female">Tag · female</option>
-      <option value="tag:male">Tag · male</option>
-      <option value="artist">Artist</option>
-      <option value="group">Group</option>
-      <option value="parody">Parody</option>
-      <option value="character">Character</option>
-      <option value="language">Language</option>
+      <option value="tag" data-i18n="addtag.cat_tag">Tag</option>
+      <option value="tag:female" data-i18n="addtag.cat_tagf">Tag · female</option>
+      <option value="tag:male" data-i18n="addtag.cat_tagm">Tag · male</option>
+      <option value="artist" data-i18n="addtag.cat_artist">Artist</option>
+      <option value="group" data-i18n="addtag.cat_group">Group</option>
+      <option value="parody" data-i18n="addtag.cat_parody">Parody</option>
+      <option value="character" data-i18n="addtag.cat_character">Character</option>
+      <option value="language" data-i18n="addtag.cat_language">Language</option>
     </select>
-    <label class="modal-label" for="addTagValue">Value</label>
-    <input class="modal-input" id="addTagValue" type="text" placeholder="e.g. romance" autocomplete="off" spellcheck="false">
+    <label class="modal-label" for="addTagValue" data-i18n="addtag.value">Value</label>
+    <input class="modal-input" id="addTagValue" type="text" placeholder="e.g. romance" data-i18n-ph="addtag.value_ph" autocomplete="off" spellcheck="false">
     <div class="modal-actions">
-      <button class="modal-btn-cancel" id="addTagCancel">Cancel</button>
-      <button class="modal-btn-confirm" id="addTagConfirm">Add</button>
+      <button class="modal-btn-cancel" id="addTagCancel" data-i18n="common.cancel">Cancel</button>
+      <button class="modal-btn-confirm" id="addTagConfirm" data-i18n="common.add">Add</button>
     </div>
   </div>
 </div>

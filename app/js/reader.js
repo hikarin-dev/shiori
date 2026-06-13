@@ -4,6 +4,7 @@ import './boot.js';
 import { openDB, imageToBlob } from './db.js';
 import { request as extRequest, available as extAvailable } from './ext-bridge.js';
 import * as platform from './platform.js';
+import { t } from './i18n.js';
 
 // Site link templates are runtime knowledge handed over by the extension; the app itself is
 // site-agnostic. A gallery's exact sourceUrl (stored with it) always wins.
@@ -205,11 +206,11 @@ async function init() {
   onlineBtn.style.display = 'none';
   document.title        = `Shiori — #${galleryId}`;
 
-  loadingText.textContent = 'Opening database…';
+  loadingText.textContent = t('rd.opening_db');
   try { _readerDb = await _openReaderDb(); }
   catch (e) { showEmpty(); return; }
 
-  loadingText.textContent = 'Loading cached pages…';
+  loadingText.textContent = t('rd.loading_pages');
   const gid = String(galleryId);
 
   // Page list (key-only cursor, no image bytes) and metadata, fetched in parallel.
@@ -254,14 +255,14 @@ async function init() {
 
   if (visitUrl) {
     onlineBtn.href    = visitUrl;
-    onlineBtn.dataset.tip = `Open on ${sName}`;
+    onlineBtn.dataset.tip = t('rd.open_on', { site: sName });
     onlineBtn.innerHTML = `<img src="https://www.google.com/s2/favicons?domain=${meta.source}&sz=16" style="width:14px;height:14px;vertical-align:middle;pointer-events:none;" onerror="this.outerHTML='↗'">`;
     onlineBtn.style.display = '';
     tbGallery.href   = visitUrl;
     tbGallery.target = '_blank';
     const emptyLink = document.getElementById('emptyLink');
     emptyLink.href        = visitUrl;
-    emptyLink.textContent = `Open on ${sName} →`;
+    emptyLink.textContent = t('rd.open_on_arrow', { site: sName });
     emptyLink.style.display = '';
   } else {
     document.getElementById('emptyLink').style.display = 'none';
@@ -282,7 +283,7 @@ async function init() {
     translateView = true;
     translateToggle.style.display = '';
     translateToggle.classList.add('active');
-    translateToggle.dataset.tip = 'Showing translation — click for original';
+    translateToggle.dataset.tip = t('rd.tip_translate_on');
   }
 
   scrubber.max   = pages.length;
@@ -784,7 +785,7 @@ function applyScrollLayout() {
 function applyReaderPin(p) {
   readerPinned = p;
   readerPinBtn.innerHTML = p ? READER_PIN_SVG : READER_UNPIN_SVG;
-  readerPinBtn.dataset.tip = p ? 'Unpin header' : 'Pin header';
+  readerPinBtn.dataset.tip = p ? t('rd.tip_unpin') : t('rd.tip_pin');
   localStorage.setItem('shiori-reader-pin', p ? '1' : '0');
   applyScrollLayout();
 }
@@ -1042,7 +1043,7 @@ viewport.addEventListener('click', (e) => {
 translateToggle.addEventListener('click', () => {
   translateView = !translateView;
   translateToggle.classList.toggle('active', translateView);
-  translateToggle.dataset.tip = translateView ? 'Showing translation — click for original' : 'Show translation';
+  translateToggle.dataset.tip = translateView ? t('rd.tip_translate_on') : t('rd.tip_translate');
   _revokeAllPageUrls(); // cached blob URLs are keyed by url only, not by variant
   if (mode === 'strip') buildStrip();
   else goTo(currentPage);
