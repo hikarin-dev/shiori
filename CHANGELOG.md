@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.0.1 — 2026-06-14
+
+### Added
+
+- The whole app now speaks 12 languages — pick yours under Settings → Language: English, 日本語, Deutsch, Français, 简体中文, 繁體中文, 한국어, Español, Português, Русский, Tiếng Việt, and Bahasa Indonesia.
+- Every library card shows a flag for its language — click it to filter your library to that language, just like clicking a tag. Galleries you translate now carry the flag of the language you translated them into.
+- Add your own tags to any gallery right from its card, and `Shift`+click a tag to remove it.
+- Reader: zoom pages in and out with `+` / `−`, and scroll with `W` / `S`.
+
+### Fixed
+
+- Reader: a pinned header now always keeps the page fully below it, even as you scroll.
+- Tooltips follow your cursor smoothly and no longer get clipped at the edge of the screen.
+- When the library toolbar shrinks, the upload button stays in reach and the stats sit neatly on one row.
+- Card action buttons no longer flicker or stick while you hold `Shift`.
+
 ## v1.0.0 — 2026-06-12
 
 First release of Shiori as a standalone app. Your library lives entirely in your browser — no server, no account — and works offline as an installable PWA.
