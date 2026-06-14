@@ -360,28 +360,20 @@ function scrollThumbIntoView(idx) {
   if (t) t.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
 }
 
-// Current page = the page filling the most of the reading area (the viewport below a pinned
-// header). Largest-visible-area, not a top-edge reference line: a navigated page that lands a few
-// px high or low still dominates the area, so the highlight snaps to the page you're looking at
-// rather than its neighbour. Called by the strip observer (live, as pages cross) and on
-// scroll-settle (so a programmatic jump that ends between observer firings still lands right).
-let _stripImgs = [];
-function _updateCurrentPageByArea() {
-  if (mode !== 'strip' || !_stripImgs.length) return;
-  const topRef = _pinOffset();
-  const vh = window.innerHeight;
-  let bestPage = null, bestArea = 0;
-  for (const img of _stripImgs) {
-    const r = img.getBoundingClientRect();
-    const visible = Math.min(r.bottom, vh) - Math.max(r.top, topRef);
-    if (visible > bestArea) { bestArea = visible; bestPage = parseInt(img.dataset.page); }
-  }
-  if (bestPage !== null && bestPage !== currentPage) {
-    currentPage    = bestPage;
-    scrubber.value = bestPage;
-    updateCounter();
-    highlightThumb(bestPage - 1);
-  }
+// Single source of truth for the current page: the page at the scrubber position — the reading
+// line (the navbar bottom when pinned) mapped through the SAME proportion that places the strip's
+// fill indicator. Driving the counter and the active-thumb border from this (rather than a
+// separate area metric) keeps the border tracking the fill, and makes it flip symmetrically when
+// stepping between adjacent pages in either direction.
+function _setCurrentPageFromProportion(p) {
+  const n = pages.length;
+  if (!n) return;
+  const pg = Math.min(n, Math.max(1, Math.round(p * (n - 1)) + 1));
+  if (pg === currentPage) return;
+  currentPage    = pg;
+  scrubber.value = pg;
+  updateCounter();
+  highlightThumb(pg - 1);
 }
 
 // ── Thumbnails ──
@@ -638,6 +630,7 @@ function _dragToCursor(clientX) {
 
   if (mode === 'strip') {
     window.scrollTo({ top: _proportionToScrollY(p) - _pinOffset(), behavior: 'instant' });
+    _setCurrentPageFromProportion(p);   // keep the counter in step while scrubbing (border is hidden)
   } else {
     const idx = Math.min(pages.length - 1, Math.round(p * (pages.length - 1)));
     if (idx + 1 !== currentPage) goTo(idx + 1);
@@ -706,6 +699,7 @@ function _startThumbInteraction(initialEvent) {
     cancelAnimationFrame(_swipeRaf);
     if (isScrubber) {
       _thumbDragging = true;
+      thumbStrip.classList.add('scrubbing');   // only scrubbing hides the border + shows the fill
     }
     document.body.classList.add('thumb-dragging');
     thumbStrip.classList.add('dragging');
@@ -740,7 +734,7 @@ function _startThumbInteraction(initialEvent) {
         _launchSwipeMomentum(velocity);
       }
       document.body.classList.remove('thumb-dragging');
-      thumbStrip.classList.remove('dragging');
+      thumbStrip.classList.remove('dragging', 'scrubbing');
     } else {
       // No movement → treat as click. Snap to the clicked thumb's page.
       _clickSnapToThumb(ev.clientX);
@@ -904,7 +898,6 @@ function buildStrip() {
     stripView.appendChild(img);
   });
   const imgs = [...stripView.querySelectorAll('.page-img')];
-  _stripImgs = imgs;   // module-level handle so the scroll-settle recompute can read these too
 
   // Loader: a small worker pool; each worker takes the unloaded page nearest the current one,
   // so the visible region is always served first and re-prioritizes as the user scrolls.
@@ -948,13 +941,10 @@ function buildStrip() {
     }
   }
 
-  // Page tracker observer: recompute the current page (by largest visible area) as pages cross the
-  // viewport edges. Threshold 0 — manga pages are often taller than the viewport, so a percent
-  // threshold could never fire. It is edge-triggered, so a programmatic jump that ends between
-  // crossings is reconciled by the scroll-settle recompute (see _settleTimer below).
+  // Keep the pages around the one being read decoded as the viewport moves (the browser may have
+  // discarded far-away bitmaps). currentPage itself is maintained by the scroll listener.
   const pageObs = new IntersectionObserver(() => {
-    _updateCurrentPageByArea();
-    decodeAround(currentPage);   // keep pages around the one being read decoded as the viewport moves
+    decodeAround(currentPage);
   }, { threshold: 0 });
 
   imgs.forEach(img => pageObs.observe(img));
@@ -1048,12 +1038,17 @@ btnPageSubToggle.addEventListener('click', () => setMode(mode === 'double' ? 'si
 scrollTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
 window.addEventListener('scroll', () => {
   scrollTopBtn.classList.toggle('visible', mode === 'strip' && window.scrollY > 400);
-  if (mode === 'strip' && thumbsOpen && !_thumbDragging) {
-    _setIndicator(_scrollYToProportion(window.scrollY + _pinOffset()));
+  if (mode === 'strip' && !_thumbDragging) {
+    // One proportion drives everything: the current page (counter + active-thumb border) and the
+    // fill indicator, so the border tracks the fill. This listener fires every frame (unlike the
+    // page-crossing observer), so a programmatic jump settles on the right page on its own.
+    const p = _scrollYToProportion(window.scrollY + _pinOffset());
+    _setCurrentPageFromProportion(p);
+    if (thumbsOpen) _setIndicator(p);
   }
   // Debounce _scrollSettled: marks smooth-scroll as done 150ms after last scroll event.
   clearTimeout(_settleTimer);
-  _settleTimer = setTimeout(() => { _scrollSettled = true; _updateCurrentPageByArea(); }, 150);
+  _settleTimer = setTimeout(() => { _scrollSettled = true; }, 150);
 }, { passive: true });
 
 // Thumbs

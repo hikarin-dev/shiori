@@ -150,9 +150,10 @@ body.bar-hidden #thumbResizeHandle { bottom: calc(var(--thumb-h) - 3px); }
 #thumbResizeHandle.show { display: block; }
 #thumbResizeHandle:hover, #thumbResizeHandle.active { background: var(--accent); }
 
-/* Indicator only shown while dragging. Matches a thumb's height and aspect (A4-like) so it
-   looks like a "currently selected page" outline — width is NOT derived from how many pages
-   are visible in the reader viewport, only from the thumb's own height + aspect. */
+/* The scrubber fill — only shown while scrubbing (Shift+drag), not a plain swipe. Matches a
+   thumb's height and aspect (A4-like) so it looks like a "currently selected page" outline —
+   width is NOT derived from how many pages are visible in the reader viewport, only from the
+   thumb's own height + aspect. */
 #thumbViewport {
   position: absolute;
   bottom: 7px;
@@ -164,10 +165,10 @@ body.bar-hidden #thumbResizeHandle { bottom: calc(var(--thumb-h) - 3px); }
   display: none;
   pointer-events: none;
 }
-#thumbStrip.dragging #thumbViewport { display: block; }
-/* Active-page border is redundant with the viewport overlay during drag — hide it so
-   the translucent area is the only highlight. */
-#thumbStrip.dragging .thumb-item.active { border-color: transparent; }
+#thumbStrip.scrubbing #thumbViewport { display: block; }
+/* While scrubbing the translucent fill is the highlight, so hide the active-page border to avoid
+   showing two. A plain swipe-drag keeps the border (it isn't scrubbing). */
+#thumbStrip.scrubbing .thumb-item.active { border-color: transparent; }
 
 /* Suppress text selection across the whole page while dragging the thumbnail strip —
    stops "selection trails" that appear when the cursor passes over reader content. */
