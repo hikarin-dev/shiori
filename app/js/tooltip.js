@@ -33,11 +33,15 @@ function _place(text) {
   } else if (el.style.display === 'none') {
     el.style.display = 'block';
   }
+  // Clamp against the layout viewport (documentElement.clientWidth/Height), not window.inner*,
+  // which include the scrollbar — otherwise the tooltip can sit underneath a vertical scrollbar.
+  const vw = document.documentElement.clientWidth;
+  const vh = document.documentElement.clientHeight;
   let left = _x + OFFSET_X;
-  if (left + _w > window.innerWidth - MARGIN) left = window.innerWidth - _w - MARGIN;  // keep a margin
+  if (left + _w > vw - MARGIN) left = vw - _w - MARGIN;  // keep a margin
   if (left < MARGIN) left = MARGIN;
   let top = _y + OFFSET_Y;
-  if (top + _h > window.innerHeight - MARGIN) top = _y - _h - 8;   // flip above the cursor near the bottom
+  if (top + _h > vh - MARGIN) top = _y - _h - 8;   // flip above the cursor near the bottom
   if (top < MARGIN) top = MARGIN;
   el.style.left = left + 'px';
   el.style.top = top + 'px';

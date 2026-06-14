@@ -457,7 +457,7 @@ function setThumbsOpen(open) {
     _enqueueAllThumbs();
     _prioritizeVisibleThumbs();
     if (mode === 'strip') {
-      setTimeout(() => _setIndicator(_scrollYToProportion(window.scrollY)), 50);
+      setTimeout(() => _setIndicator(_scrollYToProportion(window.scrollY + _pinOffset())), 50);
     } else {
       setTimeout(_ensureActiveThumbVisible, 250);
     }
@@ -514,6 +514,13 @@ function _stripAnchors() {
 function _proportionToContentLeft(p, a, b) {
   return a + p * (b - a);
 }
+
+// A pinned header overlaps the top of the scroll content, so programmatic scrolls that target a
+// page's true top must land it this many px lower — and the scroll→page reference line shifts down
+// by the same amount — mirroring the CSS scroll-padding-top that scrollIntoView already honours.
+// 0 when unpinned (the header then scrolls away and content reaches the viewport top).
+const TOPBAR_H = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h'), 10) || 54;
+const _pinOffset = () => (readerPinned ? TOPBAR_H : 0);
 
 // Map scrollY → proportion via page index, not linear interpolation.
 // Finds which page top is at/above scrollY, then interpolates within that page gap.
@@ -606,7 +613,7 @@ function _dragToCursor(clientX) {
   thumbStrip.scrollLeft = Math.max(0, Math.min(maxScrollX, contentLeft - visualLeft / z));
 
   if (mode === 'strip') {
-    window.scrollTo({ top: _proportionToScrollY(p), behavior: 'instant' });
+    window.scrollTo({ top: _proportionToScrollY(p) - _pinOffset(), behavior: 'instant' });
   } else {
     const idx = Math.min(pages.length - 1, Math.round(p * (pages.length - 1)));
     if (idx + 1 !== currentPage) goTo(idx + 1);
@@ -635,7 +642,7 @@ function _clickSnapToThumb(clientX) {
     _lockDir             = destCenter < _lockCenter ? -1 : 1;
     _scrollSettled       = false;
     _lastIndicatorCenter = null;
-    window.scrollTo({ top: targetY, behavior: 'smooth' });
+    window.scrollTo({ top: targetY - _pinOffset(), behavior: 'smooth' });
   } else if (idx + 1 !== currentPage) {
     goTo(idx + 1);
   }
@@ -919,12 +926,13 @@ function buildStrip() {
   // Page tracker observer: drives the currentPage UI when the viewport moves. Threshold 0 —
   // manga pages are often taller than the viewport, so a percent threshold could never fire.
   const pageObs = new IntersectionObserver(() => {
+    const ref = _pinOffset();   // readable top = just below a pinned header
     let topPage = null, topY = Infinity;
     for (const img of imgs) {
       const r = img.getBoundingClientRect();
-      if (r.bottom > 0 && r.top < window.innerHeight) {
-        // Prefer the page whose top is at or above viewport top — that's the one being read.
-        const score = r.top <= 0 ? -r.top : r.top + 10000;
+      if (r.bottom > ref && r.top < window.innerHeight) {
+        // Prefer the page whose top is at or just above the readable top — that's the one being read.
+        const score = r.top <= ref ? ref - r.top : r.top - ref + 10000;
         if (score < topY) { topY = score; topPage = parseInt(img.dataset.page); }
       }
     }
@@ -1029,7 +1037,7 @@ scrollTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior:
 window.addEventListener('scroll', () => {
   scrollTopBtn.classList.toggle('visible', mode === 'strip' && window.scrollY > 400);
   if (mode === 'strip' && thumbsOpen && !_thumbDragging) {
-    _setIndicator(_scrollYToProportion(window.scrollY));
+    _setIndicator(_scrollYToProportion(window.scrollY + _pinOffset()));
   }
   // Debounce _scrollSettled: marks smooth-scroll as done 150ms after last scroll event.
   clearTimeout(_settleTimer);
