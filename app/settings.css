@@ -131,7 +131,12 @@ input:checked + .slider::before { transform: translateX(18px); background: white
   background: var(--accent); border: 1px solid var(--accent);
   color: white; font-family: inherit; font-size: 12px; font-weight: 700;
   border-radius: 6px; cursor: pointer; transition: all 0.15s;
+  white-space: nowrap;
 }
+/* In a toggle-row the action button keeps its own width (no shrinking to a column of
+   characters) while the description text wraps — important for longer translated labels. */
+.toggle-row .btn-save, .toggle-row .btn-clear-key, .toggle-row label.btn-save { flex-shrink: 0; }
+.toggle-info { min-width: 0; }
 .btn-save:hover { background: #e55; border-color: #e55; }
 .btn-save:active { transform: scale(0.97); }
 
