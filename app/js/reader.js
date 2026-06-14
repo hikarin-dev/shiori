@@ -360,6 +360,30 @@ function scrollThumbIntoView(idx) {
   if (t) t.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
 }
 
+// Current page = the page filling the most of the reading area (the viewport below a pinned
+// header). Largest-visible-area, not a top-edge reference line: a navigated page that lands a few
+// px high or low still dominates the area, so the highlight snaps to the page you're looking at
+// rather than its neighbour. Called by the strip observer (live, as pages cross) and on
+// scroll-settle (so a programmatic jump that ends between observer firings still lands right).
+let _stripImgs = [];
+function _updateCurrentPageByArea() {
+  if (mode !== 'strip' || !_stripImgs.length) return;
+  const topRef = _pinOffset();
+  const vh = window.innerHeight;
+  let bestPage = null, bestArea = 0;
+  for (const img of _stripImgs) {
+    const r = img.getBoundingClientRect();
+    const visible = Math.min(r.bottom, vh) - Math.max(r.top, topRef);
+    if (visible > bestArea) { bestArea = visible; bestPage = parseInt(img.dataset.page); }
+  }
+  if (bestPage !== null && bestPage !== currentPage) {
+    currentPage    = bestPage;
+    scrubber.value = bestPage;
+    updateCounter();
+    highlightThumb(bestPage - 1);
+  }
+}
+
 // ── Thumbnails ──
 // Build DOM upfront, observe each thumb. Only thumbs that intersect the strip's visible area
 // (or its preload margin) get a src — keeps decoded bitmaps bounded to what's actually shown.
@@ -880,6 +904,7 @@ function buildStrip() {
     stripView.appendChild(img);
   });
   const imgs = [...stripView.querySelectorAll('.page-img')];
+  _stripImgs = imgs;   // module-level handle so the scroll-settle recompute can read these too
 
   // Loader: a small worker pool; each worker takes the unloaded page nearest the current one,
   // so the visible region is always served first and re-prioritizes as the user scrolls.
@@ -923,26 +948,13 @@ function buildStrip() {
     }
   }
 
-  // Page tracker observer: drives the currentPage UI when the viewport moves. Threshold 0 —
-  // manga pages are often taller than the viewport, so a percent threshold could never fire.
+  // Page tracker observer: recompute the current page (by largest visible area) as pages cross the
+  // viewport edges. Threshold 0 — manga pages are often taller than the viewport, so a percent
+  // threshold could never fire. It is edge-triggered, so a programmatic jump that ends between
+  // crossings is reconciled by the scroll-settle recompute (see _settleTimer below).
   const pageObs = new IntersectionObserver(() => {
-    const ref = _pinOffset();   // readable top = just below a pinned header
-    let topPage = null, topY = Infinity;
-    for (const img of imgs) {
-      const r = img.getBoundingClientRect();
-      if (r.bottom > ref && r.top < window.innerHeight) {
-        // Prefer the page whose top is at or just above the readable top — that's the one being read.
-        const score = r.top <= ref ? ref - r.top : r.top - ref + 10000;
-        if (score < topY) { topY = score; topPage = parseInt(img.dataset.page); }
-      }
-    }
-    if (topPage !== null && topPage !== currentPage) {
-      currentPage    = topPage;
-      scrubber.value = topPage;
-      updateCounter();
-      highlightThumb(topPage - 1);
-      decodeAround(topPage);
-    }
+    _updateCurrentPageByArea();
+    decodeAround(currentPage);   // keep pages around the one being read decoded as the viewport moves
   }, { threshold: 0 });
 
   imgs.forEach(img => pageObs.observe(img));
@@ -1041,7 +1053,7 @@ window.addEventListener('scroll', () => {
   }
   // Debounce _scrollSettled: marks smooth-scroll as done 150ms after last scroll event.
   clearTimeout(_settleTimer);
-  _settleTimer = setTimeout(() => { _scrollSettled = true; }, 150);
+  _settleTimer = setTimeout(() => { _scrollSettled = true; _updateCurrentPageByArea(); }, 150);
 }, { passive: true });
 
 // Thumbs
