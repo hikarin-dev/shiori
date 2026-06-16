@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.0.2 — 2026-06-17
+
+### Changed
+
+- Cleaner web addresses: the library now opens at the site root and the other pages drop the `/app/` from their links (`…/settings`, `…/reader`). Any old `…/app/…` bookmarks should be updated.
+- Gallery titles now follow your app language — when the app is set to Japanese a gallery's Japanese title shows; otherwise titles fall back to English.
+- A card's language flags now cover every language a gallery is in, not just one. The flag for your own app language is hidden, and the generic "translated" marker no longer hides a gallery's real languages.
+
+### Added
+
+- Adding a language to a gallery now offers a dropdown of the supported languages and their flags, instead of typing it by hand.
+
 ## v1.0.1 — 2026-06-14
 
 ### Added
