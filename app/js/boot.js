@@ -32,11 +32,13 @@ platform.kv.get(['countsRepaired']).then(async ({ countsRepaired }) => {
 });
 
 if ('serviceWorker' in navigator) {
-  // The v1 layout registered a worker at the origin root; it would shadow this app forever.
+  // Retire the previous layout's worker, which was scoped to /app/ — the app now lives at the
+  // site root with a root-scoped worker (registered below; registering at root replaces any stale
+  // root worker in place, so only the /app/ one needs clearing).
   navigator.serviceWorker.getRegistrations().then((regs) => {
     for (const r of regs) {
-      if (r.scope === location.origin + '/') r.unregister().catch(() => {});
+      try { if (new URL(r.scope).pathname.endsWith('/app/')) r.unregister(); } catch {}
     }
   }).catch(() => {});
-  navigator.serviceWorker.register(new URL('../sw.js', import.meta.url), { type: 'module' }).catch(() => {});
+  navigator.serviceWorker.register(new URL('../../sw.js', import.meta.url), { type: 'module' }).catch(() => {});
 }

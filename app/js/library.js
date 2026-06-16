@@ -313,7 +313,7 @@ function buildCard(g) {
     <div class="card-thumb-spacer"></div>
     <div class="card-body-spacer"></div>
     <div class="card-hover-overlay">
-      <a class="card-thumb-wrap" href="reader?g=${g.id}">
+      <a class="card-thumb-wrap" href="../reader?g=${g.id}">
         ${thumbInner}
       </a>
       <div class="card-body">
@@ -1430,7 +1430,7 @@ document.getElementById('addTagValue').addEventListener('keydown', (e) => {
 });
 
 document.getElementById('settingsBtn').addEventListener('click', () => {
-  window.location.href = 'settings';
+  window.location.href = '../settings';
 });
 
 // ── Safe Mode ──

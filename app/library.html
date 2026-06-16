@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <!-- The app's files live under /app/ but the pages are served at clean URLs (/, /settings,
+       /reader). This base (relative, so it works under both localhost / and Pages /shiori/)
+       points asset references back at the app folder; in-page nav links use ../ to stay clean. -->
+  <base href="app/">
   <link rel="icon" href="../icons/icon32.png">
   <title>Shiori — Library</title>
   <script src="font-init.js"></script>
@@ -32,7 +36,7 @@
 
 <header>
   <div class="header-left">
-    <a class="brand-wrap" href="library">
+    <a class="brand-wrap" href="../">
       <div class="brand-icon"><img src="../icons/shiori-logo.svg" alt=""></div>
       <span class="brand-text">Shiori</span>
     </a>

@@ -7,16 +7,24 @@
 </head>
 <body>
 <script>
-  // Static-host fallback (e.g. GitHub Pages) for clean URLs on a first visit, before the
-  // app's service worker controls the origin: /app/library → /app/library.html, keeping
-  // query and hash. Once the worker is active it handles the mapping itself.
-  (() => {
-    const p = location.pathname;
-    if (!/\.[^/]+$/.test(p) && !p.endsWith('/')) {
-      location.replace(p + '.html' + location.search + location.hash);
-    } else {
-      document.body.textContent = 'Not found.';
+  // Static-host (GitHub Pages) fallback for clean deep links (/settings, /reader?…) on the first
+  // visit, before the root service worker controls the origin. Register the worker, then reload —
+  // the reload is served as the mapped app page, with the address bar left clean. The dev server
+  // does this server-side, so this only runs cold on a host like GitHub Pages. Unknown paths just
+  // say "Not found" (no reload, so a genuinely missing URL can't loop).
+  (async () => {
+    const seg = (location.pathname.replace(/\/+$/, '').split('/').pop() || '').replace(/\.html$/, '');
+    const known = seg === 'settings' || seg === 'reader' || seg === 'library';
+    if (known && 'serviceWorker' in navigator && !sessionStorage.shioriBoot) {
+      sessionStorage.shioriBoot = '1';
+      try {
+        await navigator.serviceWorker.register('sw.js', { type: 'module' });
+        await navigator.serviceWorker.ready;
+        location.reload();
+        return;
+      } catch {}
     }
+    document.body.textContent = 'Not found.';
   })();
 </script>
 <noscript>Not found.</noscript>

@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <!-- Files live under /app/; pages are served at clean URLs. See library.html. -->
+  <base href="app/">
   <link rel="icon" href="../icons/icon32.png">
   <title>Shiori — Reader</title>
   <script src="font-init.js"></script>
@@ -33,12 +35,12 @@
   <div class="empty-icon">📭</div>
   <div class="empty-msg" data-i18n="rd.empty_msg">No cached pages found for this gallery.<br>Browse it on the source site first.</div>
   <a class="empty-link" id="emptyLink" href="#" target="_blank" style="display:none"></a>
-  <a class="empty-link" href="library" data-i18n="rd.back_to_library">← Back to Library</a>
+  <a class="empty-link" href="../" data-i18n="rd.back_to_library">← Back to Library</a>
 </div>
 
 <!-- Top bar -->
 <div id="topbar">
-  <a class="tb-brand" href="library">
+  <a class="tb-brand" href="../">
     <div class="tb-icon"><img src="../icons/shiori-logo.svg" alt=""></div>
     <span class="tb-logo">Shiori</span>
   </a>

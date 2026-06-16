@@ -4,23 +4,28 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Shiori</title>
-  <style>html,body{margin:0;height:100%;background:#111;color:#888;font:14px system-ui,sans-serif}
-    a{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#6cf;text-decoration:none}</style>
+  <link rel="icon" href="icons/icon32.png">
+  <style>html,body{margin:0;height:100%;background:#111;color:#888;font:14px system-ui,sans-serif;display:flex;align-items:center;justify-content:center}</style>
 </head>
 <body>
-  <!-- Landing redirect into the app (which lives under /app/). Also retires the service worker
-       a previous Shiori layout registered at this root scope, so it can't shadow the new app. -->
-  <a href="app/library.html">Open Shiori library →</a>
+  Loading Shiori…
   <script>
+    // The app's files live under /app/, but it's served at clean URLs by the root service worker
+    // (the library at this root). On a static host the worker isn't controlling on the very first
+    // visit, so register it here and reload — the reload is served as the library by the worker.
+    // Locally the dev server routes "/" straight to the library, so this page is only reached cold
+    // on a host like GitHub Pages.
     (async () => {
-      if ('serviceWorker' in navigator) {
+      if ('serviceWorker' in navigator && !sessionStorage.shioriBoot) {
+        sessionStorage.shioriBoot = '1';
         try {
-          for (const r of await navigator.serviceWorker.getRegistrations()) {
-            if (r.scope === location.origin + '/') await r.unregister();
-          }
+          await navigator.serviceWorker.register('sw.js', { type: 'module' });
+          await navigator.serviceWorker.ready;
+          location.reload();
+          return;
         } catch {}
       }
-      location.replace('app/library.html');
+      location.replace('app/library.html');   // no-service-worker fallback
     })();
   </script>
 </body>
