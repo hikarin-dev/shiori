@@ -280,12 +280,19 @@ body.shift-held .card-tag:not(.card-tag-add):hover {
 }
 .card-tag-flag:hover .flag-img { border-color: var(--accent); }
 
-/* '+' add-tag chip — same shape/rounding as a tag, revealed only while the card is hovered. */
+/* '+' add-tag chip — same shape/rounding as a tag. Shown while the card is hovered; on unhover
+   it fades out only after the card has finished shrinking back (the 0.25s delay), instead of
+   popping out the instant the pointer leaves. */
 .card-tag-add {
-  display: none; align-items: center; justify-content: center;
+  display: inline-flex; align-items: center; justify-content: center;
   font-weight: 700; padding: 1px 7px; color: var(--muted);
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.12s ease 0.25s, color 0.12s, border-color 0.12s;
 }
-.card:hover .card-tag-add { display: inline-flex; }
+.card:hover .card-tag-add {
+  opacity: 1; pointer-events: auto;
+  transition: opacity 0.1s ease 0s, color 0.12s, border-color 0.12s;
+}
 .card-tag-add:hover { color: var(--accent2); border-color: var(--accent2); }
 
 /* ── Shared modal (add-tag) ── */

@@ -7,6 +7,7 @@
 // stay swappable (IndexedDB now; PWA service worker / HTTP-NAS later).
 
 import { galleries, events } from './api.js';
+import { normalizeTitle } from './titles.js';
 
 // Windowed cache: only entities currently referenced (the visible page + explicit
 // get/load calls). Off-screen galleries are never materialized — memory is bounded by
@@ -50,7 +51,10 @@ export async function load(gid) {
 // search predicate needs). Keeps the filter pass off the heavy data.
 function _lite(id, meta) {
   const m = meta || {};
-  return { id: String(id), title: m.titlePretty || m.titleEnglish || '', tags: m.tags || [] };
+  const tt = normalizeTitle(m);
+  // All title variants are searchable, so a query matches whichever language the user typed.
+  const title = [tt.english, tt.japanese, tt.pretty].filter(Boolean).join(' ');
+  return { id: String(id), title, tags: m.tags || [] };
 }
 
 // One page of galleries. Without `match`, sorting + pagination happen in the database

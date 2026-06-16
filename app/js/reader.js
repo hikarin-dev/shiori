@@ -4,7 +4,8 @@ import './boot.js';
 import { openDB, imageToBlob } from './db.js';
 import { request as extRequest, available as extAvailable } from './ext-bridge.js';
 import * as platform from './platform.js';
-import { t } from './i18n.js';
+import { t, getLang } from './i18n.js';
+import { pickTitle } from './titles.js';
 import { initTooltips } from './tooltip.js';
 
 // Site link templates are runtime knowledge handed over by the extension; the app itself is
@@ -269,10 +270,11 @@ async function init() {
     document.getElementById('emptyLink').style.display = 'none';
   }
 
-  if (meta && (meta.titlePretty || meta.titleEnglish)) {
+  const displayTitle = pickTitle(meta, getLang());
+  if (displayTitle) {
     const titleEl = document.getElementById('tbTitle');
     if (titleEl) {
-      titleEl.textContent = meta.titlePretty || meta.titleEnglish;
+      titleEl.textContent = displayTitle;
       if (visitUrl) { titleEl.href = visitUrl; titleEl.target = '_blank'; }
     }
   }

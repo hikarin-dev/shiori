@@ -8,6 +8,7 @@ import { request as extRequest, available as extAvailable } from './ext-bridge.j
 import * as store from './store.js';
 import * as platform from './platform.js';
 import { t, getLang } from './i18n.js';
+import { pickTitle, migrateTitle } from './titles.js';
 import { initTooltips, refreshTooltip } from './tooltip.js';
 
 // ── Source sites — learned at runtime, never hard-coded ─────────────────────────────────────
@@ -221,17 +222,33 @@ function _langDisplayName(code) {
   } catch { return _LANG_DISPLAY[code] || code; }
 }
 
-function buildCardTags(tags, language) {
+// Languages a gallery can be tagged with — the ones Shiori has a flag for. `value` is the
+// lowercase English name stored on the tag (what the flag derivation understands); `code` drives
+// the localized label. De-duplicated by name (zh / zh-TW both map to "chinese").
+const _LANG_TAG_OPTIONS = (() => {
+  const seen = new Set(); const out = [];
+  for (const [code, name] of Object.entries(_LANG_SEARCH)) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push({ code, name });
+  }
+  return out;
+})();
+
+function buildCardTags(tags, languages) {
   const list = Array.isArray(tags) ? tags : [];
   const artists = list.filter(t => t.type === 'artist');
   const regular = list.filter(t => t.type === 'tag');
   const female  = list.filter(t => t.type === 'tag:female');
   const male    = list.filter(t => t.type === 'tag:male');
   const chips = [];
-  // Language flag — first chip; hidden when it matches the app's current language. Clickable like
-  // a tag (adds a language filter); tooltip shows the language name in the app's language.
-  if (language && _LANG_FLAG[language] && _langBase(language) !== _langBase(getLang())) {
-    chips.push(`<span class="card-tag-flag" data-lang-name="${escHtml(_LANG_SEARCH[language] || language)}" data-tip="${escHtml(_langDisplayName(language))}"><img class="flag-img" src="flags/${_LANG_FLAG[language]}.svg" alt="${escHtml(language)}" loading="lazy"></span>`);
+  // Language flags — leading chips, one per gallery language; a flag matching the app's current
+  // language is omitted. Clickable like a tag (adds a language filter); tooltip shows the
+  // language name in the app's language.
+  const appBase = _langBase(getLang());
+  for (const code of (Array.isArray(languages) ? languages : [])) {
+    if (!_LANG_FLAG[code] || _langBase(code) === appBase) continue;
+    chips.push(`<span class="card-tag-flag" data-lang-name="${escHtml(_LANG_SEARCH[code] || code)}" data-tip="${escHtml(_langDisplayName(code))}"><img class="flag-img" src="flags/${_LANG_FLAG[code]}.svg" alt="${escHtml(code)}" loading="lazy"></span>`);
   }
   chips.push(
     ...artists.map(t => `<span class="card-tag artist" data-type="artist" data-original="${escHtml(t.name)}">${escHtml(t.name)}</span>`),
@@ -266,15 +283,16 @@ function buildCard(g) {
     ? `<img class="card-thumb"${thumbSrc ? ` src="${thumbSrc}"` : ''} alt="">`
     : `<div class="card-thumb-placeholder">📁</div>`;
 
-  const titleHtml = g.title
-    ? `<div class="card-title" data-original="${escHtml(g.title)}">${escHtml(g.title)}</div>`
+  const displayTitle = pickTitle(g, getLang());
+  const titleHtml = displayTitle
+    ? `<div class="card-title" data-original="${escHtml(displayTitle)}">${escHtml(displayTitle)}</div>`
     : '';
 
   const cachedCount = g.count;
   const totalCount = g.numPages ? ` / ${g.numPages}` : '';
   const metaLine = `${cachedCount}${totalCount} ${t('card.pages')} · ${formatSize(g.size)}`;
 
-  const tagHtml = buildCardTags(g.tags, g.language);
+  const tagHtml = buildCardTags(g.tags, g.languages);
 
   const canDownload  = _canDownload(g);
   const visitUrl     = galleryLink(g, 1);
@@ -1189,8 +1207,9 @@ async function exportMetadataZip(galleryId) {
     req.onerror   = () => reject(req.error);
   });
 
-  // Strip image-specific fields — this is a metadata-only backup.
-  const { pageExts, ...metaClean } = meta || {};
+  // Strip image-specific fields — this is a metadata-only backup. migrateTitle gives the export
+  // the canonical shape (galleryId + title leading) regardless of when the record was stored.
+  const { pageExts, ...metaClean } = migrateTitle(meta || {});
 
   const enc      = new TextEncoder();
   const zipBytes = _zipCreate([{ name: 'metadata.json', data: enc.encode(JSON.stringify(metaClean, null, 2)) }]);
@@ -1224,7 +1243,7 @@ async function exportGalleryZip(galleryId) {
 
   files.push({
     name: 'metadata.json',
-    data: enc.encode(JSON.stringify(meta, null, 2))
+    data: enc.encode(JSON.stringify(migrateTitle(meta), null, 2))
   });
 
   files.push({
@@ -1357,11 +1376,32 @@ document.getElementById('grid').addEventListener('click', (e) => {
 // ── Add-metadata-tag modal ──
 let _addTagGid = null;
 const _addTagModal = document.getElementById('addTagModal');
+const _addTagCategory = document.getElementById('addTagCategory');
+const _addTagLangSelect = document.getElementById('addTagLangValue');
+
+// A language tag's value must be one of the supported flags, so it is picked from a dropdown
+// instead of typed; every other category keeps the free-text input.
+const _isLangCategory = () => _addTagCategory.value === 'language';
+function _syncAddTagInput() {
+  const lang = _isLangCategory();
+  _addTagLangSelect.style.display = lang ? '' : 'none';
+  document.getElementById('addTagValue').style.display = lang ? 'none' : '';
+}
+// Fill (or refresh, so labels follow the app language) the language dropdown.
+function _fillLangOptions() {
+  _addTagLangSelect.innerHTML = _LANG_TAG_OPTIONS
+    .map(o => `<option value="${escHtml(o.name)}">${escHtml(_langDisplayName(o.code))}</option>`)
+    .join('');
+}
+_addTagCategory.addEventListener('change', _syncAddTagInput);
+
 function openAddTagModal(gid) {
   _addTagGid = gid;
   document.getElementById('addTagValue').value = '';
+  _fillLangOptions();
+  _syncAddTagInput();
   _addTagModal.classList.add('show');
-  setTimeout(() => document.getElementById('addTagValue').focus(), 30);
+  setTimeout(() => { (_isLangCategory() ? _addTagLangSelect : document.getElementById('addTagValue')).focus(); }, 30);
 }
 function closeAddTagModal() {
   _addTagModal.classList.remove('show');
@@ -1370,8 +1410,10 @@ function closeAddTagModal() {
 async function confirmAddTag() {
   const gid = _addTagGid;
   if (!gid) return;
-  const type = document.getElementById('addTagCategory').value;
-  const name = document.getElementById('addTagValue').value.trim().toLowerCase();
+  const type = _addTagCategory.value;
+  const name = _isLangCategory()
+    ? _addTagLangSelect.value
+    : document.getElementById('addTagValue').value.trim().toLowerCase();
   if (!name) { document.getElementById('addTagValue').focus(); return; }
   const g = _pageItems.find(x => x.id === gid);
   const tags = Array.isArray(g?.tags) ? [...g.tags] : [];

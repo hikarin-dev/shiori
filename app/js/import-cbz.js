@@ -91,12 +91,12 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
   if (skipExisting) {
     await metaPut(embeddedMeta
       ? { ...embeddedMeta, galleryId: gid, pageExts, fetchedAt: Date.now() }
-      : { galleryId: gid, titleEnglish: nameNoExt, titleJapanese: '', titlePretty: nameNoExt, tags: [], numPages: 0, pageExts, fetchedAt: Date.now(), isLocalImport: true, source: '' });
+      : { galleryId: gid, title: { english: nameNoExt, japanese: '', pretty: nameNoExt }, tags: [], numPages: 0, pageExts, fetchedAt: Date.now(), isLocalImport: true, source: '' });
   } else {
     const existing = await metaGet(gid).catch(() => null);
     await metaPut(existing
       ? { ...existing, isLocalImport: true }
-      : { galleryId: gid, titleEnglish: nameNoExt, titleJapanese: '', titlePretty: nameNoExt, tags: [], numPages: 0, pageExts, fetchedAt: Date.now(), isLocalImport: true, source: '' });
+      : { galleryId: gid, title: { english: nameNoExt, japanese: '', pretty: nameNoExt }, tags: [], numPages: 0, pageExts, fetchedAt: Date.now(), isLocalImport: true, source: '' });
     await deleteGalleryImages(gid);
   }
 

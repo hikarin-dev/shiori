@@ -3,9 +3,10 @@
 // extension-hosted agent all read and write the same origin-scoped database through this module.
 
 import * as platform from './platform.js';
+import { normalizeTitle, migrateTitle } from './titles.js';
 
 const DB_NAME = 'shiori-cache';
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 export const STORE = 'images';
 const META_STORE = 'metadata';
 const GALLERY_STORE = 'galleries';
@@ -101,8 +102,12 @@ export function openDB() {
         meta.openCursor().onsuccess = (ev) => {
           const c = ev.target.result;
           if (!c) return;
-          const v = c.value;
-          if (v.tagNames == null && Array.isArray(v.tags)) { v.tagNames = tagNamesOf(v.tags); c.update(v); }
+          let v = c.value;
+          let dirty = false;
+          if (v.tagNames == null && Array.isArray(v.tags)) { v.tagNames = tagNamesOf(v.tags); dirty = true; }
+          // Legacy flat title fields → the canonical { english, japanese, pretty } object.
+          if (v.title == null || typeof v.title !== 'object') { v = migrateTitle(v); dirty = true; }
+          if (dirty) c.update(v);
           c.continue();
         };
       }
@@ -200,8 +205,10 @@ export async function metaGet(galleryId) {
 
 export async function metaPut(meta) {
   const db = await openDB();
-  // Keep the tagNames index in sync automatically for every writer.
-  const record = Array.isArray(meta.tags) ? { ...meta, tagNames: tagNamesOf(meta.tags) } : meta;
+  // Every write converges on the canonical title format (legacy flat fields stripped), then the
+  // tagNames index is kept in sync automatically for every writer.
+  let record = migrateTitle(meta);
+  if (Array.isArray(record.tags)) record = { ...record, tagNames: tagNamesOf(record.tags) };
   return new Promise((resolve, reject) => {
     const tx = db.transaction(META_STORE, 'readwrite');
     const req = tx.objectStore(META_STORE).put(record);
@@ -319,16 +326,26 @@ const _LANG_NAME_TO_CODE = {
   polish: 'pl', ukrainian: 'uk',
 };
 
-// A gallery's display language code: a translated copy's target language wins (set when the
-// gallery is translated), then a 'language'-type tag, then the source metadata's language.
-function _deriveLang(m) {
-  if (!m) return '';
-  if (m.translatedLang) return m.translatedLang;
-  const langTag = Array.isArray(m.tags) && m.tags.find(t => t.type === 'language');
-  if (langTag && langTag.name) return _LANG_NAME_TO_CODE[langTag.name.toLowerCase()] || '';
-  const sm = m.sourceMetadata && m.sourceMetadata.language;
-  if (sm) return _LANG_NAME_TO_CODE[String(sm).toLowerCase()] || '';
-  return '';
+// A gallery's display language codes (one flag each). An app-translated copy shows only its
+// target language; otherwise every valid 'language'-type tag (the non-language "translated"
+// marker and unsupported names are ignored), falling back to the source metadata's language.
+function _deriveLangs(m) {
+  if (!m) return [];
+  if (m.translatedLang) return [m.translatedLang];
+  const out = [];
+  const add = (code) => { if (code && !out.includes(code)) out.push(code); };
+  if (Array.isArray(m.tags)) {
+    for (const tag of m.tags) {
+      if (tag.type !== 'language' || !tag.name) continue;
+      const name = tag.name.toLowerCase();
+      if (name === 'translated') continue;
+      add(_LANG_NAME_TO_CODE[name]);
+    }
+  }
+  if (!out.length && m.sourceMetadata && m.sourceMetadata.language) {
+    add(_LANG_NAME_TO_CODE[String(m.sourceMetadata.language).toLowerCase()]);
+  }
+  return out;
 }
 
 function _entityFrom(id, gal, meta) {
@@ -341,8 +358,7 @@ function _entityFrom(id, gal, meta) {
     latestAt: g.latestAt || 0,
     addedAt: g.addedAt || g.latestAt || Number(id) || 0,
     coverPage: g.coverPage,
-    title: m.titlePretty || m.titleEnglish || '',
-    titleEnglish: m.titleEnglish || '',
+    title: normalizeTitle(m),
     numPages: m.numPages,
     tags: m.tags,
     mediaId: m.mediaId,
@@ -354,7 +370,7 @@ function _entityFrom(id, gal, meta) {
     fetchedAt: m.fetchedAt,
     translated: m.translated || false,
     translatedLang: m.translatedLang || '',
-    language: _deriveLang(m),
+    languages: _deriveLangs(m),
   };
 }
 

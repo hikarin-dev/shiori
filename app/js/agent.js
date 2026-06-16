@@ -21,6 +21,7 @@ import {
   deleteGallery, deleteGalleryImages, rebuildGalleryEntry,
   getGalleryPages, getGalleryPageRange, getGalleryImageRecords, imageToDataUrl,
 } from './db.js';
+import { pickTitle } from './titles.js';
 
 // ── Toast payload (the "saved to library" card the extension shows on-site) ────────────────
 async function toastFor(gid) {
@@ -30,7 +31,7 @@ async function toastFor(gid) {
   try { const src = await coverGet(gid); if (src) cover = await resizeCover(src, 96); } catch {}
   return {
     galleryId: m.sourceId || gid,
-    title: m.titlePretty || m.titleEnglish || '',
+    title: pickTitle(m),
     tags: m.tags || [],
     numPages: m.numPages || 0,
     cover,
@@ -54,7 +55,7 @@ const OPS = {
       let cover = null;
       try { const src = await coverGet(g.id); if (src) cover = await resizeCover(src, coverWidth); } catch {}
       galleries.push({
-        id: g.id, sourceId: g.sourceId, title: g.title || '', count: g.count || 0, size: g.size || 0,
+        id: g.id, sourceId: g.sourceId, title: pickTitle(g), count: g.count || 0, size: g.size || 0,
         source: g.source || '', tags: (g.tags || []).slice(0, 8), cover,
       });
     }
