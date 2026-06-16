@@ -107,12 +107,6 @@ export const LOCALES = {
     'tm.batch_note': 'Cloud LLMs translate a whole chunk of pages in one call, for story context and fewer requests. Keep these small — too many pages overflow the model’s input limit and text gets dropped.',
     'tm.cost': 'Cost estimate (USD / 1M tokens — Gemini only)', 'tm.price_in': 'Input $/1M',
     'tm.price_out': 'Output $/1M', 'tm.reset_defaults': 'Reset to defaults',
-
-    'pop.active': 'Active', 'pop.refresh': 'Refresh', 'pop.import': 'Import CBZ', 'pop.settings': 'Settings',
-    'pop.recent': 'Recent Galleries', 'pop.view_all': 'View All →', 'pop.loading': 'Loading library…',
-    'pop.empty': 'No images cached yet.', 'pop.images': 'Images', 'pop.galleries': 'Galleries',
-    'pop.stored': 'Stored', 'pop.location': 'Location', 'pop.delete': 'Delete', 'pop.ready': 'Ready',
-    'pop.unreachable': 'Shiori app not reachable', 'pop.open_app': 'Open app',
   },
 
   ja: {
@@ -214,12 +208,6 @@ export const LOCALES = {
     'tm.batch_note': 'クラウドLLMはまとまったページを1回の呼び出しで翻訳し、文脈を共有しつつリクエストを減らします。小さめに保ってください — ページが多すぎるとモデルの入力上限を超えてテキストが欠落します。',
     'tm.cost': 'コスト見積（USD / 100万トークン — Geminiのみ）', 'tm.price_in': '入力 $/100万',
     'tm.price_out': '出力 $/100万', 'tm.reset_defaults': '既定値に戻す',
-
-    'pop.active': '有効', 'pop.refresh': '更新', 'pop.import': 'CBZをインポート', 'pop.settings': '設定',
-    'pop.recent': '最近のギャラリー', 'pop.view_all': 'すべて表示 →', 'pop.loading': 'ライブラリを読み込み中…',
-    'pop.empty': 'まだキャッシュされた画像がありません。', 'pop.images': '画像', 'pop.galleries': 'ギャラリー',
-    'pop.stored': '保存容量', 'pop.location': '保存場所', 'pop.delete': '削除', 'pop.ready': '準備完了',
-    'pop.unreachable': 'Shioriアプリに接続できません', 'pop.open_app': 'アプリを開く',
   },
 
   de: {
@@ -321,12 +309,6 @@ export const LOCALES = {
     'tm.batch_note': 'Cloud-LLMs übersetzen einen ganzen Block Seiten in einem Aufruf, für Kontext und weniger Anfragen. Halte diese klein — zu viele Seiten sprengen das Eingabelimit des Modells und Text geht verloren.',
     'tm.cost': 'Kostenschätzung (USD / 1 Mio. Token — nur Gemini)', 'tm.price_in': 'Eingabe $/1Mio.',
     'tm.price_out': 'Ausgabe $/1Mio.', 'tm.reset_defaults': 'Auf Standard zurücksetzen',
-
-    'pop.active': 'Aktiv', 'pop.refresh': 'Aktualisieren', 'pop.import': 'CBZ importieren', 'pop.settings': 'Einstellungen',
-    'pop.recent': 'Neueste Galerien', 'pop.view_all': 'Alle anzeigen →', 'pop.loading': 'Bibliothek wird geladen…',
-    'pop.empty': 'Noch keine Bilder im Cache.', 'pop.images': 'Bilder', 'pop.galleries': 'Galerien',
-    'pop.stored': 'Gespeichert', 'pop.location': 'Speicherort', 'pop.delete': 'Löschen', 'pop.ready': 'Bereit',
-    'pop.unreachable': 'Shiori-App nicht erreichbar', 'pop.open_app': 'App öffnen',
   },
 
   fr: {
@@ -428,12 +410,6 @@ export const LOCALES = {
     'tm.batch_note': 'Les LLM cloud traduisent un bloc entier de pages en un seul appel, pour le contexte et moins de requêtes. Gardez-les petites — trop de pages dépassent la limite d’entrée du modèle et du texte est perdu.',
     'tm.cost': 'Estimation de coût (USD / 1M de tokens — Gemini uniquement)', 'tm.price_in': 'Entrée $/1M',
     'tm.price_out': 'Sortie $/1M', 'tm.reset_defaults': 'Rétablir les valeurs par défaut',
-
-    'pop.active': 'Actif', 'pop.refresh': 'Actualiser', 'pop.import': 'Importer un CBZ', 'pop.settings': 'Paramètres',
-    'pop.recent': 'Galeries récentes', 'pop.view_all': 'Tout voir →', 'pop.loading': 'Chargement de la bibliothèque…',
-    'pop.empty': 'Aucune image en cache pour le moment.', 'pop.images': 'Images', 'pop.galleries': 'Galeries',
-    'pop.stored': 'Stocké', 'pop.location': 'Emplacement', 'pop.delete': 'Supprimer', 'pop.ready': 'Prêt',
-    'pop.unreachable': 'Application Shiori injoignable', 'pop.open_app': 'Ouvrir l’app',
   },
 
   'zh-CN': {
@@ -535,12 +511,6 @@ export const LOCALES = {
     'tm.batch_note': '云端 LLM 会在一次调用中翻译一整块页面，以获得上下文并减少请求。请保持较小——页数过多会超出模型输入上限并丢失文本。',
     'tm.cost': '成本估算（USD / 100 万 token——仅 Gemini）', 'tm.price_in': '输入 $/100万',
     'tm.price_out': '输出 $/100万', 'tm.reset_defaults': '恢复默认',
-
-    'pop.active': '已启用', 'pop.refresh': '刷新', 'pop.import': '导入 CBZ', 'pop.settings': '设置',
-    'pop.recent': '最近的画廊', 'pop.view_all': '查看全部 →', 'pop.loading': '正在加载图库…',
-    'pop.empty': '尚无缓存图片。', 'pop.images': '图片', 'pop.galleries': '画廊',
-    'pop.stored': '已存储', 'pop.location': '位置', 'pop.delete': '删除', 'pop.ready': '就绪',
-    'pop.unreachable': '无法连接 Shiori 应用', 'pop.open_app': '打开应用',
   },
 
   ko: {
@@ -642,12 +612,6 @@ export const LOCALES = {
     'tm.batch_note': '클라우드 LLM은 한 번의 호출로 여러 페이지를 함께 번역하여 맥락을 공유하고 요청을 줄입니다. 작게 유지하세요 — 페이지가 너무 많으면 모델 입력 한도를 넘어 텍스트가 누락됩니다.',
     'tm.cost': '비용 추정(USD / 100만 토큰 — Gemini 전용)', 'tm.price_in': '입력 $/100만',
     'tm.price_out': '출력 $/100만', 'tm.reset_defaults': '기본값으로 재설정',
-
-    'pop.active': '활성', 'pop.refresh': '새로고침', 'pop.import': 'CBZ 가져오기', 'pop.settings': '설정',
-    'pop.recent': '최근 갤러리', 'pop.view_all': '전체 보기 →', 'pop.loading': '라이브러리 불러오는 중…',
-    'pop.empty': '아직 캐시된 이미지가 없습니다.', 'pop.images': '이미지', 'pop.galleries': '갤러리',
-    'pop.stored': '저장됨', 'pop.location': '위치', 'pop.delete': '삭제', 'pop.ready': '준비됨',
-    'pop.unreachable': 'Shiori 앱에 연결할 수 없음', 'pop.open_app': '앱 열기',
   },
 
   'zh-TW': {
@@ -749,12 +713,6 @@ export const LOCALES = {
     'tm.batch_note': '雲端 LLM 會在一次呼叫中翻譯一整批頁面，以取得上下文並減少請求。請保持較小——頁數過多會超出模型輸入上限並遺漏文字。',
     'tm.cost': '成本估算（USD / 100 萬 token——僅 Gemini）', 'tm.price_in': '輸入 $/100萬',
     'tm.price_out': '輸出 $/100萬', 'tm.reset_defaults': '還原為預設值',
-
-    'pop.active': '已啟用', 'pop.refresh': '重新整理', 'pop.import': '匯入 CBZ', 'pop.settings': '設定',
-    'pop.recent': '最近的畫廊', 'pop.view_all': '檢視全部 →', 'pop.loading': '正在載入圖庫…',
-    'pop.empty': '尚無快取圖片。', 'pop.images': '圖片', 'pop.galleries': '畫廊',
-    'pop.stored': '已儲存', 'pop.location': '位置', 'pop.delete': '刪除', 'pop.ready': '就緒',
-    'pop.unreachable': '無法連線 Shiori 應用程式', 'pop.open_app': '開啟應用程式',
   },
 
   es: {
@@ -856,12 +814,6 @@ export const LOCALES = {
     'tm.batch_note': 'Los LLM en la nube traducen un bloque entero de páginas en una sola llamada, por contexto y menos solicitudes. Mantenlos pequeños — demasiadas páginas superan el límite de entrada del modelo y se pierde texto.',
     'tm.cost': 'Estimación de coste (USD / 1M tokens — solo Gemini)', 'tm.price_in': 'Entrada $/1M',
     'tm.price_out': 'Salida $/1M', 'tm.reset_defaults': 'Restablecer valores predeterminados',
-
-    'pop.active': 'Activo', 'pop.refresh': 'Actualizar', 'pop.import': 'Importar CBZ', 'pop.settings': 'Ajustes',
-    'pop.recent': 'Galerías recientes', 'pop.view_all': 'Ver todo →', 'pop.loading': 'Cargando biblioteca…',
-    'pop.empty': 'Aún no hay imágenes en caché.', 'pop.images': 'Imágenes', 'pop.galleries': 'Galerías',
-    'pop.stored': 'Almacenado', 'pop.location': 'Ubicación', 'pop.delete': 'Eliminar', 'pop.ready': 'Listo',
-    'pop.unreachable': 'No se puede acceder a la app Shiori', 'pop.open_app': 'Abrir app',
   },
 
   'pt-BR': {
@@ -963,12 +915,6 @@ export const LOCALES = {
     'tm.batch_note': 'LLMs na nuvem traduzem um bloco inteiro de páginas em uma chamada, por contexto e menos solicitações. Mantenha pequeno — páginas demais estouram o limite de entrada do modelo e perdem texto.',
     'tm.cost': 'Estimativa de custo (USD / 1M tokens — só Gemini)', 'tm.price_in': 'Entrada $/1M',
     'tm.price_out': 'Saída $/1M', 'tm.reset_defaults': 'Restaurar padrões',
-
-    'pop.active': 'Ativo', 'pop.refresh': 'Atualizar', 'pop.import': 'Importar CBZ', 'pop.settings': 'Configurações',
-    'pop.recent': 'Galerias recentes', 'pop.view_all': 'Ver tudo →', 'pop.loading': 'Carregando biblioteca…',
-    'pop.empty': 'Ainda não há imagens em cache.', 'pop.images': 'Imagens', 'pop.galleries': 'Galerias',
-    'pop.stored': 'Armazenado', 'pop.location': 'Local', 'pop.delete': 'Excluir', 'pop.ready': 'Pronto',
-    'pop.unreachable': 'Não foi possível acessar o app Shiori', 'pop.open_app': 'Abrir app',
   },
 
   ru: {
@@ -1070,12 +1016,6 @@ export const LOCALES = {
     'tm.batch_note': 'Облачные LLM переводят целый блок страниц за один вызов — ради контекста и меньшего числа запросов. Держите небольшим — слишком много страниц превышают лимит входа модели, и текст теряется.',
     'tm.cost': 'Оценка стоимости (USD / 1 млн токенов — только Gemini)', 'tm.price_in': 'Вход $/1млн',
     'tm.price_out': 'Выход $/1млн', 'tm.reset_defaults': 'Сбросить к умолчаниям',
-
-    'pop.active': 'Активно', 'pop.refresh': 'Обновить', 'pop.import': 'Импорт CBZ', 'pop.settings': 'Настройки',
-    'pop.recent': 'Недавние галереи', 'pop.view_all': 'Показать все →', 'pop.loading': 'Загрузка библиотеки…',
-    'pop.empty': 'Пока нет кэшированных изображений.', 'pop.images': 'Изображения', 'pop.galleries': 'Галереи',
-    'pop.stored': 'Хранится', 'pop.location': 'Расположение', 'pop.delete': 'Удалить', 'pop.ready': 'Готово',
-    'pop.unreachable': 'Приложение Shiori недоступно', 'pop.open_app': 'Открыть приложение',
   },
 
   vi: {
@@ -1177,12 +1117,6 @@ export const LOCALES = {
     'tm.batch_note': 'LLM đám mây dịch cả một khối trang trong một lần gọi, để có ngữ cảnh và ít yêu cầu hơn. Giữ nhỏ — quá nhiều trang sẽ vượt giới hạn đầu vào của mô hình và mất chữ.',
     'tm.cost': 'Ước tính chi phí (USD / 1 triệu token — chỉ Gemini)', 'tm.price_in': 'Vào $/1tr',
     'tm.price_out': 'Ra $/1tr', 'tm.reset_defaults': 'Đặt lại mặc định',
-
-    'pop.active': 'Đang bật', 'pop.refresh': 'Làm mới', 'pop.import': 'Nhập CBZ', 'pop.settings': 'Cài đặt',
-    'pop.recent': 'Bộ truyện gần đây', 'pop.view_all': 'Xem tất cả →', 'pop.loading': 'Đang tải thư viện…',
-    'pop.empty': 'Chưa có ảnh nào trong bộ nhớ đệm.', 'pop.images': 'Ảnh', 'pop.galleries': 'Bộ truyện',
-    'pop.stored': 'Đã lưu', 'pop.location': 'Vị trí', 'pop.delete': 'Xóa', 'pop.ready': 'Sẵn sàng',
-    'pop.unreachable': 'Không thể kết nối ứng dụng Shiori', 'pop.open_app': 'Mở ứng dụng',
   },
 
   id: {
@@ -1284,11 +1218,5 @@ export const LOCALES = {
     'tm.batch_note': 'LLM awan menerjemahkan seluruh blok halaman dalam satu panggilan, demi konteks dan lebih sedikit permintaan. Buat kecil — terlalu banyak halaman melampaui batas masukan model dan teks hilang.',
     'tm.cost': 'Perkiraan biaya (USD / 1 juta token — hanya Gemini)', 'tm.price_in': 'Masukan $/1jt',
     'tm.price_out': 'Keluaran $/1jt', 'tm.reset_defaults': 'Kembalikan ke bawaan',
-
-    'pop.active': 'Aktif', 'pop.refresh': 'Segarkan', 'pop.import': 'Impor CBZ', 'pop.settings': 'Pengaturan',
-    'pop.recent': 'Galeri terbaru', 'pop.view_all': 'Lihat semua →', 'pop.loading': 'Memuat pustaka…',
-    'pop.empty': 'Belum ada gambar di-cache.', 'pop.images': 'Gambar', 'pop.galleries': 'Galeri',
-    'pop.stored': 'Tersimpan', 'pop.location': 'Lokasi', 'pop.delete': 'Hapus', 'pop.ready': 'Siap',
-    'pop.unreachable': 'Aplikasi Shiori tidak terjangkau', 'pop.open_app': 'Buka aplikasi',
   },
 };
