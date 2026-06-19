@@ -265,7 +265,7 @@ body.safe-mode .card-thumb-placeholder {
 .card-tag.artist:hover { border-color: var(--accent2); }
 
 /* While Shift is held, hovering a tag previews its deletion (Shift+click deletes) with the same
-   colour as the card's delete button. The flag (no .card-tag class) and '+' chip are excluded. */
+   colour as the card's delete button. The '+' chip is excluded; the flag gets its own rule below. */
 body.shift-held .card-tag:not(.card-tag-add):hover {
   background: var(--danger); color: white; border-color: var(--danger);
 }
@@ -278,7 +278,9 @@ body.shift-held .card-tag:not(.card-tag-add):hover {
   height: 14px; width: auto; display: block;
   border: 1px solid var(--border); border-radius: 3px; transition: border-color 0.12s;
 }
-.card-tag-flag:hover .flag-img { border-color: var(--accent); }
+.card-tag-flag:hover .flag-img { border-color: var(--muted); }
+/* Shift+hover previews deleting the flag's language tag (Shift+click deletes), matching other tags. */
+body.shift-held .card-tag-flag:hover .flag-img { border-color: var(--danger); }
 
 /* '+' add-tag chip — same shape/rounding as a tag. Shown while the card is hovered; on unhover
    it fades out only after the card has finished shrinking back (the 0.25s delay), instead of

@@ -51,11 +51,10 @@ let _pageZoom     = 1;     // +/- page scale factor
 // bitmaps of off-screen images on its own. So URLs for EVERY page are kept for the whole
 // session: nothing is ever evicted, scrolling back never re-fetches, and no base64 ever
 // touches the JS heap.
-const _pageUrlCache = new Map();   // page.url → blob: URL ('' when the record is missing)
-function _revokeAllPageUrls() {
-  for (const u of _pageUrlCache.values()) { if (u) URL.revokeObjectURL(u); }
-  _pageUrlCache.clear();
-}
+// Keyed per variant (original vs translated) so toggling the translation view never has to
+// revoke and refetch — both variants stay cached and the switch is an instant in-place swap.
+const _pageUrlCache = new Map();   // variantKey → blob: URL ('' when the record is missing)
+const _variantKey = (page) => (translateView ? 't:' : 'o:') + page.url;
 let _readerDb = null;
 let _stripGen  = 0; // bumped on every buildStrip call to cancel stale loads
 
@@ -67,7 +66,8 @@ function _openReaderDb() {
 }
 
 async function pageBlobUrl(page) {
-  if (_pageUrlCache.has(page.url)) return _pageUrlCache.get(page.url);
+  const key = _variantKey(page);
+  if (_pageUrlCache.has(key)) return _pageUrlCache.get(key);
   if (!_readerDb) return '';
   const record = await new Promise((resolve, reject) => {
     const tx  = _readerDb.transaction('images', 'readonly');
@@ -78,12 +78,22 @@ async function pageBlobUrl(page) {
   const src = record ? ((translateView && record.translated) ? record.translated : (record.blob ?? record.dataUrl)) : null;
   const blob = await imageToBlob(src);
   const url = blob ? URL.createObjectURL(blob) : '';
-  if (_pageUrlCache.has(page.url)) {           // a concurrent load won the race — reuse its URL
+  if (_pageUrlCache.has(key)) {                // a concurrent load won the race — reuse its URL
     if (url) URL.revokeObjectURL(url);
-    return _pageUrlCache.get(page.url);
+    return _pageUrlCache.get(key);
   }
-  _pageUrlCache.set(page.url, url);
+  _pageUrlCache.set(key, url);
   return url;
+}
+
+// Swap an <img> to the current-variant blob, decoding it first so the picture never blanks during
+// a translation-view toggle. The element keeps its measured size, so nothing shifts.
+async function _swapImg(imgEl, page) {
+  if (!imgEl || !page) return;
+  const url = await pageBlobUrl(page);
+  if (!url) return;
+  try { const pre = new Image(); pre.src = url; await pre.decode(); } catch {}
+  imgEl.src = url;
 }
 
 // Pre-create blob URLs (and warm the decode cache) for pages around n, so page flips and
@@ -671,6 +681,8 @@ function _clickSnapToThumb(clientX) {
 // (drag, continuous scroll) or pointerup-without-movement (click, snap to thumb page).
 // Momentum / inertia for swipe-pan mode.
 let _swipeRaf = null;
+let _wheelTarget = null;   // eased wheel-scroll target (px); null when no wheel animation is running
+let _wheelRaf    = null;
 function _launchSwipeMomentum(velocity) {
   cancelAnimationFrame(_swipeRaf);
   const FRICTION = 0.984; // velocity multiplied each frame — matches ~1000px coast from 16px/frame
@@ -699,6 +711,7 @@ function _startThumbInteraction(initialEvent) {
     if (Math.abs(ev.clientX - startX) < 4) return;
     dragging = true;
     cancelAnimationFrame(_swipeRaf);
+    cancelAnimationFrame(_wheelRaf); _wheelRaf = null; _wheelTarget = null;   // drag overrides wheel glide
     if (isScrubber) {
       _thumbDragging = true;
       thumbStrip.classList.add('scrubbing');   // only scrubbing hides the border + shows the fill
@@ -749,6 +762,33 @@ function _startThumbInteraction(initialEvent) {
 }
 
 thumbStrip.addEventListener('scroll', _prioritizeVisibleThumbs, { passive: true });
+
+// A plain mouse-wheel over the strip scrolls it horizontally (no Shift needed), eased toward an
+// accumulated target so rapid ticks glide smoothly instead of stepping. Kept local — preventDefault
+// so the page doesn't also scroll, stopPropagation so it doesn't feed the floating-nav reveal —
+// while the pointer is over the strip. Over the main page the wheel still scrolls the page (and the
+// strip's indicator follows). If the strip can't scroll (everything fits), the wheel falls through.
+function _wheelGlide() {
+  const max  = Math.max(0, thumbStrip.scrollWidth - thumbStrip.clientWidth);
+  _wheelTarget = Math.max(0, Math.min(max, _wheelTarget));
+  const diff = _wheelTarget - thumbStrip.scrollLeft;
+  if (Math.abs(diff) < 0.5) { thumbStrip.scrollLeft = _wheelTarget; _wheelRaf = null; _wheelTarget = null; return; }
+  thumbStrip.scrollLeft += diff * 0.2;   // ease ~20% of the remaining distance per frame
+  _wheelRaf = requestAnimationFrame(_wheelGlide);
+}
+thumbStrip.addEventListener('wheel', (e) => {
+  const max = thumbStrip.scrollWidth - thumbStrip.clientWidth;
+  if (max <= 0) return;
+  // A plain mouse reports deltaY; trackpads / Shift-wheel report deltaX — use whichever dominates.
+  const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+  if (!delta) return;
+  cancelAnimationFrame(_swipeRaf);                       // a fresh wheel takes over from any swipe coast
+  if (_wheelTarget === null) _wheelTarget = thumbStrip.scrollLeft;
+  _wheelTarget = Math.max(0, Math.min(max, _wheelTarget + delta));
+  if (!_wheelRaf) _wheelRaf = requestAnimationFrame(_wheelGlide);
+  e.preventDefault();
+  e.stopPropagation();
+}, { passive: false });
 
 // Container listener — clicks/drags that don't start on the indicator itself.
 thumbStrip.addEventListener('pointerdown', (e) => {
@@ -801,15 +841,18 @@ function setKeybindOpen(open) {
   keybindBtn.classList.toggle('active', open);
 }
 
-// ── Header pin ──
+// ── Header: pinned vs unpinned ──
+// Pinned: the bar is `position: sticky` — always at the top of the viewport.
+// Unpinned: the bar is a normal in-flow element (`position: relative`, via .reader-unpinned) that
+// scrolls away with the pages, so the very top of the document always carries it — no slide, no
+// gap. While it's scrolled out of view, 5 mouse-wheel scroll-ups in a row slide a floating copy of
+// it down; that copy slides away on a scroll-down past the bar, and is dropped instantly the moment
+// you reach the very top — where the in-flow bar sits exactly behind it, so the swap is invisible.
+// Only a real wheel fires 'wheel', so keyboard (W/↑, S/↓), the scrubber, thumbnail jumps and any
+// programmatic scroll never reveal it — and it's suppressed while the in-flow bar is already on
+// screen near the top (no point sliding down what you can already see).
 let readerPinned = localStorage.getItem('shiori-reader-pin') === '1'; // default: unpinned
-let _resetTopbarFloat = () => {};   // assigned by the float IIFE below
-
-function applyScrollLayout() {
-  document.documentElement.classList.add('reader-scroll');
-  document.body.classList.add('reader-scroll');
-  document.body.classList.toggle('reader-unpinned', !readerPinned);
-}
+let _floatReset = () => {};   // assigned by the float IIFE below
 
 function applyReaderPin(p) {
   readerPinned = p;
@@ -819,57 +862,86 @@ function applyReaderPin(p) {
   // When pinned, offset programmatic scrolls (page nav, scrubber, Home/End) by the header height
   // so a navigated page lands just below the sticky header instead of behind it.
   document.documentElement.style.scrollPaddingTop = p ? 'var(--topbar-h)' : '';
-  applyScrollLayout();
-  // Pinning while the topbar was floated would otherwise leave its inline position:fixed +
-  // spacer in place (the scroll handler stops running once pinned, so floatOut never fires),
-  // which drops the sticky header out of flow and lets the pages slide under it. Reset it.
-  if (p) _resetTopbarFloat();
+  document.documentElement.classList.add('reader-scroll');
+  document.body.classList.add('reader-scroll');
+  document.body.classList.toggle('reader-unpinned', !p);   // unpinned → #topbar is in normal flow
+  _floatReset();   // never leave a floating overlay across a pin toggle
 }
 applyReaderPin(readerPinned);
 
-// ── Float topbar back in on scroll-up (unpinned only) ──
+// Floating wheel-reveal of the unpinned header — a SEPARATE fixed copy that slides down while the
+// in-flow #topbar is scrolled out of view. The in-flow bar itself never moves (no reflow, no
+// scroll-anchor jitter), so the very top of the document always carries it. We just overlay a
+// fresh clone (so it mirrors the current title/counter/href/button state) and slide that down.
 (function () {
-  const topbar = document.getElementById('topbar');
-  let floating = false;
-  let placeholder = null;
+  const H = () => topbar.offsetHeight || 54;
+  const staticVisible = () => window.scrollY < H();   // any part of the in-flow bar is on screen
+  let float = null;        // the fixed clone while shown (or sliding out), else null
+  let wheelUps = 0;
   let lastY = window.scrollY;
 
-  function floatIn() {
-    if (!floating) {
-      floating = true;
-      placeholder = document.createElement('div');
-      placeholder.style.height = topbar.offsetHeight + 'px';
-      placeholder.style.flexShrink = '0';
-      topbar.before(placeholder);
-      topbar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:200;transform:translateY(-100%)';
-      topbar.offsetHeight; // reflow so transition fires
-    }
-    topbar.style.transition = 'transform 0.18s ease';
-    topbar.style.transform  = 'translateY(0)';
+  function show() {
+    if (float || readerPinned || staticVisible()) return;
+    const f = topbar.cloneNode(true);
+    f.id = 'topbarFloat';
+    // Drop descendant ids (no duplicates in the DOM); remember each so a click forwards to the real one.
+    f.querySelectorAll('[id]').forEach(el => { el.dataset.ref = el.id; el.removeAttribute('id'); });
+    // Match the in-flow bar's EXACT box, not `right:0` — a fixed element and an in-flow one can resolve
+    // to different widths (the scrollbar gutter), which would shift the right-side controls and change
+    // where the title ellipsis falls. Copying the measured left/width keeps the two pixel-identical.
+    // Slide via `top` (a paint property), NOT transform — a transform would pin the clone to a GPU
+    // layer whose text renders blurry on fractional-DPR screens until a repaint.
+    const r = topbar.getBoundingClientRect();
+    f.style.cssText = `position:fixed;left:${r.left}px;width:${r.width}px;z-index:201;top:${-H()}px;transition:top 0.2s ease`;
+    f.addEventListener('click', (e) => {                // route button presses to the real controls
+      const b = e.target.closest('button[data-ref]');
+      if (b) { e.preventDefault(); document.getElementById(b.dataset.ref)?.click(); }
+    });
+    document.body.appendChild(f);
+    f.offsetHeight;                                     // reflow so the slide-in fires
+    f.style.top = '0px';
+    float = f;
+    // position:fixed puts the bar on its own GPU layer, which Chrome can leave rastered at low quality
+    // (blurry) on fractional-DPR screens until something repaints it. Re-insert it once it has slid in
+    // to force one clean, high-res raster — the same thing hovering or selecting it would trigger.
+    f.addEventListener('transitionend', () => {
+      if (float !== f) return;
+      const sib = f.nextSibling;
+      f.remove();
+      document.body.insertBefore(f, sib);
+    }, { once: true });
   }
+  function hide(slide) {
+    if (!float) return;
+    const f = float; float = null;
+    if (!slide) { f.remove(); return; }                 // instant (at the top / pin toggle)
+    f.style.top = `${-H()}px`;                          // slide up, then remove
+    f.addEventListener('transitionend', () => f.remove(), { once: true });
+    setTimeout(() => f.remove(), 260);
+  }
+  _floatReset = () => { wheelUps = 0; hide(false); };   // pin toggle drops it without a slide
 
-  function floatOut() {
-    floating = false;
-    topbar.style.cssText = '';
-    if (placeholder) { placeholder.remove(); placeholder = null; }
-  }
-  _resetTopbarFloat = floatOut;   // let applyReaderPin clear a leftover floated header when pinning
+  // The clone is a one-shot snapshot, so its (live) page counter would freeze — mirror the real one.
+  const counter = document.getElementById('pageCounter');
+  if (counter) new MutationObserver(() => {
+    const c = float && float.querySelector('[data-ref="pageCounter"]');
+    if (c) c.textContent = counter.textContent;
+  }).observe(counter, { childList: true, characterData: true, subtree: true });
+
+  // Reveal only on a real wheel rolled up 5× in a row while the in-flow bar is scrolled away.
+  window.addEventListener('wheel', (e) => {
+    if (readerPinned || float || staticVisible()) { wheelUps = 0; return; }
+    if (e.deltaY < 0) { if (++wheelUps >= 5) { wheelUps = 0; show(); } }
+    else wheelUps = 0;
+  }, { passive: true });
 
   window.addEventListener('scroll', () => {
-    if (readerPinned) return;
-    const y     = window.scrollY;
-    const delta = y - lastY;
-    if (Math.abs(delta) < 2) return;
+    const y = window.scrollY;
+    if (readerPinned) { lastY = y; return; }
+    if (y <= 0) hide(false);                            // very top: in-flow bar sits exactly behind → drop instantly
+    else if (float && y > lastY && !staticVisible()) hide(true);  // scrolled down past the bar → slide away
+    // (partway up, or scrolling up, we keep it — it covers the half-scrolled bar behind it)
     lastY = y;
-
-    if (y <= 0) {
-      floatOut();
-    } else if (delta < 0) {
-      floatIn();
-    } else if (floating) {
-      topbar.style.transition = 'transform 0.18s ease';
-      topbar.style.transform  = 'translateY(-100%)';
-    }
   }, { passive: true });
 }());
 
@@ -880,11 +952,56 @@ applyReaderPin(readerPinned);
 // known, so the scrollbar is stable; nothing is ever evicted (the browser discards off-screen
 // decoded bitmaps on its own), so scrolling back never pops. A decode-ahead window keeps
 // upcoming pages painted before they enter the viewport, however fast the user scrolls.
+const DECODE_AHEAD = 8;       // pages on each side of the current one kept eagerly decoded
+const STRIP_CONCURRENCY = 4;  // parallel loaders — kept low so loads always win over thumb work
+
+// (Re)point every strip image at the current variant, nearest the current page first. On a
+// translation-view swap (swap=true) a visible page's replacement is decoded BEFORE its src
+// changes, so it never blanks; off-screen pages just swap. A bumped _stripGen cancels any prior
+// pass (and stale in-flight loads), so toggling mid-load resolves to the right variant.
+function _runStripLoader(swap) {
+  const gen = ++_stripGen;
+  const imgs = [...stripView.querySelectorAll('.page-img')];
+  if (!imgs.length) return;
+  const pending = new Set(imgs.map((_, i) => i));
+  let active = 0;
+
+  async function loadOne(idx) {
+    const url = await pageBlobUrl(pages[idx]);
+    if (_stripGen !== gen || !url) return;
+    const img = imgs[idx];
+    if (img.getAttribute('src') === url) return;   // already showing this variant
+    const near = Math.abs(idx + 1 - currentPage) <= DECODE_AHEAD;
+    if (swap && near && img.getAttribute('src')) {
+      const pre = new Image(); pre.src = url;       // decode the replacement before swapping in
+      try { await pre.decode(); } catch {}
+      if (_stripGen !== gen) return;
+    }
+    img.src = url;
+    if (near) { try { await img.decode(); } catch {} }
+  }
+
+  function next() {
+    if (_stripGen !== gen) return;
+    while (active < STRIP_CONCURRENCY && pending.size) {
+      let best = -1, bestDist = Infinity;
+      for (const idx of pending) {
+        const dist = Math.abs(idx + 1 - currentPage);
+        if (dist < bestDist) { bestDist = dist; best = idx; }
+      }
+      if (best < 0) return;
+      pending.delete(best);
+      active++;
+      loadOne(best).finally(() => { active--; next(); });
+    }
+  }
+  next();
+}
+
 function buildStrip() {
   _stripObservers.forEach(o => o.disconnect());
   _stripObservers = [];
   stripView.innerHTML = '';
-  const gen = ++_stripGen;
 
   // Build empty imgs upfront so DOM order is fixed before any async work.
   pages.forEach((p, i) => {
@@ -901,54 +1018,19 @@ function buildStrip() {
   });
   const imgs = [...stripView.querySelectorAll('.page-img')];
 
-  // Loader: a small worker pool; each worker takes the unloaded page nearest the current one,
-  // so the visible region is always served first and re-prioritizes as the user scrolls.
-  const unloaded = new Set(pages.map((_, i) => i));
-  const DECODE_AHEAD = 8;
-  const CONCURRENCY = 4;
-  let active = 0;
-
-  async function loadOne(idx) {
-    const url = await pageBlobUrl(pages[idx]);
-    if (_stripGen !== gen || !url) return;
-    const img = imgs[idx];
-    img.src = url;
-    if (Math.abs(idx + 1 - currentPage) <= DECODE_AHEAD) {
-      try { await img.decode(); } catch {}
-    }
-  }
-
-  function next() {
-    if (_stripGen !== gen) return;
-    while (active < CONCURRENCY && unloaded.size) {
-      let best = -1, bestDist = Infinity;
-      for (const idx of unloaded) {
-        const dist = Math.abs(idx + 1 - currentPage);
-        if (dist < bestDist) { bestDist = dist; best = idx; }
-      }
-      if (best < 0) return;
-      unloaded.delete(best);
-      active++;
-      loadOne(best).finally(() => { active--; next(); });
-    }
-  }
-
-  next();
+  _runStripLoader(false);
 
   // Keep the pages around the viewport decoded — the browser may have discarded far-away
-  // bitmaps; decode() is a no-op when they're still resident.
+  // bitmaps; decode() is a no-op when they're still resident. currentPage is maintained by the
+  // scroll listener.
   function decodeAround(center) {
     for (let i = Math.max(0, center - 1 - DECODE_AHEAD); i <= Math.min(imgs.length - 1, center - 1 + DECODE_AHEAD); i++) {
       if (imgs[i].src) imgs[i].decode().catch(() => {});
     }
   }
-
-  // Keep the pages around the one being read decoded as the viewport moves (the browser may have
-  // discarded far-away bitmaps). currentPage itself is maintained by the scroll listener.
   const pageObs = new IntersectionObserver(() => {
     decodeAround(currentPage);
   }, { threshold: 0 });
-
   imgs.forEach(img => pageObs.observe(img));
   _stripObservers.push(pageObs);
 }
@@ -962,7 +1044,8 @@ function setMode(m, skipAnim) {
   if (m !== 'strip') scrollTopBtn.classList.remove('visible');
 
   mode = m;
-  applyScrollLayout();
+  document.documentElement.classList.add('reader-scroll');
+  document.body.classList.add('reader-scroll');
 
   // Show/hide views
   singleView.classList.toggle('active', m === 'single');
@@ -1041,6 +1124,9 @@ scrollTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior:
 window.addEventListener('scroll', () => {
   scrollTopBtn.classList.toggle('visible', mode === 'strip' && window.scrollY > 400);
   if (mode === 'strip' && !_thumbDragging) {
+    // A page scroll makes the strip follow the page, so it owns scrollLeft now — kill any in-flight
+    // wheel glide, or the two writers fight each other every frame and the follow jitters.
+    if (_wheelRaf) { cancelAnimationFrame(_wheelRaf); _wheelRaf = null; _wheelTarget = null; }
     // One proportion drives everything: the current page (counter + active-thumb border) and the
     // fill indicator, so the border tracks the fill. This listener fires every frame (unlike the
     // page-crossing observer), so a programmatic jump settles on the right page on its own.
@@ -1069,9 +1155,17 @@ translateToggle.addEventListener('click', () => {
   translateView = !translateView;
   translateToggle.classList.toggle('active', translateView);
   translateToggle.dataset.tip = translateView ? t('rd.tip_translate_on') : t('rd.tip_translate');
-  _revokeAllPageUrls(); // cached blob URLs are keyed by url only, not by variant
-  if (mode === 'strip') buildStrip();
-  else goTo(currentPage);
+  // Seamless switch: swap the on-screen pages to the other variant in place — decoded first so
+  // nothing blanks, keeping each page's measured size and the scroll position. Both variants stay
+  // cached (keyed per variant), so toggling back is instant.
+  if (mode === 'strip') {
+    _runStripLoader(true);
+  } else if (mode === 'single') {
+    _swapImg(mainImg, pages[currentPage - 1]);
+  } else if (mode === 'double') {
+    _swapImg(imgLeft, pages[currentPage - 1]);
+    if (currentPage < pages.length) _swapImg(imgRight, pages[currentPage]);
+  }
 });
 
 // Keybind modal
@@ -1085,62 +1179,83 @@ readerPinBtn.addEventListener('click', () => applyReaderPin(!readerPinned));
 // ── Page zoom (+/-) ──
 const ZOOM_MIN = 0.4, ZOOM_MAX = 3, ZOOM_STEP = 0.1;
 function setPageZoom(z) {
-  _pageZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(z * 100) / 100));
+  const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(z * 100) / 100));
+  if (next === _pageZoom) return;
+  // Keep whatever sits at the top bar's bottom edge fixed while zooming, wherever you are in the
+  // pages. Anchor on the page element under that edge and the fraction of it that's below it, then
+  // after the relayout nudge the scroll so that exact point lands back there — gap/mode-agnostic.
+  const anchorY = document.getElementById('topbar')?.getBoundingClientRect().height || 0;
+  let anchorEl = null, frac = 0;
+  for (const el of document.querySelectorAll('.page-img, #mainImg, .dImg')) {
+    const r = el.getBoundingClientRect();
+    if (r.height > 0 && r.top <= anchorY && r.bottom >= anchorY) { anchorEl = el; frac = (anchorY - r.top) / r.height; break; }
+  }
+  _pageZoom = next;
   document.documentElement.style.setProperty('--page-zoom', _pageZoom);
+  if (anchorEl) {
+    void document.documentElement.scrollHeight;   // flush the new layout before measuring
+    const r = anchorEl.getBoundingClientRect();
+    const delta = (r.top + frac * r.height) - anchorY;
+    if (delta) window.scrollBy(0, delta);
+  }
   platform.kv.set({ readerPageZoom: _pageZoom });
 }
 
-// ── Continuous W/S scroll (no key-repeat delay) ──
-// A rAF loop drives the scroll the moment a key goes down, so there's none of the OS
-// auto-repeat pause before the second step. Held keys are tracked so releasing one key
-// while the other is still down keeps scrolling in the remaining direction.
-const SCROLL_SPEED = 22; // px per frame (~1320px/s at 60fps)
-const _scrollHeld = new Set();
+// ── Continuous W/S (and ↑/↓) scroll (no key-repeat delay) ──
+// A rAF loop drives the scroll the moment a key goes down, so there's none of the OS auto-repeat
+// pause before the second step. Held directions are kept in press order, so holding both keys
+// scrolls toward the LAST one pressed, and releasing it falls back to the other while still held.
+const SCROLL_SPEED = 22; // px per frame at full speed; the base rate is half this — Shift doubles it
+const _scrollStack = []; // held directions, oldest→newest; the last entry is the active one
 let _scrollRaf = null;
+let _scrollFast = false;  // Shift held → scroll at SCROLL_SPEED; otherwise at half (the default)
 function _scrollLoop() {
-  let dir = 0;
-  if (_scrollHeld.has('down')) dir += 1;
-  if (_scrollHeld.has('up'))   dir -= 1;
-  if (dir === 0) { _scrollRaf = null; return; }
-  window.scrollBy(0, dir * SCROLL_SPEED);
+  const dir = _scrollStack[_scrollStack.length - 1];
+  if (!dir) { _scrollRaf = null; return; }
+  const step = _scrollFast ? SCROLL_SPEED : SCROLL_SPEED / 2;
+  window.scrollBy(0, dir === 'down' ? step : -step);
   _scrollRaf = requestAnimationFrame(_scrollLoop);
 }
 function _pressScroll(dir) {
-  if (_scrollHeld.has(dir)) return;
-  _scrollHeld.add(dir);
+  const i = _scrollStack.indexOf(dir);
+  if (i !== -1) _scrollStack.splice(i, 1);   // re-press (or held + repeat) → move to the top
+  _scrollStack.push(dir);
   if (!_scrollRaf) _scrollRaf = requestAnimationFrame(_scrollLoop);
 }
-function _releaseScroll(dir) { _scrollHeld.delete(dir); }
-function _stopScroll() { _scrollHeld.clear(); }
+function _releaseScroll(dir) {
+  const i = _scrollStack.indexOf(dir);
+  if (i !== -1) _scrollStack.splice(i, 1);
+}
+function _stopScroll() { _scrollStack.length = 0; }
 
 document.addEventListener('keyup', (e) => {
-  if (e.key === 'w' || e.key === 'W') _releaseScroll('up');
-  if (e.key === 's' || e.key === 'S') _releaseScroll('down');
+  _scrollFast = e.shiftKey;   // releasing Shift drops back to the half-speed default, live
+  if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp')   _releaseScroll('up');
+  if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') _releaseScroll('down');
 });
-window.addEventListener('blur', _stopScroll);
-document.addEventListener('visibilitychange', () => { if (document.hidden) _stopScroll(); });
+window.addEventListener('blur', () => { _stopScroll(); _scrollFast = false; });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { _stopScroll(); _scrollFast = false; } });
 
 // Keyboard
 document.addEventListener('keydown', (e) => {
   if (e.target === scrubber) return;
+  _scrollFast = e.shiftKey;   // Shift held → double the scroll speed, live (even mid-hold)
 
-  // W / S → continuous scroll (Shift jumps to the ends, like Home/End).
-  if (e.key === 'w' || e.key === 'W') {
+  // W / S / ↑ / ↓ → continuous scroll; Shift doubles the speed.
+  if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') {
     e.preventDefault();
-    if (e.shiftKey) { _stopScroll(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
-    else _pressScroll('up');
+    _pressScroll('up');
     return;
   }
-  if (e.key === 's' || e.key === 'S') {
+  if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') {
     e.preventDefault();
-    if (e.shiftKey) { _stopScroll(); window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }
-    else _pressScroll('down');
+    _pressScroll('down');
     return;
   }
 
-  // +/- zoom the in-view pages.
-  if (e.key === '+' || e.key === '=') { e.preventDefault(); setPageZoom(_pageZoom + ZOOM_STEP); return; }
-  if (e.key === '-' || e.key === '_') { e.preventDefault(); setPageZoom(_pageZoom - ZOOM_STEP); return; }
+  // Zoom the in-view pages: + / E in, − / Q out.
+  if (e.key === '+' || e.key === '=' || e.key === 'e' || e.key === 'E') { e.preventDefault(); setPageZoom(_pageZoom + ZOOM_STEP); return; }
+  if (e.key === '-' || e.key === '_' || e.key === 'q' || e.key === 'Q') { e.preventDefault(); setPageZoom(_pageZoom - ZOOM_STEP); return; }
   if (e.key === '0' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); setPageZoom(1); return; }
 
   if (e.key === 'Escape' && keybindModal.classList.contains('show')) {
@@ -1154,8 +1269,9 @@ document.addEventListener('keydown', (e) => {
   }
 
   const step = mode === 'double' ? 2 : 1;
-  const fwd  = e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ' || e.key === 'd' || e.key === 'D';
-  const bck  = e.key === 'ArrowLeft'  || e.key === 'ArrowUp'   || e.key === 'a' || e.key === 'A';
+  // ↑/↓ are scroll (handled above); page-flip stays on ←/→, A/D and Space.
+  const fwd  = e.key === 'ArrowRight' || e.key === ' ' || e.key === 'd' || e.key === 'D';
+  const bck  = e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A';
 
   if (mode === 'strip') {
     if (fwd || bck) {

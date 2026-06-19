@@ -9,7 +9,7 @@ html, body { background: var(--bg); color: var(--text); font-family: 'JetBrains 
 body { min-height: 100vh; }
 
 /* ── Top bar ── */
-#topbar {
+#topbar, #topbarFloat {
   position: sticky; top: 0; z-index: 200; width: 100%;
   height: var(--topbar-h);
   background: var(--surface); border-bottom: 1px solid var(--border);
@@ -30,7 +30,7 @@ body { min-height: 100vh; }
 .tb-title   { font-size: 13px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; flex-shrink: 1; text-decoration: none; }
 .tb-title[href]:hover { opacity: 0.8; text-decoration: underline; }
 .tb-spacer  { flex: 1; min-width: 8px; }
-#pageCounter { font-size: 11px; color: var(--muted); white-space: nowrap; min-width: 52px; text-align: right; }
+#pageCounter, [data-ref="pageCounter"] { font-size: 11px; color: var(--muted); white-space: nowrap; min-width: 52px; text-align: right; }
 
 /* Mode button group */
 .mode-group { display: flex; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
@@ -123,12 +123,13 @@ body { min-height: 100vh; }
   zoom: var(--zoom-inv);
   background: rgba(10,10,12,0.97); border-top: 1px solid var(--border);
   transition: height 0.2s ease, padding 0.2s ease, border-width 0.2s ease;
-  display: flex; align-items: flex-end; gap: 5px; padding: 0 10px 7px;
+  display: flex; align-items: flex-end; gap: 3px; padding: 3px;
   overflow-x: auto; overflow-y: hidden; z-index: 150;
   cursor: pointer;
+  scrollbar-width: none;   /* hide the scrollbar (Firefox) — strip still scrolls/drags */
 }
-/* When closed the strip is height:0, but its border-top + bottom padding still render an
-   8px sliver (border-box can't shrink padding/border below their own size, and the strip's
+/* When closed the strip is height:0, but its border-top + bottom padding still render a
+   4px sliver (border-box can't shrink padding/border below their own size, and the strip's
    background still paints under a transparent border). Collapse both to zero so a hidden
    strip leaves no trace; they animate back in alongside the height. */
 #thumbStrip:not(.open) { padding-top: 0; padding-bottom: 0; border-top-width: 0; }
@@ -136,8 +137,7 @@ body { min-height: 100vh; }
 #thumbStrip.resizing { transition: none; }
 body.bar-hidden #thumbStrip { bottom: 0; }
 #thumbStrip.open { height: var(--thumb-h); }
-#thumbStrip::-webkit-scrollbar { height: 3px; }
-#thumbStrip::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+#thumbStrip::-webkit-scrollbar { display: none; }   /* hide the scrollbar (WebKit) — scroll/drag intact */
 
 #thumbResizeHandle {
   position: fixed; left: 0; right: 0; height: 6px;
@@ -156,8 +156,8 @@ body.bar-hidden #thumbResizeHandle { bottom: calc(var(--thumb-h) - 3px); }
    thumb's own height + aspect. */
 #thumbViewport {
   position: absolute;
-  bottom: 7px;
-  height: calc(var(--thumb-h) - 14px);
+  bottom: 3px;
+  height: calc(var(--thumb-h) - 7px);
   aspect-ratio: 52 / 74;
   background: rgba(237, 39, 84, 0.18);
   border-radius: 4px;
@@ -181,8 +181,8 @@ body.thumb-dragging * {
 
 .thumb-item {
   flex-shrink: 0;
-  height: calc(var(--thumb-h) - 14px);
-  width: calc((var(--thumb-h) - 14px) * 52 / 74);
+  height: calc(var(--thumb-h) - 7px);
+  width: calc((var(--thumb-h) - 7px) * 52 / 74);
   border-radius: 3px; overflow: hidden; border: 2px solid transparent;
   cursor: pointer; transition: border-color 0.22s ease-out; background: #111;
   position: relative;
@@ -266,7 +266,8 @@ html:has(#keybindModal.show), body:has(#keybindModal.show) { overflow: hidden; }
   font-size: 10px; color: var(--text); font-family: inherit; white-space: nowrap;
 }
 
-/* ── Unpinned: topbar scrolls with page; JS floats it back on scroll-up ── */
+/* Unpinned: the header is a normal in-flow element that scrolls away with the pages (the wheel
+   reveal in reader.js floats a copy back). Pinned (no class) leaves it position: sticky. */
 body.reader-unpinned #topbar { position: relative; }
 /* ── All modes use document scroll ── */
 html.reader-scroll, body.reader-scroll { height: auto; }

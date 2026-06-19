@@ -2,7 +2,7 @@
 // per-gallery actions. Imports boot.js first so services + the PWA worker are wired.
 
 import './boot.js';
-import { openDB, metaPut, getStats } from './db.js';
+import { openDB, metaPut, getStats, _LANG_NAME_TO_CODE } from './db.js';
 import { importBackup } from './backup.js';
 import { request as extRequest, available as extAvailable } from './ext-bridge.js';
 import * as store from './store.js';
@@ -248,7 +248,7 @@ function buildCardTags(tags, languages) {
   const appBase = _langBase(getLang());
   for (const code of (Array.isArray(languages) ? languages : [])) {
     if (!_LANG_FLAG[code] || _langBase(code) === appBase) continue;
-    chips.push(`<span class="card-tag-flag" data-lang-name="${escHtml(_LANG_SEARCH[code] || code)}" data-tip="${escHtml(_langDisplayName(code))}"><img class="flag-img" src="flags/${_LANG_FLAG[code]}.svg" alt="${escHtml(code)}" loading="lazy"></span>`);
+    chips.push(`<span class="card-tag-flag" data-lang-code="${escHtml(code)}" data-lang-name="${escHtml(_LANG_SEARCH[code] || code)}" data-tip="${escHtml(_langDisplayName(code))}"><img class="flag-img" src="flags/${_LANG_FLAG[code]}.svg" alt="${escHtml(code)}" loading="lazy"></span>`);
   }
   chips.push(
     ...artists.map(t => `<span class="card-tag artist" data-type="artist" data-original="${escHtml(t.name)}">${escHtml(t.name)}</span>`),
@@ -1334,10 +1334,24 @@ function _addSearchToken(token) {
 }
 
 document.getElementById('grid').addEventListener('click', (e) => {
-  // Language flag → add a language filter to search (treated like a tag).
+  // Language flag → add a language filter to search (treated like a tag); Shift+click deletes the
+  // gallery's matching language tag(s), like Shift+click on any other tag.
   const flagChip = e.target.closest('.card-tag-flag');
   if (flagChip) {
     e.preventDefault(); e.stopPropagation();
+    if (e.shiftKey) {
+      const gid = flagChip.closest('.card')?.dataset.galleryId;
+      const g = gid && _pageItems.find(x => x.id === gid);
+      if (!g || !Array.isArray(g.tags)) return;
+      const code = flagChip.dataset.langCode;
+      const toRemove = g.tags.filter(tg => tg.type === 'language' && _LANG_NAME_TO_CODE[String(tg.name).toLowerCase()] === code);
+      if (!toRemove.length) return;   // flag came from source metadata / translated copy — no tag to delete
+      const label = t('addtag.cat_language');
+      const name  = flagChip.dataset.tip || flagChip.dataset.langName || code;
+      if (!confirm(t('confirm.remove_tag', { label, name }))) return;
+      store.mutate(gid, { tags: g.tags.filter(tg => !toRemove.includes(tg)) });
+      return;
+    }
     if (flagChip.dataset.langName) _addSearchToken(`language:"${flagChip.dataset.langName}"`);
     return;
   }
@@ -1607,15 +1621,16 @@ document.addEventListener('keydown', (e) => {
 // ── W/S continuous scroll (no key-repeat delay) ──
 // A rAF loop scrolls the window the instant a key goes down, skipping the OS auto-repeat
 // pause. A/D and arrows still flip library pages.
-const SCROLL_SPEED = 22;
+const SCROLL_SPEED = 22; // px per frame at full speed; the base rate is half this — Shift doubles it
 const _scrollHeld = new Set();
 let _scrollRaf = null;
+let _scrollFast = false;  // Shift held → scroll at SCROLL_SPEED; otherwise at half (the default)
 function _scrollLoop() {
   let dir = 0;
   if (_scrollHeld.has('down')) dir += 1;
   if (_scrollHeld.has('up'))   dir -= 1;
   if (dir === 0) { _scrollRaf = null; return; }
-  window.scrollBy(0, dir * SCROLL_SPEED);
+  window.scrollBy(0, dir * (_scrollFast ? SCROLL_SPEED : SCROLL_SPEED / 2));
   _scrollRaf = requestAnimationFrame(_scrollLoop);
 }
 function _pressScroll(dir) {
@@ -1625,25 +1640,25 @@ function _pressScroll(dir) {
 }
 const _stopScroll = () => _scrollHeld.clear();
 document.addEventListener('keyup', (e) => {
+  _scrollFast = e.shiftKey;   // releasing Shift drops back to the half-speed default, live
   if (e.key === 'w' || e.key === 'W') _scrollHeld.delete('up');
   if (e.key === 's' || e.key === 'S') _scrollHeld.delete('down');
 });
-window.addEventListener('blur', _stopScroll);
+window.addEventListener('blur', () => { _stopScroll(); _scrollFast = false; });
 
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+  _scrollFast = e.shiftKey;   // Shift held → double the scroll speed, live (even mid-hold)
 
-  // W / S → continuous scroll (Shift jumps to the ends).
+  // W / S → continuous scroll; Shift doubles the speed.
   if (e.key === 'w' || e.key === 'W') {
     e.preventDefault();
-    if (e.shiftKey) { _stopScroll(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
-    else _pressScroll('up');
+    _pressScroll('up');
     return;
   }
   if (e.key === 's' || e.key === 'S') {
     e.preventDefault();
-    if (e.shiftKey) { _stopScroll(); window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }
-    else _pressScroll('down');
+    _pressScroll('down');
     return;
   }
 

@@ -318,7 +318,7 @@ async function coverDelete(galleryId) {
 // surface consumes. Intentionally excludes the heavy cover blob (loaded lazily).
 // Source language names → ISO-ish codes used for the card language flag. Covers every language
 // the translator can output to, plus the common source-site language names.
-const _LANG_NAME_TO_CODE = {
+export const _LANG_NAME_TO_CODE = {
   english: 'en', japanese: 'ja', chinese: 'zh', 'chinese (simplified)': 'zh',
   'chinese (traditional)': 'zh-TW', korean: 'ko', german: 'de', french: 'fr',
   spanish: 'es', russian: 'ru', portuguese: 'pt', 'portuguese (brazil)': 'pt-BR',
