@@ -7,16 +7,18 @@
 </head>
 <body>
 <script>
-  // Static-host (GitHub Pages) fallback for clean deep links (/settings, /reader?…) on the first
-  // visit, before the root service worker controls the origin. Register the worker, then reload —
-  // the reload is served as the mapped app page, with the address bar left clean. The dev server
-  // does this server-side, so this only runs cold on a host like GitHub Pages. Unknown paths just
-  // say "Not found" (no reload, so a genuinely missing URL can't loop).
+  // GitHub Pages serves this file (with a 404 status) for the clean deep links /reader?…, /settings —
+  // they aren't real files. A hard reload bypasses the service worker, so we register it and reload:
+  // that reload IS served by the worker (as the mapped app page), with the address bar left clean.
+  // The retry flag (cleared by the app once it boots, in boot.js) lets this run on every hard reload,
+  // while bailing to the plain app file if the worker can't take over. Truly unknown paths say so.
   (async () => {
+    const RETRY = 'shiori-sw-retry';
     const seg = (location.pathname.replace(/\/+$/, '').split('/').pop() || '').replace(/\.html$/, '');
     const known = seg === 'settings' || seg === 'reader' || seg === 'library';
-    if (known && 'serviceWorker' in navigator && !sessionStorage.shioriBoot) {
-      sessionStorage.shioriBoot = '1';
+    if (!known) { document.body.textContent = 'Not found.'; return; }
+    if ('serviceWorker' in navigator && !sessionStorage.getItem(RETRY)) {
+      sessionStorage.setItem(RETRY, '1');
       try {
         await navigator.serviceWorker.register('sw.js', { type: 'module' });
         await navigator.serviceWorker.ready;
@@ -24,7 +26,7 @@
         return;
       } catch {}
     }
-    document.body.textContent = 'Not found.';
+    location.replace('app/' + seg + '.html' + location.search + location.hash);   // worker unavailable → real file
   })();
 </script>
 <noscript>Not found.</noscript>

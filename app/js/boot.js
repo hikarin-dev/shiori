@@ -6,6 +6,11 @@ import * as platform from './platform.js';
 import { services } from './services.js';
 import { applyTranslations } from './i18n.js';
 
+// We reached an app page, so it booted — clear the hard-reload recovery flag that index.html /
+// 404.html set to bounce the navigation through the service worker (see those files). Left set, the
+// next hard reload would assume the worker had failed and skip the recovery.
+try { sessionStorage.removeItem('shiori-sw-retry'); } catch {}
+
 // Localize the page's static markup as early as possible (this module is imported first by
 // every page, and runs after the DOM is parsed), so non-English users don't see an English flash.
 applyTranslations(document);

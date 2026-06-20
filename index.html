@@ -10,14 +10,15 @@
 <body>
   Loading Shiori…
   <script>
-    // The app's files live under /app/, but it's served at clean URLs by the root service worker
-    // (the library at this root). On a static host the worker isn't controlling on the very first
-    // visit, so register it here and reload — the reload is served as the library by the worker.
-    // Locally the dev server routes "/" straight to the library, so this page is only reached cold
-    // on a host like GitHub Pages.
+    // The app's pages are real files under /app/, served at clean URLs by the root service worker.
+    // A hard reload bypasses the worker and a static host serves this file cold, so we register the
+    // worker and reload — that reload IS served by the worker (as the library), with the URL left
+    // clean. The retry flag (cleared by the app once it boots, in boot.js) lets this run on every
+    // hard reload, while still bailing to the plain file if the worker genuinely can't take over.
     (async () => {
-      if ('serviceWorker' in navigator && !sessionStorage.shioriBoot) {
-        sessionStorage.shioriBoot = '1';
+      const RETRY = 'shiori-sw-retry';
+      if ('serviceWorker' in navigator && !sessionStorage.getItem(RETRY)) {
+        sessionStorage.setItem(RETRY, '1');
         try {
           await navigator.serviceWorker.register('sw.js', { type: 'module' });
           await navigator.serviceWorker.ready;
@@ -25,7 +26,7 @@
           return;
         } catch {}
       }
-      location.replace('app/library.html');   // no-service-worker fallback
+      location.replace('app/library.html');   // no worker (or it didn't take over) fallback
     })();
   </script>
 </body>
