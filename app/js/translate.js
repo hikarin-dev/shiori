@@ -26,6 +26,9 @@ const _pageNumOf = (url) => parseInt(url.match(/\/(\d+)\.\w+$/)?.[1] || '999999'
 const BATCH_CAPPED = new Set(['gemini', 'deepseek', 'chatgpt']);
 const DEFAULT_BATCH_CAPS = { gemini: 8, deepseek: 8, chatgpt: 6 };
 const _translating = new Set();
+// gid → { ctrl, serverUrl, jobToken } for the in-flight request, so cancelTranslate()
+// can abort the fetch AND tell the server to stop the exact job (by token).
+const _controllers = new Map();
 
 export function serverUrlFromSettings(ts) {
   return ((ts || {}).serverUrl || 'http://127.0.0.1:5003').replace(/\/+$/, '');
@@ -37,6 +40,22 @@ export async function pingServer(serverUrl) {
   try { await fetch(`${serverUrl}/`, { signal: ctrl.signal }); return true; }
   catch { return false; }
   finally { clearTimeout(timer); }
+}
+
+// Cancel an in-flight gallery translation: abort the local fetch (frees this client at
+// once) AND tell the server to stop that exact job by token, so the worker isn't left
+// churning the GPU. Best-effort; safe to call when nothing is running. Runs in whichever
+// context owns the request (the SW when a SW drives the job, else the tab).
+export function cancelTranslate(galleryId) {
+  const entry = _controllers.get(String(galleryId));
+  if (!entry) return false;
+  try { entry.ctrl.abort(); } catch {}
+  if (entry.serverUrl && entry.jobToken) {
+    const form = new FormData();
+    form.append('job_token', entry.jobToken);
+    fetch(`${entry.serverUrl}/translate/gallery/cancel`, { method: 'POST', body: form }).catch(() => {});
+  }
+  return true;
 }
 
 // manga-image-translator target-language codes → the card flag's language code.
@@ -99,14 +118,20 @@ function buildConfig(ts) {
 
 // POST the whole gallery in one streaming request. Frames: status(1) + size(4 BE) + data.
 // status 3 = queue position, 4 = dispatched to a worker, 1 = progress state string,
-// 5 = finished page (4-byte BE index + PNG) → onPage(idx, dataUrl), 0 = final JSON
-// summary, 2 = error. onEvent receives { queue } | { start } | { state }.
-async function translateGalleryStream(serverUrl, config, pages, batchSize, onEvent, onPage) {
+// 5 = finished page (tokenLen(1) + token + 4-byte BE index + PNG) → onPage(idx, dataUrl),
+// 0 = final JSON summary, 2 = error. onEvent receives { queue } | { start } | { state }.
+// `signal` lets the caller abort; `jobToken` identifies this job — every status-5 frame
+// must carry it, else it belongs to another gallery and is rejected (mix-up guard).
+async function translateGalleryStream(serverUrl, config, pages, batchSize, onEvent, onPage, signal, jobToken) {
   const form = new FormData();
-  for (const p of pages) form.append('image', await imageToBlob(p.blob ?? p.dataUrl), 'page.png');
+  for (const p of pages) {
+    if (signal?.aborted) return { count: pages.length, failed: [] };
+    form.append('image', await imageToBlob(p.blob ?? p.dataUrl), 'page.png');
+  }
   form.append('config', JSON.stringify(config));
   form.append('batch_size', String(batchSize));
-  const resp = await fetch(`${serverUrl}/translate/gallery/stream`, { method: 'POST', body: form });
+  form.append('job_token', jobToken || '');
+  const resp = await fetch(`${serverUrl}/translate/gallery/stream`, { method: 'POST', body: form, signal });
   if (!resp.ok) throw new Error(`server responded ${resp.status}`);
   const reader = resp.body.getReader();
   const dec = new TextDecoder();
@@ -127,8 +152,15 @@ async function translateGalleryStream(serverUrl, config, pages, batchSize, onEve
       else if (status === 3) { onEvent({ queue: parseInt(dec.decode(data), 10) || 0 }); }
       else if (status === 4) { onEvent({ start: true }); }
       else if (status === 5) {
-        const idx = ((data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]) >>> 0;
-        const dataUrl = await imageToDataUrl(new Blob([data.subarray(4)], { type: 'image/png' }));
+        const tlen = data[0];
+        const token = dec.decode(data.subarray(1, 1 + tlen));
+        // A page frame whose token isn't ours means a different gallery's image reached
+        // this stream — never write it. With the server's per-job queue isolation this
+        // can't happen; this is the second, independent guard for the SaaS guarantee.
+        if (token !== (jobToken || '')) throw new Error('translation page token mismatch — refusing to store another gallery\'s image');
+        const b = 1 + tlen;
+        const idx = ((data[b] << 24) | (data[b + 1] << 16) | (data[b + 2] << 8) | data[b + 3]) >>> 0;
+        const dataUrl = await imageToDataUrl(new Blob([data.subarray(b + 4)], { type: 'image/png' }));
         await onPage(idx, dataUrl);
       } else if (status === 0) { try { summary = JSON.parse(dec.decode(data)); } catch {} finished = true; }
       else if (status === 2) { errMsg = dec.decode(data); finished = true; }
@@ -171,6 +203,12 @@ export async function translateGallery(galleryId, ts, onProgress = () => {}) {
     }
     send({ status: 'started', done, total });
 
+    // Per-request abort handle + identity token (stored so cancelTranslate(gid) can reach
+    // this exact job). The token is echoed on every page frame and verified on the way in.
+    const ctrl = new AbortController();
+    const jobToken = (globalThis.crypto?.randomUUID?.() || `${gid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    _controllers.set(gid, { ctrl, serverUrl, jobToken });
+
     // The label tracks the furthest pipeline stage (the server overlaps them); the
     // bar itself tracks rendered pages arriving as status-5 frames.
     const batches = Math.ceil(pending.length / cap);
@@ -182,7 +220,7 @@ export async function translateGallery(galleryId, ts, onProgress = () => {}) {
       return 'Rendering';
     };
     const stored = new Set();
-    let failed = 0, firstError = null;
+    let failed = 0, firstError = null, cancelled = false;
     try {
       await translateGalleryStream(serverUrl, config, pending, cap,
         (ev) => {
@@ -203,8 +241,17 @@ export async function translateGallery(galleryId, ts, onProgress = () => {}) {
           if (rec) { await putTranslatedImage(rec.url, dataUrl); stored.add(idx); }
           done++;
           send({ status: 'progress', done, total, label: label() });
-        });
-    } catch (e) { firstError = e.message; }
+        },
+        ctrl.signal, jobToken);
+    } catch (e) {
+      if (e?.name === 'AbortError' || ctrl.signal.aborted) cancelled = true;
+      else firstError = e.message;
+    }
+
+    // Cancelled: leave the already-stored pages in place (re-running resumes the rest) and
+    // do NOT flag the gallery translated. No error — the user asked to stop.
+    if (cancelled) { send({ status: 'cancelled', done, total }); return; }
+
     for (let k = 0; k < pending.length; k++) { if (!stored.has(k)) { failed++; done++; } }
     send({ status: 'progress', done, total });
 
@@ -227,5 +274,6 @@ export async function translateGallery(galleryId, ts, onProgress = () => {}) {
     send({ status: 'error', error: e.message });
   } finally {
     _translating.delete(gid);
+    _controllers.delete(gid);
   }
 }

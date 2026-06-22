@@ -8,9 +8,9 @@
 // app-shell cache (stale-while-revalidate) + background job runner. (See ARCHITECTURE.md §2.)
 
 import * as platform from './app/js/platform.js';
-import { RUNNERS } from './app/js/jobs-runner.js';
+import { RUNNERS, cancelJobRun } from './app/js/jobs-runner.js';
 
-const CACHE = 'shiori-shell-v14';
+const CACHE = 'shiori-shell-v24';
 // The scope root: http://localhost:5500/ locally, https://…/shiori/ on GitHub Pages.
 const ROOT = new URL('./', self.location.href);
 // Clean navigation path (relative to the root) → which app page serves it.
@@ -94,13 +94,17 @@ self.addEventListener('fetch', (e) => {
 });
 
 // ── Background jobs ──
+// Keys of jobs this worker is actively running, so a page can ask (liveness ping) whether a
+// 'progress' row it sees is real or an orphan left by a killed runner.
+const _running = new Set();
 async function runJob(kind, payload) {
   const run = RUNNERS[kind];
   if (!run) return;
   const key = `${payload.galleryId}:${kind}`;
   await platform.jobsPending.add({ key, kind, payload });
+  _running.add(key);
   try { await run(payload); }
-  finally { await platform.jobsPending.remove(key); }
+  finally { _running.delete(key); await platform.jobsPending.remove(key); }
 }
 async function resumePending() {
   for (const e of await platform.jobsPending.all()) runJob(e.kind, e.payload);
@@ -108,4 +112,15 @@ async function resumePending() {
 self.addEventListener('message', (e) => {
   const d = e.data;
   if (d && d.__shioriJob) e.waitUntil(runJob(d.kind, d.payload));   // waitUntil keeps the worker alive
+  else if (d && d.__shioriJobCancel) {
+    // Abort the running job AND drop its resume entry, so an evicted worker never replays a
+    // job the user cancelled (that replay loop is the "cards reload over and over" symptom).
+    cancelJobRun(d.kind, d.payload);
+    e.waitUntil(platform.jobsPending.remove(`${d.payload && d.payload.galleryId}:${d.kind}`));
+  }
+  else if (d && d.__shioriJobsQuery) {
+    // Liveness ping: reply with the keys of jobs actually running in this worker right now.
+    const port = e.ports && e.ports[0];
+    if (port) port.postMessage({ keys: [..._running] });
+  }
 });

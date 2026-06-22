@@ -9,7 +9,7 @@ import * as platform from './platform.js';
 import { coverGet, resizeCover, deleteGallery, metaGet, metaPut } from './db.js';
 import { pingServer, revertGallery, serverUrlFromSettings } from './translate.js';
 import { request as extRequest } from './ext-bridge.js';
-import { submitJob } from './submit-job.js';
+import { submitJob, cancelJob } from './submit-job.js';
 
 // GET_COVER is request→push: compute the thumbnail, deliver via COVER_READY. A gallery with no
 // pages yet but a known source is offered to the extension (which knows whether that source can
@@ -38,6 +38,18 @@ export const services = {
         const { translateSettings } = await platform.kv.get(['translateSettings']);
         submitJob('translate', { galleryId: msg.galleryId, settings: translateSettings });
         return { ok: true, started: true };
+      }
+
+      case 'CANCEL_TRANSLATE': {
+        const gid = String(msg.galleryId);
+        cancelJob('translate', { galleryId: gid });                  // abort a live request (SW or tab) + token-scoped server cancel
+        // Authoritative stop: clear the durable state too, so Stop also recovers an ORPHANED
+        // job — one whose runner (e.g. the SW) was killed by a browser close. Its abort handle
+        // is gone, so cancelJob can't reach it; without this, the stale 'progress' row keeps the
+        // card stuck in Stop mode forever (until the 10-min purge) and Stop appears to do nothing.
+        await platform.jobsPending.remove(`${gid}:translate`);        // never auto-resume it
+        platform.jobs.publish({ gid, kind: 'translate', status: 'cancelled' });  // drop the registry row + reset every tab
+        return { ok: true };
       }
 
       case 'REVERT_GALLERY': await revertGallery(msg.galleryId); return { ok: true };

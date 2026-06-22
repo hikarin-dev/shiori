@@ -7,7 +7,7 @@
 
 import * as platform from './platform.js';
 import { importCbzBuffer } from './import-cbz.js';
-import { translateGallery } from './translate.js';
+import { translateGallery, cancelTranslate } from './translate.js';
 
 // Import a CBZ the UI staged in OPFS. Resumable: re-running skips already-stored pages.
 export async function runImport({ galleryId, tempFile, filename, skipExisting = true }) {
@@ -35,3 +35,13 @@ export async function runTranslate({ galleryId, settings }) {
 }
 
 export const RUNNERS = { upload: runImport, translate: runTranslate };
+
+// Cancel a running job in THIS context (the abort handle lives wherever the job runs, so
+// the cancel has to be invoked there too — submit-job routes it to the SW when the SW owns
+// the job). Mirror of RUNNERS; only translate is cancellable.
+export const CANCELLERS = { translate: ({ galleryId }) => cancelTranslate(galleryId) };
+
+export function cancelJobRun(kind, payload) {
+  const fn = CANCELLERS[kind];
+  if (fn) fn(payload);
+}

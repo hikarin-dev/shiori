@@ -11,7 +11,7 @@
 //
 // importBackup() detects the format from the file itself, so one picker handles both.
 
-import { openDB, publishFeed, metaPut } from './db.js';
+import { openDB, publishFeed, metaPut, backfillUploadDates } from './db.js';
 
 const IMAGES = 'images', META = 'metadata', GALLERIES = 'galleries', COVERS = 'covers';
 
@@ -147,9 +147,10 @@ async function importMetadataFile(file) {
       galleryId: gid,
       count:     existingGal?.count    || 0,
       size:      existingGal?.size     || 0,
-      latestAt:  existingGal?.latestAt || Date.now(),
-      addedAt:   existingGal?.addedAt  || Date.now(),
+      latestAt:  Date.now(),                                       // a metadata upload is a modification
+      addedAt:   existingGal?.addedAt  || Date.now(),              // restore-time marks "came from backup"
       coverPage: existingGal?.coverPage ?? 9999,
+      uploadDate: Number(meta.uploadDate) || existingGal?.uploadDate || 0,
     });
     n++;
   }
@@ -180,6 +181,7 @@ async function importFullFile(file, onProgress) {
   for (const m of manifest.metadata) await put(db, META, m);
   for (const g of manifest.galleries) await put(db, GALLERIES, g);
   for (const e of manifest.covers) { const rec = { galleryId: e.galleryId }; const b = sliceOf(e.body); if (b) rec.cover = b; await put(db, COVERS, rec); }
+  await backfillUploadDates();   // older archives predate the denormalized uploadDate — fill it from metadata
   for (const g of manifest.galleries) publishFeed(g.galleryId);
   if (onProgress) onProgress('done', 1, 1);
   return manifest.counts;

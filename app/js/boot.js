@@ -36,6 +36,18 @@ platform.kv.get(['countsRepaired']).then(async ({ countsRepaired }) => {
   platform.kv.set({ countsRepaired: true });
 });
 
+// One-time backfill: copy each gallery's published date (metadata.uploadDate) into its stat record,
+// so the new "Published date" sort runs off the galleries index. Runs once per browser profile.
+platform.kv.get(['uploadDateBackfilled']).then(async ({ uploadDateBackfilled }) => {
+  if (uploadDateBackfilled) return;
+  try {
+    const { backfillUploadDates } = await import('./db.js');
+    const filled = await backfillUploadDates();
+    if (filled) console.log(`[shiori] backfilled uploadDate for ${filled} galleries`);
+  } catch {}
+  platform.kv.set({ uploadDateBackfilled: true });
+});
+
 if ('serviceWorker' in navigator) {
   // Retire the previous layout's worker, which was scoped to /app/ — the app now lives at the
   // site root with a root-scoped worker (registered below; registering at root replaces any stale

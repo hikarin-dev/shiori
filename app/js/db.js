@@ -6,7 +6,7 @@ import * as platform from './platform.js';
 import { normalizeTitle, migrateTitle } from './titles.js';
 
 const DB_NAME = 'shiori-cache';
-const DB_VERSION = 9;
+const DB_VERSION = 10;
 export const STORE = 'images';
 const META_STORE = 'metadata';
 const GALLERY_STORE = 'galleries';
@@ -78,7 +78,7 @@ export function openDB() {
       const gal = db.objectStoreNames.contains(GALLERY_STORE)
         ? tx.objectStore(GALLERY_STORE)
         : db.createObjectStore(GALLERY_STORE, { keyPath: 'galleryId' });
-      for (const idx of ['addedAt', 'latestAt', 'size', 'count'])
+      for (const idx of ['addedAt', 'latestAt', 'size', 'count', 'uploadDate'])
         if (!gal.indexNames.contains(idx)) gal.createIndex(idx, idx, { unique: false });
 
       // Covers live in their own store so gallery stat records stay tiny and a
@@ -94,7 +94,7 @@ export function openDB() {
           if (!c) return;
           const v = c.value;
           let dirty = false;
-          if (v.addedAt == null) { v.addedAt = v.latestAt || Number(v.galleryId) || Date.now(); dirty = true; }
+          if (v.addedAt == null) { v.addedAt = Number(v.galleryId) || v.latestAt || Date.now(); dirty = true; }
           if (v.cover != null)   { covers.put({ galleryId: v.galleryId, cover: v.cover }); delete v.cover; dirty = true; }
           if (dirty) c.update(v);
           c.continue();
@@ -148,7 +148,9 @@ export async function dbPut(url, src, mediaId, galleryId) {
   let coverChanged = false;
 
   await new Promise((resolve, reject) => {
-    const tx = db.transaction([STORE, GALLERY_STORE, COVER_STORE], 'readwrite');
+    // META_STORE joins the tx so a brand-new stat record can seed its denormalized uploadDate
+    // (the "Published date" sort key) from the gallery's metadata.
+    const tx = db.transaction([STORE, GALLERY_STORE, COVER_STORE, META_STORE], 'readwrite');
     tx.oncomplete = () => { _queueWrittenBytes(size); resolve(); };
     tx.onerror = () => reject(tx.error);
 
@@ -161,25 +163,35 @@ export async function dbPut(url, src, mediaId, galleryId) {
       const galReq = tx.objectStore(GALLERY_STORE).get(gid);
       galReq.onsuccess = () => {
         const cur = galReq.result;
-        let entry;
         if (cur) {
-          entry = {
+          const entry = {
             ...cur,
             count: cur.count + (prev ? 0 : 1),
             size: cur.size - (prev ? (prev.size || 0) : 0) + size,
             latestAt: Math.max(cur.latestAt || 0, cachedAt),
           };
-          if (entry.addedAt == null) entry.addedAt = entry.latestAt;
+          // addedAt is the gallery's creation marker — the gid IS the creation time, so it never
+          // shifts when a stat record is rebuilt (e.g. an overwrite re-download).
+          if (entry.addedAt == null) entry.addedAt = Number(gid) || entry.latestAt;
           if (pageNum <= (cur.coverPage ?? 9999)) {
             entry.coverPage = pageNum;
             tx.objectStore(COVER_STORE).put({ galleryId: gid, cover: blob });
             coverChanged = true;
           }
+          tx.objectStore(GALLERY_STORE).put(entry);
         } else {
-          entry = { galleryId: gid, count: 1, size, latestAt: cachedAt, addedAt: cachedAt, coverPage: pageNum };
-          if (pageNum < 9999) { tx.objectStore(COVER_STORE).put({ galleryId: gid, cover: blob }); coverChanged = true; }
+          // First page of a gallery: seed addedAt from the gid (creation time) and the published
+          // date from metadata (0 = unknown → sorts last under "Published date").
+          const metaReq = tx.objectStore(META_STORE).get(gid);
+          metaReq.onsuccess = () => {
+            if (pageNum < 9999) { tx.objectStore(COVER_STORE).put({ galleryId: gid, cover: blob }); coverChanged = true; }
+            tx.objectStore(GALLERY_STORE).put({
+              galleryId: gid, count: 1, size, latestAt: cachedAt,
+              addedAt: Number(gid) || cachedAt, coverPage: pageNum,
+              uploadDate: Number(metaReq.result?.uploadDate) || 0,
+            });
+          };
         }
-        tx.objectStore(GALLERY_STORE).put(entry);
       };
     };
   });
@@ -209,14 +221,30 @@ export async function metaPut(meta) {
   // tagNames index is kept in sync automatically for every writer.
   let record = migrateTitle(meta);
   if (Array.isArray(record.tags)) record = { ...record, tagNames: tagNamesOf(record.tags) };
+  const gid = String(record.galleryId);
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(META_STORE, 'readwrite');
-    const req = tx.objectStore(META_STORE).put(record);
+    const tx = db.transaction([META_STORE, GALLERY_STORE], 'readwrite');
     // A bare stub (sourceId placeholder, no pages yet) is not a user-visible gallery —
     // don't wake subscribers for it, or a reactive read could purge it mid-creation
     // (see the pageless-stub grace window in getAllGalleries).
-    req.onsuccess = () => { if (!record.isStub) publishFeed(record.galleryId); resolve(); };
-    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => { if (!record.isStub) publishFeed(gid); resolve(); };
+    tx.onerror = () => reject(tx.error);
+    tx.objectStore(META_STORE).put(record);
+    // Any metadata change counts as a modification: mark the gallery "updated" and keep its
+    // denormalized published date (the Published-date sort key) in step. Only touch a REAL gallery
+    // that already has a stat record — never create one here, and never for a bare stub.
+    if (!record.isStub) {
+      const gstore = tx.objectStore(GALLERY_STORE);
+      const greq = gstore.get(gid);
+      greq.onsuccess = () => {
+        const g = greq.result;
+        if (!g) return;
+        g.latestAt = Math.max(g.latestAt || 0, Date.now());
+        if (record.uploadDate != null) g.uploadDate = Number(record.uploadDate) || 0;
+        else if (g.uploadDate == null) g.uploadDate = 0;
+        gstore.put(g);
+      };
+    }
   });
 }
 
@@ -356,7 +384,8 @@ function _entityFrom(id, gal, meta) {
     count: g.count || 0,
     size: g.size || 0,
     latestAt: g.latestAt || 0,
-    addedAt: g.addedAt || g.latestAt || Number(id) || 0,
+    addedAt: g.addedAt ?? (Number(id) || g.latestAt || 0),
+    uploadDate: g.uploadDate ?? (Number(m.uploadDate) || 0),
     coverPage: g.coverPage,
     title: normalizeTitle(m),
     numPages: m.numPages,
@@ -390,7 +419,8 @@ export async function rebuildGalleryEntry(galleryId) {
     const pn = pm ? parseInt(pm[1]) : 9999;
     if (pn < coverPage) { coverPage = pn; coverSrc = r.blob ?? r.dataUrl; }
   }
-  await galleryPut({ galleryId: gid, count, size, latestAt, addedAt: prev?.addedAt || latestAt, coverPage });
+  const uploadDate = prev?.uploadDate ?? (Number((await metaGet(gid))?.uploadDate) || 0);
+  await galleryPut({ galleryId: gid, count, size, latestAt, addedAt: prev?.addedAt ?? (Number(gid) || latestAt), coverPage, uploadDate });
   if (coverSrc != null) await coverPut(gid, await imageToBlob(coverSrc));
   publishFeed(gid);
 }
@@ -410,6 +440,22 @@ export async function repairGalleryCounts() {
     if (actual !== e.count) { await rebuildGalleryEntry(e.galleryId); fixed++; }
   }
   return fixed;
+}
+
+// One-time backfill: copy each gallery's published date (metadata.uploadDate) into its stat record,
+// so the "Published date" sort runs off the galleries index. Cheap: only rows still missing the
+// field pay a metadata read. Returns how many were filled.
+export async function backfillUploadDates() {
+  const entries = await galleryGetAll();
+  let filled = 0;
+  for (const e of entries) {
+    if (e.uploadDate != null) continue;
+    // 0 = unknown published date, so every gallery still appears in the uploadDate index (sorted last).
+    const ud = Number((await metaGet(e.galleryId))?.uploadDate) || 0;
+    await galleryPut({ ...e, uploadDate: ud });
+    filled++;
+  }
+  return filled;
 }
 
 // ── Page lookup ──
@@ -644,18 +690,22 @@ export async function getAllGalleries() {
 
 // ── Windowed reads (scale: load only the visible page) ──
 
-const _SORT_INDEX = { added: 'addedAt', id: 'addedAt', updated: 'latestAt', size: 'size', count: 'count' };
+// 'id' is intentionally absent: it sorts by the gallery's own primary key (the unix-time-based
+// id), handled directly below — never an index, so it stays immutable across re-downloads.
+const _SORT_INDEX = { updated: 'latestAt', size: 'size', count: 'count', uploadDate: 'uploadDate' };
 
 // One page of galleries, sorted in the database via an index cursor. Memory is bounded
 // by `limit`, not by library size, and cover blobs are never loaded.
 export async function galleriesPage({ sort = 'updated', dir, offset = 0, limit = 60 } = {}) {
-  const indexName = _SORT_INDEX[sort] || 'latestAt';
   const direction = dir === 'asc' ? 'next' : 'prev';
   const db = await openDB();
   const stats = await new Promise((resolve, reject) => {
     const out = [];
     const tx = db.transaction(GALLERY_STORE, 'readonly');
-    const req = tx.objectStore(GALLERY_STORE).index(indexName).openCursor(null, direction);
+    const store = tx.objectStore(GALLERY_STORE);
+    // 'id' cursors the primary key (galleryId) itself; everything else uses its sort index.
+    const source = sort === 'id' ? store : store.index(_SORT_INDEX[sort] || 'latestAt');
+    const req = source.openCursor(null, direction);
     let advanced = offset <= 0;
     req.onsuccess = (e) => {
       const cur = e.target.result;
@@ -684,13 +734,15 @@ export async function galleriesCount() {
 // Gallery ids in sorted order, keys only (no records, no covers). Used by search:
 // the store filters this list against metadata, then loads only the visible window.
 export async function galleryIdsSorted({ sort = 'updated', dir } = {}) {
-  const indexName = _SORT_INDEX[sort] || 'latestAt';
   const direction = dir === 'asc' ? 'next' : 'prev';
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const out = [];
     const tx = db.transaction(GALLERY_STORE, 'readonly');
-    const req = tx.objectStore(GALLERY_STORE).index(indexName).openKeyCursor(null, direction);
+    const store = tx.objectStore(GALLERY_STORE);
+    // 'id' cursors the primary key (galleryId) itself; everything else uses its sort index.
+    const source = sort === 'id' ? store : store.index(_SORT_INDEX[sort] || 'latestAt');
+    const req = source.openKeyCursor(null, direction);
     req.onsuccess = (e) => {
       const c = e.target.result;
       if (!c) { resolve(out); return; }

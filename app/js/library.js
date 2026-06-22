@@ -174,7 +174,7 @@ function syncUrl() {
   const q = document.getElementById('searchBox').value.trim();
   if (q) params.set('q', q);
   const sort = document.getElementById('sortSelect').value;
-  if (sort && sort !== 'added') params.set('sort', sort);
+  if (sort && sort !== 'id') params.set('sort', sort);
   const qs = params.toString();
   history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
 }
@@ -416,13 +416,16 @@ function buildCard(g) {
   card.querySelectorAll('.card-btn-translate').forEach(b => {
     b.addEventListener('mouseenter', () => {
       _hoveredTrBtn = b;
-      if (_shiftHeld && b.dataset.tipShift && !b.disabled) _trFlip.to(b, _REVERT_SVG);
+      if (!b.classList.contains('cancelling') && _shiftHeld && b.dataset.tipShift && !b.disabled) _trFlip.to(b, _REVERT_SVG);
     });
     b.addEventListener('mouseleave', () => {
       _hoveredTrBtn = null;
-      if (_shiftHeld && b.dataset.tipShift) _trFlip.to(b, _TRANSLATE_SVG);
+      if (!b.classList.contains('cancelling') && _shiftHeld && b.dataset.tipShift) _trFlip.to(b, _TRANSLATE_SVG);
     });
     b.addEventListener('click', async (e) => {
+      // Mid-translation the button is a Stop control → cancel this job and bail.
+      if (b.classList.contains('cancelling')) { await sendMsg({ type: 'CANCEL_TRANSLATE', galleryId: g.id }); return; }
+
       const btns = card.querySelectorAll('.card-btn-translate');
       if ([...btns].some(x => x.disabled)) return;
 
@@ -595,20 +598,66 @@ platform.onControl((msg) => {
 
 const _liveJobs = new Map();        // gid → last job seen (drives re-paint after re-renders)
 const _jobDoneHandled = new Set();  // gids whose 'done' side-effects already ran here
+const _interrupted = new Set();     // gids showing the transient "Interrupted" hint (protected from rebuilds)
+
+// While a translate job runs, the translate button doubles as a Stop control (stays enabled,
+// shows a stop icon, click cancels). Toggling also parks the shift-revert affordance so it
+// doesn't fight the stop state.
+function _setTrCancelMode(btn, on) {
+  if (!btn) return;
+  if (on) {
+    if (btn.classList.contains('cancelling')) return;
+    btn.classList.add('cancelling');
+    btn.disabled = false;
+    if (btn.dataset.tipShift != null) { btn._tipShiftStash = btn.dataset.tipShift; delete btn.dataset.tipShift; }
+    btn.dataset.tip = t('card.tip_cancel');
+    _trFlip.snap(btn, _STOP_SVG);
+  } else {
+    if (!btn.classList.contains('cancelling')) return;
+    btn.classList.remove('cancelling');
+    if (btn._tipShiftStash != null) { btn.dataset.tipShift = btn._tipShiftStash; delete btn._tipShiftStash; }
+    btn.dataset.tip = btn.classList.contains('done') ? t('card.tip_translate_new') : t('card.tip_translate');
+    _trFlip.snap(btn, _TRANSLATE_SVG);
+  }
+}
+
+// How long a terminal job message (done / error / cancelled / interrupted) lingers on the card
+// before it returns to its normal resting state — long enough to read, short enough not to nag.
+const JOB_MSG_LINGER_MS = 4000;
+
+// Return a card from any job state to its normal resting look: no progress overlay, reset bar,
+// buttons enabled, Stop control reverted. The standardized linger timers call this.
+function _clearCardProgress(gid) {
+  const card = document.querySelector(`.card[data-gallery-id="${gid}"]`);
+  if (!card) return;
+  const body = card.querySelector('.card-body');
+  const fill = document.getElementById(`progfill-${gid}`);
+  const label = document.getElementById(`proglabel-${gid}`);
+  if (body) body.classList.remove('downloading');
+  if (fill) { fill.classList.remove('indeterminate', 'done'); fill.style.width = ''; }
+  if (label) label.textContent = '';
+  card.querySelectorAll('.card-btn-translate, .card-btn-dl').forEach(b => {
+    if (b.classList.contains('cancelling')) _setTrCancelMode(b, false);
+    b.disabled = false;
+  });
+}
 
 function applyJob(job) {
   if (!job || job.gid == null) return;
   const gid = String(job.gid);
   const { status, kind } = job;
 
-  if (status === 'done' || status === 'error') _liveJobs.delete(gid);
+  if (status === 'done' || status === 'error' || status === 'cancelled') _liveJobs.delete(gid);
   else _liveJobs.set(gid, job);
   if (status !== 'done') _jobDoneHandled.delete(gid);
 
   const card    = document.querySelector(`.card[data-gallery-id="${gid}"]`);
   if (!card) {
-    // A brand-new gallery mid-job (e.g. a download started elsewhere) has no card yet.
-    if (status !== 'done' && status !== 'error') _scheduleReloadPage();
+    // A brand-new gallery mid-job (a download/upload started elsewhere) has no card yet — reveal it.
+    // Translate runs on an EXISTING gallery, so if its card isn't in the current view there's
+    // nothing to reveal; reloading on every progress frame would thrash the visible cards'
+    // hover animations. Only reload for kinds that can introduce a new card.
+    if (kind !== 'translate' && status !== 'done' && status !== 'error') _scheduleReloadPage();
     return;
   }
   const fillEl  = document.getElementById(`progfill-${gid}`);
@@ -623,8 +672,19 @@ function applyJob(job) {
     if (body) body.classList.add('downloading');
     if (fillEl) fillEl.classList.remove('done', 'indeterminate');
     if (labelEl) labelEl.textContent = `${t('prog.error')}: ${job.error || 'unknown'}`;
-    btns.forEach(b => { b.disabled = false; });
+    btns.forEach(b => { if (isTranslate) _setTrCancelMode(b, false); b.disabled = false; });
     if (kind === 'upload') store.load(gid).then(g => { if (!g || g.count === 0) store.remove(gid); });
+    setTimeout(() => _clearCardProgress(gid), JOB_MSG_LINGER_MS);
+    return;
+  }
+
+  if (status === 'cancelled') {
+    // User stopped a translation: soft reset the card — drop the Stop state, clear the bar,
+    // briefly show "Cancelled", then return the card to normal.
+    if (fillEl) { fillEl.classList.remove('indeterminate', 'done'); fillEl.style.width = '0%'; }
+    if (labelEl) labelEl.textContent = t('prog.cancelled');
+    btns.forEach(b => { _setTrCancelMode(b, false); b.disabled = false; });
+    setTimeout(() => _clearCardProgress(gid), JOB_MSG_LINGER_MS);
     return;
   }
 
@@ -655,7 +715,8 @@ function applyJob(job) {
   if (status === 'started') {
     if (fillEl) { fillEl.classList.remove('indeterminate', 'done'); fillEl.style.width = '0%'; }
     if (labelEl) labelEl.textContent = job.label || (job.total ? `0 / ${job.total}` : t('prog.starting'));
-    btns.forEach(b => { b.disabled = true; });
+    if (isTranslate) btns.forEach(b => _setTrCancelMode(b, true));
+    else btns.forEach(b => { b.disabled = true; });
     return;
   }
 
@@ -682,12 +743,14 @@ function applyJob(job) {
       }
     }
     if (status === 'done') {
-      btns.forEach(b => { b.disabled = false; if (!isTranslate) { b.textContent = '✓'; } b.classList.add('done'); });
+      btns.forEach(b => { if (isTranslate) _setTrCancelMode(b, false); b.disabled = false; if (!isTranslate) { b.textContent = '✓'; } b.classList.add('done'); });
       if (!_jobDoneHandled.has(gid)) {
         _jobDoneHandled.add(gid);
         if (kind === 'upload') store.load(gid).then(g => { if (!g || g.count === 0) store.remove(gid); });
-        setTimeout(() => { if (body) body.classList.remove('downloading'); loadAll(); }, 1500);
+        setTimeout(() => { if (body) body.classList.remove('downloading'); loadAll(); }, JOB_MSG_LINGER_MS);
       }
+    } else if (isTranslate) {
+      btns.forEach(b => _setTrCancelMode(b, true));
     } else {
       btns.forEach(b => { b.disabled = true; });
     }
@@ -696,24 +759,60 @@ function applyJob(job) {
 
 platform.jobs.subscribe(applyJob);
 
-// Hydrate in-flight jobs on load. A registry row whose runner stopped publishing is dead —
-// clear it from the registry (so it can never wedge a card again) and show a resumable state
-// with the buttons ENABLED. Live runners publish at least every page; translate gets a wide
-// margin because a cloud batch call can sit quiet for minutes.
+// Hydrate in-flight jobs on load. A registry row whose runner is gone is dead — clear it (so it
+// can never wedge a card) and show the resumable hint. Live runners publish at least every page;
+// translate gets a wide staleness margin because a cloud batch call can sit quiet for minutes,
+// so for translate we instead ask the SW whether it's actually still running the job.
 const JOB_STALE_MS = { download: 2 * 60 * 1000, upload: 2 * 60 * 1000, translate: 10 * 60 * 1000 };
+
+// Ask the service worker which durable jobs it is actually running right now. Lets hydrate tell a
+// genuinely-running translate job from an orphaned 'progress' row left by a killed runner (e.g. the
+// browser was closed mid-translation). Resolves to an array of `${gid}:${kind}` keys, or null if it
+// can't be determined in time (then we fall back to the staleness heuristic).
+function askSWRunningJobs(timeoutMs = 1200) {
+  return new Promise((resolve) => {
+    const sw = navigator.serviceWorker && navigator.serviceWorker.controller;
+    if (!sw) return resolve(null);
+    const mc = new MessageChannel();
+    const timer = setTimeout(() => resolve(null), timeoutMs);
+    mc.port1.onmessage = (e) => { clearTimeout(timer); resolve((e.data && e.data.keys) || []); };
+    try { sw.postMessage({ __shioriJobsQuery: true }, [mc.port2]); }
+    catch { clearTimeout(timer); resolve(null); }
+  });
+}
+
+function _applyInterruptedUI(gid) {
+  const labelEl = document.getElementById(`proglabel-${gid}`);
+  const body = labelEl && labelEl.closest('.card-body');
+  if (body) body.classList.add('downloading');
+  if (labelEl) labelEl.textContent = t('prog.interrupted');
+}
+
+// An interrupted job: clear its registry row, show the resumable hint with buttons ENABLED, then
+// return the card to normal after the standard linger. The gid is parked in _interrupted so a
+// cover-load rebuild can't wipe the hint before the user reads it (same guard live jobs get).
+function _markJobInterrupted(job) {
+  const gid = String(job.gid);
+  platform.jobs.clear(gid, job.kind);
+  _liveJobs.delete(gid);
+  _interrupted.add(gid);
+  _applyInterruptedUI(gid);
+  setTimeout(() => { _interrupted.delete(gid); _clearCardProgress(gid); }, JOB_MSG_LINGER_MS);
+}
+
 async function hydrateJobs() {
-  for (const job of await platform.jobs.current()) {
+  const jobs = await platform.jobs.current();
+  // Liveness ping only when necessary — only if there's a translate job to verify. With no SW
+  // controller, nothing can still be running after a reload, so the running set is empty.
+  let running = null;
+  if (jobs.some(j => j.kind === 'translate')) {
+    running = (navigator.serviceWorker && navigator.serviceWorker.controller) ? await askSWRunningJobs() : [];
+  }
+  for (const job of jobs) {
     const staleAfter = JOB_STALE_MS[job.kind] || 2 * 60 * 1000;
-    if ((Date.now() - (job.at || 0)) > staleAfter) {
-      const gid = String(job.gid);
-      platform.jobs.clear(gid, job.kind);
-      _liveJobs.delete(gid);
-      const labelEl = document.getElementById(`proglabel-${gid}`);
-      const body = labelEl && labelEl.closest('.card-body');
-      if (body) body.classList.add('downloading');
-      if (labelEl) labelEl.textContent = t('prog.interrupted');
-      continue;
-    }
+    const key = `${job.gid}:${job.kind}`;
+    const orphaned = job.kind === 'translate' && Array.isArray(running) && !running.includes(key);
+    if (orphaned || (Date.now() - (job.at || 0)) > staleAfter) { _markJobInterrupted(job); continue; }
     applyJob(job);
   }
 }
@@ -770,6 +869,8 @@ async function applyFilters() {
 
   // Re-paint any in-flight job status onto the freshly rendered cards.
   for (const job of _liveJobs.values()) applyJob(job);
+  // Re-apply any transient "Interrupted" hint after a full re-render too.
+  for (const gid of _interrupted) _applyInterruptedUI(gid);
 }
 
 // Search predicate; the store evaluates it against each gallery's metadata.
@@ -914,6 +1015,7 @@ const _DELETE_ICON      = '<span class="del-inner">' + _DELETE_SVG + '</span>';
 const _TRANSLATE_SVG    = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>';
 const _REVERT_SVG       = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
 const _TRANSLATE_ICON   = '<span class="tr-inner">' + _TRANSLATE_SVG + '</span>';
+const _STOP_SVG         = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
 
 document.addEventListener('keydown', e => {
   // Ignore key auto-repeat (e.repeat): a held Shift fires keydown continuously, which would
@@ -930,7 +1032,7 @@ document.addEventListener('keydown', e => {
   if (_hoveredOpenBtn && _hoveredOpenBtn.dataset.tipShift) _openFlip.to(_hoveredOpenBtn, _OPEN_SHIFT_ICON);
   if (_hoveredExportBtn && !_hoveredExportBtn.disabled) _exportFlip.to(_hoveredExportBtn, _EXPORT_SHIFT_SVG);
   if (_hoveredDelBtn) _delFlip.to(_hoveredDelBtn, _DELETE_SHIFT_SVG);
-  if (_hoveredTrBtn && _hoveredTrBtn.dataset.tipShift && !_hoveredTrBtn.disabled) _trFlip.to(_hoveredTrBtn, _REVERT_SVG);
+  if (_hoveredTrBtn && !_hoveredTrBtn.classList.contains('cancelling') && _hoveredTrBtn.dataset.tipShift && !_hoveredTrBtn.disabled) _trFlip.to(_hoveredTrBtn, _REVERT_SVG);
 });
 document.addEventListener('keyup', e => {
   if (e.key !== 'Shift') return;
@@ -1576,9 +1678,10 @@ store.subscribe('*', (gid) => {
   if (idx >= 0) _pageItems[idx] = entity;
 
   const card = document.querySelector(`.card[data-gallery-id="${gid}"]`);
-  if (_liveJobs.has(gid)) {
-    // A job owns an existing card's progress bar — don't rebuild it (that would reset the
-    // bar). A brand-new gallery mid-job (e.g. an import) has no card yet, so reload the page.
+  if (_liveJobs.has(gid) || _interrupted.has(gid)) {
+    // A job owns an existing card's progress bar / interrupted hint — don't rebuild it (that
+    // would reset the bar or wipe the hint). A brand-new gallery mid-job (e.g. an import) has
+    // no card yet, so reload the page.
     if (!card) _scheduleReloadPage();
     return;
   }

@@ -80,7 +80,7 @@ const _jobsHub = makeChannelHub('shiori-jobs');
 export const jobs = {
   async publish(job) {
     job = { ...job, at: Date.now() };
-    const key = _jobKey(job), done = job.status === 'done' || job.status === 'error';
+    const key = _jobKey(job), done = job.status === 'done' || job.status === 'error' || job.status === 'cancelled';
     try {
       const db = await _jobsDb();
       await new Promise((res) => {

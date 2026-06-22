@@ -19,8 +19,8 @@ export const LOCALES = {
 
     'lib.search_ph': 'Search by ID, title or tags…', 'lib.clear_search': 'Clear search',
     'stat.galleries': 'Galleries', 'stat.images': 'Images', 'stat.stored': 'Stored', 'stat.loads': 'Loads',
-    'sort.added': 'Most Recent', 'sort.updated': 'Last Updated', 'sort.size': 'Largest',
-    'sort.count': 'Most Pages', 'sort.id': 'Gallery ID',
+    'sort.id': 'Most Recent', 'sort.updated': 'Last Updated', 'sort.size': 'Largest',
+    'sort.count': 'Most Pages', 'sort.uploadDate': 'Published Date',
     'lib.empty_title': 'No galleries found.',
     'lib.empty_sub': 'Capture from a supported site or upload a CBZ to get started.',
     'lib.avg_per_image': 'avg {size} / image',
@@ -54,6 +54,7 @@ export const LOCALES = {
     'prog.fetching_meta': 'Fetching metadata…', 'prog.reading_file': 'Reading file…',
     'prog.uploading': 'Uploading…', 'prog.extracting': 'Extracting…', 'prog.translating': 'Translating…',
     'prog.starting': 'Starting…', 'prog.interrupted': 'Interrupted — run again to resume',
+    'prog.cancelled': 'Cancelled', 'card.tip_cancel': 'Stop translating',
     'prog.err_read': 'Error: could not read file.', 'prog.err_stage': 'Error: could not stage file.',
     'prog.done': 'Done', 'prog.error': 'Error', 'prog.translated': 'Translated', 'prog.already_cached': '{n} already cached',
 
@@ -120,8 +121,8 @@ export const LOCALES = {
 
     'lib.search_ph': 'ID・タイトル・タグで検索…', 'lib.clear_search': '検索をクリア',
     'stat.galleries': 'ギャラリー', 'stat.images': '画像', 'stat.stored': '保存容量', 'stat.loads': '読込回数',
-    'sort.added': '新着順', 'sort.updated': '更新順', 'sort.size': 'サイズ順',
-    'sort.count': 'ページ数順', 'sort.id': 'ギャラリーID',
+    'sort.id': '新着順', 'sort.updated': '更新順', 'sort.size': 'サイズ順',
+    'sort.count': 'ページ数順', 'sort.uploadDate': '公開日順',
     'lib.empty_title': 'ギャラリーが見つかりません。',
     'lib.empty_sub': '対応サイトから取得するか、CBZをアップロードして始めましょう。',
     'lib.avg_per_image': '平均 {size} / 画像',
@@ -155,6 +156,7 @@ export const LOCALES = {
     'prog.fetching_meta': 'メタデータを取得中…', 'prog.reading_file': 'ファイルを読み込み中…',
     'prog.uploading': 'アップロード中…', 'prog.extracting': '展開中…', 'prog.translating': '翻訳中…',
     'prog.starting': '開始中…', 'prog.interrupted': '中断されました — もう一度実行して再開',
+    'prog.cancelled': 'キャンセルしました', 'card.tip_cancel': '翻訳を停止',
     'prog.err_read': 'エラー: ファイルを読み込めませんでした。', 'prog.err_stage': 'エラー: ファイルを準備できませんでした。',
     'prog.done': '完了', 'prog.error': 'エラー', 'prog.translated': '翻訳済み', 'prog.already_cached': '{n}件はキャッシュ済み',
 
@@ -221,8 +223,8 @@ export const LOCALES = {
 
     'lib.search_ph': 'Nach ID, Titel oder Tags suchen…', 'lib.clear_search': 'Suche löschen',
     'stat.galleries': 'Galerien', 'stat.images': 'Bilder', 'stat.stored': 'Gespeichert', 'stat.loads': 'Ladungen',
-    'sort.added': 'Neueste', 'sort.updated': 'Zuletzt aktualisiert', 'sort.size': 'Größte',
-    'sort.count': 'Meiste Seiten', 'sort.id': 'Galerie-ID',
+    'sort.id': 'Neueste', 'sort.updated': 'Zuletzt aktualisiert', 'sort.size': 'Größte',
+    'sort.count': 'Meiste Seiten', 'sort.uploadDate': 'Veröffentlichungsdatum',
     'lib.empty_title': 'Keine Galerien gefunden.',
     'lib.empty_sub': 'Erfasse von einer unterstützten Seite oder lade eine CBZ hoch, um zu beginnen.',
     'lib.avg_per_image': 'Ø {size} / Bild',
@@ -256,6 +258,7 @@ export const LOCALES = {
     'prog.fetching_meta': 'Metadaten werden geladen…', 'prog.reading_file': 'Datei wird gelesen…',
     'prog.uploading': 'Wird hochgeladen…', 'prog.extracting': 'Wird entpackt…', 'prog.translating': 'Wird übersetzt…',
     'prog.starting': 'Wird gestartet…', 'prog.interrupted': 'Unterbrochen — erneut ausführen, um fortzusetzen',
+    'prog.cancelled': 'Abgebrochen', 'card.tip_cancel': 'Übersetzung stoppen',
     'prog.err_read': 'Fehler: Datei konnte nicht gelesen werden.', 'prog.err_stage': 'Fehler: Datei konnte nicht vorbereitet werden.',
     'prog.done': 'Fertig', 'prog.error': 'Fehler', 'prog.translated': 'Übersetzt', 'prog.already_cached': '{n} bereits im Cache',
 
@@ -322,8 +325,8 @@ export const LOCALES = {
 
     'lib.search_ph': 'Rechercher par ID, titre ou tags…', 'lib.clear_search': 'Effacer la recherche',
     'stat.galleries': 'Galeries', 'stat.images': 'Images', 'stat.stored': 'Stocké', 'stat.loads': 'Chargements',
-    'sort.added': 'Plus récents', 'sort.updated': 'Dernière mise à jour', 'sort.size': 'Plus volumineux',
-    'sort.count': 'Plus de pages', 'sort.id': 'ID de galerie',
+    'sort.id': 'Plus récents', 'sort.updated': 'Dernière mise à jour', 'sort.size': 'Plus volumineux',
+    'sort.count': 'Plus de pages', 'sort.uploadDate': 'Date de publication',
     'lib.empty_title': 'Aucune galerie trouvée.',
     'lib.empty_sub': 'Capturez depuis un site pris en charge ou importez un CBZ pour commencer.',
     'lib.avg_per_image': 'moy. {size} / image',
@@ -357,6 +360,7 @@ export const LOCALES = {
     'prog.fetching_meta': 'Récupération des métadonnées…', 'prog.reading_file': 'Lecture du fichier…',
     'prog.uploading': 'Envoi…', 'prog.extracting': 'Extraction…', 'prog.translating': 'Traduction…',
     'prog.starting': 'Démarrage…', 'prog.interrupted': 'Interrompu — relancez pour reprendre',
+    'prog.cancelled': 'Annulé', 'card.tip_cancel': 'Arrêter la traduction',
     'prog.err_read': 'Erreur : impossible de lire le fichier.', 'prog.err_stage': 'Erreur : impossible de préparer le fichier.',
     'prog.done': 'Terminé', 'prog.error': 'Erreur', 'prog.translated': 'Traduit', 'prog.already_cached': '{n} déjà en cache',
 
@@ -423,8 +427,8 @@ export const LOCALES = {
 
     'lib.search_ph': '按 ID、标题或标签搜索…', 'lib.clear_search': '清除搜索',
     'stat.galleries': '画廊', 'stat.images': '图片', 'stat.stored': '已存储', 'stat.loads': '加载次数',
-    'sort.added': '最新添加', 'sort.updated': '最近更新', 'sort.size': '最大',
-    'sort.count': '页数最多', 'sort.id': '画廊 ID',
+    'sort.id': '最新', 'sort.updated': '最近更新', 'sort.size': '最大',
+    'sort.count': '页数最多', 'sort.uploadDate': '发布日期',
     'lib.empty_title': '未找到画廊。',
     'lib.empty_sub': '从支持的站点抓取，或上传一个 CBZ 开始使用。',
     'lib.avg_per_image': '平均 {size} / 图',
@@ -458,6 +462,7 @@ export const LOCALES = {
     'prog.fetching_meta': '正在获取元数据…', 'prog.reading_file': '正在读取文件…',
     'prog.uploading': '正在上传…', 'prog.extracting': '正在解压…', 'prog.translating': '正在翻译…',
     'prog.starting': '正在开始…', 'prog.interrupted': '已中断——再次运行以继续',
+    'prog.cancelled': '已取消', 'card.tip_cancel': '停止翻译',
     'prog.err_read': '错误：无法读取文件。', 'prog.err_stage': '错误：无法暂存文件。',
     'prog.done': '完成', 'prog.error': '错误', 'prog.translated': '已翻译', 'prog.already_cached': '{n} 个已缓存',
 
@@ -524,8 +529,8 @@ export const LOCALES = {
 
     'lib.search_ph': 'ID, 제목 또는 태그로 검색…', 'lib.clear_search': '검색 지우기',
     'stat.galleries': '갤러리', 'stat.images': '이미지', 'stat.stored': '저장됨', 'stat.loads': '로드',
-    'sort.added': '최신순', 'sort.updated': '최근 업데이트순', 'sort.size': '용량순',
-    'sort.count': '페이지 많은순', 'sort.id': '갤러리 ID',
+    'sort.id': '최신순', 'sort.updated': '최근 업데이트순', 'sort.size': '용량순',
+    'sort.count': '페이지 많은순', 'sort.uploadDate': '게시일순',
     'lib.empty_title': '갤러리를 찾을 수 없습니다.',
     'lib.empty_sub': '지원하는 사이트에서 캡처하거나 CBZ를 업로드하여 시작하세요.',
     'lib.avg_per_image': '평균 {size} / 이미지',
@@ -559,6 +564,7 @@ export const LOCALES = {
     'prog.fetching_meta': '메타데이터 가져오는 중…', 'prog.reading_file': '파일 읽는 중…',
     'prog.uploading': '업로드 중…', 'prog.extracting': '압축 푸는 중…', 'prog.translating': '번역 중…',
     'prog.starting': '시작 중…', 'prog.interrupted': '중단됨 — 다시 실행하여 재개',
+    'prog.cancelled': '취소됨', 'card.tip_cancel': '번역 중지',
     'prog.err_read': '오류: 파일을 읽을 수 없습니다.', 'prog.err_stage': '오류: 파일을 준비할 수 없습니다.',
     'prog.done': '완료', 'prog.error': '오류', 'prog.translated': '번역됨', 'prog.already_cached': '{n}개 이미 캐시됨',
 
@@ -625,8 +631,8 @@ export const LOCALES = {
 
     'lib.search_ph': '依 ID、標題或標籤搜尋…', 'lib.clear_search': '清除搜尋',
     'stat.galleries': '畫廊', 'stat.images': '圖片', 'stat.stored': '已儲存', 'stat.loads': '載入次數',
-    'sort.added': '最新加入', 'sort.updated': '最近更新', 'sort.size': '最大',
-    'sort.count': '頁數最多', 'sort.id': '畫廊 ID',
+    'sort.id': '最新', 'sort.updated': '最近更新', 'sort.size': '最大',
+    'sort.count': '頁數最多', 'sort.uploadDate': '發佈日期',
     'lib.empty_title': '找不到畫廊。',
     'lib.empty_sub': '從支援的網站擷取，或上傳一個 CBZ 開始使用。',
     'lib.avg_per_image': '平均 {size} / 圖',
@@ -660,6 +666,7 @@ export const LOCALES = {
     'prog.fetching_meta': '正在取得中繼資料…', 'prog.reading_file': '正在讀取檔案…',
     'prog.uploading': '正在上傳…', 'prog.extracting': '正在解壓縮…', 'prog.translating': '正在翻譯…',
     'prog.starting': '正在開始…', 'prog.interrupted': '已中斷——再次執行以繼續',
+    'prog.cancelled': '已取消', 'card.tip_cancel': '停止翻譯',
     'prog.err_read': '錯誤：無法讀取檔案。', 'prog.err_stage': '錯誤：無法暫存檔案。',
     'prog.done': '完成', 'prog.error': '錯誤', 'prog.translated': '已翻譯', 'prog.already_cached': '{n} 個已快取',
 
@@ -726,8 +733,8 @@ export const LOCALES = {
 
     'lib.search_ph': 'Buscar por ID, título o etiquetas…', 'lib.clear_search': 'Limpiar búsqueda',
     'stat.galleries': 'Galerías', 'stat.images': 'Imágenes', 'stat.stored': 'Almacenado', 'stat.loads': 'Cargas',
-    'sort.added': 'Más recientes', 'sort.updated': 'Última actualización', 'sort.size': 'Más grandes',
-    'sort.count': 'Más páginas', 'sort.id': 'ID de galería',
+    'sort.id': 'Más recientes', 'sort.updated': 'Última actualización', 'sort.size': 'Más grandes',
+    'sort.count': 'Más páginas', 'sort.uploadDate': 'Fecha de publicación',
     'lib.empty_title': 'No se encontraron galerías.',
     'lib.empty_sub': 'Captura desde un sitio compatible o sube un CBZ para empezar.',
     'lib.avg_per_image': 'prom. {size} / imagen',
@@ -761,6 +768,7 @@ export const LOCALES = {
     'prog.fetching_meta': 'Obteniendo metadatos…', 'prog.reading_file': 'Leyendo archivo…',
     'prog.uploading': 'Subiendo…', 'prog.extracting': 'Extrayendo…', 'prog.translating': 'Traduciendo…',
     'prog.starting': 'Iniciando…', 'prog.interrupted': 'Interrumpido — ejecuta de nuevo para reanudar',
+    'prog.cancelled': 'Cancelado', 'card.tip_cancel': 'Detener la traducción',
     'prog.err_read': 'Error: no se pudo leer el archivo.', 'prog.err_stage': 'Error: no se pudo preparar el archivo.',
     'prog.done': 'Listo', 'prog.error': 'Error', 'prog.translated': 'Traducido', 'prog.already_cached': '{n} ya en caché',
 
@@ -827,8 +835,8 @@ export const LOCALES = {
 
     'lib.search_ph': 'Buscar por ID, título ou tags…', 'lib.clear_search': 'Limpar busca',
     'stat.galleries': 'Galerias', 'stat.images': 'Imagens', 'stat.stored': 'Armazenado', 'stat.loads': 'Carregamentos',
-    'sort.added': 'Mais recentes', 'sort.updated': 'Última atualização', 'sort.size': 'Maiores',
-    'sort.count': 'Mais páginas', 'sort.id': 'ID da galeria',
+    'sort.id': 'Mais recentes', 'sort.updated': 'Última atualização', 'sort.size': 'Maiores',
+    'sort.count': 'Mais páginas', 'sort.uploadDate': 'Data de publicação',
     'lib.empty_title': 'Nenhuma galeria encontrada.',
     'lib.empty_sub': 'Capture de um site compatível ou envie um CBZ para começar.',
     'lib.avg_per_image': 'méd. {size} / imagem',
@@ -862,6 +870,7 @@ export const LOCALES = {
     'prog.fetching_meta': 'Obtendo metadados…', 'prog.reading_file': 'Lendo arquivo…',
     'prog.uploading': 'Enviando…', 'prog.extracting': 'Extraindo…', 'prog.translating': 'Traduzindo…',
     'prog.starting': 'Iniciando…', 'prog.interrupted': 'Interrompido — execute novamente para retomar',
+    'prog.cancelled': 'Cancelado', 'card.tip_cancel': 'Parar a tradução',
     'prog.err_read': 'Erro: não foi possível ler o arquivo.', 'prog.err_stage': 'Erro: não foi possível preparar o arquivo.',
     'prog.done': 'Concluído', 'prog.error': 'Erro', 'prog.translated': 'Traduzido', 'prog.already_cached': '{n} já em cache',
 
@@ -928,8 +937,8 @@ export const LOCALES = {
 
     'lib.search_ph': 'Поиск по ID, названию или тегам…', 'lib.clear_search': 'Очистить поиск',
     'stat.galleries': 'Галереи', 'stat.images': 'Изображения', 'stat.stored': 'Хранится', 'stat.loads': 'Загрузки',
-    'sort.added': 'Сначала новые', 'sort.updated': 'Недавно обновлённые', 'sort.size': 'Самые большие',
-    'sort.count': 'Больше страниц', 'sort.id': 'ID галереи',
+    'sort.id': 'Сначала новые', 'sort.updated': 'Недавно обновлённые', 'sort.size': 'Самые большие',
+    'sort.count': 'Больше страниц', 'sort.uploadDate': 'Дата публикации',
     'lib.empty_title': 'Галереи не найдены.',
     'lib.empty_sub': 'Захватите с поддерживаемого сайта или загрузите CBZ, чтобы начать.',
     'lib.avg_per_image': 'в среднем {size} / изобр.',
@@ -963,6 +972,7 @@ export const LOCALES = {
     'prog.fetching_meta': 'Получение метаданных…', 'prog.reading_file': 'Чтение файла…',
     'prog.uploading': 'Загрузка…', 'prog.extracting': 'Извлечение…', 'prog.translating': 'Перевод…',
     'prog.starting': 'Запуск…', 'prog.interrupted': 'Прервано — запустите снова, чтобы продолжить',
+    'prog.cancelled': 'Отменено', 'card.tip_cancel': 'Остановить перевод',
     'prog.err_read': 'Ошибка: не удалось прочитать файл.', 'prog.err_stage': 'Ошибка: не удалось подготовить файл.',
     'prog.done': 'Готово', 'prog.error': 'Ошибка', 'prog.translated': 'Переведено', 'prog.already_cached': '{n} уже в кэше',
 
@@ -1029,8 +1039,8 @@ export const LOCALES = {
 
     'lib.search_ph': 'Tìm theo ID, tiêu đề hoặc thẻ…', 'lib.clear_search': 'Xóa tìm kiếm',
     'stat.galleries': 'Bộ truyện', 'stat.images': 'Ảnh', 'stat.stored': 'Đã lưu', 'stat.loads': 'Lượt tải',
-    'sort.added': 'Mới nhất', 'sort.updated': 'Cập nhật gần đây', 'sort.size': 'Lớn nhất',
-    'sort.count': 'Nhiều trang nhất', 'sort.id': 'ID bộ truyện',
+    'sort.id': 'Mới nhất', 'sort.updated': 'Cập nhật gần đây', 'sort.size': 'Lớn nhất',
+    'sort.count': 'Nhiều trang nhất', 'sort.uploadDate': 'Ngày đăng',
     'lib.empty_title': 'Không tìm thấy bộ truyện nào.',
     'lib.empty_sub': 'Lưu từ một trang được hỗ trợ hoặc tải lên một CBZ để bắt đầu.',
     'lib.avg_per_image': 'TB {size} / ảnh',
@@ -1064,6 +1074,7 @@ export const LOCALES = {
     'prog.fetching_meta': 'Đang lấy metadata…', 'prog.reading_file': 'Đang đọc tệp…',
     'prog.uploading': 'Đang tải lên…', 'prog.extracting': 'Đang giải nén…', 'prog.translating': 'Đang dịch…',
     'prog.starting': 'Đang bắt đầu…', 'prog.interrupted': 'Đã gián đoạn — chạy lại để tiếp tục',
+    'prog.cancelled': 'Đã hủy', 'card.tip_cancel': 'Dừng dịch',
     'prog.err_read': 'Lỗi: không thể đọc tệp.', 'prog.err_stage': 'Lỗi: không thể chuẩn bị tệp.',
     'prog.done': 'Xong', 'prog.error': 'Lỗi', 'prog.translated': 'Đã dịch', 'prog.already_cached': '{n} đã có trong bộ nhớ đệm',
 
@@ -1130,8 +1141,8 @@ export const LOCALES = {
 
     'lib.search_ph': 'Cari berdasarkan ID, judul, atau tag…', 'lib.clear_search': 'Hapus pencarian',
     'stat.galleries': 'Galeri', 'stat.images': 'Gambar', 'stat.stored': 'Tersimpan', 'stat.loads': 'Muatan',
-    'sort.added': 'Terbaru', 'sort.updated': 'Terakhir diperbarui', 'sort.size': 'Terbesar',
-    'sort.count': 'Halaman terbanyak', 'sort.id': 'ID galeri',
+    'sort.id': 'Terbaru', 'sort.updated': 'Terakhir diperbarui', 'sort.size': 'Terbesar',
+    'sort.count': 'Halaman terbanyak', 'sort.uploadDate': 'Tanggal terbit',
     'lib.empty_title': 'Tidak ada galeri ditemukan.',
     'lib.empty_sub': 'Tangkap dari situs yang didukung atau unggah CBZ untuk memulai.',
     'lib.avg_per_image': 'rata2 {size} / gambar',
@@ -1165,6 +1176,7 @@ export const LOCALES = {
     'prog.fetching_meta': 'Mengambil metadata…', 'prog.reading_file': 'Membaca berkas…',
     'prog.uploading': 'Mengunggah…', 'prog.extracting': 'Mengekstrak…', 'prog.translating': 'Menerjemahkan…',
     'prog.starting': 'Memulai…', 'prog.interrupted': 'Terhenti — jalankan lagi untuk melanjutkan',
+    'prog.cancelled': 'Dibatalkan', 'card.tip_cancel': 'Hentikan terjemahan',
     'prog.err_read': 'Galat: tidak dapat membaca berkas.', 'prog.err_stage': 'Galat: tidak dapat menyiapkan berkas.',
     'prog.done': 'Selesai', 'prog.error': 'Galat', 'prog.translated': 'Diterjemahkan', 'prog.already_cached': '{n} sudah di-cache',
 
