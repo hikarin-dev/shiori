@@ -8,9 +8,9 @@
 // app-shell cache (stale-while-revalidate) + background job runner. (See ARCHITECTURE.md §2.)
 
 import * as platform from './app/js/platform.js';
-import { RUNNERS, cancelJobRun } from './app/js/jobs-runner.js';
+import { RUNNERS, cancelJobRun, runPoll } from './app/js/jobs-runner.js';
 
-const CACHE = 'shiori-shell-v24';
+const CACHE = 'shiori-shell-v34';
 // The scope root: http://localhost:5500/ locally, https://…/shiori/ on GitHub Pages.
 const ROOT = new URL('./', self.location.href);
 // Clean navigation path (relative to the root) → which app page serves it.
@@ -94,33 +94,64 @@ self.addEventListener('fetch', (e) => {
 });
 
 // ── Background jobs ──
-// Keys of jobs this worker is actively running, so a page can ask (liveness ping) whether a
-// 'progress' row it sees is real or an orphan left by a killed runner.
+// Keys of jobs this worker is actively running, so a duplicate submit for one already in flight
+// here is a cheap no-op instead of starting it twice.
 const _running = new Set();
 async function runJob(kind, payload) {
   const run = RUNNERS[kind];
   if (!run) return;
   const key = `${payload.galleryId}:${kind}`;
-  await platform.jobsPending.add({ key, kind, payload });
+  // A keep-alive nudge for a job already running here is a no-op — don't re-enter (which would
+  // wrongly clear _running / the resume entry in its finally while the real run is still going).
+  // Claim the key synchronously (no await before the add) so two near-simultaneous nudges can't
+  // both slip past the guard.
+  if (_running.has(key)) return;
   _running.add(key);
-  try { await run(payload); }
-  finally { _running.delete(key); await platform.jobsPending.remove(key); }
+  try {
+    await platform.jobsPending.add({ key, kind, payload });
+    await run(payload);
+  } finally { _running.delete(key); await platform.jobsPending.remove(key); }
 }
 async function resumePending() {
   for (const e of await platform.jobsPending.all()) runJob(e.kind, e.payload);
 }
+
+// Self-sustaining poll loop. A page kicks it off (__shioriPoll), but it then runs INSIDE the worker
+// — polling every few seconds for as long as a translation is in flight — so it doesn't depend on
+// a page timer, which Chrome throttles to a crawl (or stops) when its tab is backgrounded. That
+// throttling was stopping the heartbeat and getting jobs reaped mid-translation. The loop re-arms
+// itself just before Chrome's ~5-min single-event cap so it never dies of old age while work
+// remains; it ends on its own once nothing is left to poll (so a closed browser still goes quiet).
+const POLL_INTERVAL_MS = 3000;
+const POLL_LOOP_MAX_MS = 4 * 60 * 1000;   // hand off to a fresh event before the ~5-min event cap
+let _pollLoopActive = false;
+async function pollLoop() {
+  if (_pollLoopActive) return;             // one loop at a time — extra kicks are no-ops
+  _pollLoopActive = true;
+  const started = Date.now();
+  try {
+    while (true) {
+      try { await runPoll(); } catch {}
+      let records = [];
+      try { records = await platform.translateResume.all(); } catch {}
+      if (!records || !records.length) return;            // nothing in flight → let the loop (and SW) go idle
+      if (Date.now() - started > POLL_LOOP_MAX_MS) {       // re-arm a fresh event so we never hit the 5-min cap
+        try { self.registration.active && self.registration.active.postMessage({ __shioriPoll: true }); } catch {}
+        return;
+      }
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    }
+  } finally { _pollLoopActive = false; }
+}
+
 self.addEventListener('message', (e) => {
   const d = e.data;
+  if (d && d.__shioriPoll) { e.waitUntil(pollLoop()); return; }     // drive polling inside the SW, immune to tab throttling
   if (d && d.__shioriJob) e.waitUntil(runJob(d.kind, d.payload));   // waitUntil keeps the worker alive
   else if (d && d.__shioriJobCancel) {
     // Abort the running job AND drop its resume entry, so an evicted worker never replays a
     // job the user cancelled (that replay loop is the "cards reload over and over" symptom).
     cancelJobRun(d.kind, d.payload);
     e.waitUntil(platform.jobsPending.remove(`${d.payload && d.payload.galleryId}:${d.kind}`));
-  }
-  else if (d && d.__shioriJobsQuery) {
-    // Liveness ping: reply with the keys of jobs actually running in this worker right now.
-    const port = e.ports && e.ports[0];
-    if (port) port.postMessage({ keys: [..._running] });
   }
 });

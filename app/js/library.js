@@ -723,7 +723,8 @@ function applyJob(job) {
   if (status === 'progress' || status === 'done') {
     const done = job.done || 0, total = job.total || 0;
     let pct;
-    if (isTranslate || kind === 'upload') pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    if (isTranslate) pct = (typeof job.pct === 'number') ? job.pct : (total > 0 ? Math.round((done / total) * 100) : 0);  // weighted across the read/translate/render stages
+    else if (kind === 'upload') pct = total > 0 ? Math.round((done / total) * 100) : 0;
     else pct = total > 0 ? Math.round(85 + (done / total) * 15) : 85;  // download store loop: last 15%
     if (fillEl) {
       fillEl.classList.remove('indeterminate');
@@ -733,9 +734,11 @@ function applyJob(job) {
     const skippedNote = job.skipped > 0 ? ` (${t('prog.already_cached', { n: job.skipped })})` : '';
     if (labelEl) {
       if (isTranslate) {
+        // The translate label is self-contained (it carries the active stage's own count), so it
+        // isn't suffixed with the rendered-page tally the way downloads/uploads are.
         labelEl.textContent = status === 'done'
           ? `${t('prog.translated')} ${done}/${total}${job.failed ? ` (${job.failed} failed)` : ''}${job.costNote ? ` · ${job.costNote}` : ''}`
-          : job.label ? `${job.label} · ${done}/${total}` : `${t('prog.translating')} ${done} / ${total}`;
+          : job.label ? job.label : `${t('prog.translating')} ${done} / ${total}`;
       } else {
         labelEl.textContent = status === 'done'
           ? `${t('prog.done')} — ${done}/${total}${skippedNote}`
@@ -765,22 +768,6 @@ platform.jobs.subscribe(applyJob);
 // so for translate we instead ask the SW whether it's actually still running the job.
 const JOB_STALE_MS = { download: 2 * 60 * 1000, upload: 2 * 60 * 1000, translate: 10 * 60 * 1000 };
 
-// Ask the service worker which durable jobs it is actually running right now. Lets hydrate tell a
-// genuinely-running translate job from an orphaned 'progress' row left by a killed runner (e.g. the
-// browser was closed mid-translation). Resolves to an array of `${gid}:${kind}` keys, or null if it
-// can't be determined in time (then we fall back to the staleness heuristic).
-function askSWRunningJobs(timeoutMs = 1200) {
-  return new Promise((resolve) => {
-    const sw = navigator.serviceWorker && navigator.serviceWorker.controller;
-    if (!sw) return resolve(null);
-    const mc = new MessageChannel();
-    const timer = setTimeout(() => resolve(null), timeoutMs);
-    mc.port1.onmessage = (e) => { clearTimeout(timer); resolve((e.data && e.data.keys) || []); };
-    try { sw.postMessage({ __shioriJobsQuery: true }, [mc.port2]); }
-    catch { clearTimeout(timer); resolve(null); }
-  });
-}
-
 function _applyInterruptedUI(gid) {
   const labelEl = document.getElementById(`proglabel-${gid}`);
   const body = labelEl && labelEl.closest('.card-body');
@@ -802,17 +789,15 @@ function _markJobInterrupted(job) {
 
 async function hydrateJobs() {
   const jobs = await platform.jobs.current();
-  // Liveness ping only when necessary — only if there's a translate job to verify. With no SW
-  // controller, nothing can still be running after a reload, so the running set is empty.
-  let running = null;
-  if (jobs.some(j => j.kind === 'translate')) {
-    running = (navigator.serviceWorker && navigator.serviceWorker.controller) ? await askSWRunningJobs() : [];
-  }
   for (const job of jobs) {
+    // Translations are server-owned: boot.js's ensureTranslationsAlive() re-attaches to any that
+    // are still running (after a navigation or a service-worker kill) and a live runner keeps
+    // publishing over the top of this. So just paint whatever the registry currently has.
+    if (job.kind === 'translate') { applyJob(job); continue; }
+
+    // upload / download can't be re-attached the same way — keep the "interrupted" hint if stale.
     const staleAfter = JOB_STALE_MS[job.kind] || 2 * 60 * 1000;
-    const key = `${job.gid}:${job.kind}`;
-    const orphaned = job.kind === 'translate' && Array.isArray(running) && !running.includes(key);
-    if (orphaned || (Date.now() - (job.at || 0)) > staleAfter) { _markJobInterrupted(job); continue; }
+    if ((Date.now() - (job.at || 0)) > staleAfter) { _markJobInterrupted(job); continue; }
     applyJob(job);
   }
 }
@@ -1357,7 +1342,9 @@ async function exportGalleryZip(galleryId) {
       cachedAt: r.cachedAt,
       cachedAtISO: r.cachedAt ? new Date(r.cachedAt).toISOString() : null,
       size: r.size,
-      translated: r.translated !== undefined
+      translated: r.translated !== undefined,
+      hasStudy: !!(r.studyBg && Array.isArray(r.bubbles) && r.bubbles.length),
+      bubbleCount: Array.isArray(r.bubbles) ? r.bubbles.length : 0
     })), null, 2))
   });
 
@@ -1390,6 +1377,31 @@ async function exportGalleryZip(galleryId) {
     if (!bytes) continue;
     const ext = (typeof rec.translated === 'string' ? rec.translated.match(/^data:image\/(\w+)/)?.[1] : rec.translated.type?.split('/')[1]) || 'png';
     files.push({ name: `translated/${m[1].padStart(4, '0')}.${ext.toLowerCase()}`, data: bytes });
+  }
+
+  // Study-mode layers: the shared inpaint bg (study/bg) + each bubble's transparent text PNG
+  // (study/text), and bubbles.json mapping page → boxes/regions/text-file. Mirrors the DB shape
+  // so the import can restore it losslessly.
+  const imgExt = (src) => (src instanceof Blob ? src.type?.split('/')[1] : (typeof src === 'string' ? src.match(/^data:image\/(\w+)/)?.[1] : null)) || 'png';
+  const studyIndex = {};
+  for (const rec of imageRecords) {
+    const m = rec.url.match(/\/(\d+)\.\w+$/);
+    if (!m || !rec.studyBg || !Array.isArray(rec.bubbles) || !rec.bubbles.length) continue;
+    const num = m[1].padStart(4, '0');
+    const bgBytes = await imageBytes(rec.studyBg);
+    if (bgBytes) files.push({ name: `study/bg/${num}.${imgExt(rec.studyBg)}`, data: bgBytes });
+    const entries = [];
+    for (let k = 0; k < rec.bubbles.length; k++) {
+      const b = rec.bubbles[k];
+      const txtBytes = await imageBytes(b.text);
+      const textFile = `${num}-${k}.${imgExt(b.text)}`;
+      if (txtBytes) files.push({ name: `study/text/${textFile}`, data: txtBytes });
+      entries.push({ box: b.box, region: b.region, tr: b.tr || '', src: b.src || '', textFile: txtBytes ? textFile : null });
+    }
+    studyIndex[num] = entries;
+  }
+  if (Object.keys(studyIndex).length) {
+    files.push({ name: 'study/bubbles.json', data: enc.encode(JSON.stringify(studyIndex, null, 2)) });
   }
 
   const zipBytes = _zipCreate(files);

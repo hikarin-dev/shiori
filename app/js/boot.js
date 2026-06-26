@@ -4,6 +4,7 @@
 
 import * as platform from './platform.js';
 import { services } from './services.js';
+import { pollActiveTranslations } from './submit-job.js';
 import { applyTranslations } from './i18n.js';
 
 // We reached an app page, so it booted — clear the hard-reload recovery flag that index.html /
@@ -16,6 +17,13 @@ try { sessionStorage.removeItem('shiori-sw-retry'); } catch {}
 applyTranslations(document);
 
 platform.registerServices(services);
+
+// Drive any in-flight translation: a translation is a server-owned job, and this polls it for new
+// chunks (preferring the service worker) on every page load and on a short timer. Short polls keep
+// the worker warm without any single event hitting Chrome's ~5-min cap, so the job survives a
+// navigation, a tab close+reopen, and SW recycling — whichever page is open carries it to the end.
+pollActiveTranslations();
+setInterval(pollActiveTranslations, 3000);
 
 // Clean URLs: pages are real .html files, but the address bar shows /app/library — the
 // service worker maps extensionless navigations back to the page file (and the dev server /

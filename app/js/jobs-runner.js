@@ -7,7 +7,7 @@
 
 import * as platform from './platform.js';
 import { importCbzBuffer } from './import-cbz.js';
-import { translateGallery, cancelTranslate } from './translate.js';
+import { startTranslation, pollTranslation, cancelTranslate } from './translate.js';
 
 // Import a CBZ the UI staged in OPFS. Resumable: re-running skips already-stored pages.
 export async function runImport({ galleryId, tempFile, filename, skipExisting = true }) {
@@ -28,18 +28,28 @@ export async function runImport({ galleryId, tempFile, filename, skipExisting = 
   }
 }
 
-// Translate a gallery against the configured server. Resumable: re-running picks up untranslated pages.
+// Start a gallery translation: upload the not-yet-translated pages and create the server-owned job.
+// Returns once it's created; the poll ticks (runPoll) drive it. Resumable: re-running only uploads
+// pages still missing.
 export async function runTranslate({ galleryId, settings }) {
   const gid = String(galleryId);
-  await translateGallery(gid, settings, (m) => platform.jobs.publish({ gid, kind: 'translate', ...m }));
+  await startTranslation(gid, settings, (m) => platform.jobs.publish({ gid, kind: 'translate', ...m }));
+}
+
+// Poll every in-flight translation once (each a short fetch) and broadcast progress. Driven by the
+// page's poll tick — this is what keeps the service worker warm and the job advancing without any
+// single long-lived event hitting Chrome's ~5-min cap.
+export async function runPoll() {
+  const records = await platform.translateResume.all();
+  await Promise.all((records || []).map((rec) =>
+    pollTranslation(rec.gid, (m) => platform.jobs.publish({ gid: rec.gid, kind: 'translate', ...m }))));
 }
 
 export const RUNNERS = { upload: runImport, translate: runTranslate };
 
-// Cancel a running job in THIS context (the abort handle lives wherever the job runs, so
-// the cancel has to be invoked there too — submit-job routes it to the SW when the SW owns
-// the job). Mirror of RUNNERS; only translate is cancellable.
-export const CANCELLERS = { translate: ({ galleryId }) => cancelTranslate(galleryId) };
+// Cancel a running job in THIS context. submit-job routes it to the SW when the SW owns the job.
+// Mirror of RUNNERS; only translate is cancellable. The payload carries { galleryId, token, serverUrl }.
+export const CANCELLERS = { translate: (payload) => cancelTranslate(payload) };
 
 export function cancelJobRun(kind, payload) {
   const fn = CANCELLERS[kind];

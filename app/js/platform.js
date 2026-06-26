@@ -65,11 +65,12 @@ const STALE_PURGE_MS = 24 * 60 * 60 * 1000;   // drop registry rows this old on 
 let _jobsDbP = null;
 function _jobsDb() {
   return _jobsDbP || (_jobsDbP = new Promise((resolve, reject) => {
-    const r = indexedDB.open('shiori-jobs', 1);
+    const r = indexedDB.open('shiori-jobs', 2);
     r.onupgradeneeded = () => {
       const db = r.result;
       if (!db.objectStoreNames.contains('jobs')) db.createObjectStore('jobs', { keyPath: 'key' });
       if (!db.objectStoreNames.contains('pending')) db.createObjectStore('pending', { keyPath: 'key' });  // SW resume list
+      if (!db.objectStoreNames.contains('resume')) db.createObjectStore('resume', { keyPath: 'gid' });     // token-reattach records
     };
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);
@@ -128,6 +129,18 @@ export const jobsPending = {
   async add(entry) { try { const db = await _jobsDb(); await new Promise(r => { const t = db.transaction('pending', 'readwrite'); t.objectStore('pending').put(entry); t.oncomplete = r; t.onerror = r; }); } catch {} },
   async remove(key) { try { const db = await _jobsDb(); await new Promise(r => { const t = db.transaction('pending', 'readwrite'); t.objectStore('pending').delete(key); t.oncomplete = r; t.onerror = r; }); } catch {} },
   async all() { try { const db = await _jobsDb(); return await new Promise(r => { const q = db.transaction('pending', 'readonly').objectStore('pending').getAll(); q.onsuccess = () => r(q.result || []); q.onerror = () => r([]); }); } catch { return []; } },
+};
+
+// Token-reattach records for in-flight translations: { gid, token, serverUrl, pendingUrls, settings, at }.
+// One per active gallery translation, written when it starts and removed when it finishes. The
+// server owns the job (keyed by token); this lets ANY page — after a navigation, or a service
+// worker Chrome killed at its ~5-min cap — re-attach to the exact same job by token and resume
+// streaming the pages it hasn't collected yet, instead of starting a wasteful fresh job.
+export const translateResume = {
+  async set(rec) { try { const db = await _jobsDb(); await new Promise(r => { const t = db.transaction('resume', 'readwrite'); t.objectStore('resume').put({ ...rec, gid: String(rec.gid) }); t.oncomplete = r; t.onerror = r; }); } catch {} },
+  async get(gid) { try { const db = await _jobsDb(); return await new Promise(r => { const q = db.transaction('resume', 'readonly').objectStore('resume').get(String(gid)); q.onsuccess = () => r(q.result || null); q.onerror = () => r(null); }); } catch { return null; } },
+  async remove(gid) { try { const db = await _jobsDb(); await new Promise(r => { const t = db.transaction('resume', 'readwrite'); t.objectStore('resume').delete(String(gid)); t.oncomplete = r; t.onerror = r; }); } catch {} },
+  async all() { try { const db = await _jobsDb(); return await new Promise(r => { const q = db.transaction('resume', 'readonly').objectStore('resume').getAll(); q.onsuccess = () => r(q.result || []); q.onerror = () => r([]); }); } catch { return []; } },
 };
 
 // ── In-tab services: request/response + push ────────────────────────────────────────────
