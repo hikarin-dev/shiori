@@ -946,8 +946,30 @@ export async function putTranslatedImage(url, translatedDataUrl) {
   });
 }
 
-// Strips the `translated` field from every page of a gallery, reverting to originals.
-// Returns the number of pages that had a translation removed.
+// Study-mode layers for one page: { bg, bubbles }. `bg` is a Blob (the inpainted page, text
+// removed) shared by every bubble; each bubble is { box, region, tr, src, text } where `text`
+// is a Blob (a full-page transparent PNG of just that bubble's glyphs), `box` is the OCR
+// detection region (the hover/click border) and `region` is the area to clip `bg` to. All are
+// stored on the page's images record like `translated`, so they ride along in backups and
+// clear on revert. A reader reveals one bubble at a time by overlaying its text layer (whole)
+// and clipping the shared bg to its region.
+export async function putPageStudy(url, study) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx    = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    const getReq = store.get(url);
+    getReq.onsuccess = () => {
+      const rec = getReq.result;
+      if (rec) { rec.studyBg = study.bg; rec.bubbles = study.bubbles; store.put(rec); }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror    = () => reject(tx.error);
+  });
+}
+
+// Strips the `translated` field (and any per-bubble study overlays) from every page of a
+// gallery, reverting to originals. Returns the number of pages that had a translation removed.
 export async function clearGalleryTranslations(galleryId) {
   const db = await openDB();
   const gid = String(galleryId);
@@ -958,11 +980,14 @@ export async function clearGalleryTranslations(galleryId) {
     req.onsuccess = (e) => {
       const cursor = e.target.result;
       if (!cursor) return;
-      if (cursor.value.translated !== undefined) {
+      if (cursor.value.translated !== undefined || cursor.value.bubbles !== undefined) {
         const v = cursor.value;
+        const had = v.translated !== undefined;
         delete v.translated;
+        delete v.bubbles;
+        delete v.studyBg;
         cursor.update(v);
-        cleared++;
+        if (had) cleared++;
       }
       cursor.continue();
     };

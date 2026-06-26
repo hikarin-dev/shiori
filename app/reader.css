@@ -3,18 +3,29 @@
   --accent: #ed2754; --accent2: #ffd166; --text: #e8e8f0; --muted: #6b6b80;
   --topbar-h: 54px; --botbar-h: 32px;
   --page-zoom: 1;   /* +/- keys scale the in-view pages around this factor */
+  --sbw: 0px;       /* OS scrollbar width, measured once by reader.js */
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; }
 body { min-height: 100vh; }
 
 /* ── Top bar ── */
-#topbar, #topbarFloat {
+#topbar {
   position: sticky; top: 0; z-index: 200; width: 100%;
   height: var(--topbar-h);
   background: var(--surface); border-bottom: 1px solid var(--border);
   display: flex; align-items: center; gap: 8px; padding: 0 20px;
+  transition: top 0.2s ease;   /* unpinned wheel-reveal slides the live bar down/up via its sticky top */
+  /* Query container so the secondary-button fold (step 2 below) can be driven by the layout engine
+     at a content-derived breakpoint, instead of a per-frame resize callback that lags mid-drag. */
+  container: rbar / inline-size;
 }
+/* Keep the right-hand controls at a fixed position whether or not a page scrollbar shows. The bar
+   reserves an extra --sbw of right padding always, then hands it back only when a scrollbar is
+   actually present (JS toggles .has-vscroll). The padding is a fixed length either way, so it
+   never flexes as the window narrows — the buttons hold the same edge. */
+#topbar { padding-right: calc(20px + var(--sbw)); }
+#topbar.has-vscroll { padding-right: 20px; }
 
 /* Brand cluster mirrors the main library nav (icon size, logo text, separator) so the two
    headers read as the same chrome. */
@@ -24,33 +35,90 @@ body { min-height: 100vh; }
 .tb-icon img { width: 100%; height: 100%; display: block; }
 .tb-logo    { font-size: 15px; font-weight: 700; color: var(--accent); white-space: nowrap; letter-spacing: -0.3px; }
 .tb-sep     { color: var(--border); font-size: 13px; }
-.tb-gallery { font-size: 13px; color: var(--accent); white-space: nowrap; text-decoration: none; }
+/* Number + title in one link: the link shrinks first (so the title ellipsizes), the number holds. */
+/* A <button>, not a link — so no default blue/purple link underline. Strip the native button chrome
+   and inherit the bar's text colour; the children carry their own colours. */
+.tb-meta    { display: flex; align-items: baseline; gap: 6px; flex-shrink: 1; overflow: hidden;
+              background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; }
+.tb-meta:hover { opacity: 0.8; }
+.tb-gallery { font-size: 13px; color: var(--accent); white-space: nowrap; flex-shrink: 0; }
 .tb-gallery.local { color: var(--accent2); }
-.tb-gallery[href]:hover { text-decoration: underline; }
-.tb-title   { font-size: 13px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; flex-shrink: 1; text-decoration: none; }
-.tb-title[href]:hover { opacity: 0.8; text-decoration: underline; }
-.tb-spacer  { flex: 1; min-width: 8px; }
+.tb-title   { font-size: 13px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; flex-shrink: 1; }
+.tb-spacer  { flex: 1; min-width: 0px; }
 #pageCounter, [data-ref="pageCounter"] { font-size: 11px; color: var(--muted); white-space: nowrap; min-width: 52px; text-align: right; }
 
-/* Mode button group */
-.mode-group { display: flex; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
-.mode-btn {
-  background: none; border: none; border-right: 1px solid var(--border);
-  color: var(--muted); padding: 5px 9px; cursor: pointer;
-  font-size: 14px; line-height: 1; transition: all 0.12s;
-}
-.mode-btn:last-child { border-right: none; }
-.mode-btn:hover  { background: #1e1e24; color: var(--text); }
-.mode-btn.active { background: var(--accent); color: white; }
-
+/* All reader-nav controls are the same 30px square so the bar reads as one set. */
 .tb-btn {
   background: none; border: 1px solid var(--border); color: var(--muted);
-  font-family: inherit; font-size: 11px; padding: 4px 9px;
-  border-radius: 4px; cursor: pointer; transition: all 0.12s;
-  white-space: nowrap; text-decoration: none; display: inline-flex; align-items: center;
+  font-family: inherit; font-size: 13px; width: 30px; height: 30px; padding: 0;
+  border-radius: 5px; cursor: pointer; transition: all 0.12s;
+  text-decoration: none; display: inline-flex; align-items: center; justify-content: center;
 }
 .tb-btn:hover  { border-color: var(--accent); color: var(--accent); }
 .tb-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+
+/* Responsive nav — space is given up as the window narrows, in this order:
+   1. the title→pages spacer (gap) closes — the only flexible item while expanded,
+   2. the secondary buttons (.tb-extra) fold into the ⋯ menu,
+   3. the title ellipsizes away,
+   4. the translate ⇄ study toggle folds into the ⋯ menu too,
+   5. and only as a last resort the gallery # clips.
+   The brand, reading-mode toggle and page counter never give way. */
+.tb-brand, .tb-gallery, .tb-sep, #pageCounter, .seg-toggle, .tb-extra, .tb-btn { flex-shrink: 0; }
+/* The title + meta stay shrinkable so the right-hand controls never get pushed past the right padding.
+   Step 2 (the .tb-extra → ⋯ fold) is a @container query that _recomputeFold injects at load: its
+   breakpoint is the bar's natural width — exactly the window width at which step 1's gap hits zero.
+   Driving the fold from the layout engine (not a resize callback) lands it in the same layout pass as
+   the resize even mid-drag, so the buttons fold the instant the gap closes and the title never flashes
+   an ellipsis before them. The remaining stages (title ellipsis, # clip) are plain flex shrink. */
+.tb-extra { display: flex; align-items: center; gap: 8px; }
+.tb-menu-btn { display: none; }
+/* Folded (the injected @container rule shows .tb-menu-btn and hides .tb-extra): the ⋯ panel re-shows
+   the secondary controls as a dropdown. menu-open is only reachable while folded. */
+#topbar.menu-open .tb-menu-btn { border-color: var(--accent); color: var(--accent); }
+#topbar.menu-open .tb-extra {
+  display: flex; flex-direction: row; align-items: center; gap: 8px;
+  position: absolute; top: calc(var(--topbar-h) - 2px); right: 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px; z-index: 220; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+/* Segmented toggles (reading mode, and translate ⇄ study): square segments with an accent
+   indicator that slides between them. */
+.seg-toggle {
+  position: relative; display: inline-flex;
+  border: 1px solid var(--border); border-radius: 5px; overflow: hidden; height: 30px;
+}
+.seg {
+  position: relative; z-index: 1; width: 30px; height: 100%; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; cursor: pointer; color: var(--muted);
+  transition: color 0.15s;
+}
+.seg:hover { color: var(--text); }
+.seg.active { color: #fff; }
+.seg.disabled { opacity: 0.3; pointer-events: none; }
+.seg-indicator {
+  position: absolute; top: 0; left: 0; z-index: 0; width: 30px; height: 100%;
+  background: var(--accent); opacity: 0; transform: translateX(0);
+  transition: transform 0.22s cubic-bezier(.4, 0, .2, 1), opacity 0.18s ease;
+  pointer-events: none;
+}
+/* When appearing/disappearing (translate ⇄ study can be all-off) only fade — never slide. */
+.seg-toggle.no-slide .seg-indicator { transition: opacity 0.18s ease; }
+
+/* Translate ⇄ study: opacity follows the on/off state, position follows the last active side
+   (data-pos), so turning it off fades the indicator in place instead of sliding it back. */
+#viewToggle[data-state="translate"] .seg-indicator,
+#viewToggle[data-state="study"]     .seg-indicator { opacity: 1; }
+#viewToggle[data-pos="translate"] .seg-indicator { transform: translateX(0); }
+#viewToggle[data-pos="study"]     .seg-indicator { transform: translateX(100%); }
+
+/* Reading mode: always one of three; the indicator slides across the three squares. */
+.mode-seg .seg-indicator { opacity: 1; }
+.mode-seg[data-state="single"] .seg-indicator { transform: translateX(0); }
+.mode-seg[data-state="double"] .seg-indicator { transform: translateX(100%); }
+.mode-seg[data-state="strip"]  .seg-indicator { transform: translateX(200%); }
 
 /* ── SINGLE mode ── */
 #singleView { display: none; }
@@ -93,10 +161,13 @@ body { min-height: 100vh; }
   cursor: pointer; pointer-events: all;
 }
 
-.dImg {
-  display: block; width: calc(min(50%, 900px) * var(--page-zoom)); max-width: none; height: auto;
-  user-select: none;
-}
+.dImg { display: block; max-width: none; height: auto; user-select: none; }
+/* Each page is half the row. The 50% is resolved against #doubleInner (a definite width); when
+   study mode wraps the image in .page-wrap, the WRAP takes the 50% and the image fills it — so
+   the percentage never becomes circular against an auto-width wrapper (which blanked the pages). */
+#doubleInner > .dImg,
+#doubleInner > .page-wrap { width: calc(min(50%, 900px) * var(--page-zoom)); }
+#doubleInner > .page-wrap > .dImg { width: 100%; }
 
 /* ── STRIP mode ── */
 #stripView {
@@ -114,6 +185,43 @@ body { min-height: 100vh; }
   aspect-ratio: 2 / 3;
   object-fit: contain;
 }
+
+/* ── Study mode: per-bubble translation overlays (layered) ── */
+/* Each page image lives in a relative wrap so overlays anchor to the image box in every mode. */
+.page-wrap { position: relative; display: block; }
+.bubble-layer { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+/* Two stacked layers: every revealed bubble's inpaint background sits in .bubble-bg (below)
+   and its translated text in .bubble-fg (above), so overlapping bubbles never let one's
+   background cover another's text. Clickable boxes sit on top of both. */
+.bubble-bg  { position: absolute; inset: 0; z-index: 1; }
+.bubble-fg  { position: absolute; inset: 0; z-index: 2; }
+/* A revealed layer is the FULL page image (100% of the wrap, so it stays aligned with the
+   original at any zoom), clipped to one bubble's box via an inline clip-path. */
+.study-layer-img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: fill; display: block; pointer-events: none;
+  user-select: none; -webkit-user-select: none;
+}
+/* Page-flip zones live INSIDE the overlay, just below the bubble boxes (single/double only),
+   so clicking a bubble reveals it while clicking anywhere else on the page still turns the
+   page. Strip mode scrolls, so it gets no nav zones. */
+.bubble-nav { position: absolute; inset: 0; display: flex; z-index: 3; }
+.bubble-nav > div { flex: 1; pointer-events: auto; cursor: pointer; }
+.bubble-box {
+  position: absolute; z-index: 4; pointer-events: auto; cursor: pointer;
+  border-radius: 4px;
+  /* outline (not border) for the hover ring — it doesn't shift layout. */
+  outline: 1.5px solid transparent; outline-offset: -1px;
+  transition: outline-color 0.12s ease, background-color 0.12s ease;
+  /* Repeated clicking must never text-select the region (the blue highlight). */
+  user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
+}
+/* Hover = "active region": ring + faint tint. Otherwise the box is invisible (clean page). */
+.bubble-box:hover { outline-color: var(--accent); background-color: rgba(237, 39, 84, 0.08); }
+/* The fixed side click-zones are disabled in study mode (they'd sit above the overlay and eat
+   hover + bubble clicks); navigation is handled by the in-overlay zones above. */
+body.study-mode #clickPrev, body.study-mode #clickNext,
+body.study-mode #dClickPrev, body.study-mode #dClickNext { pointer-events: none; }
 
 /* ── Thumbnail strip ── */
 :root { --thumb-h: 88px; --zoom-inv: 1; }
@@ -266,9 +374,13 @@ html:has(#keybindModal.show), body:has(#keybindModal.show) { overflow: hidden; }
   font-size: 10px; color: var(--text); font-family: inherit; white-space: nowrap;
 }
 
-/* Unpinned: the header is a normal in-flow element that scrolls away with the pages (the wheel
-   reveal in reader.js floats a copy back). Pinned (no class) leaves it position: sticky. */
-body.reader-unpinned #topbar { position: relative; }
+/* Unpinned: the live header is parked one bar-height above the viewport, so it scrolls away as you
+   read; a wheel-up (5×, handled in reader.js) adds .revealed to slide the real bar back down via its
+   sticky `top` (animated by the #topbar transition above). It's the live element — its toggles and
+   accent indicators are always current, with no clone to keep in sync. Pinned (no class) keeps the
+   base top:0, so the bar is always shown. */
+body.reader-unpinned #topbar          { top: calc(-1 * var(--topbar-h)); }
+body.reader-unpinned #topbar.revealed { top: 0; }
 /* ── All modes use document scroll ── */
 html.reader-scroll, body.reader-scroll { height: auto; }
 

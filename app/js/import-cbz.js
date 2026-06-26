@@ -2,7 +2,8 @@
 // sorting) the download orchestration reuses. Runs in a page or in the PWA service worker.
 
 import * as platform from './platform.js';
-import { dbPut, metaPut, metaGet, galleryGet, deleteGalleryImages, existingPageNums, publishFeed } from './db.js';
+import { dbPut, metaPut, metaGet, galleryGet, deleteGalleryImages, existingPageNums, publishFeed,
+         putTranslatedImage, putPageStudy } from './db.js';
 
 async function inflateRaw(bytes) {
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
@@ -69,6 +70,13 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
   let embeddedMeta = null;
   if (metaEntry) { try { embeddedMeta = JSON.parse(new TextDecoder().decode(metaEntry.data)); } catch {} }
 
+  // A Shiori per-gallery export (has image_records.json) carries pages under images/ plus
+  // translated/ and study/ folders. Restore it losslessly — and never let those parallel
+  // folders get imported as extra pages (the plain-CBZ path below only sees a normal archive).
+  if (entries.some(en => en.filename === 'image_records.json')) {
+    return _importShioriZip(origGid, entries, embeddedMeta, onProgress);
+  }
+
   const nameNoExt = filename.replace(/\.[^.]+$/, '');
   const gid = (skipExisting && embeddedMeta?.galleryId) ? String(embeddedMeta.galleryId) : origGid;
   const imgEntries = sortImageEntries(entries);
@@ -114,6 +122,76 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
     onProgress({ done: ++done, total: imgEntries.length, skipped, status: 'progress' });
   }
   onProgress({ status: 'done', done, total: imgEntries.length, skipped });
+  platform.kv.set({ libraryVersion: Date.now() });
+  publishFeed(gid);
+}
+
+// Restore a Shiori per-gallery export (images/ + translated/ + study/ + metadata.json +
+// image_records.json). Always a full replace into the embedded gallery id, so the originals,
+// the translated variants AND the study-mode layers all come back intact.
+async function _importShioriZip(origGid, entries, embeddedMeta, onProgress) {
+  const gid = String(embeddedMeta?.galleryId || origGid);
+  const byName = new Map(entries.map(en => [en.filename, en.data]));
+
+  const pageEntries = sortImageEntries(entries.filter(en => /^images\//i.test(en.filename)));
+  const pageExts = pageEntries.map(en => normExt(en.filename.match(/\.(\w+)$/)?.[1]));
+
+  await metaPut(embeddedMeta
+    ? { ...embeddedMeta, galleryId: gid, pageExts, fetchedAt: Date.now() }
+    : { galleryId: gid, title: { english: gid, japanese: '', pretty: gid }, tags: [], numPages: pageEntries.length, pageExts, fetchedAt: Date.now(), isLocalImport: true, source: '' });
+  await deleteGalleryImages(gid);
+
+  if (pageEntries.length === 0) {
+    onProgress({ status: 'done', done: 0, total: 0, skipped: 0 });
+    platform.kv.set({ libraryVersion: Date.now() });
+    publishFeed(gid);
+    return;
+  }
+
+  onProgress({ status: 'started', done: 0, total: pageEntries.length, skipped: 0 });
+  const urlByNum = new Map();
+  let done = 0;
+  for (const en of pageEntries) {
+    const m = en.filename.replace(/^.*\//, '').match(/(\d+)\.(\w+)$/);
+    if (!m) continue;
+    const num = parseInt(m[1]);
+    const ext = normExt(m[2]);
+    const url = `local://${gid}/${num}.${ext}`;
+    await dbPut(url, new Blob([en.data], { type: MIME[ext] || 'image/jpeg' }), gid, gid);
+    urlByNum.set(num, url);
+    onProgress({ done: ++done, total: pageEntries.length, skipped: 0, status: 'progress' });
+  }
+
+  // Translated variants → rec.translated on the matching page.
+  for (const en of entries) {
+    const m = en.filename.match(/^translated\/(\d+)\.(\w+)$/i);
+    const url = m && urlByNum.get(parseInt(m[1]));
+    if (url) await putTranslatedImage(url, new Blob([en.data], { type: MIME[normExt(m[2])] || 'image/png' }));
+  }
+
+  // Study layers → rec.studyBg + rec.bubbles, driven by study/bubbles.json. Files may be PNG
+  // or WebP, so match by name prefix and read the MIME from the extension.
+  const mimeOf = (name) => MIME[normExt(name?.match(/\.(\w+)$/)?.[1])] || 'image/png';
+  const bubblesData = byName.get('study/bubbles.json');
+  if (bubblesData) {
+    let index = {};
+    try { index = JSON.parse(new TextDecoder().decode(bubblesData)); } catch {}
+    for (const numStr of Object.keys(index)) {
+      const url = urlByNum.get(parseInt(numStr));
+      let bgName = null;
+      for (const k of byName.keys()) { if (k.startsWith(`study/bg/${numStr}.`)) { bgName = k; break; } }
+      const bgData = bgName ? byName.get(bgName) : null;
+      if (!url || !bgData) continue;
+      const bubbles = [];
+      for (const ent of (index[numStr] || [])) {
+        const td = ent.textFile ? byName.get(`study/text/${ent.textFile}`) : null;
+        bubbles.push({ box: ent.box, region: ent.region, tr: ent.tr || '', src: ent.src || '', text: td ? new Blob([td], { type: mimeOf(ent.textFile) }) : null });
+      }
+      if (bubbles.length) await putPageStudy(url, { bg: new Blob([bgData], { type: mimeOf(bgName) }), bubbles });
+    }
+  }
+
+  onProgress({ status: 'done', done, total: pageEntries.length, skipped: 0 });
   platform.kv.set({ libraryVersion: Date.now() });
   publishFeed(gid);
 }

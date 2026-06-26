@@ -45,22 +45,38 @@
     <span class="tb-logo">Shiori</span>
   </a>
   <span class="tb-sep">/</span>
-  <a class="tb-gallery" id="tbGallery">#—</a>
-  <span class="tb-sep">·</span>
-  <a class="tb-title" id="tbTitle"></a>
+  <!-- Gallery number + title share one source link; the number stays put, the title ellipsizes. -->
+  <button class="tb-meta" id="tbMeta" type="button">
+    <span class="tb-gallery" id="tbGallery">#—</span>
+    <span class="tb-title" id="tbTitle"></span>
+  </button>
   <div class="tb-spacer"></div>
   <span id="pageCounter">— / —</span>
 
-  <div class="mode-group">
-    <button class="mode-btn" id="btnPageSubToggle" data-tip="Toggle single / double page" data-i18n-tip="rd.tip_pagesub" style="display:none"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3v18"/><rect width="12" height="18" x="6" y="3" rx="2"/><path d="M22 3v18"/></svg></button>
-    <button class="mode-btn active" id="btnLayoutToggle" data-tip="Toggle scroll / page view" data-i18n-tip="rd.tip_layout"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2h18"/><rect width="18" height="12" x="3" y="6" rx="2"/><path d="M3 22h18"/></svg></button>
+  <!-- Reading mode: single | double | strip, a 3-way segmented toggle with a sliding indicator. -->
+  <div class="seg-toggle mode-seg" id="modeToggle" data-state="strip">
+    <div class="seg-indicator"></div>
+    <button class="seg" id="modeSingle" data-tip="Single page" data-i18n-tip="kb.single"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3v18"/><rect width="12" height="18" x="6" y="3" rx="2"/><path d="M22 3v18"/></svg></button>
+    <button class="seg" id="modeDouble" data-tip="Double page" data-i18n-tip="kb.double"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/></svg></button>
+    <button class="seg" id="modeStrip" data-tip="Scroll strip" data-i18n-tip="kb.strip"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2h18"/><rect width="18" height="12" x="3" y="6" rx="2"/><path d="M3 22h18"/></svg></button>
   </div>
 
-  <button class="tb-btn" id="translateToggle" data-tip="Show translation" data-i18n-tip="rd.tip_translate" style="display:none"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg></button>
-  <button class="tb-btn" id="thumbBtn" data-tip="Thumbnails" data-i18n-tip="rd.tip_thumbs">⊞</button>
-  <a class="tb-btn" id="onlineBtn" href="#" target="_blank" data-tip="Open on source site" data-i18n-tip="rd.tip_source" style="display:none">↗</a>
+  <!-- Translate ⇄ Study: one segmented toggle, mutually exclusive (or both off). The indicator
+       slides between the two sides. Like the reading-mode toggle, it never folds into the menu. -->
+  <div class="seg-toggle" id="viewToggle" data-state="off" style="display:none">
+    <div class="seg-indicator"></div>
+    <button class="seg" id="translateSeg" data-tip="Show translation" data-i18n-tip="rd.tip_translate"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg></button>
+    <button class="seg" id="studySeg" data-tip="Study mode" data-i18n-tip="rd.tip_study"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg></button>
+  </div>
+
+  <!-- Secondary controls — collapse into the overflow menu when the bar gets too narrow. The
+       two segmented toggles above always stay out. -->
+  <div class="tb-extra">
+  <button class="tb-btn" id="thumbBtn" data-tip="Thumbnails" data-i18n-tip="rd.tip_thumbs"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="14" x="3" y="3" rx="2"/><path d="M4 21h1"/><path d="M9 21h1"/><path d="M14 21h1"/><path d="M19 21h1"/></svg></button>
   <button class="tb-btn" id="keybindBtn" data-tip="Keyboard shortcuts" data-i18n-tip="rd.tip_keys"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><path d="M6 9h.01"/><path d="M10 9h.01"/><path d="M14 9h.01"/><path d="M18 9h.01"/><path d="M6 13h.01"/><path d="M10 13h.01"/><path d="M14 13h.01"/><path d="M18 13h.01"/><path d="M10 17h4"/></svg></button>
   <button class="tb-btn" id="readerPinBtn" data-tip="Pin header" data-i18n-tip="rd.tip_pin"></button>
+  </div>
+  <button class="tb-btn tb-menu-btn" id="tbMenuBtn" data-tip="More"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
 </div>
 
 <!-- Viewport -->
@@ -129,7 +145,9 @@
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.zoom">Zoom in / out</span><div class="kb-keys"><kbd class="kb-key">+</kbd><kbd class="kb-key">−</kbd><kbd class="kb-key">E</kbd><kbd class="kb-key">Q</kbd></div></div>
 
     <div class="kb-section" data-i18n="kb.interface">Interface</div>
-    <div class="kb-row"><span class="kb-desc" data-i18n="kb.toggle_thumbs">Toggle thumbnails</span><div class="kb-keys"><kbd class="kb-key">T</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc" data-i18n="rd.tip_translate">Show translation</span><div class="kb-keys"><kbd class="kb-key">T</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc" data-i18n="rd.tip_study">Study mode</span><div class="kb-keys"><kbd class="kb-key">B</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc" data-i18n="kb.toggle_thumbs">Toggle thumbnails</span><div class="kb-keys"><kbd class="kb-key">G</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.swipe_thumbs">Swipe thumbnails</span><div class="kb-keys"><kbd class="kb-key" data-i18n="kb.drag">Drag</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.scrub">Scrub to page</span><div class="kb-keys"><kbd class="kb-key" data-i18n="kb.shift_drag">Shift+Drag</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.help">This help</span><div class="kb-keys"><kbd class="kb-key">?</kbd><kbd class="kb-key">Esc</kbd></div></div>

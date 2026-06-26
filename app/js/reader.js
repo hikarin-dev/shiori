@@ -29,10 +29,6 @@ function galleryLink(meta, displayId, page) {
 const READER_PIN_SVG   = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17H19V15L17 13V8L18 7V5H6V7L7 8V13L5 15V17Z"/></svg>';
 const READER_UNPIN_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" y1="2" x2="22" y2="22"/><line x1="12" y1="17" x2="12" y2="22"/><path d="M9 9v4l-2 2H19"/><path d="M7 7H6V5h8"/></svg>';
 
-const SVG_STRIP  = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2h18"/><rect width="18" height="12" x="3" y="6" rx="2"/><path d="M3 22h18"/></svg>';
-const SVG_PAGE   = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3v18"/><rect width="12" height="18" x="6" y="3" rx="2"/><path d="M22 3v18"/></svg>';
-const SVG_DOUBLE = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/></svg>';
-
 const params    = new URLSearchParams(location.search);
 const galleryId = params.get('g');
 
@@ -45,6 +41,23 @@ let translateView = false; // show stored translated variants when true
 let lastPageMode  = 'single';
 let _stripObservers = [];
 let _pageZoom     = 1;     // +/- page scale factor
+// Each page's true aspect ratio, learned as images decode and reused across strip rebuilds so
+// rows reserve the correct height up front. _typicalRatio seeds rows for pages not yet seen
+// (galleries are usually uniform) — what keeps the first switch into strip from reflowing/jittering.
+const _pageRatios = new Map();   // page index (0-based) → "w / h"
+let _typicalRatio = '';
+
+// Study mode: keep the clean original on screen and let the reader reveal one translated
+// bubble at a time over it. Each page stores two full-page layers — bg (inpainted, text
+// removed) and text (translated glyphs on transparent) — plus per-bubble boxes (the OCR
+// detection regions, as page fractions). Revealing a bubble clips both layers to its box, all
+// backgrounds beneath all text, so overlapping bubbles never occlude each other. While on, the
+// displayed variant is forced to the clean original regardless of translateView.
+let studyMode      = false;
+let hasStudy       = false;            // any page has study layers → the study segment is enabled
+let _translateAvailable = false;       // this gallery has a whole-page translation
+const _pageStudy     = new Map();      // page url → { bg:Blob, bubbles:[{box,region,tr,src,text:Blob}] }
+const _pageLayerUrls = new Map();      // page url → { bgUrl, textUrls:[] } object URLs, revoked on teardown
 
 // Page images are served as blob: URLs. A blob URL references the IndexedDB-backed Blob — the
 // bytes stay on disk until an <img> actually needs them, and the browser discards decoded
@@ -54,7 +67,8 @@ let _pageZoom     = 1;     // +/- page scale factor
 // Keyed per variant (original vs translated) so toggling the translation view never has to
 // revoke and refetch — both variants stay cached and the switch is an instant in-place swap.
 const _pageUrlCache = new Map();   // variantKey → blob: URL ('' when the record is missing)
-const _variantKey = (page) => (translateView ? 't:' : 'o:') + page.url;
+const _showTranslated = () => translateView && !studyMode;   // study mode forces the clean original
+const _variantKey = (page) => (_showTranslated() ? 't:' : 'o:') + page.url;
 let _readerDb = null;
 let _stripGen  = 0; // bumped on every buildStrip call to cancel stale loads
 
@@ -63,6 +77,28 @@ let _stripGen  = 0; // bumped on every buildStrip call to cancel stale loads
 // duplicate version constant and no destructive upgrade handler that could wipe data.
 function _openReaderDb() {
   return openDB();
+}
+
+// Load every page's stored study layers into _pageStudy (keyed by page url) and note whether
+// any exist (→ show the study button). One cursor pass over this gallery's image records; the
+// bg/text layers stay Blobs, turned into object URLs lazily when a bubble is first revealed.
+async function _loadStudy() {
+  if (!_readerDb) return;
+  await new Promise((resolve) => {
+    const tx  = _readerDb.transaction('images', 'readonly');
+    const req = tx.objectStore('images').index('galleryId').openCursor(IDBKeyRange.only(String(galleryId)));
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (!cursor) { resolve(); return; }
+      const v = cursor.value;
+      if (Array.isArray(v.bubbles) && v.bubbles.length && v.studyBg) {
+        _pageStudy.set(v.url, { bg: v.studyBg, bubbles: v.bubbles });
+      }
+      cursor.continue();
+    };
+    req.onerror = () => resolve();
+  });
+  hasStudy = _pageStudy.size > 0;
 }
 
 async function pageBlobUrl(page) {
@@ -75,7 +111,7 @@ async function pageBlobUrl(page) {
     req.onsuccess = () => resolve(req.result || null);
     req.onerror   = () => reject(req.error);
   }).catch(() => null);
-  const src = record ? ((translateView && record.translated) ? record.translated : (record.blob ?? record.dataUrl)) : null;
+  const src = record ? ((_showTranslated() && record.translated) ? record.translated : (record.blob ?? record.dataUrl)) : null;
   const blob = await imageToBlob(src);
   const url = blob ? URL.createObjectURL(blob) : '';
   if (_pageUrlCache.has(key)) {                // a concurrent load won the race — reuse its URL
@@ -190,20 +226,28 @@ const thumbStrip    = document.getElementById('thumbStrip');
 const mainImg       = document.getElementById('mainImg');
 const imgLeft       = document.getElementById('imgLeft');
 const imgRight      = document.getElementById('imgRight');
+// Learn the gallery's page ratio from single/double loads too, so a later switch to strip already
+// has a correct placeholder height for every row.
+const _seedRatio = (img) => { if (img.naturalWidth > 1 && img.naturalHeight > 1) _typicalRatio = `${img.naturalWidth} / ${img.naturalHeight}`; };
+[mainImg, imgLeft, imgRight].forEach(img => img.addEventListener('load', () => _seedRatio(img)));
 const scrubber      = document.getElementById('scrubber');
 const scrubWrap     = document.getElementById('scrubWrap');
 const scrubToggle   = document.getElementById('scrubToggle');
 const scrubberLabel = document.getElementById('scrubberLabel');
 const pageCounter   = document.getElementById('pageCounter');
-const btnLayoutToggle  = document.getElementById('btnLayoutToggle');
-const btnPageSubToggle = document.getElementById('btnPageSubToggle');
+const modeToggle    = document.getElementById('modeToggle');
+const modeSingle    = document.getElementById('modeSingle');
+const modeDouble    = document.getElementById('modeDouble');
+const modeStrip     = document.getElementById('modeStrip');
 const thumbBtn      = document.getElementById('thumbBtn');
-const translateToggle = document.getElementById('translateToggle');
+const viewToggle    = document.getElementById('viewToggle');   // translate ⇄ study segmented toggle
+const translateSeg  = document.getElementById('translateSeg');
+const studySeg      = document.getElementById('studySeg');
 const keybindBtn    = document.getElementById('keybindBtn');
 const keybindModal  = document.getElementById('keybindModal');
 const readerPinBtn  = document.getElementById('readerPinBtn');
 const tbGallery     = document.getElementById('tbGallery');
-const onlineBtn     = document.getElementById('onlineBtn');
+const tbMeta        = document.getElementById('tbMeta');
 const clickPrev     = document.getElementById('clickPrev');
 const clickNext     = document.getElementById('clickNext');
 const dClickPrev    = document.getElementById('dClickPrev');
@@ -215,7 +259,6 @@ async function init() {
   if (!galleryId) { showEmpty(); return; }
 
   tbGallery.textContent = `#${galleryId}`;
-  onlineBtn.style.display = 'none';
   document.title        = `Shiori — #${galleryId}`;
 
   loadingText.textContent = t('rd.opening_db');
@@ -266,49 +309,55 @@ async function init() {
   const sName    = siteName(meta?.source);
 
   if (visitUrl) {
-    onlineBtn.href    = visitUrl;
-    onlineBtn.dataset.tip = t('rd.open_on', { site: sName });
-    onlineBtn.innerHTML = `<img src="https://www.google.com/s2/favicons?domain=${meta.source}&sz=16" style="width:14px;height:14px;vertical-align:middle;pointer-events:none;" onerror="this.outerHTML='↗'">`;
-    onlineBtn.style.display = '';
-    tbGallery.href   = visitUrl;
-    tbGallery.target = '_blank';
+    tbMeta.onclick = () => window.open(visitUrl, '_blank', 'noopener');
     const emptyLink = document.getElementById('emptyLink');
     emptyLink.href        = visitUrl;
     emptyLink.textContent = t('rd.open_on_arrow', { site: sName });
     emptyLink.style.display = '';
   } else {
+    tbMeta.onclick = null;
     document.getElementById('emptyLink').style.display = 'none';
   }
 
   const displayTitle = pickTitle(meta, getLang());
   if (displayTitle) {
     const titleEl = document.getElementById('tbTitle');
-    if (titleEl) {
-      titleEl.textContent = displayTitle;
-      if (visitUrl) { titleEl.href = visitUrl; titleEl.target = '_blank'; }
-    }
+    if (titleEl) titleEl.textContent = displayTitle;   // shares #tbMeta's link, no own href
   }
 
   if (pages.length === 0) { showEmpty(); return; }
 
-  // Reveal the translation toggle (and default it on) when this gallery has translated pages.
-  if (meta?.translated) {
-    translateView = true;
-    translateToggle.style.display = '';
-    translateToggle.classList.add('active');
-    translateToggle.dataset.tip = t('rd.tip_translate_on');
-  }
+  // The translate ⇄ study toggle shows whenever this gallery has a translation (study layers,
+  // loaded below, additionally enable the study side). hasStudy is set by _loadStudy.
+  _translateAvailable = !!meta?.translated;
+  await _loadStudy();
+  if (_translateAvailable || hasStudy) viewToggle.style.display = '';
+  studySeg.classList.toggle('disabled', !hasStudy);
 
   scrubber.max   = pages.length;
   scrubber.value = 1;
 
   buildThumbs();
-  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom']);
+  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerView']);
   applyThumbHeight(saved.readerThumbHeight || _thumbHeight);
   if (saved.readerPageZoom) { _pageZoom = saved.readerPageZoom; document.documentElement.style.setProperty('--page-zoom', _pageZoom); }
   if (saved.readerLastPageMode) lastPageMode = saved.readerLastPageMode;
+
+  // Resolve the initial view, defaulting to the full translation when available. Set the flags
+  // before the first paint so pages load in the right variant with no swap flash.
+  let initView = saved.readerView;
+  if (initView === 'study' && !hasStudy) initView = 'off';
+  if (initView === 'translate' && !_translateAvailable) initView = 'off';
+  if (!initView) initView = _translateAvailable ? 'translate' : 'off';
+  studyMode     = initView === 'study';
+  translateView = initView === 'translate';
+  document.body.classList.toggle('study-mode', studyMode);
+
   setMode(saved.readerMode || 'strip', true);
   goTo(1);
+  _updateViewToggle();
+  if (studyMode) _refreshBubbleLayers();
+  _recomputeFold();  // the title is set now — (re)measure the fold breakpoint for the new title
   // Defer restoring thumbnail-open state — its eager IDB reads otherwise fight the strip's
   // own loader for IDB bandwidth, delaying the first visible page by several seconds.
   if (saved.readerThumbsOpen) setTimeout(() => setThumbsOpen(true), 1500);
@@ -340,6 +389,7 @@ async function goTo(n) {
     if (currentPage !== n) return;
     mainImg.src = url;
     _warmNeighbors(n);
+    if (studyMode) _refreshBubbleLayers();
   } else if (mode === 'double') {
     window.scrollTo(0, 0);
     const lPage = pages[n - 1];
@@ -353,6 +403,7 @@ async function goTo(n) {
     imgLeft.src  = lUrl;
     imgRight.src = rUrl;
     _warmNeighbors(n);
+    if (studyMode) _refreshBubbleLayers();
   }
   // strip: images loaded in buildStrip(); scroll handled separately
 }
@@ -554,7 +605,9 @@ const _pinOffset = () => (readerPinned ? TOPBAR_H : 0);
 // Finds which page top is at/above scrollY, then interpolates within that page gap.
 // This keeps strip ↔ scroll in sync even when page heights vary.
 function _scrollYToProportion(scrollY) {
-  const imgs = stripView ? Array.from(stripView.querySelectorAll('.page-img')) : [];
+  // Measure the .page-wrap rows (positioned flex children of stripView) — each page-img sits
+  // inside its own relative wrap, so the wrap is the element whose offsetTop tracks scroll.
+  const imgs = stripView ? Array.from(stripView.querySelectorAll('.page-wrap')) : [];
   const n = imgs.length;
   if (n < 2) return Math.max(0, Math.min(1, scrollY / Math.max(1, document.documentElement.scrollHeight - window.innerHeight)));
   // Binary search: find last img whose offsetTop <= scrollY
@@ -573,7 +626,7 @@ function _scrollYToProportion(scrollY) {
 // Map proportion → scrollY via page index.
 // Proportion p = i/(n-1) lands at imgs[i].offsetTop; fractional part interpolates between pages.
 function _proportionToScrollY(p) {
-  const imgs = stripView ? Array.from(stripView.querySelectorAll('.page-img')) : [];
+  const imgs = stripView ? Array.from(stripView.querySelectorAll('.page-wrap')) : [];
   const n = imgs.length;
   if (n < 2) return Math.round(p * Math.max(1, document.documentElement.scrollHeight - window.innerHeight));
   const scaled = Math.max(0, Math.min(n - 1, p * (n - 1)));
@@ -842,17 +895,14 @@ function setKeybindOpen(open) {
 }
 
 // ── Header: pinned vs unpinned ──
-// Pinned: the bar is `position: sticky` — always at the top of the viewport.
-// Unpinned: the bar is a normal in-flow element (`position: relative`, via .reader-unpinned) that
-// scrolls away with the pages, so the very top of the document always carries it — no slide, no
-// gap. While it's scrolled out of view, 5 mouse-wheel scroll-ups in a row slide a floating copy of
-// it down; that copy slides away on a scroll-down past the bar, and is dropped instantly the moment
-// you reach the very top — where the in-flow bar sits exactly behind it, so the swap is invisible.
-// Only a real wheel fires 'wheel', so keyboard (W/↑, S/↓), the scrubber, thumbnail jumps and any
-// programmatic scroll never reveal it — and it's suppressed while the in-flow bar is already on
-// screen near the top (no point sliding down what you can already see).
+// Pinned: the bar is `position: sticky; top: 0` — always at the top of the viewport.
+// Unpinned: the same sticky bar is parked one bar-height above the viewport (CSS top: -h), so it
+// scrolls away as you read. 5 mouse-wheel scroll-ups in a row (while it's scrolled away) add
+// .revealed → top: 0, sliding the LIVE bar back down; a scroll-down (or reaching the very top) drops
+// .revealed and it slides away again. Because it's the real #topbar — not a clone — its toggles and
+// accent indicators are always current. Only a real wheel fires 'wheel', so keyboard (W/↑, S/↓), the
+// scrubber, thumbnail jumps and programmatic scrolls never reveal it.
 let readerPinned = localStorage.getItem('shiori-reader-pin') === '1'; // default: unpinned
-let _floatReset = () => {};   // assigned by the float IIFE below
 
 function applyReaderPin(p) {
   readerPinned = p;
@@ -864,83 +914,30 @@ function applyReaderPin(p) {
   document.documentElement.style.scrollPaddingTop = p ? 'var(--topbar-h)' : '';
   document.documentElement.classList.add('reader-scroll');
   document.body.classList.add('reader-scroll');
-  document.body.classList.toggle('reader-unpinned', !p);   // unpinned → #topbar is in normal flow
-  _floatReset();   // never leave a floating overlay across a pin toggle
+  document.body.classList.toggle('reader-unpinned', !p);   // unpinned → bar parks above the viewport
+  topbar.classList.remove('revealed');                     // never carry a reveal across a pin toggle
 }
 applyReaderPin(readerPinned);
 
-// Floating wheel-reveal of the unpinned header — a SEPARATE fixed copy that slides down while the
-// in-flow #topbar is scrolled out of view. The in-flow bar itself never moves (no reflow, no
-// scroll-anchor jitter), so the very top of the document always carries it. We just overlay a
-// fresh clone (so it mirrors the current title/counter/href/button state) and slide that down.
+// Wheel-reveal of the unpinned header: slide the LIVE #topbar back down (CSS .revealed → top: 0) on
+// 5 wheel scroll-ups in a row while it's scrolled away, and drop .revealed on a scroll-down or at the
+// very top so it parks above the viewport again. No clone — the real bar's toggles/indicators are
+// always correct.
 (function () {
-  const H = () => topbar.offsetHeight || 54;
-  const staticVisible = () => window.scrollY < H();   // any part of the in-flow bar is on screen
-  let float = null;        // the fixed clone while shown (or sliding out), else null
+  const scrolledAway = () => window.scrollY >= (topbar.offsetHeight || 54);  // bar fully past the top
   let wheelUps = 0;
   let lastY = window.scrollY;
 
-  function show() {
-    if (float || readerPinned || staticVisible()) return;
-    const f = topbar.cloneNode(true);
-    f.id = 'topbarFloat';
-    // Drop descendant ids (no duplicates in the DOM); remember each so a click forwards to the real one.
-    f.querySelectorAll('[id]').forEach(el => { el.dataset.ref = el.id; el.removeAttribute('id'); });
-    // Match the in-flow bar's EXACT box, not `right:0` — a fixed element and an in-flow one can resolve
-    // to different widths (the scrollbar gutter), which would shift the right-side controls and change
-    // where the title ellipsis falls. Copying the measured left/width keeps the two pixel-identical.
-    // Slide via `top` (a paint property), NOT transform — a transform would pin the clone to a GPU
-    // layer whose text renders blurry on fractional-DPR screens until a repaint.
-    const r = topbar.getBoundingClientRect();
-    f.style.cssText = `position:fixed;left:${r.left}px;width:${r.width}px;z-index:201;top:${-H()}px;transition:top 0.2s ease`;
-    f.addEventListener('click', (e) => {                // route button presses to the real controls
-      const b = e.target.closest('button[data-ref]');
-      if (b) { e.preventDefault(); document.getElementById(b.dataset.ref)?.click(); }
-    });
-    document.body.appendChild(f);
-    f.offsetHeight;                                     // reflow so the slide-in fires
-    f.style.top = '0px';
-    float = f;
-    // position:fixed puts the bar on its own GPU layer, which Chrome can leave rastered at low quality
-    // (blurry) on fractional-DPR screens until something repaints it. Re-insert it once it has slid in
-    // to force one clean, high-res raster — the same thing hovering or selecting it would trigger.
-    f.addEventListener('transitionend', () => {
-      if (float !== f) return;
-      const sib = f.nextSibling;
-      f.remove();
-      document.body.insertBefore(f, sib);
-    }, { once: true });
-  }
-  function hide(slide) {
-    if (!float) return;
-    const f = float; float = null;
-    if (!slide) { f.remove(); return; }                 // instant (at the top / pin toggle)
-    f.style.top = `${-H()}px`;                          // slide up, then remove
-    f.addEventListener('transitionend', () => f.remove(), { once: true });
-    setTimeout(() => f.remove(), 260);
-  }
-  _floatReset = () => { wheelUps = 0; hide(false); };   // pin toggle drops it without a slide
-
-  // The clone is a one-shot snapshot, so its (live) page counter would freeze — mirror the real one.
-  const counter = document.getElementById('pageCounter');
-  if (counter) new MutationObserver(() => {
-    const c = float && float.querySelector('[data-ref="pageCounter"]');
-    if (c) c.textContent = counter.textContent;
-  }).observe(counter, { childList: true, characterData: true, subtree: true });
-
-  // Reveal only on a real wheel rolled up 5× in a row while the in-flow bar is scrolled away.
   window.addEventListener('wheel', (e) => {
-    if (readerPinned || float || staticVisible()) { wheelUps = 0; return; }
-    if (e.deltaY < 0) { if (++wheelUps >= 5) { wheelUps = 0; show(); } }
+    if (readerPinned || !scrolledAway() || topbar.classList.contains('revealed')) { wheelUps = 0; return; }
+    if (e.deltaY < 0) { if (++wheelUps >= 5) { wheelUps = 0; topbar.classList.add('revealed'); } }
     else wheelUps = 0;
   }, { passive: true });
 
   window.addEventListener('scroll', () => {
     const y = window.scrollY;
-    if (readerPinned) { lastY = y; return; }
-    if (y <= 0) hide(false);                            // very top: in-flow bar sits exactly behind → drop instantly
-    else if (float && y > lastY && !staticVisible()) hide(true);  // scrolled down past the bar → slide away
-    // (partway up, or scrolling up, we keep it — it covers the half-scrolled bar behind it)
+    // Scrolling down past the bar, or back at the very top → hide. (Scrolling up keeps it revealed.)
+    if (!readerPinned && (y <= 0 || y > lastY)) topbar.classList.remove('revealed');
     lastY = y;
   }, { passive: true });
 }());
@@ -1003,22 +1000,34 @@ function buildStrip() {
   _stripObservers = [];
   stripView.innerHTML = '';
 
-  // Build empty imgs upfront so DOM order is fixed before any async work.
+  // Build empty imgs upfront so DOM order is fixed before any async work. Each page-img sits
+  // in its own .page-wrap (relative) so study-mode bubble overlays can anchor to the image box;
+  // the wrap carries data-page and is the row measured by the scroll-sync geometry.
   pages.forEach((p, i) => {
+    const wrap = document.createElement('div');
+    wrap.className    = 'page-wrap';
+    wrap.dataset.page = i + 1;
     const img = document.createElement('img');
     img.className    = 'page-img';
-    img.dataset.page = i + 1;
     img.decoding     = 'async';
+    // Reserve the row's height with the best ratio we know (this page's if seen, else the
+    // gallery's typical one) so the layout doesn't reflow as images decode.
+    img.style.aspectRatio = _pageRatios.get(i) || _typicalRatio || '2 / 3';
     img.addEventListener('load', () => {
       if (img.naturalWidth > 1 && img.naturalHeight > 1) {
-        img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+        const r = `${img.naturalWidth} / ${img.naturalHeight}`;
+        img.style.aspectRatio = r;
+        _pageRatios.set(i, r);
+        _typicalRatio = r;
       }
     });
-    stripView.appendChild(img);
+    wrap.appendChild(img);
+    stripView.appendChild(wrap);
   });
   const imgs = [...stripView.querySelectorAll('.page-img')];
 
   _runStripLoader(false);
+  if (studyMode) _refreshBubbleLayers();
 
   // Keep the pages around the viewport decoded — the browser may have discarded far-away
   // bitmaps; decode() is a no-op when they're still resident. currentPage is maintained by the
@@ -1036,7 +1045,12 @@ function buildStrip() {
 }
 
 // ── Mode switching ──
+let _modeApplied = false;
 function setMode(m, skipAnim) {
+  // Already in this mode (e.g. pressing 3 repeatedly) → no-op, so we don't rebuild the view
+  // and make it jitter. The very first call always runs (the view isn't built yet).
+  if (_modeApplied && m === mode) return;
+  _modeApplied = true;
   if (m !== 'strip' && _stripObservers.length) {
     _stripObservers.forEach(o => o.disconnect());
     _stripObservers = [];
@@ -1057,29 +1071,25 @@ function setMode(m, skipAnim) {
   bottombar.classList.toggle('hidden', !showBar);
   document.body.classList.toggle('bar-hidden', !showBar);
 
-  // Update layout toggle + single/double sub-toggle
-  const isPage = m !== 'strip';
-  if (isPage) lastPageMode = m;
+  // Slide the reading-mode toggle to the active mode.
+  if (m !== 'strip') lastPageMode = m;
   platform.kv.set({ readerMode: m, readerLastPageMode: lastPageMode });
-  btnLayoutToggle.innerHTML = isPage ? SVG_PAGE : SVG_STRIP;
-  btnLayoutToggle.classList.add('active');
-  btnPageSubToggle.style.display = isPage ? '' : 'none';
-  btnPageSubToggle.innerHTML = m === 'double' ? SVG_DOUBLE : SVG_PAGE;
-  btnPageSubToggle.classList.toggle('active', m === 'double');
+  _updateModeToggle();
 
   if (m === 'strip') {
     buildStrip();
-    // Scroll to current page
-    if (!skipAnim) {
-      setTimeout(() => {
-        if (currentPage === 1) { window.scrollTo(0, 0); return; }
-        const t = stripView.querySelector(`[data-page="${currentPage}"]`);
-        if (t) t.scrollIntoView();
-      }, 50);
-    }
+    if (!skipAnim) requestAnimationFrame(_scrollStripToCurrent);
   } else {
     goTo(currentPage);
   }
+}
+
+// Scroll the strip to the current page. Rows already reserve the correct height (see buildStrip),
+// so the target lands in place and stays — no post-load correction, which is what used to flash.
+function _scrollStripToCurrent() {
+  if (currentPage <= 1) { window.scrollTo(0, 0); return; }
+  const target = stripView.querySelector(`[data-page="${currentPage}"]`);
+  if (target) target.scrollIntoView();
 }
 
 // ── Scrubber toggle ──
@@ -1115,9 +1125,16 @@ scrubber.addEventListener('input', () => {
 // Scrubber toggle
 scrubToggle.addEventListener('click', () => setScrubVisible(!scrubVisible));
 
-// Mode buttons
-btnLayoutToggle.addEventListener('click', () => setMode(mode === 'strip' ? lastPageMode : 'strip'));
-btnPageSubToggle.addEventListener('click', () => setMode(mode === 'double' ? 'single' : 'double'));
+// Reading-mode segmented toggle: each square selects its mode; the indicator slides across.
+function _updateModeToggle() {
+  modeToggle.dataset.state = mode;
+  modeSingle.classList.toggle('active', mode === 'single');
+  modeDouble.classList.toggle('active', mode === 'double');
+  modeStrip.classList.toggle('active', mode === 'strip');
+}
+modeSingle.addEventListener('click', () => setMode('single'));
+modeDouble.addEventListener('click', () => setMode('double'));
+modeStrip.addEventListener('click', () => setMode('strip'));
 
 // Scroll-to-top button
 scrollTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
@@ -1150,14 +1167,10 @@ viewport.addEventListener('click', (e) => {
   setThumbsOpen(false);
 }, true);
 
-// Translation view toggle — swaps between stored translated variants and originals.
-translateToggle.addEventListener('click', () => {
-  translateView = !translateView;
-  translateToggle.classList.toggle('active', translateView);
-  translateToggle.dataset.tip = translateView ? t('rd.tip_translate_on') : t('rd.tip_translate');
-  // Seamless switch: swap the on-screen pages to the other variant in place — decoded first so
-  // nothing blanks, keeping each page's measured size and the scroll position. Both variants stay
-  // cached (keyed per variant), so toggling back is instant.
+// Seamless variant switch: re-point the on-screen pages at the current variant in place —
+// decoded first so nothing blanks, keeping each page's measured size and the scroll position.
+// Both variants stay cached (keyed per variant), so toggling back is instant.
+function _swapVisibleVariant() {
   if (mode === 'strip') {
     _runStripLoader(true);
   } else if (mode === 'single') {
@@ -1166,7 +1179,164 @@ translateToggle.addEventListener('click', () => {
     _swapImg(imgLeft, pages[currentPage - 1]);
     if (currentPage < pages.length) _swapImg(imgRight, pages[currentPage]);
   }
-});
+}
+
+// ── Translate ⇄ Study view (one segmented toggle, mutually exclusive or both off) ──
+// 'translate' = full translated page · 'study' = clean original + revealable bubbles · 'off' =
+// clean original. Exactly one of translateView/studyMode is true, or neither.
+function setView(target) {
+  if (target === 'study' && !hasStudy) target = 'off';
+  if (target === 'translate' && !_translateAvailable) target = 'off';
+  studyMode     = target === 'study';
+  translateView = target === 'translate';
+  document.body.classList.toggle('study-mode', studyMode);
+  _swapVisibleVariant();      // re-point images to the right variant (study forces original)
+  _refreshBubbleLayers();     // builds overlays when studyMode, tears them down otherwise
+  _updateViewToggle();
+  platform.kv.set({ readerView: target });
+}
+
+// Reflect the current view on the segmented toggle (slides the indicator + tooltips).
+function _updateViewToggle() {
+  const state = studyMode ? 'study' : (translateView ? 'translate' : 'off');
+  // Appearing from off: jump the indicator to its side then fade in (no slide). data-pos holds
+  // the transform position even while off, so turning off fades the indicator IN PLACE rather
+  // than sliding it back to the first segment.
+  viewToggle.classList.toggle('no-slide', viewToggle.dataset.state === 'off');
+  if (state !== 'off') viewToggle.dataset.pos = state;
+  viewToggle.dataset.state = state;
+  translateSeg.classList.toggle('active', translateView);
+  studySeg.classList.toggle('active', studyMode);
+  translateSeg.dataset.tip = translateView ? t('rd.tip_translate_on') : t('rd.tip_translate');
+  studySeg.dataset.tip     = studyMode ? t('rd.tip_study_on') : t('rd.tip_study');
+}
+
+// Click a side to turn it on (and the other off); click the active side again to turn it off.
+translateSeg.addEventListener('click', () => setView(translateView ? 'off' : 'translate'));
+studySeg.addEventListener('click', () => { if (hasStudy) setView(studyMode ? 'off' : 'study'); });
+
+// ── Study mode: reveal translated bubbles one at a time over the clean original ──
+function _ensureWrap(imgEl) {
+  const parent = imgEl.parentElement;
+  if (parent && parent.classList.contains('page-wrap')) return parent;
+  const wrap = document.createElement('div');
+  wrap.className = 'page-wrap';
+  imgEl.replaceWith(wrap);
+  wrap.appendChild(imgEl);
+  return wrap;
+}
+
+// Drop every bubble layer and free the page layers' object URLs.
+function _removeBubbleLayers() {
+  document.querySelectorAll('.bubble-layer').forEach(l => l.remove());
+  for (const u of _pageLayerUrls.values()) {
+    try { if (u.bgUrl) URL.revokeObjectURL(u.bgUrl); (u.textUrls || []).forEach(t => t && URL.revokeObjectURL(t)); } catch {}
+  }
+  _pageLayerUrls.clear();
+}
+
+// Object URLs for a page's study layers: one shared bg + one per bubble text, created once.
+function _layerUrls(pageUrl) {
+  let u = _pageLayerUrls.get(pageUrl);
+  if (u) return u;
+  const study = _pageStudy.get(pageUrl);
+  if (!study) return null;
+  u = {
+    bgUrl:    study.bg ? URL.createObjectURL(study.bg) : '',
+    textUrls: study.bubbles.map(b => (b.text ? URL.createObjectURL(b.text) : '')),
+  };
+  _pageLayerUrls.set(pageUrl, u);
+  return u;
+}
+
+// CSS clip-path inset that exposes only region r of a full-page (100%) layer image.
+function _clipInset(r) {
+  const top = r.y * 100, left = r.x * 100;
+  const right = (1 - (r.x + r.w)) * 100, bottom = (1 - (r.y + r.h)) * 100;
+  return `inset(${top}% ${right}% ${bottom}% ${left}%)`;
+}
+
+// Reveal/hide one bubble. The shared bg is clipped to the bubble's region (covering the
+// Japanese + the full English) into the bg sub-layer (below); the bubble's OWN full-page text
+// PNG goes unclipped into the fg sub-layer (above). Both are the page at 100% of the wrap, so
+// they stay pixel-aligned at any zoom, the text is never cropped, and overlapping bubbles never
+// let one's background cover another's text.
+function _toggleBubble(e, box, b, idx, pageUrl, bgLayer, fgLayer) {
+  e.stopPropagation();
+  const on = box.classList.toggle('revealed');
+  if (on) {
+    if (!box._bg) {
+      const urls = _layerUrls(pageUrl);
+      if (!urls) { box.classList.remove('revealed'); return; }
+      const clip = _clipInset(b.region);
+      const bg = document.createElement('img');
+      bg.className = 'study-layer-img'; bg.src = urls.bgUrl;
+      bg.style.clipPath = clip; bg.style.webkitClipPath = clip;
+      const tx = document.createElement('img');
+      tx.className = 'study-layer-img'; tx.src = urls.textUrls[idx] || '';
+      bgLayer.appendChild(bg); fgLayer.appendChild(tx);
+      box._bg = bg; box._tx = tx;
+    } else {
+      box._bg.style.display = ''; box._tx.style.display = '';
+    }
+  } else if (box._bg) {
+    box._bg.style.display = 'none'; box._tx.style.display = 'none';
+  }
+}
+
+// Build one page's overlay: a bg sub-layer, a text sub-layer, and the clickable boxes on top.
+// Each box sits at its OCR detection region (the hover/click border) and is positioned by page
+// fraction (percent), so it tracks zoom/resize with no recompute.
+function _renderBubbleLayer(wrap, pageNum) {
+  const page = pages[pageNum - 1];
+  if (!page) return;
+  const study = _pageStudy.get(page.url);
+  if (!study || !Array.isArray(study.bubbles) || !study.bubbles.length) return;
+  const layer = document.createElement('div');
+  layer.className = 'bubble-layer';
+  const bgLayer = document.createElement('div'); bgLayer.className = 'bubble-bg';
+  const fgLayer = document.createElement('div'); fgLayer.className = 'bubble-fg';
+  layer.appendChild(bgLayer);
+  layer.appendChild(fgLayer);
+  // Page-flip zones under the bubbles (page modes only): click a bubble to reveal it, click
+  // anywhere else on the page to turn the page — restoring the side-click navigation that the
+  // fixed click-zones provide outside study mode. Strip mode scrolls instead.
+  if (mode !== 'strip') {
+    const nav = document.createElement('div'); nav.className = 'bubble-nav';
+    const zone = (handler) => { const z = document.createElement('div'); z.addEventListener('click', handler); return z; };
+    if (mode === 'single') {
+      nav.append(zone(() => goTo(currentPage - 1)), zone(() => goTo(currentPage + 1)));
+    } else {              // double: this page turns the whole spread (left → back, right → forward)
+      nav.append(zone(() => goTo(currentPage + (pageNum <= currentPage ? -2 : 2))));
+    }
+    layer.appendChild(nav);
+  }
+  study.bubbles.forEach((b, i) => {
+    const box = document.createElement('div');
+    box.className   = 'bubble-box';
+    box.style.left   = (b.box.x * 100) + '%';
+    box.style.top    = (b.box.y * 100) + '%';
+    box.style.width  = (b.box.w * 100) + '%';
+    box.style.height = (b.box.h * 100) + '%';
+    box.addEventListener('click', (e) => _toggleBubble(e, box, b, i, page.url, bgLayer, fgLayer));
+    layer.appendChild(box);
+  });
+  wrap.appendChild(layer);
+}
+
+// Rebuild the overlays for whichever page images are mounted in the current view.
+function _refreshBubbleLayers() {
+  _removeBubbleLayers();
+  if (!studyMode) return;
+  if (mode === 'strip') {
+    stripView.querySelectorAll('.page-wrap').forEach(wrap => _renderBubbleLayer(wrap, parseInt(wrap.dataset.page)));
+  } else if (mode === 'single') {
+    _renderBubbleLayer(_ensureWrap(mainImg), currentPage);
+  } else if (mode === 'double') {
+    _renderBubbleLayer(_ensureWrap(imgLeft), currentPage);
+    if (currentPage < pages.length) _renderBubbleLayer(_ensureWrap(imgRight), currentPage + 1);
+  }
+}
 
 // Keybind modal
 keybindBtn.addEventListener('click', () => setKeybindOpen(!keybindModal.classList.contains('show')));
@@ -1175,6 +1345,82 @@ keybindModal.addEventListener('click', (e) => {
 });
 
 readerPinBtn.addEventListener('click', () => applyReaderPin(!readerPinned));
+
+// Measure the OS scrollbar width once and expose it as --sbw. The topbar reserves this much
+// extra right padding and gives it back (via a 100vw − 100% calc) exactly when a page scrollbar
+// is present, so the right-hand controls hold the same position whether or not one is showing.
+(function measureScrollbar() {
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:absolute;top:-9999px;width:100px;height:100px;overflow:scroll';
+  document.body.appendChild(probe);
+  document.documentElement.style.setProperty('--sbw', (probe.offsetWidth - probe.clientWidth) + 'px');
+  probe.remove();
+})();
+
+// Reflect whether a vertical page scrollbar is currently present (its width is what would shift
+// the right-hand controls). Observing the document element catches both window resizes and the
+// scrollbar appearing/disappearing as content height changes.
+const _syncVScroll = () => topbar.classList.toggle('has-vscroll', window.innerWidth - document.documentElement.clientWidth > 1);
+new ResizeObserver(_syncVScroll).observe(document.documentElement);
+_syncVScroll();
+
+// ── Responsive navbar: fold controls into a ⋯ menu, in stages, as the bar runs out of room ──
+// Stage 1 folds the secondary buttons (.tb-extra) so the title can start to ellipsize; stage 2
+// additionally folds the translate ⇄ study toggle, but only once the title is fully used up. The
+// reading-mode toggle, page counter and gallery # never fold (the # only clips as a last resort).
+const tbMenuBtn = document.getElementById('tbMenuBtn');
+const tbExtra   = topbar.querySelector('.tb-extra');
+const tbSpacer  = topbar.querySelector('.tb-spacer');
+// The translate ⇄ study toggle normally sits in the bar; at stage 2 it folds into the ⋯ panel (as a
+// .tb-extra child, so the existing menu styling carries it) and returns to the bar when there's room.
+const _viewToBar  = () => { if (viewToggle.parentElement === tbExtra) topbar.insertBefore(viewToggle, tbExtra); };
+const _viewToMenu = () => { if (viewToggle.parentElement !== tbExtra) tbExtra.insertBefore(viewToggle, tbExtra.firstChild); };
+
+// Stage 1 is driven by a @container query, not a resize callback. _recomputeFold measures the bar's
+// natural width — the container width at which the gap (spacer) closes — and bakes it into the query.
+// The layout engine then evaluates the fold every frame, in the same pass as the resize, so the
+// buttons fold the instant the gap hits zero even mid-drag: the title never flashes an ellipsis.
+// It's content-, not width-, dependent, so it only needs to re-run when the title/toggle/font change.
+const _foldStyle = document.head.appendChild(document.createElement('style'));
+function _recomputeFold() {
+  // Measure with the bar fully expanded and the gap collapsed, so the children pack to the left and
+  // the rightmost one's edge marks the natural content width = the breakpoint (a @container width is
+  // the content box, so this px maps straight onto it). Brief inline overrides, no paint in between.
+  _viewToBar();
+  const ov = { ex: tbExtra.style.display, mn: tbMenuBtn.style.display, ms: tbMeta.style.flexShrink, sp: tbSpacer.style.flex };
+  tbExtra.style.display = 'flex'; tbMenuBtn.style.display = 'none';   // secondary buttons shown, ⋯ hidden
+  tbMeta.style.flexShrink = '0';                                      // title at full width
+  tbSpacer.style.flex = '0 0 0';                                      // gap closed → children packed
+  void topbar.offsetWidth;
+  const contentLeft = topbar.getBoundingClientRect().left + (parseFloat(getComputedStyle(topbar).paddingLeft) || 0);
+  const w = Math.ceil(tbExtra.getBoundingClientRect().right - contentLeft);
+  tbExtra.style.display = ov.ex; tbMenuBtn.style.display = ov.mn; tbMeta.style.flexShrink = ov.ms; tbSpacer.style.flex = ov.sp;
+  _foldStyle.textContent = `@container rbar (max-width:${w}px){#topbar .tb-extra{display:none}#topbar .tb-menu-btn{display:inline-flex}}`;
+  _layoutStage2();
+}
+
+let _tbBusy = false;
+function _layoutStage2() {
+  // Only stage 2 (and menu-open cleanup) lives in JS now; a frame of lag here can't flash the title,
+  // because by the time the # is in play the title is already fully spent.
+  if (_tbBusy) return;                                               // re-entrancy guard
+  _tbBusy = true;
+  const folded  = getComputedStyle(tbMenuBtn).display !== 'none';    // stage 1 active (set by the query)
+  const idClips = () => tbGallery.getBoundingClientRect().right > tbMeta.getBoundingClientRect().right + 0.5;
+  if (!folded) topbar.classList.remove('menu-open');                 // grew back past the fold → drop stale panel
+  _viewToBar();                                                      // baseline: toggle in the bar
+  if (folded && idClips()) _viewToMenu();                            // title spent & # would clip → fold the toggle
+  _tbBusy = false;
+}
+tbMenuBtn.addEventListener('click', (e) => { e.stopPropagation(); topbar.classList.toggle('menu-open'); });
+document.addEventListener('click', () => topbar.classList.remove('menu-open'));
+new ResizeObserver(_layoutStage2).observe(topbar);
+window.addEventListener('resize', _layoutStage2);
+// The breakpoint shifts only when the bar's natural width does: re-measure once the web font lands,
+// and whenever the page counter changes width (a new digit) — it's flex-shrink:0, so this RO never
+// fires on a plain window resize, keeping the recompute off the resize path.
+document.fonts?.ready.then(_recomputeFold);
+new ResizeObserver(_recomputeFold).observe(document.getElementById('pageCounter'));
 
 // ── Page zoom (+/-) ──
 const ZOOM_MIN = 0.4, ZOOM_MAX = 3, ZOOM_STEP = 0.1;
@@ -1258,6 +1504,14 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '-' || e.key === '_' || e.key === 'q' || e.key === 'Q') { e.preventDefault(); setPageZoom(_pageZoom - ZOOM_STEP); return; }
   if (e.key === '0' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); setPageZoom(1); return; }
 
+  if (e.key === 'Escape' && studyMode && document.querySelector('.bubble-box.revealed')) {
+    document.querySelectorAll('.bubble-box.revealed').forEach(box => {
+      box.classList.remove('revealed');
+      if (box._imgEl) box._imgEl.style.display = 'none';
+    });
+    return;
+  }
+
   if (e.key === 'Escape' && keybindModal.classList.contains('show')) {
     setKeybindOpen(false);
     return;
@@ -1293,7 +1547,9 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Home') goTo(1);
     if (e.key === 'End')  goTo(pages.length);
   }
-  if (e.key === 't' || e.key === 'T') setThumbsOpen(!thumbsOpen);
+  if (e.key === 'g' || e.key === 'G') setThumbsOpen(!thumbsOpen);
+  if (e.key === 't' || e.key === 'T') setView(translateView ? 'off' : 'translate');
+  if (e.key === 'b' || e.key === 'B') setView(studyMode ? 'off' : 'study');
   if (e.key === '1') setMode('single');
   if (e.key === '2') setMode('double');
   if (e.key === '3') setMode('strip');

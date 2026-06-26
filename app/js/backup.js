@@ -102,6 +102,18 @@ async function build(db, sink, onProgress) {
     const body = toBlob(r.blob ?? r.dataUrl);
     if (body) ent.body = await sink(body);
     if (r.translated != null) { const tb = toBlob(r.translated); if (tb) ent.translated = await sink(tb); }
+    // Study-mode layers: stream the shared inpaint bg and each bubble's transparent text PNG
+    // into the blob region (like body/translated), and keep each bubble's box/region geometry
+    // + text strings inline in the manifest — small and human-readable (easy to inspect/debug).
+    if (r.studyBg != null) { const sb = toBlob(r.studyBg); if (sb) ent.studyBg = await sink(sb); }
+    if (Array.isArray(r.bubbles) && r.bubbles.length) {
+      const bubs = [];
+      for (const b of r.bubbles) {
+        const tb = toBlob(b.text);
+        bubs.push({ box: b.box, region: b.region, tr: b.tr || '', src: b.src || '', text: tb ? await sink(tb) : null });
+      }
+      ent.bubbles = bubs;
+    }
     images.push(ent);
     if (onProgress && i % 25 === 0) onProgress('images', i + 1, imgKeys.length);
   }
@@ -117,7 +129,7 @@ async function build(db, sink, onProgress) {
   const metadata = await getAll(db, META);
   const galleries = await getAll(db, GALLERIES);
   lastCounts = { images: images.length, galleries: galleries.length, covers: covers.length };
-  return { format: 'shiori-db', version: 2, exportedAt: Date.now(), counts: lastCounts, images, covers, metadata, galleries };
+  return { format: 'shiori-db', version: 4, exportedAt: Date.now(), counts: lastCounts, images, covers, metadata, galleries };
 }
 
 // ── Import (auto-detect) ────────────────────────────────────────────────────────────────────
@@ -175,6 +187,10 @@ async function importFullFile(file, onProgress) {
     const rec = { url: e.url, mediaId: e.mediaId, galleryId: e.galleryId, cachedAt: e.cachedAt, size: e.size };
     const b = sliceOf(e.body); if (b) rec.blob = b;
     const tb = sliceOf(e.translated); if (tb) rec.translated = tb;
+    const sb = sliceOf(e.studyBg); if (sb) rec.studyBg = sb;
+    if (Array.isArray(e.bubbles) && e.bubbles.length) {
+      rec.bubbles = e.bubbles.map(b => ({ box: b.box, region: b.region, tr: b.tr || '', src: b.src || '', text: sliceOf(b.text) }));
+    }
     await put(db, IMAGES, rec);
     if (onProgress && (++n % 25 === 0)) onProgress('images', n, manifest.images.length);
   }

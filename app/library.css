@@ -175,11 +175,11 @@ body.safe-mode .card-thumb-placeholder {
   z-index: 0;
 }
 .card:hover { z-index: 15; }
-.card-thumb-spacer { aspect-ratio: 2/3; width: 100%; flex-shrink: 0; }
+.card-thumb-spacer { aspect-ratio: 1/sqrt(2); width: 100%; flex-shrink: 0; }
 
 .card-thumb-wrap {
   position: relative;
-  aspect-ratio: 2/3;
+  aspect-ratio: 1/sqrt(2);
   overflow: hidden;
   background: #111;
   display: block;
