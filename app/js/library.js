@@ -265,6 +265,17 @@ function escHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function updateCardThumbFit(img) {
+  if (!img?.naturalWidth || !img?.naturalHeight) return;
+  img.classList.toggle('landscape', img.naturalWidth >= img.naturalHeight);
+}
+
+function wireCardThumbFit(img) {
+  if (!img) return;
+  img.addEventListener('load', () => updateCardThumbFit(img));
+  if (img.complete) updateCardThumbFit(img);
+}
+
 // Tag-category → i18n key, for the add/remove-tag flows.
 const _TAG_CAT_KEY = {
   'tag': 'addtag.cat_tag', 'tag:female': 'addtag.cat_tagf', 'tag:male': 'addtag.cat_tagm',
@@ -331,6 +342,8 @@ function buildCard(g) {
       </div>
     </div>
   `;
+
+  wireCardThumbFit(card.querySelector('img.card-thumb'));
 
   card.querySelectorAll('.card-btn-del').forEach(b => {
     b.addEventListener('mouseenter', () => {
@@ -573,8 +586,10 @@ platform.onControl((msg) => {
           img = document.createElement('img');
           img.className = 'card-thumb';
           img.alt = '';
+          wireCardThumbFit(img);
           wrap.appendChild(img);
         }
+        img.classList.remove('landscape');
         img.src = msg.coverDataUrl;
       });
     }
