@@ -9,6 +9,33 @@ import { pingServer, serverUrlFromSettings } from './translate.js';
 import { exportMetadata, exportFull, importBackup } from './backup.js';
 import { t, getLang, setLang, SUPPORTED, LANG_NAMES } from './i18n.js';
 
+// ── Side nav ────────────────────────────────────────────────────────────────
+// Panel switching is pure show/hide, so hidden panels keep unsaved form state.
+(function initNav() {
+  const nav = document.getElementById('settingsNav');
+  const panels = document.querySelector('.settings-panels');
+  if (!nav || !panels) return;
+  const show = (id) => {
+    if (!id || !document.getElementById(id)) return;
+    nav.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.panel === id));
+    panels.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === id));
+  };
+  nav.addEventListener('click', (e) => {
+    const item = e.target.closest && e.target.closest('.nav-item');
+    if (!item || !nav.contains(item) || item.hidden) return;
+    show(item.dataset.panel);
+  });
+  // The extension panel starts empty and its nav item hidden; whatever injects cards into the
+  // panel owns the section (including the nav label). No cards → four sections.
+  const extPanel = document.getElementById('panelExtension');
+  const navExt = document.getElementById('navExtension');
+  if (extPanel && navExt) {
+    const syncExt = () => { navExt.hidden = extPanel.children.length === 0; };
+    new MutationObserver(syncExt).observe(extPanel, { childList: true });
+    syncExt();
+  }
+})();
+
 // ── Language selector ──────────────────────────────────────────────────────
 (function initLanguage() {
   const sel = document.getElementById('langSelect');
@@ -98,6 +125,7 @@ function loadTranslateSettings(ts) {
   set('cfgCapChatgpt', caps.chatgpt ?? 6);
   set('cfgPriceIn', ts.priceIn ?? 1.5);
   set('cfgPriceOut', ts.priceOut ?? 9);
+  set('studyModeGeneration', ts.studyModeGeneration || 'disabled');
   document.getElementById('cfgScreenEnabled').checked = !!ts.screenEnabled;
   set('cfgScreenTranslator', ts.screenTranslator || 'qwen2_big');
   set('cfgScreenFallback',   ts.screenFallback   || 'qwen2_big');
@@ -141,6 +169,7 @@ function gatherTranslateSettings() {
     },
     priceIn: n('cfgPriceIn', 1.5),
     priceOut: n('cfgPriceOut', 9),
+    studyModeGeneration: v('studyModeGeneration'),
     screenEnabled:    document.getElementById('cfgScreenEnabled').checked,
     screenTranslator: v('cfgScreenTranslator'),
     screenFallback:   v('cfgScreenFallback'),
@@ -227,6 +256,17 @@ document.getElementById('cfgClearingPreset').addEventListener('change', (e) => a
   const sync = () => { document.getElementById('cfgClearingPreset').value = matchClearingPreset(); };
   el.addEventListener('input', sync);
   el.addEventListener('change', sync);
+});
+
+// ── Reader — study display, saved on change ───────────────────────────────
+
+platform.kv.get(['readerStudyDisplay']).then((r) => {
+  const el = document.getElementById('readerStudyDisplay');
+  if (el) el.value = (r.readerStudyDisplay === 'text') ? 'text' : 'hardcoded_images';
+});
+document.getElementById('readerStudyDisplay').addEventListener('change', (e) => {
+  platform.kv.set({ readerStudyDisplay: e.target.value });
+  showStatus('readerStatus', 'Saved.', 'ok');
 });
 
 // ── Library Backup — one export button, prompting metadata-only vs full ───

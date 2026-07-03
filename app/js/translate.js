@@ -19,7 +19,7 @@ import {
   getGalleryImageRecords, putTranslatedImage, putPageStudy, clearGalleryTranslations,
   metaGet, metaPut, imageToBlob, imageToDataUrl,
 } from './db.js';
-import { translateResume } from './platform.js';
+import { translateResume, jobsPending } from './platform.js';
 
 const _pageNumOf = (url) => parseInt(url.match(/\/(\d+)\.\w+$/)?.[1] || '999999');
 
@@ -128,6 +128,9 @@ function buildConfig(ts) {
     },
     mask_dilation_offset: num(ts.maskDilationOffset, 30),
     kernel_size: num(ts.kernelSize, 5),
+    // disabled | text_only | text_and_image — study layers are opt-in; skipping them is the
+    // fastest path and most translations never open Study mode.
+    study_mode_generation: ts.studyModeGeneration || 'disabled',
   };
 }
 
@@ -283,11 +286,20 @@ export async function pollTranslation(galleryId, send = () => {}) {
         const url = pendingUrls[idx];
         let study = null; try { study = JSON.parse(dec.decode(data.subarray(b + 4))); } catch {}
         if (url && study && Array.isArray(study.bubbles) && study.bubbles.length) {
-          const bg = await imageToBlob(study.bg);
-          if (bg) {
+          // text_and_image frames carry bg + per-bubble text layers; text_only frames carry
+          // metadata only (no bg, no text) and render as DOM text in the reader.
+          const bg = study.bg ? await imageToBlob(study.bg) : null;
+          if (!study.bg || bg) {
             const bubbles = [];
-            for (const bb of study.bubbles) { const text = await imageToBlob(bb.text); if (text) bubbles.push({ box: bb.box, region: bb.region, tr: bb.tr || '', src: bb.src || '', text }); }
-            if (bubbles.length) await putPageStudy(url, { bg, bubbles });
+            for (const bb of study.bubbles) {
+              if (!bb.box) continue;
+              const bubble = { box: bb.box, region: bb.region || bb.box, tr: bb.tr || '', src: bb.src || '' };
+              if (bb.rbox)  bubble.rbox  = bb.rbox;
+              if (bb.style) bubble.style = bb.style;
+              if (bb.text) { const text = await imageToBlob(bb.text); if (!text) continue; bubble.text = text; }
+              bubbles.push(bubble);
+            }
+            if (bubbles.length) await putPageStudy(url, { bg, bubbles, page: study.page || null });
           }
         }
       } else if (st === 0) { try { summary = JSON.parse(dec.decode(data)); } catch {} }
@@ -307,12 +319,21 @@ export async function pollTranslation(galleryId, send = () => {}) {
     const done = Math.min(startDone + (meta.done || 0), total);   // server's emitted count is authoritative
     await translateResume.set({ ...rec, cursor: meta.cursor });   // only the cursor needs persisting
 
-    const terminal = summary || errMsg || meta.status === 'done' || meta.status === 'error';
+    const terminal = summary || errMsg || meta.status === 'done' || meta.status === 'error' || meta.status === 'cancelled';
     if (!terminal) { send({ status: 'progress', done, total, label: _galleryLabel(meta), pct: _galleryPct(meta) }); return; }
 
     // Terminal — finalize once and stop polling this gallery.
     await translateResume.remove(gid);
     _controllers.delete(gid);
+    if (meta.status === 'cancelled' && !summary) {
+      // Server-side cancel (liveness reaper, or a cancel issued from another context). Clearing
+      // the resume token above is what stops the polling — without it the job would sit in
+      // 'cancelled' until eviction and then restart from scratch via the notfound path. Already
+      // stored pages stay; a later Translate resumes with only the missing ones.
+      await jobsPending.remove(`${gid}:translate`);
+      send({ status: 'cancelled' });
+      return;
+    }
     if (errMsg && done <= startDone) { send({ status: 'error', error: errMsg }); return; }
     const failed = (summary && Array.isArray(summary.failed)) ? summary.failed.length : Math.max(0, total - done);
     const gMeta = await metaGet(gid);

@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.0.3 — 2026-07-03
+
+### Added
+
+- Settings now has a side navigation with clear sections — Library, Reader, Translation, and Storage — instead of one long page. Your existing settings are unchanged, just reorganized.
+- New Translation setting "Study mode generation": choose what a translation stores for Study mode — Off (fastest), Text only (each bubble's original and translated text), or Text and image (the full bubble layers, as before). New translations default to Off.
+- New Reader setting "Study mode display": show revealed bubbles as the exact translated image, or as selectable text you can copy. Pages that only have text data show text automatically.
+- Study bubbles shown as text now use the same comic-lettering font as the translated pages, sized and cased to match the typeset image.
+
+### Changed
+
+- Whole-gallery translation is substantially faster — roughly half the time it took before on the same settings — and the server now balances several translation requests fairly instead of making everyone wait for the first one to finish.
+- Study bubbles are pixel-perfect again: revealed bubbles no longer crop off parts of the lettering, and text from one bubble no longer bleeds into a neighbouring one. Revealing every bubble on a page now reproduces the translated page exactly.
+
+### Fixed
+
+- Stopping a translation now ends it cleanly everywhere — previously a cancelled translation could quietly restart itself from the beginning.
+- Pressing Escape in Study mode now properly hides the revealed bubbles.
+
 ## v1.0.2 — 2026-06-17
 
 ### Changed

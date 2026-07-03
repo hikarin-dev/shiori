@@ -1,7 +1,7 @@
 {
   "name": "Shiori",
   "short_name": "Shiori",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Offline gallery library and reader. 栞",
   "start_url": "../",
   "scope": "../",

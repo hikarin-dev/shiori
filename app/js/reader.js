@@ -55,8 +55,9 @@ let _typicalRatio = '';
 // displayed variant is forced to the clean original regardless of translateView.
 let studyMode      = false;
 let hasStudy       = false;            // any page has study layers → the study segment is enabled
+let studyDisplay   = 'hardcoded_images'; // 'hardcoded_images' | 'text' (Settings → Reader)
 let _translateAvailable = false;       // this gallery has a whole-page translation
-const _pageStudy     = new Map();      // page url → { bg:Blob, bubbles:[{box,region,tr,src,text:Blob}] }
+const _pageStudy     = new Map();      // page url → { bg:Blob|null, bubbles:[{box,region,tr,src,rbox?,style?,text?:Blob}], page:{w,h}|null }
 const _pageLayerUrls = new Map();      // page url → { bgUrl, textUrls:[] } object URLs, revoked on teardown
 
 // Page images are served as blob: URLs. A blob URL references the IndexedDB-backed Blob — the
@@ -91,8 +92,9 @@ async function _loadStudy() {
       const cursor = e.target.result;
       if (!cursor) { resolve(); return; }
       const v = cursor.value;
-      if (Array.isArray(v.bubbles) && v.bubbles.length && v.studyBg) {
-        _pageStudy.set(v.url, { bg: v.studyBg, bubbles: v.bubbles });
+      if (Array.isArray(v.bubbles) && v.bubbles.length) {
+        // bg is null for metadata-only (text-mode) study records — those render as DOM text.
+        _pageStudy.set(v.url, { bg: v.studyBg || null, bubbles: v.bubbles, page: v.studyPage || null });
       }
       cursor.continue();
     };
@@ -338,7 +340,8 @@ async function init() {
   scrubber.value = 1;
 
   buildThumbs();
-  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerView']);
+  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerView', 'readerStudyDisplay']);
+  if (saved.readerStudyDisplay === 'text') studyDisplay = 'text';
   applyThumbHeight(saved.readerThumbHeight || _thumbHeight);
   if (saved.readerPageZoom) { _pageZoom = saved.readerPageZoom; document.documentElement.style.setProperty('--page-zoom', _pageZoom); }
   if (saved.readerLastPageMode) lastPageMode = saved.readerLastPageMode;
@@ -1228,7 +1231,7 @@ function _ensureWrap(imgEl) {
 
 // Drop every bubble layer and free the page layers' object URLs.
 function _removeBubbleLayers() {
-  document.querySelectorAll('.bubble-layer').forEach(l => l.remove());
+  document.querySelectorAll('.bubble-layer').forEach(l => { if (l._ro) l._ro.disconnect(); l.remove(); });
   for (const u of _pageLayerUrls.values()) {
     try { if (u.bgUrl) URL.revokeObjectURL(u.bgUrl); (u.textUrls || []).forEach(t => t && URL.revokeObjectURL(t)); } catch {}
   }
@@ -1256,31 +1259,90 @@ function _clipInset(r) {
   return `inset(${top}% ${right}% ${bottom}% ${left}%)`;
 }
 
-// Reveal/hide one bubble. The shared bg is clipped to the bubble's region (covering the
-// Japanese + the full English) into the bg sub-layer (below); the bubble's OWN full-page text
-// PNG goes unclipped into the fg sub-layer (above). Both are the page at 100% of the wrap, so
-// they stay pixel-aligned at any zoom, the text is never cropped, and overlapping bubbles never
-// let one's background cover another's text.
+// A selectable DOM-text block for one bubble, positioned at the renderer's layout box and
+// scaled with the page via the layer's --pgscale. Style comes from the stored renderer hints;
+// anything missing falls back to a deterministic reader style (never inferred from the image).
+function _buildStudyText(b, hasBg, pageW) {
+  if (!b.tr) return null;
+  const r = b.rbox || b.region || b.box;
+  const el = document.createElement('div');
+  el.className = 'study-text' + (hasBg ? '' : ' boxed');
+  el.style.left   = (r.x * 100) + '%';
+  el.style.top    = (r.y * 100) + '%';
+  el.style.width  = (r.w * 100) + '%';
+  el.style.height = (r.h * 100) + '%';
+  const st = b.style || {};
+  el.style.setProperty('--fs', (st.fontSize || Math.max(12, Math.round((pageW || 1000) * 0.022))) + 'px');
+  if (Array.isArray(st.fg)) el.style.color = `rgb(${st.fg.join(',')})`;
+  // Outline in the OCR bg colour, em-sized so it scales with the text like the renderer's
+  // border does (8 directions ≈ a solid ring).
+  if (Array.isArray(st.fg) && Array.isArray(st.bg)) {
+    const o = `rgb(${st.bg.join(',')})`;
+    el.style.textShadow =
+      `-0.06em -0.06em 0 ${o}, 0.06em -0.06em 0 ${o}, -0.06em 0.06em 0 ${o}, 0.06em 0.06em 0 ${o}, ` +
+      `-0.08em 0 0 ${o}, 0.08em 0 0 ${o}, 0 -0.08em 0 ${o}, 0 0.08em 0 ${o}`;
+  }
+  // manga2eng typesets in comic caps with a tight line advance — mirror both.
+  if (st.caps) { el.style.textTransform = 'uppercase'; el.style.lineHeight = '1.0'; }
+  if (st.align === 'left' || st.align === 'right') el.style.textAlign = st.align;
+  el.textContent = b.tr;
+  return el;
+}
+
+// Reveal/hide one bubble. Image display: the shared bg is clipped to the bubble's region
+// (covering the Japanese + the full English) into the bg sub-layer (below); the bubble's OWN
+// full-page text PNG goes unclipped into the fg sub-layer (above). Both are the page at 100% of
+// the wrap, so they stay pixel-aligned at any zoom, the text is never cropped, and overlapping
+// bubbles never let one's background cover another's text. Text display (Settings → Reader,
+// and the automatic fallback when a bubble has no stored image layer): the same clipped bg
+// when stored — a boxed backdrop otherwise — with the translation as selectable DOM text.
 function _toggleBubble(e, box, b, idx, pageUrl, bgLayer, fgLayer) {
   e.stopPropagation();
   const on = box.classList.toggle('revealed');
   if (on) {
-    if (!box._bg) {
+    if (!box._layers) {
+      const study = _pageStudy.get(pageUrl);
       const urls = _layerUrls(pageUrl);
-      if (!urls) { box.classList.remove('revealed'); return; }
-      const clip = _clipInset(b.region);
-      const bg = document.createElement('img');
-      bg.className = 'study-layer-img'; bg.src = urls.bgUrl;
-      bg.style.clipPath = clip; bg.style.webkitClipPath = clip;
-      const tx = document.createElement('img');
-      tx.className = 'study-layer-img'; tx.src = urls.textUrls[idx] || '';
-      bgLayer.appendChild(bg); fgLayer.appendChild(tx);
-      box._bg = bg; box._tx = tx;
+      const els = [];
+      if (urls && urls.bgUrl) {
+        const clip = _clipInset(b.region);
+        const bg = document.createElement('img');
+        bg.className = 'study-layer-img'; bg.src = urls.bgUrl;
+        bg.style.clipPath = clip; bg.style.webkitClipPath = clip;
+        bgLayer.appendChild(bg); els.push(bg);
+      }
+      const asText = studyDisplay === 'text' || !(urls && urls.textUrls[idx]);
+      if (asText) {
+        const wrap = fgLayer.closest('.page-wrap');
+        const pageW = (study && study.page && study.page.w) ||
+                      (wrap && wrap.querySelector('img')?.naturalWidth) || 0;
+        const tx = _buildStudyText(b, !!(urls && urls.bgUrl), pageW);
+        if (!tx && !els.length) { box.classList.remove('revealed'); return; }
+        if (tx) {
+          // Selecting the text must not close the bubble; a plain click (no selection) does.
+          tx.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            if (!String(window.getSelection() || '')) box.click();
+          });
+          fgLayer.appendChild(tx); els.push(tx);
+        }
+      } else {
+        const tx = document.createElement('img');
+        tx.className = 'study-layer-img'; tx.src = urls.textUrls[idx];
+        fgLayer.appendChild(tx); els.push(tx);
+      }
+      if (!els.length) { box.classList.remove('revealed'); return; }
+      box._layers = els;
+      box._isText = asText;
     } else {
-      box._bg.style.display = ''; box._tx.style.display = '';
+      box._layers.forEach(el => { el.style.display = ''; });
     }
-  } else if (box._bg) {
-    box._bg.style.display = 'none'; box._tx.style.display = 'none';
+    // While DOM text is shown, the click box hands pointer events to it so the text is
+    // selectable; the text's own click (above) or Escape closes the bubble.
+    if (box._isText) box.classList.add('text-revealed');
+  } else if (box._layers) {
+    box._layers.forEach(el => { el.style.display = 'none'; });
+    box.classList.remove('text-revealed');
   }
 }
 
@@ -1298,6 +1360,15 @@ function _renderBubbleLayer(wrap, pageNum) {
   const fgLayer = document.createElement('div'); fgLayer.className = 'bubble-fg';
   layer.appendChild(bgLayer);
   layer.appendChild(fgLayer);
+  // DOM-text bubbles size their font in page pixels × --pgscale (wrap width ÷ page width),
+  // so they track zoom/resize exactly like the image layers do.
+  const pageW = (study.page && study.page.w) || wrap.querySelector('img')?.naturalWidth || 0;
+  if (pageW) {
+    const sync = () => layer.style.setProperty('--pgscale', String((wrap.clientWidth / pageW) || 1));
+    sync();
+    layer._ro = new ResizeObserver(sync);
+    layer._ro.observe(wrap);
+  }
   // Page-flip zones under the bubbles (page modes only): click a bubble to reveal it, click
   // anywhere else on the page to turn the page — restoring the side-click navigation that the
   // fixed click-zones provide outside study mode. Strip mode scrolls instead.
@@ -1506,8 +1577,8 @@ document.addEventListener('keydown', (e) => {
 
   if (e.key === 'Escape' && studyMode && document.querySelector('.bubble-box.revealed')) {
     document.querySelectorAll('.bubble-box.revealed').forEach(box => {
-      box.classList.remove('revealed');
-      if (box._imgEl) box._imgEl.style.display = 'none';
+      box.classList.remove('revealed', 'text-revealed');
+      (box._layers || []).forEach(el => { el.style.display = 'none'; });
     });
     return;
   }

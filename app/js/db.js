@@ -946,13 +946,15 @@ export async function putTranslatedImage(url, translatedDataUrl) {
   });
 }
 
-// Study-mode layers for one page: { bg, bubbles }. `bg` is a Blob (the inpainted page, text
-// removed) shared by every bubble; each bubble is { box, region, tr, src, text } where `text`
-// is a Blob (a full-page transparent PNG of just that bubble's glyphs), `box` is the OCR
-// detection region (the hover/click border) and `region` is the area to clip `bg` to. All are
-// stored on the page's images record like `translated`, so they ride along in backups and
-// clear on revert. A reader reveals one bubble at a time by overlaying its text layer (whole)
-// and clipping the shared bg to its region.
+// Study-mode data for one page: { bg, bubbles, page }. `bg` is a Blob (the inpainted page, text
+// removed) shared by every bubble — or null for metadata-only (text-mode) study records; each
+// bubble is { box, region, tr, src, rbox?, style?, text? } where `text` is a Blob (a full-page
+// transparent PNG of just that bubble's glyphs, absent on metadata-only records), `box` is the
+// OCR detection region (the hover/click border), `region` is the area to clip `bg` to, `rbox`
+// the renderer's layout box and `style` renderer hints for DOM-text display. `page` is {w,h} in
+// source pixels. All are stored on the page's images record like `translated`, so they ride
+// along in backups and clear on revert. A reader reveals one bubble at a time by overlaying its
+// text layer (whole) and clipping the shared bg to its region — or as styled DOM text.
 export async function putPageStudy(url, study) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -961,7 +963,12 @@ export async function putPageStudy(url, study) {
     const getReq = store.get(url);
     getReq.onsuccess = () => {
       const rec = getReq.result;
-      if (rec) { rec.studyBg = study.bg; rec.bubbles = study.bubbles; store.put(rec); }
+      if (rec) {
+        rec.studyBg = study.bg || null;
+        rec.bubbles = study.bubbles;
+        rec.studyPage = study.page || null;
+        store.put(rec);
+      }
     };
     tx.oncomplete = () => resolve();
     tx.onerror    = () => reject(tx.error);
@@ -986,6 +993,7 @@ export async function clearGalleryTranslations(galleryId) {
         delete v.translated;
         delete v.bubbles;
         delete v.studyBg;
+        delete v.studyPage;
         cursor.update(v);
         if (had) cleared++;
       }

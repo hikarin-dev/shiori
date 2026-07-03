@@ -218,6 +218,42 @@ body { min-height: 100vh; }
 }
 /* Hover = "active region": ring + faint tint. Otherwise the box is invisible (clean page). */
 .bubble-box:hover { outline-color: var(--accent); background-color: rgba(237, 39, 84, 0.08); }
+/* While a bubble shows DOM text, its click box yields pointer events so the text below is
+   selectable; the text block's own click (or Escape) closes it. */
+.bubble-box.text-revealed { pointer-events: none; }
+/* The comic-lettering face the translation renderer typesets with, bundled so DOM-text
+   study bubbles use the exact same glyphs (a locally installed copy wins if present). */
+@font-face {
+  font-family: "CC Victory Speech";
+  src: local("CC Victory Speech"), url("fonts/ccvictoryspeech.ttf") format("truetype");
+  font-display: swap;
+}
+
+/* A bubble's translation as selectable DOM text, positioned at the renderer's layout box.
+   Font size = the renderer's page-pixel size × --pgscale (wrap width ÷ page width, kept in
+   sync by the layer's ResizeObserver), so it zooms with the page like the image layers. */
+.study-text {
+  position: absolute;
+  display: flex; align-items: center; justify-content: center;
+  text-align: center; overflow: visible;
+  pointer-events: auto; cursor: text;
+  user-select: text; -webkit-user-select: text;
+  font-family: "CC Victory Speech", "CC Wild Words", "Anime Ace 2.0 BB", "Anime Ace",
+               "Comic Sans MS", "Segoe UI", system-ui, sans-serif;
+  font-weight: 400;
+  font-size: calc(var(--pgscale, 1) * var(--fs, 16px));
+  line-height: 1.15;
+  color: #111;
+  /* Balloon text balances its line lengths; balance mimics the renderer's centered layout. */
+  white-space: pre-wrap; overflow-wrap: break-word; text-wrap: balance;
+}
+/* Metadata-only bubbles have no inpainted backdrop — give the text a readable card. */
+.study-text.boxed {
+  background: rgba(255, 255, 255, 0.93);
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.25);
+  padding: 2px 4px;
+}
 /* The fixed side click-zones are disabled in study mode (they'd sit above the overlay and eat
    hover + bubble clicks); navigation is handled by the in-overlay zones above. */
 body.study-mode #clickPrev, body.study-mode #clickNext,

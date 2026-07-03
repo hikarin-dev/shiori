@@ -11,6 +11,7 @@ handoff.md
 .claude/
 .mcp.json
 graphify-out/
+plans/
 
 # Release artifacts
 shiori-v*.zip

@@ -42,6 +42,20 @@
 
 <div class="content">
 
+  <!-- Side nav: one panel per settings area. Switching is pure show/hide (CSS .active), so
+       unsaved form state in a hidden panel is preserved. -->
+  <nav class="settings-nav" id="settingsNav">
+    <button class="nav-item active" type="button" data-panel="panelLibrary" data-i18n="set.nav_library">Library</button>
+    <button class="nav-item" type="button" data-panel="panelReader" data-i18n="set.nav_reader">Reader</button>
+    <button class="nav-item" type="button" data-panel="panelTranslation" data-i18n="set.nav_translation">Translation</button>
+    <!-- Labeled and revealed by whatever injects cards into its panel; empty panel = no nav item. -->
+    <button class="nav-item" type="button" data-panel="panelExtension" id="navExtension" hidden></button>
+    <button class="nav-item" type="button" data-panel="panelStorage" data-i18n="set.nav_storage">Storage</button>
+  </nav>
+
+  <div class="settings-panels">
+
+  <div class="panel active" id="panelLibrary">
   <!-- Language -->
   <div class="section">
     <div class="section-header">
@@ -54,7 +68,29 @@
       </div>
     </div>
   </div>
+  </div>
 
+  <div class="panel" id="panelReader">
+  <!-- Reader -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title" data-i18n="set.nav_reader">Reader</div>
+    </div>
+    <div class="section-body">
+      <div class="field">
+        <div class="field-label" data-i18n="set.study_disp">Study mode display</div>
+        <div class="field-desc" data-i18n="set.study_disp_desc">How revealed bubbles are shown in Study mode. Image layers reproduce the translated typesetting exactly; Text renders the translation as selectable text. Pages without stored image layers always use text.</div>
+        <select class="field-input" id="readerStudyDisplay">
+          <option value="hardcoded_images" data-i18n="set.study_disp_img">Image layers — exact typesetting</option>
+          <option value="text" data-i18n="set.study_disp_text">Text — selectable</option>
+        </select>
+      </div>
+      <div class="status-msg hidden" id="readerStatus"></div>
+    </div>
+  </div>
+  </div>
+
+  <div class="panel" id="panelTranslation">
   <!-- Translation -->
   <div class="section">
     <div class="section-header">
@@ -71,6 +107,15 @@
           <button class="btn-mini" id="openTranslateModalBtn" type="button" data-i18n="set.tr_modal_btn">⚙ Translator settings…</button>
         </div>
       </div>
+      <div class="field">
+        <div class="field-label" data-i18n="set.study_gen">Study mode generation</div>
+        <div class="field-desc" data-i18n="set.study_gen_desc">What a translation stores for Study mode (revealing one bubble at a time in the reader). Off is the fastest; Text only adds each bubble's original and translated text; Text and image also stores the exact typeset image layers.</div>
+        <select class="field-input" id="studyModeGeneration">
+          <option value="disabled" data-i18n="set.study_gen_off">Off — fastest translation</option>
+          <option value="text_only" data-i18n="set.study_gen_text">Text only — bubble text, shown as text</option>
+          <option value="text_and_image" data-i18n="set.study_gen_full">Text and image — exact typeset layers</option>
+        </select>
+      </div>
       <div class="field-desc" id="translateSummary" style="margin-top:2px;"></div>
       <div class="actions-row">
         <div class="status-msg hidden" id="translateStatus"></div>
@@ -78,8 +123,11 @@
       </div>
     </div>
   </div>
+  </div>
 
+  <div class="panel" id="panelExtension"></div>
 
+  <div class="panel" id="panelStorage">
   <!-- Library Backup -->
   <div class="section">
     <div class="section-header">
@@ -141,6 +189,9 @@
       </div>
       <div class="status-msg hidden" id="clearAllStatus"></div>
     </div>
+  </div>
+  </div>
+
   </div>
 
 </div>
