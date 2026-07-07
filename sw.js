@@ -10,23 +10,23 @@
 import * as platform from './app/js/platform.js';
 import { RUNNERS, cancelJobRun, runPoll } from './app/js/jobs-runner.js';
 
-const CACHE = 'shiori-shell-v34';
+const CACHE = 'shiori-shell-v39';
 // The scope root: http://localhost:5500/ locally, https://…/shiori/ on GitHub Pages.
 const ROOT = new URL('./', self.location.href);
 // Clean navigation path (relative to the root) → which app page serves it.
-const PAGES = { '': 'library', 'library': 'library', 'settings': 'settings', 'reader': 'reader' };
+const PAGES = { '': 'library', 'library': 'library', 'settings': 'settings', 'reader': 'reader', 'overview': 'overview' };
 
 const FLAGS = ['BR','CN','DE','ES','FR','GB','ID','IT','JP','KR','NL','PL','PT','RU','TH','TW','UA','US','VN']
   .map((c) => `app/flags/${c}.svg`);
 const SHELL = [
-  'app/library.html', 'app/reader.html', 'app/settings.html', 'app/agent.html',
+  'app/library.html', 'app/reader.html', 'app/settings.html', 'app/agent.html', 'app/overview.html',
   'app/manifest.webmanifest', 'app/font-init.js',
-  'app/library.css', 'app/reader.css', 'app/settings.css',
-  'app/js/platform.js', 'app/js/db.js', 'app/js/api.js', 'app/js/store.js',
+  'app/library.css', 'app/reader.css', 'app/settings.css', 'app/overview.css',
+  'app/js/platform.js', 'app/js/db.js', 'app/js/api.js', 'app/js/store.js', 'app/js/series.js',
   'app/js/import-cbz.js', 'app/js/translate.js', 'app/js/backup.js',
   'app/js/jobs-runner.js', 'app/js/submit-job.js', 'app/js/services.js', 'app/js/ext-bridge.js', 'app/js/boot.js',
   'app/js/i18n.js', 'app/js/locales.js', 'app/js/tooltip.js', 'app/js/titles.js',
-  'app/js/library.js', 'app/js/reader.js', 'app/js/settings.js', 'app/js/agent.js',
+  'app/js/library.js', 'app/js/reader.js', 'app/js/settings.js', 'app/js/agent.js', 'app/js/overview.js',
   ...FLAGS,
   'icons/icon16.png', 'icons/icon32.png', 'icons/icon48.png', 'icons/icon128.png',
   'icons/icon192.png', 'icons/icon512.png', 'icons/shiori-logo.svg',

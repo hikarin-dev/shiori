@@ -1,0 +1,168 @@
+/* overview.css — the series overview page. Reuses library.css for the header, brand, buttons and
+   modal; this file only styles the series header block, the chapter list, and the add-chapter bar. */
+
+.ov-wrap { max-width: 980px; margin: 0 auto; padding: 24px 20px 80px; }
+
+/* ── Series header ── */
+.series-head {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: center;
+  padding-bottom: 20px; margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.series-cover {
+  position: relative; width: 100%; min-width: 0; aspect-ratio: 1 / sqrt(2);
+  border-radius: 8px; overflow: hidden; background: var(--surface);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center; text-decoration: none;
+}
+/* Thumbnail fit — matches the library card: A4-ratio box, portrait fills (cover), landscape is
+   contained so nothing is cropped. .landscape is toggled in JS from the image's real dimensions. */
+.ov-thumb { position: relative; z-index: 1; width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
+.series-cover.landscape,
+.ch-thumb.landscape,
+.add-res-thumb.landscape {
+  background: transparent; border-color: transparent;
+}
+.series-cover.landscape {
+  aspect-ratio: auto;
+}
+.ov-thumb.landscape {
+  width: 100%; height: auto; max-height: 100%;
+  object-fit: contain; border: 1px solid var(--border);
+  border-radius: 4px; box-sizing: border-box;
+}
+.series-cover .ov-thumb.landscape { max-height: none; border-radius: 6px; }
+.series-cover .ph { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 34px; opacity: .5; }
+
+.series-info {
+  --series-title-pad-x: 8px;
+  flex: 1; min-width: 0; align-self: stretch; display: flex; flex-direction: column;
+}
+.series-title-wrap { position: relative; }
+.series-title-input {
+  width: calc(100% + var(--series-title-pad-x) + 1px);
+  margin-left: calc(-1 * (var(--series-title-pad-x) + 1px));
+  background: transparent; border: 1px solid transparent;
+  color: var(--text); font-family: inherit; font-size: 20px; line-height: 1.2; font-weight: 700;
+  padding: 4px var(--series-title-pad-x); border-radius: 6px; outline: none; letter-spacing: 0;
+  box-sizing: border-box; overflow: hidden; resize: none; white-space: pre-wrap;
+  min-height: calc(20px * 1.2 + 10px);
+}
+.series-title-input:hover  { border-color: var(--border); }
+.series-title-input:focus  { border-color: var(--accent); background: var(--bg); }
+#ovContent:not(.ov-editing) .series-title-input,
+#ovContent:not(.ov-editing) .ch-title-input {
+  pointer-events: none;
+}
+#ovContent:not(.ov-editing) .ch-actions { display: none; }
+#ovContent.ov-editing .series-title-wrap.editable .series-title-open,
+#ovContent.ov-editing .ch-title-open { display: none; }
+.series-title-open { position: absolute; inset: 0; z-index: 2; border-radius: 6px; cursor: pointer; }
+.series-title-wrap:has(.series-title-open:hover) .series-title-input[readonly] { color: var(--accent); }
+.series-sub { color: var(--muted); font-size: 12px; margin: 8px 0 16px; display: flex; gap: 14px; flex-wrap: wrap; }
+.series-sub b { color: var(--text); font-weight: 600; }
+
+.series-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
+.ov-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  font-family: inherit; font-size: 12px; padding: 8px 14px; border-radius: 6px; cursor: pointer;
+  text-decoration: none; transition: border-color .12s, background .12s, filter .12s;
+}
+.ov-btn:hover { border-color: var(--accent); }
+.ov-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.ov-btn.primary:hover { filter: brightness(1.08); }
+.ov-btn.active { border-color: var(--accent2); color: var(--accent2); background: rgba(255, 213, 79, .08); }
+.ov-btn svg { width: 14px; height: 14px; }
+
+/* ── Chapter list ── */
+.ch-list { display: flex; flex-direction: column; gap: 6px; }
+.ch-row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 9px; transition: border-color .12s;
+}
+.ch-row:hover { border-color: #3a3a44; }
+.ch-row.missing { opacity: .5; }
+.ch-num { width: 22px; text-align: center; color: var(--muted); font-size: 12px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.ch-thumb {
+  position: relative; width: 36px; aspect-ratio: 1 / sqrt(2); flex-shrink: 0; border-radius: 5px; overflow: hidden;
+  background: var(--bg); border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center; text-decoration: none;
+}
+.ch-thumb .ph { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 16px; opacity: .5; }
+.ch-thumb.link { cursor: pointer; }
+
+.ch-main { flex: 1; min-width: 0; }
+.ch-title-wrap { position: relative; display: inline-grid; max-width: 100%; }
+.ch-title-input {
+  grid-area: 1 / 1;
+  width: 100%; background: transparent; border: 1px solid transparent; color: var(--text);
+  font-family: inherit; font-size: 13px; line-height: 1.25; padding: 3px 5px; border-radius: 5px; outline: none;
+  box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.ch-title-sizer {
+  grid-area: 1 / 1; visibility: hidden; pointer-events: none;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: inherit; font-size: 13px; line-height: 1.25; padding: 3px 5px;
+  border: 1px solid transparent; box-sizing: border-box;
+}
+.ch-title-input::placeholder { color: var(--muted); }
+.ch-title-input:hover  { border-color: var(--border); }
+.ch-title-input:focus  { border-color: var(--accent); background: var(--bg); }
+.ch-title-open { grid-area: 1 / 1; z-index: 2; border-radius: 5px; cursor: pointer; }
+.ch-title-wrap:has(.ch-title-open:hover) .ch-title-input[readonly] { color: var(--accent); }
+.ch-meta { color: var(--muted); font-size: 10.5px; padding: 1px 5px 0; display: flex; gap: 10px; flex-wrap: wrap; }
+.ch-meta .done { color: var(--success); }
+
+.ch-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.ch-ibtn {
+  background: none; border: 1px solid transparent; color: var(--muted); cursor: pointer;
+  width: 30px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+  text-decoration: none; transition: color .12s, border-color .12s, background .12s;
+}
+.ch-ibtn:hover { color: var(--text); border-color: var(--border); background: var(--bg); }
+.ch-ibtn:disabled { opacity: .3; cursor: default; }
+.ch-ibtn.danger:hover { color: var(--danger); border-color: var(--danger); }
+.ch-ibtn svg { width: 15px; height: 15px; }
+
+/* ── Add-chapter bar ── */
+.add-bar {
+  margin-top: 22px; padding: 16px; border: 1px dashed var(--border); border-radius: 10px;
+  transition: border-color .12s, background .12s;
+}
+.add-bar.drag { border-color: var(--accent); background: rgba(237,39,84,.06); }
+.add-bar h3 { font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 10px; text-transform: uppercase; letter-spacing: .4px; }
+.add-search-wrap { position: relative; }
+.add-search {
+  width: 100%; height: 40px; padding: 0 12px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; color: var(--text);
+  font-family: inherit; font-size: 12px; outline: none;
+}
+.add-search:focus { border-color: var(--accent); }
+.add-results {
+  position: absolute; top: 44px; left: 0; right: 0; z-index: 20;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  max-height: 320px; overflow-y: auto; display: none;
+}
+.add-results.open { display: block; }
+.add-res {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.add-res:last-child { border-bottom: none; }
+.add-res:hover, .add-res.sel { background: var(--bg); }
+.add-res-thumb { position: relative; width: 30px; aspect-ratio: 1 / sqrt(2); border-radius: 4px; overflow: hidden; background: var(--bg); flex-shrink: 0; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
+.add-res-title { flex: 1; min-width: 0; font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.add-res-id { color: var(--muted); font-size: 11px; flex-shrink: 0; }
+.add-empty { padding: 10px; color: var(--muted); font-size: 12px; text-align: center; }
+.add-hint { margin-top: 10px; color: var(--muted); font-size: 11px; }
+
+/* Series-head tags reuse the library's .card-tag chips but expanded (the library collapses them). */
+.ov-tags { max-height: none; min-height: 0; overflow: visible; margin-top: 8px; margin-bottom: 8px; }
+.ov-tags .card-tag {
+  max-width: none; white-space: normal; overflow: visible; text-overflow: clip;
+  line-height: 1.2; overflow-wrap: anywhere;
+}
+
+.ov-loading, .ov-empty { text-align: center; color: var(--muted); padding: 80px 20px; font-size: 14px; }

@@ -2,14 +2,19 @@
 // per-gallery actions. Imports boot.js first so services + the PWA worker are wired.
 
 import './boot.js';
-import { openDB, metaPut, getStats, _LANG_NAME_TO_CODE } from './db.js';
+import { openDB, metaPut, getStats, getGalleriesByIds, galleriesCount, _LANG_NAME_TO_CODE } from './db.js';
 import { importBackup } from './backup.js';
+import { mergeIntoSeries } from './series.js';
 import { request as extRequest, available as extAvailable } from './ext-bridge.js';
 import * as store from './store.js';
 import * as platform from './platform.js';
 import { t, getLang } from './i18n.js';
-import { pickTitle, migrateTitle } from './titles.js';
+import { pickTitle, pickSeriesTitle, migrateTitle } from './titles.js';
 import { initTooltips, refreshTooltip } from './tooltip.js';
+
+// Whether a series card opens straight into the reader (chapter 1) instead of the overview page.
+// Loaded from settings at boot; the card routing reads it synchronously.
+let _bypassOverview = false;
 
 // ── Source sites — learned at runtime, never hard-coded ─────────────────────────────────────
 // The app is site-agnostic. What sites exist, whether they support downloads, and how their
@@ -290,18 +295,29 @@ function buildCard(g) {
   card.dataset.galleryId = g.id;
 
   const thumbSrc = _coverCache.get(g.id) || null;
+  // draggable="false" on the cover + link so grabbing the thumbnail starts the CARD's merge-drag
+  // (below), not a native image/link drag — the native image drag exposes a 'Files' type that was
+  // wrongly triggering the file-import overlay.
   const thumbInner = g.count > 0
-    ? `<img class="card-thumb"${thumbSrc ? ` src="${thumbSrc}"` : ''} alt="">`
+    ? `<img class="card-thumb" draggable="false"${thumbSrc ? ` src="${thumbSrc}"` : ''} alt="">`
     : `<div class="card-thumb-placeholder">📁</div>`;
 
-  const displayTitle = pickTitle(g, getLang());
+  const displayTitle = g.isSeries ? pickSeriesTitle(g.seriesTitle, g, getLang()) : pickTitle(g, getLang());
   const titleHtml = displayTitle
     ? `<div class="card-title" data-original="${escHtml(displayTitle)}">${escHtml(displayTitle)}</div>`
     : '';
 
   const cachedCount = g.count;
   const totalCount = g.numPages ? ` / ${g.numPages}` : '';
-  const metaLine = `${cachedCount}${totalCount} ${t('card.pages')} · ${formatSize(g.size)}`;
+  // A series card shows the whole-series aggregate (stored on the owner) and a chapter badge; a
+  // standalone gallery shows its own page count. Series open the overview unless the user bypasses.
+  const metaLine = g.isSeries
+    ? `${g.aggPages} ${t('card.pages')} · ${formatSize(g.aggSize)}`
+    : `${cachedCount}${totalCount} ${t('card.pages')} · ${formatSize(g.size)}`;
+  const seriesBadge = g.isSeries ? `<span class="card-series-badge">${t('card.chapters_n', { n: g.chapterCount })}</span>` : '';
+  // Every gallery gets an overview landing page (a standalone one can gain chapters there); the
+  // "skip overview" setting sends cards straight into the reader instead.
+  const cardHref = _bypassOverview ? `../reader?g=${g.id}` : `../overview?g=${g.id}`;
 
   const tagHtml = buildCardTags(g.tags, g.languages);
 
@@ -324,8 +340,9 @@ function buildCard(g) {
     <div class="card-thumb-spacer"></div>
     <div class="card-body-spacer"></div>
     <div class="card-hover-overlay">
-      <a class="card-thumb-wrap" href="../reader?g=${g.id}">
+      <a class="card-thumb-wrap" href="${cardHref}" draggable="false">
         ${thumbInner}
+        ${seriesBadge}
       </a>
       <div class="card-body">
         <div class="card-id-row">
@@ -355,6 +372,15 @@ function buildCard(g) {
       if (_shiftHeld) _delFlip.to(b, _DELETE_SVG);
     });
     b.addEventListener('click', async (e) => {
+      // Deleting a series removes every chapter (its child galleries never get their own card).
+      if (g.isSeries) {
+        if (!e.shiftKey && !confirm(t('confirm.delete_series', { n: g.chapterCount }))) return;
+        const ids = (g.chapters || [{ id: g.id }]).map(c => c.id);
+        for (const id of ids) await sendMsg({ type: 'DELETE_GALLERY', galleryId: id });
+        applyFilters();
+        updateHeaderStats();
+        return;
+      }
       if (!e.shiftKey && !confirm(t('confirm.delete_gallery', { id: g.id }))) return;
       await sendMsg({ type: 'DELETE_GALLERY', galleryId: g.id });
       applyFilters();
@@ -438,6 +464,10 @@ function buildCard(g) {
     b.addEventListener('click', async (e) => {
       // Mid-translation the button is a Stop control → cancel this job and bail.
       if (b.classList.contains('cancelling')) { await sendMsg({ type: 'CANCEL_TRANSLATE', galleryId: g.id }); return; }
+
+      // A series translates one chapter per press → open the chapter picker (defaults to the
+      // lowest untranslated chapter). Each chapter is its own gallery-scoped translate job.
+      if (g.isSeries) { openSeriesTranslateModal(g); return; }
 
       const btns = card.querySelectorAll('.card-btn-translate');
       if ([...btns].some(x => x.disabled)) return;
@@ -534,7 +564,139 @@ function buildCard(g) {
     });
   });
 
+  // Drag one card onto another to merge into a series — a custom pointer drag with a floating
+  // clone (below), so the whole card visibly follows the cursor and drops with an animation.
+  card.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;                        // left button only
+    if (e.target.closest('.card-actions, button')) return;  // don't hijack the action buttons
+    _beginCardDrag(e, card, g.id);
+  });
+
   return card;
+}
+
+// Custom animated card drag. Starts once the pointer moves past a small threshold (so plain clicks
+// still open the card). A fixed-position clone of the card follows the cursor; the card under it
+// highlights as a merge target; releasing over one merges, otherwise the clone snaps back.
+function _beginCardDrag(startEvent, card, gid) {
+  const startX = startEvent.clientX, startY = startEvent.clientY;
+  let dragging = false, clone = null, target = null, offX = 0, offY = 0;
+
+  const startClone = () => {
+    const rect = card.getBoundingClientRect();
+    offX = startX - rect.left; offY = startY - rect.top;
+    clone = card.cloneNode(true);
+    clone.classList.add('card-drag-clone');
+    clone.classList.remove('merge-target');
+    clone.style.width = rect.width + 'px';
+    clone.style.left  = rect.left + 'px';
+    clone.style.top   = rect.top + 'px';
+    document.body.appendChild(clone);
+    card.classList.add('drag-source');
+    document.body.classList.add('card-dragging');
+    requestAnimationFrame(() => clone && clone.classList.add('lifted'));
+  };
+  const moveClone = (ev) => { if (clone) { clone.style.left = (ev.clientX - offX) + 'px'; clone.style.top = (ev.clientY - offY) + 'px'; } };
+  const updateTarget = (ev) => {
+    const el = document.elementFromPoint(ev.clientX, ev.clientY);
+    const over = el && el.closest('.card');
+    const valid = over && over !== card ? over : null;
+    if (target && target !== valid) target.classList.remove('merge-target');
+    if (valid) valid.classList.add('merge-target');
+    target = valid;
+  };
+  const finish = (el, keep) => { if (el) setTimeout(() => el.remove(), 200); };
+
+  const move = (ev) => {
+    if (!dragging) {
+      if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return;
+      dragging = true;
+      startClone();
+    }
+    ev.preventDefault();
+    moveClone(ev);
+    updateTarget(ev);
+  };
+  const cleanup = () => {
+    document.removeEventListener('pointermove', move);
+    document.removeEventListener('pointerup', up);
+    document.removeEventListener('pointercancel', up);
+    card.classList.remove('drag-source');
+    document.body.classList.remove('card-dragging');
+  };
+  const up = async (ev) => {
+    cleanup();
+    if (!dragging) return;                              // was a click — let it open the card
+    // Suppress the click that fires after this drag so the card's link doesn't also navigate.
+    const suppress = (ce) => { ce.preventDefault(); ce.stopPropagation(); };
+    document.addEventListener('click', suppress, { capture: true, once: true });
+    setTimeout(() => document.removeEventListener('click', suppress, true), 350);
+
+    const dropTarget = target;
+    if (target) target.classList.remove('merge-target');
+    const dest = (dropTarget || card).getBoundingClientRect();
+    if (clone) {
+      clone.classList.add('dropping');
+      clone.style.left = dest.left + 'px'; clone.style.top = dest.top + 'px';
+      if (dropTarget) clone.style.opacity = '0'; else clone.classList.remove('lifted');
+    }
+    finish(clone);
+    if (dropTarget) await handleMergeDrop(dropTarget.dataset.galleryId, gid);
+  };
+  document.addEventListener('pointermove', move);
+  document.addEventListener('pointerup', up);
+  document.addEventListener('pointercancel', up);
+}
+
+// Merge the dragged gallery into the drop target as its next chapter (target keeps its id).
+async function handleMergeDrop(targetId, sourceId) {
+  if (!confirm(t('confirm.merge', { source: sourceId, target: targetId }))) return;
+  try {
+    await mergeIntoSeries(targetId, sourceId);
+  } catch (err) {
+    alert(t('alert.merge_failed', { msg: err.message }));
+    return;
+  }
+  await applyFilters();
+  updateHeaderStats();
+}
+
+// Series translate picker: one press translates one chapter. Defaults to the lowest-numbered
+// untranslated chapter but any can be chosen; the job is the normal per-gallery translate keyed
+// by the chosen chapter's id.
+async function openSeriesTranslateModal(g) {
+  const chapters = g.chapters || [];
+  const entities = await getGalleriesByIds(chapters.map(c => c.id));
+  let defaultIdx = entities.findIndex(e => e && !e.translated);
+  if (defaultIdx < 0) defaultIdx = 0;
+
+  const opts = chapters.map((c, i) => {
+    const e = entities[i];
+    const nm = c.title || pickTitle(e, getLang()) || '';
+    const flag = e?.translated ? ` · ${t('ov.translated')}` : '';
+    return `<option value="${escHtml(c.id)}" ${i === defaultIdx ? 'selected' : ''}>${escHtml(t('ov.chapter_n', { n: i + 1 }))}${nm ? ' — ' + escHtml(nm) : ''}${flag}</option>`;
+  }).join('');
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay open';
+  overlay.innerHTML = `<div class="modal-box">
+    <div class="modal-title">${escHtml(t('sertr.title'))}</div>
+    <div class="modal-label" style="margin-bottom:10px">${escHtml(t('sertr.desc'))}</div>
+    <select class="modal-select" id="_serTrSel">${opts}</select>
+    <div class="modal-actions">
+      <button class="modal-btn-cancel" id="_serTrCancel">${escHtml(t('common.cancel'))}</button>
+      <button class="modal-btn-confirm" id="_serTrGo">${escHtml(t('sertr.go'))}</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector('#_serTrCancel').addEventListener('click', close);
+  overlay.querySelector('#_serTrGo').addEventListener('click', async () => {
+    const gid = overlay.querySelector('#_serTrSel').value;
+    close();
+    await sendMsg({ type: 'TRANSLATE_GALLERY', galleryId: gid });
+  });
 }
 
 function renderGrid(galleries) {
@@ -929,9 +1091,10 @@ function _pageNumbers(current, total) {
 }
 
 async function updateHeaderStats() {
-  const stats = await getStats();
-  const totalGalleries = Object.keys(stats.galleries).length;
-  document.getElementById('hTotalGalleries').textContent = totalGalleries;
+  const [stats, topLevel] = await Promise.all([getStats(), galleriesCount()]);
+  // A series counts as one gallery here (galleriesCount excludes chapter children); the image and
+  // storage totals below still include every chapter's pages, since that's real stored data.
+  document.getElementById('hTotalGalleries').textContent = topLevel;
   document.getElementById('hTotalImages').textContent    = stats.totalImages;
   document.getElementById('hTotalSize').textContent      = formatSize(stats.totalSize);
   const sizeStat = document.getElementById('hSizeStat');
@@ -1200,6 +1363,7 @@ document.getElementById('cbzFileInput').addEventListener('change', (e) => {
 
 let _dragDepth = 0;
 document.addEventListener('dragenter', (e) => {
+  // Only OS-file drags reach here (card merges use pointer events, not HTML5 drag).
   if (!e.dataTransfer.types.includes('Files')) return;
   _dragDepth++;
   document.body.classList.add('drag-over');
@@ -1318,10 +1482,10 @@ async function exportMetadataZip(galleryId) {
   _saveBlob(new Blob([zipBytes], { type: 'application/zip' }), `shiori-${gid}-metadata.zip`);
 }
 
-async function exportGalleryZip(galleryId) {
-  const gid = String(galleryId);
-  const db = await openDB();
-
+// Build the export file list for one gallery, every name under `prefix` (e.g. "chapter-01/" for a
+// series bundle, "" for a standalone gallery). Layout: metadata.json, image_records.json, images/,
+// translated/, study/{bg,text,bubbles.json} — the shape _importShioriEntries restores losslessly.
+async function _collectGalleryFiles(gid, prefix, db) {
   const meta = await new Promise((resolve, reject) => {
     const req = db.transaction('metadata', 'readonly').objectStore('metadata').get(gid);
     req.onsuccess = () => resolve(req.result || null);
@@ -1343,13 +1507,10 @@ async function exportGalleryZip(galleryId) {
   const enc = new TextEncoder();
   const files = [];
 
-  files.push({
-    name: 'metadata.json',
-    data: enc.encode(JSON.stringify(migrateTitle(meta), null, 2))
-  });
+  files.push({ name: `${prefix}metadata.json`, data: enc.encode(JSON.stringify(migrateTitle(meta), null, 2)) });
 
   files.push({
-    name: 'image_records.json',
+    name: `${prefix}image_records.json`,
     data: enc.encode(JSON.stringify(imageRecords.map(r => ({
       url: r.url,
       mediaId: r.mediaId,
@@ -1380,7 +1541,7 @@ async function exportGalleryZip(galleryId) {
     if (!m) continue;
     const bytes = await imageBytes(rec.blob ?? rec.dataUrl);
     if (!bytes) continue;
-    files.push({ name: `images/${m[1].padStart(4, '0')}.${m[2].toLowerCase()}`, data: bytes });
+    files.push({ name: `${prefix}images/${m[1].padStart(4, '0')}.${m[2].toLowerCase()}`, data: bytes });
   }
 
   // Translated variants in a parallel folder (only pages that have one).
@@ -1391,7 +1552,7 @@ async function exportGalleryZip(galleryId) {
     const bytes = await imageBytes(rec.translated);
     if (!bytes) continue;
     const ext = (typeof rec.translated === 'string' ? rec.translated.match(/^data:image\/(\w+)/)?.[1] : rec.translated.type?.split('/')[1]) || 'png';
-    files.push({ name: `translated/${m[1].padStart(4, '0')}.${ext.toLowerCase()}`, data: bytes });
+    files.push({ name: `${prefix}translated/${m[1].padStart(4, '0')}.${ext.toLowerCase()}`, data: bytes });
   }
 
   // Study-mode layers: the shared inpaint bg (study/bg) + each bubble's transparent text PNG
@@ -1404,23 +1565,52 @@ async function exportGalleryZip(galleryId) {
     if (!m || !rec.studyBg || !Array.isArray(rec.bubbles) || !rec.bubbles.length) continue;
     const num = m[1].padStart(4, '0');
     const bgBytes = await imageBytes(rec.studyBg);
-    if (bgBytes) files.push({ name: `study/bg/${num}.${imgExt(rec.studyBg)}`, data: bgBytes });
+    if (bgBytes) files.push({ name: `${prefix}study/bg/${num}.${imgExt(rec.studyBg)}`, data: bgBytes });
     const entries = [];
     for (let k = 0; k < rec.bubbles.length; k++) {
       const b = rec.bubbles[k];
       const txtBytes = await imageBytes(b.text);
       const textFile = `${num}-${k}.${imgExt(b.text)}`;
-      if (txtBytes) files.push({ name: `study/text/${textFile}`, data: txtBytes });
+      if (txtBytes) files.push({ name: `${prefix}study/text/${textFile}`, data: txtBytes });
       entries.push({ box: b.box, region: b.region, tr: b.tr || '', src: b.src || '', textFile: txtBytes ? textFile : null });
     }
     studyIndex[num] = entries;
   }
   if (Object.keys(studyIndex).length) {
-    files.push({ name: 'study/bubbles.json', data: enc.encode(JSON.stringify(studyIndex, null, 2)) });
+    files.push({ name: `${prefix}study/bubbles.json`, data: enc.encode(JSON.stringify(studyIndex, null, 2)) });
   }
 
-  const zipBytes = _zipCreate(files);
-  _saveBlob(new Blob([zipBytes], { type: 'application/zip' }), `shiori-${gid}.zip`);
+  return files;
+}
+
+// Export one gallery — or, when it is a series owner, the whole series as chapter-NN/ folders plus
+// a top-level series.json describing chapter order + titles.
+async function exportGalleryZip(galleryId) {
+  const gid = String(galleryId);
+  const db = await openDB();
+  const meta = await new Promise((resolve, reject) => {
+    const req = db.transaction('metadata', 'readonly').objectStore('metadata').get(gid);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+
+  const chapters = (Array.isArray(meta?.chapters) && meta.chapters.length > 1) ? meta.chapters : null;
+  if (!chapters) {
+    const files = await _collectGalleryFiles(gid, '', db);
+    _saveBlob(new Blob([_zipCreate(files)], { type: 'application/zip' }), `shiori-${gid}.zip`);
+    return;
+  }
+
+  const enc = new TextEncoder();
+  const manifest = { format: 'shiori-series', version: 1, seriesTitle: meta.seriesTitle || '', chapters: [] };
+  const files = [];
+  for (let i = 0; i < chapters.length; i++) {
+    const folder = `chapter-${String(i + 1).padStart(2, '0')}`;
+    manifest.chapters.push({ id: String(chapters[i].id), title: chapters[i].title || '', folder });
+    files.push(...await _collectGalleryFiles(String(chapters[i].id), `${folder}/`, db));
+  }
+  files.push({ name: 'series.json', data: enc.encode(JSON.stringify(manifest, null, 2)) });
+  _saveBlob(new Blob([_zipCreate(files)], { type: 'application/zip' }), `shiori-series-${gid}.zip`);
 }
 
 if (new URLSearchParams(window.location.search).get('import') === '1') {
@@ -1832,6 +2022,12 @@ setTimeout(updateExtStatus, 6500);   // first probe past the grace window — re
 window.addEventListener('shiori-lang-change', () => applyFilters());
 
 initFromUrl();
+
+// Read the "skip chapter overview" preference before the first paint so series cards route right.
+platform.kv.get(['readerSkipOverview']).then(r => {
+  const next = !!r.readerSkipOverview;
+  if (next !== _bypassOverview) { _bypassOverview = next; applyFilters(); }
+});
 
 // Windowed load: one page from the DB (covers come from the sessionStorage cache, so the
 // grid still paints fast).

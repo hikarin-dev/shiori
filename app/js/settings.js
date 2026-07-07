@@ -267,6 +267,15 @@ document.getElementById('readerStudyDisplay').addEventListener('change', (e) => 
   showStatus('readerStatus', 'Saved.', 'ok');
 });
 
+platform.kv.get(['readerSkipOverview']).then((r) => {
+  const el = document.getElementById('readerSkipOverview');
+  if (el) el.value = r.readerSkipOverview ? 'skip' : 'show';
+});
+document.getElementById('readerSkipOverview').addEventListener('change', (e) => {
+  platform.kv.set({ readerSkipOverview: e.target.value === 'skip' });
+  showStatus('readerStatus', 'Saved.', 'ok');
+});
+
 // ── Library Backup — one export button, prompting metadata-only vs full ───
 
 const backupModal = document.getElementById('backupModal');

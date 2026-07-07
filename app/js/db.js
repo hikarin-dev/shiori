@@ -6,7 +6,7 @@ import * as platform from './platform.js';
 import { normalizeTitle, migrateTitle } from './titles.js';
 
 const DB_NAME = 'shiori-cache';
-const DB_VERSION = 10;
+const DB_VERSION = 11;
 export const STORE = 'images';
 const META_STORE = 'metadata';
 const GALLERY_STORE = 'galleries';
@@ -80,6 +80,11 @@ export function openDB() {
         : db.createObjectStore(GALLERY_STORE, { keyPath: 'galleryId' });
       for (const idx of ['addedAt', 'latestAt', 'size', 'count', 'uploadDate'])
         if (!gal.indexNames.contains(idx)) gal.createIndex(idx, idx, { unique: false });
+      // Series membership: a chapter's stat record carries parentId (the owner gallery). The index
+      // counts only children (IndexedDB skips records missing the key), so the top-level grid count
+      // is total − children, and the grid cursor can skip them. Denormalized here (not only on
+      // metadata) so pagination stays a pure index-cursor walk with no metadata read per row.
+      if (!gal.indexNames.contains('parentId')) gal.createIndex('parentId', 'parentId', { unique: false });
 
       // Covers live in their own store so gallery stat records stay tiny and a
       // sort/scan over the whole library never loads cover blobs.
@@ -146,6 +151,9 @@ export async function dbPut(url, src, mediaId, galleryId) {
   const pm = canonUrl.match(/\/(\d+)\.(webp|jpg|jpeg|png|gif)$/i);
   const pageNum = pm ? parseInt(pm[1]) : 9999;
   let coverChanged = false;
+  // If this gallery is a chapter (has parentId) or is itself a series owner (has aggregate fields),
+  // its size/count just changed → refresh the affected series aggregate after the tx (debounced).
+  let _aggParent = null, _aggSelf = null;
 
   await new Promise((resolve, reject) => {
     // META_STORE joins the tx so a brand-new stat record can seed its denormalized uploadDate
@@ -164,6 +172,8 @@ export async function dbPut(url, src, mediaId, galleryId) {
       galReq.onsuccess = () => {
         const cur = galReq.result;
         if (cur) {
+          if (cur.parentId) _aggParent = cur.parentId;
+          if (cur.chapterCount != null) _aggSelf = gid;
           const entry = {
             ...cur,
             count: cur.count + (prev ? 0 : 1),
@@ -200,6 +210,8 @@ export async function dbPut(url, src, mediaId, galleryId) {
     platform.kv.set({ libraryVersion: Date.now() });
     platform.control.send({ type: 'COVER_INVALIDATED', galleryId: gid });
   }
+  if (_aggParent) scheduleSeriesAggregate(_aggParent);
+  if (_aggSelf)   scheduleSeriesAggregate(_aggSelf);
   publishFeed(gid);
 }
 
@@ -400,6 +412,17 @@ function _entityFrom(id, gal, meta) {
     translated: m.translated || false,
     translatedLang: m.translatedLang || '',
     languages: _deriveLangs(m),
+    // Series/chapter grouping. `chapters` (owner only) is the ordered source of truth for order +
+    // titles; `parentId` (children only) is the reverse link. The aggregate fields are denormalized
+    // onto the owner's stat record (see refreshSeriesAggregate) so the card never fans out to read
+    // every chapter. A gallery is a series when it owns 2+ chapters.
+    chapters: Array.isArray(m.chapters) ? m.chapters : null,
+    parentId: m.parentId || g.parentId || null,
+    seriesTitle: m.seriesTitle || null,
+    isSeries: Array.isArray(m.chapters) && m.chapters.length > 1,
+    chapterCount: g.chapterCount ?? (Array.isArray(m.chapters) ? m.chapters.length : 0),
+    aggPages: g.aggPages ?? (g.count || 0),
+    aggSize: g.aggSize ?? (g.size || 0),
   };
 }
 
@@ -420,8 +443,12 @@ export async function rebuildGalleryEntry(galleryId) {
     if (pn < coverPage) { coverPage = pn; coverSrc = r.blob ?? r.dataUrl; }
   }
   const uploadDate = prev?.uploadDate ?? (Number((await metaGet(gid))?.uploadDate) || 0);
-  await galleryPut({ galleryId: gid, count, size, latestAt, addedAt: prev?.addedAt ?? (Number(gid) || latestAt), coverPage, uploadDate });
+  // Preserve series membership (parentId) — a stat rebuild must not orphan a chapter.
+  const seriesFields = prev?.parentId ? { parentId: prev.parentId } : {};
+  await galleryPut({ galleryId: gid, count, size, latestAt, addedAt: prev?.addedAt ?? (Number(gid) || latestAt), coverPage, uploadDate, ...seriesFields });
   if (coverSrc != null) await coverPut(gid, await imageToBlob(coverSrc));
+  if (prev?.parentId)      scheduleSeriesAggregate(prev.parentId);
+  if (prev?.chapterCount != null) scheduleSeriesAggregate(gid);   // this gallery is a series owner
   publishFeed(gid);
 }
 
@@ -701,16 +728,19 @@ export async function galleriesPage({ sort = 'updated', dir, offset = 0, limit =
   const db = await openDB();
   const stats = await new Promise((resolve, reject) => {
     const out = [];
+    let skipped = 0;   // count only VISIBLE (non-child) rows toward the offset
     const tx = db.transaction(GALLERY_STORE, 'readonly');
     const store = tx.objectStore(GALLERY_STORE);
     // 'id' cursors the primary key (galleryId) itself; everything else uses its sort index.
     const source = sort === 'id' ? store : store.index(_SORT_INDEX[sort] || 'latestAt');
     const req = source.openCursor(null, direction);
-    let advanced = offset <= 0;
     req.onsuccess = (e) => {
       const cur = e.target.result;
       if (!cur) { resolve(out); return; }
-      if (!advanced) { advanced = true; cur.advance(offset); return; }
+      // Child chapters never appear as a top-level row — they show only inside their series.
+      // (Can't use cur.advance for the offset: it would count skipped children.)
+      if (cur.value.parentId) { cur.continue(); return; }
+      if (skipped < offset) { skipped++; cur.continue(); return; }
       out.push(cur.value);
       if (out.length >= limit) { resolve(out); return; }
       cur.continue();
@@ -721,14 +751,29 @@ export async function galleriesPage({ sort = 'updated', dir, offset = 0, limit =
   return stats.map((s, i) => _entityFrom(s.galleryId, s, metas[i]));
 }
 
+// Number of child chapters (stat records carrying a parentId). The index skips records without the
+// key, so a plain count IS the child count — subtracted from the total for the top-level tally.
+export async function childGalleryCount() {
+  const db = await openDB();
+  return new Promise((resolve) => {
+    const tx = db.transaction(GALLERY_STORE, 'readonly');
+    const req = tx.objectStore(GALLERY_STORE).index('parentId').count();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => resolve(0);
+  });
+}
+
 export async function galleriesCount() {
   const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(GALLERY_STORE, 'readonly');
-    const req = tx.objectStore(GALLERY_STORE).count();
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  const [total, children] = await Promise.all([
+    new Promise((resolve, reject) => {
+      const req = db.transaction(GALLERY_STORE, 'readonly').objectStore(GALLERY_STORE).count();
+      req.onsuccess = () => resolve(req.result);
+      req.onerror   = () => reject(req.error);
+    }),
+    childGalleryCount(),
+  ]);
+  return total - children;
 }
 
 // Gallery ids in sorted order, keys only (no records, no covers). Used by search:
@@ -777,6 +822,9 @@ export async function getGalleriesByIds(ids) {
 const _META_FIELDS = new Set([
   'title', 'titlePretty', 'titleEnglish', 'numPages', 'tags', 'mediaId', 'pageExts',
   'isLocalImport', 'source', 'sourceId', 'sourceUrl', 'fetchedAt', 'translated', 'translatedLang', 'isStub', 'sourceMetadata',
+  // Series/chapter grouping: `chapters` + `seriesTitle` live on the owner's metadata; `parentId`
+  // lives on a child's metadata AND is mirrored onto its stat record (see mutateGallery).
+  'chapters', 'seriesTitle', 'parentId',
 ]);
 
 // Merge a patch into a gallery's metadata and/or stat record, then announce the change
@@ -788,6 +836,9 @@ export async function mutateGallery(galleryId, patch) {
   for (const [k, v] of Object.entries(patch || {})) {
     if (_META_FIELDS.has(k)) metaPatch[k] = v; else galPatch[k] = v;
   }
+  // parentId is denormalized onto BOTH stores: metadata (search exclusion) and the stat record
+  // (grid index-cursor exclusion + the aggregate hook). Routing above put it only on metadata.
+  if ('parentId' in (patch || {})) galPatch.parentId = patch.parentId;
   if (Object.keys(metaPatch).length) {
     const cur = await metaGet(gid) || { galleryId: gid };
     await metaPut({ ...cur, ...metaPatch, galleryId: gid });
@@ -797,6 +848,44 @@ export async function mutateGallery(galleryId, patch) {
     await galleryPut({ ...cur, ...galPatch, galleryId: gid });
   }
   publishFeed(gid);
+}
+
+// ── Series aggregate ──
+// The owner's stat record caches whole-series totals (chapterCount / aggPages / aggSize) so the
+// library card reads them O(1) instead of fanning out to every chapter. Recomputed on structural
+// changes (merge/remove) and, debounced, whenever a member's size/count shifts (see dbPut).
+
+const _aggTimers = new Map();
+export function scheduleSeriesAggregate(ownerId) {
+  const oid = String(ownerId);
+  if (_aggTimers.has(oid)) return;
+  _aggTimers.set(oid, setTimeout(() => {
+    _aggTimers.delete(oid);
+    refreshSeriesAggregate(oid).catch(() => {});
+  }, 400));
+}
+
+export async function refreshSeriesAggregate(ownerId) {
+  const oid = String(ownerId);
+  const [meta, owner] = await Promise.all([metaGet(oid), galleryGet(oid)]);
+  if (!owner) return;
+  const chapters = Array.isArray(meta?.chapters) ? meta.chapters : null;
+  if (!chapters || chapters.length < 2) {
+    // No longer a series — strip any stale aggregate so the card falls back to its own stats.
+    if (owner.chapterCount != null || owner.aggPages != null || owner.aggSize != null) {
+      const { chapterCount, aggPages, aggSize, ...rest } = owner;
+      await galleryPut(rest);
+      publishFeed(oid);
+    }
+    return;
+  }
+  let aggPages = 0, aggSize = 0;
+  for (const c of chapters) {
+    const s = await galleryGet(c.id);
+    if (s) { aggPages += s.count || 0; aggSize += s.size || 0; }
+  }
+  await galleryPut({ ...owner, chapterCount: chapters.length, aggPages, aggSize });
+  publishFeed(oid);
 }
 
 export async function removeGallery(galleryId) {
@@ -810,6 +899,7 @@ export async function deleteGallery(galleryId) {
   if (meta?.sourceId) _sourceIdToGalleryId.delete(String(meta.sourceId));
   await deleteGalleryImages(gid);
   await metaDelete(gid);
+  if (meta?.parentId) scheduleSeriesAggregate(meta.parentId);   // a chapter left its series
   publishFeed(gid);
 }
 

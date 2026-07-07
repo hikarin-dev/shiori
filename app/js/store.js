@@ -72,7 +72,8 @@ export async function getPage({ sort = 'updated', dir, page = 1, pageSize = 60, 
   }
 
   const [ids, metaMap] = await Promise.all([galleries.idsSorted({ sort, dir }), galleries.metaMap()]);
-  const matched = ids.filter(id => match(_lite(id, metaMap.get(id))));
+  // Child chapters never surface as their own search hit — they live inside their series.
+  const matched = ids.filter(id => !metaMap.get(id)?.parentId && match(_lite(id, metaMap.get(id))));
   const total = matched.length;
   const start = (page - 1) * pageSize;
   const windowIds = matched.slice(start, start + pageSize);

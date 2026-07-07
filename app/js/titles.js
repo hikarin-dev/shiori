@@ -44,3 +44,26 @@ export function pickTitle(meta, langCode) {
   const key = _LANG_TITLE_KEY[base] || _LANG_TITLE_KEY[langCode] || 'english';
   return tt[key] || tt.english || tt.pretty || '';
 }
+
+// A series title is stored as the same { english, japanese, pretty } object as a gallery title so
+// it carries every source language. Coerce whatever is stored (object, legacy string, or empty)
+// into that object shape; returns null when there's nothing set.
+export function seriesTitleObject(st) {
+  if (st && typeof st === 'object') return { english: st.english || '', japanese: st.japanese || '', pretty: st.pretty || '' };
+  if (typeof st === 'string' && st) return { english: st, japanese: '', pretty: st };
+  return null;
+}
+
+// The display title for a series: its own multi-language seriesTitle picked for the app language
+// (fallback English → pretty), or the owner gallery's title when no series title is set.
+export function pickSeriesTitle(seriesTitle, fallbackMeta, langCode) {
+  const st = seriesTitleObject(seriesTitle);
+  if (st) { const v = pickTitle({ title: st }, langCode); if (v) return v; }
+  return pickTitle(fallbackMeta, langCode);
+}
+
+// Which title key the given app language edits: Japanese UI edits `japanese`, everything else
+// edits `english` (the default fallback). Mirrors pickTitle's language→key mapping.
+export function editKeyForLang(langCode) {
+  return String(langCode || '').split('-')[0] === 'ja' ? 'japanese' : 'english';
+}

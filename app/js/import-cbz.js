@@ -3,7 +3,7 @@
 
 import * as platform from './platform.js';
 import { dbPut, metaPut, metaGet, galleryGet, deleteGalleryImages, existingPageNums, publishFeed,
-         putTranslatedImage, putPageStudy } from './db.js';
+         putTranslatedImage, putPageStudy, mutateGallery, refreshSeriesAggregate } from './db.js';
 
 async function inflateRaw(bytes) {
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
@@ -66,6 +66,17 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
   try { entries = await unzip(buffer); }
   catch (e) { onProgress({ status: 'error', error: 'Failed to parse CBZ: ' + e.message }); return; }
 
+  // A Shiori series export bundles each chapter under chapter-NN/ with a top-level series.json.
+  // Restore every chapter as its own gallery, then rebuild the series grouping.
+  const seriesEntry = entries.find(en => en.filename === 'series.json');
+  if (seriesEntry) {
+    let manifest = null;
+    try { manifest = JSON.parse(new TextDecoder().decode(seriesEntry.data)); } catch {}
+    if (manifest && Array.isArray(manifest.chapters) && manifest.chapters.length) {
+      return _importSeriesZip(entries, manifest, onProgress);
+    }
+  }
+
   const metaEntry = entries.find(en => en.filename === 'metadata.json');
   let embeddedMeta = null;
   if (metaEntry) { try { embeddedMeta = JSON.parse(new TextDecoder().decode(metaEntry.data)); } catch {} }
@@ -74,7 +85,8 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
   // translated/ and study/ folders. Restore it losslessly — and never let those parallel
   // folders get imported as extra pages (the plain-CBZ path below only sees a normal archive).
   if (entries.some(en => en.filename === 'image_records.json')) {
-    return _importShioriZip(origGid, entries, embeddedMeta, onProgress);
+    const gid = String(embeddedMeta?.galleryId || origGid);
+    return _importShioriEntries(gid, entries, embeddedMeta, onProgress);
   }
 
   const nameNoExt = filename.replace(/\.[^.]+$/, '');
@@ -126,11 +138,60 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
   publishFeed(gid);
 }
 
+// Tag union de-duped by lower-cased `type:name` (the key db.js indexes on).
+function _unionTags(...lists) {
+  const seen = new Set(), out = [];
+  for (const list of lists) for (const t of (list || [])) {
+    if (!t || t.type == null || t.name == null) continue;
+    const k = `${t.type}:${t.name}`.toLowerCase();
+    if (seen.has(k)) continue; seen.add(k); out.push(t);
+  }
+  return out;
+}
+
+// Restore a Shiori series export: each chapter-NN/ folder is a self-contained per-gallery export.
+// Import every chapter into its own gallery (its embedded id), then wire the grouping onto the
+// first chapter (the owner) and back-link every other chapter.
+async function _importSeriesZip(entries, manifest, onProgress) {
+  const chapters = [];   // { id, title } in series order, with the imported gids
+  const tagLists = [];
+  const total = manifest.chapters.length;
+  for (let i = 0; i < total; i++) {
+    const c = manifest.chapters[i];
+    const folder = String(c.folder || `chapter-${String(i + 1).padStart(2, '0')}`).replace(/\/+$/, '') + '/';
+    const sub = entries.filter(en => en.filename.startsWith(folder))
+      .map(en => ({ filename: en.filename.slice(folder.length), data: en.data }));
+    if (!sub.length) continue;
+    const metaEntry = sub.find(en => en.filename === 'metadata.json');
+    let cmeta = null;
+    if (metaEntry) { try { cmeta = JSON.parse(new TextDecoder().decode(metaEntry.data)); } catch {} }
+    if (cmeta) { delete cmeta.chapters; delete cmeta.parentId; delete cmeta.seriesTitle; }  // grouping is rebuilt below
+    const gid = String(cmeta?.galleryId || c.id || (Date.now() + i));
+    await _importShioriEntries(gid, sub, cmeta, (p) => { if (p.status !== 'done') onProgress({ ...p, chapter: i + 1, chapterCount: total }); });
+    chapters.push({ id: gid, title: c.title || '' });
+    if (cmeta?.tags) tagLists.push(cmeta.tags);
+  }
+
+  if (chapters.length >= 2) {
+    const ownerId = chapters[0].id;
+    const ownerMeta = await metaGet(ownerId).catch(() => null);
+    await mutateGallery(ownerId, {
+      chapters,
+      seriesTitle: manifest.seriesTitle || '',
+      tags: _unionTags(ownerMeta?.tags, ...tagLists),
+    });
+    for (const c of chapters) if (c.id !== ownerId) await mutateGallery(c.id, { parentId: ownerId });
+    await refreshSeriesAggregate(ownerId);
+  }
+
+  platform.kv.set({ libraryVersion: Date.now() });
+  onProgress({ status: 'done', done: total, total });
+}
+
 // Restore a Shiori per-gallery export (images/ + translated/ + study/ + metadata.json +
-// image_records.json). Always a full replace into the embedded gallery id, so the originals,
-// the translated variants AND the study-mode layers all come back intact.
-async function _importShioriZip(origGid, entries, embeddedMeta, onProgress) {
-  const gid = String(embeddedMeta?.galleryId || origGid);
+// image_records.json) into `gid`. Always a full replace, so the originals, the translated
+// variants AND the study-mode layers all come back intact.
+async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
   const byName = new Map(entries.map(en => [en.filename, en.data]));
 
   const pageEntries = sortImageEntries(entries.filter(en => /^images\//i.test(en.filename)));

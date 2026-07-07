@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <base href="app/">
+  <link rel="icon" href="../icons/icon32.png">
+  <title>Shiori — Series</title>
+  <script src="font-init.js"></script>
+  <link rel="stylesheet" href="library.css">
+  <link rel="stylesheet" href="overview.css">
+  <link rel="modulepreload" href="js/overview.js">
+  <link rel="modulepreload" href="js/boot.js">
+  <link rel="modulepreload" href="js/db.js">
+  <link rel="modulepreload" href="js/store.js">
+  <link rel="modulepreload" href="js/series.js">
+  <link rel="modulepreload" href="js/i18n.js">
+  <link rel="modulepreload" href="js/locales.js">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#111111">
+  <meta name="shiori-app" content="overview">
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <a class="brand-wrap" href="../">
+      <div class="brand-icon"><img src="../icons/shiori-logo.svg" alt=""></div>
+      <span class="brand-text">Shiori</span>
+    </a>
+    <span class="brand-sep">/</span>
+    <a class="brand-page" href="../" style="text-decoration:none" data-i18n="nav.library">Library</a>
+    <span class="brand-sep">/</span>
+    <span class="brand-page" data-i18n="ov.series">Series</span>
+  </div>
+  <div class="header-right">
+    <button class="btn-settings" id="settingsBtn" data-tip="Settings" data-i18n-tip="nav.settings"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg></button>
+  </div>
+</header>
+
+<div class="ov-wrap">
+  <div id="ovContent"><div class="ov-loading" data-i18n="ov.loading">Loading…</div></div>
+</div>
+
+<!-- Remove-chapter confirm modal -->
+<div id="removeModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title" data-i18n="ov.remove_title">Remove chapter</div>
+    <div class="modal-label" id="removeMsg" style="margin-bottom:14px"></div>
+    <div class="modal-actions" style="flex-wrap:wrap; gap:8px">
+      <button class="modal-btn-cancel" id="removeCancel" data-i18n="common.cancel">Cancel</button>
+      <button class="modal-btn-cancel" id="removeDetach" data-i18n="ov.remove_detach">Detach (keep gallery)</button>
+      <button class="modal-btn-confirm" id="removeDelete" style="background:var(--danger)" data-i18n="ov.remove_delete">Delete images</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="ovFileInput" accept=".cbz,.zip,.shi,.shioridb" style="display:none">
+
+<script type="module" src="js/overview.js"></script>
+</body>
+</html>

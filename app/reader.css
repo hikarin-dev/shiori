@@ -9,6 +9,39 @@
 html, body { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; }
 body { min-height: 100vh; }
 
+/* ── Chapter nav (series only) ── */
+.chapter-bar { display: flex; align-items: center; justify-content: center; gap: 4px; }
+
+/* Fixed top pill — single/double page modes only (the bottom is the scrubber there). */
+#chapterBarTop {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  top: calc(var(--topbar-h) + 8px); z-index: 140; transition: top 0.2s;
+  background: rgba(22, 22, 26, 0.92); border: 1px solid var(--border);
+  border-radius: 999px; padding: 3px 5px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); backdrop-filter: blur(6px);
+}
+body.reader-unpinned #chapterBarTop { top: 8px; }   /* follow the hidden top bar up */
+
+/* Inline bars in the scroll strip — above the first page and below the last page, in the flow. */
+.chapter-bar.inline {
+  width: fit-content; margin: 14px auto; padding: 5px 6px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+}
+
+.chapter-bar .ch-nav {
+  background: none; border: none; color: var(--text); cursor: pointer;
+  width: 28px; height: 28px; border-radius: 999px; font-size: 18px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.chapter-bar .ch-nav:hover:not(:disabled) { background: var(--bg); color: var(--accent); }
+.chapter-bar .ch-nav:disabled { opacity: .3; cursor: default; }
+.chapter-bar .ch-label {
+  background: none; border: none; color: var(--text); cursor: pointer;
+  padding: 0 10px; font-family: inherit; font-size: 12px; max-width: 300px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.chapter-bar .ch-label:hover { color: var(--accent); }
+
 /* ── Top bar ── */
 #topbar {
   position: sticky; top: 0; z-index: 200; width: 100%;

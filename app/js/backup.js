@@ -163,6 +163,9 @@ async function importMetadataFile(file) {
       addedAt:   existingGal?.addedAt  || Date.now(),              // restore-time marks "came from backup"
       coverPage: existingGal?.coverPage ?? 9999,
       uploadDate: Number(meta.uploadDate) || existingGal?.uploadDate || 0,
+      // Keep the stat record's series link in step with the metadata, so a chapter restored from a
+      // metadata-only backup stays hidden from the top-level grid (which filters on stat.parentId).
+      ...(meta.parentId ? { parentId: String(meta.parentId) } : {}),
     });
     n++;
   }

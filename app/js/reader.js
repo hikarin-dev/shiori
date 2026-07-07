@@ -2,6 +2,7 @@
 
 import './boot.js';
 import { openDB, imageToBlob } from './db.js';
+import { resolveSeries } from './series.js';
 import { request as extRequest, available as extAvailable } from './ext-bridge.js';
 import * as platform from './platform.js';
 import { t, getLang } from './i18n.js';
@@ -356,6 +357,10 @@ async function init() {
   translateView = initView === 'translate';
   document.body.classList.toggle('study-mode', studyMode);
 
+  // Resolve series membership BEFORE the first render so the initial strip build already carries
+  // its inline chapter bars (and the page-mode pill renders in setMode).
+  try { _series = await resolveSeries(galleryId); } catch { _series = null; }
+
   setMode(saved.readerMode || 'strip', true);
   goTo(1);
   _updateViewToggle();
@@ -367,6 +372,63 @@ async function init() {
   // Pre-generate the remaining thumbs in the background once the first pages are on screen,
   // so opening the strip later is instant. No-op for thumbs already generated.
   setTimeout(_enqueueAllThumbs, 3500);
+}
+
+// ── Chapter navigation (series) ──
+// This gallery may be one chapter of a series. The reader always shows ONE chapter's flat page
+// set (so the thumbnail/scroll-sync code is untouched); the bars just reload the reader for an
+// adjacent chapter, or open the overview to jump to any chapter.
+let _series = null;
+const _escR = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function _chapterIndex() {
+  return _series ? _series.chapters.findIndex(c => String(c.id) === String(galleryId)) : -1;
+}
+function _gotoAdjacentChapter(delta) {
+  if (!_series) return;
+  const target = _series.chapters[_chapterIndex() + delta];
+  if (target) location.href = `../reader?g=${target.id}`;
+}
+// Inner markup shared by the fixed pill (page modes) and the inline strip bars.
+function _chapterBarInner() {
+  const idx = _chapterIndex();
+  const total = _series.chapters.length;
+  const cur = _series.chapters[idx] || {};
+  const label = t('rd.chapter_of', { n: idx + 1, total }) + (cur.title ? ` · ${cur.title}` : '');
+  const hasPrev = idx > 0, hasNext = idx >= 0 && idx < total - 1;
+  return `
+    <button class="ch-nav" data-dir="-1" ${hasPrev ? '' : 'disabled'} data-tip="${_escR(t('rd.prev_chapter'))}">‹</button>
+    <button class="ch-label" data-tip="${_escR(t('rd.chapters'))}">${_escR(label)}</button>
+    <button class="ch-nav" data-dir="1" ${hasNext ? '' : 'disabled'} data-tip="${_escR(t('rd.next_chapter'))}">›</button>`;
+}
+function _wireChapterBar(bar) {
+  bar.querySelectorAll('.ch-nav').forEach(btn => btn.addEventListener('click', () => _gotoAdjacentChapter(parseInt(btn.dataset.dir, 10))));
+  const lbl = bar.querySelector('.ch-label');
+  if (lbl) lbl.addEventListener('click', () => { location.href = `../overview?g=${_series.ownerId}`; });
+}
+// Build the inline chapter bars into the strip (above the first page / below the last). Called by
+// buildStrip after the page rows exist; no-op when this gallery isn't part of a series.
+function _addStripChapterBars() {
+  if (!_series || !stripView) return;
+  const top = document.createElement('div');
+  top.className = 'chapter-bar inline';
+  top.innerHTML = _chapterBarInner();
+  _wireChapterBar(top);
+  stripView.insertBefore(top, stripView.firstChild);
+  const bot = document.createElement('div');
+  bot.className = 'chapter-bar inline';
+  bot.innerHTML = _chapterBarInner();
+  _wireChapterBar(bot);
+  stripView.appendChild(bot);
+}
+// The fixed top pill is used only in single/double page modes; strip uses the inline bars above.
+function renderChapterBars() {
+  const pill = document.getElementById('chapterBarTop');
+  if (!pill) return;
+  if (!_series || mode === 'strip') { pill.style.display = 'none'; return; }
+  pill.innerHTML = _chapterBarInner();
+  pill.style.display = 'flex';
+  _wireChapterBar(pill);
 }
 
 function showEmpty() {
@@ -683,18 +745,28 @@ function _setIndicator(p) {
 // Drag handler: maps cursor position to proportion, moves indicator + scrolls page.
 function _dragToCursor(clientX) {
   const { z, iW, a, b } = _stripAnchors();
-  const rect        = thumbStrip.getBoundingClientRect();
-  const visualRange = Math.max(1, rect.width - iW);
-
+  const rect = thumbStrip.getBoundingClientRect();
   if (_dragGrabOffset === null) _dragGrabOffset = iW / 2;
-  const visualLeft  = Math.max(0, Math.min(visualRange, clientX - rect.left - _dragGrabOffset));
-  const p           = visualLeft / visualRange;
-  const contentLeft = _proportionToContentLeft(p, a, b);
+
+  // When the thumbnails overflow the strip, it pans to keep the indicator under the cursor and the
+  // proportion maps across the full strip width. When they DON'T fill the strip (few pages — e.g. a
+  // short chapter), no panning is possible, so map the cursor directly onto the thumb span [a, b];
+  // otherwise the indicator only creeps across a narrow band and stops tracking the cursor.
+  const overflowing = thumbStrip.scrollWidth > thumbStrip.offsetWidth + 1;
+  let p, contentLeft;
+  if (overflowing) {
+    const visualRange = Math.max(1, rect.width - iW);
+    const visualLeft  = Math.max(0, Math.min(visualRange, clientX - rect.left - _dragGrabOffset));
+    p           = visualLeft / visualRange;
+    contentLeft = _proportionToContentLeft(p, a, b);
+    const maxScrollX = Math.max(0, thumbStrip.scrollWidth - thumbStrip.offsetWidth);
+    thumbStrip.scrollLeft = Math.max(0, Math.min(maxScrollX, contentLeft - visualLeft / z));
+  } else {
+    contentLeft = Math.max(a, Math.min(b, (clientX - rect.left - _dragGrabOffset) / z));
+    p           = (b > a) ? (contentLeft - a) / (b - a) : 0;
+  }
 
   if (_thumbViewport) _thumbViewport.style.left = contentLeft + 'px';
-  // Strip pans so indicator stays under cursor
-  const maxScrollX = Math.max(0, thumbStrip.scrollWidth - thumbStrip.offsetWidth);
-  thumbStrip.scrollLeft = Math.max(0, Math.min(maxScrollX, contentLeft - visualLeft / z));
 
   if (mode === 'strip') {
     window.scrollTo({ top: _proportionToScrollY(p) - _pinOffset(), behavior: 'instant' });
@@ -1045,6 +1117,8 @@ function buildStrip() {
   }, { threshold: 0 });
   imgs.forEach(img => pageObs.observe(img));
   _stripObservers.push(pageObs);
+
+  _addStripChapterBars();   // series: inline chapter bars above the first / below the last page
 }
 
 // ── Mode switching ──
@@ -1085,6 +1159,7 @@ function setMode(m, skipAnim) {
   } else {
     goTo(currentPage);
   }
+  renderChapterBars();   // (re)place the fixed pill for page modes; strip uses its inline bars
 }
 
 // Scroll the strip to the current page. Rows already reserve the correct height (see buildStrip),
@@ -1624,6 +1699,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '1') setMode('single');
   if (e.key === '2') setMode('double');
   if (e.key === '3') setMode('strip');
+  if (e.key === '[') _gotoAdjacentChapter(-1);   // previous chapter (series)
+  if (e.key === ']') _gotoAdjacentChapter(1);     // next chapter (series)
 });
 
 initTooltips();

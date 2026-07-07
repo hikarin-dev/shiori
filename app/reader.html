@@ -17,6 +17,8 @@
   <link rel="modulepreload" href="js/platform.js">
   <link rel="modulepreload" href="js/services.js">
   <link rel="modulepreload" href="js/db.js">
+  <link rel="modulepreload" href="js/store.js">
+  <link rel="modulepreload" href="js/series.js">
   <link rel="modulepreload" href="js/translate.js">
   <link rel="modulepreload" href="js/ext-bridge.js">
   <link rel="modulepreload" href="js/submit-job.js">
@@ -78,6 +80,13 @@
   </div>
   <button class="tb-btn tb-menu-btn" id="tbMenuBtn" data-tip="More"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
 </div>
+
+<!-- Chapter nav (series only). In strip mode the bars are built INLINE inside the strip — above
+     the first page and below the last page — so they scroll with the content and never cover a
+     page or the thumbnail strip (the page/scroll-sync math only measures .page-wrap rows, so it is
+     unaffected). In single/double page modes this fixed top pill is used instead (the bottom is the
+     scrubber there). Prev/next jump chapters (full reload); the label opens the overview. -->
+<div id="chapterBarTop" style="display:none"></div>
 
 <!-- Viewport -->
 <div id="viewport">
