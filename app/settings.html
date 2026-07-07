@@ -331,6 +331,7 @@
           <label data-i18n="tm.ocr_model">OCR model</label>
           <select class="field-input" id="cfgOcr">
             <option value="48px">48px (default, fast)</option>
+            <option value="48px_exp">48px (experimental)</option>
             <option value="48px_ctc">48px CTC</option>
             <option value="32px">32px</option>
             <option value="mocr">manga-ocr (accurate, slower)</option>
@@ -400,10 +401,9 @@
         <div class="tcfg-field tcfg-check"><label><input type="checkbox" id="cfgUppercase"> <span data-i18n="tm.uppercase">Force uppercase</span></label></div>
         <div class="tcfg-field tcfg-check"><label><input type="checkbox" id="cfgNoHyphenation"> <span data-i18n="tm.no_hyphen">No hyphenation</span></label></div>
 
-        <div class="tcfg-h" data-i18n="tm.batch">Batch size (cloud LLM — pages per request)</div>
-        <div class="tcfg-note" data-i18n="tm.batch_note">Cloud LLMs translate a whole chunk of pages in one call, for story context and fewer requests. Keep these small — too many pages overflow the model's input limit and text gets dropped.</div>
+        <div class="tcfg-h" data-i18n="tm.batch">Batch size (pages per request)</div>
+        <div class="tcfg-note" data-i18n="tm.batch_note">These LLMs translate a chunk of pages in one call, for story context and fewer requests. Keep them small — too many pages overflow the model's input limit and text gets dropped. DeepSeek isn't listed: it sizes each request automatically from how much text the pages hold.</div>
         <div class="tcfg-field"><label>Gemini</label><input class="field-input" type="number" id="cfgCapGemini" step="1" min="1"></div>
-        <div class="tcfg-field"><label>DeepSeek</label><input class="field-input" type="number" id="cfgCapDeepseek" step="1" min="1"></div>
         <div class="tcfg-field"><label>Ollama (cross-page)</label><input class="field-input" type="number" id="cfgCapChatgpt" step="1" min="1"></div>
 
         <div class="tcfg-h" data-i18n="tm.cost">Cost estimate (USD / 1M tokens — Gemini only)</div>

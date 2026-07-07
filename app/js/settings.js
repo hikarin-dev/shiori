@@ -121,7 +121,6 @@ function loadTranslateSettings(ts) {
   document.getElementById('cfgNoHyphenation').checked = !!ts.noHyphenation;
   const caps = ts.batchCaps || {};
   set('cfgCapGemini', caps.gemini ?? 8);
-  set('cfgCapDeepseek', caps.deepseek ?? 8);
   set('cfgCapChatgpt', caps.chatgpt ?? 6);
   set('cfgPriceIn', ts.priceIn ?? 1.5);
   set('cfgPriceOut', ts.priceOut ?? 9);
@@ -164,7 +163,6 @@ function gatherTranslateSettings() {
     noHyphenation: document.getElementById('cfgNoHyphenation').checked,
     batchCaps: {
       gemini:   i('cfgCapGemini', 8),
-      deepseek: i('cfgCapDeepseek', 8),
       chatgpt:  i('cfgCapChatgpt', 6),
     },
     priceIn: n('cfgPriceIn', 1.5),

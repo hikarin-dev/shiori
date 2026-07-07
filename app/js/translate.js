@@ -31,10 +31,12 @@ function _imgMime(u8) {
       u8[8] === 0x57 && u8[9] === 0x45 && u8[10] === 0x42 && u8[11] === 0x50) return 'image/webp';
   return 'image/png';
 }
-// Translators whose batch size is a real token/cost knob (one LLM call per batch).
-// Everything else translates page by page (batch_size 1) but still rides the pipeline.
+// Translators that batch several pages into one LLM call (vs. page-by-page, batch_size 1).
+// For gemini/chatgpt the sent value IS the pages-per-request the user tunes. DeepSeek also
+// batches, but the server sizes each request adaptively from the pages' text volume, so its
+// value here is only an internal scheduling/memory hint (not user-tunable) — hence no UI knob.
 const BATCH_CAPPED = new Set(['gemini', 'deepseek', 'chatgpt']);
-const DEFAULT_BATCH_CAPS = { gemini: 8, deepseek: 8, chatgpt: 6 };
+const DEFAULT_BATCH_CAPS = { gemini: 8, deepseek: 10, chatgpt: 6 };
 const _translating = new Set();   // gids whose job is being STARTED (guards the upload)
 const _polling = new Set();        // gids with an in-flight poll (guards overlapping ticks)
 // gid → { serverUrl, jobToken } so a same-context cancel can reach the server even before the
@@ -159,7 +161,7 @@ function _galleryLabel(m) {
   const batches = m.batches || 0;
   if (batches && (m.tlDone || 0) < batches) {
     const b = Math.min(batches, Math.max(m.tlStarted || 0, (m.tlDone || 0) + 1));
-    return batches > 1 ? `Translating batch ${b}/${batches}` : 'Translating…';
+    return batches > 1 ? `Translating ${b}/${batches}` : 'Translating…';
   }
   if (total && (m.done || 0) < total) return `Rendering ${m.done || 0}/${total}`;
   return 'Finishing…';
