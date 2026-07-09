@@ -52,9 +52,11 @@ export async function load(gid) {
 function _lite(id, meta) {
   const m = meta || {};
   const tt = normalizeTitle(m);
+  const isSeries = Array.isArray(m.chapters) && m.chapters.length > 1;
+  const tags = isSeries && Array.isArray(m.seriesTags) ? m.seriesTags : (m.tags || []);
   // All title variants are searchable, so a query matches whichever language the user typed.
   const title = [tt.english, tt.japanese, tt.pretty].filter(Boolean).join(' ');
-  return { id: String(id), title, tags: m.tags || [] };
+  return { id: String(id), title, tags };
 }
 
 // One page of galleries. Without `match`, sorting + pagination happen in the database
@@ -72,7 +74,7 @@ export async function getPage({ sort = 'updated', dir, page = 1, pageSize = 60, 
   }
 
   const [ids, metaMap] = await Promise.all([galleries.idsSorted({ sort, dir }), galleries.metaMap()]);
-  // Child chapters never surface as their own search hit — they live inside their series.
+  // Child chapters never surface as their own search hit; they live inside their series.
   const matched = ids.filter(id => !metaMap.get(id)?.parentId && match(_lite(id, metaMap.get(id))));
   const total = matched.length;
   const start = (page - 1) * pageSize;

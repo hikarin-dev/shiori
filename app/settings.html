@@ -68,6 +68,32 @@
       </div>
     </div>
   </div>
+  <!-- Gallery cards -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title" data-i18n="set.lib_cards">Gallery cards</div>
+    </div>
+    <div class="section-body">
+      <div class="field">
+        <div class="field-label" data-i18n="set.lib_quick_actions">Quick actions</div>
+        <div class="field-desc" data-i18n="set.lib_quick_actions_desc">Controls when the download, translate, export, and delete buttons appear on gallery cards.</div>
+        <select class="field-input" id="libQuickActionsMode">
+          <option value="hover" data-i18n="set.lib_quick_actions_hover">Show on hover</option>
+          <option value="always" data-i18n="set.lib_quick_actions_always">Always visible</option>
+          <option value="hidden" data-i18n="set.lib_quick_actions_hidden">Hidden</option>
+        </select>
+      </div>
+      <div class="field">
+        <div class="field-label" data-i18n="set.lib_applang_flag">App-language flag</div>
+        <div class="field-desc" data-i18n="set.lib_applang_flag_desc">Cards show a small flag for each of a gallery's languages. Hide the flag that matches the app's current language, or show a flag for every language.</div>
+        <select class="field-input" id="libAppLangFlag">
+          <option value="hide" data-i18n="set.lib_applang_flag_hide">Hide the flag matching the app language</option>
+          <option value="show" data-i18n="set.lib_applang_flag_show">Show a flag for every language</option>
+        </select>
+      </div>
+      <div class="status-msg hidden" id="libStatus"></div>
+    </div>
+  </div>
   </div>
 
   <div class="panel" id="panelReader">

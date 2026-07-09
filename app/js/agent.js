@@ -16,10 +16,11 @@
 
 import * as platform from './platform.js';
 import {
-  resolveGalleryId, dbGet, dbPut, metaGet, metaPut, galleryGet, coverGet,
+  resolveGalleryId, dbGet, dbPut, metaGet, metaPut, galleryGet, coverGet, coverPut,
   resizeCover, getStats, galleriesPage, galleriesCount, existingPageNums, pageExistsForGallery,
   deleteGallery, deleteGalleryImages, rebuildGalleryEntry,
-  getGalleryPages, getGalleryPageRange, getGalleryImageRecords, imageToDataUrl,
+  mutateGallery, refreshSeriesAggregate, isSeriesMeta, effectiveTagsOf,
+  metaGetAllMap, getGalleryPages, getGalleryPageRange, getGalleryImageRecords, imageToBlob, imageToDataUrl,
 } from './db.js';
 import { pickTitle } from './titles.js';
 
@@ -27,12 +28,14 @@ import { pickTitle } from './titles.js';
 async function toastFor(gid) {
   const m = await metaGet(gid).catch(() => null);
   if (!m || m.isStub) return null;
+  const isSeries = isSeriesMeta(m);
+  const tags = effectiveTagsOf(m) || [];
   let cover = null;
-  try { const src = await coverGet(gid); if (src) cover = await resizeCover(src, 96); } catch {}
+  try { const src = await coverGet(gid, { preferSeries: isSeries }); if (src) cover = await resizeCover(src, 96); } catch {}
   return {
     galleryId: m.sourceId || gid,
     title: pickTitle(m),
-    tags: m.tags || [],
+    tags,
     numPages: m.numPages || 0,
     cover,
   };
@@ -53,7 +56,7 @@ const OPS = {
     const galleries = [];
     for (const g of recent) {
       let cover = null;
-      try { const src = await coverGet(g.id); if (src) cover = await resizeCover(src, coverWidth); } catch {}
+      try { const src = await coverGet(g.id, { preferSeries: g.isSeries }); if (src) cover = await resizeCover(src, coverWidth); } catch {}
       galleries.push({
         id: g.id, sourceId: g.sourceId, title: pickTitle(g), count: g.count || 0, size: g.size || 0,
         source: g.source || '', tags: (g.tags || []).slice(0, 8), cover,
@@ -111,6 +114,22 @@ const OPS = {
     return { gid, count: gal?.count || 0, size: gal?.size || 0, meta: meta || null };
   },
 
+  async source_galleries({ source }) {
+    const [metas, stats] = await Promise.all([metaGetAllMap(), getStats()]);
+    const galleries = [];
+    for (const [gid, meta] of metas) {
+      if (source && meta?.source !== source) continue;
+      const stat = stats.galleries?.[gid] || {};
+      galleries.push({
+        gid,
+        count: stat.count || 0,
+        size: stat.size || 0,
+        meta,
+      });
+    }
+    return { galleries };
+  },
+
   async existing_pages({ galleryId }) {
     return { pages: [...await existingPageNums(String(galleryId))] };
   },
@@ -131,9 +150,34 @@ const OPS = {
     return out;
   },
 
+  async store_cover({ galleryId, bytes, dataUrl, mime, role }) {
+    if (!galleryId || (!bytes && !dataUrl)) return { ok: false };
+    const gid = String(galleryId);
+    const src = bytes ? new Blob([bytes], { type: mime || 'application/octet-stream' }) : dataUrl;
+    const cover = await imageToBlob(src);
+    if (!cover) return { ok: false };
+    // coverPut announces the change itself (libraryVersion bump + COVER_INVALIDATED + feed).
+    await coverPut(gid, cover, { role: role === 'series' ? 'series' : 'gallery' });
+    return { ok: true };
+  },
+
   async meta_put({ meta }) {
     if (!meta || !meta.galleryId) return { ok: false };
     await metaPut(meta);
+    platform.kv.set({ libraryVersion: Date.now() });
+    return { ok: true };
+  },
+
+  async mutate_gallery({ galleryId, patch }) {
+    if (!galleryId) return { ok: false };
+    await mutateGallery(String(galleryId), patch || {});
+    platform.kv.set({ libraryVersion: Date.now() });
+    return { ok: true };
+  },
+
+  async refresh_series({ ownerId }) {
+    if (!ownerId) return { ok: false };
+    await refreshSeriesAggregate(String(ownerId));
     platform.kv.set({ libraryVersion: Date.now() });
     return { ok: true };
   },

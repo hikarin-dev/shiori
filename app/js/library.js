@@ -2,7 +2,7 @@
 // per-gallery actions. Imports boot.js first so services + the PWA worker are wired.
 
 import './boot.js';
-import { openDB, metaPut, getStats, getGalleriesByIds, galleriesCount, _LANG_NAME_TO_CODE } from './db.js';
+import { openDB, metaPut, getStats, getGalleriesByIds, galleriesCount, coverGet, sourceIconGet, sourceIconPut, sourceIconsAll, _LANG_NAME_TO_CODE } from './db.js';
 import { importBackup } from './backup.js';
 import { mergeIntoSeries } from './series.js';
 import { request as extRequest, available as extAvailable } from './ext-bridge.js';
@@ -16,6 +16,28 @@ import { initTooltips, refreshTooltip } from './tooltip.js';
 // Loaded from settings at boot; the card routing reads it synchronously.
 let _bypassOverview = false;
 
+// Whether the leading card flag matching the app's current language is hidden (default: on, the
+// historical behaviour). Loaded from settings at boot; buildCardTags reads it while rendering.
+let _hideAppLangFlag = true;
+
+// Gallery card quick actions: download/replace, translate, export and delete.
+const _QUICK_ACTION_MODES = new Set(['hover', 'always', 'hidden']);
+const _DEFAULT_QUICK_ACTIONS_MODE = 'hover';
+let _quickActionsMode = _DEFAULT_QUICK_ACTIONS_MODE;
+const _normalizeQuickActionsMode = (mode) => _QUICK_ACTION_MODES.has(mode) ? mode : _DEFAULT_QUICK_ACTIONS_MODE;
+function applyQuickActionsMode(mode) {
+  const next = _normalizeQuickActionsMode(mode);
+  _quickActionsMode = next;
+  document.body.classList.toggle('quick-actions-hover', next === 'hover');
+  document.body.classList.toggle('quick-actions-hidden', next === 'hidden');
+}
+try {
+  const savedQuickActions = JSON.parse(localStorage.getItem('shiori:libQuickActionsMode') || 'null');
+  applyQuickActionsMode(savedQuickActions);
+} catch {
+  applyQuickActionsMode(_quickActionsMode);
+}
+
 // ── Source sites — learned at runtime, never hard-coded ─────────────────────────────────────
 // The app is site-agnostic. What sites exist, whether they support downloads, and how their
 // gallery links look is the extension's knowledge; it hands over a map at runtime (EXT_SITES).
@@ -23,6 +45,95 @@ let _bypassOverview = false;
 let _siteMap = {};
 
 const _siteName = (source) => (_siteMap[source]?.name) || source || '';
+
+const _sourceIconCache = new Map();
+const _sourceIconPending = new Set();
+const _sourceIconLoading = new Set();
+const _sourceIconAttempted = new Set();   // one extension fetch per source per session
+
+async function hydrateSourceIcons() {
+  try {
+    for (const rec of await sourceIconsAll()) {
+      if (rec?.source && /^data:image\//i.test(rec.dataUrl || '')) _sourceIconCache.set(String(rec.source), rec);
+    }
+  } catch {}
+}
+
+function _siteIconCandidate(source) {
+  const site = _siteMap[source] || {};
+  const direct = String(site.favicon || '');
+  if (/^https?:\/\//i.test(direct)) return { url: direct, fromRegistry: true };
+  const hintedDomain = String(site.faviconDomain || '').trim();
+  if (hintedDomain) return { url: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hintedDomain)}&sz=16`, fromRegistry: true };
+  const domain = String(source || '').trim();
+  if (!domain) return { url: '', fromRegistry: false };
+  return { url: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=16`, fromRegistry: false };
+}
+
+function _cachedSourceIcon(source, candidate) {
+  const cached = _sourceIconCache.get(String(source || ''));
+  if (!cached || !/^data:image\//i.test(cached.dataUrl || '')) return '';
+  if (candidate?.fromRegistry && candidate.url && cached.url && cached.url !== candidate.url) return '';
+  return cached.dataUrl;
+}
+
+function _replaceRenderedSourceIcons(source, dataUrl) {
+  document.querySelectorAll('[data-fav]').forEach((el) => {
+    if (el.dataset.fav !== source) return;
+    if (el.tagName === 'IMG') {
+      el.src = dataUrl;
+      return;
+    }
+    el.outerHTML = `<img src="${escHtml(dataUrl)}" data-fav="${escHtml(source)}" alt="" decoding="async" style="width:12px;height:12px;pointer-events:none;">`;
+  });
+}
+
+function _loadSourceIcon(source, candidate) {
+  const key = String(source || '');
+  if (!key || _sourceIconCache.has(key) || _sourceIconLoading.has(key)) return;
+  _sourceIconLoading.add(key);
+  sourceIconGet(key)
+    .then((rec) => {
+      if (!rec || !/^data:image\//i.test(rec.dataUrl || '')) return;
+      if (candidate?.fromRegistry && candidate.url && rec.url && rec.url !== candidate.url) return;
+      _sourceIconCache.set(key, rec);
+      _replaceRenderedSourceIcons(key, rec.dataUrl);
+    })
+    .finally(() => { _sourceIconLoading.delete(key); });
+}
+
+function _cacheSourceIcon(source, candidate) {
+  const key = String(source || '');
+  if (!_extAvailable || !key || !candidate || _sourceIconPending.has(key) || _sourceIconAttempted.has(key)) return;
+  _sourceIconPending.add(key);
+  _sourceIconAttempted.add(key);
+  extRequest({ type: 'EXT_FETCH_ICON', source: key, url: candidate }, 15000)
+    .then((r) => {
+      if (r == null) { _sourceIconAttempted.delete(key); return; }   // unanswered → retry later
+      if (!r.ok || !/^data:image\//i.test(r.dataUrl || '')) return;
+      const rec = { source: key, url: candidate, dataUrl: r.dataUrl, cachedAt: Date.now() };
+      _sourceIconCache.set(key, rec);
+      sourceIconPut(key, rec).catch(() => {});
+      _replaceRenderedSourceIcons(key, r.dataUrl);
+    })
+    .finally(() => { _sourceIconPending.delete(key); });
+}
+
+function _warmSourceIconCache() {
+  for (const source of Object.keys(_siteMap || {})) {
+    const candidate = _siteIconCandidate(source);
+    if (candidate.url && !_cachedSourceIcon(source, candidate)) _cacheSourceIcon(source, candidate.url);
+  }
+}
+
+const _siteFavicon = (source) => {
+  const candidate = _siteIconCandidate(source);
+  const cached = _cachedSourceIcon(source, candidate);
+  if (!cached) _loadSourceIcon(source, candidate);
+  if (candidate.url && !cached) _cacheSourceIcon(source, candidate.url);
+  return cached;
+};
+const _sourceIconsReady = hydrateSourceIcons();
 
 // The visit link for a gallery: the exact URL it was registered with, or the site's link
 // template (runtime data from the extension) filled with its source id.
@@ -97,10 +208,14 @@ async function updateExtStatus() {
       _siteMap = r.sites;
     }
   }
-  if (ok === _extAvailable && !sitesChanged) return;
+  if (ok === _extAvailable && !sitesChanged) {
+    if (ok) _warmSourceIconCache();
+    return;
+  }
   _extAvailable = ok;
   try { localStorage.setItem('shiori-ext-status', JSON.stringify({ available: ok, sites: _siteMap })); } catch {}
   document.body.classList.toggle('extension-offline', !ok);
+  if (ok) _warmSourceIconCache();
   applyFilters();   // re-render so download buttons appear/disappear
 }
 
@@ -252,7 +367,7 @@ function buildCardTags(tags, languages) {
   // language name in the app's language.
   const appBase = _langBase(getLang());
   for (const code of (Array.isArray(languages) ? languages : [])) {
-    if (!_LANG_FLAG[code] || _langBase(code) === appBase) continue;
+    if (!_LANG_FLAG[code] || (_hideAppLangFlag && _langBase(code) === appBase)) continue;
     chips.push(`<span class="card-tag-flag" data-lang-code="${escHtml(code)}" data-lang-name="${escHtml(_LANG_SEARCH[code] || code)}" data-tip="${escHtml(_langDisplayName(code))}"><img class="flag-img" src="flags/${_LANG_FLAG[code]}.svg" alt="${escHtml(code)}" loading="lazy"></span>`);
   }
   chips.push(
@@ -288,6 +403,7 @@ const _TAG_CAT_KEY = {
   'character': 'addtag.cat_character', 'language': 'addtag.cat_language',
 };
 
+const _tagPatchFor = (g, tags) => g?.isSeries ? { seriesTags: tags } : { tags };
 
 function buildCard(g) {
   const card = document.createElement('div');
@@ -295,10 +411,11 @@ function buildCard(g) {
   card.dataset.galleryId = g.id;
 
   const thumbSrc = _coverCache.get(g.id) || null;
+  const hasThumb = g.isSeries ? ((g.aggPages || g.count || 0) > 0 || !!thumbSrc) : (g.count > 0 || !!thumbSrc);
   // draggable="false" on the cover + link so grabbing the thumbnail starts the CARD's merge-drag
   // (below), not a native image/link drag — the native image drag exposes a 'Files' type that was
   // wrongly triggering the file-import overlay.
-  const thumbInner = g.count > 0
+  const thumbInner = hasThumb
     ? `<img class="card-thumb" draggable="false"${thumbSrc ? ` src="${thumbSrc}"` : ''} alt="">`
     : `<div class="card-thumb-placeholder">📁</div>`;
 
@@ -326,12 +443,19 @@ function buildCard(g) {
   const siteName     = _siteName(g.source);
   const openTitle    = visitUrl ? `${siteName}: ${visitUrl}` : t('card.tip_setsource');
   const dlTitle      = g.numPages ? t('card.tip_dl', { n: g.numPages }) : t('card.tip_dl_meta');
+  const idText       = escHtml(g.sourceId || g.id);
+  const idClass      = `card-id${g.isLocalImport ? ' local' : ''}`;
+  const idHtml       = g.sourceUrl
+    ? `<a class="${idClass}" href="${escHtml(g.sourceUrl)}" target="_blank" rel="noopener noreferrer" data-original="${idText}">${idText}</a>`
+    : `<div class="${idClass}" data-original="${idText}">${idText}</div>`;
+
+  const openBtnHtml = `
+      <button class="card-btn card-btn-open" data-id="${g.id}" data-tip="${escHtml(openTitle)}"${visitUrl ? ` data-tip-shift="${t('card.tip_editsource')}"` : ''}><span class="open-inner">${_makeOpenBtnInner(g.source)}</span></button>`;
 
   const actionsHtml = `
     <div class="card-actions">
       <button class="card-btn card-btn-dl" data-id="${g.id}" data-tip="${canDownload ? dlTitle : t('card.tip_replace')}" ${canDownload ? `data-tip-shift="${t('card.tip_replace')}"` : ''}>${canDownload ? _DL_ICON : _UPLOAD_ICON}</button>
       <button class="card-btn card-btn-translate${g.translated ? ' done' : ''}" data-id="${g.id}" data-tip="${g.translated ? t('card.tip_translate_new') : t('card.tip_translate')}"${g.translated ? ` data-tip-shift="${t('card.tip_revert')}"` : ''}>${_TRANSLATE_ICON}</button>
-      <button class="card-btn card-btn-open" data-id="${g.id}" data-tip="${escHtml(openTitle)}"${visitUrl ? ` data-tip-shift="${t('card.tip_editsource')}"` : ''}><span class="open-inner">${_makeOpenBtnInner(g.source)}</span></button>
       <button class="card-btn card-btn-export" data-id="${g.id}" data-tip="${t('card.tip_export')}" data-tip-shift="${t('card.tip_export_meta')}">${_EXPORT_ICON}</button>
       <button class="card-btn card-btn-del" data-id="${g.id}" data-tip="${t('card.tip_delete')}" data-tip-shift="${t('card.tip_quickdelete')}">${_DELETE_ICON}</button>
     </div>`;
@@ -346,7 +470,8 @@ function buildCard(g) {
       </a>
       <div class="card-body">
         <div class="card-id-row">
-          <div class="card-id${g.isLocalImport ? ' local' : ''}" data-original="${g.sourceId || g.id}">#${g.sourceId || g.id}</div>
+          ${openBtnHtml}
+          ${idHtml}
           ${actionsHtml}
         </div>
         ${titleHtml}
@@ -402,7 +527,7 @@ function buildCard(g) {
       if ([...btns].some(x => x.disabled)) return;
       btns.forEach(x => { x.disabled = true; const _i = x.querySelector('.export-inner'); if (_i) _i.textContent = '…'; });
       try {
-        if (e.shiftKey) await exportMetadataZip(g.id);
+        if (e.shiftKey) await exportMetadataBundleZip(g.id);
         else            await exportGalleryZip(g.id);
       } catch (err) {
         alert(t('alert.export_failed', { msg: err.message }));
@@ -434,6 +559,26 @@ function buildCard(g) {
         inp.click();
         return;
       }
+
+      // A series downloads each of its chapters: fetch every chapter that isn't already complete
+      // (n/n pages), skipping the finished ones. If they're ALL complete, offer to re-download the
+      // whole series, overwriting every cached image. Each chapter is its own gallery-scoped job.
+      if (g.isSeries) {
+        const entities = await getGalleriesByIds((g.chapters || []).map(c => c.id));
+        const dlable = entities.filter(x => x && _canDownload(x));
+        if (!dlable.length) return;
+        const isComplete = (x) => x.numPages > 0 && x.count >= x.numPages;
+        let targets = dlable.filter(x => !isComplete(x));
+        let overwrite = false;
+        if (!targets.length) {
+          if (!confirm(t('confirm.redownload_series'))) return;
+          targets = dlable;
+          overwrite = true;
+        }
+        for (const x of targets) await sendMsg({ type: 'CACHE_ALL_PAGES', galleryId: x.id, source: x.source, overwrite });
+        return;
+      }
+
       const btns = card.querySelectorAll('.card-btn-dl');
       if ([...btns].some(x => x.disabled)) return;
 
@@ -565,10 +710,12 @@ function buildCard(g) {
   });
 
   // Drag one card onto another to merge into a series — a custom pointer drag with a floating
-  // clone (below), so the whole card visibly follows the cursor and drops with an animation.
+  // clone (below), so the whole card visibly follows the cursor and drops with an animation. Only
+  // the cover thumbnail starts the drag; pointerdowns on the info/text area below are left alone so
+  // the title, tags and metadata stay selectable for copying.
   card.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;                        // left button only
-    if (e.target.closest('.card-actions, button')) return;  // don't hijack the action buttons
+    if (!e.target.closest('.card-thumb-wrap')) return; // only the cover initiates a merge-drag
     _beginCardDrag(e, card, g.id);
   });
 
@@ -719,8 +866,9 @@ function fetchPageCovers(pageSlice) {
   for (const g of pageSlice) {
     if (_coverCache.has(g.id)) continue;
     // An empty gallery's cover comes from the source site — only possible via the extension.
-    if (g.count > 0 || (g.count === 0 && _canDownload(g))) {
-      sendMsg({ type: 'GET_COVER', galleryId: g.id, source: g.source, thumbWidth: _thumbWidth, page: 'library' });
+    // A series may hold a stored cover even when its owner chapter has no pages of its own.
+    if (g.count > 0 || (g.isSeries && (g.aggPages || 0) > 0) || (g.count === 0 && _canDownload(g))) {
+      sendMsg({ type: 'GET_COVER', galleryId: g.id, source: g.source, thumbWidth: _thumbWidth, page: 'library', preferSeries: !!g.isSeries });
     }
   }
 }
@@ -731,7 +879,7 @@ platform.onControl((msg) => {
   if (msg.type === 'COVER_INVALIDATED') {
     _coverCache.delete(msg.galleryId);
     const gEntry = _pageItems.find(g => g.id === msg.galleryId);
-    if (gEntry) sendMsg({ type: 'GET_COVER', galleryId: msg.galleryId, source: gEntry.source, thumbWidth: _thumbWidth, page: 'library' });
+    if (gEntry) sendMsg({ type: 'GET_COVER', galleryId: msg.galleryId, source: gEntry.source, thumbWidth: _thumbWidth, page: 'library', preferSeries: !!gEntry.isSeries });
     return;
   }
   if (msg.type === 'COVER_READY') {
@@ -1092,8 +1240,7 @@ function _pageNumbers(current, total) {
 
 async function updateHeaderStats() {
   const [stats, topLevel] = await Promise.all([getStats(), galleriesCount()]);
-  // A series counts as one gallery here (galleriesCount excludes chapter children); the image and
-  // storage totals below still include every chapter's pages, since that's real stored data.
+  // A series counts as one gallery here; image/storage totals still include every chapter's pages.
   document.getElementById('hTotalGalleries').textContent = topLevel;
   document.getElementById('hTotalImages').textContent    = stats.totalImages;
   document.getElementById('hTotalSize').textContent      = formatSize(stats.totalSize);
@@ -1110,13 +1257,14 @@ async function loadAll() {
   await hydrateJobs();
 }
 
-// Site favicon on the open-source button. Loaded directly by the <img> tag (no fetch — the
-// favicon service has no CORS headers, so a fetch from a web origin always fails; the browser's
-// HTTP cache makes repeat renders free). Falls back to the chain icon if it doesn't load.
+// Site favicon on the open-source button. Source icons render only from Shiori's durable cache;
+// until one is cached the slot shows the chain icon, swapped for the fetched copy when it lands.
 function _makeOpenBtnInner(source) {
   const CHAIN_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
   if (!source) return CHAIN_SVG;
-  return `<img src="https://www.google.com/s2/favicons?domain=${escHtml(source)}&sz=16" data-fav="${escHtml(source)}" style="width:12px;height:12px;pointer-events:none;" onerror="this.outerHTML='<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'11\\' height=\\'11\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'currentColor\\' stroke-width=\\'2\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\'><path d=\\'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71\\'/><path d=\\'M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71\\'/></svg>'">`;
+  const icon = _siteFavicon(source);
+  if (!icon) return `<span class="source-icon-slot" data-fav="${escHtml(source)}" style="width:12px;height:12px;display:inline-block;pointer-events:none;">${CHAIN_SVG}</span>`;
+  return `<img src="${escHtml(icon)}" data-fav="${escHtml(source)}" alt="" decoding="async" style="width:12px;height:12px;pointer-events:none;">`;
 }
 
 // ── Shift key tracking ──
@@ -1482,15 +1630,66 @@ async function exportMetadataZip(galleryId) {
   _saveBlob(new Blob([zipBytes], { type: 'application/zip' }), `shiori-${gid}-metadata.zip`);
 }
 
+async function exportMetadataBundleZip(galleryId) {
+  const gid = String(galleryId);
+  const db = await openDB();
+  const enc = new TextEncoder();
+  const getMeta = (id) => new Promise((resolve, reject) => {
+    const req = db.transaction('metadata', 'readonly').objectStore('metadata').get(String(id));
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+  const cleanMeta = (raw, { stripSeriesFields = false } = {}) => {
+    const { pageExts, ...base } = migrateTitle(raw || {});
+    if (!stripSeriesFields) return base;
+    const { chapters, parentId, seriesTitle, seriesTags, ...plain } = base;
+    return plain;
+  };
+
+  const meta = await getMeta(gid);
+  const chapters = (Array.isArray(meta?.chapters) && meta.chapters.length > 1) ? meta.chapters : null;
+  if (!chapters) {
+    const zipBytes = _zipCreate([{ name: 'metadata.json', data: enc.encode(JSON.stringify(cleanMeta(meta), null, 2)) }]);
+    _saveBlob(new Blob([zipBytes], { type: 'application/zip' }), `shiori-${gid}-metadata.zip`);
+    return;
+  }
+
+  const files = [];
+  const manifest = {
+    format: 'shiori-series',
+    version: 1,
+    metadataOnly: true,
+    seriesTitle: meta.seriesTitle || '',
+    seriesTags: Array.isArray(meta.seriesTags) ? meta.seriesTags : (meta.tags || []),
+    chapters: [],
+  };
+  for (let i = 0; i < chapters.length; i++) {
+    const cid = String(chapters[i].id);
+    const folder = `chapter-${String(i + 1).padStart(2, '0')}`;
+    manifest.chapters.push({ id: cid, title: chapters[i].title || '', folder });
+    files.push({
+      name: `${folder}/metadata.json`,
+      data: enc.encode(JSON.stringify(cleanMeta(await getMeta(cid), { stripSeriesFields: true }), null, 2)),
+    });
+  }
+  files.push({ name: 'series.json', data: enc.encode(JSON.stringify(manifest, null, 2)) });
+  _saveBlob(new Blob([_zipCreate(files)], { type: 'application/zip' }), `shiori-series-${gid}-metadata.zip`);
+}
+
 // Build the export file list for one gallery, every name under `prefix` (e.g. "chapter-01/" for a
 // series bundle, "" for a standalone gallery). Layout: metadata.json, image_records.json, images/,
 // translated/, study/{bg,text,bubbles.json} — the shape _importShioriEntries restores losslessly.
-async function _collectGalleryFiles(gid, prefix, db) {
-  const meta = await new Promise((resolve, reject) => {
+async function _collectGalleryFiles(gid, prefix, db, opts = {}) {
+  let meta = await new Promise((resolve, reject) => {
     const req = db.transaction('metadata', 'readonly').objectStore('metadata').get(gid);
     req.onsuccess = () => resolve(req.result || null);
     req.onerror = () => reject(req.error);
   });
+  meta = migrateTitle(meta);
+  if (opts.stripSeriesFields) {
+    const { chapters, parentId, seriesTitle, seriesTags, ...plainMeta } = meta || {};
+    meta = plainMeta;
+  }
 
   const imageRecords = await new Promise((resolve, reject) => {
     const req = db.transaction('images', 'readonly').objectStore('images').index('galleryId').getAll(IDBKeyRange.only(gid));
@@ -1507,7 +1706,7 @@ async function _collectGalleryFiles(gid, prefix, db) {
   const enc = new TextEncoder();
   const files = [];
 
-  files.push({ name: `${prefix}metadata.json`, data: enc.encode(JSON.stringify(migrateTitle(meta), null, 2)) });
+  files.push({ name: `${prefix}metadata.json`, data: enc.encode(JSON.stringify(meta, null, 2)) });
 
   files.push({
     name: `${prefix}image_records.json`,
@@ -1535,6 +1734,30 @@ async function _collectGalleryFiles(gid, prefix, db) {
     for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
     return bytes;
   };
+  const imgExt = (src) => (src instanceof Blob ? src.type?.split('/')[1] : (typeof src === 'string' ? src.match(/^data:image\/(\w+)/)?.[1] : null)) || 'png';
+
+  const coverEntries = [];
+  const addCoverFile = async (role, src) => {
+    const bytes = await imageBytes(src);
+    if (!bytes) return;
+    const ext = imgExt(src).toLowerCase().replace(/^jpeg$/, 'jpg');
+    const file = `covers/${role}.${ext}`;
+    files.push({ name: `${prefix}${file}`, data: bytes });
+    coverEntries.push({
+      role,
+      file,
+      mime: src instanceof Blob ? (src.type || '') : (String(src).match(/^data:([^;,]+)/)?.[1] || ''),
+      size: bytes.byteLength,
+    });
+  };
+  await addCoverFile('gallery', await coverGet(gid).catch(() => null));
+  await addCoverFile('series', await coverGet(gid, { seriesOnly: true }).catch(() => null));
+  if (coverEntries.length) {
+    files.push({
+      name: `${prefix}covers/manifest.json`,
+      data: enc.encode(JSON.stringify({ version: 1, covers: coverEntries }, null, 2)),
+    });
+  }
 
   for (const rec of imageRecords) {
     const m = rec.url.match(/\/(\d+)\.(\w+)$/);
@@ -1558,7 +1781,6 @@ async function _collectGalleryFiles(gid, prefix, db) {
   // Study-mode layers: the shared inpaint bg (study/bg) + each bubble's transparent text PNG
   // (study/text), and bubbles.json mapping page → boxes/regions/text-file. Mirrors the DB shape
   // so the import can restore it losslessly.
-  const imgExt = (src) => (src instanceof Blob ? src.type?.split('/')[1] : (typeof src === 'string' ? src.match(/^data:image\/(\w+)/)?.[1] : null)) || 'png';
   const studyIndex = {};
   for (const rec of imageRecords) {
     const m = rec.url.match(/\/(\d+)\.\w+$/);
@@ -1602,12 +1824,18 @@ async function exportGalleryZip(galleryId) {
   }
 
   const enc = new TextEncoder();
-  const manifest = { format: 'shiori-series', version: 1, seriesTitle: meta.seriesTitle || '', chapters: [] };
+  const manifest = {
+    format: 'shiori-series',
+    version: 1,
+    seriesTitle: meta.seriesTitle || '',
+    seriesTags: Array.isArray(meta.seriesTags) ? meta.seriesTags : (meta.tags || []),
+    chapters: [],
+  };
   const files = [];
   for (let i = 0; i < chapters.length; i++) {
     const folder = `chapter-${String(i + 1).padStart(2, '0')}`;
     manifest.chapters.push({ id: String(chapters[i].id), title: chapters[i].title || '', folder });
-    files.push(...await _collectGalleryFiles(String(chapters[i].id), `${folder}/`, db));
+    files.push(...await _collectGalleryFiles(String(chapters[i].id), `${folder}/`, db, { stripSeriesFields: true }));
   }
   files.push({ name: 'series.json', data: enc.encode(JSON.stringify(manifest, null, 2)) });
   _saveBlob(new Blob([_zipCreate(files)], { type: 'application/zip' }), `shiori-series-${gid}.zip`);
@@ -1668,7 +1896,7 @@ document.getElementById('grid').addEventListener('click', (e) => {
       const label = t('addtag.cat_language');
       const name  = flagChip.dataset.tip || flagChip.dataset.langName || code;
       if (!confirm(t('confirm.remove_tag', { label, name }))) return;
-      store.mutate(gid, { tags: g.tags.filter(tg => !toRemove.includes(tg)) });
+      store.mutate(gid, _tagPatchFor(g, g.tags.filter(tg => !toRemove.includes(tg))));
       return;
     }
     if (flagChip.dataset.langName) _addSearchToken(`language:"${flagChip.dataset.langName}"`);
@@ -1699,7 +1927,7 @@ document.getElementById('grid').addEventListener('click', (e) => {
     if (!confirm(t('confirm.remove_tag', { label, name }))) return;
     const g = _pageItems.find(x => x.id === gid);
     if (!g || !Array.isArray(g.tags)) return;
-    store.mutate(gid, { tags: g.tags.filter(t => !(t.type === type && t.name === name)) });
+    store.mutate(gid, _tagPatchFor(g, g.tags.filter(t => !(t.type === type && t.name === name))));
     return;
   }
 
@@ -1751,7 +1979,7 @@ async function confirmAddTag() {
   const g = _pageItems.find(x => x.id === gid);
   const tags = Array.isArray(g?.tags) ? [...g.tags] : [];
   if (!tags.some(t => t.type === type && t.name === name)) tags.push({ type, name, url: '' });
-  await store.mutate(gid, { tags });
+  await store.mutate(gid, _tagPatchFor(g, tags));
   closeAddTagModal();
 }
 document.getElementById('addTagConfirm').addEventListener('click', confirmAddTag);
@@ -1795,7 +2023,10 @@ function applyGibberishToGrid() {
     el.textContent = el.dataset.original.split(/\s+/).map(w => randomGibberish(w)).join(' ');
   });
   document.querySelectorAll('.card-id[data-original]').forEach(el => {
-    el.textContent = '#' + el.dataset.original.replace(/\d/g, () => Math.floor(Math.random() * 10));
+    el.textContent = el.dataset.original.replace(/\d/g, () => Math.floor(Math.random() * 10));
+    // The id can be a link to the real source URL — park the href so hover/status-bar/devtools
+    // don't reveal it while safe mode is on.
+    if (el.hasAttribute('href')) { el.dataset.safeHref = el.getAttribute('href'); el.removeAttribute('href'); }
   });
 }
 
@@ -1807,7 +2038,8 @@ function restoreTagsInGrid() {
     el.textContent = el.dataset.original;
   });
   document.querySelectorAll('.card-id[data-original]').forEach(el => {
-    el.textContent = '#' + el.dataset.original;
+    el.textContent = el.dataset.original;
+    if (el.dataset.safeHref) { el.setAttribute('href', el.dataset.safeHref); delete el.dataset.safeHref; }
   });
 }
 
@@ -2029,9 +2261,25 @@ platform.kv.get(['readerSkipOverview']).then(r => {
   if (next !== _bypassOverview) { _bypassOverview = next; applyFilters(); }
 });
 
+// Read the app-language-flag preference; re-render if it differs from the default so cards show the
+// right set of flags.
+platform.kv.get(['libHideAppLangFlag']).then(r => {
+  const next = r.libHideAppLangFlag !== false;   // default: hide
+  if (next !== _hideAppLangFlag) { _hideAppLangFlag = next; applyFilters(); }
+});
+
+// Read the gallery card quick-actions preference. The buttons stay in the DOM so active job UI
+// keeps working; CSS owns whether the row is visible, hover-only or hidden.
+platform.kv.get(['libQuickActionsMode']).then(r => applyQuickActionsMode(r.libQuickActionsMode));
+window.addEventListener('storage', (e) => {
+  if (e.key !== 'shiori:libQuickActionsMode') return;
+  try { applyQuickActionsMode(JSON.parse(e.newValue || 'null')); }
+  catch { applyQuickActionsMode(_DEFAULT_QUICK_ACTIONS_MODE); }
+});
+
 // Windowed load: one page from the DB (covers come from the sessionStorage cache, so the
 // grid still paints fast).
-loadAll();
+_sourceIconsReady.finally(() => loadAll());
 
 const _FONT_URL = 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap';
 const _FONT_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days

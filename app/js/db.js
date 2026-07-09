@@ -6,11 +6,12 @@ import * as platform from './platform.js';
 import { normalizeTitle, migrateTitle } from './titles.js';
 
 const DB_NAME = 'shiori-cache';
-const DB_VERSION = 11;
+const DB_VERSION = 14;
 export const STORE = 'images';
 const META_STORE = 'metadata';
 const GALLERY_STORE = 'galleries';
 const COVER_STORE = 'covers';
+const SOURCE_ICON_STORE = 'sourceIcons';
 
 // Reactive change feed: every durable gallery change is announced through one tiny beacon
 // (platform.feed); surfaces subscribe and re-read only the changed gallery from IndexedDB.
@@ -33,6 +34,14 @@ export function publishFeed(galleryId) {
 function tagNamesOf(tags) {
   if (!Array.isArray(tags)) return [];
   return tags.map(t => `${t.type}:${t.name}`.toLowerCase());
+}
+export function isSeriesMeta(meta) {
+  return Array.isArray(meta?.chapters) && meta.chapters.length > 1;
+}
+// The tag list a series exposes (its rollup) vs. a plain gallery's own tags — the single
+// definition every surface should consume.
+export function effectiveTagsOf(meta) {
+  return isSeriesMeta(meta) && Array.isArray(meta.seriesTags) ? meta.seriesTags : meta?.tags;
 }
 
 // ── Lifetime write counter ──
@@ -91,6 +100,9 @@ export function openDB() {
       const covers = db.objectStoreNames.contains(COVER_STORE)
         ? tx.objectStore(COVER_STORE)
         : db.createObjectStore(COVER_STORE, { keyPath: 'galleryId' });
+      if (!db.objectStoreNames.contains(SOURCE_ICON_STORE)) {
+        db.createObjectStore(SOURCE_ICON_STORE, { keyPath: 'source' });
+      }
 
       // Backfill when upgrading an existing database (fresh installs start empty).
       if (e.oldVersion > 0) {
@@ -109,7 +121,7 @@ export function openDB() {
           if (!c) return;
           let v = c.value;
           let dirty = false;
-          if (v.tagNames == null && Array.isArray(v.tags)) { v.tagNames = tagNamesOf(v.tags); dirty = true; }
+          if (v.tagNames == null && (Array.isArray(v.tags) || Array.isArray(v.seriesTags))) { v.tagNames = tagNamesOf(effectiveTagsOf(v)); dirty = true; }
           // Legacy flat title fields → the canonical { english, japanese, pretty } object.
           if (v.title == null || typeof v.title !== 'object') { v = migrateTitle(v); dirty = true; }
           if (dirty) c.update(v);
@@ -185,7 +197,7 @@ export async function dbPut(url, src, mediaId, galleryId) {
           if (entry.addedAt == null) entry.addedAt = Number(gid) || entry.latestAt;
           if (pageNum <= (cur.coverPage ?? 9999)) {
             entry.coverPage = pageNum;
-            tx.objectStore(COVER_STORE).put({ galleryId: gid, cover: blob });
+            putCoverPatch(tx.objectStore(COVER_STORE), gid, { cover: blob });
             coverChanged = true;
           }
           tx.objectStore(GALLERY_STORE).put(entry);
@@ -194,7 +206,7 @@ export async function dbPut(url, src, mediaId, galleryId) {
           // date from metadata (0 = unknown → sorts last under "Published date").
           const metaReq = tx.objectStore(META_STORE).get(gid);
           metaReq.onsuccess = () => {
-            if (pageNum < 9999) { tx.objectStore(COVER_STORE).put({ galleryId: gid, cover: blob }); coverChanged = true; }
+            if (pageNum < 9999) { putCoverPatch(tx.objectStore(COVER_STORE), gid, { cover: blob }); coverChanged = true; }
             tx.objectStore(GALLERY_STORE).put({
               galleryId: gid, count: 1, size, latestAt: cachedAt,
               addedAt: Number(gid) || cachedAt, coverPage: pageNum,
@@ -232,16 +244,25 @@ export async function metaPut(meta) {
   // Every write converges on the canonical title format (legacy flat fields stripped), then the
   // tagNames index is kept in sync automatically for every writer.
   let record = migrateTitle(meta);
-  if (Array.isArray(record.tags)) record = { ...record, tagNames: tagNamesOf(record.tags) };
+  if (Array.isArray(record.tags) || Array.isArray(record.seriesTags)) record = { ...record, tagNames: tagNamesOf(effectiveTagsOf(record)) };
   const gid = String(record.galleryId);
+  let prevSourceId = null;
   return new Promise((resolve, reject) => {
     const tx = db.transaction([META_STORE, GALLERY_STORE], 'readwrite');
     // A bare stub (sourceId placeholder, no pages yet) is not a user-visible gallery —
     // don't wake subscribers for it, or a reactive read could purge it mid-creation
     // (see the pageless-stub grace window in getAllGalleries).
-    tx.oncomplete = () => { if (!record.isStub) publishFeed(gid); resolve(); };
+    tx.oncomplete = () => {
+      if (prevSourceId && String(prevSourceId) !== String(record.sourceId || '')) _sourceIdToGalleryId.delete(String(prevSourceId));
+      if (record.sourceId) _sourceIdToGalleryId.set(String(record.sourceId), gid);
+      if (!record.isStub) publishFeed(gid);
+      resolve();
+    };
     tx.onerror = () => reject(tx.error);
-    tx.objectStore(META_STORE).put(record);
+    const mstore = tx.objectStore(META_STORE);
+    const prevReq = mstore.get(gid);
+    prevReq.onsuccess = () => { prevSourceId = prevReq.result?.sourceId || null; };
+    mstore.put(record);
     // Any metadata change counts as a modification: mark the gallery "updated" and keep its
     // denormalized published date (the Published-date sort key) in step. Only touch a REAL gallery
     // that already has a stat record — never create one here, and never for a bare stub.
@@ -324,33 +345,108 @@ async function galleryGetAll() {
 
 // ── Cover store helpers ──
 
-export async function coverGet(galleryId) {
+function putCoverPatch(store, galleryId, patch) {
+  const gid = String(galleryId);
+  const req = store.get(gid);
+  req.onsuccess = () => store.put({ ...(req.result || {}), galleryId: gid, ...patch });
+}
+
+export async function coverGet(galleryId, opts = {}) {
+  const preferSeries = opts === 'series' || !!opts.preferSeries;
+  const seriesOnly = opts === 'seriesOnly' || !!opts.seriesOnly;
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(COVER_STORE, 'readonly');
     const req = tx.objectStore(COVER_STORE).get(String(galleryId));
-    req.onsuccess = () => resolve(req.result ? req.result.cover : null);
+    req.onsuccess = () => {
+      const rec = req.result || null;
+      if (seriesOnly) { resolve(rec?.seriesCover || null); return; }
+      resolve(preferSeries ? (rec?.seriesCover || rec?.cover || null) : (rec?.cover || null));
+    };
     req.onerror = () => reject(req.error);
   });
 }
 
-async function coverPut(galleryId, cover) {
+// `opts.silent` skips the change announcements — for bulk writers (backup restore, stat rebuild)
+// that already publish their own change signals, so one import doesn't storm the feed.
+export async function coverPut(galleryId, cover, opts = {}) {
+  const gid = String(galleryId);
+  const role = opts === 'series' ? 'series' : opts.role;
+  const silent = opts !== 'series' && !!opts.silent;
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(COVER_STORE, 'readwrite');
-    const req = tx.objectStore(COVER_STORE).put({ galleryId: String(galleryId), cover });
-    req.onsuccess = () => resolve();
+    putCoverPatch(tx.objectStore(COVER_STORE), gid, role === 'series' ? { seriesCover: cover } : { cover });
+    tx.oncomplete = () => {
+      if (!silent) {
+        platform.kv.set({ libraryVersion: Date.now() });
+        platform.control.send({ type: 'COVER_INVALIDATED', galleryId: gid });
+        publishFeed(gid);
+      }
+      resolve();
+    };
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function coverDelete(galleryId, opts = {}) {
+  const role = opts === 'series' ? 'series' : opts.role;
+  const db = await openDB();
+  return new Promise((resolve) => {
+    const tx = db.transaction(COVER_STORE, 'readwrite');
+    const store = tx.objectStore(COVER_STORE);
+    const gid = String(galleryId);
+    if (!role) {
+      store.delete(gid);
+    } else {
+      const req = store.get(gid);
+      req.onsuccess = () => {
+        const rec = req.result;
+        if (!rec) return;
+        if (role === 'series') delete rec.seriesCover;
+        else delete rec.cover;
+        if (rec.cover || rec.seriesCover) store.put(rec);
+        else store.delete(gid);
+      };
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+  });
+}
+
+// Source-site favicons are durable app assets, not browser HTTP-cache hints. They stay in the DB
+// even when the user clears gallery/image cache so source labels remain usable offline.
+export async function sourceIconGet(source) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SOURCE_ICON_STORE, 'readonly');
+    const req = tx.objectStore(SOURCE_ICON_STORE).get(String(source || ''));
+    req.onsuccess = () => resolve(req.result || null);
     req.onerror = () => reject(req.error);
   });
 }
 
-async function coverDelete(galleryId) {
+export async function sourceIconsAll() {
   const db = await openDB();
-  return new Promise((resolve) => {
-    const tx = db.transaction(COVER_STORE, 'readwrite');
-    tx.objectStore(COVER_STORE).delete(String(galleryId));
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SOURCE_ICON_STORE, 'readonly');
+    const req = tx.objectStore(SOURCE_ICON_STORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function sourceIconPut(source, patch) {
+  const key = String(source || '');
+  if (!key) return;
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SOURCE_ICON_STORE, 'readwrite');
+    const store = tx.objectStore(SOURCE_ICON_STORE);
+    const req = store.get(key);
+    req.onsuccess = () => store.put({ ...(req.result || {}), source: key, ...patch });
     tx.oncomplete = () => resolve();
-    tx.onerror = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
@@ -369,13 +465,13 @@ export const _LANG_NAME_TO_CODE = {
 // A gallery's display language codes (one flag each). An app-translated copy shows only its
 // target language; otherwise every valid 'language'-type tag (the non-language "translated"
 // marker and unsupported names are ignored), falling back to the source metadata's language.
-function _deriveLangs(m) {
+function _deriveLangs(m, tags = effectiveTagsOf(m)) {
   if (!m) return [];
   if (m.translatedLang) return [m.translatedLang];
   const out = [];
   const add = (code) => { if (code && !out.includes(code)) out.push(code); };
-  if (Array.isArray(m.tags)) {
-    for (const tag of m.tags) {
+  if (Array.isArray(tags)) {
+    for (const tag of tags) {
       if (tag.type !== 'language' || !tag.name) continue;
       const name = tag.name.toLowerCase();
       if (name === 'translated') continue;
@@ -391,6 +487,8 @@ function _deriveLangs(m) {
 function _entityFrom(id, gal, meta) {
   const g = gal || {};
   const m = meta || {};
+  const isSeries = isSeriesMeta(m);
+  const tags = effectiveTagsOf(m);
   return {
     id: String(id),
     count: g.count || 0,
@@ -401,7 +499,9 @@ function _entityFrom(id, gal, meta) {
     coverPage: g.coverPage,
     title: normalizeTitle(m),
     numPages: m.numPages,
-    tags: m.tags,
+    tags,
+    ownTags: m.tags,
+    seriesTags: m.seriesTags,
     mediaId: m.mediaId,
     pageExts: m.pageExts,
     isLocalImport: m.isLocalImport || false,
@@ -411,7 +511,7 @@ function _entityFrom(id, gal, meta) {
     fetchedAt: m.fetchedAt,
     translated: m.translated || false,
     translatedLang: m.translatedLang || '',
-    languages: _deriveLangs(m),
+    languages: _deriveLangs(m, tags),
     // Series/chapter grouping. `chapters` (owner only) is the ordered source of truth for order +
     // titles; `parentId` (children only) is the reverse link. The aggregate fields are denormalized
     // onto the owner's stat record (see refreshSeriesAggregate) so the card never fans out to read
@@ -419,7 +519,7 @@ function _entityFrom(id, gal, meta) {
     chapters: Array.isArray(m.chapters) ? m.chapters : null,
     parentId: m.parentId || g.parentId || null,
     seriesTitle: m.seriesTitle || null,
-    isSeries: Array.isArray(m.chapters) && m.chapters.length > 1,
+    isSeries,
     chapterCount: g.chapterCount ?? (Array.isArray(m.chapters) ? m.chapters.length : 0),
     aggPages: g.aggPages ?? (g.count || 0),
     aggSize: g.aggSize ?? (g.size || 0),
@@ -431,7 +531,7 @@ function _entityFrom(id, gal, meta) {
 export async function rebuildGalleryEntry(galleryId) {
   const gid = String(galleryId);
   const records = await getGalleryImageRecords(gid);
-  if (records.length === 0) { await galleryDelete(gid); await coverDelete(gid); return; }
+  if (records.length === 0) { await galleryDelete(gid); await coverDelete(gid, { role: 'gallery' }); return; }
   const prev = await galleryGet(gid);
   let count = 0, size = 0, latestAt = 0, coverSrc = null, coverPage = 9999;
   for (const r of records) {
@@ -446,7 +546,9 @@ export async function rebuildGalleryEntry(galleryId) {
   // Preserve series membership (parentId) — a stat rebuild must not orphan a chapter.
   const seriesFields = prev?.parentId ? { parentId: prev.parentId } : {};
   await galleryPut({ galleryId: gid, count, size, latestAt, addedAt: prev?.addedAt ?? (Number(gid) || latestAt), coverPage, uploadDate, ...seriesFields });
-  if (coverSrc != null) await coverPut(gid, await imageToBlob(coverSrc));
+  // Silent: this repair path publishes its own feed beacon below, and it runs during library
+  // reads (dedup/count sweeps) where a loud cover write would echo change signals back at readers.
+  if (coverSrc != null) await coverPut(gid, await imageToBlob(coverSrc), { silent: true });
   if (prev?.parentId)      scheduleSeriesAggregate(prev.parentId);
   if (prev?.chapterCount != null) scheduleSeriesAggregate(gid);   // this gallery is a series owner
   publishFeed(gid);
@@ -467,6 +569,26 @@ export async function repairGalleryCounts() {
     if (actual !== e.count) { await rebuildGalleryEntry(e.galleryId); fixed++; }
   }
   return fixed;
+}
+
+// Delete child galleries whose parent still points at `ownerId`, but whose id is no longer in the
+// owner's authoritative chapter list. Used by full series replacements so shorter imports do not
+// leave hidden stale chapters behind.
+export async function pruneSeriesChildren(ownerId, keepIds = []) {
+  const oid = String(ownerId);
+  const keep = new Set((keepIds || []).map(id => String(id && typeof id === 'object' ? id.id : id)));
+  keep.add(oid);
+
+  const stale = (await galleryGetAll())
+    .filter(e => String(e.parentId || '') === oid && !keep.has(String(e.galleryId)))
+    .map(e => String(e.galleryId));
+
+  for (const gid of stale) await deleteGallery(gid);
+  if (stale.length) {
+    await refreshSeriesAggregate(oid);
+    publishFeed(oid);
+  }
+  return stale.length;
 }
 
 // One-time backfill: copy each gallery's published date (metadata.uploadDate) into its stat record,
@@ -550,7 +672,7 @@ export async function deleteGalleryImages(galleryId) {
       if (cursor) { cursor.delete(); cursor.continue(); } else { tx.objectStore(GALLERY_STORE).delete(gid); }
     };
   });
-  await coverDelete(gid);
+  await coverDelete(gid, { role: 'gallery' });
 }
 
 export async function getAvgImageSize() {
@@ -575,14 +697,40 @@ export const metaFetchPending     = new Set();
 const _dedupedGalleries           = new Set();
 export const _sourceIdToGalleryId = new Map();
 
+function forgetSourceMapping(sourceId, galleryId) {
+  const sid = sourceId != null ? String(sourceId) : '';
+  if (sid) _sourceIdToGalleryId.delete(sid);
+  if (galleryId != null) {
+    const gid = String(galleryId);
+    for (const [k, v] of _sourceIdToGalleryId) {
+      if (String(v) === gid) _sourceIdToGalleryId.delete(k);
+    }
+  }
+}
+
+platform.control.on((msg) => {
+  if (msg?.type === 'GALLERY_DELETED') forgetSourceMapping(msg.sourceId, msg.galleryId);
+});
+
+async function cachedGalleryIdForSource(sid) {
+  if (!_sourceIdToGalleryId.has(sid)) return null;
+  const gid = String(_sourceIdToGalleryId.get(sid));
+  const meta = await metaGet(gid).catch(() => null);
+  if (meta && String(meta.sourceId || '') === sid) return gid;
+  forgetSourceMapping(sid, gid);
+  return null;
+}
+
 // ── Gallery ID resolution ──
 // Site source ids (short numbers) map to internal gallery ids (timestamps). A first sighting
 // creates a stub metadata record so concurrent captures agree on the same internal id.
 
 export async function resolveGalleryId(id) {
-  const sid = String(id);
-  if (sid.length >= 13) return sid;
-  if (_sourceIdToGalleryId.has(sid)) return _sourceIdToGalleryId.get(sid);
+  const raw = String(id);
+  if (/^\d{13,}$/.test(raw)) return raw;
+  const sid = raw;
+  const cached = await cachedGalleryIdForSource(sid);
+  if (cached) return cached;
   const db = await openDB();
   const existing = await new Promise((resolve, reject) => {
     const tx = db.transaction(META_STORE, 'readonly');
@@ -728,7 +876,7 @@ export async function galleriesPage({ sort = 'updated', dir, offset = 0, limit =
   const db = await openDB();
   const stats = await new Promise((resolve, reject) => {
     const out = [];
-    let skipped = 0;   // count only VISIBLE (non-child) rows toward the offset
+    let skipped = 0;
     const tx = db.transaction(GALLERY_STORE, 'readonly');
     const store = tx.objectStore(GALLERY_STORE);
     // 'id' cursors the primary key (galleryId) itself; everything else uses its sort index.
@@ -737,8 +885,8 @@ export async function galleriesPage({ sort = 'updated', dir, offset = 0, limit =
     req.onsuccess = (e) => {
       const cur = e.target.result;
       if (!cur) { resolve(out); return; }
-      // Child chapters never appear as a top-level row — they show only inside their series.
-      // (Can't use cur.advance for the offset: it would count skipped children.)
+      // Child chapters never appear as a top-level row; they show only inside their series.
+      // We skip manually instead of using cur.advance because offset counts visible rows only.
       if (cur.value.parentId) { cur.continue(); return; }
       if (skipped < offset) { skipped++; cur.continue(); return; }
       out.push(cur.value);
@@ -751,8 +899,8 @@ export async function galleriesPage({ sort = 'updated', dir, offset = 0, limit =
   return stats.map((s, i) => _entityFrom(s.galleryId, s, metas[i]));
 }
 
-// Number of child chapters (stat records carrying a parentId). The index skips records without the
-// key, so a plain count IS the child count — subtracted from the total for the top-level tally.
+// Number of child chapters (stat records carrying a parentId). The main library subtracts this so
+// a series counts as one top-level gallery.
 export async function childGalleryCount() {
   const db = await openDB();
   return new Promise((resolve) => {
@@ -822,9 +970,10 @@ export async function getGalleriesByIds(ids) {
 const _META_FIELDS = new Set([
   'title', 'titlePretty', 'titleEnglish', 'numPages', 'tags', 'mediaId', 'pageExts',
   'isLocalImport', 'source', 'sourceId', 'sourceUrl', 'fetchedAt', 'translated', 'translatedLang', 'isStub', 'sourceMetadata',
-  // Series/chapter grouping: `chapters` + `seriesTitle` live on the owner's metadata; `parentId`
-  // lives on a child's metadata AND is mirrored onto its stat record (see mutateGallery).
-  'chapters', 'seriesTitle', 'parentId',
+  // Series/chapter grouping: `chapters`, `seriesTitle`, and `seriesTags` live on the owner's
+  // metadata; `parentId` lives on a child's metadata AND is mirrored onto its stat record
+  // (see mutateGallery).
+  'chapters', 'seriesTitle', 'seriesTags', 'parentId',
 ]);
 
 // Merge a patch into a gallery's metadata and/or stat record, then announce the change
@@ -896,10 +1045,12 @@ export async function removeGallery(galleryId) {
 export async function deleteGallery(galleryId) {
   const gid = String(galleryId);
   const meta = await metaGet(gid).catch(() => null);
-  if (meta?.sourceId) _sourceIdToGalleryId.delete(String(meta.sourceId));
+  forgetSourceMapping(meta?.sourceId, gid);
   await deleteGalleryImages(gid);
   await metaDelete(gid);
+  await coverDelete(gid);
   if (meta?.parentId) scheduleSeriesAggregate(meta.parentId);   // a chapter left its series
+  platform.control.send({ type: 'GALLERY_DELETED', galleryId: gid, sourceId: meta?.sourceId || null });
   publishFeed(gid);
 }
 

@@ -1,5 +1,35 @@
 # Changelog
 
+## v1.0.4 — 2026-07-09
+
+### Added
+
+- Series can now carry their own cover, shown on the library card and the series page. Covers are included in gallery/series exports and backups, and restored on import.
+- Gallery cards show each source site's own icon next to the gallery id. Icons are stored inside Shiori, so they keep working offline; the id itself now links straight to the gallery's source page.
+- New "Gallery cards" settings: choose when the card quick-action buttons appear (on hover, always, or hidden), and whether to hide the language flag that matches the app's own language.
+- Series pages gained per-chapter download and replace buttons (Shift+click a chapter's download to replace it from a CBZ, Shift+click remove for a quick delete), and the page updates just the affected chapter row while downloads run instead of repainting everything.
+- The download button on a series card fetches every chapter that's missing pages; if the whole series is already downloaded it offers a full re-download.
+- A standalone gallery's title can now be edited from its overview page, just like a series title.
+- Shift+click a series' export button to save a metadata-only bundle of all its chapters.
+- Reader: new fit-to-page controls — Shift+E fits the page width, Shift+Q fits the page height, and the fit persists as you turn pages. + / − fine-tune the fitted size, and Ctrl+0 resets it.
+- Reader: press N to toggle the pinned header, hold the left mouse button and scroll the wheel to flip pages, and Escape now also opens the keyboard-shortcuts help when nothing needs dismissing.
+- Series read in single/double page mode now show the chapter navigation pill above the first page and below the last page, matching the scroll strip.
+
+### Changed
+
+- A series' tags are now kept separately from each chapter's own tags: merging galleries into a series builds the series' tag list without touching the chapters, and adding or removing a tag on a series card edits the series list only.
+- Importing a series export now removes chapters that are no longer part of the imported series, so a shorter re-import doesn't leave hidden leftovers behind.
+- Backups now include the source-site icons and series covers (older backups still import fine).
+
+### Fixed
+
+- Series whose first chapter has no downloaded pages now show their cover on the library card instead of an empty box.
+- The source-site icon button shows a link icon until the site's own icon is available, instead of an empty square.
+- Safe mode no longer leaves the real source address reachable through a card's id link while it's active.
+- Series covers that couldn't be fetched while offline are retried later instead of staying stuck on the chapter cover until a reload.
+- Restoring a large backup no longer floods open pages with per-cover refreshes mid-import.
+- The reader's page slider no longer swallows keyboard shortcuts after you've used it, and its handle now shows the accent color in Firefox.
+
 ## v1.0.3 — 2026-07-03
 
 ### Added

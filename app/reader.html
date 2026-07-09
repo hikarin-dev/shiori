@@ -86,7 +86,8 @@
      page or the thumbnail strip (the page/scroll-sync math only measures .page-wrap rows, so it is
      unaffected). In single/double page modes this fixed top pill is used instead (the bottom is the
      scrubber there). Prev/next jump chapters (full reload); the label opens the overview. -->
-<div id="chapterBarTop" style="display:none"></div>
+<div id="chapterBarTop" class="chapter-bar" style="display:none"></div>
+<div id="chapterBarBottom" class="chapter-bar" style="display:none"></div>
 
 <!-- Viewport -->
 <div id="viewport">
@@ -152,11 +153,14 @@
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.double">Double page</span><div class="kb-keys"><kbd class="kb-key">2</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.strip">Scroll strip</span><div class="kb-keys"><kbd class="kb-key">3</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.zoom">Zoom in / out</span><div class="kb-keys"><kbd class="kb-key">+</kbd><kbd class="kb-key">−</kbd><kbd class="kb-key">E</kbd><kbd class="kb-key">Q</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc" data-i18n="kb.fit_width">Fit width</span><div class="kb-keys"><kbd class="kb-key">Shift+E</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc" data-i18n="kb.fit_height">Fit height</span><div class="kb-keys"><kbd class="kb-key">Shift+Q</kbd></div></div>
 
     <div class="kb-section" data-i18n="kb.interface">Interface</div>
     <div class="kb-row"><span class="kb-desc" data-i18n="rd.tip_translate">Show translation</span><div class="kb-keys"><kbd class="kb-key">T</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="rd.tip_study">Study mode</span><div class="kb-keys"><kbd class="kb-key">B</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.toggle_thumbs">Toggle thumbnails</span><div class="kb-keys"><kbd class="kb-key">G</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc" data-i18n="kb.toggle_pin">Toggle pinned header</span><div class="kb-keys"><kbd class="kb-key">N</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.swipe_thumbs">Swipe thumbnails</span><div class="kb-keys"><kbd class="kb-key" data-i18n="kb.drag">Drag</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.scrub">Scrub to page</span><div class="kb-keys"><kbd class="kb-key" data-i18n="kb.shift_drag">Shift+Drag</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.help">This help</span><div class="kb-keys"><kbd class="kb-key">?</kbd><kbd class="kb-key">Esc</kbd></div></div>

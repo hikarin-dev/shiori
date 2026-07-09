@@ -11,14 +11,28 @@ import { pingServer, revertGallery, serverUrlFromSettings } from './translate.js
 import { request as extRequest } from './ext-bridge.js';
 import { submitJob, cancelJob } from './submit-job.js';
 
+const _seriesCoverRequested = new Set();
+
 // GET_COVER is request→push: compute the thumbnail, deliver via COVER_READY. A gallery with no
 // pages yet but a known source is offered to the extension (which knows whether that source can
 // supply a cover); when it stores one, the change feed re-triggers this request.
 async function getCover(msg) {
-  const src = await coverGet(msg.galleryId);
+  const preferSeries = !!msg.preferSeries;
+  const seriesCoverKey = `${msg.source || ''}:${msg.galleryId}`;
+  const [src, seriesCover] = await Promise.all([
+    coverGet(msg.galleryId, { preferSeries }),
+    preferSeries ? coverGet(msg.galleryId, { seriesOnly: true }) : Promise.resolve(null),
+  ]);
   if (!src) {
-    if (msg.source) extRequest({ type: 'EXT_FETCH_COVER', galleryId: msg.galleryId, source: msg.source });
+    if (msg.source) extRequest({ type: 'EXT_FETCH_COVER', galleryId: msg.galleryId, source: msg.source, preferSeries });
     return;
+  }
+  if (preferSeries && !seriesCover && msg.source && !_seriesCoverRequested.has(seriesCoverKey)) {
+    _seriesCoverRequested.add(seriesCoverKey);
+    // One request per series per session — but an unanswered bridge (extension offline) shouldn't
+    // burn the one shot, or the series stays stuck on its gallery cover until a full reload.
+    extRequest({ type: 'EXT_FETCH_COVER', galleryId: msg.galleryId, source: msg.source, preferSeries })
+      .then((r) => { if (r == null) _seriesCoverRequested.delete(seriesCoverKey); });
   }
   const coverDataUrl = await resizeCover(src, msg.thumbWidth);
   platform.emitControl({ type: 'COVER_READY', galleryId: msg.galleryId, coverDataUrl, page: msg.page });

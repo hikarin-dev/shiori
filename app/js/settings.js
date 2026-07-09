@@ -256,6 +256,30 @@ document.getElementById('cfgClearingPreset').addEventListener('change', (e) => a
   el.addEventListener('change', sync);
 });
 
+// ── Library — gallery card preferences, saved on change ───────────────
+
+const QUICK_ACTION_MODES = new Set(['hover', 'always', 'hidden']);
+const DEFAULT_QUICK_ACTIONS_MODE = 'hover';
+const normalizeQuickActionsMode = (mode) => QUICK_ACTION_MODES.has(mode) ? mode : DEFAULT_QUICK_ACTIONS_MODE;
+
+platform.kv.get(['libQuickActionsMode']).then((r) => {
+  const el = document.getElementById('libQuickActionsMode');
+  if (el) el.value = normalizeQuickActionsMode(r.libQuickActionsMode);
+});
+document.getElementById('libQuickActionsMode').addEventListener('change', (e) => {
+  platform.kv.set({ libQuickActionsMode: normalizeQuickActionsMode(e.target.value) });
+  showStatus('libStatus', 'Saved.', 'ok');
+});
+
+platform.kv.get(['libHideAppLangFlag']).then((r) => {
+  const el = document.getElementById('libAppLangFlag');
+  if (el) el.value = (r.libHideAppLangFlag !== false) ? 'hide' : 'show';   // default: hide
+});
+document.getElementById('libAppLangFlag').addEventListener('change', (e) => {
+  platform.kv.set({ libHideAppLangFlag: e.target.value === 'hide' });
+  showStatus('libStatus', 'Saved.', 'ok');
+});
+
 // ── Reader — study display, saved on change ───────────────────────────────
 
 platform.kv.get(['readerStudyDisplay']).then((r) => {

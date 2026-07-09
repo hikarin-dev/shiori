@@ -4,23 +4,39 @@
   --topbar-h: 54px; --botbar-h: 32px;
   --page-zoom: 1;   /* +/- keys scale the in-view pages around this factor */
   --sbw: 0px;       /* OS scrollbar width, measured once by reader.js */
+  --reader-fit-max-width: 100%;
+  --botbar-visual-h: calc(var(--botbar-h) * var(--zoom-inv, 1));
+  --reader-fit-page-height: calc(100vh - var(--topbar-h) - var(--botbar-visual-h));
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; }
 body { min-height: 100vh; }
 
 /* ── Chapter nav (series only) ── */
-.chapter-bar { display: flex; align-items: center; justify-content: center; gap: 4px; }
+.chapter-bar {
+  position: relative; z-index: 60;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+}
 
 /* Fixed top pill — single/double page modes only (the bottom is the scrubber there). */
 #chapterBarTop {
-  position: fixed; left: 50%; transform: translateX(-50%);
-  top: calc(var(--topbar-h) + 8px); z-index: 140; transition: top 0.2s;
-  background: rgba(22, 22, 26, 0.92); border: 1px solid var(--border);
-  border-radius: 999px; padding: 3px 5px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); backdrop-filter: blur(6px);
+  width: fit-content; margin: 14px auto; padding: 5px 6px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
 }
-body.reader-unpinned #chapterBarTop { top: 8px; }   /* follow the hidden top bar up */
+
+/* Fixed bottom pill — shows under the last page in single/double page modes, sitting just above
+   the scrubber bar (mirrors the top pill on the first page). */
+#chapterBarBottom {
+  width: fit-content; margin: 14px auto; padding: 5px 6px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+}
+
+#singleView.chapter-top-visible,
+#doubleView.chapter-top-visible,
+#singleView.chapter-bottom-visible,
+#doubleView.chapter-bottom-visible {
+  padding-bottom: var(--botbar-visual-h);
+}
 
 /* Inline bars in the scroll strip — above the first page and below the last page, in the flow. */
 .chapter-bar.inline {
@@ -159,7 +175,6 @@ body.reader-unpinned #chapterBarTop { top: 8px; }   /* follow the hidden top bar
 
 #singleInner {
   display: flex; justify-content: center;
-  padding-bottom: var(--botbar-h);
 }
 
 #singleZones {
@@ -173,8 +188,21 @@ body.reader-unpinned #chapterBarTop { top: 8px; }   /* follow the hidden top bar
 
 #mainImg {
   display: block; width: calc(min(1280px, 100vw) * var(--page-zoom)); max-width: none;
-  height: auto; user-select: none;
+  height: auto; user-select: none; flex-shrink: 0;
 }
+/* #mainImg, .dImg, .page-img { outline: 1px solid var(--accent); outline-offset: -1px; } */
+
+body.reader-fit-width #singleInner > #mainImg,
+body.reader-fit-width #singleInner > .page-wrap {
+  width: min(calc(100% - 0.5px), var(--reader-fit-max-width));
+}
+body.reader-fit-width #singleInner > .page-wrap > #mainImg { width: 100%; }
+
+body.reader-fit-height #singleInner > #mainImg,
+body.reader-fit-height #singleInner > .page-wrap {
+  width: min(calc(100% - 0.5px), var(--reader-fit-max-width), calc(var(--reader-fit-page-height) * var(--page-ratio, 0.681)));
+}
+body.reader-fit-height #singleInner > .page-wrap > #mainImg { width: 100%; }
 
 /* ── DOUBLE mode ── */
 #doubleView { display: none; }
@@ -182,8 +210,11 @@ body.reader-unpinned #chapterBarTop { top: 8px; }   /* follow the hidden top bar
 
 #doubleInner {
   display: flex; justify-content: center; gap: 2px;
-  padding-bottom: var(--botbar-h);
+  --reader-fit-double-page-width: calc((100% - 2px - 0.5px) / 2);
 }
+#doubleInner.single-spread { --reader-fit-double-page-width: calc(100% - 0.5px); }
+#doubleInner.single-spread > #imgRight,
+#doubleInner.single-spread > .page-wrap:has(#imgRight) { display: none; }
 
 #doubleView .d-zones {
   position: fixed; inset: 0;
@@ -194,13 +225,25 @@ body.reader-unpinned #chapterBarTop { top: 8px; }   /* follow the hidden top bar
   cursor: pointer; pointer-events: all;
 }
 
-.dImg { display: block; max-width: none; height: auto; user-select: none; }
+.dImg { display: block; max-width: none; height: auto; user-select: none; flex-shrink: 0; }
 /* Each page is half the row. The 50% is resolved against #doubleInner (a definite width); when
    study mode wraps the image in .page-wrap, the WRAP takes the 50% and the image fills it — so
    the percentage never becomes circular against an auto-width wrapper (which blanked the pages). */
 #doubleInner > .dImg,
-#doubleInner > .page-wrap { width: calc(min(50%, 900px) * var(--page-zoom)); }
+#doubleInner > .page-wrap { width: calc(min(50%, 900px) * var(--page-zoom)); flex-shrink: 0; }
 #doubleInner > .page-wrap > .dImg { width: 100%; }
+
+body.reader-fit-width #doubleInner > .dImg,
+body.reader-fit-width #doubleInner > .page-wrap {
+  width: min(var(--reader-fit-double-page-width), var(--reader-fit-max-width));
+}
+body.reader-fit-width #doubleInner > .page-wrap > .dImg { width: 100%; }
+
+body.reader-fit-height #doubleInner > .dImg,
+body.reader-fit-height #doubleInner > .page-wrap {
+  width: min(var(--reader-fit-double-page-width), var(--reader-fit-max-width), calc(var(--reader-fit-page-height) * var(--page-ratio, 0.681)));
+}
+body.reader-fit-height #doubleInner > .page-wrap > .dImg { width: 100%; }
 
 /* ── STRIP mode ── */
 #stripView {
@@ -395,6 +438,12 @@ body.thumb-dragging * {
   -webkit-appearance: none; width: 10px; height: 10px;
   border-radius: 50%; background: var(--accent); cursor: pointer;
 }
+/* Firefox styles the thumb through its own pseudo-element and gives it a default border — without
+   this the accent dot renders as a plain grey/white circle. */
+#scrubber::-moz-range-thumb {
+  width: 10px; height: 10px; border: none;
+  border-radius: 50%; background: var(--accent); cursor: pointer;
+}
 #scrubberLabel { font-size: 10px; color: var(--muted); white-space: nowrap; }
 
 .bar-icon-btn {
@@ -450,6 +499,11 @@ html:has(#keybindModal.show), body:has(#keybindModal.show) { overflow: hidden; }
    base top:0, so the bar is always shown. */
 body.reader-unpinned #topbar          { top: calc(-1 * var(--topbar-h)); }
 body.reader-unpinned #topbar.revealed { top: 0; }
+body.reader-unpinned { --reader-fit-page-height: calc(100vh - var(--botbar-visual-h)); }
+body.reader-unpinned #singleView.active,
+body.reader-unpinned #doubleView.active { min-height: 100vh; }
+body.reader-unpinned #singleView.active.chapter-top-visible,
+body.reader-unpinned #doubleView.active.chapter-top-visible { min-height: calc(100vh - 14px); }
 /* ── All modes use document scroll ── */
 html.reader-scroll, body.reader-scroll { height: auto; }
 

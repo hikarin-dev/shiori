@@ -42,6 +42,8 @@ let translateView = false; // show stored translated variants when true
 let lastPageMode  = 'single';
 let _stripObservers = [];
 let _pageZoom     = 1;     // +/- page scale factor
+let readerFitMode = 'off'; // 'off' | 'width' | 'height' for persistent page-mode fit classes
+let readerFitMaxWidth = 1; // persistent fit cap, 0.1..1, adjusted by zoom keys while fit is active
 // Each page's true aspect ratio, learned as images decode and reused across strip rebuilds so
 // rows reserve the correct height up front. _typicalRatio seeds rows for pages not yet seen
 // (galleries are usually uniform) — what keeps the first switch into strip from reflowing/jittering.
@@ -223,7 +225,9 @@ const topbar        = document.getElementById('topbar');
 const bottombar     = document.getElementById('bottombar');
 const viewport      = document.getElementById('viewport');
 const singleView    = document.getElementById('singleView');
+const singleInner   = document.getElementById('singleInner');
 const doubleView    = document.getElementById('doubleView');
+const doubleInner   = document.getElementById('doubleInner');
 const stripView     = document.getElementById('stripView');
 const thumbStrip    = document.getElementById('thumbStrip');
 const mainImg       = document.getElementById('mainImg');
@@ -231,7 +235,14 @@ const imgLeft       = document.getElementById('imgLeft');
 const imgRight      = document.getElementById('imgRight');
 // Learn the gallery's page ratio from single/double loads too, so a later switch to strip already
 // has a correct placeholder height for every row.
-const _seedRatio = (img) => { if (img.naturalWidth > 1 && img.naturalHeight > 1) _typicalRatio = `${img.naturalWidth} / ${img.naturalHeight}`; };
+function _setPageRatioVars(img) {
+  if (!img || img.naturalWidth <= 1 || img.naturalHeight <= 1) return;
+  const ratio = img.naturalWidth / img.naturalHeight;
+  img.style.setProperty('--page-ratio', ratio);
+  if (img.parentElement?.classList.contains('page-wrap')) img.parentElement.style.setProperty('--page-ratio', ratio);
+  _typicalRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+}
+const _seedRatio = (img) => _setPageRatioVars(img);
 [mainImg, imgLeft, imgRight].forEach(img => img.addEventListener('load', () => _seedRatio(img)));
 const scrubber      = document.getElementById('scrubber');
 const scrubWrap     = document.getElementById('scrubWrap');
@@ -341,10 +352,12 @@ async function init() {
   scrubber.value = 1;
 
   buildThumbs();
-  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerView', 'readerStudyDisplay']);
+  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerFitMode', 'readerFitMaxWidth', 'readerView', 'readerStudyDisplay']);
   if (saved.readerStudyDisplay === 'text') studyDisplay = 'text';
   applyThumbHeight(saved.readerThumbHeight || _thumbHeight);
   if (saved.readerPageZoom) { _pageZoom = saved.readerPageZoom; document.documentElement.style.setProperty('--page-zoom', _pageZoom); }
+  _applyReaderFitMaxWidth(saved.readerFitMaxWidth || FIT_WIDTH_MAX, false);
+  _applyReaderFitMode(saved.readerFitMode || 'off', false);
   if (saved.readerLastPageMode) lastPageMode = saved.readerLastPageMode;
 
   // Resolve the initial view, defaulting to the full translation when available. Set the flags
@@ -421,14 +434,35 @@ function _addStripChapterBars() {
   _wireChapterBar(bot);
   stripView.appendChild(bot);
 }
-// The fixed top pill is used only in single/double page modes; strip uses the inline bars above.
+// Fixed pills for single/double page modes (strip uses the inline bars above). The top pill rides
+// above the FIRST page (1/N) and the bottom pill below the LAST page (N/N) — mirroring the strip's
+// inline bars — so a chapter transition only shows at the chapter's own edges, not on every page.
 function renderChapterBars() {
-  const pill = document.getElementById('chapterBarTop');
-  if (!pill) return;
-  if (!_series || mode === 'strip') { pill.style.display = 'none'; return; }
-  pill.innerHTML = _chapterBarInner();
-  pill.style.display = 'flex';
-  _wireChapterBar(pill);
+  const top = document.getElementById('chapterBarTop');
+  const bot = document.getElementById('chapterBarBottom');
+  if (!top || !bot) return;
+  const pageMode  = !!_series && mode !== 'strip';
+  const onFirst   = currentPage === 1;
+  // Double mode shows two pages; the last page is on screen once the spread's right page reaches it.
+  const onLast    = mode === 'double' ? currentPage + 1 >= pages.length : currentPage >= pages.length;
+  const singleTop = pageMode && mode === 'single' && onFirst;
+  const doubleTop = pageMode && mode === 'double' && onFirst;
+  singleView.classList.toggle('chapter-top-visible', singleTop);
+  doubleView.classList.toggle('chapter-top-visible', doubleTop);
+  singleView.classList.toggle('chapter-bottom-visible', pageMode && mode === 'single' && onLast);
+  doubleView.classList.toggle('chapter-bottom-visible', pageMode && mode === 'double' && onLast);
+  if (pageMode) {
+    const view = mode === 'double' ? doubleView : singleView;
+    const inner = mode === 'double' ? doubleInner : singleInner;
+    if (top.parentElement !== view || top.nextSibling !== inner) view.insertBefore(top, inner);
+    if (bot.parentElement !== view || bot.previousSibling !== inner) view.insertBefore(bot, inner.nextSibling);
+  }
+  const setBar = (el, show) => {
+    if (pageMode && show) { el.innerHTML = _chapterBarInner(); el.style.display = 'flex'; _wireChapterBar(el); }
+    else el.style.display = 'none';
+  };
+  setBar(top, onFirst);
+  setBar(bot, onLast);
 }
 
 function showEmpty() {
@@ -437,38 +471,117 @@ function showEmpty() {
 }
 
 // ── Navigation ──
+let _pageNavToken = 0;
+let _pageNavReady = { token: 0, promise: Promise.resolve(), resolve: () => {} };
+
+function _beginPageNav() {
+  _pageNavReady.resolve(); // release waiters for any superseded navigation
+  const token = ++_pageNavToken;
+  let resolve;
+  const promise = new Promise(r => { resolve = r; });
+  _pageNavReady = { token, promise, resolve };
+  return _pageNavReady;
+}
+
+function _finishPageNav(nav) {
+  nav.resolve();
+}
+
+const _nextLayoutFrame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+function _waitForImgDecode(img) {
+  if (!img || !img.src || (img.complete && img.naturalWidth > 0)) return Promise.resolve();
+  if (img.decode) return img.decode().catch(() => {});
+  return new Promise(resolve => {
+    const done = () => {
+      img.removeEventListener('load', done);
+      img.removeEventListener('error', done);
+      resolve();
+    };
+    img.addEventListener('load', done, { once: true });
+    img.addEventListener('error', done, { once: true });
+  });
+}
+
+async function _waitForImgLayout(imgs) {
+  await Promise.all(imgs.map(_waitForImgDecode));
+  await _nextLayoutFrame();
+}
+
+async function _awaitCurrentPageNav() {
+  while (mode !== 'strip') {
+    const nav = _pageNavReady;
+    await nav.promise;
+    if (nav.token === _pageNavReady.token) return;
+  }
+}
+
+function _scrollPageModeToStart() {
+  if (!readerPinned) topbar.classList.remove('revealed');
+  const navH = topbar?.offsetHeight || parseInt(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h'), 10) || 54;
+  const inner = mode === 'double' ? doubleInner : mode === 'single' ? singleInner : null;
+  if (!inner) { window.scrollTo(0, readerPinned ? 0 : navH); return; }
+  const innerTop = inner.getBoundingClientRect().top + window.scrollY;
+  window.scrollTo(0, Math.max(0, Math.round(innerTop - (readerPinned ? navH : 0))));
+}
+
+function _scrollPageModeToStartSoon(nav) {
+  requestAnimationFrame(() => {
+    if (nav.token === _pageNavReady.token && mode !== 'strip') _scrollPageModeToStart();
+  });
+}
+
+function _scrollPageModeWhenImgsLoad(imgs, nav) {
+  imgs.forEach(img => img.addEventListener('load', () => _scrollPageModeToStartSoon(nav), { once: true }));
+}
+
 async function goTo(n) {
   if (!pages.length) return;
+  const nav = _beginPageNav();
   n = Math.max(1, Math.min(pages.length, n));
   currentPage = n;
 
-  // Update navigation UI immediately; image loads asynchronously below
-  scrubber.value = n;
-  updateCounter();
-  highlightThumb(n - 1);
-  scrollThumbIntoView(n - 1);
+  try {
+    // Update navigation UI immediately; image loads asynchronously below
+    scrubber.value = n;
+    updateCounter();
+    highlightThumb(n - 1);
+    scrollThumbIntoView(n - 1);
+    renderChapterBars();   // top/bottom chapter pills track the first/last page in single/double
+    if (mode !== 'strip') _scrollPageModeToStart();
 
-  if (mode === 'single') {
-    window.scrollTo(0, 0);
-    const url = await pageBlobUrl(pages[n - 1]);
-    if (currentPage !== n) return;
-    mainImg.src = url;
-    _warmNeighbors(n);
-    if (studyMode) _refreshBubbleLayers();
-  } else if (mode === 'double') {
-    window.scrollTo(0, 0);
-    const lPage = pages[n - 1];
-    const rPage = n < pages.length ? pages[n] : null;
-    imgRight.style.display = rPage ? 'block' : 'none';
-    const [lUrl, rUrl] = await Promise.all([
-      pageBlobUrl(lPage),
-      rPage ? pageBlobUrl(rPage) : Promise.resolve('')
-    ]);
-    if (currentPage !== n) return;
-    imgLeft.src  = lUrl;
-    imgRight.src = rUrl;
-    _warmNeighbors(n);
-    if (studyMode) _refreshBubbleLayers();
+    if (mode === 'single') {
+      const url = await pageBlobUrl(pages[n - 1]);
+      if (currentPage !== n || mode !== 'single') return;
+      _scrollPageModeWhenImgsLoad([mainImg], nav);
+      mainImg.src = url;
+      _warmNeighbors(n);
+      await _waitForImgLayout([mainImg]);
+      if (currentPage !== n || mode !== 'single') return;
+      _scrollPageModeToStart();
+      if (studyMode) _refreshBubbleLayers();
+    } else if (mode === 'double') {
+      const lPage = pages[n - 1];
+      const rPage = n < pages.length ? pages[n] : null;
+      doubleInner.classList.toggle('single-spread', !rPage);
+      imgRight.style.display = rPage ? 'block' : 'none';
+      const [lUrl, rUrl] = await Promise.all([
+        pageBlobUrl(lPage),
+        rPage ? pageBlobUrl(rPage) : Promise.resolve('')
+      ]);
+      if (currentPage !== n || mode !== 'double') return;
+      const visibleImgs = rPage ? [imgLeft, imgRight] : [imgLeft];
+      _scrollPageModeWhenImgsLoad(visibleImgs, nav);
+      imgLeft.src  = lUrl;
+      imgRight.src = rUrl;
+      _warmNeighbors(n);
+      await _waitForImgLayout(visibleImgs);
+      if (currentPage !== n || mode !== 'double') return;
+      _scrollPageModeToStart();
+      if (studyMode) _refreshBubbleLayers();
+    }
+  } finally {
+    _finishPageNav(nav);
   }
   // strip: images loaded in buildStrip(); scroll handled separately
 }
@@ -879,9 +992,9 @@ function _startThumbInteraction(initialEvent) {
       document.body.classList.remove('thumb-dragging');
       thumbStrip.classList.remove('dragging', 'scrubbing');
     } else {
-      // No movement → treat as click. Snap to the clicked thumb's page.
+      // No movement → treat as click. Snap to the clicked thumb's page; the strip stays open in
+      // every mode (a click is a page jump, not a dismiss — the viewport click closes it instead).
       _clickSnapToThumb(ev.clientX);
-      if (mode !== 'strip') setThumbsOpen(false);
     }
   }
   document.addEventListener('pointermove', move);
@@ -1093,7 +1206,7 @@ function buildStrip() {
         const r = `${img.naturalWidth} / ${img.naturalHeight}`;
         img.style.aspectRatio = r;
         _pageRatios.set(i, r);
-        _typicalRatio = r;
+        _setPageRatioVars(img);
       }
     });
     wrap.appendChild(img);
@@ -1178,6 +1291,101 @@ function setScrubVisible(v) {
 }
 
 // ── Events ──
+const CLICK_WHEEL_NAV_THRESHOLD = 60;
+let _clickWheelNavHeld = false;
+let _clickWheelNavUsed = false;
+let _clickWheelNavDelta = 0;
+let _clickWheelNavPage = null;
+let _clickWheelNavClearTimer = null;
+
+function _endClickWheelNav() {
+  _clickWheelNavHeld = false;
+  _clickWheelNavDelta = 0;
+  _clickWheelNavPage = null;
+  if (_clickWheelNavUsed) {
+    clearTimeout(_clickWheelNavClearTimer);
+    _clickWheelNavClearTimer = setTimeout(() => { _clickWheelNavUsed = false; }, 0);
+  }
+}
+
+function _eventDominantWheelDelta(e) {
+  let delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+  if (e.deltaMode === WheelEvent.DOM_DELTA_LINE) delta *= 16;
+  else if (e.deltaMode === WheelEvent.DOM_DELTA_PAGE) delta *= window.innerHeight || 800;
+  return delta;
+}
+
+function _scrollStripToPage(n) {
+  const t = stripView.querySelector(`[data-page="${n}"]`);
+  if (!t) return false;
+  t.scrollIntoView({ behavior: 'smooth' });
+  currentPage = n;
+  scrubber.value = n;
+  updateCounter();
+  highlightThumb(n - 1);
+  scrollThumbIntoView(n - 1);
+  return true;
+}
+
+function _clickWheelPageNav(dir) {
+  if (!pages.length) return false;
+  const step = mode === 'double' ? 2 : 1;
+  if (mode === 'strip') {
+    const base = _clickWheelNavPage ?? currentPage;
+    const next = Math.max(1, Math.min(pages.length, base + dir));
+    if (next === base) return false;
+    if (_scrollStripToPage(next)) {
+      _clickWheelNavPage = next;
+      return true;
+    }
+    return false;
+  }
+  const next = Math.max(1, Math.min(pages.length, currentPage + dir * step));
+  if (next === currentPage) return false;
+  goTo(next);
+  return true;
+}
+
+function _isClickWheelNavTarget(target) {
+  return !target.closest('button, a, input, textarea, select, [contenteditable], .study-text');
+}
+
+viewport.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0 || !e.isPrimary) return;
+  if (!_isClickWheelNavTarget(e.target)) return;
+  clearTimeout(_clickWheelNavClearTimer);
+  _clickWheelNavHeld = true;
+  _clickWheelNavUsed = false;
+  _clickWheelNavDelta = 0;
+  _clickWheelNavPage = mode === 'strip' ? currentPage : null;
+}, true);
+
+viewport.addEventListener('click', (e) => {
+  if (!_clickWheelNavUsed) return;
+  _clickWheelNavUsed = false;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+}, true);
+
+window.addEventListener('wheel', (e) => {
+  if (!_clickWheelNavHeld || (e.buttons !== 0 && !(e.buttons & 1))) return;
+  const delta = _eventDominantWheelDelta(e);
+  if (!delta) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  _clickWheelNavUsed = true;
+  _clickWheelNavDelta += delta;
+  if (Math.abs(_clickWheelNavDelta) < CLICK_WHEEL_NAV_THRESHOLD) return;
+  const dir = _clickWheelNavDelta > 0 ? 1 : -1;
+  _clickWheelNavDelta = 0;
+  _clickWheelPageNav(dir);
+}, { passive: false, capture: true });
+
+document.addEventListener('pointerup', _endClickWheelNav);
+document.addEventListener('pointercancel', _endClickWheelNav);
+window.addEventListener('blur', _endClickWheelNav);
+document.addEventListener('visibilitychange', () => { if (document.hidden) _endClickWheelNav(); });
+
 // Single click zones
 clickPrev.addEventListener('click', () => goTo(currentPage - 1));
 clickNext.addEventListener('click', () => goTo(currentPage + 1));
@@ -1199,6 +1407,11 @@ scrubber.addEventListener('input', () => {
     goTo(n);
   }
 });
+
+// Release focus after scrubbing so the keydown guard (which ignores keys aimed at the scrubber)
+// stops swallowing every navigation keybind once the slider has been touched.
+scrubber.addEventListener('pointerup', () => scrubber.blur());
+scrubber.addEventListener('change', () => scrubber.blur());
 
 // Scrubber toggle
 scrubToggle.addEventListener('click', () => setScrubVisible(!scrubVisible));
@@ -1299,6 +1512,8 @@ function _ensureWrap(imgEl) {
   if (parent && parent.classList.contains('page-wrap')) return parent;
   const wrap = document.createElement('div');
   wrap.className = 'page-wrap';
+  const ratio = imgEl.style.getPropertyValue('--page-ratio');
+  if (ratio) wrap.style.setProperty('--page-ratio', ratio);
   imgEl.replaceWith(wrap);
   wrap.appendChild(imgEl);
   return wrap;
@@ -1570,12 +1785,61 @@ new ResizeObserver(_recomputeFold).observe(document.getElementById('pageCounter'
 
 // ── Page zoom (+/-) ──
 const ZOOM_MIN = 0.4, ZOOM_MAX = 3, ZOOM_STEP = 0.1;
-function setPageZoom(z) {
-  const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(z * 100) / 100));
+const FIT_WIDTH_MIN = 0.1, FIT_WIDTH_MAX = 1, FIT_WIDTH_STEP = 0.05;
+function _applyReaderFitMaxWidth(next, persist = true) {
+  readerFitMaxWidth = Math.round(Math.max(FIT_WIDTH_MIN, Math.min(FIT_WIDTH_MAX, next)) * 100) / 100;
+  document.documentElement.style.setProperty('--reader-fit-max-width', `${Math.round(readerFitMaxWidth * 100)}%`);
+  if (persist) platform.kv.set({ readerFitMaxWidth });
+}
+function _applyReaderFitMode(next, persist = true, resetMaxWidth = false) {
+  if (next !== 'width' && next !== 'height') next = 'off';
+  readerFitMode = next;
+  document.body.classList.toggle('reader-fit-width', next === 'width');
+  document.body.classList.toggle('reader-fit-height', next === 'height');
+  if (next !== 'off' && resetMaxWidth) _applyReaderFitMaxWidth(FIT_WIDTH_MAX, persist);
+  if (persist) platform.kv.set({ readerFitMode: next });
+}
+function _clearReaderFitMode() {
+  if (readerFitMode !== 'off') _applyReaderFitMode('off');
+}
+function adjustFitMaxWidth(delta) {
+  if (readerFitMode === 'off' || mode === 'strip') return false;
+  _applyReaderFitMaxWidth(readerFitMaxWidth + delta);
+  return true;
+}
+
+function _fitItemForImg(img) {
+  return img?.parentElement?.classList.contains('page-wrap') ? img.parentElement : img;
+}
+
+function _currentFitWidthFraction() {
+  const imgs = mode === 'single'
+    ? (mainImg.naturalWidth ? [mainImg] : [])
+    : [imgLeft, imgRight].filter(img => img.style.display !== 'none' && img.naturalWidth);
+  const widths = imgs
+    .map(img => _fitItemForImg(img)?.getBoundingClientRect().width || 0)
+    .filter(w => w > 0);
+  if (!widths.length) return readerFitMaxWidth;
+  const basisEl = mode === 'double' ? doubleInner : singleInner;
+  const basis = basisEl?.getBoundingClientRect().width || document.documentElement.clientWidth || window.innerWidth || 1;
+  return Math.max(FIT_WIDTH_MIN, Math.min(FIT_WIDTH_MAX, Math.max(...widths) / Math.max(1, basis)));
+}
+
+function _zoomReaderFitMode(dir) {
+  if (readerFitMode === 'off' || mode === 'strip') return false;
+  if (readerFitMode === 'height') {
+    _applyReaderFitMaxWidth(_currentFitWidthFraction(), false);
+    _applyReaderFitMode('width');
+  }
+  return adjustFitMaxWidth(dir * FIT_WIDTH_STEP);
+}
+// Apply a final zoom (clamped, but NOT rounded — fit-to-viewport needs full precision so it lands
+// flush). Keep whatever sits at the top bar's bottom edge fixed while zooming, wherever you are in
+// the pages. Anchor on the page element under that edge and the fraction of it that's below it, then
+// after the relayout nudge the scroll so that exact point lands back there — gap/mode-agnostic.
+function _applyPageZoom(z) {
+  const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
   if (next === _pageZoom) return;
-  // Keep whatever sits at the top bar's bottom edge fixed while zooming, wherever you are in the
-  // pages. Anchor on the page element under that edge and the fraction of it that's below it, then
-  // after the relayout nudge the scroll so that exact point lands back there — gap/mode-agnostic.
   const anchorY = document.getElementById('topbar')?.getBoundingClientRect().height || 0;
   let anchorEl = null, frac = 0;
   for (const el of document.querySelectorAll('.page-img, #mainImg, .dImg')) {
@@ -1591,6 +1855,110 @@ function setPageZoom(z) {
     if (delta) window.scrollBy(0, delta);
   }
   platform.kv.set({ readerPageZoom: _pageZoom });
+}
+// +/- stepping snaps to a clean 0.01 grid; the fit helpers keep the exact value.
+function setPageZoom(z) {
+  if (readerFitMode !== 'off' && mode !== 'strip') {
+    _zoomReaderFitMode(z > _pageZoom ? 1 : -1);
+    return;
+  }
+  _clearReaderFitMode();
+  _applyPageZoom(Math.round(z * 100) / 100);
+}
+
+// ── Fit page to viewport (Shift+E → width, Shift+Q → height) ──
+// Page modes use persistent CSS classes so fit recalculates as pages/ratios change. Strip keeps the
+// older one-shot zoom path because its continuous page list is governed by normal document scroll.
+function _fitPageImgs() {
+  if (mode === 'strip')  return [...stripView.querySelectorAll('.page-img')];
+  if (mode === 'single') return mainImg.naturalWidth ? [mainImg] : [];
+  return [imgLeft, imgRight].filter(i => i.style.display !== 'none' && i.naturalWidth);
+}
+async function _readyFitPageImgs() {
+  if (mode === 'strip') return _fitPageImgs();
+  while (mode !== 'strip') {
+    await _awaitCurrentPageNav();
+    const nav = _pageNavReady;
+    const imgs = _fitPageImgs();
+    await _waitForImgLayout(imgs);
+    if (nav.token === _pageNavReady.token) return _fitPageImgs();
+  }
+  return _fitPageImgs();
+}
+function _median(nums) {
+  const a = nums.filter(n => n > 0).sort((x, y) => x - y);
+  if (!a.length) return 0;
+  const m = a.length >> 1;
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+const _cssPx = (name, dflt) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || dflt;
+
+function _fitWidthTarget(imgs, curW, gap) {
+  const fullTarget = window.innerWidth - gap - 0.5;
+  if (fullTarget <= 0) return 0;
+  if (mode === 'strip') return fullTarget - _cssPx('--sbw', 0);
+
+  const pageH = mode === 'double'
+    ? Math.max(...imgs.map(i => i.getBoundingClientRect().height).filter(n => n > 0))
+    : _median(imgs.map(i => i.getBoundingClientRect().height));
+  const topH  = topbar?.offsetHeight || TOPBAR_H;
+  const botH  = _cssPx('--botbar-h', 32);
+  const wouldNeedVScroll = pageH > 0 && (topH + pageH * (fullTarget / curW) + botH > window.innerHeight + 0.5);
+  return fullTarget - (wouldNeedVScroll ? _cssPx('--sbw', 0) : 0);
+}
+
+// Current rendered width of the fit target: both double-mode pages side by side (their fixed
+// inter-page gap held out of the scaling) or the median page width otherwise.
+function _measureFitWidth(imgs) {
+  let curW, gap = 0;
+  if (mode === 'double' && imgs.length === 2) {
+    const l = imgs[0].getBoundingClientRect(), r = imgs[1].getBoundingClientRect();
+    gap  = Math.max(0, r.left - l.right);
+    curW = l.width + r.width;
+  } else {
+    curW = _median(imgs.map(i => i.getBoundingClientRect().width));
+  }
+  return { curW, gap };
+}
+
+// Fit the pages' width to the content area. Hold the fixed inter-page gap out of the scaling in
+// double mode, leave a 0.5px hair for sub-pixel rounding, and reserve scrollbar width only when the
+// scaled page would actually become tall enough to need vertical scroll.
+async function fitPageWidth() {
+  if (mode !== 'strip') {
+    _applyReaderFitMode('width', true, true);
+    _scrollPageModeToStartSoon(_pageNavReady);
+    return;
+  }
+  const imgs = await _readyFitPageImgs();
+  if (!imgs.length) return;
+  const { curW, gap } = _measureFitWidth(imgs);
+  if (curW <= 0) return;
+  const target = _fitWidthTarget(imgs, curW, gap);
+  if (target > 0) _applyPageZoom(_pageZoom * target / curW);
+}
+function _fitPageWidthCap(imgs) {
+  const { curW, gap } = _measureFitWidth(imgs);
+  if (curW <= 0) return Infinity;
+  const target = _fitWidthTarget(imgs, curW, gap);
+  return target > 0 ? _pageZoom * target / curW : Infinity;
+}
+
+// Fit the median page height to the visible area at full precision. Wide landscape pages are capped
+// by viewport width so fitting height never creates horizontal overflow.
+async function fitPageHeight() {
+  if (mode !== 'strip') {
+    _applyReaderFitMode('height', true, true);
+    _scrollPageModeToStartSoon(_pageNavReady);
+    return;
+  }
+  const imgs = await _readyFitPageImgs();
+  if (!imgs.length) return;
+  const curH = _median(imgs.map(i => i.getBoundingClientRect().height));
+  if (curH <= 0) return;
+  const botH  = mode === 'strip' ? 0 : _cssPx('--botbar-h', 32);
+  const avail = window.innerHeight - _pinOffset() - botH;
+  if (avail > 0) _applyPageZoom(Math.min(_pageZoom * avail / curH, _fitPageWidthCap(imgs)));
 }
 
 // ── Continuous W/S (and ↑/↓) scroll (no key-repeat delay) ──
@@ -1645,21 +2013,28 @@ document.addEventListener('keydown', (e) => {
     return;
   }
 
-  // Zoom the in-view pages: + / E in, − / Q out.
-  if (e.key === '+' || e.key === '=' || e.key === 'e' || e.key === 'E') { e.preventDefault(); setPageZoom(_pageZoom + ZOOM_STEP); return; }
-  if (e.key === '-' || e.key === '_' || e.key === 'q' || e.key === 'Q') { e.preventDefault(); setPageZoom(_pageZoom - ZOOM_STEP); return; }
-  if (e.key === '0' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); setPageZoom(1); return; }
-
-  if (e.key === 'Escape' && studyMode && document.querySelector('.bubble-box.revealed')) {
-    document.querySelectorAll('.bubble-box.revealed').forEach(box => {
-      box.classList.remove('revealed', 'text-revealed');
-      (box._layers || []).forEach(el => { el.style.display = 'none'; });
-    });
+  // Zoom the in-view pages: + / E in, − / Q out. Shift+E fits width, Shift+Q fits height.
+  if (e.key === 'e' || e.key === 'E') { e.preventDefault(); e.shiftKey ? fitPageWidth()  : setPageZoom(_pageZoom + ZOOM_STEP); return; }
+  if (e.key === 'q' || e.key === 'Q') { e.preventDefault(); e.shiftKey ? fitPageHeight() : setPageZoom(_pageZoom - ZOOM_STEP); return; }
+  if (e.key === '+' || e.key === '=') { e.preventDefault(); setPageZoom(_pageZoom + ZOOM_STEP); return; }
+  if (e.key === '-' || e.key === '_') { e.preventDefault(); setPageZoom(_pageZoom - ZOOM_STEP); return; }
+  if (e.key === '0' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    if (readerFitMode !== 'off' && mode !== 'strip') _applyReaderFitMaxWidth(FIT_WIDTH_MAX);
+    else setPageZoom(1);
     return;
   }
 
-  if (e.key === 'Escape' && keybindModal.classList.contains('show')) {
-    setKeybindOpen(false);
+  if (e.key === 'Escape') {
+    // First Escape dismisses any revealed study bubbles; otherwise it toggles the shortcuts modal.
+    if (studyMode && document.querySelector('.bubble-box.revealed')) {
+      document.querySelectorAll('.bubble-box.revealed').forEach(box => {
+        box.classList.remove('revealed', 'text-revealed');
+        (box._layers || []).forEach(el => { el.style.display = 'none'; });
+      });
+      return;
+    }
+    setKeybindOpen(!keybindModal.classList.contains('show'));
     return;
   }
   if (e.key === '?') {
@@ -1694,6 +2069,7 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'End')  goTo(pages.length);
   }
   if (e.key === 'g' || e.key === 'G') setThumbsOpen(!thumbsOpen);
+  if (e.key === 'n' || e.key === 'N') applyReaderPin(!readerPinned);   // toggle the pinned header
   if (e.key === 't' || e.key === 'T') setView(translateView ? 'off' : 'translate');
   if (e.key === 'b' || e.key === 'B') setView(studyMode ? 'off' : 'study');
   if (e.key === '1') setMode('single');

@@ -3,7 +3,7 @@
 
 import * as platform from './platform.js';
 import { dbPut, metaPut, metaGet, galleryGet, deleteGalleryImages, existingPageNums, publishFeed,
-         putTranslatedImage, putPageStudy, mutateGallery, refreshSeriesAggregate } from './db.js';
+         putTranslatedImage, putPageStudy, mutateGallery, refreshSeriesAggregate, pruneSeriesChildren, coverPut } from './db.js';
 
 async function inflateRaw(bytes) {
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
@@ -40,6 +40,36 @@ export async function unzip(buffer) {
     out.push({ filename, data });
   }
   return out;
+}
+
+async function restoreExportedCovers(gid, byName) {
+  const coverEntries = [];
+  const manifestData = byName.get('covers/manifest.json');
+  if (manifestData) {
+    try {
+      const manifest = JSON.parse(new TextDecoder().decode(manifestData));
+      for (const c of (manifest.covers || [])) {
+        if ((c.role === 'gallery' || c.role === 'series') && c.file) coverEntries.push(c);
+      }
+    } catch {}
+  }
+  if (!coverEntries.length) {
+    for (const role of ['gallery', 'series']) {
+      for (const name of byName.keys()) {
+        if (new RegExp(`^covers/${role}\\.(jpe?g|png|webp|gif)$`, 'i').test(name)) {
+          coverEntries.push({ role, file: name });
+          break;
+        }
+      }
+    }
+  }
+
+  for (const c of coverEntries) {
+    const data = byName.get(c.file);
+    if (!data) continue;
+    const ext = normExt(c.file.match(/\.(\w+)$/)?.[1]);
+    await coverPut(gid, new Blob([data], { type: c.mime || MIME[ext] || 'image/jpeg' }), { role: c.role });
+  }
 }
 
 export function sortImageEntries(entries) {
@@ -95,7 +125,7 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
 
   if (imgEntries.length === 0) {
     if (!embeddedMeta) { onProgress({ status: 'error', error: 'No images found in CBZ.' }); return; }
-    await metaPut({ ...embeddedMeta, galleryId: gid, fetchedAt: Date.now() });
+    await _putMetadataOnlyGallery(gid, embeddedMeta);
     onProgress({ status: 'done', done: 0, total: 0, skipped: 0 });
     platform.kv.set({ libraryVersion: Date.now() });
     publishFeed(gid);
@@ -149,12 +179,32 @@ function _unionTags(...lists) {
   return out;
 }
 
+async function _putMetadataOnlyGallery(gid, meta) {
+  const id = String(gid);
+  const nextMeta = meta
+    ? { ...meta, galleryId: id, fetchedAt: Date.now() }
+    : { galleryId: id, title: { english: id, japanese: '', pretty: id }, tags: [], numPages: 0, pageExts: [], fetchedAt: Date.now(), isLocalImport: true, source: '' };
+  await metaPut(nextMeta);
+  const existing = await galleryGet(id).catch(() => null);
+  await mutateGallery(id, {
+    count: existing?.count || 0,
+    size: existing?.size || 0,
+    latestAt: Date.now(),
+    addedAt: existing?.addedAt || (Number(id) || Date.now()),
+    coverPage: existing?.coverPage ?? 9999,
+    uploadDate: Number(nextMeta.uploadDate) || existing?.uploadDate || 0,
+    parentId: nextMeta.parentId ? String(nextMeta.parentId) : null,
+    ...(Array.isArray(nextMeta.chapters) && nextMeta.chapters.length > 1 ? { chapterCount: nextMeta.chapters.length } : {}),
+  });
+}
+
 // Restore a Shiori series export: each chapter-NN/ folder is a self-contained per-gallery export.
 // Import every chapter into its own gallery (its embedded id), then wire the grouping onto the
 // first chapter (the owner) and back-link every other chapter.
 async function _importSeriesZip(entries, manifest, onProgress) {
   const chapters = [];   // { id, title } in series order, with the imported gids
   const tagLists = [];
+  let embeddedSeriesTags = null;
   const total = manifest.chapters.length;
   for (let i = 0; i < total; i++) {
     const c = manifest.chapters[i];
@@ -165,9 +215,18 @@ async function _importSeriesZip(entries, manifest, onProgress) {
     const metaEntry = sub.find(en => en.filename === 'metadata.json');
     let cmeta = null;
     if (metaEntry) { try { cmeta = JSON.parse(new TextDecoder().decode(metaEntry.data)); } catch {} }
-    if (cmeta) { delete cmeta.chapters; delete cmeta.parentId; delete cmeta.seriesTitle; }  // grouping is rebuilt below
+    if (i === 0 && Array.isArray(cmeta?.seriesTags)) embeddedSeriesTags = cmeta.seriesTags;
+    if (cmeta) { delete cmeta.chapters; delete cmeta.parentId; delete cmeta.seriesTitle; delete cmeta.seriesTags; }  // grouping is rebuilt below
     const gid = String(cmeta?.galleryId || c.id || (Date.now() + i));
-    await _importShioriEntries(gid, sub, cmeta, (p) => { if (p.status !== 'done') onProgress({ ...p, chapter: i + 1, chapterCount: total }); });
+    const hasFullPayload = sub.some(en =>
+      en.filename === 'image_records.json' ||
+      /^(images|translated|study|covers)\//i.test(en.filename));
+    if (hasFullPayload) {
+      await _importShioriEntries(gid, sub, cmeta, (p) => { if (p.status !== 'done') onProgress({ ...p, chapter: i + 1, chapterCount: total }); });
+    } else {
+      await _putMetadataOnlyGallery(gid, cmeta);
+      publishFeed(gid);
+    }
     chapters.push({ id: gid, title: c.title || '' });
     if (cmeta?.tags) tagLists.push(cmeta.tags);
   }
@@ -178,9 +237,18 @@ async function _importSeriesZip(entries, manifest, onProgress) {
     await mutateGallery(ownerId, {
       chapters,
       seriesTitle: manifest.seriesTitle || '',
-      tags: _unionTags(ownerMeta?.tags, ...tagLists),
+      seriesTags: Array.isArray(manifest.seriesTags)
+        ? manifest.seriesTags
+        : (embeddedSeriesTags || _unionTags(ownerMeta?.tags, ...tagLists)),
+      parentId: null,
     });
     for (const c of chapters) if (c.id !== ownerId) await mutateGallery(c.id, { parentId: ownerId });
+    await pruneSeriesChildren(ownerId, chapters.map(c => c.id));
+    await refreshSeriesAggregate(ownerId);
+  } else if (chapters.length === 1) {
+    const ownerId = chapters[0].id;
+    await mutateGallery(ownerId, { chapters: null, seriesTitle: '', seriesTags: null, parentId: null });
+    await pruneSeriesChildren(ownerId, [ownerId]);
     await refreshSeriesAggregate(ownerId);
   }
 
@@ -203,6 +271,7 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
   await deleteGalleryImages(gid);
 
   if (pageEntries.length === 0) {
+    await restoreExportedCovers(gid, byName);
     onProgress({ status: 'done', done: 0, total: 0, skipped: 0 });
     platform.kv.set({ libraryVersion: Date.now() });
     publishFeed(gid);
@@ -252,6 +321,7 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
     }
   }
 
+  await restoreExportedCovers(gid, byName);
   onProgress({ status: 'done', done, total: pageEntries.length, skipped: 0 });
   platform.kv.set({ libraryVersion: Date.now() });
   publishFeed(gid);

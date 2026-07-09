@@ -11,9 +11,9 @@
 //
 // importBackup() detects the format from the file itself, so one picker handles both.
 
-import { openDB, publishFeed, metaPut, backfillUploadDates } from './db.js';
+import { openDB, publishFeed, metaPut, backfillUploadDates, coverPut, refreshSeriesAggregate, sourceIconPut } from './db.js';
 
-const IMAGES = 'images', META = 'metadata', GALLERIES = 'galleries', COVERS = 'covers';
+const IMAGES = 'images', META = 'metadata', GALLERIES = 'galleries', COVERS = 'covers', SOURCE_ICONS = 'sourceIcons';
 
 const getAllKeys = (db, s) => new Promise((res, rej) => { const tx = db.transaction(s, 'readonly'); const q = tx.objectStore(s).getAllKeys(); q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error); });
 const getByKey = (db, s, k) => new Promise((res, rej) => { const tx = db.transaction(s, 'readonly'); const q = tx.objectStore(s).get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
@@ -124,12 +124,15 @@ async function build(db, sink, onProgress) {
     const ent = { galleryId: c.galleryId };
     const body = toBlob(c.cover);
     if (body) ent.body = await sink(body);
-    covers.push(ent);
+    const seriesBody = toBlob(c.seriesCover);
+    if (seriesBody) ent.seriesBody = await sink(seriesBody);
+    if (ent.body || ent.seriesBody) covers.push(ent);
   }
   const metadata = await getAll(db, META);
   const galleries = await getAll(db, GALLERIES);
-  lastCounts = { images: images.length, galleries: galleries.length, covers: covers.length };
-  return { format: 'shiori-db', version: 4, exportedAt: Date.now(), counts: lastCounts, images, covers, metadata, galleries };
+  const sourceIcons = await getAll(db, SOURCE_ICONS).catch(() => []);
+  lastCounts = { images: images.length, galleries: galleries.length, covers: covers.length, sourceIcons: sourceIcons.length };
+  return { format: 'shiori-db', version: 6, exportedAt: Date.now(), counts: lastCounts, images, covers, sourceIcons, metadata, galleries };
 }
 
 // ── Import (auto-detect) ────────────────────────────────────────────────────────────────────
@@ -150,10 +153,12 @@ async function importMetadataFile(file) {
 
   const db = await openDB();
   let n = 0;
+  const seriesOwners = new Set();
   for (const meta of entries) {
     if (!meta.galleryId) continue;
     const gid = String(meta.galleryId);
-    await metaPut({ ...meta, galleryId: gid, fetchedAt: Date.now() });
+    const nextMeta = { ...meta, galleryId: gid, fetchedAt: Date.now() };
+    await metaPut(nextMeta);
     const existingGal = await getByKey(db, GALLERIES, gid).catch(() => null);
     await put(db, GALLERIES, {
       galleryId: gid,
@@ -165,10 +170,14 @@ async function importMetadataFile(file) {
       uploadDate: Number(meta.uploadDate) || existingGal?.uploadDate || 0,
       // Keep the stat record's series link in step with the metadata, so a chapter restored from a
       // metadata-only backup stays hidden from the top-level grid (which filters on stat.parentId).
-      ...(meta.parentId ? { parentId: String(meta.parentId) } : {}),
+      ...(nextMeta.parentId ? { parentId: String(nextMeta.parentId) } : {}),
+      ...(Array.isArray(nextMeta.chapters) && nextMeta.chapters.length > 1 ? { chapterCount: nextMeta.chapters.length } : {}),
     });
+    if (nextMeta.parentId) seriesOwners.add(String(nextMeta.parentId));
+    if (Array.isArray(nextMeta.chapters) && nextMeta.chapters.length > 1) seriesOwners.add(gid);
     n++;
   }
+  for (const ownerId of seriesOwners) await refreshSeriesAggregate(ownerId).catch(() => {});
   return { galleries: n, images: 0 };
 }
 
@@ -186,7 +195,7 @@ async function importFullFile(file, onProgress) {
   const sliceOf = (spec) => spec ? file.slice(spec.off, spec.off + spec.len, spec.type || '') : null;
   const db = await openDB();
   let n = 0;
-  for (const e of manifest.images) {
+  for (const e of (manifest.images || [])) {
     const rec = { url: e.url, mediaId: e.mediaId, galleryId: e.galleryId, cachedAt: e.cachedAt, size: e.size };
     const b = sliceOf(e.body); if (b) rec.blob = b;
     const tb = sliceOf(e.translated); if (tb) rec.translated = tb;
@@ -195,13 +204,29 @@ async function importFullFile(file, onProgress) {
       rec.bubbles = e.bubbles.map(b => ({ box: b.box, region: b.region, tr: b.tr || '', src: b.src || '', text: sliceOf(b.text) }));
     }
     await put(db, IMAGES, rec);
-    if (onProgress && (++n % 25 === 0)) onProgress('images', n, manifest.images.length);
+    if (onProgress && (++n % 25 === 0)) onProgress('images', n, (manifest.images || []).length);
   }
-  for (const m of manifest.metadata) await put(db, META, m);
-  for (const g of manifest.galleries) await put(db, GALLERIES, g);
-  for (const e of manifest.covers) { const rec = { galleryId: e.galleryId }; const b = sliceOf(e.body); if (b) rec.cover = b; await put(db, COVERS, rec); }
+  for (const m of (manifest.metadata || [])) await metaPut(m);
+  for (const g of (manifest.galleries || [])) await put(db, GALLERIES, g);
+  // Silent cover writes: the per-gallery publishFeed pass below announces the restore — loud
+  // coverPuts here would additionally ping every open surface once per cover blob.
+  for (const e of (manifest.covers || [])) {
+    const b = sliceOf(e.body);
+    const sb = sliceOf(e.seriesBody);
+    if (b) await coverPut(e.galleryId, b, { role: 'gallery', silent: true });
+    if (sb) await coverPut(e.galleryId, sb, { role: 'series', silent: true });
+  }
+  for (const icon of (manifest.sourceIcons || [])) {
+    if (icon?.source && /^data:image\//i.test(icon.dataUrl || '')) await sourceIconPut(icon.source, icon);
+  }
   await backfillUploadDates();   // older archives predate the denormalized uploadDate — fill it from metadata
-  for (const g of manifest.galleries) publishFeed(g.galleryId);
+  const seriesOwners = new Set();
+  for (const m of (manifest.metadata || [])) {
+    if (m?.parentId) seriesOwners.add(String(m.parentId));
+    if (Array.isArray(m?.chapters) && m.chapters.length > 1) seriesOwners.add(String(m.galleryId));
+  }
+  for (const ownerId of seriesOwners) await refreshSeriesAggregate(ownerId).catch(() => {});
+  for (const g of (manifest.galleries || [])) publishFeed(g.galleryId);
   if (onProgress) onProgress('done', 1, 1);
   return manifest.counts;
 }

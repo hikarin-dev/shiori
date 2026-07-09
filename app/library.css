@@ -238,6 +238,7 @@ body.card-dragging { user-select: none; cursor: grabbing; }
 .card-id {
   font-size: 14px; font-weight: 700; color: var(--accent);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-decoration: none;
 }
 .card-id.local { color: var(--accent2); }
 
@@ -393,11 +394,27 @@ html:has(.modal-overlay.show) { overflow: hidden; }
 }
 
 .card-id-row {
+  --card-id-logo-size: 16px;
   display: flex; align-items: center; gap: 4px;
 }
 
 .card-actions {
   display: flex; gap: 3px; margin-left: auto; flex-shrink: 0;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+body.quick-actions-hover .card-actions {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px);
+}
+body.quick-actions-hover .card:hover .card-actions,
+body.quick-actions-hover .card:focus-within .card-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+body.quick-actions-hidden .card-actions {
+  display: none;
 }
 
 .card-btn {
@@ -439,8 +456,19 @@ body.translator-offline .card-btn-translate { display: none; }
 .card-btn-translate.done { color: var(--success); }
 .tr-inner { display: flex; align-items: center; justify-content: center; transition: transform 0.15s; }
 
-.card-btn-open { color: var(--muted); }
-.card-btn-open:hover { color: var(--text); border-color: var(--muted); }
+.card-btn-open {
+  width: var(--card-id-logo-size); height: var(--card-id-logo-size);
+  flex: 0 0 var(--card-id-logo-size);
+  color: var(--muted); border: 0; background: transparent;
+  border-radius: 2px;
+}
+.card-btn-open .open-inner,
+.card-btn-open img,
+.card-btn-open svg {
+  width: 100% !important; height: 100% !important;
+  display: block; object-fit: contain;
+}
+.card-btn-open:hover { color: var(--text); border: 0; }
 
 .card-btn-del { color: var(--danger); }
 .card-btn-del:hover { background: var(--danger); color: white; border-color: var(--danger); }
