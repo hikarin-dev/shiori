@@ -14,7 +14,8 @@ import { normalizeTitle } from './titles.js';
 // what is on screen, not by library size.
 const _cache = new Map();          // gid -> entity
 const _subs  = new Map();          // gid (or '*') -> Set<cb>
-let _lastFeedN = 0;
+const _seenFeedTokens = new Set();
+const FEED_TOKEN_LIMIT = 256;
 
 function _emit(gid) {
   const direct = _subs.get(gid);
@@ -98,8 +99,10 @@ export async function remove(gid) {
 // large library cheap. The transport (chrome.storage now; BroadcastChannel/SW later) is
 // hidden behind api.events.
 events.onChange((v) => {
-  if (v.n != null && v.n === _lastFeedN) return;   // drop duplicate beacon
-  _lastFeedN = v.n;
+  const token = v.context ? `${v.context}:${v.n}` : `${v.gid}:${v.n}:${v.at}`;
+  if (_seenFeedTokens.has(token)) return;
+  _seenFeedTokens.add(token);
+  if (_seenFeedTokens.size > FEED_TOKEN_LIMIT) _seenFeedTokens.delete(_seenFeedTokens.values().next().value);
   const gid = String(v.gid);
   if (!_subs.has(gid) && !_subs.has('*') && !_cache.has(gid)) return;
   load(gid).then(() => _emit(gid)).catch(() => _emit(gid));

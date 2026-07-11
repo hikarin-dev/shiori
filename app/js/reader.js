@@ -32,15 +32,21 @@ const READER_UNPIN_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="13" hei
 
 const params    = new URLSearchParams(location.search);
 const galleryId = params.get('g');
+const initialPageParam = params.get('page') || params.get('p') || '';
 
-let pages       = [];
+let pages       = [];      // every cached page, all chapters concatenated in series order
+let _chapters   = [];      // non-empty chapters: { id, num, title, start, count, meta } (start = merged offset)
+let _seriesTotal = 1;      // total chapters in the series (incl. uncached ones) — the "of N" in labels
+let _curChIdx   = -1;      // chapter the current page belongs to — drives the topbar/URL chrome
+let _chapterDividersOn = true;   // Settings → Reader: chapter transitions (strip divider + page-mode transition page)
+let _stripSeriesFlow   = true;   // Settings → Reader: strip runs the whole series (true) or one chapter (false)
+const _pageIdxByUrl = new Map(); // page url → 0-based merged index (for URL-cache eviction distance)
 let currentPage = 1;
 let mode        = 'strip'; // 'single' | 'double' | 'strip'
 let thumbsOpen    = false;
 let scrubVisible  = true;
 let translateView = false; // show stored translated variants when true
 let lastPageMode  = 'single';
-let _stripObservers = [];
 let _pageZoom     = 1;     // +/- page scale factor
 let readerFitMode = 'off'; // 'off' | 'width' | 'height' for persistent page-mode fit classes
 let readerFitMaxWidth = 1; // persistent fit cap, 0.1..1, adjusted by zoom keys while fit is active
@@ -50,26 +56,30 @@ let readerFitMaxWidth = 1; // persistent fit cap, 0.1..1, adjusted by zoom keys 
 const _pageRatios = new Map();   // page index (0-based) → "w / h"
 let _typicalRatio = '';
 
-// Study mode: keep the clean original on screen and let the reader reveal one translated
-// bubble at a time over it. Each page stores two full-page layers — bg (inpainted, text
-// removed) and text (translated glyphs on transparent) — plus per-bubble boxes (the OCR
-// detection regions, as page fractions). Revealing a bubble clips both layers to its box, all
-// backgrounds beneath all text, so overlapping bubbles never occlude each other. While on, the
-// displayed variant is forced to the clean original regardless of translateView.
+// Study mode: keep the clean original on screen with per-bubble overlays. Each page stores two
+// full-page layers — bg (inpainted, text removed) and text (translated glyphs on transparent) —
+// plus per-bubble boxes (the OCR detection regions, as page fractions). Two independent display
+// settings (Settings → Reader): the ORIGINAL shows as the untouched page (click a bubble to
+// reveal its translation) or as always-on selectable DOM text over the inpainted bg (optional
+// furigana; a click cycles original ⇄ translation); the TRANSLATION shows as the exact typeset
+// image layers (clipped bg below, glyph PNG above, so overlapping bubbles never occlude each
+// other) or as selectable DOM text. While on, the displayed variant is forced to the clean
+// original regardless of translateView.
 let studyMode      = false;
 let hasStudy       = false;            // any page has study layers → the study segment is enabled
-let studyDisplay   = 'hardcoded_images'; // 'hardcoded_images' | 'text' (Settings → Reader)
+let studyDisplay   = 'hardcoded_images'; // translation display: 'hardcoded_images' | 'text' (Settings → Reader)
+let studyOriginal  = 'image';            // original display: 'image' (untouched page) | 'text' (DOM text)
+let studySrcFont   = 'yasashisa';        // original text face: 'yasashisa' | 'kiwi' (Settings → Reader)
+let furiganaOn     = false;              // Settings → Reader; applies only to Japanese-tagged galleries
 let _translateAvailable = false;       // this gallery has a whole-page translation
-const _pageStudy     = new Map();      // page url → { bg:Blob|null, bubbles:[{box,region,tr,src,rbox?,style?,text?:Blob}], page:{w,h}|null }
+const _pageStudy     = new Map();      // page url → { bg:Blob|null, bubbles:[{box,region,tr,src,rbox?,style?,srcLines?,trLines?,furi?,text?:Blob}], page:{w,h}|null }
 const _pageLayerUrls = new Map();      // page url → { bgUrl, textUrls:[] } object URLs, revoked on teardown
 
 // Page images are served as blob: URLs. A blob URL references the IndexedDB-backed Blob — the
 // bytes stay on disk until an <img> actually needs them, and the browser discards decoded
-// bitmaps of off-screen images on its own. So URLs for EVERY page are kept for the whole
-// session: nothing is ever evicted, scrolling back never re-fetches, and no base64 ever
-// touches the JS heap.
-// Keyed per variant (original vs translated) so toggling the translation view never has to
-// revoke and refetch — both variants stay cached and the switch is an instant in-place swap.
+// bitmaps of off-screen images on its own. Nearby URLs stay warm while the virtualized strip
+// revokes far-away ones, keeping very long series bounded without putting base64 on the JS heap.
+// Keys include the variant (original vs translated), so an in-range view switch can swap in place.
 const _pageUrlCache = new Map();   // variantKey → blob: URL ('' when the record is missing)
 const _showTranslated = () => translateView && !studyMode;   // study mode forces the clean original
 const _variantKey = (page) => (_showTranslated() ? 't:' : 'o:') + page.url;
@@ -84,25 +94,27 @@ function _openReaderDb() {
 }
 
 // Load every page's stored study layers into _pageStudy (keyed by page url) and note whether
-// any exist (→ show the study button). One cursor pass over this gallery's image records; the
+// any exist (→ show the study button). One cursor pass per chapter's image records; the
 // bg/text layers stay Blobs, turned into object URLs lazily when a bubble is first revealed.
 async function _loadStudy() {
   if (!_readerDb) return;
-  await new Promise((resolve) => {
-    const tx  = _readerDb.transaction('images', 'readonly');
-    const req = tx.objectStore('images').index('galleryId').openCursor(IDBKeyRange.only(String(galleryId)));
-    req.onsuccess = (e) => {
-      const cursor = e.target.result;
-      if (!cursor) { resolve(); return; }
-      const v = cursor.value;
-      if (Array.isArray(v.bubbles) && v.bubbles.length) {
-        // bg is null for metadata-only (text-mode) study records — those render as DOM text.
-        _pageStudy.set(v.url, { bg: v.studyBg || null, bubbles: v.bubbles, page: v.studyPage || null });
-      }
-      cursor.continue();
-    };
-    req.onerror = () => resolve();
-  });
+  for (const ch of _chapters) {
+    await new Promise((resolve) => {
+      const tx  = _readerDb.transaction('images', 'readonly');
+      const req = tx.objectStore('images').index('galleryId').openCursor(IDBKeyRange.only(String(ch.id)));
+      req.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (!cursor) { resolve(); return; }
+        const v = cursor.value;
+        if (Array.isArray(v.bubbles) && v.bubbles.length) {
+          // bg is null for metadata-only (text-mode) study records — those render as DOM text.
+          _pageStudy.set(v.url, { bg: v.studyBg || null, bubbles: v.bubbles, page: v.studyPage || null });
+        }
+        cursor.continue();
+      };
+      req.onerror = () => resolve();
+    });
+  }
   hasStudy = _pageStudy.size > 0;
 }
 
@@ -158,6 +170,31 @@ const _thumbGenQueue  = [];          // { page, resolve }
 let   _thumbGenActive = 0;
 const THUMB_GEN_MAX   = 4;           // parallel decoders — kept low so thumb generation never
                                      // starves the strip's own page loads of IDB/decoder time
+const THUMB_CACHE_MAX = 512;         // long series retain a bounded LRU of encoded thumbnails
+
+function _cachedThumb(pageUrl) {
+  const url = _thumbBlobCache.get(pageUrl);
+  if (!url) return '';
+  _thumbBlobCache.delete(pageUrl);
+  _thumbBlobCache.set(pageUrl, url);  // Map insertion order is the LRU order
+  return url;
+}
+
+function _cacheThumb(pageUrl, blobUrl) {
+  _thumbBlobCache.delete(pageUrl);
+  _thumbBlobCache.set(pageUrl, blobUrl);
+  while (_thumbBlobCache.size > THUMB_CACHE_MAX) {
+    const [oldPageUrl, oldBlobUrl] = _thumbBlobCache.entries().next().value;
+    _thumbBlobCache.delete(oldPageUrl);
+    const idx = _pageIdxByUrl.get(oldPageUrl);
+    const img = idx == null ? null : thumbStrip.querySelector(`.thumb-item img[data-idx="${idx}"]`);
+    if (img && img.getAttribute('src') === oldBlobUrl) {
+      img.removeAttribute('src');
+      delete img.dataset.queued;
+    }
+    try { URL.revokeObjectURL(oldBlobUrl); } catch {}
+  }
+}
 
 function _generateThumbBlob(page) {
   return new Promise((resolve) => {
@@ -172,7 +209,8 @@ async function _processThumbQueue() {
   _thumbGenActive++;
   const { page, resolve } = _thumbGenQueue.shift();
   try {
-    if (_thumbBlobCache.has(page.url)) { resolve(_thumbBlobCache.get(page.url)); return; }
+    const cached = _cachedThumb(page.url);
+    if (cached) { resolve(cached); return; }
     if (!_readerDb) { resolve(''); return; }
     const record = await new Promise((res) => {
       const tx  = _readerDb.transaction('images', 'readonly');
@@ -206,7 +244,7 @@ async function _processThumbQueue() {
     const smallBlob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.92));
     if (!smallBlob) { resolve(''); return; }
     const blobUrl = URL.createObjectURL(smallBlob);
-    _thumbBlobCache.set(page.url, blobUrl);
+    _cacheThumb(page.url, blobUrl);
     resolve(blobUrl);
   } catch {
     resolve('');
@@ -267,6 +305,7 @@ const clickNext     = document.getElementById('clickNext');
 const dClickPrev    = document.getElementById('dClickPrev');
 const dClickNext    = document.getElementById('dClickNext');
 const scrollTopBtn  = document.getElementById('scrollTopBtn');
+const dividerPage   = document.getElementById('dividerPage');
 
 // ── Init ──
 async function init() {
@@ -282,78 +321,86 @@ async function init() {
   loadingText.textContent = t('rd.loading_pages');
   const gid = String(galleryId);
 
-  // Page list (key-only cursor, no image bytes) and metadata, fetched in parallel.
-  const metaPromise = new Promise((resolve) => {
-    const tx  = _readerDb.transaction('metadata', 'readonly');
-    const req = tx.objectStore('metadata').get(gid);
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror   = () => resolve(null);
-  }).catch(() => null);
+  // Series membership FIRST: a series is read as ONE continuous page list — every cached
+  // chapter's pages concatenated in series order — so a chapter transition is just the next
+  // scroll row (or page flip), never a reload.
+  try { _series = await resolveSeries(galleryId); } catch { _series = null; }
+  const chapterRefs = _series
+    ? _series.chapters.map((c, i) => ({ id: String(c.id), num: i + 1, title: c.title || '' }))
+    : [{ id: gid, num: 1, title: '' }];
+  _seriesTotal = chapterRefs.length;
 
-  const rawUrls = await new Promise((resolve, reject) => {
+  // Page list (key-only cursor, no image bytes) and metadata for every chapter, in parallel.
+  const pageList = (id) => new Promise((resolve) => {
     const urls = [];
     const tx  = _readerDb.transaction('images', 'readonly');
-    const req = tx.objectStore('images').index('galleryId').openKeyCursor(IDBKeyRange.only(gid));
+    const req = tx.objectStore('images').index('galleryId').openKeyCursor(IDBKeyRange.only(id));
     req.onsuccess = (e) => {
       const cursor = e.target.result;
       if (cursor) { urls.push(cursor.primaryKey); cursor.continue(); } else resolve(urls);
     };
-    req.onerror = () => reject(req.error);
-  }).catch(() => []);
+    req.onerror = () => resolve([]);
+  });
+  const metaGet = (id) => new Promise((resolve) => {
+    const tx  = _readerDb.transaction('metadata', 'readonly');
+    const req = tx.objectStore('metadata').get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror   = () => resolve(null);
+  });
+  const [lists, metas] = await Promise.all([
+    Promise.all(chapterRefs.map(c => pageList(c.id))),
+    Promise.all(chapterRefs.map(c => metaGet(c.id))),
+  ]);
 
-  if (rawUrls.length === 0) { showEmpty(); return; }
-
-  pages = rawUrls
-    .map(url => {
-      const m = url.match(/\/(\d+)\.(webp|jpg|jpeg|png|gif)$/i);
-      return { pageNum: m ? parseInt(m[1]) : 9999, url };
-    })
-    .sort((a, b) => a.pageNum - b.pageNum);
+  // Merge into the flat list. A chapter with no cached pages contributes nothing (its number is
+  // simply skipped); `num` keeps each chapter's true position in the series for the labels.
+  pages = [];
+  _chapters = [];
+  chapterRefs.forEach((c, i) => {
+    const list = lists[i]
+      .map(url => {
+        const m = url.match(/\/(\d+)\.(webp|jpg|jpeg|png|gif)$/i);
+        return { pageNum: m ? parseInt(m[1]) : 9999, url };
+      })
+      .sort((a, b) => a.pageNum - b.pageNum);
+    if (!list.length) return;
+    _chapters.push({ ...c, start: pages.length, count: list.length, meta: metas[i] });
+    pages.push(...list);
+  });
+  pages.forEach((p, i) => _pageIdxByUrl.set(p.url, i));
 
   loadingScreen.style.display = 'none';
 
-  const meta = await metaPromise;
-
-  const displayId = meta?.sourceId || galleryId;
-  tbGallery.textContent = `#${displayId}`;
-  tbGallery.classList.toggle('local', !!meta?.isLocalImport);
-  document.title        = `Shiori — #${displayId}`;
-
-  const visitUrl = galleryLink(meta, displayId, 1);
-  const sName    = siteName(meta?.source);
-
-  if (visitUrl) {
-    tbMeta.onclick = () => window.open(visitUrl, '_blank', 'noopener');
+  if (pages.length === 0) {
+    // Point the empty screen's source link at the gallery that was actually asked for.
+    const meta = metas[chapterRefs.findIndex(c => c.id === gid)] || null;
+    const visitUrl = galleryLink(meta, meta?.sourceId || gid, 1);
     const emptyLink = document.getElementById('emptyLink');
-    emptyLink.href        = visitUrl;
-    emptyLink.textContent = t('rd.open_on_arrow', { site: sName });
-    emptyLink.style.display = '';
-  } else {
-    tbMeta.onclick = null;
-    document.getElementById('emptyLink').style.display = 'none';
+    if (visitUrl) {
+      emptyLink.href        = visitUrl;
+      emptyLink.textContent = t('rd.open_on_arrow', { site: siteName(meta?.source) });
+      emptyLink.style.display = '';
+    } else {
+      emptyLink.style.display = 'none';
+    }
+    showEmpty();
+    return;
   }
 
-  const displayTitle = pickTitle(meta, getLang());
-  if (displayTitle) {
-    const titleEl = document.getElementById('tbTitle');
-    if (titleEl) titleEl.textContent = displayTitle;   // shares #tbMeta's link, no own href
-  }
-
-  if (pages.length === 0) { showEmpty(); return; }
-
-  // The translate ⇄ study toggle shows whenever this gallery has a translation (study layers,
+  // The translate ⇄ study toggle shows whenever ANY chapter has a translation (study layers,
   // loaded below, additionally enable the study side). hasStudy is set by _loadStudy.
-  _translateAvailable = !!meta?.translated;
+  _translateAvailable = _chapters.some(ch => !!ch.meta?.translated);
   await _loadStudy();
   if (_translateAvailable || hasStudy) viewToggle.style.display = '';
   studySeg.classList.toggle('disabled', !hasStudy);
 
-  scrubber.max   = pages.length;
-  scrubber.value = 1;
-
-  buildThumbs();
-  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerFitMode', 'readerFitMaxWidth', 'readerView', 'readerStudyDisplay']);
+  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerFitMode', 'readerFitMaxWidth', 'readerView', 'readerStudyDisplay', 'readerStudyOriginal', 'readerStudySrcFont', 'readerFurigana', 'readerChapterDivider', 'readerStripMode']);
   if (saved.readerStudyDisplay === 'text') studyDisplay = 'text';
+  if (saved.readerStudyOriginal === 'text') studyOriginal = 'text';
+  if (saved.readerStudySrcFont === 'kiwi') studySrcFont = 'kiwi';
+  furiganaOn = saved.readerFurigana === 'on';
+  _chapterDividersOn = saved.readerChapterDivider !== false;
+  _stripSeriesFlow   = saved.readerStripMode !== 'chapter';
   applyThumbHeight(saved.readerThumbHeight || _thumbHeight);
   if (saved.readerPageZoom) { _pageZoom = saved.readerPageZoom; document.documentElement.style.setProperty('--page-zoom', _pageZoom); }
   _applyReaderFitMaxWidth(saved.readerFitMaxWidth || FIT_WIDTH_MAX, false);
@@ -370,12 +417,18 @@ async function init() {
   translateView = initView === 'translate';
   document.body.classList.toggle('study-mode', studyMode);
 
-  // Resolve series membership BEFORE the first render so the initial strip build already carries
-  // its inline chapter bars (and the page-mode pill renders in setMode).
-  try { _series = await resolveSeries(galleryId); } catch { _series = null; }
-
+  // Resolve the initial position BEFORE the first render — a chapter-scoped strip and the
+  // thumbnails both build around it. ?g targets a chapter; ?page / ?p is a page within THAT
+  // chapter ('last' = its final page). A ?g whose chapter has no cached pages falls back to
+  // the first cached chapter.
+  const startCh = _chapters.find(c => c.id === gid) || _chapters[0];
+  const within = String(initialPageParam).toLowerCase() === 'last'
+    ? startCh.count
+    : Math.max(1, Math.min(startCh.count, parseInt(initialPageParam, 10) || 1));
+  currentPage = startCh.start + within;
   setMode(saved.readerMode || 'strip', true);
-  goTo(1);
+  goTo(currentPage, true);
+  if (mode === 'strip') requestAnimationFrame(_scrollStripToCurrent);
   _updateViewToggle();
   if (studyMode) _refreshBubbleLayers();
   _recomputeFold();  // the title is set now — (re)measure the fold breakpoint for the new title
@@ -383,86 +436,163 @@ async function init() {
   // own loader for IDB bandwidth, delaying the first visible page by several seconds.
   if (saved.readerThumbsOpen) setTimeout(() => setThumbsOpen(true), 1500);
   // Pre-generate the remaining thumbs in the background once the first pages are on screen,
-  // so opening the strip later is instant. No-op for thumbs already generated.
-  setTimeout(_enqueueAllThumbs, 3500);
+  // so opening the strip later is instant. No-op for thumbs already generated. Very long series
+  // skip this — their thumbs generate on demand around the visible band instead.
+  setTimeout(() => { if (_thumbCount <= THUMB_EAGER_MAX) _enqueueAllThumbs(); }, 3500);
 }
 
 // ── Chapter navigation (series) ──
-// This gallery may be one chapter of a series. The reader always shows ONE chapter's flat page
-// set (so the thumbnail/scroll-sync code is untouched); the bars just reload the reader for an
-// adjacent chapter, or open the overview to jump to any chapter.
+// A series renders as ONE continuous reader: `pages` holds every cached chapter back to back and
+// `_chapters` maps merged page ranges back to their chapters. The counter and scrubber speak in
+// chapter-local pages while the thumbnails and strip geometry stay series-wide; crossing a
+// boundary just scrolls (or flips) into the next chapter's range — never a reload. The topbar
+// chrome and the ?g= in the URL follow the chapter under the reading line.
 let _series = null;
 const _escR = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function _chapterIndex() {
-  return _series ? _series.chapters.findIndex(c => String(c.id) === String(galleryId)) : -1;
+// Merged page number (1-based) → index into _chapters (binary search over chapter starts).
+function _chapterAt(page) {
+  let lo = 0, hi = _chapters.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (_chapters[mid].start < page) lo = mid; else hi = mid - 1;
+  }
+  return lo;
+}
+// Double-page spreads never straddle a chapter boundary; the transition card must appear before
+// the next chapter's first page, not after that page has already been shown on the right.
+function _rightPageForSpread(page) {
+  return page < pages.length && _chapterAt(page) === _chapterAt(page + 1) ? pages[page] : null;
+}
+// Jump to a merged page number in whatever the current mode is: strip lands there instantly
+// (re-scoping a chapter-only strip if needed), page modes flip straight there — no transition page.
+function _jumpToPage(n) {
+  if (mode === 'strip') _stripJumpTo(n); else goTo(n, true);
 }
 function _gotoAdjacentChapter(delta) {
-  if (!_series) return;
-  const target = _series.chapters[_chapterIndex() + delta];
-  if (target) location.href = `../reader?g=${target.id}`;
+  if (_chapters.length < 2) return false;
+  const target = _chapters[_chapterAt(currentPage) + delta];
+  if (!target) return false;
+  _jumpToPage(target.start + 1);
+  return true;
 }
-// Inner markup shared by the fixed pill (page modes) and the inline strip bars.
-function _chapterBarInner() {
-  const idx = _chapterIndex();
-  const total = _series.chapters.length;
-  const cur = _series.chapters[idx] || {};
-  const label = t('rd.chapter_of', { n: idx + 1, total }) + (cur.title ? ` · ${cur.title}` : '');
-  const hasPrev = idx > 0, hasNext = idx >= 0 && idx < total - 1;
-  return `
-    <button class="ch-nav" data-dir="-1" ${hasPrev ? '' : 'disabled'} data-tip="${_escR(t('rd.prev_chapter'))}">‹</button>
-    <button class="ch-label" data-tip="${_escR(t('rd.chapters'))}">${_escR(label)}</button>
-    <button class="ch-nav" data-dir="1" ${hasNext ? '' : 'disabled'} data-tip="${_escR(t('rd.next_chapter'))}">›</button>`;
+
+// ── Chapter transition card ──
+// "End of Ch. N" + the ended chapter's title, previous/next chapter cards, Series/Home links.
+// The strip renders it inline after a chapter's last page; single/double show it as a dedicated
+// transition page between chapters.
+const CHD_PREV_SVG   = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>';
+const CHD_NEXT_SVG   = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
+const CHD_SERIES_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>';
+const CHD_HOME_SVG   = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>';
+
+// `compact` renders just the "End of Ch. N" label + title — the series-continuous strip flows
+// straight into the next chapter, so its dividers carry no navigation.
+function _buildDividerCard(k, compact = false) {
+  const ch   = _chapters[k];
+  const prev = _chapters[k - 1];
+  const next = _chapters[k + 1];
+  const el = document.createElement('div');
+  el.className = 'chd';
+  const adj = (c, dir) => `
+    <button class="chd-adj${dir > 0 ? ' next' : ''}" data-dir="${dir}" ${c ? '' : 'disabled'}>
+      ${dir < 0 ? CHD_PREV_SVG : ''}
+      <span class="chd-adj-txt">
+        <span class="chd-lbl">${_escR(t(dir < 0 ? 'rd.divider_prev' : 'rd.divider_next'))}</span>
+        <span class="chd-num">${c ? _escR(t('rd.ch_n', { n: c.num })) : '—'}</span>
+      </span>
+      ${dir > 0 ? CHD_NEXT_SVG : ''}
+    </button>`;
+  el.innerHTML = `
+    <div class="chd-end">${_escR(t('rd.end_of_ch', { n: ch.num }))}</div>
+    ${ch.title ? `<div class="chd-sub">(${_escR(ch.title)})</div>` : ''}
+    ${compact ? '' : `
+    <div class="chd-nav">${adj(prev, -1)}${adj(next, 1)}</div>
+    <div class="chd-links">
+      <button class="chd-pill" data-act="series">${CHD_SERIES_SVG}<span>${_escR(t('rd.divider_series'))}</span></button>
+      <button class="chd-pill" data-act="home">${CHD_HOME_SVG}<span>${_escR(t('rd.divider_home'))}</span></button>
+    </div>`}`;
+  if (compact) return el;
+  el.querySelectorAll('.chd-adj').forEach(btn => btn.addEventListener('click', () => {
+    const target = _chapters[k + parseInt(btn.dataset.dir, 10)];
+    if (!target) return;
+    _hidePageDivider();
+    _jumpToPage(target.start + 1);
+  }));
+  el.querySelector('[data-act="series"]').addEventListener('click', () => { if (_series) location.href = `../overview?g=${_series.ownerId}`; });
+  el.querySelector('[data-act="home"]').addEventListener('click', () => { location.href = '../'; });
+  return el;
 }
-function _wireChapterBar(bar) {
-  bar.querySelectorAll('.ch-nav').forEach(btn => btn.addEventListener('click', () => _gotoAdjacentChapter(parseInt(btn.dataset.dir, 10))));
-  const lbl = bar.querySelector('.ch-label');
-  if (lbl) lbl.addEventListener('click', () => { location.href = `../overview?g=${_series.ownerId}`; });
+
+// ── Page-mode transition page ──
+// Flipping across a chapter boundary in single/double first lands on a dedicated transition page
+// (the card above, full-view). Another flip in the same direction continues into the adjacent
+// chapter; flipping back returns to the ended chapter's last page. Jumps (thumbs, scrubber,
+// chapter keys) skip it. Disabled entirely when chapter transitions are turned off in Settings.
+let _pageDivider = null;   // index of the chapter whose end-transition is showing, or null
+
+function _showPageDivider(k) {
+  _pageDivider = k;
+  const ch = _chapters[k];
+  currentPage = ch.start + ch.count;   // the transition "sits" on the ended chapter's last page
+  updateCounter();
+  highlightThumb(currentPage - 1);
+  scrollThumbIntoView(currentPage - 1);
+  dividerPage.innerHTML = '';
+  dividerPage.appendChild(_buildDividerCard(k));
+  dividerPage.style.display = 'flex';
+  document.body.classList.add('page-divider');
+  document.body.classList.remove('study-bubbles-active');
+  window.scrollTo(0, 0);
 }
-// Build the inline chapter bars into the strip (above the first page / below the last). Called by
-// buildStrip after the page rows exist; no-op when this gallery isn't part of a series.
-function _addStripChapterBars() {
-  if (!_series || !stripView) return;
-  const top = document.createElement('div');
-  top.className = 'chapter-bar inline';
-  top.innerHTML = _chapterBarInner();
-  _wireChapterBar(top);
-  stripView.insertBefore(top, stripView.firstChild);
-  const bot = document.createElement('div');
-  bot.className = 'chapter-bar inline';
-  bot.innerHTML = _chapterBarInner();
-  _wireChapterBar(bot);
-  stripView.appendChild(bot);
+
+function _hidePageDivider() {
+  if (_pageDivider === null) return;
+  _pageDivider = null;
+  dividerPage.style.display = 'none';
+  document.body.classList.remove('page-divider');
 }
-// Fixed pills for single/double page modes (strip uses the inline bars above). The top pill rides
-// above the FIRST page (1/N) and the bottom pill below the LAST page (N/N) — mirroring the strip's
-// inline bars — so a chapter transition only shows at the chapter's own edges, not on every page.
-function renderChapterBars() {
-  const top = document.getElementById('chapterBarTop');
-  const bot = document.getElementById('chapterBarBottom');
-  if (!top || !bot) return;
-  const pageMode  = !!_series && mode !== 'strip';
-  const onFirst   = currentPage === 1;
-  // Double mode shows two pages; the last page is on screen once the spread's right page reaches it.
-  const onLast    = mode === 'double' ? currentPage + 1 >= pages.length : currentPage >= pages.length;
-  const singleTop = pageMode && mode === 'single' && onFirst;
-  const doubleTop = pageMode && mode === 'double' && onFirst;
-  singleView.classList.toggle('chapter-top-visible', singleTop);
-  doubleView.classList.toggle('chapter-top-visible', doubleTop);
-  singleView.classList.toggle('chapter-bottom-visible', pageMode && mode === 'single' && onLast);
-  doubleView.classList.toggle('chapter-bottom-visible', pageMode && mode === 'double' && onLast);
-  if (pageMode) {
-    const view = mode === 'double' ? doubleView : singleView;
-    const inner = mode === 'double' ? doubleInner : singleInner;
-    if (top.parentElement !== view || top.nextSibling !== inner) view.insertBefore(top, inner);
-    if (bot.parentElement !== view || bot.previousSibling !== inner) view.insertBefore(bot, inner.nextSibling);
+
+// Called by goTo with the RAW (unclamped) target. Returns true when the navigation was consumed
+// by the transition page — either by showing it at a boundary flip, or by stepping off it.
+function _interceptPageDivider(rawN) {
+  if (mode === 'strip' || !_series || !_chapters.length) return false;
+  if (_pageDivider !== null) {
+    const d = _pageDivider;
+    if (Math.abs(rawN - currentPage) > 2) { _hidePageDivider(); return false; }   // jump → normal nav
+    if (rawN > currentPage) {
+      const nx = _chapters[d + 1];
+      if (nx) { _hidePageDivider(); goTo(nx.start + 1, true); }
+      return true;                     // no next chapter → stay on the end-of-series screen
+    }
+    _hidePageDivider();
+    goTo(_chapters[d].start + _chapters[d].count, true);
+    return true;
   }
-  const setBar = (el, show) => {
-    if (pageMode && show) { el.innerHTML = _chapterBarInner(); el.style.display = 'flex'; _wireChapterBar(el); }
-    else el.style.display = 'none';
-  };
-  setBar(top, onFirst);
-  setBar(bot, onLast);
+  if (!_chapterDividersOn) {
+    // A two-page step across an odd-length chapter would otherwise skip the adjacent chapter's
+    // first (or previous chapter's last) page when transition screens are disabled.
+    if (mode === 'double') {
+      const k = _chapterAt(currentPage);
+      const ch = _chapters[k];
+      if (rawN > ch.start + ch.count && _chapters[k + 1]) {
+        goTo(_chapters[k + 1].start + 1, true);
+        return true;
+      }
+      if (rawN < ch.start + 1 && k > 0) {
+        const prev = _chapters[k - 1];
+        goTo(prev.start + prev.count, true);
+        return true;
+      }
+    }
+    return false;
+  }
+  if (Math.abs(rawN - currentPage) > 2) return false;   // thumbs/scrubber jumps skip the transition
+  const k = _chapterAt(currentPage);
+  const ch = _chapters[k];
+  if (rawN > ch.start + ch.count) { _showPageDivider(k); return true; }
+  if (rawN < ch.start + 1 && k > 0) { _showPageDivider(k - 1); return true; }
+  return false;
 }
 
 function showEmpty() {
@@ -535,19 +665,20 @@ function _scrollPageModeWhenImgsLoad(imgs, nav) {
   imgs.forEach(img => img.addEventListener('load', () => _scrollPageModeToStartSoon(nav), { once: true }));
 }
 
-async function goTo(n) {
+async function goTo(n, skipDivider = false) {
   if (!pages.length) return;
+  if (!skipDivider && _interceptPageDivider(n)) return;   // boundary flips show the transition page
+  if (_pageDivider !== null) _hidePageDivider();          // any other navigation dismisses it
   const nav = _beginPageNav();
-  n = Math.max(1, Math.min(pages.length, n));
+  n = Math.max(1, Math.min(pages.length, n));   // chapters are continuous; only the series clamps
   currentPage = n;
 
   try {
     // Update navigation UI immediately; image loads asynchronously below
-    scrubber.value = n;
     updateCounter();
+    _evictFarUrls(n - 1);
     highlightThumb(n - 1);
     scrollThumbIntoView(n - 1);
-    renderChapterBars();   // top/bottom chapter pills track the first/last page in single/double
     if (mode !== 'strip') _scrollPageModeToStart();
 
     if (mode === 'single') {
@@ -562,7 +693,7 @@ async function goTo(n) {
       if (studyMode) _refreshBubbleLayers();
     } else if (mode === 'double') {
       const lPage = pages[n - 1];
-      const rPage = n < pages.length ? pages[n] : null;
+      const rPage = _rightPageForSpread(n);
       doubleInner.classList.toggle('single-spread', !rPage);
       imgRight.style.display = rPage ? 'block' : 'none';
       const [lUrl, rUrl] = await Promise.all([
@@ -586,18 +717,76 @@ async function goTo(n) {
   // strip: images loaded in buildStrip(); scroll handled separately
 }
 
+// Counter and scrubber are CHAPTER-relative (page n of this chapter); the thumbnails and the
+// strip indicator stay series-wide. Every currentPage change funnels through here, so this is
+// also where the topbar chrome notices the reading line crossing into another chapter.
 function updateCounter() {
-  const label = `${currentPage} / ${pages.length}`;
+  const chIdx = _chapterAt(currentPage);
+  if (chIdx !== _curChIdx) _applyChapterChrome(chIdx);
+  const ch = _chapters[chIdx];
+  const label = ch ? `${currentPage - ch.start} / ${ch.count}` : `${currentPage} / ${pages.length}`;
   pageCounter.textContent   = label;
   scrubberLabel.textContent = label;
+  if (ch) scrubber.value = currentPage - ch.start;
 }
 
+// Point the topbar (gallery #, title, source link), document title, scrubber range and the URL at
+// the chapter the current page belongs to — so a merged series still reads as its own galleries.
+function _applyChapterChrome(idx) {
+  const ch = _chapters[idx];
+  if (!ch) return;
+  const wasApplied = _curChIdx !== -1;
+  _curChIdx = idx;
+  const meta = ch.meta;
+  const displayId = meta?.sourceId || ch.id;
+  tbGallery.textContent = `#${displayId}`;
+  tbGallery.classList.toggle('local', !!meta?.isLocalImport);
+  document.title = `Shiori — #${displayId}`;
+  const visitUrl = galleryLink(meta, displayId, 1);
+  tbMeta.onclick = visitUrl ? () => window.open(visitUrl, '_blank', 'noopener') : null;
+  const titleEl = document.getElementById('tbTitle');
+  if (titleEl) titleEl.textContent = (meta && pickTitle(meta, getLang())) || '';
+  scrubber.max = ch.count;
+  // Refresh should land back in this chapter — but never rewrite the URL for the initial apply,
+  // which would drop the ?page= the reader was opened with.
+  if (_series && wasApplied) _syncUrlToChapter(ch);
+  _syncThumbScope();   // chapter-scoped thumbnails follow the chapter under the reading line
+  _recomputeFold();   // the title just changed width → re-measure the fold breakpoint
+}
+
+// Debounced ?g= rewrite (fast scrubbing can cross many chapters per second; Safari throttles
+// rapid replaceState calls). Resolved against location.href, never the <base>.
+let _urlSyncTimer = null;
+function _syncUrlToChapter(ch) {
+  clearTimeout(_urlSyncTimer);
+  _urlSyncTimer = setTimeout(() => {
+    try {
+      const u = new URL(location.href);
+      u.searchParams.set('g', String(ch.id));
+      u.searchParams.delete('page');
+      u.searchParams.delete('p');
+      history.replaceState(null, '', u);
+    } catch {}
+  }, 300);
+}
+
+// Thumbnails cover a SCOPE of the merged list: the whole series when the strip flows the series
+// continuously, the current chapter everywhere else (single/double, and the per-chapter strip).
+// Items are indexed locally; callers keep passing GLOBAL 0-based page indices.
+let _thumbItems = [];      // cached .thumb-item elements (local index within the thumb scope)
+let _thumbBase  = 0;       // global page offset of _thumbItems[0]
+let _thumbCount = 0;
+let _activeThumbIdx = -1;  // local index
 function highlightThumb(idx) {
-  document.querySelectorAll('.thumb-item').forEach((t, i) => t.classList.toggle('active', i === idx));
+  const local = idx - _thumbBase;
+  if (local === _activeThumbIdx) return;
+  if (_activeThumbIdx >= 0) _thumbItems[_activeThumbIdx]?.classList.remove('active');
+  _activeThumbIdx = (local >= 0 && local < _thumbItems.length) ? local : -1;
+  if (_activeThumbIdx >= 0) _thumbItems[_activeThumbIdx].classList.add('active');
 }
 
 function scrollThumbIntoView(idx) {
-  const t = thumbStrip.children[idx];
+  const t = _thumbItems[idx - _thumbBase];
   if (t) t.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
 }
 
@@ -607,12 +796,11 @@ function scrollThumbIntoView(idx) {
 // separate area metric) keeps the border tracking the fill, and makes it flip symmetrically when
 // stepping between adjacent pages in either direction.
 function _setCurrentPageFromProportion(p) {
-  const n = pages.length;
+  const n = _viewCount;   // proportion is over the strip's scoped range, not the whole series
   if (!n) return;
-  const pg = Math.min(n, Math.max(1, Math.round(p * (n - 1)) + 1));
+  const pg = _viewBase + Math.min(n, Math.max(1, Math.round(p * (n - 1)) + 1));
   if (pg === currentPage) return;
-  currentPage    = pg;
-  scrubber.value = pg;
+  currentPage = pg;
   updateCounter();
   highlightThumb(pg - 1);
 }
@@ -625,8 +813,35 @@ const thumbResizeHandle = document.getElementById('thumbResizeHandle');
 let _thumbHeight   = 88;
 let _thumbViewport = null;  // overlay showing current viewport range in the reader
 
+// The scope thumbnails should cover right now (see the note above highlightThumb).
+function _thumbScope() {
+  if (mode === 'strip') return { base: _viewBase, count: _viewCount };   // match the built strip
+  if (!_series) return { base: 0, count: pages.length };
+  const ch = _chapters[_chapterAt(currentPage)];
+  return ch ? { base: ch.start, count: ch.count } : { base: 0, count: pages.length };
+}
+
+// Rebuild the thumbnails when their scope changed (mode switch, chapter crossing, strip re-scope)
+// and restart generation for the fresh items. Cheap when the scope is unchanged.
+function _syncThumbScope() {
+  const s = _thumbScope();
+  if (s.base === _thumbBase && s.count === _thumbCount && _thumbItems.length) return;
+  buildThumbs();
+  if (thumbsOpen) {
+    if (_thumbCount <= THUMB_EAGER_MAX) _enqueueAllThumbs(); else _enqueueNearbyThumbs();
+    _prioritizeVisibleThumbs();
+    if (mode === 'strip') _setIndicator(_scrollYToProportion(window.scrollY + _pinOffset()));
+    else setTimeout(_ensureActiveThumbVisible, 100);
+  }
+}
+
 function buildThumbs() {
+  const s = _thumbScope();
+  _thumbBase = s.base;
+  _thumbCount = s.count;
   thumbStrip.innerHTML = '';
+  _thumbItems = [];
+  _activeThumbIdx = -1;
 
   // Viewport indicator first — stays as first child, sized & positioned via JS.
   _thumbViewport = document.createElement('div');
@@ -634,19 +849,22 @@ function buildThumbs() {
   thumbStrip.appendChild(_thumbViewport);
   _attachIndicatorListener();
 
-  pages.forEach((p, i) => {
+  for (let i = 0; i < s.count; i++) {
+    const gi = s.base + i;             // global page index — what the generator loads by
     const div = document.createElement('div');
-    div.className = 'thumb-item' + (i === 0 ? ' active' : '');
-    div.dataset.idx = i;
+    div.className = 'thumb-item';
+    div.dataset.idx = gi;
     const img = document.createElement('img');
-    img.dataset.idx = i;
+    img.dataset.idx = gi;
     div.appendChild(img);
     const num = document.createElement('span');
     num.className = 'thumb-num';
-    num.textContent = i + 1;
+    num.textContent = i + 1;           // numbering is scope-local (chapter page or series page)
     div.appendChild(num);
     thumbStrip.appendChild(div);
-  });
+    _thumbItems.push(div);
+  }
+  highlightThumb(Math.min(s.base + s.count, Math.max(s.base + 1, currentPage)) - 1);
 
   // Generation is NOT started here: decoding every page up front fought the strip's own
   // loader for IDB/decoder bandwidth and delayed the first visible page by seconds. Thumbs
@@ -654,22 +872,43 @@ function buildThumbs() {
   // comes first.
 }
 
-function _enqueueAllThumbs() {
-  const imgs = thumbStrip.querySelectorAll('.thumb-item img');
-  imgs.forEach((img) => {
-    if (img.dataset.queued) return;   // already queued by a previous call
-    const idx = parseInt(img.dataset.idx);
-    const page = pages[idx];
-    if (!page) return;
-    img.dataset.queued = '1';
-    if (_thumbBlobCache.has(page.url)) {
-      if (!img.getAttribute('src')) img.src = _thumbBlobCache.get(page.url);
-      return;
-    }
-    _generateThumbBlob(page).then(url => {
-      if (url && !img.getAttribute('src')) img.src = url;
-    });
+// Above this many pages, thumbs are never all pre-generated — only the band around the strip's
+// visible range is, on demand, so opening the thumbnails on a huge series doesn't decode
+// every page in the background.
+const THUMB_EAGER_MAX = 400;
+
+function _enqueueThumb(img) {
+  const page = pages[parseInt(img.dataset.idx)];
+  if (!page) return;
+  const cached = _cachedThumb(page.url);
+  if (img.dataset.queued) {
+    if (cached && !img.getAttribute('src')) img.src = cached;
+    return;
+  }
+  img.dataset.queued = '1';
+  if (cached) {
+    if (!img.getAttribute('src')) img.src = cached;
+    return;
+  }
+  _generateThumbBlob(page).then(url => {
+    if (url && img.isConnected && img.dataset.queued && !img.getAttribute('src')) img.src = url;
   });
+}
+
+function _enqueueAllThumbs() {
+  thumbStrip.querySelectorAll('.thumb-item img').forEach(_enqueueThumb);
+}
+
+// Long series: enqueue only thumbs within ± one strip-width of the visible band.
+function _enqueueNearbyThumbs() {
+  if (!thumbsOpen) return;
+  const lo = thumbStrip.scrollLeft - thumbStrip.clientWidth;
+  const hi = thumbStrip.scrollLeft + 2 * thumbStrip.clientWidth;
+  for (const item of _thumbItems) {
+    if (item.offsetLeft + item.offsetWidth < lo || item.offsetLeft > hi) continue;
+    const img = item.querySelector('img');
+    if (img) _enqueueThumb(img);
+  }
 }
 
 // Move currently-visible thumbs to the front of the generation queue.
@@ -711,7 +950,7 @@ function setThumbsOpen(open) {
   document.body.classList.toggle('thumbs-open', open);   // lets the scroll-top button ride above it
   platform.kv.set({ readerThumbsOpen: open });
   if (open) {
-    _enqueueAllThumbs();
+    if (_thumbCount <= THUMB_EAGER_MAX) _enqueueAllThumbs(); else _enqueueNearbyThumbs();
     _prioritizeVisibleThumbs();
     if (mode === 'strip') {
       setTimeout(() => _setIndicator(_scrollYToProportion(window.scrollY + _pinOffset())), 50);
@@ -785,7 +1024,8 @@ const _pinOffset = () => (readerPinned ? TOPBAR_H : 0);
 function _scrollYToProportion(scrollY) {
   // Measure the .page-wrap rows (positioned flex children of stripView) — each page-img sits
   // inside its own relative wrap, so the wrap is the element whose offsetTop tracks scroll.
-  const imgs = stripView ? Array.from(stripView.querySelectorAll('.page-wrap')) : [];
+  // _stripWraps is cached at build time; re-querying 1000+ rows per scroll frame is too slow.
+  const imgs = _stripWraps;
   const n = imgs.length;
   if (n < 2) return Math.max(0, Math.min(1, scrollY / Math.max(1, document.documentElement.scrollHeight - window.innerHeight)));
   // Binary search: find last img whose offsetTop <= scrollY
@@ -804,7 +1044,7 @@ function _scrollYToProportion(scrollY) {
 // Map proportion → scrollY via page index.
 // Proportion p = i/(n-1) lands at imgs[i].offsetTop; fractional part interpolates between pages.
 function _proportionToScrollY(p) {
-  const imgs = stripView ? Array.from(stripView.querySelectorAll('.page-wrap')) : [];
+  const imgs = _stripWraps;
   const n = imgs.length;
   if (n < 2) return Math.round(p * Math.max(1, document.documentElement.scrollHeight - window.innerHeight));
   const scaled = Math.max(0, Math.min(n - 1, p * (n - 1)));
@@ -884,9 +1124,11 @@ function _dragToCursor(clientX) {
   if (mode === 'strip') {
     window.scrollTo({ top: _proportionToScrollY(p) - _pinOffset(), behavior: 'instant' });
     _setCurrentPageFromProportion(p);   // keep the counter in step while scrubbing (border is hidden)
+    _scheduleStripSync();   // the scroll listener skips syncing while _thumbDragging — do it here
   } else {
-    const idx = Math.min(pages.length - 1, Math.round(p * (pages.length - 1)));
-    if (idx + 1 !== currentPage) goTo(idx + 1);
+    const idx = Math.min(_thumbCount - 1, Math.round(p * (_thumbCount - 1)));
+    const n = _thumbBase + idx + 1;
+    if (n !== currentPage) goTo(n, true);
   }
 }
 
@@ -903,7 +1145,7 @@ function _clickSnapToThumb(clientX) {
   }
 
   if (mode === 'strip') {
-    const stripImg = stripView.querySelector(`[data-page="${idx + 1}"]`);
+    const stripImg = stripView.querySelector(`[data-page="${_thumbBase + idx + 1}"]`);
     if (!stripImg) return;
     const targetY   = stripImg.getBoundingClientRect().top + window.scrollY;
     const destP     = _scrollYToProportion(targetY);
@@ -913,8 +1155,8 @@ function _clickSnapToThumb(clientX) {
     _scrollSettled       = false;
     _lastIndicatorCenter = null;
     window.scrollTo({ top: targetY - _pinOffset(), behavior: 'smooth' });
-  } else if (idx + 1 !== currentPage) {
-    goTo(idx + 1);
+  } else if (_thumbBase + idx + 1 !== currentPage) {
+    goTo(_thumbBase + idx + 1, true);
   }
 }
 
@@ -986,6 +1228,9 @@ function _startThumbInteraction(initialEvent) {
     if (dragging) {
       if (isScrubber) {
         _thumbDragging = false;
+        // Land the virtualized window exactly where the scrub ended (throttling during the drag
+        // may have left the last couple of pages unsynced).
+        if (mode === 'strip') { _lastSyncCenter = Infinity; _scheduleStripSync(); }
       } else {
         _launchSwipeMomentum(velocity);
       }
@@ -1002,7 +1247,15 @@ function _startThumbInteraction(initialEvent) {
   document.addEventListener('pointercancel', up);
 }
 
-thumbStrip.addEventListener('scroll', _prioritizeVisibleThumbs, { passive: true });
+let _thumbScrollRaf = null;
+thumbStrip.addEventListener('scroll', () => {
+  if (_thumbScrollRaf) return;
+  _thumbScrollRaf = requestAnimationFrame(() => {
+    _thumbScrollRaf = null;
+    if (_thumbCount > THUMB_EAGER_MAX) _enqueueNearbyThumbs();   // on-demand band for long series
+    _prioritizeVisibleThumbs();
+  });
+}, { passive: true });
 
 // A plain mouse-wheel over the strip scrolls it horizontally (no Shift needed), eased toward an
 // accumulated target so rapid ticks glide smoothly instead of stepping. Kept local — preventDefault
@@ -1132,106 +1385,203 @@ applyReaderPin(readerPinned);
 
 
 // ── Strip view ──
-// Every page <img> gets a blob: URL — nearest-to-viewport first, then everything else — and
-// keeps it for the whole session. Slots lock their aspect ratio the moment dimensions are
-// known, so the scrollbar is stable; nothing is ever evicted (the browser discards off-screen
-// decoded bitmaps on its own), so scrolling back never pops. A decode-ahead window keeps
-// upcoming pages painted before they enter the viewport, however fast the user scrolls.
-const DECODE_AHEAD = 8;       // pages on each side of the current one kept eagerly decoded
-const STRIP_CONCURRENCY = 4;  // parallel loaders — kept low so loads always win over thumb work
+// The strip is VIRTUALIZED. Every page gets a fixed-order .page-wrap whose aspect ratio reserves
+// its height (so the scrollbar and the strip↔thumb sync geometry stay stable), but only a window
+// of pages around the reading line holds a live <img src>. Outside a wider hysteresis band the
+// src is dropped — the browser frees the decoded bitmap — and blob URLs cached far away are
+// revoked, so a series of thousands of pages holds the same steady-state memory as a short
+// gallery. Loads run nearest-to-viewport first, and every jump (scrubber, thumbs, fast wheel,
+// click-wheel nav) re-aims the window at the new position, cancelling superseded loads.
+const DECODE_AHEAD = 8;        // pages on each side of the current one kept eagerly decoded
+const STRIP_CONCURRENCY = 4;   // parallel loaders — kept low so loads always win over thumb work
+const MOUNT_AHEAD = 12;        // pages on each side of the current one that hold a live src
+const UNMOUNT_BEYOND = 30;     // mounted pages farther than this lose their src (hysteresis)
+const URL_EVICT_BEYOND = 80;   // cached blob URLs farther than this are revoked
 
-// (Re)point every strip image at the current variant, nearest the current page first. On a
-// translation-view swap (swap=true) a visible page's replacement is decoded BEFORE its src
-// changes, so it never blanks; off-screen pages just swap. A bumped _stripGen cancels any prior
-// pass (and stale in-flight loads), so toggling mid-load resolves to the right variant.
-function _runStripLoader(swap) {
-  const gen = ++_stripGen;
-  const imgs = [...stripView.querySelectorAll('.page-img')];
-  if (!imgs.length) return;
-  const pending = new Set(imgs.map((_, i) => i));
-  let active = 0;
+// The strip renders a SCOPE of the merged list: the whole series when the series-continuous flow
+// is on, the current chapter only otherwise. All row indices below are LOCAL to that scope;
+// currentPage stays global and converts through _viewBase.
+let _viewBase  = 0;            // global page offset of the strip's first row
+let _viewCount = 0;            // rows in the strip
+let _stripWraps = [];          // .page-wrap per row, fixed order (local index)
+let _stripImgs  = [];          // the .page-img inside each wrap
+const _mountedIdx = new Set(); // local indices whose img currently holds a src
 
-  async function loadOne(idx) {
-    const url = await pageBlobUrl(pages[idx]);
-    if (_stripGen !== gen || !url) return;
-    const img = imgs[idx];
-    if (img.getAttribute('src') === url) return;   // already showing this variant
-    const near = Math.abs(idx + 1 - currentPage) <= DECODE_AHEAD;
-    if (swap && near && img.getAttribute('src')) {
-      const pre = new Image(); pre.src = url;       // decode the replacement before swapping in
-      try { await pre.decode(); } catch {}
-      if (_stripGen !== gen) return;
-    }
-    img.src = url;
-    if (near) { try { await img.decode(); } catch {} }
+function _stripScope() {
+  if (!_series || _stripSeriesFlow) return { base: 0, count: pages.length };
+  const ch = _chapters[_chapterAt(currentPage)];
+  return ch ? { base: ch.start, count: ch.count } : { base: 0, count: pages.length };
+}
+
+// Revoke cached blob URLs for pages far from centerIdx (0-based). The radius is far wider than
+// the unmount band and the page-mode warm window, so nothing on screen can lose its URL.
+function _evictFarUrls(centerIdx) {
+  for (const [key, url] of _pageUrlCache) {
+    const idx = _pageIdxByUrl.get(key.slice(2));   // strip the 'o:'/'t:' variant prefix
+    if (idx === undefined || Math.abs(idx - centerIdx) <= URL_EVICT_BEYOND) continue;
+    if (url) { try { URL.revokeObjectURL(url); } catch {} }
+    _pageUrlCache.delete(key);
   }
+}
 
+// Load one page into its strip slot. On a translation-view swap (swap=true) a visible page's
+// replacement is decoded BEFORE its src changes, so it never blanks. Bails out silently when the
+// pass was superseded or the window has already moved past this page.
+async function _mountOne(idx, gen, swap) {
+  const page = pages[_viewBase + idx];
+  const url = await pageBlobUrl(page);
+  if (_stripGen !== gen || !url) return;
+  if (Math.abs(idx + 1 - (currentPage - _viewBase)) > MOUNT_AHEAD) return;   // window moved on mid-load
+  const img = _stripImgs[idx];
+  const vk  = _variantKey(page);
+  if (img.dataset.vk === vk && img.getAttribute('src') === url) {
+    _mountedIdx.add(idx);
+    const wrap = _stripWraps[idx];
+    if (studyMode && wrap && !wrap.querySelector(':scope > .bubble-layer')) _renderBubbleLayer(wrap, _viewBase + idx + 1);
+    return;
+  }
+  const near = Math.abs(idx + 1 - (currentPage - _viewBase)) <= DECODE_AHEAD;
+  if (swap && near && img.getAttribute('src')) {
+    const pre = new Image(); pre.src = url;   // decode the replacement before swapping in
+    try { await pre.decode(); } catch {}
+    if (_stripGen !== gen) return;
+  }
+  img.src = url;
+  img.dataset.vk = vk;
+  _mountedIdx.add(idx);
+  const wrap = _stripWraps[idx];
+  if (studyMode && wrap && !wrap.querySelector(':scope > .bubble-layer')) _renderBubbleLayer(wrap, _viewBase + idx + 1);
+  if (near) { try { await img.decode(); } catch {} }
+}
+
+// Aim the mounted window at the current page: unmount what fell out of the hysteresis band (or
+// holds a stale variant outside the live window), evict far URLs, then fill in whatever the
+// window is missing — nearest to the viewport first. A bumped _stripGen cancels any prior pass.
+function _syncStripWindow(swap = false) {
+  if (mode !== 'strip' || !_stripImgs.length) return;
+  const gen = ++_stripGen;
+  const center = Math.max(1, Math.min(_viewCount, currentPage - _viewBase));   // local, 1-based
+  const lo = Math.max(0, center - 1 - MOUNT_AHEAD);
+  const hi = Math.min(_viewCount - 1, center - 1 + MOUNT_AHEAD);
+
+  for (const idx of [..._mountedIdx]) {
+    const img = _stripImgs[idx];
+    if ((idx < lo || idx > hi) && _stripWraps[idx]?.querySelector(':scope > .bubble-layer')) {
+      _removeWrapBubbleLayer(_stripWraps[idx]);
+    }
+    const far   = Math.abs(idx + 1 - center) > UNMOUNT_BEYOND;
+    const stale = img.dataset.vk !== _variantKey(pages[_viewBase + idx]) && (idx < lo || idx > hi);
+    if (!far && !stale) continue;
+    _removeWrapBubbleLayer(_stripWraps[idx]);
+    img.removeAttribute('src');
+    delete img.dataset.vk;
+    _mountedIdx.delete(idx);
+  }
+  _evictFarUrls(currentPage - 1);
+
+  const pending = [];
+  for (let i = lo; i <= hi; i++) {
+    const img = _stripImgs[i];
+    if (img.getAttribute('src') && img.dataset.vk === _variantKey(pages[_viewBase + i])) {
+      // Already mounted: re-warm the decode cache near the viewport (no-op when still resident).
+      if (Math.abs(i + 1 - center) <= DECODE_AHEAD) img.decode().catch(() => {});
+      const wrap = _stripWraps[i];
+      if (studyMode && wrap && !wrap.querySelector(':scope > .bubble-layer')) _renderBubbleLayer(wrap, _viewBase + i + 1);
+      continue;
+    }
+    pending.push(i);
+  }
+  pending.sort((a, b) => Math.abs(a + 1 - center) - Math.abs(b + 1 - center));
+  let active = 0, at = 0;
   function next() {
     if (_stripGen !== gen) return;
-    while (active < STRIP_CONCURRENCY && pending.size) {
-      let best = -1, bestDist = Infinity;
-      for (const idx of pending) {
-        const dist = Math.abs(idx + 1 - currentPage);
-        if (dist < bestDist) { bestDist = dist; best = idx; }
-      }
-      if (best < 0) return;
-      pending.delete(best);
+    while (active < STRIP_CONCURRENCY && at < pending.length) {
+      const idx = pending[at++];
       active++;
-      loadOne(best).finally(() => { active--; next(); });
+      _mountOne(idx, gen, swap).finally(() => { active--; next(); });
     }
   }
   next();
 }
 
-function buildStrip() {
-  _stripObservers.forEach(o => o.disconnect());
-  _stripObservers = [];
-  stripView.innerHTML = '';
+// Scroll-driven re-aim, throttled to one frame AND to ≥2 pages of movement, so flinging the
+// wheel, scrubbing, or the W/S scroll loop doesn't rebuild the load queue on every scroll event.
+let _lastSyncCenter = Infinity;
+let _stripSyncQueued = false;
+function _scheduleStripSync() {
+  if (mode !== 'strip') return;
+  if (Math.abs(currentPage - _lastSyncCenter) < 2) return;
+  if (_stripSyncQueued) return;
+  _stripSyncQueued = true;
+  requestAnimationFrame(() => {
+    _stripSyncQueued = false;
+    _lastSyncCenter = currentPage;
+    _syncStripWindow();
+  });
+}
 
-  // Build empty imgs upfront so DOM order is fixed before any async work. Each page-img sits
-  // in its own .page-wrap (relative) so study-mode bubble overlays can anchor to the image box;
-  // the wrap carries data-page and is the row measured by the scroll-sync geometry.
-  pages.forEach((p, i) => {
+function buildStrip() {
+  ++_stripGen;               // cancel in-flight loads aimed at the previous strip DOM
+  _mountedIdx.clear();
+  stripView.innerHTML = '';
+  const scope = _stripScope();
+  _viewBase  = scope.base;
+  _viewCount = scope.count;
+
+  // Build the full row skeleton upfront so DOM order is fixed before any async work. Each
+  // page-img sits in its own .page-wrap (relative) so study-mode bubble overlays can anchor to
+  // the image box; the wrap carries data-page (GLOBAL page number) and is the row measured by
+  // the scroll-sync geometry. Transition cards slot after a chapter's last page — the sync math
+  // only measures .page-wrap rows, so their height is absorbed by the between-page interpolation.
+  for (let i = 0; i < _viewCount; i++) {
+    const gi = _viewBase + i;
     const wrap = document.createElement('div');
     wrap.className    = 'page-wrap';
-    wrap.dataset.page = i + 1;
+    wrap.dataset.page = gi + 1;
     const img = document.createElement('img');
     img.className    = 'page-img';
     img.decoding     = 'async';
     // Reserve the row's height with the best ratio we know (this page's if seen, else the
     // gallery's typical one) so the layout doesn't reflow as images decode.
-    img.style.aspectRatio = _pageRatios.get(i) || _typicalRatio || '2 / 3';
+    img.style.aspectRatio = _pageRatios.get(gi) || _typicalRatio || '2 / 3';
     img.addEventListener('load', () => {
       if (img.naturalWidth > 1 && img.naturalHeight > 1) {
         const r = `${img.naturalWidth} / ${img.naturalHeight}`;
-        img.style.aspectRatio = r;
-        _pageRatios.set(i, r);
+        if (img.style.aspectRatio !== r) {
+          // A page ABOVE the viewport learning its true ratio would shove the reading position
+          // by its height delta — compensate the scroll so the visible content doesn't move.
+          const above  = wrap.offsetTop + wrap.offsetHeight <= window.scrollY;
+          const before = above ? wrap.offsetHeight : 0;
+          img.style.aspectRatio = r;
+          if (above) {
+            const delta = wrap.offsetHeight - before;
+            if (delta) window.scrollBy(0, delta);
+          }
+        }
+        _pageRatios.set(gi, r);
         _setPageRatioVars(img);
       }
     });
     wrap.appendChild(img);
     stripView.appendChild(wrap);
-  });
-  const imgs = [...stripView.querySelectorAll('.page-img')];
 
-  _runStripLoader(false);
-  if (studyMode) _refreshBubbleLayers();
-
-  // Keep the pages around the viewport decoded — the browser may have discarded far-away
-  // bitmaps; decode() is a no-op when they're still resident. currentPage is maintained by the
-  // scroll listener.
-  function decodeAround(center) {
-    for (let i = Math.max(0, center - 1 - DECODE_AHEAD); i <= Math.min(imgs.length - 1, center - 1 + DECODE_AHEAD); i++) {
-      if (imgs[i].src) imgs[i].decode().catch(() => {});
+    // End-of-chapter transition card. Always present in the per-chapter flow (it IS the next/
+    // previous-chapter navigation there); in the continuous flow it's the optional divide.
+    const chIdx = _chapterAt(gi + 1);
+    const isChapterEnd = gi + 1 === _chapters[chIdx].start + _chapters[chIdx].count;
+    if (_series && isChapterEnd && (_chapterDividersOn || !_stripSeriesFlow)) {
+      const div = document.createElement('div');
+      div.className = 'chapter-divider';
+      div.appendChild(_buildDividerCard(chIdx, _stripSeriesFlow));   // continuous flow → label only
+      stripView.appendChild(div);
     }
   }
-  const pageObs = new IntersectionObserver(() => {
-    decodeAround(currentPage);
-  }, { threshold: 0 });
-  imgs.forEach(img => pageObs.observe(img));
-  _stripObservers.push(pageObs);
+  _stripWraps = [...stripView.querySelectorAll('.page-wrap')];
+  _stripImgs  = _stripWraps.map(w => w.firstElementChild);
 
-  _addStripChapterBars();   // series: inline chapter bars above the first / below the last page
+  _lastSyncCenter = Infinity;
+  _syncStripWindow();
+  if (studyMode) _refreshBubbleLayers();
 }
 
 // ── Mode switching ──
@@ -1241,10 +1591,7 @@ function setMode(m, skipAnim) {
   // and make it jitter. The very first call always runs (the view isn't built yet).
   if (_modeApplied && m === mode) return;
   _modeApplied = true;
-  if (m !== 'strip' && _stripObservers.length) {
-    _stripObservers.forEach(o => o.disconnect());
-    _stripObservers = [];
-  }
+  _hidePageDivider();   // never carry a transition page across modes
   if (m !== 'strip') scrollTopBtn.classList.remove('visible');
 
   mode = m;
@@ -1270,15 +1617,15 @@ function setMode(m, skipAnim) {
     buildStrip();
     if (!skipAnim) requestAnimationFrame(_scrollStripToCurrent);
   } else {
-    goTo(currentPage);
+    goTo(currentPage, true);
   }
-  renderChapterBars();   // (re)place the fixed pill for page modes; strip uses its inline bars
+  _syncThumbScope();   // strip (possibly series-wide) ↔ page modes (chapter) change the thumb range
 }
 
 // Scroll the strip to the current page. Rows already reserve the correct height (see buildStrip),
 // so the target lands in place and stays — no post-load correction, which is what used to flash.
 function _scrollStripToCurrent() {
-  if (currentPage <= 1) { window.scrollTo(0, 0); return; }
+  if (currentPage <= _viewBase + 1) { window.scrollTo(0, 0); return; }
   const target = stripView.querySelector(`[data-page="${currentPage}"]`);
   if (target) target.scrollIntoView();
 }
@@ -1296,6 +1643,7 @@ let _clickWheelNavHeld = false;
 let _clickWheelNavUsed = false;
 let _clickWheelNavDelta = 0;
 let _clickWheelNavPage = null;
+let _clickWheelNavSteps = 0;   // navigations in this click-hold session — boundary rule below
 let _clickWheelNavClearTimer = null;
 
 function _endClickWheelNav() {
@@ -1315,39 +1663,71 @@ function _eventDominantWheelDelta(e) {
   return delta;
 }
 
+// Instant strip jump — chapter navigation and scope changes. Rebuilds a chapter-only strip when
+// the target is outside it, then lands at the TOP of the target page synchronously: no smooth
+// animation (which would crawl through every page in between) and no async gap in which a stray
+// scroll event could re-derive currentPage from the stale scroll offset.
+function _stripJumpTo(n) {
+  if (!pages.length) return false;
+  n = Math.max(1, Math.min(pages.length, n));
+  currentPage = n;
+  if (n <= _viewBase || n > _viewBase + _viewCount) buildStrip();
+  updateCounter();        // applies the new chapter's chrome, which re-scopes the thumbnails
+  highlightThumb(n - 1);
+  scrollThumbIntoView(n - 1);
+  _scrollStripToCurrent();
+  _lastSyncCenter = Infinity;
+  _scheduleStripSync();
+  return true;
+}
+
 function _scrollStripToPage(n) {
+  if (!pages.length) return false;
+  n = Math.max(1, Math.min(pages.length, n));
+  // Chapter-only strip: a target outside the scoped range re-scopes and lands instantly.
+  if (n <= _viewBase || n > _viewBase + _viewCount) return _stripJumpTo(n);
   const t = stripView.querySelector(`[data-page="${n}"]`);
   if (!t) return false;
   t.scrollIntoView({ behavior: 'smooth' });
   currentPage = n;
-  scrubber.value = n;
   updateCounter();
   highlightThumb(n - 1);
   scrollThumbIntoView(n - 1);
+  _scheduleStripSync();   // start loading the destination before the smooth scroll arrives
   return true;
 }
 
+// Like held keys, a continuous click-wheel run breaks at chapter boundaries: it parks on the
+// transition page (or the chapter's edge when there is none) and only a session that STARTS
+// there (release, then click-hold again) continues into the adjacent chapter.
 function _clickWheelPageNav(dir) {
   if (!pages.length) return false;
   const step = mode === 'double' ? 2 : 1;
   if (mode === 'strip') {
     const base = _clickWheelNavPage ?? currentPage;
-    const next = Math.max(1, Math.min(pages.length, base + dir));
-    if (next === base) return false;
-    if (_scrollStripToPage(next)) {
-      _clickWheelNavPage = next;
+    const rawNext = base + dir;
+    if (rawNext < 1 || rawNext > pages.length) return false;   // series edge — chapters are continuous
+    if (_clickWheelNavSteps > 0 && _chapterAt(rawNext) !== _chapterAt(base)) return false;
+    if (_scrollStripToPage(rawNext)) {
+      _clickWheelNavPage = rawNext;
+      _clickWheelNavSteps++;
       return true;
     }
     return false;
   }
-  const next = Math.max(1, Math.min(pages.length, currentPage + dir * step));
-  if (next === currentPage) return false;
-  goTo(next);
+  if (_clickWheelNavSteps > 0 && _pageDivider !== null) return false;   // parked on the transition page
+  const chW = _chapters[_chapterAt(currentPage)];
+  const rawN = currentPage + dir * step;
+  const crossing = chW ? (rawN > chW.start + chW.count || rawN < chW.start + 1) : false;
+  if (_clickWheelNavSteps > 0 && crossing && !(_chapterDividersOn && _series)) return false;
+  if (Math.max(1, Math.min(pages.length, rawN)) === currentPage && !crossing) return false;
+  goTo(rawN);   // raw target — the intercept can show the transition page at the boundary
+  _clickWheelNavSteps++;
   return true;
 }
 
 function _isClickWheelNavTarget(target) {
-  return !target.closest('button, a, input, textarea, select, [contenteditable], .study-text');
+  return !target.closest('button, a, input, textarea, select, [contenteditable]');
 }
 
 viewport.addEventListener('pointerdown', (e) => {
@@ -1357,6 +1737,7 @@ viewport.addEventListener('pointerdown', (e) => {
   _clickWheelNavHeld = true;
   _clickWheelNavUsed = false;
   _clickWheelNavDelta = 0;
+  _clickWheelNavSteps = 0;
   _clickWheelNavPage = mode === 'strip' ? currentPage : null;
 }, true);
 
@@ -1394,18 +1775,13 @@ clickNext.addEventListener('click', () => goTo(currentPage + 1));
 dClickPrev.addEventListener('click', () => goTo(currentPage - 2));
 dClickNext.addEventListener('click', () => goTo(currentPage + 2));
 
-// Scrubber
+// Scrubber — chapter-relative: its range is the current chapter, so the value maps onto the
+// chapter's slice of the merged page list.
 scrubber.addEventListener('input', () => {
-  const n = parseInt(scrubber.value);
-  if (mode === 'strip') {
-    const t = stripView.querySelector(`[data-page="${n}"]`);
-    if (t) t.scrollIntoView({ behavior: 'smooth' });
-    currentPage = n;
-    updateCounter();
-    highlightThumb(n - 1);
-  } else {
-    goTo(n);
-  }
+  const ch = _chapters[_chapterAt(currentPage)];
+  const n = (ch ? ch.start : 0) + parseInt(scrubber.value);
+  if (mode === 'strip') _scrollStripToPage(n);
+  else goTo(n, true);   // absolute jump — never show the transition page
 });
 
 // Release focus after scrubbing so the keydown guard (which ignores keys aimed at the scrubber)
@@ -1440,6 +1816,7 @@ window.addEventListener('scroll', () => {
     // page-crossing observer), so a programmatic jump settles on the right page on its own.
     const p = _scrollYToProportion(window.scrollY + _pinOffset());
     _setCurrentPageFromProportion(p);
+    _scheduleStripSync();   // keep the virtualized window aimed at the reading line
     if (thumbsOpen) _setIndicator(p);
   }
   // Debounce _scrollSettled: marks smooth-scroll as done 150ms after last scroll event.
@@ -1463,12 +1840,13 @@ viewport.addEventListener('click', (e) => {
 // Both variants stay cached (keyed per variant), so toggling back is instant.
 function _swapVisibleVariant() {
   if (mode === 'strip') {
-    _runStripLoader(true);
+    _syncStripWindow(true);
   } else if (mode === 'single') {
     _swapImg(mainImg, pages[currentPage - 1]);
   } else if (mode === 'double') {
     _swapImg(imgLeft, pages[currentPage - 1]);
-    if (currentPage < pages.length) _swapImg(imgRight, pages[currentPage]);
+    const rPage = _rightPageForSpread(currentPage);
+    if (rPage) _swapImg(imgRight, rPage);
   }
 }
 
@@ -1526,6 +1904,25 @@ function _removeBubbleLayers() {
     try { if (u.bgUrl) URL.revokeObjectURL(u.bgUrl); (u.textUrls || []).forEach(t => t && URL.revokeObjectURL(t)); } catch {}
   }
   _pageLayerUrls.clear();
+  document.body.classList.remove('study-bubbles-active');
+}
+
+function _releaseLayerUrls(pageUrl) {
+  const u = _pageLayerUrls.get(pageUrl);
+  if (!u) return;
+  try {
+    if (u.bgUrl) URL.revokeObjectURL(u.bgUrl);
+    (u.textUrls || []).forEach(t => t && URL.revokeObjectURL(t));
+  } catch {}
+  _pageLayerUrls.delete(pageUrl);
+}
+
+function _removeWrapBubbleLayer(wrap) {
+  const layer = wrap && wrap.querySelector(':scope > .bubble-layer');
+  if (layer) { if (layer._ro) layer._ro.disconnect(); layer.remove(); }
+  const pageNum = parseInt(wrap?.dataset?.page, 10);
+  const page = pages[pageNum - 1];
+  if (page) _releaseLayerUrls(page.url);
 }
 
 // Object URLs for a page's study layers: one shared bg + one per bubble text, created once.
@@ -1549,12 +1946,13 @@ function _clipInset(r) {
   return `inset(${top}% ${right}% ${bottom}% ${left}%)`;
 }
 
-// A selectable DOM-text block for one bubble, positioned at the renderer's layout box and
-// scaled with the page via the layer's --pgscale. Style comes from the stored renderer hints;
-// anything missing falls back to a deterministic reader style (never inferred from the image).
+// A DOM-text block for one bubble's translation, positioned at the rect the renderer actually
+// drew its glyph canvas at (tbox; older records fall back to the layout box) and scaled with
+// the page via the layer's --pgscale. Style comes from the stored renderer hints; anything
+// missing falls back to a deterministic reader style (never inferred from the image).
 function _buildStudyText(b, hasBg, pageW) {
   if (!b.tr) return null;
-  const r = b.rbox || b.region || b.box;
+  const r = b.tbox || b.rbox || b.region || b.box;
   const el = document.createElement('div');
   el.className = 'study-text' + (hasBg ? '' : ' boxed');
   el.style.left   = (r.x * 100) + '%';
@@ -1572,20 +1970,185 @@ function _buildStudyText(b, hasBg, pageW) {
       `-0.06em -0.06em 0 ${o}, 0.06em -0.06em 0 ${o}, -0.06em 0.06em 0 ${o}, 0.06em 0.06em 0 ${o}, ` +
       `-0.08em 0 0 ${o}, 0.08em 0 0 ${o}, 0 -0.08em 0 ${o}, 0 0.08em 0 ${o}`;
   }
-  // manga2eng typesets in comic caps with a tight line advance — mirror both.
+  // manga2eng typesets in comic caps with a tight line advance — mirror both, then prefer the
+  // exact pitch the renderer drew at when the pipeline recorded it.
   if (st.caps) { el.style.textTransform = 'uppercase'; el.style.lineHeight = '1.0'; }
+  if (st.lineH) el.style.lineHeight = String(st.lineH);
   if (st.align === 'left' || st.align === 'right') el.style.textAlign = st.align;
-  el.textContent = b.tr;
+  // Reproduce the renderer's exact line breaks when the pipeline stored them (the renderer
+  // wraps against the balloon's pixel mask, which CSS can't recompute); otherwise let the
+  // browser wrap, with balance approximating the centered layout.
+  if (Array.isArray(b.trLines) && b.trLines.length) {
+    el.classList.add('lines');
+    el.textContent = b.trLines.join('\n');
+  } else {
+    el.textContent = b.tr;
+  }
   return el;
 }
 
-// Reveal/hide one bubble. Image display: the shared bg is clipped to the bubble's region
-// (covering the Japanese + the full English) into the bg sub-layer (below); the bubble's OWN
-// full-page text PNG goes unclipped into the fg sub-layer (above). Both are the page at 100% of
-// the wrap, so they stay pixel-aligned at any zoom, the text is never cropped, and overlapping
-// bubbles never let one's background cover another's text. Text display (Settings → Reader,
-// and the automatic fallback when a bubble has no stored image layer): the same clipped bg
-// when stored — a boxed backdrop otherwise — with the translation as selectable DOM text.
+// The bubble's ORIGINAL text as DOM text, typeset like the source. When the pipeline stored
+// each OCR textline's own box (srcLineBoxes), every line is placed exactly at its detected
+// position — its box sets the line's own font size, and the region direction decides rows vs
+// columns. Older records fall back to the joined lines centered in the detection box. Optional
+// <ruby> furigana from the pipeline's per-line segments; the face comes from Settings → Reader.
+function _buildStudySrc(b, hasBg, pg, srcOpts) {
+  const srcText = String(b.src || '').trim();
+  if (!srcText) return null;
+  const st = b.style || {};
+  const vertical = String(st.dir || '').startsWith('v');
+  const lines = (Array.isArray(b.srcLines) && b.srcLines.length) ? b.srcLines : [srcText];
+  const furi = (srcOpts && srcOpts.furi && Array.isArray(b.furi) && b.furi.length === lines.length) ? b.furi : null;
+  const lineBoxes = (Array.isArray(b.srcLineBoxes) && b.srcLineBoxes.length === lines.length) ? b.srcLineBoxes : null;
+
+  // Fill one line's content (plain text or ruby-annotated segments) into `target`.
+  const lineContent = (target, i) => {
+    const segs = furi && Array.isArray(furi[i]) ? furi[i] : null;
+    if (!segs) { target.appendChild(document.createTextNode(lines[i])); return; }
+    for (const seg of segs) {
+      if (!seg || !seg[0]) continue;
+      if (seg[1]) {
+        const ruby = document.createElement('ruby');
+        ruby.appendChild(document.createTextNode(seg[0]));
+        const rt = document.createElement('rt');
+        rt.textContent = seg[1];
+        ruby.appendChild(rt);
+        target.appendChild(ruby);
+      } else {
+        target.appendChild(document.createTextNode(seg[0]));
+      }
+    }
+  };
+
+  const r = b.box || b.region;
+  const el = document.createElement('div');
+  el.className = 'study-text src' + (hasBg ? '' : ' boxed') + (studySrcFont === 'kiwi' ? ' font-kiwi' : '');
+  el.style.left   = (r.x * 100) + '%';
+  el.style.top    = (r.y * 100) + '%';
+  el.style.width  = (r.w * 100) + '%';
+  el.style.height = (r.h * 100) + '%';
+  if (Array.isArray(st.fg)) el.style.color = `rgb(${st.fg.join(',')})`;
+  if (Array.isArray(st.fg) && Array.isArray(st.bg)) {
+    const o = `rgb(${st.bg.join(',')})`;
+    el.style.textShadow =
+      `-0.06em -0.06em 0 ${o}, 0.06em -0.06em 0 ${o}, -0.06em 0.06em 0 ${o}, 0.06em 0.06em 0 ${o}, ` +
+      `-0.08em 0 0 ${o}, 0.08em 0 0 ${o}, 0 -0.08em 0 ${o}, 0 0.08em 0 ${o}`;
+  }
+  // Language drives Han glyph forms — only claim Japanese when the gallery is tagged so.
+  if (srcOpts && srcOpts.ja) el.lang = 'ja';
+
+  if (lineBoxes) {
+    // Per-line placement: children are positioned inside the detection box by the fraction
+    // math between the two normalized rects; a horizontal line's height (a vertical column's
+    // width) is its own font size in page pixels.
+    el.classList.add('by-line');
+    const pageW = (pg && pg.w) || 1000;
+    const pageH = (pg && pg.h) || Math.round(pageW * 1.45);
+    lines.forEach((ln, i) => {
+      const lb = lineBoxes[i];
+      // Direction from the line's own box shape — columns are tall, rows are wide. The
+      // region-level flag is unreliable after textline merging, so it only breaks the tie
+      // for near-square (single-character) lines.
+      const lineVert = lb.h >= lb.w * 1.3 || (lb.w < lb.h * 1.3 && vertical);
+      const child = document.createElement('div');
+      child.className = 'study-line' + (lineVert ? ' vert' : '');
+      child.style.left   = ((lb.x - r.x) / r.w * 100) + '%';
+      child.style.top    = ((lb.y - r.y) / r.h * 100) + '%';
+      child.style.width  = (lb.w / r.w * 100) + '%';
+      child.style.height = (lb.h / r.h * 100) + '%';
+      const fs = Math.max(8, Math.round(lineVert ? lb.w * pageW : lb.h * pageH));
+      child.style.setProperty('--fs', fs + 'px');
+      lineContent(child, i);
+      el.appendChild(child);
+    });
+    return el;
+  }
+
+  // Fallback: joined lines centered in the detection box at the detected size.
+  if (vertical) el.classList.add('vert');
+  el.style.setProperty('--fs', (st.srcFontSize || st.fontSize || Math.max(12, Math.round(((pg && pg.w) || 1000) * 0.022))) + 'px');
+  const body = document.createElement('span');
+  lines.forEach((ln, i) => {
+    if (i) body.appendChild(document.createTextNode('\n'));
+    lineContent(body, i);
+  });
+  el.appendChild(body);
+  return el;
+}
+
+// Original-as-text display (Settings → Reader): a bubble opens ALREADY revealed — the
+// inpainted bg with the ORIGINAL text on top as DOM text — and clicking cycles it between the
+// original and the translation (DOM text or the typeset PNG, per the translation display
+// setting). DOM text stays selectable; a plain click with no selection cycles it. Escape returns
+// every bubble to its original text.
+function _wireSelectableText(el, onPlainClick) {
+  if (!el || !el.classList.contains('study-text')) return false;
+  el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!String(window.getSelection() || '')) onPlainClick();
+  });
+  return true;
+}
+
+function _mountTextBubble(box, b, idx, pageUrl, bgLayer, fgLayer, pg, srcOpts) {
+  const urls = _layerUrls(pageUrl);
+  const hasBg = !!(urls && urls.bgUrl);
+  if (hasBg) {
+    const clip = _clipInset(b.region);
+    const bg = document.createElement('img');
+    bg.className = 'study-layer-img'; bg.src = urls.bgUrl;
+    bg.decoding = 'async'; bg.loading = 'lazy';
+    bg.style.clipPath = clip; bg.style.webkitClipPath = clip;
+    bgLayer.appendChild(bg);
+  }
+  const srcEl = _buildStudySrc(b, hasBg, pg, srcOpts);
+  let trEl;
+  if (studyDisplay !== 'text' && urls && urls.textUrls[idx]) {
+    trEl = document.createElement('img');
+    trEl.className = 'study-layer-img'; trEl.src = urls.textUrls[idx];
+    trEl.decoding = 'async'; trEl.loading = 'lazy';
+  } else {
+    trEl = _buildStudyText(b, hasBg, pg && pg.w);
+  }
+  if (!srcEl && !trEl) return;
+  const srcIsText = !!srcEl && srcEl.classList.contains('study-text');
+  const trIsText  = !!trEl && trEl.classList.contains('study-text');
+  const setState = (showTr) => {
+    if (srcEl) srcEl.style.display = showTr ? 'none' : '';
+    if (trEl)  trEl.style.display  = showTr ? '' : 'none';
+    box.classList.toggle('revealed', showTr && !!srcEl);
+    box.classList.toggle('text-revealed', showTr ? trIsText : srcIsText);
+  };
+  if (srcEl) fgLayer.appendChild(srcEl);
+  if (trEl)  fgLayer.appendChild(trEl);
+
+  // Incomplete OCR records can contain only one side. Keep that side visible and static instead
+  // of cycling to a blank state or trapping Escape in a permanent "revealed" state.
+  if (!srcEl || !trEl) {
+    setState(!!trEl);
+    box.classList.remove('revealed');
+    if (!(srcIsText || trIsText)) box.style.pointerEvents = 'none';
+    return;
+  }
+
+  _wireSelectableText(srcEl, () => setState(true));
+  _wireSelectableText(trEl,  () => setState(false));
+  box.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setState(!box.classList.contains('revealed'));
+  });
+  setState(false);
+  box._reset = () => setState(false);
+}
+
+// Reveal/hide one bubble when the ORIGINAL displays as the untouched page (original-as-text
+// mounts everything up front in _mountTextBubble instead). The shared bg is clipped to the
+// bubble's region (covering the Japanese + the full English) into the bg sub-layer (below);
+// the bubble's OWN full-page text PNG goes unclipped into the fg sub-layer (above). Both are
+// the page at 100% of the wrap, so they stay pixel-aligned at any zoom, the text is never
+// cropped, and overlapping bubbles never let one's background cover another's text. The
+// translation shows as DOM text instead when set so (Settings → Reader) or when the bubble
+// has no stored text PNG.
 function _toggleBubble(e, box, b, idx, pageUrl, bgLayer, fgLayer) {
   e.stopPropagation();
   const on = box.classList.toggle('revealed');
@@ -1607,15 +2170,13 @@ function _toggleBubble(e, box, b, idx, pageUrl, bgLayer, fgLayer) {
         const pageW = (study && study.page && study.page.w) ||
                       (wrap && wrap.querySelector('img')?.naturalWidth) || 0;
         const tx = _buildStudyText(b, !!(urls && urls.bgUrl), pageW);
-        if (!tx && !els.length) { box.classList.remove('revealed'); return; }
-        if (tx) {
-          // Selecting the text must not close the bubble; a plain click (no selection) does.
-          tx.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            if (!String(window.getSelection() || '')) box.click();
-          });
-          fgLayer.appendChild(tx); els.push(tx);
+        if (!tx) {
+          els.forEach(el => el.remove());
+          box.classList.remove('revealed');
+          return;
         }
+        _wireSelectableText(tx, () => box.click());
+        fgLayer.appendChild(tx); els.push(tx);
       } else {
         const tx = document.createElement('img');
         tx.className = 'study-layer-img'; tx.src = urls.textUrls[idx];
@@ -1627,13 +2188,22 @@ function _toggleBubble(e, box, b, idx, pageUrl, bgLayer, fgLayer) {
     } else {
       box._layers.forEach(el => { el.style.display = ''; });
     }
-    // While DOM text is shown, the click box hands pointer events to it so the text is
-    // selectable; the text's own click (above) or Escape closes the bubble.
     if (box._isText) box.classList.add('text-revealed');
   } else if (box._layers) {
     box._layers.forEach(el => { el.style.display = 'none'; });
     box.classList.remove('text-revealed');
   }
+}
+
+// Furigana only makes sense for Japanese source text — gate on the gallery's language tag
+// (Chinese kanji would otherwise carry Japanese readings).
+function _isJapaneseMeta(meta) {
+  if (!meta) return false;
+  for (const tags of [meta.tags, meta.seriesTags]) {
+    if (Array.isArray(tags) &&
+        tags.some(tg => tg && tg.type === 'language' && /japanese/i.test(String(tg.name || '')))) return true;
+  }
+  return /japanese/i.test(String(meta.sourceMetadata?.language || ''));
 }
 
 // Build one page's overlay: a bg sub-layer, a text sub-layer, and the clickable boxes on top.
@@ -1643,7 +2213,8 @@ function _renderBubbleLayer(wrap, pageNum) {
   const page = pages[pageNum - 1];
   if (!page) return;
   const study = _pageStudy.get(page.url);
-  if (!study || !Array.isArray(study.bubbles) || !study.bubbles.length) return;
+  const hasBubbles = !!study && Array.isArray(study.bubbles) && study.bubbles.length > 0;
+  if (!hasBubbles && mode === 'strip') return;
   const layer = document.createElement('div');
   layer.className = 'bubble-layer';
   const bgLayer = document.createElement('div'); bgLayer.className = 'bubble-bg';
@@ -1652,7 +2223,7 @@ function _renderBubbleLayer(wrap, pageNum) {
   layer.appendChild(fgLayer);
   // DOM-text bubbles size their font in page pixels × --pgscale (wrap width ÷ page width),
   // so they track zoom/resize exactly like the image layers do.
-  const pageW = (study.page && study.page.w) || wrap.querySelector('img')?.naturalWidth || 0;
+  const pageW = (study?.page && study.page.w) || wrap.querySelector('img')?.naturalWidth || 0;
   if (pageW) {
     const sync = () => layer.style.setProperty('--pgscale', String((wrap.clientWidth / pageW) || 1));
     sync();
@@ -1672,6 +2243,12 @@ function _renderBubbleLayer(wrap, pageNum) {
     }
     layer.appendChild(nav);
   }
+  if (!hasBubbles) { wrap.appendChild(layer); return; }
+  // Original-as-text mounts every bubble open on its original text; original-as-image keeps
+  // the untouched page and the click-to-reveal flow.
+  const origText = studyOriginal === 'text';
+  const isJa = origText && _isJapaneseMeta(_chapters[_chapterAt(pageNum)]?.meta);
+  const srcOpts = { ja: isJa, furi: furiganaOn && isJa };
   study.bubbles.forEach((b, i) => {
     const box = document.createElement('div');
     box.className   = 'bubble-box';
@@ -1679,7 +2256,8 @@ function _renderBubbleLayer(wrap, pageNum) {
     box.style.top    = (b.box.y * 100) + '%';
     box.style.width  = (b.box.w * 100) + '%';
     box.style.height = (b.box.h * 100) + '%';
-    box.addEventListener('click', (e) => _toggleBubble(e, box, b, i, page.url, bgLayer, fgLayer));
+    if (origText) _mountTextBubble(box, b, i, page.url, bgLayer, fgLayer, (study.page || { w: pageW }), srcOpts);
+    else box.addEventListener('click', (e) => _toggleBubble(e, box, b, i, page.url, bgLayer, fgLayer));
     layer.appendChild(box);
   });
   wrap.appendChild(layer);
@@ -1690,13 +2268,19 @@ function _refreshBubbleLayers() {
   _removeBubbleLayers();
   if (!studyMode) return;
   if (mode === 'strip') {
-    stripView.querySelectorAll('.page-wrap').forEach(wrap => _renderBubbleLayer(wrap, parseInt(wrap.dataset.page)));
+    const center = currentPage - _viewBase;   // local, 1-based
+    for (const idx of _mountedIdx) {
+      if (Math.abs(idx + 1 - center) > MOUNT_AHEAD) continue;
+      const wrap = _stripWraps[idx];
+      if (wrap) _renderBubbleLayer(wrap, parseInt(wrap.dataset.page));
+    }
   } else if (mode === 'single') {
     _renderBubbleLayer(_ensureWrap(mainImg), currentPage);
   } else if (mode === 'double') {
     _renderBubbleLayer(_ensureWrap(imgLeft), currentPage);
-    if (currentPage < pages.length) _renderBubbleLayer(_ensureWrap(imgRight), currentPage + 1);
+    if (_rightPageForSpread(currentPage)) _renderBubbleLayer(_ensureWrap(imgRight), currentPage + 1);
   }
+  document.body.classList.toggle('study-bubbles-active', mode !== 'strip' && !!document.querySelector('.bubble-box'));
 }
 
 // Keybind modal
@@ -1870,7 +2454,9 @@ function setPageZoom(z) {
 // Page modes use persistent CSS classes so fit recalculates as pages/ratios change. Strip keeps the
 // older one-shot zoom path because its continuous page list is governed by normal document scroll.
 function _fitPageImgs() {
-  if (mode === 'strip')  return [...stripView.querySelectorAll('.page-img')];
+  // Strip: measure only the mounted window around the reading line — pages outside it are
+  // unmounted placeholders, and measuring thousands of rows for a median is pointless anyway.
+  if (mode === 'strip')  return _stripImgs.filter((_, i) => Math.abs(i + 1 - (currentPage - _viewBase)) <= MOUNT_AHEAD);
   if (mode === 'single') return mainImg.naturalWidth ? [mainImg] : [];
   return [imgLeft, imgRight].filter(i => i.style.display !== 'none' && i.naturalWidth);
 }
@@ -2026,9 +2612,11 @@ document.addEventListener('keydown', (e) => {
   }
 
   if (e.key === 'Escape') {
-    // First Escape dismisses any revealed study bubbles; otherwise it toggles the shortcuts modal.
+    // First Escape dismisses any revealed study bubbles (text-display bubbles fall back to
+    // their original text instead of closing); otherwise it toggles the shortcuts modal.
     if (studyMode && document.querySelector('.bubble-box.revealed')) {
       document.querySelectorAll('.bubble-box.revealed').forEach(box => {
+        if (box._reset) { box._reset(); return; }
         box.classList.remove('revealed', 'text-revealed');
         (box._layers || []).forEach(el => { el.style.display = 'none'; });
       });
@@ -2048,25 +2636,41 @@ document.addEventListener('keydown', (e) => {
   const fwd  = e.key === 'ArrowRight' || e.key === ' ' || e.key === 'd' || e.key === 'D';
   const bck  = e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A';
 
+  // First/last page (Shift+arrows, Home/End) are CHAPTER-relative, matching the counter/scrubber.
+  const chK     = _chapters[_chapterAt(currentPage)];
+  const chFirst = chK ? chK.start + 1 : 1;
+  const chLast  = chK ? chK.start + chK.count : pages.length;
+  // HELD navigation (key auto-repeat) breaks at chapter boundaries: it parks on the transition
+  // page (or the chapter's edge when there is none) and only a fresh key press continues into
+  // the adjacent chapter.
+  const held = e.repeat;
+
   if (mode === 'strip') {
     if (fwd || bck) {
       e.preventDefault();
       if (e.shiftKey) {
-        if (fwd) window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-        else     window.scrollTo({ top: 0, behavior: 'smooth' });
+        _scrollStripToPage(fwd ? chLast : chFirst);
       } else {
-        const next = Math.max(1, Math.min(pages.length, currentPage + (fwd ? 1 : -1)));
-        const t = stripView.querySelector(`[data-page="${next}"]`);
-        if (t) t.scrollIntoView({ behavior: 'smooth' });
+        const next = currentPage + (fwd ? 1 : -1);
+        if (next < 1 || next > pages.length) return;   // series edge — chapters are continuous
+        if (held && (next < chFirst || next > chLast)) return;   // held nav stops at the chapter edge
+        _scrollStripToPage(next);                      // re-scopes a chapter-only strip at its edges
       }
     }
-    if (e.key === 'Home') { e.preventDefault(); window.scrollTo(0, 0); }
-    if (e.key === 'End')  { e.preventDefault(); window.scrollTo(0, document.body.scrollHeight); }
+    if (e.key === 'Home') { e.preventDefault(); chFirst === _viewBase + 1 ? window.scrollTo(0, 0) : _scrollStripToPage(chFirst); }
+    if (e.key === 'End')  { e.preventDefault(); chLast === _viewBase + _viewCount ? window.scrollTo(0, document.body.scrollHeight) : _scrollStripToPage(chLast); }
   } else {
-    if (fwd) { e.preventDefault(); e.shiftKey ? goTo(pages.length) : goTo(currentPage + step); }
-    if (bck) { e.preventDefault(); e.shiftKey ? goTo(1) : goTo(currentPage - step); }
-    if (e.key === 'Home') goTo(1);
-    if (e.key === 'End')  goTo(pages.length);
+    if (fwd || bck) {
+      e.preventDefault();
+      if (held && _pageDivider !== null) return;       // held nav parks on the transition page
+      const rawN = currentPage + (fwd ? step : -step);
+      // No transition page to park on (transitions off) → held nav stops at the chapter edge.
+      if (held && (rawN > chLast || rawN < chFirst) && !(_chapterDividersOn && _series)) return;
+      if (e.shiftKey) goTo(fwd ? chLast : chFirst);
+      else goTo(rawN);
+    }
+    if (e.key === 'Home') goTo(chFirst);
+    if (e.key === 'End')  goTo(chLast);
   }
   if (e.key === 'g' || e.key === 'G') setThumbsOpen(!thumbsOpen);
   if (e.key === 'n' || e.key === 'N') applyReaderPin(!readerPinned);   // toggle the pinned header

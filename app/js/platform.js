@@ -7,7 +7,7 @@
 // and library changes live everywhere at once.
 
 // ── Change feed ──────────────────────────────────────────────────────────────────────────
-// One beacon `{ gid, n, at }` per gallery mutation, delivered to every same-origin context so
+// One beacon `{ gid, context, n, at }` per gallery mutation, delivered to every same-origin context so
 // each surface re-reads just the gallery that changed (see store.js).
 function makeChannelHub(name) {
   const bc = ('BroadcastChannel' in globalThis) ? new BroadcastChannel(name) : null;
@@ -126,20 +126,127 @@ export const jobs = {
 // SW resume list: jobs the service worker accepted, kept until they finish so an evicted worker
 // can pick them up again on its next wake.
 export const jobsPending = {
-  async add(entry) { try { const db = await _jobsDb(); await new Promise(r => { const t = db.transaction('pending', 'readwrite'); t.objectStore('pending').put(entry); t.oncomplete = r; t.onerror = r; }); } catch {} },
+  async add(entry) {
+    try {
+      const db = await _jobsDb();
+      return await new Promise((resolve) => {
+        const t = db.transaction('pending', 'readwrite');
+        t.objectStore('pending').put(entry);
+        t.oncomplete = () => resolve(true);
+        t.onerror = () => resolve(false);
+        t.onabort = () => resolve(false);
+      });
+    } catch { return false; }
+  },
   async remove(key) { try { const db = await _jobsDb(); await new Promise(r => { const t = db.transaction('pending', 'readwrite'); t.objectStore('pending').delete(key); t.oncomplete = r; t.onerror = r; }); } catch {} },
   async all() { try { const db = await _jobsDb(); return await new Promise(r => { const q = db.transaction('pending', 'readonly').objectStore('pending').getAll(); q.onsuccess = () => r(q.result || []); q.onerror = () => r([]); }); } catch { return []; } },
 };
 
-// Token-reattach records for in-flight translations: { gid, token, serverUrl, pendingUrls, settings, at }.
-// One per active gallery translation, written when it starts and removed when it finishes. The
+// Token-reattach records for in-flight translations: { gid, token, serverUrl, settings,
+// pendingUrls, total, cursor, phase }. One per active gallery translation, claimed before upload
+// and removed when it finishes. The
 // server owns the job (keyed by token); this lets ANY page — after a navigation, or a service
 // worker Chrome killed at its ~5-min cap — re-attach to the exact same job by token and resume
 // streaming the pages it hasn't collected yet, instead of starting a wasteful fresh job.
 export const translateResume = {
-  async set(rec) { try { const db = await _jobsDb(); await new Promise(r => { const t = db.transaction('resume', 'readwrite'); t.objectStore('resume').put({ ...rec, gid: String(rec.gid) }); t.oncomplete = r; t.onerror = r; }); } catch {} },
+  async set(rec) {
+    try {
+      const db = await _jobsDb();
+      return await new Promise((resolve) => {
+        const t = db.transaction('resume', 'readwrite');
+        t.objectStore('resume').put({ ...rec, gid: String(rec.gid) });
+        t.oncomplete = () => resolve(true);
+        t.onerror = () => resolve(false);
+        t.onabort = () => resolve(false);
+      });
+    } catch { return false; }
+  },
+  // Atomically reserve a gallery before its upload begins. This closes the cross-context gap
+  // between "no job found" and the first durable write, so two tabs cannot create two tokens.
+  async claim(rec) {
+    try {
+      const db = await _jobsDb();
+      return await new Promise((resolve) => {
+        const t = db.transaction('resume', 'readwrite');
+        const store = t.objectStore('resume');
+        const gid = String(rec.gid);
+        let result = 'error';
+        const q = store.get(gid);
+        q.onsuccess = () => {
+          if (q.result) { result = 'exists'; return; }
+          store.put({ ...rec, gid });
+          result = 'claimed';
+        };
+        t.oncomplete = () => resolve(result);
+        t.onerror = () => resolve('error');
+        t.onabort = () => resolve('error');
+      });
+    } catch { return 'error'; }
+  },
   async get(gid) { try { const db = await _jobsDb(); return await new Promise(r => { const q = db.transaction('resume', 'readonly').objectStore('resume').get(String(gid)); q.onsuccess = () => r(q.result || null); q.onerror = () => r(null); }); } catch { return null; } },
-  async remove(gid) { try { const db = await _jobsDb(); await new Promise(r => { const t = db.transaction('resume', 'readwrite'); t.objectStore('resume').delete(String(gid)); t.oncomplete = r; t.onerror = r; }); } catch {} },
+  // Token-scoped writes ensure a late poll from an old job cannot resurrect, advance, or delete a
+  // cancelled/replaced job for the same gallery.
+  async patch(gid, token, values) {
+    try {
+      const db = await _jobsDb();
+      return await new Promise((resolve) => {
+        const t = db.transaction('resume', 'readwrite');
+        const store = t.objectStore('resume');
+        let owned = false;
+        const q = store.get(String(gid));
+        q.onsuccess = () => {
+          const cur = q.result;
+          if (!cur || cur.token !== token) return;
+          store.put({ ...cur, ...values, gid: String(gid), token });
+          owned = true;
+        };
+        t.oncomplete = () => resolve(owned);
+        t.onerror = () => resolve(false);
+        t.onabort = () => resolve(false);
+      });
+    } catch { return false; }
+  },
+  async advance(gid, token, cursor) {
+    try {
+      const db = await _jobsDb();
+      return await new Promise((resolve) => {
+        const t = db.transaction('resume', 'readwrite');
+        const store = t.objectStore('resume');
+        let owned = false;
+        const q = store.get(String(gid));
+        q.onsuccess = () => {
+          const cur = q.result;
+          if (!cur || cur.token !== token) return;
+          cur.cursor = Math.max(Number(cur.cursor) || 0, Number(cursor) || 0);
+          store.put(cur);
+          owned = true;
+        };
+        t.oncomplete = () => resolve(owned);
+        t.onerror = () => resolve(false);
+        t.onabort = () => resolve(false);
+      });
+    } catch { return false; }
+  },
+  async remove(gid, token = null) {
+    try {
+      const db = await _jobsDb();
+      return await new Promise((resolve) => {
+        const t = db.transaction('resume', 'readwrite');
+        const store = t.objectStore('resume');
+        let removed = false;
+        const q = store.get(String(gid));
+        q.onsuccess = () => {
+          const cur = q.result;
+          if (!cur || (token != null && cur.token !== token)) return;
+          store.delete(String(gid));
+          removed = true;
+        };
+        t.oncomplete = () => resolve(removed);
+        t.onerror = () => resolve(false);
+        t.onabort = () => resolve(false);
+      });
+    } catch { return false; }
+  },
   async all() { try { const db = await _jobsDb(); return await new Promise(r => { const q = db.transaction('resume', 'readonly').objectStore('resume').getAll(); q.onsuccess = () => r(q.result || []); q.onerror = () => r([]); }); } catch { return []; } },
 };
 

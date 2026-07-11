@@ -103,14 +103,19 @@ async function build(db, sink, onProgress) {
     if (body) ent.body = await sink(body);
     if (r.translated != null) { const tb = toBlob(r.translated); if (tb) ent.translated = await sink(tb); }
     // Study-mode layers: stream the shared inpaint bg and each bubble's transparent text PNG
-    // into the blob region (like body/translated), and keep each bubble's box/region geometry
-    // + text strings inline in the manifest — small and human-readable (easy to inspect/debug).
+    // into the blob region (like body/translated), and keep layout/text metadata inline in the
+    // manifest. A text-only study record has bubbles but no studyBg and must still round-trip.
     if (r.studyBg != null) { const sb = toBlob(r.studyBg); if (sb) ent.studyBg = await sink(sb); }
+    if (r.studyPage != null) ent.studyPage = r.studyPage;
     if (Array.isArray(r.bubbles) && r.bubbles.length) {
       const bubs = [];
       for (const b of r.bubbles) {
         const tb = toBlob(b.text);
-        bubs.push({ box: b.box, region: b.region, tr: b.tr || '', src: b.src || '', text: tb ? await sink(tb) : null });
+        const bubble = { box: b.box, region: b.region, tr: b.tr || '', src: b.src || '', text: tb ? await sink(tb) : null };
+        for (const key of ['rbox', 'style', 'srcLines', 'srcLineBoxes', 'trLines', 'tbox', 'furi']) {
+          if (b[key] != null) bubble[key] = b[key];
+        }
+        bubs.push(bubble);
       }
       ent.bubbles = bubs;
     }
@@ -132,7 +137,7 @@ async function build(db, sink, onProgress) {
   const galleries = await getAll(db, GALLERIES);
   const sourceIcons = await getAll(db, SOURCE_ICONS).catch(() => []);
   lastCounts = { images: images.length, galleries: galleries.length, covers: covers.length, sourceIcons: sourceIcons.length };
-  return { format: 'shiori-db', version: 6, exportedAt: Date.now(), counts: lastCounts, images, covers, sourceIcons, metadata, galleries };
+  return { format: 'shiori-db', version: 7, exportedAt: Date.now(), counts: lastCounts, images, covers, sourceIcons, metadata, galleries };
 }
 
 // ── Import (auto-detect) ────────────────────────────────────────────────────────────────────
@@ -200,8 +205,15 @@ async function importFullFile(file, onProgress) {
     const b = sliceOf(e.body); if (b) rec.blob = b;
     const tb = sliceOf(e.translated); if (tb) rec.translated = tb;
     const sb = sliceOf(e.studyBg); if (sb) rec.studyBg = sb;
+    if (e.studyPage != null) rec.studyPage = e.studyPage;
     if (Array.isArray(e.bubbles) && e.bubbles.length) {
-      rec.bubbles = e.bubbles.map(b => ({ box: b.box, region: b.region, tr: b.tr || '', src: b.src || '', text: sliceOf(b.text) }));
+      rec.bubbles = e.bubbles.map((b) => {
+        const bubble = { box: b.box, region: b.region || b.box, tr: b.tr || '', src: b.src || '', text: sliceOf(b.text) };
+        for (const key of ['rbox', 'style', 'srcLines', 'srcLineBoxes', 'trLines', 'tbox', 'furi']) {
+          if (b[key] != null) bubble[key] = b[key];
+        }
+        return bubble;
+      });
     }
     await put(db, IMAGES, rec);
     if (onProgress && (++n % 25 === 0)) onProgress('images', n, (manifest.images || []).length);

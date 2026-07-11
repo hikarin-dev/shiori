@@ -1718,7 +1718,7 @@ async function _collectGalleryFiles(gid, prefix, db, opts = {}) {
       cachedAtISO: r.cachedAt ? new Date(r.cachedAt).toISOString() : null,
       size: r.size,
       translated: r.translated !== undefined,
-      hasStudy: !!(r.studyBg && Array.isArray(r.bubbles) && r.bubbles.length),
+      hasStudy: !!(Array.isArray(r.bubbles) && r.bubbles.length),
       bubbleCount: Array.isArray(r.bubbles) ? r.bubbles.length : 0
     })), null, 2))
   });
@@ -1784,9 +1784,9 @@ async function _collectGalleryFiles(gid, prefix, db, opts = {}) {
   const studyIndex = {};
   for (const rec of imageRecords) {
     const m = rec.url.match(/\/(\d+)\.\w+$/);
-    if (!m || !rec.studyBg || !Array.isArray(rec.bubbles) || !rec.bubbles.length) continue;
+    if (!m || !Array.isArray(rec.bubbles) || !rec.bubbles.length) continue;
     const num = m[1].padStart(4, '0');
-    const bgBytes = await imageBytes(rec.studyBg);
+    const bgBytes = rec.studyBg ? await imageBytes(rec.studyBg) : null;
     if (bgBytes) files.push({ name: `${prefix}study/bg/${num}.${imgExt(rec.studyBg)}`, data: bgBytes });
     const entries = [];
     for (let k = 0; k < rec.bubbles.length; k++) {
@@ -1794,9 +1794,15 @@ async function _collectGalleryFiles(gid, prefix, db, opts = {}) {
       const txtBytes = await imageBytes(b.text);
       const textFile = `${num}-${k}.${imgExt(b.text)}`;
       if (txtBytes) files.push({ name: `${prefix}study/text/${textFile}`, data: txtBytes });
-      entries.push({ box: b.box, region: b.region, tr: b.tr || '', src: b.src || '', textFile: txtBytes ? textFile : null });
+      const entry = { box: b.box, region: b.region, tr: b.tr || '', src: b.src || '', textFile: txtBytes ? textFile : null };
+      // DOM-text layout metadata rides along verbatim (style hints, per-line geometry, furigana).
+      for (const key of ['rbox', 'style', 'srcLines', 'srcLineBoxes', 'trLines', 'tbox', 'furi']) {
+        if (b[key] != null) entry[key] = b[key];
+      }
+      entries.push(entry);
     }
-    studyIndex[num] = entries;
+    // Newer bundles wrap the entries with the page's source dimensions; import accepts both.
+    studyIndex[num] = rec.studyPage ? { page: rec.studyPage, bubbles: entries } : entries;
   }
   if (Object.keys(studyIndex).length) {
     files.push({ name: `${prefix}study/bubbles.json`, data: enc.encode(JSON.stringify(studyIndex, null, 2)) });

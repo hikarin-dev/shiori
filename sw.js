@@ -10,7 +10,7 @@
 import * as platform from './app/js/platform.js';
 import { RUNNERS, cancelJobRun, runPoll } from './app/js/jobs-runner.js';
 
-const CACHE = 'shiori-shell-v39';
+const CACHE = 'shiori-shell-v40';
 // The scope root: http://localhost:5500/ locally, https://…/shiori/ on GitHub Pages.
 const ROOT = new URL('./', self.location.href);
 // Clean navigation path (relative to the root) → which app page serves it.
@@ -22,6 +22,9 @@ const SHELL = [
   'app/library.html', 'app/reader.html', 'app/settings.html', 'app/agent.html', 'app/overview.html',
   'app/manifest.webmanifest', 'app/font-init.js',
   'app/library.css', 'app/reader.css', 'app/settings.css', 'app/overview.css',
+  'app/fonts/ccvictoryspeech.ttf', 'app/fonts/KiwiMaru-Regular.ttf', 'app/fonts/YasashisaAntique.otf',
+  'app/fonts/LICENSE-Kiwi-Maru-OFL.txt', 'app/fonts/LICENSE-YasashisaAntique-IPA.txt',
+  'app/fonts/LICENSE-YasashisaAntique-MPLUS.txt', 'app/fonts/README.md',
   'app/js/platform.js', 'app/js/db.js', 'app/js/api.js', 'app/js/store.js', 'app/js/series.js',
   'app/js/import-cbz.js', 'app/js/translate.js', 'app/js/backup.js',
   'app/js/jobs-runner.js', 'app/js/submit-job.js', 'app/js/services.js', 'app/js/ext-bridge.js', 'app/js/boot.js',
@@ -46,7 +49,7 @@ self.addEventListener('activate', (e) => {
     const keys = await caches.keys();
     await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
     await self.clients.claim();
-    resumePending();   // replay any jobs a previous worker was evicted mid-flight
+    await resumePending();   // keep replayed jobs inside activate.waitUntil
   })());
 });
 
@@ -110,10 +113,18 @@ async function runJob(kind, payload) {
   try {
     await platform.jobsPending.add({ key, kind, payload });
     await run(payload);
-  } finally { _running.delete(key); await platform.jobsPending.remove(key); }
+  } finally {
+    _running.delete(key);
+    const resume = kind === 'translate'
+      ? await platform.translateResume.get(String(payload && payload.galleryId))
+      : null;
+    // Keep a still-uploading claim durable; a later heartbeat can replay it safely by token.
+    if (!resume || resume.phase !== 'uploading') await platform.jobsPending.remove(key);
+  }
 }
 async function resumePending() {
-  for (const e of await platform.jobsPending.all()) runJob(e.kind, e.payload);
+  await Promise.all((await platform.jobsPending.all()).map((e) =>
+    RUNNERS[e.kind] ? runJob(e.kind, e.payload) : platform.jobsPending.remove(e.key)));
 }
 
 // Self-sustaining poll loop. A page kicks it off (__shioriPoll), but it then runs INSIDE the worker
@@ -146,12 +157,31 @@ async function pollLoop() {
 
 self.addEventListener('message', (e) => {
   const d = e.data;
-  if (d && d.__shioriPoll) { e.waitUntil(pollLoop()); return; }     // drive polling inside the SW, immune to tab throttling
+  if (d && d.__shioriPoll) {
+    e.waitUntil((async () => {
+      // Resume uploads/imports alongside the heartbeat so a long import cannot starve an
+      // already-running server job of polls. The second call catches a job whose resume record
+      // did not exist until resumePending started it.
+      await Promise.all([resumePending(), pollLoop()]);
+      await pollLoop();
+    })());
+    return;
+  }
   if (d && d.__shioriJob) e.waitUntil(runJob(d.kind, d.payload));   // waitUntil keeps the worker alive
   else if (d && d.__shioriJobCancel) {
-    // Abort the running job AND drop its resume entry, so an evicted worker never replays a
-    // job the user cancelled (that replay loop is the "cards reload over and over" symptom).
+    // Abort the running job and token-scope its durable cleanup. A delayed cancel for an older
+    // token must never delete a replacement job's pending row.
     cancelJobRun(d.kind, d.payload);
-    e.waitUntil(platform.jobsPending.remove(`${d.payload && d.payload.galleryId}:${d.kind}`));
+    e.waitUntil((async () => {
+      const gid = String(d.payload && d.payload.galleryId);
+      const key = `${gid}:${d.kind}`;
+      if (d.kind !== 'translate' || !d.payload?.token) {
+        await platform.jobsPending.remove(key);
+        return;
+      }
+      const removed = await platform.translateResume.remove(gid, d.payload.token);
+      const current = removed ? null : await platform.translateResume.get(gid);
+      if (removed || !current) await platform.jobsPending.remove(key);
+    })());
   }
 });

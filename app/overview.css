@@ -125,6 +125,7 @@
 .ch-ibtn:disabled { opacity: .3; cursor: default; }
 .ch-ibtn.download { color: var(--accent2); }
 .ch-ibtn.download:hover:not(:disabled) { color: #111; border-color: var(--accent2); background: var(--accent2); }
+.ch-ibtn.detach:hover { color: var(--accent); border-color: var(--accent); }
 .ch-ibtn.danger:hover { color: var(--danger); border-color: var(--danger); }
 .ch-ibtn svg { width: 15px; height: 15px; }
 /* Inner icon wrappers for the Shift-hold flip animation (download ⇄ replace, delete ⇄ quick delete). */

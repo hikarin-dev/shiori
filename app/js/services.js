@@ -57,13 +57,19 @@ export const services = {
       case 'CANCEL_TRANSLATE': {
         const gid = String(msg.galleryId);
         const rec = await platform.translateResume.get(gid);          // token/serverUrl so the cancel reaches the job from any context
-        cancelJob('translate', { galleryId: gid, token: rec && rec.token, serverUrl: rec && rec.serverUrl });  // token-scoped server cancel
+        cancelJob('translate', { galleryId: gid, token: rec && rec.token, serverUrl: rec && rec.serverUrl, settings: rec && rec.settings });  // token-scoped server cancel (settings carry the access token)
         // Authoritative stop: clear the durable state too, so Stop also recovers an ORPHANED
         // job — one whose runner (e.g. the SW) was killed by a browser close. Its abort handle
         // is gone, so cancelJob can't reach it; without this, the stale 'progress' row keeps the
         // card stuck in Stop mode forever (until the 10-min purge) and Stop appears to do nothing.
-        await platform.jobsPending.remove(`${gid}:translate`);        // never auto-resume it
-        await platform.translateResume.remove(gid);                   // drop the reattach token so the keep-alive nudge can't revive it
+        let removePending = !rec;
+        if (rec?.token) {
+          removePending = await platform.translateResume.remove(gid, rec.token);
+          // A failed compare can mean the old token was already replaced. Preserve that newer
+          // job's replay entry; only clear a stale pending row when no replacement exists.
+          if (!removePending) removePending = !(await platform.translateResume.get(gid));
+        }
+        if (removePending) await platform.jobsPending.remove(`${gid}:translate`);
         platform.jobs.publish({ gid, kind: 'translate', status: 'cancelled' });  // drop the registry row + reset every tab
         return { ok: true };
       }
@@ -102,7 +108,7 @@ export const services = {
       case 'TRANSLATOR_PING': {
         const { translateSettings } = await platform.kv.get(['translateSettings']);
         const serverUrl = serverUrlFromSettings(translateSettings);
-        return { online: await pingServer(serverUrl), serverUrl };
+        return { online: await pingServer(serverUrl, translateSettings), serverUrl };
       }
 
       default: return null;

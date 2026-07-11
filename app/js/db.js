@@ -16,6 +16,8 @@ const SOURCE_ICON_STORE = 'sourceIcons';
 // Reactive change feed: every durable gallery change is announced through one tiny beacon
 // (platform.feed); surfaces subscribe and re-read only the changed gallery from IndexedDB.
 let _feedSeq = 0;
+const _feedContext = globalThis.crypto?.randomUUID?.()
+  || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const _feedTimers = new Map();
 
 // Announce that one gallery changed. Debounced per gallery so a burst of writes (e.g. storing
@@ -25,7 +27,7 @@ export function publishFeed(galleryId) {
   if (_feedTimers.has(gid)) return;
   _feedTimers.set(gid, setTimeout(() => {
     _feedTimers.delete(gid);
-    platform.feed.publish({ gid, n: ++_feedSeq, at: Date.now() });
+    platform.feed.publish({ gid, context: _feedContext, n: ++_feedSeq, at: Date.now() });
   }, 250));
 }
 
@@ -1189,10 +1191,14 @@ export async function putTranslatedImage(url, translatedDataUrl) {
 
 // Study-mode data for one page: { bg, bubbles, page }. `bg` is a Blob (the inpainted page, text
 // removed) shared by every bubble — or null for metadata-only (text-mode) study records; each
-// bubble is { box, region, tr, src, rbox?, style?, text? } where `text` is a Blob (a full-page
-// transparent PNG of just that bubble's glyphs, absent on metadata-only records), `box` is the
-// OCR detection region (the hover/click border), `region` is the area to clip `bg` to, `rbox`
-// the renderer's layout box and `style` renderer hints for DOM-text display. `page` is {w,h} in
+// bubble is { box, region, tr, src, rbox?, style?, srcLines?, srcLineBoxes?, trLines?, tbox?,
+// furi?, text? } where `text` is a Blob (a full-page transparent PNG of just that bubble's
+// glyphs, absent on metadata-only records), `box` is the OCR detection region (the hover/click
+// border), `region` is the area to clip `bg` to, `rbox` the renderer's layout box, `style`
+// renderer hints for DOM-text display, `srcLines`/`trLines` the original's and the renderer's
+// line breaks, `srcLineBoxes` each original line's own detected box (parallel to srcLines),
+// `tbox` the rect the renderer actually drew the translation at, and `furi` per-srcLine
+// [text, reading|null] ruby segments. `page` is {w,h} in
 // source pixels. All are stored on the page's images record like `translated`, so they ride
 // along in backups and clear on revert. A reader reveals one bubble at a time by overlaying its
 // text layer (whole) and clipping the shared bg to its region — or as styled DOM text.

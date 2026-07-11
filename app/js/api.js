@@ -32,6 +32,6 @@ export const pages = {
 
 // ── Change-feed transport ──
 export const events = {
-  // cb receives the beacon `{ gid, n, at }` for each change. Returns an unsubscribe.
+  // cb receives the beacon `{ gid, context, n, at }` for each change. Returns an unsubscribe.
   onChange(cb) { return platform.feed.subscribe(cb); },
 };

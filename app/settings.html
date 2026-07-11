@@ -104,11 +104,35 @@
     </div>
     <div class="section-body">
       <div class="field">
-        <div class="field-label" data-i18n="set.study_disp">Study mode display</div>
-        <div class="field-desc" data-i18n="set.study_disp_desc">How revealed bubbles are shown in Study mode. Image layers reproduce the translated typesetting exactly; Text renders the translation as selectable text. Pages without stored image layers always use text.</div>
+        <div class="field-label" data-i18n="set.study_orig">Study mode — original</div>
+        <div class="field-desc" data-i18n="set.study_orig_desc">How a bubble shows the original text in Study mode. Image keeps the untouched page and a click reveals the translation; Text overlays the original as selectable text on the cleaned page, and a click cycles between original and translation.</div>
+        <select class="field-input" id="readerStudyOriginal">
+          <option value="image" data-i18n="set.study_orig_img">Image — untouched page</option>
+          <option value="text" data-i18n="set.study_orig_text">Text — selectable</option>
+        </select>
+      </div>
+      <div class="field">
+        <div class="field-label" data-i18n="set.study_font">Original text font</div>
+        <div class="field-desc" data-i18n="set.study_font_desc">The typeface used when the original text is shown as text in Study mode.</div>
+        <select class="field-input" id="readerStudySrcFont">
+          <option value="yasashisa">やさしさアンチック</option>
+          <option value="kiwi">Kiwi Maru</option>
+        </select>
+      </div>
+      <div class="field">
+        <div class="field-label" data-i18n="set.study_disp">Study mode — translation</div>
+        <div class="field-desc" data-i18n="set.study_disp_desc">How a bubble shows the translation in Study mode. Image layers reproduce the translated typesetting exactly; Text renders the translation as selectable text. Pages without stored image layers always use text.</div>
         <select class="field-input" id="readerStudyDisplay">
           <option value="hardcoded_images" data-i18n="set.study_disp_img">Image layers — exact typesetting</option>
           <option value="text" data-i18n="set.study_disp_text">Text — selectable</option>
+        </select>
+      </div>
+      <div class="field">
+        <div class="field-label" data-i18n="set.study_furi">Furigana</div>
+        <div class="field-desc" data-i18n="set.study_furi_desc">In Study mode's text display, show kana readings above the kanji of the original text. Only galleries with a Japanese language tag show furigana.</div>
+        <select class="field-input" id="readerFurigana">
+          <option value="off" data-i18n="set.study_furi_off">Hide furigana</option>
+          <option value="on" data-i18n="set.study_furi_on">Show furigana</option>
         </select>
       </div>
       <div class="field">
@@ -117,6 +141,22 @@
         <select class="field-input" id="readerSkipOverview">
           <option value="show" data-i18n="set.skip_overview_show">Show overview before opening</option>
           <option value="skip" data-i18n="set.skip_overview_skip">Skip to first chapter</option>
+        </select>
+      </div>
+      <div class="field">
+        <div class="field-label" data-i18n="set.strip_flow">Scroll strip flow</div>
+        <div class="field-desc" data-i18n="set.strip_flow_desc">Whether the scroll strip runs the whole series as one continuous strip or one chapter at a time. Thumbnails follow: series-wide when continuous, per-chapter otherwise.</div>
+        <select class="field-input" id="readerStripMode">
+          <option value="series" data-i18n="set.strip_flow_series">Continuous — all chapters in one strip</option>
+          <option value="chapter" data-i18n="set.strip_flow_chapter">Per chapter — one chapter at a time</option>
+        </select>
+      </div>
+      <div class="field">
+        <div class="field-label" data-i18n="set.ch_divider">Chapter transitions</div>
+        <div class="field-desc" data-i18n="set.ch_divider_desc">Mark the divide between chapters — an inline divider in the scroll strip, a dedicated transition page in single/double modes. The per-chapter strip always keeps its end-of-chapter card.</div>
+        <select class="field-input" id="readerChapterDivider">
+          <option value="show" data-i18n="set.ch_divider_show">Show chapter transitions</option>
+          <option value="hide" data-i18n="set.ch_divider_hide">None — chapters flow straight through</option>
         </select>
       </div>
       <div class="status-msg hidden" id="readerStatus"></div>
@@ -140,6 +180,11 @@
           <button class="btn-mini" id="checkTranslateBtn" type="button" data-i18n="set.tr_check">Check connection</button>
           <button class="btn-mini" id="openTranslateModalBtn" type="button" data-i18n="set.tr_modal_btn">⚙ Translator settings…</button>
         </div>
+      </div>
+      <div class="field">
+        <div class="field-label" data-i18n="set.tr_token">Server access token</div>
+        <div class="field-desc" data-i18n="set.tr_token_desc">Only needed if the server requires one (shared or remote servers). Leave empty for a local server.</div>
+        <input class="field-input" type="password" id="translateTokenInput" autocomplete="off" spellcheck="false">
       </div>
       <div class="field">
         <div class="field-label" data-i18n="set.study_gen">Study mode generation</div>

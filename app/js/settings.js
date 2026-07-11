@@ -85,13 +85,13 @@ function setTranslatorBadge(state) {
   else { b.className = 'key-status-badge unset'; b.textContent = t('set.tr_offline'); }
 }
 
-async function checkTranslatorStatus() {
+async function checkTranslatorStatus(settings = null) {
   setTranslatorBadge('checking');
-  const { translateSettings } = await platform.kv.get(['translateSettings']);
-  setTranslatorBadge((await pingServer(serverUrlFromSettings(translateSettings))) ? 'online' : 'offline');
+  const translateSettings = settings || (await platform.kv.get(['translateSettings'])).translateSettings;
+  setTranslatorBadge((await pingServer(serverUrlFromSettings(translateSettings), translateSettings)) ? 'online' : 'offline');
 }
 
-document.getElementById('checkTranslateBtn').addEventListener('click', checkTranslatorStatus);
+document.getElementById('checkTranslateBtn').addEventListener('click', () => checkTranslatorStatus(gatherTranslateSettings()));
 checkTranslatorStatus();
 
 // ── Translation settings (inline server + full config modal) ────────────────
@@ -99,6 +99,7 @@ checkTranslatorStatus();
 function loadTranslateSettings(ts) {
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
   document.getElementById('translateServerInput').value = ts.serverUrl || '';
+  set('translateTokenInput', ts.serverToken || '');
   set('cfgTranslator', ts.translator === 'custom_openai' ? 'qwen2_big' : (ts.translator || 'sugoi'));
   set('cfgTargetLang', ts.targetLang || 'ENG');
   set('cfgDetector', ts.detector || 'default');
@@ -141,6 +142,7 @@ function gatherTranslateSettings() {
   const serverUrl = v('translateServerInput').trim().replace(/\/+$/, '');
   return {
     serverUrl: serverUrl || 'http://127.0.0.1:5003',
+    serverToken: v('translateTokenInput').trim(),
     translator: v('cfgTranslator'),
     targetLang: v('cfgTargetLang'),
     detector: v('cfgDetector'),
@@ -219,10 +221,13 @@ document.getElementById('cfgAdvancedHeader').addEventListener('click', function 
 });
 setAdvancedCollapsed(true);
 
-// Reset all translator settings to defaults (keeps the server URL).
+// Reset translator behavior to defaults while keeping the server connection details.
 document.getElementById('resetTranslateBtn').addEventListener('click', () => {
-  if (!confirm('Reset all translator settings to defaults? (Your server URL is kept.)')) return;
-  loadTranslateSettings({ serverUrl: document.getElementById('translateServerInput').value || 'http://127.0.0.1:5003' });
+  if (!confirm('Reset all translator settings to defaults? (Your server URL and access token are kept.)')) return;
+  loadTranslateSettings({
+    serverUrl: document.getElementById('translateServerInput').value || 'http://127.0.0.1:5003',
+    serverToken: document.getElementById('translateTokenInput').value,
+  });
   saveTranslateSettings('translateModalStatus');
 });
 
@@ -286,8 +291,34 @@ platform.kv.get(['readerStudyDisplay']).then((r) => {
   const el = document.getElementById('readerStudyDisplay');
   if (el) el.value = (r.readerStudyDisplay === 'text') ? 'text' : 'hardcoded_images';
 });
+platform.kv.get(['readerStudyOriginal']).then((r) => {
+  const el = document.getElementById('readerStudyOriginal');
+  if (el) el.value = (r.readerStudyOriginal === 'text') ? 'text' : 'image';
+});
+document.getElementById('readerStudyOriginal').addEventListener('change', (e) => {
+  platform.kv.set({ readerStudyOriginal: e.target.value });
+  showStatus('readerStatus', 'Saved.', 'ok');
+});
+
+platform.kv.get(['readerStudySrcFont']).then((r) => {
+  const el = document.getElementById('readerStudySrcFont');
+  if (el) el.value = (r.readerStudySrcFont === 'kiwi') ? 'kiwi' : 'yasashisa';
+});
+document.getElementById('readerStudySrcFont').addEventListener('change', (e) => {
+  platform.kv.set({ readerStudySrcFont: e.target.value });
+  showStatus('readerStatus', 'Saved.', 'ok');
+});
 document.getElementById('readerStudyDisplay').addEventListener('change', (e) => {
   platform.kv.set({ readerStudyDisplay: e.target.value });
+  showStatus('readerStatus', 'Saved.', 'ok');
+});
+
+platform.kv.get(['readerFurigana']).then((r) => {
+  const el = document.getElementById('readerFurigana');
+  if (el) el.value = (r.readerFurigana === 'on') ? 'on' : 'off';
+});
+document.getElementById('readerFurigana').addEventListener('change', (e) => {
+  platform.kv.set({ readerFurigana: e.target.value });
   showStatus('readerStatus', 'Saved.', 'ok');
 });
 
@@ -297,6 +328,24 @@ platform.kv.get(['readerSkipOverview']).then((r) => {
 });
 document.getElementById('readerSkipOverview').addEventListener('change', (e) => {
   platform.kv.set({ readerSkipOverview: e.target.value === 'skip' });
+  showStatus('readerStatus', 'Saved.', 'ok');
+});
+
+platform.kv.get(['readerChapterDivider']).then((r) => {
+  const el = document.getElementById('readerChapterDivider');
+  if (el) el.value = r.readerChapterDivider === false ? 'hide' : 'show';
+});
+document.getElementById('readerChapterDivider').addEventListener('change', (e) => {
+  platform.kv.set({ readerChapterDivider: e.target.value !== 'hide' });
+  showStatus('readerStatus', 'Saved.', 'ok');
+});
+
+platform.kv.get(['readerStripMode']).then((r) => {
+  const el = document.getElementById('readerStripMode');
+  if (el) el.value = r.readerStripMode === 'chapter' ? 'chapter' : 'series';
+});
+document.getElementById('readerStripMode').addEventListener('change', (e) => {
+  platform.kv.set({ readerStripMode: e.target.value === 'chapter' ? 'chapter' : 'series' });
   showStatus('readerStatus', 'Saved.', 'ok');
 });
 

@@ -163,7 +163,13 @@ export async function removeChapter(ownerId, childId, { deleteImages = false } =
   }
 
   if (deleteImages) await deleteGallery(childId);
-  else await mutateGallery(childId, { parentId: null });
+  else {
+    const [child] = await getGalleriesByIds([childId]);
+    // A series can contain a stale chapter id whose gallery record is already gone. Detaching that
+    // should only prune the owner's chapter list; writing parentId:null would create an empty
+    // top-level gallery shell.
+    if (child) await mutateGallery(childId, { parentId: null });
+  }
 
   if (remaining.length < 2) {
     await _writeSeries(ownerId, remaining);   // dissolve — owner reverts to standalone

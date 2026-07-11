@@ -311,13 +311,22 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
       let bgName = null;
       for (const k of byName.keys()) { if (k.startsWith(`study/bg/${numStr}.`)) { bgName = k; break; } }
       const bgData = bgName ? byName.get(bgName) : null;
-      if (!url || !bgData) continue;
+      if (!url) continue;
+      // Older bundles store a bare entry array; newer ones wrap it with the page dimensions.
+      const raw = index[numStr] || [];
+      const ents = Array.isArray(raw) ? raw : (Array.isArray(raw.bubbles) ? raw.bubbles : []);
+      const page = Array.isArray(raw) ? null : (raw.page || null);
       const bubbles = [];
-      for (const ent of (index[numStr] || [])) {
+      for (const ent of ents) {
+        if (!ent || !ent.box) continue;
         const td = ent.textFile ? byName.get(`study/text/${ent.textFile}`) : null;
-        bubbles.push({ box: ent.box, region: ent.region, tr: ent.tr || '', src: ent.src || '', text: td ? new Blob([td], { type: mimeOf(ent.textFile) }) : null });
+        const bubble = { box: ent.box, region: ent.region || ent.box, tr: ent.tr || '', src: ent.src || '', text: td ? new Blob([td], { type: mimeOf(ent.textFile) }) : null };
+        for (const key of ['rbox', 'style', 'srcLines', 'srcLineBoxes', 'trLines', 'tbox', 'furi']) {
+          if (ent[key] != null) bubble[key] = ent[key];
+        }
+        bubbles.push(bubble);
       }
-      if (bubbles.length) await putPageStudy(url, { bg: new Blob([bgData], { type: mimeOf(bgName) }), bubbles });
+      if (bubbles.length) await putPageStudy(url, { bg: bgData ? new Blob([bgData], { type: mimeOf(bgName) }) : null, bubbles, page });
     }
   }
 

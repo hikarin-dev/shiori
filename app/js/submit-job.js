@@ -1,6 +1,6 @@
 // submit-job.js — route a job to the most durable runner available. With a controlling PWA
 // service worker the job runs there and survives this tab closing; otherwise it runs in this tab
-// (works, but dies with the tab). Either way status broadcasts to every tab via platform.jobs.
+// and leaves a durable replay entry if the tab closes. Either way status broadcasts everywhere.
 import { RUNNERS, cancelJobRun, runPoll } from './jobs-runner.js';
 import * as platform from './platform.js';
 
@@ -19,11 +19,31 @@ function _sw() {
   return navigator.serviceWorker.controller || _swActive || null;
 }
 
+const _tabRunning = new Set();
+async function _runInTab(kind, payload, existingKey = null) {
+  const run = RUNNERS[kind];
+  const key = existingKey || `${payload && payload.galleryId}:${kind}`;
+  if (!run) { if (existingKey) await platform.jobsPending.remove(existingKey); return; }
+  if (_tabRunning.has(key)) return;
+  _tabRunning.add(key);
+  try {
+    await platform.jobsPending.add({ key, kind, payload });
+    await run(payload);
+  } finally {
+    _tabRunning.delete(key);
+    const resume = kind === 'translate'
+      ? await platform.translateResume.get(String(payload && payload.galleryId))
+      : null;
+    // A failed/interrupted start that still owns an upload claim must remain replayable.
+    if (!resume || resume.phase !== 'uploading') await platform.jobsPending.remove(key);
+  }
+}
+
 export function submitJob(kind, payload) {
   const sw = _sw();
   if (sw) { try { sw.postMessage({ __shioriJob: true, kind, payload }); return 'sw'; } catch {} }
   const run = RUNNERS[kind];
-  if (run) { run(payload); return 'tab'; }
+  if (run) { _runInTab(kind, payload); return 'tab'; }
   return null;
 }
 
@@ -37,16 +57,28 @@ export function cancelJob(kind, payload) {
   return 'tab';
 }
 
+let _pendingRecovery = null;
+function _recoverPendingInTab(entries) {
+  if (_pendingRecovery) return _pendingRecovery;
+  _pendingRecovery = Promise.all((entries || []).map((entry) =>
+    _runInTab(entry.kind, entry.payload, entry.key)
+  )).finally(() => { _pendingRecovery = null; });
+  return _pendingRecovery;
+}
+
 // Poll tick: collect the latest chunks for every in-flight translation and broadcast them. Prefer
 // the service worker — one short __shioriPoll event keeps it warm (no single long event to hit the
 // ~5-min cap) and it keeps running across navigations; fall back to polling in this tab when there's
 // no worker. A cheap no-op when nothing is translating. Called on a short timer from boot.js, this
 // is the heartbeat that drives a server-owned translation to completion and survives SW recycling.
 export async function pollActiveTranslations() {
-  let records;
-  try { records = await platform.translateResume.all(); } catch { return; }
-  if (!records || !records.length) return;
+  let records = [];
+  let pending = [];
+  try { records = await platform.translateResume.all(); } catch {}
+  try { pending = await platform.jobsPending.all(); } catch {}
+  if (!records.length && !pending.length) return;
   const sw = _sw();
   if (sw) { try { sw.postMessage({ __shioriPoll: true }); return; } catch {} }
-  await runPoll();   // no service worker — poll in this tab
+  if (pending.length) await _recoverPendingInTab(pending);
+  await runPoll();   // no service worker — recover queued work and poll in this tab
 }

@@ -33,7 +33,11 @@ export async function runImport({ galleryId, tempFile, filename, skipExisting = 
 // pages still missing.
 export async function runTranslate({ galleryId, settings }) {
   const gid = String(galleryId);
-  await startTranslation(gid, settings, (m) => platform.jobs.publish({ gid, kind: 'translate', ...m }));
+  try {
+    await startTranslation(gid, settings, (m) => platform.jobs.publish({ gid, kind: 'translate', ...m }));
+  } catch (e) {
+    platform.jobs.publish({ gid, kind: 'translate', status: 'error', error: String(e && e.message || e) });
+  }
 }
 
 // Poll every in-flight translation once (each a short fetch) and broadcast progress. Driven by the
@@ -48,7 +52,7 @@ export async function runPoll() {
 export const RUNNERS = { upload: runImport, translate: runTranslate };
 
 // Cancel a running job in THIS context. submit-job routes it to the SW when the SW owns the job.
-// Mirror of RUNNERS; only translate is cancellable. The payload carries { galleryId, token, serverUrl }.
+// Mirror of RUNNERS; only translate is cancellable. The payload carries { galleryId, token, serverUrl, settings }.
 export const CANCELLERS = { translate: (payload) => cancelTranslate(payload) };
 
 export function cancelJobRun(kind, payload) {

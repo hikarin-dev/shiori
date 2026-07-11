@@ -5,11 +5,9 @@
 // server, and stores the translated variants. The caller passes the settings object and a progress
 // callback — the app wires its own, the extension wires its job reporter.
 //
-// The whole gallery goes up in ONE /translate/gallery/stream request. The server pipelines the
-// stages (detect/OCR page by page, every `batch_size` pages share one translation call that runs
-// while later pages keep preprocessing, finished pages render and stream back as status-5 frames),
-// so the progress reads Reading → Translating → Rendering even though the stages overlap.
-// batch_size is the token/cost knob for cloud LLM translators; per-page translators use 1.
+// The gallery is uploaded once (in byte-capped parts when needed), then short token-scoped polls
+// collect completed pages and study metadata. The server pipelines detection/OCR, translation and
+// rendering, so progress reads Reading → Translating → Rendering even while stages overlap.
 //
 // CORS: a web origin POSTing to the translate server needs permissive CORS headers from that server
 // (the extension bypassed CORS via host permissions). See ARCHITECTURE-v2 §12 and the translator
@@ -38,26 +36,89 @@ function _imgMime(u8) {
 const BATCH_CAPPED = new Set(['gemini', 'deepseek', 'chatgpt']);
 const DEFAULT_BATCH_CAPS = { gemini: 8, deepseek: 10, chatgpt: 6 };
 const _translating = new Set();   // gids whose job is being STARTED (guards the upload)
-const _polling = new Set();        // gids with an in-flight poll (guards overlapping ticks)
-// gid → { serverUrl, jobToken } so a same-context cancel can reach the server even before the
-// reattach record is read. The token is the source of truth (it's also in translateResume).
+const _polling = new Map();        // gid → {token}; same-token ticks coalesce, replacements proceed
+// gid → { serverUrl, jobToken, abort, cancelled } so a same-context cancel can abort an upload
+// immediately, even before the durable record is re-read. The token remains the source of truth.
 const _controllers = new Map();
 
 export function serverUrlFromSettings(ts) {
   return ((ts || {}).serverUrl || 'http://127.0.0.1:5003').replace(/\/+$/, '');
 }
 
-export async function pingServer(serverUrl) {
+// Remote/shared servers can require a shared access token; it rides as a header on every
+// job request. Empty (the local-server default) sends nothing.
+function _authHeaders(ts) {
+  const tok = ((ts || {}).serverToken || '').trim();
+  return tok ? { 'X-Access-Token': tok } : {};
+}
+
+function _isLocalServer(serverUrl) {
+  try { const h = new URL(serverUrl).hostname; return h === 'localhost' || h === '127.0.0.1' || h === '[::1]'; }
+  catch { return true; }
+}
+
+// Remote servers cap pages at 8MB (MT_MAX_PAGE_MB) and only accept common raster types.
+// Rather than fail the whole gallery on one 15MB PNG scan, oversized/exotic pages are
+// re-encoded to WebP for the upload only (the stored original is untouched). Uses
+// OffscreenCanvas so it works from both a page and the service worker.
+const PAGE_BYTE_CAP = 8 * 1024 * 1024;
+
+// Mirror of the server's accepted-format sniff, on the REAL bytes — the stored MIME type
+// can lie (a source may serve one format under another format's file extension).
+function _uploadableMagic(u8) {
+  if (u8.length >= 12 && u8[0] === 0x52 && u8[1] === 0x49 && u8[2] === 0x46 && u8[3] === 0x46 &&
+      u8[8] === 0x57 && u8[9] === 0x45 && u8[10] === 0x42 && u8[11] === 0x50) return true;   // WEBP
+  if (u8.length >= 12 && u8[4] === 0x66 && u8[5] === 0x74 && u8[6] === 0x79 && u8[7] === 0x70 &&
+      u8[8] === 0x61 && u8[9] === 0x76 && u8[10] === 0x69) return true;                      // AVIF (ftypavif/avis)
+  const magics = [[0x89, 0x50, 0x4e, 0x47], [0xff, 0xd8, 0xff], [0x47, 0x49, 0x46, 0x38], [0x42, 0x4d]]; // PNG, JPEG, GIF, BMP
+  return magics.some(m => m.every((v, i) => u8[i] === v));
+}
+
+async function _fitForUpload(blob) {
+  const head = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
+  if (blob.size <= PAGE_BYTE_CAP && _uploadableMagic(head)) return blob;
+  try {
+    const bmp = await createImageBitmap(blob);
+    // Cap the long side (scans beyond this add nothing for OCR), then WebP q0.9 —
+    // stepping down once if a page somehow still exceeds the cap.
+    const scale = Math.min(1, 4096 / Math.max(bmp.width, bmp.height));
+    const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
+    for (const quality of [0.9, 0.75]) {
+      const canvas = new OffscreenCanvas(w, h);
+      canvas.getContext('2d').drawImage(bmp, 0, 0, w, h);
+      const out = await canvas.convertToBlob({ type: 'image/webp', quality });
+      if (out && out.size <= PAGE_BYTE_CAP) { bmp.close(); return out; }
+    }
+    bmp.close();
+  } catch {}
+  return blob;   // couldn't shrink it — let the server's own limit answer for this page
+}
+
+// The server (and the proxy in front of a remote one) rejects with a JSON {detail} for
+// limits/auth; fall back to a readable label when the body isn't ours (e.g. a proxy page).
+async function _errorDetail(resp) {
+  try { const j = await resp.json(); if (j && j.detail) return String(j.detail); } catch {}
+  return resp.status === 401 ? 'access token missing or wrong — check Settings → Translation'
+       : resp.status === 413 ? 'gallery too large for the server'
+       : resp.status === 429 ? 'server rate limit reached — try again later'
+       : resp.status === 503 ? 'server is at capacity — try again later'
+       : `server error (${resp.status})`;
+}
+
+export async function pingServer(serverUrl, settings = {}) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 2500);
-  try { await fetch(`${serverUrl}/`, { signal: ctrl.signal }); return true; }
+  try {
+    const resp = await fetch(`${serverUrl}/stats`, { signal: ctrl.signal, headers: _authHeaders(settings) });
+    return resp.ok;
+  }
   catch { return false; }
   finally { clearTimeout(timer); }
 }
 
 // Cancel a gallery translation: tell the server to stop that exact job by token, so the worker
 // isn't left churning the GPU. The polling stops on its own once the reattach record is removed
-// (services.js does that). `arg` is { galleryId, token, serverUrl } (token/serverUrl read from the
+// (services.js does that). `arg` is { galleryId, token, serverUrl, settings } (read from the
 // record by the caller, so a cancel works across contexts) or just a gid. Best-effort.
 export function cancelTranslate(arg) {
   const p = (arg && typeof arg === 'object') ? arg : { galleryId: arg };
@@ -65,12 +126,21 @@ export function cancelTranslate(arg) {
   const entry = _controllers.get(gid);
   const token = p.token || (entry && entry.jobToken);
   const serverUrl = p.serverUrl || (entry && entry.serverUrl);
-  _polling.delete(gid);
-  _controllers.delete(gid);
+  const headers = _authHeaders(p.settings || (entry && entry.ts));
+  // A delayed cancel for an older token must not tear down a newer controller/poll for the gid.
+  const activePoll = _polling.get(gid);
+  if (!token || activePoll?.token === token) _polling.delete(gid);
+  if (!token || entry?.jobToken === token) {
+    if (entry) {
+      entry.cancelled = true;
+      try { entry.abort?.abort(); } catch {}
+    }
+    _controllers.delete(gid);
+  }
   if (serverUrl && token) {
     const form = new FormData();
     form.append('job_token', token);
-    fetch(`${serverUrl}/translate/gallery/cancel`, { method: 'POST', body: form }).catch(() => {});
+    fetch(`${serverUrl}/translate/gallery/cancel`, { method: 'POST', body: form, headers }).catch(() => {});
   }
   return true;
 }
@@ -186,14 +256,13 @@ export async function startTranslation(galleryId, ts, send = () => {}) {
   const gid = String(galleryId);
   if (_translating.has(gid)) return;
   _translating.add(gid);
+  let ownedStart = null;
   try {
-    // A translation already in flight for this gallery (its resume record still exists)? Don't
-    // start a duplicate server job — that orphans the first one and churns the GPU (worst exactly
-    // when it's contended, e.g. another app is using it). The poll loop is already driving it, so a
-    // repeat Translate click is a no-op; the notfound-restart path clears the record before
-    // re-calling here, so genuine resumes still go through.
-    if (await translateResume.get(gid)) return;
-    ts = ts || {};
+    // A server-owned job already being polled is a no-op. An interrupted upload claim is replayed
+    // below with its original token, so accepted parts remain idempotent instead of being orphaned.
+    let resume = await translateResume.get(gid);
+    if (resume && resume.phase !== 'uploading') return;
+    ts = (resume && resume.settings) || ts || {};
     const serverUrl = serverUrlFromSettings(ts);
     const config = buildConfig(ts);
     const tlName = config.translator.translator;
@@ -202,38 +271,133 @@ export async function startTranslation(galleryId, ts, send = () => {}) {
     const cap = BATCH_CAPPED.has(tlName) ? Math.max(1, parseInt(caps[tlName], 10) || DEFAULT_BATCH_CAPS[tlName] || 8) : 1;
 
     const records = (await getGalleryImageRecords(gid)).filter(r => r.blob ?? r.dataUrl);
-    const total = records.length;
-    const pending = records.filter(r => r.translated === undefined).sort((a, b) => _pageNumOf(a.url) - _pageNumOf(b.url));
+    const byUrl = new Map(records.map(r => [r.url, r]));
+    const total = Number(resume && resume.total) || records.length;
+    const pending = resume && Array.isArray(resume.pendingUrls)
+      ? resume.pendingUrls.map(url => byUrl.get(url)).filter(Boolean)
+      : records.filter(r => r.translated === undefined).sort((a, b) => _pageNumOf(a.url) - _pageNumOf(b.url));
 
     if (pending.length === 0) {
       const meta = await metaGet(gid);
       if (meta && (!meta.translated || meta.translatedLang !== langCode)) await metaPut({ ...meta, translated: true, translatedLang: langCode });
-      await translateResume.remove(gid);
+      if (resume?.token) await translateResume.remove(gid, resume.token);
       send({ status: 'done', done: total, total });
       return;
     }
 
-    const jobToken = (globalThis.crypto?.randomUUID?.() || `${gid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    if (resume && pending.length !== resume.pendingUrls.length) {
+      if (await translateResume.remove(gid, resume.token)) send({ status: 'error', error: 'one or more source pages could not be read' });
+      return;
+    }
 
-    // Upload the pages and create the job — the server runs the worker detached and buffers frames.
-    const form = new FormData();
-    for (const p of pending) form.append('image', await imageToBlob(p.blob ?? p.dataUrl), 'page.png');
-    form.append('config', JSON.stringify(config));
-    form.append('batch_size', String(cap));
-    form.append('job_token', jobToken);
-    let ok = false;
-    try { const resp = await fetch(`${serverUrl}/translate/gallery/start`, { method: 'POST', body: form }); ok = resp.ok; }
-    catch {}
-    if (!ok) { send({ status: 'error', error: 'could not reach translation server' }); return; }
+    const jobToken = (resume && resume.token) || (globalThis.crypto?.randomUUID?.() || `${gid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    if (!resume) {
+      resume = {
+        gid, token: jobToken, serverUrl, settings: ts, langCode, translator: tlName, cap,
+        pendingUrls: pending.map(p => p.url), total, cursor: 0, phase: 'uploading',
+      };
+      const claimed = await translateResume.claim(resume);
+      if (claimed === 'exists') return;
+      if (claimed !== 'claimed') { send({ status: 'error', error: 'could not save translation job state' }); return; }
+    }
+    ownedStart = { token: jobToken, serverUrl, settings: ts };
 
-    _controllers.set(gid, { serverUrl, jobToken });
-    // Everything a poll needs to resume this server-owned job from any page (and the cursor it
-    // advances). pendingUrls maps the server's page indices back to gallery urls.
-    await translateResume.set({
-      gid, token: jobToken, serverUrl, settings: ts, langCode, translator: tlName, cap,
-      pendingUrls: pending.map(p => p.url), total, cursor: 0,
-    });
+    const controller = { serverUrl, jobToken, ts, cancelled: false, abort: new AbortController() };
+    _controllers.set(gid, controller);
+    const stillOwned = async () => {
+      if (controller.cancelled || _controllers.get(gid) !== controller) return false;
+      const current = await translateResume.get(gid);
+      return !!current && current.token === jobToken && current.phase === 'uploading';
+    };
+    const cancelRemote = () => cancelTranslate({ galleryId: gid, token: jobToken, serverUrl, settings: ts });
+    const failStart = async (message) => {
+      const removed = await translateResume.remove(gid, jobToken);
+      const current = removed ? null : await translateResume.get(gid);
+      cancelRemote();
+      if (removed || current?.token === jobToken) send({ status: 'error', error: message });
+    };
+    send({ status: 'started', done: total - pending.length, total, label: 'Preparing upload…', pct: 0 });
+
+    // Upload the pages and create the job — the server runs the worker detached and buffers
+    // frames. A remote proxy may cap request bodies, so a big gallery is uploaded as several
+    // deterministic page groups sharing the job token; the server assembles them in order and
+    // starts when the last one lands. Eight pages stay below the request cap even when every
+    // converted page reaches its 8 MB ceiling, and only one group is retained in memory at once.
+    const REMOTE_PAGES_PER_PART = 8;
+    const split = !_isLocalServer(serverUrl);
+    const partCount = split ? Math.ceil(pending.length / REMOTE_PAGES_PER_PART) : 1;
+    if (partCount > 40) { await failStart('gallery has too many pages for remote upload'); return; }
+
+    const headers = _authHeaders(ts);
+    for (let i = 0; i < partCount; i++) {
+      if (!await stillOwned()) { cancelRemote(); return; }
+      const form = new FormData();
+      const first = split ? i * REMOTE_PAGES_PER_PART : 0;
+      const last = split ? Math.min(pending.length, first + REMOTE_PAGES_PER_PART) : pending.length;
+      for (let j = first; j < last; j++) {
+        let blob = await imageToBlob(pending[j].blob ?? pending[j].dataUrl);
+        if (!blob) { await failStart('one or more source pages could not be read'); return; }
+        if (split) blob = await _fitForUpload(blob);   // remote page-size/type cap; local is uncapped
+        if (split && blob.size > PAGE_BYTE_CAP) {
+          await failStart('a source page exceeds the remote server size limit');
+          return;
+        }
+        if (!await stillOwned()) { cancelRemote(); return; }
+        form.append('image', blob, 'page.png');
+      }
+      form.append('config', JSON.stringify(config));
+      form.append('batch_size', String(cap));
+      form.append('job_token', jobToken);
+      form.append('part', String(i));
+      form.append('parts', String(partCount));
+      let resp = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          resp = await fetch(`${serverUrl}/translate/gallery/start`, {
+            method: 'POST', body: form, headers, signal: controller.abort.signal,
+          });
+        }
+        catch {
+          if (controller.cancelled || _controllers.get(gid) !== controller) return;
+          if (attempt === 0) continue;
+        }
+        if (resp && (resp.status === 502 || resp.status === 504) && attempt === 0) { resp = null; continue; }
+        break;
+      }
+      if (!resp) { await failStart('could not reach translation server'); return; }
+      if (!resp.ok) { await failStart(await _errorDetail(resp)); return; }
+      let ack = null;
+      try { ack = await resp.json(); } catch {}
+      if (!ack || ack.token !== jobToken) { await failStart('translation server returned an invalid job token'); return; }
+      if (!await stillOwned()) { cancelRemote(); return; }
+    }
+
+    // Atomically hand the durable claim from the upload phase to the poller. If cancellation won
+    // this race, stop the just-created remote job and publish nothing over the cancelled state.
+    if (!await translateResume.patch(gid, jobToken, { phase: 'polling' })) {
+      const current = await translateResume.get(gid);
+      cancelRemote();
+      if (current?.token === jobToken) {
+        await translateResume.remove(gid, jobToken);
+        send({ status: 'error', error: 'could not save translation job state' });
+      }
+      return;
+    }
     send({ status: 'started', done: total - pending.length, total, label: 'Starting…', pct: 0 });
+  } catch (error) {
+    // An unexpected conversion/FormData/IDB failure must not strand an `uploading` record that
+    // the poller can never advance. Clean up only the token this invocation owns, then let the
+    // runner publish the original error.
+    if (ownedStart) {
+      try {
+        const current = await translateResume.get(gid);
+        if (current?.token === ownedStart.token && current.phase === 'uploading') {
+          cancelTranslate({ galleryId: gid, ...ownedStart });
+          await translateResume.remove(gid, ownedStart.token);
+        }
+      } catch {}
+    }
+    throw error;
   } finally {
     _translating.delete(gid);
   }
@@ -246,21 +410,36 @@ export async function startTranslation(galleryId, ts, send = () => {}) {
 // fetches can read it. Only the cursor is persisted; the rest is recomputed from the server each tick.
 export async function pollTranslation(galleryId, send = () => {}) {
   const gid = String(galleryId);
-  if (_polling.has(gid)) return;
-  _polling.add(gid);
+  const rec = await translateResume.get(gid);
+  if (!rec || rec.phase === 'uploading') return;
+  const active = _polling.get(gid);
+  if (active?.token === rec.token) return;
+  const poll = { token: rec.token };
+  _polling.set(gid, poll);
   try {
-    const rec = await translateResume.get(gid);
-    if (!rec) return;
     const { token, serverUrl, pendingUrls, settings, langCode, translator, cap, total } = rec;
     const cursor = rec.cursor || 0;
+    const ownsToken = async () => (await translateResume.get(gid))?.token === token;
 
     const form = new FormData();
     form.append('job_token', token);
     form.append('since', String(cursor));
     let resp;
-    try { resp = await fetch(`${serverUrl}/translate/gallery/poll`, { method: 'POST', body: form }); }
+    try { resp = await fetch(`${serverUrl}/translate/gallery/poll`, { method: 'POST', body: form, headers: _authHeaders(settings) }); }
     catch { return; }                       // server unreachable — next tick retries
-    if (!resp.ok) return;
+    if (!resp.ok) {
+      const permanent = resp.status >= 400 && resp.status < 500 && resp.status !== 408 && resp.status !== 429;
+      if (permanent) {
+        const detail = await _errorDetail(resp);
+        if (await translateResume.remove(gid, token)) {
+          const entry = _controllers.get(gid);
+          if (!entry || entry.jobToken === token) _controllers.delete(gid);
+          send({ status: 'error', error: detail });
+        }
+      }
+      return;
+    }
+    if (!await ownsToken()) return;
 
     const buf = new Uint8Array(await resp.arrayBuffer());
     const dec = new TextDecoder();
@@ -279,7 +458,10 @@ export async function pollTranslation(galleryId, send = () => {}) {
         const b = 1 + tlen;
         const idx = ((data[b] << 24) | (data[b + 1] << 16) | (data[b + 2] << 8) | data[b + 3]) >>> 0;
         const url = pendingUrls[idx];
-        if (url) { const img = data.subarray(b + 4); await putTranslatedImage(url, await imageToDataUrl(new Blob([img], { type: _imgMime(img) }))); }
+        if (url && await ownsToken()) {
+          const img = data.subarray(b + 4);
+          await putTranslatedImage(url, await imageToDataUrl(new Blob([img], { type: _imgMime(img) })));
+        }
       } else if (st === 6) {
         const tlen = data[0];
         if (dec.decode(data.subarray(1, 1 + tlen)) !== token) continue;
@@ -298,10 +480,17 @@ export async function pollTranslation(galleryId, send = () => {}) {
               const bubble = { box: bb.box, region: bb.region || bb.box, tr: bb.tr || '', src: bb.src || '' };
               if (bb.rbox)  bubble.rbox  = bb.rbox;
               if (bb.style) bubble.style = bb.style;
+              // Text-layout extras (all optional): original OCR lines + their per-line boxes,
+              // renderer's laid-out translation lines + its drawn rect, per-line furigana.
+              if (Array.isArray(bb.srcLines) && bb.srcLines.length) bubble.srcLines = bb.srcLines;
+              if (Array.isArray(bb.srcLineBoxes) && bb.srcLineBoxes.length) bubble.srcLineBoxes = bb.srcLineBoxes;
+              if (Array.isArray(bb.trLines)  && bb.trLines.length)  bubble.trLines  = bb.trLines;
+              if (Array.isArray(bb.furi)     && bb.furi.length)     bubble.furi     = bb.furi;
+              if (bb.tbox) bubble.tbox = bb.tbox;
               if (bb.text) { const text = await imageToBlob(bb.text); if (!text) continue; bubble.text = text; }
               bubbles.push(bubble);
             }
-            if (bubbles.length) await putPageStudy(url, { bg, bubbles, page: study.page || null });
+            if (bubbles.length && await ownsToken()) await putPageStudy(url, { bg, bubbles, page: study.page || null });
           }
         }
       } else if (st === 0) { try { summary = JSON.parse(dec.decode(data)); } catch {} }
@@ -311,22 +500,35 @@ export async function pollTranslation(galleryId, send = () => {}) {
     if (!meta) return;                       // malformed response — try again next tick
     if (meta.status === 'notfound') {
       // Server lost the job (reaped after a long absence, or restarted) → start fresh for the rest.
-      await translateResume.remove(gid);
-      _controllers.delete(gid);
-      await startTranslation(gid, settings, send);
+      if (await translateResume.remove(gid, token)) {
+        const entry = _controllers.get(gid);
+        if (!entry || entry.jobToken === token) _controllers.delete(gid);
+        // Queue the restart through the durable runner rather than uploading inside the poller.
+        // The next heartbeat claims this row, so a worker eviction can never lose the restart.
+        const key = `${gid}:translate`;
+        if (await jobsPending.add({ key, kind: 'translate', payload: { galleryId: gid, settings } })) {
+          send({ status: 'started', done: total - pendingUrls.length, total, label: 'Restarting…', pct: 0 });
+        } else {
+          send({ status: 'error', error: 'could not save translation restart state' });
+        }
+      }
       return;
     }
 
     const startDone = total - pendingUrls.length;          // pages already translated before this job
     const done = Math.min(startDone + (meta.done || 0), total);   // server's emitted count is authoritative
-    await translateResume.set({ ...rec, cursor: meta.cursor });   // only the cursor needs persisting
+    if (!await translateResume.advance(gid, token, meta.cursor)) return;
 
     const terminal = summary || errMsg || meta.status === 'done' || meta.status === 'error' || meta.status === 'cancelled';
-    if (!terminal) { send({ status: 'progress', done, total, label: _galleryLabel(meta), pct: _galleryPct(meta) }); return; }
+    if (!terminal) {
+      if (await ownsToken()) send({ status: 'progress', done, total, label: _galleryLabel(meta), pct: _galleryPct(meta) });
+      return;
+    }
 
     // Terminal — finalize once and stop polling this gallery.
-    await translateResume.remove(gid);
-    _controllers.delete(gid);
+    if (!await translateResume.remove(gid, token)) return;
+    const entry = _controllers.get(gid);
+    if (!entry || entry.jobToken === token) _controllers.delete(gid);
     if (meta.status === 'cancelled' && !summary) {
       // Server-side cancel (liveness reaper, or a cancel issued from another context). Clearing
       // the resume token above is what stops the polling — without it the job would sit in
@@ -350,7 +552,7 @@ export async function pollTranslation(galleryId, send = () => {}) {
     }
     send({ status: 'done', done, total, failed, costNote });
   } finally {
-    _polling.delete(gid);
+    if (_polling.get(gid) === poll) _polling.delete(gid);
   }
 }
 

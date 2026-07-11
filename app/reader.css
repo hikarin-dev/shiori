@@ -12,51 +12,52 @@
 html, body { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; }
 body { min-height: 100vh; }
 
-/* ── Chapter nav (series only) ── */
-.chapter-bar {
-  position: relative; z-index: 60;
-  display: flex; align-items: center; justify-content: center; gap: 4px;
+/* ── Chapter transition card (series only) ──
+   "End of Ch. N" + prev/next chapter cards + Series/Home links. Rendered inline after a chapter's
+   last page in the scroll strip, and as a dedicated transition page in single/double modes. */
+.chd { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
+.chd-end { font-size: 17px; font-weight: 700; }
+.chd-sub { font-size: 12px; color: var(--muted); margin-top: -8px; }
+/* Both rows use two EQUAL-width columns so their center gaps sit on the same vertical axis. */
+.chd-nav { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 10px; margin-top: 6px; }
+.chd-adj {
+  display: flex; align-items: center; gap: 10px;
+  min-width: 168px; padding: 12px 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  color: var(--text); font-family: inherit; cursor: pointer;
 }
+.chd-adj svg { color: var(--accent); flex-shrink: 0; }
+.chd-adj-txt { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; }
+.chd-lbl { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.chd-num { font-size: 13px; }
+.chd-adj:hover:not(:disabled) { border-color: var(--accent); }
+.chd-adj:disabled { opacity: .35; cursor: default; }
+.chd-links { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 10px; }
+.chd-pill {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 7px 14px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); font-family: inherit; font-size: 12px; cursor: pointer;
+}
+.chd-pill svg { color: var(--accent); }
+.chd-pill:hover { border-color: var(--accent); }
 
-/* Fixed top pill — single/double page modes only (the bottom is the scrubber there). */
-#chapterBarTop {
-  width: fit-content; margin: 14px auto; padding: 5px 6px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+/* Dedicated transition page (single/double). The container spans the view but stays transparent
+   to clicks, so the reader's edge click-zones still flip off the transition; only the card itself
+   is interactive. reader.js toggles display + the body class. */
+#dividerPage {
+  display: none; position: relative; z-index: 60;
+  align-items: center; justify-content: center;
+  min-height: calc(100vh - var(--topbar-h) - var(--botbar-visual-h));
+  pointer-events: none;
 }
-
-/* Fixed bottom pill — shows under the last page in single/double page modes, sitting just above
-   the scrubber bar (mirrors the top pill on the first page). */
-#chapterBarBottom {
-  width: fit-content; margin: 14px auto; padding: 5px 6px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
-}
-
-#singleView.chapter-top-visible,
-#doubleView.chapter-top-visible,
-#singleView.chapter-bottom-visible,
-#doubleView.chapter-bottom-visible {
-  padding-bottom: var(--botbar-visual-h);
-}
-
-/* Inline bars in the scroll strip — above the first page and below the last page, in the flow. */
-.chapter-bar.inline {
-  width: fit-content; margin: 14px auto; padding: 5px 6px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
-}
-
-.chapter-bar .ch-nav {
-  background: none; border: none; color: var(--text); cursor: pointer;
-  width: 28px; height: 28px; border-radius: 999px; font-size: 18px; line-height: 1;
-  display: flex; align-items: center; justify-content: center;
-}
-.chapter-bar .ch-nav:hover:not(:disabled) { background: var(--bg); color: var(--accent); }
-.chapter-bar .ch-nav:disabled { opacity: .3; cursor: default; }
-.chapter-bar .ch-label {
-  background: none; border: none; color: var(--text); cursor: pointer;
-  padding: 0 10px; font-family: inherit; font-size: 12px; max-width: 300px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.chapter-bar .ch-label:hover { color: var(--accent); }
+#dividerPage .chd { pointer-events: auto; }
+body.page-divider #singleInner,
+body.page-divider #doubleInner { display: none !important; }
+/* The emptied view must also give up its min-height (e.g. the unpinned 100vh), or it would hold
+   a full blank viewport above the transition page and push it below the fold. */
+body.page-divider #singleView.active,
+body.page-divider #doubleView.active { min-height: 0 !important; }
 
 /* ── Top bar ── */
 #topbar {
@@ -261,6 +262,20 @@ body.reader-fit-height #doubleInner > .page-wrap > .dImg { width: 100%; }
   aspect-ratio: 2 / 3;
   object-fit: contain;
 }
+/* The strip is virtualized: rows outside the mounted window hold an <img> with no src. Keep the
+   reserved slot as a quiet surface (and never a broken-image glyph) until its page mounts. */
+#stripView .page-img:not([src]) { visibility: hidden; }
+#stripView .page-wrap { background: var(--surface); }
+
+/* Inline transition card after a chapter's last page (see .chd above). The strip has a 4px row
+   gap and a 20px bottom padding — the paddings below keep the space above and below a divider
+   equal (4+26 = 30 between pages; 10+20 = 30 against the document end for the final divider). */
+#stripView .chapter-divider {
+  align-self: stretch;
+  display: flex; justify-content: center;
+  padding: 26px 16px;
+}
+#stripView .chapter-divider:last-child { padding-bottom: 10px; }
 
 /* ── Study mode: per-bubble translation overlays (layered) ── */
 /* Each page image lives in a relative wrap so overlays anchor to the image box in every mode. */
@@ -270,7 +285,7 @@ body.reader-fit-height #doubleInner > .page-wrap > .dImg { width: 100%; }
    and its translated text in .bubble-fg (above), so overlapping bubbles never let one's
    background cover another's text. Clickable boxes sit on top of both. */
 .bubble-bg  { position: absolute; inset: 0; z-index: 1; }
-.bubble-fg  { position: absolute; inset: 0; z-index: 2; }
+.bubble-fg  { position: absolute; inset: 0; z-index: 3; }
 /* A revealed layer is the FULL page image (100% of the wrap, so it stays aligned with the
    original at any zoom), clipped to one bubble's box via an inline clip-path. */
 .study-layer-img {
@@ -281,7 +296,7 @@ body.reader-fit-height #doubleInner > .page-wrap > .dImg { width: 100%; }
 /* Page-flip zones live INSIDE the overlay, just below the bubble boxes (single/double only),
    so clicking a bubble reveals it while clicking anywhere else on the page still turns the
    page. Strip mode scrolls, so it gets no nav zones. */
-.bubble-nav { position: absolute; inset: 0; display: flex; z-index: 3; }
+.bubble-nav { position: absolute; inset: 0; display: flex; z-index: 2; }
 .bubble-nav > div { flex: 1; pointer-events: auto; cursor: pointer; }
 .bubble-box {
   position: absolute; z-index: 4; pointer-events: auto; cursor: pointer;
@@ -294,8 +309,7 @@ body.reader-fit-height #doubleInner > .page-wrap > .dImg { width: 100%; }
 }
 /* Hover = "active region": ring + faint tint. Otherwise the box is invisible (clean page). */
 .bubble-box:hover { outline-color: var(--accent); background-color: rgba(237, 39, 84, 0.08); }
-/* While a bubble shows DOM text, its click box yields pointer events so the text below is
-   selectable; the text block's own click (or Escape) closes it. */
+/* While DOM text is visible, its click box yields pointer events to the selectable text below. */
 .bubble-box.text-revealed { pointer-events: none; }
 /* The comic-lettering face the translation renderer typesets with, bundled so DOM-text
    study bubbles use the exact same glyphs (a locally installed copy wins if present). */
@@ -304,8 +318,19 @@ body.reader-fit-height #doubleInner > .page-wrap > .dImg { width: 100%; }
   src: local("CC Victory Speech"), url("fonts/ccvictoryspeech.ttf") format("truetype");
   font-display: swap;
 }
+/* The two source-text faces for study bubbles (Settings → Reader), bundled likewise. */
+@font-face {
+  font-family: "Yasashisa Antique";
+  src: local("07やさしさアンチック"), local("YasashisaAntique"), url("fonts/YasashisaAntique.otf") format("opentype");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Kiwi Maru";
+  src: local("Kiwi Maru"), url("fonts/KiwiMaru-Regular.ttf") format("truetype");
+  font-display: swap;
+}
 
-/* A bubble's translation as selectable DOM text, positioned at the renderer's layout box.
+/* A bubble's translation as selectable DOM text, positioned at the rect the renderer drew at.
    Font size = the renderer's page-pixel size × --pgscale (wrap width ÷ page width, kept in
    sync by the layer's ResizeObserver), so it zooms with the page like the image layers. */
 .study-text {
@@ -323,6 +348,24 @@ body.reader-fit-height #doubleInner > .page-wrap > .dImg { width: 100%; }
   /* Balloon text balances its line lengths; balance mimics the renderer's centered layout. */
   white-space: pre-wrap; overflow-wrap: break-word; text-wrap: balance;
 }
+/* When the pipeline stored the renderer's laid-out lines, reproduce those exact breaks and
+   never re-wrap (browser font metrics differ slightly; overflow stays visible instead). */
+.study-text.lines { white-space: pre; }
+/* The bubble's ORIGINAL text, typeset like the source: the OCR's own line breaks (pre),
+   vertical columns flowing right→left for vertically-read text, and ruby furigana. */
+.study-text.src { white-space: pre; font-family: "Yasashisa Antique", sans-serif; }
+.study-text.src.font-kiwi { font-family: "Kiwi Maru", sans-serif; }
+.study-text.src.vert { writing-mode: vertical-rl; }
+.study-text.src rt { font-size: 0.45em; line-height: 1; }
+/* Per-line placement: each OCR textline sits at its own detected box inside the detection
+   region; its own --fs (the line's page-pixel height, or width when vertical) sets the size. */
+.study-line {
+  position: absolute;
+  display: flex; align-items: center; justify-content: center;
+  white-space: pre; line-height: 1;
+  font-size: calc(var(--pgscale, 1) * var(--fs, 16px));
+}
+.study-line.vert { writing-mode: vertical-rl; }
 /* Metadata-only bubbles have no inpainted backdrop — give the text a readable card. */
 .study-text.boxed {
   background: rgba(255, 255, 255, 0.93);
@@ -330,10 +373,10 @@ body.reader-fit-height #doubleInner > .page-wrap > .dImg { width: 100%; }
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.25);
   padding: 2px 4px;
 }
-/* The fixed side click-zones are disabled in study mode (they'd sit above the overlay and eat
-   hover + bubble clicks); navigation is handled by the in-overlay zones above. */
-body.study-mode #clickPrev, body.study-mode #clickNext,
-body.study-mode #dClickPrev, body.study-mode #dClickNext { pointer-events: none; }
+/* Disable fixed zones only while visible bubble boxes need the lower in-page navigation layer.
+   Study-less pages and chapter transition cards retain the normal full-viewport click zones. */
+body.study-bubbles-active #clickPrev, body.study-bubbles-active #clickNext,
+body.study-bubbles-active #dClickPrev, body.study-bubbles-active #dClickNext { pointer-events: none; }
 
 /* ── Thumbnail strip ── */
 :root { --thumb-h: 88px; --zoom-inv: 1; }
@@ -502,8 +545,6 @@ body.reader-unpinned #topbar.revealed { top: 0; }
 body.reader-unpinned { --reader-fit-page-height: calc(100vh - var(--botbar-visual-h)); }
 body.reader-unpinned #singleView.active,
 body.reader-unpinned #doubleView.active { min-height: 100vh; }
-body.reader-unpinned #singleView.active.chapter-top-visible,
-body.reader-unpinned #doubleView.active.chapter-top-visible { min-height: calc(100vh - 14px); }
 /* ── All modes use document scroll ── */
 html.reader-scroll, body.reader-scroll { height: auto; }
 

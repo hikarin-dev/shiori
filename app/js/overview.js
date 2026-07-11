@@ -57,12 +57,13 @@ const ICON = {
   done:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
   download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>',
   upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>',
+  detach: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7H7a5 5 0 0 0 0 10h2"/><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M8 12h8"/><path d="m4 4 16 16"/></svg>',
   removeShift: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M9 13l2 2 4-4"/></svg>',
 };
 
-// ── Shift-hold affordance on the chapter-row download/remove buttons (mirrors the library card
+// ── Shift-hold affordance on the chapter-row download/delete buttons (mirrors the library card
 // buttons): while Shift is held over one, its icon flips to the alternate action and its tooltip
-// swaps to the Shift label. Download's alternate is Replace-from-CBZ; Remove's is a quick delete. ──
+// swaps to the Shift label. Download's alternate is Replace-from-CBZ; Delete's is a quick delete. ──
 function _makeFlipBtn(innerClass) {
   const timers = new WeakMap();
   const reset = (inner) => {
@@ -412,7 +413,8 @@ async function chapterRow(ch, idx, total) {
       <button class="ch-ibtn" data-up ${idx === 0 ? 'disabled' : ''} data-tip="${esc(t('ov.move_up'))}">${ICON.up}</button>
       <button class="ch-ibtn" data-down ${idx === total - 1 ? 'disabled' : ''} data-tip="${esc(t('ov.move_down'))}">${ICON.down}</button>
       ${downloadAction}
-      <button class="ch-ibtn danger" data-remove data-tip="${esc(t('ov.remove'))}" data-tip-shift="${esc(t('card.tip_quickdelete'))}"><span class="ch-del-inner">${ICON.remove}</span></button>
+      <button class="ch-ibtn detach" data-detach data-tip="${esc(t('ov.remove_detach'))}">${ICON.detach}</button>
+      <button class="ch-ibtn danger" data-remove data-tip="${esc(t('card.tip_delete'))}" data-tip-shift="${esc(t('card.tip_quickdelete'))}"><span class="ch-del-inner">${ICON.remove}</span></button>
     </div>`;
 
   row.innerHTML = `
@@ -437,6 +439,7 @@ async function chapterRow(ch, idx, total) {
   const up = row.querySelector('[data-up]');
   const down = row.querySelector('[data-down]');
   const download = row.querySelector('[data-download]');
+  const detach = row.querySelector('[data-detach]');
   const remove = row.querySelector('[data-remove]');
   if (up) up.addEventListener('click', () => move(idx, -1));
   if (down) down.addEventListener('click', () => move(idx, 1));
@@ -445,10 +448,11 @@ async function chapterRow(ch, idx, total) {
     download.addEventListener('mouseleave', () => { if (_dlCanFlip(download) && _shiftHeld) _dlFlip.to(download, ICON.download); _hoveredDlBtn = null; });
     download.addEventListener('click', (ev) => downloadOrReplaceChapter(ch, e, ev));
   }
+  if (detach) detach.addEventListener('click', () => detachChapter(ch));
   if (remove) {
     remove.addEventListener('mouseenter', () => { _hoveredDelBtn = remove; if (_shiftHeld) _delFlip.to(remove, ICON.removeShift); });
     remove.addEventListener('mouseleave', () => { if (_shiftHeld) _delFlip.to(remove, ICON.remove); _hoveredDelBtn = null; });
-    remove.addEventListener('click', (ev) => { if (ev.shiftKey) quickRemoveChapter(ch); else openRemove(ch, idx); });
+    remove.addEventListener('click', (ev) => deleteChapter(ch, { prompt: !ev.shiftKey }));
   }
   return row;
 }
@@ -581,22 +585,39 @@ function openRemove(ch, idx) {
   $('removeModal').classList.add('open');
 }
 function closeRemove() { $('removeModal').classList.remove('open'); _removeTarget = null; }
-// Shift+click on a chapter's remove button: quick delete (drop the chapter's images) with no modal,
-// mirroring the library card's Shift+delete quick action.
-async function quickRemoveChapter(ch) {
+// Chapter-row delete mirrors the library card quick action: plain click confirms, Shift-click skips
+// the prompt. The series helper removes/re-owns/dissolves series metadata around the deleted gallery.
+async function deleteChapter(ch, { prompt = true } = {}) {
+  if (!ch) return;
+  if (prompt && !confirm(t('confirm.delete_gallery', { id: ch.id }))) return;
   _removeTarget = ch;
   await doRemove(true);
+}
+async function detachChapter(ch) {
+  if (!ch) return;
+  _removeTarget = ch;
+  await doRemove(false);
 }
 async function doRemove(deleteImages) {
   if (!_removeTarget) return;
   const id = _removeTarget.id;
+  const prevOwnerId = ownerId;
+  const remaining = (await currentOrder()).filter(gid => gid !== String(id));
   closeRemove();
-  await removeChapter(ownerId, id, { deleteImages });
-  // If the owner itself was removed, ownership moved — re-resolve from a surviving chapter.
-  const meta = await metaGet(ownerId);
-  if (!meta || !Array.isArray(meta.chapters)) {
-    const s = await resolveSeries(id === ownerId ? id : ownerId);
-    if (s) ownerId = s.ownerId; else { location.replace('../'); return; }
+  await removeChapter(prevOwnerId, id, { deleteImages });
+
+  if (String(id) === String(prevOwnerId)) {
+    ownerId = remaining[0] || prevOwnerId;
+  } else {
+    ownerId = prevOwnerId;
+  }
+
+  const series = await resolveSeries(ownerId);
+  const ownerExists = series ? true : !!(await getGallery(ownerId));
+  if (series) ownerId = series.ownerId;
+  else if (!ownerExists) {
+    location.replace('../');
+    return;
   }
   await render();
 }
