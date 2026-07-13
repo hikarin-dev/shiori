@@ -1740,13 +1740,30 @@ function _syncStripWindow(swap = false) {
 // wheel, scrubbing, or the W/S scroll loop doesn't rebuild the load queue on every scroll event.
 let _lastSyncCenter = Infinity;
 let _stripSyncQueued = false;
-let _stripPositionTimer = null;
+let _stripAnnounceTimer = null;
+let _stripAnnouncedPage = -1;   // last page actually broadcast — skip redundant re-emits
+
+// Broadcast the reading position as a leading + trailing throttle (~150ms), NOT a trailing-only
+// debounce: a continuous scroll (holding D, the W/S loop, a smooth scroll) calls this faster than
+// 150ms, so a plain debounce would keep resetting and never fire until motion stopped — starving a
+// listener that's waiting on EXT_READER_POSITION. This emits on the first move, keeps emitting on a
+// steady cadence while scrolling, and lands a final broadcast on the page we settle on.
+function _announceStripPage() {
+  if (mode !== 'strip' || currentPage === _stripAnnouncedPage) return;
+  _stripAnnouncedPage = currentPage;
+  _announceCurrentPage();
+}
+function _scheduleStripAnnounce() {
+  if (_stripAnnounceTimer) return;   // window open — the trailing fire will emit the latest page
+  _announceStripPage();              // leading edge
+  _stripAnnounceTimer = setTimeout(() => {
+    _stripAnnounceTimer = null;
+    _announceStripPage();            // trailing edge — catch the page we ended on
+  }, 150);
+}
 function _scheduleStripSync() {
   if (mode !== 'strip') return;
-  clearTimeout(_stripPositionTimer);
-  _stripPositionTimer = setTimeout(() => {
-    if (mode === 'strip') _announceCurrentPage();
-  }, 150);
+  _scheduleStripAnnounce();
   if (Math.abs(currentPage - _lastSyncCenter) < 2) return;
   if (_stripSyncQueued) return;
   _stripSyncQueued = true;
@@ -1759,6 +1776,7 @@ function _scheduleStripSync() {
 
 function buildStrip() {
   ++_stripGen;               // cancel in-flight loads aimed at the previous strip DOM
+  _stripAnnouncedPage = -1;  // re-scope / re-enter re-arms the position broadcast
   _mountedIdx.clear();
   stripView.innerHTML = '';
   const scope = _stripScope();
