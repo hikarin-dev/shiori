@@ -321,7 +321,7 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
         if (!ent || !ent.box) continue;
         const td = ent.textFile ? byName.get(`study/text/${ent.textFile}`) : null;
         const bubble = { box: ent.box, region: ent.region || ent.box, tr: ent.tr || '', src: ent.src || '', text: td ? new Blob([td], { type: mimeOf(ent.textFile) }) : null };
-        for (const key of ['rbox', 'style', 'srcLines', 'srcLineBoxes', 'trLines', 'tbox', 'furi']) {
+        for (const key of ['rbox', 'style', 'tbox', 'furi']) {
           if (ent[key] != null) bubble[key] = ent[key];
         }
         bubbles.push(bubble);

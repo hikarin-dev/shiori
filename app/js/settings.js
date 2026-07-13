@@ -8,6 +8,7 @@ import * as platform from './platform.js';
 import { pingServer, serverUrlFromSettings } from './translate.js';
 import { exportMetadata, exportFull, importBackup } from './backup.js';
 import { t, getLang, setLang, SUPPORTED, LANG_NAMES } from './i18n.js';
+import { formatBytes, formatCount } from './format.js';
 
 // ── Side nav ────────────────────────────────────────────────────────────────
 // Panel switching is pure show/hide, so hidden panels keep unsaved form state.
@@ -371,42 +372,34 @@ document.getElementById('backupMetaBtn').addEventListener('click', async () => {
   try {
     const { blob, suggestedName, count } = await exportMetadata();
     _saveBlob(blob, suggestedName);
-    showStatus('backupStatus', `Exported metadata for ${count} galleries.`, 'ok');
+    showStatus('backupStatus', `Exported metadata for ${formatCount(count)} galleries.`, 'ok');
   } catch (err) { showStatus('backupStatus', 'Export failed: ' + (err && err.message || err), 'err'); }
 });
 
 document.getElementById('backupFullBtn').addEventListener('click', async () => {
   setBackupModalOpen(false);
   try {
-    const result = await exportFull((phase, done, total) => showStatus('backupStatus', `Exporting ${phase}: ${done}/${total}`, 'ok', 120000));
+    const result = await exportFull((phase, done, total) => showStatus('backupStatus', `Exporting ${phase}: ${formatCount(done)}/${formatCount(total)}`, 'ok', 120000));
     if (result.aborted) showStatus('backupStatus', 'Export cancelled.', 'ok');
     else if (result.archive) {
       _saveBlob(result.archive, result.suggestedName || 'shiori.shioridb');
-      showStatus('backupStatus', `Exported ${result.counts.galleries} galleries / ${result.counts.images} images — downloaded.`, 'ok');
-    } else showStatus('backupStatus', `Exported ${result.counts.galleries} galleries / ${result.counts.images} images — saved.`, 'ok');
+      showStatus('backupStatus', `Exported ${formatCount(result.counts.galleries)} galleries / ${formatCount(result.counts.images)} images — downloaded.`, 'ok');
+    } else showStatus('backupStatus', `Exported ${formatCount(result.counts.galleries)} galleries / ${formatCount(result.counts.images)} images — saved.`, 'ok');
   } catch (err) { showStatus('backupStatus', 'Export failed: ' + (err && err.message || err), 'err'); }
 });
 
 document.getElementById('backupImportFile').addEventListener('change', async (e) => {
   const file = e.target.files[0]; if (!file) return;
   try {
-    const { kind, counts } = await importBackup(file, (phase, done, total) => showStatus('backupStatus', `Importing ${phase}: ${done}/${total}`, 'ok', 120000));
+    const { kind, counts } = await importBackup(file, (phase, done, total) => showStatus('backupStatus', `Importing ${phase}: ${formatCount(done)}/${formatCount(total)}`, 'ok', 120000));
     showStatus('backupStatus', kind === 'metadata'
-      ? `Imported metadata for ${counts.galleries} galleries.`
-      : `Imported ${counts.galleries} galleries, ${counts.images} images. Open the library to see them.`, 'ok');
+      ? `Imported metadata for ${formatCount(counts.galleries)} galleries.`
+      : `Imported ${formatCount(counts.galleries)} galleries, ${formatCount(counts.images)} images. Open the library to see them.`, 'ok');
   } catch (err) { showStatus('backupStatus', 'Import failed: ' + (err && err.message || err), 'err'); }
   e.target.value = '';
 });
 
 // ── Storage Writes ────────────────────────────────────────────────────────
-
-function formatBytes(b) {
-  if (!b) return '0 B';
-  if (b < 1024) return b + ' B';
-  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
-  if (b < 1024 * 1024 * 1024) return (b / (1024 * 1024)).toFixed(2) + ' MB';
-  return (b / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
-}
 
 function updateWritesDisplay(bytes) {
   document.getElementById('totalWritesCount').textContent = formatBytes(bytes || 0);

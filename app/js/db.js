@@ -1302,13 +1302,12 @@ export async function putTranslatedImage(url, translatedDataUrl) {
 
 // Study-mode data for one page: { bg, bubbles, page }. `bg` is a Blob (the inpainted page, text
 // removed) shared by every bubble — or null for metadata-only (text-mode) study records; each
-// bubble is { box, region, tr, src, rbox?, style?, srcLines?, srcLineBoxes?, trLines?, tbox?,
+// bubble is { box, region, tr, src, rbox?, style?, tbox?,
 // furi?, text? } where `text` is a Blob (a full-page transparent PNG of just that bubble's
 // glyphs, absent on metadata-only records), `box` is the OCR detection region (the hover/click
 // border), `region` is the area to clip `bg` to, `rbox` the renderer's layout box, `style`
-// renderer hints for DOM-text display, `srcLines`/`trLines` the original's and the renderer's
-// line breaks, `srcLineBoxes` each original line's own detected box (parallel to srcLines),
-// `tbox` the rect the renderer actually drew the translation at, and `furi` per-srcLine
+// renderer hints for DOM-text display, `src` and `tr` preserve their line breaks, `tbox` is the
+// rect where the renderer drew, and `furi` contains per-source-line
 // [text, reading|null] ruby segments. `page` is {w,h} in
 // source pixels. All are stored on the page's images record like `translated`, so they ride
 // along in backups and clear on revert. A reader reveals one bubble at a time by overlaying its

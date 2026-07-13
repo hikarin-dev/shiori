@@ -11,6 +11,7 @@ import * as platform from './platform.js';
 import { t, getLang } from './i18n.js';
 import { pickTitle, pickSeriesTitle, migrateTitle } from './titles.js';
 import { initTooltips, refreshTooltip } from './tooltip.js';
+import { formatBytes, formatCount } from './format.js';
 
 // Whether a series card opens straight into the reader (chapter 1) instead of the overview page.
 // Loaded from settings at boot; the card routing reads it synchronously.
@@ -161,12 +162,6 @@ async function parseSourceInput(input) {
 }
 
 const _looksLikeUrl = (s) => /^https?:\/\//i.test(s) || /^[\w-]+(\.[\w-]+)+([/?#]|$)/.test(s);
-
-function formatSize(bytes) {
-  if (bytes < 1024) return bytes + 'B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'KB';
-  return (bytes / (1024 * 1024)).toFixed(1) + 'MB';
-}
 
 function sendMsg(msg) {
   return platform.rpc(msg);
@@ -425,13 +420,13 @@ function buildCard(g) {
     : '';
 
   const cachedCount = g.count;
-  const totalCount = g.numPages ? ` / ${g.numPages}` : '';
+  const totalCount = g.numPages ? ` / ${formatCount(g.numPages)}` : '';
   // A series card shows the whole-series aggregate (stored on the owner) and a chapter badge; a
   // standalone gallery shows its own page count. Series open the overview unless the user bypasses.
   const metaLine = g.isSeries
-    ? `${g.aggPages} ${t('card.pages')} · ${formatSize(g.aggSize)}`
-    : `${cachedCount}${totalCount} ${t('card.pages')} · ${formatSize(g.size)}`;
-  const seriesBadge = g.isSeries ? `<span class="card-series-badge">${t('card.chapters_n', { n: g.chapterCount })}</span>` : '';
+    ? `${formatCount(g.aggPages)} ${t('card.pages')} · ${formatBytes(g.aggSize)}`
+    : `${formatCount(cachedCount)}${totalCount} ${t('card.pages')} · ${formatBytes(g.size)}`;
+  const seriesBadge = g.isSeries ? `<span class="card-series-badge">${t('card.chapters_n', { n: formatCount(g.chapterCount) })}</span>` : '';
   // Every gallery gets an overview landing page (a standalone one can gain chapters there); the
   // "skip overview" setting sends cards straight into the reader instead.
   const cardHref = _bypassOverview ? `../reader?g=${g.id}` : `../overview?g=${g.id}`;
@@ -442,7 +437,7 @@ function buildCard(g) {
   const visitUrl     = galleryLink(g, 1);
   const siteName     = _siteName(g.source);
   const openTitle    = visitUrl ? `${siteName}: ${visitUrl}` : t('card.tip_setsource');
-  const dlTitle      = g.numPages ? t('card.tip_dl', { n: g.numPages }) : t('card.tip_dl_meta');
+  const dlTitle      = g.numPages ? t('card.tip_dl', { n: formatCount(g.numPages) }) : t('card.tip_dl_meta');
   const idText       = escHtml(g.sourceId || g.id);
   const idClass      = `card-id${g.isLocalImport ? ' local' : ''}`;
   const idHtml       = g.sourceUrl
@@ -499,7 +494,7 @@ function buildCard(g) {
     b.addEventListener('click', async (e) => {
       // Deleting a series removes every chapter (its child galleries never get their own card).
       if (g.isSeries) {
-        if (!e.shiftKey && !confirm(t('confirm.delete_series', { n: g.chapterCount }))) return;
+        if (!e.shiftKey && !confirm(t('confirm.delete_series', { n: formatCount(g.chapterCount) }))) return;
         const ids = (g.chapters || [{ id: g.id }]).map(c => c.id);
         for (const id of ids) await sendMsg({ type: 'DELETE_GALLERY', galleryId: id });
         applyFilters();
@@ -583,7 +578,7 @@ function buildCard(g) {
       if ([...btns].some(x => x.disabled)) return;
 
       const alreadyComplete = g.numPages > 0 && g.count >= g.numPages;
-      if (alreadyComplete && !confirm(t('confirm.redownload', { n: g.numPages }))) return;
+      if (alreadyComplete && !confirm(t('confirm.redownload', { n: formatCount(g.numPages) }))) return;
 
       btns.forEach(x => { x.disabled = true; x.innerHTML = '…'; });
 
@@ -632,7 +627,7 @@ function buildCard(g) {
 
       if (g.count === 0) { alert(t('alert.no_pages_translate')); return; }
 
-      if (!g.translated && !confirm(t('confirm.translate', { n: g.count, id: g.sourceId || g.id }))) return;
+      if (!g.translated && !confirm(t('confirm.translate', { n: formatCount(g.count), id: g.sourceId || g.id }))) return;
 
       btns.forEach(x => x.disabled = true);
       const progEl  = document.getElementById(`prog-${g.id}`);
@@ -1023,10 +1018,9 @@ function applyJob(job) {
       else { fillEl.classList.add('indeterminate'); fillEl.style.width = ''; }
     }
     if (labelEl) {
-      const mb = (downloaded / 1048576).toFixed(1);
       labelEl.textContent = (pages > 0 && dlTotal > 0)
-        ? `~${Math.min(pages, Math.round(downloaded * pages / dlTotal))} / ${pages} · ${mb} MB`
-        : `↓ ${mb} MB`;
+        ? `~${formatCount(Math.min(pages, Math.round(downloaded * pages / dlTotal)))} / ${formatCount(pages)} · ${formatBytes(downloaded)}`
+        : `↓ ${formatBytes(downloaded)}`;
     }
     btns.forEach(b => { b.disabled = true; });
     return;
@@ -1039,7 +1033,7 @@ function applyJob(job) {
   }
   if (status === 'started') {
     if (fillEl) { fillEl.classList.remove('indeterminate', 'done'); fillEl.style.width = '0%'; }
-    if (labelEl) labelEl.textContent = job.label || (job.total ? `0 / ${job.total}` : t('prog.starting'));
+    if (labelEl) labelEl.textContent = job.label || (job.total ? `0 / ${formatCount(job.total)}` : t('prog.starting'));
     if (isTranslate) btns.forEach(b => _setTrCancelMode(b, true));
     else btns.forEach(b => { b.disabled = true; });
     return;
@@ -1056,18 +1050,19 @@ function applyJob(job) {
       fillEl.style.width = pct + '%';
       fillEl.classList.toggle('done', status === 'done');
     }
-    const skippedNote = job.skipped > 0 ? ` (${t('prog.already_cached', { n: job.skipped })})` : '';
+    const doneText = formatCount(done), totalText = formatCount(total);
+    const skippedNote = job.skipped > 0 ? ` (${t('prog.already_cached', { n: formatCount(job.skipped) })})` : '';
     if (labelEl) {
       if (isTranslate) {
         // The translate label is self-contained (it carries the active stage's own count), so it
         // isn't suffixed with the rendered-page tally the way downloads/uploads are.
         labelEl.textContent = status === 'done'
-          ? `${t('prog.translated')} ${done}/${total}${job.failed ? ` (${job.failed} failed)` : ''}${job.costNote ? ` · ${job.costNote}` : ''}`
-          : job.label ? job.label : `${t('prog.translating')} ${done} / ${total}`;
+          ? `${t('prog.translated')} ${doneText}/${totalText}${job.failed ? ` (${formatCount(job.failed)} failed)` : ''}${job.costNote ? ` · ${job.costNote}` : ''}`
+          : job.label ? job.label : `${t('prog.translating')} ${doneText} / ${totalText}`;
       } else {
         labelEl.textContent = status === 'done'
-          ? `${t('prog.done')} — ${done}/${total}${skippedNote}`
-          : job.label ? `${job.label} · ${done}/${total}${skippedNote}` : `${done} / ${total}${skippedNote}`;
+          ? `${t('prog.done')} — ${doneText}/${totalText}${skippedNote}`
+          : job.label ? `${job.label} · ${doneText}/${totalText}${skippedNote}` : `${doneText} / ${totalText}${skippedNote}`;
       }
     }
     if (status === 'done') {
@@ -1207,7 +1202,7 @@ function renderPagination(page, totalPages) {
     if (n === null) {
       html += `<span class="page-ellipsis">…</span>`;
     } else {
-      html += `<button class="page-btn${n === page ? ' active' : ''}" data-page="${n}">${n}</button>`;
+      html += `<button class="page-btn${n === page ? ' active' : ''}" data-page="${n}">${formatCount(n)}</button>`;
     }
   }
   html += `<button class="page-btn" data-page="${page + 1}" ${page === totalPages ? 'disabled' : ''}>→</button>`;
@@ -1241,13 +1236,13 @@ function _pageNumbers(current, total) {
 async function updateHeaderStats() {
   const [stats, topLevel] = await Promise.all([getStats(), galleriesCount()]);
   // A series counts as one gallery here; image/storage totals still include every chapter's pages.
-  document.getElementById('hTotalGalleries').textContent = topLevel;
-  document.getElementById('hTotalImages').textContent    = stats.totalImages;
-  document.getElementById('hTotalSize').textContent      = formatSize(stats.totalSize);
+  document.getElementById('hTotalGalleries').textContent = formatCount(topLevel);
+  document.getElementById('hTotalImages').textContent    = formatCount(stats.totalImages);
+  document.getElementById('hTotalSize').textContent      = formatBytes(stats.totalSize);
   const sizeStat = document.getElementById('hSizeStat');
   if (sizeStat) {
     const avg = stats.totalImages > 0 ? Math.round(stats.totalSize / stats.totalImages) : 0;
-    sizeStat.dataset.tipShift = avg > 0 ? t('lib.avg_per_image', { size: formatSize(avg) }) : '';
+    sizeStat.dataset.tipShift = avg > 0 ? t('lib.avg_per_image', { size: formatBytes(avg) }) : '';
   }
 }
 
@@ -1485,8 +1480,8 @@ async function _handleImportFiles(files) {
     try {
       const { kind, counts } = await importBackup(accepted[0]);
       alert(kind === 'metadata'
-        ? t('alert.import_meta', { n: counts.galleries })
-        : t('alert.import_full', { g: counts.galleries, i: counts.images }));
+        ? t('alert.import_meta', { n: formatCount(counts.galleries) })
+        : t('alert.import_full', { g: formatCount(counts.galleries), i: formatCount(counts.images) }));
     } catch (err) { alert(t('alert.backup_import_failed', { msg: err.message })); }
     await loadAll();
     return;
@@ -1795,8 +1790,8 @@ async function _collectGalleryFiles(gid, prefix, db, opts = {}) {
       const textFile = `${num}-${k}.${imgExt(b.text)}`;
       if (txtBytes) files.push({ name: `${prefix}study/text/${textFile}`, data: txtBytes });
       const entry = { box: b.box, region: b.region, tr: b.tr || '', src: b.src || '', textFile: txtBytes ? textFile : null };
-      // DOM-text layout metadata rides along verbatim (style hints, per-line geometry, furigana).
-      for (const key of ['rbox', 'style', 'srcLines', 'srcLineBoxes', 'trLines', 'tbox', 'furi']) {
+      // DOM-text layout metadata rides along verbatim (style hints, line breaks, furigana).
+      for (const key of ['rbox', 'style', 'tbox', 'furi']) {
         if (b[key] != null) entry[key] = b[key];
       }
       entries.push(entry);

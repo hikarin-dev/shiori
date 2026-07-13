@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.0.5 — 2026-07-14
+
+### Added
+
+- Reader: a new settings panel (the gear in the top bar) gathers the reading options in one place — page mode, reading direction, where the progress bar sits, how pages fit the screen, the gap between pages, and a zoom control. Your choices are remembered.
+- Reader: right-to-left reading direction, for manga read that way — it flips the page-turn taps and arrows and reverses the double-page spread.
+- Reader: the progress bar can now be placed on any edge of the screen (or hidden), and shows a slim segment per page that fills in as you read and marks which pages are already downloaded.
+- Series pages: every chapter now has its own Translate button with a live progress bar, and Shift+click reverts a translated chapter to the original. The button is hidden while the translation server is unreachable.
+
+### Changed
+
+- Series pages now show download, replace, and translation progress right on the chapter row, and the progress keeps going if you reload the page mid-job.
+- Page counts, image counts, and file sizes across the app now follow your language's number formatting.
+- Study mode: vertical Japanese text now stands single letters, numbers, and symbols upright while leaving words sideways, and source-text detection recognizes Chinese (including simplified and traditional) as well as Japanese, for the correct character shapes.
+- Reader: when the header is unpinned it now tucks fully out of the way for a cleaner full-screen page, sliding back when you move the pointer to the top edge or scroll up.
+
 ## v1.0.4 — 2026-07-09
 
 ### Added

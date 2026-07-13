@@ -28,7 +28,7 @@ const SHELL = [
   'app/js/platform.js', 'app/js/db.js', 'app/js/api.js', 'app/js/store.js', 'app/js/series.js',
   'app/js/import-cbz.js', 'app/js/translate.js', 'app/js/backup.js',
   'app/js/jobs-runner.js', 'app/js/submit-job.js', 'app/js/services.js', 'app/js/ext-bridge.js', 'app/js/boot.js',
-  'app/js/i18n.js', 'app/js/locales.js', 'app/js/tooltip.js', 'app/js/titles.js',
+  'app/js/i18n.js', 'app/js/locales.js', 'app/js/tooltip.js', 'app/js/titles.js', 'app/js/format.js',
   'app/js/library.js', 'app/js/reader.js', 'app/js/settings.js', 'app/js/agent.js', 'app/js/overview.js',
   ...FLAGS,
   'icons/icon16.png', 'icons/icon32.png', 'icons/icon48.png', 'icons/icon128.png',

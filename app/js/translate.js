@@ -480,11 +480,7 @@ export async function pollTranslation(galleryId, send = () => {}) {
               const bubble = { box: bb.box, region: bb.region || bb.box, tr: bb.tr || '', src: bb.src || '' };
               if (bb.rbox)  bubble.rbox  = bb.rbox;
               if (bb.style) bubble.style = bb.style;
-              // Text-layout extras (all optional): original OCR lines + their per-line boxes,
-              // renderer's laid-out translation lines + its drawn rect, per-line furigana.
-              if (Array.isArray(bb.srcLines) && bb.srcLines.length) bubble.srcLines = bb.srcLines;
-              if (Array.isArray(bb.srcLineBoxes) && bb.srcLineBoxes.length) bubble.srcLineBoxes = bb.srcLineBoxes;
-              if (Array.isArray(bb.trLines)  && bb.trLines.length)  bubble.trLines  = bb.trLines;
+              // Optional DOM-text extras: the renderer's drawn rect and source-line furigana.
               if (Array.isArray(bb.furi)     && bb.furi.length)     bubble.furi     = bb.furi;
               if (bb.tbox) bubble.tbox = bb.tbox;
               if (bb.text) { const text = await imageToBlob(bb.text); if (!text) continue; bubble.text = text; }

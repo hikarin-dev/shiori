@@ -11,6 +11,7 @@ import { resolveSeries, getSeriesChapters, mergeIntoSeries, removeChapter, reord
 import { t, getLang, applyTranslations } from './i18n.js';
 import { pickTitle, pickSeriesTitle } from './titles.js';
 import { initTooltips, refreshTooltip } from './tooltip.js';
+import { formatBytes, formatCount } from './format.js';
 
 // Tag chips styled exactly like the library card (library.css .card-tags / .card-tag), grouped
 // artist → tag → female → male. Shown expanded (no collapse) under a chapter's page count.
@@ -54,7 +55,8 @@ let _suppressRenderUntil = 0;
 let _siteMap = {};
 let _extAvailable = false;
 let _sitesRefreshed = false;
-const _busyChapters = new Set();
+const _liveChapterJobs = new Map();
+const _chapterJobClearTimers = new Map();
 const _extLoadAt = Date.now();
 
 const $ = (id) => document.getElementById(id);
@@ -62,13 +64,6 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<':
 const readerHref = (gid) => `../reader?g=${encodeURIComponent(String(gid))}`;
 const _canDownload = (g) => _siteMap[g?.source]?.canDownload === true && _extAvailable;
 const sendMsg = (msg) => platform.rpc(msg);
-function fmtSize(bytes) {
-  if (!bytes) return '0B';
-  if (bytes < 1024) return bytes + 'B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'KB';
-  return (bytes / (1024 * 1024)).toFixed(1) + 'MB';
-}
-
 const ICON = {
   open:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>',
   up:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>',
@@ -79,6 +74,9 @@ const ICON = {
   done:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
   download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>',
   upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>',
+  translate: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>',
+  revert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
   detach: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7H7a5 5 0 0 0 0 10h2"/><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M8 12h8"/><path d="m4 4 16 16"/></svg>',
   removeShift: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M9 13l2 2 4-4"/></svg>',
 };
@@ -122,10 +120,11 @@ function _makeFlipBtn(innerClass) {
   };
 }
 const _dlFlip  = _makeFlipBtn('ch-dl-inner');
+const _trFlip  = _makeFlipBtn('ch-tr-inner');
 const _delFlip = _makeFlipBtn('ch-del-inner');
 
 let _shiftHeld = false;
-let _hoveredDlBtn = null, _hoveredDelBtn = null, _hoveredShiftEl = null;
+let _hoveredDlBtn = null, _hoveredTrBtn = null, _hoveredDelBtn = null, _hoveredShiftEl = null;
 const _dlCanFlip = (btn) => btn && btn.dataset.tipShift != null && !btn.disabled;   // only when Replace is offered
 
 function _restoreShiftTip() {
@@ -136,6 +135,7 @@ function _restoreShiftTip() {
 }
 function _snapShiftIconsToBase() {
   if (_hoveredDlBtn?.dataset.tipShift != null) _dlFlip.snap(_hoveredDlBtn, ICON.download);
+  if (_hoveredTrBtn?.dataset.tipShift != null) _trFlip.snap(_hoveredTrBtn, ICON.translate);
   if (_hoveredDelBtn) _delFlip.snap(_hoveredDelBtn, ICON.remove);
 }
 document.addEventListener('keydown', (e) => {
@@ -147,6 +147,7 @@ document.addEventListener('keydown', (e) => {
     refreshTooltip();
   }
   if (_dlCanFlip(_hoveredDlBtn)) _dlFlip.to(_hoveredDlBtn, ICON.upload);
+  if (_hoveredTrBtn?.dataset.tipShift != null && !_hoveredTrBtn.disabled) _trFlip.to(_hoveredTrBtn, ICON.revert);
   if (_hoveredDelBtn && !_hoveredDelBtn.disabled) _delFlip.to(_hoveredDelBtn, ICON.removeShift);
 });
 document.addEventListener('keyup', (e) => {
@@ -154,6 +155,7 @@ document.addEventListener('keyup', (e) => {
   _shiftHeld = false;
   _restoreShiftTip(); refreshTooltip();
   if (_dlCanFlip(_hoveredDlBtn)) _dlFlip.to(_hoveredDlBtn, ICON.download);
+  if (_hoveredTrBtn?.dataset.tipShift != null) _trFlip.to(_hoveredTrBtn, ICON.translate);
   if (_hoveredDelBtn) _delFlip.to(_hoveredDelBtn, ICON.remove);
 });
 window.addEventListener('blur', () => { _shiftHeld = false; _restoreShiftTip(); _snapShiftIconsToBase(); refreshTooltip(); });
@@ -277,8 +279,8 @@ async function render() {
   const titlePlaceholder = isSeries ? t('ov.series_title_ph') : t('ov.gallery_title_ph');
   const titleControl = `<div class="series-title-wrap editable"><textarea class="series-title-input" id="${ownerTitleId}" rows="1" data-original="${esc(heading)}" data-fallback="${esc(seriesFallback)}" placeholder="${esc(titlePlaceholder)}">${esc(heading)}</textarea><a class="series-title-open" href="${startHref}" aria-label="${esc(heading)}"></a></div>`;
   const sub = isSeries
-    ? `<span><b>${chapters.length}</b> ${esc(t('ov.chapters'))}</span><span><b>${totalPages}</b> ${esc(t('card.pages'))}</span><span><b>${fmtSize(totalSize)}</b></span>`
-    : `<span><b>${totalPages}</b> ${esc(t('card.pages'))}</span><span><b>${fmtSize(totalSize)}</b></span>`;
+    ? `<span><b>${formatCount(chapters.length)}</b> ${esc(t('ov.chapters'))}</span><span><b>${formatCount(totalPages)}</b> ${esc(t('card.pages'))}</span><span><b>${formatBytes(totalSize)}</b></span>`
+    : `<span><b>${formatCount(totalPages)}</b> ${esc(t('card.pages'))}</span><span><b>${formatBytes(totalSize)}</b></span>`;
   const editLabel = editMode ? t('ov.done_editing') : t('ov.edit');
   const addBar = `
     <div class="add-bar" id="addBar">
@@ -414,7 +416,7 @@ async function chapterRow(ch, idx, total) {
   const title = pickTitle(e, getLang()) || '';
   const href = readerHref(ch.id);
   const displayTitle = ch.title || title || t('ov.chapter_n', { n: idx + 1 });
-  const pageStr = e ? `${e.count}${e.numPages ? ` / ${e.numPages}` : ''} ${t('card.pages')}` : t('ov.missing');
+  const pageStr = e ? `${formatCount(e.count)}${e.numPages ? ` / ${formatCount(e.numPages)}` : ''} ${t('card.pages')}` : t('ov.missing');
   const translated = e?.translated ? `<span class="done">${esc(t('ov.translated'))}</span>` : '';
   const fallbackTitle = title || t('ov.chapter_n', { n: idx + 1 });
   const titleControl = `
@@ -427,15 +429,21 @@ async function chapterRow(ch, idx, total) {
     ? `<a class="ch-thumb link" href="${href}" draggable="false"><div class="ph">📄</div></a>`
     : `<div class="ch-thumb"><div class="ph">📄</div></div>`;
   const canDownload = e && _canDownload(e);
-  const busyDownload = _busyChapters.has(String(ch.id));
-  const dlTitle = e?.numPages ? t('card.tip_dl', { n: e.numPages }) : t('card.tip_dl_meta');
-  const dlInner = busyDownload ? '...' : `<span class="ch-dl-inner">${canDownload ? ICON.download : ICON.upload}</span>`;
+  const liveJob = _liveChapterJobs.get(String(ch.id));
+  const activeJob = liveJob && !['done', 'error', 'cancelled', 'interrupted'].includes(liveJob.status);
+  const busyDownload = activeJob && (liveJob.kind === 'download' || liveJob.kind === 'upload');
+  const busyTranslate = activeJob && liveJob.kind === 'translate';
+  const dlTitle = e?.numPages ? t('card.tip_dl', { n: formatCount(e.numPages) }) : t('card.tip_dl_meta');
+  const dlInner = `<span class="ch-dl-inner">${canDownload ? ICON.download : ICON.upload}</span>`;
   const downloadAction = e ? `<button class="ch-ibtn download" data-download data-tip="${esc(canDownload ? dlTitle : t('card.tip_replace'))}"${canDownload ? ` data-tip-shift="${esc(t('card.tip_replace'))}"` : ''}${busyDownload ? ' disabled' : ''}>${dlInner}</button>` : '';
+  const translateTip = busyTranslate ? t('card.tip_cancel') : (e?.translated ? t('card.tip_translate_new') : t('card.tip_translate'));
+  const translateAction = e ? `<button class="ch-ibtn translate${e.translated ? ' done' : ''}${busyTranslate ? ' cancelling' : ''}" data-translate data-tip="${esc(translateTip)}"${e.translated && !busyTranslate ? ` data-tip-shift="${esc(t('card.tip_revert'))}"` : ''}><span class="ch-tr-inner">${busyTranslate ? ICON.stop : ICON.translate}</span></button>` : '';
   const actions = `
     <div class="ch-actions">
       <button class="ch-ibtn" data-up ${idx === 0 ? 'disabled' : ''} data-tip="${esc(t('ov.move_up'))}">${ICON.up}</button>
       <button class="ch-ibtn" data-down ${idx === total - 1 ? 'disabled' : ''} data-tip="${esc(t('ov.move_down'))}">${ICON.down}</button>
       ${downloadAction}
+      ${translateAction}
       ${canDetachChapter(e) ? `<button class="ch-ibtn detach" data-detach data-tip="${esc(t('ov.remove_detach'))}">${ICON.detach}</button>` : ''}
       <button class="ch-ibtn danger" data-remove data-tip="${esc(t('card.tip_delete'))}" data-tip-shift="${esc(t('card.tip_quickdelete'))}"><span class="ch-del-inner">${ICON.remove}</span></button>
     </div>`;
@@ -446,6 +454,10 @@ async function chapterRow(ch, idx, total) {
     <div class="ch-main">
       ${titleControl}
       <div class="ch-meta"><span>#${esc(e?.sourceId || ch.id)}</span><span>${esc(pageStr)}</span>${translated}</div>
+      <div class="ch-progress">
+        <div class="ch-prog-track"><div class="ch-prog-fill"></div></div>
+        <span class="ch-prog-label"></span>
+      </div>
     </div>
     ${actions}`;
 
@@ -462,6 +474,7 @@ async function chapterRow(ch, idx, total) {
   const up = row.querySelector('[data-up]');
   const down = row.querySelector('[data-down]');
   const download = row.querySelector('[data-download]');
+  const translate = row.querySelector('[data-translate]');
   const detach = row.querySelector('[data-detach]');
   const remove = row.querySelector('[data-remove]');
   if (up) up.addEventListener('click', () => move(idx, -1));
@@ -471,26 +484,66 @@ async function chapterRow(ch, idx, total) {
     download.addEventListener('mouseleave', () => { if (_dlCanFlip(download) && _shiftHeld) _dlFlip.to(download, ICON.download); _hoveredDlBtn = null; });
     download.addEventListener('click', (ev) => downloadOrReplaceChapter(ch, e, ev));
   }
+  if (translate) {
+    translate.addEventListener('mouseenter', () => { _hoveredTrBtn = translate; if (translate.dataset.tipShift != null && _shiftHeld && !translate.disabled) _trFlip.to(translate, ICON.revert); });
+    translate.addEventListener('mouseleave', () => { if (translate.dataset.tipShift != null && _shiftHeld) _trFlip.to(translate, ICON.translate); _hoveredTrBtn = null; });
+    translate.addEventListener('click', (ev) => translateChapter(ch, e, ev));
+  }
   if (detach) detach.addEventListener('click', () => detachChapter(ch));
   if (remove) {
     remove.addEventListener('mouseenter', () => { _hoveredDelBtn = remove; if (_shiftHeld) _delFlip.to(remove, ICON.removeShift); });
     remove.addEventListener('mouseleave', () => { if (_shiftHeld) _delFlip.to(remove, ICON.remove); _hoveredDelBtn = null; });
     remove.addEventListener('click', (ev) => deleteChapter(ch, { prompt: !ev.shiftKey }));
   }
+  if (liveJob) paintChapterJob(row, liveJob);
   return row;
 }
 
-function setChapterDownloadBusy(gid, busy) {
-  const key = String(gid);
-  if (busy) _busyChapters.add(key);
-  else _busyChapters.delete(key);
-  document.querySelectorAll('.ch-row').forEach(row => {
-    if (row.dataset.chapterId !== key) return;
-    row.querySelectorAll('[data-download]').forEach(btn => {
-      btn.disabled = busy;
-      if (busy) btn.innerHTML = '...';
-    });
-  });
+function setTranslateButtonBusy(btn, busy) {
+  if (!btn) return;
+  if (busy) {
+    if (btn.classList.contains('cancelling')) return;
+    btn.classList.add('cancelling');
+    btn.disabled = false;
+    if (btn.dataset.tipShift != null) { btn._tipShiftStash = btn.dataset.tipShift; delete btn.dataset.tipShift; }
+    btn.dataset.tip = t('card.tip_cancel');
+    _trFlip.snap(btn, ICON.stop);
+  } else {
+    if (!btn.classList.contains('cancelling')) return;
+    btn.classList.remove('cancelling');
+    btn.disabled = false;
+    if (btn._tipShiftStash != null) { btn.dataset.tipShift = btn._tipShiftStash; delete btn._tipShiftStash; }
+    btn.dataset.tip = btn.classList.contains('done') ? t('card.tip_translate_new') : t('card.tip_translate');
+    _trFlip.snap(btn, ICON.translate);
+  }
+  refreshTooltip();
+}
+
+async function translateChapter(ch, entity, ev) {
+  if (!entity) return;
+  const btn = ev.currentTarget;
+  if (btn.classList.contains('cancelling')) {
+    await sendMsg({ type: 'CANCEL_TRANSLATE', galleryId: ch.id });
+    return;
+  }
+  if (btn.disabled) return;
+
+  if (ev.shiftKey && entity.translated) {
+    if (!confirm(t('confirm.revert', { id: entity.sourceId || ch.id }))) return;
+    btn.disabled = true;
+    const resp = await sendMsg({ type: 'REVERT_GALLERY', galleryId: ch.id });
+    btn.disabled = false;
+    if (!resp || resp.ok === false) return;
+    await refreshChangedChapter(ch.id, { rowOnly: true });
+    return;
+  }
+
+  if (entity.count === 0) { alert(t('alert.no_pages_translate')); return; }
+  if (!entity.translated && !confirm(t('confirm.translate', { n: formatCount(entity.count), id: entity.sourceId || ch.id }))) return;
+
+  beginChapterJob(ch.id, 'translate', t('prog.translating'));
+  const resp = await sendMsg({ type: 'TRANSLATE_GALLERY', galleryId: ch.id });
+  if (!resp || resp.ok === false || resp.started === false) discardChapterJob(ch.id);
 }
 
 function ensureReplaceInput() {
@@ -507,9 +560,9 @@ function ensureReplaceInput() {
     e.target.value = '';
     if (!file || !gid) return;
     if (!/\.(zip|cbz)$/i.test(file.name)) { alert(t('ov.only_cbz')); return; }
-    setChapterDownloadBusy(gid, true);
+    beginChapterJob(gid, 'upload', t('prog.reading_file'));
     const ok = await stageImport(file, gid, { skipExisting: false });
-    if (!ok) { setChapterDownloadBusy(gid, false); await render(); }
+    if (!ok) discardChapterJob(gid);
   });
   document.body.appendChild(input);
   return input;
@@ -528,11 +581,11 @@ async function downloadOrReplaceChapter(ch, entity, ev) {
   }
 
   const alreadyComplete = entity.numPages > 0 && entity.count >= entity.numPages;
-  if (alreadyComplete && !confirm(t('confirm.redownload', { n: entity.numPages }))) return;
+  if (alreadyComplete && !confirm(t('confirm.redownload', { n: formatCount(entity.numPages) }))) return;
 
-  setChapterDownloadBusy(ch.id, true);
+  beginChapterJob(ch.id, 'download', t('prog.fetching_meta'));
   const resp = await sendMsg({ type: 'CACHE_ALL_PAGES', galleryId: ch.id, source: entity.source, overwrite: alreadyComplete });
-  if (!resp || resp.ok === false || resp.started === false) { setChapterDownloadBusy(ch.id, false); await render(); }
+  if (!resp || resp.ok === false || resp.started === false) discardChapterJob(ch.id);
 }
 
 function visibleChapterIds() {
@@ -548,24 +601,147 @@ function findChapterRow(gid) {
   return [...document.querySelectorAll('.ch-row[data-chapter-id]')].find(row => row.dataset.chapterId === key);
 }
 
+const JOB_MSG_LINGER_MS = 4000;
+const JOB_STALE_MS = { download: 2 * 60 * 1000, upload: 2 * 60 * 1000 };
+const isTerminalJob = (job) => ['done', 'error', 'cancelled', 'interrupted'].includes(job?.status);
+
+function paintChapterJob(row, job) {
+  if (!row || !job) return;
+  const fill = row.querySelector('.ch-prog-fill');
+  const label = row.querySelector('.ch-prog-label');
+  const download = row.querySelector('[data-download]');
+  const translate = row.querySelector('[data-translate]');
+  const isTranslate = job.kind === 'translate';
+  const { status } = job;
+
+  row.classList.add('working');
+  if (fill) { fill.classList.remove('done', 'indeterminate'); fill.style.width = '0%'; }
+
+  if (status === 'error') {
+    if (label) label.textContent = `${t('prog.error')}: ${job.error || 'unknown'}`;
+    if (isTranslate) setTranslateButtonBusy(translate, false);
+    else if (download) download.disabled = false;
+    return;
+  }
+  if (status === 'cancelled') {
+    if (label) label.textContent = t('prog.cancelled');
+    if (isTranslate) setTranslateButtonBusy(translate, false);
+    else if (download) download.disabled = false;
+    return;
+  }
+  if (status === 'interrupted') {
+    if (label) label.textContent = t('prog.interrupted');
+    if (isTranslate) setTranslateButtonBusy(translate, false);
+    else if (download) download.disabled = false;
+    return;
+  }
+
+  if (status === 'downloading') {
+    const { downloaded = 0, total: downloadTotal = 0, pages = 0 } = job;
+    if (fill) {
+      if (downloadTotal > 0) fill.style.width = Math.min(85, Math.round((downloaded / downloadTotal) * 85)) + '%';
+      else { fill.classList.add('indeterminate'); fill.style.width = ''; }
+    }
+    if (label) {
+      label.textContent = pages > 0 && downloadTotal > 0
+        ? `~${formatCount(Math.min(pages, Math.round(downloaded * pages / downloadTotal)))} / ${formatCount(pages)} · ${formatBytes(downloaded)}`
+        : `↓ ${formatBytes(downloaded)}`;
+    }
+    if (download) download.disabled = true;
+    return;
+  }
+  if (status === 'extracting') {
+    if (fill) fill.style.width = '85%';
+    if (label) label.textContent = t('prog.extracting');
+    if (download) download.disabled = true;
+    return;
+  }
+  if (status === 'started') {
+    if (label) label.textContent = job.label || (job.total ? `0 / ${formatCount(job.total)}` : t('prog.starting'));
+    if (isTranslate) setTranslateButtonBusy(translate, true);
+    else if (download) download.disabled = true;
+    return;
+  }
+  if (status !== 'progress' && status !== 'done') return;
+
+  const done = job.done || 0, total = job.total || 0;
+  let pct;
+  if (isTranslate) pct = typeof job.pct === 'number' ? job.pct : (total > 0 ? Math.round((done / total) * 100) : 0);
+  else if (job.kind === 'upload') pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  else pct = total > 0 ? Math.round(85 + (done / total) * 15) : 85;
+  if (fill) {
+    fill.style.width = pct + '%';
+    fill.classList.toggle('done', status === 'done');
+  }
+  const doneText = formatCount(done), totalText = formatCount(total);
+  const skippedNote = job.skipped > 0 ? ` (${t('prog.already_cached', { n: formatCount(job.skipped) })})` : '';
+  if (label) {
+    if (isTranslate) {
+      label.textContent = status === 'done'
+        ? `${t('prog.translated')} ${doneText}/${totalText}${job.failed ? ` (${formatCount(job.failed)} failed)` : ''}${job.costNote ? ` · ${job.costNote}` : ''}`
+        : job.label || `${t('prog.translating')} ${doneText} / ${totalText}`;
+    } else {
+      label.textContent = status === 'done'
+        ? `${t('prog.done')} — ${doneText}/${totalText}${skippedNote}`
+        : job.label ? `${job.label} · ${doneText}/${totalText}${skippedNote}` : `${doneText} / ${totalText}${skippedNote}`;
+    }
+  }
+  if (status === 'done') {
+    if (isTranslate) setTranslateButtonBusy(translate, false);
+    else if (download) { download.disabled = false; download.textContent = '✓'; download.classList.add('done'); }
+  } else if (isTranslate) setTranslateButtonBusy(translate, true);
+  else if (download) download.disabled = true;
+}
+
+function beginChapterJob(gid, kind, label) {
+  applyChapterJob({ gid: String(gid), kind, status: 'started', label });
+}
+
+function discardChapterJob(gid) {
+  const key = String(gid);
+  clearTimeout(_chapterJobClearTimers.get(key));
+  _chapterJobClearTimers.delete(key);
+  _liveChapterJobs.delete(key);
+  refreshChangedChapter(key, { rowOnly: true }).catch(() => {});
+}
+
+function applyChapterJob(job) {
+  if (!job || job.gid == null || !['download', 'upload', 'translate'].includes(job.kind)) return;
+  const gid = String(job.gid);
+  clearTimeout(_chapterJobClearTimers.get(gid));
+  _chapterJobClearTimers.delete(gid);
+  _liveChapterJobs.set(gid, job);
+  paintChapterJob(findChapterRow(gid), job);
+
+  if (!isTerminalJob(job)) return;
+  refreshChangedChapter(gid, { rowOnly: true }).catch(() => {});
+  const timer = setTimeout(() => {
+    if (_liveChapterJobs.get(gid) !== job) return;
+    _chapterJobClearTimers.delete(gid);
+    _liveChapterJobs.delete(gid);
+    refreshChangedChapter(gid, { rowOnly: true }).catch(() => {});
+  }, JOB_MSG_LINGER_MS);
+  _chapterJobClearTimers.set(gid, timer);
+}
+
 function updateHeaderSummary(chapters) {
   const el = document.querySelector('.series-sub');
   if (!el) return;
   const totalPages = chapters.reduce((s, c) => s + (c.entity?.count || 0), 0);
   const totalSize = chapters.reduce((s, c) => s + (c.entity?.size || 0), 0);
-  el.innerHTML = `<span><b>${chapters.length}</b> ${esc(t('ov.chapters'))}</span><span><b>${totalPages}</b> ${esc(t('card.pages'))}</span><span><b>${fmtSize(totalSize)}</b></span>`;
+  el.innerHTML = `<span><b>${formatCount(chapters.length)}</b> ${esc(t('ov.chapters'))}</span><span><b>${formatCount(totalPages)}</b> ${esc(t('card.pages'))}</span><span><b>${formatBytes(totalSize)}</b></span>`;
 }
 
-async function refreshChangedChapter(gid) {
+async function refreshChangedChapter(gid, { rowOnly = false } = {}) {
   const visibleIds = visibleChapterIds();
   if (!visibleIds.length) {
-    if (String(gid) === String(ownerId)) await render();
+    if (!rowOnly && String(gid) === String(ownerId)) await render();
     return;
   }
 
   const meta = await metaGet(ownerId);
   const order = (meta?.chapters || []).map(c => String(c.id));
-  if (!sameOrder(order, visibleIds)) { await render(); return; }
+  if (!sameOrder(order, visibleIds)) { if (!rowOnly) await render(); return; }
 
   const idx = order.indexOf(String(gid));
   if (idx < 0) return;
@@ -580,7 +756,7 @@ async function refreshChangedChapter(gid) {
   }
 
   const oldRow = findChapterRow(gid);
-  if (!oldRow || !chapters[idx]) { await render(); return; }
+  if (!oldRow || !chapters[idx]) { if (!rowOnly) await render(); return; }
   const nextRow = await chapterRow(chapters[idx], idx, chapters.length);
   oldRow.replaceWith(nextRow);
   applyEditMode(nextRow);
@@ -720,8 +896,10 @@ async function importAsChapter(file) {
   const title = file.name.replace(/\.[^.]+$/, '');
   await store.mutate(gid, { title, count: 0, size: 0, addedAt: base, latestAt: base, isLocalImport: true });
   try { await mergeIntoSeries(ownerId, gid, { title }); } catch (err) { alert(err.message); return; }
-  await stageImport(file, gid);
+  beginChapterJob(gid, 'upload', t('prog.reading_file'));
   await render();
+  const ok = await stageImport(file, gid);
+  if (!ok) discardChapterJob(gid);
 }
 
 // Minimal mirror of library.js's importSingleFile: stage into OPFS, hand to the SW/runner.
@@ -761,14 +939,7 @@ store.subscribe('*', (gid) => {
   }, 150));
 });
 
-platform.jobs.subscribe((job) => {
-  const gid = job?.gid == null ? '' : String(job.gid);
-  if (!gid || !_busyChapters.has(gid)) return;
-  if ((job.kind === 'download' || job.kind === 'upload') && ['done', 'error', 'cancelled'].includes(job.status)) {
-    setChapterDownloadBusy(gid, false);
-    refreshChangedChapter(gid).catch(() => render().catch(() => {}));
-  }
-});
+platform.jobs.subscribe(applyChapterJob);
 
 (async () => {
   applyTranslations(document);
@@ -776,6 +947,26 @@ platform.jobs.subscribe((job) => {
   if (!g) { $('ovContent').innerHTML = `<div class="ov-empty">${esc(t('ov.not_found'))}</div>`; return; }
   const series = await resolveSeries(g);
   ownerId = series ? series.ownerId : g;
-  await updateExtStatus();
+  const jobs = await platform.jobs.current();
+  const hydratedJobs = [];
+  for (const job of jobs) {
+    if (!['download', 'upload', 'translate'].includes(job.kind)) continue;
+    if (job.kind !== 'translate' && (Date.now() - (job.at || 0)) > (JOB_STALE_MS[job.kind] || 2 * 60 * 1000)) {
+      await platform.jobs.clear(job.gid, job.kind);
+      hydratedJobs.push({ ...job, status: 'interrupted' });
+    } else hydratedJobs.push(job);
+  }
+  for (const job of hydratedJobs) _liveChapterJobs.set(String(job.gid), job);
+  await Promise.all([updateExtStatus(), updateTranslatorStatus()]);
   await render();
+  for (const job of hydratedJobs) applyChapterJob(job);
 })();
+
+function updateTranslatorStatus() {
+  return sendMsg({ type: 'TRANSLATOR_PING' }).then(resp => {
+    document.body.classList.toggle('translator-offline', !(resp && resp.online));
+  }, () => document.body.classList.add('translator-offline'));
+}
+document.body.classList.add('translator-offline');
+setInterval(updateTranslatorStatus, 20000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) updateTranslatorStatus(); });

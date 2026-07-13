@@ -40,6 +40,9 @@
   <a class="empty-link" href="../" data-i18n="rd.back_to_library">← Back to Library</a>
 </div>
 
+<!-- Five-pixel top-edge hover target for the unpinned top bar. -->
+<div id="topbarReveal" aria-hidden="true"></div>
+
 <!-- Top bar -->
 <div id="topbar">
   <a class="tb-brand" href="../">
@@ -75,6 +78,7 @@
        two segmented toggles above always stay out. -->
   <div class="tb-extra">
   <button class="tb-btn" id="thumbBtn" data-tip="Thumbnails" data-i18n-tip="rd.tip_thumbs"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="14" x="3" y="3" rx="2"/><path d="M4 21h1"/><path d="M9 21h1"/><path d="M14 21h1"/><path d="M19 21h1"/></svg></button>
+  <button class="tb-btn" id="readerSettingsBtn" data-tip="Reader settings" data-i18n-tip="rd.tip_reader_settings"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
   <button class="tb-btn" id="keybindBtn" data-tip="Keyboard shortcuts" data-i18n-tip="rd.tip_keys"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><path d="M6 9h.01"/><path d="M10 9h.01"/><path d="M14 9h.01"/><path d="M18 9h.01"/><path d="M6 13h.01"/><path d="M10 13h.01"/><path d="M14 13h.01"/><path d="M18 13h.01"/><path d="M10 17h4"/></svg></button>
   <button class="tb-btn" id="readerPinBtn" data-tip="Pin header" data-i18n-tip="rd.tip_pin"></button>
   </div>
@@ -121,11 +125,12 @@
 <div id="thumbStrip"></div>
 
 <!-- Bottom bar -->
-<div id="bottombar">
-  <button class="bar-icon-btn" id="scrubToggle" data-tip="Toggle scrubber" data-i18n-tip="rd.tip_scrubber">⇔</button>
+<div id="bottombar" data-position="bottom">
   <div id="scrubWrap">
-    <input type="range" id="scrubber" min="1" value="1">
-    <span id="scrubberLabel">1 / —</span>
+    <div id="scrubTrack">
+      <div id="scrubSegments" aria-hidden="true"></div>
+      <input type="range" id="scrubber" min="1" value="1" aria-label="Page progress" data-i18n-title="rd.progress_bar" data-i18n-aria="rd.progress_bar">
+    </div>
   </div>
 </div>
 
@@ -160,6 +165,69 @@
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.swipe_thumbs">Swipe thumbnails</span><div class="kb-keys"><kbd class="kb-key" data-i18n="kb.drag">Drag</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.scrub">Scrub to page</span><div class="kb-keys"><kbd class="kb-key" data-i18n="kb.shift_drag">Shift+Drag</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.help">This help</span><div class="kb-keys"><kbd class="kb-key">?</kbd><kbd class="kb-key">Esc</kbd></div></div>
+  </div>
+</div>
+
+<div id="readerSettingsModal" role="dialog" aria-modal="true" aria-labelledby="readerSettingsTitle">
+  <div id="readerSettingsBox">
+    <div class="reader-settings-head">
+      <div class="reader-settings-title" id="readerSettingsTitle" data-i18n="rd.reader_settings">Reader settings</div>
+      <button class="reader-settings-close" id="readerSettingsClose" type="button" aria-label="Close" data-i18n-title="common.close" data-i18n-aria="common.close">×</button>
+    </div>
+
+    <section class="reader-settings-group">
+      <div class="reader-settings-label" data-i18n="rd.reader_mode">Reader mode</div>
+      <div class="reader-choice reader-choice-three">
+        <button type="button" data-reader-mode="single" data-i18n="kb.single">Single page</button>
+        <button type="button" data-reader-mode="double" data-i18n="kb.double">Double page</button>
+        <button type="button" data-reader-mode="strip" data-i18n="kb.strip">Scroll strip</button>
+      </div>
+    </section>
+
+    <section class="reader-settings-group" id="readerDirectionGroup">
+      <div class="reader-settings-label" data-i18n="rd.reading_direction">Reading direction</div>
+      <div class="reader-choice">
+        <button type="button" data-reader-direction="ltr" data-i18n="rd.left_to_right">Left to right</button>
+        <button type="button" data-reader-direction="rtl" data-i18n="rd.right_to_left">Right to left</button>
+      </div>
+    </section>
+
+    <section class="reader-settings-group">
+      <div class="reader-settings-label" data-i18n="rd.progress_bar">Progress bar</div>
+      <div class="reader-choice reader-choice-five">
+        <button type="button" data-progress-position="left" data-i18n="rd.left">Left</button>
+        <button type="button" data-progress-position="top" data-i18n="rd.top">Top</button>
+        <button type="button" data-progress-position="right" data-i18n="rd.right">Right</button>
+        <button type="button" data-progress-position="bottom" data-i18n="rd.bottom">Bottom</button>
+        <button type="button" data-progress-position="off" data-i18n="rd.off">Off</button>
+      </div>
+    </section>
+
+    <section class="reader-settings-group">
+      <div class="reader-settings-label" data-i18n="rd.image_fit">Image fit</div>
+      <div class="reader-choice reader-choice-three">
+        <button type="button" data-reader-fit="off" data-i18n="rd.original_size">Original size</button>
+        <button type="button" data-reader-fit="width" data-i18n="kb.fit_width">Fit width</button>
+        <button type="button" data-reader-fit="height" data-i18n="kb.fit_height">Fit height</button>
+      </div>
+    </section>
+
+    <section class="reader-settings-group">
+      <div class="reader-settings-row">
+        <label class="reader-settings-label" for="readerGap" data-i18n="rd.page_gap">Page gap</label>
+        <output id="readerGapValue" for="readerGap">4 px</output>
+      </div>
+      <input class="reader-settings-range" type="range" id="readerGap" min="0" max="40" step="1" value="4">
+    </section>
+
+    <section class="reader-settings-group">
+      <div class="reader-settings-label" data-i18n="rd.zoom">Zoom</div>
+      <div class="reader-zoom-control">
+        <button type="button" id="readerZoomOut" aria-label="Zoom out" data-i18n-title="rd.zoom_out" data-i18n-aria="rd.zoom_out">−</button>
+        <output id="readerZoomValue">100%</output>
+        <button type="button" id="readerZoomIn" aria-label="Zoom in" data-i18n-title="rd.zoom_in" data-i18n-aria="rd.zoom_in">+</button>
+      </div>
+    </section>
   </div>
 </div>
 

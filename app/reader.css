@@ -1,8 +1,9 @@
 :root {
   --bg: #0a0a0c; --surface: #16161a; --border: #2a2a30;
   --accent: #ed2754; --accent2: #ffd166; --text: #e8e8f0; --muted: #6b6b80;
-  --topbar-h: 54px; --botbar-h: 32px;
+  --topbar-h: 54px; --botbar-h: 3px;
   --page-zoom: 1;   /* +/- keys scale the in-view pages around this factor */
+  --reader-page-gap: 4px;
   --sbw: 0px;       /* OS scrollbar width, measured once by reader.js */
   --reader-fit-max-width: 100%;
   --botbar-visual-h: calc(var(--botbar-h) * var(--zoom-inv, 1));
@@ -65,7 +66,7 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
   height: var(--topbar-h);
   background: var(--surface); border-bottom: 1px solid var(--border);
   display: flex; align-items: center; gap: 8px; padding: 0 20px;
-  transition: top 0.2s ease;   /* unpinned wheel-reveal slides the live bar down/up via its sticky top */
+  transition: transform 0.2s ease;
   /* Query container so the secondary-button fold (step 2 below) can be driven by the layout engine
      at a content-derived breakpoint, instead of a per-frame resize callback that lags mid-drag. */
   container: rbar / inline-size;
@@ -210,10 +211,13 @@ body.reader-fit-height #singleInner > .page-wrap > #mainImg { width: 100%; }
 #doubleView.active { display: block; }
 
 #doubleInner {
-  position: relative; display: flex; justify-content: center; gap: 2px;
-  --reader-fit-double-page-width: calc((100% - 2px - 0.5px) / 2);
+  position: relative; display: flex; justify-content: center; gap: var(--reader-page-gap);
+  --reader-fit-double-page-width: calc((100% - var(--reader-page-gap) - 0.5px) / 2);
 }
+body.reader-rtl #doubleInner { flex-direction: row-reverse; }
 #doubleInner.single-spread { --reader-fit-double-page-width: calc(100% - 0.5px); }
+body.reader-rtl #doubleInner.left-placeholder::before { left: 75%; }
+body.reader-rtl #doubleInner.right-placeholder::after { left: 25%; }
 #doubleInner.single-spread > #imgRight,
 #doubleInner.single-spread > .page-wrap:has(#imgRight) { display: none; }
 
@@ -249,7 +253,7 @@ body.reader-fit-height #doubleInner > .page-wrap > .dImg { width: 100%; }
 /* ── STRIP mode ── */
 #stripView {
   display: none;
-  flex-direction: column; align-items: center; gap: 4px;
+  flex-direction: column; align-items: center; gap: var(--reader-page-gap);
   padding-bottom: 20px;
 }
 #stripView.active { display: flex; }
@@ -258,9 +262,14 @@ body.reader-fit-height #doubleInner > .page-wrap > .dImg { width: 100%; }
    to the exact natural ratio. object-fit: contain prevents stretching during the brief window
    between src-set and the load event (matters for double-wide pages whose true ratio differs). */
 .page-img {
-  width: calc(min(1280px, 100vw) * var(--page-zoom)); max-width: none; display: block;
+  width: calc((100vw - var(--sbw)) * var(--page-zoom));
+  max-width: calc(100vw - var(--sbw)); display: block;
   aspect-ratio: 2 / 3;
   object-fit: contain;
+}
+body.reader-fit-width #stripView .page-img { width: calc(100vw - var(--sbw)); }
+body.reader-fit-height #stripView .page-img {
+  width: min(calc(100vw - var(--sbw)), calc(var(--reader-fit-page-height) * var(--page-ratio, 0.681)));
 }
 /* The strip is virtualized: rows outside the mounted window hold an <img> with no src. Keep the
    reserved slot as a quiet surface (and never a broken-image glyph) until its page mounts. */
@@ -285,9 +294,7 @@ body.reader-fit-height #doubleInner > .page-wrap > .dImg { width: 100%; }
 #doubleInner.right-placeholder::after { left: 75%; }
 #doubleInner.single-spread.left-placeholder::before { left: 50%; }
 
-/* Inline transition card after a chapter's last page (see .chd above). The strip has a 4px row
-   gap and a 20px bottom padding — the paddings below keep the space above and below a divider
-   equal (4+26 = 30 between pages; 10+20 = 30 against the document end for the final divider). */
+/* Inline transition card after a chapter's last page (see .chd above). */
 #stripView .chapter-divider {
   align-self: stretch;
   display: flex; justify-content: center;
@@ -301,9 +308,10 @@ body.reader-fit-height #doubleInner > .page-wrap > .dImg { width: 100%; }
 .bubble-layer { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
 /* Two stacked layers: every revealed bubble's inpaint background sits in .bubble-bg (below)
    and its translated text in .bubble-fg (above), so overlapping bubbles never let one's
-   background cover another's text. Clickable boxes sit on top of both. */
+   background cover another's text. Region boxes sit between them, allowing selectable DOM text
+   to own its area while the uncovered part of a region remains clickable. */
 .bubble-bg  { position: absolute; inset: 0; z-index: 1; }
-.bubble-fg  { position: absolute; inset: 0; z-index: 3; }
+.bubble-fg  { position: absolute; inset: 0; z-index: 5; }
 /* A revealed layer is the FULL page image (100% of the wrap, so it stays aligned with the
    original at any zoom), clipped to one bubble's box via an inline clip-path. */
 .study-layer-img {
@@ -325,10 +333,11 @@ body.reader-fit-height #doubleInner > .page-wrap > .dImg { width: 100%; }
   /* Repeated clicking must never text-select the region (the blue highlight). */
   user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
 }
-/* Hover = "active region": ring + faint tint. Otherwise the box is invisible (clean page). */
+/* Image mode uses its source/translation region as the active hover target. */
 .bubble-box:hover { outline-color: var(--accent); background-color: rgba(237, 39, 84, 0.08); }
-/* While DOM text is visible, its click box yields pointer events to the selectable text below. */
-.bubble-box.text-revealed { pointer-events: none; }
+/* DOM text sits above this region target. Its own area keeps the text cursor and selection;
+   uncovered parts of the region retain the box's pointer cursor without showing a region ring. */
+.bubble-box.text-revealed:hover { outline-color: transparent; background-color: transparent; }
 /* The comic-lettering face the translation renderer typesets with, bundled so DOM-text
    study bubbles use the exact same glyphs (a locally installed copy wins if present). */
 @font-face {
@@ -355,8 +364,8 @@ body.reader-fit-height #doubleInner > .page-wrap > .dImg { width: 100%; }
   position: absolute;
   display: flex; align-items: center; justify-content: center;
   text-align: center; overflow: visible;
-  pointer-events: auto; cursor: text;
-  user-select: text; -webkit-user-select: text;
+  pointer-events: none;
+  user-select: none; -webkit-user-select: none;
   font-family: "CC Victory Speech", "CC Wild Words", "Anime Ace 2.0 BB", "Anime Ace",
                "Comic Sans MS", "Segoe UI", system-ui, sans-serif;
   font-weight: 400;
@@ -366,24 +375,47 @@ body.reader-fit-height #doubleInner > .page-wrap > .dImg { width: 100%; }
   /* Balloon text balances its line lengths; balance mimics the renderer's centered layout. */
   white-space: pre-wrap; overflow-wrap: break-word; text-wrap: balance;
 }
-/* When the pipeline stored the renderer's laid-out lines, reproduce those exact breaks and
-   never re-wrap (browser font metrics differ slightly; overflow stays visible instead). */
-.study-text.lines { white-space: pre; }
+/* The fixed outer box is only a layout anchor. Selection and hover belong to this intrinsic
+   content wrapper, so text that extends beyond its OCR layout box keeps the correct hit area. */
+.study-text-content {
+  position: relative;
+  display: inline-block;
+  pointer-events: auto;
+  cursor: pointer;
+  user-select: none; -webkit-user-select: none;
+}
+.study-text-selecting .study-text-content {
+  cursor: text;
+  user-select: text; -webkit-user-select: text;
+}
+.study-text:not(.src) > .study-text-content { max-width: 100%; }
+/* Expand every text-mode hover indicator by 5px without changing layout or selection geometry. */
+.study-text-content::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border: 1.5px solid transparent;
+  border-radius: 4px;
+  background-color: transparent;
+  pointer-events: none;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+.study-text-content:hover::after {
+  border-color: var(--accent);
+  background-color: rgba(237, 39, 84, 0.08);
+}
 /* The bubble's ORIGINAL text, typeset like the source: the OCR's own line breaks (pre),
    vertical columns flowing right→left for vertically-read text, and ruby furigana. */
 .study-text.src { white-space: pre; font-family: "Yasashisa Antique", sans-serif; }
 .study-text.src.font-kiwi { font-family: "Kiwi Maru", sans-serif; }
-.study-text.src.vert { writing-mode: vertical-rl; }
-.study-text.src rt { font-size: 0.45em; line-height: 1; }
-/* Per-line placement: each OCR textline sits at its own detected box inside the detection
-   region; its own --fs (the line's page-pixel height, or width when vertical) sets the size. */
-.study-line {
-  position: absolute;
-  display: flex; align-items: center; justify-content: center;
-  white-space: pre; line-height: 1;
-  font-size: calc(var(--pgscale, 1) * var(--fs, 16px));
+.study-text.src.vert {
+  writing-mode: vertical-rl; text-orientation: mixed;
+  justify-content: flex-start; text-align: start;
 }
-.study-line.vert { writing-mode: vertical-rl; }
+.study-text.src.with-ruby { line-height: 1.55; }
+.study-text.src ruby { ruby-align: center; ruby-position: over; }
+.study-text.src rt { font-size: 0.45em; line-height: 1; text-align: center; }
+.study-text.src.vert .study-upright { text-orientation: upright; }
 /* Metadata-only bubbles have no inpainted backdrop — give the text a readable card. */
 .study-text.boxed {
   background: rgba(255, 255, 255, 0.93);
@@ -477,44 +509,77 @@ body.thumb-dragging * {
   text-shadow: 0 1px 2px #000; pointer-events: none;
 }
 
-/* ── Bottom bar ── */
+/* ── Page progress ── */
 #bottombar {
   position: fixed; bottom: 0; left: 0; right: 0;
   height: var(--botbar-h);
-  background: var(--surface); border-top: 1px solid var(--border);
-  display: flex; align-items: center; padding: 0 10px; gap: 8px;
+  display: flex; align-items: center; padding: 0;
   transition: opacity 0.25s; z-index: 200;
   zoom: var(--zoom-inv);
 }
 #bottombar.hidden { opacity: 0; pointer-events: none; }
+#bottombar[data-position="top"] { top: 0; bottom: auto; }
+#bottombar[data-position="left"],
+#bottombar[data-position="right"] {
+  top: 0; bottom: 0; width: var(--botbar-h); height: auto;
+  padding: 0;
+}
+#bottombar[data-position="left"] { right: auto; }
+#bottombar[data-position="right"] { left: auto; }
 
-#scrubWrap { flex: 1; display: flex; align-items: center; gap: 8px; }
-#scrubWrap.hidden { display: none; }
+#scrubWrap { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; }
+#scrubTrack { position: relative; flex: 1; min-width: 0; height: 3px; }
+#scrubSegments {
+  position: absolute; z-index: 0; inset: 0; height: 3px;
+  display: flex; gap: 1px; pointer-events: none;
+}
+.scrub-segment {
+  flex: 1 1 0; min-width: 0; border-radius: 1px;
+  background: rgba(255, 255, 255, 0.18);
+}
+.scrub-segment.cached { background: rgba(255, 255, 255, 0.38); }
+.scrub-segment.played { background: var(--accent); }
 
 #scrubber {
-  flex: 1; -webkit-appearance: none; appearance: none;
-  height: 2px; background: var(--border); border-radius: 1px; outline: none; cursor: pointer;
+  position: absolute; z-index: 1; left: 0; right: 0; top: -5px;
+  width: 100%; height: 13px; margin: 0;
+  -webkit-appearance: none; appearance: none;
+  background: transparent; outline: none; cursor: pointer;
 }
+#scrubber::-webkit-slider-runnable-track { height: 3px; background: transparent; }
 #scrubber::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 10px; height: 10px;
+  -webkit-appearance: none; width: 10px; height: 10px; margin-top: -3.5px;
   border-radius: 50%; background: var(--accent); cursor: pointer;
+  opacity: 0; transform: scale(.7); transition: opacity .12s, transform .12s;
 }
-/* Firefox styles the thumb through its own pseudo-element and gives it a default border — without
-   this the accent dot renders as a plain grey/white circle. */
+#scrubber:focus-visible::-webkit-slider-thumb,
+#scrubTrack:hover #scrubber::-webkit-slider-thumb { opacity: 1; transform: scale(1); }
+#scrubber::-moz-range-track { height: 3px; background: transparent; }
+#scrubber::-moz-range-progress { background: transparent; }
 #scrubber::-moz-range-thumb {
   width: 10px; height: 10px; border: none;
-  border-radius: 50%; background: var(--accent); cursor: pointer;
+  border-radius: 50%; background: var(--accent); cursor: pointer; opacity: 0;
+  transform: scale(.7); transition: opacity .12s, transform .12s;
 }
-#scrubberLabel { font-size: 10px; color: var(--muted); white-space: nowrap; }
-
-.bar-icon-btn {
-  background: none; border: 1px solid var(--border); color: var(--muted);
-  font-size: 13px; width: 22px; height: 22px; border-radius: 4px;
-  cursor: pointer; display: flex; align-items: center; justify-content: center;
-  transition: all 0.12s; flex-shrink: 0;
+#scrubber:focus-visible::-moz-range-thumb,
+#scrubTrack:hover #scrubber::-moz-range-thumb { opacity: 1; transform: scale(1); }
+#bottombar[data-position="left"] #scrubWrap,
+#bottombar[data-position="right"] #scrubWrap { flex-direction: column; }
+#bottombar[data-position="left"] #scrubTrack,
+#bottombar[data-position="right"] #scrubTrack { width: 3px; min-height: 0; }
+#bottombar[data-position="left"] #scrubSegments,
+#bottombar[data-position="right"] #scrubSegments {
+  inset: 0; width: 3px; height: auto; flex-direction: column;
 }
-.bar-icon-btn:hover  { border-color: var(--text); color: var(--text); }
-.bar-icon-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+#bottombar[data-position="left"] #scrubber,
+#bottombar[data-position="right"] #scrubber {
+  top: 0; left: -5px; right: auto; width: 13px; height: 100%;
+  writing-mode: vertical-lr; direction: ltr;
+}
+#bottombar[data-position="left"] #scrubber::-webkit-slider-runnable-track,
+#bottombar[data-position="right"] #scrubber::-webkit-slider-runnable-track { width: 3px; height: 100%; }
+#bottombar[data-position="left"] #scrubber::-webkit-slider-thumb,
+#bottombar[data-position="right"] #scrubber::-webkit-slider-thumb { margin: 0 0 0 -3.5px; }
 
 /* ── Keybind modal ── */
 #keybindModal {
@@ -525,7 +590,8 @@ body.thumb-dragging * {
 #keybindModal.show { display: flex; }
 /* Lock page scroll while the shortcuts modal is open so wheeling over it doesn't move the
    pages behind it. */
-html:has(#keybindModal.show), body:has(#keybindModal.show) { overflow: hidden; }
+html:has(#keybindModal.show), body:has(#keybindModal.show),
+html:has(#readerSettingsModal.show), body:has(#readerSettingsModal.show) { overflow: hidden; }
 #keybindBox {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 10px; padding: 20px 24px;
@@ -553,13 +619,80 @@ html:has(#keybindModal.show), body:has(#keybindModal.show) { overflow: hidden; }
   font-size: 10px; color: var(--text); font-family: inherit; white-space: nowrap;
 }
 
-/* Unpinned: the live header is parked one bar-height above the viewport, so it scrolls away as you
-   read; a wheel-up (5×, handled in reader.js) adds .revealed to slide the real bar back down via its
-   sticky `top` (animated by the #topbar transition above). It's the live element — its toggles and
-   accent indicators are always current, with no clone to keep in sync. Pinned (no class) keeps the
-   base top:0, so the bar is always shown. */
-body.reader-unpinned #topbar          { top: calc(-1 * var(--topbar-h)); }
-body.reader-unpinned #topbar.revealed { top: 0; }
+/* ── Reader settings modal ── */
+#readerSettingsModal {
+  display: none; position: fixed; inset: 0; z-index: 410;
+  background: rgba(0,0,0,.65); align-items: center; justify-content: center;
+  padding: 20px;
+}
+#readerSettingsModal.show { display: flex; }
+#readerSettingsBox {
+  width: min(520px, 100%); max-height: min(760px, calc(100vh - 40px)); overflow: auto;
+  padding: 20px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface); box-shadow: 0 18px 55px rgba(0,0,0,.45);
+}
+.reader-settings-head,
+.reader-settings-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.reader-settings-head { margin-bottom: 18px; }
+.reader-settings-title { font-size: 14px; font-weight: 700; }
+.reader-settings-close {
+  width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 5px;
+  background: transparent; color: var(--muted); font: 18px/1 inherit; cursor: pointer;
+}
+.reader-settings-close:hover { border-color: var(--accent); color: var(--accent); }
+.reader-settings-group { padding: 13px 0; border-top: 1px solid var(--border); }
+.reader-settings-label {
+  display: block; margin-bottom: 8px; color: var(--muted);
+  font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
+}
+.reader-settings-row .reader-settings-label { margin-bottom: 0; }
+.reader-settings-row output { color: var(--text); font-size: 10px; }
+.reader-choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.reader-choice-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.reader-choice-five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.reader-choice button,
+.reader-zoom-control button {
+  min-height: 36px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--muted); font: 10px/1.25 inherit; cursor: pointer;
+  transition: border-color .12s, background .12s, color .12s;
+}
+.reader-choice button:hover,
+.reader-zoom-control button:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+.reader-choice button.active {
+  border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--bg)); color: var(--text);
+}
+.reader-settings-range {
+  width: 100%; margin-top: 10px; accent-color: var(--accent); cursor: pointer;
+}
+.reader-zoom-control {
+  display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; gap: 8px;
+}
+.reader-zoom-control output { text-align: center; font-size: 13px; color: var(--text); }
+.reader-zoom-control button { padding: 0; font-size: 18px; }
+.reader-zoom-control button:disabled { opacity: .35; cursor: default; }
+
+@media (max-width: 540px) {
+  #readerSettingsModal { padding: 10px; align-items: flex-end; }
+  #readerSettingsBox { max-height: calc(100vh - 20px); border-radius: 12px 12px 6px 6px; }
+  .reader-choice-three { grid-template-columns: 1fr; }
+  .reader-choice-five { grid-template-columns: repeat(5, minmax(48px, 1fr)); overflow-x: auto; }
+}
+
+/* Unpinned: the header is a fixed overlay and contributes no document height. reader.js reveals
+   it after the configured run of upward wheel events, then this transform supplies the slide. */
+#topbarReveal {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 199;
+  height: var(--topbar-h); pointer-events: none;
+}
+body.reader-unpinned #topbar {
+  position: fixed; top: 0; left: 0; right: 0;
+  transform: translateY(-100%);
+}
+body.reader-unpinned.reader-nav-hover #topbar,
+body.reader-unpinned.reader-nav-auto #topbar { transform: translateY(0); }
+@media (hover: hover) {
+  body.reader-unpinned #topbarReveal { pointer-events: auto; }
+}
 body.reader-unpinned { --reader-fit-page-height: calc(100vh - var(--botbar-visual-h)); }
 body.reader-unpinned #singleView.active,
 body.reader-unpinned #doubleView.active { min-height: 100vh; }
@@ -568,7 +701,7 @@ html.reader-scroll, body.reader-scroll { height: auto; }
 
 /* ── Scroll-to-top button (strip mode only) ── */
 #scrollTopBtn {
-  position: fixed; bottom: 28px; right: 18px; z-index: 300;
+  position: fixed; bottom: 20px; right: 18px; z-index: 300;
   width: 36px; height: 36px; border-radius: 50%;
   background: var(--surface); border: 1px solid var(--border);
   color: var(--muted); cursor: pointer;
@@ -580,6 +713,10 @@ html.reader-scroll, body.reader-scroll { height: auto; }
    The strip is counter-scaled by --zoom-inv, so its visual height is thumb-h × zoom-inv. */
 body.thumbs-open.bar-hidden #scrollTopBtn {
   bottom: calc(var(--thumb-h) * var(--zoom-inv) + 20px);
+}
+body:not(.bar-hidden) #scrollTopBtn { bottom: calc(var(--botbar-visual-h) + 20px); }
+body.thumbs-open:not(.bar-hidden) #scrollTopBtn {
+  bottom: calc(var(--thumb-h) * var(--zoom-inv) + var(--botbar-visual-h) + 20px);
 }
 #scrollTopBtn.visible { opacity: 1; pointer-events: all; }
 #scrollTopBtn:hover { border-color: var(--accent); color: var(--accent); }

@@ -112,7 +112,7 @@ async function build(db, sink, onProgress) {
       for (const b of r.bubbles) {
         const tb = toBlob(b.text);
         const bubble = { box: b.box, region: b.region, tr: b.tr || '', src: b.src || '', text: tb ? await sink(tb) : null };
-        for (const key of ['rbox', 'style', 'srcLines', 'srcLineBoxes', 'trLines', 'tbox', 'furi']) {
+        for (const key of ['rbox', 'style', 'tbox', 'furi']) {
           if (b[key] != null) bubble[key] = b[key];
         }
         bubs.push(bubble);
@@ -209,7 +209,7 @@ async function importFullFile(file, onProgress) {
     if (Array.isArray(e.bubbles) && e.bubbles.length) {
       rec.bubbles = e.bubbles.map((b) => {
         const bubble = { box: b.box, region: b.region || b.box, tr: b.tr || '', src: b.src || '', text: sliceOf(b.text) };
-        for (const key of ['rbox', 'style', 'srcLines', 'srcLineBoxes', 'trLines', 'tbox', 'furi']) {
+        for (const key of ['rbox', 'style', 'tbox', 'furi']) {
           if (b[key] != null) bubble[key] = b[key];
         }
         return bubble;

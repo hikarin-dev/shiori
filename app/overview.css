@@ -115,6 +115,24 @@
 .ch-title-wrap:has(.ch-title-open:hover) .ch-title-input[readonly] { color: var(--accent); }
 .ch-meta { color: var(--muted); font-size: 10.5px; padding: 1px 5px 0; display: flex; gap: 10px; flex-wrap: wrap; }
 .ch-meta .done { color: var(--success); }
+.ch-progress { display: none; padding: 3px 5px 0; }
+.ch-row.working .ch-meta { display: none; }
+.ch-row.working .ch-progress { display: flex; flex-direction: column; }
+.ch-prog-track { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.ch-prog-fill {
+  width: 0%; height: 100%; background: var(--accent2); border-radius: 2px;
+  transition: width .25s;
+}
+.ch-prog-fill.done { background: var(--success); }
+.ch-prog-fill.indeterminate {
+  width: 35% !important; transition: none;
+  background: linear-gradient(90deg, transparent, var(--accent2), transparent);
+  background-size: 200% 100%; animation: prog-shimmer 1.2s linear infinite;
+}
+.ch-prog-label {
+  margin-top: 3px; color: var(--muted); font-size: 10.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 .ch-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .ch-ibtn {
@@ -126,11 +144,16 @@
 .ch-ibtn:disabled { opacity: .3; cursor: default; }
 .ch-ibtn.download { color: var(--accent2); }
 .ch-ibtn.download:hover:not(:disabled) { color: #111; border-color: var(--accent2); background: var(--accent2); }
+.ch-ibtn.download.done { color: var(--success); border-color: var(--success); }
+.ch-ibtn.translate { color: var(--accent); }
+.ch-ibtn.translate:hover:not(:disabled) { border-color: var(--accent); }
+.ch-ibtn.translate.done { color: var(--success); }
+body.translator-offline .ch-ibtn.translate { display: none; }
 .ch-ibtn.detach:hover { color: var(--accent); border-color: var(--accent); }
 .ch-ibtn.danger:hover { color: var(--danger); border-color: var(--danger); }
 .ch-ibtn svg { width: 15px; height: 15px; }
-/* Inner icon wrappers for the Shift-hold flip animation (download ⇄ replace, delete ⇄ quick delete). */
-.ch-dl-inner, .ch-del-inner { display: flex; align-items: center; justify-content: center; }
+/* Inner icon wrappers for the Shift-hold flip animations. */
+.ch-dl-inner, .ch-tr-inner, .ch-del-inner { display: flex; align-items: center; justify-content: center; }
 
 /* ── Add-chapter bar ── */
 .add-bar {

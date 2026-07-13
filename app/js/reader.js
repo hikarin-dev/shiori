@@ -6,6 +6,7 @@ import { resolveSeries } from './series.js';
 import { request as extRequest, send as extSend, available as extAvailable } from './ext-bridge.js';
 import * as platform from './platform.js';
 import { t, getLang } from './i18n.js';
+import { formatCount } from './format.js';
 import { pickTitle } from './titles.js';
 import { initTooltips } from './tooltip.js';
 
@@ -44,12 +45,14 @@ const _pageIdxByUrl = new Map(); // page url → 0-based merged index (for URL-c
 let currentPage = 1;
 let mode        = 'strip'; // 'single' | 'double' | 'strip'
 let thumbsOpen    = false;
-let scrubVisible  = true;
 let translateView = false; // show stored translated variants when true
 let lastPageMode  = 'single';
 let _pageZoom     = 1;     // +/- page scale factor
 let readerFitMode = 'off'; // 'off' | 'width' | 'height' for persistent page-mode fit classes
 let readerFitMaxWidth = 1; // persistent fit cap, 0.1..1, adjusted by zoom keys while fit is active
+let readerDirection = 'ltr';
+let readerPageGap = 4;
+let readerProgressPosition = 'bottom';
 // Cached pages may learn their own true aspect ratio as they decode. Missing-page slots share one
 // baseline measured before the first render, so changing reader modes cannot change their geometry.
 const _pageRatios = new Map();   // page index (0-based) → "w / h"
@@ -74,7 +77,7 @@ let studyOriginal  = 'image';            // original display: 'image' (untouched
 let studySrcFont   = 'yasashisa';        // original text face: 'yasashisa' | 'kiwi' (Settings → Reader)
 let furiganaOn     = false;              // Settings → Reader; applies only to Japanese-tagged galleries
 let _translateAvailable = false;       // this gallery has a whole-page translation
-const _pageStudy     = new Map();      // page url → { bg:Blob|null, bubbles:[{box,region,tr,src,rbox?,style?,srcLines?,trLines?,furi?,text?:Blob}], page:{w,h}|null }
+const _pageStudy     = new Map();      // page url → { bg:Blob|null, bubbles:[{box,region,tr,src,rbox?,style?,furi?,text?:Blob}], page:{w,h}|null }
 const _pageLayerUrls = new Map();      // page url → { bgUrl, textUrls:[] } object URLs, revoked on teardown
 
 // Page images are served as blob: URLs. A blob URL references the IndexedDB-backed Blob — the
@@ -332,6 +335,7 @@ async function _processThumbQueue() {
 const loadingScreen = document.getElementById('loadingScreen');
 const loadingText   = document.getElementById('loadingText');
 const emptyScreen   = document.getElementById('emptyScreen');
+const topbarReveal  = document.getElementById('topbarReveal');
 const topbar        = document.getElementById('topbar');
 const bottombar     = document.getElementById('bottombar');
 const viewport      = document.getElementById('viewport');
@@ -357,9 +361,7 @@ const _seedRatio = (img) => {
 };
 [mainImg, imgLeft, imgRight].forEach(img => img.addEventListener('load', () => _seedRatio(img)));
 const scrubber      = document.getElementById('scrubber');
-const scrubWrap     = document.getElementById('scrubWrap');
-const scrubToggle   = document.getElementById('scrubToggle');
-const scrubberLabel = document.getElementById('scrubberLabel');
+const scrubSegments = document.getElementById('scrubSegments');
 const pageCounter   = document.getElementById('pageCounter');
 const modeToggle    = document.getElementById('modeToggle');
 const modeSingle    = document.getElementById('modeSingle');
@@ -371,6 +373,16 @@ const translateSeg  = document.getElementById('translateSeg');
 const studySeg      = document.getElementById('studySeg');
 const keybindBtn    = document.getElementById('keybindBtn');
 const keybindModal  = document.getElementById('keybindModal');
+const readerSettingsBtn = document.getElementById('readerSettingsBtn');
+const readerSettingsModal = document.getElementById('readerSettingsModal');
+const readerSettingsBox = document.getElementById('readerSettingsBox');
+const readerSettingsClose = document.getElementById('readerSettingsClose');
+const readerDirectionGroup = document.getElementById('readerDirectionGroup');
+const readerGap = document.getElementById('readerGap');
+const readerGapValue = document.getElementById('readerGapValue');
+const readerZoomOut = document.getElementById('readerZoomOut');
+const readerZoomIn = document.getElementById('readerZoomIn');
+const readerZoomValue = document.getElementById('readerZoomValue');
 const readerPinBtn  = document.getElementById('readerPinBtn');
 const tbGallery     = document.getElementById('tbGallery');
 const tbMeta        = document.getElementById('tbMeta');
@@ -491,7 +503,7 @@ async function init() {
   if (_translateAvailable || hasStudy) viewToggle.style.display = '';
   studySeg.classList.toggle('disabled', !hasStudy);
 
-  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerFitMode', 'readerFitMaxWidth', 'readerView', 'readerStudyDisplay', 'readerStudyOriginal', 'readerStudySrcFont', 'readerFurigana', 'readerChapterDivider', 'readerStripMode']);
+  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerFitMode', 'readerFitMaxWidth', 'readerDirection', 'readerPageGap', 'readerProgressPosition', 'readerView', 'readerStudyDisplay', 'readerStudyOriginal', 'readerStudySrcFont', 'readerFurigana', 'readerChapterDivider', 'readerStripMode']);
   if (saved.readerStudyDisplay === 'text') studyDisplay = 'text';
   if (saved.readerStudyOriginal === 'text') studyOriginal = 'text';
   if (saved.readerStudySrcFont === 'kiwi') studySrcFont = 'kiwi';
@@ -502,6 +514,9 @@ async function init() {
   if (saved.readerPageZoom) { _pageZoom = saved.readerPageZoom; document.documentElement.style.setProperty('--page-zoom', _pageZoom); }
   _applyReaderFitMaxWidth(saved.readerFitMaxWidth || FIT_WIDTH_MAX, false);
   _applyReaderFitMode(saved.readerFitMode || 'off', false);
+  _applyReaderDirection(saved.readerDirection || 'ltr', false);
+  _applyReaderPageGap(saved.readerPageGap ?? 4, false);
+  _applyReaderProgressPosition(saved.readerProgressPosition || 'bottom', false);
   if (saved.readerLastPageMode) lastPageMode = saved.readerLastPageMode;
 
   // Resolve the initial view, defaulting to the full translation when available. Set the flags
@@ -584,6 +599,7 @@ function _handlePageStored(event) {
   pages[pageIdx] = { pageNum, url, cached: true };
   ch.missing = Math.max(0, ch.missing - 1);
   _pageIdxByUrl.set(url, pageIdx);
+  if (_chapters[_curChIdx] === ch) scrubSegments.children[pageNum - 1]?.classList.add('cached');
   for (const prefix of ['o:', 't:']) {
     const old = _pageUrlCache.get(prefix + url);
     if (old) { try { URL.revokeObjectURL(old); } catch {} }
@@ -817,19 +833,11 @@ async function _waitForImgLayout(imgs) {
   await _nextLayoutFrame();
 }
 
-async function _awaitCurrentPageNav() {
-  while (mode !== 'strip') {
-    const nav = _pageNavReady;
-    await nav.promise;
-    if (nav.token === _pageNavReady.token) return;
-  }
-}
-
 function _scrollPageModeToStart() {
-  if (!readerPinned) topbar.classList.remove('revealed');
+  if (!readerPinned) _hideReaderNav();
   const navH = topbar?.offsetHeight || parseInt(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h'), 10) || 54;
   const inner = mode === 'double' ? doubleInner : mode === 'single' ? singleInner : null;
-  if (!inner) { window.scrollTo(0, readerPinned ? 0 : navH); return; }
+  if (!inner) { window.scrollTo(0, 0); return; }
   const innerTop = inner.getBoundingClientRect().top + window.scrollY;
   window.scrollTo(0, Math.max(0, Math.round(innerTop - (readerPinned ? navH : 0))));
 }
@@ -907,14 +915,33 @@ async function goTo(n, skipDivider = false) {
 // Counter and scrubber are CHAPTER-relative (page n of this chapter); the thumbnails and the
 // strip indicator stay series-wide. Every currentPage change funnels through here, so this is
 // also where the topbar chrome notices the reading line crossing into another chapter.
+function _renderScrubSegments(ch) {
+  const fragment = document.createDocumentFragment();
+  for (let i = 0; i < ch.count; i++) {
+    const segment = document.createElement('span');
+    segment.className = pages[ch.start + i]?.cached ? 'scrub-segment cached' : 'scrub-segment';
+    fragment.appendChild(segment);
+  }
+  scrubSegments.replaceChildren(fragment);
+}
+
+function _updateScrubSegments(ch) {
+  const localPage = ch ? currentPage - ch.start : currentPage;
+  for (let i = 0; i < scrubSegments.children.length; i++) {
+    scrubSegments.children[i].classList.toggle('played', i < localPage);
+  }
+}
+
 function updateCounter() {
   const chIdx = _chapterAt(currentPage);
   if (chIdx !== _curChIdx) _applyChapterChrome(chIdx);
   const ch = _chapters[chIdx];
-  const label = ch ? `${currentPage - ch.start} / ${ch.count}` : `${currentPage} / ${pages.length}`;
-  pageCounter.textContent   = label;
-  scrubberLabel.textContent = label;
+  const label = ch
+    ? `${formatCount(currentPage - ch.start)} / ${formatCount(ch.count)}`
+    : `${formatCount(currentPage)} / ${formatCount(pages.length)}`;
+  pageCounter.textContent = label;
   if (ch) scrubber.value = currentPage - ch.start;
+  _updateScrubSegments(ch);
 }
 
 // Point the topbar (gallery #, title, source link), document title, scrubber range and the URL at
@@ -934,6 +961,7 @@ function _applyChapterChrome(idx) {
   const titleEl = document.getElementById('tbTitle');
   if (titleEl) titleEl.textContent = (meta && pickTitle(meta, getLang())) || '';
   scrubber.max = ch.count;
+  _renderScrubSegments(ch);
   // Refresh should land back in this chapter — but never rewrite the URL for the initial apply,
   // which would drop the ?page= the reader was opened with.
   if (_series && wasApplied) _syncUrlToChapter(ch);
@@ -1201,7 +1229,7 @@ function _proportionToContentLeft(p, a, b) {
 // A pinned header overlaps the top of the scroll content, so programmatic scrolls that target a
 // page's true top must land it this many px lower — and the scroll→page reference line shifts down
 // by the same amount — mirroring the CSS scroll-padding-top that scrollIntoView already honours.
-// 0 when unpinned (the header then scrolls away and content reaches the viewport top).
+// 0 when unpinned (the fixed overlay does not move the content's reading line).
 const TOPBAR_H = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h'), 10) || 54;
 const _pinOffset = () => (readerPinned ? TOPBAR_H : 0);
 
@@ -1523,14 +1551,20 @@ function setKeybindOpen(open) {
 }
 
 // ── Header: pinned vs unpinned ──
-// Pinned: the bar is `position: sticky; top: 0` — always at the top of the viewport.
-// Unpinned: the same sticky bar is parked one bar-height above the viewport (CSS top: -h), so it
-// scrolls away as you read. 5 mouse-wheel scroll-ups in a row (while it's scrolled away) add
-// .revealed → top: 0, sliding the LIVE bar back down; a scroll-down (or reaching the very top) drops
-// .revealed and it slides away again. Because it's the real #topbar — not a clone — its toggles and
-// accent indicators are always current. Only a real wheel fires 'wheel', so keyboard (W/↑, S/↓), the
-// scrubber, thumbnail jumps and programmatic scrolls never reveal it.
+// Pinned: the bar is sticky and occupies its normal document space. Unpinned: it becomes a fixed
+// overlay, so fitted pages can use the full viewport without creating a header-height scroll range.
+// Ten consecutive upward wheel events reveal it with an animated transform. Reaching scrollY 0
+// resets that count, so revealing from the top requires ten additional upward events there too.
+// The top-edge hover target matches the header's full height.
 let readerPinned = localStorage.getItem('shiori-reader-pin') === '1'; // default: unpinned
+let readerNavWheelUps = 0;
+let readerNavLastY = window.scrollY;
+const READER_NAV_REVEAL_UNITS = 10;
+
+function _hideReaderNav() {
+  readerNavWheelUps = 0;
+  document.body.classList.remove('reader-nav-auto');
+}
 
 function applyReaderPin(p) {
   readerPinned = p;
@@ -1542,33 +1576,43 @@ function applyReaderPin(p) {
   document.documentElement.style.scrollPaddingTop = p ? 'var(--topbar-h)' : '';
   document.documentElement.classList.add('reader-scroll');
   document.body.classList.add('reader-scroll');
-  document.body.classList.toggle('reader-unpinned', !p);   // unpinned → bar parks above the viewport
-  topbar.classList.remove('revealed');                     // never carry a reveal across a pin toggle
+  document.body.classList.toggle('reader-unpinned', !p);
+  document.body.classList.remove('reader-nav-hover');
+  _hideReaderNav();
 }
 applyReaderPin(readerPinned);
 
-// Wheel-reveal of the unpinned header: slide the LIVE #topbar back down (CSS .revealed → top: 0) on
-// 5 wheel scroll-ups in a row while it's scrolled away, and drop .revealed on a scroll-down or at the
-// very top so it parks above the viewport again. No clone — the real bar's toggles/indicators are
-// always correct.
-(function () {
-  const scrolledAway = () => window.scrollY >= (topbar.offsetHeight || 54);  // bar fully past the top
-  let wheelUps = 0;
-  let lastY = window.scrollY;
+window.addEventListener('wheel', (e) => {
+  if (readerPinned) return;
+  if (!e.deltaY) return;
+  if (e.deltaY < 0) {
+    if (!document.body.classList.contains('reader-nav-auto') && ++readerNavWheelUps >= READER_NAV_REVEAL_UNITS) {
+      readerNavWheelUps = 0;
+      document.body.classList.add('reader-nav-auto');
+    }
+    return;
+  }
+  _hideReaderNav();
+}, { passive: true });
 
-  window.addEventListener('wheel', (e) => {
-    if (readerPinned || !scrolledAway() || topbar.classList.contains('revealed')) { wheelUps = 0; return; }
-    if (e.deltaY < 0) { if (++wheelUps >= 5) { wheelUps = 0; topbar.classList.add('revealed'); } }
-    else wheelUps = 0;
-  }, { passive: true });
+window.addEventListener('scroll', () => {
+  const y = window.scrollY;
+  if (!readerPinned) {
+    if (y > readerNavLastY) _hideReaderNav();
+    else if (y <= 0 && readerNavLastY > 0) readerNavWheelUps = 0;
+  }
+  readerNavLastY = y;
+}, { passive: true });
 
-  window.addEventListener('scroll', () => {
-    const y = window.scrollY;
-    // Scrolling down past the bar, or back at the very top → hide. (Scrolling up keeps it revealed.)
-    if (!readerPinned && (y <= 0 || y > lastY)) topbar.classList.remove('revealed');
-    lastY = y;
-  }, { passive: true });
-}());
+topbarReveal.addEventListener('pointerenter', () => {
+  if (!readerPinned) document.body.classList.add('reader-nav-hover');
+});
+topbarReveal.addEventListener('pointerleave', (e) => {
+  if (!topbar.contains(e.relatedTarget)) document.body.classList.remove('reader-nav-hover');
+});
+topbar.addEventListener('pointerleave', (e) => {
+  if (e.relatedTarget !== topbarReveal) document.body.classList.remove('reader-nav-hover');
+});
 
 
 // ── Strip view ──
@@ -1782,6 +1826,34 @@ function buildStrip() {
 }
 
 // ── Mode switching ──
+function _applyReaderDirection(next, persist = true) {
+  readerDirection = next === 'rtl' ? 'rtl' : 'ltr';
+  document.body.classList.toggle('reader-rtl', readerDirection === 'rtl');
+  if (persist) platform.kv.set({ readerDirection });
+  _syncReaderSettingsUI();
+}
+
+function _applyReaderPageGap(next, persist = true) {
+  readerPageGap = Math.max(0, Math.min(40, Math.round(Number(next) || 0)));
+  document.documentElement.style.setProperty('--reader-page-gap', `${readerPageGap}px`);
+  if (persist) platform.kv.set({ readerPageGap });
+  _syncReaderSettingsUI();
+}
+
+function _applyReaderProgressPosition(next, persist = true) {
+  if (!['top', 'bottom', 'left', 'right', 'off'].includes(next)) next = 'bottom';
+  readerProgressPosition = next;
+  bottombar.dataset.position = next;
+  bottombar.classList.toggle('hidden', next === 'off');
+  document.body.classList.toggle('bar-hidden', next !== 'bottom');
+  document.documentElement.style.setProperty(
+    '--botbar-visual-h',
+    next === 'bottom' ? 'calc(var(--botbar-h) * var(--zoom-inv, 1))' : '0px'
+  );
+  if (persist) platform.kv.set({ readerProgressPosition });
+  _syncReaderSettingsUI();
+}
+
 let _modeApplied = false;
 function setMode(m, skipAnim) {
   // Already in this mode (e.g. pressing 3 repeatedly) → no-op, so we don't rebuild the view
@@ -1794,16 +1866,14 @@ function setMode(m, skipAnim) {
   mode = m;
   document.documentElement.classList.add('reader-scroll');
   document.body.classList.add('reader-scroll');
+  if (m === 'strip' && _pageZoom > 1) _applyPageZoom(1);
 
   // Show/hide views
   singleView.classList.toggle('active', m === 'single');
   doubleView.classList.toggle('active', m === 'double');
   stripView.classList.toggle('active',  m === 'strip');
 
-  // Bottom bar: show in single/double, hide in strip
-  const showBar = m !== 'strip';
-  bottombar.classList.toggle('hidden', !showBar);
-  document.body.classList.toggle('bar-hidden', !showBar);
+  _applyReaderProgressPosition(readerProgressPosition, false);
 
   // Slide the reading-mode toggle to the active mode.
   if (m !== 'strip') lastPageMode = m;
@@ -1817,6 +1887,7 @@ function setMode(m, skipAnim) {
     goTo(currentPage, true);
   }
   _syncThumbScope();   // strip (possibly series-wide) ↔ page modes (chapter) change the thumb range
+  _syncReaderSettingsUI();
 }
 
 // Scroll the strip to the current page. Rows already reserve the correct height (see buildStrip),
@@ -1825,13 +1896,6 @@ function _scrollStripToCurrent() {
   if (currentPage <= _viewBase + 1) { window.scrollTo(0, 0); return; }
   const target = stripView.querySelector(`[data-page="${currentPage}"]`);
   if (target) target.scrollIntoView();
-}
-
-// ── Scrubber toggle ──
-function setScrubVisible(v) {
-  scrubVisible = v;
-  scrubWrap.classList.toggle('hidden', !v);
-  scrubToggle.classList.toggle('active', !v);
 }
 
 // ── Events ──
@@ -1964,13 +2028,18 @@ document.addEventListener('pointercancel', _endClickWheelNav);
 window.addEventListener('blur', _endClickWheelNav);
 document.addEventListener('visibilitychange', () => { if (document.hidden) _endClickWheelNav(); });
 
-// Single click zones
-clickPrev.addEventListener('click', () => goTo(currentPage - 1));
-clickNext.addEventListener('click', () => goTo(currentPage + 1));
+function _physicalPageDelta(side, amount) {
+  const forward = readerDirection === 'rtl' ? side === 'left' : side === 'right';
+  return forward ? amount : -amount;
+}
+
+// Physical click zones follow the selected reading direction.
+clickPrev.addEventListener('click', () => goTo(currentPage + _physicalPageDelta('left', 1)));
+clickNext.addEventListener('click', () => goTo(currentPage + _physicalPageDelta('right', 1)));
 
 // Double click zones
-dClickPrev.addEventListener('click', () => goTo(currentPage - 2));
-dClickNext.addEventListener('click', () => goTo(currentPage + 2));
+dClickPrev.addEventListener('click', () => goTo(currentPage + _physicalPageDelta('left', 2)));
+dClickNext.addEventListener('click', () => goTo(currentPage + _physicalPageDelta('right', 2)));
 
 // Scrubber — chapter-relative: its range is the current chapter, so the value maps onto the
 // chapter's slice of the merged page list.
@@ -1985,9 +2054,6 @@ scrubber.addEventListener('input', () => {
 // stops swallowing every navigation keybind once the slider has been touched.
 scrubber.addEventListener('pointerup', () => scrubber.blur());
 scrubber.addEventListener('change', () => scrubber.blur());
-
-// Scrubber toggle
-scrubToggle.addEventListener('click', () => setScrubVisible(!scrubVisible));
 
 // Reading-mode segmented toggle: each square selects its mode; the indicator slides across.
 function _updateModeToggle() {
@@ -2172,47 +2238,80 @@ function _buildStudyText(b, hasBg, pageW) {
   if (st.caps) { el.style.textTransform = 'uppercase'; el.style.lineHeight = '1.0'; }
   if (st.lineH) el.style.lineHeight = String(st.lineH);
   if (st.align === 'left' || st.align === 'right') el.style.textAlign = st.align;
-  // Reproduce the renderer's exact line breaks when the pipeline stored them (the renderer
-  // wraps against the balloon's pixel mask, which CSS can't recompute); otherwise let the
-  // browser wrap, with balance approximating the centered layout.
-  if (Array.isArray(b.trLines) && b.trLines.length) {
-    el.classList.add('lines');
-    el.textContent = b.trLines.join('\n');
-  } else {
-    el.textContent = b.tr;
-  }
+  // Renderer-preserved line breaks live directly in `tr`; pre-wrap keeps them while still
+  // allowing a safe additional wrap if browser font metrics need one.
+  const body = document.createElement('span');
+  body.className = 'study-text-content';
+  body.textContent = b.tr;
+  el.appendChild(body);
   return el;
 }
 
-// The bubble's ORIGINAL text as DOM text, typeset like the source. When the pipeline stored
-// each OCR textline's own box (srcLineBoxes), every line is placed exactly at its detected
-// position — its box sets the line's own font size, and the region direction decides rows vs
-// columns. Older records fall back to the joined lines centered in the detection box. Optional
-// <ruby> furigana from the pipeline's per-line segments; the face comes from Settings → Reader.
+// The bubble's ORIGINAL text as DOM text, typeset like the source. OCR line breaks live directly
+// in `src`; native horizontal/vertical flow lays them out as rows or right-to-left columns.
+// Optional <ruby> furigana comes from the pipeline's per-line segments.
 function _buildStudySrc(b, hasBg, pg, srcOpts) {
   const srcText = String(b.src || '').trim();
   if (!srcText) return null;
   const st = b.style || {};
   const vertical = String(st.dir || '').startsWith('v');
-  const lines = (Array.isArray(b.srcLines) && b.srcLines.length) ? b.srcLines : [srcText];
+  const lines = srcText.split(/\r?\n/);
   const furi = (srcOpts && srcOpts.furi && Array.isArray(b.furi) && b.furi.length === lines.length) ? b.furi : null;
-  const lineBoxes = (Array.isArray(b.srcLineBoxes) && b.srcLineBoxes.length === lines.length) ? b.srcLineBoxes : null;
+
+  // In vertical CJK text, leave native scripts and punctuation to Unicode's mixed orientation.
+  // Stand isolated letters upright, along with numbers and symbols such as a percent sign;
+  // multi-letter horizontal-script words keep their normal sideways run.
+  const appendText = (target, text) => {
+    if (!vertical) { target.appendChild(document.createTextNode(text)); return; }
+    const nativeVertical = /^(?:\p{Script_Extensions=Han}|\p{Script_Extensions=Hiragana}|\p{Script_Extensions=Katakana}|\p{Script_Extensions=Hangul}|\p{Script_Extensions=Bopomofo}|\p{Script_Extensions=Mongolian})$/u;
+    const letter = /^\p{Letter}$/u;
+    const mark = /^\p{Mark}$/u;
+    const numberOrSymbol = /^(?:\p{Number}|\p{Symbol}|[%％])$/u;
+    let run = '';
+    let runType = null;
+    let letterCount = 0;
+    const flush = () => {
+      if (!run) return;
+      if (runType === 'upright' || (runType === 'letter' && letterCount === 1)) {
+        const upright = document.createElement('span');
+        upright.className = 'study-upright';
+        upright.textContent = run;
+        target.appendChild(upright);
+      } else {
+        target.appendChild(document.createTextNode(run));
+      }
+      run = '';
+      runType = null;
+      letterCount = 0;
+    };
+    for (const glyph of text) {
+      let type = 'plain';
+      if (mark.test(glyph) && runType) type = runType;
+      else if (!nativeVertical.test(glyph) && letter.test(glyph)) type = 'letter';
+      else if (numberOrSymbol.test(glyph)) type = 'upright';
+      if (runType !== null && type !== runType) flush();
+      runType = type;
+      run += glyph;
+      if (type === 'letter' && letter.test(glyph)) letterCount++;
+    }
+    flush();
+  };
 
   // Fill one line's content (plain text or ruby-annotated segments) into `target`.
   const lineContent = (target, i) => {
     const segs = furi && Array.isArray(furi[i]) ? furi[i] : null;
-    if (!segs) { target.appendChild(document.createTextNode(lines[i])); return; }
+    if (!segs) { appendText(target, lines[i]); return; }
     for (const seg of segs) {
       if (!seg || !seg[0]) continue;
       if (seg[1]) {
         const ruby = document.createElement('ruby');
-        ruby.appendChild(document.createTextNode(seg[0]));
+        appendText(ruby, seg[0]);
         const rt = document.createElement('rt');
         rt.textContent = seg[1];
         ruby.appendChild(rt);
         target.appendChild(ruby);
       } else {
-        target.appendChild(document.createTextNode(seg[0]));
+        appendText(target, seg[0]);
       }
     }
   };
@@ -2220,6 +2319,7 @@ function _buildStudySrc(b, hasBg, pg, srcOpts) {
   const r = b.box || b.region;
   const el = document.createElement('div');
   el.className = 'study-text src' + (hasBg ? '' : ' boxed') + (studySrcFont === 'kiwi' ? ' font-kiwi' : '');
+  if (furi) el.classList.add('with-ruby');
   el.style.left   = (r.x * 100) + '%';
   el.style.top    = (r.y * 100) + '%';
   el.style.width  = (r.w * 100) + '%';
@@ -2231,43 +2331,18 @@ function _buildStudySrc(b, hasBg, pg, srcOpts) {
       `-0.06em -0.06em 0 ${o}, 0.06em -0.06em 0 ${o}, -0.06em 0.06em 0 ${o}, 0.06em 0.06em 0 ${o}, ` +
       `-0.08em 0 0 ${o}, 0.08em 0 0 ${o}, 0 -0.08em 0 ${o}, 0 0.08em 0 ${o}`;
   }
-  // Language drives Han glyph forms — only claim Japanese when the gallery is tagged so.
-  if (srcOpts && srcOpts.ja) el.lang = 'ja';
-
-  if (lineBoxes) {
-    // Per-line placement: children are positioned inside the detection box by the fraction
-    // math between the two normalized rects; a horizontal line's height (a vertical column's
-    // width) is its own font size in page pixels.
-    el.classList.add('by-line');
-    const pageW = (pg && pg.w) || 1000;
-    const pageH = (pg && pg.h) || Math.round(pageW * 1.45);
-    lines.forEach((ln, i) => {
-      const lb = lineBoxes[i];
-      // Direction from the line's own box shape — columns are tall, rows are wide. The
-      // region-level flag is unreliable after textline merging, so it only breaks the tie
-      // for near-square (single-character) lines.
-      const lineVert = lb.h >= lb.w * 1.3 || (lb.w < lb.h * 1.3 && vertical);
-      const child = document.createElement('div');
-      child.className = 'study-line' + (lineVert ? ' vert' : '');
-      child.style.left   = ((lb.x - r.x) / r.w * 100) + '%';
-      child.style.top    = ((lb.y - r.y) / r.h * 100) + '%';
-      child.style.width  = (lb.w / r.w * 100) + '%';
-      child.style.height = (lb.h / r.h * 100) + '%';
-      const fs = Math.max(8, Math.round(lineVert ? lb.w * pageW : lb.h * pageH));
-      child.style.setProperty('--fs', fs + 'px');
-      lineContent(child, i);
-      el.appendChild(child);
-    });
-    return el;
-  }
-
-  // Fallback: joined lines centered in the detection box at the detected size.
+  // Language drives the appropriate Han glyph forms when source metadata identifies it.
+  if (srcOpts && srcOpts.lang) el.lang = srcOpts.lang;
   if (vertical) el.classList.add('vert');
   el.style.setProperty('--fs', (st.srcFontSize || st.fontSize || Math.max(12, Math.round(((pg && pg.w) || 1000) * 0.022))) + 'px');
   const body = document.createElement('span');
+  body.className = 'study-src-body study-text-content';
   lines.forEach((ln, i) => {
-    if (i) body.appendChild(document.createTextNode('\n'));
-    lineContent(body, i);
+    const line = document.createElement('span');
+    line.className = 'study-src-line';
+    lineContent(line, i);
+    body.appendChild(line);
+    if (i < lines.length - 1) body.appendChild(document.createElement('br'));
   });
   el.appendChild(body);
   return el;
@@ -2278,19 +2353,42 @@ function _buildStudySrc(b, hasBg, pg, srcOpts) {
 // original and the translation (DOM text or the typeset PNG, per the translation display
 // setting). DOM text stays selectable; a plain click with no selection cycles it. Escape returns
 // every bubble to its original text.
+function _studySourceRect(b) {
+  return b.box || b.region;
+}
+
+function _studyTranslationRect(b) {
+  return b.tbox || b.rbox || b.region || b.box;
+}
+
+function _positionBubbleIndicator(box, r) {
+  if (!box || !r) return;
+  box.style.left   = (r.x * 100) + '%';
+  box.style.top    = (r.y * 100) + '%';
+  box.style.width  = (r.w * 100) + '%';
+  box.style.height = (r.h * 100) + '%';
+}
+
 function _wireSelectableText(el, onPlainClick) {
   if (!el || !el.classList.contains('study-text')) return false;
-  el.addEventListener('click', (e) => {
+  const content = el.querySelector('.study-text-content');
+  if (!content) return false;
+  content.addEventListener('click', (e) => {
     e.stopPropagation();
+    if (e.shiftKey) return;
     if (!String(window.getSelection() || '')) onPlainClick();
   });
   return true;
 }
 
-function _mountTextBubble(box, b, idx, pageUrl, bgLayer, fgLayer, pg, srcOpts) {
+function _setStudyTextSelectable(selectable) {
+  document.body.classList.toggle('study-text-selecting', !!selectable);
+}
+
+function _mountTextBubble(box, b, idx, pageUrl, bgLayer, fgLayer, pg, srcOpts, hasPageBg) {
   const urls = _layerUrls(pageUrl);
   const hasBg = !!(urls && urls.bgUrl);
-  if (hasBg) {
+  if (hasBg && !hasPageBg) {
     const clip = _clipInset(b.region);
     const bg = document.createElement('img');
     bg.className = 'study-layer-img'; bg.src = urls.bgUrl;
@@ -2311,6 +2409,11 @@ function _mountTextBubble(box, b, idx, pageUrl, bgLayer, fgLayer, pg, srcOpts) {
   const srcIsText = !!srcEl && srcEl.classList.contains('study-text');
   const trIsText  = !!trEl && trEl.classList.contains('study-text');
   const setState = (showTr) => {
+    const visibleIsText = showTr ? trIsText : srcIsText;
+    const visibleRect = showTr ? _studyTranslationRect(b) : _studySourceRect(b);
+    // DOM text owns its visible hover treatment. Keep the broader replacement region beneath it
+    // as an invisible pointer/click target for the empty area surrounding the text itself.
+    _positionBubbleIndicator(box, visibleIsText ? (b.region || visibleRect) : visibleRect);
     if (srcEl) srcEl.style.display = showTr ? 'none' : '';
     if (trEl)  trEl.style.display  = showTr ? '' : 'none';
     box.classList.toggle('revealed', showTr && !!srcEl);
@@ -2349,6 +2452,7 @@ function _mountTextBubble(box, b, idx, pageUrl, bgLayer, fgLayer, pg, srcOpts) {
 function _toggleBubble(e, box, b, idx, pageUrl, bgLayer, fgLayer) {
   e.stopPropagation();
   const on = box.classList.toggle('revealed');
+  _positionBubbleIndicator(box, on ? _studyTranslationRect(b) : _studySourceRect(b));
   if (on) {
     if (!box._layers) {
       const study = _pageStudy.get(pageUrl);
@@ -2370,6 +2474,7 @@ function _toggleBubble(e, box, b, idx, pageUrl, bgLayer, fgLayer) {
         if (!tx) {
           els.forEach(el => el.remove());
           box.classList.remove('revealed');
+          _positionBubbleIndicator(box, _studySourceRect(b));
           return;
         }
         _wireSelectableText(tx, () => box.click());
@@ -2379,33 +2484,48 @@ function _toggleBubble(e, box, b, idx, pageUrl, bgLayer, fgLayer) {
         tx.className = 'study-layer-img'; tx.src = urls.textUrls[idx];
         fgLayer.appendChild(tx); els.push(tx);
       }
-      if (!els.length) { box.classList.remove('revealed'); return; }
+      if (!els.length) {
+        box.classList.remove('revealed');
+        _positionBubbleIndicator(box, _studySourceRect(b));
+        return;
+      }
       box._layers = els;
       box._isText = asText;
     } else {
       box._layers.forEach(el => { el.style.display = ''; });
     }
-    if (box._isText) box.classList.add('text-revealed');
+    if (box._isText) {
+      box.classList.add('text-revealed');
+      _positionBubbleIndicator(box, b.region || _studyTranslationRect(b));
+    }
   } else if (box._layers) {
     box._layers.forEach(el => { el.style.display = 'none'; });
     box.classList.remove('text-revealed');
   }
 }
 
-// Furigana only makes sense for Japanese source text — gate on the gallery's language tag
-// (Chinese kanji would otherwise carry Japanese readings).
-function _isJapaneseMeta(meta) {
-  if (!meta) return false;
+// Set the source language when metadata identifies Japanese or Chinese so the browser chooses
+// the appropriate Han glyph forms. Furigana remains Japanese-only.
+function _sourceTextLang(meta) {
+  if (!meta) return '';
+  const values = [];
   for (const tags of [meta.tags, meta.seriesTags]) {
-    if (Array.isArray(tags) &&
-        tags.some(tg => tg && tg.type === 'language' && /japanese/i.test(String(tg.name || '')))) return true;
+    if (Array.isArray(tags)) {
+      for (const tg of tags) if (tg && tg.type === 'language') values.push(String(tg.name || ''));
+    }
   }
-  return /japanese/i.test(String(meta.sourceMetadata?.language || ''));
+  values.push(String(meta.sourceMetadata?.language || ''));
+  const language = values.join(' ');
+  if (/(^|\W)(japanese|ja|jpn)(\W|$)/i.test(language)) return 'ja';
+  if (/chinese\s*\(traditional\)|traditional\s+chinese|zh[-_](tw|hant)/i.test(language)) return 'zh-Hant';
+  if (/chinese\s*\(simplified\)|simplified\s+chinese|zh[-_](cn|hans)/i.test(language)) return 'zh-Hans';
+  if (/(^|\W)(chinese|zh|zho)(\W|$)/i.test(language)) return 'zh';
+  return '';
 }
 
 // Build one page's overlay: a bg sub-layer, a text sub-layer, and the clickable boxes on top.
-// Each box sits at its OCR detection region (the hover/click border) and is positioned by page
-// fraction (percent), so it tracks zoom/resize with no recompute.
+// Each hover/click indicator follows whichever source or translation region is currently visible
+// and is positioned by page fraction (percent), so it tracks zoom/resize with no recompute.
 function _renderBubbleLayer(wrap, pageNum) {
   const page = pages[pageNum - 1];
   if (!page) return;
@@ -2444,17 +2564,35 @@ function _renderBubbleLayer(wrap, pageNum) {
   // Original-as-text mounts every bubble open on its original text; original-as-image keeps
   // the untouched page and the click-to-reveal flow.
   const origText = studyOriginal === 'text';
-  const isJa = origText && _isJapaneseMeta(_chapters[_chapterAt(pageNum)]?.meta);
-  const srcOpts = { ja: isJa, furi: furiganaOn && isJa };
+  const srcLang = origText ? _sourceTextLang(_chapters[_chapterAt(pageNum)]?.meta) : '';
+  const srcOpts = { lang: srcLang, furi: furiganaOn && srcLang === 'ja' };
+  // When both sides are selectable text, the cleaned Study image is the page background. One
+  // full-page layer is both cheaper and more accurate than stacking one clipped copy per bubble.
+  const urls = origText && studyDisplay === 'text' ? _layerUrls(page.url) : null;
+  const hasPageBg = !!(urls && urls.bgUrl);
+  if (hasPageBg) {
+    const bg = document.createElement('img');
+    bg.className = 'study-layer-img study-page-bg';
+    bg.src = urls.bgUrl;
+    bg.alt = '';
+    bg.decoding = 'async';
+    bg.draggable = false;
+    bgLayer.appendChild(bg);
+  }
   study.bubbles.forEach((b, i) => {
     const box = document.createElement('div');
     box.className   = 'bubble-box';
-    box.style.left   = (b.box.x * 100) + '%';
-    box.style.top    = (b.box.y * 100) + '%';
-    box.style.width  = (b.box.w * 100) + '%';
-    box.style.height = (b.box.h * 100) + '%';
-    if (origText) _mountTextBubble(box, b, i, page.url, bgLayer, fgLayer, (study.page || { w: pageW }), srcOpts);
-    else box.addEventListener('click', (e) => _toggleBubble(e, box, b, i, page.url, bgLayer, fgLayer));
+    _positionBubbleIndicator(box, _studySourceRect(b));
+    if (origText) {
+      _mountTextBubble(box, b, i, page.url, bgLayer, fgLayer, (study.page || { w: pageW }), srcOpts, hasPageBg);
+    } else {
+      box.addEventListener('click', (e) => _toggleBubble(e, box, b, i, page.url, bgLayer, fgLayer));
+      box._reset = () => {
+        box.classList.remove('revealed', 'text-revealed');
+        (box._layers || []).forEach(el => { el.style.display = 'none'; });
+        _positionBubbleIndicator(box, _studySourceRect(b));
+      };
+    }
     layer.appendChild(box);
   });
   wrap.appendChild(layer);
@@ -2485,6 +2623,73 @@ keybindBtn.addEventListener('click', () => setKeybindOpen(!keybindModal.classLis
 keybindModal.addEventListener('click', (e) => {
   if (!e.target.closest('#keybindBox')) setKeybindOpen(false);
 });
+
+function _readerZoomScale() {
+  if (readerFitMode === 'off') return Math.min(mode === 'strip' ? 1 : ZOOM_MAX, _pageZoom);
+  return readerFitMode === 'height' ? _currentFitWidthFraction() : readerFitMaxWidth;
+}
+
+function _syncReaderSettingsUI() {
+  if (!readerSettingsBox) return;
+  readerSettingsBox.querySelectorAll('[data-reader-mode]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.readerMode === mode);
+  });
+  readerSettingsBox.querySelectorAll('[data-reader-direction]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.readerDirection === readerDirection);
+  });
+  readerSettingsBox.querySelectorAll('[data-progress-position]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.progressPosition === readerProgressPosition);
+  });
+  readerSettingsBox.querySelectorAll('[data-reader-fit]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.readerFit === readerFitMode);
+  });
+  readerDirectionGroup.hidden = mode === 'strip';
+  readerGap.value = readerPageGap;
+  readerGapValue.textContent = `${readerPageGap} px`;
+  const scale = _readerZoomScale();
+  readerZoomValue.textContent = `${Math.round(scale * 100)}%`;
+  readerZoomOut.disabled = scale <= ZOOM_MIN + .001;
+  readerZoomIn.disabled = scale >= (mode === 'strip' ? 1 : ZOOM_MAX) - .001;
+}
+
+function setReaderSettingsOpen(open) {
+  readerSettingsModal.classList.toggle('show', open);
+  readerSettingsBtn.classList.toggle('active', open);
+  if (open) {
+    setKeybindOpen(false);
+    _syncReaderSettingsUI();
+    readerSettingsClose.focus();
+  } else if (document.activeElement && readerSettingsModal.contains(document.activeElement)) {
+    readerSettingsBtn.focus();
+  }
+}
+
+readerSettingsBtn.addEventListener('click', () => setReaderSettingsOpen(!readerSettingsModal.classList.contains('show')));
+readerSettingsClose.addEventListener('click', () => setReaderSettingsOpen(false));
+readerSettingsModal.addEventListener('click', (e) => {
+  if (!e.target.closest('#readerSettingsBox')) setReaderSettingsOpen(false);
+});
+readerSettingsBox.addEventListener('click', (e) => {
+  const modeBtn = e.target.closest('[data-reader-mode]');
+  if (modeBtn) { setMode(modeBtn.dataset.readerMode); return; }
+  const directionBtn = e.target.closest('[data-reader-direction]');
+  if (directionBtn) { _applyReaderDirection(directionBtn.dataset.readerDirection); return; }
+  const progressBtn = e.target.closest('[data-progress-position]');
+  if (progressBtn) { _applyReaderProgressPosition(progressBtn.dataset.progressPosition); return; }
+  const fitBtn = e.target.closest('[data-reader-fit]');
+  if (fitBtn) {
+    const next = fitBtn.dataset.readerFit;
+    if (next === 'off') {
+      _applyReaderFitMode('off');
+      _applyPageZoom(1);
+    } else {
+      void (next === 'width' ? fitPageWidth() : fitPageHeight()).then(_syncReaderSettingsUI);
+    }
+  }
+});
+readerGap.addEventListener('input', () => _applyReaderPageGap(readerGap.value));
+readerZoomOut.addEventListener('click', () => adjustPageZoom(-1));
+readerZoomIn.addEventListener('click', () => adjustPageZoom(1));
 
 readerPinBtn.addEventListener('click', () => applyReaderPin(!readerPinned));
 
@@ -2571,6 +2776,7 @@ function _applyReaderFitMaxWidth(next, persist = true) {
   readerFitMaxWidth = Math.round(Math.max(FIT_WIDTH_MIN, Math.min(FIT_WIDTH_MAX, next)) * 100) / 100;
   document.documentElement.style.setProperty('--reader-fit-max-width', `${Math.round(readerFitMaxWidth * 100)}%`);
   if (persist) platform.kv.set({ readerFitMaxWidth });
+  _syncReaderSettingsUI();
 }
 function _applyReaderFitMode(next, persist = true, resetMaxWidth = false) {
   if (next !== 'width' && next !== 'height') next = 'off';
@@ -2579,6 +2785,7 @@ function _applyReaderFitMode(next, persist = true, resetMaxWidth = false) {
   document.body.classList.toggle('reader-fit-height', next === 'height');
   if (next !== 'off' && resetMaxWidth) _applyReaderFitMaxWidth(FIT_WIDTH_MAX, persist);
   if (persist) platform.kv.set({ readerFitMode: next });
+  _syncReaderSettingsUI();
 }
 function _clearReaderFitMode() {
   if (readerFitMode !== 'off') _applyReaderFitMode('off');
@@ -2594,20 +2801,28 @@ function _fitItemForImg(img) {
 }
 
 function _currentFitWidthFraction() {
-  const imgs = mode === 'single'
-    ? (mainImg.naturalWidth ? [mainImg] : [])
-    : [imgLeft, imgRight].filter(img => img.style.display !== 'none' && img.naturalWidth);
+  const imgs = mode === 'strip'
+    ? _fitPageImgs()
+    : mode === 'single'
+      ? (mainImg.naturalWidth ? [mainImg] : [])
+      : [imgLeft, imgRight].filter(img => img.style.display !== 'none' && img.naturalWidth);
   const widths = imgs
     .map(img => _fitItemForImg(img)?.getBoundingClientRect().width || 0)
     .filter(w => w > 0);
   if (!widths.length) return readerFitMaxWidth;
-  const basisEl = mode === 'double' ? doubleInner : singleInner;
+  const basisEl = mode === 'double' ? doubleInner : mode === 'single' ? singleInner : document.documentElement;
   const basis = basisEl?.getBoundingClientRect().width || document.documentElement.clientWidth || window.innerWidth || 1;
   return Math.max(FIT_WIDTH_MIN, Math.min(FIT_WIDTH_MAX, Math.max(...widths) / Math.max(1, basis)));
 }
 
 function _zoomReaderFitMode(dir) {
-  if (readerFitMode === 'off' || mode === 'strip') return false;
+  if (readerFitMode === 'off') return false;
+  if (mode === 'strip') {
+    const current = _currentFitWidthFraction();
+    _applyReaderFitMode('off');
+    _applyPageZoom(current + dir * ZOOM_STEP);
+    return true;
+  }
   if (readerFitMode === 'height') {
     _applyReaderFitMaxWidth(_currentFitWidthFraction(), false);
     _applyReaderFitMode('width');
@@ -2619,8 +2834,9 @@ function _zoomReaderFitMode(dir) {
 // the pages. Anchor on the page element under that edge and the fraction of it that's below it, then
 // after the relayout nudge the scroll so that exact point lands back there — gap/mode-agnostic.
 function _applyPageZoom(z) {
-  const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
-  if (next === _pageZoom) return;
+  const max = mode === 'strip' ? 1 : ZOOM_MAX;
+  const next = Math.max(ZOOM_MIN, Math.min(max, z));
+  if (next === _pageZoom) { _syncReaderSettingsUI(); return; }
   const anchorY = document.getElementById('topbar')?.getBoundingClientRect().height || 0;
   let anchorEl = null, frac = 0;
   for (const el of document.querySelectorAll('.page-img, #mainImg, .dImg')) {
@@ -2636,10 +2852,11 @@ function _applyPageZoom(z) {
     if (delta) window.scrollBy(0, delta);
   }
   platform.kv.set({ readerPageZoom: _pageZoom });
+  _syncReaderSettingsUI();
 }
 // +/- stepping snaps to a clean 0.01 grid; the fit helpers keep the exact value.
 function setPageZoom(z) {
-  if (readerFitMode !== 'off' && mode !== 'strip') {
+  if (readerFitMode !== 'off') {
     _zoomReaderFitMode(z > _pageZoom ? 1 : -1);
     return;
   }
@@ -2647,9 +2864,17 @@ function setPageZoom(z) {
   _applyPageZoom(Math.round(z * 100) / 100);
 }
 
+function adjustPageZoom(dir) {
+  if (readerFitMode !== 'off') {
+    _zoomReaderFitMode(dir);
+    return;
+  }
+  _clearReaderFitMode();
+  _applyPageZoom(Math.round((_pageZoom + dir * ZOOM_STEP) * 100) / 100);
+}
+
 // ── Fit page to viewport (Shift+E → width, Shift+Q → height) ──
-// Page modes use persistent CSS classes so fit recalculates as pages/ratios change. Strip keeps the
-// older one-shot zoom path because its continuous page list is governed by normal document scroll.
+// Persistent CSS classes keep fitting responsive as page ratios and the viewport change.
 function _fitPageImgs() {
   // Strip: measure only the mounted window around the reading line — pages outside it are
   // unmounted placeholders, and measuring thousands of rows for a median is pointless anyway.
@@ -2657,91 +2882,21 @@ function _fitPageImgs() {
   if (mode === 'single') return mainImg.naturalWidth ? [mainImg] : [];
   return [imgLeft, imgRight].filter(i => i.style.display !== 'none' && i.naturalWidth);
 }
-async function _readyFitPageImgs() {
-  if (mode === 'strip') return _fitPageImgs();
-  while (mode !== 'strip') {
-    await _awaitCurrentPageNav();
-    const nav = _pageNavReady;
-    const imgs = _fitPageImgs();
-    await _waitForImgLayout(imgs);
-    if (nav.token === _pageNavReady.token) return _fitPageImgs();
-  }
-  return _fitPageImgs();
-}
 function _median(nums) {
   const a = nums.filter(n => n > 0).sort((x, y) => x - y);
   if (!a.length) return 0;
   const m = a.length >> 1;
   return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
 }
-const _cssPx = (name, dflt) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || dflt;
-
-function _fitWidthTarget(imgs, curW, gap) {
-  const fullTarget = window.innerWidth - gap - 0.5;
-  if (fullTarget <= 0) return 0;
-  if (mode === 'strip') return fullTarget - _cssPx('--sbw', 0);
-
-  const pageH = mode === 'double'
-    ? Math.max(...imgs.map(i => i.getBoundingClientRect().height).filter(n => n > 0))
-    : _median(imgs.map(i => i.getBoundingClientRect().height));
-  const topH  = topbar?.offsetHeight || TOPBAR_H;
-  const botH  = _cssPx('--botbar-h', 32);
-  const wouldNeedVScroll = pageH > 0 && (topH + pageH * (fullTarget / curW) + botH > window.innerHeight + 0.5);
-  return fullTarget - (wouldNeedVScroll ? _cssPx('--sbw', 0) : 0);
-}
-
-// Current rendered width of the fit target: both double-mode pages side by side (their fixed
-// inter-page gap held out of the scaling) or the median page width otherwise.
-function _measureFitWidth(imgs) {
-  let curW, gap = 0;
-  if (mode === 'double' && imgs.length === 2) {
-    const l = imgs[0].getBoundingClientRect(), r = imgs[1].getBoundingClientRect();
-    gap  = Math.max(0, r.left - l.right);
-    curW = l.width + r.width;
-  } else {
-    curW = _median(imgs.map(i => i.getBoundingClientRect().width));
-  }
-  return { curW, gap };
-}
-
-// Fit the pages' width to the content area. Hold the fixed inter-page gap out of the scaling in
-// double mode, leave a 0.5px hair for sub-pixel rounding, and reserve scrollbar width only when the
-// scaled page would actually become tall enough to need vertical scroll.
 async function fitPageWidth() {
-  if (mode !== 'strip') {
-    _applyReaderFitMode('width', true, true);
-    _scrollPageModeToStartSoon(_pageNavReady);
-    return;
-  }
-  const imgs = await _readyFitPageImgs();
-  if (!imgs.length) return;
-  const { curW, gap } = _measureFitWidth(imgs);
-  if (curW <= 0) return;
-  const target = _fitWidthTarget(imgs, curW, gap);
-  if (target > 0) _applyPageZoom(_pageZoom * target / curW);
+  _applyReaderFitMode('width', true, true);
+  if (mode === 'strip') _applyPageZoom(1);
+  else _scrollPageModeToStartSoon(_pageNavReady);
 }
-function _fitPageWidthCap(imgs) {
-  const { curW, gap } = _measureFitWidth(imgs);
-  if (curW <= 0) return Infinity;
-  const target = _fitWidthTarget(imgs, curW, gap);
-  return target > 0 ? _pageZoom * target / curW : Infinity;
-}
-
-// Fit the median page height to the visible area at full precision. Wide landscape pages are capped
-// by viewport width so fitting height never creates horizontal overflow.
 async function fitPageHeight() {
-  if (mode !== 'strip') {
-    _applyReaderFitMode('height', true, true);
-    _scrollPageModeToStartSoon(_pageNavReady);
-    return;
-  }
-  const imgs = await _readyFitPageImgs();
-  if (!imgs.length) return;
-  const curH = _median(imgs.map(i => i.getBoundingClientRect().height));
-  if (curH <= 0) return;
-  const botH  = mode === 'strip' ? 0 : _cssPx('--botbar-h', 32);
-  const avail = window.innerHeight - _pinOffset() - botH;
-  if (avail > 0) _applyPageZoom(Math.min(_pageZoom * avail / curH, _fitPageWidthCap(imgs)));
+  _applyReaderFitMode('height', true, true);
+  if (mode === 'strip') _applyPageZoom(1);
+  else _scrollPageModeToStartSoon(_pageNavReady);
 }
 
 // ── Continuous W/S (and ↑/↓) scroll (no key-repeat delay) ──
@@ -2772,16 +2927,24 @@ function _releaseScroll(dir) {
 function _stopScroll() { _scrollStack.length = 0; }
 
 document.addEventListener('keyup', (e) => {
+  _setStudyTextSelectable(e.shiftKey);
   _scrollFast = e.shiftKey;   // releasing Shift drops back to the half-speed default, live
   if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp')   _releaseScroll('up');
   if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') _releaseScroll('down');
 });
-window.addEventListener('blur', () => { _stopScroll(); _scrollFast = false; });
-document.addEventListener('visibilitychange', () => { if (document.hidden) { _stopScroll(); _scrollFast = false; } });
+window.addEventListener('blur', () => { _stopScroll(); _scrollFast = false; _setStudyTextSelectable(false); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { _stopScroll(); _scrollFast = false; _setStudyTextSelectable(false); }
+});
 
 // Keyboard
 document.addEventListener('keydown', (e) => {
+  _setStudyTextSelectable(e.shiftKey);
   if (e.target === scrubber) return;
+  if (readerSettingsModal.classList.contains('show')) {
+    if (e.key === 'Escape') { e.preventDefault(); setReaderSettingsOpen(false); }
+    return;
+  }
   _scrollFast = e.shiftKey;   // Shift held → double the scroll speed, live (even mid-hold)
 
   // W / S / ↑ / ↓ → continuous scroll; Shift doubles the speed.
@@ -2797,13 +2960,16 @@ document.addEventListener('keydown', (e) => {
   }
 
   // Zoom the in-view pages: + / E in, − / Q out. Shift+E fits width, Shift+Q fits height.
-  if (e.key === 'e' || e.key === 'E') { e.preventDefault(); e.shiftKey ? fitPageWidth()  : setPageZoom(_pageZoom + ZOOM_STEP); return; }
-  if (e.key === 'q' || e.key === 'Q') { e.preventDefault(); e.shiftKey ? fitPageHeight() : setPageZoom(_pageZoom - ZOOM_STEP); return; }
-  if (e.key === '+' || e.key === '=') { e.preventDefault(); setPageZoom(_pageZoom + ZOOM_STEP); return; }
-  if (e.key === '-' || e.key === '_') { e.preventDefault(); setPageZoom(_pageZoom - ZOOM_STEP); return; }
+  if (e.key === 'e' || e.key === 'E') { e.preventDefault(); e.shiftKey ? fitPageWidth()  : adjustPageZoom(1); return; }
+  if (e.key === 'q' || e.key === 'Q') { e.preventDefault(); e.shiftKey ? fitPageHeight() : adjustPageZoom(-1); return; }
+  if (e.key === '+' || e.key === '=') { e.preventDefault(); adjustPageZoom(1); return; }
+  if (e.key === '-' || e.key === '_') { e.preventDefault(); adjustPageZoom(-1); return; }
   if (e.key === '0' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
-    if (readerFitMode !== 'off' && mode !== 'strip') _applyReaderFitMaxWidth(FIT_WIDTH_MAX);
+    if (readerFitMode !== 'off') {
+      if (mode === 'strip') _applyReaderFitMode('width', true, true);
+      else _applyReaderFitMaxWidth(FIT_WIDTH_MAX);
+    }
     else setPageZoom(1);
     return;
   }
@@ -2830,8 +2996,10 @@ document.addEventListener('keydown', (e) => {
 
   const step = mode === 'double' ? 2 : 1;
   // ↑/↓ are scroll (handled above); page-flip stays on ←/→, A/D and Space.
-  const fwd  = e.key === 'ArrowRight' || e.key === ' ' || e.key === 'd' || e.key === 'D';
-  const bck  = e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A';
+  const forwardArrow = mode !== 'strip' && readerDirection === 'rtl' ? 'ArrowLeft' : 'ArrowRight';
+  const backArrow = forwardArrow === 'ArrowRight' ? 'ArrowLeft' : 'ArrowRight';
+  const fwd  = e.key === forwardArrow || e.key === ' ' || e.key === 'd' || e.key === 'D';
+  const bck  = e.key === backArrow || e.key === 'a' || e.key === 'A';
 
   // First/last page (Shift+arrows, Home/End) are CHAPTER-relative, matching the counter/scrubber.
   const chK     = _chapters[_chapterAt(currentPage)];
