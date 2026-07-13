@@ -169,10 +169,20 @@ async function _cachedPageHeightRatio(page) {
   }
 }
 
+// Estimate the missing-page aspect ratio from at most a handful of cached pages, spread evenly
+// across the gallery — decoding every cached page here just to take a median needlessly delays the
+// first paint. Even spacing avoids over-weighting front matter (covers/spreads) clustered up front.
+const PLACEHOLDER_SAMPLE_MAX = 5;
+
 async function _measurePlaceholderRatio() {
   if (!pages.some(page => !page?.cached)) return;
-  const cachedPages = pages.filter(page => page?.cached && page.url);
-  if (!cachedPages.length) return;
+  const allCached = pages.filter(page => page?.cached && page.url);
+  if (!allCached.length) return;
+  const step = Math.max(1, Math.floor(allCached.length / PLACEHOLDER_SAMPLE_MAX));
+  const cachedPages = [];
+  for (let i = 0; i < allCached.length && cachedPages.length < PLACEHOLDER_SAMPLE_MAX; i += step) {
+    cachedPages.push(allCached[i]);
+  }
 
   const heights = [];
   let next = 0;
@@ -1128,16 +1138,17 @@ function _enqueueNearbyThumbs() {
 
 // Move currently-visible thumbs to the front of the generation queue.
 function _prioritizeVisibleThumbs() {
-  const stripRect = thumbStrip.getBoundingClientRect();
-  const imgs = thumbStrip.querySelectorAll('.thumb-item img');
-  const visible = [];
-  imgs.forEach((img) => {
-    if (img.getAttribute('src')) return;
-    const r = img.getBoundingClientRect();
-    if (r.right >= stripRect.left && r.left <= stripRect.right) visible.push(img);
-  });
-  if (!visible.length) return;
-  const visibleUrls = new Set(visible.map(img => pages[parseInt(img.dataset.idx)]?.url));
+  // Bound the scan to the visible band via offsets (same idiom as _enqueueNearbyThumbs) instead of
+  // measuring every thumb's client rect — this runs per frame while the strip scrolls.
+  const lo = thumbStrip.scrollLeft;
+  const hi = thumbStrip.scrollLeft + thumbStrip.clientWidth;
+  const visibleUrls = new Set();
+  for (const item of _thumbItems) {
+    if (item.offsetLeft + item.offsetWidth < lo || item.offsetLeft > hi) continue;
+    const img = item.querySelector('img');
+    if (img && !img.getAttribute('src')) visibleUrls.add(pages[parseInt(img.dataset.idx)]?.url);
+  }
+  if (!visibleUrls.size) return;
   const prioritized = _thumbGenQueue.filter(e => visibleUrls.has(e.page.url));
   const rest        = _thumbGenQueue.filter(e => !visibleUrls.has(e.page.url));
   _thumbGenQueue.length = 0;
@@ -1214,7 +1225,7 @@ function _stripAnchors() {
   const rect = thumbStrip.getBoundingClientRect();
   const z    = rect.width / (thumbStrip.offsetWidth || rect.width);
   const iW   = _thumbViewport ? _thumbViewport.offsetWidth * z : 0; // indicator visual width
-  const thumbs = thumbStrip.querySelectorAll('.thumb-item');
+  const thumbs = _thumbItems;   // cached .thumb-item array — same set as the DOM, no per-frame query
   const a = thumbs.length > 1 ? thumbs[0].offsetLeft : 0;
   const b = thumbs.length > 1 ? thumbs[thumbs.length - 1].offsetLeft
           : thumbs.length === 1 ? thumbs[0].offsetLeft
@@ -1353,7 +1364,7 @@ function _clickSnapToThumb(clientX) {
   const { z, iW, a, b } = _stripAnchors();
   const rect     = thumbStrip.getBoundingClientRect();
   const contentX = (clientX - rect.left) / z + thumbStrip.scrollLeft;
-  const thumbs   = thumbStrip.querySelectorAll('.thumb-item');
+  const thumbs   = _thumbItems;
   let idx = thumbs.length - 1;
   for (let i = 0; i < thumbs.length; i++) {
     if (contentX < thumbs[i].offsetLeft + thumbs[i].offsetWidth) { idx = i; break; }
