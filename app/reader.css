@@ -175,7 +175,7 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
 #singleView.active { display: block; }
 
 #singleInner {
-  display: flex; justify-content: center;
+  position: relative; display: flex; justify-content: center;
 }
 
 #singleZones {
@@ -210,7 +210,7 @@ body.reader-fit-height #singleInner > .page-wrap > #mainImg { width: 100%; }
 #doubleView.active { display: block; }
 
 #doubleInner {
-  display: flex; justify-content: center; gap: 2px;
+  position: relative; display: flex; justify-content: center; gap: 2px;
   --reader-fit-double-page-width: calc((100% - 2px - 0.5px) / 2);
 }
 #doubleInner.single-spread { --reader-fit-double-page-width: calc(100% - 0.5px); }
@@ -266,6 +266,24 @@ body.reader-fit-height #doubleInner > .page-wrap > .dImg { width: 100%; }
    reserved slot as a quiet surface (and never a broken-image glyph) until its page mounts. */
 #stripView .page-img:not([src]) { visibility: hidden; }
 #stripView .page-wrap { background: var(--surface); }
+
+/* Missing pages keep their normal geometry and show a quiet loading marker in every mode. */
+#mainImg.page-placeholder,
+.dImg.page-placeholder { background: var(--surface); }
+#singleInner.page-placeholder::after,
+#doubleInner.left-placeholder::before,
+#doubleInner.right-placeholder::after,
+#stripView .page-wrap.page-placeholder::after {
+  content: ''; position: absolute; top: 50%; z-index: 1;
+  width: 26px; height: 26px; margin-top: -16px; margin-left: -16px;
+  border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%;
+  animation: spin 0.8s linear infinite; pointer-events: none;
+}
+#singleInner.page-placeholder::after,
+#stripView .page-wrap.page-placeholder::after { left: 50%; }
+#doubleInner.left-placeholder::before  { left: 25%; }
+#doubleInner.right-placeholder::after { left: 75%; }
+#doubleInner.single-spread.left-placeholder::before { left: 50%; }
 
 /* Inline transition card after a chapter's last page (see .chd above). The strip has a 4px row
    gap and a 20px bottom padding — the paddings below keep the space above and below a divider

@@ -190,8 +190,8 @@ export async function dbPut(url, src, mediaId, galleryId) {
           if (cur.chapterCount != null) _aggSelf = gid;
           const entry = {
             ...cur,
-            count: cur.count + (prev ? 0 : 1),
-            size: cur.size - (prev ? (prev.size || 0) : 0) + size,
+            count: (Number(cur.count) || 0) + (prev ? 0 : 1),
+            size: (Number(cur.size) || 0) - (prev ? (prev.size || 0) : 0) + size,
             latestAt: Math.max(cur.latestAt || 0, cachedAt),
           };
           // addedAt is the gallery's creation marker — the gid IS the creation time, so it never
@@ -241,7 +241,8 @@ export async function metaGet(galleryId) {
   });
 }
 
-export async function metaPut(meta) {
+export async function metaPut(meta, opts = {}) {
+  const silent = !!opts.silent;
   const db = await openDB();
   // Every write converges on the canonical title format (legacy flat fields stripped), then the
   // tagNames index is kept in sync automatically for every writer.
@@ -257,7 +258,7 @@ export async function metaPut(meta) {
     tx.oncomplete = () => {
       if (prevSourceId && String(prevSourceId) !== String(record.sourceId || '')) _sourceIdToGalleryId.delete(String(prevSourceId));
       if (record.sourceId) _sourceIdToGalleryId.set(String(record.sourceId), gid);
-      if (!record.isStub) publishFeed(gid);
+      if (!silent && !record.isStub) publishFeed(gid);
       resolve();
     };
     tx.onerror = () => reject(tx.error);
@@ -530,8 +531,9 @@ function _entityFrom(id, gal, meta) {
 
 // Recompute a gallery's stat record (count/size/cover) from its actual image records —
 // the repair path that makes stats truthful again after any historical drift.
-export async function rebuildGalleryEntry(galleryId) {
+export async function rebuildGalleryEntry(galleryId, opts = {}) {
   const gid = String(galleryId);
+  const silent = !!opts.silent;
   const records = await getGalleryImageRecords(gid);
   if (records.length === 0) { await galleryDelete(gid); await coverDelete(gid, { role: 'gallery' }); return; }
   const prev = await galleryGet(gid);
@@ -553,7 +555,18 @@ export async function rebuildGalleryEntry(galleryId) {
   if (coverSrc != null) await coverPut(gid, await imageToBlob(coverSrc), { silent: true });
   if (prev?.parentId)      scheduleSeriesAggregate(prev.parentId);
   if (prev?.chapterCount != null) scheduleSeriesAggregate(gid);   // this gallery is a series owner
-  publishFeed(gid);
+  if (!silent) publishFeed(gid);
+}
+
+async function galleryGetMany(ids) {
+  const db = await openDB();
+  const tx = db.transaction(GALLERY_STORE, 'readonly');
+  const store = tx.objectStore(GALLERY_STORE);
+  return Promise.all((ids || []).map(id => new Promise((resolve) => {
+    const req = store.get(String(id));
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => resolve(null);
+  })));
 }
 
 // Sweep every gallery and fix any whose stored count disagrees with its actual image records
@@ -569,6 +582,75 @@ export async function repairGalleryCounts() {
       q.onsuccess = () => res(q.result); q.onerror = () => res(e.count);
     });
     if (actual !== e.count) { await rebuildGalleryEntry(e.galleryId); fixed++; }
+  }
+  return fixed;
+}
+
+async function galleryImageCounts(ids) {
+  const db = await openDB();
+  const tx = db.transaction(STORE, 'readonly');
+  const index = tx.objectStore(STORE).index('galleryId');
+  return Promise.all((ids || []).map(id => new Promise((resolve) => {
+    const req = index.count(IDBKeyRange.only(String(id)));
+    req.onsuccess = () => resolve(req.result || 0);
+    req.onerror = () => resolve(0);
+  })));
+}
+
+// Repair metadata-only series records created before empty galleries received complete numeric
+// stats. Populated records are rebuilt from their stored images; truly empty members retain a
+// zero-count stat row so their series ownership and future first-page transition stay valid.
+export async function repairSeriesShellStats() {
+  const [metas, entries] = await Promise.all([metaGetAll(), galleryGetAll()]);
+  const byId = new Map(entries.map(entry => [String(entry.galleryId), entry]));
+  const structural = metas.filter(meta => meta?.parentId || (Array.isArray(meta?.chapters) && meta.chapters.length > 1));
+  const actualCounts = await galleryImageCounts(structural.map(meta => meta.galleryId));
+  const owners = new Set();
+  let fixed = 0;
+
+  for (let i = 0; i < structural.length; i++) {
+    const meta = structural[i];
+    const gid = String(meta.galleryId);
+    const current = byId.get(gid) || null;
+    const valid = current
+      && current.count != null
+      && current.size != null
+      && current.latestAt != null
+      && current.addedAt != null
+      && current.uploadDate != null
+      && Number.isFinite(Number(current.count))
+      && Number.isFinite(Number(current.size))
+      && Number.isFinite(Number(current.latestAt))
+      && Number.isFinite(Number(current.addedAt))
+      && Number.isFinite(Number(current.uploadDate))
+      && Number(current.count) === actualCounts[i];
+    if (valid) continue;
+
+    const records = await getGalleryImageRecords(gid);
+    if (records.length) {
+      await rebuildGalleryEntry(gid, { silent: true });
+      await mutateGallery(gid, { parentId: meta.parentId || null }, { silent: true });
+    } else {
+      const now = Date.now();
+      await galleryPut({
+        ...(current || {}),
+        galleryId: gid,
+        count: 0,
+        size: 0,
+        latestAt: Number(current?.latestAt) || now,
+        addedAt: Number(current?.addedAt) || Number(gid) || now,
+        uploadDate: Number(current?.uploadDate ?? meta.uploadDate) || 0,
+        ...(meta.parentId ? { parentId: String(meta.parentId) } : { parentId: null }),
+      });
+    }
+    owners.add(String(meta.parentId || gid));
+    fixed++;
+  }
+
+  for (const ownerId of owners) await refreshSeriesAggregate(ownerId, { silent: true });
+  if (fixed) {
+    platform.kv.set({ libraryVersion: Date.now() });
+    for (const ownerId of owners) publishFeed(ownerId);
   }
   return fixed;
 }
@@ -698,6 +780,8 @@ export async function getAvgImageSize() {
 export const metaFetchPending     = new Set();
 const _dedupedGalleries           = new Set();
 export const _sourceIdToGalleryId = new Map();
+const _galleryResolvePending      = new Map();
+let _lastGeneratedGalleryId       = 0;
 
 function forgetSourceMapping(sourceId, galleryId) {
   const sid = sourceId != null ? String(sourceId) : '';
@@ -727,10 +811,12 @@ async function cachedGalleryIdForSource(sid) {
 // Site source ids (short numbers) map to internal gallery ids (timestamps). A first sighting
 // creates a stub metadata record so concurrent captures agree on the same internal id.
 
-export async function resolveGalleryId(id) {
-  const raw = String(id);
-  if (/^\d{13,}$/.test(raw)) return raw;
-  const sid = raw;
+function nextGalleryId() {
+  _lastGeneratedGalleryId = Math.max(Date.now(), _lastGeneratedGalleryId + 1);
+  return String(_lastGeneratedGalleryId);
+}
+
+async function resolveSourceGalleryId(sid) {
   const cached = await cachedGalleryIdForSource(sid);
   if (cached) return cached;
   const db = await openDB();
@@ -744,10 +830,21 @@ export async function resolveGalleryId(id) {
     _sourceIdToGalleryId.set(sid, existing.galleryId);
     return existing.galleryId;
   }
-  const newGid = String(Date.now());
+  const newGid = nextGalleryId();
   await metaPut({ galleryId: newGid, sourceId: sid, isStub: true });
   _sourceIdToGalleryId.set(sid, newGid);
   return newGid;
+}
+
+export async function resolveGalleryId(id) {
+  const raw = String(id);
+  if (/^\d{13,}$/.test(raw)) return raw;
+  if (_galleryResolvePending.has(raw)) return _galleryResolvePending.get(raw);
+  const pending = resolveSourceGalleryId(raw).finally(() => {
+    if (_galleryResolvePending.get(raw) === pending) _galleryResolvePending.delete(raw);
+  });
+  _galleryResolvePending.set(raw, pending);
+  return pending;
 }
 
 // ── Stats / gallery helpers ──
@@ -981,8 +1078,9 @@ const _META_FIELDS = new Set([
 // Merge a patch into a gallery's metadata and/or stat record, then announce the change
 // so every subscribed surface re-renders. The one mutation entry point for gallery
 // records — callers never touch metaPut/galleryPut/libraryVersion directly.
-export async function mutateGallery(galleryId, patch) {
+export async function mutateGallery(galleryId, patch, opts = {}) {
   const gid = String(galleryId);
+  const silent = !!opts.silent;
   const metaPatch = {}, galPatch = {};
   for (const [k, v] of Object.entries(patch || {})) {
     if (_META_FIELDS.has(k)) metaPatch[k] = v; else galPatch[k] = v;
@@ -992,13 +1090,25 @@ export async function mutateGallery(galleryId, patch) {
   if ('parentId' in (patch || {})) galPatch.parentId = patch.parentId;
   if (Object.keys(metaPatch).length) {
     const cur = await metaGet(gid) || { galleryId: gid };
-    await metaPut({ ...cur, ...metaPatch, galleryId: gid });
+    await metaPut({ ...cur, ...metaPatch, galleryId: gid }, { silent });
   }
   if (Object.keys(galPatch).length) {
-    const cur = await galleryGet(gid) || { galleryId: gid };
+    let cur = await galleryGet(gid);
+    if (!cur) {
+      const now = Date.now();
+      const meta = await metaGet(gid);
+      cur = {
+        galleryId: gid,
+        count: 0,
+        size: 0,
+        latestAt: now,
+        addedAt: Number(gid) || now,
+        uploadDate: Number(meta?.uploadDate) || 0,
+      };
+    }
     await galleryPut({ ...cur, ...galPatch, galleryId: gid });
   }
-  publishFeed(gid);
+  if (!silent) publishFeed(gid);
 }
 
 // ── Series aggregate ──
@@ -1016,8 +1126,9 @@ export function scheduleSeriesAggregate(ownerId) {
   }, 400));
 }
 
-export async function refreshSeriesAggregate(ownerId) {
+export async function refreshSeriesAggregate(ownerId, opts = {}) {
   const oid = String(ownerId);
+  const silent = !!opts.silent;
   const [meta, owner] = await Promise.all([metaGet(oid), galleryGet(oid)]);
   if (!owner) return;
   const chapters = Array.isArray(meta?.chapters) ? meta.chapters : null;
@@ -1026,17 +1137,17 @@ export async function refreshSeriesAggregate(ownerId) {
     if (owner.chapterCount != null || owner.aggPages != null || owner.aggSize != null) {
       const { chapterCount, aggPages, aggSize, ...rest } = owner;
       await galleryPut(rest);
-      publishFeed(oid);
+      if (!silent) publishFeed(oid);
     }
     return;
   }
   let aggPages = 0, aggSize = 0;
-  for (const c of chapters) {
-    const s = await galleryGet(c.id);
+  const chapterStats = await galleryGetMany(chapters.map(c => c.id));
+  for (const s of chapterStats) {
     if (s) { aggPages += s.count || 0; aggSize += s.size || 0; }
   }
   await galleryPut({ ...owner, chapterCount: chapters.length, aggPages, aggSize });
-  publishFeed(oid);
+  if (!silent) publishFeed(oid);
 }
 
 export async function removeGallery(galleryId) {

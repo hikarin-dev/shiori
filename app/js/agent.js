@@ -19,10 +19,18 @@ import {
   resolveGalleryId, dbGet, dbPut, metaGet, metaPut, galleryGet, coverGet, coverPut,
   resizeCover, getStats, galleriesPage, galleriesCount, existingPageNums, pageExistsForGallery,
   deleteGallery, deleteGalleryImages, rebuildGalleryEntry,
-  mutateGallery, refreshSeriesAggregate, isSeriesMeta, effectiveTagsOf,
+  mutateGallery, refreshSeriesAggregate, isSeriesMeta, effectiveTagsOf, publishFeed,
   metaGetAllMap, getGalleryPages, getGalleryPageRange, getGalleryImageRecords, imageToBlob, imageToDataUrl,
 } from './db.js';
 import { pickTitle } from './titles.js';
+
+function storedPageNum(pageNum, url) {
+  const explicit = Number(pageNum);
+  if (Number.isSafeInteger(explicit) && explicit > 0) return explicit;
+  const match = String(url || '').match(/\/([1-9]\d*)\.[^/?#]+$/);
+  const parsed = match ? Number(match[1]) : 0;
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
 
 // ── Toast payload (the "saved to library" card the extension shows on-site) ────────────────
 async function toastFor(gid) {
@@ -42,6 +50,13 @@ async function toastFor(gid) {
 }
 
 const _toastedGalleries = new Set();
+
+async function allOrThrow(promises) {
+  const settled = await Promise.allSettled(promises);
+  const failed = settled.find(result => result.status === 'rejected');
+  if (failed) throw failed.reason;
+  return settled.map(result => result.value);
+}
 
 // ── Operations ──────────────────────────────────────────────────────────────────────────────
 const OPS = {
@@ -107,6 +122,10 @@ const OPS = {
     return { gid: await resolveGalleryId(sourceRef) };
   },
 
+  async resolve_gids({ sourceRefs }) {
+    return { gids: await allOrThrow((sourceRefs || []).map(resolveGalleryId)) };
+  },
+
   // Everything an engine needs to decide what to do with a gallery: stats + the meta record.
   async gallery_info({ galleryId }) {
     const gid = String(galleryId);
@@ -141,23 +160,27 @@ const OPS = {
   },
 
   // Store one page under the key the engine chose. Accepts raw bytes (transferred) or a data URL.
-  async store_page({ galleryId, url, bytes, dataUrl, mime, mediaId, wantDataUrl }) {
+  async store_page({ galleryId, url, bytes, dataUrl, mime, mediaId, pageNum, wantDataUrl }) {
     const gid = String(galleryId);
     const src = bytes ? new Blob([bytes], { type: mime || 'application/octet-stream' }) : dataUrl;
     await dbPut(url, src, mediaId ?? gid, gid);
+    const storedNum = storedPageNum(pageNum, url);
+    if (storedNum != null) {
+      platform.jobs.signal({ type: 'PAGE_STORED', galleryId: gid, pageNum: storedNum, url });
+    }
     const out = { stored: true };
     if (wantDataUrl) out.dataUrl = await imageToDataUrl(src instanceof Blob ? src : dataUrl);
     return out;
   },
 
-  async store_cover({ galleryId, bytes, dataUrl, mime, role }) {
+  async store_cover({ galleryId, bytes, dataUrl, mime, role, silent }) {
     if (!galleryId || (!bytes && !dataUrl)) return { ok: false };
     const gid = String(galleryId);
     const src = bytes ? new Blob([bytes], { type: mime || 'application/octet-stream' }) : dataUrl;
     const cover = await imageToBlob(src);
     if (!cover) return { ok: false };
-    // coverPut announces the change itself (libraryVersion bump + COVER_INVALIDATED + feed).
-    await coverPut(gid, cover, { role: role === 'series' ? 'series' : 'gallery' });
+    // coverPut normally announces the change itself; a prepared batch can defer that announcement.
+    await coverPut(gid, cover, { role: role === 'series' ? 'series' : 'gallery', silent: !!silent });
     return { ok: true };
   },
 
@@ -172,6 +195,27 @@ const OPS = {
     if (!galleryId) return { ok: false };
     await mutateGallery(String(galleryId), patch || {});
     platform.kv.set({ libraryVersion: Date.now() });
+    return { ok: true };
+  },
+
+  // Apply a prepared set of generic gallery records without exposing each intermediate state.
+  // The caller chooses the final records and notification ids; the app only commits them and
+  // announces the completed batch once.
+  async gallery_batch({ metas, mutations, refreshSeries, notifyGalleryIds, invalidateCoverIds }) {
+    await allOrThrow((metas || [])
+      .filter(meta => meta?.galleryId)
+      .map(meta => metaPut(meta, { silent: true })));
+    await allOrThrow((mutations || [])
+      .filter(mutation => mutation?.galleryId)
+      .map(mutation => mutateGallery(String(mutation.galleryId), mutation.patch || {}, { silent: true })));
+    await allOrThrow((refreshSeries || [])
+      .filter(ownerId => ownerId != null)
+      .map(ownerId => refreshSeriesAggregate(String(ownerId), { silent: true })));
+    platform.kv.set({ libraryVersion: Date.now() });
+    for (const galleryId of new Set(invalidateCoverIds || [])) {
+      platform.control.send({ type: 'COVER_INVALIDATED', galleryId: String(galleryId) });
+    }
+    for (const galleryId of new Set(notifyGalleryIds || [])) publishFeed(String(galleryId));
     return { ok: true };
   },
 

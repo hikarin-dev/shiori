@@ -3,7 +3,7 @@
 import './boot.js';
 import { openDB, imageToBlob } from './db.js';
 import { resolveSeries } from './series.js';
-import { request as extRequest, available as extAvailable } from './ext-bridge.js';
+import { request as extRequest, send as extSend, available as extAvailable } from './ext-bridge.js';
 import * as platform from './platform.js';
 import { t, getLang } from './i18n.js';
 import { pickTitle } from './titles.js';
@@ -34,8 +34,8 @@ const params    = new URLSearchParams(location.search);
 const galleryId = params.get('g');
 const initialPageParam = params.get('page') || params.get('p') || '';
 
-let pages       = [];      // every cached page, all chapters concatenated in series order
-let _chapters   = [];      // non-empty chapters: { id, num, title, start, count, meta } (start = merged offset)
+let pages       = [];      // every page slot, all chapters concatenated in series order
+let _chapters   = [];      // chapters with known slots: { id, num, title, start, count, missing, meta }
 let _seriesTotal = 1;      // total chapters in the series (incl. uncached ones) — the "of N" in labels
 let _curChIdx   = -1;      // chapter the current page belongs to — drives the topbar/URL chrome
 let _chapterDividersOn = true;   // Settings → Reader: chapter transitions (strip divider + page-mode transition page)
@@ -50,11 +50,13 @@ let lastPageMode  = 'single';
 let _pageZoom     = 1;     // +/- page scale factor
 let readerFitMode = 'off'; // 'off' | 'width' | 'height' for persistent page-mode fit classes
 let readerFitMaxWidth = 1; // persistent fit cap, 0.1..1, adjusted by zoom keys while fit is active
-// Each page's true aspect ratio, learned as images decode and reused across strip rebuilds so
-// rows reserve the correct height up front. _typicalRatio seeds rows for pages not yet seen
-// (galleries are usually uniform) — what keeps the first switch into strip from reflowing/jittering.
+// Cached pages may learn their own true aspect ratio as they decode. Missing-page slots share one
+// baseline measured before the first render, so changing reader modes cannot change their geometry.
 const _pageRatios = new Map();   // page index (0-based) → "w / h"
-let _typicalRatio = '';
+const A4_PLACEHOLDER_RATIO = '210 / 297';
+const A4_PLACEHOLDER_WIDTH_RATIO = 210 / 297;
+let _placeholderRatio = A4_PLACEHOLDER_RATIO;
+let _placeholderWidthRatio = A4_PLACEHOLDER_WIDTH_RATIO;
 
 // Study mode: keep the clean original on screen with per-bubble overlays. Each page stores two
 // full-page layers — bg (inpainted, text removed) and text (translated glyphs on transparent) —
@@ -82,7 +84,7 @@ const _pageLayerUrls = new Map();      // page url → { bgUrl, textUrls:[] } ob
 // Keys include the variant (original vs translated), so an in-range view switch can swap in place.
 const _pageUrlCache = new Map();   // variantKey → blob: URL ('' when the record is missing)
 const _showTranslated = () => translateView && !studyMode;   // study mode forces the clean original
-const _variantKey = (page) => (_showTranslated() ? 't:' : 'o:') + page.url;
+const _variantKey = (page) => page?.url ? (_showTranslated() ? 't:' : 'o:') + page.url : '';
 let _readerDb = null;
 let _stripGen  = 0; // bumped on every buildStrip call to cancel stale loads
 
@@ -119,6 +121,7 @@ async function _loadStudy() {
 }
 
 async function pageBlobUrl(page) {
+  if (!page?.cached || !page.url) return '';
   const key = _variantKey(page);
   if (_pageUrlCache.has(key)) return _pageUrlCache.get(key);
   if (!_readerDb) return '';
@@ -139,6 +142,56 @@ async function pageBlobUrl(page) {
   return url;
 }
 
+// Read intrinsic dimensions without creating a blob URL. Decodes are deliberately capped because
+// createImageBitmap may materialize a full-size frame even though only its dimensions are needed.
+const PLACEHOLDER_DIM_CONCURRENCY = 2;
+
+async function _cachedPageHeightRatio(page) {
+  let bitmap = null;
+  try {
+    const record = await new Promise((resolve) => {
+      const tx  = _readerDb.transaction('images', 'readonly');
+      const req = tx.objectStore('images').get(page.url);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror   = () => resolve(null);
+    });
+    const blob = await imageToBlob(record?.blob ?? record?.dataUrl);
+    if (!blob) return 0;
+    bitmap = await createImageBitmap(blob);
+    return bitmap.width > 0 && bitmap.height > 0 ? bitmap.height / bitmap.width : 0;
+  } catch {
+    return 0;
+  } finally {
+    bitmap?.close();
+  }
+}
+
+async function _measurePlaceholderRatio() {
+  if (!pages.some(page => !page?.cached)) return;
+  const cachedPages = pages.filter(page => page?.cached && page.url);
+  if (!cachedPages.length) return;
+
+  const heights = [];
+  let next = 0;
+  async function worker() {
+    while (next < cachedPages.length) {
+      const page = cachedPages[next++];
+      const height = await _cachedPageHeightRatio(page);
+      if (height > 0) heights.push(height);
+    }
+  }
+  const workerCount = Math.min(PLACEHOLDER_DIM_CONCURRENCY, cachedPages.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  // One landscape page is not representative of the missing portrait slots; keep the A4 fallback.
+  if (cachedPages.length === 1 && heights[0] < 1) return;
+  const medianHeight = _median(heights);
+  if (medianHeight > 0) {
+    _placeholderRatio = `1 / ${medianHeight}`;
+    _placeholderWidthRatio = 1 / medianHeight;
+  }
+}
+
 // Swap an <img> to the current-variant blob, decoding it first so the picture never blanks during
 // a translation-view toggle. The element keeps its measured size, so nothing shifts.
 async function _swapImg(imgEl, page) {
@@ -147,6 +200,26 @@ async function _swapImg(imgEl, page) {
   if (!url) return;
   try { const pre = new Image(); pre.src = url; await pre.decode(); } catch {}
   imgEl.src = url;
+}
+
+function _setPlaceholderGeometry(img, wrap = img.parentElement) {
+  img.style.aspectRatio = _placeholderRatio;
+  img.style.setProperty('--page-ratio', _placeholderWidthRatio);
+  if (wrap?.classList.contains('page-wrap')) {
+    wrap.style.setProperty('--page-ratio', _placeholderWidthRatio);
+  }
+}
+
+function _showPageImage(img, url) {
+  const placeholder = !url;
+  img.classList.toggle('page-placeholder', placeholder);
+  if (placeholder) {
+    img.removeAttribute('src');
+    _setPlaceholderGeometry(img);
+  } else {
+    img.src = url;
+  }
+  return placeholder;
 }
 
 // Pre-create blob URLs (and warm the decode cache) for pages around n, so page flips and
@@ -271,16 +344,17 @@ const thumbStrip    = document.getElementById('thumbStrip');
 const mainImg       = document.getElementById('mainImg');
 const imgLeft       = document.getElementById('imgLeft');
 const imgRight      = document.getElementById('imgRight');
-// Learn the gallery's page ratio from single/double loads too, so a later switch to strip already
-// has a correct placeholder height for every row.
+// Real pages may refine their own geometry, but never the missing-page baseline.
 function _setPageRatioVars(img) {
   if (!img || img.naturalWidth <= 1 || img.naturalHeight <= 1) return;
   const ratio = img.naturalWidth / img.naturalHeight;
   img.style.setProperty('--page-ratio', ratio);
   if (img.parentElement?.classList.contains('page-wrap')) img.parentElement.style.setProperty('--page-ratio', ratio);
-  _typicalRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
 }
-const _seedRatio = (img) => _setPageRatioVars(img);
+const _seedRatio = (img) => {
+  _setPageRatioVars(img);
+  img.style.removeProperty('aspect-ratio');
+};
 [mainImg, imgLeft, imgRight].forEach(img => img.addEventListener('load', () => _seedRatio(img)));
 const scrubber      = document.getElementById('scrubber');
 const scrubWrap     = document.getElementById('scrubWrap');
@@ -306,6 +380,12 @@ const dClickPrev    = document.getElementById('dClickPrev');
 const dClickNext    = document.getElementById('dClickNext');
 const scrollTopBtn  = document.getElementById('scrollTopBtn');
 const dividerPage   = document.getElementById('dividerPage');
+
+function _storedPageNum(url) {
+  const match = String(url || '').match(/\/([1-9]\d*)\.[^/?#]+(?:[?#].*)?$/);
+  const pageNum = match ? Number(match[1]) : 0;
+  return Number.isSafeInteger(pageNum) && pageNum > 0 ? pageNum : null;
+}
 
 // ── Init ──
 async function init() {
@@ -352,24 +432,41 @@ async function init() {
     Promise.all(chapterRefs.map(c => metaGet(c.id))),
   ]);
 
-  // Merge into the flat list. A chapter with no cached pages contributes nothing (its number is
-  // simply skipped); `num` keeps each chapter's true position in the series for the labels.
+  // Merge into the flat list by chapter-local page number. Metadata supplies the true total;
+  // cached keys fill their fixed slots and every gap remains a placeholder until its page arrives.
+  // With no declared total, the highest cached page preserves the reader's previous behaviour.
   pages = [];
   _chapters = [];
+  _pageIdxByUrl.clear();
   chapterRefs.forEach((c, i) => {
-    const list = lists[i]
-      .map(url => {
-        const m = url.match(/\/(\d+)\.(webp|jpg|jpeg|png|gif)$/i);
-        return { pageNum: m ? parseInt(m[1]) : 9999, url };
-      })
-      .sort((a, b) => a.pageNum - b.pageNum);
-    if (!list.length) return;
-    _chapters.push({ ...c, start: pages.length, count: list.length, meta: metas[i] });
-    pages.push(...list);
+    const cachedByNum = new Map();
+    let highestCached = 0;
+    for (const url of lists[i]) {
+      const pageNum = _storedPageNum(url);
+      if (pageNum != null) {
+        cachedByNum.set(pageNum, { pageNum, url, cached: true });
+        highestCached = Math.max(highestCached, pageNum);
+      }
+    }
+    const declaredTotal = Number(metas[i]?.numPages);
+    const trueTotal = Number.isSafeInteger(declaredTotal) && declaredTotal > 0 ? declaredTotal : 0;
+    const count = Math.max(highestCached, trueTotal);
+    if (!count) return;
+    const slots = Array.from({ length: count }, (_, pageIdx) =>
+      cachedByNum.get(pageIdx + 1) || { pageNum: pageIdx + 1, url: null, cached: false }
+    );
+    _chapters.push({
+      ...c,
+      start: pages.length,
+      count,
+      missing: count - cachedByNum.size,
+      meta: metas[i],
+    });
+    pages.push(...slots);
   });
-  pages.forEach((p, i) => _pageIdxByUrl.set(p.url, i));
-
-  loadingScreen.style.display = 'none';
+  pages.forEach((p, i) => { if (p.url) _pageIdxByUrl.set(p.url, i); });
+  _replayQueuedPageStores();
+  const placeholderRatioReady = _measurePlaceholderRatio();
 
   if (pages.length === 0) {
     // Point the empty screen's source link at the gallery that was actually asked for.
@@ -425,6 +522,8 @@ async function init() {
   const within = String(initialPageParam).toLowerCase() === 'last'
     ? startCh.count
     : Math.max(1, Math.min(startCh.count, parseInt(initialPageParam, 10) || 1));
+  await placeholderRatioReady;
+  loadingScreen.style.display = 'none';
   currentPage = startCh.start + within;
   setMode(saved.readerMode || 'strip', true);
   goTo(currentPage, true);
@@ -459,6 +558,86 @@ function _chapterAt(page) {
   }
   return lo;
 }
+
+function _announceCurrentPage() {
+  if (!_chapters.length) return;
+  const ch = _chapters[_chapterAt(currentPage)];
+  if (!ch?.meta?.source) return;
+  const gid = String(ch.id);
+  extSend({
+    type: 'EXT_READER_POSITION',
+    galleryId: gid,
+    source: ch.meta.source,
+    sourceRef: ch.meta.sourceId || gid,
+    page: currentPage - ch.start,
+  });
+}
+
+function _handlePageStored(event) {
+  const ch = _chapters.find(c => String(c.id) === String(event.galleryId));
+  const pageNum = Number(event.pageNum);
+  const url = typeof event.url === 'string' ? event.url : '';
+  if (!ch || !url || !Number.isSafeInteger(pageNum) || pageNum < 1 || pageNum > ch.count) return;
+  const pageIdx = ch.start + pageNum - 1;
+  if (pages[pageIdx]?.cached) return;
+
+  pages[pageIdx] = { pageNum, url, cached: true };
+  ch.missing = Math.max(0, ch.missing - 1);
+  _pageIdxByUrl.set(url, pageIdx);
+  for (const prefix of ['o:', 't:']) {
+    const old = _pageUrlCache.get(prefix + url);
+    if (old) { try { URL.revokeObjectURL(old); } catch {} }
+    _pageUrlCache.delete(prefix + url);
+  }
+
+  const thumb = thumbStrip.querySelector(`.thumb-item img[data-idx="${pageIdx}"]`);
+  if (thumb) {
+    delete thumb.dataset.queued;
+    if (thumbsOpen) _enqueueThumb(thumb);
+  }
+
+  if (mode === 'strip') {
+    const localIdx = pageIdx - _viewBase;
+    if (localIdx >= 0 && localIdx < _viewCount) {
+      _stripWraps[localIdx]?.classList.remove('page-placeholder');
+      const center = currentPage - _viewBase - 1;
+      if (Math.abs(localIdx - center) <= MOUNT_AHEAD) {
+        void _mountOne(localIdx, _stripGen, false);
+      }
+    }
+  } else if (pageIdx === currentPage - 1 ||
+             (mode === 'double' && pageIdx === currentPage && _rightPageForSpread(currentPage))) {
+    void goTo(currentPage, true);
+  }
+}
+
+const _queuedPageStores = new Map();
+let _pageSkeletonReady = false;
+
+function _dispatchPageStored(event) {
+  const galleryId = event?.galleryId == null ? '' : String(event.galleryId);
+  const pageNum = Number(event?.pageNum);
+  const url = typeof event?.url === 'string' ? event.url : '';
+  if (!galleryId || !url || !Number.isSafeInteger(pageNum) || pageNum < 1) return;
+  const normalized = { galleryId, pageNum, url };
+  if (!_pageSkeletonReady) {
+    _queuedPageStores.set(`${galleryId}\0${pageNum}`, normalized);
+    return;
+  }
+  _handlePageStored(normalized);
+}
+
+function _replayQueuedPageStores() {
+  _pageSkeletonReady = true;
+  const queued = [..._queuedPageStores.values()];
+  _queuedPageStores.clear();
+  queued.forEach(_handlePageStored);
+}
+
+platform.jobs.subscribe((event) => {
+  if (event?.type === 'PAGE_STORED') _dispatchPageStored(event);
+});
+
 // Double-page spreads never straddle a chapter boundary; the transition card must appear before
 // the next chapter's first page, not after that page has already been shown on the right.
 function _rightPageForSpread(page) {
@@ -685,7 +864,8 @@ async function goTo(n, skipDivider = false) {
       const url = await pageBlobUrl(pages[n - 1]);
       if (currentPage !== n || mode !== 'single') return;
       _scrollPageModeWhenImgsLoad([mainImg], nav);
-      mainImg.src = url;
+      const placeholder = _showPageImage(mainImg, url);
+      singleInner.classList.toggle('page-placeholder', placeholder);
       _warmNeighbors(n);
       await _waitForImgLayout([mainImg]);
       if (currentPage !== n || mode !== 'single') return;
@@ -703,8 +883,14 @@ async function goTo(n, skipDivider = false) {
       if (currentPage !== n || mode !== 'double') return;
       const visibleImgs = rPage ? [imgLeft, imgRight] : [imgLeft];
       _scrollPageModeWhenImgsLoad(visibleImgs, nav);
-      imgLeft.src  = lUrl;
-      imgRight.src = rUrl;
+      const leftPlaceholder  = _showPageImage(imgLeft, lUrl);
+      const rightPlaceholder = rPage ? _showPageImage(imgRight, rUrl) : false;
+      if (!rPage) {
+        imgRight.removeAttribute('src');
+        imgRight.classList.remove('page-placeholder');
+      }
+      doubleInner.classList.toggle('left-placeholder', leftPlaceholder);
+      doubleInner.classList.toggle('right-placeholder', rightPlaceholder);
       _warmNeighbors(n);
       await _waitForImgLayout(visibleImgs);
       if (currentPage !== n || mode !== 'double') return;
@@ -714,6 +900,7 @@ async function goTo(n, skipDivider = false) {
   } finally {
     _finishPageNav(nav);
   }
+  if (currentPage === n) _announceCurrentPage();
   // strip: images loaded in buildStrip(); scroll handled separately
 }
 
@@ -879,7 +1066,7 @@ const THUMB_EAGER_MAX = 400;
 
 function _enqueueThumb(img) {
   const page = pages[parseInt(img.dataset.idx)];
-  if (!page) return;
+  if (!page?.cached || !page.url) return;
   const cached = _cachedThumb(page.url);
   if (img.dataset.queued) {
     if (cached && !img.getAttribute('src')) img.src = cached;
@@ -1433,6 +1620,7 @@ async function _mountOne(idx, gen, swap) {
   if (_stripGen !== gen || !url) return;
   if (Math.abs(idx + 1 - (currentPage - _viewBase)) > MOUNT_AHEAD) return;   // window moved on mid-load
   const img = _stripImgs[idx];
+  _stripWraps[idx]?.classList.remove('page-placeholder');
   const vk  = _variantKey(page);
   if (img.dataset.vk === vk && img.getAttribute('src') === url) {
     _mountedIdx.add(idx);
@@ -1508,8 +1696,13 @@ function _syncStripWindow(swap = false) {
 // wheel, scrubbing, or the W/S scroll loop doesn't rebuild the load queue on every scroll event.
 let _lastSyncCenter = Infinity;
 let _stripSyncQueued = false;
+let _stripPositionTimer = null;
 function _scheduleStripSync() {
   if (mode !== 'strip') return;
+  clearTimeout(_stripPositionTimer);
+  _stripPositionTimer = setTimeout(() => {
+    if (mode === 'strip') _announceCurrentPage();
+  }, 150);
   if (Math.abs(currentPage - _lastSyncCenter) < 2) return;
   if (_stripSyncQueued) return;
   _stripSyncQueued = true;
@@ -1536,14 +1729,18 @@ function buildStrip() {
   for (let i = 0; i < _viewCount; i++) {
     const gi = _viewBase + i;
     const wrap = document.createElement('div');
-    wrap.className    = 'page-wrap';
+    wrap.className    = pages[gi]?.cached ? 'page-wrap' : 'page-wrap page-placeholder';
     wrap.dataset.page = gi + 1;
     const img = document.createElement('img');
     img.className    = 'page-img';
     img.decoding     = 'async';
-    // Reserve the row's height with the best ratio we know (this page's if seen, else the
-    // gallery's typical one) so the layout doesn't reflow as images decode.
-    img.style.aspectRatio = _pageRatios.get(gi) || _typicalRatio || '2 / 3';
+    // Missing rows always use the immutable baseline. Cached rows may reuse a previously learned
+    // page-specific ratio, then refine it from the real image after loading.
+    if (pages[gi]?.cached) {
+      img.style.aspectRatio = _pageRatios.get(gi) || _placeholderRatio;
+    } else {
+      _setPlaceholderGeometry(img, wrap);
+    }
     img.addEventListener('load', () => {
       if (img.naturalWidth > 1 && img.naturalHeight > 1) {
         const r = `${img.naturalWidth} / ${img.naturalHeight}`;

@@ -79,6 +79,8 @@ function _jobsDb() {
 
 const _jobsHub = makeChannelHub('shiori-jobs');
 export const jobs = {
+  // Ephemeral cross-context events share the live jobs channel but skip the durable registry.
+  signal(event) { _jobsHub.publish(event); },
   async publish(job) {
     job = { ...job, at: Date.now() };
     const key = _jobKey(job), done = job.status === 'done' || job.status === 'error' || job.status === 'cancelled';

@@ -18,6 +18,13 @@ const _id = (v) => String(v);
 const _tagKey = (t) => `${t.type}:${t.name}`.toLowerCase();
 const _seriesTagsOf = (m) => Array.isArray(m?.seriesTags) ? m.seriesTags : m?.tags;
 
+// Metadata-only chapter shells must stay inside their series: detached, they would become empty
+// top-level galleries with no useful reader context. A missing record remains detachable so stale
+// chapter references can still be pruned from an owner's list.
+export function canDetachChapter(entity) {
+  return !entity || Number(entity.count) > 0;
+}
+
 // Union tag lists, de-duped by lower-cased `type:name` (the key db.js already indexes on). The
 // first occurrence of each tag wins, so any extra fields on the original tag object are preserved.
 function unionTags(...lists) {
@@ -154,6 +161,12 @@ export async function removeChapter(ownerId, childId, { deleteImages = false } =
   const ownerMeta = await metaGet(ownerId);
   if (!ownerMeta || !Array.isArray(ownerMeta.chapters)) return;
   const remaining = ownerMeta.chapters.filter(c => _id(c.id) !== childId);
+  let child = null;
+
+  if (!deleteImages) {
+    [child] = await getGalleriesByIds([childId]);
+    if (!canDetachChapter(child)) return false;
+  }
 
   if (childId === ownerId) {
     // Removing the owner: re-own the remainder (or dissolve), then detach/delete the old owner.
@@ -164,7 +177,6 @@ export async function removeChapter(ownerId, childId, { deleteImages = false } =
 
   if (deleteImages) await deleteGallery(childId);
   else {
-    const [child] = await getGalleriesByIds([childId]);
     // A series can contain a stale chapter id whose gallery record is already gone. Detaching that
     // should only prune the owner's chapter list; writing parentId:null would create an empty
     // top-level gallery shell.
@@ -177,6 +189,7 @@ export async function removeChapter(ownerId, childId, { deleteImages = false } =
     await mutateGallery(ownerId, { chapters: remaining });
     await refreshSeriesAggregate(ownerId);
   }
+  return true;
 }
 
 // Persist a new chapter order (ids in the desired order). If the head changes, ownership moves.

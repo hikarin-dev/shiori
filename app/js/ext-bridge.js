@@ -6,10 +6,15 @@
 
 let _seq = 0;
 const _pending = new Map();
+let _lastSent = null;
 
 window.addEventListener('message', (e) => {
   if (e.source !== window || !e.data || e.data.__shiori !== 'from-ext') return;
   const d = e.data;
+  if (d.ready === true) {
+    if (_lastSent) window.postMessage({ __shiori: 'to-ext', msg: _lastSent }, location.origin);
+    return;
+  }
   if (d.replyTo != null && _pending.has(d.replyTo)) {
     const resolve = _pending.get(d.replyTo);
     _pending.delete(d.replyTo);
@@ -25,6 +30,12 @@ export function request(msg, timeoutMs = 8000) {
     setTimeout(() => { if (_pending.has(id)) { _pending.delete(id); resolve(null); } }, timeoutMs);
     window.postMessage({ __shiori: 'to-ext', id, msg }, location.origin);
   });
+}
+
+// Send a one-way bridge message without tracking a reply.
+export function send(msg) {
+  _lastSent = msg;
+  window.postMessage({ __shiori: 'to-ext', msg }, location.origin);
 }
 
 // Is the extension actually alive behind the relay? Round-trips to its service worker, so a

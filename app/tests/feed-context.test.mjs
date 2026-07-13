@@ -2,8 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 class SilentBroadcastChannel {
-  constructor() { this.onmessage = null; }
-  postMessage() {}
+  static instances = [];
+  constructor(name) {
+    this.name = name;
+    this.messages = [];
+    this.onmessage = null;
+    SilentBroadcastChannel.instances.push(this);
+  }
+  postMessage(message) { this.messages.push(message); }
   close() {}
 }
 globalThis.BroadcastChannel = SilentBroadcastChannel;
@@ -56,4 +62,18 @@ test('an interleaved replay of the same beacon is deduplicated', async () => {
 
   unsubscribe();
   assert.deepEqual(seen, ['replayed', 'between']);
+});
+
+test('jobs.signal broadcasts without opening the durable registry', () => {
+  const signal = { type: 'PAGE_STORED', galleryId: 'gallery-1', pageNum: 4, url: 'page://gallery-1/4.webp' };
+  const seen = [];
+  const unsubscribe = platform.jobs.subscribe(message => seen.push(message));
+
+  platform.jobs.signal(signal);
+  unsubscribe();
+
+  const channel = SilentBroadcastChannel.instances.find(candidate => candidate.name === 'shiori-jobs');
+  assert.deepEqual(channel?.messages, [signal]);
+  assert.deepEqual(seen, [signal]);
+  assert.equal(globalThis.indexedDB, undefined);
 });

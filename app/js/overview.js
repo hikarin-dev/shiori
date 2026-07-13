@@ -7,7 +7,7 @@ import { getGallery, coverGet, metaGet } from './db.js';
 import * as store from './store.js';
 import * as platform from './platform.js';
 import { request as extRequest, available as extAvailable } from './ext-bridge.js';
-import { resolveSeries, getSeriesChapters, mergeIntoSeries, removeChapter, reorderChapters, setChapterTitle, setSeriesTitle, setGalleryTitle } from './series.js';
+import { resolveSeries, getSeriesChapters, mergeIntoSeries, removeChapter, reorderChapters, setChapterTitle, setSeriesTitle, setGalleryTitle, canDetachChapter } from './series.js';
 import { t, getLang, applyTranslations } from './i18n.js';
 import { pickTitle, pickSeriesTitle } from './titles.js';
 import { initTooltips, refreshTooltip } from './tooltip.js';
@@ -22,6 +22,28 @@ function tagsHtml(tags) {
     for (const tg of list.filter(x => x.type === type))
       chips.push(`<span class="card-tag ${cls}" data-type="${esc(type)}">${esc(tg.name)}${suffix}</span>`);
   return chips.length ? `<div class="card-tags ov-tags">${chips.join('')}</div>` : '';
+}
+
+// Published date under the tags, e.g. "Posted: 2024/06/15 18:30PM", with a relative-time tooltip
+// ("2 years ago") on hover. `secs` is a Unix timestamp in seconds; 0/absent hides the line.
+function postedHtml(secs) {
+  const s = Number(secs) || 0;
+  if (!s) return '';
+  const d = new Date(s * 1000);
+  const p2 = (n) => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}/${p2(d.getMonth() + 1)}/${p2(d.getDate())}, ${p2(d.getHours())}:${p2(d.getMinutes())} ${d.getHours() < 12 ? 'AM' : 'PM'}`;
+  return `<div class="ov-posted" data-tip="${esc(relTime(s))}">${esc(t('ov.posted'))}: ${esc(stamp)}</div>`;
+}
+
+// "2 years ago" / "3 days ago" for a Unix-seconds timestamp, localized to the app language.
+function relTime(secs) {
+  const diffMs = secs * 1000 - Date.now();
+  const abs = Math.abs(diffMs);
+  const rtf = new Intl.RelativeTimeFormat(getLang(), { numeric: 'auto' });
+  const units = [['year', 31536e6], ['month', 2592e6], ['day', 864e5], ['hour', 36e5], ['minute', 6e4]];
+  for (const [unit, ms] of units)
+    if (abs >= ms) return rtf.format(Math.round(diffMs / ms), unit);
+  return rtf.format(Math.round(diffMs / 1000), 'second');
 }
 
 const params  = new URLSearchParams(location.search);
@@ -275,6 +297,7 @@ async function render() {
         ${titleControl}
         <div class="series-sub">${sub}</div>
         ${tagsHtml(ownerEntity?.tags)}
+        ${postedHtml(Number(ownerMeta?.uploadDate) || Number(ownerEntity?.uploadDate) || 0)}
         <div class="series-actions">
           <a class="ov-btn primary" id="readStart" href="${startHref}">${ICON.read}<span>${esc(t('ov.read_start'))}</span></a>
           <button class="ov-btn${editMode ? ' active' : ''}" id="editToggle" aria-pressed="${editMode ? 'true' : 'false'}">${editMode ? ICON.done : ICON.edit}<span>${esc(editLabel)}</span></button>
@@ -413,7 +436,7 @@ async function chapterRow(ch, idx, total) {
       <button class="ch-ibtn" data-up ${idx === 0 ? 'disabled' : ''} data-tip="${esc(t('ov.move_up'))}">${ICON.up}</button>
       <button class="ch-ibtn" data-down ${idx === total - 1 ? 'disabled' : ''} data-tip="${esc(t('ov.move_down'))}">${ICON.down}</button>
       ${downloadAction}
-      <button class="ch-ibtn detach" data-detach data-tip="${esc(t('ov.remove_detach'))}">${ICON.detach}</button>
+      ${canDetachChapter(e) ? `<button class="ch-ibtn detach" data-detach data-tip="${esc(t('ov.remove_detach'))}">${ICON.detach}</button>` : ''}
       <button class="ch-ibtn danger" data-remove data-tip="${esc(t('card.tip_delete'))}" data-tip-shift="${esc(t('card.tip_quickdelete'))}"><span class="ch-del-inner">${ICON.remove}</span></button>
     </div>`;
 
@@ -604,7 +627,8 @@ async function doRemove(deleteImages) {
   const prevOwnerId = ownerId;
   const remaining = (await currentOrder()).filter(gid => gid !== String(id));
   closeRemove();
-  await removeChapter(prevOwnerId, id, { deleteImages });
+  const removed = await removeChapter(prevOwnerId, id, { deleteImages });
+  if (removed === false) return;
 
   if (String(id) === String(prevOwnerId)) {
     ownerId = remaining[0] || prevOwnerId;

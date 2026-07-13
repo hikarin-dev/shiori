@@ -34,7 +34,7 @@ if (location.pathname.endsWith('.html')) {
 
 // One-time integrity sweep: fix any gallery whose stored count drifted from its actual image
 // records (a pre-guard dbPut could double-count on overwrites). Runs once per browser profile.
-platform.kv.get(['countsRepaired']).then(async ({ countsRepaired }) => {
+const countsRepairReady = platform.kv.get(['countsRepaired']).then(async ({ countsRepaired }) => {
   if (countsRepaired) return;
   try {
     const { repairGalleryCounts } = await import('./db.js');
@@ -42,6 +42,18 @@ platform.kv.get(['countsRepaired']).then(async ({ countsRepaired }) => {
     if (fixed) console.log(`[shiori] repaired stat records for ${fixed} galleries`);
   } catch {}
   platform.kv.set({ countsRepaired: true });
+});
+
+// One-time repair for early metadata-only series members whose incomplete zero-page stat rows
+// could remain numerically invalid after their first images arrived.
+countsRepairReady.then(() => platform.kv.get(['seriesShellStatsRepaired'])).then(async ({ seriesShellStatsRepaired }) => {
+  if (seriesShellStatsRepaired) return;
+  try {
+    const { repairSeriesShellStats } = await import('./db.js');
+    const fixed = await repairSeriesShellStats();
+    if (fixed) console.log(`[shiori] repaired stat records for ${fixed} series chapters`);
+  } catch {}
+  platform.kv.set({ seriesShellStatsRepaired: true });
 });
 
 // One-time backfill: copy each gallery's published date (metadata.uploadDate) into its stat record,

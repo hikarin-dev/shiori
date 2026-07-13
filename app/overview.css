@@ -61,6 +61,7 @@
 .series-title-wrap:has(.series-title-open:hover) .series-title-input[readonly] { color: var(--accent); }
 .series-sub { color: var(--muted); font-size: 12px; margin: 8px 0 16px; display: flex; gap: 14px; flex-wrap: wrap; }
 .series-sub b { color: var(--text); font-weight: 600; }
+.ov-posted { color: var(--muted); font-size: 12px; margin: 8px 0 0; width: fit-content; cursor: default; }
 
 .series-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
 .ov-btn {
