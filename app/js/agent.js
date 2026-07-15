@@ -58,6 +58,22 @@ async function allOrThrow(promises) {
   return settled.map(result => result.value);
 }
 
+// Series grouping (chapters / parentId / seriesTitle / seriesTags) is an app-only concept the
+// embedding side knows nothing about. metaPut replaces the whole record, so a generic per-gallery
+// meta — which never carries these fields — would dissolve a series (wiping the owner's chapter
+// list) or orphan a chapter (wiping its parentId) just by backfilling its metadata. Carry across
+// any grouping field the incoming meta didn't set so a metadata write can't destroy grouping.
+const GROUPING_FIELDS = ['chapters', 'parentId', 'seriesTitle', 'seriesTags'];
+async function metaPutKeepingGrouping(meta, opts) {
+  const prev = await metaGet(meta.galleryId).catch(() => null);
+  if (!prev) return metaPut(meta, opts);
+  const merged = { ...meta };
+  for (const field of GROUPING_FIELDS) {
+    if (merged[field] === undefined && prev[field] !== undefined) merged[field] = prev[field];
+  }
+  return metaPut(merged, opts);
+}
+
 // ── Operations ──────────────────────────────────────────────────────────────────────────────
 const OPS = {
   async ping() { return { ok: true, at: Date.now() }; },
@@ -186,7 +202,7 @@ const OPS = {
 
   async meta_put({ meta }) {
     if (!meta || !meta.galleryId) return { ok: false };
-    await metaPut(meta);
+    await metaPutKeepingGrouping(meta);
     platform.kv.set({ libraryVersion: Date.now() });
     return { ok: true };
   },
@@ -204,7 +220,7 @@ const OPS = {
   async gallery_batch({ metas, mutations, refreshSeries, notifyGalleryIds, invalidateCoverIds }) {
     await allOrThrow((metas || [])
       .filter(meta => meta?.galleryId)
-      .map(meta => metaPut(meta, { silent: true })));
+      .map(meta => metaPutKeepingGrouping(meta, { silent: true })));
     await allOrThrow((mutations || [])
       .filter(mutation => mutation?.galleryId)
       .map(mutation => mutateGallery(String(mutation.galleryId), mutation.patch || {}, { silent: true })));

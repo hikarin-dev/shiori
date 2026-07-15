@@ -159,7 +159,15 @@ async function _writeSeries(oldOwnerId, newChapters) {
 export async function removeChapter(ownerId, childId, { deleteImages = false } = {}) {
   ownerId = _id(ownerId); childId = _id(childId);
   const ownerMeta = await metaGet(ownerId);
-  if (!ownerMeta || !Array.isArray(ownerMeta.chapters)) return;
+  // Orphaned chapter: its owner is gone (or is no longer a series), so there is no chapter list to
+  // update. Act on the chapter alone — delete it outright, or detach it into a standalone gallery —
+  // clearing its dangling parentId so no trail of the vanished series remains.
+  if (!ownerMeta || !Array.isArray(ownerMeta.chapters)) {
+    if (deleteImages) { await deleteGallery(childId); return true; }
+    const [child] = await getGalleriesByIds([childId]);
+    if (child) await mutateGallery(childId, { parentId: null });
+    return true;
+  }
   const remaining = ownerMeta.chapters.filter(c => _id(c.id) !== childId);
   let child = null;
 

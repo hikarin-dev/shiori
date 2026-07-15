@@ -32,9 +32,21 @@ if (location.pathname.endsWith('.html')) {
   history.replaceState(null, '', location.pathname.replace(/\.html$/, '') + location.search + location.hash);
 }
 
+// One-time maintenance can touch every library record. Let the page finish its initial paint and
+// image work before starting it so a large existing library cannot monopolize IndexedDB while the
+// user is waiting for the current surface to open.
+const maintenanceReady = new Promise((resolve) => {
+  const schedule = () => setTimeout(() => {
+    if ('requestIdleCallback' in globalThis) requestIdleCallback(resolve, { timeout: 2000 });
+    else resolve();
+  }, 1000);
+  if (document.readyState === 'complete') schedule();
+  else window.addEventListener('load', schedule, { once: true });
+});
+
 // One-time integrity sweep: fix any gallery whose stored count drifted from its actual image
 // records (a pre-guard dbPut could double-count on overwrites). Runs once per browser profile.
-const countsRepairReady = platform.kv.get(['countsRepaired']).then(async ({ countsRepaired }) => {
+const countsRepairReady = maintenanceReady.then(() => platform.kv.get(['countsRepaired'])).then(async ({ countsRepaired }) => {
   if (countsRepaired) return;
   try {
     const { repairGalleryCounts } = await import('./db.js');
@@ -58,7 +70,7 @@ countsRepairReady.then(() => platform.kv.get(['seriesShellStatsRepaired'])).then
 
 // One-time backfill: copy each gallery's published date (metadata.uploadDate) into its stat record,
 // so the new "Published date" sort runs off the galleries index. Runs once per browser profile.
-platform.kv.get(['uploadDateBackfilled']).then(async ({ uploadDateBackfilled }) => {
+maintenanceReady.then(() => platform.kv.get(['uploadDateBackfilled'])).then(async ({ uploadDateBackfilled }) => {
   if (uploadDateBackfilled) return;
   try {
     const { backfillUploadDates } = await import('./db.js');

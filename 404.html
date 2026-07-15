@@ -15,7 +15,7 @@
   (async () => {
     const RETRY = 'shiori-sw-retry';
     const seg = (location.pathname.replace(/\/+$/, '').split('/').pop() || '').replace(/\.html$/, '');
-    const known = seg === 'settings' || seg === 'reader' || seg === 'library';
+    const known = seg === 'settings' || seg === 'reader' || seg === 'library' || seg === 'overview';
     if (!known) { document.body.textContent = 'Not found.'; return; }
     if ('serviceWorker' in navigator && !sessionStorage.getItem(RETRY)) {
       sessionStorage.setItem(RETRY, '1');

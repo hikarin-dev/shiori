@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- Files live under /app/; pages are served at clean URLs. See library.html. -->
   <base href="app/">
   <link rel="icon" href="../icons/icon32.png">
@@ -36,47 +37,57 @@
     <span class="brand-page" data-i18n="nav.settings">Settings</span>
   </div>
   <div class="header-right">
-    <button class="btn-about" id="aboutBtn" data-i18n="nav.about">About</button>
+    <button class="btn-about" id="aboutBtn" type="button" data-i18n="nav.about">About</button>
   </div>
 </header>
+
+<main class="settings-page">
 
 <div class="content">
 
   <!-- Side nav: one panel per settings area. Switching is pure show/hide (CSS .active), so
        unsaved form state in a hidden panel is preserved. -->
-  <nav class="settings-nav" id="settingsNav">
-    <button class="nav-item active" type="button" data-panel="panelLibrary" data-i18n="set.nav_library">Library</button>
-    <button class="nav-item" type="button" data-panel="panelReader" data-i18n="set.nav_reader">Reader</button>
-    <button class="nav-item" type="button" data-panel="panelTranslation" data-i18n="set.nav_translation">Translation</button>
+  <nav class="settings-nav" id="settingsNav" data-i18n-aria="set.title" aria-label="Settings">
+    <button class="nav-item active" id="navLibrary" type="button" data-panel="panelLibrary" aria-controls="panelLibrary" aria-current="page" data-i18n="set.nav_library">Library</button>
+    <button class="nav-item" id="navReader" type="button" data-panel="panelReader" aria-controls="panelReader" data-i18n="set.nav_reader">Reader</button>
+    <button class="nav-item" id="navTranslation" type="button" data-panel="panelTranslation" aria-controls="panelTranslation" data-i18n="set.nav_translation">Translation</button>
     <!-- Labeled and revealed by whatever injects cards into its panel; empty panel = no nav item. -->
-    <button class="nav-item" type="button" data-panel="panelExtension" id="navExtension" hidden></button>
-    <button class="nav-item" type="button" data-panel="panelStorage" data-i18n="set.nav_storage">Storage</button>
+    <button class="nav-item" type="button" data-panel="panelExtension" aria-controls="panelExtension" id="navExtension" hidden></button>
+    <button class="nav-item" id="navStorage" type="button" data-panel="panelStorage" aria-controls="panelStorage" data-i18n="set.nav_storage">Storage</button>
   </nav>
 
   <div class="settings-panels">
 
-  <div class="panel active" id="panelLibrary">
+  <div class="panel active" id="panelLibrary" aria-labelledby="navLibrary">
   <!-- Language -->
   <div class="section">
     <div class="section-header">
-      <div class="section-title" data-i18n="set.language">Language</div>
+      <h2 class="section-title" data-i18n="set.language">Language</h2>
     </div>
     <div class="section-body">
       <div class="field">
         <div class="field-desc" data-i18n="set.language_desc">Display language for the app.</div>
-        <select class="field-input" id="langSelect"></select>
+        <select class="field-input" id="langSelect" data-i18n-aria="set.language" aria-label="Language"></select>
       </div>
     </div>
   </div>
   <!-- Gallery cards -->
   <div class="section">
     <div class="section-header">
-      <div class="section-title" data-i18n="set.lib_cards">Gallery cards</div>
+      <h2 class="section-title" data-i18n="set.lib_cards">Gallery cards</h2>
     </div>
     <div class="section-body">
       <div class="field">
-        <div class="field-label" data-i18n="set.lib_quick_actions">Quick actions</div>
-        <div class="field-desc" data-i18n="set.lib_quick_actions_desc">Controls when the download, translate, export, and delete buttons appear on gallery cards.</div>
+        <div class="field-label" data-i18n="set.lib_series_group">Series grouping</div>
+        <div class="field-desc" data-i18n="set.lib_series_group_desc">Keep chapters together on one library card.</div>
+        <label class="switch-control" for="libMergeSeries">
+          <input type="checkbox" id="libMergeSeries" data-i18n-aria="set.lib_series_group">
+          <span class="switch-track" aria-hidden="true"></span>
+        </label>
+      </div>
+      <div class="field">
+        <label class="field-label" for="libQuickActionsMode" data-i18n="set.lib_quick_actions">Quick actions</label>
+        <div class="field-desc" data-i18n="set.lib_quick_actions_desc">When card shortcuts appear.</div>
         <select class="field-input" id="libQuickActionsMode">
           <option value="hover" data-i18n="set.lib_quick_actions_hover">Show on hover</option>
           <option value="always" data-i18n="set.lib_quick_actions_always">Always visible</option>
@@ -84,133 +95,163 @@
         </select>
       </div>
       <div class="field">
-        <div class="field-label" data-i18n="set.lib_applang_flag">App-language flag</div>
-        <div class="field-desc" data-i18n="set.lib_applang_flag_desc">Cards show a small flag for each of a gallery's languages. Hide the flag that matches the app's current language, or show a flag for every language.</div>
-        <select class="field-input" id="libAppLangFlag">
-          <option value="hide" data-i18n="set.lib_applang_flag_hide">Hide the flag matching the app language</option>
-          <option value="show" data-i18n="set.lib_applang_flag_show">Show a flag for every language</option>
-        </select>
+        <div class="field-label" data-i18n="set.lib_applang_flag">Hide app-language flag</div>
+        <div class="field-desc" data-i18n="set.lib_applang_flag_desc">Hide the flag matching the app language.</div>
+        <label class="switch-control" for="libAppLangFlag">
+          <input type="checkbox" id="libAppLangFlag" data-i18n-aria="set.lib_applang_flag">
+          <span class="switch-track" aria-hidden="true"></span>
+        </label>
       </div>
-      <div class="status-msg hidden" id="libStatus"></div>
+      <div class="status-msg hidden" id="libStatus" role="status" aria-live="polite"></div>
     </div>
   </div>
   </div>
 
-  <div class="panel" id="panelReader">
-  <!-- Reader -->
+  <div class="panel" id="panelReader" aria-labelledby="navReader">
+  <!-- Reader behavior -->
   <div class="section">
     <div class="section-header">
-      <div class="section-title" data-i18n="set.nav_reader">Reader</div>
+      <h2 class="section-title" data-i18n="set.nav_reader">Reader</h2>
     </div>
     <div class="section-body">
       <div class="field">
-        <div class="field-label" data-i18n="set.study_orig">Study mode — original</div>
-        <div class="field-desc" data-i18n="set.study_orig_desc">How a bubble shows the original text in Study mode. Image keeps the untouched page and a click reveals the translation; Text overlays the original as selectable text on the cleaned page, and a click cycles between original and translation.</div>
-        <select class="field-input" id="readerStudyOriginal">
-          <option value="image" data-i18n="set.study_orig_img">Image — untouched page</option>
-          <option value="text" data-i18n="set.study_orig_text">Text — selectable</option>
-        </select>
-      </div>
-      <div class="field">
-        <div class="field-label" data-i18n="set.study_font">Original text font</div>
-        <div class="field-desc" data-i18n="set.study_font_desc">The typeface used when the original text is shown as text in Study mode.</div>
-        <select class="field-input" id="readerStudySrcFont">
-          <option value="yasashisa">やさしさアンチック</option>
-          <option value="kiwi">Kiwi Maru</option>
-        </select>
-      </div>
-      <div class="field">
-        <div class="field-label" data-i18n="set.study_disp">Study mode — translation</div>
-        <div class="field-desc" data-i18n="set.study_disp_desc">How a bubble shows the translation in Study mode. Image layers reproduce the translated typesetting exactly; Text renders the translation as selectable text. Pages without stored image layers always use text.</div>
-        <select class="field-input" id="readerStudyDisplay">
-          <option value="hardcoded_images" data-i18n="set.study_disp_img">Image layers — exact typesetting</option>
-          <option value="text" data-i18n="set.study_disp_text">Text — selectable</option>
-        </select>
-      </div>
-      <div class="field">
-        <div class="field-label" data-i18n="set.study_furi">Furigana</div>
-        <div class="field-desc" data-i18n="set.study_furi_desc">In Study mode's text display, show kana readings above the kanji of the original text. Only galleries with a Japanese language tag show furigana.</div>
-        <select class="field-input" id="readerFurigana">
-          <option value="off" data-i18n="set.study_furi_off">Hide furigana</option>
-          <option value="on" data-i18n="set.study_furi_on">Show furigana</option>
-        </select>
-      </div>
-      <div class="field">
         <div class="field-label" data-i18n="set.skip_overview">Chapter overview</div>
-        <div class="field-desc" data-i18n="set.skip_overview_desc">A series shows a chapter overview page before the reader. Skip it to open the first chapter directly (the chapter bar is still available inside the reader).</div>
-        <select class="field-input" id="readerSkipOverview">
-          <option value="show" data-i18n="set.skip_overview_show">Show overview before opening</option>
-          <option value="skip" data-i18n="set.skip_overview_skip">Skip to first chapter</option>
-        </select>
+        <div class="field-desc" data-i18n="set.skip_overview_desc">Open the chapter list before reading.</div>
+        <label class="switch-control" for="readerSkipOverview"><input type="checkbox" id="readerSkipOverview" data-i18n-aria="set.skip_overview"><span class="switch-track" aria-hidden="true"></span></label>
       </div>
       <div class="field">
         <div class="field-label" data-i18n="set.strip_flow">Scroll strip flow</div>
-        <div class="field-desc" data-i18n="set.strip_flow_desc">Whether the scroll strip runs the whole series as one continuous strip or one chapter at a time. Thumbnails follow: series-wide when continuous, per-chapter otherwise.</div>
-        <select class="field-input" id="readerStripMode">
-          <option value="series" data-i18n="set.strip_flow_series">Continuous — all chapters in one strip</option>
-          <option value="chapter" data-i18n="set.strip_flow_chapter">Per chapter — one chapter at a time</option>
-        </select>
+        <div class="field-desc" data-i18n="set.strip_flow_desc">Keep scrolling into the next chapter.</div>
+        <label class="switch-control" for="readerStripMode"><input type="checkbox" id="readerStripMode" data-i18n-aria="set.strip_flow"><span class="switch-track" aria-hidden="true"></span></label>
       </div>
       <div class="field">
         <div class="field-label" data-i18n="set.ch_divider">Chapter transitions</div>
-        <div class="field-desc" data-i18n="set.ch_divider_desc">Mark the divide between chapters — an inline divider in the scroll strip, a dedicated transition page in single/double modes. The per-chapter strip always keeps its end-of-chapter card.</div>
-        <select class="field-input" id="readerChapterDivider">
-          <option value="show" data-i18n="set.ch_divider_show">Show chapter transitions</option>
-          <option value="hide" data-i18n="set.ch_divider_hide">None — chapters flow straight through</option>
-        </select>
+        <div class="field-desc" data-i18n="set.ch_divider_desc">Mark where each chapter ends.</div>
+        <label class="switch-control" for="readerChapterDivider"><input type="checkbox" id="readerChapterDivider" data-i18n-aria="set.ch_divider"><span class="switch-track" aria-hidden="true"></span></label>
       </div>
-      <div class="status-msg hidden" id="readerStatus"></div>
     </div>
   </div>
+
+  <!-- Study mode -->
+  <div class="section">
+    <div class="section-header">
+      <h2 class="section-title" data-i18n="set.study">Study Mode</h2>
+    </div>
+    <div class="section-body study-section-body">
+      <div class="study-preview" id="studyPreview">
+        <div class="study-preview-side study-preview-original">
+          <div class="study-preview-bubble">
+            <svg class="study-bubble-shape" viewBox="0 0 240 135" aria-hidden="true"><path d="M120 10C182 10 225 34 225 65c0 19-18 36-47 47l23 15-13-23c-19 11-43 17-68 17-62 0-105-23-105-56S58 10 120 10Z"/></svg>
+            <canvas class="study-raster-text" data-raster="original" width="136" height="40" aria-hidden="true"></canvas>
+            <span class="study-dom-text study-dom-original"><ruby>頑<rt>がん</rt></ruby><ruby>張<rt>ば</rt></ruby>って！</span>
+          </div>
+        </div>
+        <svg class="study-preview-arrow" viewBox="0 0 40 24" aria-hidden="true"><path d="M3 12h30M25 4l8 8-8 8"/></svg>
+        <div class="study-preview-side study-preview-translation">
+          <div class="study-preview-bubble">
+            <svg class="study-bubble-shape" viewBox="0 0 240 135" aria-hidden="true"><path d="M120 10C182 10 225 34 225 65c0 19-18 36-47 47l23 15-13-23c-19 11-43 17-68 17-62 0-105-23-105-56S58 10 120 10Z"/></svg>
+            <canvas class="study-raster-text" data-raster="translation" width="136" height="40" aria-hidden="true"></canvas>
+            <span class="study-dom-text study-dom-translation">Good Luck!</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="study-control-grid">
+        <div class="study-control-group">
+          <div class="study-control-title" data-i18n="set.original">Original</div>
+          <select class="choice-source" id="readerStudyOriginal" tabindex="-1" aria-hidden="true">
+            <option value="image">Image</option>
+            <option value="text">Text</option>
+          </select>
+          <div class="icon-choice" data-choice-for="readerStudyOriginal">
+            <button type="button" data-value="image"><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg><span data-i18n="set.image">Image</span></button>
+            <button type="button" data-value="text"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg><span data-i18n="set.text">Text</span></button>
+          </div>
+          <fieldset class="study-original-options" id="studyTextOptions">
+            <legend data-i18n="set.text_options">Text options</legend>
+            <label class="compact-field">
+              <span data-i18n="set.font">Font</span>
+              <select class="field-input" id="readerStudySrcFont">
+                <option value="yasashisa">やさしさアンチック</option>
+                <option value="kiwi">Kiwi Maru</option>
+              </select>
+            </label>
+            <div class="compact-setting">
+              <span data-i18n="set.study_furi">Furigana</span>
+              <label class="switch-control" for="readerFurigana">
+                <input type="checkbox" id="readerFurigana" data-i18n-aria="set.study_furi">
+                <span class="switch-track" aria-hidden="true"></span>
+              </label>
+            </div>
+          </fieldset>
+        </div>
+
+        <div class="study-control-group">
+          <div class="study-control-title" data-i18n="set.translation_short">Translation</div>
+          <select class="choice-source" id="readerStudyDisplay" tabindex="-1" aria-hidden="true">
+            <option value="hardcoded_images">Image</option>
+            <option value="text">Text</option>
+          </select>
+          <div class="icon-choice" data-choice-for="readerStudyDisplay">
+            <button type="button" data-value="hardcoded_images"><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg><span data-i18n="set.image">Image</span></button>
+            <button type="button" data-value="text"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg><span data-i18n="set.text">Text</span></button>
+          </div>
+        </div>
+
+      </div>
+      <div class="status-msg hidden" id="readerStatus" role="status" aria-live="polite"></div>
+    </div>
   </div>
 
-  <div class="panel" id="panelTranslation">
+  </div>
+
+  <div class="panel" id="panelTranslation" aria-labelledby="navTranslation">
   <!-- Translation -->
   <div class="section">
     <div class="section-header">
-      <div class="section-title" data-i18n="set.translation">Translation</div>
+      <h2 class="section-title" data-i18n="set.translation">Translation</h2>
     </div>
     <div class="section-body">
       <div class="field">
-        <div class="field-label" data-i18n="set.tr_server">Translation server</div>
-        <div class="field-desc" data-i18n="set.tr_server_desc">Base URL of your self-hosted manga-image-translator server. The "Translate" button on a gallery sends each cached page here and stores a translated copy alongside the original.</div>
+        <label class="field-label" for="translateServerInput" data-i18n="set.tr_server">Translation server</label>
+        <div class="field-desc" data-i18n="set.tr_server_desc">Where translations are processed.</div>
         <input class="field-input" type="text" id="translateServerInput" placeholder="http://127.0.0.1:5003" autocomplete="off" spellcheck="false">
-        <div style="display:flex; align-items:center; gap:8px; margin-top:8px; flex-wrap:wrap;">
-          <span id="translateStatusBadge" class="key-status-badge unset" data-i18n="set.tr_checking">○ Checking…</span>
+        <div class="connection-actions">
+          <span id="translateStatusBadge" class="key-status-badge unset" role="status" data-i18n="set.tr_checking">○ Checking…</span>
           <button class="btn-mini" id="checkTranslateBtn" type="button" data-i18n="set.tr_check">Check connection</button>
           <button class="btn-mini" id="openTranslateModalBtn" type="button" data-i18n="set.tr_modal_btn">⚙ Translator settings…</button>
         </div>
       </div>
       <div class="field">
-        <div class="field-label" data-i18n="set.tr_token">Server access token</div>
-        <div class="field-desc" data-i18n="set.tr_token_desc">Only needed if the server requires one (shared or remote servers). Leave empty for a local server.</div>
+        <label class="field-label" for="translateTokenInput" data-i18n="set.tr_token">Server access token</label>
+        <div class="field-desc" data-i18n="set.tr_token_desc">Optional access token.</div>
         <input class="field-input" type="password" id="translateTokenInput" autocomplete="off" spellcheck="false">
       </div>
       <div class="field">
-        <div class="field-label" data-i18n="set.study_gen">Study mode generation</div>
-        <div class="field-desc" data-i18n="set.study_gen_desc">What a translation stores for Study mode (revealing one bubble at a time in the reader). Off is the fastest; Text only adds each bubble's original and translated text; Text and image also stores the exact typeset image layers.</div>
+        <label class="field-label" for="studyModeGeneration" data-i18n="set.study_gen">Study data</label>
+        <div class="field-desc" data-i18n="set.study_gen_desc">What new translations keep for study.</div>
         <select class="field-input" id="studyModeGeneration">
-          <option value="disabled" data-i18n="set.study_gen_off">Off — fastest translation</option>
-          <option value="text_only" data-i18n="set.study_gen_text">Text only — bubble text, shown as text</option>
-          <option value="text_and_image" data-i18n="set.study_gen_full">Text and image — exact typeset layers</option>
+          <option value="disabled" data-i18n="set.study_gen_off">None</option>
+          <option value="text_only" data-i18n="set.study_gen_text">Text</option>
+          <option value="text_and_image" data-i18n="set.study_gen_full">Text + images</option>
         </select>
       </div>
-      <div class="field-desc" id="translateSummary" style="margin-top:2px;"></div>
+      <div class="field-desc translate-summary" id="translateSummary"></div>
       <div class="actions-row">
-        <div class="status-msg hidden" id="translateStatus"></div>
-        <button class="btn-save" id="saveTranslateBtn" data-i18n="set.save">Save</button>
+        <div class="status-msg hidden" id="translateStatus" role="status" aria-live="polite"></div>
+        <button class="btn-save" id="saveTranslateBtn" type="button" data-i18n="set.save">Save</button>
       </div>
     </div>
   </div>
   </div>
 
-  <div class="panel" id="panelExtension"></div>
+  <div class="panel" id="panelExtension" aria-labelledby="navExtension"></div>
 
-  <div class="panel" id="panelStorage">
+  <div class="panel" id="panelStorage" aria-labelledby="navStorage">
   <!-- Library Backup -->
   <div class="section">
     <div class="section-header">
-      <div class="section-title" data-i18n="set.backup">Library Backup</div>
+      <h2 class="section-title" data-i18n="set.backup">Library Backup</h2>
     </div>
     <div class="section-body">
       <div class="toggle-row">
@@ -218,7 +259,7 @@
           <div class="toggle-name" data-i18n="set.export_backup">Export backup</div>
           <div class="toggle-desc" data-i18n="set.export_backup_desc">Lightweight metadata-only backup (<code>.shi</code> — tags, titles, source links) or a full backup of the entire library including images (<code>.shioridb</code>) for moving between browsers or machines. You'll be asked which.</div>
         </div>
-        <button class="btn-save" id="exportBackupBtn" data-i18n="common.export">Export…</button>
+        <button class="btn-save" id="exportBackupBtn" type="button" data-i18n="common.export">Export…</button>
       </div>
 
       <div class="toggle-row">
@@ -226,17 +267,17 @@
           <div class="toggle-name" data-i18n="set.import_backup">Import backup</div>
           <div class="toggle-desc" data-i18n="set.import_backup_desc">Restore a <code>.shi</code> or <code>.shioridb</code> backup into this library. The format is detected automatically.</div>
         </div>
-        <label class="btn-save" for="backupImportFile" style="cursor:pointer" data-i18n="common.import">Import…</label>
-        <input type="file" id="backupImportFile" accept=".shi,.shioridb,application/octet-stream,application/json" style="display:none">
+        <button class="btn-save" id="importBackupBtn" type="button" data-i18n="common.import">Import…</button>
+        <input type="file" id="backupImportFile" accept=".shi,.shioridb,application/octet-stream,application/json" hidden>
       </div>
-      <div class="status-msg hidden" id="backupStatus"></div>
+      <div class="status-msg hidden" id="backupStatus" role="status" aria-live="polite"></div>
     </div>
   </div>
 
   <!-- Stats -->
   <div class="section">
     <div class="section-header">
-      <div class="section-title" data-i18n="set.stats">Stats</div>
+      <h2 class="section-title" data-i18n="set.stats">Stats</h2>
     </div>
     <div class="section-body">
       <div class="toggle-row">
@@ -247,8 +288,8 @@
         <span class="writes-count" id="totalWritesCount">—</span>
       </div>
       <div class="actions-row">
-        <div class="status-msg hidden" id="writesStatus"></div>
-        <button class="btn-clear-key" id="resetWritesBtn" data-i18n="common.reset">Reset</button>
+        <div class="status-msg hidden" id="writesStatus" role="status" aria-live="polite"></div>
+        <button class="btn-clear-key" id="resetWritesBtn" type="button" data-i18n="common.reset">Reset</button>
       </div>
     </div>
   </div>
@@ -256,7 +297,7 @@
   <!-- Danger Zone -->
   <div class="section">
     <div class="section-header">
-      <div class="section-title" style="color:var(--danger)" data-i18n="set.danger">Danger Zone</div>
+      <h2 class="section-title danger-title" data-i18n="set.danger">Danger Zone</h2>
     </div>
     <div class="section-body">
       <div class="toggle-row">
@@ -264,9 +305,9 @@
           <div class="toggle-name" data-i18n="set.clear_all">Clear All Cache</div>
           <div class="toggle-desc" data-i18n="set.clear_all_desc">Permanently deletes every cached gallery and image. Cannot be undone.</div>
         </div>
-        <button class="btn-clear-all" id="clearAllBtn" data-i18n="set.clear_all_btn">✕ Clear All</button>
+        <button class="btn-clear-all" id="clearAllBtn" type="button" data-i18n="set.clear_all_btn">✕ Clear All</button>
       </div>
-      <div class="status-msg hidden" id="clearAllStatus"></div>
+      <div class="status-msg hidden" id="clearAllStatus" role="status" aria-live="polite"></div>
     </div>
   </div>
   </div>
@@ -274,46 +315,55 @@
   </div>
 
 </div>
+</main>
 
 <!-- Backup choice modal -->
-<div id="backupModal" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.55);align-items:center;justify-content:center;">
-  <div style="background:var(--bg-card,#16161a);border:1px solid var(--border,#2a2a30);border-radius:10px;padding:22px;width:340px;max-width:90vw;">
-    <div style="font-weight:700;margin-bottom:6px;" data-i18n="set.bk_title">Export backup</div>
-    <div class="field-desc" style="margin-bottom:16px;" data-i18n="set.bk_pick">Pick what to include.</div>
-    <button class="btn-save" id="backupMetaBtn" style="width:100%;margin-bottom:8px;" data-i18n="set.bk_meta">Metadata only (.shi) — lightweight</button>
-    <button class="btn-save" id="backupFullBtn" style="width:100%;margin-bottom:14px;" data-i18n="set.bk_full">Full library (.shioridb) — everything, incl. images</button>
-    <button class="btn-clear-key" id="backupCancelBtn" style="width:100%;" data-i18n="common.cancel">Cancel</button>
+<div class="modal-backdrop" id="backupModal" role="dialog" aria-modal="true" aria-labelledby="backupTitle">
+  <div class="dialog dialog-sm">
+    <div class="dialog-header">
+      <div>
+        <h2 class="dialog-title" id="backupTitle" data-i18n="set.bk_title">Export backup</h2>
+        <p class="dialog-description" data-i18n="set.bk_pick">Pick what to include.</p>
+      </div>
+    </div>
+    <div class="dialog-body backup-options">
+      <button class="backup-choice" id="backupMetaBtn" type="button" data-i18n="set.bk_meta">Metadata only (.shi) — lightweight</button>
+      <button class="backup-choice" id="backupFullBtn" type="button" data-i18n="set.bk_full">Full library (.shioridb) — everything, incl. images</button>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn-secondary" id="backupCancelBtn" type="button" data-i18n="common.cancel">Cancel</button>
+    </div>
   </div>
 </div>
 
 <!-- About modal -->
-<div id="aboutModal">
-  <div id="aboutBox">
+<div class="modal-backdrop" id="aboutModal" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+  <div class="dialog" id="aboutBox">
     <div class="about-header">
       <div class="about-brand">
         <div class="brand-icon"><img src="../icons/shiori-logo.svg" alt=""></div>
-        <span class="brand-text">Shiori</span>
+        <h2 class="brand-text" id="aboutTitle">Shiori</h2>
         <span class="about-version" id="aboutVersion"></span>
       </div>
-      <button class="about-close" id="aboutClose">✕</button>
+      <button class="about-close" id="aboutClose" type="button" data-i18n-aria="common.close" aria-label="Close">✕</button>
     </div>
     <div class="about-scroll" id="aboutChangelog"></div>
   </div>
 </div>
 
 <!-- Translator settings modal -->
-<div id="translateModal">
-  <div id="translateBox">
+<div class="modal-backdrop" id="translateModal" role="dialog" aria-modal="true" aria-labelledby="translateTitle">
+  <div class="dialog dialog-lg" id="translateBox">
     <div class="about-header">
-      <div class="about-brand"><span class="brand-text" data-i18n="tm.title">Translator settings</span></div>
-      <button class="about-close" id="translateClose">✕</button>
+      <div class="about-brand"><h2 class="dialog-title" id="translateTitle" data-i18n="tm.title">Translator settings</h2></div>
+      <button class="about-close" id="translateClose" type="button" data-i18n-aria="common.close" aria-label="Close">✕</button>
     </div>
     <div class="about-scroll">
       <div class="tcfg-grid">
 
         <div class="tcfg-h" data-i18n="tm.translator">Translator</div>
         <div class="tcfg-field tcfg-wide">
-          <label data-i18n="tm.engine">Engine</label>
+          <label for="cfgTranslator" data-i18n="tm.engine">Engine</label>
           <select class="field-input" id="cfgTranslator">
             <option value="sugoi">Sugoi — offline JA→EN, no key</option>
             <option value="qwen2_big">Qwen2-7B — local HuggingFace (fast, no Ollama needed)</option>
@@ -329,7 +379,7 @@
           </select>
         </div>
         <div class="tcfg-field tcfg-wide">
-          <label data-i18n="tm.target">Translate to</label>
+          <label for="cfgTargetLang" data-i18n="tm.target">Translate to</label>
           <select class="field-input" id="cfgTargetLang">
             <option value="ENG">English</option>
             <option value="CHS">Chinese (Simplified)</option>
@@ -346,7 +396,7 @@
           </select>
         </div>
         <div class="tcfg-field tcfg-wide">
-          <label data-i18n="tm.clearing">Clearing preset</label>
+          <label for="cfgClearingPreset" data-i18n="tm.clearing">Clearing preset</label>
           <select class="field-input" id="cfgClearingPreset">
             <option value="fast">Fast — quickest, may leave residue on busy art</option>
             <option value="balanced">Balanced — recommended</option>
@@ -360,14 +410,14 @@
           <label><input type="checkbox" id="cfgScreenEnabled"> <span data-i18n="tm.screen_enable">Pre-screen bubbles before cloud translator — routes explicit text to local model instead</span></label>
         </div>
         <div class="tcfg-field tcfg-wide">
-          <label data-i18n="tm.screen_model">Screen model</label>
+          <label for="cfgScreenTranslator" data-i18n="tm.screen_model">Screen model</label>
           <select class="field-input" id="cfgScreenTranslator">
             <option value="qwen2_big">Qwen2-7B (accurate)</option>
             <option value="qwen2">Qwen2-1.5B (lighter)</option>
           </select>
         </div>
         <div class="tcfg-field tcfg-wide">
-          <label data-i18n="tm.screen_fallback">Fallback model (for flagged bubbles)</label>
+          <label for="cfgScreenFallback" data-i18n="tm.screen_fallback">Fallback model (for flagged bubbles)</label>
           <select class="field-input" id="cfgScreenFallback">
             <option value="qwen2_big">Qwen2-7B</option>
             <option value="qwen2">Qwen2-1.5B</option>
@@ -375,14 +425,14 @@
           </select>
         </div>
         <div class="tcfg-field tcfg-wide">
-          <label data-i18n="tm.screen_prompt">Screen prompt</label>
-          <textarea class="field-input" id="cfgScreenPrompt" rows="3" spellcheck="false" style="resize:vertical;font-size:11px;line-height:1.4;"></textarea>
+          <label for="cfgScreenPrompt" data-i18n="tm.screen_prompt">Screen prompt</label>
+          <textarea class="field-input tcfg-textarea" id="cfgScreenPrompt" rows="3" spellcheck="false"></textarea>
         </div>
 
-        <div class="tcfg-h tcfg-collapsible" id="cfgAdvancedHeader" data-i18n="tm.advanced">Advanced settings</div>
+        <button class="tcfg-h tcfg-collapsible" id="cfgAdvancedHeader" type="button" aria-expanded="false" data-i18n="tm.advanced">Advanced settings</button>
         <div class="tcfg-h" data-i18n="tm.detection">Detection</div>
         <div class="tcfg-field">
-          <label data-i18n="tm.detector">Detector</label>
+          <label for="cfgDetector" data-i18n="tm.detector">Detector</label>
           <select class="field-input" id="cfgDetector">
             <option value="default">Default</option>
             <option value="ctd">CTD (comic text detector)</option>
@@ -393,7 +443,7 @@
           </select>
         </div>
         <div class="tcfg-field">
-          <label data-i18n="tm.det_size">Detection size</label>
+          <label for="cfgDetectionSize" data-i18n="tm.det_size">Detection size</label>
           <select class="field-input" id="cfgDetectionSize">
             <option value="1024">1024 (fastest)</option>
             <option value="1536">1536</option>
@@ -401,13 +451,13 @@
             <option value="2560">2560 (most thorough)</option>
           </select>
         </div>
-        <div class="tcfg-field"><label data-i18n="tm.text_thr">Text threshold (0–1)</label><input class="field-input" type="number" id="cfgTextThreshold" step="0.05" min="0" max="1"></div>
-        <div class="tcfg-field"><label data-i18n="tm.box_thr">Box threshold (0–1)</label><input class="field-input" type="number" id="cfgBoxThreshold" step="0.05" min="0" max="1"></div>
-        <div class="tcfg-field"><label data-i18n="tm.unclip">Unclip ratio</label><input class="field-input" type="number" id="cfgUnclipRatio" step="0.1" min="0"></div>
+        <div class="tcfg-field"><label for="cfgTextThreshold" data-i18n="tm.text_thr">Text threshold (0–1)</label><input class="field-input" type="number" id="cfgTextThreshold" step="0.05" min="0" max="1"></div>
+        <div class="tcfg-field"><label for="cfgBoxThreshold" data-i18n="tm.box_thr">Box threshold (0–1)</label><input class="field-input" type="number" id="cfgBoxThreshold" step="0.05" min="0" max="1"></div>
+        <div class="tcfg-field"><label for="cfgUnclipRatio" data-i18n="tm.unclip">Unclip ratio</label><input class="field-input" type="number" id="cfgUnclipRatio" step="0.1" min="0"></div>
 
         <div class="tcfg-h" data-i18n="tm.ocr">OCR</div>
         <div class="tcfg-field tcfg-wide">
-          <label data-i18n="tm.ocr_model">OCR model</label>
+          <label for="cfgOcr" data-i18n="tm.ocr_model">OCR model</label>
           <select class="field-input" id="cfgOcr">
             <option value="48px">48px (default, fast)</option>
             <option value="48px_exp">48px (experimental)</option>
@@ -419,7 +469,7 @@
 
         <div class="tcfg-h" data-i18n="tm.inpaint">Inpainting &amp; text removal</div>
         <div class="tcfg-field">
-          <label data-i18n="tm.inpainter">Inpainter</label>
+          <label for="cfgInpainter" data-i18n="tm.inpainter">Inpainter</label>
           <select class="field-input" id="cfgInpainter">
             <option value="lama_large">Lama Large (best)</option>
             <option value="lama_mpe">Lama MPE</option>
@@ -430,7 +480,7 @@
           </select>
         </div>
         <div class="tcfg-field">
-          <label data-i18n="tm.inpaint_size">Inpainting size</label>
+          <label for="cfgInpaintingSize" data-i18n="tm.inpaint_size">Inpainting size</label>
           <select class="field-input" id="cfgInpaintingSize">
             <option value="1024">1024 (fastest)</option>
             <option value="1536">1536</option>
@@ -438,19 +488,19 @@
           </select>
         </div>
         <div class="tcfg-field">
-          <label data-i18n="tm.precision">Precision</label>
+          <label for="cfgInpaintingPrecision" data-i18n="tm.precision">Precision</label>
           <select class="field-input" id="cfgInpaintingPrecision">
             <option value="bf16">bf16</option>
             <option value="fp16">fp16</option>
             <option value="fp32">fp32</option>
           </select>
         </div>
-        <div class="tcfg-field"><label data-i18n="tm.mask">Mask dilation (clear residue)</label><input class="field-input" type="number" id="cfgMaskDilation" step="1" min="0"></div>
-        <div class="tcfg-field"><label data-i18n="tm.kernel">Cleanup kernel (odd)</label><input class="field-input" type="number" id="cfgKernelSize" step="2" min="1"></div>
+        <div class="tcfg-field"><label for="cfgMaskDilation" data-i18n="tm.mask">Mask dilation (clear residue)</label><input class="field-input" type="number" id="cfgMaskDilation" step="1" min="0"></div>
+        <div class="tcfg-field"><label for="cfgKernelSize" data-i18n="tm.kernel">Cleanup kernel (odd)</label><input class="field-input" type="number" id="cfgKernelSize" step="2" min="1"></div>
 
         <div class="tcfg-h" data-i18n="tm.appearance">Appearance (rendering)</div>
         <div class="tcfg-field">
-          <label data-i18n="tm.renderer">Renderer</label>
+          <label for="cfgRenderer" data-i18n="tm.renderer">Renderer</label>
           <select class="field-input" id="cfgRenderer">
             <option value="default">Default</option>
             <option value="manga2eng">manga2eng (English typesetting)</option>
@@ -459,7 +509,7 @@
           </select>
         </div>
         <div class="tcfg-field">
-          <label data-i18n="tm.direction">Direction</label>
+          <label for="cfgDirection" data-i18n="tm.direction">Direction</label>
           <select class="field-input" id="cfgDirection">
             <option value="auto">Auto</option>
             <option value="horizontal">Horizontal</option>
@@ -467,7 +517,7 @@
           </select>
         </div>
         <div class="tcfg-field">
-          <label data-i18n="tm.alignment">Alignment</label>
+          <label for="cfgAlignment" data-i18n="tm.alignment">Alignment</label>
           <select class="field-input" id="cfgAlignment">
             <option value="auto">Auto</option>
             <option value="left">Left</option>
@@ -475,26 +525,26 @@
             <option value="right">Right</option>
           </select>
         </div>
-        <div class="tcfg-field"><label data-i18n="tm.font_offset">Font size offset</label><input class="field-input" type="number" id="cfgFontSizeOffset" step="1"></div>
-        <div class="tcfg-field"><label data-i18n="tm.font_color">Font color (hex, blank = auto)</label><input class="field-input" type="text" id="cfgFontColor" placeholder="auto" spellcheck="false"></div>
+        <div class="tcfg-field"><label for="cfgFontSizeOffset" data-i18n="tm.font_offset">Font size offset</label><input class="field-input" type="number" id="cfgFontSizeOffset" step="1"></div>
+        <div class="tcfg-field"><label for="cfgFontColor" data-i18n="tm.font_color">Font color (hex, blank = auto)</label><input class="field-input" type="text" id="cfgFontColor" placeholder="auto" spellcheck="false"></div>
         <div class="tcfg-field tcfg-check"><label><input type="checkbox" id="cfgUppercase"> <span data-i18n="tm.uppercase">Force uppercase</span></label></div>
         <div class="tcfg-field tcfg-check"><label><input type="checkbox" id="cfgNoHyphenation"> <span data-i18n="tm.no_hyphen">No hyphenation</span></label></div>
 
         <div class="tcfg-h" data-i18n="tm.batch">Batch size (pages per request)</div>
         <div class="tcfg-note" data-i18n="tm.batch_note">These LLMs translate a chunk of pages in one call, for story context and fewer requests. Keep them small — too many pages overflow the model's input limit and text gets dropped. DeepSeek isn't listed: it sizes each request automatically from how much text the pages hold.</div>
-        <div class="tcfg-field"><label>Gemini</label><input class="field-input" type="number" id="cfgCapGemini" step="1" min="1"></div>
-        <div class="tcfg-field"><label>Ollama (cross-page)</label><input class="field-input" type="number" id="cfgCapChatgpt" step="1" min="1"></div>
+        <div class="tcfg-field"><label for="cfgCapGemini">Gemini</label><input class="field-input" type="number" id="cfgCapGemini" step="1" min="1"></div>
+        <div class="tcfg-field"><label for="cfgCapChatgpt">Ollama (cross-page)</label><input class="field-input" type="number" id="cfgCapChatgpt" step="1" min="1"></div>
 
         <div class="tcfg-h" data-i18n="tm.cost">Cost estimate (USD / 1M tokens — Gemini only)</div>
-        <div class="tcfg-field"><label data-i18n="tm.price_in">Input $/1M</label><input class="field-input" type="number" id="cfgPriceIn" step="0.01" min="0"></div>
-        <div class="tcfg-field"><label data-i18n="tm.price_out">Output $/1M</label><input class="field-input" type="number" id="cfgPriceOut" step="0.01" min="0"></div>
+        <div class="tcfg-field"><label for="cfgPriceIn" data-i18n="tm.price_in">Input $/1M</label><input class="field-input" type="number" id="cfgPriceIn" step="0.01" min="0"></div>
+        <div class="tcfg-field"><label for="cfgPriceOut" data-i18n="tm.price_out">Output $/1M</label><input class="field-input" type="number" id="cfgPriceOut" step="0.01" min="0"></div>
 
       </div>
     </div>
     <div class="tcfg-footer">
       <button class="btn-clear-key" id="resetTranslateBtn" type="button" data-i18n="tm.reset_defaults">Reset to defaults</button>
-      <div class="status-msg hidden" id="translateModalStatus" style="flex:1; text-align:right;"></div>
-      <button class="btn-save" id="saveTranslateModalBtn" data-i18n="set.save">Save</button>
+      <div class="status-msg modal-status hidden" id="translateModalStatus" role="status" aria-live="polite"></div>
+      <button class="btn-save" id="saveTranslateModalBtn" type="button" data-i18n="set.save">Save</button>
     </div>
   </div>
 </div>

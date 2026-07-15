@@ -372,6 +372,11 @@ body.reader-fit-height #stripView .page-img {
   font-size: calc(var(--pgscale, 1) * var(--fs, 16px));
   line-height: 1.15;
   color: #111;
+  /* The outline is a real stroke painted under the fill, so half its width shows as an even ring
+     outside the glyph and the contour stays smooth at any font size. Width/colour are set per
+     bubble from the stored renderer hints; with neither set this collapses to no stroke. */
+  paint-order: stroke fill;
+  -webkit-text-stroke: var(--outline-w, 0) var(--outline-c, transparent);
   /* Balloon text balances its line lengths; balance mimics the renderer's centered layout. */
   white-space: pre-wrap; overflow-wrap: break-word; text-wrap: balance;
 }
@@ -386,6 +391,15 @@ body.reader-fit-height #stripView .page-img {
 }
 .study-text-selecting .study-text-content {
   cursor: text;
+  user-select: text; -webkit-user-select: text;
+}
+/* Textbox-like containment: while an Alt-drag is underway, only the bubble it began in stays
+   selectable, so the native selection can't spill into a neighbour (Chrome has no
+   `user-select: contain`). study-sel-host marks that bubble; study-sel-lock scopes it to the drag. */
+body.study-text-selecting.study-sel-lock .study-text-content {
+  user-select: none; -webkit-user-select: none;
+}
+body.study-text-selecting.study-sel-lock .study-text-content.study-sel-host {
   user-select: text; -webkit-user-select: text;
 }
 .study-text:not(.src) > .study-text-content { max-width: 100%; }

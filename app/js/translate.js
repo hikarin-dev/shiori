@@ -326,7 +326,7 @@ export async function startTranslation(galleryId, ts, send = () => {}) {
     const REMOTE_PAGES_PER_PART = 8;
     const split = !_isLocalServer(serverUrl);
     const partCount = split ? Math.ceil(pending.length / REMOTE_PAGES_PER_PART) : 1;
-    if (partCount > 40) { await failStart('gallery has too many pages for remote upload'); return; }
+    if (partCount > 200) { await failStart('gallery has too many pages for remote upload'); return; }
 
     const headers = _authHeaders(ts);
     for (let i = 0; i < partCount; i++) {

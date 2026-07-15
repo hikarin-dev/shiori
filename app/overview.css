@@ -79,12 +79,13 @@
 /* ── Chapter list ── */
 .ch-list { display: flex; flex-direction: column; gap: 6px; }
 .ch-row {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; flex-direction: column;
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: 8px; padding: 6px 9px; transition: border-color .12s;
+  border-radius: 8px; transition: border-color .12s; overflow: hidden;
 }
 .ch-row:hover { border-color: #3a3a44; }
 .ch-row.missing { opacity: .5; }
+.ch-head { display: flex; align-items: center; gap: 10px; padding: 6px 9px; }
 .ch-num { width: 22px; text-align: center; color: var(--muted); font-size: 12px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .ch-thumb {
   position: relative; width: 36px; aspect-ratio: 1 / sqrt(2); flex-shrink: 0; border-radius: 5px; overflow: hidden;
@@ -155,6 +156,20 @@ body.translator-offline .ch-ibtn.translate { display: none; }
 /* Inner icon wrappers for the Shift-hold flip animations. */
 .ch-dl-inner, .ch-tr-inner, .ch-del-inner { display: flex; align-items: center; justify-content: center; }
 
+/* ── Expand/collapse toggle + page-grid accordion ──
+   The toggle sits on the right, in the slot the action buttons take while editing: actions show
+   only in edit mode, the toggle only outside it. */
+.ch-expand { margin-left: 2px; }
+.ch-expand svg { transition: transform .18s ease; }
+.ch-row.expanded .ch-expand svg { transform: rotate(180deg); }
+#ovContent.ov-editing .ch-expand { display: none; }
+.ch-pages {
+  display: none;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px; padding: 2px 9px 10px;
+}
+.ch-row.expanded .ch-pages { display: grid; }
+
 /* ── Add-chapter bar ── */
 .add-bar {
   margin-top: 22px; padding: 16px; border: 1px dashed var(--border); border-radius: 10px;
@@ -193,5 +208,24 @@ body.translator-offline .ch-ibtn.translate { display: none; }
   max-width: none; white-space: normal; overflow: visible; text-overflow: clip;
   line-height: 1.2; overflow-wrap: anywhere;
 }
+
+/* ── Page grids (a standalone gallery inline, a series' chapters via the accordion above) ── */
+.ov-pages {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 10px; margin-top: 4px;
+}
+.ov-page {
+  position: relative; display: block; aspect-ratio: 1 / sqrt(2);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  overflow: hidden; text-decoration: none;
+}
+.ov-page:hover { border-color: var(--accent); }
+.ov-page img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ov-page-num {
+  position: absolute; left: 4px; bottom: 4px; z-index: 1;
+  font-size: 10px; line-height: 1; padding: 2px 5px; border-radius: 4px;
+  background: rgba(0, 0, 0, .62); color: #fff; font-variant-numeric: tabular-nums; pointer-events: none;
+}
+.ov-pages-empty { grid-column: 1 / -1; color: var(--muted); font-size: 12px; text-align: center; padding: 24px 0; }
 
 .ov-loading, .ov-empty { text-align: center; color: var(--muted); padding: 80px 20px; font-size: 14px; }

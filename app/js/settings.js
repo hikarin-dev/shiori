@@ -1,6 +1,4 @@
-// settings.js — the app's Settings page: translator config, backups, stats, danger zone.
-// The API-key and capture-behaviour cards are NOT here: they are extension concerns, injected
-// into this page by the extension's content script (extension/content/settings-app.js).
+// settings.js — the app's Settings page: preferences, translator config, backups and storage.
 
 import './boot.js';
 import { clearAll } from './db.js';
@@ -18,23 +16,74 @@ import { formatBytes, formatCount } from './format.js';
   if (!nav || !panels) return;
   const show = (id) => {
     if (!id || !document.getElementById(id)) return;
-    nav.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.panel === id));
-    panels.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === id));
+    nav.querySelectorAll('.nav-item').forEach((button) => {
+      const active = button.dataset.panel === id;
+      button.classList.toggle('active', active);
+      if (active) button.setAttribute('aria-current', 'page');
+      else button.removeAttribute('aria-current');
+    });
+    panels.querySelectorAll('.panel').forEach((panel) => {
+      const active = panel.id === id;
+      panel.classList.toggle('active', active);
+      panel.setAttribute('aria-hidden', String(!active));
+    });
   };
   nav.addEventListener('click', (e) => {
     const item = e.target.closest && e.target.closest('.nav-item');
     if (!item || !nav.contains(item) || item.hidden) return;
     show(item.dataset.panel);
   });
-  // The extension panel starts empty and its nav item hidden; whatever injects cards into the
-  // panel owns the section (including the nav label). No cards → four sections.
-  const extPanel = document.getElementById('panelExtension');
-  const navExt = document.getElementById('navExtension');
-  if (extPanel && navExt) {
-    const syncExt = () => { navExt.hidden = extPanel.children.length === 0; };
-    new MutationObserver(syncExt).observe(extPanel, { childList: true });
-    syncExt();
+  // The optional panel stays out of navigation until it contains independently supplied cards.
+  const optionalPanel = document.getElementById('panelExtension');
+  const optionalNav = document.getElementById('navExtension');
+  if (optionalPanel && optionalNav) {
+    const syncOptionalPanel = () => {
+      optionalNav.hidden = optionalPanel.children.length === 0;
+      if (optionalNav.hidden && optionalNav.classList.contains('active')) show('panelLibrary');
+    };
+    new MutationObserver(syncOptionalPanel).observe(optionalPanel, { childList: true });
+    syncOptionalPanel();
   }
+  show(nav.querySelector('.nav-item.active:not([hidden])')?.dataset.panel || 'panelLibrary');
+})();
+
+// ── Segmented choices ─────────────────────────────────────────────────────
+// Segmented choices keep a native select as their single source of truth. This preserves the
+// existing save/load paths while presenting directly comparable options in the UI.
+function syncChoiceToggle(id) {
+  const source = document.getElementById(id);
+  const group = document.querySelector(`[data-choice-for="${id}"]`);
+  if (!source || !group) return;
+  const label = group.closest('.field')?.querySelector('.field-label')
+    || group.closest('.study-control-group')?.querySelector('.study-control-title');
+  if (label) group.setAttribute('aria-label', label.textContent);
+  group.querySelectorAll('[data-value]').forEach((button, index) => {
+    const active = button.dataset.value === source.value;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+    if (active) group.dataset.position = String(index);
+  });
+}
+
+function setChoiceValue(id, value, notify = false) {
+  const source = document.getElementById(id);
+  if (!source) return;
+  source.value = value;
+  syncChoiceToggle(id);
+  if (notify) source.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+(function initChoiceToggles() {
+  document.querySelectorAll('[data-choice-for]').forEach((group) => {
+    const id = group.dataset.choiceFor;
+    group.setAttribute('role', 'group');
+    group.addEventListener('click', (e) => {
+      const button = e.target.closest('[data-value]');
+      if (!button || button.disabled) return;
+      setChoiceValue(id, button.dataset.value, true);
+    });
+    syncChoiceToggle(id);
+  });
 })();
 
 // ── Language selector ──────────────────────────────────────────────────────
@@ -50,15 +99,64 @@ import { formatBytes, formatCount } from './format.js';
   sel.addEventListener('change', () => { setLang(sel.value); });
 })();
 // Re-render anything JS-built when the language changes.
-window.addEventListener('shiori-lang-change', () => { setTranslatorBadge(_lastBadge); updateTranslateSummary(); });
+window.addEventListener('shiori-lang-change', () => {
+  document.querySelectorAll('[data-choice-for]').forEach(group => syncChoiceToggle(group.dataset.choiceFor));
+  setTranslatorBadge(_lastBadge);
+  updateTranslateSummary();
+});
 
 function showStatus(id, msg, type, durationMs = 2500) {
   const el = document.getElementById(id);
   el.textContent = msg;
-  el.className = `status-msg ${type}`;
+  el.classList.remove('hidden', 'ok', 'err');
+  el.classList.add(type);
   clearTimeout(el._t);
-  el._t = setTimeout(() => { el.className = 'status-msg hidden'; }, durationMs);
+  el._t = setTimeout(() => {
+    el.classList.remove('ok', 'err');
+    el.classList.add('hidden');
+    el.textContent = '';
+  }, durationMs);
 }
+
+function setDialogOpen(modal, open, initialFocusSelector) {
+  if (!modal) return;
+  if (open) {
+    modal._returnFocus = document.activeElement;
+    modal.classList.add('show');
+    requestAnimationFrame(() => {
+      const initial = initialFocusSelector && modal.querySelector(initialFocusSelector);
+      (initial || modal.querySelector('button, input, select, textarea, [tabindex]:not([tabindex="-1"])'))?.focus();
+    });
+    return;
+  }
+  modal.classList.remove('show');
+  const returnFocus = modal._returnFocus;
+  modal._returnFocus = null;
+  if (returnFocus?.isConnected) requestAnimationFrame(() => returnFocus.focus());
+}
+
+document.addEventListener('keydown', (event) => {
+  const modal = [...document.querySelectorAll('.modal-backdrop.show')].at(-1);
+  if (!modal) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    setDialogOpen(modal, false);
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = [...modal.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')]
+    .filter(el => el.getClientRects().length && !el.hidden);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+});
 
 // ── Load saved values ──────────────────────────────────────────────────────
 
@@ -98,7 +196,7 @@ checkTranslatorStatus();
 // ── Translation settings (inline server + full config modal) ────────────────
 
 function loadTranslateSettings(ts) {
-  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  const set = (id, v) => setChoiceValue(id, v);
   document.getElementById('translateServerInput').value = ts.serverUrl || '';
   set('translateTokenInput', ts.serverToken || '');
   set('cfgTranslator', ts.translator === 'custom_openai' ? 'qwen2_big' : (ts.translator || 'sugoi'));
@@ -204,16 +302,18 @@ document.getElementById('saveTranslateModalBtn').addEventListener('click',
   () => saveTranslateSettings('translateModalStatus', () => setTimeout(() => setTranslateModalOpen(false), 600)));
 
 // Modal open/close
-function setTranslateModalOpen(open) { document.getElementById('translateModal').classList.toggle('show', open); }
+function setTranslateModalOpen(open) {
+  setDialogOpen(document.getElementById('translateModal'), open, '#translateClose');
+}
 document.getElementById('openTranslateModalBtn').addEventListener('click', () => setTranslateModalOpen(true));
 document.getElementById('translateClose').addEventListener('click', () => setTranslateModalOpen(false));
 document.getElementById('translateModal').addEventListener('click', (e) => { if (e.target.id === 'translateModal') setTranslateModalOpen(false); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setTranslateModalOpen(false); });
 
 // The "Advanced settings" header collapses everything below it at once.
 function setAdvancedCollapsed(collapsed) {
   const h = document.getElementById('cfgAdvancedHeader');
   h.classList.toggle('collapsed', collapsed);
+  h.setAttribute('aria-expanded', String(!collapsed));
   let el = h.nextElementSibling;
   while (el) { el.classList.toggle('tcfg-hidden', collapsed); el = el.nextElementSibling; }
 }
@@ -269,8 +369,7 @@ const DEFAULT_QUICK_ACTIONS_MODE = 'hover';
 const normalizeQuickActionsMode = (mode) => QUICK_ACTION_MODES.has(mode) ? mode : DEFAULT_QUICK_ACTIONS_MODE;
 
 platform.kv.get(['libQuickActionsMode']).then((r) => {
-  const el = document.getElementById('libQuickActionsMode');
-  if (el) el.value = normalizeQuickActionsMode(r.libQuickActionsMode);
+  setChoiceValue('libQuickActionsMode', normalizeQuickActionsMode(r.libQuickActionsMode));
 });
 document.getElementById('libQuickActionsMode').addEventListener('change', (e) => {
   platform.kv.set({ libQuickActionsMode: normalizeQuickActionsMode(e.target.value) });
@@ -278,86 +377,127 @@ document.getElementById('libQuickActionsMode').addEventListener('change', (e) =>
 });
 
 platform.kv.get(['libHideAppLangFlag']).then((r) => {
-  const el = document.getElementById('libAppLangFlag');
-  if (el) el.value = (r.libHideAppLangFlag !== false) ? 'hide' : 'show';   // default: hide
+  document.getElementById('libAppLangFlag').checked = r.libHideAppLangFlag !== false;
 });
 document.getElementById('libAppLangFlag').addEventListener('change', (e) => {
-  platform.kv.set({ libHideAppLangFlag: e.target.value === 'hide' });
+  platform.kv.set({ libHideAppLangFlag: e.target.checked });
+  showStatus('libStatus', 'Saved.', 'ok');
+});
+
+platform.kv.get(['libMergeSeries']).then((r) => {
+  document.getElementById('libMergeSeries').checked = r.libMergeSeries !== false;
+});
+document.getElementById('libMergeSeries').addEventListener('change', (e) => {
+  platform.kv.set({ libMergeSeries: e.target.checked });
   showStatus('libStatus', 'Saved.', 'ok');
 });
 
 // ── Reader — study display, saved on change ───────────────────────────────
 
+function drawRasterStudyPreview(canvas, text, original) {
+  const ctx = canvas.getContext('2d');
+  const { width, height } = canvas;
+  ctx.clearRect(0, 0, width, height);
+  ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = '#111';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = original ? '700 15px serif' : '400 14px "CC Victory Speech", "Comic Sans MS", sans-serif';
+  ctx.fillText(text, width / 2, height / 2);
+}
+
+function syncStudyPreview() {
+  const preview = document.getElementById('studyPreview');
+  if (!preview) return;
+  const original = document.getElementById('readerStudyOriginal').value;
+  preview.dataset.original = original;
+  preview.dataset.translation = document.getElementById('readerStudyDisplay').value;
+  preview.dataset.font = document.getElementById('readerStudySrcFont').value;
+  preview.dataset.furigana = document.getElementById('readerFurigana').checked ? 'on' : 'off';
+  const textOptions = document.getElementById('studyTextOptions');
+  textOptions.disabled = original !== 'text';
+  textOptions.setAttribute('aria-disabled', String(textOptions.disabled));
+  drawRasterStudyPreview(preview.querySelector('[data-raster="original"]'), '頑張って！', true);
+  drawRasterStudyPreview(preview.querySelector('[data-raster="translation"]'), 'Good Luck!', false);
+}
+
 platform.kv.get(['readerStudyDisplay']).then((r) => {
-  const el = document.getElementById('readerStudyDisplay');
-  if (el) el.value = (r.readerStudyDisplay === 'text') ? 'text' : 'hardcoded_images';
+  setChoiceValue('readerStudyDisplay', (r.readerStudyDisplay === 'text') ? 'text' : 'hardcoded_images');
+  syncStudyPreview();
 });
 platform.kv.get(['readerStudyOriginal']).then((r) => {
-  const el = document.getElementById('readerStudyOriginal');
-  if (el) el.value = (r.readerStudyOriginal === 'text') ? 'text' : 'image';
+  setChoiceValue('readerStudyOriginal', (r.readerStudyOriginal === 'text') ? 'text' : 'image');
+  syncStudyPreview();
 });
 document.getElementById('readerStudyOriginal').addEventListener('change', (e) => {
   platform.kv.set({ readerStudyOriginal: e.target.value });
+  syncStudyPreview();
   showStatus('readerStatus', 'Saved.', 'ok');
 });
 
 platform.kv.get(['readerStudySrcFont']).then((r) => {
-  const el = document.getElementById('readerStudySrcFont');
-  if (el) el.value = (r.readerStudySrcFont === 'kiwi') ? 'kiwi' : 'yasashisa';
+  setChoiceValue('readerStudySrcFont', (r.readerStudySrcFont === 'kiwi') ? 'kiwi' : 'yasashisa');
+  syncStudyPreview();
 });
 document.getElementById('readerStudySrcFont').addEventListener('change', (e) => {
   platform.kv.set({ readerStudySrcFont: e.target.value });
+  syncStudyPreview();
   showStatus('readerStatus', 'Saved.', 'ok');
 });
 document.getElementById('readerStudyDisplay').addEventListener('change', (e) => {
   platform.kv.set({ readerStudyDisplay: e.target.value });
+  syncStudyPreview();
   showStatus('readerStatus', 'Saved.', 'ok');
 });
 
 platform.kv.get(['readerFurigana']).then((r) => {
-  const el = document.getElementById('readerFurigana');
-  if (el) el.value = (r.readerFurigana === 'on') ? 'on' : 'off';
+  document.getElementById('readerFurigana').checked = r.readerFurigana === 'on';
+  syncStudyPreview();
 });
 document.getElementById('readerFurigana').addEventListener('change', (e) => {
-  platform.kv.set({ readerFurigana: e.target.value });
+  platform.kv.set({ readerFurigana: e.target.checked ? 'on' : 'off' });
+  syncStudyPreview();
   showStatus('readerStatus', 'Saved.', 'ok');
 });
 
 platform.kv.get(['readerSkipOverview']).then((r) => {
-  const el = document.getElementById('readerSkipOverview');
-  if (el) el.value = r.readerSkipOverview ? 'skip' : 'show';
+  document.getElementById('readerSkipOverview').checked = !r.readerSkipOverview;
 });
 document.getElementById('readerSkipOverview').addEventListener('change', (e) => {
-  platform.kv.set({ readerSkipOverview: e.target.value === 'skip' });
+  platform.kv.set({ readerSkipOverview: !e.target.checked });
   showStatus('readerStatus', 'Saved.', 'ok');
 });
 
 platform.kv.get(['readerChapterDivider']).then((r) => {
-  const el = document.getElementById('readerChapterDivider');
-  if (el) el.value = r.readerChapterDivider === false ? 'hide' : 'show';
+  document.getElementById('readerChapterDivider').checked = r.readerChapterDivider !== false;
 });
 document.getElementById('readerChapterDivider').addEventListener('change', (e) => {
-  platform.kv.set({ readerChapterDivider: e.target.value !== 'hide' });
+  platform.kv.set({ readerChapterDivider: e.target.checked });
   showStatus('readerStatus', 'Saved.', 'ok');
 });
 
 platform.kv.get(['readerStripMode']).then((r) => {
-  const el = document.getElementById('readerStripMode');
-  if (el) el.value = r.readerStripMode === 'chapter' ? 'chapter' : 'series';
+  document.getElementById('readerStripMode').checked = r.readerStripMode !== 'chapter';
 });
 document.getElementById('readerStripMode').addEventListener('change', (e) => {
-  platform.kv.set({ readerStripMode: e.target.value === 'chapter' ? 'chapter' : 'series' });
+  platform.kv.set({ readerStripMode: e.target.checked ? 'series' : 'chapter' });
   showStatus('readerStatus', 'Saved.', 'ok');
 });
+
+syncStudyPreview();
+document.fonts.ready.then(syncStudyPreview);
 
 // ── Library Backup — one export button, prompting metadata-only vs full ───
 
 const backupModal = document.getElementById('backupModal');
-const setBackupModalOpen = (open) => { backupModal.style.display = open ? 'flex' : 'none'; };
+const setBackupModalOpen = (open) => setDialogOpen(backupModal, open, '#backupMetaBtn');
 
 document.getElementById('exportBackupBtn').addEventListener('click', () => setBackupModalOpen(true));
 document.getElementById('backupCancelBtn').addEventListener('click', () => setBackupModalOpen(false));
 backupModal.addEventListener('click', (e) => { if (e.target === backupModal) setBackupModalOpen(false); });
+document.getElementById('importBackupBtn').addEventListener('click', () => {
+  document.getElementById('backupImportFile').click();
+});
 
 function _saveBlob(blob, filename) {
   const a = document.createElement('a');
@@ -421,15 +561,14 @@ const aboutBtn   = document.getElementById('aboutBtn');
 const aboutClose = document.getElementById('aboutClose');
 
 function setAboutOpen(open) {
-  aboutModal.classList.toggle('show', open);
+  setDialogOpen(aboutModal, open, '#aboutClose');
 }
 
 aboutBtn.addEventListener('click', () => setAboutOpen(true));
 aboutClose.addEventListener('click', () => setAboutOpen(false));
 aboutModal.addEventListener('click', (e) => { if (!e.target.closest('#aboutBox')) setAboutOpen(false); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setAboutOpen(false); });
 
-// Version from the app's own web manifest — the app no longer reads the extension manifest.
+// Version comes from the app's own web manifest.
 fetch('manifest.webmanifest').then(r => r.json()).then(m => { if (m.version) document.getElementById('aboutVersion').textContent = 'v' + m.version; }).catch(() => {});
 
 // Render CHANGELOG.md using marked, with a custom renderer to split version/date in h2.
@@ -454,6 +593,6 @@ marked.use({
     document.getElementById('aboutChangelog').innerHTML = marked.parse(text);
   } catch {
     document.getElementById('aboutChangelog').innerHTML =
-      '<p style="font-size:11px;color:var(--muted)">Changelog unavailable.</p>';
+      '<p>Changelog unavailable.</p>';
   }
 })();

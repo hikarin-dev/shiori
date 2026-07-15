@@ -101,26 +101,35 @@ function _openReaderDb() {
 // Load every page's stored study layers into _pageStudy (keyed by page url) and note whether
 // any exist (→ show the study button). One cursor pass per chapter's image records; the
 // bg/text layers stay Blobs, turned into object URLs lazily when a bubble is first revealed.
-async function _loadStudy() {
-  if (!_readerDb) return;
-  for (const ch of _chapters) {
-    await new Promise((resolve) => {
-      const tx  = _readerDb.transaction('images', 'readonly');
-      const req = tx.objectStore('images').index('galleryId').openCursor(IDBKeyRange.only(String(ch.id)));
-      req.onsuccess = (e) => {
-        const cursor = e.target.result;
-        if (!cursor) { resolve(); return; }
-        const v = cursor.value;
-        if (Array.isArray(v.bubbles) && v.bubbles.length) {
-          // bg is null for metadata-only (text-mode) study records — those render as DOM text.
-          _pageStudy.set(v.url, { bg: v.studyBg || null, bubbles: v.bubbles, page: v.studyPage || null });
-        }
-        cursor.continue();
-      };
-      req.onerror = () => resolve();
-    });
-  }
-  hasStudy = _pageStudy.size > 0;
+// Cache the in-flight/completed pass so startup, idle loading and later callers cannot rescan or
+// overlap the same large library.
+let _studyLoadPromise = null;
+function _loadStudy() {
+  if (_studyLoadPromise) return _studyLoadPromise;
+  if (!_readerDb) return Promise.resolve(false);
+  _studyLoadPromise = (async () => {
+    for (const ch of _chapters) {
+      await new Promise((resolve) => {
+        const tx  = _readerDb.transaction('images', 'readonly');
+        const req = tx.objectStore('images').index('galleryId').openCursor(IDBKeyRange.only(String(ch.id)));
+        req.onsuccess = (e) => {
+          const cursor = e.target.result;
+          if (!cursor) { resolve(); return; }
+          const v = cursor.value;
+          if (Array.isArray(v.bubbles) && v.bubbles.length) {
+            // bg is null for metadata-only (text-mode) study records — those render as DOM text.
+            _pageStudy.set(v.url, { bg: v.studyBg || null, bubbles: v.bubbles, page: v.studyPage || null });
+          }
+          cursor.continue();
+        };
+        req.onerror = () => resolve();
+      });
+    }
+    hasStudy = _pageStudy.size > 0;
+    _syncStudyAvailability();
+    return hasStudy;
+  })();
+  return _studyLoadPromise;
 }
 
 async function pageBlobUrl(page) {
@@ -403,6 +412,22 @@ const dClickNext    = document.getElementById('dClickNext');
 const scrollTopBtn  = document.getElementById('scrollTopBtn');
 const dividerPage   = document.getElementById('dividerPage');
 
+function _syncStudyAvailability() {
+  viewToggle.style.display = (_translateAvailable || hasStudy) ? '' : 'none';
+  studySeg.classList.toggle('disabled', !hasStudy);
+}
+
+function _scheduleStudyLoad() {
+  const load = () => {
+    void _loadStudy().then(() => { if (hasStudy) _recomputeFold(); }).catch(() => {});
+  };
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(load, { timeout: 2000 });
+  } else {
+    setTimeout(load, 250);
+  }
+}
+
 function _storedPageNum(url) {
   const match = String(url || '').match(/\/([1-9]\d*)\.[^/?#]+(?:[?#].*)?$/);
   const pageNum = match ? Number(match[1]) : 0;
@@ -506,14 +531,13 @@ async function init() {
     return;
   }
 
-  // The translate ⇄ study toggle shows whenever ANY chapter has a translation (study layers,
-  // loaded below, additionally enable the study side). hasStudy is set by _loadStudy.
-  _translateAvailable = _chapters.some(ch => !!ch.meta?.translated);
-  await _loadStudy();
-  if (_translateAvailable || hasStudy) viewToggle.style.display = '';
-  studySeg.classList.toggle('disabled', !hasStudy);
-
   const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerFitMode', 'readerFitMaxWidth', 'readerDirection', 'readerPageGap', 'readerProgressPosition', 'readerView', 'readerStudyDisplay', 'readerStudyOriginal', 'readerStudySrcFont', 'readerFurigana', 'readerChapterDivider', 'readerStripMode']);
+
+  // A saved study view needs its layers before the first paint. Every other view can render its
+  // first page before the full-library scan runs during idle time.
+  _translateAvailable = _chapters.some(ch => !!ch.meta?.translated);
+  if (saved.readerView === 'study') await _loadStudy();
+  _syncStudyAvailability();
   if (saved.readerStudyDisplay === 'text') studyDisplay = 'text';
   if (saved.readerStudyOriginal === 'text') studyOriginal = 'text';
   if (saved.readerStudySrcFont === 'kiwi') studySrcFont = 'kiwi';
@@ -556,13 +580,10 @@ async function init() {
   _updateViewToggle();
   if (studyMode) _refreshBubbleLayers();
   _recomputeFold();  // the title is set now — (re)measure the fold breakpoint for the new title
+  if (saved.readerView !== 'study') _scheduleStudyLoad();
   // Defer restoring thumbnail-open state — its eager IDB reads otherwise fight the strip's
   // own loader for IDB bandwidth, delaying the first visible page by several seconds.
   if (saved.readerThumbsOpen) setTimeout(() => setThumbsOpen(true), 1500);
-  // Pre-generate the remaining thumbs in the background once the first pages are on screen,
-  // so opening the strip later is instant. No-op for thumbs already generated. Very long series
-  // skip this — their thumbs generate on demand around the visible band instead.
-  setTimeout(() => { if (_thumbCount <= THUMB_EAGER_MAX) _enqueueAllThumbs(); }, 3500);
 }
 
 // ── Chapter navigation (series) ──
@@ -998,9 +1019,9 @@ function _syncUrlToChapter(ch) {
 // Thumbnails cover a SCOPE of the merged list: the whole series when the strip flows the series
 // continuously, the current chapter everywhere else (single/double, and the per-chapter strip).
 // Items are indexed locally; callers keep passing GLOBAL 0-based page indices.
-let _thumbItems = [];      // cached .thumb-item elements (local index within the thumb scope)
-let _thumbBase  = 0;       // global page offset of _thumbItems[0]
-let _thumbCount = 0;
+let _thumbItems = [];      // materialized .thumb-item elements (local index within the scope)
+let _thumbBase  = 0;       // global page offset of the tracked thumbnail scope
+let _thumbCount = 0;       // page count of the tracked thumbnail scope
 let _activeThumbIdx = -1;  // local index
 function highlightThumb(idx) {
   const local = idx - _thumbBase;
@@ -1031,9 +1052,8 @@ function _setCurrentPageFromProportion(p) {
 }
 
 // ── Thumbnails ──
-// Build DOM upfront, observe each thumb. Only thumbs that intersect the strip's visible area
-// (or its preload margin) get a src — keeps decoded bitmaps bounded to what's actually shown.
-// When the strip is closed (height: 0), all imgs evict naturally because root has zero area.
+// Track the scope cheaply while closed, and materialize its DOM only when the strip opens. Only
+// thumbs in the visible area (or its preload margin) get a src, keeping decoded bitmaps bounded.
 const thumbResizeHandle = document.getElementById('thumbResizeHandle');
 let _thumbHeight   = 88;
 let _thumbViewport = null;  // overlay showing current viewport range in the reader
@@ -1050,14 +1070,25 @@ function _thumbScope() {
 // and restart generation for the fresh items. Cheap when the scope is unchanged.
 function _syncThumbScope() {
   const s = _thumbScope();
-  if (s.base === _thumbBase && s.count === _thumbCount && _thumbItems.length) return;
-  buildThumbs();
-  if (thumbsOpen) {
-    if (_thumbCount <= THUMB_EAGER_MAX) _enqueueAllThumbs(); else _enqueueNearbyThumbs();
-    _prioritizeVisibleThumbs();
-    if (mode === 'strip') _setIndicator(_scrollYToProportion(window.scrollY + _pinOffset()));
-    else setTimeout(_ensureActiveThumbVisible, 100);
+  const changed = s.base !== _thumbBase || s.count !== _thumbCount;
+  if (!changed && (!thumbsOpen || _thumbItems.length)) return false;
+  _thumbBase = s.base;
+  _thumbCount = s.count;
+  if (!thumbsOpen) {
+    if (changed && _thumbItems.length) {
+      thumbStrip.replaceChildren();
+      _thumbItems = [];
+      _thumbViewport = null;
+      _activeThumbIdx = -1;
+    }
+    return false;
   }
+  buildThumbs();
+  if (_thumbCount <= THUMB_EAGER_MAX) _enqueueAllThumbs(); else _enqueueNearbyThumbs();
+  _prioritizeVisibleThumbs();
+  if (mode === 'strip') _setIndicator(_scrollYToProportion(window.scrollY + _pinOffset()));
+  else setTimeout(_ensureActiveThumbVisible, 100);
+  return true;
 }
 
 function buildThumbs() {
@@ -1176,8 +1207,11 @@ function setThumbsOpen(open) {
   document.body.classList.toggle('thumbs-open', open);   // lets the scroll-top button ride above it
   platform.kv.set({ readerThumbsOpen: open });
   if (open) {
-    if (_thumbCount <= THUMB_EAGER_MAX) _enqueueAllThumbs(); else _enqueueNearbyThumbs();
-    _prioritizeVisibleThumbs();
+    const rebuilt = _syncThumbScope();
+    if (!rebuilt) {
+      if (_thumbCount <= THUMB_EAGER_MAX) _enqueueAllThumbs(); else _enqueueNearbyThumbs();
+      _prioritizeVisibleThumbs();
+    }
     if (mode === 'strip') {
       setTimeout(() => _setIndicator(_scrollYToProportion(window.scrollY + _pinOffset())), 50);
     } else {
@@ -1793,6 +1827,7 @@ function buildStrip() {
   const scope = _stripScope();
   _viewBase  = scope.base;
   _viewCount = scope.count;
+  const fragment = document.createDocumentFragment();
 
   // Build the full row skeleton upfront so DOM order is fixed before any async work. Each
   // page-img sits in its own .page-wrap (relative) so study-mode bubble overlays can anchor to
@@ -1833,7 +1868,7 @@ function buildStrip() {
       }
     });
     wrap.appendChild(img);
-    stripView.appendChild(wrap);
+    fragment.appendChild(wrap);
 
     // End-of-chapter transition card. Always present in the per-chapter flow (it IS the next/
     // previous-chapter navigation there); in the continuous flow it's the optional divide.
@@ -1843,9 +1878,10 @@ function buildStrip() {
       const div = document.createElement('div');
       div.className = 'chapter-divider';
       div.appendChild(_buildDividerCard(chIdx, _stripSeriesFlow));   // continuous flow → label only
-      stripView.appendChild(div);
+      fragment.appendChild(div);
     }
   }
+  stripView.appendChild(fragment);
   _stripWraps = [...stripView.querySelectorAll('.page-wrap')];
   _stripImgs  = _stripWraps.map(w => w.firstElementChild);
 
@@ -2238,6 +2274,15 @@ function _clipInset(r) {
   return `inset(${top}% ${right}% ${bottom}% ${left}%)`;
 }
 
+// A bubble's outline, in the OCR bg colour and em-sized so it scales with the text like the
+// renderer's border does. The stroke is twice the ring it draws: paint-order puts it under the
+// fill, which covers the inner half.
+function _applyTextOutline(el, st) {
+  if (!Array.isArray(st.fg) || !Array.isArray(st.bg)) return;
+  el.style.setProperty('--outline-w', '0.16em');
+  el.style.setProperty('--outline-c', `rgb(${st.bg.join(',')})`);
+}
+
 // A DOM-text block for one bubble's translation, positioned at the rect the renderer actually
 // drew its glyph canvas at (tbox; older records fall back to the layout box) and scaled with
 // the page via the layer's --pgscale. Style comes from the stored renderer hints; anything
@@ -2254,14 +2299,7 @@ function _buildStudyText(b, hasBg, pageW) {
   const st = b.style || {};
   el.style.setProperty('--fs', (st.fontSize || Math.max(12, Math.round((pageW || 1000) * 0.022))) + 'px');
   if (Array.isArray(st.fg)) el.style.color = `rgb(${st.fg.join(',')})`;
-  // Outline in the OCR bg colour, em-sized so it scales with the text like the renderer's
-  // border does (8 directions ≈ a solid ring).
-  if (Array.isArray(st.fg) && Array.isArray(st.bg)) {
-    const o = `rgb(${st.bg.join(',')})`;
-    el.style.textShadow =
-      `-0.06em -0.06em 0 ${o}, 0.06em -0.06em 0 ${o}, -0.06em 0.06em 0 ${o}, 0.06em 0.06em 0 ${o}, ` +
-      `-0.08em 0 0 ${o}, 0.08em 0 0 ${o}, 0 -0.08em 0 ${o}, 0 0.08em 0 ${o}`;
-  }
+  _applyTextOutline(el, st);
   // manga2eng typesets in comic caps with a tight line advance — mirror both, then prefer the
   // exact pitch the renderer drew at when the pipeline recorded it.
   if (st.caps) { el.style.textTransform = 'uppercase'; el.style.lineHeight = '1.0'; }
@@ -2354,12 +2392,7 @@ function _buildStudySrc(b, hasBg, pg, srcOpts) {
   el.style.width  = (r.w * 100) + '%';
   el.style.height = (r.h * 100) + '%';
   if (Array.isArray(st.fg)) el.style.color = `rgb(${st.fg.join(',')})`;
-  if (Array.isArray(st.fg) && Array.isArray(st.bg)) {
-    const o = `rgb(${st.bg.join(',')})`;
-    el.style.textShadow =
-      `-0.06em -0.06em 0 ${o}, 0.06em -0.06em 0 ${o}, -0.06em 0.06em 0 ${o}, 0.06em 0.06em 0 ${o}, ` +
-      `-0.08em 0 0 ${o}, 0.08em 0 0 ${o}, 0 -0.08em 0 ${o}, 0 0.08em 0 ${o}`;
-  }
+  _applyTextOutline(el, st);
   // Language drives the appropriate Han glyph forms when source metadata identifies it.
   if (srcOpts && srcOpts.lang) el.lang = srcOpts.lang;
   if (vertical) el.classList.add('vert');
@@ -2404,14 +2437,63 @@ function _wireSelectableText(el, onPlainClick) {
   if (!content) return false;
   content.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (e.shiftKey) return;
+    if (e.altKey) return;
     if (!String(window.getSelection() || '')) onPlainClick();
   });
   return true;
 }
 
+// Contain a text selection to the single study bubble it began in — like a textbox, so an Alt-drag
+// inside one bubble's text never bleeds into another bubble or the page. Chrome has no CSS
+// `user-select: contain`, so the moment a drag starts inside a bubble we make every OTHER bubble
+// unselectable for the duration (study-sel-lock on the body + study-sel-host on that bubble): the
+// native selection then physically can't extend past it. The selectionchange handler backstops any
+// residual overrun by pinning the moving end back to the bubble's edge. Keyed purely on the bubble's
+// text wrapper, so only study-text selections are affected.
+let _clampingStudySelection = false;
+let _studySelHost = null;
+function _studyTextHost(node) {
+  const el = node && (node.nodeType === 3 ? node.parentElement : node);
+  return el ? el.closest('.study-text-content') : null;
+}
+function _lockSelectionToHost(host) {
+  if (_studySelHost === host) return;
+  if (_studySelHost) _studySelHost.classList.remove('study-sel-host');
+  _studySelHost = host;
+  host.classList.add('study-sel-host');
+  document.body.classList.add('study-sel-lock');
+}
+function _unlockSelectionHost() {
+  if (_studySelHost) _studySelHost.classList.remove('study-sel-host');
+  _studySelHost = null;
+  document.body.classList.remove('study-sel-lock');
+}
+// A drag beginning inside a bubble locks the selection to it before the pointer can move (so the
+// confinement is in place before the browser extends the range). Releasing the pointer frees it.
+document.addEventListener('pointerdown', (e) => {
+  if (!document.body.classList.contains('study-text-selecting')) return;
+  const host = _studyTextHost(e.target);
+  if (host) _lockSelectionToHost(host); else _unlockSelectionHost();
+});
+document.addEventListener('pointerup', _unlockSelectionHost);
+document.addEventListener('pointercancel', _unlockSelectionHost);
+document.addEventListener('selectionchange', () => {
+  if (_clampingStudySelection) return;
+  const sel = document.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+  const host = _studyTextHost(sel.anchorNode);
+  if (!host || host.contains(sel.focusNode)) return;   // not a bubble selection, or still inside it
+  const after = !!(host.compareDocumentPosition(sel.focusNode) & Node.DOCUMENT_POSITION_FOLLOWING);
+  const r = document.createRange();
+  r.selectNodeContents(host);
+  _clampingStudySelection = true;
+  try { sel.extend(after ? r.endContainer : r.startContainer, after ? r.endOffset : r.startOffset); } catch {}
+  _clampingStudySelection = false;
+});
+
 function _setStudyTextSelectable(selectable) {
   document.body.classList.toggle('study-text-selecting', !!selectable);
+  if (!selectable) _unlockSelectionHost();
 }
 
 function _mountTextBubble(box, b, idx, pageUrl, bgLayer, fgLayer, pg, srcOpts, hasPageBg) {
@@ -2956,7 +3038,7 @@ function _releaseScroll(dir) {
 function _stopScroll() { _scrollStack.length = 0; }
 
 document.addEventListener('keyup', (e) => {
-  _setStudyTextSelectable(e.shiftKey);
+  _setStudyTextSelectable(e.altKey);   // Alt held → study text is selectable
   _scrollFast = e.shiftKey;   // releasing Shift drops back to the half-speed default, live
   if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp')   _releaseScroll('up');
   if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') _releaseScroll('down');
@@ -2968,7 +3050,7 @@ document.addEventListener('visibilitychange', () => {
 
 // Keyboard
 document.addEventListener('keydown', (e) => {
-  _setStudyTextSelectable(e.shiftKey);
+  _setStudyTextSelectable(e.altKey);   // Alt held → study text is selectable
   if (e.target === scrubber) return;
   if (readerSettingsModal.classList.contains('show')) {
     if (e.key === 'Escape') { e.preventDefault(); setReaderSettingsOpen(false); }

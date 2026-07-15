@@ -64,9 +64,11 @@ function _queueWrittenBytes(bytes) {
 }
 
 let _db = null;
+let _dbPromise = null;
 export function openDB() {
   if (_db) return Promise.resolve(_db);
-  return new Promise((resolve, reject) => {
+  if (_dbPromise) return _dbPromise;
+  _dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     // Data-preserving migration: never deletes a store on upgrade — creates stores/indexes
     // only when missing and backfills existing records, so a populated library survives.
@@ -133,11 +135,12 @@ export function openDB() {
     };
     req.onsuccess = () => {
       _db = req.result;
-      _db.onversionchange = () => { _db.close(); _db = null; };
+      _db.onversionchange = () => { _db.close(); _db = null; _dbPromise = null; };
       resolve(_db);
     };
-    req.onerror = () => reject(req.error);
+    req.onerror = () => { _dbPromise = null; reject(req.error); };
   });
+  return _dbPromise;
 }
 
 export async function dbGet(url) {
@@ -348,25 +351,98 @@ async function galleryGetAll() {
 
 // ── Cover store helpers ──
 
+const _hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+const _nextCoverRevision = () => globalThis.crypto?.randomUUID?.()
+  || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 function putCoverPatch(store, galleryId, patch) {
   const gid = String(galleryId);
   const req = store.get(gid);
-  req.onsuccess = () => store.put({ ...(req.result || {}), galleryId: gid, ...patch });
+  req.onsuccess = () => {
+    const current = req.result || {};
+    const coverThumbs = { ...(current.coverThumbs || {}) };
+    const coverRevisions = { ...(current.coverRevisions || {}) };
+    for (const [role, field] of [['gallery', 'cover'], ['series', 'seriesCover']]) {
+      if (!_hasOwn(patch, field)) continue;
+      delete coverThumbs[role];
+      coverRevisions[role] = _nextCoverRevision();
+    }
+    const next = { ...current, galleryId: gid, ...patch, coverRevisions };
+    if (Object.keys(coverThumbs).length) next.coverThumbs = coverThumbs;
+    else delete next.coverThumbs;
+    store.put(next);
+  };
+}
+
+function selectCover(rec, opts = {}) {
+  const preferSeries = opts === 'series' || !!opts.preferSeries;
+  const seriesOnly = opts === 'seriesOnly' || !!opts.seriesOnly;
+  if (seriesOnly || (preferSeries && rec?.seriesCover)) {
+    return { role: 'series', source: rec?.seriesCover || null };
+  }
+  return { role: 'gallery', source: rec?.cover || null };
 }
 
 export async function coverGet(galleryId, opts = {}) {
-  const preferSeries = opts === 'series' || !!opts.preferSeries;
-  const seriesOnly = opts === 'seriesOnly' || !!opts.seriesOnly;
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(COVER_STORE, 'readonly');
     const req = tx.objectStore(COVER_STORE).get(String(galleryId));
+    req.onsuccess = () => resolve(selectCover(req.result || null, opts).source);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function coverWidthKey(maxW) {
+  const width = Math.round(Number(maxW));
+  return Number.isFinite(width) && width > 0 ? String(width) : null;
+}
+
+// Read the selected original and any persistent thumbnail in one pass. The selected role is
+// returned explicitly so a preferred-series request that falls back to the gallery cover caches
+// and invalidates against the gallery role, not the absent series role.
+export async function coverThumbnailGet(galleryId, maxW, opts = {}) {
+  const db = await openDB();
+  const widthKey = coverWidthKey(maxW);
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(COVER_STORE, 'readonly').objectStore(COVER_STORE).get(String(galleryId));
     req.onsuccess = () => {
       const rec = req.result || null;
-      if (seriesOnly) { resolve(rec?.seriesCover || null); return; }
-      resolve(preferSeries ? (rec?.seriesCover || rec?.cover || null) : (rec?.cover || null));
+      const selected = selectCover(rec, opts);
+      resolve({
+        ...selected,
+        thumbnail: widthKey ? (rec?.coverThumbs?.[selected.role]?.[widthKey] || null) : null,
+        revision: rec?.coverRevisions?.[selected.role],
+        hasSeriesCover: !!rec?.seriesCover,
+      });
     };
     req.onerror = () => reject(req.error);
+  });
+}
+
+// Store a derived thumbnail without publishing feed/control notifications. The revision check
+// drops stale work if the original cover was replaced while it was being decoded.
+export async function coverThumbnailPut(galleryId, role, maxW, thumbnail, revision) {
+  const widthKey = coverWidthKey(maxW);
+  const blob = await imageToBlob(thumbnail);
+  if (!widthKey || !blob || (role !== 'gallery' && role !== 'series')) return false;
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    let stored = false;
+    const tx = db.transaction(COVER_STORE, 'readwrite');
+    const store = tx.objectStore(COVER_STORE);
+    const req = store.get(String(galleryId));
+    req.onsuccess = () => {
+      const rec = req.result;
+      const sourceField = role === 'series' ? 'seriesCover' : 'cover';
+      if (!rec?.[sourceField] || rec.coverRevisions?.[role] !== revision) return;
+      const roleThumbs = { ...(rec.coverThumbs?.[role] || {}), [widthKey]: blob };
+      rec.coverThumbs = { ...(rec.coverThumbs || {}), [role]: roleThumbs };
+      store.put(rec);
+      stored = true;
+    };
+    tx.oncomplete = () => resolve(stored);
+    tx.onerror = () => reject(tx.error);
   });
 }
 
@@ -406,8 +482,17 @@ async function coverDelete(galleryId, opts = {}) {
       req.onsuccess = () => {
         const rec = req.result;
         if (!rec) return;
-        if (role === 'series') delete rec.seriesCover;
+        const coverRole = role === 'series' ? 'series' : 'gallery';
+        if (coverRole === 'series') delete rec.seriesCover;
         else delete rec.cover;
+        if (rec.coverThumbs) {
+          delete rec.coverThumbs[coverRole];
+          if (!Object.keys(rec.coverThumbs).length) delete rec.coverThumbs;
+        }
+        if (rec.coverRevisions) {
+          delete rec.coverRevisions[coverRole];
+          if (!Object.keys(rec.coverRevisions).length) delete rec.coverRevisions;
+        }
         if (rec.cover || rec.seriesCover) store.put(rec);
         else store.delete(gid);
       };
@@ -573,27 +658,25 @@ async function galleryGetMany(ids) {
 // (counts written by the pre-guard dbPut could drift on overwrites). Cheap: an index count per
 // gallery; only mismatches pay for a full rebuild. Returns how many were repaired.
 export async function repairGalleryCounts() {
-  const db = await openDB();
   const entries = await galleryGetAll();
+  const actualCounts = await galleryImageCounts(entries.map(e => e.galleryId), entries.map(e => e.count));
   let fixed = 0;
-  for (const e of entries) {
-    const actual = await new Promise((res) => {
-      const q = db.transaction(STORE, 'readonly').objectStore(STORE).index('galleryId').count(IDBKeyRange.only(e.galleryId));
-      q.onsuccess = () => res(q.result); q.onerror = () => res(e.count);
-    });
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    const actual = actualCounts[i];
     if (actual !== e.count) { await rebuildGalleryEntry(e.galleryId); fixed++; }
   }
   return fixed;
 }
 
-async function galleryImageCounts(ids) {
+async function galleryImageCounts(ids, fallbacks = []) {
   const db = await openDB();
   const tx = db.transaction(STORE, 'readonly');
   const index = tx.objectStore(STORE).index('galleryId');
-  return Promise.all((ids || []).map(id => new Promise((resolve) => {
+  return Promise.all((ids || []).map((id, i) => new Promise((resolve) => {
     const req = index.count(IDBKeyRange.only(String(id)));
     req.onsuccess = () => resolve(req.result || 0);
-    req.onerror = () => resolve(0);
+    req.onerror = () => resolve(fallbacks[i] ?? 0);
   })));
 }
 
@@ -680,15 +763,23 @@ export async function pruneSeriesChildren(ownerId, keepIds = []) {
 // field pay a metadata read. Returns how many were filled.
 export async function backfillUploadDates() {
   const entries = await galleryGetAll();
-  let filled = 0;
-  for (const e of entries) {
-    if (e.uploadDate != null) continue;
-    // 0 = unknown published date, so every gallery still appears in the uploadDate index (sorted last).
-    const ud = Number((await metaGet(e.galleryId))?.uploadDate) || 0;
-    await galleryPut({ ...e, uploadDate: ud });
-    filled++;
-  }
-  return filled;
+  const missing = entries.filter(e => e.uploadDate == null);
+  if (!missing.length) return 0;
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([META_STORE, GALLERY_STORE], 'readwrite');
+    const metas = tx.objectStore(META_STORE);
+    const galleries = tx.objectStore(GALLERY_STORE);
+    for (const entry of missing) {
+      const req = metas.get(String(entry.galleryId));
+      req.onsuccess = () => {
+        // 0 = unknown published date, so every gallery remains in the index and sorts last.
+        galleries.put({ ...entry, uploadDate: Number(req.result?.uploadDate) || 0 });
+      };
+    }
+    tx.oncomplete = () => resolve(missing.length);
+    tx.onerror = () => reject(tx.error);
+  });
 }
 
 // ── Page lookup ──
@@ -740,6 +831,26 @@ export async function existingPageNums(galleryId) {
       c.continue();
     };
     req.onerror = () => resolve(nums);
+  });
+}
+
+// Page keys (page number + url) for a gallery via a cheap key cursor — no image blobs are
+// loaded, so a page grid can list every page without materializing the gallery in memory.
+// Each thumbnail then fetches its own record by url on demand (O(1) get), one at a time.
+export async function listGalleryPageKeys(galleryId) {
+  const db = await openDB();
+  return new Promise((resolve) => {
+    const out = [];
+    const req = db.transaction(STORE, 'readonly').objectStore(STORE).index('galleryId')
+      .openKeyCursor(IDBKeyRange.only(String(galleryId)));
+    req.onsuccess = (e) => {
+      const c = e.target.result;
+      if (!c) { out.sort((a, b) => a.pageNum - b.pageNum); resolve(out); return; }
+      const m = String(c.primaryKey).match(/\/(\d+)\.(webp|jpg|jpeg|png|gif)$/i);
+      if (m) out.push({ pageNum: parseInt(m[1]), url: String(c.primaryKey) });
+      c.continue();
+    };
+    req.onerror = () => resolve(out);
   });
 }
 
@@ -849,21 +960,26 @@ export async function resolveGalleryId(id) {
 
 // ── Stats / gallery helpers ──
 
-// Accepts the stored cover (a Blob, or a legacy base64 data-URL) and returns a resized
-// webp data-URL the UI can drop into an <img>. Falls back to the full cover when it is
-// already small enough or on any decode error.
-export async function resizeCover(src, maxW) {
+// Blob-returning resize primitive used by callers that persist derived thumbnails. Falls back to
+// the full cover when it is already small enough or on any decode error.
+export async function resizeCoverBlob(src, maxW) {
   const inBlob = await imageToBlob(src);
-  if (!inBlob || !maxW) return imageToDataUrl(inBlob);
+  if (!inBlob || !maxW) return inBlob;
+  let bitmap = null;
   try {
-    const bitmap = await createImageBitmap(inBlob);
-    if (bitmap.width <= maxW) { bitmap.close(); return imageToDataUrl(inBlob); }
+    bitmap = await createImageBitmap(inBlob);
+    if (bitmap.width <= maxW) return inBlob;
     const scale = maxW / bitmap.width;
     const canvas = new OffscreenCanvas(maxW, Math.round(bitmap.height * scale));
     canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    bitmap.close();
-    return imageToDataUrl(await canvas.convertToBlob({ type: 'image/webp', quality: 0.82 }));
-  } catch { return imageToDataUrl(inBlob); }
+    return await canvas.convertToBlob({ type: 'image/webp', quality: 0.82 });
+  } catch { return inBlob; }
+  finally { try { bitmap?.close(); } catch {} }
+}
+
+// Existing data-URL API retained for callers that do not need the persistent thumbnail cache.
+export async function resizeCover(src, maxW) {
+  return imageToDataUrl(await resizeCoverBlob(src, maxW));
 }
 
 export async function getStats() {
@@ -970,7 +1086,7 @@ const _SORT_INDEX = { updated: 'latestAt', size: 'size', count: 'count', uploadD
 
 // One page of galleries, sorted in the database via an index cursor. Memory is bounded
 // by `limit`, not by library size, and cover blobs are never loaded.
-export async function galleriesPage({ sort = 'updated', dir, offset = 0, limit = 60 } = {}) {
+export async function galleriesPage({ sort = 'updated', dir, offset = 0, limit = 60, merge = true } = {}) {
   const direction = dir === 'asc' ? 'next' : 'prev';
   const db = await openDB();
   const stats = await new Promise((resolve, reject) => {
@@ -984,9 +1100,10 @@ export async function galleriesPage({ sort = 'updated', dir, offset = 0, limit =
     req.onsuccess = (e) => {
       const cur = e.target.result;
       if (!cur) { resolve(out); return; }
-      // Child chapters never appear as a top-level row; they show only inside their series.
-      // We skip manually instead of using cur.advance because offset counts visible rows only.
-      if (cur.value.parentId) { cur.continue(); return; }
+      // Child chapters normally appear only inside their series; the unmerged view (merge:false)
+      // lists every gallery instead. We skip manually instead of cur.advance because offset counts
+      // visible rows only.
+      if (merge && cur.value.parentId) { cur.continue(); return; }
       if (skipped < offset) { skipped++; cur.continue(); return; }
       out.push(cur.value);
       if (out.length >= limit) { resolve(out); return; }
@@ -1010,17 +1127,16 @@ export async function childGalleryCount() {
   });
 }
 
-export async function galleriesCount() {
+export async function galleriesCount({ merge = true } = {}) {
   const db = await openDB();
-  const [total, children] = await Promise.all([
-    new Promise((resolve, reject) => {
-      const req = db.transaction(GALLERY_STORE, 'readonly').objectStore(GALLERY_STORE).count();
-      req.onsuccess = () => resolve(req.result);
-      req.onerror   = () => reject(req.error);
-    }),
-    childGalleryCount(),
-  ]);
-  return total - children;
+  const total = await new Promise((resolve, reject) => {
+    const req = db.transaction(GALLERY_STORE, 'readonly').objectStore(GALLERY_STORE).count();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+  // Unmerged view counts every gallery; merged view counts a series as one top-level row.
+  if (!merge) return total;
+  return total - await childGalleryCount();
 }
 
 // Gallery ids in sorted order, keys only (no records, no covers). Used by search:

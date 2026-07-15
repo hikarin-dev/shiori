@@ -63,20 +63,21 @@ function _lite(id, meta) {
 // One page of galleries. Without `match`, sorting + pagination happen in the database
 // (index cursor, O(pageSize)). With `match`, ids are sorted in the DB, filtered against
 // metadata (no covers loaded), then only the visible window is hydrated.
-export async function getPage({ sort = 'updated', dir, page = 1, pageSize = 60, match = null } = {}) {
+export async function getPage({ sort = 'updated', dir, page = 1, pageSize = 60, match = null, merge = true } = {}) {
   if (!match) {
     const offset = (page - 1) * pageSize;
     const [items, total] = await Promise.all([
-      galleries.page({ sort, dir, offset, limit: pageSize }),
-      galleries.count(),
+      galleries.page({ sort, dir, offset, limit: pageSize, merge }),
+      galleries.count({ merge }),
     ]);
     for (const e of items) _cache.set(e.id, e);
     return { items, total };
   }
 
   const [ids, metaMap] = await Promise.all([galleries.idsSorted({ sort, dir }), galleries.metaMap()]);
-  // Child chapters never surface as their own search hit; they live inside their series.
-  const matched = ids.filter(id => !metaMap.get(id)?.parentId && match(_lite(id, metaMap.get(id))));
+  // Child chapters surface as their own search hit only in the unmerged view; merged, they live
+  // inside their series.
+  const matched = ids.filter(id => (!merge || !metaMap.get(id)?.parentId) && match(_lite(id, metaMap.get(id))));
   const total = matched.length;
   const start = (page - 1) * pageSize;
   const windowIds = matched.slice(start, start + pageSize);

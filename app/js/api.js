@@ -10,8 +10,8 @@ const backend = idb;
 
 // ── Galleries / metadata ──
 export const galleries = {
-  page:      (opts)      => backend.galleriesPage(opts),     // { sort, dir, offset, limit } -> entity[]
-  count:     ()          => backend.galleriesCount(),
+  page:      (opts)      => backend.galleriesPage(opts),     // { sort, dir, offset, limit, merge } -> entity[]
+  count:     (opts)      => backend.galleriesCount(opts),
   idsSorted: (opts)      => backend.galleryIdsSorted(opts),  // { sort, dir } -> gid[] (keys only)
   metaMap:   ()          => backend.metaGetAllMap(),         // gid -> metadata (no covers) for search
   get:       (id)        => backend.getGallery(id),

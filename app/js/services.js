@@ -6,36 +6,118 @@
 // platform.jobs / the change feed.
 
 import * as platform from './platform.js';
-import { coverGet, resizeCover, deleteGallery, metaGet, metaPut } from './db.js';
+import {
+  coverThumbnailGet, coverThumbnailPut, resizeCoverBlob, imageToDataUrl,
+  deleteGallery, metaGet, metaPut,
+} from './db.js';
+import { resolveSeries } from './series.js';
 import { pingServer, revertGallery, serverUrlFromSettings } from './translate.js';
 import { request as extRequest } from './ext-bridge.js';
 import { submitJob, cancelJob } from './submit-job.js';
 
 const _seriesCoverRequested = new Set();
+const _coverWork = new Map();
+const _coverResizeWaiters = [];
+let _activeCoverResizes = 0;
+const MAX_COVER_RESIZES = 4;
+
+async function withCoverResizeSlot(task) {
+  if (_activeCoverResizes >= MAX_COVER_RESIZES) {
+    await new Promise(resolve => _coverResizeWaiters.push(resolve));
+  }
+  _activeCoverResizes++;
+  try { return await task(); }
+  finally {
+    _activeCoverResizes--;
+    _coverResizeWaiters.shift()?.();
+  }
+}
+
+function normalizedCoverWidth(value) {
+  const width = Math.round(Number(value));
+  return Number.isFinite(width) && width > 0 ? width : 0;
+}
+
+function coverWorkKey(msg) {
+  return JSON.stringify([
+    String(msg.galleryId), normalizedCoverWidth(msg.thumbWidth),
+    !!msg.preferSeries, String(msg.source || ''),
+  ]);
+}
+
+function coverRequesterKey(msg) {
+  return JSON.stringify([msg.page ?? null, msg.requester ?? null, msg.requestId ?? null]);
+}
 
 // GET_COVER is request→push: compute the thumbnail, deliver via COVER_READY. A gallery with no
 // pages yet but a known source is offered to the extension (which knows whether that source can
 // supply a cover); when it stores one, the change feed re-triggers this request.
-async function getCover(msg) {
+async function buildCover(msg) {
   const preferSeries = !!msg.preferSeries;
   const seriesCoverKey = `${msg.source || ''}:${msg.galleryId}`;
-  const [src, seriesCover] = await Promise.all([
-    coverGet(msg.galleryId, { preferSeries }),
-    preferSeries ? coverGet(msg.galleryId, { seriesOnly: true }) : Promise.resolve(null),
-  ]);
-  if (!src) {
+  const width = normalizedCoverWidth(msg.thumbWidth);
+  let entry = await coverThumbnailGet(msg.galleryId, width, { preferSeries });
+  if (!entry.source) {
     if (msg.source) extRequest({ type: 'EXT_FETCH_COVER', galleryId: msg.galleryId, source: msg.source, preferSeries });
-    return;
+    return null;
   }
-  if (preferSeries && !seriesCover && msg.source && !_seriesCoverRequested.has(seriesCoverKey)) {
+  if (preferSeries && !entry.hasSeriesCover && msg.source && !_seriesCoverRequested.has(seriesCoverKey)) {
     _seriesCoverRequested.add(seriesCoverKey);
     // One request per series per session — but an unanswered bridge (extension offline) shouldn't
     // burn the one shot, or the series stays stuck on its gallery cover until a full reload.
     extRequest({ type: 'EXT_FETCH_COVER', galleryId: msg.galleryId, source: msg.source, preferSeries })
-      .then((r) => { if (r == null) _seriesCoverRequested.delete(seriesCoverKey); });
+      .then((r) => { if (r == null) _seriesCoverRequested.delete(seriesCoverKey); },
+        () => _seriesCoverRequested.delete(seriesCoverKey));
   }
-  const coverDataUrl = await resizeCover(src, msg.thumbWidth);
-  platform.emitControl({ type: 'COVER_READY', galleryId: msg.galleryId, coverDataUrl, page: msg.page });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let thumbnail = entry.thumbnail;
+    let stored = true;
+    if (!thumbnail) {
+      thumbnail = await withCoverResizeSlot(() => resizeCoverBlob(entry.source, width));
+      if (thumbnail) {
+        stored = await coverThumbnailPut(msg.galleryId, entry.role, width, thumbnail, entry.revision);
+      }
+    }
+
+    const coverDataUrl = await imageToDataUrl(thumbnail);
+    // A series cover may land while its gallery fallback is being prepared. Recheck that fallback
+    // before emitting; a duplicate invalidation request may have joined this same in-flight work.
+    if (stored && !(preferSeries && entry.role === 'gallery')) return { coverDataUrl };
+    const latest = await coverThumbnailGet(msg.galleryId, width, { preferSeries });
+    if (latest.source && latest.role === entry.role && latest.revision === entry.revision) {
+      return { coverDataUrl };
+    }
+    if (!latest.source) return null;
+    entry = latest;
+  }
+  return null;
+}
+
+function getCover(msg) {
+  const key = coverWorkKey(msg);
+  const requesterKey = coverRequesterKey(msg);
+  const pending = _coverWork.get(key);
+  if (pending) {
+    pending.requesters.set(requesterKey, msg);
+    return;
+  }
+
+  const work = { requesters: new Map([[requesterKey, msg]]) };
+  _coverWork.set(key, work);
+  buildCover(msg).then((result) => {
+    if (!result) return;
+    for (const requester of work.requesters.values()) {
+      const ready = {
+        type: 'COVER_READY', galleryId: msg.galleryId,
+        coverDataUrl: result.coverDataUrl, page: requester.page,
+      };
+      if (requester.requester != null) ready.requester = requester.requester;
+      if (requester.requestId != null) ready.requestId = requester.requestId;
+      platform.emitControl(ready);
+    }
+  }).catch(() => {}).finally(() => {
+    if (_coverWork.get(key) === work) _coverWork.delete(key);
+  });
 }
 
 export const services = {
@@ -95,13 +177,27 @@ export const services = {
         const gid = String(msg.galleryId);
         const meta = await metaGet(gid);
         if (!meta) return { ok: false };
-        const updated = { ...meta, source: msg.source };
-        if (msg.sourceId) updated.sourceId = String(msg.sourceId);
-        if (msg.sourceUrl) updated.sourceUrl = String(msg.sourceUrl);
-        await metaPut(updated);
-        // Offer the new source to the extension for metadata enrichment; the change feed
-        // updates the card when it lands. Fire-and-forget — no extension, no enrichment.
-        if (msg.source) extRequest({ type: 'EXT_FETCH_META', galleryId: gid, source: msg.source, sourceId: msg.sourceId || null });
+
+        // Normally just this gallery. When asked, the whole series (owner + every chapter) so one
+        // link enriches all of them with the same source metadata. Each write spreads the chapter's
+        // existing meta, so series grouping (chapters / parentId) is left intact.
+        let targetIds = [gid];
+        if (msg.applyToChapters) {
+          const series = await resolveSeries(gid);
+          if (series) targetIds = series.chapters.map(c => String(c.id));
+        }
+
+        for (const id of targetIds) {
+          const m = id === gid ? meta : await metaGet(id);
+          if (!m) continue;
+          const updated = { ...m, source: msg.source };
+          if (msg.sourceId) updated.sourceId = String(msg.sourceId);
+          if (msg.sourceUrl) updated.sourceUrl = String(msg.sourceUrl);
+          await metaPut(updated);
+          // Offer the new source to the extension for metadata enrichment; the change feed
+          // updates the card when it lands. Fire-and-forget — no extension, no enrichment.
+          if (msg.source) extRequest({ type: 'EXT_FETCH_META', galleryId: id, source: msg.source, sourceId: msg.sourceId || null });
+        }
         return { ok: true, newGalleryId: gid };
       }
 

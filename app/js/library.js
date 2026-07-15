@@ -4,7 +4,7 @@
 import './boot.js';
 import { openDB, metaPut, getStats, getGalleriesByIds, galleriesCount, coverGet, sourceIconGet, sourceIconPut, sourceIconsAll, _LANG_NAME_TO_CODE } from './db.js';
 import { importBackup } from './backup.js';
-import { mergeIntoSeries } from './series.js';
+import { mergeIntoSeries, removeChapter } from './series.js';
 import { request as extRequest, available as extAvailable } from './ext-bridge.js';
 import * as store from './store.js';
 import * as platform from './platform.js';
@@ -16,6 +16,12 @@ import { formatBytes, formatCount } from './format.js';
 // Whether a series card opens straight into the reader (chapter 1) instead of the overview page.
 // Loaded from settings at boot; the card routing reads it synchronously.
 let _bypassOverview = false;
+
+// Library display (set in Settings): merge each series into one owner card (default) or show every
+// gallery — each chapter included — as its own plain card. Display-only: it changes what the grid
+// queries and how cards render, never the grouping metadata. kv is localStorage-backed, so this
+// synchronous read gets the saved value before the first page load.
+let _mergeSeries = localStorage.getItem('shiori:libMergeSeries') !== 'false';
 
 // Whether the leading card flag matching the app's current language is hidden (default: on, the
 // historical behaviour). Loaded from settings at boot; buildCardTags reads it while rendering.
@@ -405,8 +411,12 @@ function buildCard(g) {
   card.className = 'card';
   card.dataset.galleryId = g.id;
 
+  // A series owner renders (and acts) as a merged series card only while merging is on; unmerged,
+  // it is shown as its own plain chapter-1 gallery. The real g.isSeries is kept for the delete path.
+  const showAsSeries = _mergeSeries && g.isSeries;
+
   const thumbSrc = _coverCache.get(g.id) || null;
-  const hasThumb = g.isSeries ? ((g.aggPages || g.count || 0) > 0 || !!thumbSrc) : (g.count > 0 || !!thumbSrc);
+  const hasThumb = showAsSeries ? ((g.aggPages || g.count || 0) > 0 || !!thumbSrc) : (g.count > 0 || !!thumbSrc);
   // draggable="false" on the cover + link so grabbing the thumbnail starts the CARD's merge-drag
   // (below), not a native image/link drag — the native image drag exposes a 'Files' type that was
   // wrongly triggering the file-import overlay.
@@ -414,7 +424,7 @@ function buildCard(g) {
     ? `<img class="card-thumb" draggable="false"${thumbSrc ? ` src="${thumbSrc}"` : ''} alt="">`
     : `<div class="card-thumb-placeholder">📁</div>`;
 
-  const displayTitle = g.isSeries ? pickSeriesTitle(g.seriesTitle, g, getLang()) : pickTitle(g, getLang());
+  const displayTitle = showAsSeries ? pickSeriesTitle(g.seriesTitle, g, getLang()) : pickTitle(g, getLang());
   const titleHtml = displayTitle
     ? `<div class="card-title" data-original="${escHtml(displayTitle)}">${escHtml(displayTitle)}</div>`
     : '';
@@ -423,10 +433,10 @@ function buildCard(g) {
   const totalCount = g.numPages ? ` / ${formatCount(g.numPages)}` : '';
   // A series card shows the whole-series aggregate (stored on the owner) and a chapter badge; a
   // standalone gallery shows its own page count. Series open the overview unless the user bypasses.
-  const metaLine = g.isSeries
+  const metaLine = showAsSeries
     ? `${formatCount(g.aggPages)} ${t('card.pages')} · ${formatBytes(g.aggSize)}`
     : `${formatCount(cachedCount)}${totalCount} ${t('card.pages')} · ${formatBytes(g.size)}`;
-  const seriesBadge = g.isSeries ? `<span class="card-series-badge">${t('card.chapters_n', { n: formatCount(g.chapterCount) })}</span>` : '';
+  const seriesBadge = showAsSeries ? `<span class="card-series-badge">${t('card.chapters_n', { n: formatCount(g.chapterCount) })}</span>` : '';
   // Every gallery gets an overview landing page (a standalone one can gain chapters there); the
   // "skip overview" setting sends cards straight into the reader instead.
   const cardHref = _bypassOverview ? `../reader?g=${g.id}` : `../overview?g=${g.id}`;
@@ -492,8 +502,8 @@ function buildCard(g) {
       if (_shiftHeld) _delFlip.to(b, _DELETE_SVG);
     });
     b.addEventListener('click', async (e) => {
-      // Deleting a series removes every chapter (its child galleries never get their own card).
-      if (g.isSeries) {
+      // A merged series card removes every chapter (its children never get their own card).
+      if (showAsSeries) {
         if (!e.shiftKey && !confirm(t('confirm.delete_series', { n: formatCount(g.chapterCount) }))) return;
         const ids = (g.chapters || [{ id: g.id }]).map(c => c.id);
         for (const id of ids) await sendMsg({ type: 'DELETE_GALLERY', galleryId: id });
@@ -502,7 +512,14 @@ function buildCard(g) {
         return;
       }
       if (!e.shiftKey && !confirm(t('confirm.delete_gallery', { id: g.id }))) return;
-      await sendMsg({ type: 'DELETE_GALLERY', galleryId: g.id });
+      // In the unmerged view a card may still belong to a series (an owner shown plainly, or a
+      // chapter). Go through the series-aware path so removing it re-owns/detaches instead of
+      // orphaning its siblings; a true standalone falls through to a plain delete.
+      if (g.isSeries || g.parentId) {
+        await removeChapter(String(g.parentId || g.id), g.id, { deleteImages: true });
+      } else {
+        await sendMsg({ type: 'DELETE_GALLERY', galleryId: g.id });
+      }
       applyFilters();
       updateHeaderStats();
     });
@@ -555,10 +572,10 @@ function buildCard(g) {
         return;
       }
 
-      // A series downloads each of its chapters: fetch every chapter that isn't already complete
-      // (n/n pages), skipping the finished ones. If they're ALL complete, offer to re-download the
-      // whole series, overwriting every cached image. Each chapter is its own gallery-scoped job.
-      if (g.isSeries) {
+      // A merged series downloads each of its chapters: fetch every chapter that isn't already
+      // complete (n/n pages), skipping the finished ones. If they're ALL complete, offer to
+      // re-download the whole series, overwriting every cached image. Each chapter is its own job.
+      if (showAsSeries) {
         const entities = await getGalleriesByIds((g.chapters || []).map(c => c.id));
         const dlable = entities.filter(x => x && _canDownload(x));
         if (!dlable.length) return;
@@ -605,9 +622,9 @@ function buildCard(g) {
       // Mid-translation the button is a Stop control → cancel this job and bail.
       if (b.classList.contains('cancelling')) { await sendMsg({ type: 'CANCEL_TRANSLATE', galleryId: g.id }); return; }
 
-      // A series translates one chapter per press → open the chapter picker (defaults to the
+      // A merged series translates one chapter per press → open the chapter picker (defaults to the
       // lowest untranslated chapter). Each chapter is its own gallery-scoped translate job.
-      if (g.isSeries) { openSeriesTranslateModal(g); return; }
+      if (showAsSeries) { openSeriesTranslateModal(g); return; }
 
       const btns = card.querySelectorAll('.card-btn-translate');
       if ([...btns].some(x => x.disabled)) return;
@@ -672,6 +689,12 @@ function buildCard(g) {
 
       const parsed = await parseSourceInput(input);
 
+      // A series owner shown as a merged card: offer to stamp the source link + its fetched metadata
+      // onto every chapter, not just chapter 1. Declining keeps the source on the owner alone. In
+      // the unmerged view the owner is treated as a single gallery, so no series-wide prompt.
+      const applyToChapters = showAsSeries
+        && confirm(t('confirm.source_all_chapters', { n: g.chapters?.length || g.chapterCount || 0 }));
+
       // Register before the await so any reload that fires during the round-trip
       // knows this source change is in flight and uses this value, not stale DB.
       _pendingSourceChanges.set(g.id, parsed);
@@ -680,6 +703,7 @@ function buildCard(g) {
         type: 'SET_SOURCE', galleryId: g.id, source: parsed.source,
         ...(parsed.sourceId ? { sourceId: parsed.sourceId } : {}),
         ...(parsed.sourceUrl ? { sourceUrl: parsed.sourceUrl } : {}),
+        ...(applyToChapters ? { applyToChapters: true } : {}),
       });
       if (!resp?.ok) { _pendingSourceChanges.delete(g.id); return; }
 
@@ -862,8 +886,9 @@ function fetchPageCovers(pageSlice) {
     if (_coverCache.has(g.id)) continue;
     // An empty gallery's cover comes from the source site — only possible via the extension.
     // A series may hold a stored cover even when its owner chapter has no pages of its own.
-    if (g.count > 0 || (g.isSeries && (g.aggPages || 0) > 0) || (g.count === 0 && _canDownload(g))) {
-      sendMsg({ type: 'GET_COVER', galleryId: g.id, source: g.source, thumbWidth: _thumbWidth, page: 'library', preferSeries: !!g.isSeries });
+    const showAsSeries = _mergeSeries && g.isSeries;
+    if (g.count > 0 || (showAsSeries && (g.aggPages || 0) > 0) || (g.count === 0 && _canDownload(g))) {
+      sendMsg({ type: 'GET_COVER', galleryId: g.id, source: g.source, thumbWidth: _thumbWidth, page: 'library', preferSeries: showAsSeries });
     }
   }
 }
@@ -874,7 +899,7 @@ platform.onControl((msg) => {
   if (msg.type === 'COVER_INVALIDATED') {
     _coverCache.delete(msg.galleryId);
     const gEntry = _pageItems.find(g => g.id === msg.galleryId);
-    if (gEntry) sendMsg({ type: 'GET_COVER', galleryId: msg.galleryId, source: gEntry.source, thumbWidth: _thumbWidth, page: 'library', preferSeries: !!gEntry.isSeries });
+    if (gEntry) sendMsg({ type: 'GET_COVER', galleryId: msg.galleryId, source: gEntry.source, thumbWidth: _thumbWidth, page: 'library', preferSeries: _mergeSeries && !!gEntry.isSeries });
     return;
   }
   if (msg.type === 'COVER_READY') {
@@ -1150,7 +1175,7 @@ async function applyFilters() {
   const { typed, plain } = parseSearch(raw);
   const match = (typed.length || plain.length) ? (g) => _matchEntity(g, typed, plain) : null;
 
-  const { items, total } = await store.getPage({ sort, page: currentPage, pageSize: PAGE_SIZE, match });
+  const { items, total } = await store.getPage({ sort, page: currentPage, pageSize: PAGE_SIZE, match, merge: _mergeSeries });
   if (seq !== _loadSeq) return; // a newer search/sort/page load superseded this one
   _total = total;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -1234,8 +1259,9 @@ function _pageNumbers(current, total) {
 }
 
 async function updateHeaderStats() {
-  const [stats, topLevel] = await Promise.all([getStats(), galleriesCount()]);
-  // A series counts as one gallery here; image/storage totals still include every chapter's pages.
+  const [stats, topLevel] = await Promise.all([getStats(), galleriesCount({ merge: _mergeSeries })]);
+  // Merged, a series counts as one gallery here; unmerged, every chapter is counted. Image/storage
+  // totals always include every chapter's pages.
   document.getElementById('hTotalGalleries').textContent = formatCount(topLevel);
   document.getElementById('hTotalImages').textContent    = formatCount(stats.totalImages);
   document.getElementById('hTotalSize').textContent      = formatBytes(stats.totalSize);
@@ -1248,7 +1274,10 @@ async function updateHeaderStats() {
 
 // Full (re)load of the library view — the current page plus the aggregate header stats.
 async function loadAll() {
-  await Promise.all([applyFilters(), updateHeaderStats()]);
+  // Paint the bounded card window first. Aggregate totals scan the gallery stat records and can
+  // otherwise compete with the visible-page cursor on a large library.
+  await applyFilters();
+  updateHeaderStats().catch(() => {});
   await hydrateJobs();
 }
 
@@ -1867,6 +1896,19 @@ searchClear.addEventListener('click', () => {
   searchBox.focus();
 });
 document.getElementById('sortSelect').addEventListener('change', () => { currentPage = 1; applyFilters(); });
+
+// The series merge/unmerge display preference lives in Settings (kv-backed → localStorage). React
+// live when it changes in another tab (or the Settings page): re-query and re-render the grid.
+// Display-only; it never touches grouping metadata.
+window.addEventListener('storage', (e) => {
+  if (e.key !== 'shiori:libMergeSeries') return;
+  const next = e.newValue !== 'false';
+  if (next === _mergeSeries) return;
+  _mergeSeries = next;
+  currentPage = 1;
+  applyFilters();
+  updateHeaderStats();
+});
 
 // Append a search token, re-filter, and only steal focus to the search box if it was already
 // active (so a hovered card stays expanded). Shared by tag clicks and the flag chip.

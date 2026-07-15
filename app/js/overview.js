@@ -3,7 +3,7 @@
 // chapter from an existing gallery (autocomplete) or by dropping a file, and jump into any chapter.
 
 import './boot.js';
-import { getGallery, coverGet, metaGet } from './db.js';
+import { getGallery, coverGet, metaGet, dbGet, imageToBlob, listGalleryPageKeys } from './db.js';
 import * as store from './store.js';
 import * as platform from './platform.js';
 import { request as extRequest, available as extAvailable } from './ext-bridge.js';
@@ -57,6 +57,7 @@ let _extAvailable = false;
 let _sitesRefreshed = false;
 const _liveChapterJobs = new Map();
 const _chapterJobClearTimers = new Map();
+const _chapterRowEntities = new WeakMap();
 const _extLoadAt = Date.now();
 
 const $ = (id) => document.getElementById(id);
@@ -219,6 +220,207 @@ function invalidateCover(gid) {
   }
 }
 
+// ── Page-grid thumbnails ──
+// The overview can show every page as a grid tile (a standalone gallery inline, a series' chapters
+// under an accordion). Tiles are listed from cheap page keys — no image blobs held — and each one
+// only decodes when it nears the viewport: the full page is read by url, resized to a small target
+// via createImageBitmap + stepped canvas halving (mirrors the reader's technique to avoid aliasing),
+// then JPEG-encoded to a ~10 KB blob. As in the reader strip, mounting and unloading use different
+// distance bands: a tile stays painted well after leaving the load band, so reversing direction
+// cannot expose an unload/reload cycle. The encoded-thumbnail LRU is trimmed only from unmounted
+// tiles, which keeps memory bounded without ever blanking something on screen.
+const PAGE_THUMB_W   = 132;   // target thumb width (px, pre-DPR) — covers the widest tile
+const PAGE_GEN_MAX   = 2;     // keep full-page decode work from competing with first paint
+const PAGE_CACHE_MAX = 1024;  // encoded thumbs are small; retain a long gallery across a round trip
+const PAGE_MOUNT_MARGIN  = 900;
+const PAGE_UNMOUNT_MARGIN = 5400;
+const _pageThumbCache = new Map();   // page url → small blob: URL (Map order = LRU order)
+const _pageThumbImg   = new Map();   // page url → current <img>
+const _pageGenQueue    = [];         // <img> awaiting generation
+const _pageThumbNear   = new Set();   // tiles inside the load band
+let   _pageGenActive   = 0;
+
+const _pageMountObserver = new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    if (e.isIntersecting) {
+      _pageThumbNear.add(e.target);
+      _enqueuePageThumb(e.target);
+    } else {
+      _pageThumbNear.delete(e.target);
+    }
+  }
+}, { rootMargin: `${PAGE_MOUNT_MARGIN}px 0px` });
+
+const _pageUnmountObserver = new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    if (e.isIntersecting) continue;
+    const img = e.target;
+    img.removeAttribute('src');
+    delete img.dataset.ready;
+    _trimPageCache();
+  }
+}, { rootMargin: `${PAGE_UNMOUNT_MARGIN}px 0px` });
+
+function _pageCacheGet(url) {
+  const u = _pageThumbCache.get(url);
+  if (!u) return '';
+  _pageThumbCache.delete(url); _pageThumbCache.set(url, u);   // touch → most-recent
+  return u;
+}
+function _pageCacheSet(url, blobUrl) {
+  const existing = _pageThumbCache.get(url);
+  if (existing) {
+    _pageThumbCache.delete(url); _pageThumbCache.set(url, existing);
+    if (existing !== blobUrl) { try { URL.revokeObjectURL(blobUrl); } catch {} }
+    return existing;
+  }
+  _pageThumbCache.set(url, blobUrl);
+  return blobUrl;
+}
+function _trimPageCache() {
+  while (_pageThumbCache.size > PAGE_CACHE_MAX) {
+    const evictable = [..._pageThumbCache].find(([oldUrl, oldBlob]) => {
+      const img = _pageThumbImg.get(oldUrl);
+      return !img || (!img.dataset.queued && img.getAttribute('src') !== oldBlob);
+    });
+    // The live window may briefly exceed the cache target on an unusually dense/tall viewport.
+    // Keep those images intact; leaving the wider unload band will make them evictable.
+    if (!evictable) break;
+    const [oldUrl, oldBlob] = evictable;
+    _pageThumbCache.delete(oldUrl);
+    try { URL.revokeObjectURL(oldBlob); } catch {}
+  }
+}
+// Stop tracking a subtree's page tiles before it is removed from the DOM (partial row refresh),
+// so the observer and img map don't retain detached nodes.
+function releasePageTiles(root) {
+  root.querySelectorAll('.ov-page img[data-page-url]').forEach(img => {
+    _pageMountObserver.unobserve(img);
+    _pageUnmountObserver.unobserve(img);
+    _pageThumbNear.delete(img);
+    if (_pageThumbImg.get(img.dataset.pageUrl) === img) _pageThumbImg.delete(img.dataset.pageUrl);
+  });
+}
+
+function _enqueuePageThumb(img) {
+  if (img.dataset.ready || img.dataset.queued) return;
+  img.dataset.queued = '1';
+  _pageGenQueue.push(img);
+  _drainPageQueue();
+}
+
+function _pageViewportDistance(img) {
+  const rect = img.parentElement?.getBoundingClientRect();
+  if (!rect) return Infinity;
+  if (rect.bottom < 0) return -rect.bottom;
+  if (rect.top > innerHeight) return rect.top - innerHeight;
+  return 0;
+}
+
+// Intersection callbacks can leave older, off-screen work in the queue after a fast scroll. Pick
+// the tile nearest the viewport each time a decoder frees up, matching the reader's load ordering.
+function _takeNearestPageThumb() {
+  let best = 0;
+  for (let i = 1; i < _pageGenQueue.length; i++) {
+    if (_pageViewportDistance(_pageGenQueue[i]) < _pageViewportDistance(_pageGenQueue[best])) best = i;
+  }
+  return _pageGenQueue.splice(best, 1)[0];
+}
+
+function _drainPageQueue() {
+  while (_pageGenActive < PAGE_GEN_MAX && _pageGenQueue.length) _processPageQueue();
+}
+
+async function _attachPageThumb(img, blobUrl, url) {
+  const pre = new Image();
+  pre.src = blobUrl;
+  try { await pre.decode(); } catch { return false; }
+  if (!img.isConnected || !_pageThumbNear.has(img) || img.dataset.pageUrl !== url) return true;
+  img.src = blobUrl;
+  img.dataset.ready = '1';
+  return true;
+}
+
+async function _processPageQueue() {
+  if (_pageGenActive >= PAGE_GEN_MAX || !_pageGenQueue.length) return;
+  _pageGenActive++;
+  const img = _takeNearestPageThumb();
+  let retry = false;
+  try {
+    if (!img.isConnected || !_pageThumbNear.has(img)) return;
+    const url = img.dataset.pageUrl;
+    let blobUrl = _pageCacheGet(url);
+    if (!blobUrl) {
+      blobUrl = await _pageThumbBlob(url);
+      if (!blobUrl) return;
+      blobUrl = _pageCacheSet(url, blobUrl);
+    }
+    if (!await _attachPageThumb(img, blobUrl, url)) {
+      if (_pageThumbCache.get(url) === blobUrl) _pageThumbCache.delete(url);
+      try { URL.revokeObjectURL(blobUrl); } catch {}
+      retry = true;
+    }
+    _trimPageCache();
+  } catch {} finally {
+    delete img.dataset.queued;
+    _pageGenActive--;
+    _drainPageQueue();
+    if (retry && img.isConnected && _pageThumbNear.has(img)) setTimeout(() => _enqueuePageThumb(img));
+  }
+}
+
+async function _pageThumbBlob(url) {
+  const rec = await dbGet(url).catch(() => null);
+  const fullBlob = await imageToBlob(rec?.blob ?? rec?.dataUrl);
+  if (!fullBlob) return '';
+  const targetW = Math.round(PAGE_THUMB_W * Math.min(2, window.devicePixelRatio || 1));
+  // Decode at 2× target so the first canvas step is a clean 2× reduction, then halve until at
+  // target — each step is bilinear over a 2× range, avoiding large→small single-pass aliasing.
+  const bitmap = await createImageBitmap(fullBlob, { resizeWidth: targetW * 2, resizeQuality: 'high' });
+  let w = bitmap.width, h = bitmap.height;
+  let canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  canvas.getContext('2d').drawImage(bitmap, 0, 0);
+  bitmap.close();
+  while (w > targetW) {
+    w = Math.max(targetW, Math.ceil(w / 2));
+    h = Math.ceil(h / 2);
+    const step = document.createElement('canvas');
+    step.width = w; step.height = h;
+    step.getContext('2d').drawImage(canvas, 0, 0, w, h);
+    canvas = step;
+  }
+  const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.86));
+  return blob ? URL.createObjectURL(blob) : '';
+}
+
+// Fill a container with one tile per cached page of a gallery. Tiles carry only a page url and a
+// reader link; images fill in lazily as they scroll into view. Idempotent per container.
+async function buildPageGrid(container, gid) {
+  if (!container || container.dataset.built) return;
+  container.dataset.built = '1';
+  const keys = await listGalleryPageKeys(gid);
+  if (!keys.length) { container.innerHTML = `<div class="ov-pages-empty">${esc(t('ov.no_pages'))}</div>`; return; }
+  const frag = document.createDocumentFragment();
+  for (const { pageNum, url } of keys) {
+    const a = document.createElement('a');
+    a.className = 'ov-page';
+    a.href = `${readerHref(gid)}&page=${pageNum}`;
+    a.draggable = false;
+    const img = document.createElement('img');
+    img.alt = ''; img.decoding = 'async'; img.dataset.pageUrl = url;
+    _pageThumbImg.set(url, img);
+    const num = document.createElement('span');
+    num.className = 'ov-page-num';
+    num.textContent = pageNum;
+    a.append(img, num);
+    frag.appendChild(a);
+    _pageMountObserver.observe(img);
+    _pageUnmountObserver.observe(img);
+  }
+  container.appendChild(frag);
+}
+
 // Drop a cover into an A4-ratio thumbnail box, matching the library card: a portrait image fills
 // the box (cover), a landscape one is contained so it isn't cropped. `container` is the fixed-ratio
 // wrapper; the .landscape class flips object-fit once the image's dimensions are known.
@@ -292,6 +494,9 @@ async function render() {
       <div class="add-hint">${esc(t('ov.add_hint'))}</div>
     </div>`;
 
+  // Keep encoded thumbnails across a DOM rebuild, as the reader does when rebuilding its strip.
+  // Detach the old tiles from visibility tracking, then let the new tiles reuse the warm LRU.
+  releasePageTiles(content);
   content.innerHTML = `
     <div class="series-head">
       <a class="series-cover" id="seriesCover" href="${startHref}" draggable="false"><div class="ph">📚</div></a>
@@ -306,16 +511,18 @@ async function render() {
         </div>
       </div>
     </div>
-    ${isSeries ? '<div class="ch-list" id="chList"></div>' : ''}
+    ${isSeries ? '<div class="ch-list" id="chList"></div>' : '<div class="ov-pages" id="ovPages"></div>'}
     ${addBar}`;
   content.classList.toggle('ov-editing', editMode);
 
-  setThumb($('seriesCover'), await coverUrl(ownerId, { preferSeries: isSeries }));
-
+  const coverPromise = coverUrl(ownerId, { preferSeries: isSeries });
   if (isSeries) {
     const list = $('chList');
     for (let i = 0; i < chapters.length; i++) list.appendChild(await chapterRow(chapters[i], i, chapters.length));
+  } else {
+    await buildPageGrid($('ovPages'), ownerId);
   }
+  setThumb($('seriesCover'), await coverPromise);
   // Edit the owner title variant for the current app language; other languages are preserved. A
   // series saves its seriesTitle, a standalone gallery saves its own title.
   const ownerInput = $('seriesTitle') || $('galleryTitle');
@@ -340,6 +547,12 @@ function applyEditMode(root = document) {
   const fullPage = root === document;
   const content = $('ovContent');
   if (fullPage && content) content.classList.toggle('ov-editing', editMode);
+  // Edit mode hides the per-row expand toggle, so collapse any open page grids with it.
+  if (editMode) root.querySelectorAll('.ch-row.expanded').forEach(r => {
+    r.classList.remove('expanded');
+    const b = r.querySelector('[data-expand]');
+    if (b) { b.setAttribute('aria-expanded', 'false'); b.dataset.tip = t('ov.show_pages'); }
+  });
   root.querySelectorAll('.series-title-input').forEach(input => {
     const isOwner = input.id === 'seriesTitle' || input.id === 'galleryTitle';
     const editable = editMode && isOwner;
@@ -413,6 +626,7 @@ async function chapterRow(ch, idx, total) {
   row.className = 'ch-row' + (ch.entity ? '' : ' missing');
   row.dataset.chapterId = String(ch.id);
   const e = ch.entity;
+  if (e) _chapterRowEntities.set(row, e);
   const title = pickTitle(e, getLang()) || '';
   const href = readerHref(ch.id);
   const displayTitle = ch.title || title || t('ov.chapter_n', { n: idx + 1 });
@@ -448,18 +662,27 @@ async function chapterRow(ch, idx, total) {
       <button class="ch-ibtn danger" data-remove data-tip="${esc(t('card.tip_delete'))}" data-tip-shift="${esc(t('card.tip_quickdelete'))}"><span class="ch-del-inner">${ICON.remove}</span></button>
     </div>`;
 
+  // Expand/collapse toggle — reveals this chapter's pages as an accordion grid. Shown only outside
+  // edit mode (CSS), where it takes the slot the action buttons occupy while editing.
+  const expandBtn = e
+    ? `<button class="ch-ibtn ch-expand" data-expand aria-expanded="false" data-tip="${esc(t('ov.show_pages'))}">${ICON.down}</button>`
+    : '';
   row.innerHTML = `
-    <div class="ch-num">${idx + 1}</div>
-    ${thumbControl}
-    <div class="ch-main">
-      ${titleControl}
-      <div class="ch-meta"><span>#${esc(e?.sourceId || ch.id)}</span><span>${esc(pageStr)}</span>${translated}</div>
-      <div class="ch-progress">
-        <div class="ch-prog-track"><div class="ch-prog-fill"></div></div>
-        <span class="ch-prog-label"></span>
+    <div class="ch-head">
+      <div class="ch-num">${idx + 1}</div>
+      ${thumbControl}
+      <div class="ch-main">
+        ${titleControl}
+        <div class="ch-meta"><span>#${esc(e?.sourceId || ch.id)}</span><span>${esc(pageStr)}</span>${translated}</div>
+        <div class="ch-progress">
+          <div class="ch-prog-track"><div class="ch-prog-fill"></div></div>
+          <span class="ch-prog-label"></span>
+        </div>
       </div>
+      ${actions}
+      ${expandBtn}
     </div>
-    ${actions}`;
+    <div class="ch-pages"></div>`;
 
   if (e) setThumb(row.querySelector('.ch-thumb'), await coverUrl(ch.id));
 
@@ -495,8 +718,53 @@ async function chapterRow(ch, idx, total) {
     remove.addEventListener('mouseleave', () => { if (_shiftHeld) _delFlip.to(remove, ICON.remove); _hoveredDelBtn = null; });
     remove.addEventListener('click', (ev) => deleteChapter(ch, { prompt: !ev.shiftKey }));
   }
+  const expand = row.querySelector('[data-expand]');
+  if (expand) expand.addEventListener('click', () => toggleChapterPages(row, ch.id, expand));
   if (liveJob) paintChapterJob(row, liveJob);
   return row;
+}
+
+// Availability can resolve while a large chapter list is still being built. Reconcile only the
+// affected controls after that first render so every row reflects the same result without paying
+// for another round of metadata and cover reads.
+function refreshDownloadControls() {
+  for (const row of document.querySelectorAll('.ch-row[data-chapter-id]')) {
+    const entity = _chapterRowEntities.get(row);
+    const btn = row.querySelector('[data-download]');
+    if (!entity || !btn) continue;
+
+    const canDownload = _canDownload(entity);
+    const wasShiftTarget = _hoveredShiftEl === btn;
+    if (wasShiftTarget) {
+      _restoreShiftTip();
+      _hoveredShiftEl = null;
+    }
+
+    btn.dataset.tip = canDownload
+      ? (entity.numPages ? t('card.tip_dl', { n: formatCount(entity.numPages) }) : t('card.tip_dl_meta'))
+      : t('card.tip_replace');
+    if (canDownload) btn.dataset.tipShift = t('card.tip_replace');
+    else delete btn.dataset.tipShift;
+
+    const shifted = canDownload && _shiftHeld && _hoveredDlBtn === btn && !btn.disabled;
+    if (shifted) {
+      _hoveredShiftEl = btn;
+      btn.dataset.tipOrig = btn.dataset.tip;
+      btn.dataset.tip = btn.dataset.tipShift;
+    }
+    if (btn.querySelector('.ch-dl-inner')) _dlFlip.snap(btn, shifted || !canDownload ? ICON.upload : ICON.download);
+  }
+  refreshTooltip();
+}
+
+// Accordion: reveal/hide a chapter's page grid. Pages are built on first open (then kept, so
+// re-opening is instant); thumbnails still fill in lazily as they scroll into view.
+async function toggleChapterPages(row, gid, btn) {
+  const open = row.classList.toggle('expanded');
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  btn.dataset.tip = t(open ? 'ov.hide_pages' : 'ov.show_pages');
+  refreshTooltip();
+  if (open) await buildPageGrid(row.querySelector('.ch-pages'), gid);
 }
 
 function setTranslateButtonBusy(btn, busy) {
@@ -757,6 +1025,7 @@ async function refreshChangedChapter(gid, { rowOnly = false } = {}) {
 
   const oldRow = findChapterRow(gid);
   if (!oldRow || !chapters[idx]) { if (!rowOnly) await render(); return; }
+  releasePageTiles(oldRow);   // detach the outgoing row's tiles from the observer/img map
   const nextRow = await chapterRow(chapters[idx], idx, chapters.length);
   oldRow.replaceWith(nextRow);
   applyEditMode(nextRow);
@@ -945,6 +1214,10 @@ platform.jobs.subscribe(applyChapterJob);
   applyTranslations(document);
   const g = params.get('g');
   if (!g) { $('ovContent').innerHTML = `<div class="ov-empty">${esc(t('ov.not_found'))}</div>`; return; }
+  // These round trips are independent of local content. Start them immediately, but do not hold
+  // the first render behind their timeouts.
+  const availabilityProbe = updateExtStatus().catch(() => false);
+  updateTranslatorStatus();
   const series = await resolveSeries(g);
   ownerId = series ? series.ownerId : g;
   const jobs = await platform.jobs.current();
@@ -957,9 +1230,9 @@ platform.jobs.subscribe(applyChapterJob);
     } else hydratedJobs.push(job);
   }
   for (const job of hydratedJobs) _liveChapterJobs.set(String(job.gid), job);
-  await Promise.all([updateExtStatus(), updateTranslatorStatus()]);
   await render();
   for (const job of hydratedJobs) applyChapterJob(job);
+  availabilityProbe.then(changed => { if (changed) refreshDownloadControls(); });
 })();
 
 function updateTranslatorStatus() {
