@@ -129,6 +129,18 @@
         <div class="field-desc" data-i18n="set.ch_divider_desc">Mark where each chapter ends.</div>
         <label class="switch-control" for="readerChapterDivider"><input type="checkbox" id="readerChapterDivider" data-i18n-aria="set.ch_divider"><span class="switch-track" aria-hidden="true"></span></label>
       </div>
+      <div class="field">
+        <div class="field-label" data-i18n="set.tr_display">Translation display</div>
+        <div class="field-desc" data-i18n="set.tr_display_desc">How translated pages are drawn.</div>
+        <select class="choice-source" id="readerTranslateDisplay" tabindex="-1" aria-hidden="true">
+          <option value="image">Image</option>
+          <option value="text">Text</option>
+        </select>
+        <div class="choice-toggle" data-choice-for="readerTranslateDisplay">
+          <button type="button" data-value="image" data-i18n="set.image">Image</button>
+          <button type="button" data-value="text" data-i18n="set.text">Text</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -439,6 +451,7 @@
             <option value="dbconvnext">DBConvNext</option>
             <option value="paddle">Paddle</option>
             <option value="craft">CRAFT (not for manga)</option>
+            <option value="oneocr">OneOCR (detects + reads text)</option>
             <option value="none">None</option>
           </select>
         </div>
@@ -464,8 +477,12 @@
             <option value="48px_ctc">48px CTC</option>
             <option value="32px">32px</option>
             <option value="mocr">manga-ocr (accurate, slower)</option>
+            <option value="mocr_fast">manga-ocr (fast)</option>
+            <option value="oneocr">OneOCR (system engine)</option>
           </select>
         </div>
+        <div class="tcfg-field tcfg-check"><label><input type="checkbox" id="cfgEstFontColor"> <span data-i18n="tm.est_font_color">Text color from image (uniform per page)</span></label></div>
+        <div class="tcfg-field tcfg-check"><label><input type="checkbox" id="cfgEstOutlineColor"> <span data-i18n="tm.est_outline_color">Outline color from image (uniform per page)</span></label></div>
 
         <div class="tcfg-h" data-i18n="tm.inpaint">Inpainting &amp; text removal</div>
         <div class="tcfg-field">

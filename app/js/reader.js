@@ -46,6 +46,7 @@ let currentPage = 1;
 let mode        = 'strip'; // 'single' | 'double' | 'strip'
 let thumbsOpen    = false;
 let translateView = false; // show stored translated variants when true
+let translateDisplay = 'image'; // translate view: 'image' (rendered page) | 'text' (Settings → Reader)
 let lastPageMode  = 'single';
 let _pageZoom     = 1;     // +/- page scale factor
 let readerFitMode = 'off'; // 'off' | 'width' | 'height' for persistent page-mode fit classes
@@ -87,7 +88,14 @@ const _pageLayerUrls = new Map();      // page url → { bgUrl, textUrls:[] } ob
 // Keys include the variant (original vs translated), so an in-range view switch can swap in place.
 const _pageUrlCache = new Map();   // variantKey → blob: URL ('' when the record is missing)
 const _showTranslated = () => translateView && !studyMode;   // study mode forces the clean original
-const _variantKey = (page) => page?.url ? (_showTranslated() ? 't:' : 'o:') + page.url : '';
+// Translate-as-text (Settings → Reader): instead of the server's typeset page, show the inpainted
+// bg — the same text-removed layer study mode reveals per bubble — with the translations above it
+// as DOM text. It needs a page whose translation kept that layer; one without it stays original.
+const _translateAsText = () => _showTranslated() && translateDisplay === 'text';
+// Bubble overlays back two displays: study mode's revealable bubbles, and translate-as-text's
+// translations over the inpainted page.
+const _bubbleLayersOn = () => studyMode || _translateAsText();
+const _variantKey = (page) => page?.url ? (_translateAsText() ? 'b:' : _showTranslated() ? 't:' : 'o:') + page.url : '';
 let _readerDb = null;
 let _stripGen  = 0; // bumped on every buildStrip call to cancel stale loads
 
@@ -132,6 +140,15 @@ function _loadStudy() {
   return _studyLoadPromise;
 }
 
+// The stored bytes the current variant asks for. A page missing that layer — no inpainted bg, no
+// rendered translation — falls back to its untouched original rather than showing nothing.
+function _variantSrc(record) {
+  const original = record.blob ?? record.dataUrl;
+  if (_translateAsText()) return record.studyBg ?? original;
+  if (_showTranslated()) return record.translated ?? original;
+  return original;
+}
+
 async function pageBlobUrl(page) {
   if (!page?.cached || !page.url) return '';
   const key = _variantKey(page);
@@ -143,7 +160,7 @@ async function pageBlobUrl(page) {
     req.onsuccess = () => resolve(req.result || null);
     req.onerror   = () => reject(req.error);
   }).catch(() => null);
-  const src = record ? ((_showTranslated() && record.translated) ? record.translated : (record.blob ?? record.dataUrl)) : null;
+  const src = record ? _variantSrc(record) : null;
   const blob = await imageToBlob(src);
   const url = blob ? URL.createObjectURL(blob) : '';
   if (_pageUrlCache.has(key)) {                // a concurrent load won the race — reuse its URL
@@ -531,12 +548,17 @@ async function init() {
     return;
   }
 
-  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerFitMode', 'readerFitMaxWidth', 'readerDirection', 'readerPageGap', 'readerProgressPosition', 'readerView', 'readerStudyDisplay', 'readerStudyOriginal', 'readerStudySrcFont', 'readerFurigana', 'readerChapterDivider', 'readerStripMode']);
+  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerFitMode', 'readerFitMaxWidth', 'readerDirection', 'readerPageGap', 'readerProgressPosition', 'readerView', 'readerTranslateDisplay', 'readerStudyDisplay', 'readerStudyOriginal', 'readerStudySrcFont', 'readerFurigana', 'readerChapterDivider', 'readerStripMode']);
 
-  // A saved study view needs its layers before the first paint. Every other view can render its
-  // first page before the full-library scan runs during idle time.
+  // A saved study view needs its layers before the first paint, and so does a translate view that
+  // draws its text from them — otherwise the inpainted page would paint with empty bubbles until
+  // the scan lands. Every other view can render its first page before the full-library scan runs
+  // during idle time.
   _translateAvailable = _chapters.some(ch => !!ch.meta?.translated);
-  if (saved.readerView === 'study') await _loadStudy();
+  if (saved.readerTranslateDisplay === 'text') translateDisplay = 'text';
+  const initTranslate = saved.readerView === 'translate' || (!saved.readerView && _translateAvailable);
+  const studyFirst = saved.readerView === 'study' || (initTranslate && translateDisplay === 'text');
+  if (studyFirst) await _loadStudy();
   _syncStudyAvailability();
   if (saved.readerStudyDisplay === 'text') studyDisplay = 'text';
   if (saved.readerStudyOriginal === 'text') studyOriginal = 'text';
@@ -578,9 +600,9 @@ async function init() {
   goTo(currentPage, true);
   if (mode === 'strip') requestAnimationFrame(_scrollStripToCurrent);
   _updateViewToggle();
-  if (studyMode) _refreshBubbleLayers();
+  if (_bubbleLayersOn()) _refreshBubbleLayers();
   _recomputeFold();  // the title is set now — (re)measure the fold breakpoint for the new title
-  if (saved.readerView !== 'study') _scheduleStudyLoad();
+  if (!studyFirst) _scheduleStudyLoad();
   // Defer restoring thumbnail-open state — its eager IDB reads otherwise fight the strip's
   // own loader for IDB bandwidth, delaying the first visible page by several seconds.
   if (saved.readerThumbsOpen) setTimeout(() => setThumbsOpen(true), 1500);
@@ -631,7 +653,7 @@ function _handlePageStored(event) {
   ch.missing = Math.max(0, ch.missing - 1);
   _pageIdxByUrl.set(url, pageIdx);
   if (_chapters[_curChIdx] === ch) scrubSegments.children[pageNum - 1]?.classList.add('cached');
-  for (const prefix of ['o:', 't:']) {
+  for (const prefix of ['o:', 't:', 'b:']) {
     const old = _pageUrlCache.get(prefix + url);
     if (old) { try { URL.revokeObjectURL(old); } catch {} }
     _pageUrlCache.delete(prefix + url);
@@ -909,7 +931,7 @@ async function goTo(n, skipDivider = false) {
       await _waitForImgLayout([mainImg]);
       if (currentPage !== n || mode !== 'single') return;
       _scrollPageModeToStart();
-      if (studyMode) _refreshBubbleLayers();
+      if (_bubbleLayersOn()) _refreshBubbleLayers();
     } else if (mode === 'double') {
       const lPage = pages[n - 1];
       const rPage = _rightPageForSpread(n);
@@ -934,7 +956,7 @@ async function goTo(n, skipDivider = false) {
       await _waitForImgLayout(visibleImgs);
       if (currentPage !== n || mode !== 'double') return;
       _scrollPageModeToStart();
-      if (studyMode) _refreshBubbleLayers();
+      if (_bubbleLayersOn()) _refreshBubbleLayers();
     }
   } finally {
     _finishPageNav(nav);
@@ -1693,7 +1715,7 @@ function _stripScope() {
 // the unmount band and the page-mode warm window, so nothing on screen can lose its URL.
 function _evictFarUrls(centerIdx) {
   for (const [key, url] of _pageUrlCache) {
-    const idx = _pageIdxByUrl.get(key.slice(2));   // strip the 'o:'/'t:' variant prefix
+    const idx = _pageIdxByUrl.get(key.slice(2));   // strip the variant prefix
     if (idx === undefined || Math.abs(idx - centerIdx) <= URL_EVICT_BEYOND) continue;
     if (url) { try { URL.revokeObjectURL(url); } catch {} }
     _pageUrlCache.delete(key);
@@ -1714,7 +1736,7 @@ async function _mountOne(idx, gen, swap) {
   if (img.dataset.vk === vk && img.getAttribute('src') === url) {
     _mountedIdx.add(idx);
     const wrap = _stripWraps[idx];
-    if (studyMode && wrap && !wrap.querySelector(':scope > .bubble-layer')) _renderBubbleLayer(wrap, _viewBase + idx + 1);
+    if (_bubbleLayersOn() && wrap && !wrap.querySelector(':scope > .bubble-layer')) _renderBubbleLayer(wrap, _viewBase + idx + 1);
     return;
   }
   const near = Math.abs(idx + 1 - (currentPage - _viewBase)) <= DECODE_AHEAD;
@@ -1727,7 +1749,7 @@ async function _mountOne(idx, gen, swap) {
   img.dataset.vk = vk;
   _mountedIdx.add(idx);
   const wrap = _stripWraps[idx];
-  if (studyMode && wrap && !wrap.querySelector(':scope > .bubble-layer')) _renderBubbleLayer(wrap, _viewBase + idx + 1);
+  if (_bubbleLayersOn() && wrap && !wrap.querySelector(':scope > .bubble-layer')) _renderBubbleLayer(wrap, _viewBase + idx + 1);
   if (near) { try { await img.decode(); } catch {} }
 }
 
@@ -1763,7 +1785,7 @@ function _syncStripWindow(swap = false) {
       // Already mounted: re-warm the decode cache near the viewport (no-op when still resident).
       if (Math.abs(i + 1 - center) <= DECODE_AHEAD) img.decode().catch(() => {});
       const wrap = _stripWraps[i];
-      if (studyMode && wrap && !wrap.querySelector(':scope > .bubble-layer')) _renderBubbleLayer(wrap, _viewBase + i + 1);
+      if (_bubbleLayersOn() && wrap && !wrap.querySelector(':scope > .bubble-layer')) _renderBubbleLayer(wrap, _viewBase + i + 1);
       continue;
     }
     pending.push(i);
@@ -1887,7 +1909,7 @@ function buildStrip() {
 
   _lastSyncCenter = Infinity;
   _syncStripWindow();
-  if (studyMode) _refreshBubbleLayers();
+  if (_bubbleLayersOn()) _refreshBubbleLayers();
 }
 
 // ── Mode switching ──
@@ -2437,13 +2459,13 @@ function _wireSelectableText(el, onPlainClick) {
   if (!content) return false;
   content.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (e.altKey) return;
+    if (e.ctrlKey) return;
     if (!String(window.getSelection() || '')) onPlainClick();
   });
   return true;
 }
 
-// Contain a text selection to the single study bubble it began in — like a textbox, so an Alt-drag
+// Contain a text selection to the single study bubble it began in — like a textbox, so a Ctrl-drag
 // inside one bubble's text never bleeds into another bubble or the page. Chrome has no CSS
 // `user-select: contain`, so the moment a drag starts inside a bubble we make every OTHER bubble
 // unselectable for the duration (study-sel-lock on the body + study-sel-host on that bubble): the
@@ -2634,12 +2656,43 @@ function _sourceTextLang(meta) {
   return '';
 }
 
+// Keep a layer's DOM text sized in page pixels × --pgscale (wrap width ÷ page width), so it
+// tracks zoom/resize exactly like the image layers do.
+function _syncLayerScale(layer, wrap, pageW) {
+  if (!pageW) return;
+  const sync = () => layer.style.setProperty('--pgscale', String((wrap.clientWidth / pageW) || 1));
+  sync();
+  layer._ro = new ResizeObserver(sync);
+  layer._ro.observe(wrap);
+}
+
+// Translate-as-text: the page image is ALREADY the inpainted bg, so the overlay is only the
+// translations as DOM text — no per-bubble backgrounds, no reveal targets, and no page-flip zones
+// (the reader's own click zones stay in charge). A page that kept no bg is showing its untouched
+// original, so it gets no text rather than translations stacked over the source.
+function _renderTranslateTextLayer(wrap, page) {
+  const study = _pageStudy.get(page.url);
+  if (!study || !study.bg) return;
+  const pageW = (study.page && study.page.w) || wrap.querySelector('img')?.naturalWidth || 0;
+  const texts = study.bubbles.map(b => _buildStudyText(b, true, pageW)).filter(Boolean);
+  if (!texts.length) return;
+  const layer = document.createElement('div');
+  layer.className = 'bubble-layer';
+  const fgLayer = document.createElement('div');
+  fgLayer.className = 'bubble-fg';
+  for (const el of texts) { el.classList.add('plain'); fgLayer.appendChild(el); }
+  layer.appendChild(fgLayer);
+  _syncLayerScale(layer, wrap, pageW);
+  wrap.appendChild(layer);
+}
+
 // Build one page's overlay: a bg sub-layer, a text sub-layer, and the clickable boxes on top.
 // Each hover/click indicator follows whichever source or translation region is currently visible
 // and is positioned by page fraction (percent), so it tracks zoom/resize with no recompute.
 function _renderBubbleLayer(wrap, pageNum) {
   const page = pages[pageNum - 1];
   if (!page) return;
+  if (!studyMode) { _renderTranslateTextLayer(wrap, page); return; }
   const study = _pageStudy.get(page.url);
   const hasBubbles = !!study && Array.isArray(study.bubbles) && study.bubbles.length > 0;
   if (!hasBubbles && mode === 'strip') return;
@@ -2649,15 +2702,8 @@ function _renderBubbleLayer(wrap, pageNum) {
   const fgLayer = document.createElement('div'); fgLayer.className = 'bubble-fg';
   layer.appendChild(bgLayer);
   layer.appendChild(fgLayer);
-  // DOM-text bubbles size their font in page pixels × --pgscale (wrap width ÷ page width),
-  // so they track zoom/resize exactly like the image layers do.
   const pageW = (study?.page && study.page.w) || wrap.querySelector('img')?.naturalWidth || 0;
-  if (pageW) {
-    const sync = () => layer.style.setProperty('--pgscale', String((wrap.clientWidth / pageW) || 1));
-    sync();
-    layer._ro = new ResizeObserver(sync);
-    layer._ro.observe(wrap);
-  }
+  _syncLayerScale(layer, wrap, pageW);
   // Page-flip zones under the bubbles (page modes only): click a bubble to reveal it, click
   // anywhere else on the page to turn the page — restoring the side-click navigation that the
   // fixed click-zones provide outside study mode. Strip mode scrolls instead.
@@ -2712,7 +2758,7 @@ function _renderBubbleLayer(wrap, pageNum) {
 // Rebuild the overlays for whichever page images are mounted in the current view.
 function _refreshBubbleLayers() {
   _removeBubbleLayers();
-  if (!studyMode) return;
+  if (!_bubbleLayersOn()) return;
   if (mode === 'strip') {
     const center = currentPage - _viewBase;   // local, 1-based
     for (const idx of _mountedIdx) {
@@ -3038,7 +3084,7 @@ function _releaseScroll(dir) {
 function _stopScroll() { _scrollStack.length = 0; }
 
 document.addEventListener('keyup', (e) => {
-  _setStudyTextSelectable(e.altKey);   // Alt held → study text is selectable
+  _setStudyTextSelectable(e.ctrlKey);   // Ctrl held → study text is selectable
   _scrollFast = e.shiftKey;   // releasing Shift drops back to the half-speed default, live
   if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp')   _releaseScroll('up');
   if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') _releaseScroll('down');
@@ -3050,7 +3096,7 @@ document.addEventListener('visibilitychange', () => {
 
 // Keyboard
 document.addEventListener('keydown', (e) => {
-  _setStudyTextSelectable(e.altKey);   // Alt held → study text is selectable
+  _setStudyTextSelectable(e.ctrlKey);   // Ctrl held → study text is selectable
   if (e.target === scrubber) return;
   if (readerSettingsModal.classList.contains('show')) {
     if (e.key === 'Escape') { e.preventDefault(); setReaderSettingsOpen(false); }

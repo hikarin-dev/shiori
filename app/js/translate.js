@@ -196,6 +196,8 @@ function buildConfig(ts) {
       font_size_offset: num(ts.fontSizeOffset, 0),
       uppercase: !!ts.uppercase,
       no_hyphenation: !!ts.noHyphenation,
+      estimate_font_color: !!ts.estimateFontColor,
+      estimate_outline_color: !!ts.estimateOutlineColor,
       ...(ts.fontColor ? { font_color: ts.fontColor } : {}),
     },
     mask_dilation_offset: num(ts.maskDilationOffset, 30),

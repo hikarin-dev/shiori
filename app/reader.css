@@ -393,7 +393,7 @@ body.reader-fit-height #stripView .page-img {
   cursor: text;
   user-select: text; -webkit-user-select: text;
 }
-/* Textbox-like containment: while an Alt-drag is underway, only the bubble it began in stays
+/* Textbox-like containment: while a Ctrl-drag is underway, only the bubble it began in stays
    selectable, so the native selection can't spill into a neighbour (Chrome has no
    `user-select: contain`). study-sel-host marks that bubble; study-sel-lock scopes it to the drag. */
 body.study-text-selecting.study-sel-lock .study-text-content {
@@ -418,6 +418,14 @@ body.study-text-selecting.study-sel-lock .study-text-content.study-sel-host {
   border-color: var(--accent);
   background-color: rgba(237, 39, 84, 0.08);
 }
+/* Translate-as-text draws the translation as a plain reading layer over the inpainted page: no
+   reveal target, so it takes no pointer and offers no selection or hover ring. */
+.study-text.plain .study-text-content {
+  pointer-events: none;
+  cursor: default;
+  user-select: none; -webkit-user-select: none;
+}
+.study-text.plain .study-text-content::after { content: none; }
 /* The bubble's ORIGINAL text, typeset like the source: the OCR's own line breaks (pre),
    vertical columns flowing right→left for vertically-read text, and ruby furigana. */
 .study-text.src { white-space: pre; font-family: "Yasashisa Antique", sans-serif; }

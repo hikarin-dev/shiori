@@ -207,6 +207,8 @@ function loadTranslateSettings(ts) {
   set('cfgBoxThreshold', ts.boxThreshold ?? 0.7);
   set('cfgUnclipRatio', ts.unclipRatio ?? 2.3);
   set('cfgOcr', ts.ocr || '48px');
+  document.getElementById('cfgEstFontColor').checked = !!ts.estimateFontColor;
+  document.getElementById('cfgEstOutlineColor').checked = !!ts.estimateOutlineColor;
   set('cfgInpainter', ts.inpainter || 'lama_large');
   set('cfgInpaintingSize', String(ts.inpaintingSize ?? 1536));
   set('cfgInpaintingPrecision', ts.inpaintingPrecision || 'bf16');
@@ -250,6 +252,8 @@ function gatherTranslateSettings() {
     boxThreshold: n('cfgBoxThreshold', 0.7),
     unclipRatio: n('cfgUnclipRatio', 2.3),
     ocr: v('cfgOcr'),
+    estimateFontColor: document.getElementById('cfgEstFontColor').checked,
+    estimateOutlineColor: document.getElementById('cfgEstOutlineColor').checked,
     inpainter: v('cfgInpainter'),
     inpaintingSize: i('cfgInpaintingSize', 1536),
     inpaintingPrecision: v('cfgInpaintingPrecision'),
@@ -457,6 +461,14 @@ platform.kv.get(['readerFurigana']).then((r) => {
 document.getElementById('readerFurigana').addEventListener('change', (e) => {
   platform.kv.set({ readerFurigana: e.target.checked ? 'on' : 'off' });
   syncStudyPreview();
+  showStatus('readerStatus', 'Saved.', 'ok');
+});
+
+platform.kv.get(['readerTranslateDisplay']).then((r) => {
+  setChoiceValue('readerTranslateDisplay', (r.readerTranslateDisplay === 'text') ? 'text' : 'image');
+});
+document.getElementById('readerTranslateDisplay').addEventListener('change', (e) => {
+  platform.kv.set({ readerTranslateDisplay: e.target.value });
   showStatus('readerStatus', 'Saved.', 'ok');
 });
 
