@@ -293,9 +293,14 @@ export async function startTranslation(galleryId, ts, send = () => {}) {
     }
 
     const jobToken = (resume && resume.token) || (globalThis.crypto?.randomUUID?.() || `${gid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    // Sent with the job so the server's operator can tell their own queued translations apart.
+    // Whatever the gallery already carries, passed through verbatim; kept on the resume record
+    // so a job that resumes after a restart still reports the same origin.
+    const sourceUrl = (resume && resume.sourceUrl) || ((await metaGet(gid))?.sourceUrl || '');
     if (!resume) {
       resume = {
         gid, token: jobToken, serverUrl, settings: ts, langCode, translator: tlName, cap,
+        sourceUrl,
         pendingUrls: pending.map(p => p.url), total, cursor: 0, phase: 'uploading',
       };
       const claimed = await translateResume.claim(resume);
@@ -352,6 +357,7 @@ export async function startTranslation(galleryId, ts, send = () => {}) {
       form.append('job_token', jobToken);
       form.append('part', String(i));
       form.append('parts', String(partCount));
+      if (sourceUrl) form.append('source_url', sourceUrl);
       let resp = null;
       for (let attempt = 0; attempt < 2; attempt++) {
         try {

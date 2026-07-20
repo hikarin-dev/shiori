@@ -10,7 +10,7 @@
 import * as platform from './app/js/platform.js';
 import { RUNNERS, cancelJobRun, runPoll } from './app/js/jobs-runner.js';
 
-const CACHE = 'shiori-shell-v41';
+const CACHE = 'shiori-shell-v42';
 // The scope root: http://localhost:5500/ locally, https://…/shiori/ on GitHub Pages.
 const ROOT = new URL('./', self.location.href);
 // Clean navigation path (relative to the root) → which app page serves it.
