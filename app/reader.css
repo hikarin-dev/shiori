@@ -377,8 +377,10 @@ body.reader-fit-height #stripView .page-img {
      bubble from the stored renderer hints; with neither set this collapses to no stroke. */
   paint-order: stroke fill;
   -webkit-text-stroke: var(--outline-w, 0) var(--outline-c, transparent);
-  /* Balloon text balances its line lengths; balance mimics the renderer's centered layout. */
-  white-space: pre-wrap; overflow-wrap: break-word; text-wrap: balance;
+  /* Balloon text balances its line lengths; balance mimics the renderer's centered layout.
+     Words stay whole — a word never breaks mid-character onto the next line (DOM metrics can
+     run a hair wider than the renderer's fit); an over-wide word overflows the box instead. */
+  white-space: pre-wrap; overflow-wrap: normal; word-break: keep-all; text-wrap: balance;
 }
 /* The fixed outer box is only a layout anchor. Selection and hover belong to this intrinsic
    content wrapper, so text that extends beyond its OCR layout box keeps the correct hit area. */
