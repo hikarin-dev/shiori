@@ -54,19 +54,38 @@ const SHELL = [
   'vendor/marked.min.js', 'CHANGELOG.md',
 ];
 
+// What must be cached before the worker takes over, versus what can arrive later. The first
+// visit waits on this install (index.html holds the loading screen until the worker is ready),
+// so only the code the app is built from blocks it — about 1 MB of JS/HTML/CSS. The rest is
+// ~9 MB of fonts, flags and icons, nearly all of it two study-mode typefaces most sessions
+// never open; making the first paint wait for those is what left visitors on a blank screen.
+const isCode = (u) => /\.(js|html|css|webmanifest)$/.test(u);
+const BOOT = SHELL.filter(isCode);
+const DEFERRED = SHELL.filter((u) => !isCode(u));
+
 self.addEventListener('install', (e) => {
   e.waitUntil((async () => {
     const cache = await caches.open(await cacheName());
-    // Critical shell assets are all-or-nothing: a partial shell must never replace a healthy
-    // one, so a failed JS/HTML/CSS fetch fails the whole install (the old worker + cache stay).
-    // Flags, fonts, licenses and icons remain best-effort.
-    const critical = SHELL.filter((u) => /\.(js|html|css|webmanifest)$/.test(u));
-    const optional = SHELL.filter((u) => !/\.(js|html|css|webmanifest)$/.test(u));
-    await Promise.all(critical.map((u) => cache.add(new URL(u, ROOT).href)));
-    await Promise.allSettled(optional.map((u) => cache.add(new URL(u, ROOT).href)));
+    // All-or-nothing for code: a partial shell must never replace a healthy one, so a failed
+    // fetch here fails the whole install and the old worker + cache stay in place.
+    await Promise.all(BOOT.map((u) => cache.add(new URL(u, ROOT).href)));
     self.skipWaiting();
   })());
 });
+
+// Pull in the deferred assets once the app is up and idle (boot.js asks for this from its
+// maintenance window). Anything still missing when it is first needed is cached on demand by
+// the fetch handler below, so offline completeness fills in either way — this just gets there
+// without a user waiting on it. Already-cached entries are skipped, making re-runs cheap.
+async function warmDeferredShell() {
+  const cache = await caches.open(await cacheName());
+  const missing = [];
+  for (const u of DEFERRED) {
+    const href = new URL(u, ROOT).href;
+    if (!(await cache.match(href))) missing.push(href);
+  }
+  if (missing.length) await Promise.allSettled(missing.map((href) => cache.add(href)));
+}
 
 self.addEventListener('activate', (e) => {
   e.waitUntil((async () => {
@@ -189,6 +208,7 @@ async function pollLoop() {
 
 self.addEventListener('message', (e) => {
   const d = e.data;
+  if (d && d.__shioriWarmShell) { e.waitUntil(warmDeferredShell().catch(() => {})); return; }
   if (d && d.__shioriPoll) {
     e.waitUntil((async () => {
       // Resume uploads/imports alongside the heartbeat so a long import cannot starve an

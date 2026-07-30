@@ -1,7 +1,7 @@
-// release-shell.test.mjs — deployment integrity. The release archive (the Compress-Archive
-// list in release.ps1) must carry the service worker, the 404 fallback, and every file the
-// worker's SHELL precaches; every app page must resolve its static assets to real, packaged
-// files; and every app/js module must be in SHELL so offline never silently loses one.
+// release-shell.test.mjs — deployment integrity. The site is served straight from the repo, so
+// "deployable" means: every runtime root file exists, every file the worker precaches exists,
+// every app/js module is in that precache list (or it silently breaks offline only), and every
+// page resolves its static assets — including a direct app/<page>.html load with no worker.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
@@ -10,14 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (rel) => readFileSync(join(repo, rel), 'utf8');
-
-const hasReleaseScript = existsSync(join(repo, 'release.ps1'));
-
-function archiveRoots() {
-  const m = read('release.ps1').match(/Compress-Archive -Path ([^\r\n]+?) -DestinationPath/);
-  assert.ok(m, 'release.ps1 must contain a Compress-Archive line');
-  return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
-}
+const present = (rel) => existsSync(join(repo, rel));
 
 function shellFiles() {
   const sw = read('sw.js');
@@ -30,21 +23,15 @@ function shellFiles() {
   return [...files, ...flags];
 }
 
-const roots = hasReleaseScript ? archiveRoots() : null;
-// Without the release script, "packaged" degrades to "present in the tree" — the SHELL and
-// asset-resolution checks still hold; only the archive-list assertions need the script.
-const packaged = (rel) =>
-  (!roots || roots.some((r) => rel === r || rel.startsWith(r + '/'))) && existsSync(join(repo, rel));
-
-test('release archive carries the runtime root files', { skip: hasReleaseScript ? false : 'release script not in this tree' }, () => {
+test('the runtime root files are present', () => {
   for (const required of ['index.html', '404.html', 'sw.js', 'boot-root.js', 'CHANGELOG.md']) {
-    assert.ok(packaged(required), `${required} is missing from the release archive list`);
+    assert.ok(present(required), `${required} is missing from the tree`);
   }
 });
 
-test('every SHELL file exists and is packaged', () => {
-  const missing = shellFiles().filter((f) => !packaged(f));
-  assert.deepEqual(missing, [], 'SHELL files absent from disk or the archive list');
+test('every precached SHELL file exists', () => {
+  const missing = shellFiles().filter((f) => !present(f));
+  assert.deepEqual(missing, [], 'SHELL lists files that are not in the tree');
 });
 
 test('every app/js module is precached in SHELL', () => {
@@ -81,7 +68,7 @@ test('app pages resolve their assets when loaded directly (no service worker)', 
       // <base> points at the app folder in both serve modes; ../ climbs to the site root.
       const rel = bare.startsWith('../') ? bare.slice(3) : `app/${bare}`;
       if (CLEAN.has(rel.replace(/\/$/, ''))) continue;
-      assert.ok(packaged(rel), `${page}.html references ${url} → ${rel}, which is not packaged`);
+      assert.ok(present(rel), `${page}.html references ${url} → ${rel}, which is missing`);
     }
   }
 });

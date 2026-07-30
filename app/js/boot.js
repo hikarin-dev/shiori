@@ -72,6 +72,15 @@ maintenanceReady.then(async () => {
   await runMaintenance();
 });
 
+// Finish precaching the offline shell now that the page is up. The worker deliberately installs
+// with code only, so the first visit isn't held behind ~9 MB of fonts and flags; this fetches
+// the remainder once nobody is waiting on it.
+maintenanceReady.then(() => {
+  navigator.serviceWorker?.ready
+    .then((reg) => reg.active?.postMessage({ __shioriWarmShell: true }))
+    .catch(() => {});
+});
+
 if ('serviceWorker' in navigator) {
   // Retire the previous layout's worker, which was scoped to THIS app's /app/ directory — the
   // app now lives at the site root with a root-scoped worker (registered below; registering at
