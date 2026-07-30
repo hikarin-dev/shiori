@@ -56,6 +56,20 @@ test('deferred assets are still precached eventually, and cached on demand meanw
   assert.match(sw, /cache\.put\(key, resp\.clone\(\)\)/, 'responses should still be cached on demand');
 });
 
+test('a first visit is not held behind the worker install at all', () => {
+  // With nothing installed yet, waiting for the worker means a blank loading screen for the
+  // length of the precache. The entry page must detect that case and go straight to the real
+  // page instead; boot.js registers the worker from there, so installation still happens.
+  const src = readFileSync(join(repo, 'boot-root.js'), 'utf8');
+  assert.match(src, /getRegistration\(\)/, 'the entry page must check for an existing worker');
+  assert.match(src, /if \(!existing \|\| !existing\.active\) return toLibrary\(\)/,
+    'no active worker must mean an immediate hand-off, not an await on install');
+  // The wait that remains (worker already installed) still has to be bounded.
+  assert.match(src, /Promise\.race/, 'the remaining wait must be bounded');
+  const boot = readFileSync(join(repo, 'app', 'js', 'boot.js'), 'utf8');
+  assert.match(boot, /serviceWorker\.register/, 'the app page must register the worker');
+});
+
 test('every shell entry is classified as exactly one of boot or deferred', () => {
   const boot = shell.filter(isCode);
   const deferred = shell.filter((u) => !isCode(u));
