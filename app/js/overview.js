@@ -3,15 +3,18 @@
 // chapter from an existing gallery (autocomplete) or by dropping a file, and jump into any chapter.
 
 import './boot.js';
-import { getGallery, coverGet, metaGet, dbGet, imageToBlob, listGalleryPageKeys } from './db.js';
+import { getGallery, metaGet, dbGet, imageToBlob, listGalleryPageKeys, nextGalleryId } from './db.js';
 import * as store from './store.js';
 import * as platform from './platform.js';
-import { request as extRequest, available as extAvailable } from './ext-bridge.js';
+import { request as extRequest } from './ext-bridge.js';
+import { canDownload as _canDownload, updateSitesStatus as updateExtStatus } from './sites.js';
 import { resolveSeries, getSeriesChapters, mergeIntoSeries, removeChapter, reorderChapters, setChapterTitle, setSeriesTitle, setGalleryTitle, canDetachChapter } from './series.js';
 import { t, getLang, applyTranslations } from './i18n.js';
 import { pickTitle, pickSeriesTitle } from './titles.js';
 import { initTooltips, refreshTooltip } from './tooltip.js';
 import { formatBytes, formatCount } from './format.js';
+import { escHtml } from './sanitize.js';
+import { resizeToWidth } from './image-util.js';
 
 // Tag chips styled exactly like the library card (library.css .card-tags / .card-tag), grouped
 // artist → tag → female → male. Shown expanded (no collapse) under a chapter's page count.
@@ -49,21 +52,16 @@ function relTime(secs) {
 
 const params  = new URLSearchParams(location.search);
 let ownerId   = null;
-const _covers = new Map();   // gid → object URL (revoked on re-render)
+const _covers = new Map();   // role:gid:width → thumbnail data URL (invalidated on cover edits)
 let editMode  = false;
 let _suppressRenderUntil = 0;
-let _siteMap = {};
-let _extAvailable = false;
-let _sitesRefreshed = false;
 const _liveChapterJobs = new Map();
 const _chapterJobClearTimers = new Map();
 const _chapterRowEntities = new WeakMap();
-const _extLoadAt = Date.now();
 
 const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const esc = escHtml;
 const readerHref = (gid) => `../reader?g=${encodeURIComponent(String(gid))}`;
-const _canDownload = (g) => _siteMap[g?.source]?.canDownload === true && _extAvailable;
 const sendMsg = (msg) => platform.rpc(msg);
 const ICON = {
   open:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>',
@@ -175,48 +173,40 @@ document.addEventListener('mousemove', (e) => {
 });
 initTooltips();
 
-try {
-  const s = JSON.parse(localStorage.getItem('shiori-ext-status') || 'null');
-  if (s) { _extAvailable = !!s.available; _siteMap = s.sites || {}; }
-} catch {}
-
-async function updateExtStatus() {
-  const ok = await extAvailable();
-  if (!ok && _extAvailable && Date.now() - _extLoadAt < 6000) return false;
-  let sitesChanged = false;
-  if (ok && !_sitesRefreshed) {
-    const r = await extRequest({ type: 'EXT_SITES' });
-    if (r && r.sites) {
-      _sitesRefreshed = true;
-      sitesChanged = JSON.stringify(r.sites) !== JSON.stringify(_siteMap);
-      _siteMap = r.sites;
-    }
+// Covers go through the shared GET_COVER service — request coalescing, the resize-concurrency
+// cap and the persistent thumbnail cache — instead of decoding a full-size cover blob per row.
+// COVER_READY pushes are matched back to their awaiting request by requestId.
+let _coverReqSeq = 0;
+const _coverWaiters = new Map();
+platform.onControl((msg) => {
+  if (msg?.type === 'COVER_READY' && msg.requester === 'overview' && _coverWaiters.has(msg.requestId)) {
+    _coverWaiters.get(msg.requestId)(msg.coverDataUrl || '');
+    _coverWaiters.delete(msg.requestId);
   }
-  if (ok === _extAvailable && !sitesChanged) return false;
-  _extAvailable = ok;
-  try { localStorage.setItem('shiori-ext-status', JSON.stringify({ available: ok, sites: _siteMap })); } catch {}
-  return true;
-}
+});
 
-function coverKey(gid, preferSeries = false) {
-  return `${preferSeries ? 'series:' : 'gallery:'}${String(gid)}`;
+function coverKey(gid, preferSeries = false, width = 0) {
+  return `${preferSeries ? 'series' : 'gallery'}:${String(gid)}:${width}`;
 }
 
 async function coverUrl(gid, opts = {}) {
-  const key = coverKey(gid, !!opts.preferSeries);
+  const width = Math.round(Number(opts.width)) || 160;
+  const key = coverKey(gid, !!opts.preferSeries, width);
   if (_covers.has(key)) return _covers.get(key);
-  const blob = await coverGet(gid, { preferSeries: !!opts.preferSeries }).catch(() => null);
-  const url = blob ? URL.createObjectURL(blob) : '';
-  _covers.set(key, url);
+  const url = await new Promise((resolve) => {
+    const requestId = `ov-${++_coverReqSeq}`;
+    _coverWaiters.set(requestId, resolve);
+    platform.rpc({ type: 'GET_COVER', galleryId: String(gid), thumbWidth: width, preferSeries: !!opts.preferSeries, requester: 'overview', requestId });
+    setTimeout(() => { if (_coverWaiters.has(requestId)) { _coverWaiters.delete(requestId); resolve(''); } }, 10000);
+  });
+  if (url) _covers.set(key, url);
   return url;
 }
-function clearCovers() { for (const u of _covers.values()) if (u) URL.revokeObjectURL(u); _covers.clear(); }
+function clearCovers() { _covers.clear(); }
 function invalidateCover(gid) {
   const id = String(gid);
-  for (const key of [coverKey(id), coverKey(id, true)]) {
-    const url = _covers.get(key);
-    if (url) URL.revokeObjectURL(url);
-    _covers.delete(key);
+  for (const key of [..._covers.keys()]) {
+    if (key.split(':')[1] === id) _covers.delete(key);
   }
 }
 
@@ -374,23 +364,7 @@ async function _pageThumbBlob(url) {
   const fullBlob = await imageToBlob(rec?.blob ?? rec?.dataUrl);
   if (!fullBlob) return '';
   const targetW = Math.round(PAGE_THUMB_W * Math.min(2, window.devicePixelRatio || 1));
-  // Decode at 2× target so the first canvas step is a clean 2× reduction, then halve until at
-  // target — each step is bilinear over a 2× range, avoiding large→small single-pass aliasing.
-  const bitmap = await createImageBitmap(fullBlob, { resizeWidth: targetW * 2, resizeQuality: 'high' });
-  let w = bitmap.width, h = bitmap.height;
-  let canvas = document.createElement('canvas');
-  canvas.width = w; canvas.height = h;
-  canvas.getContext('2d').drawImage(bitmap, 0, 0);
-  bitmap.close();
-  while (w > targetW) {
-    w = Math.max(targetW, Math.ceil(w / 2));
-    h = Math.ceil(h / 2);
-    const step = document.createElement('canvas');
-    step.width = w; step.height = h;
-    step.getContext('2d').drawImage(canvas, 0, 0, w, h);
-    canvas = step;
-  }
-  const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.86));
+  const blob = await resizeToWidth(fullBlob, targetW, { format: 'image/jpeg', quality: 0.86 }).catch(() => null);
   return blob ? URL.createObjectURL(blob) : '';
 }
 
@@ -515,14 +489,19 @@ async function render() {
     ${addBar}`;
   content.classList.toggle('ov-editing', editMode);
 
-  const coverPromise = coverUrl(ownerId, { preferSeries: isSeries });
+  const coverPromise = coverUrl(ownerId, { preferSeries: isSeries, width: 480 });
   if (isSeries) {
     const list = $('chList');
     for (let i = 0; i < chapters.length; i++) list.appendChild(await chapterRow(chapters[i], i, chapters.length));
   } else {
     await buildPageGrid($('ovPages'), ownerId);
   }
-  setThumb($('seriesCover'), await coverPromise);
+  // Resolve first, THEN look the container up: a re-render during the await replaces the head,
+  // and an element captured beforehand would be detached — the thumbnail would land nowhere.
+  // Paint the header cover as soon as it resolves instead of behind the chapter list: a long
+  // series builds many rows, and the head must not wait for the last one. Looked up after the
+  // await, since a re-render in between replaces the element this would otherwise have captured.
+  coverPromise.then((url) => setThumb($('seriesCover'), url)).catch(() => {});
   // Edit the owner title variant for the current app language; other languages are preserved. A
   // series saves its seriesTitle, a standalone gallery saves its own title.
   const ownerInput = $('seriesTitle') || $('galleryTitle');
@@ -684,7 +663,9 @@ async function chapterRow(ch, idx, total) {
     </div>
     <div class="ch-pages"></div>`;
 
-  if (e) setThumb(row.querySelector('.ch-thumb'), await coverUrl(ch.id));
+  // Thumbnails stream in per row rather than gating it: a long series would otherwise build its
+  // list one cover round-trip at a time. `row` is this call's own element, so it stays valid.
+  if (e) coverUrl(ch.id).then((url) => setThumb(row.querySelector('.ch-thumb'), url)).catch(() => {});
 
   const titleInput = row.querySelector('.ch-title-input');
   if (titleInput) {
@@ -881,12 +862,15 @@ function paintChapterJob(row, job) {
   const translate = row.querySelector('[data-translate]');
   const isTranslate = job.kind === 'translate';
   const { status } = job;
+  // The job layer publishes label/error keys — resolve them to the user's language here.
+  const jobLabel = job.labelKey ? t(job.labelKey, job.labelArgs) : job.label;
+  const jobError = job.errorKey ? t(job.errorKey) : job.error;
 
   row.classList.add('working');
   if (fill) { fill.classList.remove('done', 'indeterminate'); fill.style.width = '0%'; }
 
   if (status === 'error') {
-    if (label) label.textContent = `${t('prog.error')}: ${job.error || 'unknown'}`;
+    if (label) label.textContent = `${t('prog.error')}: ${jobError || 'unknown'}`;
     if (isTranslate) setTranslateButtonBusy(translate, false);
     else if (download) download.disabled = false;
     return;
@@ -925,7 +909,7 @@ function paintChapterJob(row, job) {
     return;
   }
   if (status === 'started') {
-    if (label) label.textContent = job.label || (job.total ? `0 / ${formatCount(job.total)}` : t('prog.starting'));
+    if (label) label.textContent = jobLabel || (job.total ? `0 / ${formatCount(job.total)}` : t('prog.starting'));
     if (isTranslate) setTranslateButtonBusy(translate, true);
     else if (download) download.disabled = true;
     return;
@@ -947,11 +931,11 @@ function paintChapterJob(row, job) {
     if (isTranslate) {
       label.textContent = status === 'done'
         ? `${t('prog.translated')} ${doneText}/${totalText}${job.failed ? ` (${formatCount(job.failed)} failed)` : ''}${job.costNote ? ` · ${job.costNote}` : ''}`
-        : job.label || `${t('prog.translating')} ${doneText} / ${totalText}`;
+        : jobLabel || `${t('prog.translating')} ${doneText} / ${totalText}`;
     } else {
       label.textContent = status === 'done'
         ? `${t('prog.done')} — ${doneText}/${totalText}${skippedNote}`
-        : job.label ? `${job.label} · ${doneText}/${totalText}${skippedNote}` : `${doneText} / ${totalText}${skippedNote}`;
+        : jobLabel ? `${jobLabel} · ${doneText}/${totalText}${skippedNote}` : `${doneText} / ${totalText}${skippedNote}`;
     }
   }
   if (status === 'done') {
@@ -1020,7 +1004,8 @@ async function refreshChangedChapter(gid, { rowOnly = false } = {}) {
   invalidateCover(gid);
   if (String(gid) === String(ownerId)) {
     invalidateCover(ownerId);
-    setThumb($('seriesCover'), await coverUrl(ownerId, { preferSeries: true }));
+    const refreshedCover = await coverUrl(ownerId, { preferSeries: true, width: 480 });
+    setThumb($('seriesCover'), refreshedCover);
   }
 
   const oldRow = findChapterRow(gid);
@@ -1160,10 +1145,10 @@ function wireDrop() {
 // straight away and fills in as its pages import), then stage it for the durable runner.
 async function importAsChapter(file) {
   if (!/\.(zip|cbz)$/i.test(file.name)) { alert(t('ov.only_cbz')); return; }
-  const base = Date.now();
-  const gid = String(base);
+  const gid = nextGalleryId();   // the shared mint — per-context monotonic, never a raw Date.now()
+  const at = Number(gid);
   const title = file.name.replace(/\.[^.]+$/, '');
-  await store.mutate(gid, { title, count: 0, size: 0, addedAt: base, latestAt: base, isLocalImport: true });
+  await store.mutate(gid, { title, count: 0, size: 0, addedAt: at, latestAt: at, isLocalImport: true });
   try { await mergeIntoSeries(ownerId, gid, { title }); } catch (err) { alert(err.message); return; }
   beginChapterJob(gid, 'upload', t('prog.reading_file'));
   await render();

@@ -41,19 +41,15 @@ For an app-like experience, install it as a PWA (install icon in the address bar
 
 In the thumbnail strip: drag to swipe, `Shift`+drag to scrub, click to jump. The library grid pages with `←`/`→` too.
 
-## Companion extension
-
-The app is deliberately **site-agnostic**: it contains no site-specific code. A separate companion browser extension (not part of this repository) can plug in at runtime to capture pages while you browse, download whole galleries, and fetch metadata — the app discovers it automatically and shows those actions only when it's present. Without it, everything above still works on imported archives.
-
 ## Storage & privacy
 
 - Everything is stored in your browser profile's IndexedDB for this origin. Nothing leaves your machine except requests you initiate (e.g. to your own translation server).
-- Settings → Danger Zone → **Clear All** wipes the library.
-- No analytics, no telemetry, no third-party requests.
+- Settings → Danger Zone offers two resets: **Clear All** removes the library, queued jobs and staged files but keeps your settings; **Factory Reset** additionally erases every setting, including translator credentials.
+- No analytics, no telemetry, no third-party requests — the UI font ships with the app rather than being fetched from a font CDN.
 
 ## Tech
 
 - Pure HTML/CSS/JS ES modules — no build step, no framework, one vendored file (`marked` for the changelog).
-- IndexedDB stores image **Blobs** (not base64), with windowed index-cursor queries so memory stays bounded by what's on screen.
-- A PWA service worker serves the app shell stale-while-revalidate and runs durable jobs (imports, translation) that survive tab closes.
+- IndexedDB stores image **Blobs** (not base64), and library queries are windowed index cursors — a page of cards costs the same whether the library holds ten galleries or ten thousand.
+- A PWA service worker serves the app shell stale-while-revalidate and hosts durable jobs (imports, translation). A job is recorded before it starts and resumes from where it left off, so closing the tab — or the browser evicting the worker — costs progress, not the job.
 - Live updates everywhere via `BroadcastChannel`: every open tab reflects a change the moment it lands in the database.

@@ -1,21 +1,39 @@
-// store.js — Reactive, windowed gallery store (see ARCHITECTURE.md §5).
+// store.js — Reactive, windowed gallery store (see ARCHITECTURE.md).
 //
 // The single client-side view over the durable library. Surfaces read one page at a
 // time, subscribe per-gallery, and re-render from a pure function of state; they never
 // keep their own divergent copy or hand-patch fields. Reads/writes and the change feed go
-// through the api.js contract (see ARCHITECTURE-v2.md), so the storage backend and transport
-// stay swappable (IndexedDB now; PWA service worker / HTTP-NAS later).
+// through api.js, which names the library in entity terms over db.js (the one data layer).
 
 import { galleries, events } from './api.js';
 import { normalizeTitle } from './titles.js';
 
 // Windowed cache: only entities currently referenced (the visible page + explicit
 // get/load calls). Off-screen galleries are never materialized — memory is bounded by
-// what is on screen, not by library size.
-const _cache = new Map();          // gid -> entity
+// what has been visited recently, not by library size.
+const _cache = new Map();          // gid -> entity (insertion-ordered: front = least recent)
 const _subs  = new Map();          // gid (or '*') -> Set<cb>
 const _seenFeedTokens = new Set();
 const FEED_TOKEN_LIMIT = 256;
+
+// Retain several pages' worth so paging back and forth stays instant, then evict oldest-first.
+// Without this the cache grew for the whole session — every gallery ever scrolled past stayed
+// resident, which is exactly what a windowed store is supposed to avoid.
+const RETAIN_ENTITIES = 300;
+
+function _cachePut(gid, entity) {
+  if (_cache.has(gid)) _cache.delete(gid);   // re-insert so recency is the Map's own order
+  _cache.set(gid, entity);
+}
+
+function _evictCache() {
+  if (_cache.size <= RETAIN_ENTITIES) return;
+  for (const gid of [..._cache.keys()]) {
+    if (_cache.size <= RETAIN_ENTITIES) break;
+    if (_subs.has(gid)) continue;            // something on screen is watching this one
+    _cache.delete(gid);
+  }
+}
 
 function _emit(gid) {
   const direct = _subs.get(gid);
@@ -44,7 +62,7 @@ export function get(gid) {
 export async function load(gid) {
   const key = String(gid);
   const entity = await galleries.get(key);
-  if (entity) _cache.set(key, entity); else _cache.delete(key);
+  if (entity) { _cachePut(key, entity); _evictCache(); } else _cache.delete(key);
   return entity || null;
 }
 
@@ -70,7 +88,8 @@ export async function getPage({ sort = 'updated', dir, page = 1, pageSize = 60, 
       galleries.page({ sort, dir, offset, limit: pageSize, merge }),
       galleries.count({ merge }),
     ]);
-    for (const e of items) _cache.set(e.id, e);
+    for (const e of items) _cachePut(e.id, e);
+    _evictCache();
     return { items, total };
   }
 
@@ -82,7 +101,8 @@ export async function getPage({ sort = 'updated', dir, page = 1, pageSize = 60, 
   const start = (page - 1) * pageSize;
   const windowIds = matched.slice(start, start + pageSize);
   const items = (await galleries.byIds(windowIds)).filter(Boolean);
-  for (const e of items) _cache.set(e.id, e);
+  for (const e of items) _cachePut(e.id, e);
+  _evictCache();
   return { items, total };
 }
 
@@ -97,8 +117,7 @@ export async function remove(gid) {
 
 // Feed listener: on a beacon, re-read just the changed gallery and notify its subscribers.
 // Galleries nobody is watching (and not cached) are ignored — the lazy path that keeps a
-// large library cheap. The transport (chrome.storage now; BroadcastChannel/SW later) is
-// hidden behind api.events.
+// large library cheap. The transport (a BroadcastChannel) is hidden behind api.events.
 events.onChange((v) => {
   const token = v.context ? `${v.context}:${v.n}` : `${v.gid}:${v.n}:${v.at}`;
   if (_seenFeedTokens.has(token)) return;

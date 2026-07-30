@@ -2,16 +2,18 @@
 // per-gallery actions. Imports boot.js first so services + the PWA worker are wired.
 
 import './boot.js';
-import { openDB, metaPut, getStats, getGalleriesByIds, galleriesCount, coverGet, sourceIconGet, sourceIconPut, sourceIconsAll, _LANG_NAME_TO_CODE } from './db.js';
+import { metaGet, metaPut, getStats, getGalleriesByIds, galleriesCount, coverGet, getGalleryImageRecords, sourceIconGet, sourceIconPut, sourceIconsAll, nextGalleryId, _LANG_NAME_TO_CODE } from './db.js';
 import { importBackup } from './backup.js';
 import { mergeIntoSeries, removeChapter } from './series.js';
-import { request as extRequest, available as extAvailable } from './ext-bridge.js';
+import { request as extRequest } from './ext-bridge.js';
+import { siteMap, helperAvailable, siteName as _siteName, canDownload as _canDownload, galleryLink as _galleryLinkOf, updateSitesStatus, onSitesChanged } from './sites.js';
 import * as store from './store.js';
 import * as platform from './platform.js';
 import { t, getLang } from './i18n.js';
 import { pickTitle, pickSeriesTitle, migrateTitle } from './titles.js';
 import { initTooltips, refreshTooltip } from './tooltip.js';
 import { formatBytes, formatCount } from './format.js';
+import { escHtml, safeExternalUrl } from './sanitize.js';
 
 // Whether a series card opens straight into the reader (chapter 1) instead of the overview page.
 // Loaded from settings at boot; the card routing reads it synchronously.
@@ -45,18 +47,10 @@ try {
   applyQuickActionsMode(_quickActionsMode);
 }
 
-// ── Source sites — learned at runtime, never hard-coded ─────────────────────────────────────
-// The app is site-agnostic. What sites exist, whether they support downloads, and how their
-// gallery links look is the extension's knowledge; it hands over a map at runtime (EXT_SITES).
-// Without the extension the app still links to whatever exact sourceUrl a gallery carries.
-let _siteMap = {};
-
-const _siteName = (source) => (_siteMap[source]?.name) || source || '';
-
+// ── Source sites ── shared state lives in sites.js (site map, availability, warm start).
 const _sourceIconCache = new Map();
 const _sourceIconPending = new Set();
 const _sourceIconLoading = new Set();
-const _sourceIconAttempted = new Set();   // one extension fetch per source per session
 
 async function hydrateSourceIcons() {
   try {
@@ -66,22 +60,9 @@ async function hydrateSourceIcons() {
   } catch {}
 }
 
-function _siteIconCandidate(source) {
-  const site = _siteMap[source] || {};
-  const direct = String(site.favicon || '');
-  if (/^https?:\/\//i.test(direct)) return { url: direct, fromRegistry: true };
-  const hintedDomain = String(site.faviconDomain || '').trim();
-  if (hintedDomain) return { url: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hintedDomain)}&sz=16`, fromRegistry: true };
-  const domain = String(source || '').trim();
-  if (!domain) return { url: '', fromRegistry: false };
-  return { url: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=16`, fromRegistry: false };
-}
-
-function _cachedSourceIcon(source, candidate) {
+function _cachedSourceIcon(source) {
   const cached = _sourceIconCache.get(String(source || ''));
-  if (!cached || !/^data:image\//i.test(cached.dataUrl || '')) return '';
-  if (candidate?.fromRegistry && candidate.url && cached.url && cached.url !== candidate.url) return '';
-  return cached.dataUrl;
+  return (cached && /^data:image\//i.test(cached.dataUrl || '')) ? cached.dataUrl : '';
 }
 
 function _replaceRenderedSourceIcons(source, dataUrl) {
@@ -95,30 +76,32 @@ function _replaceRenderedSourceIcons(source, dataUrl) {
   });
 }
 
-function _loadSourceIcon(source, candidate) {
+function _loadSourceIcon(source) {
   const key = String(source || '');
   if (!key || _sourceIconCache.has(key) || _sourceIconLoading.has(key)) return;
   _sourceIconLoading.add(key);
   sourceIconGet(key)
     .then((rec) => {
       if (!rec || !/^data:image\//i.test(rec.dataUrl || '')) return;
-      if (candidate?.fromRegistry && candidate.url && rec.url && rec.url !== candidate.url) return;
       _sourceIconCache.set(key, rec);
       _replaceRenderedSourceIcons(key, rec.dataUrl);
     })
     .finally(() => { _sourceIconLoading.delete(key); });
 }
 
-function _cacheSourceIcon(source, candidate) {
+// Ask for a source's icon. The app states the fact ("I have no icon for this source key", plus
+// the opaque provenance token from whatever supplied the last one) and consumes whatever comes
+// back — it never constructs an icon URL, picks a provider, or schedules retries. The in-flight
+// set is plain RPC hygiene: don't ask the same question twice at once.
+function _requestSourceIcon(source) {
   const key = String(source || '');
-  if (!_extAvailable || !key || !candidate || _sourceIconPending.has(key) || _sourceIconAttempted.has(key)) return;
+  if (!key || _sourceIconPending.has(key)) return;
   _sourceIconPending.add(key);
-  _sourceIconAttempted.add(key);
-  extRequest({ type: 'EXT_FETCH_ICON', source: key, url: candidate }, 15000)
+  const known = _sourceIconCache.get(key);
+  extRequest({ type: 'EXT_FETCH_ICON', source: key, have: known?.url || null }, 15000)
     .then((r) => {
-      if (r == null) { _sourceIconAttempted.delete(key); return; }   // unanswered → retry later
-      if (!r.ok || !/^data:image\//i.test(r.dataUrl || '')) return;
-      const rec = { source: key, url: candidate, dataUrl: r.dataUrl, cachedAt: Date.now() };
+      if (!r || !r.ok || !/^data:image\//i.test(r.dataUrl || '')) return;
+      const rec = { source: key, url: r.url || null, dataUrl: r.dataUrl, cachedAt: Date.now() };
       _sourceIconCache.set(key, rec);
       sourceIconPut(key, rec).catch(() => {});
       _replaceRenderedSourceIcons(key, r.dataUrl);
@@ -127,34 +110,22 @@ function _cacheSourceIcon(source, candidate) {
 }
 
 function _warmSourceIconCache() {
-  for (const source of Object.keys(_siteMap || {})) {
-    const candidate = _siteIconCandidate(source);
-    if (candidate.url && !_cachedSourceIcon(source, candidate)) _cacheSourceIcon(source, candidate.url);
-  }
+  for (const source of Object.keys(siteMap() || {})) _requestSourceIcon(source);
 }
 
 const _siteFavicon = (source) => {
-  const candidate = _siteIconCandidate(source);
-  const cached = _cachedSourceIcon(source, candidate);
-  if (!cached) _loadSourceIcon(source, candidate);
-  if (candidate.url && !cached) _cacheSourceIcon(source, candidate.url);
+  const cached = _cachedSourceIcon(source);
+  if (!cached) { _loadSourceIcon(source); _requestSourceIcon(source); }
   return cached;
 };
 const _sourceIconsReady = hydrateSourceIcons();
 
-// The visit link for a gallery: the exact URL it was registered with, or the site's link
-// template (runtime data from the extension) filled with its source id.
-function galleryLink(g, page = 1) {
-  if (g.sourceUrl) return g.sourceUrl;
-  const t = _siteMap[g.source]?.galleryUrl;
-  if (t && (g.sourceId || g.id)) return t.replace('{id}', g.sourceId || g.id).replace('{page}', page);
-  return '';
-}
+const galleryLink = _galleryLinkOf;
 
-// Parse user input (URL or hostname) into { source, sourceId, sourceUrl }. The extension parses
+// Parse user input (URL or hostname) into { source, sourceId, sourceUrl }. The helper parses
 // it properly when present; otherwise fall back to generic URL parsing (host + verbatim URL).
 async function parseSourceInput(input) {
-  if (_extAvailable) {
+  if (helperAvailable()) {
     const r = await extRequest({ type: 'EXT_PARSE_URL', input });
     if (r && r.ok) return { source: r.source || '', sourceId: r.sourceId || null, sourceUrl: r.sourceUrl || '' };
   }
@@ -173,51 +144,15 @@ function sendMsg(msg) {
   return platform.rpc(msg);
 }
 
-// ── Extension availability ──
-// Downloading (and source-site metadata) needs the extension. When its bridge isn't answering
-// on this page, the download action is not offered at all — the button falls back to its
-// upload/replace role, exactly like a gallery from a non-downloadable source.
-let _extAvailable = false;
-const _canDownload = (g) => _siteMap[g.source]?.canDownload === true && _extAvailable;
-
-// Seed from the last confirmed probe so the very first render already shows the right
-// download/upload icons — without this every load flickered upload→download once the
-// bridge (injected at document_idle, so always after first paint) finally answered.
-try {
-  const s = JSON.parse(localStorage.getItem('shiori-ext-status') || 'null');
-  if (s) {
-    _extAvailable = !!s.available;
-    _siteMap = s.sites || {};
-    document.body.classList.toggle('extension-offline', !_extAvailable);
-  }
-} catch {}
-
-let _sitesRefreshed = false;   // EXT_SITES re-fetched once per page life
-const _extLoadAt = Date.now();
-async function updateExtStatus() {
-  const ok = await extAvailable();
-  // An early failed probe is inconclusive: the bridge injects at document_idle, so right
-  // after load "no answer" usually means "not ready yet", not "not installed". Keep the
-  // cached optimistic state until a probe past the grace window confirms it's really gone.
-  if (!ok && _extAvailable && Date.now() - _extLoadAt < 6000) return;
-  let sitesChanged = false;
-  if (ok && !_sitesRefreshed) {
-    const r = await extRequest({ type: 'EXT_SITES' });
-    if (r && r.sites) {
-      _sitesRefreshed = true;
-      sitesChanged = JSON.stringify(r.sites) !== JSON.stringify(_siteMap);
-      _siteMap = r.sites;
-    }
-  }
-  if (ok === _extAvailable && !sitesChanged) {
-    if (ok) _warmSourceIconCache();
-    return;
-  }
-  _extAvailable = ok;
-  try { localStorage.setItem('shiori-ext-status', JSON.stringify({ available: ok, sites: _siteMap })); } catch {}
-  document.body.classList.toggle('extension-offline', !ok);
-  if (ok) _warmSourceIconCache();
+// ── Helper availability ── owned by sites.js; this page reacts to real changes.
+document.body.classList.toggle('helper-offline', !helperAvailable());
+onSitesChanged(({ available }) => {
+  if (available) _warmSourceIconCache();
   applyFilters();   // re-render so download buttons appear/disappear
+});
+async function updateExtStatus() {
+  const changed = await updateSitesStatus();
+  if (!changed && helperAvailable()) _warmSourceIconCache();
 }
 
 let _pageItems = [];   // current page's gallery entities (windowed — only what is on screen)
@@ -382,10 +317,6 @@ function buildCardTags(tags, languages) {
   return `<div class="card-tags">${chips.join('')}</div>`;
 }
 
-function escHtml(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
 function updateCardThumbFit(img) {
   if (!img?.naturalWidth || !img?.naturalHeight) return;
   img.classList.toggle('landscape', img.naturalWidth >= img.naturalHeight);
@@ -437,9 +368,12 @@ function buildCard(g) {
     ? `${formatCount(g.aggPages)} ${t('card.pages')} · ${formatBytes(g.aggSize)}`
     : `${formatCount(cachedCount)}${totalCount} ${t('card.pages')} · ${formatBytes(g.size)}`;
   const seriesBadge = showAsSeries ? `<span class="card-series-badge">${t('card.chapters_n', { n: formatCount(g.chapterCount) })}</span>` : '';
+  // Record-derived id, escaped once for every attribute interpolation below (ids are validated
+  // numeric at import boundaries; this is defense in depth for legacy records).
+  const idA = escHtml(g.id);
   // Every gallery gets an overview landing page (a standalone one can gain chapters there); the
   // "skip overview" setting sends cards straight into the reader instead.
-  const cardHref = _bypassOverview ? `../reader?g=${g.id}` : `../overview?g=${g.id}`;
+  const cardHref = _bypassOverview ? `../reader?g=${encodeURIComponent(g.id)}` : `../overview?g=${encodeURIComponent(g.id)}`;
 
   const tagHtml = buildCardTags(g.tags, g.languages);
 
@@ -450,19 +384,20 @@ function buildCard(g) {
   const dlTitle      = g.numPages ? t('card.tip_dl', { n: formatCount(g.numPages) }) : t('card.tip_dl_meta');
   const idText       = escHtml(g.sourceId || g.id);
   const idClass      = `card-id${g.isLocalImport ? ' local' : ''}`;
-  const idHtml       = g.sourceUrl
-    ? `<a class="${idClass}" href="${escHtml(g.sourceUrl)}" target="_blank" rel="noopener noreferrer" data-original="${idText}">${idText}</a>`
+  const sourceHref   = safeExternalUrl(g.sourceUrl);
+  const idHtml       = sourceHref
+    ? `<a class="${idClass}" href="${escHtml(sourceHref)}" target="_blank" rel="noopener noreferrer" data-original="${idText}">${idText}</a>`
     : `<div class="${idClass}" data-original="${idText}">${idText}</div>`;
 
   const openBtnHtml = `
-      <button class="card-btn card-btn-open" data-id="${g.id}" data-tip="${escHtml(openTitle)}"${visitUrl ? ` data-tip-shift="${t('card.tip_editsource')}"` : ''}><span class="open-inner">${_makeOpenBtnInner(g.source)}</span></button>`;
+      <button class="card-btn card-btn-open" data-id="${idA}" data-tip="${escHtml(openTitle)}"${visitUrl ? ` data-tip-shift="${t('card.tip_editsource')}"` : ''}><span class="open-inner">${_makeOpenBtnInner(g.source)}</span></button>`;
 
   const actionsHtml = `
     <div class="card-actions">
-      <button class="card-btn card-btn-dl" data-id="${g.id}" data-tip="${canDownload ? dlTitle : t('card.tip_replace')}" ${canDownload ? `data-tip-shift="${t('card.tip_replace')}"` : ''}>${canDownload ? _DL_ICON : _UPLOAD_ICON}</button>
-      <button class="card-btn card-btn-translate${g.translated ? ' done' : ''}" data-id="${g.id}" data-tip="${g.translated ? t('card.tip_translate_new') : t('card.tip_translate')}"${g.translated ? ` data-tip-shift="${t('card.tip_revert')}"` : ''}>${_TRANSLATE_ICON}</button>
-      <button class="card-btn card-btn-export" data-id="${g.id}" data-tip="${t('card.tip_export')}" data-tip-shift="${t('card.tip_export_meta')}">${_EXPORT_ICON}</button>
-      <button class="card-btn card-btn-del" data-id="${g.id}" data-tip="${t('card.tip_delete')}" data-tip-shift="${t('card.tip_quickdelete')}">${_DELETE_ICON}</button>
+      <button class="card-btn card-btn-dl" data-id="${idA}" data-tip="${canDownload ? dlTitle : t('card.tip_replace')}" ${canDownload ? `data-tip-shift="${t('card.tip_replace')}"` : ''}>${canDownload ? _DL_ICON : _UPLOAD_ICON}</button>
+      <button class="card-btn card-btn-translate${g.translated ? ' done' : ''}" data-id="${idA}" data-tip="${g.translated ? t('card.tip_translate_new') : t('card.tip_translate')}"${g.translated ? ` data-tip-shift="${t('card.tip_revert')}"` : ''}>${_TRANSLATE_ICON}</button>
+      <button class="card-btn card-btn-export" data-id="${idA}" data-tip="${t('card.tip_export')}" data-tip-shift="${t('card.tip_export_meta')}">${_EXPORT_ICON}</button>
+      <button class="card-btn card-btn-del" data-id="${idA}" data-tip="${t('card.tip_delete')}" data-tip-shift="${t('card.tip_quickdelete')}">${_DELETE_ICON}</button>
     </div>`;
 
   card.innerHTML = `
@@ -481,9 +416,9 @@ function buildCard(g) {
         </div>
         ${titleHtml}
         <div class="card-meta">${metaLine}</div>
-        <div class="card-progress" id="prog-${g.id}">
-          <div class="card-prog-track"><div class="card-prog-fill" id="progfill-${g.id}"></div></div>
-          <span class="card-prog-label" id="proglabel-${g.id}"></span>
+        <div class="card-progress" id="prog-${idA}">
+          <div class="card-prog-track"><div class="card-prog-fill" id="progfill-${idA}"></div></div>
+          <span class="card-prog-label" id="proglabel-${idA}"></span>
         </div>
         ${tagHtml}
       </div>
@@ -572,22 +507,18 @@ function buildCard(g) {
         return;
       }
 
-      // A merged series downloads each of its chapters: fetch every chapter that isn't already
-      // complete (n/n pages), skipping the finished ones. If they're ALL complete, offer to
-      // re-download the whole series, overwriting every cached image. Each chapter is its own job.
+      // A merged series forwards ONE intent for the whole series; expanding it into per-chapter
+      // work (which chapters are incomplete, what to overwrite, in what order) belongs to
+      // whatever performs the acquisition, not here. The confirm stays app-side because it is
+      // UI: nothing already-complete in the local library means the press can only mean
+      // "fetch it all again".
       if (showAsSeries) {
         const entities = await getGalleriesByIds((g.chapters || []).map(c => c.id));
-        const dlable = entities.filter(x => x && _canDownload(x));
-        if (!dlable.length) return;
-        const isComplete = (x) => x.numPages > 0 && x.count >= x.numPages;
-        let targets = dlable.filter(x => !isComplete(x));
-        let overwrite = false;
-        if (!targets.length) {
-          if (!confirm(t('confirm.redownload_series'))) return;
-          targets = dlable;
-          overwrite = true;
-        }
-        for (const x of targets) await sendMsg({ type: 'CACHE_ALL_PAGES', galleryId: x.id, source: x.source, overwrite });
+        const known = entities.filter(Boolean);
+        if (!known.length || !known.some(x => _canDownload(x))) return;
+        const nothingMissing = known.every(x => x.numPages > 0 && x.count >= x.numPages);
+        if (nothingMissing && !confirm(t('confirm.redownload_series'))) return;
+        await sendMsg({ type: 'CACHE_ALL_PAGES', galleryId: g.id, source: g.source, series: true, overwrite: nothingMissing });
         return;
       }
 
@@ -723,7 +654,8 @@ function buildCard(g) {
       _hoveredOpenBtn = null;
       if ($card) $card.replaceWith(buildCard(liveEntry || g));
     } else {
-      window.open(curVisitUrl, '_blank');
+      const safeVisit = safeExternalUrl(curVisitUrl);
+      if (safeVisit) window.open(safeVisit, '_blank', 'noopener');
     }
     });
   });
@@ -991,6 +923,10 @@ function applyJob(job) {
   if (!job || job.gid == null) return;
   const gid = String(job.gid);
   const { status, kind } = job;
+  // The job layer publishes label/error keys (it can run in the SW, which has no i18n);
+  // resolution to the user's language happens here. Legacy `label` strings still pass through.
+  const jobLabel = job.labelKey ? t(job.labelKey, job.labelArgs) : job.label;
+  const jobError = job.errorKey ? t(job.errorKey) : job.error;
 
   if (status === 'done' || status === 'error' || status === 'cancelled') _liveJobs.delete(gid);
   else _liveJobs.set(gid, job);
@@ -1016,7 +952,7 @@ function applyJob(job) {
   if (status === 'error') {
     if (body) body.classList.add('downloading');
     if (fillEl) fillEl.classList.remove('done', 'indeterminate');
-    if (labelEl) labelEl.textContent = `${t('prog.error')}: ${job.error || 'unknown'}`;
+    if (labelEl) labelEl.textContent = `${t('prog.error')}: ${jobError || 'unknown'}`;
     btns.forEach(b => { if (isTranslate) _setTrCancelMode(b, false); b.disabled = false; });
     if (kind === 'upload') store.load(gid).then(g => { if (!g || g.count === 0) store.remove(gid); });
     setTimeout(() => _clearCardProgress(gid), JOB_MSG_LINGER_MS);
@@ -1058,7 +994,7 @@ function applyJob(job) {
   }
   if (status === 'started') {
     if (fillEl) { fillEl.classList.remove('indeterminate', 'done'); fillEl.style.width = '0%'; }
-    if (labelEl) labelEl.textContent = job.label || (job.total ? `0 / ${formatCount(job.total)}` : t('prog.starting'));
+    if (labelEl) labelEl.textContent = jobLabel || (job.total ? `0 / ${formatCount(job.total)}` : t('prog.starting'));
     if (isTranslate) btns.forEach(b => _setTrCancelMode(b, true));
     else btns.forEach(b => { b.disabled = true; });
     return;
@@ -1083,11 +1019,11 @@ function applyJob(job) {
         // isn't suffixed with the rendered-page tally the way downloads/uploads are.
         labelEl.textContent = status === 'done'
           ? `${t('prog.translated')} ${doneText}/${totalText}${job.failed ? ` (${formatCount(job.failed)} failed)` : ''}${job.costNote ? ` · ${job.costNote}` : ''}`
-          : job.label ? job.label : `${t('prog.translating')} ${doneText} / ${totalText}`;
+          : jobLabel ? jobLabel : `${t('prog.translating')} ${doneText} / ${totalText}`;
       } else {
         labelEl.textContent = status === 'done'
           ? `${t('prog.done')} — ${doneText}/${totalText}${skippedNote}`
-          : job.label ? `${job.label} · ${doneText}/${totalText}${skippedNote}` : `${doneText} / ${totalText}${skippedNote}`;
+          : jobLabel ? `${jobLabel} · ${doneText}/${totalText}${skippedNote}` : `${doneText} / ${totalText}${skippedNote}`;
       }
     }
     if (status === 'done') {
@@ -1135,6 +1071,13 @@ function _markJobInterrupted(job) {
 async function hydrateJobs() {
   const jobs = await platform.jobs.current();
   for (const job of jobs) {
+    // Terminal rows are retained by the registry so a failure with no live listener survives to
+    // the next open — paint once, then acknowledge (clear) so it doesn't replay on every load.
+    if (job.status === 'error' || job.status === 'cancelled') {
+      applyJob(job);
+      platform.jobs.clear(String(job.gid), job.kind);
+      continue;
+    }
     // Translations are server-owned: boot.js's ensureTranslationsAlive() re-attaches to any that
     // are still running (after a navigation or a service-worker kill) and a live runner keeps
     // publishing over the top of this. So just paint whatever the registry currently has.
@@ -1517,10 +1460,12 @@ async function _handleImportFiles(files) {
   }
   // Reserve a placeholder card for every dropped file up front (drop 3 zips → 3 cards
   // appear immediately), then upload them one at a time into their reserved ids.
-  const base = Date.now();
-  const queued = accepted.map((file, i) => ({ file, gid: String(base + i), title: file.name.replace(/\.[^.]+$/, '') }));
-  await Promise.all(queued.map(({ gid, title }) =>
-    store.mutate(gid, { title, count: 0, size: 0, addedAt: base, latestAt: base, isLocalImport: true })));
+  const queued = accepted.map((file) => {
+    const gid = nextGalleryId();   // the shared mint — per-context monotonic, never a raw Date.now()
+    return { file, gid, at: Number(gid), title: file.name.replace(/\.[^.]+$/, '') };
+  });
+  await Promise.all(queued.map(({ gid, title, at }) =>
+    store.mutate(gid, { title, count: 0, size: 0, addedAt: at, latestAt: at, isLocalImport: true })));
   await applyFilters();
   for (const { file, gid } of queued) {
     await importSingleFile(file, gid);
@@ -1638,12 +1583,7 @@ function _saveBlob(blob, filename) {
 
 async function exportMetadataZip(galleryId) {
   const gid = String(galleryId);
-  const db  = await openDB();
-  const meta = await new Promise((resolve, reject) => {
-    const req = db.transaction('metadata', 'readonly').objectStore('metadata').get(gid);
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror   = () => reject(req.error);
-  });
+  const meta = await metaGet(gid);
 
   // Strip image-specific fields — this is a metadata-only backup. migrateTitle gives the export
   // the canonical shape (galleryId + title leading) regardless of when the record was stored.
@@ -1656,13 +1596,8 @@ async function exportMetadataZip(galleryId) {
 
 async function exportMetadataBundleZip(galleryId) {
   const gid = String(galleryId);
-  const db = await openDB();
   const enc = new TextEncoder();
-  const getMeta = (id) => new Promise((resolve, reject) => {
-    const req = db.transaction('metadata', 'readonly').objectStore('metadata').get(String(id));
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror = () => reject(req.error);
-  });
+  const getMeta = (id) => metaGet(String(id));
   const cleanMeta = (raw, { stripSeriesFields = false } = {}) => {
     const { pageExts, ...base } = migrateTitle(raw || {});
     if (!stripSeriesFields) return base;
@@ -1703,23 +1638,15 @@ async function exportMetadataBundleZip(galleryId) {
 // Build the export file list for one gallery, every name under `prefix` (e.g. "chapter-01/" for a
 // series bundle, "" for a standalone gallery). Layout: metadata.json, image_records.json, images/,
 // translated/, study/{bg,text,bubbles.json} — the shape _importShioriEntries restores losslessly.
-async function _collectGalleryFiles(gid, prefix, db, opts = {}) {
-  let meta = await new Promise((resolve, reject) => {
-    const req = db.transaction('metadata', 'readonly').objectStore('metadata').get(gid);
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror = () => reject(req.error);
-  });
+async function _collectGalleryFiles(gid, prefix, opts = {}) {
+  let meta = await metaGet(gid);
   meta = migrateTitle(meta);
   if (opts.stripSeriesFields) {
     const { chapters, parentId, seriesTitle, seriesTags, ...plainMeta } = meta || {};
     meta = plainMeta;
   }
 
-  const imageRecords = await new Promise((resolve, reject) => {
-    const req = db.transaction('images', 'readonly').objectStore('images').index('galleryId').getAll(IDBKeyRange.only(gid));
-    req.onsuccess = () => resolve(req.result || []);
-    req.onerror = () => reject(req.error);
-  });
+  const imageRecords = await getGalleryImageRecords(gid);
 
   imageRecords.sort((a, b) => {
     const pa = parseInt(a.url.match(/\/(\d+)\.\w+$/)?.[1] || '9999');
@@ -1839,16 +1766,11 @@ async function _collectGalleryFiles(gid, prefix, db, opts = {}) {
 // a top-level series.json describing chapter order + titles.
 async function exportGalleryZip(galleryId) {
   const gid = String(galleryId);
-  const db = await openDB();
-  const meta = await new Promise((resolve, reject) => {
-    const req = db.transaction('metadata', 'readonly').objectStore('metadata').get(gid);
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror = () => reject(req.error);
-  });
+  const meta = await metaGet(gid);
 
   const chapters = (Array.isArray(meta?.chapters) && meta.chapters.length > 1) ? meta.chapters : null;
   if (!chapters) {
-    const files = await _collectGalleryFiles(gid, '', db);
+    const files = await _collectGalleryFiles(gid, '');
     _saveBlob(new Blob([_zipCreate(files)], { type: 'application/zip' }), `shiori-${gid}.zip`);
     return;
   }
@@ -1865,7 +1787,7 @@ async function exportGalleryZip(galleryId) {
   for (let i = 0; i < chapters.length; i++) {
     const folder = `chapter-${String(i + 1).padStart(2, '0')}`;
     manifest.chapters.push({ id: String(chapters[i].id), title: chapters[i].title || '', folder });
-    files.push(...await _collectGalleryFiles(String(chapters[i].id), `${folder}/`, db, { stripSeriesFields: true }));
+    files.push(...await _collectGalleryFiles(String(chapters[i].id), `${folder}/`, { stripSeriesFields: true }));
   }
   files.push({ name: 'series.json', data: enc.encode(JSON.stringify(manifest, null, 2)) });
   _saveBlob(new Blob([_zipCreate(files)], { type: 'application/zip' }), `shiori-series-${gid}.zip`);
@@ -2324,29 +2246,3 @@ window.addEventListener('storage', (e) => {
 // grid still paints fast).
 _sourceIconsReady.finally(() => loadAll());
 
-const _FONT_URL = 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap';
-const _FONT_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days
-
-async function _ensureFont() {
-  try {
-    const c = JSON.parse(localStorage.getItem('shiori-font') || 'null');
-    if (c?.css && Date.now() - (c.cachedAt || 0) < _FONT_TTL) return;
-    const cssResp = await fetch(_FONT_URL);
-    if (!cssResp.ok) return; // keep existing cache as permanent failsafe
-    let css = await cssResp.text();
-    for (const [, url] of [...css.matchAll(/url\((https:\/\/fonts\.gstatic\.com[^)]+)\)/g)]) {
-      try {
-        const r = await fetch(url);
-        if (!r.ok) continue;
-        const blob = await r.blob();
-        const dataUrl = await new Promise(res => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); });
-        css = css.replaceAll(url, dataUrl);
-      } catch {}
-    }
-    localStorage.setItem('shiori-font', JSON.stringify({ css, cachedAt: Date.now() }));
-    const el = document.getElementById('jb-mono-cache');
-    if (el) el.textContent = css;
-  } catch {}
-}
-
-_ensureFont();

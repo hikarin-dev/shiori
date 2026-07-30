@@ -9,10 +9,17 @@ ARCHITECTURE.md
 CLAUDE.md
 AGENTS.md
 handoff.md
+release.ps1
 .claude/
 .mcp.json
 graphify-out/
 plans/
+
+# Dependencies (dev-only: the app itself has no build step)
+node_modules/
+
+# Test tooling (the app itself has no build step and no runtime dependencies)
+node_modules/
 
 # Release artifacts
 shiori-v*.zip

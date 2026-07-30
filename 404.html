@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-Czm7YwPzVClJ/IdRJeXtXtDYfHgpqm2jrSXatV2M7i4='; style-src 'unsafe-inline'; object-src 'none'; base-uri 'self'">
   <title>Shiori</title>
   <style>html,body{margin:0;height:100%;background:#111;color:#888;font:14px system-ui,sans-serif;display:flex;align-items:center;justify-content:center}</style>
 </head>
@@ -14,19 +15,25 @@
   // while bailing to the plain app file if the worker can't take over. Truly unknown paths say so.
   (async () => {
     const RETRY = 'shiori-sw-retry';
-    const seg = (location.pathname.replace(/\/+$/, '').split('/').pop() || '').replace(/\.html$/, '');
+    const parts = location.pathname.replace(/\/+$/, '').split('/');
+    const seg = (parts.pop() || '').replace(/\.html$/, '');
     const known = seg === 'settings' || seg === 'reader' || seg === 'library' || seg === 'overview';
     if (!known) { document.body.textContent = 'Not found.'; return; }
+    // This page is served AT the missing deep-link URL, which can sit at any depth (/library,
+    // or /app/library after a clean-URL refresh without a worker) — so relative paths would
+    // nest wrongly. Resolve the worker and the real file against the computed site root.
+    let root = parts.join('/') + '/';
+    if (root.endsWith('/app/')) root = root.slice(0, -4);
     if ('serviceWorker' in navigator && !sessionStorage.getItem(RETRY)) {
       sessionStorage.setItem(RETRY, '1');
       try {
-        await navigator.serviceWorker.register('sw.js', { type: 'module' });
+        await navigator.serviceWorker.register(root + 'sw.js', { type: 'module' });
         await navigator.serviceWorker.ready;
         location.reload();
         return;
       } catch {}
     }
-    location.replace('app/' + seg + '.html' + location.search + location.hash);   // worker unavailable → real file
+    location.replace(root + 'app/' + seg + '.html' + location.search + location.hash);   // worker unavailable → real file
   })();
 </script>
 <noscript>Not found.</noscript>

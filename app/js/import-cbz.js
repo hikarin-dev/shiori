@@ -2,8 +2,24 @@
 // sorting) the download orchestration reuses. Runs in a page or in the PWA service worker.
 
 import * as platform from './platform.js';
-import { dbPut, metaPut, metaGet, galleryGet, deleteGalleryImages, existingPageNums, publishFeed,
-         putTranslatedImage, putPageStudy, mutateGallery, refreshSeriesAggregate, pruneSeriesChildren, coverPut } from './db.js';
+import { dbPut, metaPut, metaGet, galleryGet, deleteStaleGalleryImages, existingPageNums, publishFeed,
+         putTranslatedImage, putPageStudy, mutateGallery, refreshSeriesAggregate, pruneSeriesChildren, coverPut, nextGalleryId } from './db.js';
+import { isValidGalleryId } from './sanitize.js';
+
+// An embedded id that fails the app's numeric-id gate is ignored (remapped to the caller's
+// gallery) — imported ids reach DOM attributes and hrefs, so markup in one is an XSS attempt.
+const _validEmbeddedId = (id) => (id != null && isValidGalleryId(id) ? String(id) : null);
+
+// Typed import failure. Thrown (never swallowed) so the job runner publishes a real error —
+// an invalid archive must never look like success — and retains the staged input for a retry.
+export class CbzImportError extends Error {
+  constructor(code, message) { super(message); this.name = 'CbzImportError'; this.code = code; }
+}
+
+// Archive guards: generous bounds no real archive reaches, cheap insurance against a corrupt
+// central directory or a zip bomb expanding into memory.
+const MAX_ZIP_ENTRIES = 20000;
+const MAX_EXPANDED_BYTES = 4 * 1024 * 1024 * 1024;   // 4 GiB decompressed
 
 async function inflateRaw(bytes) {
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
@@ -15,10 +31,12 @@ export async function unzip(buffer) {
   const view = new DataView(buffer), bytes = new Uint8Array(buffer);
   let eocd = -1;
   for (let i = buffer.byteLength - 22; i >= 0; i--) { if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
-  if (eocd === -1) throw new Error('Not a valid ZIP file');
+  if (eocd === -1) throw new CbzImportError('cbz_parse', 'Not a valid ZIP file');
   const count = view.getUint16(eocd + 10, true);
+  if (count > MAX_ZIP_ENTRIES) throw new CbzImportError('cbz_limits', `Archive has too many entries (${count}).`);
   let pos = view.getUint32(eocd + 16, true);
   const out = [];
+  let expanded = 0;
   for (let i = 0; i < count; i++) {
     if (view.getUint32(pos, true) !== 0x02014b50) break;
     const method = view.getUint16(pos + 10, true);
@@ -37,6 +55,8 @@ export async function unzip(buffer) {
     if (method === 0) data = comp;
     else if (method === 8) data = await inflateRaw(comp);
     else continue;
+    expanded += data.length;
+    if (expanded > MAX_EXPANDED_BYTES) throw new CbzImportError('cbz_limits', 'Archive expands beyond the supported size.');
     out.push({ filename, data });
   }
   return out;
@@ -94,7 +114,10 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
   onProgress({ status: 'extracting' });
   let entries;
   try { entries = await unzip(buffer); }
-  catch (e) { onProgress({ status: 'error', error: 'Failed to parse CBZ: ' + e.message }); return; }
+  catch (e) {
+    if (e instanceof CbzImportError) throw e;
+    throw new CbzImportError('cbz_parse', 'Failed to parse CBZ: ' + (e && e.message || e));
+  }
 
   // A Shiori series export bundles each chapter under chapter-NN/ with a top-level series.json.
   // Restore every chapter as its own gallery, then rebuild the series grouping.
@@ -115,19 +138,18 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
   // translated/ and study/ folders. Restore it losslessly — and never let those parallel
   // folders get imported as extra pages (the plain-CBZ path below only sees a normal archive).
   if (entries.some(en => en.filename === 'image_records.json')) {
-    const gid = String(embeddedMeta?.galleryId || origGid);
+    const gid = _validEmbeddedId(embeddedMeta?.galleryId) || origGid;
     return _importShioriEntries(gid, entries, embeddedMeta, onProgress);
   }
 
   const nameNoExt = filename.replace(/\.[^.]+$/, '');
-  const gid = (skipExisting && embeddedMeta?.galleryId) ? String(embeddedMeta.galleryId) : origGid;
+  const gid = (skipExisting && _validEmbeddedId(embeddedMeta?.galleryId)) || origGid;
   const imgEntries = sortImageEntries(entries);
 
   if (imgEntries.length === 0) {
-    if (!embeddedMeta) { onProgress({ status: 'error', error: 'No images found in CBZ.' }); return; }
+    if (!embeddedMeta) throw new CbzImportError('cbz_empty', 'No images found in CBZ.');
     await _putMetadataOnlyGallery(gid, embeddedMeta);
     onProgress({ status: 'done', done: 0, total: 0, skipped: 0 });
-    platform.kv.set({ libraryVersion: Date.now() });
     publishFeed(gid);
     return;
   }
@@ -147,7 +169,10 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
     await metaPut(existing
       ? { ...existing, isLocalImport: true }
       : { galleryId: gid, title: { english: nameNoExt, japanese: '', pretty: nameNoExt }, tags: [], numPages: 0, pageExts, fetchedAt: Date.now(), isLocalImport: true, source: '' });
-    await deleteGalleryImages(gid);
+    // Replace mode intentionally does NOT delete the old pages here: the new set is written over
+    // them in place (dbPut overwrites shared keys without double-counting), and stale leftovers
+    // are swept only after every new page is stored — so a crash or quota failure mid-write can
+    // never leave fewer pages than the old or the new set.
   }
 
   // Pages already stored (a resumed/interrupted run) are skipped, never re-put — re-putting
@@ -158,13 +183,13 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
   let done = 0, skipped = 0;
   for (let i = 0; i < imgEntries.length; i++) {
     if (have.has(i + 1)) { skipped++; onProgress({ done, total: imgEntries.length, skipped, status: 'progress' }); continue; }
-    const ext = normExt(imgEntries[i].filename.match(/\.(\w+)$/)?.[1]);
-    const blob = new Blob([imgEntries[i].data], { type: MIME[ext] || 'image/jpeg' });
-    await dbPut(`local://${gid}/${i + 1}.${ext}`, blob, gid, gid);
+    await dbPut(`local://${gid}/${i + 1}.${pageExts[i]}`, new Blob([imgEntries[i].data], { type: MIME[pageExts[i]] || 'image/jpeg' }), gid, gid);
     onProgress({ done: ++done, total: imgEntries.length, skipped, status: 'progress' });
   }
+  // Only now that the whole new set is stored: drop old pages the new set didn't overwrite
+  // (different extensions, remote-source keys, pages past the new count).
+  if (!skipExisting) await deleteStaleGalleryImages(gid, pageExts.map((ext, i) => `local://${gid}/${i + 1}.${ext}`));
   onProgress({ status: 'done', done, total: imgEntries.length, skipped });
-  platform.kv.set({ libraryVersion: Date.now() });
   publishFeed(gid);
 }
 
@@ -217,7 +242,7 @@ async function _importSeriesZip(entries, manifest, onProgress) {
     if (metaEntry) { try { cmeta = JSON.parse(new TextDecoder().decode(metaEntry.data)); } catch {} }
     if (i === 0 && Array.isArray(cmeta?.seriesTags)) embeddedSeriesTags = cmeta.seriesTags;
     if (cmeta) { delete cmeta.chapters; delete cmeta.parentId; delete cmeta.seriesTitle; delete cmeta.seriesTags; }  // grouping is rebuilt below
-    const gid = String(cmeta?.galleryId || c.id || (Date.now() + i));
+    const gid = _validEmbeddedId(cmeta?.galleryId) || _validEmbeddedId(c.id) || nextGalleryId();
     const hasFullPayload = sub.some(en =>
       en.filename === 'image_records.json' ||
       /^(images|translated|study|covers)\//i.test(en.filename));
@@ -252,7 +277,6 @@ async function _importSeriesZip(entries, manifest, onProgress) {
     await refreshSeriesAggregate(ownerId);
   }
 
-  platform.kv.set({ libraryVersion: Date.now() });
   onProgress({ status: 'done', done: total, total });
 }
 
@@ -265,15 +289,30 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
   const pageEntries = sortImageEntries(entries.filter(en => /^images\//i.test(en.filename)));
   const pageExts = pageEntries.map(en => normExt(en.filename.match(/\.(\w+)$/)?.[1]));
 
+  // Reject ambiguous archives before any write: two files claiming the same page number.
+  const seenNums = new Set();
+  for (const en of pageEntries) {
+    const num = parseInt(en.filename.replace(/^.*\//, '').match(/(\d+)\.(\w+)$/)?.[1]);
+    if (!Number.isFinite(num)) continue;
+    if (seenNums.has(num)) throw new CbzImportError('cbz_duplicate_pages', `Duplicate page number ${num} in archive.`);
+    seenNums.add(num);
+  }
+
+  // Grouping references are ids too — drop any that fail the id gate rather than storing them.
+  if (embeddedMeta) {
+    if (embeddedMeta.parentId != null && !isValidGalleryId(embeddedMeta.parentId)) delete embeddedMeta.parentId;
+    if (Array.isArray(embeddedMeta.chapters) && embeddedMeta.chapters.some(c => !isValidGalleryId(c?.id))) delete embeddedMeta.chapters;
+  }
   await metaPut(embeddedMeta
     ? { ...embeddedMeta, galleryId: gid, pageExts, fetchedAt: Date.now() }
     : { galleryId: gid, title: { english: gid, japanese: '', pretty: gid }, tags: [], numPages: pageEntries.length, pageExts, fetchedAt: Date.now(), isLocalImport: true, source: '' });
-  await deleteGalleryImages(gid);
+  // Full replace, but old pages are only removed after the whole new set is stored (see the
+  // stale sweep below) so an interruption cannot destroy a previously valid gallery.
 
   if (pageEntries.length === 0) {
+    await deleteStaleGalleryImages(gid, []);
     await restoreExportedCovers(gid, byName);
     onProgress({ status: 'done', done: 0, total: 0, skipped: 0 });
-    platform.kv.set({ libraryVersion: Date.now() });
     publishFeed(gid);
     return;
   }
@@ -291,6 +330,9 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
     urlByNum.set(num, url);
     onProgress({ done: ++done, total: pageEntries.length, skipped: 0, status: 'progress' });
   }
+
+  // The whole new set is stored — now drop the old pages it didn't overwrite in place.
+  await deleteStaleGalleryImages(gid, [...urlByNum.values()]);
 
   // Translated variants → rec.translated on the matching page.
   for (const en of entries) {
@@ -332,6 +374,5 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
 
   await restoreExportedCovers(gid, byName);
   onProgress({ status: 'done', done, total: pageEntries.length, skipped: 0 });
-  platform.kv.set({ libraryVersion: Date.now() });
   publishFeed(gid);
 }

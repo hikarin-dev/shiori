@@ -10,21 +10,28 @@ import { importCbzBuffer } from './import-cbz.js';
 import { startTranslation, pollTranslation, cancelTranslate } from './translate.js';
 
 // Import a CBZ the UI staged in OPFS. Resumable: re-running skips already-stored pages.
+// The job layer publishes label/error KEYS (resolved via t() in the UI, which owns i18n) —
+// this code also runs in the service worker, which has no localStorage-backed language.
 export async function runImport({ galleryId, tempFile, filename, skipExisting = true }) {
   const gid = String(galleryId);
-  platform.jobs.publish({ gid, kind: 'upload', status: 'started', label: 'Reading…' });
+  platform.jobs.publish({ gid, kind: 'upload', status: 'started', labelKey: 'prog.reading' });
   try {
     const root = await navigator.storage.getDirectory();
     const fh = await root.getFileHandle(tempFile);
     const buffer = await (await fh.getFile()).arrayBuffer();
     await importCbzBuffer(gid, buffer, filename, !!skipExisting, (p) => {
       if (p.status === 'progress' || p.status === 'started')
-        platform.jobs.publish({ gid, kind: 'upload', status: 'progress', done: p.done, total: p.total, label: 'Importing' });
+        platform.jobs.publish({ gid, kind: 'upload', status: 'progress', done: p.done, total: p.total, labelKey: 'prog.importing' });
     });
+    // Success only — a failed import (importCbzBuffer throws) retains the staged file so the
+    // import can be retried; boot maintenance sweeps abandoned ones after a grace period.
     root.removeEntry(tempFile).catch(() => {});
     platform.jobs.publish({ gid, kind: 'upload', status: 'done' });
   } catch (e) {
-    platform.jobs.publish({ gid, kind: 'upload', status: 'error', error: String(e && e.message || e) });
+    platform.jobs.publish({
+      gid, kind: 'upload', status: 'error', error: String(e && e.message || e),
+      ...(e && e.code ? { errorKey: `err.${e.code}` } : {}),
+    });
   }
 }
 

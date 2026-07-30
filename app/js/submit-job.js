@@ -39,12 +39,17 @@ async function _runInTab(kind, payload, existingKey = null) {
   }
 }
 
-export function submitJob(kind, payload) {
+export async function submitJob(kind, payload) {
+  if (!RUNNERS[kind]) return null;
+  const key = `${payload && payload.galleryId}:${kind}`;
+  // Durable-first: the replay row is written HERE, before any handoff — so closing the tab in
+  // the gap between the "started" reply and the runner's own (idempotent) re-add can no longer
+  // lose the job. Recovery replays it: the SW's resumePending or the next tab's poll tick.
+  await platform.jobsPending.add({ key, kind, payload });
   const sw = _sw();
   if (sw) { try { sw.postMessage({ __shioriJob: true, kind, payload }); return 'sw'; } catch {} }
-  const run = RUNNERS[kind];
-  if (run) { _runInTab(kind, payload); return 'tab'; }
-  return null;
+  _runInTab(kind, payload, key);
+  return 'tab';
 }
 
 // Cancel a job. The abort handle lives in whichever context is running the job, so route
@@ -76,9 +81,10 @@ export async function pollActiveTranslations() {
   let pending = [];
   try { records = await platform.translateResume.all(); } catch {}
   try { pending = await platform.jobsPending.all(); } catch {}
-  if (!records.length && !pending.length) return;
+  if (!records.length && !pending.length) return false;   // idle — boot.js backs its timer off
   const sw = _sw();
-  if (sw) { try { sw.postMessage({ __shioriPoll: true }); return; } catch {} }
+  if (sw) { try { sw.postMessage({ __shioriPoll: true }); return true; } catch {} }
   if (pending.length) await _recoverPendingInTab(pending);
   await runPoll();   // no service worker — recover queued work and poll in this tab
+  return true;
 }

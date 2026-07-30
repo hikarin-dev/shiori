@@ -2,10 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <!-- script-src: 'self' plus the hash of the one inline script below (the base corrector).
+       connect-src stays open to http(s) for the user-configured translator server. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-hY3v5/hK8HEXGvbWdwpC9QwryUrAFnXUNYc6GOBIxBU='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' data: blob: http: https:; object-src 'none'; base-uri 'self'">
   <!-- The app's files live under /app/ but the pages are served at clean URLs (/, /settings,
        /reader). This base (relative, so it works under both localhost / and Pages /shiori/)
-       points asset references back at the app folder; in-page nav links use ../ to stay clean. -->
+       points asset references back at the app folder; in-page nav links use ../ to stay clean.
+       The inline corrector handles a direct app/<page>.html load (no service worker): there the
+       page's own directory already is the app folder, so the base must be ./ or every asset
+       would resolve under app/app/. Inline by necessity — an external script's own URL would
+       need the very base it computes; the CSP allows exactly this script by hash. -->
   <base href="app/">
+  <script>if (/\/app\/[^/]*$/.test(location.pathname)) document.querySelector('base').href = './';</script>
   <link rel="icon" href="../icons/icon32.png">
   <title>Shiori — Library</title>
   <script src="font-init.js"></script>
@@ -19,6 +27,9 @@
   <link rel="modulepreload" href="js/platform.js">
   <link rel="modulepreload" href="js/services.js">
   <link rel="modulepreload" href="js/db.js">
+  <link rel="modulepreload" href="js/image-util.js">
+  <link rel="modulepreload" href="js/sanitize.js">
+  <link rel="modulepreload" href="js/sites.js">
   <link rel="modulepreload" href="js/api.js">
   <link rel="modulepreload" href="js/store.js">
   <link rel="modulepreload" href="js/backup.js">

@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.0.6 — 2026-07-30
+
+### Added
+
+- Full backups now carry your settings. A `.shioridb` backup includes your translation server configuration, app language, and reader preferences, so restoring it on another browser or machine brings back a ready-to-use Shiori instead of a factory-fresh one.
+- Settings → Danger Zone now offers **Factory Reset** next to Clear All. Clear All empties the library along with any queued jobs and half-finished imports but keeps your preferences; Factory Reset additionally erases every setting, including your translation server details.
+
+### Changed
+
+- Progress and error messages now follow your chosen language everywhere. Imports, downloads, and translations previously reported some of their status in English whatever the setting, and several newer screens had no translations outside English.
+- Choosing a different target language for a gallery you've already translated now translates it again into the new language, instead of relabelling the translation you already had.
+- A gallery counts as translated only once every page has succeeded. Galleries where some pages failed now show as partially translated, so you can run them again to fill in the rest.
+- Translated pages take noticeably less storage space.
+- Series pages open immediately: the chapter list appears straight away and chapter thumbnails fill in as they are ready, instead of the page waiting for the whole series first.
+- The interface font ships with the app, so it looks right offline and on the very first load.
+
 ## v1.0.5 — 2026-07-14
 
 ### Added

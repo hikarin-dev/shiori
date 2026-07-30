@@ -1,17 +1,13 @@
+// Injects the UI font faces before first paint, from the app's own files (app/fonts/) — the
+// app makes no third-party requests. Weights match the previous hosted set: 400/600/700.
+// URLs are relative so they resolve through the page <base> in both serve modes.
 (function () {
-  try {
-    const c = JSON.parse(localStorage.getItem('shiori-font') || 'null');
-    if (c?.css) {
-      const s = document.createElement('style');
-      s.id = 'jb-mono-cache';
-      s.textContent = c.css;
-      document.head.appendChild(s);
-      return;
-    }
-  } catch {}
-  // No cache — fall back to Google Fonts
-  const link = document.createElement('link');
-  link.rel  = 'stylesheet';
-  link.href = 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap';
-  document.head.appendChild(link);
+  try { localStorage.removeItem('shiori-font'); } catch {}   // legacy remote-CSS cache
+  const style = document.createElement('style');
+  style.id = 'jb-mono-local';
+  style.textContent = [['Regular', 400], ['SemiBold', 600], ['Bold', 700]].map(([file, weight]) =>
+    `@font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:${weight};font-display:swap;` +
+    `src:url('fonts/JetBrainsMono-${file}.woff2') format('woff2');}`
+  ).join('\n');
+  document.head.appendChild(style);
 })();

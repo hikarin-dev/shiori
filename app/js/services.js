@@ -15,7 +15,6 @@ import { pingServer, revertGallery, serverUrlFromSettings } from './translate.js
 import { request as extRequest } from './ext-bridge.js';
 import { submitJob, cancelJob } from './submit-job.js';
 
-const _seriesCoverRequested = new Set();
 const _coverWork = new Map();
 const _coverResizeWaiters = [];
 let _activeCoverResizes = 0;
@@ -49,25 +48,20 @@ function coverRequesterKey(msg) {
   return JSON.stringify([msg.page ?? null, msg.requester ?? null, msg.requestId ?? null]);
 }
 
-// GET_COVER is request→push: compute the thumbnail, deliver via COVER_READY. A gallery with no
-// pages yet but a known source is offered to the extension (which knows whether that source can
-// supply a cover); when it stores one, the change feed re-triggers this request.
+// GET_COVER is request→push: compute the thumbnail, deliver via COVER_READY. A gallery that
+// lacks a cover but has a source broadcasts that one-way fact; whoever can supply covers decides
+// whether to act, how often, and when to give up (no scheduling or dedup state lives here). When
+// a cover is stored, the change feed re-triggers this request.
 async function buildCover(msg) {
   const preferSeries = !!msg.preferSeries;
-  const seriesCoverKey = `${msg.source || ''}:${msg.galleryId}`;
   const width = normalizedCoverWidth(msg.thumbWidth);
   let entry = await coverThumbnailGet(msg.galleryId, width, { preferSeries });
   if (!entry.source) {
     if (msg.source) extRequest({ type: 'EXT_FETCH_COVER', galleryId: msg.galleryId, source: msg.source, preferSeries });
     return null;
   }
-  if (preferSeries && !entry.hasSeriesCover && msg.source && !_seriesCoverRequested.has(seriesCoverKey)) {
-    _seriesCoverRequested.add(seriesCoverKey);
-    // One request per series per session — but an unanswered bridge (extension offline) shouldn't
-    // burn the one shot, or the series stays stuck on its gallery cover until a full reload.
-    extRequest({ type: 'EXT_FETCH_COVER', galleryId: msg.galleryId, source: msg.source, preferSeries })
-      .then((r) => { if (r == null) _seriesCoverRequested.delete(seriesCoverKey); },
-        () => _seriesCoverRequested.delete(seriesCoverKey));
+  if (preferSeries && !entry.hasSeriesCover && msg.source) {
+    extRequest({ type: 'EXT_FETCH_COVER', galleryId: msg.galleryId, source: msg.source, preferSeries });
   }
   for (let attempt = 0; attempt < 2; attempt++) {
     let thumbnail = entry.thumbnail;
@@ -126,14 +120,16 @@ export const services = {
       case 'GET_COVER':      getCover(msg); return null;                  // result arrives via COVER_READY
       case 'DELETE_GALLERY': await deleteGallery(msg.galleryId); return { ok: true };
 
-      case 'IMPORT_CBZ':                                                  // upload → durable runner
-        submitJob('upload', { galleryId: msg.galleryId, tempFile: msg.tempFile, filename: msg.filename, skipExisting: msg.skipExisting });
-        return { ok: true, started: true };
+      case 'IMPORT_CBZ': {                                                // upload → durable runner
+        // started:true only after the durable enqueue acknowledgement inside submitJob.
+        const routed = await submitJob('upload', { galleryId: msg.galleryId, tempFile: msg.tempFile, filename: msg.filename, skipExisting: msg.skipExisting });
+        return { ok: routed != null, started: routed != null };
+      }
 
       case 'TRANSLATE_GALLERY': {                                         // translate → durable runner
         const { translateSettings } = await platform.kv.get(['translateSettings']);
-        submitJob('translate', { galleryId: msg.galleryId, settings: translateSettings });
-        return { ok: true, started: true };
+        const routed = await submitJob('translate', { galleryId: msg.galleryId, settings: translateSettings });
+        return { ok: routed != null, started: routed != null };
       }
 
       case 'CANCEL_TRANSLATE': {
@@ -158,16 +154,20 @@ export const services = {
 
       case 'REVERT_GALLERY': await revertGallery(msg.galleryId); return { ok: true };
 
-      case 'CACHE_ALL_PAGES': {                                          // download → extension agent
+      case 'CACHE_ALL_PAGES': {                                          // download → external helper
         const gid = String(msg.galleryId);
-        platform.jobs.publish({ gid, kind: 'download', status: 'started', label: 'Contacting extension…' });
-        const resp = await extRequest({ type: 'EXT_DOWNLOAD', galleryId: gid, source: msg.source, overwrite: !!msg.overwrite });
-        // Any failure to hand off — no extension, no reply, or the agent refusing — must end
-        // the job, or the card would sit on "Contacting extension…" forever.
+        platform.jobs.publish({ gid, kind: 'download', status: 'started', labelKey: 'prog.contacting_helper' });
+        // One forwarded intent. `series` means "this item and whatever belongs with it" — the
+        // receiver expands that; the app neither enumerates chapters nor schedules the work.
+        const resp = await extRequest({ type: 'EXT_DOWNLOAD', galleryId: gid, source: msg.source, overwrite: !!msg.overwrite, series: !!msg.series });
+        // Any failure to hand off — no helper, no reply, or a refusal — must end the job, or the
+        // card would sit on the contacting label forever. Error keys keep the copy generic and
+        // localized; a helper-supplied error string passes through as-is.
         if (!resp || resp.ok === false || resp.started === false) {
-          platform.jobs.publish({ gid, kind: 'download', status: 'error', error: !resp
-            ? 'Shiori extension not reachable — install/enable it (then reload this tab).'
-            : (resp.error || 'Extension could not start the download.') });
+          platform.jobs.publish({ gid, kind: 'download', status: 'error', ...(!resp
+            ? { errorKey: 'err.helper_unreachable', error: 'download helper not reachable' }
+            : resp.error ? { error: resp.error }
+            : { errorKey: 'err.helper_start_failed', error: 'download helper could not start' }) });
           return { ok: false };
         }
         return resp;

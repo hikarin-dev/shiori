@@ -1,32 +1,27 @@
 // reader.js — offline gallery reader
 
 import './boot.js';
-import { openDB, imageToBlob } from './db.js';
+import { openDB, imageToBlob, dbGet, metaGet, listGalleryPageUrls } from './db.js';
 import { resolveSeries } from './series.js';
-import { request as extRequest, send as extSend, available as extAvailable } from './ext-bridge.js';
+import { request as extRequest, send as extSend } from './ext-bridge.js';
+import { siteName, galleryLink, updateSitesStatus } from './sites.js';
 import * as platform from './platform.js';
 import { t, getLang } from './i18n.js';
 import { formatCount } from './format.js';
 import { pickTitle } from './titles.js';
 import { initTooltips } from './tooltip.js';
+import { escHtml, safeExternalUrl } from './sanitize.js';
+import {
+  setStudyPrefs, studyPrefs, studyFor, loadStudyRecords, _ensureWrap, _removeBubbleLayers,
+  _removeWrapBubbleLayer, _layerUrls, _clipInset, _buildStudyText, _buildStudySrc,
+  _studySourceRect, _studyTranslationRect, _positionBubbleIndicator, _wireSelectableText,
+  _setStudyTextSelectable, _sourceTextLang, _syncLayerScale,
+} from './reader-study.js';
+import { resizeToWidth } from './image-util.js';
 
-// Site link templates are runtime knowledge handed over by the extension; the app itself is
-// site-agnostic. A gallery's exact sourceUrl (stored with it) always wins.
-let _siteMap = {};
-(async () => {
-  if (await extAvailable()) {
-    const r = await extRequest({ type: 'EXT_SITES' });
-    if (r && r.sites) _siteMap = r.sites;
-  }
-})();
-
-const siteName = (source) => (_siteMap[source]?.name) || source || '';
-
-function galleryLink(meta, displayId, page) {
-  if (meta?.sourceUrl) return meta.sourceUrl;
-  const t = meta?.source && _siteMap[meta.source]?.galleryUrl;
-  return t ? t.replace('{id}', displayId).replace('{page}', page) : '';
-}
+// Site names/links come from sites.js (runtime data + the localStorage warm start, so source
+// labels are correct on first paint instead of waiting for the bridge to answer).
+updateSitesStatus();
 
 const READER_PIN_SVG   = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17H19V15L17 13V8L18 7V5H6V7L7 8V13L5 15V17Z"/></svg>';
 const READER_UNPIN_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" y1="2" x2="22" y2="22"/><line x1="12" y1="17" x2="12" y2="22"/><path d="M9 9v4l-2 2H19"/><path d="M7 7H6V5h8"/></svg>';
@@ -73,13 +68,7 @@ let _placeholderWidthRatio = A4_PLACEHOLDER_WIDTH_RATIO;
 // original regardless of translateView.
 let studyMode      = false;
 let hasStudy       = false;            // any page has study layers → the study segment is enabled
-let studyDisplay   = 'hardcoded_images'; // translation display: 'hardcoded_images' | 'text' (Settings → Reader)
-let studyOriginal  = 'image';            // original display: 'image' (untouched page) | 'text' (DOM text)
-let studySrcFont   = 'yasashisa';        // original text face: 'yasashisa' | 'kiwi' (Settings → Reader)
-let furiganaOn     = false;              // Settings → Reader; applies only to Japanese-tagged galleries
 let _translateAvailable = false;       // this gallery has a whole-page translation
-const _pageStudy     = new Map();      // page url → { bg:Blob|null, bubbles:[{box,region,tr,src,rbox?,style?,furi?,text?:Blob}], page:{w,h}|null }
-const _pageLayerUrls = new Map();      // page url → { bgUrl, textUrls:[] } object URLs, revoked on teardown
 
 // Page images are served as blob: URLs. A blob URL references the IndexedDB-backed Blob — the
 // bytes stay on disk until an <img> actually needs them, and the browser discards decoded
@@ -106,34 +95,15 @@ function _openReaderDb() {
   return openDB();
 }
 
-// Load every page's stored study layers into _pageStudy (keyed by page url) and note whether
-// any exist (→ show the study button). One cursor pass per chapter's image records; the
-// bg/text layers stay Blobs, turned into object URLs lazily when a bubble is first revealed.
-// Cache the in-flight/completed pass so startup, idle loading and later callers cannot rescan or
-// overlap the same large library.
+// Load every page's stored study layers (reader-study.js owns the records) and note whether any
+// exist (→ show the study button). Cache the in-flight/completed pass so startup, idle loading
+// and later callers cannot rescan or overlap the same large library.
 let _studyLoadPromise = null;
 function _loadStudy() {
   if (_studyLoadPromise) return _studyLoadPromise;
   if (!_readerDb) return Promise.resolve(false);
   _studyLoadPromise = (async () => {
-    for (const ch of _chapters) {
-      await new Promise((resolve) => {
-        const tx  = _readerDb.transaction('images', 'readonly');
-        const req = tx.objectStore('images').index('galleryId').openCursor(IDBKeyRange.only(String(ch.id)));
-        req.onsuccess = (e) => {
-          const cursor = e.target.result;
-          if (!cursor) { resolve(); return; }
-          const v = cursor.value;
-          if (Array.isArray(v.bubbles) && v.bubbles.length) {
-            // bg is null for metadata-only (text-mode) study records — those render as DOM text.
-            _pageStudy.set(v.url, { bg: v.studyBg || null, bubbles: v.bubbles, page: v.studyPage || null });
-          }
-          cursor.continue();
-        };
-        req.onerror = () => resolve();
-      });
-    }
-    hasStudy = _pageStudy.size > 0;
+    hasStudy = await loadStudyRecords(_chapters.map(ch => ch.id));
     _syncStudyAvailability();
     return hasStudy;
   })();
@@ -154,12 +124,7 @@ async function pageBlobUrl(page) {
   const key = _variantKey(page);
   if (_pageUrlCache.has(key)) return _pageUrlCache.get(key);
   if (!_readerDb) return '';
-  const record = await new Promise((resolve, reject) => {
-    const tx  = _readerDb.transaction('images', 'readonly');
-    const req = tx.objectStore('images').get(page.url);
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror   = () => reject(req.error);
-  }).catch(() => null);
+  const record = await dbGet(page.url).catch(() => null);
   const src = record ? _variantSrc(record) : null;
   const blob = await imageToBlob(src);
   const url = blob ? URL.createObjectURL(blob) : '';
@@ -178,12 +143,7 @@ const PLACEHOLDER_DIM_CONCURRENCY = 2;
 async function _cachedPageHeightRatio(page) {
   let bitmap = null;
   try {
-    const record = await new Promise((resolve) => {
-      const tx  = _readerDb.transaction('images', 'readonly');
-      const req = tx.objectStore('images').get(page.url);
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror   = () => resolve(null);
-    });
+    const record = await dbGet(page.url).catch(() => null);
     const blob = await imageToBlob(record?.blob ?? record?.dataUrl);
     if (!blob) return 0;
     bitmap = await createImageBitmap(blob);
@@ -324,36 +284,14 @@ async function _processThumbQueue() {
     const cached = _cachedThumb(page.url);
     if (cached) { resolve(cached); return; }
     if (!_readerDb) { resolve(''); return; }
-    const record = await new Promise((res) => {
-      const tx  = _readerDb.transaction('images', 'readonly');
-      const req = tx.objectStore('images').get(page.url);
-      req.onsuccess = () => res(req.result || null);
-      req.onerror   = () => res(null);
-    });
+    const record = await dbGet(page.url).catch(() => null);
     const src = record?.blob ?? record?.dataUrl;
     if (!src) { resolve(''); return; }
     const fullBlob = await imageToBlob(src);
     if (!fullBlob) { resolve(''); return; }
     // Target the max display width: strip at 50% viewport height, thumb aspect 52:74.
     const thumbW = Math.round((window.innerHeight * 0.5 - 14) * 52 / 74);
-    // Decode at 2× target so the first canvas step is always a clean 2× reduction.
-    // Then halve repeatedly until at target — each step is bilinear over a 2× range,
-    // which avoids the aliasing that single-pass Lanczos produces on large→small ratios.
-    const bitmap = await createImageBitmap(fullBlob, { resizeWidth: thumbW * 2, resizeQuality: 'high' });
-    let w = bitmap.width, h = bitmap.height;
-    let canvas = document.createElement('canvas');
-    canvas.width = w; canvas.height = h;
-    canvas.getContext('2d').drawImage(bitmap, 0, 0);
-    bitmap.close();
-    while (w > thumbW) {
-      w = Math.max(thumbW, Math.ceil(w / 2));
-      h = Math.ceil(h / 2);
-      const step = document.createElement('canvas');
-      step.width = w; step.height = h;
-      step.getContext('2d').drawImage(canvas, 0, 0, w, h);
-      canvas = step;
-    }
-    const smallBlob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.92));
+    const smallBlob = await resizeToWidth(fullBlob, thumbW, { format: 'image/jpeg', quality: 0.92 }).catch(() => null);
     if (!smallBlob) { resolve(''); return; }
     const blobUrl = URL.createObjectURL(smallBlob);
     _cacheThumb(page.url, blobUrl);
@@ -475,25 +413,9 @@ async function init() {
   _seriesTotal = chapterRefs.length;
 
   // Page list (key-only cursor, no image bytes) and metadata for every chapter, in parallel.
-  const pageList = (id) => new Promise((resolve) => {
-    const urls = [];
-    const tx  = _readerDb.transaction('images', 'readonly');
-    const req = tx.objectStore('images').index('galleryId').openKeyCursor(IDBKeyRange.only(id));
-    req.onsuccess = (e) => {
-      const cursor = e.target.result;
-      if (cursor) { urls.push(cursor.primaryKey); cursor.continue(); } else resolve(urls);
-    };
-    req.onerror = () => resolve([]);
-  });
-  const metaGet = (id) => new Promise((resolve) => {
-    const tx  = _readerDb.transaction('metadata', 'readonly');
-    const req = tx.objectStore('metadata').get(id);
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror   = () => resolve(null);
-  });
   const [lists, metas] = await Promise.all([
-    Promise.all(chapterRefs.map(c => pageList(c.id))),
-    Promise.all(chapterRefs.map(c => metaGet(c.id))),
+    Promise.all(chapterRefs.map(c => listGalleryPageUrls(c.id).catch(() => []))),
+    Promise.all(chapterRefs.map(c => metaGet(c.id).catch(() => null))),
   ]);
 
   // Merge into the flat list by chapter-local page number. Metadata supplies the true total;
@@ -535,7 +457,7 @@ async function init() {
   if (pages.length === 0) {
     // Point the empty screen's source link at the gallery that was actually asked for.
     const meta = metas[chapterRefs.findIndex(c => c.id === gid)] || null;
-    const visitUrl = galleryLink(meta, meta?.sourceId || gid, 1);
+    const visitUrl = galleryLink(meta, 1, meta?.sourceId || gid);
     const emptyLink = document.getElementById('emptyLink');
     if (visitUrl) {
       emptyLink.href        = visitUrl;
@@ -560,10 +482,12 @@ async function init() {
   const studyFirst = saved.readerView === 'study' || (initTranslate && translateDisplay === 'text');
   if (studyFirst) await _loadStudy();
   _syncStudyAvailability();
-  if (saved.readerStudyDisplay === 'text') studyDisplay = 'text';
-  if (saved.readerStudyOriginal === 'text') studyOriginal = 'text';
-  if (saved.readerStudySrcFont === 'kiwi') studySrcFont = 'kiwi';
-  furiganaOn = saved.readerFurigana === 'on';
+  setStudyPrefs({
+    display:  saved.readerStudyDisplay === 'text' ? 'text' : 'hardcoded_images',
+    original: saved.readerStudyOriginal === 'text' ? 'text' : 'image',
+    srcFont:  saved.readerStudySrcFont === 'kiwi' ? 'kiwi' : 'yasashisa',
+    furigana: saved.readerFurigana === 'on',
+  });
   _chapterDividersOn = saved.readerChapterDivider !== false;
   _stripSeriesFlow   = saved.readerStripMode !== 'chapter';
   applyThumbHeight(saved.readerThumbHeight || _thumbHeight);
@@ -615,7 +539,7 @@ async function init() {
 // boundary just scrolls (or flips) into the next chapter's range — never a reload. The topbar
 // chrome and the ?g= in the URL follow the chapter under the reading line.
 let _series = null;
-const _escR = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const _escR = escHtml;
 
 // Merged page number (1-based) → index into _chapters (binary search over chapter starts).
 function _chapterAt(page) {
@@ -1009,7 +933,7 @@ function _applyChapterChrome(idx) {
   tbGallery.textContent = `#${displayId}`;
   tbGallery.classList.toggle('local', !!meta?.isLocalImport);
   document.title = `Shiori — #${displayId}`;
-  const visitUrl = galleryLink(meta, displayId, 1);
+  const visitUrl = safeExternalUrl(galleryLink(meta, 1, displayId));
   tbMeta.onclick = visitUrl ? () => window.open(visitUrl, '_blank', 'noopener') : null;
   const titleEl = document.getElementById('tbTitle');
   if (titleEl) titleEl.textContent = (meta && pickTitle(meta, getLang())) || '';
@@ -1766,12 +1690,12 @@ function _syncStripWindow(swap = false) {
   for (const idx of [..._mountedIdx]) {
     const img = _stripImgs[idx];
     if ((idx < lo || idx > hi) && _stripWraps[idx]?.querySelector(':scope > .bubble-layer')) {
-      _removeWrapBubbleLayer(_stripWraps[idx]);
+      _removeWrapBubbleLayer(_stripWraps[idx], pages[idx]?.url);
     }
     const far   = Math.abs(idx + 1 - center) > UNMOUNT_BEYOND;
     const stale = img.dataset.vk !== _variantKey(pages[_viewBase + idx]) && (idx < lo || idx > hi);
     if (!far && !stale) continue;
-    _removeWrapBubbleLayer(_stripWraps[idx]);
+    _removeWrapBubbleLayer(_stripWraps[idx], pages[idx]?.url);
     img.removeAttribute('src');
     delete img.dataset.vk;
     _mountedIdx.delete(idx);
@@ -2235,289 +2159,6 @@ translateSeg.addEventListener('click', () => setView(translateView ? 'off' : 'tr
 studySeg.addEventListener('click', () => { if (hasStudy) setView(studyMode ? 'off' : 'study'); });
 
 // ── Study mode: reveal translated bubbles one at a time over the clean original ──
-function _ensureWrap(imgEl) {
-  const parent = imgEl.parentElement;
-  if (parent && parent.classList.contains('page-wrap')) return parent;
-  const wrap = document.createElement('div');
-  wrap.className = 'page-wrap';
-  const ratio = imgEl.style.getPropertyValue('--page-ratio');
-  if (ratio) wrap.style.setProperty('--page-ratio', ratio);
-  imgEl.replaceWith(wrap);
-  wrap.appendChild(imgEl);
-  return wrap;
-}
-
-// Drop every bubble layer and free the page layers' object URLs.
-function _removeBubbleLayers() {
-  document.querySelectorAll('.bubble-layer').forEach(l => { if (l._ro) l._ro.disconnect(); l.remove(); });
-  for (const u of _pageLayerUrls.values()) {
-    try { if (u.bgUrl) URL.revokeObjectURL(u.bgUrl); (u.textUrls || []).forEach(t => t && URL.revokeObjectURL(t)); } catch {}
-  }
-  _pageLayerUrls.clear();
-  document.body.classList.remove('study-bubbles-active');
-}
-
-function _releaseLayerUrls(pageUrl) {
-  const u = _pageLayerUrls.get(pageUrl);
-  if (!u) return;
-  try {
-    if (u.bgUrl) URL.revokeObjectURL(u.bgUrl);
-    (u.textUrls || []).forEach(t => t && URL.revokeObjectURL(t));
-  } catch {}
-  _pageLayerUrls.delete(pageUrl);
-}
-
-function _removeWrapBubbleLayer(wrap) {
-  const layer = wrap && wrap.querySelector(':scope > .bubble-layer');
-  if (layer) { if (layer._ro) layer._ro.disconnect(); layer.remove(); }
-  const pageNum = parseInt(wrap?.dataset?.page, 10);
-  const page = pages[pageNum - 1];
-  if (page) _releaseLayerUrls(page.url);
-}
-
-// Object URLs for a page's study layers: one shared bg + one per bubble text, created once.
-function _layerUrls(pageUrl) {
-  let u = _pageLayerUrls.get(pageUrl);
-  if (u) return u;
-  const study = _pageStudy.get(pageUrl);
-  if (!study) return null;
-  u = {
-    bgUrl:    study.bg ? URL.createObjectURL(study.bg) : '',
-    textUrls: study.bubbles.map(b => (b.text ? URL.createObjectURL(b.text) : '')),
-  };
-  _pageLayerUrls.set(pageUrl, u);
-  return u;
-}
-
-// CSS clip-path inset that exposes only region r of a full-page (100%) layer image.
-function _clipInset(r) {
-  const top = r.y * 100, left = r.x * 100;
-  const right = (1 - (r.x + r.w)) * 100, bottom = (1 - (r.y + r.h)) * 100;
-  return `inset(${top}% ${right}% ${bottom}% ${left}%)`;
-}
-
-// A bubble's outline, in the OCR bg colour and em-sized so it scales with the text like the
-// renderer's border does. The stroke is twice the ring it draws: paint-order puts it under the
-// fill, which covers the inner half.
-function _applyTextOutline(el, st) {
-  if (!Array.isArray(st.fg) || !Array.isArray(st.bg)) return;
-  el.style.setProperty('--outline-w', '0.16em');
-  el.style.setProperty('--outline-c', `rgb(${st.bg.join(',')})`);
-}
-
-// A DOM-text block for one bubble's translation, positioned at the rect the renderer actually
-// drew its glyph canvas at (tbox; older records fall back to the layout box) and scaled with
-// the page via the layer's --pgscale. Style comes from the stored renderer hints; anything
-// missing falls back to a deterministic reader style (never inferred from the image).
-function _buildStudyText(b, hasBg, pageW) {
-  if (!b.tr) return null;
-  const r = b.tbox || b.rbox || b.region || b.box;
-  const el = document.createElement('div');
-  el.className = 'study-text' + (hasBg ? '' : ' boxed');
-  el.style.left   = (r.x * 100) + '%';
-  el.style.top    = (r.y * 100) + '%';
-  el.style.width  = (r.w * 100) + '%';
-  el.style.height = (r.h * 100) + '%';
-  const st = b.style || {};
-  el.style.setProperty('--fs', (st.fontSize || Math.max(12, Math.round((pageW || 1000) * 0.022))) + 'px');
-  if (Array.isArray(st.fg)) el.style.color = `rgb(${st.fg.join(',')})`;
-  _applyTextOutline(el, st);
-  // manga2eng typesets in comic caps with a tight line advance — mirror both, then prefer the
-  // exact pitch the renderer drew at when the pipeline recorded it.
-  if (st.caps) { el.style.textTransform = 'uppercase'; el.style.lineHeight = '1.0'; }
-  if (st.lineH) el.style.lineHeight = String(st.lineH);
-  if (st.align === 'left' || st.align === 'right') el.style.textAlign = st.align;
-  // Renderer-preserved line breaks live directly in `tr`; pre-wrap keeps them while still
-  // allowing a safe additional wrap if browser font metrics need one.
-  const body = document.createElement('span');
-  body.className = 'study-text-content';
-  body.textContent = b.tr;
-  el.appendChild(body);
-  return el;
-}
-
-// The bubble's ORIGINAL text as DOM text, typeset like the source. OCR line breaks live directly
-// in `src`; native horizontal/vertical flow lays them out as rows or right-to-left columns.
-// Optional <ruby> furigana comes from the pipeline's per-line segments.
-function _buildStudySrc(b, hasBg, pg, srcOpts) {
-  const srcText = String(b.src || '').trim();
-  if (!srcText) return null;
-  const st = b.style || {};
-  const vertical = String(st.dir || '').startsWith('v');
-  const lines = srcText.split(/\r?\n/);
-  const furi = (srcOpts && srcOpts.furi && Array.isArray(b.furi) && b.furi.length === lines.length) ? b.furi : null;
-
-  // In vertical CJK text, leave native scripts and punctuation to Unicode's mixed orientation.
-  // Stand isolated letters upright, along with numbers and symbols such as a percent sign;
-  // multi-letter horizontal-script words keep their normal sideways run.
-  const appendText = (target, text) => {
-    if (!vertical) { target.appendChild(document.createTextNode(text)); return; }
-    const nativeVertical = /^(?:\p{Script_Extensions=Han}|\p{Script_Extensions=Hiragana}|\p{Script_Extensions=Katakana}|\p{Script_Extensions=Hangul}|\p{Script_Extensions=Bopomofo}|\p{Script_Extensions=Mongolian})$/u;
-    const letter = /^\p{Letter}$/u;
-    const mark = /^\p{Mark}$/u;
-    const numberOrSymbol = /^(?:\p{Number}|\p{Symbol}|[%％])$/u;
-    let run = '';
-    let runType = null;
-    let letterCount = 0;
-    const flush = () => {
-      if (!run) return;
-      if (runType === 'upright' || (runType === 'letter' && letterCount === 1)) {
-        const upright = document.createElement('span');
-        upright.className = 'study-upright';
-        upright.textContent = run;
-        target.appendChild(upright);
-      } else {
-        target.appendChild(document.createTextNode(run));
-      }
-      run = '';
-      runType = null;
-      letterCount = 0;
-    };
-    for (const glyph of text) {
-      let type = 'plain';
-      if (mark.test(glyph) && runType) type = runType;
-      else if (!nativeVertical.test(glyph) && letter.test(glyph)) type = 'letter';
-      else if (numberOrSymbol.test(glyph)) type = 'upright';
-      if (runType !== null && type !== runType) flush();
-      runType = type;
-      run += glyph;
-      if (type === 'letter' && letter.test(glyph)) letterCount++;
-    }
-    flush();
-  };
-
-  // Fill one line's content (plain text or ruby-annotated segments) into `target`.
-  const lineContent = (target, i) => {
-    const segs = furi && Array.isArray(furi[i]) ? furi[i] : null;
-    if (!segs) { appendText(target, lines[i]); return; }
-    for (const seg of segs) {
-      if (!seg || !seg[0]) continue;
-      if (seg[1]) {
-        const ruby = document.createElement('ruby');
-        appendText(ruby, seg[0]);
-        const rt = document.createElement('rt');
-        rt.textContent = seg[1];
-        ruby.appendChild(rt);
-        target.appendChild(ruby);
-      } else {
-        appendText(target, seg[0]);
-      }
-    }
-  };
-
-  const r = b.box || b.region;
-  const el = document.createElement('div');
-  el.className = 'study-text src' + (hasBg ? '' : ' boxed') + (studySrcFont === 'kiwi' ? ' font-kiwi' : '');
-  if (furi) el.classList.add('with-ruby');
-  el.style.left   = (r.x * 100) + '%';
-  el.style.top    = (r.y * 100) + '%';
-  el.style.width  = (r.w * 100) + '%';
-  el.style.height = (r.h * 100) + '%';
-  if (Array.isArray(st.fg)) el.style.color = `rgb(${st.fg.join(',')})`;
-  _applyTextOutline(el, st);
-  // Language drives the appropriate Han glyph forms when source metadata identifies it.
-  if (srcOpts && srcOpts.lang) el.lang = srcOpts.lang;
-  if (vertical) el.classList.add('vert');
-  el.style.setProperty('--fs', (st.srcFontSize || st.fontSize || Math.max(12, Math.round(((pg && pg.w) || 1000) * 0.022))) + 'px');
-  const body = document.createElement('span');
-  body.className = 'study-src-body study-text-content';
-  lines.forEach((ln, i) => {
-    const line = document.createElement('span');
-    line.className = 'study-src-line';
-    lineContent(line, i);
-    body.appendChild(line);
-    if (i < lines.length - 1) body.appendChild(document.createElement('br'));
-  });
-  el.appendChild(body);
-  return el;
-}
-
-// Original-as-text display (Settings → Reader): a bubble opens ALREADY revealed — the
-// inpainted bg with the ORIGINAL text on top as DOM text — and clicking cycles it between the
-// original and the translation (DOM text or the typeset PNG, per the translation display
-// setting). DOM text stays selectable; a plain click with no selection cycles it. Escape returns
-// every bubble to its original text.
-function _studySourceRect(b) {
-  return b.box || b.region;
-}
-
-function _studyTranslationRect(b) {
-  return b.tbox || b.rbox || b.region || b.box;
-}
-
-function _positionBubbleIndicator(box, r) {
-  if (!box || !r) return;
-  box.style.left   = (r.x * 100) + '%';
-  box.style.top    = (r.y * 100) + '%';
-  box.style.width  = (r.w * 100) + '%';
-  box.style.height = (r.h * 100) + '%';
-}
-
-function _wireSelectableText(el, onPlainClick) {
-  if (!el || !el.classList.contains('study-text')) return false;
-  const content = el.querySelector('.study-text-content');
-  if (!content) return false;
-  content.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (e.ctrlKey) return;
-    if (!String(window.getSelection() || '')) onPlainClick();
-  });
-  return true;
-}
-
-// Contain a text selection to the single study bubble it began in — like a textbox, so a Ctrl-drag
-// inside one bubble's text never bleeds into another bubble or the page. Chrome has no CSS
-// `user-select: contain`, so the moment a drag starts inside a bubble we make every OTHER bubble
-// unselectable for the duration (study-sel-lock on the body + study-sel-host on that bubble): the
-// native selection then physically can't extend past it. The selectionchange handler backstops any
-// residual overrun by pinning the moving end back to the bubble's edge. Keyed purely on the bubble's
-// text wrapper, so only study-text selections are affected.
-let _clampingStudySelection = false;
-let _studySelHost = null;
-function _studyTextHost(node) {
-  const el = node && (node.nodeType === 3 ? node.parentElement : node);
-  return el ? el.closest('.study-text-content') : null;
-}
-function _lockSelectionToHost(host) {
-  if (_studySelHost === host) return;
-  if (_studySelHost) _studySelHost.classList.remove('study-sel-host');
-  _studySelHost = host;
-  host.classList.add('study-sel-host');
-  document.body.classList.add('study-sel-lock');
-}
-function _unlockSelectionHost() {
-  if (_studySelHost) _studySelHost.classList.remove('study-sel-host');
-  _studySelHost = null;
-  document.body.classList.remove('study-sel-lock');
-}
-// A drag beginning inside a bubble locks the selection to it before the pointer can move (so the
-// confinement is in place before the browser extends the range). Releasing the pointer frees it.
-document.addEventListener('pointerdown', (e) => {
-  if (!document.body.classList.contains('study-text-selecting')) return;
-  const host = _studyTextHost(e.target);
-  if (host) _lockSelectionToHost(host); else _unlockSelectionHost();
-});
-document.addEventListener('pointerup', _unlockSelectionHost);
-document.addEventListener('pointercancel', _unlockSelectionHost);
-document.addEventListener('selectionchange', () => {
-  if (_clampingStudySelection) return;
-  const sel = document.getSelection();
-  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
-  const host = _studyTextHost(sel.anchorNode);
-  if (!host || host.contains(sel.focusNode)) return;   // not a bubble selection, or still inside it
-  const after = !!(host.compareDocumentPosition(sel.focusNode) & Node.DOCUMENT_POSITION_FOLLOWING);
-  const r = document.createRange();
-  r.selectNodeContents(host);
-  _clampingStudySelection = true;
-  try { sel.extend(after ? r.endContainer : r.startContainer, after ? r.endOffset : r.startOffset); } catch {}
-  _clampingStudySelection = false;
-});
-
-function _setStudyTextSelectable(selectable) {
-  document.body.classList.toggle('study-text-selecting', !!selectable);
-  if (!selectable) _unlockSelectionHost();
-}
-
 function _mountTextBubble(box, b, idx, pageUrl, bgLayer, fgLayer, pg, srcOpts, hasPageBg) {
   const urls = _layerUrls(pageUrl);
   const hasBg = !!(urls && urls.bgUrl);
@@ -2531,7 +2172,7 @@ function _mountTextBubble(box, b, idx, pageUrl, bgLayer, fgLayer, pg, srcOpts, h
   }
   const srcEl = _buildStudySrc(b, hasBg, pg, srcOpts);
   let trEl;
-  if (studyDisplay !== 'text' && urls && urls.textUrls[idx]) {
+  if (studyPrefs().display !== 'text' && urls && urls.textUrls[idx]) {
     trEl = document.createElement('img');
     trEl.className = 'study-layer-img'; trEl.src = urls.textUrls[idx];
     trEl.decoding = 'async'; trEl.loading = 'lazy';
@@ -2588,7 +2229,7 @@ function _toggleBubble(e, box, b, idx, pageUrl, bgLayer, fgLayer) {
   _positionBubbleIndicator(box, on ? _studyTranslationRect(b) : _studySourceRect(b));
   if (on) {
     if (!box._layers) {
-      const study = _pageStudy.get(pageUrl);
+      const study = studyFor(pageUrl);
       const urls = _layerUrls(pageUrl);
       const els = [];
       if (urls && urls.bgUrl) {
@@ -2598,7 +2239,7 @@ function _toggleBubble(e, box, b, idx, pageUrl, bgLayer, fgLayer) {
         bg.style.clipPath = clip; bg.style.webkitClipPath = clip;
         bgLayer.appendChild(bg); els.push(bg);
       }
-      const asText = studyDisplay === 'text' || !(urls && urls.textUrls[idx]);
+      const asText = studyPrefs().display === 'text' || !(urls && urls.textUrls[idx]);
       if (asText) {
         const wrap = fgLayer.closest('.page-wrap');
         const pageW = (study && study.page && study.page.w) ||
@@ -2639,39 +2280,8 @@ function _toggleBubble(e, box, b, idx, pageUrl, bgLayer, fgLayer) {
 
 // Set the source language when metadata identifies Japanese or Chinese so the browser chooses
 // the appropriate Han glyph forms. Furigana remains Japanese-only.
-function _sourceTextLang(meta) {
-  if (!meta) return '';
-  const values = [];
-  for (const tags of [meta.tags, meta.seriesTags]) {
-    if (Array.isArray(tags)) {
-      for (const tg of tags) if (tg && tg.type === 'language') values.push(String(tg.name || ''));
-    }
-  }
-  values.push(String(meta.sourceMetadata?.language || ''));
-  const language = values.join(' ');
-  if (/(^|\W)(japanese|ja|jpn)(\W|$)/i.test(language)) return 'ja';
-  if (/chinese\s*\(traditional\)|traditional\s+chinese|zh[-_](tw|hant)/i.test(language)) return 'zh-Hant';
-  if (/chinese\s*\(simplified\)|simplified\s+chinese|zh[-_](cn|hans)/i.test(language)) return 'zh-Hans';
-  if (/(^|\W)(chinese|zh|zho)(\W|$)/i.test(language)) return 'zh';
-  return '';
-}
-
-// Keep a layer's DOM text sized in page pixels × --pgscale (wrap width ÷ page width), so it
-// tracks zoom/resize exactly like the image layers do.
-function _syncLayerScale(layer, wrap, pageW) {
-  if (!pageW) return;
-  const sync = () => layer.style.setProperty('--pgscale', String((wrap.clientWidth / pageW) || 1));
-  sync();
-  layer._ro = new ResizeObserver(sync);
-  layer._ro.observe(wrap);
-}
-
-// Translate-as-text: the page image is ALREADY the inpainted bg, so the overlay is only the
-// translations as DOM text — no per-bubble backgrounds, no reveal targets, and no page-flip zones
-// (the reader's own click zones stay in charge). A page that kept no bg is showing its untouched
-// original, so it gets no text rather than translations stacked over the source.
 function _renderTranslateTextLayer(wrap, page) {
-  const study = _pageStudy.get(page.url);
+  const study = studyFor(page.url);
   if (!study || !study.bg) return;
   const pageW = (study.page && study.page.w) || wrap.querySelector('img')?.naturalWidth || 0;
   const texts = study.bubbles.map(b => _buildStudyText(b, true, pageW)).filter(Boolean);
@@ -2693,7 +2303,7 @@ function _renderBubbleLayer(wrap, pageNum) {
   const page = pages[pageNum - 1];
   if (!page) return;
   if (!studyMode) { _renderTranslateTextLayer(wrap, page); return; }
-  const study = _pageStudy.get(page.url);
+  const study = studyFor(page.url);
   const hasBubbles = !!study && Array.isArray(study.bubbles) && study.bubbles.length > 0;
   if (!hasBubbles && mode === 'strip') return;
   const layer = document.createElement('div');
@@ -2720,12 +2330,12 @@ function _renderBubbleLayer(wrap, pageNum) {
   if (!hasBubbles) { wrap.appendChild(layer); return; }
   // Original-as-text mounts every bubble open on its original text; original-as-image keeps
   // the untouched page and the click-to-reveal flow.
-  const origText = studyOriginal === 'text';
+  const origText = studyPrefs().original === 'text';
   const srcLang = origText ? _sourceTextLang(_chapters[_chapterAt(pageNum)]?.meta) : '';
-  const srcOpts = { lang: srcLang, furi: furiganaOn && srcLang === 'ja' };
+  const srcOpts = { lang: srcLang, furi: studyPrefs().furigana && srcLang === 'ja' };
   // When both sides are selectable text, the cleaned Study image is the page background. One
   // full-page layer is both cheaper and more accurate than stacking one clipped copy per bubble.
-  const urls = origText && studyDisplay === 'text' ? _layerUrls(page.url) : null;
+  const urls = origText && studyPrefs().display === 'text' ? _layerUrls(page.url) : null;
   const hasPageBg = !!(urls && urls.bgUrl);
   if (hasPageBg) {
     const bg = document.createElement('img');

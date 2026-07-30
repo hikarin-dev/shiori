@@ -4,6 +4,7 @@
 
 import * as platform from './platform.js';
 import { normalizeTitle, migrateTitle } from './titles.js';
+import { resizeToWidth } from './image-util.js';
 
 const DB_NAME = 'shiori-cache';
 const DB_VERSION = 14;
@@ -171,6 +172,10 @@ export async function dbPut(url, src, mediaId, galleryId) {
   // If this gallery is a chapter (has parentId) or is itself a series owner (has aggregate fields),
   // its size/count just changed → refresh the affected series aggregate after the tx (debounced).
   let _aggParent = null, _aggSelf = null;
+  // A re-put of a URL another gallery owns is a MOVE: the old gallery loses the page from its
+  // stats and the new one gains it — without this, the new gallery absorbed a negative size
+  // delta for bytes it never owned and its count silently drifted.
+  let _movedFromGid = null, _aggMovedParent = null;
 
   await new Promise((resolve, reject) => {
     // META_STORE joins the tx so a brand-new stat record can seed its denormalized uploadDate
@@ -183,7 +188,24 @@ export async function dbPut(url, src, mediaId, galleryId) {
     const prevReq = images.get(canonUrl);
     prevReq.onsuccess = () => {
       const prev = prevReq.result || null;
+      const sameGallery = !!prev && String(prev.galleryId) === gid;
       images.put({ url: canonUrl, blob, mediaId: String(mediaId), galleryId: gid, cachedAt, size });
+
+      if (prev && !sameGallery) {
+        const oldGid = String(prev.galleryId);
+        _movedFromGid = oldGid;
+        const oldReq = tx.objectStore(GALLERY_STORE).get(oldGid);
+        oldReq.onsuccess = () => {
+          const old = oldReq.result;
+          if (!old) return;
+          if (old.parentId) _aggMovedParent = old.parentId;
+          tx.objectStore(GALLERY_STORE).put({
+            ...old,
+            count: Math.max(0, (Number(old.count) || 0) - 1),
+            size: Math.max(0, (Number(old.size) || 0) - (prev.size || 0)),
+          });
+        };
+      }
 
       const galReq = tx.objectStore(GALLERY_STORE).get(gid);
       galReq.onsuccess = () => {
@@ -193,8 +215,8 @@ export async function dbPut(url, src, mediaId, galleryId) {
           if (cur.chapterCount != null) _aggSelf = gid;
           const entry = {
             ...cur,
-            count: (Number(cur.count) || 0) + (prev ? 0 : 1),
-            size: (Number(cur.size) || 0) - (prev ? (prev.size || 0) : 0) + size,
+            count: (Number(cur.count) || 0) + (sameGallery ? 0 : 1),
+            size: (Number(cur.size) || 0) - (sameGallery ? (prev.size || 0) : 0) + size,
             latestAt: Math.max(cur.latestAt || 0, cachedAt),
           };
           // addedAt is the gallery's creation marker — the gid IS the creation time, so it never
@@ -224,11 +246,14 @@ export async function dbPut(url, src, mediaId, galleryId) {
   });
 
   if (coverChanged) {
-    platform.kv.set({ libraryVersion: Date.now() });
     platform.control.send({ type: 'COVER_INVALIDATED', galleryId: gid });
   }
   if (_aggParent) scheduleSeriesAggregate(_aggParent);
   if (_aggSelf)   scheduleSeriesAggregate(_aggSelf);
+  if (_movedFromGid) {
+    if (_aggMovedParent) scheduleSeriesAggregate(_aggMovedParent);
+    publishFeed(_movedFromGid);
+  }
   publishFeed(gid);
 }
 
@@ -257,7 +282,7 @@ export async function metaPut(meta, opts = {}) {
     const tx = db.transaction([META_STORE, GALLERY_STORE], 'readwrite');
     // A bare stub (sourceId placeholder, no pages yet) is not a user-visible gallery —
     // don't wake subscribers for it, or a reactive read could purge it mid-creation
-    // (see the pageless-stub grace window in getAllGalleries).
+    // (see the pageless-stub grace window in purgePagelessStubs).
     tx.oncomplete = () => {
       if (prevSourceId && String(prevSourceId) !== String(record.sourceId || '')) _sourceIdToGalleryId.delete(String(prevSourceId));
       if (record.sourceId) _sourceIdToGalleryId.set(String(record.sourceId), gid);
@@ -287,7 +312,7 @@ export async function metaPut(meta, opts = {}) {
   });
 }
 
-async function metaGetAll() {
+export async function metaGetAll() {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(META_STORE, 'readonly');
@@ -300,10 +325,11 @@ async function metaGetAll() {
 async function metaDelete(galleryId) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
+    // Resolve on commit, not request success — a resolved write must not still be able to abort.
     const tx = db.transaction(META_STORE, 'readwrite');
-    const req = tx.objectStore(META_STORE).delete(String(galleryId));
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
+    tx.objectStore(META_STORE).delete(String(galleryId));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
@@ -319,13 +345,14 @@ export async function galleryGet(galleryId) {
   });
 }
 
-async function galleryPut(entry) {
+export async function galleryPut(entry) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
+    // Resolve on commit, not request success — a resolved write must not still be able to abort.
     const tx = db.transaction(GALLERY_STORE, 'readwrite');
-    const req = tx.objectStore(GALLERY_STORE).put(entry);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
+    tx.objectStore(GALLERY_STORE).put(entry);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
@@ -333,13 +360,13 @@ async function galleryDelete(galleryId) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(GALLERY_STORE, 'readwrite');
-    const req = tx.objectStore(GALLERY_STORE).delete(String(galleryId));
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
+    tx.objectStore(GALLERY_STORE).delete(String(galleryId));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
-async function galleryGetAll() {
+export async function galleryGetAll() {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(GALLERY_STORE, 'readonly');
@@ -458,7 +485,6 @@ export async function coverPut(galleryId, cover, opts = {}) {
     putCoverPatch(tx.objectStore(COVER_STORE), gid, role === 'series' ? { seriesCover: cover } : { cover });
     tx.oncomplete = () => {
       if (!silent) {
-        platform.kv.set({ libraryVersion: Date.now() });
         platform.control.send({ type: 'COVER_INVALIDATED', galleryId: gid });
         publishFeed(gid);
       }
@@ -732,7 +758,6 @@ export async function repairSeriesShellStats() {
 
   for (const ownerId of owners) await refreshSeriesAggregate(ownerId, { silent: true });
   if (fixed) {
-    platform.kv.set({ libraryVersion: Date.now() });
     for (const ownerId of owners) publishFeed(ownerId);
   }
   return fixed;
@@ -854,6 +879,89 @@ export async function listGalleryPageKeys(galleryId) {
   });
 }
 
+// Every page url stored for a gallery, unsorted, via a key-only cursor (no image bytes loaded).
+// Unlike listGalleryPageKeys this returns raw keys — callers that own their own ordering (the
+// reader builds chapter slots) use this and never touch a raw transaction.
+export async function listGalleryPageUrls(galleryId) {
+  const db = await openDB();
+  return new Promise((resolve) => {
+    const urls = [];
+    const req = db.transaction(STORE, 'readonly').objectStore(STORE).index('galleryId')
+      .openKeyCursor(IDBKeyRange.only(String(galleryId)));
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (cursor) { urls.push(cursor.primaryKey); cursor.continue(); } else resolve(urls);
+    };
+    req.onerror = () => resolve(urls);
+  });
+}
+
+// Study-mode layers for every page of a gallery that has them: { url, bg, bubbles, page }.
+// One cursor pass; bg/text layers stay Blobs (the caller makes object URLs lazily).
+export async function listGalleryStudyRecords(galleryId) {
+  const db = await openDB();
+  return new Promise((resolve) => {
+    const out = [];
+    const req = db.transaction(STORE, 'readonly').objectStore(STORE).index('galleryId')
+      .openCursor(IDBKeyRange.only(String(galleryId)));
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (!cursor) { resolve(out); return; }
+      const v = cursor.value;
+      // bg is null for metadata-only (text-mode) study records — those render as DOM text.
+      if (Array.isArray(v.bubbles) && v.bubbles.length) {
+        out.push({ url: v.url, bg: v.studyBg || null, bubbles: v.bubbles, page: v.studyPage || null });
+      }
+      cursor.continue();
+    };
+    req.onerror = () => resolve(out);
+  });
+}
+
+// ── Raw record access (backup/restore) ──
+// Backup streams record-at-a-time and restores records verbatim, so it needs key-level access
+// the entity-shaped helpers don't expose. These keep that knowledge here rather than letting
+// backup.js hold its own copy of the store names.
+
+export async function imageKeysAll() {
+  const db = await openDB();
+  return new Promise((res, rej) => {
+    const q = db.transaction(STORE, 'readonly').objectStore(STORE).getAllKeys();
+    q.onsuccess = () => res(q.result || []);
+    q.onerror = () => rej(q.error);
+  });
+}
+
+// Store an image record exactly as given — no stat arithmetic (a restore writes the gallery
+// stat records from the archive itself). Use dbPut for normal page writes.
+export async function imageRecordPut(rec) {
+  const db = await openDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).put(rec);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+
+export async function coverKeysAll() {
+  const db = await openDB();
+  return new Promise((res, rej) => {
+    const q = db.transaction(COVER_STORE, 'readonly').objectStore(COVER_STORE).getAllKeys();
+    q.onsuccess = () => res(q.result || []);
+    q.onerror = () => rej(q.error);
+  });
+}
+
+export async function coverRecordGet(galleryId) {
+  const db = await openDB();
+  return new Promise((res, rej) => {
+    const q = db.transaction(COVER_STORE, 'readonly').objectStore(COVER_STORE).get(String(galleryId));
+    q.onsuccess = () => res(q.result || null);
+    q.onerror = () => rej(q.error);
+  });
+}
+
 export async function deleteGalleryImages(galleryId) {
   const gid = String(galleryId);
   const db = await openDB();
@@ -870,26 +978,33 @@ export async function deleteGalleryImages(galleryId) {
   await coverDelete(gid, { role: 'gallery' });
 }
 
-export async function getAvgImageSize() {
-  const FALLBACK = 310 * 1024;
-  try {
-    const entries = await galleryGetAll();
-    let totalImages = 0, totalSize = 0;
-    for (const e of entries) { totalImages += e.count; totalSize += e.size; }
-    if (totalImages === 0) return FALLBACK;
-    const dbAvg = totalSize / totalImages;
-    const ratio = dbAvg / FALLBACK;
-    if ((ratio > 1.25 || ratio < 0.75) && totalImages < 30) return FALLBACK;
-    return Math.round(dbAvg);
-  } catch {
-    return FALLBACK;
-  }
+// Delete a gallery's image records whose url is not in keepUrls — a replace-import's stale
+// leftovers (old extensions, old remote-source keys, pages past the new set) — then rebuild the
+// stat record so count/size/cover are truthful again. Called only after the replacement set is
+// fully written, so an interruption before this point leaves the union of old and new pages.
+export async function deleteStaleGalleryImages(galleryId, keepUrls) {
+  const gid = String(galleryId);
+  const keep = new Set(keepUrls || []);
+  const db = await openDB();
+  let removed = 0;
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    const req = tx.objectStore(STORE).index('galleryId').openCursor(IDBKeyRange.only(gid));
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (!cursor) return;
+      if (!keep.has(cursor.value.url)) { cursor.delete(); removed++; }
+      cursor.continue();
+    };
+  });
+  if (removed) await rebuildGalleryEntry(gid, { silent: true });
+  return removed;
 }
 
 // ── Shared state ──
 
-export const metaFetchPending     = new Set();
-const _dedupedGalleries           = new Set();
 export const _sourceIdToGalleryId = new Map();
 const _galleryResolvePending      = new Map();
 let _lastGeneratedGalleryId       = 0;
@@ -922,7 +1037,9 @@ async function cachedGalleryIdForSource(sid) {
 // Site source ids (short numbers) map to internal gallery ids (timestamps). A first sighting
 // creates a stub metadata record so concurrent captures agree on the same internal id.
 
-function nextGalleryId() {
+// The one internal-id mint: Date.now()-sequenced, monotonic per context. Import paths must
+// route through this too, so at least the per-context uniqueness guard always applies.
+export function nextGalleryId() {
   _lastGeneratedGalleryId = Math.max(Date.now(), _lastGeneratedGalleryId + 1);
   return String(_lastGeneratedGalleryId);
 }
@@ -931,24 +1048,33 @@ async function resolveSourceGalleryId(sid) {
   const cached = await cachedGalleryIdForSource(sid);
   if (cached) return cached;
   const db = await openDB();
-  const existing = await new Promise((resolve, reject) => {
-    const tx = db.transaction(META_STORE, 'readonly');
-    const req = tx.objectStore(META_STORE).index('sourceId').get(sid);
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror = () => reject(req.error);
+  // Index lookup + stub creation in ONE readwrite transaction: two contexts racing on the same
+  // source id serialize here, so the loser sees the winner's stub instead of minting a second
+  // internal id for the same gallery. (The stub bypasses metaPut deliberately — it carries no
+  // title/tags to canonicalize, and metaPut's stat-record touch skips stubs anyway.)
+  const gid = await new Promise((resolve, reject) => {
+    const tx = db.transaction(META_STORE, 'readwrite');
+    let result = null;
+    const store = tx.objectStore(META_STORE);
+    const req = store.index('sourceId').get(sid);
+    req.onsuccess = () => {
+      if (req.result) { result = String(req.result.galleryId); return; }
+      const newGid = nextGalleryId();
+      store.put({ galleryId: newGid, sourceId: sid, isStub: true });
+      result = newGid;
+    };
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = () => reject(tx.error);
   });
-  if (existing) {
-    _sourceIdToGalleryId.set(sid, existing.galleryId);
-    return existing.galleryId;
-  }
-  const newGid = nextGalleryId();
-  await metaPut({ galleryId: newGid, sourceId: sid, isStub: true });
-  _sourceIdToGalleryId.set(sid, newGid);
-  return newGid;
+  _sourceIdToGalleryId.set(sid, gid);
+  return gid;
 }
 
 export async function resolveGalleryId(id) {
   const raw = String(id);
+  // Internal ids are Date.now()-derived → always ≥13 digits. Anything that long is treated as
+  // already-internal; SOURCE refs that long are rejected at the agent boundary (resolve_gid)
+  // so an unusually long external id can never silently bypass resolution.
   if (/^\d{13,}$/.test(raw)) return raw;
   if (_galleryResolvePending.has(raw)) return _galleryResolvePending.get(raw);
   const pending = resolveSourceGalleryId(raw).finally(() => {
@@ -961,20 +1087,18 @@ export async function resolveGalleryId(id) {
 // ── Stats / gallery helpers ──
 
 // Blob-returning resize primitive used by callers that persist derived thumbnails. Falls back to
-// the full cover when it is already small enough or on any decode error.
+// the full cover when it is already small enough or on any decode error. Cover thumbnails keep
+// their historical WebP q0.82 parameters (see image-util.js).
 export async function resizeCoverBlob(src, maxW) {
   const inBlob = await imageToBlob(src);
   if (!inBlob || !maxW) return inBlob;
-  let bitmap = null;
   try {
-    bitmap = await createImageBitmap(inBlob);
-    if (bitmap.width <= maxW) return inBlob;
-    const scale = maxW / bitmap.width;
-    const canvas = new OffscreenCanvas(maxW, Math.round(bitmap.height * scale));
-    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    return await canvas.convertToBlob({ type: 'image/webp', quality: 0.82 });
+    const bitmap = await createImageBitmap(inBlob);
+    const alreadySmall = bitmap.width <= maxW;
+    bitmap.close();
+    if (alreadySmall) return inBlob;
+    return await resizeToWidth(inBlob, maxW, { format: 'image/webp', quality: 0.82 });
   } catch { return inBlob; }
-  finally { try { bitmap?.close(); } catch {} }
 }
 
 // Existing data-URL API retained for callers that do not need the persistent thumbnail cache.
@@ -994,88 +1118,21 @@ export async function getStats() {
   return { totalImages, totalSize, galleries };
 }
 
-async function deduplicateGalleryImages(galleryId) {
-  const gid = String(galleryId);
-  if (_dedupedGalleries.has(gid)) return;
-  const db = await openDB();
-
-  const urlsByPage = new Map();
-  await new Promise((resolve, reject) => {
-    const tx  = db.transaction(STORE, 'readonly');
-    const req = tx.objectStore(STORE).index('galleryId').openKeyCursor(IDBKeyRange.only(gid));
-    req.onsuccess = (e) => {
-      const cursor = e.target.result;
-      if (!cursor) { resolve(); return; }
-      const url = cursor.primaryKey;
-      const m   = url.match(/\/(\d+)\.(webp|jpg|jpeg|png|gif)$/i);
-      if (m) {
-        const pn = parseInt(m[1]);
-        if (!urlsByPage.has(pn)) urlsByPage.set(pn, []);
-        urlsByPage.get(pn).push(url);
-      }
-      cursor.continue();
-    };
-    req.onerror = () => reject(req.error);
-  });
-
-  const urlsToDelete = [];
-  for (const urls of urlsByPage.values()) {
-    if (urls.length <= 1) continue;
-    if (urls.some(u => u.startsWith('local://'))) {
-      for (const u of urls) {
-        if (!u.startsWith('local://')) urlsToDelete.push(u);
-      }
-    }
-  }
-
-  if (urlsToDelete.length === 0) {
-    _dedupedGalleries.add(gid);
-    return;
-  }
-
-  await new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    const store = tx.objectStore(STORE);
-    for (const url of urlsToDelete) store.delete(url);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-
-  await rebuildGalleryEntry(gid);
-  _dedupedGalleries.add(gid);
-}
-
-export async function getAllGalleries() {
+// Purge stubs that never received pages — but spare ones created in the last minute,
+// so a gallery whose metadata fetch / first image capture is still in flight isn't
+// deleted out from under it. Stub ids are Date.now() creation timestamps.
+// Runs from the boot maintenance window — never from a read path.
+export async function purgePagelessStubs() {
   const allMeta = await metaGetAll();
-
-  const localImports = allMeta.filter(m => m.isLocalImport);
-  if (localImports.length > 0) {
-    await Promise.all(localImports.map(m => deduplicateGalleryImages(m.galleryId)));
-  }
-
-  const stats = await getStats();
-
-  // Purge stubs that never received pages — but spare ones created in the last minute,
-  // so a gallery whose metadata fetch / first image capture is still in flight isn't
-  // deleted out from under it. Stub ids are Date.now() creation timestamps.
   const _stubCutoff = Date.now() - 60000;
-  const pagelessStubs = allMeta.filter(m =>
-    m.isStub && !(stats.galleries[m.galleryId]?.count > 0) && Number(m.galleryId) < _stubCutoff);
-  if (pagelessStubs.length > 0) {
-    await Promise.all(pagelessStubs.map(m =>
-      metaDelete(m.galleryId).then(() => galleryDelete(m.galleryId)).catch(() => {})
-    ));
-    const purged = new Set(pagelessStubs.map(m => m.galleryId));
-    allMeta.splice(0, allMeta.length, ...allMeta.filter(m => !purged.has(m.galleryId)));
-  }
-
-  const metaMap = {};
-  for (const m of allMeta) metaMap[m.galleryId] = m;
-
-  const galleries = Object.entries(stats.galleries)
-    .sort((a, b) => (b[1].latestAt || 0) - (a[1].latestAt || 0))
-    .map(([id, info]) => _entityFrom(id, info, metaMap[id]));
-  return { galleries, totalImages: stats.totalImages, totalSize: stats.totalSize };
+  const stubs = allMeta.filter(m => m.isStub && Number(m.galleryId) < _stubCutoff);
+  if (!stubs.length) return 0;
+  const stats = await getStats();
+  const pagelessStubs = stubs.filter(m => !(stats.galleries[m.galleryId]?.count > 0));
+  await Promise.all(pagelessStubs.map(m =>
+    metaDelete(m.galleryId).then(() => galleryDelete(m.galleryId)).catch(() => {})
+  ));
+  return pagelessStubs.length;
 }
 
 // ── Windowed reads (scale: load only the visible page) ──
@@ -1193,7 +1250,8 @@ const _META_FIELDS = new Set([
 
 // Merge a patch into a gallery's metadata and/or stat record, then announce the change
 // so every subscribed surface re-renders. The one mutation entry point for gallery
-// records — callers never touch metaPut/galleryPut/libraryVersion directly.
+// records — callers never touch metaPut/galleryPut directly. One logical mutation is one
+// transaction: metadata and stats can never disagree after an abort mid-way.
 export async function mutateGallery(galleryId, patch, opts = {}) {
   const gid = String(galleryId);
   const silent = !!opts.silent;
@@ -1204,26 +1262,60 @@ export async function mutateGallery(galleryId, patch, opts = {}) {
   // parentId is denormalized onto BOTH stores: metadata (search exclusion) and the stat record
   // (grid index-cursor exclusion + the aggregate hook). Routing above put it only on metadata.
   if ('parentId' in (patch || {})) galPatch.parentId = patch.parentId;
-  if (Object.keys(metaPatch).length) {
-    const cur = await metaGet(gid) || { galleryId: gid };
-    await metaPut({ ...cur, ...metaPatch, galleryId: gid }, { silent });
-  }
-  if (Object.keys(galPatch).length) {
-    let cur = await galleryGet(gid);
-    if (!cur) {
-      const now = Date.now();
-      const meta = await metaGet(gid);
-      cur = {
-        galleryId: gid,
-        count: 0,
-        size: 0,
-        latestAt: now,
-        addedAt: Number(gid) || now,
-        uploadDate: Number(meta?.uploadDate) || 0,
+  const hasMeta = Object.keys(metaPatch).length > 0;
+  const hasGal = Object.keys(galPatch).length > 0;
+  if (!hasMeta && !hasGal) { if (!silent) publishFeed(gid); return; }
+
+  const db = await openDB();
+  let prevSourceId = null, nextSourceId = null;
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction([META_STORE, GALLERY_STORE], 'readwrite');
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    const metas = tx.objectStore(META_STORE);
+    const gals = tx.objectStore(GALLERY_STORE);
+    const metaReq = metas.get(gid);
+    metaReq.onsuccess = () => {
+      const curMeta = metaReq.result || null;
+      let merged = curMeta || { galleryId: gid };
+      if (hasMeta) {
+        prevSourceId = curMeta?.sourceId || null;
+        // Same canonicalization metaPut applies: title format + tagNames index kept in sync.
+        merged = migrateTitle({ ...merged, ...metaPatch, galleryId: gid });
+        if (Array.isArray(merged.tags) || Array.isArray(merged.seriesTags)) merged = { ...merged, tagNames: tagNamesOf(effectiveTagsOf(merged)) };
+        nextSourceId = merged.sourceId || null;
+        metas.put(merged);
+      }
+      const galReq = gals.get(gid);
+      galReq.onsuccess = () => {
+        let cur = galReq.result || null;
+        // A metadata change marks a REAL gallery updated and keeps the denormalized published
+        // date in step (metaPut parity) — never for a bare stub.
+        if (hasMeta && cur && !merged.isStub) {
+          cur = { ...cur, latestAt: Math.max(cur.latestAt || 0, Date.now()) };
+          if (merged.uploadDate != null) cur.uploadDate = Number(merged.uploadDate) || 0;
+          else if (cur.uploadDate == null) cur.uploadDate = 0;
+        }
+        if (hasGal) {
+          if (!cur) {
+            const now = Date.now();
+            cur = {
+              galleryId: gid,
+              count: 0,
+              size: 0,
+              latestAt: now,
+              addedAt: Number(gid) || now,
+              uploadDate: Number(merged?.uploadDate) || 0,
+            };
+          }
+          cur = { ...cur, ...galPatch, galleryId: gid };
+        }
+        if (cur) gals.put(cur);
       };
-    }
-    await galleryPut({ ...cur, ...galPatch, galleryId: gid });
-  }
+    };
+  });
+  if (prevSourceId && String(prevSourceId) !== String(nextSourceId || '')) _sourceIdToGalleryId.delete(String(prevSourceId));
+  if (nextSourceId) _sourceIdToGalleryId.set(String(nextSourceId), gid);
   if (!silent) publishFeed(gid);
 }
 
@@ -1275,9 +1367,22 @@ export async function deleteGallery(galleryId) {
   const gid = String(galleryId);
   const meta = await metaGet(gid).catch(() => null);
   forgetSourceMapping(meta?.sourceId, gid);
-  await deleteGalleryImages(gid);
-  await metaDelete(gid);
-  await coverDelete(gid);
+  // One transaction across every store the gallery lives in — an abort mid-delete can no longer
+  // leave images without metadata or a cover without its gallery.
+  const db = await openDB();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction([STORE, META_STORE, GALLERY_STORE, COVER_STORE], 'readwrite');
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    const req = tx.objectStore(STORE).index('galleryId').openCursor(IDBKeyRange.only(gid));
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (cursor) { cursor.delete(); cursor.continue(); }
+    };
+    tx.objectStore(GALLERY_STORE).delete(gid);
+    tx.objectStore(META_STORE).delete(gid);
+    tx.objectStore(COVER_STORE).delete(gid);
+  });
   if (meta?.parentId) scheduleSeriesAggregate(meta.parentId);   // a chapter left its series
   platform.control.send({ type: 'GALLERY_DELETED', galleryId: gid, sourceId: meta?.sourceId || null });
   publishFeed(gid);
@@ -1286,14 +1391,15 @@ export async function deleteGallery(galleryId) {
 export async function clearAll() {
   _sourceIdToGalleryId.clear();
   const db = await openDB();
-  await Promise.all([STORE, META_STORE, GALLERY_STORE, COVER_STORE].map(storeName =>
-    new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readwrite');
-      const req = tx.objectStore(storeName).clear();
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error);
-    })
-  ));
+  // All five stores in one transaction — "clear everything" must mean everything, including the
+  // source icons that earlier versions left behind.
+  const stores = [STORE, META_STORE, GALLERY_STORE, COVER_STORE, SOURCE_ICON_STORE];
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(stores, 'readwrite');
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    for (const storeName of stores) tx.objectStore(storeName).clear();
+  });
 }
 
 export async function getGalleryImageRecords(galleryId) {
@@ -1401,7 +1507,10 @@ function _rewritePageBlob(url, blob) {
 // record, leaving the original untouched. IndexedDB records are schemaless, so this
 // needs no DB version bump.
 
-export async function putTranslatedImage(url, translatedDataUrl) {
+// `translatedSrc` is a Blob (preferred — data URLs cost ~33% more storage; legacy records may
+// still hold strings). `variant` records provenance: which target language and config produced
+// this output, so a language/config change re-translates instead of relabeling old output.
+export async function putTranslatedImage(url, translatedSrc, variant = {}) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx    = db.transaction(STORE, 'readwrite');
@@ -1409,7 +1518,12 @@ export async function putTranslatedImage(url, translatedDataUrl) {
     const getReq = store.get(url);
     getReq.onsuccess = () => {
       const rec = getReq.result;
-      if (rec) { rec.translated = translatedDataUrl; store.put(rec); }
+      if (rec) {
+        rec.translated = translatedSrc;
+        if (variant.lang != null) rec.translatedLang = variant.lang;
+        if (variant.config != null) rec.translatedConfig = variant.config;
+        store.put(rec);
+      }
     };
     tx.oncomplete = () => resolve();
     tx.onerror    = () => reject(tx.error);
@@ -1464,6 +1578,8 @@ export async function clearGalleryTranslations(galleryId) {
         const v = cursor.value;
         const had = v.translated !== undefined;
         delete v.translated;
+        delete v.translatedLang;
+        delete v.translatedConfig;
         delete v.bubbles;
         delete v.studyBg;
         delete v.studyPage;

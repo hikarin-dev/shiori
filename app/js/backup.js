@@ -11,14 +11,12 @@
 //
 // importBackup() detects the format from the file itself, so one picker handles both.
 
-import { openDB, publishFeed, metaPut, backfillUploadDates, coverPut, refreshSeriesAggregate, sourceIconPut } from './db.js';
-
-const IMAGES = 'images', META = 'metadata', GALLERIES = 'galleries', COVERS = 'covers', SOURCE_ICONS = 'sourceIcons';
-
-const getAllKeys = (db, s) => new Promise((res, rej) => { const tx = db.transaction(s, 'readonly'); const q = tx.objectStore(s).getAllKeys(); q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error); });
-const getByKey = (db, s, k) => new Promise((res, rej) => { const tx = db.transaction(s, 'readonly'); const q = tx.objectStore(s).get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
-const getAll = (db, s) => new Promise((res, rej) => { const tx = db.transaction(s, 'readonly'); const q = tx.objectStore(s).getAll(); q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error); });
-const put = (db, s, rec) => new Promise((res, rej) => { const tx = db.transaction(s, 'readwrite'); tx.objectStore(s).put(rec); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); });
+import {
+  publishFeed, metaPut, backfillUploadDates, coverPut, refreshSeriesAggregate, sourceIconPut,
+  metaGetAll, galleryGetAll, galleryGet, galleryPut, sourceIconsAll,
+  imageKeysAll, imageRecordPut, dbGet, coverKeysAll, coverRecordGet,
+} from './db.js';
+import { isValidGalleryId } from './sanitize.js';
 
 // Decode a base64 data-URL to a Blob (legacy records store images as strings). One image at a time.
 function dataUrlToBlob(dataUrl) {
@@ -36,10 +34,55 @@ function footerBytes(manifestLen) {
   const f = new Uint8Array(4); new DataView(f.buffer).setUint32(0, manifestLen, true); return f;
 }
 
+// A full backup carries the archive format version. Bumped to 8 when the settings snapshot was
+// added; older archives simply restore without settings. Newer-than-us archives are refused.
+const ARCHIVE_VERSION = 8;
+
+// ── Settings snapshot ───────────────────────────────────────────────────────────────────────
+// Every persistent preference rides in the full backup, both conventions: the shiori:* kv keys
+// and the small set of boot-synchronous dash keys. Per-browser state (integration status cache,
+// session-scoped caches), one-time repair flags (a restored library should re-run its repairs),
+// and the pairing capability stay out — they must not follow the library to another browser.
+// Values are raw localStorage strings, restored verbatim.
+const SETTINGS_DASH_KEYS = ['shiori-lang', 'shiori-safe-mode', 'shiori-reader-pin', 'shiori-header-pin'];
+const SETTINGS_KV_EXCLUDE = new Set(['agentPairSecret', 'countsRepaired', 'seriesShellStatsRepaired', 'uploadDateBackfilled']);
+
+function snapshotSettings() {
+  const out = { kv: {}, dash: {} };
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (!key.startsWith('shiori:')) continue;
+      const short = key.slice('shiori:'.length);
+      if (SETTINGS_KV_EXCLUDE.has(short)) continue;
+      out.kv[short] = localStorage.getItem(key);
+    }
+    for (const key of SETTINGS_DASH_KEYS) {
+      const v = localStorage.getItem(key);
+      if (v != null) out.dash[key] = v;
+    }
+  } catch {}
+  return out;
+}
+
+function restoreSettings(settings) {
+  if (!settings || typeof settings !== 'object') return 0;
+  let n = 0;
+  try {
+    for (const [k, v] of Object.entries(settings.kv || {})) {
+      if (SETTINGS_KV_EXCLUDE.has(k) || typeof v !== 'string') continue;
+      localStorage.setItem('shiori:' + k, v); n++;
+    }
+    for (const [k, v] of Object.entries(settings.dash || {})) {
+      if (!SETTINGS_DASH_KEYS.includes(k) || typeof v !== 'string') continue;
+      localStorage.setItem(k, v); n++;
+    }
+  } catch {}
+  return n;
+}
+
 // ── Metadata-only export (.shi) ─────────────────────────────────────────────────────────────
 export async function exportMetadata() {
-  const db = await openDB();
-  const allMeta = await getAll(db, META);
+  const allMeta = await metaGetAll();
   const payload = allMeta.map(({ pageExts, ...rest }) => rest);
   return {
     blob: new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }),
@@ -62,14 +105,13 @@ export async function exportFull(onProgress) {
       handle = await window.showSaveFilePicker({ suggestedName, types: [{ description: 'Shiori database', accept: { 'application/octet-stream': ['.shioridb'] } }] });
     } catch (e) { if (e && e.name === 'AbortError') return { aborted: true }; throw e; }
   }
-  const db = await openDB();
 
   if (handle) {
     const writable = await handle.createWritable();
     let offset = 0;
     const writeBlob = async (blob) => { await writable.write(blob); const spec = { off: offset, len: blob.size, type: blob.type || '' }; offset += blob.size; return spec; };
     try {
-      const manifest = await build(db, writeBlob, onProgress);
+      const manifest = await build(writeBlob, onProgress);
       const mb = new TextEncoder().encode(JSON.stringify(manifest));
       await writable.write(mb); await writable.write(footerBytes(mb.length));
       await writable.close();
@@ -81,7 +123,7 @@ export async function exportFull(onProgress) {
   // Fallback: collect blob references, assemble one archive Blob (disk-backed), hand it back.
   const parts = []; let offset = 0;
   const refBlob = async (blob) => { const spec = { off: offset, len: blob.size, type: blob.type || '' }; parts.push(blob); offset += blob.size; return spec; };
-  const manifest = await build(db, refBlob, onProgress);
+  const manifest = await build(refBlob, onProgress);
   const mb = new TextEncoder().encode(JSON.stringify(manifest));
   const archive = new Blob([...parts, mb, footerBytes(mb.length)], { type: 'application/octet-stream' });
   if (onProgress) onProgress('done', 1, 1);
@@ -92,11 +134,11 @@ let lastCounts = null;
 
 // Walk every store one record at a time, handing each blob to `sink` (which writes it and returns
 // its { off, len, type }). Returns the manifest. Holds at most one image at a time.
-async function build(db, sink, onProgress) {
+async function build(sink, onProgress) {
   const images = [];
-  const imgKeys = await getAllKeys(db, IMAGES);
+  const imgKeys = await imageKeysAll();
   for (let i = 0; i < imgKeys.length; i++) {
-    const r = await getByKey(db, IMAGES, imgKeys[i]);
+    const r = await dbGet(imgKeys[i]);
     if (!r) continue;
     const ent = { url: r.url, mediaId: r.mediaId, galleryId: r.galleryId, cachedAt: r.cachedAt, size: r.size };
     const body = toBlob(r.blob ?? r.dataUrl);
@@ -123,8 +165,8 @@ async function build(db, sink, onProgress) {
     if (onProgress && i % 25 === 0) onProgress('images', i + 1, imgKeys.length);
   }
   const covers = [];
-  for (const key of await getAllKeys(db, COVERS)) {
-    const c = await getByKey(db, COVERS, key);
+  for (const key of await coverKeysAll()) {
+    const c = await coverRecordGet(key);
     if (!c) continue;
     const ent = { galleryId: c.galleryId };
     const body = toBlob(c.cover);
@@ -133,11 +175,11 @@ async function build(db, sink, onProgress) {
     if (seriesBody) ent.seriesBody = await sink(seriesBody);
     if (ent.body || ent.seriesBody) covers.push(ent);
   }
-  const metadata = await getAll(db, META);
-  const galleries = await getAll(db, GALLERIES);
-  const sourceIcons = await getAll(db, SOURCE_ICONS).catch(() => []);
+  const metadata = await metaGetAll();
+  const galleries = await galleryGetAll();
+  const sourceIcons = await sourceIconsAll().catch(() => []);
   lastCounts = { images: images.length, galleries: galleries.length, covers: covers.length, sourceIcons: sourceIcons.length };
-  return { format: 'shiori-db', version: 7, exportedAt: Date.now(), counts: lastCounts, images, covers, sourceIcons, metadata, galleries };
+  return { format: 'shiori-db', version: ARCHIVE_VERSION, exportedAt: Date.now(), counts: lastCounts, images, covers, sourceIcons, metadata, galleries, settings: snapshotSettings() };
 }
 
 // ── Import (auto-detect) ────────────────────────────────────────────────────────────────────
@@ -150,13 +192,22 @@ export async function importBackup(file, onProgress) {
   return { kind: 'full', counts: await importFullFile(file, onProgress) };
 }
 
+// Reject a record whose identity fields aren't the app's own numeric id format. Imported ids end
+// up in DOM attributes and hrefs on every surface, so a crafted backup with markup ids is a
+// stored-XSS attempt — the whole file is rejected before any write.
+function _assertValidIds(meta) {
+  if (!isValidGalleryId(meta.galleryId)) throw new Error('Backup contains an invalid gallery id — file rejected.');
+  if (meta.parentId != null && !isValidGalleryId(meta.parentId)) throw new Error('Backup contains an invalid gallery id — file rejected.');
+  if (Array.isArray(meta.chapters) && meta.chapters.some(c => !isValidGalleryId(c?.id))) throw new Error('Backup contains an invalid gallery id — file rejected.');
+}
+
 async function importMetadataFile(file) {
   let entries;
   try { entries = JSON.parse(await file.text()); }
   catch { throw new Error('Invalid backup file — could not parse JSON.'); }
   if (!Array.isArray(entries) || entries.length === 0) throw new Error('Backup file is empty or unrecognised.');
+  for (const meta of entries) { if (meta?.galleryId) _assertValidIds(meta); }
 
-  const db = await openDB();
   let n = 0;
   const seriesOwners = new Set();
   for (const meta of entries) {
@@ -164,8 +215,8 @@ async function importMetadataFile(file) {
     const gid = String(meta.galleryId);
     const nextMeta = { ...meta, galleryId: gid, fetchedAt: Date.now() };
     await metaPut(nextMeta);
-    const existingGal = await getByKey(db, GALLERIES, gid).catch(() => null);
-    await put(db, GALLERIES, {
+    const existingGal = await galleryGet(gid).catch(() => null);
+    await galleryPut({
       galleryId: gid,
       count:     existingGal?.count    || 0,
       size:      existingGal?.size     || 0,
@@ -186,6 +237,31 @@ async function importMetadataFile(file) {
   return { galleries: n, images: 0 };
 }
 
+const _validSpec = (spec, blobRegionEnd) => spec == null
+  || (Number.isInteger(spec.off) && spec.off >= 0 && Number.isInteger(spec.len) && spec.len >= 0
+      && spec.off + spec.len <= blobRegionEnd);
+
+// Full structural validation before the first write: identity format (imported ids reach DOM
+// attributes on every surface — see _assertValidIds) and every blob slice inside the file's blob
+// region. A truncated or crafted archive must fail before it can mutate anything.
+function validateFullManifest(manifest, blobRegionEnd) {
+  if (!manifest || manifest.format !== 'shiori-db') throw new Error('Not a Shiori database archive');
+  if (Number(manifest.version) > ARCHIVE_VERSION) throw new Error('Archive was created by a newer app version.');
+  if (!manifest.counts || typeof manifest.counts !== 'object') throw new Error('Corrupt archive (missing counts)');
+  const bad = (what) => { throw new Error(`Corrupt archive (${what})`); };
+  for (const e of (manifest.images || [])) {
+    if (!isValidGalleryId(e.galleryId)) bad('invalid gallery id');
+    const specs = [e.body, e.translated, e.studyBg, ...(Array.isArray(e.bubbles) ? e.bubbles.map(b => b?.text) : [])];
+    if (!specs.every(s => _validSpec(s, blobRegionEnd))) bad('blob out of bounds');
+  }
+  for (const c of (manifest.covers || [])) {
+    if (!isValidGalleryId(c.galleryId)) bad('invalid gallery id');
+    if (!_validSpec(c.body, blobRegionEnd) || !_validSpec(c.seriesBody, blobRegionEnd)) bad('blob out of bounds');
+  }
+  for (const m of (manifest.metadata || [])) _assertValidIds(m);
+  for (const g of (manifest.galleries || [])) { if (!isValidGalleryId(g.galleryId)) bad('invalid gallery id'); }
+}
+
 // Reads the manifest from the file's tail, then lazily slices each image out of the picked
 // file — the whole archive is never loaded.
 async function importFullFile(file, onProgress) {
@@ -195,10 +271,9 @@ async function importFullFile(file, onProgress) {
   const manifestStart = size - 4 - manifestLen;
   if (manifestStart < 0) throw new Error('Corrupt archive (bad manifest length)');
   const manifest = JSON.parse(await file.slice(manifestStart, size - 4).text());
-  if (manifest.format !== 'shiori-db') throw new Error('Not a Shiori database archive');
+  validateFullManifest(manifest, manifestStart);
 
   const sliceOf = (spec) => spec ? file.slice(spec.off, spec.off + spec.len, spec.type || '') : null;
-  const db = await openDB();
   let n = 0;
   for (const e of (manifest.images || [])) {
     const rec = { url: e.url, mediaId: e.mediaId, galleryId: e.galleryId, cachedAt: e.cachedAt, size: e.size };
@@ -215,11 +290,11 @@ async function importFullFile(file, onProgress) {
         return bubble;
       });
     }
-    await put(db, IMAGES, rec);
+    await imageRecordPut(rec);
     if (onProgress && (++n % 25 === 0)) onProgress('images', n, (manifest.images || []).length);
   }
   for (const m of (manifest.metadata || [])) await metaPut(m);
-  for (const g of (manifest.galleries || [])) await put(db, GALLERIES, g);
+  for (const g of (manifest.galleries || [])) await galleryPut(g);
   // Silent cover writes: the per-gallery publishFeed pass below announces the restore — loud
   // coverPuts here would additionally ping every open surface once per cover blob.
   for (const e of (manifest.covers || [])) {
@@ -239,6 +314,8 @@ async function importFullFile(file, onProgress) {
   }
   for (const ownerId of seriesOwners) await refreshSeriesAggregate(ownerId).catch(() => {});
   for (const g of (manifest.galleries || [])) publishFeed(g.galleryId);
+  // Settings restore LAST: preferences must never land if the data restore failed part-way.
+  restoreSettings(manifest.settings);
   if (onProgress) onProgress('done', 1, 1);
   return manifest.counts;
 }

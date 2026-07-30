@@ -18,18 +18,38 @@ applyTranslations(document);
 
 platform.registerServices(services);
 
+// A library reset performed in another context invalidates every in-memory cache this page
+// holds — reload to a clean state (the resetting context handles its own UI).
+platform.control.on((msg) => {
+  if (msg?.type === 'LIBRARY_RESET' && msg.context !== platform.contextId) location.reload();
+});
+
 // Drive any in-flight translation: a translation is a server-owned job, and this polls it for new
 // chunks (preferring the service worker) on every page load and on a short timer. Short polls keep
 // the worker warm without any single event hitting Chrome's ~5-min cap, so the job survives a
 // navigation, a tab close+reopen, and SW recycling — whichever page is open carries it to the end.
+// Idle backoff: consecutive no-work ticks stretch the interval (two durable getAlls per tick are
+// not free), and any live job signal snaps it back to the fast cadence.
 pollActiveTranslations();
-setInterval(pollActiveTranslations, 3000);
+let _pollDelay = 3000;
+let _pollIdleTicks = 0;
+async function _pollTick() {
+  let busy = false;
+  try { busy = !!await pollActiveTranslations(); } catch {}
+  if (busy) { _pollIdleTicks = 0; _pollDelay = 3000; }
+  else if (++_pollIdleTicks >= 5) _pollDelay = Math.min(_pollDelay * 2, 30000);
+  setTimeout(_pollTick, _pollDelay);
+}
+setTimeout(_pollTick, _pollDelay);
+platform.jobs.subscribe(() => { _pollIdleTicks = 0; _pollDelay = 3000; });
 
-// Clean URLs: pages are real .html files, but the address bar shows /app/library — the
-// service worker maps extensionless navigations back to the page file (and the dev server /
-// 404.html cover the not-yet-controlled cases).
-if (location.pathname.endsWith('.html')) {
-  history.replaceState(null, '', location.pathname.replace(/\.html$/, '') + location.search + location.hash);
+// Clean URLs: pages are real .html files, but the address bar shows /library — the service
+// worker maps extensionless navigations back to the page file. Only rewrite when a worker
+// controls this page: without one, the .html URL is the only form a refresh can load directly
+// (404.html covers hosts that serve it, but a plain static host has nothing else).
+if (location.pathname.endsWith('.html') && navigator.serviceWorker?.controller) {
+  const seg = location.pathname.split('/').pop().replace(/\.html$/, '');
+  history.replaceState(null, '', new URL('../' + seg, document.baseURI).pathname + location.search + location.hash);
 }
 
 // One-time maintenance can touch every library record. Let the page finish its initial paint and
@@ -44,49 +64,23 @@ const maintenanceReady = new Promise((resolve) => {
   else window.addEventListener('load', schedule, { once: true });
 });
 
-// One-time integrity sweep: fix any gallery whose stored count drifted from its actual image
-// records (a pre-guard dbPut could double-count on overwrites). Runs once per browser profile.
-const countsRepairReady = maintenanceReady.then(() => platform.kv.get(['countsRepaired'])).then(async ({ countsRepaired }) => {
-  if (countsRepaired) return;
-  try {
-    const { repairGalleryCounts } = await import('./db.js');
-    const fixed = await repairGalleryCounts();
-    if (fixed) console.log(`[shiori] repaired stat records for ${fixed} galleries`);
-  } catch {}
-  platform.kv.set({ countsRepaired: true });
-});
-
-// One-time repair for early metadata-only series members whose incomplete zero-page stat rows
-// could remain numerically invalid after their first images arrived.
-countsRepairReady.then(() => platform.kv.get(['seriesShellStatsRepaired'])).then(async ({ seriesShellStatsRepaired }) => {
-  if (seriesShellStatsRepaired) return;
-  try {
-    const { repairSeriesShellStats } = await import('./db.js');
-    const fixed = await repairSeriesShellStats();
-    if (fixed) console.log(`[shiori] repaired stat records for ${fixed} series chapters`);
-  } catch {}
-  platform.kv.set({ seriesShellStatsRepaired: true });
-});
-
-// One-time backfill: copy each gallery's published date (metadata.uploadDate) into its stat record,
-// so the new "Published date" sort runs off the galleries index. Runs once per browser profile.
-maintenanceReady.then(() => platform.kv.get(['uploadDateBackfilled'])).then(async ({ uploadDateBackfilled }) => {
-  if (uploadDateBackfilled) return;
-  try {
-    const { backfillUploadDates } = await import('./db.js');
-    const filled = await backfillUploadDates();
-    if (filled) console.log(`[shiori] backfilled uploadDate for ${filled} galleries`);
-  } catch {}
-  platform.kv.set({ uploadDateBackfilled: true });
+// Ordered one-time repairs, then the recurring sweeps. Both live in migrations.js — a step
+// records completion only after it actually succeeded, so a failed repair retries next boot.
+maintenanceReady.then(async () => {
+  const { runMigrations, runMaintenance } = await import('./migrations.js');
+  await runMigrations();
+  await runMaintenance();
 });
 
 if ('serviceWorker' in navigator) {
-  // Retire the previous layout's worker, which was scoped to /app/ — the app now lives at the
-  // site root with a root-scoped worker (registered below; registering at root replaces any stale
-  // root worker in place, so only the /app/ one needs clearing).
+  // Retire the previous layout's worker, which was scoped to THIS app's /app/ directory — the
+  // app now lives at the site root with a root-scoped worker (registered below; registering at
+  // root replaces any stale root worker in place). Exact-scope match only: another app on this
+  // origin whose scope merely ends in /app/ must keep its registration.
+  const _appDir = new URL('..', import.meta.url).pathname;
   navigator.serviceWorker.getRegistrations().then((regs) => {
     for (const r of regs) {
-      try { if (new URL(r.scope).pathname.endsWith('/app/')) r.unregister(); } catch {}
+      try { if (new URL(r.scope).pathname === _appDir) r.unregister(); } catch {}
     }
   }).catch(() => {});
   navigator.serviceWorker.register(new URL('../../sw.js', import.meta.url), { type: 'module' }).catch(() => {});

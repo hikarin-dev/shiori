@@ -10,9 +10,26 @@
 import * as platform from './app/js/platform.js';
 import { RUNNERS, cancelJobRun, runPoll } from './app/js/jobs-runner.js';
 
-const CACHE = 'shiori-shell-v43';
 // The scope root: http://localhost:5500/ locally, https://…/shiori/ on GitHub Pages.
 const ROOT = new URL('./', self.location.href);
+
+// Cache names are deployment-root-scoped (Cache Storage is origin-wide — a sibling project on
+// this origin must keep its caches) and versioned from the app's own manifest, so releases no
+// longer need a hand-bumped constant. Contents also self-refresh via stale-while-revalidate,
+// so the version only drives cleanup boundaries.
+const CACHE_PREFIX = `shiori${ROOT.pathname.replace(/\//g, '_')}`;
+let _cacheName = null;
+async function cacheName() {
+  if (_cacheName) return _cacheName;
+  try {
+    const m = await (await fetch(new URL('app/manifest.webmanifest', ROOT).href, { cache: 'no-store' })).json();
+    if (m && m.version) return (_cacheName = `${CACHE_PREFIX}-shell-v${m.version}`);
+  } catch {}
+  // Manifest unreachable (offline activate): reuse the newest existing shell cache instead of
+  // minting a bogus name that would orphan the good one.
+  const existing = (await caches.keys()).filter((k) => k.startsWith(`${CACHE_PREFIX}-shell-v`));
+  return (_cacheName = existing[existing.length - 1] || `${CACHE_PREFIX}-shell-v0`);
+}
 // Clean navigation path (relative to the root) → which app page serves it.
 const PAGES = { '': 'library', 'library': 'library', 'settings': 'settings', 'reader': 'reader', 'overview': 'overview' };
 
@@ -23,13 +40,14 @@ const SHELL = [
   'app/manifest.webmanifest', 'app/font-init.js',
   'app/library.css', 'app/reader.css', 'app/settings.css', 'app/overview.css',
   'app/fonts/ccvictoryspeech.ttf', 'app/fonts/KiwiMaru-Regular.ttf', 'app/fonts/YasashisaAntique.otf',
+  'app/fonts/JetBrainsMono-Regular.woff2', 'app/fonts/JetBrainsMono-SemiBold.woff2', 'app/fonts/JetBrainsMono-Bold.woff2',
   'app/fonts/LICENSE-Kiwi-Maru-OFL.txt', 'app/fonts/LICENSE-YasashisaAntique-IPA.txt',
-  'app/fonts/LICENSE-YasashisaAntique-MPLUS.txt', 'app/fonts/README.md',
-  'app/js/platform.js', 'app/js/db.js', 'app/js/api.js', 'app/js/store.js', 'app/js/series.js',
+  'app/fonts/LICENSE-YasashisaAntique-MPLUS.txt', 'app/fonts/LICENSE-JetBrainsMono-OFL.txt', 'app/fonts/README.md',
+  'app/js/platform.js', 'app/js/db.js', 'app/js/api.js', 'app/js/store.js', 'app/js/series.js', 'app/js/sanitize.js', 'app/js/sites.js', 'app/js/image-util.js', 'app/js/migrations.js',
   'app/js/import-cbz.js', 'app/js/translate.js', 'app/js/backup.js',
   'app/js/jobs-runner.js', 'app/js/submit-job.js', 'app/js/services.js', 'app/js/ext-bridge.js', 'app/js/boot.js',
   'app/js/i18n.js', 'app/js/locales.js', 'app/js/tooltip.js', 'app/js/titles.js', 'app/js/format.js',
-  'app/js/library.js', 'app/js/reader.js', 'app/js/settings.js', 'app/js/agent.js', 'app/js/overview.js',
+  'app/js/library.js', 'app/js/reader.js', 'app/js/reader-study.js', 'app/js/settings.js', 'app/js/agent.js', 'app/js/overview.js',
   ...FLAGS,
   'icons/icon16.png', 'icons/icon32.png', 'icons/icon48.png', 'icons/icon128.png',
   'icons/icon192.png', 'icons/icon512.png', 'icons/shiori-logo.svg',
@@ -38,16 +56,27 @@ const SHELL = [
 
 self.addEventListener('install', (e) => {
   e.waitUntil((async () => {
-    const cache = await caches.open(CACHE);
-    await Promise.allSettled(SHELL.map((u) => cache.add(new URL(u, ROOT).href)));
+    const cache = await caches.open(await cacheName());
+    // Critical shell assets are all-or-nothing: a partial shell must never replace a healthy
+    // one, so a failed JS/HTML/CSS fetch fails the whole install (the old worker + cache stay).
+    // Flags, fonts, licenses and icons remain best-effort.
+    const critical = SHELL.filter((u) => /\.(js|html|css|webmanifest)$/.test(u));
+    const optional = SHELL.filter((u) => !/\.(js|html|css|webmanifest)$/.test(u));
+    await Promise.all(critical.map((u) => cache.add(new URL(u, ROOT).href)));
+    await Promise.allSettled(optional.map((u) => cache.add(new URL(u, ROOT).href)));
     self.skipWaiting();
   })());
 });
 
 self.addEventListener('activate', (e) => {
   e.waitUntil((async () => {
+    const current = await cacheName();
     const keys = await caches.keys();
-    await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
+    // Delete only OUR prefix (never a sibling app's caches), plus the app's own historical
+    // unprefixed name from before cache names were root-scoped.
+    await Promise.all(keys
+      .filter((k) => (k.startsWith(`${CACHE_PREFIX}-shell-v`) && k !== current) || /^shiori-shell-v\d+$/.test(k))
+      .map((k) => caches.delete(k)));
     await self.clients.claim();
     await resumePending();   // keep replayed jobs inside activate.waitUntil
   })());
@@ -56,7 +85,7 @@ self.addEventListener('activate', (e) => {
 // Stale-while-revalidate (cached copy answers instantly; background fetch refreshes; a hard reload
 // goes network-first). Clean page navigations (root → library, /settings, /reader) are mapped to
 // the real app/*.html file — for both the cache key and the network fetch — so the address bar
-// stays clean while the served document (which carries <base href="app/">) loads its assets from
+// stays clean while the served document (whose <base> resolves to the app folder) loads its assets from
 // /app/. Everything else (the /app/* assets, /icons/*, the agent iframe) is cached by pathname.
 self.addEventListener('fetch', (e) => {
   const req = e.request;
@@ -64,6 +93,9 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   if (!url.pathname.startsWith(ROOT.pathname)) return;
+  // Cache keys are pathname-only; a query-carrying non-navigation request is semantically
+  // distinct, so it goes straight to the network instead of colliding in the cache.
+  if (url.search && req.mode !== 'navigate') return;
 
   let key = url.origin + url.pathname;
   let navFile = null;
@@ -74,7 +106,7 @@ self.addEventListener('fetch', (e) => {
   }
 
   e.respondWith((async () => {
-    const cache = await caches.open(CACHE);
+    const cache = await caches.open(await cacheName());
     const refresh = async () => {
       const resp = await fetch(navFile ? key + url.search : req, navFile ? { cache: req.cache } : undefined);
       if (resp && resp.ok && resp.type === 'basic') cache.put(key, resp.clone()).catch(() => {});

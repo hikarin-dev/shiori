@@ -10,14 +10,15 @@
 // rendering, so progress reads Reading → Translating → Rendering even while stages overlap.
 //
 // CORS: a web origin POSTing to the translate server needs permissive CORS headers from that server
-// (the extension bypassed CORS via host permissions). See ARCHITECTURE-v2 §12 and the translator
-// patches noted in the project memory.
+// (a privileged helper can bypass CORS via host permissions; a web origin cannot). See
+// ARCHITECTURE.md and the translator patches noted in the project memory.
 
 import {
   getGalleryImageRecords, putTranslatedImage, putPageStudy, clearGalleryTranslations,
-  metaGet, metaPut, imageToBlob, imageToDataUrl,
+  metaGet, metaPut, imageToBlob,
 } from './db.js';
 import { translateResume, jobsPending } from './platform.js';
+import { resizeToWidth } from './image-util.js';
 
 const _pageNumOf = (url) => parseInt(url.match(/\/(\d+)\.\w+$/)?.[1] || '999999');
 
@@ -43,6 +44,15 @@ const _controllers = new Map();
 
 export function serverUrlFromSettings(ts) {
   return ((ts || {}).serverUrl || 'http://127.0.0.1:5003').replace(/\/+$/, '');
+}
+
+// Cheap stable hash of the server config — stored per page as translation provenance, so a
+// config change makes those pages pending again instead of silently keeping old output.
+function _configHash(config) {
+  const s = JSON.stringify(config);
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
 }
 
 // Remote/shared servers can require a shared access token; it rides as a header on every
@@ -80,16 +90,15 @@ async function _fitForUpload(blob) {
   try {
     const bmp = await createImageBitmap(blob);
     // Cap the long side (scans beyond this add nothing for OCR), then WebP q0.9 —
-    // stepping down once if a page somehow still exceeds the cap.
+    // stepping down once if a page somehow still exceeds the cap. Upload copy only;
+    // the stored original is untouched.
     const scale = Math.min(1, 4096 / Math.max(bmp.width, bmp.height));
-    const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
-    for (const quality of [0.9, 0.75]) {
-      const canvas = new OffscreenCanvas(w, h);
-      canvas.getContext('2d').drawImage(bmp, 0, 0, w, h);
-      const out = await canvas.convertToBlob({ type: 'image/webp', quality });
-      if (out && out.size <= PAGE_BYTE_CAP) { bmp.close(); return out; }
-    }
+    const w = Math.max(1, Math.round(bmp.width * scale));
     bmp.close();
+    for (const quality of [0.9, 0.75]) {
+      const out = await resizeToWidth(blob, w, { format: 'image/webp', quality });
+      if (out && out.size <= PAGE_BYTE_CAP) return out;
+    }
   } catch {}
   return blob;   // couldn't shrink it — let the server's own limit answer for this page
 }
@@ -223,20 +232,21 @@ function buildConfig(ts) {
 // Build a stage-aware label from the server's per-stage counters. The pipeline overlaps
 // (read → translate → render), so we name the furthest stage that isn't finished and carry that
 // stage's own moving count — the part that conveys "something is happening" even before any page
-// has fully rendered. `m` is the poll metadata frame.
-function _galleryLabel(m) {
-  if (!m) return 'Starting…';
-  if ((m.queue || 0) > 0) return `Waiting for server · ${m.queue} ahead`;
+// has fully rendered. `m` is the poll metadata frame. Returns an i18n key + args (the UI owns
+// t(); this code also runs in the service worker, which cannot resolve a language).
+function _galleryLabelKey(m) {
+  if (!m) return { key: 'prog.starting' };
+  if ((m.queue || 0) > 0) return { key: 'prog.queue_ahead', args: { n: m.queue } };
   const total = m.total || 0;
-  if (!m.dispatched && (m.pre || 0) === 0 && (m.done || 0) === 0) return 'Starting…';
-  if (total && (m.pre || 0) < total) return `Reading text ${m.pre || 0}/${total}`;
+  if (!m.dispatched && (m.pre || 0) === 0 && (m.done || 0) === 0) return { key: 'prog.starting' };
+  if (total && (m.pre || 0) < total) return { key: 'prog.reading_text', args: { done: m.pre || 0, total } };
   const batches = m.batches || 0;
   if (batches && (m.tlDone || 0) < batches) {
     const b = Math.min(batches, Math.max(m.tlStarted || 0, (m.tlDone || 0) + 1));
-    return batches > 1 ? `Translating ${b}/${batches}` : 'Translating…';
+    return batches > 1 ? { key: 'prog.translating_n', args: { done: b, total: batches } } : { key: 'prog.translating' };
   }
-  if (total && (m.done || 0) < total) return `Rendering ${m.done || 0}/${total}`;
-  return 'Finishing…';
+  if (total && (m.done || 0) < total) return { key: 'prog.rendering', args: { done: m.done || 0, total } };
+  return { key: 'prog.finishing' };
 }
 
 // A weighted overall fraction (0–100) across the three stages, so the bar creeps forward from the
@@ -272,16 +282,22 @@ export async function startTranslation(galleryId, ts, send = () => {}) {
     const caps = { ...DEFAULT_BATCH_CAPS, ...(ts.batchCaps || {}) };
     const cap = BATCH_CAPPED.has(tlName) ? Math.max(1, parseInt(caps[tlName], 10) || DEFAULT_BATCH_CAPS[tlName] || 8) : 1;
 
+    const cfgHash = _configHash(config);
     const records = (await getGalleryImageRecords(gid)).filter(r => r.blob ?? r.dataUrl);
     const byUrl = new Map(records.map(r => [r.url, r]));
     const total = Number(resume && resume.total) || records.length;
+    // Pending = missing output OR a different variant (target language / config) than requested.
+    // Pages translated before variants were recorded carry no provenance — those keep counting
+    // as current output until re-translated, exactly as before.
+    const _pendingPage = (r) => r.translated === undefined
+      || (r.translatedLang != null && (r.translatedLang !== langCode || r.translatedConfig !== cfgHash));
     const pending = resume && Array.isArray(resume.pendingUrls)
       ? resume.pendingUrls.map(url => byUrl.get(url)).filter(Boolean)
-      : records.filter(r => r.translated === undefined).sort((a, b) => _pageNumOf(a.url) - _pageNumOf(b.url));
+      : records.filter(_pendingPage).sort((a, b) => _pageNumOf(a.url) - _pageNumOf(b.url));
 
     if (pending.length === 0) {
       const meta = await metaGet(gid);
-      if (meta && (!meta.translated || meta.translatedLang !== langCode)) await metaPut({ ...meta, translated: true, translatedLang: langCode });
+      if (meta && (meta.translated !== true || meta.translatedLang !== langCode)) await metaPut({ ...meta, translated: true, translatedLang: langCode });
       if (resume?.token) await translateResume.remove(gid, resume.token);
       send({ status: 'done', done: total, total });
       return;
@@ -298,8 +314,11 @@ export async function startTranslation(galleryId, ts, send = () => {}) {
     // so a job that resumes after a restart still reports the same origin.
     const sourceUrl = (resume && resume.sourceUrl) || ((await metaGet(gid))?.sourceUrl || '');
     if (!resume) {
+      // `settings` stays on the record deliberately: a notfound restart can run in the service
+      // worker, which cannot read localStorage-backed settings — this row is the only durable
+      // carrier. Its one credential (serverToken) is required for every poll/cancel auth.
       resume = {
-        gid, token: jobToken, serverUrl, settings: ts, langCode, translator: tlName, cap,
+        gid, token: jobToken, serverUrl, settings: ts, langCode, translator: tlName, cap, cfgHash,
         sourceUrl,
         pendingUrls: pending.map(p => p.url), total, cursor: 0, phase: 'uploading',
       };
@@ -323,7 +342,7 @@ export async function startTranslation(galleryId, ts, send = () => {}) {
       cancelRemote();
       if (removed || current?.token === jobToken) send({ status: 'error', error: message });
     };
-    send({ status: 'started', done: total - pending.length, total, label: 'Preparing upload…', pct: 0 });
+    send({ status: 'started', done: total - pending.length, total, labelKey: 'prog.preparing', pct: 0 });
 
     // Upload the pages and create the job — the server runs the worker detached and buffers
     // frames. A remote proxy may cap request bodies, so a big gallery is uploaded as several
@@ -391,7 +410,7 @@ export async function startTranslation(galleryId, ts, send = () => {}) {
       }
       return;
     }
-    send({ status: 'started', done: total - pending.length, total, label: 'Starting…', pct: 0 });
+    send({ status: 'started', done: total - pending.length, total, labelKey: 'prog.starting', pct: 0 });
   } catch (error) {
     // An unexpected conversion/FormData/IDB failure must not strand an `uploading` record that
     // the poller can never advance. Clean up only the token this invocation owns, then let the
@@ -425,7 +444,7 @@ export async function pollTranslation(galleryId, send = () => {}) {
   const poll = { token: rec.token };
   _polling.set(gid, poll);
   try {
-    const { token, serverUrl, pendingUrls, settings, langCode, translator, cap, total } = rec;
+    const { token, serverUrl, pendingUrls, settings, langCode, translator, cap, total, cfgHash } = rec;
     const cursor = rec.cursor || 0;
     const ownsToken = async () => (await translateResume.get(gid))?.token === token;
 
@@ -468,7 +487,8 @@ export async function pollTranslation(galleryId, send = () => {}) {
         const url = pendingUrls[idx];
         if (url && await ownsToken()) {
           const img = data.subarray(b + 4);
-          await putTranslatedImage(url, await imageToDataUrl(new Blob([img], { type: _imgMime(img) })));
+          // Stored as a Blob (data URLs cost ~33% more), with the variant that produced it.
+          await putTranslatedImage(url, new Blob([img], { type: _imgMime(img) }), { lang: langCode || '', config: cfgHash || '' });
         }
       } else if (st === 6) {
         const tlen = data[0];
@@ -511,7 +531,7 @@ export async function pollTranslation(galleryId, send = () => {}) {
         // The next heartbeat claims this row, so a worker eviction can never lose the restart.
         const key = `${gid}:translate`;
         if (await jobsPending.add({ key, kind: 'translate', payload: { galleryId: gid, settings } })) {
-          send({ status: 'started', done: total - pendingUrls.length, total, label: 'Restarting…', pct: 0 });
+          send({ status: 'started', done: total - pendingUrls.length, total, labelKey: 'prog.restarting', pct: 0 });
         } else {
           send({ status: 'error', error: 'could not save translation restart state' });
         }
@@ -525,15 +545,24 @@ export async function pollTranslation(galleryId, send = () => {}) {
 
     const terminal = summary || errMsg || meta.status === 'done' || meta.status === 'error' || meta.status === 'cancelled';
     if (!terminal) {
-      if (await ownsToken()) send({ status: 'progress', done, total, label: _galleryLabel(meta), pct: _galleryPct(meta) });
+      if (await ownsToken()) {
+        const lbl = _galleryLabelKey(meta);
+        send({ status: 'progress', done, total, labelKey: lbl.key, labelArgs: lbl.args, pct: _galleryPct(meta) });
+      }
       return;
     }
 
-    // Terminal — finalize once and stop polling this gallery.
-    if (!await translateResume.remove(gid, token)) return;
-    const entry = _controllers.get(gid);
-    if (!entry || entry.jobToken === token) _controllers.delete(gid);
+    // Terminal — finalize once and stop polling this gallery. Cancel/error still remove the
+    // durable row first (there is nothing to finalize); the success path writes the gallery
+    // meta BEFORE removing the row, so a kill in that gap self-heals on the next poll (the
+    // idempotent meta write simply runs again) instead of silently losing the finalization.
+    const _dropController = () => {
+      const entry = _controllers.get(gid);
+      if (!entry || entry.jobToken === token) _controllers.delete(gid);
+    };
     if (meta.status === 'cancelled' && !summary) {
+      if (!await translateResume.remove(gid, token)) return;
+      _dropController();
       // Server-side cancel (liveness reaper, or a cancel issued from another context). Clearing
       // the resume token above is what stops the polling — without it the job would sit in
       // 'cancelled' until eviction and then restart from scratch via the notfound path. Already
@@ -542,10 +571,23 @@ export async function pollTranslation(galleryId, send = () => {}) {
       send({ status: 'cancelled' });
       return;
     }
-    if (errMsg && done <= startDone) { send({ status: 'error', error: errMsg }); return; }
+    if (errMsg && done <= startDone) {
+      if (!await translateResume.remove(gid, token)) return;
+      _dropController();
+      send({ status: 'error', error: errMsg });
+      return;
+    }
     const failed = (summary && Array.isArray(summary.failed)) ? summary.failed.length : Math.max(0, total - done);
+    if (!await ownsToken()) return;
     const gMeta = await metaGet(gid);
-    if (gMeta && (!gMeta.translated || gMeta.translatedLang !== langCode)) await metaPut({ ...gMeta, translated: true, translatedLang: langCode });
+    // Gallery status reflects the pages: only complete output is marked translated; partial
+    // output is durably 'partial' — never labeled complete.
+    const translatedStatus = failed > 0 ? 'partial' : true;
+    if (gMeta && (gMeta.translated !== translatedStatus || gMeta.translatedLang !== langCode)) {
+      await metaPut({ ...gMeta, translated: translatedStatus, translatedLang: langCode });
+    }
+    if (!await translateResume.remove(gid, token)) return;
+    _dropController();
     let costNote = '';
     if (translator === 'gemini') {
       const n = pendingUrls.length, batches = Math.ceil(n / (cap || 8));

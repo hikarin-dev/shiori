@@ -1,12 +1,14 @@
-// api.js — the resource-oriented contract the UI/store code calls. Dispatches in-process to
-// the IndexedDB backend today; a different storage backend (HTTP/NAS, Electron file serving)
-// registers here later WITHOUT any caller changing. This is the seam a future backend slots into.
+// api.js — the resource-oriented view store.js reads the library through: entity-shaped
+// gallery/page accessors plus the change-feed subscription, named for what they mean rather
+// than how they are stored.
+//
+// It is NOT a swappable-backend abstraction — it forwards to db.js, which is the app's one
+// data layer (every store name and index lives there, and nothing outside it opens a
+// transaction). Page modules import db.js directly; this module exists for the reactive store,
+// not as a layer everything must route through.
 
-import * as idb from './db.js';
+import * as backend from './db.js';
 import * as platform from './platform.js';
-
-// The active storage backend.
-const backend = idb;
 
 // ── Galleries / metadata ──
 export const galleries = {

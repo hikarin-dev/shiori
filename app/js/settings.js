@@ -3,6 +3,7 @@
 import './boot.js';
 import { clearAll } from './db.js';
 import * as platform from './platform.js';
+import { cancelJob } from './submit-job.js';
 import { pingServer, serverUrlFromSettings } from './translate.js';
 import { exportMetadata, exportFull, importBackup } from './backup.js';
 import { t, getLang, setLang, SUPPORTED, LANG_NAMES } from './i18n.js';
@@ -164,13 +165,51 @@ platform.kv.get(['translateSettings']).then((r) => {
   loadTranslateSettings(r.translateSettings || {});
 });
 
-// ── Clear all cache ────────────────────────────────────────────────────────
+// ── Reset (two tiers) ──────────────────────────────────────────────────────
+// Clear Library removes committed library content, durable job state and staged import files
+// while keeping preferences; Factory Reset additionally clears every shiori-owned storage key
+// (settings, credentials, repair flags). Both cancel running work first so nothing can
+// repopulate the stores, and broadcast one reset so every other context drops its caches.
+
+async function performReset(factory) {
+  try {
+    for (const rec of await platform.translateResume.all()) {
+      cancelJob('translate', { galleryId: rec.gid, token: rec.token, serverUrl: rec.serverUrl, settings: rec.settings });
+    }
+  } catch {}
+  await platform.clearJobsData();
+  await clearAll();
+  try {
+    const root = await navigator.storage.getDirectory();
+    for await (const name of root.keys()) {
+      if (/^cbz-.*\.bin$/.test(name)) await root.removeEntry(name).catch(() => {});
+    }
+  } catch {}
+  if (factory) {
+    for (const storage of [localStorage, sessionStorage]) {
+      try {
+        for (const key of Object.keys(storage)) {
+          if (/^(shiori[:-]|_shiori)/.test(key)) storage.removeItem(key);
+        }
+      } catch {}
+    }
+  }
+  platform.control.send({ type: 'LIBRARY_RESET', context: platform.contextId, factory: !!factory });
+}
 
 document.getElementById('clearAllBtn').addEventListener('click', async () => {
-  if (!confirm('Clear ALL cached galleries and images?\n\nThis cannot be undone.')) return;
-  if (!confirm('Second confirmation: permanently delete everything?')) return;
-  await clearAll();
-  showStatus('clearAllStatus', 'Cache cleared.', 'ok');
+  if (!confirm(t('set.clear_confirm1'))) return;
+  if (!confirm(t('set.clear_confirm2'))) return;
+  await performReset(false);
+  showStatus('clearAllStatus', t('set.clear_done'), 'ok');
+});
+
+document.getElementById('factoryResetBtn').addEventListener('click', async () => {
+  if (!confirm(t('set.factory_confirm1'))) return;
+  if (!confirm(t('set.factory_confirm2'))) return;
+  await performReset(true);
+  showStatus('clearAllStatus', t('set.factory_done'), 'ok');
+  setTimeout(() => location.reload(), 1200);   // re-initialize this page with defaults
 });
 
 // ── Translation server status ───────────────────────────────────────────────

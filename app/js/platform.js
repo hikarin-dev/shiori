@@ -6,6 +6,11 @@
 // agent — publishes and subscribes through these primitives, which is what makes job progress
 // and library changes live everywhere at once.
 
+// Stable id for THIS JavaScript context (page / worker / agent) — lets a broadcast receiver
+// tell its own echoes apart from other contexts' messages (e.g. the library-reset reload).
+export const contextId = globalThis.crypto?.randomUUID?.()
+  || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 // ── Change feed ──────────────────────────────────────────────────────────────────────────
 // One beacon `{ gid, context, n, at }` per gallery mutation, delivered to every same-origin context so
 // each surface re-reads just the gallery that changed (see store.js).
@@ -83,13 +88,18 @@ export const jobs = {
   signal(event) { _jobsHub.publish(event); },
   async publish(job) {
     job = { ...job, at: Date.now() };
-    const key = _jobKey(job), done = job.status === 'done' || job.status === 'error' || job.status === 'cancelled';
+    const key = _jobKey(job);
     try {
       const db = await _jobsDb();
       await new Promise((res) => {
         const t = db.transaction('jobs', 'readwrite');
         const s = t.objectStore('jobs');
-        if (done) s.delete(key); else s.put({ key, ...job });
+        // Success rows vanish at publish; error/cancelled rows are RETAINED (seen:false) so a
+        // failure produced with no live listener is still visible on the next open — the UI
+        // acknowledges (clears) them after painting, and the 24h purge reaps stragglers.
+        if (job.status === 'done') s.delete(key);
+        else if (job.status === 'error' || job.status === 'cancelled') s.put({ key, ...job, seen: false });
+        else s.put({ key, ...job });
         t.oncomplete = res; t.onerror = res;
       });
     } catch {}
@@ -124,6 +134,19 @@ export const jobs = {
     } catch { return []; }
   },
 };
+
+// Wipe every durable job row (registry, resume list, reattach records) — the reset path.
+// Without this, "clear everything" left job state behind that could repopulate the library.
+export async function clearJobsData() {
+  try {
+    const db = await _jobsDb();
+    await new Promise((res) => {
+      const t = db.transaction(['jobs', 'pending', 'resume'], 'readwrite');
+      for (const s of ['jobs', 'pending', 'resume']) t.objectStore(s).clear();
+      t.oncomplete = res; t.onerror = res;
+    });
+  } catch {}
+}
 
 // SW resume list: jobs the service worker accepted, kept until they finish so an evicted worker
 // can pick them up again on its next wake.

@@ -1,0 +1,11 @@
+{
+  "name": "shiori",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test app/tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5"
+  }
+}

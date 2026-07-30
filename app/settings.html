@@ -3,8 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-hY3v5/hK8HEXGvbWdwpC9QwryUrAFnXUNYc6GOBIxBU='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' data: blob: http: https:; object-src 'none'; base-uri 'self'">
   <!-- Files live under /app/; pages are served at clean URLs. See library.html. -->
   <base href="app/">
+  <script>if (/\/app\/[^/]*$/.test(location.pathname)) document.querySelector('base').href = './';</script>
   <link rel="icon" href="../icons/icon32.png">
   <title>Shiori — Settings</title>
   <meta name="shiori-app" content="options">
@@ -18,6 +20,8 @@
   <link rel="modulepreload" href="js/platform.js">
   <link rel="modulepreload" href="js/services.js">
   <link rel="modulepreload" href="js/db.js">
+  <link rel="modulepreload" href="js/image-util.js">
+  <link rel="modulepreload" href="js/sanitize.js">
   <link rel="modulepreload" href="js/translate.js">
   <link rel="modulepreload" href="js/backup.js">
   <link rel="modulepreload" href="js/ext-bridge.js">
@@ -277,7 +281,7 @@
       <div class="toggle-row">
         <div class="toggle-info">
           <div class="toggle-name" data-i18n="set.import_backup">Import backup</div>
-          <div class="toggle-desc" data-i18n="set.import_backup_desc">Restore a <code>.shi</code> or <code>.shioridb</code> backup into this library. The format is detected automatically.</div>
+          <div class="toggle-desc" data-i18n="set.import_backup_desc">Restore a <code>.shi</code> or <code>.shioridb</code> backup into this library. The format is detected automatically. Importing merges into the existing library: records with the same id are overwritten, everything else is kept.</div>
         </div>
         <button class="btn-save" id="importBackupBtn" type="button" data-i18n="common.import">Import…</button>
         <input type="file" id="backupImportFile" accept=".shi,.shioridb,application/octet-stream,application/json" hidden>
@@ -318,6 +322,13 @@
           <div class="toggle-desc" data-i18n="set.clear_all_desc">Permanently deletes every cached gallery and image. Cannot be undone.</div>
         </div>
         <button class="btn-clear-all" id="clearAllBtn" type="button" data-i18n="set.clear_all_btn">✕ Clear All</button>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-name" data-i18n="set.factory_reset">Factory Reset</div>
+          <div class="toggle-desc" data-i18n="set.factory_reset_desc">Deletes the library, job state, staged files AND every setting — including translator credentials.</div>
+        </div>
+        <button class="btn-clear-all" id="factoryResetBtn" type="button" data-i18n="set.factory_reset_btn">✕ Factory Reset</button>
       </div>
       <div class="status-msg hidden" id="clearAllStatus" role="status" aria-live="polite"></div>
     </div>
