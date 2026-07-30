@@ -3,32 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-Ohytp44DQzfR7mBKYgI4wGRWkdFaCnv3lJ612GXhxZs='; style-src 'unsafe-inline'; img-src 'self'; object-src 'none'; base-uri 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; object-src 'none'; base-uri 'self'">
   <title>Shiori</title>
   <link rel="icon" href="icons/icon32.png">
   <style>html,body{margin:0;height:100%;background:#111;color:#888;font:14px system-ui,sans-serif;display:flex;align-items:center;justify-content:center}</style>
 </head>
 <body>
   Loading Shiori…
-  <script>
-    // The app's pages are real files under /app/, served at clean URLs by the root service worker.
-    // A hard reload bypasses the worker and a static host serves this file cold, so we register the
-    // worker and reload — that reload IS served by the worker (as the library), with the URL left
-    // clean. The retry flag (cleared by the app once it boots, in boot.js) lets this run on every
-    // hard reload, while still bailing to the plain file if the worker genuinely can't take over.
-    (async () => {
-      const RETRY = 'shiori-sw-retry';
-      if ('serviceWorker' in navigator && !sessionStorage.getItem(RETRY)) {
-        sessionStorage.setItem(RETRY, '1');
-        try {
-          await navigator.serviceWorker.register('sw.js', { type: 'module' });
-          await navigator.serviceWorker.ready;
-          location.reload();
-          return;
-        } catch {}
-      }
-      location.replace('app/library.html');   // no worker (or it didn't take over) fallback
-    })();
-  </script>
+  <script src="boot-root.js"></script>
 </body>
 </html>

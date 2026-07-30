@@ -37,7 +37,7 @@ const FLAGS = ['BR','CN','DE','ES','FR','GB','ID','IT','JP','KR','NL','PL','PT',
   .map((c) => `app/flags/${c}.svg`);
 const SHELL = [
   'app/library.html', 'app/reader.html', 'app/settings.html', 'app/agent.html', 'app/overview.html',
-  'app/manifest.webmanifest', 'app/font-init.js',
+  'app/manifest.webmanifest', 'app/font-init.js', 'boot-root.js',
   'app/library.css', 'app/reader.css', 'app/settings.css', 'app/overview.css',
   'app/fonts/ccvictoryspeech.ttf', 'app/fonts/KiwiMaru-Regular.ttf', 'app/fonts/YasashisaAntique.otf',
   'app/fonts/JetBrainsMono-Regular.woff2', 'app/fonts/JetBrainsMono-SemiBold.woff2', 'app/fonts/JetBrainsMono-Bold.woff2',

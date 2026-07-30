@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-Czm7YwPzVClJ/IdRJeXtXtDYfHgpqm2jrSXatV2M7i4='; style-src 'unsafe-inline'; object-src 'none'; base-uri 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-WgPzGCXWfCEsyaKSitMuA5Yz7Gh8I4tEsSCkPAtGncU='; style-src 'unsafe-inline'; object-src 'none'; base-uri 'self'">
   <title>Shiori</title>
   <style>html,body{margin:0;height:100%;background:#111;color:#888;font:14px system-ui,sans-serif;display:flex;align-items:center;justify-content:center}</style>
 </head>
@@ -28,7 +28,12 @@
       sessionStorage.setItem(RETRY, '1');
       try {
         await navigator.serviceWorker.register(root + 'sw.js', { type: 'module' });
-        await navigator.serviceWorker.ready;
+        // Bounded: a worker whose install fails never reaches "ready", and an unbounded await
+        // would strand this page instead of falling through to the real file below.
+        await Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('sw timeout')), 8000)),
+        ]);
         location.reload();
         return;
       } catch {}

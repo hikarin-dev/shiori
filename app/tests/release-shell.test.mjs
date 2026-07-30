@@ -37,7 +37,7 @@ const packaged = (rel) =>
   (!roots || roots.some((r) => rel === r || rel.startsWith(r + '/'))) && existsSync(join(repo, rel));
 
 test('release archive carries the runtime root files', { skip: hasReleaseScript ? false : 'release script not in this tree' }, () => {
-  for (const required of ['index.html', '404.html', 'sw.js', 'CHANGELOG.md']) {
+  for (const required of ['index.html', '404.html', 'sw.js', 'boot-root.js', 'CHANGELOG.md']) {
     assert.ok(packaged(required), `${required} is missing from the release archive list`);
   }
 });

@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.7 — 2026-07-30
+
+### Fixed
+
+- Opening the hosted app for the first time, or after a hard refresh, could hang on the "Loading Shiori…" screen instead of reaching your library.
+
 ## v1.0.6 — 2026-07-30
 
 ### Added

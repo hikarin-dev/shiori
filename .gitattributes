@@ -1,0 +1,6 @@
+# The pages' CSP pins inline scripts by sha256 of their exact bytes. A CRLF working tree would
+# hash differently from the LF a static host serves, and the browser would block the script — so
+# these files check out with LF everywhere, matching what is deployed.
+*.html text eol=lf
+*.js   text eol=lf
+*.css  text eol=lf
