@@ -11,7 +11,7 @@ import {
   deleteGallery, metaGet, metaPut,
 } from './db.js';
 import { resolveSeries } from './series.js';
-import { pingServer, revertGallery, serverUrlFromSettings } from './translate.js';
+import { pingServer, revertGallery, serverUrlFromSettings, hasConfiguredServer } from './translate.js';
 import { request as extRequest } from './ext-bridge.js';
 import { submitJob, cancelJob } from './submit-job.js';
 
@@ -203,8 +203,11 @@ export const services = {
 
       case 'TRANSLATOR_PING': {
         const { translateSettings } = await platform.kv.get(['translateSettings']);
+        // Background status polling only — never touch the network for a server the user has
+        // not configured (see hasConfiguredServer). Unconfigured simply reads as offline.
+        if (!hasConfiguredServer(translateSettings)) return { online: false, serverUrl: '', configured: false };
         const serverUrl = serverUrlFromSettings(translateSettings);
-        return { online: await pingServer(serverUrl, translateSettings), serverUrl };
+        return { online: await pingServer(serverUrl, translateSettings), serverUrl, configured: true };
       }
 
       default: return null;

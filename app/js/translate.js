@@ -46,6 +46,15 @@ export function serverUrlFromSettings(ts) {
   return ((ts || {}).serverUrl || 'http://127.0.0.1:5003').replace(/\/+$/, '');
 }
 
+// Has the user actually pointed Shiori at a translation server? Until they have, nothing may
+// contact the default address on its own: reaching 127.0.0.1 from a hosted page makes the
+// browser ask for local-network access, and a first-time visitor should never face that prompt
+// for a feature they haven't set up. Explicit actions (Check, Save, translating) still use the
+// default — there the request is something the user just asked for.
+export function hasConfiguredServer(ts) {
+  return typeof ts?.serverUrl === 'string' && ts.serverUrl.trim() !== '';
+}
+
 // Cheap stable hash of the server config — stored per page as translation provenance, so a
 // config change makes those pages pending again instead of silently keeping old output.
 function _configHash(config) {

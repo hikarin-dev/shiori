@@ -4,7 +4,7 @@ import './boot.js';
 import { clearAll } from './db.js';
 import * as platform from './platform.js';
 import { cancelJob } from './submit-job.js';
-import { pingServer, serverUrlFromSettings } from './translate.js';
+import { pingServer, serverUrlFromSettings, hasConfiguredServer } from './translate.js';
 import { exportMetadata, exportFull, importBackup } from './backup.js';
 import { t, getLang, setLang, SUPPORTED, LANG_NAMES } from './i18n.js';
 import { formatBytes, formatCount } from './format.js';
@@ -223,14 +223,19 @@ function setTranslatorBadge(state) {
   else { b.className = 'key-status-badge unset'; b.textContent = t('set.tr_offline'); }
 }
 
-async function checkTranslatorStatus(settings = null) {
-  setTranslatorBadge('checking');
+// `auto` marks a status refresh nobody asked for (page load). Those must not contact the default
+// local address before the user has configured a server — the browser would prompt for
+// local-network access on a first visit. Pressing Check, or saving, is an explicit request and
+// always pings.
+async function checkTranslatorStatus(settings = null, { auto = false } = {}) {
   const translateSettings = settings || (await platform.kv.get(['translateSettings'])).translateSettings;
+  if (auto && !hasConfiguredServer(translateSettings)) { setTranslatorBadge('offline'); return; }
+  setTranslatorBadge('checking');
   setTranslatorBadge((await pingServer(serverUrlFromSettings(translateSettings), translateSettings)) ? 'online' : 'offline');
 }
 
 document.getElementById('checkTranslateBtn').addEventListener('click', () => checkTranslatorStatus(gatherTranslateSettings()));
-checkTranslatorStatus();
+checkTranslatorStatus(null, { auto: true });
 
 // ── Translation settings (inline server + full config modal) ────────────────
 
