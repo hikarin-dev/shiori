@@ -344,6 +344,15 @@ export function _sourceTextLang(meta) {
   return '';
 }
 
+// Source metadata doesn't always carry a language tag. Kana in the OCR'd text — or a ruby
+// reading, which is kana by definition — is unambiguous evidence of Japanese, so fall back to
+// what the page itself says.
+export function _sniffSourceLang(bubbles) {
+  const kana = /[\p{Script=Hiragana}\p{Script=Katakana}]/u;
+  for (const b of bubbles) if (b.furi || kana.test(b.src || '')) return 'ja';
+  return '';
+}
+
 // Keep a layer's DOM text sized in page pixels × --pgscale (wrap width ÷ page width), so it
 // tracks zoom/resize exactly like the image layers do.
 export function _syncLayerScale(layer, wrap, pageW) {

@@ -15,7 +15,7 @@ import {
   setStudyPrefs, studyPrefs, studyFor, loadStudyRecords, _ensureWrap, _removeBubbleLayers,
   _removeWrapBubbleLayer, _layerUrls, _clipInset, _buildStudyText, _buildStudySrc,
   _studySourceRect, _studyTranslationRect, _positionBubbleIndicator, _wireSelectableText,
-  _setStudyTextSelectable, _sourceTextLang, _syncLayerScale,
+  _setStudyTextSelectable, _sourceTextLang, _sniffSourceLang, _syncLayerScale,
 } from './reader-study.js';
 import { resizeToWidth } from './image-util.js';
 
@@ -2278,8 +2278,8 @@ function _toggleBubble(e, box, b, idx, pageUrl, bgLayer, fgLayer) {
   }
 }
 
-// Set the source language when metadata identifies Japanese or Chinese so the browser chooses
-// the appropriate Han glyph forms. Furigana remains Japanese-only.
+// Set the source language when metadata or the OCR'd text identifies Japanese or Chinese so the
+// browser chooses the appropriate Han glyph forms. Furigana remains Japanese-only.
 function _renderTranslateTextLayer(wrap, page) {
   const study = studyFor(page.url);
   if (!study || !study.bg) return;
@@ -2331,7 +2331,7 @@ function _renderBubbleLayer(wrap, pageNum) {
   // Original-as-text mounts every bubble open on its original text; original-as-image keeps
   // the untouched page and the click-to-reveal flow.
   const origText = studyPrefs().original === 'text';
-  const srcLang = origText ? _sourceTextLang(_chapters[_chapterAt(pageNum)]?.meta) : '';
+  const srcLang = origText ? (_sourceTextLang(_chapters[_chapterAt(pageNum)]?.meta) || _sniffSourceLang(study.bubbles)) : '';
   const srcOpts = { lang: srcLang, furi: studyPrefs().furigana && srcLang === 'ja' };
   // When both sides are selectable text, the cleaned Study image is the page background. One
   // full-page layer is both cheaper and more accurate than stacking one clipped copy per bubble.
