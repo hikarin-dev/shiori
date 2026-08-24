@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.0.7 — 2026-08-24
+
+### Added
+
+- Settings has a new Extension section offering the browser extension for download whenever one isn't connected. It steps aside on its own once the extension is installed and takes the section over.
+
+### Fixed
+
+- Furigana now appears on galleries whose source never labelled a language. The readings had been captured during translation all along, but were only ever shown when the gallery carried a Japanese language tag — so galleries without one silently lost them.
+- Reader: holding the mouse button and scrolling now turns exactly one page per click of the wheel. At higher browser zoom or display scaling it took two clicks to move a single page, because one click of the wheel covers less distance the further in you are zoomed.
+- Reader: holding the mouse button and scrolling now also works with the pointer near the very top of the page. The invisible strip that slides the header back into view was swallowing the gesture, so it did nothing at all in that band.
+
 ## v1.0.6 — 2026-07-30
 
 ### Added
