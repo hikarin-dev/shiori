@@ -1910,7 +1910,8 @@ function _scrollStripToCurrent() {
 }
 
 // ── Events ──
-const CLICK_WHEEL_NAV_THRESHOLD = 60;
+const CLICK_WHEEL_NAV_THRESHOLD = 60;   // fine-grained input: how far to travel for one page
+const CLICK_WHEEL_NAV_NOTCH_MIN = 30;   // smallest event still read as one whole wheel detent
 let _clickWheelNavHeld = false;
 let _clickWheelNavUsed = false;
 let _clickWheelNavDelta = 0;
@@ -1926,6 +1927,21 @@ function _endClickWheelNav() {
     clearTimeout(_clickWheelNavClearTimer);
     _clickWheelNavClearTimer = setTimeout(() => { _clickWheelNavUsed = false; }, 0);
   }
+}
+
+// How far the wheel has to travel for one page. Two things vary underfoot: a wheel reports its
+// deltas in CSS pixels, so the same physical detent shrinks as the page is zoomed in, and how
+// many pixels one detent is worth at all comes from the system's scroll settings. Measuring the
+// bounds against the zoom factor keeps them describing a fixed physical distance, and letting a
+// detent-sized event stand as a whole step keeps one detent worth exactly one page whatever it
+// reports. Finer input — a trackpad streaming many small deltas — still has to cover the full
+// travel. (The legacy wheelDelta is no help: browsers derive it from deltaY and rescale it the
+// same way, so it carries nothing extra.)
+function _clickWheelNavStep(delta) {
+  const zoom = window.devicePixelRatio || 1;
+  const threshold = CLICK_WHEEL_NAV_THRESHOLD / zoom;
+  const notch = Math.abs(delta);
+  return notch >= CLICK_WHEEL_NAV_NOTCH_MIN / zoom ? Math.min(notch, threshold) : threshold;
 }
 
 function _eventDominantWheelDelta(e) {
@@ -2002,7 +2018,7 @@ function _isClickWheelNavTarget(target) {
   return !target.closest('button, a, input, textarea, select, [contenteditable]');
 }
 
-viewport.addEventListener('pointerdown', (e) => {
+function _armClickWheelNav(e) {
   if (e.button !== 0 || !e.isPrimary) return;
   if (!_isClickWheelNavTarget(e.target)) return;
   clearTimeout(_clickWheelNavClearTimer);
@@ -2011,7 +2027,13 @@ viewport.addEventListener('pointerdown', (e) => {
   _clickWheelNavDelta = 0;
   _clickWheelNavSteps = 0;
   _clickWheelNavPage = mode === 'strip' ? currentPage : null;
-}, true);
+}
+
+viewport.addEventListener('pointerdown', _armClickWheelNav, true);
+// The unpinned header's hover strip is an invisible overlay lying across the top of the page,
+// not something the reader can act on — without it the gesture would silently do nothing
+// whenever the press happened to land in that band.
+topbarReveal.addEventListener('pointerdown', _armClickWheelNav, true);
 
 viewport.addEventListener('click', (e) => {
   if (!_clickWheelNavUsed) return;
@@ -2028,7 +2050,7 @@ window.addEventListener('wheel', (e) => {
   e.stopImmediatePropagation();
   _clickWheelNavUsed = true;
   _clickWheelNavDelta += delta;
-  if (Math.abs(_clickWheelNavDelta) < CLICK_WHEEL_NAV_THRESHOLD) return;
+  if (Math.abs(_clickWheelNavDelta) < _clickWheelNavStep(delta)) return;
   const dir = _clickWheelNavDelta > 0 ? 1 : -1;
   _clickWheelNavDelta = 0;
   _clickWheelPageNav(dir);
