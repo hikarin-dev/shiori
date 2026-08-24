@@ -6,7 +6,7 @@ import * as platform from './platform.js';
 import { cancelJob } from './submit-job.js';
 import { pingServer, serverUrlFromSettings, hasConfiguredServer } from './translate.js';
 import { exportMetadata, exportFull, importBackup } from './backup.js';
-import { t, getLang, setLang, SUPPORTED, LANG_NAMES } from './i18n.js';
+import { t, applyTranslations, getLang, setLang, SUPPORTED, LANG_NAMES } from './i18n.js';
 import { formatBytes, formatCount } from './format.js';
 
 // ── Side nav ────────────────────────────────────────────────────────────────
@@ -46,6 +46,57 @@ import { formatBytes, formatCount } from './format.js';
     syncOptionalPanel();
   }
   show(nav.querySelector('.nav-item.active:not([hidden])')?.dataset.panel || 'panelLibrary');
+})();
+
+// ── Companion download ────────────────────────────────────────────
+// The optional panel carries the download from the first paint, so the nav item is there without
+// waiting on anything. If the panel is populated independently it is handed over outright — the
+// card goes and the label is released, leaving whatever arrived in sole possession. One-way by
+// design: the app never asks what is out there, it only notices that the panel stopped being its
+// own. Restores itself if the panel is ever emptied again.
+const COMPANION_ZIP_URL = 'https://github.com/hikarin-dev/shiori/releases/latest/download/extension.zip';
+
+(function initCompanionPanel() {
+  const panel = document.getElementById('panelExtension');
+  const navItem = document.getElementById('navExtension');
+  if (!panel || !navItem) return;
+
+  const section = document.createElement('div');
+  section.className = 'section';
+  section.innerHTML = `
+      <div class="section-header">
+        <h2 class="section-title" data-i18n="set.nav_extension"></h2>
+      </div>
+      <div class="section-body">
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <div class="toggle-name" data-i18n="set.ext_download"></div>
+            <div class="toggle-desc" data-i18n="set.ext_download_desc"></div>
+          </div>
+          <a class="btn-save" href="${COMPANION_ZIP_URL}" target="_blank" rel="noopener"
+             data-i18n="set.ext_download_btn"></a>
+        </div>
+      </div>`;
+
+  const mount = () => {
+    if (panel.children.length) return;   // the panel already belongs to someone else
+    navItem.dataset.i18n = 'set.nav_extension';
+    panel.appendChild(section);          // the nav observer reveals the item once this lands
+    applyTranslations(navItem.parentElement);
+    applyTranslations(section);
+  };
+
+  const handOver = () => {
+    section.remove();
+    delete navItem.dataset.i18n;         // stop competing over the label on the next re-translate
+  };
+
+  new MutationObserver(() => {
+    if ([...panel.children].some((child) => child !== section)) handOver();
+    else mount();
+  }).observe(panel, { childList: true });
+
+  mount();
 })();
 
 // ── Segmented choices ─────────────────────────────────────────────────────

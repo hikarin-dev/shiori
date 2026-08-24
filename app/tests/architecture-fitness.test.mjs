@@ -49,7 +49,9 @@ test('no third-party acquisition URLs are constructed in the app', () => {
       // The user-configured translation server default is local and explicitly user-owned.
       .filter((u) => !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(u))
       // Namespace/spec URLs are not network acquisition (SVG xmlns and friends).
-      .filter((u) => !/w3\.org|schema\.org/.test(u));
+      .filter((u) => !/w3\.org|schema\.org/.test(u))
+      // This project's own release downloads are its own artifacts, not a content source.
+      .filter((u) => !/^https:\/\/github\.com\/hikarin-dev\/shiori\//.test(u));
     if (hits.length) offenders.push(`app/js/${f}: ${hits.join(', ')}`);
   }
   assert.deepEqual(offenders, [], 'the app must not know where external content comes from');
