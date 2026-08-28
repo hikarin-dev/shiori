@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.0.8 — 2026-08-29
+
+### Fixed
+
+- Updates now take effect straight away. The offline copy of the app was tied to the version number shown in Settings → About, so anything shipped between releases could leave a browser running a mix of old and new code until the next version bump.
+- Series covers no longer get replaced by a chapter's cover. When a card turned into a series while its cover was still being prepared, the older request could finish last and overwrite the series cover with the wrong image. Both covers are now kept apart and a late one is discarded.
+- Series with very long chapter lists are no longer rejected. Anything past 500 chapters failed to save at all, so the longest-running series never made it into the library.
+
 ## v1.0.7 — 2026-08-24
 
 ### Added
