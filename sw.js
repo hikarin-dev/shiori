@@ -13,22 +13,19 @@ import { RUNNERS, cancelJobRun, runPoll } from './app/js/jobs-runner.js';
 // The scope root: http://localhost:5500/ locally, https://…/shiori/ on GitHub Pages.
 const ROOT = new URL('./', self.location.href);
 
-// Cache names are deployment-root-scoped (Cache Storage is origin-wide — a sibling project on
-// this origin must keep its caches) and versioned from the app's own manifest, so releases no
-// longer need a hand-bumped constant. Contents also self-refresh via stale-while-revalidate,
-// so the version only drives cleanup boundaries.
+// Cache names are deployment-root-scoped (Cache Storage is origin-wide, so a sibling project on
+// this origin must keep its caches). The shell revision is deliberately independent from the
+// user-facing app version: precached code can change outside a release, and changing this value
+// makes the browser install every BOOT asset into a fresh cache.
 const CACHE_PREFIX = `shiori${ROOT.pathname.replace(/\//g, '_')}`;
-let _cacheName = null;
-async function cacheName() {
-  if (_cacheName) return _cacheName;
-  try {
-    const m = await (await fetch(new URL('app/manifest.webmanifest', ROOT).href, { cache: 'no-store' })).json();
-    if (m && m.version) return (_cacheName = `${CACHE_PREFIX}-shell-v${m.version}`);
-  } catch {}
-  // Manifest unreachable (offline activate): reuse the newest existing shell cache instead of
-  // minting a bogus name that would orphan the good one.
-  const existing = (await caches.keys()).filter((k) => k.startsWith(`${CACHE_PREFIX}-shell-v`));
-  return (_cacheName = existing[existing.length - 1] || `${CACHE_PREFIX}-shell-v0`);
+const SHELL_CACHE_REVISION = 45;
+const CACHE_NAME = `${CACHE_PREFIX}-shell-v${SHELL_CACHE_REVISION}`;
+function cacheName() {
+  return CACHE_NAME;
+}
+function isStaleShellCache(key, current) {
+  return (key.startsWith(`${CACHE_PREFIX}-shell-v`) && key !== current)
+    || /^shiori-shell-v\d+$/.test(key);
 }
 // Clean navigation path (relative to the root) → which app page serves it.
 const PAGES = { '': 'library', 'library': 'library', 'settings': 'settings', 'reader': 'reader', 'overview': 'overview' };
@@ -94,7 +91,7 @@ self.addEventListener('activate', (e) => {
     // Delete only OUR prefix (never a sibling app's caches), plus the app's own historical
     // unprefixed name from before cache names were root-scoped.
     await Promise.all(keys
-      .filter((k) => (k.startsWith(`${CACHE_PREFIX}-shell-v`) && k !== current) || /^shiori-shell-v\d+$/.test(k))
+      .filter((k) => isStaleShellCache(k, current))
       .map((k) => caches.delete(k)));
     await self.clients.claim();
     await resumePending();   // keep replayed jobs inside activate.waitUntil
