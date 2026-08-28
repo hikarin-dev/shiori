@@ -104,6 +104,7 @@ function getCover(msg) {
       const ready = {
         type: 'COVER_READY', galleryId: msg.galleryId,
         coverDataUrl: result.coverDataUrl, page: requester.page,
+        preferSeries: !!requester.preferSeries,
       };
       if (requester.requester != null) ready.requester = requester.requester;
       if (requester.requestId != null) ready.requestId = requester.requestId;

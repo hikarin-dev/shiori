@@ -179,7 +179,17 @@ function _getCoverThumbWidth() {
   return TIERS.find(t => t >= raw) ?? TIERS[TIERS.length - 1];
 }
 let _thumbWidth = _getCoverThumbWidth();
-const _coverCache = new Map(); // galleryId → resized cover data URL
+const _coverCache = new Map(); // galleryId + requested role → resized cover data URL
+
+function coverCacheKey(galleryId, preferSeries) {
+  return `${String(galleryId)}:${preferSeries ? 'series' : 'gallery'}`;
+}
+function coverCacheGalleryId(key) {
+  return String(key).replace(/:(?:series|gallery)$/, '');
+}
+function coverRequestMatchesEntry(msg, entry, mergeSeries) {
+  return !!msg.preferSeries === !!(mergeSeries && entry?.isSeries);
+}
 
 // Growing the window past the tier the covers were rendered at would leave them blurry —
 // bump the tier and re-request. (Shrinking keeps the sharper covers; nothing to do.)
@@ -201,8 +211,13 @@ window.addEventListener('resize', () => {
 try {
   const raw = sessionStorage.getItem('shiori-covers');
   if (raw) {
-    for (const [id, dataUrl] of Object.entries(JSON.parse(raw))) {
-      _coverCache.set(id, dataUrl);
+    for (const [storedKey, dataUrl] of Object.entries(JSON.parse(raw))) {
+      // Pre-role cache entries were gallery fallbacks. Keep them visible while the matching
+      // role is refreshed, but never let them satisfy a series-cover request.
+      const key = /:(?:series|gallery)$/.test(storedKey)
+        ? storedKey
+        : coverCacheKey(storedKey, false);
+      _coverCache.set(key, dataUrl);
       const _img = new Image(); _img.src = dataUrl; // prime decode cache
     }
   }
@@ -214,7 +229,8 @@ function _scheduleCoverCacheSave() {
   _coverCacheSaveTimer = setTimeout(() => {
     try {
       const pageIds = new Set(_pageItems.map(g => g.id));
-      const toSave  = Object.fromEntries([..._coverCache].filter(([id]) => pageIds.has(id)));
+      const toSave = Object.fromEntries([..._coverCache]
+        .filter(([key]) => pageIds.has(coverCacheGalleryId(key))));
       sessionStorage.setItem('shiori-covers', JSON.stringify(toSave));
     } catch {}
   }, 800);
@@ -346,7 +362,7 @@ function buildCard(g) {
   // it is shown as its own plain chapter-1 gallery. The real g.isSeries is kept for the delete path.
   const showAsSeries = _mergeSeries && g.isSeries;
 
-  const thumbSrc = _coverCache.get(g.id) || null;
+  const thumbSrc = _coverCache.get(coverCacheKey(g.id, showAsSeries)) || null;
   const hasThumb = showAsSeries ? ((g.aggPages || g.count || 0) > 0 || !!thumbSrc) : (g.count > 0 || !!thumbSrc);
   // draggable="false" on the cover + link so grabbing the thumbnail starts the CARD's merge-drag
   // (below), not a native image/link drag — the native image drag exposes a 'Files' type that was
@@ -815,10 +831,10 @@ function renderGrid(galleries) {
 
 function fetchPageCovers(pageSlice) {
   for (const g of pageSlice) {
-    if (_coverCache.has(g.id)) continue;
     // An empty gallery's cover comes from the source site — only possible via the extension.
     // A series may hold a stored cover even when its owner chapter has no pages of its own.
     const showAsSeries = _mergeSeries && g.isSeries;
+    if (_coverCache.has(coverCacheKey(g.id, showAsSeries))) continue;
     if (g.count > 0 || (showAsSeries && (g.aggPages || 0) > 0) || (g.count === 0 && _canDownload(g))) {
       sendMsg({ type: 'GET_COVER', galleryId: g.id, source: g.source, thumbWidth: _thumbWidth, page: 'library', preferSeries: showAsSeries });
     }
@@ -829,7 +845,9 @@ function fetchPageCovers(pageSlice) {
 
 platform.onControl((msg) => {
   if (msg.type === 'COVER_INVALIDATED') {
-    _coverCache.delete(msg.galleryId);
+    _coverCache.delete(coverCacheKey(msg.galleryId, false));
+    _coverCache.delete(coverCacheKey(msg.galleryId, true));
+    _scheduleCoverCacheSave();
     const gEntry = _pageItems.find(g => g.id === msg.galleryId);
     if (gEntry) sendMsg({ type: 'GET_COVER', galleryId: msg.galleryId, source: gEntry.source, thumbWidth: _thumbWidth, page: 'library', preferSeries: _mergeSeries && !!gEntry.isSeries });
     return;
@@ -838,8 +856,13 @@ platform.onControl((msg) => {
     if (msg.page !== 'library') return;
     const gEntry = _pageItems.find(g => g.id === msg.galleryId);
     if (!gEntry) return;
+    // A chapter fallback requested before the metadata feed converted this card into a series
+    // may finish late. It must not overwrite the newer series-cover request (or vice versa).
+    if (!coverRequestMatchesEntry(msg, gEntry, _mergeSeries)) return;
     if (msg.coverDataUrl) {
-      _coverCache.set(msg.galleryId, msg.coverDataUrl);
+      const preferSeries = !!msg.preferSeries;
+      _coverCache.set(coverCacheKey(msg.galleryId, preferSeries), msg.coverDataUrl);
+      _coverCache.delete(coverCacheKey(msg.galleryId, !preferSeries));
       _scheduleCoverCacheSave();
       document.querySelectorAll(`.card[data-gallery-id="${msg.galleryId}"] .card-thumb-wrap`).forEach(wrap => {
         let img = wrap.querySelector('.card-thumb');
@@ -2245,4 +2268,3 @@ window.addEventListener('storage', (e) => {
 // Windowed load: one page from the DB (covers come from the sessionStorage cache, so the
 // grid still paints fast).
 _sourceIconsReady.finally(() => loadAll());
-
