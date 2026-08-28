@@ -113,4 +113,19 @@ test('the paired session works over its port, and kv is allowlisted', async () =
   const bad = await callOverPort(port, 'delete_gallery', { galleryId: '"><svg onload=alert(1)>' });
   assert.equal(bad.ok, false);
   assert.match(bad.error, /invalid gallery id/);
+
+  const largeRoster = Array.from({ length: 501 }, (_, i) => ({ id: String(i + 1) }));
+  largeRoster[500].id = 'invalid-child';
+  const checkedLargeRoster = await callOverPort(port, 'meta_put', {
+    meta: { galleryId: '123', chapters: largeRoster },
+  });
+  assert.equal(checkedLargeRoster.ok, false);
+  assert.match(checkedLargeRoster.error, /invalid gallery id/,
+    'a roster above the per-message batch size must still validate every chapter id');
+
+  const oversizedRoster = await callOverPort(port, 'meta_put', {
+    meta: { galleryId: '123', chapters: Array.from({ length: 2001 }, (_, i) => ({ id: String(i + 1) })) },
+  });
+  assert.equal(oversizedRoster.ok, false);
+  assert.match(oversizedRoster.error, /chapters exceeds the allowed size/);
 });

@@ -82,13 +82,14 @@ async function metaPutKeepingGrouping(meta, opts) {
 const MAX_PAGE_BYTES  = 64 * 1024 * 1024;
 const MAX_COVER_BYTES = 16 * 1024 * 1024;
 const MAX_BATCH = 500;
+const MAX_CHAPTERS = 2000;
 const _id = (v) => { const s = String(v ?? ''); if (!isValidGalleryId(s)) throw new Error('invalid gallery id'); return s; };
 const _cap = (arr, n, what) => { const a = Array.isArray(arr) ? arr : []; if (a.length > n) throw new Error(`${what} exceeds the allowed size`); return a; };
 const _bytesOk = (bytes, max) => bytes == null || ((bytes.byteLength ?? bytes.length ?? 0) <= max);
 function _checkMetaIds(meta) {
   _id(meta.galleryId);
   if (meta.parentId != null) _id(meta.parentId);
-  if (Array.isArray(meta.chapters)) for (const c of _cap(meta.chapters, MAX_BATCH, 'chapters')) _id(c?.id);
+  if (Array.isArray(meta.chapters)) for (const c of _cap(meta.chapters, MAX_CHAPTERS, 'chapters')) _id(c?.id);
 }
 
 // The kv surface the companion actually needs — never arbitrary keys, never values that carry
