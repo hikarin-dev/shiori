@@ -15,6 +15,7 @@ import { initTooltips, refreshTooltip } from './tooltip.js';
 import { formatBytes, formatCount } from './format.js';
 import { escHtml } from './sanitize.js';
 import { resizeToWidth } from './image-util.js';
+import { openRerunMenu } from './rerun-menu.js';
 
 // Tag chips styled exactly like the library card (library.css .card-tags / .card-tag), grouped
 // artist → tag → female → male. Shown expanded (no collapse) under a chapter's page count.
@@ -63,6 +64,8 @@ const $ = (id) => document.getElementById(id);
 const esc = escHtml;
 const readerHref = (gid) => `../reader?g=${encodeURIComponent(String(gid))}`;
 const sendMsg = (msg) => platform.rpc(msg);
+// A translated chapter's translate button also offers "Re-run from…" on right-click.
+const _translatedTip = () => `${t('card.tip_translate_new')} · ${t('card.tip_rerun')}`;
 const ICON = {
   open:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>',
   up:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>',
@@ -629,7 +632,7 @@ async function chapterRow(ch, idx, total) {
   const dlTitle = e?.numPages ? t('card.tip_dl', { n: formatCount(e.numPages) }) : t('card.tip_dl_meta');
   const dlInner = `<span class="ch-dl-inner">${canDownload ? ICON.download : ICON.upload}</span>`;
   const downloadAction = e ? `<button class="ch-ibtn download" data-download data-tip="${esc(canDownload ? dlTitle : t('card.tip_replace'))}"${canDownload ? ` data-tip-shift="${esc(t('card.tip_replace'))}"` : ''}${busyDownload ? ' disabled' : ''}>${dlInner}</button>` : '';
-  const translateTip = busyTranslate ? t('card.tip_cancel') : (e?.translated ? t('card.tip_translate_new') : t('card.tip_translate'));
+  const translateTip = busyTranslate ? t('card.tip_cancel') : (e?.translated ? _translatedTip() : t('card.tip_translate'));
   const translateAction = e ? `<button class="ch-ibtn translate${e.translated ? ' done' : ''}${busyTranslate ? ' cancelling' : ''}" data-translate data-tip="${esc(translateTip)}"${e.translated && !busyTranslate ? ` data-tip-shift="${esc(t('card.tip_revert'))}"` : ''}><span class="ch-tr-inner">${busyTranslate ? ICON.stop : ICON.translate}</span></button>` : '';
   const actions = `
     <div class="ch-actions">
@@ -692,6 +695,7 @@ async function chapterRow(ch, idx, total) {
     translate.addEventListener('mouseenter', () => { _hoveredTrBtn = translate; if (translate.dataset.tipShift != null && _shiftHeld && !translate.disabled) _trFlip.to(translate, ICON.revert); });
     translate.addEventListener('mouseleave', () => { if (translate.dataset.tipShift != null && _shiftHeld) _trFlip.to(translate, ICON.translate); _hoveredTrBtn = null; });
     translate.addEventListener('click', (ev) => translateChapter(ch, e, ev));
+    translate.addEventListener('contextmenu', (ev) => rerunChapter(ch, e, ev));
   }
   if (detach) detach.addEventListener('click', () => detachChapter(ch));
   if (remove) {
@@ -762,7 +766,7 @@ function setTranslateButtonBusy(btn, busy) {
     btn.classList.remove('cancelling');
     btn.disabled = false;
     if (btn._tipShiftStash != null) { btn.dataset.tipShift = btn._tipShiftStash; delete btn._tipShiftStash; }
-    btn.dataset.tip = btn.classList.contains('done') ? t('card.tip_translate_new') : t('card.tip_translate');
+    btn.dataset.tip = btn.classList.contains('done') ? _translatedTip() : t('card.tip_translate');
     _trFlip.snap(btn, ICON.translate);
   }
   refreshTooltip();
@@ -793,6 +797,19 @@ async function translateChapter(ch, entity, ev) {
   beginChapterJob(ch.id, 'translate', t('prog.translating'));
   const resp = await sendMsg({ type: 'TRANSLATE_GALLERY', galleryId: ch.id });
   if (!resp || resp.ok === false || resp.started === false) discardChapterJob(ch.id);
+}
+
+// "Re-run from…": redo every page of a translated chapter from one stage, reusing the rest.
+function rerunChapter(ch, entity, ev) {
+  const btn = ev.currentTarget;
+  if (!entity?.translated || btn.disabled || btn.classList.contains('cancelling')) return;
+  ev.preventDefault();
+  openRerunMenu(btn, ch.id, async (point, label) => {
+    if (!confirm(t('confirm.rerun', { stage: label, id: entity.sourceId || ch.id }))) return;
+    beginChapterJob(ch.id, 'translate', t('prog.translating'));
+    const resp = await sendMsg({ type: 'TRANSLATE_GALLERY', galleryId: ch.id, forceFrom: point });
+    if (!resp || resp.ok === false || resp.started === false) discardChapterJob(ch.id);
+  });
 }
 
 function ensureReplaceInput() {

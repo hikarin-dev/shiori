@@ -77,7 +77,10 @@ export async function mergeIntoSeries(ownerId, childId, opts = {}) {
   if (childMeta.parentId) throw new Error('That gallery is already part of a series');
 
   const hadSeries = Array.isArray(ownerMeta.chapters) && ownerMeta.chapters.length > 0;
-  const chapters = hadSeries ? ownerMeta.chapters.slice() : [{ id: ownerId, title: '' }];
+  // Chapter one is titled the same way every other chapter is — from its own gallery title — so
+  // it still reads as a chapter once it is no longer the head (reorder, or absorbed into another
+  // series) and so surfaces that show the stored titles verbatim don't leave it blank.
+  const chapters = hadSeries ? ownerMeta.chapters.slice() : [{ id: ownerId, title: pickTitle(ownerMeta, 'en') || '' }];
   const present = new Set(chapters.map(c => _id(c.id)));
 
   const tagLists = [hadSeries ? _seriesTagsOf(ownerMeta) : ownerMeta.tags];

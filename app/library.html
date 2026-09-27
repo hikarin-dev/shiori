@@ -17,13 +17,16 @@
   <link rel="icon" href="../icons/icon32.png">
   <title>Shiori — Library</title>
   <script src="font-init.js"></script>
+  <link rel="stylesheet" href="dropdown.css">
   <link rel="stylesheet" href="library.css">
+  <link rel="stylesheet" href="notice.css">
   <!-- Preload the whole module graph in one parallel wave instead of a 4-level import waterfall. -->
   <link rel="modulepreload" href="js/library.js">
   <link rel="modulepreload" href="js/boot.js">
   <link rel="modulepreload" href="js/i18n.js">
   <link rel="modulepreload" href="js/locales.js">
   <link rel="modulepreload" href="js/tooltip.js">
+  <link rel="modulepreload" href="js/dropdown.js">
   <link rel="modulepreload" href="js/platform.js">
   <link rel="modulepreload" href="js/services.js">
   <link rel="modulepreload" href="js/db.js">
@@ -84,7 +87,7 @@
 </header>
 
 <div class="toolbar">
-  <select class="sort-select" id="sortSelect">
+  <select class="sort-select" id="sortSelect" data-fit-widest>
     <option value="id" data-i18n="sort.id">Most Recent</option>
     <option value="updated" data-i18n="sort.updated">Last Updated</option>
     <option value="size" data-i18n="sort.size">Largest</option>

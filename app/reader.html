@@ -10,9 +10,12 @@
   <title>Shiori — Reader</title>
   <script src="font-init.js"></script>
   <link rel="stylesheet" href="reader.css">
+  <link rel="stylesheet" href="notice.css">
   <!-- Preload the whole module graph in one parallel wave instead of a 4-level import waterfall. -->
   <link rel="modulepreload" href="js/reader.js">
   <link rel="modulepreload" href="js/reader-study.js">
+  <link rel="modulepreload" href="js/reader-properties.js">
+  <link rel="modulepreload" href="js/reader-page-menu.js">
   <link rel="modulepreload" href="js/boot.js">
   <link rel="modulepreload" href="js/i18n.js">
   <link rel="modulepreload" href="js/locales.js">
@@ -166,6 +169,9 @@
     <div class="kb-section" data-i18n="kb.interface">Interface</div>
     <div class="kb-row"><span class="kb-desc" data-i18n="rd.tip_translate">Show translation</span><div class="kb-keys"><kbd class="kb-key">T</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="rd.tip_study">Study mode</span><div class="kb-keys"><kbd class="kb-key">B</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc" data-i18n="feedback.shortcut">Report a hovered bubble or text</span><div class="kb-keys"><kbd class="kb-key">F</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc" data-i18n="page.properties">Page properties</span><div class="kb-keys"><kbd class="kb-key">I</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc" data-i18n="page.menu_hint">Page menu (translate this page…)</span><div class="kb-keys"><kbd class="kb-key" data-i18n="page.right_click">Right-click</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.toggle_thumbs">Toggle thumbnails</span><div class="kb-keys"><kbd class="kb-key">G</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.toggle_pin">Toggle pinned header</span><div class="kb-keys"><kbd class="kb-key">N</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.swipe_thumbs">Swipe thumbnails</span><div class="kb-keys"><kbd class="kb-key" data-i18n="kb.drag">Drag</kbd></div></div>

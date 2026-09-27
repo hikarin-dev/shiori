@@ -5,9 +5,18 @@ import { clearAll } from './db.js';
 import * as platform from './platform.js';
 import { cancelJob } from './submit-job.js';
 import { pingServer, serverUrlFromSettings, hasConfiguredServer } from './translate.js';
+import { getCapabilities, cachedCapabilities } from './capabilities.js';
+import { migrateTranslateSettings, settingsModel, GROUP_HEADING_KEYS } from './translate-config.js';
 import { exportMetadata, exportFull, importBackup } from './backup.js';
 import { t, applyTranslations, getLang, setLang, SUPPORTED, LANG_NAMES } from './i18n.js';
 import { formatBytes, formatCount } from './format.js';
+import { initTooltips } from './tooltip.js';
+import { initDropdowns } from './dropdown.js';
+import { initBenchmarkCard } from './benchmark-ui.js';
+
+initTooltips();
+initDropdowns();
+initBenchmarkCard();
 
 // ── Side nav ────────────────────────────────────────────────────────────────
 // Panel switching is pure show/hide, so hidden panels keep unsaved form state.
@@ -154,7 +163,7 @@ function setChoiceValue(id, value, notify = false) {
 window.addEventListener('shiori-lang-change', () => {
   document.querySelectorAll('[data-choice-for]').forEach(group => syncChoiceToggle(group.dataset.choiceFor));
   setTranslatorBadge(_lastBadge);
-  updateTranslateSummary();
+  renderTranslateSettings();
 });
 
 function showStatus(id, msg, type, durationMs = 2500) {
@@ -213,7 +222,7 @@ document.addEventListener('keydown', (event) => {
 // ── Load saved values ──────────────────────────────────────────────────────
 
 platform.kv.get(['translateSettings']).then((r) => {
-  loadTranslateSettings(r.translateSettings || {});
+  loadTranslateSettings(r.translateSettings);
 });
 
 // ── Reset (two tiers) ──────────────────────────────────────────────────────
@@ -272,6 +281,7 @@ function setTranslatorBadge(state) {
   if (state === 'checking') { b.className = 'key-status-badge unset'; b.textContent = t('set.tr_checking'); }
   else if (state === 'online') { b.className = 'key-status-badge set'; b.textContent = t('set.tr_online'); }
   else { b.className = 'key-status-badge unset'; b.textContent = t('set.tr_offline'); }
+  document.getElementById('checkTranslateBtn').setAttribute('aria-busy', String(state === 'checking'));
 }
 
 // `auto` marks a status refresh nobody asked for (page load). Those must not contact the default
@@ -285,120 +295,407 @@ async function checkTranslatorStatus(settings = null, { auto = false } = {}) {
   setTranslatorBadge((await pingServer(serverUrlFromSettings(translateSettings), translateSettings)) ? 'online' : 'offline');
 }
 
-document.getElementById('checkTranslateBtn').addEventListener('click', () => checkTranslatorStatus(gatherTranslateSettings()));
+document.getElementById('checkTranslateBtn').addEventListener('click', () => {
+  checkTranslatorStatus(gatherTranslateSettings());
+  refreshCapabilities();
+});
 checkTranslatorStatus(null, { auto: true });
 
 // ── Translation settings (inline server + full config modal) ────────────────
+// The server decides what can be chosen (GET /capabilities); this page draws its choices and
+// stores the user's picks keyed by the server's parameter names. With no server answer and no
+// cached copy there is nothing to choose from, so the controls stay away and saved picks are kept.
 
-function loadTranslateSettings(ts) {
-  const set = (id, v) => setChoiceValue(id, v);
-  document.getElementById('translateServerInput').value = ts.serverUrl || '';
-  set('translateTokenInput', ts.serverToken || '');
-  set('cfgTranslator', ts.translator === 'custom_openai' ? 'qwen2_big' : (ts.translator || 'sugoi'));
-  set('cfgTargetLang', ts.targetLang || 'ENG');
-  set('cfgDetector', ts.detector || 'default');
-  set('cfgDetectionSize', String(ts.detectionSize ?? 1536));
-  set('cfgTextThreshold', ts.textThreshold ?? 0.5);
-  set('cfgBoxThreshold', ts.boxThreshold ?? 0.7);
-  set('cfgUnclipRatio', ts.unclipRatio ?? 2.3);
-  set('cfgOcr', ts.ocr || '48px');
-  document.getElementById('cfgEstFontColor').checked = !!ts.estimateFontColor;
-  document.getElementById('cfgEstOutlineColor').checked = !!ts.estimateOutlineColor;
-  set('cfgInpainter', ts.inpainter || 'lama_large');
-  set('cfgInpaintingSize', String(ts.inpaintingSize ?? 1536));
-  set('cfgInpaintingPrecision', ts.inpaintingPrecision || 'bf16');
-  set('cfgMaskDilation', ts.maskDilationOffset ?? 30);
-  set('cfgKernelSize', ts.kernelSize ?? 5);
-  set('cfgRenderer', ts.renderer || 'manga2eng');
-  set('cfgDirection', ts.direction || 'auto');
-  set('cfgAlignment', ts.alignment || 'auto');
-  set('cfgFontSizeOffset', ts.fontSizeOffset ?? 0);
-  set('cfgFontColor', ts.fontColor || '');
-  document.getElementById('cfgUppercase').checked = !!ts.uppercase;
-  document.getElementById('cfgNoHyphenation').checked = !!ts.noHyphenation;
-  const caps = ts.batchCaps || {};
-  set('cfgCapGemini', caps.gemini ?? 8);
-  set('cfgCapChatgpt', caps.chatgpt ?? 6);
-  set('cfgPriceIn', ts.priceIn ?? 1.5);
-  set('cfgPriceOut', ts.priceOut ?? 9);
-  set('studyModeGeneration', ts.studyModeGeneration || 'disabled');
-  document.getElementById('cfgScreenEnabled').checked = !!ts.screenEnabled;
-  set('cfgScreenTranslator', ts.screenTranslator || 'qwen2_big');
-  set('cfgScreenFallback',   ts.screenFallback   || 'qwen2_big');
-  document.getElementById('cfgScreenPrompt').value = ts.screenPrompt
-    ?? 'For each numbered line below, reply with only "true" or "false" on a new numbered line. true = the text is sexually explicit or graphic; false = it is not. Err on the side of true.\n';
-  document.getElementById('cfgClearingPreset').value = matchClearingPreset();
-  updateTranslateSummary();
+let _settings = migrateTranslateSettings({});
+let _caps = null;            // capabilities document for the configured server (or null)
+let _capsOffline = false;    // true when _caps is a cached copy the server didn't just confirm
+let _capsServer = '';
+
+const DEFAULT_SCREEN_PROMPT_KEY = 'translator.content_screen_prompt';
+// App-owned presentation: which implementation choices span the full modal width, and the icon
+// drawn for each pipeline step (any stage the app doesn't know gets the scan icon).
+const WIDE_STAGES = new Set(['translate', 'ocr']);
+const SCAN_ICON = 'M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2';
+const STEP_ICONS = {
+  detect: SCAN_ICON,
+  ocr: `${SCAN_ICON}M7 8h8M7 12h10M7 16h6`,
+  translate: 'M5 8l6 6M4 14l6-6 2-3M2 5h12M7 2h1M22 22l-5-10-5 10M14 18h6',
+  inpaint: 'M7 21l-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21M22 21H7M5 11l9 9',
+  render: 'M4 7V4h16v3M9 20h6M12 4v16',
+};
+
+function loadTranslateSettings(stored) {
+  _settings = migrateTranslateSettings(stored || {});
+  if (stored && stored.schema !== _settings.schema) platform.kv.set({ translateSettings: _settings });  // one-time migration
+  document.getElementById('translateServerInput').value = stored?.serverUrl || '';
+  setChoiceValue('translateTokenInput', _settings.serverToken || '');
+  setChoiceValue('studyModeGeneration', _settings.studyModeGeneration || 'disabled');
+  document.getElementById('translateSaveSnapshots').checked = !!_settings.saveSnapshots;
+  document.getElementById('translateKeepSnapshots').checked = !!_settings.keepSnapshotsOnRevert;
+  refreshCapabilities({ auto: true });
 }
 
+// Draw from the cached answer at once, then ask the server (If-None-Match) and redraw.
+async function refreshCapabilities({ auto = false } = {}) {
+  const serverUrl = serverUrlFromSettings(gatherTranslateSettings());
+  if (serverUrl !== _capsServer) { _caps = null; _capsServer = serverUrl; }
+  const cached = await cachedCapabilities(serverUrl);
+  if (cached?.doc && !_caps) { _caps = cached.doc; _capsOffline = true; }
+  renderTranslateSettings();
+  if (auto && !hasConfiguredServer(_settings)) return;
+  const { doc, offline } = await getCapabilities(serverUrl, gatherTranslateSettings());
+  if (serverUrl !== _capsServer) return;   // the address changed meanwhile
+  _caps = doc;
+  _capsOffline = offline;
+  renderTranslateSettings();
+}
+
+// The page's current settings: stored picks plus the connection/study fields on the panel.
 function gatherTranslateSettings() {
-  const v = (id) => document.getElementById(id).value;
-  const n = (id, d) => { const x = parseFloat(v(id)); return Number.isFinite(x) ? x : d; };
-  const i = (id, d) => { const x = parseInt(v(id), 10); return Number.isFinite(x) ? x : d; };
-  const serverUrl = v('translateServerInput').trim().replace(/\/+$/, '');
+  const serverUrl = document.getElementById('translateServerInput').value.trim().replace(/\/+$/, '');
   return {
+    ..._settings,
     serverUrl: serverUrl || 'http://127.0.0.1:5003',
-    serverToken: v('translateTokenInput').trim(),
-    translator: v('cfgTranslator'),
-    targetLang: v('cfgTargetLang'),
-    detector: v('cfgDetector'),
-    detectionSize: i('cfgDetectionSize', 1536),
-    textThreshold: n('cfgTextThreshold', 0.5),
-    boxThreshold: n('cfgBoxThreshold', 0.7),
-    unclipRatio: n('cfgUnclipRatio', 2.3),
-    ocr: v('cfgOcr'),
-    estimateFontColor: document.getElementById('cfgEstFontColor').checked,
-    estimateOutlineColor: document.getElementById('cfgEstOutlineColor').checked,
-    inpainter: v('cfgInpainter'),
-    inpaintingSize: i('cfgInpaintingSize', 1536),
-    inpaintingPrecision: v('cfgInpaintingPrecision'),
-    maskDilationOffset: i('cfgMaskDilation', 30),
-    kernelSize: i('cfgKernelSize', 5),
-    renderer: v('cfgRenderer'),
-    direction: v('cfgDirection'),
-    alignment: v('cfgAlignment'),
-    fontSizeOffset: i('cfgFontSizeOffset', 0),
-    fontColor: document.getElementById('cfgFontColor').value.trim(),
-    uppercase: document.getElementById('cfgUppercase').checked,
-    noHyphenation: document.getElementById('cfgNoHyphenation').checked,
-    batchCaps: {
-      gemini:   i('cfgCapGemini', 8),
-      chatgpt:  i('cfgCapChatgpt', 6),
-    },
-    priceIn: n('cfgPriceIn', 1.5),
-    priceOut: n('cfgPriceOut', 9),
-    studyModeGeneration: v('studyModeGeneration'),
-    screenEnabled:    document.getElementById('cfgScreenEnabled').checked,
-    screenTranslator: v('cfgScreenTranslator'),
-    screenFallback:   v('cfgScreenFallback'),
-    screenPrompt:     document.getElementById('cfgScreenPrompt').value,
+    serverToken: document.getElementById('translateTokenInput').value.trim(),
+    studyModeGeneration: document.getElementById('studyModeGeneration').value,
+    saveSnapshots: document.getElementById('translateSaveSnapshots').checked,
+    keepSnapshotsOnRevert: document.getElementById('translateKeepSnapshots').checked,
   };
 }
 
-function updateTranslateSummary() {
-  const el = document.getElementById('translateSummary');
-  if (!el) return;
-  const tr = document.getElementById('cfgTranslator');
-  const trLabel = tr.options[tr.selectedIndex] ? tr.options[tr.selectedIndex].text.split(' — ')[0] : tr.value;
-  el.textContent = `Current: ${trLabel} → ${document.getElementById('cfgTargetLang').value} · detect ${document.getElementById('cfgDetectionSize').value} · inpaint ${document.getElementById('cfgInpaintingSize').value} · mask ${document.getElementById('cfgMaskDilation').value}`;
+
+const optionLabel = (choice, unavailable) => choice.missing || unavailable
+  ? `${choice.label} — ${t(choice.missing ? 'tm.not_offered' : 'tm.unavailable')}` : choice.label;
+
+function makeSelect(choices, value, { param, stepMirror = false } = {}) {
+  const sel = document.createElement('select');
+  sel.className = stepMirror ? 'translate-step-select' : 'field-input';
+  if (param) sel.dataset.param = param;
+  for (const choice of choices) {
+    const unavailable = choice.available === false && !choice.missing;
+    const label = stepMirror ? (choice.short || choice.label.replace(/\s+[(—].*$/, '')) : optionLabel(choice, unavailable);
+    const opt = new Option(label, JSON.stringify(choice.value));
+    if (stepMirror) opt.title = optionLabel(choice, unavailable);
+    else if (choice.version) opt.title = t('tm.version', { version: choice.version });
+    if (unavailable) opt.disabled = true;
+    sel.append(opt);
+  }
+  sel.value = JSON.stringify(value);
+  return sel;
 }
 
-function saveTranslateSettings(statusId, after) {
+function field(labelText, control, { wide = false, forId = true } = {}) {
+  const box = document.createElement('div');
+  box.className = 'tcfg-field' + (wide ? ' tcfg-wide' : '');
+  const id = `tp-${Math.random().toString(36).slice(2, 9)}`;
+  control.id = id;
+  const label = document.createElement('label');
+  label.textContent = labelText;
+  if (forId) label.htmlFor = id;
+  box.append(label, control);
+  return box;
+}
+
+function paramControl(p) {
+  const label = p.labelKey ? t(p.labelKey) : p.label;
+  if (p.type === 'bool') {
+    const box = document.createElement('div');
+    box.className = 'tcfg-field tcfg-check' + (p.group ? ' tcfg-wide' : '');
+    const lab = document.createElement('label');
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.dataset.param = p.key;
+    input.checked = !!p.value;
+    const span = document.createElement('span');
+    span.textContent = label;
+    lab.append(input, ' ', span);
+    box.append(lab);
+    return box;
+  }
+  if (p.type === 'enum' || p.type === 'language') {
+    return field(label, makeSelect(p.choices, p.value, { param: p.key }), { wide: !!(p.primary || p.group) });
+  }
+  const input = document.createElement(p.multiline ? 'textarea' : 'input');
+  input.className = 'field-input' + (p.multiline ? ' tcfg-textarea' : '');
+  input.dataset.param = p.key;
+  if (p.multiline) { input.rows = 3; input.spellcheck = false; }
+  if (p.type === 'number') {
+    input.type = 'number';
+    for (const k of ['min', 'max', 'step']) if (p[k] != null) input[k] = p[k];
+    input.dataset.integer = p.integer ? '1' : '';
+  } else if (!p.multiline) {
+    input.type = 'text';
+    input.spellcheck = false;
+  }
+  if (p.placeholder) input.placeholder = p.placeholder;
+  input.value = p.value ?? '';
+  return field(label, input, { wide: !!(p.primary || p.group || p.multiline) });
+}
+
+function heading(text, extraClass = '') {
+  const h = document.createElement('div');
+  h.className = 'tcfg-h' + extraClass;
+  h.textContent = text;
+  return h;
+}
+
+function numberField(labelText, id, value, { step = 1, min = null } = {}) {
+  const input = document.createElement('input');
+  input.className = 'field-input';
+  input.type = 'number';
+  input.step = step;
+  if (min != null) input.min = min;
+  input.value = value;
+  const box = field(labelText, input);
+  input.id = id;
+  box.querySelector('label').htmlFor = id;
+  return box;
+}
+
+let _advancedCollapsed = true;
+
+function renderTranslateSettings() {
+  const model = settingsModel(_caps, _settings);
+  renderSummary(model);
+  renderPrimary(model);
+  const grid = document.getElementById('tcfgGrid');
+  const note = document.getElementById('translateCapsNote');
+  grid.replaceChildren();
+  if (model.offline) {
+    note.textContent = t('tm.caps_offline');
+    note.hidden = false;
+    document.getElementById('resetTranslateBtn').disabled = true;
+    return;
+  }
+  document.getElementById('resetTranslateBtn').disabled = false;
+  const notes = [];
+  if (_capsOffline) notes.push(t('tm.caps_cached'));
+  if (model.problems.length) notes.push(t('tm.caps_problem', { names: model.problems.map(p => p.value).join(', ') }));
+  note.textContent = notes.join(' ');
+  note.hidden = !notes.length;
+
+  const byId = new Map(model.stages.map(s => [s.id, s]));
+  const implField = (stage) => field(stage.implLabelKey ? t(stage.implLabelKey) : stage.label,
+    makeSelect(stage.choices, stage.value, { param: stage.implParam }), { wide: WIDE_STAGES.has(stage.id) });
+  const stageHeading = (stage) => heading(stage.headingKey ? t(stage.headingKey) : stage.label);
+
+  // Translator first: engine, its primary options, and the clearing presets.
+  const translate = byId.get('translate');
+  if (translate) {
+    grid.append(stageHeading(translate), implField(translate));
+    for (const p of translate.params.filter(p => p.primary && !p.group)) grid.append(paramControl(p));
+  }
+  if (model.presets.length) {
+    const choices = [...model.presets.map(p => ({ value: p.id, label: p.label })), { value: 'custom', label: t('tm.preset_custom') }];
+    const sel = makeSelect(choices, model.preset);
+    sel.dataset.preset = '1';
+    grid.append(field(t('tm.clearing'), sel, { wide: true }));
+  }
+  // Grouped options (content screening) keep their own heading.
+  const groups = new Map();
+  for (const stage of model.stages) for (const p of stage.params) if (p.group) {
+    if (!groups.has(p.group)) groups.set(p.group, []);
+    groups.get(p.group).push(p);
+  }
+  for (const [group, params] of groups) {
+    grid.append(heading(GROUP_HEADING_KEYS[group] ? t(GROUP_HEADING_KEYS[group]) : group));
+    for (const p of params) grid.append(paramControl(p));
+  }
+
+  // Everything else, stage by stage, behind the collapsible "Pipeline details" header.
+  const advanced = document.createElement('button');
+  advanced.className = 'tcfg-h tcfg-collapsible';
+  advanced.type = 'button';
+  advanced.id = 'cfgAdvancedHeader';
+  advanced.textContent = t('tm.advanced');
+  advanced.addEventListener('click', () => { _advancedCollapsed = !_advancedCollapsed; setAdvancedCollapsed(_advancedCollapsed); });
+  grid.append(advanced);
+  for (const stage of model.stages) {
+    if (stage.id === 'translate') continue;
+    grid.append(stageHeading(stage), implField(stage));
+    for (const p of stage.params.filter(p => !p.group)) grid.append(paramControl(p));
+  }
+  for (const p of (translate?.params || []).filter(p => !p.primary && !p.group)) grid.append(paramControl(p));
+  if (model.batching.length) {
+    grid.append(heading(t('tm.batch')));
+    const noteEl = document.createElement('div');
+    noteEl.className = 'tcfg-note';
+    noteEl.textContent = t('tm.batch_note');
+    grid.append(noteEl);
+    for (const b of model.batching) {
+      const box = numberField(b.label, `cfgCap-${b.translator}`, b.value, { min: 1 });
+      box.querySelector('input').dataset.batch = b.translator;
+      grid.append(box);
+    }
+  }
+  grid.append(heading(t('tm.cost')),
+    numberField(t('tm.price_in'), 'cfgPriceIn', _settings.priceIn ?? 1.5, { step: 0.01, min: 0 }),
+    numberField(t('tm.price_out'), 'cfgPriceOut', _settings.priceOut ?? 9, { step: 0.01, min: 0 }));
+  setAdvancedCollapsed(_advancedCollapsed);
+}
+
+function setAdvancedCollapsed(collapsed) {
+  const h = document.getElementById('cfgAdvancedHeader');
+  if (!h) return;
+  h.classList.toggle('collapsed', collapsed);
+  h.setAttribute('aria-expanded', String(!collapsed));
+  let el = h.nextElementSibling;
+  while (el) { el.classList.toggle('tcfg-hidden', collapsed); el = el.nextElementSibling; }
+}
+
+// Pipeline overview — one quick-select per stage (the server's stages, in order), each a mirror of
+// the modal's own choice. Steps show short model names; the tooltip gives the full name and
+// version, then the rest of that stage's options, one per line.
+const svgIcon = (cls, d) => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
+
+function stepTip(stage) {
+  const chosen = stage.choices.find(c => c.value === stage.value);
+  const lines = [chosen ? chosen.label + (chosen.version ? ` (${chosen.version})` : '') : String(stage.value)];
+  for (const p of stage.params.filter(p => !p.group)) {
+    const label = p.labelKey ? t(p.labelKey) : p.label;
+    let value = p.value;
+    if (p.type === 'bool') { lines.push(`${value ? '✓' : '✗'} ${label}`); continue; }
+    if (p.choices?.length) value = p.choices.find(c => c.value === value)?.label ?? value;
+    lines.push(`${label}: ${value === '' || value == null ? (p.placeholder || '—') : value}`);
+  }
+  return lines.join('\n');
+}
+
+function renderSummary(model) {
+  const el = document.getElementById('translateSummary');
+  if (!el) return;
+  if (model.offline) {
+    el.style.gridTemplateColumns = '';
+    const msg = document.createElement('div');
+    msg.className = 'translate-summary-offline';
+    msg.textContent = t('tm.caps_offline');
+    el.replaceChildren(msg);
+    return;
+  }
+  const stages = model.stages;
+  el.style.gridTemplateColumns = `minmax(0, 1fr)${' auto minmax(0, 1fr)'.repeat(Math.max(0, stages.length - 1))}`;
+  el.replaceChildren(...stages.flatMap((stage, i) => {
+    const step = document.createElement('div');
+    step.className = 'translate-step';
+    step.dataset.tip = stepTip(stage);
+    const sel = makeSelect(stage.choices, stage.value, { param: stage.implParam, stepMirror: true });
+    sel.id = `step-${stage.id}`;
+    step.innerHTML = `<label class="translate-step-head" for="${sel.id}">${svgIcon('translate-step-icon', STEP_ICONS[stage.id] || SCAN_ICON)}<span class="translate-step-name"></span></label>`;
+    step.querySelector('.translate-step-name').textContent = stage.stepKey ? t(stage.stepKey) : stage.label;
+    step.append(sel);
+    if (!i) return [step];
+    const sep = document.createElement('span');
+    sep.innerHTML = svgIcon('translate-step-sep', 'm9 18 6-6-6-6');
+    return [sep.firstChild, step];
+  }));
+}
+
+// Language and model — the translator and its target language, as in the advanced window, each a
+// row of its own so they don't take opening that window.
+function renderPrimary(model) {
+  const el = document.getElementById('translatePrimary');
+  if (!el) return;
+  const translate = model.stages.find(s => s.id === 'translate');
+  if (model.offline || !translate) {
+    const msg = document.createElement('div');
+    msg.className = 'translate-summary-offline';
+    msg.textContent = t('tm.caps_offline');
+    el.replaceChildren(msg);
+    return;
+  }
+  const row = (label, desc, select) => {
+    const box = document.createElement('div');
+    box.className = 'field';
+    select.id = `primary-${select.dataset.param.replace(/\W/g, '-')}`;
+    const name = document.createElement('label');
+    name.className = 'field-label';
+    name.htmlFor = select.id;
+    name.textContent = label;
+    const note = document.createElement('div');
+    note.className = 'field-desc';
+    note.textContent = desc;
+    box.append(name, note, select);
+    return box;
+  };
+  const target = translate.params.find(p => p.type === 'language');
+  el.replaceChildren(
+    ...(target ? [row(target.labelKey ? t(target.labelKey) : target.label, t('set.tr_lang_desc'),
+      makeSelect(target.choices, target.value, { param: target.key }))] : []),
+    row(t('set.tr_model'), t('set.tr_model_desc'), makeSelect(translate.choices, translate.value, { param: translate.implParam })));
+}
+
+// Read one edited control back into the stored picks.
+function applyControl(el) {
+  if (el.dataset.preset) {
+    const preset = (_caps?.presets || []).find(p => p.id === JSON.parse(el.value));
+    if (preset) Object.assign(_settings.params, preset.values);
+    return;
+  }
+  if (el.dataset.batch) {
+    const n = parseInt(el.value, 10);
+    _settings.batchCaps = { ...(_settings.batchCaps || {}) };
+    if (Number.isFinite(n) && n > 0) _settings.batchCaps[el.dataset.batch] = n;
+    return;
+  }
+  if (el.id === 'cfgPriceIn' || el.id === 'cfgPriceOut') {
+    const n = parseFloat(el.value);
+    if (Number.isFinite(n)) _settings[el.id === 'cfgPriceIn' ? 'priceIn' : 'priceOut'] = n;
+    return;
+  }
+  const key = el.dataset.param;
+  if (!key) return;
+  let value;
+  if (el.type === 'checkbox') value = el.checked;
+  else if (el.tagName === 'SELECT') value = JSON.parse(el.value);
+  else if (el.type === 'number') {
+    const n = el.dataset.integer ? parseInt(el.value, 10) : parseFloat(el.value);
+    if (!Number.isFinite(n)) return;
+    value = n;
+  } else value = el.value;
+  _settings.params = { ..._settings.params, [key]: key === DEFAULT_SCREEN_PROMPT_KEY ? value : (typeof value === 'string' ? value.trim() : value) };
+}
+
+// Saves the whole settings object and says so in `statusId`. Only a server address or token change
+// needs the connection re-checked.
+function saveTranslateSettings(statusId, { recheck = false } = {}) {
   const serverRaw = document.getElementById('translateServerInput').value.trim();
   if (serverRaw && !/^https?:\/\//i.test(serverRaw)) {
     showStatus(statusId, 'Server URL must start with http:// or https://', 'err');
     return;
   }
-  platform.kv.set({ translateSettings: gatherTranslateSettings() });
-  showStatus(statusId, 'Translation settings saved.', 'ok');
-  updateTranslateSummary();
-  checkTranslatorStatus();
-  if (after) after();
+  _settings = gatherTranslateSettings();
+  platform.kv.set({ translateSettings: _settings });
+  showStatus(statusId, 'Saved.', 'ok');
+  if (recheck) { checkTranslatorStatus(); refreshCapabilities(); }
 }
 
-document.getElementById('saveTranslateBtn').addEventListener('click', () => saveTranslateSettings('translateStatus'));
-document.getElementById('saveTranslateModalBtn').addEventListener('click',
-  () => saveTranslateSettings('translateModalStatus', () => setTimeout(() => setTranslateModalOpen(false), 600)));
+// Every field on the panel and in the advanced window saves as it changes — selects and boxes at
+// once, typed fields once committed (blur / Enter). The note shows in the card the edit came from.
+const CONNECTION_FIELDS = new Set(['translateServerInput', 'translateTokenInput']);
+document.getElementById('panelTranslation').addEventListener('change', (e) => {
+  const status = e.target.closest('.section')?.querySelector('.status-msg');
+  if (e.target.closest('#translateSummary, #translatePrimary')) {
+    applyControl(e.target);
+    saveTranslateSettings(status.id);
+    renderTranslateSettings();
+    return;
+  }
+  if (status) saveTranslateSettings(status.id, { recheck: CONNECTION_FIELDS.has(e.target.id) });
+});
+document.getElementById('translateBox').addEventListener('change', (e) => {
+  applyControl(e.target);
+  saveTranslateSettings('translateModalStatus');
+  if (e.target.dataset.preset) renderTranslateSettings();   // a preset fills in several fields
+  else refreshDerived();
+});
+
+// After a single edit only the overview and the preset match change; keep the modal (and focus).
+function refreshDerived() {
+  const model = settingsModel(_caps, _settings);
+  renderSummary(model);
+  const presetSel = document.querySelector('#tcfgGrid select[data-preset]');
+  if (presetSel) presetSel.value = JSON.stringify(model.preset);
+}
 
 // Modal open/close
 function setTranslateModalOpen(open) {
@@ -408,57 +705,12 @@ document.getElementById('openTranslateModalBtn').addEventListener('click', () =>
 document.getElementById('translateClose').addEventListener('click', () => setTranslateModalOpen(false));
 document.getElementById('translateModal').addEventListener('click', (e) => { if (e.target.id === 'translateModal') setTranslateModalOpen(false); });
 
-// The "Advanced settings" header collapses everything below it at once.
-function setAdvancedCollapsed(collapsed) {
-  const h = document.getElementById('cfgAdvancedHeader');
-  h.classList.toggle('collapsed', collapsed);
-  h.setAttribute('aria-expanded', String(!collapsed));
-  let el = h.nextElementSibling;
-  while (el) { el.classList.toggle('tcfg-hidden', collapsed); el = el.nextElementSibling; }
-}
-document.getElementById('cfgAdvancedHeader').addEventListener('click', function () {
-  setAdvancedCollapsed(!this.classList.contains('collapsed'));
-});
-setAdvancedCollapsed(true);
-
-// Reset translator behavior to defaults while keeping the server connection details.
+// Reset translator behavior to the server's recommendations while keeping the connection details.
 document.getElementById('resetTranslateBtn').addEventListener('click', () => {
   if (!confirm('Reset all translator settings to defaults? (Your server URL and access token are kept.)')) return;
-  loadTranslateSettings({
-    serverUrl: document.getElementById('translateServerInput').value || 'http://127.0.0.1:5003',
-    serverToken: document.getElementById('translateTokenInput').value,
-  });
+  _settings = { ...gatherTranslateSettings(), params: {}, batchCaps: {}, priceIn: 1.5, priceOut: 9 };
   saveTranslateSettings('translateModalStatus');
-});
-
-// Clearing preset ↔ the inpainting/mask/kernel fields. Picking a preset fills them in;
-// editing any of them by hand flips the preset to "Custom".
-const CLEARING_PRESETS = {
-  fast:     { sz: 1024, md: 20, ks: 3 },
-  balanced: { sz: 1536, md: 30, ks: 5 },
-  thorough: { sz: 2048, md: 40, ks: 7 },
-};
-function applyClearingPreset(name) {
-  const p = CLEARING_PRESETS[name];
-  if (!p) return; // "custom": leave fields as they are
-  document.getElementById('cfgInpaintingSize').value = String(p.sz);
-  document.getElementById('cfgMaskDilation').value = p.md;
-  document.getElementById('cfgKernelSize').value = p.ks;
-}
-function matchClearingPreset() {
-  const sz = parseInt(document.getElementById('cfgInpaintingSize').value, 10);
-  const md = parseInt(document.getElementById('cfgMaskDilation').value, 10);
-  const ks = parseInt(document.getElementById('cfgKernelSize').value, 10);
-  for (const [name, p] of Object.entries(CLEARING_PRESETS))
-    if (p.sz === sz && p.md === md && p.ks === ks) return name;
-  return 'custom';
-}
-document.getElementById('cfgClearingPreset').addEventListener('change', (e) => applyClearingPreset(e.target.value));
-['cfgInpaintingSize', 'cfgMaskDilation', 'cfgKernelSize'].forEach(id => {
-  const el = document.getElementById(id);
-  const sync = () => { document.getElementById('cfgClearingPreset').value = matchClearingPreset(); };
-  el.addEventListener('input', sync);
-  el.addEventListener('change', sync);
+  renderTranslateSettings();
 });
 
 // ── Library — gallery card preferences, saved on change ───────────────
@@ -648,17 +900,43 @@ document.getElementById('backupImportFile').addEventListener('change', async (e)
 
 // ── Storage Writes ────────────────────────────────────────────────────────
 
-function updateWritesDisplay(bytes) {
-  document.getElementById('totalWritesCount').textContent = formatBytes(bytes || 0);
+// Everything the app has written to this browser's storage; hovering the total splits it by kind.
+const WRITE_KINDS = ['pages', 'covers', 'library', 'jobs', 'settings', 'app', 'other'];
+function updateWritesDisplay(writes) {
+  const el = document.getElementById('totalWritesCount');
+  el.textContent = formatBytes(writes?.total || 0);
+  el.dataset.tip = WRITE_KINDS.filter(kind => writes?.by?.[kind])
+    .map(kind => `${t(`set.writes_${kind}`)}: ${formatBytes(writes.by[kind])}`).join('\n');
 }
 
-platform.kv.get(['totalWrittenBytes']).then(r => updateWritesDisplay(r.totalWrittenBytes));
+platform.writes.get().then(updateWritesDisplay, () => {});
+platform.writes.subscribe(updateWritesDisplay);
 
-document.getElementById('resetWritesBtn').addEventListener('click', () => {
+document.getElementById('resetWritesBtn').addEventListener('click', async () => {
   if (!confirm('Reset the lifetime write counter to zero?')) return;
-  platform.kv.set({ totalWrittenBytes: 0 });
-  updateWritesDisplay(0);
+  await platform.writes.reset();
   showStatus('writesStatus', 'Counter reset.', 'ok');
+});
+
+// ── Storage layout ────────────────────────────────────────────────────────
+// Pages stored before images were kept apart convert as their galleries change, or all at once here.
+
+async function updateLayoutDisplay() {
+  const { storageEstimate } = await import('./storage-upgrade.js');
+  const est = await storageEstimate();
+  document.getElementById('layoutStatus').textContent = est.remaining
+    ? t('set.layout_status', { converted: formatCount(est.converted), pages: formatCount(est.pages), size: formatBytes(est.bytes) })
+    : t('set.layout_done');
+  document.getElementById('convertNowBtn').disabled = !est.remaining;
+}
+updateLayoutDisplay().catch(() => {});
+
+document.getElementById('convertNowBtn').addEventListener('click', async (e) => {
+  e.currentTarget.disabled = true;
+  const { convertNow } = await import('./storage-upgrade.js');
+  platform.kv.set({ storageLayout: 'now' });
+  await convertNow().catch(() => {});
+  await updateLayoutDisplay().catch(() => {});
 });
 
 // ── About modal ───────────────────────────────────────────────────────────

@@ -14,10 +14,15 @@ import { escHtml, safeExternalUrl } from './sanitize.js';
 import {
   setStudyPrefs, studyPrefs, studyFor, loadStudyRecords, _ensureWrap, _removeBubbleLayers,
   _removeWrapBubbleLayer, _layerUrls, _clipInset, _buildStudyText, _buildStudySrc,
-  _studySourceRect, _studyTranslationRect, _positionBubbleIndicator, _wireSelectableText,
-  _setStudyTextSelectable, _sourceTextLang, _sniffSourceLang, _syncLayerScale,
+  _studySourceRect, _studyTranslationRect, _positionBubbleIndicator, _buildBubbleShape, _sharedShapes,
+  _wireSelectableText, _setStudyTextSelectable, _sourceTextLang, _sniffSourceLang, _syncLayerScale, forgetStudy, hasAnyStudy,
 } from './reader-study.js';
 import { resizeToWidth } from './image-util.js';
+import { feedbackKey, editingTarget, feedbackTarget, tagFeedback } from './feedback.js';
+import { openFeedback, feedbackOpen } from './reader-feedback.js';
+import { openPageProperties, propertiesOpen, closePageProperties } from './reader-properties.js';
+import { openPageMenu, pageStatus } from './reader-page-menu.js';
+import { translationView } from './page-image.js';
 
 // Site names/links come from sites.js (runtime data + the localStorage warm start, so source
 // labels are correct on first paint instead of waiting for the bridge to answer).
@@ -79,11 +84,12 @@ const _pageUrlCache = new Map();   // variantKey → blob: URL ('' when the reco
 const _showTranslated = () => translateView && !studyMode;   // study mode forces the clean original
 // Translate-as-text (Settings → Reader): instead of the server's typeset page, show the inpainted
 // bg — the same text-removed layer study mode reveals per bubble — with the translations above it
-// as DOM text. It needs a page whose translation kept that layer; one without it stays original.
+// as DOM text. Each page shows what it has (page-image.js translationView): a page without that
+// layer shows its translated image, and one kept only as study layers shows those as the image.
 const _translateAsText = () => _showTranslated() && translateDisplay === 'text';
-// Bubble overlays back two displays: study mode's revealable bubbles, and translate-as-text's
-// translations over the inpainted page.
-const _bubbleLayersOn = () => studyMode || _translateAsText();
+// Bubble overlays back two displays: study mode's revealable bubbles, and the translate view's
+// text over the inpainted page (DOM text, or the balloons' text layers of a page kept as them).
+const _bubbleLayersOn = () => studyMode || _showTranslated();
 const _variantKey = (page) => page?.url ? (_translateAsText() ? 'b:' : _showTranslated() ? 't:' : 'o:') + page.url : '';
 let _readerDb = null;
 let _stripGen  = 0; // bumped on every buildStrip call to cancel stale loads
@@ -99,24 +105,26 @@ function _openReaderDb() {
 // exist (→ show the study button). Cache the in-flight/completed pass so startup, idle loading
 // and later callers cannot rescan or overlap the same large library.
 let _studyLoadPromise = null;
+let _studyLoaded = false;
 function _loadStudy() {
   if (_studyLoadPromise) return _studyLoadPromise;
   if (!_readerDb) return Promise.resolve(false);
   _studyLoadPromise = (async () => {
     hasStudy = await loadStudyRecords(_chapters.map(ch => ch.id));
+    _studyLoaded = true;
     _syncStudyAvailability();
     return hasStudy;
   })();
   return _studyLoadPromise;
 }
 
-// The stored bytes the current variant asks for. A page missing that layer — no inpainted bg, no
-// rendered translation — falls back to its untouched original rather than showing nothing.
+// The stored bytes the current variant asks for. A page without a translation of either kind
+// falls back to its untouched original rather than showing nothing.
 function _variantSrc(record) {
   const original = record.blob ?? record.dataUrl;
-  if (_translateAsText()) return record.studyBg ?? original;
-  if (_showTranslated()) return record.translated ?? original;
-  return original;
+  if (!_showTranslated()) return original;
+  const { source } = translationView({ translated: record.translated != null, bg: record.studyBg, bubbles: record.bubbles }, translateDisplay);
+  return source === 'translated' ? record.translated : source === 'bg' ? record.studyBg : original;
 }
 
 async function pageBlobUrl(page) {
@@ -443,6 +451,9 @@ async function init() {
     );
     _chapters.push({
       ...c,
+      // A chapter with no title of its own reads as the gallery's own title (what the overview
+      // and the library chapter picker show), not as a blank divider subtitle.
+      title: c.title || pickTitle(metas[i], getLang()) || '',
       start: pages.length,
       count,
       missing: count - cachedByNum.size,
@@ -479,7 +490,7 @@ async function init() {
   _translateAvailable = _chapters.some(ch => !!ch.meta?.translated);
   if (saved.readerTranslateDisplay === 'text') translateDisplay = 'text';
   const initTranslate = saved.readerView === 'translate' || (!saved.readerView && _translateAvailable);
-  const studyFirst = saved.readerView === 'study' || (initTranslate && translateDisplay === 'text');
+  const studyFirst = saved.readerView === 'study' || initTranslate;
   if (studyFirst) await _loadStudy();
   _syncStudyAvailability();
   setStudyPrefs({
@@ -629,6 +640,116 @@ function _replayQueuedPageStores() {
 
 platform.jobs.subscribe((event) => {
   if (event?.type === 'PAGE_STORED') _dispatchPageStored(event);
+  else if (event?.kind === 'translate') _onTranslateEvent(event);
+});
+
+// ── A page on its own: properties, translation, settings (right-click, or I) ──
+// Which page is under a point: strip rows carry their number; single and double views show the
+// current page (and, on the right of a spread, the next one).
+function _pageAtPoint(x, y) {
+  for (const el of document.elementsFromPoint(x, y)) {
+    if (el.matches?.('#stripView .page-wrap[data-page]')) return Number(el.dataset.page);
+    const img = el.matches?.('.page-wrap') ? el.querySelector(':scope > img') : el;
+    if (img === mainImg && mode === 'single') return currentPage;
+    if (img === imgLeft && mode === 'double') return currentPage;
+    if (img === imgRight && mode === 'double' && _rightPageForSpread(currentPage)) return currentPage + 1;
+  }
+  return null;
+}
+
+// A page's place for display: its chapter, its number within it, and the chapter's gallery.
+function _pagePlace(n) {
+  const ch = _chapters[_chapterAt(n)];
+  return { ch, gid: String(ch?.id ?? galleryId), number: ch ? n - ch.start : n, total: ch ? ch.count : pages.length,
+    chapter: _series && ch ? [t('rd.ch_n', { n: ch.num }), ch.title].filter(Boolean).join(' · ') : null };
+}
+
+function _openProperties(n) {
+  const page = pages[n - 1];
+  if (!page?.cached) return;
+  _stopScroll();
+  const { number, total, chapter } = _pagePlace(n);
+  openPageProperties({ url: page.url, number, total, chapter });
+}
+
+const _pageJobs = new Map();   // gallery id → page number (in its chapter) being translated on its own
+
+async function _translationRunning(gid) {
+  if (await platform.translateResume.get(gid)) return true;
+  return (await platform.jobsPending.all()).some(entry => entry.key === `${gid}:translate`);
+}
+
+async function _openPageMenu(n, x, y) {
+  const page = pages[n - 1];
+  const { gid, number } = _pagePlace(n);
+  const [record, busy] = await Promise.all([dbGet(page.url).catch(() => null), _translationRunning(gid)]);
+  const own = !!record?.own;
+  openPageMenu(x, y, [t('page.menu_title', { n: formatCount(number) }), own ? t('page.keeps_own') : ''].filter(Boolean).join(' · '), [
+    { label: t('page.translate'), detail: t(busy ? 'page.translate_busy' : 'page.translate_detail'), disabled: busy,
+      onPick: () => _translatePage(gid, page.url, number) },
+    ...(own ? [{ label: t('page.follow'), detail: t('page.follow_detail'), onPick: async () => {
+      await platform.rpc({ type: 'FOLLOW_GALLERY_SETTINGS', galleryId: gid, urls: [page.url] });
+      pageStatus(t('page.now_follows', { n: formatCount(number) }));
+    } }] : []),
+    { label: t('page.properties'), detail: t('page.properties_detail'), kbd: 'I', onPick: () => _openProperties(n) },
+  ]);
+}
+
+async function _translatePage(gid, url, number) {
+  const resp = await platform.rpc({ type: 'TRANSLATE_PAGES', galleryId: gid, urls: [url] }).catch(() => null);
+  if (resp?.busy) { pageStatus(t('page.busy'), { error: true }); return; }
+  if (!resp?.started) { pageStatus(t('page.failed', { n: formatCount(number), error: t('page.not_started') }), { error: true }); return; }
+  _pageJobs.set(gid, number);
+  pageStatus(t('page.translating', { n: formatCount(number) }), { busy: true });
+}
+
+// A translation of a chapter on screen finished (on its own page or the whole gallery): show it.
+function _onTranslateEvent(event) {
+  const gid = String(event.gid);
+  if (!_chapters.some(ch => String(ch.id) === gid)) return;
+  const number = _pageJobs.get(gid);
+  if (event.status === 'done') {
+    void _refreshTranslations(gid);
+    if (number != null) pageStatus(t('page.done', { n: formatCount(number) }));
+  } else if (event.status === 'error' && number != null) {
+    pageStatus(t('page.failed', { n: formatCount(number), error: event.errorKey ? t(event.errorKey) : event.error || '' }), { error: true });
+  } else if (event.status === 'cancelled' && number != null) {
+    pageStatus(t('page.cancelled', { n: formatCount(number) }));
+  } else return;
+  _pageJobs.delete(gid);
+}
+
+async function _refreshTranslations(gid) {
+  const ch = _chapters.find(c => String(c.id) === gid);
+  if (!ch) return;
+  ch.meta = (await metaGet(gid).catch(() => null)) || ch.meta;
+  _translateAvailable = _chapters.some(c => !!c.meta?.translated);
+  const urls = new Set(pages.slice(ch.start, ch.start + ch.count).map(p => p?.url).filter(Boolean));
+  const stale = [];
+  for (const url of urls) {
+    for (const prefix of ['t:', 'b:']) {
+      const u = _pageUrlCache.get(prefix + url);
+      if (u) stale.push(u);
+      _pageUrlCache.delete(prefix + url);
+    }
+  }
+  forgetStudy(urls);
+  await loadStudyRecords([gid]);
+  hasStudy = hasAnyStudy();
+  _syncStudyAvailability();
+  if (mode === 'strip') _stripImgs.forEach((img, i) => { if (urls.has(pages[_viewBase + i]?.url)) delete img.dataset.vk; });
+  _swapVisibleVariant();
+  _refreshBubbleLayers();
+  setTimeout(() => stale.forEach(u => URL.revokeObjectURL(u)), 5000);   // after the swap has decoded
+}
+
+viewport.addEventListener('contextmenu', (e) => {
+  if (e.shiftKey) return;   // Shift+right-click: the browser's own menu
+  const n = _pageAtPoint(e.clientX, e.clientY);
+  if (!n || !pages[n - 1]?.cached) return;
+  e.preventDefault();
+  _stopScroll();
+  void _openPageMenu(n, e.clientX, e.clientY);
 });
 
 // Double-page spreads never straddle a chapter boundary; the transition card must appear before
@@ -1576,6 +1697,9 @@ applyReaderPin(readerPinned);
 window.addEventListener('wheel', (e) => {
   if (readerPinned) return;
   if (!e.deltaY) return;
+  // Scrolling inside a modal is not scrolling the pages.
+  if (propertiesOpen() || feedbackOpen() || keybindModal.classList.contains('show')
+      || readerSettingsModal.classList.contains('show')) return;
   if (e.deltaY < 0) {
     if (!document.body.classList.contains('reader-nav-auto') && ++readerNavWheelUps >= READER_NAV_REVEAL_UNITS) {
       readerNavWheelUps = 0;
@@ -2157,6 +2281,8 @@ function setView(target) {
   document.body.classList.toggle('study-mode', studyMode);
   _swapVisibleVariant();      // re-point images to the right variant (study forces original)
   _refreshBubbleLayers();     // builds overlays when studyMode, tears them down otherwise
+  // Overlays come from the study layers; if they are still loading, build them once they land.
+  if (_bubbleLayersOn() && !_studyLoaded) _loadStudy().then(() => { if (_bubbleLayersOn()) _refreshBubbleLayers(); });
   _updateViewToggle();
   platform.kv.set({ readerView: target });
 }
@@ -2205,10 +2331,14 @@ function _mountTextBubble(box, b, idx, pageUrl, bgLayer, fgLayer, pg, srcOpts, h
   const srcIsText = !!srcEl && srcEl.classList.contains('study-text');
   const trIsText  = !!trEl && trEl.classList.contains('study-text');
   const setState = (showTr) => {
+    tagFeedback(box, idx, true, showTr ? 'translation' : 'ocr');
+    tagFeedback(trEl, idx, showTr);
+    tagFeedback(srcEl, idx, !showTr, 'ocr');
     const visibleIsText = showTr ? trIsText : srcIsText;
     const visibleRect = showTr ? _studyTranslationRect(b) : _studySourceRect(b);
     // DOM text owns its visible hover treatment. Keep the broader replacement region beneath it
-    // as an invisible pointer/click target for the empty area surrounding the text itself.
+    // as an invisible pointer/click target for the empty area surrounding the text itself. (A
+    // bubble with a shape hovers and clicks on the shape instead, text included.)
     _positionBubbleIndicator(box, visibleIsText ? (b.region || visibleRect) : visibleRect);
     if (srcEl) srcEl.style.display = showTr ? 'none' : '';
     if (trEl)  trEl.style.display  = showTr ? '' : 'none';
@@ -2223,7 +2353,7 @@ function _mountTextBubble(box, b, idx, pageUrl, bgLayer, fgLayer, pg, srcOpts, h
   if (!srcEl || !trEl) {
     setState(!!trEl);
     box.classList.remove('revealed');
-    if (!(srcIsText || trIsText)) box.style.pointerEvents = 'none';
+    if (!(srcIsText || trIsText)) { box.style.pointerEvents = 'none'; box.classList.remove('shape-hit'); }
     return;
   }
 
@@ -2248,6 +2378,7 @@ function _mountTextBubble(box, b, idx, pageUrl, bgLayer, fgLayer, pg, srcOpts, h
 function _toggleBubble(e, box, b, idx, pageUrl, bgLayer, fgLayer) {
   e.stopPropagation();
   const on = box.classList.toggle('revealed');
+  tagFeedback(box, idx, true, on ? 'translation' : 'original');
   _positionBubbleIndicator(box, on ? _studyTranslationRect(b) : _studySourceRect(b));
   if (on) {
     if (!box._layers) {
@@ -2270,18 +2401,22 @@ function _toggleBubble(e, box, b, idx, pageUrl, bgLayer, fgLayer) {
         if (!tx) {
           els.forEach(el => el.remove());
           box.classList.remove('revealed');
+          tagFeedback(box, idx, true, 'original');
           _positionBubbleIndicator(box, _studySourceRect(b));
           return;
         }
         _wireSelectableText(tx, () => box.click());
+        tagFeedback(tx, idx);
         fgLayer.appendChild(tx); els.push(tx);
       } else {
         const tx = document.createElement('img');
         tx.className = 'study-layer-img'; tx.src = urls.textUrls[idx];
+        tagFeedback(tx, idx);
         fgLayer.appendChild(tx); els.push(tx);
       }
       if (!els.length) {
         box.classList.remove('revealed');
+        tagFeedback(box, idx, true, 'original');
         _positionBubbleIndicator(box, _studySourceRect(b));
         return;
       }
@@ -2304,15 +2439,29 @@ function _toggleBubble(e, box, b, idx, pageUrl, bgLayer, fgLayer) {
 // browser chooses the appropriate Han glyph forms. Furigana remains Japanese-only.
 function _renderTranslateTextLayer(wrap, page) {
   const study = studyFor(page.url);
-  if (!study || !study.bg) return;
+  if (!study) return;
+  const { overlay } = translationView(study, translateDisplay);
+  if (!overlay) return;
   const pageW = (study.page && study.page.w) || wrap.querySelector('img')?.naturalWidth || 0;
-  const texts = study.bubbles.map(b => _buildStudyText(b, true, pageW)).filter(Boolean);
+  let texts;
+  if (overlay === 'images') {
+    // The page kept as its study layers: every balloon's text layer over the background is the page.
+    const urls = _layerUrls(page.url);
+    texts = (urls?.textUrls || []).filter(Boolean).map(src => {
+      const img = document.createElement('img');
+      img.className = 'study-layer-img'; img.src = src; img.alt = ''; img.decoding = 'async'; img.draggable = false;
+      return img;
+    });
+  } else {
+    texts = study.bubbles.map(b => _buildStudyText(b, true, pageW)).filter(Boolean);
+    texts.forEach(el => el.classList.add('plain'));
+  }
   if (!texts.length) return;
   const layer = document.createElement('div');
   layer.className = 'bubble-layer';
   const fgLayer = document.createElement('div');
   fgLayer.className = 'bubble-fg';
-  for (const el of texts) { el.classList.add('plain'); fgLayer.appendChild(el); }
+  for (const el of texts) fgLayer.appendChild(el);
   layer.appendChild(fgLayer);
   _syncLayerScale(layer, wrap, pageW);
   wrap.appendChild(layer);
@@ -2324,6 +2473,7 @@ function _renderTranslateTextLayer(wrap, page) {
 function _renderBubbleLayer(wrap, pageNum) {
   const page = pages[pageNum - 1];
   if (!page) return;
+  wrap.dataset.feedbackPage = String(pageNum);
   if (!studyMode) { _renderTranslateTextLayer(wrap, page); return; }
   const study = studyFor(page.url);
   const hasBubbles = !!study && Array.isArray(study.bubbles) && study.bubbles.length > 0;
@@ -2352,7 +2502,8 @@ function _renderBubbleLayer(wrap, pageNum) {
   if (!hasBubbles) { wrap.appendChild(layer); return; }
   // Original-as-text mounts every bubble open on its original text; original-as-image keeps
   // the untouched page and the click-to-reveal flow.
-  const origText = studyPrefs().original === 'text';
+  // Original-as-text sits on the page's clean background; a page without one shows its original.
+  const origText = studyPrefs().original === 'text' && !!study.bg;
   const srcLang = origText ? (_sourceTextLang(_chapters[_chapterAt(pageNum)]?.meta) || _sniffSourceLang(study.bubbles)) : '';
   const srcOpts = { lang: srcLang, furi: studyPrefs().furigana && srcLang === 'ja' };
   // When both sides are selectable text, the cleaned Study image is the page background. One
@@ -2368,9 +2519,20 @@ function _renderBubbleLayer(wrap, pageNum) {
     bg.draggable = false;
     bgLayer.appendChild(bg);
   }
+  // A bubble with a renderer shape hovers as that outline and clicks inside it, whether it shows
+  // its original or its translation; one given the very same area as another text keeps its
+  // region as the click target.
+  const sharedShapes = _sharedShapes(study.bubbles);
   study.bubbles.forEach((b, i) => {
     const box = document.createElement('div');
     box.className   = 'bubble-box';
+    const shape = _buildBubbleShape(b);
+    if (shape) {
+      box.appendChild(shape);
+      box.classList.add('shaped');
+      if (!sharedShapes.has(b)) box.classList.add('shape-hit');
+    }
+    tagFeedback(box, i, true, 'original');
     _positionBubbleIndicator(box, _studySourceRect(b));
     if (origText) {
       _mountTextBubble(box, b, i, page.url, bgLayer, fgLayer, (study.page || { w: pageW }), srcOpts, hasPageBg);
@@ -2378,6 +2540,7 @@ function _renderBubbleLayer(wrap, pageNum) {
       box.addEventListener('click', (e) => _toggleBubble(e, box, b, i, page.url, bgLayer, fgLayer));
       box._reset = () => {
         box.classList.remove('revealed', 'text-revealed');
+        tagFeedback(box, i, true, 'original');
         (box._layers || []).forEach(el => { el.style.display = 'none'; });
         _positionBubbleIndicator(box, _studySourceRect(b));
       };
@@ -2726,12 +2889,48 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) { _stopScroll(); _scrollFast = false; _setStudyTextSelectable(false); }
 });
 
+let _feedbackPointer = null;
+document.addEventListener('pointermove', e => { _feedbackPointer = { x: e.clientX, y: e.clientY }; }, { passive: true });
+document.addEventListener('pointerleave', () => { _feedbackPointer = null; });
+
+function _openHoveredFeedback() {
+  if (!studyMode || !_feedbackPointer) return;
+  const hit = feedbackTarget(document.elementFromPoint(_feedbackPointer.x, _feedbackPointer.y));
+  if (!hit) return;
+  const pageNum = Number(hit.wrap.dataset.feedbackPage), page = pages[pageNum - 1];
+  const study = page && studyFor(page.url);
+  if (!study?.bubbles[hit.index]) return;
+  _stopScroll(); _endClickWheelNav(); _setStudyTextSelectable(false);
+  openFeedback({ pageUrl: page.url, study, index: hit.index, wrap: hit.wrap,
+    context: { pageNumber: pageNum, pageWidth: study.page?.w || hit.wrap.querySelector('img')?.naturalWidth,
+      readerMode: mode, view: 'study', study: studyPrefs(), surface: hit.surface, zoom: _pageZoom, fit: readerFitMode, direction: readerDirection } });
+}
+
 // Keyboard
 document.addEventListener('keydown', (e) => {
+  if (propertiesOpen()) {
+    if (e.key.toLowerCase() === 'i' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); closePageProperties(); }
+    return;
+  }
+  if (feedbackOpen() || e.isComposing) return;
   _setStudyTextSelectable(e.ctrlKey);   // Ctrl held → study text is selectable
   if (e.target === scrubber) return;
   if (readerSettingsModal.classList.contains('show')) {
     if (e.key === 'Escape') { e.preventDefault(); setReaderSettingsOpen(false); }
+    return;
+  }
+  if (keybindModal.classList.contains('show')) {
+    if (e.key === 'Escape' || e.key === '?') { e.preventDefault(); setKeybindOpen(false); }
+    return;
+  }
+  if (editingTarget(e.target)) return;
+  if (e.key.toLowerCase() === 'f') {
+    if (feedbackKey(e)) _openHoveredFeedback();
+    return;   // Ctrl/Cmd+F remains the browser's Find command.
+  }
+  if (e.key.toLowerCase() === 'i' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    e.preventDefault();
+    _openProperties(currentPage);
     return;
   }
   _scrollFast = e.shiftKey;   // Shift held → double the scroll speed, live (even mid-hold)
@@ -2770,6 +2969,7 @@ document.addEventListener('keydown', (e) => {
       document.querySelectorAll('.bubble-box.revealed').forEach(box => {
         if (box._reset) { box._reset(); return; }
         box.classList.remove('revealed', 'text-revealed');
+        tagFeedback(box, Number(box.dataset.feedbackIndex), true, 'original');
         (box._layers || []).forEach(el => { el.style.display = 'none'; });
       });
       return;

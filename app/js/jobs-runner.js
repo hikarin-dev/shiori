@@ -37,11 +37,12 @@ export async function runImport({ galleryId, tempFile, filename, skipExisting = 
 
 // Start a gallery translation: upload the not-yet-translated pages and create the server-owned job.
 // Returns once it's created; the poll ticks (runPoll) drive it. Resumable: re-running only uploads
-// pages still missing.
-export async function runTranslate({ galleryId, settings }) {
+// pages still missing. `pages` limits it to those pages; `after` continues a gallery translation
+// with its next group of pages (see startTranslation).
+export async function runTranslate({ galleryId, settings, forceFrom = null, pages = null, after = [] }) {
   const gid = String(galleryId);
   try {
-    await startTranslation(gid, settings, (m) => platform.jobs.publish({ gid, kind: 'translate', ...m }));
+    await startTranslation(gid, settings, (m) => platform.jobs.publish({ gid, kind: 'translate', ...m }), { forceFrom, pages, after });
   } catch (e) {
     platform.jobs.publish({ gid, kind: 'translate', status: 'error', error: String(e && e.message || e) });
   }

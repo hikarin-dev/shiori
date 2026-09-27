@@ -14,11 +14,20 @@
 // ARCHITECTURE.md and the translator patches noted in the project memory.
 
 import {
-  getGalleryImageRecords, putTranslatedImage, putPageStudy, clearGalleryTranslations,
-  metaGet, metaPut, imageToBlob,
+  getGalleryImageRecords, putTranslatedPage, putPageStudy, clearGalleryTranslations, metaGet, metaPut, imageToBlob,
+  setPagesOwn, dbGet,
 } from './db.js';
+import {
+  decodePageData, encodePageData, planPage, translationGroups, keptConfig, referencedTranslations, contextBefore,
+} from './page-data.js';
+import { hasTranslation } from './page-image.js';
 import { translateResume, jobsPending } from './platform.js';
 import { resizeToWidth } from './image-util.js';
+import { getCapabilities } from './capabilities.js';
+import { BENCHMARK_LOCK } from './benchmark-core.js';
+import {
+  buildConfig, migrateTranslateSettings, languageTag, batchCap, unavailableChoices, stageOf,
+} from './translate-config.js';
 
 const _pageNumOf = (url) => parseInt(url.match(/\/(\d+)\.\w+$/)?.[1] || '999999');
 
@@ -30,12 +39,6 @@ function _imgMime(u8) {
       u8[8] === 0x57 && u8[9] === 0x45 && u8[10] === 0x42 && u8[11] === 0x50) return 'image/webp';
   return 'image/png';
 }
-// Translators that batch several pages into one LLM call (vs. page-by-page, batch_size 1).
-// For gemini/chatgpt the sent value IS the pages-per-request the user tunes. DeepSeek also
-// batches, but the server sizes each request adaptively from the pages' text volume, so its
-// value here is only an internal scheduling/memory hint (not user-tunable) — hence no UI knob.
-const BATCH_CAPPED = new Set(['gemini', 'deepseek', 'chatgpt']);
-const DEFAULT_BATCH_CAPS = { gemini: 8, deepseek: 10, chatgpt: 6 };
 const _translating = new Set();   // gids whose job is being STARTED (guards the upload)
 const _polling = new Map();        // gid → {token}; same-token ticks coalesce, replacements proceed
 // gid → { serverUrl, jobToken, abort, cancelled } so a same-context cancel can abort an upload
@@ -53,15 +56,6 @@ export function serverUrlFromSettings(ts) {
 // default — there the request is something the user just asked for.
 export function hasConfiguredServer(ts) {
   return typeof ts?.serverUrl === 'string' && ts.serverUrl.trim() !== '';
-}
-
-// Cheap stable hash of the server config — stored per page as translation provenance, so a
-// config change makes those pages pending again instead of silently keeping old output.
-function _configHash(config) {
-  const s = JSON.stringify(config);
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
-  return h.toString(36);
 }
 
 // Remote/shared servers can require a shared access token; it rides as a header on every
@@ -163,68 +157,77 @@ export function cancelTranslate(arg) {
   return true;
 }
 
-// manga-image-translator target-language codes → the card flag's language code.
-const TARGET_LANG_TO_CODE = {
-  ENG: 'en', CHS: 'zh', CHT: 'zh-TW', JPN: 'ja', KOR: 'ko', VIN: 'vi',
-  FRA: 'fr', DEU: 'de', ESP: 'es', RUS: 'ru', PTB: 'pt-BR', IND: 'id',
-};
-
-export async function revertGallery(galleryId) {
+// Back to the originals. The pages' snapshots go too unless `keepSnapshots` (Settings →
+// Translation), and with them the translation entries no page refers to any more.
+export async function revertGallery(galleryId, { keepSnapshots = false } = {}) {
   const gid = String(galleryId);
-  await clearGalleryTranslations(gid);
+  await clearGalleryTranslations(gid, { keepSnapshots });
   const meta = await metaGet(gid);
-  if (meta?.translated || meta?.translatedLang) {
-    const { translatedLang, ...rest } = meta;   // drop the override so the flag reverts
-    await metaPut({ ...rest, translated: false });
-  }
+  if (!meta) return;
+  const { translatedLang, ...rest } = meta;   // drop the override so the flag reverts
+  const translations = referencedTranslations(meta.translations, await getGalleryImageRecords(gid));
+  await metaPut({ ...rest, translated: false, translations });
 }
 
-function buildConfig(ts) {
-  const target = ts.targetLang || 'ENG';
-  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
-  return {
-    translator: {
-      translator: ts.translator || 'sugoi',
-      target_lang: target,
-      enable_post_translation_check: false,
-      ...(ts.screenEnabled ? {
-        content_screen_enabled: true,
-        content_screen_translator: ts.screenTranslator || 'qwen2',
-        content_screen_fallback_translator: ts.screenFallback || 'qwen2',
-        content_screen_prompt: ts.screenPrompt || undefined,
-      } : {}),
-    },
-    detector: {
-      detector: ts.detector || 'default',
-      detection_size: num(ts.detectionSize, 1536),
-      text_threshold: num(ts.textThreshold, 0.5),
-      box_threshold: num(ts.boxThreshold, 0.7),
-      unclip_ratio: num(ts.unclipRatio, 2.3),
-    },
-    ocr: { ocr: ts.ocr || '48px' },
-    inpainter: {
-      inpainter: ts.inpainter || 'lama_large',
-      inpainting_size: num(ts.inpaintingSize, 1536),
-      inpainting_precision: ts.inpaintingPrecision || 'bf16',
-    },
-    render: {
-      renderer: ts.renderer || (target === 'ENG' ? 'manga2eng' : 'default'),
-      direction: ts.direction || 'auto',
-      alignment: ts.alignment || 'auto',
-      font_size_offset: num(ts.fontSizeOffset, 0),
-      uppercase: !!ts.uppercase,
-      no_hyphenation: !!ts.noHyphenation,
-      estimate_font_color: !!ts.estimateFontColor,
-      estimate_outline_color: !!ts.estimateOutlineColor,
-      ...(ts.fontColor ? { font_color: ts.fontColor } : {}),
-    },
-    mask_dilation_offset: num(ts.maskDilationOffset, 30),
-    kernel_size: num(ts.kernelSize, 5),
-    // disabled | text_only | text_and_image — study layers are opt-in; skipping them is the
-    // fastest path and most translations never open Study mode.
-    study_mode_generation: ts.studyModeGeneration || 'disabled',
-  };
+// Where translating one page again would start, without starting anything: `gallery` for a
+// gallery translation (the page's kept settings, when it keeps its own), `page` for translating
+// just this page (the current settings) — each a planPage result, null meaning up to date. Only a
+// server the user set up is asked; `unavailable` says why there is no answer.
+export async function previewPagePlans(galleryId, url, ts) {
+  ts = migrateTranslateSettings(ts || {});
+  if (!hasConfiguredServer(ts)) return { unavailable: 'no_server' };
+  const serverUrl = serverUrlFromSettings(ts);
+  const [{ doc: capsDoc }, rec, meta] = await Promise.all([getCapabilities(serverUrl, ts), dbGet(url), metaGet(galleryId)]);
+  if (!rec) return { unavailable: 'no_page' };
+  const entries = meta?.translations || {};
+  const base = buildConfig(ts, capsDoc);
+  const own = rec.own && entries[rec.own] ? rec.own : null;
+  const [current, kept] = await Promise.all([_resolve(serverUrl, ts, base),
+    own ? _resolve(serverUrl, ts, keptConfig(base, entries[own].config)) : null]);
+  if (!current || (own && !kept)) return { unavailable: 'offline' };
+  return { own: !!own, gallery: planPage(rec, entries, kept || current, new Map()), page: planPage(rec, entries, current, new Map()) };
 }
+
+// Pages back on the gallery's settings: they stop keeping their own, and the next gallery
+// translation brings them in line.
+export async function followGallerySettings(galleryId, urls) {
+  await setPagesOwn(urls, null);
+  await _finishGallery(String(galleryId));
+}
+
+// What the server's pipeline would do with this config: its effective config, the build of each
+// stage and the config fields each stage reads (see page-data.js). Null when it can't say.
+async function _resolve(serverUrl, settings, config) {
+  const form = new FormData();
+  form.append('config', JSON.stringify(config));
+  try {
+    const resp = await fetch(`${serverUrl}/translate/gallery/resolve`, { method: 'POST', body: form, headers: _authHeaders(settings) });
+    return resp.ok ? await resp.json() : null;
+  } catch { return null; }
+}
+
+// Names this translation in the gallery's metadata.translations; pages record which one made them.
+const _jobId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 4);
+
+// The server accepts up to 64 KB of context; the oldest pages go first when it runs over.
+const CONTEXT_BYTES = 60 * 1024;
+
+// Settle a gallery after a job (or when nothing needed one): keep the translation entries some page
+// still comes from or keeps, and take its status from the pages — every page translated, some
+// ('partial') or none. `lang` is set by a job that ran the gallery's own settings.
+async function _finishGallery(gid, { job = null, entry = null, lang = null } = {}) {
+  const meta = await metaGet(gid);
+  if (!meta) return;
+  const records = (await getGalleryImageRecords(gid)).filter(r => r.blob ?? r.dataUrl);
+  const translations = referencedTranslations(job ? { ...(meta.translations || {}), [job]: entry } : meta.translations, records);
+  const done = records.filter(hasTranslation).length;
+  const translated = done && done === records.length ? true : done ? 'partial' : false;
+  const { translation, ...rest } = meta;   // the previous format's single record
+  await metaPut({ ...rest, translated, translatedLang: lang || meta.translatedLang, translations });
+}
+
+// Page data frames (status 9) wait here until their page (status 5) arrives, possibly one poll later.
+const _staged = new Map();   // job token → Map(page index → { record, masks })
 
 // ── Polling model ───────────────────────────────────────────────────────────────────────────
 // A whole-gallery translation is a SERVER-OWNED job. We POST it once (/translate/gallery/start),
@@ -234,9 +237,10 @@ function buildConfig(ts) {
 // navigation, a tab close+reopen, and repeated SW recycling — driven by whichever page is open
 // (the poll tick lives in boot.js → submit-job.js's pollActiveTranslations).
 //
-// Poll frames reuse the worker's envelope: status(1)+size(4 BE)+data. status 5 = a finished page
-// (tokenLen(1)+token+idx(4 BE)+PNG), 6 = its study layers (…+JSON), 0 = final summary, 2 = error.
-// The page index maps back to a url through the job's stored pendingUrls.
+// Poll frames reuse the worker's envelope: status(1)+size(4 BE)+data. status 9 = a page's pipeline
+// data (tokenLen(1)+token+idx(4 BE)+container), 5 = the finished page (…+image), 6 = its study
+// layers (…+JSON), 0 = final summary, 2 = error. The page index maps back to a url through the
+// job's stored pendingUrls.
 
 // Build a stage-aware label from the server's per-stage counters. The pipeline overlaps
 // (read → translate → render), so we name the furthest stage that isn't finished and carry that
@@ -270,10 +274,30 @@ function _galleryPct(m) {
   return Math.round((0.25 * read + 0.35 * tl + 0.40 * render) * 100);
 }
 
-// Start a server-owned gallery job: upload the not-yet-translated pages once and record the token
-// + page order so any page can poll it (and resume after a navigation / SW kill) without
-// re-uploading. Returns as soon as the job is created; the poll ticks drive it to completion.
-export async function startTranslation(galleryId, ts, send = () => {}) {
+// Start a server-owned gallery job: upload the pages that need work and record the token + page
+// order so any page can poll it (and resume after a navigation / SW kill) without re-uploading.
+// Returns as soon as the job is created; the poll ticks drive it to completion. Each page is sent
+// with its saved pipeline data and the stage its settings, code or models first changed, so the
+// server skips everything before it. `forceFrom` re-runs every page from that stage at the latest
+// (detect | ocr | translate | inpaint | render).
+//
+// The server runs one config per job, so a gallery with pages that keep their own settings is
+// translated in groups (page-data.js translationGroups), one job each; when one finishes the next
+// is queued, and `after` lists the groups this translation already ran. `pages` (urls) translates
+// only those pages, with the current settings, and they keep those settings from then on.
+export async function startTranslation(galleryId, ts, send = () => {}, { forceFrom = null, pages = null, after = [] } = {}) {
+  const start = () => startTranslationUnlocked(galleryId, ts, send, { forceFrom, pages, after });
+  if (!globalThis.navigator?.locks) return start();
+  return navigator.locks.request(BENCHMARK_LOCK, { mode: 'shared', ifAvailable: true }, lock => {
+    if (!lock) {
+      send({ status: 'error', error: 'A translation benchmark is running. Try again after it finishes.' });
+      return;
+    }
+    return start();
+  });
+}
+
+async function startTranslationUnlocked(galleryId, ts, send, { forceFrom, pages, after }) {
   const gid = String(galleryId);
   if (_translating.has(gid)) return;
   _translating.add(gid);
@@ -283,34 +307,80 @@ export async function startTranslation(galleryId, ts, send = () => {}) {
     // below with its original token, so accepted parts remain idempotent instead of being orphaned.
     let resume = await translateResume.get(gid);
     if (resume && resume.phase !== 'uploading') return;
-    ts = (resume && resume.settings) || ts || {};
+    if (resume && !resume.config) { await translateResume.remove(gid, resume.token); resume = null; }   // an older format
+    ts = migrateTranslateSettings((resume && resume.settings) || ts || {});
     const serverUrl = serverUrlFromSettings(ts);
-    const config = buildConfig(ts);
-    const tlName = config.translator.translator;
-    const langCode = TARGET_LANG_TO_CODE[ts.targetLang || 'ENG'] || '';
-    const caps = { ...DEFAULT_BATCH_CAPS, ...(ts.batchCaps || {}) };
-    const cap = BATCH_CAPPED.has(tlName) ? Math.max(1, parseInt(caps[tlName], 10) || DEFAULT_BATCH_CAPS[tlName] || 8) : 1;
+    forceFrom = (resume && resume.forceFrom) || forceFrom || null;
+    pages = (resume && resume.pages) || pages || null;
+    after = (resume && resume.after) || after || [];
+    // What the server offers (models, options, languages). A server that can't say degrades to
+    // sending the stored choices as they are.
+    const { doc: capsDoc } = await getCapabilities(serverUrl, ts);
+    if (capsDoc && unavailableChoices(ts, capsDoc).length) {
+      if (resume?.token) await translateResume.remove(gid, resume.token);
+      send({ status: 'error', errorKey: 'err.model_unavailable',
+        error: 'a model chosen in Settings → Translation is not available on this translation server' });
+      return;
+    }
+    const noPipeline = async () => {
+      if (resume?.token) await translateResume.remove(gid, resume.token);
+      send({ status: 'error', error: 'the translation server could not describe its pipeline — update or restart it' });
+    };
 
-    const cfgHash = _configHash(config);
     const records = (await getGalleryImageRecords(gid)).filter(r => r.blob ?? r.dataUrl);
     const byUrl = new Map(records.map(r => [r.url, r]));
     const total = Number(resume && resume.total) || records.length;
-    // Pending = missing output OR a different variant (target language / config) than requested.
-    // Pages translated before variants were recorded carry no provenance — those keep counting
-    // as current output until re-translated, exactly as before.
-    const _pendingPage = (r) => r.translated === undefined
-      || (r.translatedLang != null && (r.translatedLang !== langCode || r.translatedConfig !== cfgHash));
-    const pending = resume && Array.isArray(resume.pendingUrls)
-      ? resume.pendingUrls.map(url => byUrl.get(url)).filter(Boolean)
-      : records.filter(_pendingPage).sort((a, b) => _pageNumOf(a.url) - _pageNumOf(b.url));
+    const entries = (await metaGet(gid))?.translations || {};
+    const byPage = (a, b) => _pageNumOf(a.url) - _pageNumOf(b.url);
 
-    if (pending.length === 0) {
-      const meta = await metaGet(gid);
-      if (meta && (meta.translated !== true || meta.translatedLang !== langCode)) await metaPut({ ...meta, translated: true, translatedLang: langCode });
-      if (resume?.token) await translateResume.remove(gid, resume.token);
-      send({ status: 'done', done: total, total });
-      return;
+    // The group of pages this job runs, with its config, the server's resolve document for it and
+    // where each page starts (null = current, from the translation that produced its saved data).
+    let group = null;
+    if (resume) {
+      const changes = new Map();
+      group = { own: resume.group ?? null, pin: !!resume.pin, more: !!resume.more, config: resume.config,
+        resolved: resume.resolved, pending: resume.pendingUrls.map(url => byUrl.get(url)).filter(Boolean) };
+      group.plans = new Map(group.pending.map(r => [r.url, planPage(r, entries, group.resolved, changes, forceFrom)]));
+    } else {
+      const base = buildConfig(ts, capsDoc);
+      const groups = pages
+        ? [{ own: null, pages: records.filter(r => pages.includes(r.url)) }]
+        : translationGroups(records, entries).filter(g => !after.includes(g.own ?? ''));
+      const current = [];
+      for (const [i, candidate] of groups.entries()) {
+        if (!candidate.pages.length) continue;
+        const config = candidate.own ? keptConfig(base, entries[candidate.own].config) : base;
+        const resolved = await _resolve(serverUrl, ts, config);
+        if (!resolved) { await noPipeline(); return; }
+        const changes = new Map();
+        const plans = new Map(candidate.pages.map(r => [r.url, planPage(r, entries, resolved, changes, forceFrom)]));
+        const pending = candidate.pages.filter(r => plans.get(r.url) !== null).sort(byPage);
+        if (pending.length) {
+          // Pages asked for by themselves, and pages keeping settings, keep this job's from now on.
+          group = { own: candidate.own, pin: !!(pages || candidate.own), more: i < groups.length - 1,
+            config, resolved, plans, pending };
+          break;
+        }
+        current.push(...candidate.pages);
+      }
+      if (!group) {
+        // Nothing to redo. Pages asked for by themselves keep the settings they are current with.
+        if (pages) for (const r of current) if (entries[r.pipeline?.job]) await setPagesOwn([r.url], r.pipeline.job);
+        await _finishGallery(gid, { lang: pages ? null : languageTag(capsDoc, base.translator?.target_lang) });
+        send({ status: 'done', done: total, total });
+        return;
+      }
     }
+    const { config, resolved, plans, pending } = group;
+    if (!resolved) { await noPipeline(); return; }
+    const tlName = config.translator.translator;
+    const langCode = languageTag(capsDoc, config.translator.target_lang);
+    const cap = batchCap(capsDoc, tlName, ts.batchCaps);
+    // A context-aware translator starting mid-gallery gets the pages before as context.
+    const usesContext = !!stageOf(capsDoc, 'translate')?.implementations.find(i => i.id === tlName)?.context;
+    let context = resume ? resume.context || null : (usesContext ? contextBefore(records, pending[0], _pageNumOf) : null);
+    while (context && context.length && JSON.stringify(context).length > CONTEXT_BYTES) context = context.slice(1);
+    if (!context?.length) context = null;
 
     if (resume && pending.length !== resume.pendingUrls.length) {
       if (await translateResume.remove(gid, resume.token)) send({ status: 'error', error: 'one or more source pages could not be read' });
@@ -318,6 +388,7 @@ export async function startTranslation(galleryId, ts, send = () => {}) {
     }
 
     const jobToken = (resume && resume.token) || (globalThis.crypto?.randomUUID?.() || `${gid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const job = (resume && resume.job) || _jobId();
     // Sent with the job so the server's operator can tell their own queued translations apart.
     // Whatever the gallery already carries, passed through verbatim; kept on the resume record
     // so a job that resumes after a restart still reports the same origin.
@@ -326,10 +397,12 @@ export async function startTranslation(galleryId, ts, send = () => {}) {
       // `settings` stays on the record deliberately: a notfound restart can run in the service
       // worker, which cannot read localStorage-backed settings — this row is the only durable
       // carrier. Its one credential (serverToken) is required for every poll/cancel auth.
+      // `group`/`pin`/`more`/`after`/`pages` say which pages of the gallery this job is and what
+      // follows it; `config` and `context` let an interrupted upload resume unchanged.
       resume = {
-        gid, token: jobToken, serverUrl, settings: ts, langCode, translator: tlName, cap, cfgHash,
-        sourceUrl,
-        pendingUrls: pending.map(p => p.url), total, cursor: 0, phase: 'uploading',
+        gid, token: jobToken, job, serverUrl, settings: ts, langCode, translator: tlName, cap,
+        sourceUrl, forceFrom, resolved, config, context, group: group.own, pin: group.pin, more: group.more,
+        after, pages, pendingUrls: pending.map(p => p.url), total, cursor: 0, phase: 'uploading',
       };
       const claimed = await translateResume.claim(resume);
       if (claimed === 'exists') return;
@@ -379,8 +452,16 @@ export async function startTranslation(galleryId, ts, send = () => {}) {
         }
         if (!await stillOwned()) { cancelRemote(); return; }
         form.append('image', blob, 'page.png');
+        // The page's saved stage outputs and where to start; empty for a full run.
+        const plan = plans.get(pending[j].url);
+        form.append('stage', plan?.data ? encodePageData(pending[j].pipeline, plan) : new Blob([]), 'stage.bin');
       }
       form.append('config', JSON.stringify(config));
+      form.append('builds', resolved.signature);
+      if (context) form.append('context', JSON.stringify(context));
+      // Snapshots off (Settings → Translation, the default): pages keep no pipeline data, so none
+      // comes back.
+      if (!ts.saveSnapshots) form.append('capture', '0');
       form.append('batch_size', String(cap));
       form.append('job_token', jobToken);
       form.append('part', String(i));
@@ -407,6 +488,11 @@ export async function startTranslation(galleryId, ts, send = () => {}) {
       if (!ack || ack.token !== jobToken) { await failStart('translation server returned an invalid job token'); return; }
       if (!await stillOwned()) { cancelRemote(); return; }
     }
+
+    // Record this translation before any page names it, so a page stored mid-job always points at
+    // a known config (the entry is pruned once no page refers to it).
+    const meta = await metaGet(gid);
+    if (meta) await metaPut({ ...meta, translations: { ...(meta.translations || {}), [job]: _entry(resolved) } }, { silent: true });
 
     // Atomically hand the durable claim from the upload phase to the poller. If cancellation won
     // this race, stop the just-created remote job and publish nothing over the cancelled state.
@@ -439,6 +525,8 @@ export async function startTranslation(galleryId, ts, send = () => {}) {
   }
 }
 
+const _entry = (resolved) => ({ at: Date.now(), config: resolved.config, builds: resolved.builds });
+
 // One short poll: read the server's metadata frame (cursor/status/state/done/total) + the page
 // frames produced since our cursor, store the pages, and broadcast the server-authoritative
 // progress. The bar comes straight from the server's emitted-page count — the client never tallies
@@ -453,7 +541,9 @@ export async function pollTranslation(galleryId, send = () => {}) {
   const poll = { token: rec.token };
   _polling.set(gid, poll);
   try {
-    const { token, serverUrl, pendingUrls, settings, langCode, translator, cap, total, cfgHash } = rec;
+    const { token, job, serverUrl, pendingUrls, settings, langCode, translator, cap, total } = rec;
+    if (!_staged.has(token)) _staged.set(token, new Map());
+    const staged = _staged.get(token);
     const cursor = rec.cursor || 0;
     const ownsToken = async () => (await translateResume.get(gid))?.token === token;
 
@@ -488,42 +578,53 @@ export async function pollTranslation(galleryId, send = () => {}) {
       const data = buf.subarray(off + 5, off + 5 + size);
       off += 5 + size;
       if (st === 7) { try { meta = JSON.parse(dec.decode(data)); } catch {} }   // {cursor,status,state,done,total}
-      else if (st === 5) {
+      else if (st === 9 || st === 5 || st === 6) {
         const tlen = data[0];
         if (dec.decode(data.subarray(1, 1 + tlen)) !== token) continue;   // mix-up guard
         const b = 1 + tlen;
         const idx = ((data[b] << 24) | (data[b + 1] << 16) | (data[b + 2] << 8) | data[b + 3]) >>> 0;
         const url = pendingUrls[idx];
-        if (url && await ownsToken()) {
-          const img = data.subarray(b + 4);
-          // Stored as a Blob (data URLs cost ~33% more), with the variant that produced it.
-          await putTranslatedImage(url, new Blob([img], { type: _imgMime(img) }), { lang: langCode || '', config: cfgHash || '' });
-        }
-      } else if (st === 6) {
-        const tlen = data[0];
-        if (dec.decode(data.subarray(1, 1 + tlen)) !== token) continue;
-        const b = 1 + tlen;
-        const idx = ((data[b] << 24) | (data[b + 1] << 16) | (data[b + 2] << 8) | data[b + 3]) >>> 0;
-        const url = pendingUrls[idx];
-        let study = null; try { study = JSON.parse(dec.decode(data.subarray(b + 4))); } catch {}
-        if (url && study && Array.isArray(study.bubbles) && study.bubbles.length) {
-          // text_and_image frames carry bg + per-bubble text layers; text_only frames carry
-          // metadata only (no bg, no text) and render as DOM text in the reader.
-          const bg = study.bg ? await imageToBlob(study.bg) : null;
-          if (!study.bg || bg) {
-            const bubbles = [];
-            for (const bb of study.bubbles) {
-              if (!bb.box) continue;
-              const bubble = { box: bb.box, region: bb.region || bb.box, tr: bb.tr || '', src: bb.src || '' };
-              if (bb.rbox)  bubble.rbox  = bb.rbox;
-              if (bb.style) bubble.style = bb.style;
-              // Optional DOM-text extras: the renderer's drawn rect and source-line furigana.
-              if (Array.isArray(bb.furi)     && bb.furi.length)     bubble.furi     = bb.furi;
-              if (bb.tbox) bubble.tbox = bb.tbox;
-              if (bb.text) { const text = await imageToBlob(bb.text); if (!text) continue; bubble.text = text; }
-              bubbles.push(bubble);
+        const payload = data.subarray(b + 4);
+        if (!url) continue;
+        if (st === 9) {
+          const page = decodePageData(payload);
+          if (page) staged.set(idx, page);
+        } else if (st === 5) {
+          if (!await ownsToken()) continue;
+          const page = staged.get(idx);
+          staged.delete(idx);
+          // Stored as a Blob (data URLs cost ~33% more), together with the data that produced it —
+          // or, when none came back (snapshots are off, or a worker with other builds), only
+          // which translation made it; a page that keeps its own settings keeps this translation's.
+          // No image: the page is its study data, in the frame that follows.
+          await putTranslatedPage(url, payload.length ? new Blob([payload], { type: _imgMime(payload) }) : null,
+            page ? { job, ...page.record, masks: page.masks } : { job }, rec.pin ? job : undefined);
+        } else {
+          let study = null; try { study = JSON.parse(dec.decode(payload)); } catch {}
+          if (study && Array.isArray(study.bubbles) && study.bubbles.length) {
+            // text_and_image frames carry bg + per-bubble text layers; text_only frames carry
+            // metadata only (no bg, no text) and render as DOM text in the reader.
+            const bg = study.bg ? await imageToBlob(study.bg) : null;
+            if (!study.bg || bg) {
+              const bubbles = [];
+              for (const bb of study.bubbles) {
+                if (!bb.box) continue;
+                const bubble = { box: bb.box, region: bb.region || bb.box, tr: bb.tr || '', src: bb.src || '' };
+                if (bb.id != null) bubble.id = bb.id;
+                if (bb.line_ids) bubble.lineIds = bb.line_ids;
+                if (bb.raw_tr != null) bubble.rawTr = bb.raw_tr;
+                if (bb.rbox)  bubble.rbox  = bb.rbox;
+                if (bb.style) bubble.style = bb.style;
+                // Optional DOM-text extras: the renderer's drawn rect and source-line furigana.
+                if (Array.isArray(bb.furi)     && bb.furi.length)     bubble.furi     = bb.furi;
+                if (bb.tbox) bubble.tbox = bb.tbox;
+                // The area the renderer laid the text into (page-fraction polygon).
+                if (Array.isArray(bb.shape) && bb.shape.length >= 3) bubble.shape = bb.shape;
+                if (bb.text) { const text = await imageToBlob(bb.text); if (!text) continue; bubble.text = text; }
+                bubbles.push(bubble);
+              }
+              if (bubbles.length && await ownsToken()) await putPageStudy(url, { bg, bubbles, page: study.page || null }, job);
             }
-            if (bubbles.length && await ownsToken()) await putPageStudy(url, { bg, bubbles, page: study.page || null });
           }
         }
       } else if (st === 0) { try { summary = JSON.parse(dec.decode(data)); } catch {} }
@@ -539,7 +640,8 @@ export async function pollTranslation(galleryId, send = () => {}) {
         // Queue the restart through the durable runner rather than uploading inside the poller.
         // The next heartbeat claims this row, so a worker eviction can never lose the restart.
         const key = `${gid}:translate`;
-        if (await jobsPending.add({ key, kind: 'translate', payload: { galleryId: gid, settings } })) {
+        const payload = { galleryId: gid, settings, forceFrom: rec.forceFrom, pages: rec.pages, after: rec.after };
+        if (await jobsPending.add({ key, kind: 'translate', payload })) {
           send({ status: 'started', done: total - pendingUrls.length, total, labelKey: 'prog.restarting', pct: 0 });
         } else {
           send({ status: 'error', error: 'could not save translation restart state' });
@@ -588,15 +690,20 @@ export async function pollTranslation(galleryId, send = () => {}) {
     }
     const failed = (summary && Array.isArray(summary.failed)) ? summary.failed.length : Math.max(0, total - done);
     if (!await ownsToken()) return;
-    const gMeta = await metaGet(gid);
     // Gallery status reflects the pages: only complete output is marked translated; partial
     // output is durably 'partial' — never labeled complete.
-    const translatedStatus = failed > 0 ? 'partial' : true;
-    if (gMeta && (gMeta.translated !== translatedStatus || gMeta.translatedLang !== langCode)) {
-      await metaPut({ ...gMeta, translated: translatedStatus, translatedLang: langCode });
-    }
+    await _finishGallery(gid, { job, entry: _entry(rec.resolved), lang: rec.group == null && !rec.pages ? langCode : null });
     if (!await translateResume.remove(gid, token)) return;
     _dropController();
+    if (rec.more) {
+      // Pages keeping other settings are next: queued through the durable runner, which the next
+      // heartbeat picks up, like a restart.
+      const payload = { galleryId: gid, settings, forceFrom: rec.forceFrom, after: [...(rec.after || []), rec.group ?? ''] };
+      if (await jobsPending.add({ key: `${gid}:translate`, kind: 'translate', payload })) {
+        send({ status: 'started', done, total, labelKey: 'prog.preparing', pct: 0 });
+        return;
+      }
+    }
     let costNote = '';
     if (translator === 'gemini') {
       const n = pendingUrls.length, batches = Math.ceil(n / (cap || 8));
@@ -610,4 +717,3 @@ export async function pollTranslation(galleryId, send = () => {}) {
     if (_polling.get(gid) === poll) _polling.delete(gid);
   }
 }
-

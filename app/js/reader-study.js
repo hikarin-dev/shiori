@@ -10,8 +10,9 @@
 // change, so every builder reads one copy instead of threading four arguments everywhere.
 
 import { listGalleryStudyRecords } from './db.js';
+import { textOutline } from './page-image.js';
 
-// page url -> { bg:Blob|null, bubbles:[{box,region,tr,src,rbox?,style?,furi?,text?:Blob}], page:{w,h}|null }
+// page url -> { bg:Blob|null, bubbles:[{box,region,tr,src,rbox?,style?,furi?,shape?,text?:Blob}], page:{w,h}|null }
 const _pageStudy     = new Map();
 // page url -> { bgUrl, textUrls:[] } object URLs, revoked on teardown
 const _pageLayerUrls = new Map();
@@ -38,10 +39,18 @@ export const hasAnyStudy = () => _pageStudy.size > 0;
 export async function loadStudyRecords(chapterIds) {
   for (const id of chapterIds) {
     for (const rec of await listGalleryStudyRecords(id)) {
-      _pageStudy.set(rec.url, { bg: rec.bg, bubbles: rec.bubbles, page: rec.page });
+      _pageStudy.set(rec.url, { bg: rec.bg, bubbles: rec.bubbles, page: rec.page, job: rec.job, translated: rec.translated });
     }
   }
   return _pageStudy.size > 0;
+}
+
+// Drop what is held for these pages (translated again: loadStudyRecords reads them back).
+export function forgetStudy(pageUrls) {
+  for (const url of pageUrls) {
+    _pageStudy.delete(url);
+    _releaseLayerUrls(url);
+  }
 }
 
 export function _ensureWrap(imgEl) {
@@ -104,13 +113,12 @@ export function _clipInset(r) {
   return `inset(${top}% ${right}% ${bottom}% ${left}%)`;
 }
 
-// A bubble's outline, in the OCR bg colour and em-sized so it scales with the text like the
-// renderer's border does. The stroke is twice the ring it draws: paint-order puts it under the
-// fill, which covers the inner half.
+// The outline scales with the page; paint-order lets the fill cover the stroke's inner half.
 function _applyTextOutline(el, st) {
-  if (!Array.isArray(st.fg) || !Array.isArray(st.bg)) return;
-  el.style.setProperty('--outline-w', '0.16em');
-  el.style.setProperty('--outline-c', `rgb(${st.bg.join(',')})`);
+  const outline = textOutline(st);
+  if (!outline) return;
+  el.style.setProperty('--outline-w', outline.px != null ? `calc(${outline.px}px * var(--pgscale, 1))` : `${outline.em}em`);
+  el.style.setProperty('--outline-c', `rgb(${outline.color.join(',')})`);
 }
 
 // A DOM-text block for one bubble's translation, positioned at the rect the renderer actually
@@ -121,7 +129,7 @@ export function _buildStudyText(b, hasBg, pageW) {
   if (!b.tr) return null;
   const r = b.tbox || b.rbox || b.region || b.box;
   const el = document.createElement('div');
-  el.className = 'study-text' + (hasBg ? '' : ' boxed');
+  el.className = 'study-text' + (hasBg ? '' : ' boxed') + (_hasShape(b) ? ' on-shape' : '');
   el.style.left   = (r.x * 100) + '%';
   el.style.top    = (r.y * 100) + '%';
   el.style.width  = (r.w * 100) + '%';
@@ -181,7 +189,46 @@ export function _buildStudySrc(b, hasBg, pg, srcOpts) {
       runType = null;
       letterCount = 0;
     };
-    for (const glyph of text) {
+    for (const glyph of text.match(/[.．・･·…‥⋯⋮︙:：]+|[!！?？‼⁇⁈⁉]+|./gsu) || []) {
+      if (/^[.．・･·…‥⋯⋮︙:：]+$/u.test(glyph) && /[.．・･·…‥⋯⋮︙]/u.test(glyph)
+          && (glyph.length > 1 || /[…‥⋯⋮︙]/u.test(glyph))) {
+        flush();
+        // Draw every dot alike: font ellipsis glyphs can mix round and square dots,
+        // and two-/three-dot glyphs give arbitrary-length runs uneven spacing.
+        // OCR can read two adjoining dots as a colon; ordinary colons stay outside this branch.
+        const count = glyph.replace(/[…⋯⋮︙]/gu, '...').replace(/[‥:：]/gu, '..').length;
+        const ellipsis = document.createElement('span');
+        ellipsis.className = 'study-ellipsis';
+        Object.assign(ellipsis.style, {
+          display: 'inline-flex', flexDirection: 'column', writingMode: 'horizontal-tb', verticalAlign: 'baseline',
+        });
+        for (let i = 0; i < count; i++) {
+          const cell = document.createElement('span');
+          Object.assign(cell.style, {
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: '1em', height: 'calc(1em / 3)', flex: 'none',
+          });
+          const dot = document.createElement('span');
+          Object.assign(dot.style, { fontFamily: 'Arial, sans-serif', fontSize: '0.5em', lineHeight: '1' });
+          dot.textContent = '•';
+          cell.appendChild(dot);
+          ellipsis.appendChild(cell);
+        }
+        target.appendChild(ellipsis);
+        continue;
+      }
+      // Emphasis such as !!, !!! and !? shares one upright character cell.
+      if (/^[!！?？‼⁇⁈⁉]+$/u.test(glyph)) {
+        flush();
+        const combined = document.createElement('span');
+        combined.className = 'study-combined';
+        combined.style.textCombineUpright = 'all';
+        // Use narrow punctuation before fitting the group, so full-width marks do not
+        // get squeezed into hairlines (and compatibility pairs use supported glyphs).
+        combined.textContent = glyph.normalize('NFKC');
+        target.appendChild(combined);
+        continue;
+      }
       let type = 'plain';
       if (mark.test(glyph) && runType) type = runType;
       else if (!nativeVertical.test(glyph) && letter.test(glyph)) type = 'letter';
@@ -198,9 +245,11 @@ export function _buildStudySrc(b, hasBg, pg, srcOpts) {
   const lineContent = (target, i) => {
     const segs = furi && Array.isArray(furi[i]) ? furi[i] : null;
     if (!segs) { appendText(target, lines[i]); return; }
+    let plain = '';
     for (const seg of segs) {
       if (!seg || !seg[0]) continue;
       if (seg[1]) {
+        if (plain) { appendText(target, plain); plain = ''; }
         const ruby = document.createElement('ruby');
         appendText(ruby, seg[0]);
         const rt = document.createElement('rt');
@@ -208,14 +257,17 @@ export function _buildStudySrc(b, hasBg, pg, srcOpts) {
         ruby.appendChild(rt);
         target.appendChild(ruby);
       } else {
-        appendText(target, seg[0]);
+        // A punctuation run can span several unannotated segments.
+        plain += seg[0];
       }
     }
+    if (plain) appendText(target, plain);
   };
 
   const r = b.box || b.region;
   const el = document.createElement('div');
-  el.className = 'study-text src' + (hasBg ? '' : ' boxed') + (studySrcFont === 'kiwi' ? ' font-kiwi' : '');
+  el.className = 'study-text src' + (hasBg ? '' : ' boxed') + (studySrcFont === 'kiwi' ? ' font-kiwi' : '') +
+    (_hasShape(b) ? ' on-shape' : '');
   if (furi) el.classList.add('with-ruby');
   el.style.left   = (r.x * 100) + '%';
   el.style.top    = (r.y * 100) + '%';
@@ -259,6 +311,47 @@ export function _positionBubbleIndicator(box, r) {
   box.style.top    = (r.y * 100) + '%';
   box.style.width  = (r.w * 100) + '%';
   box.style.height = (r.h * 100) + '%';
+  // A shape is drawn in page fractions: undo the box's offset and size so it spans the page.
+  const shape = box.querySelector(':scope > .bubble-shape');
+  if (!shape) return;
+  shape.style.left   = (-r.x / r.w * 100) + '%';
+  shape.style.top    = (-r.y / r.h * 100) + '%';
+  shape.style.width  = (100 / r.w) + '%';
+  shape.style.height = (100 / r.h) + '%';
+}
+
+// The area the renderer laid a bubble's text into (`shape`, a page-fraction polygon) as a
+// page-sized SVG for the bubble's box: a dashed outline over a light halo, drawn at a fixed screen
+// width. Nesting it in the box keeps hover, clicks and feedback tags the box's own. The bubble's
+// DOM text is marked `on-shape` so it leaves hover and clicks to the shape beneath it.
+const _hasShape = b => Array.isArray(b.shape) && b.shape.length >= 3;
+export function _buildBubbleShape(b) {
+  if (!_hasShape(b)) return null;
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('class', 'bubble-shape');
+  svg.setAttribute('viewBox', '0 0 1 1');
+  svg.setAttribute('preserveAspectRatio', 'none');
+  const points = b.shape.map(p => p.join(',')).join(' ');
+  for (const part of ['halo', 'line']) {
+    const polygon = document.createElementNS(ns, 'polygon');
+    polygon.setAttribute('class', 'bubble-shape-' + part);
+    polygon.setAttribute('points', points);
+    svg.appendChild(polygon);
+  }
+  return svg;
+}
+
+// Texts a renderer gave the very same area (a balloon it didn't divide between them) share one
+// outline, so each keeps its own region as the click target. Returns those bubbles.
+export function _sharedShapes(bubbles) {
+  const byShape = new Map();
+  for (const b of bubbles) {
+    if (!Array.isArray(b.shape)) continue;
+    const key = JSON.stringify(b.shape);
+    byShape.set(key, [...(byShape.get(key) || []), b]);
+  }
+  return new Set([...byShape.values()].filter(group => group.length > 1).flat());
 }
 
 export function _wireSelectableText(el, onPlainClick) {

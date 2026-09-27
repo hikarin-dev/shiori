@@ -14,7 +14,7 @@
 import {
   publishFeed, metaPut, backfillUploadDates, coverPut, refreshSeriesAggregate, sourceIconPut,
   metaGetAll, galleryGetAll, galleryGet, galleryPut, sourceIconsAll,
-  imageKeysAll, imageRecordPut, dbGet, coverKeysAll, coverRecordGet,
+  imageKeysAll, imageRecordPut, dbGet, coverKeysAll, coverRecordGet, BUBBLE_EXTRA_FIELDS,
 } from './db.js';
 import { isValidGalleryId } from './sanitize.js';
 
@@ -131,6 +131,7 @@ export async function exportFull(onProgress) {
 }
 
 let lastCounts = null;
+const PIPELINE_MASKS = ['raw', 'text'];
 
 // Walk every store one record at a time, handing each blob to `sink` (which writes it and returns
 // its { off, len, type }). Returns the manifest. Holds at most one image at a time.
@@ -141,6 +142,15 @@ async function build(sink, onProgress) {
     const r = await dbGet(imgKeys[i]);
     if (!r) continue;
     const ent = { url: r.url, mediaId: r.mediaId, galleryId: r.galleryId, cachedAt: r.cachedAt, size: r.size };
+    // The page's pipeline data (what a later translation reuses): inline, with its masks streamed.
+    if (r.pipeline) {
+      const { masks = {}, ...data } = r.pipeline;
+      const specs = {};
+      for (const name of PIPELINE_MASKS) { const m = toBlob(masks[name]); if (m) specs[name] = await sink(m); }
+      ent.pipeline = { ...data, masks: specs };
+    }
+    if (r.own) ent.own = r.own;   // the translation whose settings the page keeps
+    if (r.translatedLayers) ent.translatedLayers = true;   // the translated page is its study layers
     const body = toBlob(r.blob ?? r.dataUrl);
     if (body) ent.body = await sink(body);
     if (r.translated != null) { const tb = toBlob(r.translated); if (tb) ent.translated = await sink(tb); }
@@ -154,7 +164,7 @@ async function build(sink, onProgress) {
       for (const b of r.bubbles) {
         const tb = toBlob(b.text);
         const bubble = { box: b.box, region: b.region, tr: b.tr || '', src: b.src || '', text: tb ? await sink(tb) : null };
-        for (const key of ['rbox', 'style', 'tbox', 'furi']) {
+        for (const key of BUBBLE_EXTRA_FIELDS) {
           if (b[key] != null) bubble[key] = b[key];
         }
         bubs.push(bubble);
@@ -251,7 +261,8 @@ function validateFullManifest(manifest, blobRegionEnd) {
   const bad = (what) => { throw new Error(`Corrupt archive (${what})`); };
   for (const e of (manifest.images || [])) {
     if (!isValidGalleryId(e.galleryId)) bad('invalid gallery id');
-    const specs = [e.body, e.translated, e.studyBg, ...(Array.isArray(e.bubbles) ? e.bubbles.map(b => b?.text) : [])];
+    const specs = [e.body, e.translated, e.studyBg, ...(Array.isArray(e.bubbles) ? e.bubbles.map(b => b?.text) : []),
+      ...PIPELINE_MASKS.map(name => e.pipeline?.masks?.[name])];
     if (!specs.every(s => _validSpec(s, blobRegionEnd))) bad('blob out of bounds');
   }
   for (const c of (manifest.covers || [])) {
@@ -277,6 +288,13 @@ async function importFullFile(file, onProgress) {
   let n = 0;
   for (const e of (manifest.images || [])) {
     const rec = { url: e.url, mediaId: e.mediaId, galleryId: e.galleryId, cachedAt: e.cachedAt, size: e.size };
+    if (e.pipeline && typeof e.pipeline === 'object') {
+      const { masks = {}, ...data } = e.pipeline;
+      rec.pipeline = { ...data, masks: {} };
+      for (const name of PIPELINE_MASKS) { const m = sliceOf(masks[name]); if (m) rec.pipeline.masks[name] = m; }
+    }
+    if (typeof e.own === 'string') rec.own = e.own;
+    if (e.translatedLayers === true) rec.translatedLayers = true;
     const b = sliceOf(e.body); if (b) rec.blob = b;
     const tb = sliceOf(e.translated); if (tb) rec.translated = tb;
     const sb = sliceOf(e.studyBg); if (sb) rec.studyBg = sb;
@@ -284,7 +302,7 @@ async function importFullFile(file, onProgress) {
     if (Array.isArray(e.bubbles) && e.bubbles.length) {
       rec.bubbles = e.bubbles.map((b) => {
         const bubble = { box: b.box, region: b.region || b.box, tr: b.tr || '', src: b.src || '', text: sliceOf(b.text) };
-        for (const key of ['rbox', 'style', 'tbox', 'furi']) {
+        for (const key of BUBBLE_EXTRA_FIELDS) {
           if (b[key] != null) bubble[key] = b[key];
         }
         return bubble;

@@ -6,6 +6,7 @@ import * as platform from './platform.js';
 import { services } from './services.js';
 import { pollActiveTranslations } from './submit-job.js';
 import { applyTranslations } from './i18n.js';
+import './app-update.js';
 
 // We reached an app page, so it booted — clear the hard-reload recovery flag that index.html /
 // 404.html set to bounce the navigation through the service worker (see those files). Left set, the
@@ -68,9 +69,32 @@ const maintenanceReady = new Promise((resolve) => {
 // records completion only after it actually succeeded, so a failed repair retries next boot.
 maintenanceReady.then(async () => {
   const { runMigrations, runMaintenance } = await import('./migrations.js');
-  await runMigrations();
+  await runMigrations(undefined, _updateReport());
   await runMaintenance();
+  // After an update, once: how pages stored the old way should move to the new storage layout.
+  const { offerStorageUpgrade } = await import('./storage-upgrade.js');
+  await offerStorageUpgrade().catch(() => {});
 });
+
+// One-time library updates show a progress modal, but only while one takes long enough to notice.
+function _updateReport() {
+  let modal = null, timer = null, last = [0, 0];
+  const show = async () => {
+    const { showProgress } = await import('./notice.js');
+    const { t } = await import('./i18n.js');
+    if (!timer) return;
+    modal = showProgress({ title: t('maint.title'), body: t('maint.body') });
+    modal.update(...last, last[1] ? t('maint.progress', { done: last[0], total: last[1] }) : '');
+  };
+  return {
+    step() { if (!timer && !modal) timer = setTimeout(show, 700); },
+    progress(done, total) {
+      last = [done, total];
+      if (modal) import('./i18n.js').then(({ t }) => modal?.update(done, total, t('maint.progress', { done, total })));
+    },
+    end() { clearTimeout(timer); timer = null; modal?.close(); modal = null; },
+  };
+}
 
 // Finish precaching the offline shell now that the page is up. The worker deliberately installs
 // with code only, so the first visit isn't held behind ~9 MB of fonts and flags; this fetches

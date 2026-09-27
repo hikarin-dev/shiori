@@ -3,6 +3,7 @@
 // the kv surface never exposes credentials or the pairing capability itself.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import 'fake-indexeddb/auto';
 
 class SilentBroadcastChannel {
   constructor(name) { this.name = name; this.onmessage = null; }
@@ -128,4 +129,20 @@ test('the paired session works over its port, and kv is allowlisted', async () =
   });
   assert.equal(oversizedRoster.ok, false);
   assert.match(oversizedRoster.error, /chapters exceeds the allowed size/);
+});
+
+test('a metadata write over the bridge keeps the record of how the gallery was translated', async () => {
+  const { metaPut, metaGet } = await import('../js/db.js');
+  const translations = { j1: { at: 1, config: { render: { renderer: 'shiori_v2' } }, builds: { render: 'r1' } } };
+  await metaPut({ galleryId: '4242', title: { english: 'Old', japanese: '', pretty: 'Old' }, tags: [], translations });
+
+  const replies = hello(EXT_ORIGIN, SECRET);
+  await tick();
+  const port = replies[0].port;
+  _openPorts.push(port);
+  const res = await callOverPort(port, 'meta_put', { meta: { galleryId: '4242', title: { english: 'Fresh', japanese: '', pretty: 'Fresh' }, tags: [] } });
+  assert.equal(res.ok, true);
+  const meta = await metaGet('4242');
+  assert.equal(meta.title.english, 'Fresh');
+  assert.deepEqual(meta.translations, translations);
 });

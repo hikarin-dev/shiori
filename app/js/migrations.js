@@ -32,6 +32,21 @@ export const STEPS = [
     },
   },
   {
+    id: 'exportSizes',
+    // A gallery's size became its export archive's: translations, study data, snapshots, covers
+    // and metadata too, not only the original pages.
+    async run(progress) {
+      const { galleryGetAll, refreshGallerySize, publishFeed } = await import('./db.js');
+      const entries = await galleryGetAll();
+      let changed = 0;
+      for (const [i, entry] of entries.entries()) {
+        if (await refreshGallerySize(entry.galleryId)) { publishFeed(entry.galleryId); changed++; }
+        progress(i + 1, entries.length);
+      }
+      if (changed) console.log(`[shiori] recomputed the size of ${changed} galleries`);
+    },
+  },
+  {
     id: 'uploadDateBackfilled',
     // Copy each gallery's published date into its stat record so the "Published date" sort
     // runs off the galleries index.
@@ -46,23 +61,35 @@ export const STEPS = [
 // Legacy per-repair flags. A profile that already ran them must not run them again.
 const LEGACY_FLAGS = ['countsRepaired', 'seriesShellStatsRepaired', 'uploadDateBackfilled'];
 
-// `steps` is injectable so the runner's completion semantics can be exercised directly.
-export async function runMigrations(steps = STEPS) {
+// `steps` is injectable so the runner's completion semantics can be exercised directly. A step's
+// run(progress) may report progress(done, total); `report` ({ step(), progress(), end() }) shows it.
+// One context runs them at a time, so two tabs never repeat a step.
+export async function runMigrations(steps = STEPS, report = null) {
+  const locks = globalThis.navigator?.locks;
+  return locks ? locks.request('shiori-migrations', () => _run(steps, report)) : _run(steps, report);
+}
+
+async function _run(steps, report) {
   const stored = await platform.kv.get(['schemaSteps', ...LEGACY_FLAGS]);
   const done = new Set(Array.isArray(stored.schemaSteps) ? stored.schemaSteps : []);
   for (const flag of LEGACY_FLAGS) if (stored[flag]) done.add(flag);
 
-  for (const step of steps) {
-    if (done.has(step.id)) continue;
-    try {
-      await step.run();
-    } catch (err) {
+  try {
+    for (const step of steps) {
+      if (done.has(step.id)) continue;
+      report?.step();
+      try {
+        await step.run((n, total) => report?.progress(n, total));
+      } catch (err) {
       // Leave the flag unset so the next boot retries; later steps may depend on this one.
-      console.warn(`[shiori] migration ${step.id} failed, will retry next boot`, err);
-      break;
+        console.warn(`[shiori] migration ${step.id} failed, will retry next boot`, err);
+        break;
+      }
+      done.add(step.id);
+      platform.kv.set({ schemaSteps: [...done] });
     }
-    done.add(step.id);
-    platform.kv.set({ schemaSteps: [...done] });
+  } finally {
+    report?.end();
   }
 }
 
@@ -84,4 +111,14 @@ export async function runMaintenance() {
       if (m && Number(m[1]) < cutoff) await root.removeEntry(name).catch(() => {});
     }
   } catch {}
+
+  // Measure the typical page of galleries stored before it was kept. Not awaited: the first run
+  // reads every stored page's header. One context at a time, so two tabs don't repeat it.
+  const measure = async () => {
+    const { backfillMedianPages } = await import('./db.js');
+    const measured = await backfillMedianPages();
+    if (measured) console.log(`[shiori] measured the typical page of ${measured} galleries`);
+  };
+  const locks = globalThis.navigator?.locks;
+  (locks ? locks.request('shiori-median-pages', { ifAvailable: true }, lock => lock && measure()) : measure()).catch(() => {});
 }

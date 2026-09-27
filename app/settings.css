@@ -211,10 +211,13 @@ header {
   min-width: 0;
   padding: 17px 20px 14px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   border-bottom: 1px solid var(--border);
 }
+/* A status pill in a header sits at its right end without making it taller than a title-only one. */
+.section-header > .key-status-badge { margin-left: auto; margin-block: -3px; }
 
 .section-title {
   min-width: 0;
@@ -302,7 +305,7 @@ header {
 
 .field-input:hover { border-color: #52525c; }
 
-.field-input:focus {
+.field-input:focus-visible {
   border-color: var(--ring);
   box-shadow: 0 0 0 1px var(--ring);
 }
@@ -328,6 +331,10 @@ textarea.field-input { min-height: 82px; }
   grid-column: 2;
   grid-row: 1;
 }
+.field > .input-wrap:where(:last-child) {
+  grid-row: 1 / span 2;
+  align-self: center;
+}
 .field > .key-status-badge {
   grid-column: 2;
   grid-row: 2;
@@ -350,6 +357,18 @@ textarea.field-input { min-height: 82px; }
 }
 
 .reveal-btn:hover { color: var(--text); }
+.reveal-btn > svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.reveal-btn[aria-busy="true"] > svg { animation: spin .8s linear infinite; }
+@keyframes spin { to { rotate: 360deg; } }
 
 /* Segmented controls */
 .choice-source { display: none; }
@@ -413,12 +432,109 @@ textarea.field-input { min-height: 82px; }
   gap: 7px;
 }
 
+/* Five equal-width steps, each pair joined by a chevron in its own narrow track. */
 .translate-summary {
-  padding: 15px 20px;
-  border-top: 1px solid var(--border);
-  color: var(--muted-dim);
-  font-size: 10.5px;
+  padding: 17px 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(4, auto minmax(0, 1fr));
+  align-items: end;
+  gap: 8px 4px;
+  border-bottom: 1px solid var(--border);
   font-variant-numeric: tabular-nums;
+}
+
+/* The way into every option behind the pipeline, ruled off at the foot of the card. */
+.translate-advanced {
+  padding: 10px 20px;
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--border);
+}
+.translate-advanced > .btn-mini { gap: 6px; }
+.translate-advanced > .btn-mini > svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* One pipeline step: icon + name as a plain caption, the model as the only outlined control. */
+.translate-step {
+  min-width: 0;
+  display: grid;
+  row-gap: 6px;
+}
+
+.translate-step-head {
+  min-width: 0;
+  padding-left: 1px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* This font's capitals sit just above their line's middle; the top margin nudges the centred box
+   down half a pixel so the letters line up with the icon's centre (measured, at 1× and 1.5×). */
+.translate-step-name {
+  min-width: 0;
+  margin-top: 1px;
+  overflow: hidden;
+  color: var(--muted-dim);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* The model box — its dropdown look and motion come from dropdown.css. */
+.translate-step-select {
+  --dd-inset: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 9px 8px 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.3;
+  cursor: pointer;
+}
+.translate-step-select:focus-visible { border-color: var(--ring); }
+
+.translate-step-icon,
+.translate-step-sep {
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.translate-step-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  stroke-width: 1.8;
+}
+.translate-step-sep {
+  width: 14px;
+  height: 14px;
+  margin-bottom: 9px;
+  color: var(--muted-dim);
+}
+
+/* Same look as the other pages' tooltip; `pre` so multi-line tips break per setting. */
+.shiori-tip {
+  position: fixed; left: 0; top: 0; pointer-events: none; z-index: 9999;
+  background: #222; color: #eee; border: 1px solid #555;
+  padding: 3px 7px; border-radius: 4px; font-size: 11px; line-height: 1.5;
+  white-space: pre-wrap; max-width: min(360px, calc(100vw - 20px)); display: none;
 }
 
 /* Switches — both class sets are retained for independently supplied cards. */
@@ -489,6 +605,32 @@ textarea.field-input { min-height: 82px; }
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+
+/* An (i) beside a setting's name: more detail on hover. */
+.field-info {
+  display: inline-flex;
+  margin-left: 6px;
+  vertical-align: -2px;
+  color: var(--muted);
+  cursor: help;
+}
+.field-info:hover,
+.field-info:focus-visible { color: var(--text); outline: none; }
+.field-info svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* A setting that belongs with the one above it. */
+.section-body > .field + .field-sub { border-top: 0; padding-top: 0; }
+.field-sub { padding-left: 40px; }
+
+.translate-primary > .field + .field { border-top: 1px solid var(--border); }
 
 /* Study mode preview */
 @font-face {
@@ -1082,6 +1224,23 @@ html:has(.modal-backdrop.show) { overflow: hidden; }
 .tcfg-h.tcfg-collapsible:hover { color: var(--text); }
 .tcfg-hidden { display: none !important; }
 
+/* Why the choices below are missing, stale or partly unavailable (drawn from the server). */
+.translate-caps-note {
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  text-align: left;
+  font-size: 11px;
+}
+.translate-caps-note[hidden] { display: none; }
+.translate-summary-offline {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .tcfg-note {
   grid-column: 1 / -1;
   min-width: 0;
@@ -1190,7 +1349,9 @@ html:has(.modal-backdrop.show) { overflow: hidden; }
   .field,
   .toggle-row { padding: 15px; }
   .actions-row { padding: 10px 15px; }
-  .translate-summary { padding: 13px 15px; }
+  .translate-summary { padding: 15px; grid-template-columns: minmax(0, 1fr); }
+  .translate-advanced { padding: 10px 15px; }
+  .translate-step-sep { margin: 0; justify-self: center; transform: rotate(90deg); }
   .section-body > .status-msg:not(.hidden) { padding: 0 15px 12px; }
 
   .study-section-body { padding: 14px; }

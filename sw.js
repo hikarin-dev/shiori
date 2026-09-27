@@ -18,7 +18,7 @@ const ROOT = new URL('./', self.location.href);
 // user-facing app version: precached code can change outside a release, and changing this value
 // makes the browser install every BOOT asset into a fresh cache.
 const CACHE_PREFIX = `shiori${ROOT.pathname.replace(/\//g, '_')}`;
-const SHELL_CACHE_REVISION = 45;
+const SHELL_CACHE_REVISION = 47;
 const CACHE_NAME = `${CACHE_PREFIX}-shell-v${SHELL_CACHE_REVISION}`;
 function cacheName() {
   return CACHE_NAME;
@@ -35,15 +35,17 @@ const FLAGS = ['BR','CN','DE','ES','FR','GB','ID','IT','JP','KR','NL','PL','PT',
 const SHELL = [
   'app/library.html', 'app/reader.html', 'app/settings.html', 'app/agent.html', 'app/overview.html',
   'app/manifest.webmanifest', 'app/font-init.js', 'boot-root.js',
-  'app/library.css', 'app/reader.css', 'app/settings.css', 'app/overview.css',
+  'app/library.css', 'app/reader.css', 'app/settings.css', 'app/overview.css', 'app/dropdown.css',
   'app/fonts/ccvictoryspeech.ttf', 'app/fonts/KiwiMaru-Regular.ttf', 'app/fonts/YasashisaAntique.otf',
   'app/fonts/JetBrainsMono-Regular.woff2', 'app/fonts/JetBrainsMono-SemiBold.woff2', 'app/fonts/JetBrainsMono-Bold.woff2',
   'app/fonts/LICENSE-Kiwi-Maru-OFL.txt', 'app/fonts/LICENSE-YasashisaAntique-IPA.txt',
   'app/fonts/LICENSE-YasashisaAntique-MPLUS.txt', 'app/fonts/LICENSE-JetBrainsMono-OFL.txt', 'app/fonts/README.md',
-  'app/js/platform.js', 'app/js/db.js', 'app/js/api.js', 'app/js/store.js', 'app/js/series.js', 'app/js/sanitize.js', 'app/js/sites.js', 'app/js/image-util.js', 'app/js/migrations.js',
-  'app/js/import-cbz.js', 'app/js/translate.js', 'app/js/backup.js',
+  'app/js/platform.js', 'app/js/disk-writes.js', 'app/js/notice.js', 'app/js/app-update.js', 'app/js/storage-upgrade.js', 'app/notice.css', 'app/js/db.js', 'app/js/gallery-files.js', 'app/js/api.js', 'app/js/store.js', 'app/js/series.js', 'app/js/sanitize.js', 'app/js/sites.js', 'app/js/image-util.js', 'app/js/page-size.js', 'app/js/migrations.js',
+  'app/js/import-cbz.js', 'app/js/translate.js', 'app/js/translate-config.js', 'app/js/capabilities.js', 'app/js/page-data.js', 'app/js/page-image.js', 'app/js/backup.js',
+  'app/js/benchmark.js', 'app/js/benchmark-core.js', 'app/js/benchmark-ui.js', 'app/benchmark.css',
+  'app/js/feedback.js', 'app/js/reader-feedback.js', 'app/js/reader-properties.js', 'app/js/reader-page-menu.js', 'app/js/zip.js',
   'app/js/jobs-runner.js', 'app/js/submit-job.js', 'app/js/services.js', 'app/js/ext-bridge.js', 'app/js/boot.js',
-  'app/js/i18n.js', 'app/js/locales.js', 'app/js/tooltip.js', 'app/js/titles.js', 'app/js/format.js',
+  'app/js/i18n.js', 'app/js/locales.js', 'app/js/tooltip.js', 'app/js/dropdown.js', 'app/js/rerun-menu.js', 'app/js/titles.js', 'app/js/format.js',
   'app/js/library.js', 'app/js/reader.js', 'app/js/reader-study.js', 'app/js/settings.js', 'app/js/agent.js', 'app/js/overview.js',
   ...FLAGS,
   'icons/icon16.png', 'icons/icon32.png', 'icons/icon48.png', 'icons/icon128.png',
@@ -83,6 +85,45 @@ async function warmDeferredShell() {
   }
   if (missing.length) await Promise.allSettled(missing.map((href) => cache.add(href)));
 }
+
+// A cached file is checked rather than fetched again: the server is asked whether it changed since
+// (its ETag / Last-Modified), so an unchanged file costs a bodiless 304 and writes nothing — saving
+// every file again on every visit wrote about 1 MB per page load. The browser's HTTP cache is
+// bypassed too, so the check doesn't store a second copy there. A changed file is stored, and a
+// changed piece of code tells open pages a newer version is ready. Resolves true when it changed.
+async function revalidateEntry(cache, key, cached, target = key) {
+  const etag = cached.headers.get('etag');
+  const modified = cached.headers.get('last-modified');
+  const headers = new Headers();
+  if (etag) headers.set('If-None-Match', etag);
+  if (modified) headers.set('If-Modified-Since', modified);
+  const resp = await fetch(target, { headers, cache: 'no-store' });
+  if (resp.status === 304 || !resp.ok || resp.type !== 'basic') return false;
+  await cache.put(key, resp);
+  if (isCode(new URL(key).pathname)) announceUpdate();
+  return true;
+}
+
+let _announceTimer = null;
+function announceUpdate() {
+  clearTimeout(_announceTimer);
+  _announceTimer = setTimeout(() => platform.control.send({ type: 'APP_UPDATE_AVAILABLE' }), 1500);
+}
+
+// Every cached file checked the same way, a few at a time. Returns how many changed.
+async function refreshShell() {
+  const cache = await caches.open(await cacheName());
+  const requests = await cache.keys();
+  let changed = 0;
+  for (let i = 0; i < requests.length; i += 8) {
+    await Promise.all(requests.slice(i, i + 8).map(async (request) => {
+      const cached = await cache.match(request);
+      if (cached && await revalidateEntry(cache, request.url, cached).catch(() => false)) changed++;
+    }));
+  }
+  return changed;
+}
+let _lastShellCheck = 0;
 
 self.addEventListener('activate', (e) => {
   e.waitUntil((async () => {
@@ -131,7 +172,7 @@ self.addEventListener('fetch', (e) => {
     if (req.cache !== 'reload' && req.cache !== 'no-store') {
       const cached = await cache.match(key);
       if (cached) {
-        e.waitUntil(refresh().catch(() => {}));
+        e.waitUntil(revalidateEntry(cache, key, cached, navFile ? key + url.search : req.url).catch(() => {}));
         return cached;
       }
     }
@@ -206,6 +247,19 @@ async function pollLoop() {
 self.addEventListener('message', (e) => {
   const d = e.data;
   if (d && d.__shioriWarmShell) { e.waitUntil(warmDeferredShell().catch(() => {})); return; }
+  // Updating: every cached file brought up to date before the pages reload (answered on the port).
+  if (d && d.__shioriRefreshShell) {
+    e.waitUntil(refreshShell().catch(() => 0).then((changed) => e.ports[0]?.postMessage({ changed })));
+    return;
+  }
+  // A page left open looks for a newer version now and then; a changed file announces it.
+  if (d && d.__shioriCheckShell) {
+    if (Date.now() - _lastShellCheck > 5 * 60 * 1000) {
+      _lastShellCheck = Date.now();
+      e.waitUntil(refreshShell().catch(() => 0));
+    }
+    return;
+  }
   if (d && d.__shioriPoll) {
     e.waitUntil((async () => {
       // Resume uploads/imports alongside the heartbeat so a long import cannot starve an

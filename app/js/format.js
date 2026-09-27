@@ -10,6 +10,10 @@ export function formatCount(value, locale = activeLocale()) {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(number);
 }
 
+export function formatMegapixels(mp, locale = activeLocale()) {
+  return `${new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(mp)} MP`;
+}
+
 export function formatBytes(bytes, locale = activeLocale()) {
   let value = Math.max(0, Number(bytes) || 0);
   const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];

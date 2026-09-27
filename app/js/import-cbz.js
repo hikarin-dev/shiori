@@ -2,8 +2,9 @@
 // sorting) the download orchestration reuses. Runs in a page or in the PWA service worker.
 
 import * as platform from './platform.js';
-import { dbPut, metaPut, metaGet, galleryGet, deleteStaleGalleryImages, existingPageNums, publishFeed,
-         putTranslatedImage, putPageStudy, mutateGallery, refreshSeriesAggregate, pruneSeriesChildren, coverPut, nextGalleryId } from './db.js';
+import { dbPut, dbGet, imageRecordPut, metaPut, metaGet, galleryGet, deleteStaleGalleryImages, existingPageNums, publishFeed,
+         putTranslatedImage, putPageStudy, mutateGallery, refreshSeriesAggregate, pruneSeriesChildren, coverPut, nextGalleryId,
+         BUBBLE_EXTRA_FIELDS } from './db.js';
 import { isValidGalleryId } from './sanitize.js';
 
 // An embedded id that fails the app's numeric-id gate is ignored (remapped to the caller's
@@ -280,6 +281,36 @@ async function _importSeriesZip(entries, manifest, onProgress) {
   onProgress({ status: 'done', done: total, total });
 }
 
+// Pipeline data from image_records.json (plus its pipeline/NNNN-{raw,text}.webp masks): what a later
+// translation of the page reuses. Only the shape is checked; the translation server validates
+// whatever it is sent and runs a page in full when its data doesn't fit.
+async function _restorePipelines(data, urlByNum, byName) {
+  let records = null;
+  try { records = JSON.parse(new TextDecoder().decode(data)); } catch {}
+  if (!Array.isArray(records)) return;
+  for (const e of records) {
+    const pipeline = e?.pipeline;
+    const m = String(e?.url || '').match(/\/(\d+)\.\w+$/);
+    const url = m && urlByNum.get(parseInt(m[1]));
+    if (!url) continue;
+    // A translated page kept as its study layers (restored with the study files).
+    const patch = e.translatedLayers === true ? { translatedLayers: true } : {};
+    if (pipeline && typeof pipeline === 'object' && typeof pipeline.job === 'string') {
+      const num = m[1].padStart(4, '0');
+      const masks = {};
+      for (const name of ['raw', 'text']) {
+        const ext = ['webp', 'png'].find((e) => byName.has(`pipeline/${num}-${name}.${e}`));
+        if (ext) masks[name] = new Blob([byName.get(`pipeline/${num}-${name}.${ext}`)], { type: MIME[ext] });
+      }
+      patch.pipeline = { ...pipeline, masks };
+      if (typeof e.own === 'string') patch.own = e.own;   // the translation whose settings it keeps
+    }
+    if (!Object.keys(patch).length) continue;
+    const rec = await dbGet(url);
+    if (rec) await imageRecordPut({ ...rec, ...patch });
+  }
+}
+
 // Restore a Shiori per-gallery export (images/ + translated/ + study/ + metadata.json +
 // image_records.json) into `gid`. Always a full replace, so the originals, the translated
 // variants AND the study-mode layers all come back intact.
@@ -363,7 +394,7 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
         if (!ent || !ent.box) continue;
         const td = ent.textFile ? byName.get(`study/text/${ent.textFile}`) : null;
         const bubble = { box: ent.box, region: ent.region || ent.box, tr: ent.tr || '', src: ent.src || '', text: td ? new Blob([td], { type: mimeOf(ent.textFile) }) : null };
-        for (const key of ['rbox', 'style', 'tbox', 'furi']) {
+        for (const key of BUBBLE_EXTRA_FIELDS) {
           if (ent[key] != null) bubble[key] = ent[key];
         }
         bubbles.push(bubble);
@@ -371,6 +402,9 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
       if (bubbles.length) await putPageStudy(url, { bg: bgData ? new Blob([bgData], { type: mimeOf(bgName) }) : null, bubbles, page });
     }
   }
+
+  const recordsData = byName.get('image_records.json');
+  if (recordsData) await _restorePipelines(recordsData, urlByNum, byName);
 
   await restoreExportedCovers(gid, byName);
   onProgress({ status: 'done', done, total: pageEntries.length, skipped: 0 });

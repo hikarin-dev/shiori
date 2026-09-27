@@ -11,7 +11,7 @@ import {
   deleteGallery, metaGet, metaPut,
 } from './db.js';
 import { resolveSeries } from './series.js';
-import { pingServer, revertGallery, serverUrlFromSettings, hasConfiguredServer } from './translate.js';
+import { pingServer, revertGallery, followGallerySettings, serverUrlFromSettings, hasConfiguredServer } from './translate.js';
 import { request as extRequest } from './ext-bridge.js';
 import { submitJob, cancelJob } from './submit-job.js';
 
@@ -129,9 +129,23 @@ export const services = {
 
       case 'TRANSLATE_GALLERY': {                                         // translate → durable runner
         const { translateSettings } = await platform.kv.get(['translateSettings']);
-        const routed = await submitJob('translate', { galleryId: msg.galleryId, settings: translateSettings });
+        const routed = await submitJob('translate', { galleryId: msg.galleryId, settings: translateSettings,
+          ...(msg.forceFrom ? { forceFrom: msg.forceFrom } : {}) });
         return { ok: routed != null, started: routed != null };
       }
+
+      case 'TRANSLATE_PAGES': {                                           // some pages → durable runner
+        // One translation at a time per gallery: a page waits for the gallery's to finish.
+        const gid = String(msg.galleryId);
+        const busy = await platform.translateResume.get(gid)
+          || (await platform.jobsPending.all()).some(entry => entry.key === `${gid}:translate`);
+        if (busy) return { ok: false, busy: true };
+        const { translateSettings } = await platform.kv.get(['translateSettings']);
+        const routed = await submitJob('translate', { galleryId: gid, settings: translateSettings, pages: msg.urls });
+        return { ok: routed != null, started: routed != null };
+      }
+
+      case 'FOLLOW_GALLERY_SETTINGS': await followGallerySettings(msg.galleryId, msg.urls); return { ok: true };
 
       case 'CANCEL_TRANSLATE': {
         const gid = String(msg.galleryId);
@@ -153,7 +167,11 @@ export const services = {
         return { ok: true };
       }
 
-      case 'REVERT_GALLERY': await revertGallery(msg.galleryId); return { ok: true };
+      case 'REVERT_GALLERY': {
+        const { translateSettings: ts } = await platform.kv.get(['translateSettings']);
+        await revertGallery(msg.galleryId, { keepSnapshots: !!ts?.keepSnapshotsOnRevert });
+        return { ok: true };
+      }
 
       case 'CACHE_ALL_PAGES': {                                          // download → external helper
         const gid = String(msg.galleryId);

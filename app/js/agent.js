@@ -23,6 +23,7 @@ import {
   mutateGallery, refreshSeriesAggregate, isSeriesMeta, effectiveTagsOf, publishFeed,
   metaGetAllMap, getGalleryPages, getGalleryPageRange, getGalleryImageRecords, imageToBlob, imageToDataUrl,
 } from './db.js';
+import { translatedImage } from './page-image.js';
 import { pickTitle } from './titles.js';
 
 function storedPageNum(pageNum, url) {
@@ -65,11 +66,13 @@ async function allOrThrow(promises) {
 // list) or orphan a chapter (wiping its parentId) just by backfilling its metadata. Carry across
 // any grouping field the incoming meta didn't set so a metadata write can't destroy grouping.
 const GROUPING_FIELDS = ['chapters', 'parentId', 'seriesTitle', 'seriesTags'];
+// The record of which configs translated the gallery's pages is app-only too.
+const APP_ONLY_FIELDS = [...GROUPING_FIELDS, 'translations'];
 async function metaPutKeepingGrouping(meta, opts) {
   const prev = await metaGet(meta.galleryId).catch(() => null);
   if (!prev) return metaPut(meta, opts);
   const merged = { ...meta };
-  for (const field of GROUPING_FIELDS) {
+  for (const field of APP_ONLY_FIELDS) {
     if (merged[field] === undefined && prev[field] !== undefined) merged[field] = prev[field];
   }
   return metaPut(merged, opts);
@@ -165,7 +168,7 @@ const OPS = {
     }
     for (const { url, pageNum } of queries) {
       const rec = byUrl.get(url) ?? (!isNaN(pageNum) ? byPage.get(pageNum) : undefined);
-      const dataUrl = rec ? await imageToDataUrl(rec.translated ?? rec.blob ?? rec.dataUrl) : undefined;
+      const dataUrl = rec ? await imageToDataUrl((await translatedImage(rec)) ?? rec.blob ?? rec.dataUrl) : undefined;
       if (dataUrl) results[url] = dataUrl;
     }
     return { results };
@@ -369,6 +372,12 @@ window.addEventListener('message', (e) => {
     // Silent on failure: an unpaired caller learns nothing, not even that an agent lives here.
     if (ok && source) _openSession(source, origin);
   });
+});
+
+// The app updated in a tab: reload onto the new code like every other app page (the embedder
+// opens a new session with the reloaded page).
+platform.control.on((msg) => {
+  if (msg?.type === 'APP_UPDATED') location.reload();
 });
 
 console.log('[shiori] agent loaded', location.href);

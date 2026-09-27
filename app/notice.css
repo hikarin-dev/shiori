@@ -1,0 +1,109 @@
+/* notice.css — the app-wide toast and the modal used for one-time library updates (notice.js). Pages
+   share it; colors come from each page's own tokens. */
+
+.notice-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  z-index: 10000;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 10px 10px 10px 16px;
+  background: var(--surface, #18181b);
+  color: var(--text, #f4f4f5);
+  border: 1px solid var(--border-strong, var(--border, #3f3f46));
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.notice-toast-text { min-width: 0; }
+.notice-btn {
+  flex: none;
+  padding: 7px 14px;
+  border: 1px solid var(--border-strong, var(--border, #3f3f46));
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text, #f4f4f5);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.notice-btn:hover:not(:disabled) { border-color: var(--muted, #a1a1aa); }
+.notice-btn.primary { background: var(--accent, #e11d48); border-color: var(--accent, #e11d48); color: #fff; }
+.notice-btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
+.notice-btn:disabled { opacity: .6; cursor: default; }
+.notice-close {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted, #a1a1aa);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.notice-close:hover { color: var(--text, #f4f4f5); }
+
+.notice-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, .6);
+}
+.notice-modal {
+  width: min(460px, 100%);
+  padding: 22px 22px 18px;
+  background: var(--surface, #18181b);
+  color: var(--text, #f4f4f5);
+  border: 1px solid var(--border-strong, var(--border, #3f3f46));
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, .5);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.notice-modal h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; }
+.notice-modal p { margin: 0 0 12px; color: var(--muted, #a1a1aa); }
+.notice-choices { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.notice-choice {
+  display: block;
+  width: 100%;
+  padding: 11px 14px;
+  text-align: left;
+  border: 1px solid var(--border-strong, var(--border, #3f3f46));
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text, #f4f4f5);
+  font: inherit;
+  cursor: pointer;
+}
+.notice-choice:hover { border-color: var(--accent, #e11d48); }
+.notice-choice strong { display: block; font-size: 13px; }
+.notice-choice span { display: block; margin-top: 2px; color: var(--muted, #a1a1aa); font-size: 11.5px; }
+.notice-bar {
+  height: 6px;
+  margin: 14px 0 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border, #27272a);
+}
+.notice-bar > div {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: var(--accent, #e11d48);
+  transition: width .2s ease;
+}
+.notice-bar.indeterminate > div { width: 30%; animation: notice-slide 1.2s ease-in-out infinite; }
+@keyframes notice-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+.notice-detail { color: var(--muted, #a1a1aa); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.notice-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }

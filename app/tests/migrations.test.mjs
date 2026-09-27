@@ -74,3 +74,15 @@ test('legacy per-repair flags count as completed steps', async () => {
   await runMigrations(fakeSteps);
   assert.deepEqual(calls, ['upload'], 'an already-migrated profile only runs what it is missing');
 });
+
+test('a run reports each step and its progress, so the page can show it', async () => {
+  _store.clear();
+  const events = [];
+  await runMigrations([{ id: 'reported', run: async (progress) => { progress(1, 2); progress(2, 2); } }],
+    { step: () => events.push('step'), progress: (done, total) => events.push(`${done}/${total}`), end: () => events.push('end') });
+  assert.deepEqual(events, ['step', '1/2', '2/2', 'end']);
+  events.length = 0;
+  await runMigrations([{ id: 'reported', run: async () => events.push('ran again') }],
+    { step: () => events.push('step'), progress: () => {}, end: () => events.push('end') });
+  assert.deepEqual(events, ['end'], 'nothing left to run: nothing to show');
+});

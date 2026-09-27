@@ -6,6 +6,8 @@
 // agent — publishes and subscribes through these primitives, which is what makes job progress
 // and library changes live everywhere at once.
 
+import { meterWrites, ignoreWrites } from './disk-writes.js';
+
 // Stable id for THIS JavaScript context (page / worker / agent) — lets a broadcast receiver
 // tell its own echoes apart from other contexts' messages (e.g. the library-reset reload).
 export const contextId = globalThis.crypto?.randomUUID?.()
@@ -70,26 +72,74 @@ const STALE_PURGE_MS = 24 * 60 * 60 * 1000;   // drop registry rows this old on 
 let _jobsDbP = null;
 function _jobsDb() {
   return _jobsDbP || (_jobsDbP = new Promise((resolve, reject) => {
-    const r = indexedDB.open('shiori-jobs', 2);
+    const r = indexedDB.open('shiori-jobs', 4);
     r.onupgradeneeded = () => {
       const db = r.result;
       if (!db.objectStoreNames.contains('jobs')) db.createObjectStore('jobs', { keyPath: 'key' });
       if (!db.objectStoreNames.contains('pending')) db.createObjectStore('pending', { keyPath: 'key' });  // SW resume list
       if (!db.objectStoreNames.contains('resume')) db.createObjectStore('resume', { keyPath: 'gid' });     // token-reattach records
+      if (!db.objectStoreNames.contains('counters')) db.createObjectStore('counters', { keyPath: 'key' }); // lifetime totals
+      if (!db.objectStoreNames.contains('cursors')) db.createObjectStore('cursors', { keyPath: 'gid' });   // poll positions
     };
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);
   }));
 }
 
+// ── Disk writes ──────────────────────────────────────────────────────────────────────────
+// Everything this app has written to the browser's storage, by kind (disk-writes.js counts it in
+// every context). Kept in IndexedDB so the service worker, which has no localStorage, adds to the
+// same total; the counter's own small writes aren't counted.
+const WRITES_KEY = 'writes';
+const _writesHub = makeChannelHub('shiori-writes');
+function _writesTx(fn) {
+  return _jobsDb().then(db => new Promise((resolve, reject) => {
+    const t = db.transaction('counters', 'readwrite');
+    ignoreWrites(t);
+    let out = null;
+    const store = t.objectStore('counters');
+    const req = store.get(WRITES_KEY);
+    req.onsuccess = () => { out = fn(req.result || { key: WRITES_KEY, total: 0, by: {} }); if (out) store.put(out); };
+    t.oncomplete = () => resolve(out || req.result || { key: WRITES_KEY, total: 0, by: {} });
+    t.onerror = () => reject(t.error);
+  }));
+}
+export const writes = {
+  // { total, by: { pages, covers, library, jobs, settings, app, other } } in bytes.
+  get: () => _writesTx(() => null),
+  async add(batch) {
+    // The counter before this one counted downloaded and imported pages only, in localStorage.
+    const legacy = _hasLS ? localStorage.getItem('shiori:totalWrittenBytes') : null;
+    const total = await _writesTx((cur) => {
+      const add = { ...batch };
+      if (legacy != null) add.pages = (add.pages || 0) + (Number(JSON.parse(legacy)) || 0);
+      for (const [kind, bytes] of Object.entries(add)) { cur.by[kind] = (cur.by[kind] || 0) + bytes; cur.total += bytes; }
+      return cur;
+    });
+    if (legacy != null) localStorage.removeItem('shiori:totalWrittenBytes');
+    _writesHub.publish(total);
+  },
+  async reset() { _writesHub.publish(await _writesTx(() => ({ key: WRITES_KEY, total: 0, by: {} }))); },
+  subscribe(cb) { return _writesHub.subscribe(cb); },
+};
+meterWrites((batch) => writes.add(batch));
+
 const _jobsHub = makeChannelHub('shiori-jobs');
+// A progress row only paints a reopened page (live progress travels on the channel), so it is saved
+// at most every few seconds; every other status is saved as it happens.
+const PROGRESS_SAVE_EVERY = 5000;
+const _progressSavedAt = new Map();   // job key → when its progress row was last saved
 export const jobs = {
   // Ephemeral cross-context events share the live jobs channel but skip the durable registry.
   signal(event) { _jobsHub.publish(event); },
   async publish(job) {
     job = { ...job, at: Date.now() };
     const key = _jobKey(job);
-    try {
+    const progress = job.status === 'progress';
+    const save = !progress || job.at - (_progressSavedAt.get(key) || 0) >= PROGRESS_SAVE_EVERY;
+    if (progress && save) _progressSavedAt.set(key, job.at);
+    else if (!progress) _progressSavedAt.delete(key);
+    if (save) try {
       const db = await _jobsDb();
       await new Promise((res) => {
         const t = db.transaction('jobs', 'readwrite');
@@ -173,6 +223,13 @@ export const jobsPending = {
 // server owns the job (keyed by token); this lets ANY page — after a navigation, or a service
 // worker Chrome killed at its ~5-min cap — re-attach to the exact same job by token and resume
 // streaming the pages it hasn't collected yet, instead of starting a wasteful fresh job.
+// A job's poll position lives apart from its record (the job's settings, config and page list, often
+// tens of KB): a poll then writes a few bytes, and nothing when the position didn't move.
+function _withCursor(rec, pos) {
+  if (rec && pos && pos.token === rec.token) rec.cursor = Math.max(Number(rec.cursor) || 0, Number(pos.cursor) || 0);
+  return rec;
+}
+
 export const translateResume = {
   async set(rec) {
     try {
@@ -192,7 +249,7 @@ export const translateResume = {
     try {
       const db = await _jobsDb();
       return await new Promise((resolve) => {
-        const t = db.transaction('resume', 'readwrite');
+        const t = db.transaction(['resume', 'cursors'], 'readwrite');
         const store = t.objectStore('resume');
         const gid = String(rec.gid);
         let result = 'error';
@@ -200,6 +257,7 @@ export const translateResume = {
         q.onsuccess = () => {
           if (q.result) { result = 'exists'; return; }
           store.put({ ...rec, gid });
+          t.objectStore('cursors').delete(gid);
           result = 'claimed';
         };
         t.oncomplete = () => resolve(result);
@@ -208,7 +266,18 @@ export const translateResume = {
       });
     } catch { return 'error'; }
   },
-  async get(gid) { try { const db = await _jobsDb(); return await new Promise(r => { const q = db.transaction('resume', 'readonly').objectStore('resume').get(String(gid)); q.onsuccess = () => r(q.result || null); q.onerror = () => r(null); }); } catch { return null; } },
+  async get(gid) {
+    try {
+      const db = await _jobsDb();
+      return await new Promise((r) => {
+        const t = db.transaction(['resume', 'cursors'], 'readonly');
+        const q = t.objectStore('resume').get(String(gid));
+        const c = t.objectStore('cursors').get(String(gid));
+        t.oncomplete = () => r(_withCursor(q.result || null, c.result));
+        t.onerror = () => r(null);
+      });
+    } catch { return null; }
+  },
   // Token-scoped writes ensure a late poll from an old job cannot resurrect, advance, or delete a
   // cancelled/replaced job for the same gallery.
   async patch(gid, token, values) {
@@ -235,16 +304,16 @@ export const translateResume = {
     try {
       const db = await _jobsDb();
       return await new Promise((resolve) => {
-        const t = db.transaction('resume', 'readwrite');
-        const store = t.objectStore('resume');
+        const t = db.transaction(['resume', 'cursors'], 'readwrite');
+        const positions = t.objectStore('cursors');
         let owned = false;
-        const q = store.get(String(gid));
-        q.onsuccess = () => {
-          const cur = q.result;
+        const q = t.objectStore('resume').get(String(gid));
+        const c = positions.get(String(gid));
+        c.onsuccess = () => {
+          const cur = _withCursor(q.result, c.result);
           if (!cur || cur.token !== token) return;
-          cur.cursor = Math.max(Number(cur.cursor) || 0, Number(cursor) || 0);
-          store.put(cur);
           owned = true;
+          if ((Number(cursor) || 0) > (Number(cur.cursor) || 0)) positions.put({ gid: String(gid), token, cursor: Number(cursor) });
         };
         t.oncomplete = () => resolve(owned);
         t.onerror = () => resolve(false);
@@ -256,7 +325,7 @@ export const translateResume = {
     try {
       const db = await _jobsDb();
       return await new Promise((resolve) => {
-        const t = db.transaction('resume', 'readwrite');
+        const t = db.transaction(['resume', 'cursors'], 'readwrite');
         const store = t.objectStore('resume');
         let removed = false;
         const q = store.get(String(gid));
@@ -264,6 +333,7 @@ export const translateResume = {
           const cur = q.result;
           if (!cur || (token != null && cur.token !== token)) return;
           store.delete(String(gid));
+          t.objectStore('cursors').delete(String(gid));
           removed = true;
         };
         t.oncomplete = () => resolve(removed);
@@ -272,7 +342,21 @@ export const translateResume = {
       });
     } catch { return false; }
   },
-  async all() { try { const db = await _jobsDb(); return await new Promise(r => { const q = db.transaction('resume', 'readonly').objectStore('resume').getAll(); q.onsuccess = () => r(q.result || []); q.onerror = () => r([]); }); } catch { return []; } },
+  async all() {
+    try {
+      const db = await _jobsDb();
+      return await new Promise((r) => {
+        const t = db.transaction(['resume', 'cursors'], 'readonly');
+        const q = t.objectStore('resume').getAll();
+        const c = t.objectStore('cursors').getAll();
+        t.oncomplete = () => {
+          const positions = new Map((c.result || []).map(p => [p.gid, p]));
+          r((q.result || []).map(rec => _withCursor(rec, positions.get(rec.gid))));
+        };
+        t.onerror = () => r([]);
+      });
+    } catch { return []; }
+  },
 };
 
 // ── In-tab services: request/response + push ────────────────────────────────────────────

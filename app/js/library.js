@@ -1,8 +1,10 @@
+import { zipCreate as _zipCreate } from './zip.js';
 // library.js — the library UI: windowed grid over the database, live job progress, uploads,
 // per-gallery actions. Imports boot.js first so services + the PWA worker are wired.
 
 import './boot.js';
-import { metaGet, metaPut, getStats, getGalleriesByIds, galleriesCount, coverGet, getGalleryImageRecords, sourceIconGet, sourceIconPut, sourceIconsAll, nextGalleryId, _LANG_NAME_TO_CODE } from './db.js';
+import { metaGet, metaPut, getStats, getGalleriesByIds, galleriesCount, coverRecordGet, getGalleryImageRecords, sourceIconGet, sourceIconPut, sourceIconsAll, nextGalleryId, _LANG_NAME_TO_CODE } from './db.js';
+import { galleryFiles, fileBytes } from './gallery-files.js';
 import { importBackup } from './backup.js';
 import { mergeIntoSeries, removeChapter } from './series.js';
 import { request as extRequest } from './ext-bridge.js';
@@ -12,8 +14,10 @@ import * as platform from './platform.js';
 import { t, getLang } from './i18n.js';
 import { pickTitle, pickSeriesTitle, migrateTitle } from './titles.js';
 import { initTooltips, refreshTooltip } from './tooltip.js';
-import { formatBytes, formatCount } from './format.js';
+import { initDropdowns } from './dropdown.js';
+import { formatBytes, formatCount, formatMegapixels } from './format.js';
 import { escHtml, safeExternalUrl } from './sanitize.js';
+import { openRerunMenu } from './rerun-menu.js';
 
 // Whether a series card opens straight into the reader (chapter 1) instead of the overview page.
 // Loaded from settings at boot; the card routing reads it synchronously.
@@ -139,6 +143,9 @@ async function parseSourceInput(input) {
 }
 
 const _looksLikeUrl = (s) => /^https?:\/\//i.test(s) || /^[\w-]+(\.[\w-]+)+([/?#]|$)/.test(s);
+
+// A translated gallery's translate button also offers "Re-run from…" on right-click.
+const _translatedTip = () => `${t('card.tip_translate_new')} · ${t('card.tip_rerun')}`;
 
 function sendMsg(msg) {
   return platform.rpc(msg);
@@ -380,9 +387,11 @@ function buildCard(g) {
   const totalCount = g.numPages ? ` / ${formatCount(g.numPages)}` : '';
   // A series card shows the whole-series aggregate (stored on the owner) and a chapter badge; a
   // standalone gallery shows its own page count. Series open the overview unless the user bypasses.
+  // The size is what the gallery's export holds; hovering it splits off the original pages.
+  const size = showAsSeries ? _sizeHtml(g.aggSize, g.aggOrig) : _sizeHtml(g.size, g.origSize);
   const metaLine = showAsSeries
-    ? `${formatCount(g.aggPages)} ${t('card.pages')} · ${formatBytes(g.aggSize)}`
-    : `${formatCount(cachedCount)}${totalCount} ${t('card.pages')} · ${formatBytes(g.size)}`;
+    ? `${_pagesHtml(`${formatCount(g.aggPages)} ${t('card.pages')}`, g.aggMedianPage, g.aggOrig, g.aggPages)} · ${size}`
+    : `${_pagesHtml(`${formatCount(cachedCount)}${totalCount} ${t('card.pages')}`, g.medianPage, g.origSize, cachedCount)} · ${size}`;
   const seriesBadge = showAsSeries ? `<span class="card-series-badge">${t('card.chapters_n', { n: formatCount(g.chapterCount) })}</span>` : '';
   // Record-derived id, escaped once for every attribute interpolation below (ids are validated
   // numeric at import boundaries; this is defense in depth for legacy records).
@@ -411,7 +420,7 @@ function buildCard(g) {
   const actionsHtml = `
     <div class="card-actions">
       <button class="card-btn card-btn-dl" data-id="${idA}" data-tip="${canDownload ? dlTitle : t('card.tip_replace')}" ${canDownload ? `data-tip-shift="${t('card.tip_replace')}"` : ''}>${canDownload ? _DL_ICON : _UPLOAD_ICON}</button>
-      <button class="card-btn card-btn-translate${g.translated ? ' done' : ''}" data-id="${idA}" data-tip="${g.translated ? t('card.tip_translate_new') : t('card.tip_translate')}"${g.translated ? ` data-tip-shift="${t('card.tip_revert')}"` : ''}>${_TRANSLATE_ICON}</button>
+      <button class="card-btn card-btn-translate${g.translated ? ' done' : ''}" data-id="${idA}" data-tip="${g.translated ? _translatedTip() : t('card.tip_translate')}"${g.translated ? ` data-tip-shift="${t('card.tip_revert')}"` : ''}>${_TRANSLATE_ICON}</button>
       <button class="card-btn card-btn-export" data-id="${idA}" data-tip="${t('card.tip_export')}" data-tip-shift="${t('card.tip_export_meta')}">${_EXPORT_ICON}</button>
       <button class="card-btn card-btn-del" data-id="${idA}" data-tip="${t('card.tip_delete')}" data-tip-shift="${t('card.tip_quickdelete')}">${_DELETE_ICON}</button>
     </div>`;
@@ -600,6 +609,21 @@ function buildCard(g) {
       if (labelEl) labelEl.textContent = t('prog.translating');
 
       await sendMsg({ type: 'TRANSLATE_GALLERY', galleryId: g.id });
+    });
+    // Right-click on a translated gallery → "Re-run from…": redo every page from one stage,
+    // reusing everything before it.
+    b.addEventListener('contextmenu', (e) => {
+      if (!g.translated || showAsSeries || b.disabled || b.classList.contains('cancelling')) return;
+      e.preventDefault();
+      openRerunMenu(b, g.id, async (point, label) => {
+        if (!confirm(t('confirm.rerun', { stage: label, id: g.sourceId || g.id }))) return;
+        card.querySelectorAll('.card-btn-translate').forEach(x => x.disabled = true);
+        const progEl  = document.getElementById(`prog-${g.id}`);
+        const labelEl = document.getElementById(`proglabel-${g.id}`);
+        if (progEl) progEl.closest('.card-body').classList.add('downloading');
+        if (labelEl) labelEl.textContent = t('prog.translating');
+        await sendMsg({ type: 'TRANSLATE_GALLERY', galleryId: g.id, forceFrom: point });
+      });
     });
   });
 
@@ -881,7 +905,7 @@ platform.onControl((msg) => {
     // For galleries that were empty before (count=0), refresh the entity from the DB.
     if (gEntry.count === 0) {
       store.load(msg.galleryId).then(entity => {
-        if (entity) { gEntry.count = entity.count; gEntry.size = entity.size; }
+        if (entity) { gEntry.count = entity.count; gEntry.size = entity.size; gEntry.origSize = entity.origSize; }
         const $card = document.querySelector(`.card[data-gallery-id="${msg.galleryId}"]`);
         if ($card) $card.replaceWith(buildCard(gEntry));
         updateHeaderStats();
@@ -916,7 +940,7 @@ function _setTrCancelMode(btn, on) {
     if (!btn.classList.contains('cancelling')) return;
     btn.classList.remove('cancelling');
     if (btn._tipShiftStash != null) { btn.dataset.tipShift = btn._tipShiftStash; delete btn._tipShiftStash; }
-    btn.dataset.tip = btn.classList.contains('done') ? t('card.tip_translate_new') : t('card.tip_translate');
+    btn.dataset.tip = btn.classList.contains('done') ? _translatedTip() : t('card.tip_translate');
     _trFlip.snap(btn, _TRANSLATE_SVG);
   }
 }
@@ -1224,6 +1248,21 @@ function _pageNumbers(current, total) {
   return result;
 }
 
+// "Original pages X · Translations and other data Y" — a size not yet recomputed is all original.
+function _sizeSplit(total, original) {
+  const orig = original ?? total ?? 0;
+  return t('lib.size_split', { orig: formatBytes(orig), rest: formatBytes(Math.max(0, (total || 0) - orig)) });
+}
+const _sizeHtml = (total, original) => `<span class="card-size" data-tip="${escHtml(_sizeSplit(total, original))}">${formatBytes(total)}</span>`;
+// Hovering the page count shows the typical page — its tier, size and megapixels — over the
+// average original page's bytes. The first line waits until the pages have been measured.
+function _pagesHtml(text, page, original, count) {
+  if (!count) return text;
+  const avg = t('card.tip_page_avg', { size: formatBytes((original || 0) / count) });
+  const tip = page ? `${page.w}×${page.h}, ${formatMegapixels(page.mp)}\n${avg}` : avg;
+  return `<span class="card-pages" data-tip="${escHtml(tip)}"${page ? ` data-tip-badge="${page.tier}"` : ''}>${text}</span>`;
+}
+
 async function updateHeaderStats() {
   const [stats, topLevel] = await Promise.all([getStats(), galleriesCount({ merge: _mergeSeries })]);
   // Merged, a series counts as one gallery here; unmerged, every chapter is counted. Image/storage
@@ -1233,6 +1272,7 @@ async function updateHeaderStats() {
   document.getElementById('hTotalSize').textContent      = formatBytes(stats.totalSize);
   const sizeStat = document.getElementById('hSizeStat');
   if (sizeStat) {
+    sizeStat.dataset.tip = _sizeSplit(stats.totalSize, stats.totalOrig);
     const avg = stats.totalImages > 0 ? Math.round(stats.totalSize / stats.totalImages) : 0;
     sizeStat.dataset.tipShift = avg > 0 ? t('lib.avg_per_image', { size: formatBytes(avg) }) : '';
   }
@@ -1389,6 +1429,7 @@ document.addEventListener('mousemove', e => {
   }
 });
 initTooltips();
+initDropdowns();
 
 // ── Local CBZ import (staged in OPFS, run by the most durable runner available) ──
 
@@ -1521,78 +1562,6 @@ document.addEventListener('drop', (e) => {
 
 // ── Per-gallery ZIP export ──
 
-const _CRC32_TABLE = (() => {
-  const t = new Uint32Array(256);
-  for (let i = 0; i < 256; i++) {
-    let c = i;
-    for (let j = 0; j < 8; j++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
-    t[i] = c;
-  }
-  return t;
-})();
-
-function _crc32(data) {
-  let crc = 0xFFFFFFFF;
-  for (let i = 0; i < data.length; i++) crc = (crc >>> 8) ^ _CRC32_TABLE[(crc ^ data[i]) & 0xFF];
-  return (crc ^ 0xFFFFFFFF) >>> 0;
-}
-
-function _zipCreate(files) {
-  const enc = new TextEncoder();
-  const parts = [];
-  const centralDir = [];
-  let offset = 0;
-
-  for (const file of files) {
-    const nameBytes = enc.encode(file.name);
-    const crc = _crc32(file.data);
-    const size = file.data.length;
-
-    const lfh = new Uint8Array(30 + nameBytes.length);
-    const lv = new DataView(lfh.buffer);
-    lv.setUint32(0, 0x04034b50, true);
-    lv.setUint16(4, 20, true);
-    lv.setUint16(8, 0, true);    // method: store
-    lv.setUint32(14, crc, true);
-    lv.setUint32(18, size, true);
-    lv.setUint32(22, size, true);
-    lv.setUint16(26, nameBytes.length, true);
-    lfh.set(nameBytes, 30);
-
-    const cde = new Uint8Array(46 + nameBytes.length);
-    const cv = new DataView(cde.buffer);
-    cv.setUint32(0, 0x02014b50, true);
-    cv.setUint16(4, 20, true);
-    cv.setUint16(6, 20, true);
-    cv.setUint16(10, 0, true);   // method: store
-    cv.setUint32(16, crc, true);
-    cv.setUint32(20, size, true);
-    cv.setUint32(24, size, true);
-    cv.setUint16(28, nameBytes.length, true);
-    cv.setUint32(42, offset, true);
-    cde.set(nameBytes, 46);
-
-    parts.push(lfh, file.data);
-    centralDir.push(cde);
-    offset += 30 + nameBytes.length + size;
-  }
-
-  const cdSize = centralDir.reduce((s, e) => s + e.length, 0);
-  const eocd = new Uint8Array(22);
-  const ev = new DataView(eocd.buffer);
-  ev.setUint32(0, 0x06054b50, true);
-  ev.setUint16(8, files.length, true);
-  ev.setUint16(10, files.length, true);
-  ev.setUint32(12, cdSize, true);
-  ev.setUint32(16, offset, true);
-
-  const total = parts.reduce((s, p) => s + p.length, 0) + cdSize + 22;
-  const out = new Uint8Array(total);
-  let pos = 0;
-  for (const p of [...parts, ...centralDir, eocd]) { out.set(p, pos); pos += p.length; }
-  return out;
-}
-
 function _saveBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1658,131 +1627,14 @@ async function exportMetadataBundleZip(galleryId) {
   _saveBlob(new Blob([_zipCreate(files)], { type: 'application/zip' }), `shiori-series-${gid}-metadata.zip`);
 }
 
-// Build the export file list for one gallery, every name under `prefix` (e.g. "chapter-01/" for a
-// series bundle, "" for a standalone gallery). Layout: metadata.json, image_records.json, images/,
-// translated/, study/{bg,text,bubbles.json} — the shape _importShioriEntries restores losslessly.
+// One gallery's export files, every name under `prefix` (e.g. "chapter-01/" for a series bundle,
+// "" for a standalone gallery). The layout lives in gallery-files.js, which also sizes the gallery.
 async function _collectGalleryFiles(gid, prefix, opts = {}) {
-  let meta = await metaGet(gid);
-  meta = migrateTitle(meta);
-  if (opts.stripSeriesFields) {
-    const { chapters, parentId, seriesTitle, seriesTags, ...plainMeta } = meta || {};
-    meta = plainMeta;
-  }
-
-  const imageRecords = await getGalleryImageRecords(gid);
-
-  imageRecords.sort((a, b) => {
-    const pa = parseInt(a.url.match(/\/(\d+)\.\w+$/)?.[1] || '9999');
-    const pb = parseInt(b.url.match(/\/(\d+)\.\w+$/)?.[1] || '9999');
-    return pa - pb;
-  });
-
-  const enc = new TextEncoder();
-  const files = [];
-
-  files.push({ name: `${prefix}metadata.json`, data: enc.encode(JSON.stringify(meta, null, 2)) });
-
-  files.push({
-    name: `${prefix}image_records.json`,
-    data: enc.encode(JSON.stringify(imageRecords.map(r => ({
-      url: r.url,
-      mediaId: r.mediaId,
-      galleryId: r.galleryId,
-      cachedAt: r.cachedAt,
-      cachedAtISO: r.cachedAt ? new Date(r.cachedAt).toISOString() : null,
-      size: r.size,
-      translated: r.translated !== undefined,
-      hasStudy: !!(Array.isArray(r.bubbles) && r.bubbles.length),
-      bubbleCount: Array.isArray(r.bubbles) ? r.bubbles.length : 0
-    })), null, 2))
-  });
-
-  // Image bytes from either a stored Blob (current format) or a legacy base64 data-URL.
-  const imageBytes = async (src) => {
-    if (!src) return null;
-    if (src instanceof Blob) return new Uint8Array(await src.arrayBuffer());
-    const b64 = String(src).split(',')[1];
-    if (!b64) return null;
-    const binStr = atob(b64);
-    const bytes = new Uint8Array(binStr.length);
-    for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
-    return bytes;
-  };
-  const imgExt = (src) => (src instanceof Blob ? src.type?.split('/')[1] : (typeof src === 'string' ? src.match(/^data:image\/(\w+)/)?.[1] : null)) || 'png';
-
-  const coverEntries = [];
-  const addCoverFile = async (role, src) => {
-    const bytes = await imageBytes(src);
-    if (!bytes) return;
-    const ext = imgExt(src).toLowerCase().replace(/^jpeg$/, 'jpg');
-    const file = `covers/${role}.${ext}`;
-    files.push({ name: `${prefix}${file}`, data: bytes });
-    coverEntries.push({
-      role,
-      file,
-      mime: src instanceof Blob ? (src.type || '') : (String(src).match(/^data:([^;,]+)/)?.[1] || ''),
-      size: bytes.byteLength,
-    });
-  };
-  await addCoverFile('gallery', await coverGet(gid).catch(() => null));
-  await addCoverFile('series', await coverGet(gid, { seriesOnly: true }).catch(() => null));
-  if (coverEntries.length) {
-    files.push({
-      name: `${prefix}covers/manifest.json`,
-      data: enc.encode(JSON.stringify({ version: 1, covers: coverEntries }, null, 2)),
-    });
-  }
-
-  for (const rec of imageRecords) {
-    const m = rec.url.match(/\/(\d+)\.(\w+)$/);
-    if (!m) continue;
-    const bytes = await imageBytes(rec.blob ?? rec.dataUrl);
-    if (!bytes) continue;
-    files.push({ name: `${prefix}images/${m[1].padStart(4, '0')}.${m[2].toLowerCase()}`, data: bytes });
-  }
-
-  // Translated variants in a parallel folder (only pages that have one).
-  for (const rec of imageRecords) {
-    if (!rec.translated) continue;
-    const m = rec.url.match(/\/(\d+)\.\w+$/);
-    if (!m) continue;
-    const bytes = await imageBytes(rec.translated);
-    if (!bytes) continue;
-    const ext = (typeof rec.translated === 'string' ? rec.translated.match(/^data:image\/(\w+)/)?.[1] : rec.translated.type?.split('/')[1]) || 'png';
-    files.push({ name: `${prefix}translated/${m[1].padStart(4, '0')}.${ext.toLowerCase()}`, data: bytes });
-  }
-
-  // Study-mode layers: the shared inpaint bg (study/bg) + each bubble's transparent text PNG
-  // (study/text), and bubbles.json mapping page → boxes/regions/text-file. Mirrors the DB shape
-  // so the import can restore it losslessly.
-  const studyIndex = {};
-  for (const rec of imageRecords) {
-    const m = rec.url.match(/\/(\d+)\.\w+$/);
-    if (!m || !Array.isArray(rec.bubbles) || !rec.bubbles.length) continue;
-    const num = m[1].padStart(4, '0');
-    const bgBytes = rec.studyBg ? await imageBytes(rec.studyBg) : null;
-    if (bgBytes) files.push({ name: `${prefix}study/bg/${num}.${imgExt(rec.studyBg)}`, data: bgBytes });
-    const entries = [];
-    for (let k = 0; k < rec.bubbles.length; k++) {
-      const b = rec.bubbles[k];
-      const txtBytes = await imageBytes(b.text);
-      const textFile = `${num}-${k}.${imgExt(b.text)}`;
-      if (txtBytes) files.push({ name: `${prefix}study/text/${textFile}`, data: txtBytes });
-      const entry = { box: b.box, region: b.region, tr: b.tr || '', src: b.src || '', textFile: txtBytes ? textFile : null };
-      // DOM-text layout metadata rides along verbatim (style hints, line breaks, furigana).
-      for (const key of ['rbox', 'style', 'tbox', 'furi']) {
-        if (b[key] != null) entry[key] = b[key];
-      }
-      entries.push(entry);
-    }
-    // Newer bundles wrap the entries with the page's source dimensions; import accepts both.
-    studyIndex[num] = rec.studyPage ? { page: rec.studyPage, bubbles: entries } : entries;
-  }
-  if (Object.keys(studyIndex).length) {
-    files.push({ name: `${prefix}study/bubbles.json`, data: enc.encode(JSON.stringify(studyIndex, null, 2)) });
-  }
-
-  return files;
+  const [meta, records, covers] = await Promise.all([metaGet(gid), getGalleryImageRecords(gid), coverRecordGet(gid).catch(() => null)]);
+  const files = galleryFiles({ meta, records, covers: { gallery: covers?.cover, series: covers?.seriesCover } }, prefix, opts);
+  const out = [];
+  for (const f of files) out.push({ name: f.name, data: await fileBytes(f.source) });
+  return out;
 }
 
 // Export one gallery — or, when it is a series owner, the whole series as chapter-NN/ folders plus

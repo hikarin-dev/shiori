@@ -1,0 +1,116 @@
+/* dropdown.css — one look for every dropdown in the app: an outlined box whose list hangs
+   straight off it as a single outline and unrolls from it.
+
+   Pages keep sizing their own boxes (padding, font size, width, resting border) and set:
+     --dd-bg     the box's resting background — the open list shares it
+     --dd-inset  the box's left padding, so option text lines up with the box's text
+   dropdown.js adds .opens-up when only the space above the box can fit the list. Where the
+   browser can't style the list (no base-select), the native dropdown is used as-is. */
+
+:root {
+  --dd-bg: #111114;
+  --dd-bg-hover: #1c1c21;
+  --dd-line: #52525c;
+  --dd-seam: #2a2a30;
+  --dd-text: #f4f4f5;
+  --dd-muted: #a1a1aa;
+  --dd-caret: #7c7c8c;
+  --dd-radius: 6px;
+  --dd-inset: 11px;
+}
+
+@supports (appearance: base-select) {
+  select,
+  ::picker(select) { appearance: base-select; }
+
+  /* The box stays one line tall, however long the chosen option's text; text and caret share its
+     vertical centre. */
+  select {
+    align-items: center;
+    gap: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: background-color .12s ease, border-color .12s ease, border-radius .18s ease;
+  }
+  select:hover:not(:open) { background-color: var(--dd-bg-hover); border-color: var(--dd-line); }
+  select:open {
+    background-color: var(--dd-bg);
+    border-color: var(--dd-line);
+    border-end-start-radius: 0;
+    border-end-end-radius: 0;
+  }
+  select.opens-up:open {
+    border-start-start-radius: 0;
+    border-start-end-radius: 0;
+    border-end-start-radius: var(--dd-radius);
+    border-end-end-radius: var(--dd-radius);
+  }
+
+  select::picker-icon {
+    content: '';
+    display: block;
+    flex: 0 0 auto;
+    width: 11px;
+    height: 11px;
+    margin-inline-start: auto;
+    background-color: var(--dd-caret);
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+    transition: rotate .18s ease, background-color .12s ease;
+  }
+  select:is(:hover, :open)::picker-icon { background-color: var(--dd-muted); }
+  select:open::picker-icon { rotate: 180deg; }
+
+  /* The list: exactly the box's width, overlapping its edge by the border so the two read as one
+     outline, with a faint seam where they meet. It unrolls away from the box. */
+  ::picker(select) {
+    width: anchor-size(width);
+    margin: -1px 0 0;
+    padding: 4px 0;
+    position-area: block-end span-inline-end;
+    position-try-fallbacks: none;
+    background: var(--dd-bg);
+    border: 1px solid var(--dd-line);
+    border-top-color: var(--dd-seam);
+    border-radius: 0 0 var(--dd-radius) var(--dd-radius);
+    box-shadow: 0 10px 24px rgb(0 0 0 / .35);
+    scrollbar-color: var(--dd-line) transparent;
+    scrollbar-width: thin;
+    opacity: 0;
+    clip-path: inset(0 -24px 100% -24px);
+    transition: clip-path .18s ease-out, opacity .12s ease-out, display .18s allow-discrete, overlay .18s allow-discrete;
+  }
+  select:open::picker(select) { opacity: 1; clip-path: inset(0 -24px -24px -24px); }
+  @starting-style {
+    select:open::picker(select) { opacity: 0; clip-path: inset(0 -24px 100% -24px); }
+  }
+
+  select.opens-up::picker(select) {
+    margin: 0 0 -1px;
+    position-area: block-start span-inline-end;
+    border-color: var(--dd-line) var(--dd-line) var(--dd-seam);
+    border-radius: var(--dd-radius) var(--dd-radius) 0 0;
+    clip-path: inset(100% -24px 0 -24px);
+  }
+  select.opens-up:open::picker(select) { clip-path: inset(-24px -24px 0 -24px); }
+  @starting-style {
+    select.opens-up:open::picker(select) { clip-path: inset(100% -24px 0 -24px); }
+  }
+
+  select option {
+    padding: 6px var(--dd-inset);
+    background: transparent;
+    color: var(--dd-muted);
+    white-space: normal;
+    transition: background-color .12s ease, color .12s ease;
+  }
+  select option::checkmark { display: none; }
+  select option:checked { color: var(--dd-text); font-weight: 600; }
+  select option:is(:hover, :focus-visible) { background: var(--dd-bg-hover); color: var(--dd-text); outline: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    select,
+    select::picker-icon,
+    ::picker(select) { transition: none; }
+  }
+}
