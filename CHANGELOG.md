@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.0.9 — 2026-09-27
+
+### Added
+
+- Translating a gallery again only redoes what changed. With **Save translation snapshots** on (Settings → Translation), each page keeps what every translation step produced, so switching the renderer, for example, re-runs just that last step instead of the whole page.
+- **Re-run from…**: right-click a translated gallery's card to redo every page from one step onward (text detection, text recognition, translation, inpainting or rendering), reusing the steps before it.
+- **Page properties**: press I in the reader, or use the page's new right-click menu, to see everything stored for a page: its images and how each step of its translation was made.
+- **Send feedback** on a translated page from the reader: mark what went wrong, add a note, and send it for review or export it as a ZIP.
+- A translation benchmark in Settings → Translation times your server on sample galleries of different page sizes, with reports you can compare.
+- Library cards show a gallery's average page size, and its size split into original pages and translations.
+- A notice tells you when a new version of Shiori is ready, and updating applies it to every open tab at once.
+
+### Changed
+
+- Settings → Translation now offers exactly what your translation server can run: its models, options and languages, with the rest under **Advanced settings…**. Update your translation server along with this version; an older server offers no models.
+- Shiori now stores each image once, so changing a gallery no longer rewrites its pages. Existing libraries get a one-time choice: convert gradually as galleries change, or all at once.
+
 ## v1.0.8 — 2026-08-29
 
 ### Fixed
