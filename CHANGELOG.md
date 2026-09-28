@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.0.10 — 2026-09-28
+
+### Changed
+
+- New translation defaults: Hayai for text recognition, DeepSeek for translation and the shiori renderer, with larger text detection and inpainting sizes and a wider cleanup area around the text. Study data now saves text, and translation snapshots are off. Updating to this version applies these defaults once to your existing settings; your server, target language and other choices are kept.
+- The target language now sits in the Config card of Settings → Translation, right below the pipeline. The separate Language and model card is gone.
+- Hovering a gallery's size, or the storage total, now lists original pages and other data on separate lines. The page-size tooltip spells out "average".
+
+### Fixed
+
+- Web addresses no longer look like they are missing a slash. The interface font joined some character pairs into a single symbol, so "https://" could show as "https: /".
+
 ## v1.0.9 — 2026-09-27
 
 ### Added
