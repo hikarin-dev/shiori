@@ -35,6 +35,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: 'JetBrains Mono', monospace;
+  font-variant-ligatures: none;   /* the font's code ligatures redraw runs like a URL's "//" */
   font-size: 13px;
   line-height: 1.5;
 }
@@ -442,7 +443,6 @@ textarea.field-input { min-height: 82px; }
   border-bottom: 1px solid var(--border);
   font-variant-numeric: tabular-nums;
 }
-
 /* The way into every option behind the pipeline, ruled off at the foot of the card. */
 .translate-advanced {
   padding: 10px 20px;
@@ -629,8 +629,6 @@ textarea.field-input { min-height: 82px; }
 /* A setting that belongs with the one above it. */
 .section-body > .field + .field-sub { border-top: 0; padding-top: 0; }
 .field-sub { padding-left: 40px; }
-
-.translate-primary > .field + .field { border-top: 1px solid var(--border); }
 
 /* Study mode preview */
 @font-face {

@@ -4,7 +4,7 @@ import './boot.js';
 import { clearAll } from './db.js';
 import * as platform from './platform.js';
 import { cancelJob } from './submit-job.js';
-import { pingServer, serverUrlFromSettings, hasConfiguredServer } from './translate.js';
+import { pingServer, serverUrlFromSettings, hasConfiguredServer, isLocalServer } from './translate.js';
 import { getCapabilities, cachedCapabilities } from './capabilities.js';
 import { migrateTranslateSettings, settingsModel, GROUP_HEADING_KEYS } from './translate-config.js';
 import { exportMetadata, exportFull, importBackup } from './backup.js';
@@ -292,7 +292,11 @@ async function checkTranslatorStatus(settings = null, { auto = false } = {}) {
   const translateSettings = settings || (await platform.kv.get(['translateSettings'])).translateSettings;
   if (auto && !hasConfiguredServer(translateSettings)) { setTranslatorBadge('offline'); return; }
   setTranslatorBadge('checking');
-  setTranslatorBadge((await pingServer(serverUrlFromSettings(translateSettings), translateSettings)) ? 'online' : 'offline');
+  const serverUrl = serverUrlFromSettings(translateSettings);
+  const online = await pingServer(serverUrl, translateSettings);
+  setTranslatorBadge(online ? 'online' : 'offline');
+  // The benchmark is for whoever runs the translation server on this machine.
+  document.getElementById('translationBenchmark').hidden = !(online && isLocalServer(serverUrl));
 }
 
 document.getElementById('checkTranslateBtn').addEventListener('click', () => {
@@ -457,7 +461,7 @@ let _advancedCollapsed = true;
 function renderTranslateSettings() {
   const model = settingsModel(_caps, _settings);
   renderSummary(model);
-  renderPrimary(model);
+  renderLanguage(model);
   const grid = document.getElementById('tcfgGrid');
   const note = document.getElementById('translateCapsNote');
   grid.replaceChildren();
@@ -590,38 +594,27 @@ function renderSummary(model) {
   }));
 }
 
-// Language and model — the translator and its target language, as in the advanced window, each a
-// row of its own so they don't take opening that window.
-function renderPrimary(model) {
-  const el = document.getElementById('translatePrimary');
-  if (!el) return;
-  const translate = model.stages.find(s => s.id === 'translate');
-  if (model.offline || !translate) {
-    const msg = document.createElement('div');
-    msg.className = 'translate-summary-offline';
-    msg.textContent = t('tm.caps_offline');
-    el.replaceChildren(msg);
-    return;
-  }
-  const row = (label, desc, select) => {
-    const box = document.createElement('div');
-    box.className = 'field';
-    select.id = `primary-${select.dataset.param.replace(/\W/g, '-')}`;
-    const name = document.createElement('label');
-    name.className = 'field-label';
-    name.htmlFor = select.id;
-    name.textContent = label;
-    const note = document.createElement('div');
-    note.className = 'field-desc';
-    note.textContent = desc;
-    box.append(name, note, select);
-    return box;
-  };
-  const target = translate.params.find(p => p.type === 'language');
-  el.replaceChildren(
-    ...(target ? [row(target.labelKey ? t(target.labelKey) : target.label, t('set.tr_lang_desc'),
-      makeSelect(target.choices, target.value, { param: target.key }))] : []),
-    row(t('set.tr_model'), t('set.tr_model_desc'), makeSelect(translate.choices, translate.value, { param: translate.implParam })));
+// Target language — the translator's language option (also in the advanced window), in the
+// Config card below the pipeline. Only while the server offers one; the pipeline row says when
+// nothing is offered.
+function renderLanguage(model) {
+  document.getElementById('translateLanguageField')?.remove();
+  const target = model.stages.find(s => s.id === 'translate')?.params.find(p => p.type === 'language');
+  if (model.offline || !target) return;
+  const box = document.createElement('div');
+  box.className = 'field';
+  box.id = 'translateLanguageField';
+  const select = makeSelect(target.choices, target.value, { param: target.key });
+  select.id = 'translateLanguage';
+  const name = document.createElement('label');
+  name.className = 'field-label';
+  name.htmlFor = select.id;
+  name.textContent = target.labelKey ? t(target.labelKey) : target.label;
+  const note = document.createElement('div');
+  note.className = 'field-desc';
+  note.textContent = t('set.tr_lang_desc');
+  box.append(name, note, select);
+  document.getElementById('translateSummary').after(box);
 }
 
 // Read one edited control back into the stored picks.
@@ -674,7 +667,7 @@ function saveTranslateSettings(statusId, { recheck = false } = {}) {
 const CONNECTION_FIELDS = new Set(['translateServerInput', 'translateTokenInput']);
 document.getElementById('panelTranslation').addEventListener('change', (e) => {
   const status = e.target.closest('.section')?.querySelector('.status-msg');
-  if (e.target.closest('#translateSummary, #translatePrimary')) {
+  if (e.target.closest('#translateSummary, #translateLanguageField')) {
     applyControl(e.target);
     saveTranslateSettings(status.id);
     renderTranslateSettings();

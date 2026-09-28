@@ -23,12 +23,22 @@ function _el() {
 }
 
 // A tip may open with a short badge (data-tip-badge) and run over several lines ("\n" in
-// data-tip); the lines after the first are secondary. `text` is the badge and the tip, NUL-joined.
+// data-tip); the lines after the first are secondary. A "label\tvalue" line is instead a row of
+// its own weight, the value dimmed to the right. `text` is the badge and the tip, NUL-joined.
 function _render(el, text) {
   const [badge, body] = text.includes('\0') ? text.split('\0') : ['', text];
-  if (!badge && !body.includes('\n')) { el.textContent = body; return; }
+  if (!badge && !/[\n\t]/.test(body)) { el.textContent = body; return; }
   el.replaceChildren(...body.split('\n').map((line, i) => {
     const row = document.createElement('div');
+    const [label, value] = line.split('\t');
+    if (value != null) {
+      const v = document.createElement('span');
+      v.className = 'shiori-tip-value';
+      v.textContent = value;
+      row.className = 'shiori-tip-pair';
+      row.append(label, v);
+      return row;
+    }
     if (i) row.className = 'shiori-tip-sub';
     else if (badge) {
       const b = document.createElement('span');

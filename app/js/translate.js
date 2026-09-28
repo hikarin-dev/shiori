@@ -65,7 +65,7 @@ function _authHeaders(ts) {
   return tok ? { 'X-Access-Token': tok } : {};
 }
 
-function _isLocalServer(serverUrl) {
+export function isLocalServer(serverUrl) {
   try { const h = new URL(serverUrl).hostname; return h === 'localhost' || h === '127.0.0.1' || h === '[::1]'; }
   catch { return true; }
 }
@@ -324,7 +324,7 @@ async function startTranslationUnlocked(galleryId, ts, send, { forceFrom, pages,
     }
     const noPipeline = async () => {
       if (resume?.token) await translateResume.remove(gid, resume.token);
-      send({ status: 'error', error: 'the translation server could not describe its pipeline — update or restart it' });
+      send({ status: 'error', error: 'the translation server could not describe its pipeline' });
     };
 
     const records = (await getGalleryImageRecords(gid)).filter(r => r.blob ?? r.dataUrl);
@@ -432,7 +432,7 @@ async function startTranslationUnlocked(galleryId, ts, send, { forceFrom, pages,
     // starts when the last one lands. Eight pages stay below the request cap even when every
     // converted page reaches its 8 MB ceiling, and only one group is retained in memory at once.
     const REMOTE_PAGES_PER_PART = 8;
-    const split = !_isLocalServer(serverUrl);
+    const split = !isLocalServer(serverUrl);
     const partCount = split ? Math.ceil(pending.length / REMOTE_PAGES_PER_PART) : 1;
     if (partCount > 200) { await failStart('gallery has too many pages for remote upload'); return; }
 

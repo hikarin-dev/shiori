@@ -30,6 +30,9 @@ body {
   font-size: 13px;
   min-height: 100vh;
 }
+/* The UI font's code ligatures redraw runs like the "//" in a URL — show text as typed. Form
+   controls are named too, as some browsers reset their font instead of inheriting it. */
+body, input, textarea, select, button { font-variant-ligatures: none; }
 
 header {
   position: sticky; top: 0; z-index: 30;
@@ -451,6 +454,9 @@ body.quick-actions-hidden .card-actions {
   display: none;
 }
 .shiori-tip-sub { color: #9a9aac; margin-top: 2px; }
+.shiori-tip-pair { display: flex; justify-content: space-between; gap: 14px; }
+.shiori-tip-pair + .shiori-tip-pair { margin-top: 2px; }
+.shiori-tip-value { color: #9a9aac; }
 .shiori-tip-badge {
   display: inline-block;
   margin-right: 6px;

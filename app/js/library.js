@@ -1248,7 +1248,7 @@ function _pageNumbers(current, total) {
   return result;
 }
 
-// "Original pages X · Translations and other data Y" — a size not yet recomputed is all original.
+// "Original pages X" over "Other data Y" — a size not yet recomputed is all original.
 function _sizeSplit(total, original) {
   const orig = original ?? total ?? 0;
   return t('lib.size_split', { orig: formatBytes(orig), rest: formatBytes(Math.max(0, (total || 0) - orig)) });

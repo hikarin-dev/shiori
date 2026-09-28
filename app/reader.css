@@ -12,6 +12,9 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; }
 body { min-height: 100vh; }
+/* The UI font's code ligatures redraw runs like the "//" in a URL — show text as typed. Form
+   controls are named too, as some browsers reset their font; .study-text turns them back on. */
+body, input, textarea, select, button { font-variant-ligatures: none; }
 
 /* ── Chapter transition card (series only) ──
    "End of Ch. N" + prev/next chapter cards + Series/Home links. Rendered inline after a chapter's
@@ -383,6 +386,7 @@ body.reader-fit-height #stripView .page-img {
   user-select: none; -webkit-user-select: none;
   font-family: "CC Victory Speech", "CC Wild Words", "Anime Ace 2.0 BB", "Anime Ace",
                "Comic Sans MS", "Segoe UI", system-ui, sans-serif;
+  font-variant-ligatures: normal;   /* lettered like the renderer, not like the UI */
   font-weight: 400;
   font-size: calc(var(--pgscale, 1) * var(--fs, 16px));
   line-height: 1.15;
