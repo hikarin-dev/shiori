@@ -209,7 +209,7 @@ export async function openPageProperties(page) {
   // Where a new translation would start needs the server; filled in when it answers.
   const again = body.querySelector('[data-again]');
   if (!again) return;
-  const settings = (await kv.get('translateSettings')).translateSettings || {};
+  const settings = (await kv.get('translateSettings')).translateSettings;
   const preview = await previewPagePlans(record.galleryId, page.url, settings).catch(() => ({ unavailable: 'offline' }));
   if (!dialog.open) return;
   if (preview.unavailable) { again.replaceChildren(_rows([[t('page.again'), t(`page.again_${preview.unavailable}`)]])); return; }

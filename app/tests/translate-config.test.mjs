@@ -58,6 +58,18 @@ function oldBuildConfig(ts) {
 
 const drop = (value) => JSON.parse(JSON.stringify(value));   // what actually goes over the wire
 
+// What the schema-3 defaults set over any older settings; every other choice is kept.
+function withDefaults(config) {
+  const c = structuredClone(drop(config));
+  c.translator.translator = 'deepseek';
+  c.ocr.ocr = 'hayai';
+  c.render.renderer = 'shiori';
+  Object.assign(c.detector, { detection_size: 2560, box_threshold: 0.75 });
+  c.inpainter.inpainting_size = 2048;
+  Object.assign(c, { mask_dilation_offset: 40, kernel_size: 7, study_mode_generation: 'text_only' });
+  return c;
+}
+
 const LEGACY = [
   {},
   { serverUrl: 'http://127.0.0.1:5003' },
@@ -74,17 +86,27 @@ const LEGACY = [
   { detectionSize: 'not a number', kernelSize: 3 },
 ];
 
-test('a migrated user sends exactly the config the previous app sent', () => {
+test('a migrated user keeps the config the previous app sent, moved onto the current defaults', () => {
   for (const ts of LEGACY) {
-    assert.deepEqual(drop(buildConfig(migrateTranslateSettings(ts), CAPS)), drop(oldBuildConfig(ts)), JSON.stringify(ts));
+    assert.deepEqual(drop(buildConfig(migrateTranslateSettings(ts), CAPS)), withDefaults(oldBuildConfig(ts)), JSON.stringify(ts));
     // Also without a server answer (an older server): the stored picks alone reproduce it.
-    assert.deepEqual(drop(buildConfig(migrateTranslateSettings(ts), null)).detector, drop(oldBuildConfig(ts)).detector);
+    assert.deepEqual(drop(buildConfig(migrateTranslateSettings(ts), null)).detector, withDefaults(oldBuildConfig(ts)).detector);
   }
 });
 
-test('the retired Ollama per-page choice migrates to what the old settings page showed', () => {
-  const migrated = migrateTranslateSettings({ translator: 'custom_openai' });
-  assert.equal(migrated.params['translator.translator'], 'qwen2_big');
+test('settings saved before schema 3 move onto the new defaults once, keeping every other choice', () => {
+  const saved = { schema: 2, serverUrl: 'https://x.example', serverToken: 't', studyModeGeneration: 'text_and_image',
+    saveSnapshots: true, keepSnapshotsOnRevert: true, batchCaps: { gemini: 4 },
+    params: { 'translator.translator': 'gemini', 'translator.target_lang': 'KOR', 'ocr.ocr': 'mocr_fast', 'render.uppercase': true } };
+  const once = migrateTranslateSettings(saved);
+  assert.equal(once.schema, SETTINGS_SCHEMA);
+  assert.equal(migrateTranslateSettings(once), once);
+  assert.deepEqual([once.studyModeGeneration, once.saveSnapshots, once.keepSnapshotsOnRevert], ['text_only', false, false]);
+  assert.equal(once.params['translator.translator'], 'deepseek');
+  assert.equal(once.params['ocr.ocr'], 'hayai');
+  for (const key of ['serverUrl', 'serverToken', 'batchCaps']) assert.deepEqual(once[key], saved[key], key);
+  assert.equal(once.params['translator.target_lang'], 'KOR');
+  assert.equal(once.params['render.uppercase'], true);
 });
 
 test('migration is idempotent and keeps app-owned fields', () => {
@@ -92,20 +114,27 @@ test('migration is idempotent and keeps app-owned fields', () => {
   const once = migrateTranslateSettings(ts);
   assert.equal(once.schema, SETTINGS_SCHEMA);
   assert.equal(migrateTranslateSettings(once), once);
-  for (const key of ['serverUrl', 'serverToken', 'batchCaps', 'priceIn', 'priceOut', 'studyModeGeneration']) {
+  for (const key of ['serverUrl', 'serverToken', 'batchCaps', 'priceIn', 'priceOut']) {
     assert.deepEqual(once[key], ts[key], key);
   }
   for (const key of ['translator', 'detectionSize', 'renderer', 'screenPrompt']) assert.ok(!(key in once), key);
   assert.equal(once.params['detector.detection_size'], 2560);
 });
 
-test('a new user gets the server\'s recommended defaults', () => {
+test('a new user starts from the app\'s defaults and the server\'s recommended ones', () => {
   const config = buildConfig(undefined, CAPS);
   const recommended = (stage) => CAPS.stages.find(s => s.id === stage);
+  const fresh = migrateTranslateSettings();
+  assert.deepEqual([fresh.studyModeGeneration, fresh.saveSnapshots, fresh.keepSnapshotsOnRevert], ['text_only', false, false]);
+  assert.equal(config.study_mode_generation, 'text_only');
+  assert.equal(config.translator.translator, 'deepseek');
+  assert.equal(config.ocr.ocr, 'hayai');
+  assert.equal(config.render.renderer, 'shiori');
+  assert.equal(config.detector.detection_size, 2560);
   assert.equal(config.detector.detector, recommended('detect').implementations.find(i => i.default).id);
-  assert.equal(config.render.renderer, recommended('render').implementations.find(i => i.default).id);
-  assert.equal(config.detector.detection_size, recommended('detect').params.find(p => p.key === 'detector.detection_size').default);
+  assert.equal(config.detector.text_threshold, recommended('detect').params.find(p => p.key === 'detector.text_threshold').default);
   assert.ok(!('content_screen_translator' in config.translator), 'options that do not apply are left out');
+  assert.deepEqual(unavailableChoices(migrateTranslateSettings(), CAPS), [], 'every first-run pick is on offer');
 });
 
 test('settings are drawn from the capabilities document', () => {
@@ -113,7 +142,7 @@ test('settings are drawn from the capabilities document', () => {
   assert.equal(model.offline, false);
   assert.deepEqual(model.stages.map(s => s.id), CAPS.stages.map(s => s.id));
   const ocr = model.stages.find(s => s.id === 'ocr');
-  assert.equal(ocr.value, 'mocr_fast');
+  assert.equal(ocr.value, 'hayai');
   assert.equal(ocr.implLabelKey, 'tm.ocr_model');
   assert.ok(ocr.choices.every(c => typeof c.label === 'string' && c.version !== undefined));
   const size = model.stages.find(s => s.id === 'detect').params.find(p => p.key === 'detector.detection_size');
@@ -127,12 +156,12 @@ test('settings are drawn from the capabilities document', () => {
 test('a model the server no longer offers is shown as such and blocks translation', () => {
   const trimmed = structuredClone(CAPS);
   const ocr = trimmed.stages.find(s => s.id === 'ocr');
-  ocr.implementations = ocr.implementations.filter(i => i.id !== 'mocr_fast');
+  ocr.implementations = ocr.implementations.filter(i => i.id !== 'hayai');
   const settings = migrateTranslateSettings(LEGACY[2]);
   const model = settingsModel(trimmed, settings);
-  const choice = model.stages.find(s => s.id === 'ocr').choices.find(c => c.value === 'mocr_fast');
+  const choice = model.stages.find(s => s.id === 'ocr').choices.find(c => c.value === 'hayai');
   assert.ok(choice.missing && !choice.available);
-  assert.deepEqual(unavailableChoices(settings, trimmed).map(p => p.value), ['mocr_fast']);
+  assert.deepEqual(unavailableChoices(settings, trimmed).map(p => p.value), ['hayai']);
   // An implementation the server lists as unavailable (e.g. no API key there) blocks too.
   const noKey = structuredClone(CAPS);
   noKey.stages.find(s => s.id === 'translate').implementations.find(i => i.id === 'deepseek').available = false;

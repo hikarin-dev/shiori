@@ -174,7 +174,7 @@ export async function revertGallery(galleryId, { keepSnapshots = false } = {}) {
 // just this page (the current settings) — each a planPage result, null meaning up to date. Only a
 // server the user set up is asked; `unavailable` says why there is no answer.
 export async function previewPagePlans(galleryId, url, ts) {
-  ts = migrateTranslateSettings(ts || {});
+  ts = migrateTranslateSettings(ts);
   if (!hasConfiguredServer(ts)) return { unavailable: 'no_server' };
   const serverUrl = serverUrlFromSettings(ts);
   const [{ doc: capsDoc }, rec, meta] = await Promise.all([getCapabilities(serverUrl, ts), dbGet(url), metaGet(galleryId)]);
@@ -308,7 +308,7 @@ async function startTranslationUnlocked(galleryId, ts, send, { forceFrom, pages,
     let resume = await translateResume.get(gid);
     if (resume && resume.phase !== 'uploading') return;
     if (resume && !resume.config) { await translateResume.remove(gid, resume.token); resume = null; }   // an older format
-    ts = migrateTranslateSettings((resume && resume.settings) || ts || {});
+    ts = migrateTranslateSettings((resume && resume.settings) || ts);
     const serverUrl = serverUrlFromSettings(ts);
     forceFrom = (resume && resume.forceFrom) || forceFrom || null;
     pages = (resume && resume.pages) || pages || null;

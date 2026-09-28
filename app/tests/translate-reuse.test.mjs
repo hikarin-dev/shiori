@@ -16,7 +16,8 @@ const { startTranslation, pollTranslation, revertGallery } = await import('../js
 const { translateResume } = await import('../js/platform.js');
 const { buildConfig, migrateTranslateSettings } = await import('../js/translate-config.js');
 
-const SETTINGS = migrateTranslateSettings({ serverUrl: S, translator: 'sugoi', renderer: 'manga2eng' });
+const BASE = migrateTranslateSettings({ serverUrl: S });
+const SETTINGS = { ...BASE, params: { ...BASE.params, 'translator.translator': 'sugoi', 'render.renderer': 'manga2eng' } };
 const FIELDS = {
   prepare: [], detect: ['detector.detector', 'detector.detection_size'], ocr: ['ocr.ocr'], merge: ['translator.target_lang'],
   translate: ['translator.translator', 'translator.target_lang'], mask: ['mask_dilation_offset'],

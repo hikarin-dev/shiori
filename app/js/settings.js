@@ -310,7 +310,7 @@ checkTranslatorStatus(null, { auto: true });
 // stores the user's picks keyed by the server's parameter names. With no server answer and no
 // cached copy there is nothing to choose from, so the controls stay away and saved picks are kept.
 
-let _settings = migrateTranslateSettings({});
+let _settings = migrateTranslateSettings();
 let _caps = null;            // capabilities document for the configured server (or null)
 let _capsOffline = false;    // true when _caps is a cached copy the server didn't just confirm
 let _capsServer = '';
@@ -329,7 +329,7 @@ const STEP_ICONS = {
 };
 
 function loadTranslateSettings(stored) {
-  _settings = migrateTranslateSettings(stored || {});
+  _settings = migrateTranslateSettings(stored);
   if (stored && stored.schema !== _settings.schema) platform.kv.set({ translateSettings: _settings });  // one-time migration
   document.getElementById('translateServerInput').value = stored?.serverUrl || '';
   setChoiceValue('translateTokenInput', _settings.serverToken || '');

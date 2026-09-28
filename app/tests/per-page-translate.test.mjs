@@ -16,7 +16,8 @@ const { startTranslation, pollTranslation, followGallerySettings } = await impor
 const { translateResume, jobsPending } = await import('../js/platform.js');
 const { migrateTranslateSettings } = await import('../js/translate-config.js');
 
-const SETTINGS = migrateTranslateSettings({ serverUrl: S, translator: 'sugoi', renderer: 'manga2eng' });
+const BASE = migrateTranslateSettings({ serverUrl: S });
+const SETTINGS = { ...BASE, params: { ...BASE.params, 'translator.translator': 'sugoi', 'render.renderer': 'manga2eng' } };
 const withTranslator = (translator) => ({ ...SETTINGS, params: { ...SETTINGS.params, 'translator.translator': translator } });
 const FIELDS = { prepare: [], detect: [], ocr: [], merge: [], translate: ['translator.translator'], mask: [], inpaint: [],
   bubbles: [], render: ['render.renderer'] };

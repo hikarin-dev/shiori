@@ -32,7 +32,7 @@ export async function benchmarkGalleries() {
 }
 
 export async function benchmarkSettings() {
-  return migrateTranslateSettings((await kv.get('translateSettings')).translateSettings || {});
+  return migrateTranslateSettings((await kv.get('translateSettings')).translateSettings);
 }
 
 export async function benchmarkCapabilities(settings) {

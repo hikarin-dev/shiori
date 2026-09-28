@@ -6,13 +6,13 @@
 // This module is pure (no DOM, no network) so the page, the service worker and the tests share
 // it: storage migration, the Settings view model, and the config a translation job sends.
 
-export const SETTINGS_SCHEMA = 2;
+export const SETTINGS_SCHEMA = 3;
 
 // ── One-time migration from the pre-capabilities settings ───────────────────────────────────
 // Earlier builds stored camelCase fields and filled in their own defaults when sending. The
-// migration materializes exactly the config those builds sent, defaults included, so a migrated
-// user's translations keep the same settings (and speed). It is storage compatibility, not model
-// knowledge; delete it once every client has migrated.
+// migration materializes exactly the config those builds sent, defaults included; like any
+// settings saved before schema 3, the result is then moved onto the current defaults. It is
+// storage compatibility, not model knowledge; delete it once every client has migrated.
 const LEGACY_FIELDS = ['translator', 'targetLang', 'detector', 'detectionSize', 'textThreshold', 'boxThreshold',
   'unclipRatio', 'ocr', 'estimateFontColor', 'estimateOutlineColor', 'inpainter', 'inpaintingSize',
   'inpaintingPrecision', 'maskDilationOffset', 'kernelSize', 'renderer', 'direction', 'alignment', 'fontSizeOffset',
@@ -75,21 +75,43 @@ function flatten(obj, prefix = '', out = {}) {
   return out;
 }
 
+// ── Defaults (schema 3, v1.0.10) ─────────────────────────────────────────────────────────────
+// Where settings start: the picks that differ from the server's recommended defaults (everything
+// else follows the server), plus the app's own switches. A first-time visitor starts here, and
+// settings saved by an earlier version are moved onto them once, keeping every other choice
+// (server, target language, …). Picks are checked against the server like any saved choice: one
+// it doesn't offer is flagged in Settings.
+const DEFAULT_PARAMS = {
+  'translator.translator': 'deepseek',
+  'ocr.ocr': 'hayai',
+  'render.renderer': 'shiori',
+  'detector.detection_size': 2560,
+  'detector.box_threshold': 0.75,
+  'inpainter.inpainting_size': 2048,
+  mask_dilation_offset: 40,
+  kernel_size: 7,
+};
+const DEFAULT_SWITCHES = { studyModeGeneration: 'text_only', saveSnapshots: false, keepSnapshotsOnRevert: false };
+
 export function migrateTranslateSettings(ts) {
-  if (!ts || typeof ts !== 'object') return { schema: SETTINGS_SCHEMA, params: {} };
+  if (!ts || typeof ts !== 'object') return { schema: SETTINGS_SCHEMA, ...DEFAULT_SWITCHES, params: { ...DEFAULT_PARAMS } };
   if (ts.schema === SETTINGS_SCHEMA && ts.params && typeof ts.params === 'object') return ts;
-  // The old Settings page already showed (and saved) Qwen2-7B for this retired choice.
-  const legacy = { ...ts, translator: ts.translator === 'custom_openai' ? 'qwen2_big' : ts.translator };
+  // Schema 2 already keys the picks by the server's parameter names; anything older is legacy.
+  const older = ts.schema === 2 && ts.params && typeof ts.params === 'object' ? ts : fromLegacy(ts);
+  return { ...older, ...DEFAULT_SWITCHES, schema: SETTINGS_SCHEMA, params: { ...older.params, ...DEFAULT_PARAMS } };
+}
+
+function fromLegacy(ts) {
   const params = {};
-  for (const [key, value] of Object.entries(flatten(legacyConfig(legacy)))) {
+  for (const [key, value] of Object.entries(flatten(legacyConfig(ts)))) {
     if (!APP_OWNED.has(key)) params[key] = value;
   }
   // Earlier builds sent no prompt when it was blank: keep it blank (left out) rather than
   // letting the server's recommended prompt fill in.
-  if (legacy.screenEnabled && !legacy.screenPrompt) params['translator.content_screen_prompt'] = '';
+  if (ts.screenEnabled && !ts.screenPrompt) params['translator.content_screen_prompt'] = '';
   const rest = {};
   for (const [key, value] of Object.entries(ts)) if (!LEGACY_FIELDS.includes(key)) rest[key] = value;
-  return { ...rest, schema: SETTINGS_SCHEMA, params };
+  return { ...rest, params };
 }
 
 // ── Capabilities helpers ─────────────────────────────────────────────────────────────────────

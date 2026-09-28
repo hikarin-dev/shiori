@@ -107,8 +107,9 @@ test('the page is served back as one image, like a stored translation', async ()
 const CAPS = JSON.parse(readFileSync(new URL('./fixtures/capabilities.json', import.meta.url), 'utf8'));
 const { startTranslation, pollTranslation } = await import('../js/translate.js');
 const { migrateTranslateSettings } = await import('../js/translate-config.js');
-const SETTINGS = migrateTranslateSettings({ serverUrl: 'http://127.0.0.1:5003', translator: 'sugoi', renderer: 'manga2eng',
-  studyModeGeneration: 'text_and_image' });
+const BASE = migrateTranslateSettings({ serverUrl: 'http://127.0.0.1:5003' });
+const SETTINGS = { ...BASE, studyModeGeneration: 'text_and_image',
+  params: { ...BASE.params, 'translator.translator': 'sugoi', 'render.renderer': 'manga2eng' } };
 const BUILDS = { prepare: 'p', detect: 'd', ocr: 'o', merge: 'm', translate: 't', mask: 'k', inpaint: 'i', bubbles: 'b', render: 'r' };
 const FIELDS = Object.fromEntries(Object.keys(BUILDS).map(s => [s, []]));
 let started = null;
