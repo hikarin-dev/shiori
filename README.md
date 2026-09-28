@@ -1,55 +1,96 @@
-# Shiori 栞
+<p align="center">
+  <img src="icons/icon512.png" width="96" alt="Shiori">
+</p>
 
-A local-first gallery **library and reader** that runs entirely in your browser. Galleries live in IndexedDB on your machine — no server, no account, no telemetry. Install it as a PWA and it works offline.
+<h1 align="center">Shiori 栞</h1>
 
-![](icons/icon128.png)
+<p align="center">
+  A manga library, reader and translator that runs in your browser.
+  <br><br>
+  <a href="https://shiori.cc">shiori.cc</a>
+  &nbsp;·&nbsp;
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
 
-## What it does
+---
 
-- **Library** — a windowed grid of every gallery you've stored, with cover thumbnails, page counts, sizes, tags, search, and sorting. Scales to large libraries: only the visible page of cards is ever loaded.
-- **Reader** — scroll-strip, single-page, and double-page modes, a draggable thumbnail strip, a page scrubber, and full keyboard navigation. Pages stream straight out of IndexedDB as blob URLs.
-- **Import** — drop `.cbz` / `.zip` archives onto the library (multiple at once) and they become galleries. Each file shows live progress and finishes in the background even if you close the tab.
-- **Export** — any gallery exports as a `.cbz` with its metadata bundled, re-importable losslessly. Shift-click exports metadata only.
-- **Backups** — lightweight metadata-only backups (`.shi`) or full-library backups including images (`.shioridb`) for moving between browsers or machines.
-- **Translation** — point it at a self-hosted [manga-image-translator](https://github.com/zyddnys/manga-image-translator) server and translate whole galleries; translated pages are stored alongside the originals and toggled in the reader.
-- **Search** — partial matches on ID, title, and tags; `tag:"name"` / `artist:"name"` typed filters; click any tag chip to add it to the search.
-- **Safe mode** — one click blurs covers and scrambles titles/tags for screen-sharing.
+Shiori stores your galleries in your browser, shows them as a searchable library, and includes a reader and a translation feature. It needs no account, and it works offline.
 
-## Running it
+## Library
 
-Shiori is a static site with no build step — any web server works. From the repo root, for example:
+- Each gallery has a card showing its cover, page count, size, tags and language.
+- Search by title, tag or artist. Clicking a tag or language flag filters the library by it.
+- Sort by most recent, last updated, size, page count or publication date.
+- Add or remove your own tags on any gallery.
+
+## Series
+
+- Chapters of the same series can be grouped on one card.
+- A series page lists its chapters under the series cover.
+- The reader can continue from one chapter into the next.
+
+## Reader
+
+- Scroll, single-page and two-page modes.
+- Left-to-right or right-to-left reading.
+- Fit to width or height, and zoom.
+- A thumbnail strip, and a progress bar that can sit on any edge of the screen.
+- Reading preferences are remembered. Press `?` for the list of keyboard shortcuts.
+
+## Translation
+
+With a translation server connected under **Settings → Translation**, Shiori can translate a whole gallery or a single chapter. Each page goes through text detection, text recognition, translation, removal of the original lettering, and typesetting. You choose the target language and the model for each step.
+
+- Original pages are kept. You can switch between translated and original pages, or remove a translation.
+- With **Save translation snapshots** on, translating again after a settings change only repeats the steps affected by it.
+- Problems on a translated page can be marked and sent as feedback.
+
+## Study mode
+
+Study mode shows the original page of a translated gallery. Clicking a speech bubble reveals its translation, one bubble at a time, so the two can be compared. The original text can also be displayed as selectable text, with furigana and vertical layout.
+
+Study mode uses data saved at translation time. Turn on **Study data** under **Settings → Translation** before translating.
+
+## Storage and privacy
+
+- The library is stored in your browser. There is no account, analytics or tracking.
+- Data leaves your device only when you send it: pages you translate, and feedback you submit.
+- Shiori works offline and can be installed as an app from the browser's address bar.
+- **Safe mode** blurs covers and scrambles titles and tags, for screen sharing.
+
+## Import, export and backups
+
+- Import `.cbz` and `.zip` files by dropping them onto the library. Imports continue in the background if you close the tab.
+- Export any gallery as a `.cbz` that includes its details.
+- Back up only the library's details (`.shi`), or everything including images and settings (`.shioridb`). Either restores in another browser or on another computer.
+
+## Languages
+
+English, 日本語, Deutsch, Français, 简体中文, 繁體中文, 한국어, Español, Português, Русский, Tiếng Việt and Bahasa Indonesia.
+
+## Getting started
+
+1. Open [shiori.cc](https://shiori.cc).
+2. Drop `.cbz` or `.zip` files onto the library.
+3. To translate, connect a translation server under **Settings → Translation**.
+
+Each browser keeps its own library. To move it, make a full backup and restore it in the other browser.
+
+<details>
+<summary>Hosting your own copy</summary>
+
+<br>
+
+Shiori is a static site and can be served by any web server. From the repository root, for example:
 
 ```
-npx serve -p 5500 .        # or VS Code Live Server, nginx, …
+npx serve -p 5500 .
 ```
 
-Then open `http://localhost:5500/` (it lands in the library at `/app/library`). Use the same origin every time: the library is stored per-origin in IndexedDB. If you roll your own server, make sure `.js` files are served as `text/javascript` (ES modules refuse to load otherwise); the included `404.html` keeps the clean URLs working on static hosts like GitHub Pages.
+Then open `http://localhost:5500/`. Each address keeps its own library, so use the same one every time.
 
-For an app-like experience, install it as a PWA (install icon in the address bar). The service worker caches the shell, so it opens instantly and works offline.
+</details>
 
-## Keyboard reference (reader)
+## License
 
-| Control | Action |
-|---|---|
-| `←` `↑` `W` `A` | Previous page |
-| `→` `↓` `S` `D` `Space` | Next page |
-| `Shift` + navigation key | First / last page |
-| `Home` / `End` | First / last page |
-| `1` / `2` / `3` | Single page / double page / scroll strip |
-| `T` | Toggle thumbnail strip |
-| `?` / `Esc` | Shortcuts overlay |
-
-In the thumbnail strip: drag to swipe, `Shift`+drag to scrub, click to jump. The library grid pages with `←`/`→` too.
-
-## Storage & privacy
-
-- Everything is stored in your browser profile's IndexedDB for this origin. Nothing leaves your machine except requests you initiate (e.g. to your own translation server).
-- Settings → Danger Zone offers two resets: **Clear All** removes the library, queued jobs and staged files but keeps your settings; **Factory Reset** additionally erases every setting, including translator credentials.
-- No analytics, no telemetry, no third-party requests — the UI font ships with the app rather than being fetched from a font CDN.
-
-## Tech
-
-- Pure HTML/CSS/JS ES modules — no build step, no framework, one vendored file (`marked` for the changelog).
-- IndexedDB stores image **Blobs** (not base64), and library queries are windowed index cursors — a page of cards costs the same whether the library holds ten galleries or ten thousand.
-- A PWA service worker serves the app shell stale-while-revalidate and hosts durable jobs (imports, translation). A job is recorded before it starts and resumes from where it left off, so closing the tab — or the browser evicting the worker — costs progress, not the job.
-- Live updates everywhere via `BroadcastChannel`: every open tab reflects a change the moment it lands in the database.
+[MIT](LICENSE)
