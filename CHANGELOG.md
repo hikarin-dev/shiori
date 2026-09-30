@@ -4,7 +4,7 @@
 
 ### Added
 
-- Settings → Extension now offers the download that fits your browser. Firefox gets its own version, signed by Mozilla: open the downloaded file in Firefox and choose **Add**. Other browsers get the same download as before.
+- Settings → Extension now offers the download that fits your browser. Firefox gets its own version, signed by Mozilla, that stays installed: after **Download**, choose **Continue to Installation**, then **Add**. Other browsers get the same download as before.
 
 ## v1.0.11 — 2026-10-01
 
