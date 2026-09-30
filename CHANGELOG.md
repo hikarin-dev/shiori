@@ -1,5 +1,34 @@
 # Changelog
 
+## v1.0.11 — 2026-10-01
+
+### Added
+
+- Import more than archives. Pick or drop PDFs and images (JPG, PNG, WebP, GIF, AVIF), or drag in whole folders. Images dropped together become one gallery; a folder becomes one gallery named after it, its subfolders included, and any archives or PDFs inside it become galleries of their own. Each PDF page becomes one page, drawn at the size of the scan inside it and stored without further loss of quality. AVIF images inside .cbz and .zip archives import too.
+- Favorites: click the heart on a card, or **Add to favorites** on a gallery's page, and search `favorite:"yes"` to see them. Favoriting doesn't move a gallery in "Last Updated".
+- Galleries can now have a category (manga, doujinshi, …) and a rating (safe, suggestive, erotica, pornographic). **Settings → Library upgrades → Category and rating** fills them in for your existing galleries from the source details they already have. Nothing is downloaded, and galleries keep their place in "Last Updated".
+- Filter the library by category and rating with the new **Filter** button: click an option to show only it, click again to hide it, and once more to reset. Your filter is remembered.
+- Add, change or remove a gallery's tags. As you type, the tags already in your library are suggested, most used first; category and rating are picked from a list.
+- The search box suggests filters and tags as you type, and shows each finished filter as a block. Hold Alt and click a card's heart, translate button or source to search for galleries like it.
+- Reader: navigation direction and page direction are now separate settings, and **Cover offset** adds a blank page before each chapter's first page in double-page view, so the cover sits alone.
+- Settings: choose whether the top bar shows the storage totals, and whether cards show their category as the first tag.
+- Hovering the image total in the top bar lists your images by page resolution.
+
+### Changed
+
+- Every confirmation and message now opens in Shiori's own dialog instead of the browser's. Clearing the library or resetting everything asks twice.
+- Shiori looks the same everywhere: one set of colours, buttons, dialogs and tooltips on every page, and less motion when your system asks for it.
+- The page thumbnails on a gallery's page appear much faster.
+- Reader: the page and its translation now change together when you turn a page, so the original no longer flashes underneath and the text no longer jumps.
+- Merging galleries into a series keeps one category, the first chapter's, and the highest rating, instead of adding them all up.
+- The **Upload** button is now called **Import**.
+
+### Fixed
+
+- A series stays a favorite when its first chapter changes, whether you reorder the chapters or remove the first one.
+- Galleries with AVIF pages show every page on the gallery's page, use their first page as the cover, and keep all their pages when exported and imported again.
+- Restoring a full backup in another browser now lets Shiori run its one-time repairs on the restored library, instead of skipping them.
+
 ## v1.0.10 — 2026-09-28
 
 ### Changed
