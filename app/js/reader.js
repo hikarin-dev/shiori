@@ -51,7 +51,9 @@ let lastPageMode  = 'single';
 let _pageZoom     = 1;     // +/- page scale factor
 let readerFitMode = 'off'; // 'off' | 'width' | 'height' for persistent page-mode fit classes
 let readerFitMaxWidth = 1; // persistent fit cap, 0.1..1, adjusted by zoom keys while fit is active
-let readerDirection = 'ltr';
+let readerNavDirection  = 'ltr'; // 'rtl': the left side / ←, A turns forward
+let readerPageDirection = 'ltr'; // 'rtl': a double spread reads right to left (2 1)
+let readerCoverOffset   = false; // double spreads open on a blank page before each chapter's first
 let readerPageGap = 4;
 let readerProgressPosition = 'bottom';
 // Cached pages may learn their own true aspect ratio as they decode. Missing-page slots share one
@@ -225,20 +227,78 @@ function _showPageImage(img, url) {
     _setPlaceholderGeometry(img);
   } else {
     img.src = url;
+    // A page decoded ahead already knows its shape: lay it out at that shape now rather than at the
+    // previous page's until this <img> loads (its load event re-seeds the same values). Overlays
+    // are placed as fractions of the page, so they'd jump with it.
+    const pre = _decoded.get(url);
+    if (pre?.naturalWidth) {
+      img.style.aspectRatio = `${pre.naturalWidth} / ${pre.naturalHeight}`;
+      _setPageRatioVars(img, pre);
+    }
   }
   return placeholder;
 }
 
-// Pre-create blob URLs (and warm the decode cache) for pages around n, so page flips and
-// double-page spreads never show a blank frame.
+// A blank half of a spread shows an empty SVG of a page's shape: it sizes like any page, and unlike
+// an <img> with no source it never draws the browser's broken-image glyph.
+const _blankPageSrc = (w, h) =>
+  `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"/>`)}`;
+
+// One half of a double spread: page `n`'s image, or with n = 0 a white blank page of the default
+// page shape until _shapeBlankLike matches it to its partner. Returns placeholder-ness.
+const _defaultBlankSrc = () => _blankPageSrc(1000, Math.round(1000 / _placeholderWidthRatio));
+function _showSpreadHalf(img, n, url) {
+  img.classList.toggle('page-blank', !n);
+  if (n) return _showPageImage(img, url);
+  img.classList.remove('page-placeholder');
+  img.src = _defaultBlankSrc();
+  return false;
+}
+
+// Decode images off-screen; once done, an <img> given the same URL paints complete in its first
+// frame instead of popping in after it. _decoded holds on to the decoded images (newest last, a
+// flip or two's worth): an image nothing holds can drop out of the browser's cache before the flip,
+// and it also tells a swap each page's true shape up front (see _showPageImage).
+const _decoded = new Map();   // image URL → its decoded Image
+const DECODED_KEEP = 32;
+function _decodeUrls(urls) {
+  return Promise.all(urls.filter(u => u && !_decoded.has(u)).map(u => {
+    const img = new Image();
+    img.src = u;
+    return img.decode().then(() => {
+      _decoded.set(u, img);
+      while (_decoded.size > DECODED_KEEP) _decoded.delete(_decoded.keys().next().value);
+    }, () => {});
+  }));
+}
+// null when every image is already decoded (swap now), else the promise of decoding the rest.
+const _whenDecoded = (urls) => urls.every(u => !u || _decoded.has(u)) ? null : _decodeUrls(urls);
+
+// The images a page's overlay shows the moment it mounts: the inpainted background under
+// original-as-text (study mode), or the balloons' text layers of a page kept as study layers
+// (translate view). The rest only load when a bubble is revealed.
+function _overlayImageUrls(pageNum) {
+  const page = pages[pageNum - 1];
+  const study = page?.url && _bubbleLayersOn() ? studyFor(page.url) : null;
+  const urls = study && _layerUrls(page.url);
+  if (!urls) return [];
+  if (!studyMode) return translationView(study, translateDisplay).overlay === 'images' ? urls.textUrls : [];
+  return studyPrefs().original === 'text' ? [urls.bgUrl] : [];
+}
+
+// Pages a flip or two away from n (a double spread's next trail included): kept decoded, overlays
+// too, so turning the page has nothing left to wait for.
+function _nearPages(n) {
+  const near = [];
+  for (let p = Math.max(1, n - 2); p <= Math.min(pages.length, n + 3); p++) near.push(p);
+  return near;
+}
+
+// Pre-create blob URLs (and warm the decode cache) for pages around n and their overlays, so
+// page flips and double-page spreads never show a blank frame.
 function _warmNeighbors(n) {
-  for (let p = Math.max(1, n - 2); p <= Math.min(pages.length, n + 2); p++) {
-    pageBlobUrl(pages[p - 1]).then(u => {
-      if (!u) return;
-      const img = new Image();
-      img.src = u;
-      img.decode().catch(() => {});
-    });
+  for (const p of _nearPages(n)) {
+    pageBlobUrl(pages[p - 1]).then(u => _decodeUrls([u, ..._overlayImageUrls(p)]));
   }
 }
 
@@ -331,9 +391,9 @@ const mainImg       = document.getElementById('mainImg');
 const imgLeft       = document.getElementById('imgLeft');
 const imgRight      = document.getElementById('imgRight');
 // Real pages may refine their own geometry, but never the missing-page baseline.
-function _setPageRatioVars(img) {
-  if (!img || img.naturalWidth <= 1 || img.naturalHeight <= 1) return;
-  const ratio = img.naturalWidth / img.naturalHeight;
+function _setPageRatioVars(img, source = img) {
+  if (!img || source.naturalWidth <= 1 || source.naturalHeight <= 1) return;
+  const ratio = source.naturalWidth / source.naturalHeight;
   img.style.setProperty('--page-ratio', ratio);
   if (img.parentElement?.classList.contains('page-wrap')) img.parentElement.style.setProperty('--page-ratio', ratio);
 }
@@ -341,6 +401,12 @@ const _seedRatio = (img) => {
   _setPageRatioVars(img);
   img.style.removeProperty('aspect-ratio');
 };
+// A spread's empty half takes its partner page's shape once that page has loaded, so the two
+// halves stay level.
+function _shapeBlankLike(blank, partner) {
+  if (partner.naturalWidth <= 1 || partner.naturalHeight <= 1) return;
+  blank.src = _blankPageSrc(partner.naturalWidth, partner.naturalHeight);   // its load re-seeds the geometry
+}
 [mainImg, imgLeft, imgRight].forEach(img => img.addEventListener('load', () => _seedRatio(img)));
 const scrubber      = document.getElementById('scrubber');
 const scrubSegments = document.getElementById('scrubSegments');
@@ -359,7 +425,9 @@ const readerSettingsBtn = document.getElementById('readerSettingsBtn');
 const readerSettingsModal = document.getElementById('readerSettingsModal');
 const readerSettingsBox = document.getElementById('readerSettingsBox');
 const readerSettingsClose = document.getElementById('readerSettingsClose');
-const readerDirectionGroup = document.getElementById('readerDirectionGroup');
+const readerPageDirectionGroup = document.getElementById('readerPageDirectionGroup');
+const readerCoverOffsetGroup   = document.getElementById('readerCoverOffsetGroup');
+const readerCoverOffsetInput   = document.getElementById('readerCoverOffset');
 const readerGap = document.getElementById('readerGap');
 const readerGapValue = document.getElementById('readerGapValue');
 const readerZoomOut = document.getElementById('readerZoomOut');
@@ -481,7 +549,7 @@ async function init() {
     return;
   }
 
-  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerFitMode', 'readerFitMaxWidth', 'readerDirection', 'readerPageGap', 'readerProgressPosition', 'readerView', 'readerTranslateDisplay', 'readerStudyDisplay', 'readerStudyOriginal', 'readerStudySrcFont', 'readerFurigana', 'readerChapterDivider', 'readerStripMode']);
+  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerFitMode', 'readerFitMaxWidth', 'readerDirection', 'readerNavDirection', 'readerPageDirection', 'readerCoverOffset', 'readerPageGap', 'readerProgressPosition', 'readerView', 'readerTranslateDisplay', 'readerStudyDisplay', 'readerStudyOriginal', 'readerStudySrcFont', 'readerFurigana', 'readerChapterDivider', 'readerStripMode']);
 
   // A saved study view needs its layers before the first paint, and so does a translate view that
   // draws its text from them — otherwise the inpainted page would paint with empty bubbles until
@@ -505,7 +573,10 @@ async function init() {
   if (saved.readerPageZoom) { _pageZoom = saved.readerPageZoom; document.documentElement.style.setProperty('--page-zoom', _pageZoom); }
   _applyReaderFitMaxWidth(saved.readerFitMaxWidth || FIT_WIDTH_MAX, false);
   _applyReaderFitMode(saved.readerFitMode || 'off', false);
-  _applyReaderDirection(saved.readerDirection || 'ltr', false);
+  // Both directions start from the single reading direction they were split from.
+  _applyReaderNavDirection(saved.readerNavDirection || saved.readerDirection || 'ltr', false);
+  _applyReaderPageDirection(saved.readerPageDirection || saved.readerDirection || 'ltr', false);
+  _applyReaderCoverOffset(saved.readerCoverOffset === true, false);
   _applyReaderPageGap(saved.readerPageGap ?? 4, false);
   _applyReaderProgressPosition(saved.readerProgressPosition || 'bottom', false);
   if (saved.readerLastPageMode) lastPageMode = saved.readerLastPageMode;
@@ -609,9 +680,9 @@ function _handlePageStored(event) {
         void _mountOne(localIdx, _stripGen, false);
       }
     }
-  } else if (pageIdx === currentPage - 1 ||
-             (mode === 'double' && pageIdx === currentPage && _rightPageForSpread(currentPage))) {
-    void goTo(currentPage, true);
+  } else {
+    const shown = mode === 'double' ? _spreadAt(currentPage) : { lead: currentPage };
+    if (shown.lead === pageIdx + 1 || shown.trail === pageIdx + 1) void goTo(currentPage, true);
   }
 }
 
@@ -644,15 +715,15 @@ platform.jobs.subscribe((event) => {
 });
 
 // ── A page on its own: properties, translation, settings (right-click, or I) ──
-// Which page is under a point: strip rows carry their number; single and double views show the
-// current page (and, on the right of a spread, the next one).
+// Which page is under a point: strip rows carry their number; the single view shows the current
+// page, and the double view the two halves of its spread (a blank half is no page).
 function _pageAtPoint(x, y) {
   for (const el of document.elementsFromPoint(x, y)) {
     if (el.matches?.('#stripView .page-wrap[data-page]')) return Number(el.dataset.page);
     const img = el.matches?.('.page-wrap') ? el.querySelector(':scope > img') : el;
     if (img === mainImg && mode === 'single') return currentPage;
-    if (img === imgLeft && mode === 'double') return currentPage;
-    if (img === imgRight && mode === 'double' && _rightPageForSpread(currentPage)) return currentPage + 1;
+    if (img === imgLeft && mode === 'double') return _spreadAt(currentPage).lead || null;
+    if (img === imgRight && mode === 'double') return _spreadAt(currentPage).trail || null;
   }
   return null;
 }
@@ -752,10 +823,34 @@ viewport.addEventListener('contextmenu', (e) => {
   void _openPageMenu(n, e.clientX, e.clientY);
 });
 
-// Double-page spreads never straddle a chapter boundary; the transition card must appear before
-// the next chapter's first page, not after that page has already been shown on the right.
-function _rightPageForSpread(page) {
-  return page < pages.length && _chapterAt(page) === _chapterAt(page + 1) ? pages[page] : null;
+// Double-page spreads are paired from each chapter's first page and never straddle a chapter
+// boundary (the transition card must appear before the next chapter's first page, not after it
+// has already been shown). The cover offset pairs from a blank page before the first page instead.
+// Returns the page number in each half of the spread holding page n — `lead` is read first — with
+// 0 for a white blank half: the page before the first (lead, with the cover offset), or the one
+// beside a chapter's lone last page (trail), which keeps that page on its own side instead of
+// shifting the pairing.
+function _spreadAt(n) {
+  const ch = _chapters[_chapterAt(n)];
+  const start = ch ? ch.start : 0;
+  const end = ch ? ch.start + ch.count : pages.length;
+  const off = readerCoverOffset ? 1 : 0;
+  const lead = start + 1 - off + 2 * Math.floor((n - start - 1 + off) / 2);
+  return { lead: lead > start ? lead : 0, trail: lead + 1 <= end ? lead + 1 : 0 };
+}
+// Where goTo(n) settles: clamped to the series and, in double mode, on the first page of n's spread.
+function _landingPage(n) {
+  n = Math.max(1, Math.min(pages.length, n));   // chapters are continuous; only the series clamps
+  if (mode !== 'double') return n;
+  const { lead, trail } = _spreadAt(n);
+  return lead || trail;
+}
+// The raw target of one flip forward (dir 1) or back (−1): the adjacent page, or in double mode
+// the page just past the current spread on that side — goTo lands on the spread holding it.
+function _flipTarget(dir) {
+  if (mode !== 'double') return currentPage + dir;
+  const { lead, trail } = _spreadAt(currentPage);
+  return dir > 0 ? (trail || lead) + 1 : (lead || trail) - 1;
 }
 // Jump to a merged page number in whatever the current mode is: strip lands there instantly
 // (re-scoping a chapter-only strip if needed), page modes flip straight there — no transition page.
@@ -862,24 +957,7 @@ function _interceptPageDivider(rawN) {
     goTo(_chapters[d].start + _chapters[d].count, true);
     return true;
   }
-  if (!_chapterDividersOn) {
-    // A two-page step across an odd-length chapter would otherwise skip the adjacent chapter's
-    // first (or previous chapter's last) page when transition screens are disabled.
-    if (mode === 'double') {
-      const k = _chapterAt(currentPage);
-      const ch = _chapters[k];
-      if (rawN > ch.start + ch.count && _chapters[k + 1]) {
-        goTo(_chapters[k + 1].start + 1, true);
-        return true;
-      }
-      if (rawN < ch.start + 1 && k > 0) {
-        const prev = _chapters[k - 1];
-        goTo(prev.start + prev.count, true);
-        return true;
-      }
-    }
-    return false;
-  }
+  if (!_chapterDividersOn) return false;
   if (Math.abs(rawN - currentPage) > 2) return false;   // thumbs/scrubber jumps skip the transition
   const k = _chapterAt(currentPage);
   const ch = _chapters[k];
@@ -953,55 +1031,70 @@ function _scrollPageModeWhenImgsLoad(imgs, nav) {
 async function goTo(n, skipDivider = false) {
   if (!pages.length) return;
   if (!skipDivider && _interceptPageDivider(n)) return;   // boundary flips show the transition page
+  // A flip past the series' first or last page lands where it already is: leave the page and its
+  // overlays alone rather than rebuilding them in place.
+  if (!skipDivider && _pageDivider === null && mode !== 'strip' && _landingPage(n) === currentPage) return;
   if (_pageDivider !== null) _hidePageDivider();          // any other navigation dismisses it
   const nav = _beginPageNav();
-  n = Math.max(1, Math.min(pages.length, n));   // chapters are continuous; only the series clamps
+  n = _landingPage(n);
   currentPage = n;
 
+  // Page modes swap page, overlays and scroll together. A warm page (a normal flip: its
+  // neighbours are decoded ahead) has its overlay's images decoded already, so everything lands
+  // in one frame — the old overlay never sits on the new page, and the new one never paints
+  // before its images. A cold one (a fast click-wheel scrub past the warm pages, a first open)
+  // shows at once instead; its overlay follows once its images are decoded, the old one dropped
+  // right away. Waiting on a cold page would leave a quick scrub showing nothing at all.
   try {
     // Update navigation UI immediately; image loads asynchronously below
     updateCounter();
     _evictFarUrls(n - 1);
     highlightThumb(n - 1);
     scrollThumbIntoView(n - 1);
-    if (mode !== 'strip') _scrollPageModeToStart();
 
     if (mode === 'single') {
       const url = await pageBlobUrl(pages[n - 1]);
       if (currentPage !== n || mode !== 'single') return;
+      const cold = _whenDecoded([url, ..._overlayImageUrls(n)]);
       _scrollPageModeWhenImgsLoad([mainImg], nav);
       const placeholder = _showPageImage(mainImg, url);
       singleInner.classList.toggle('page-placeholder', placeholder);
+      _scrollPageModeToStart();
       _warmNeighbors(n);
+      if (cold) {
+        _clearBubbleLayers();
+        await cold;
+        if (currentPage !== n || mode !== 'single') return;
+      }
+      if (_bubbleLayersOn()) _refreshBubbleLayers();
       await _waitForImgLayout([mainImg]);
       if (currentPage !== n || mode !== 'single') return;
       _scrollPageModeToStart();
-      if (_bubbleLayersOn()) _refreshBubbleLayers();
     } else if (mode === 'double') {
-      const lPage = pages[n - 1];
-      const rPage = _rightPageForSpread(n);
-      doubleInner.classList.toggle('single-spread', !rPage);
-      imgRight.style.display = rPage ? 'block' : 'none';
-      const [lUrl, rUrl] = await Promise.all([
-        pageBlobUrl(lPage),
-        rPage ? pageBlobUrl(rPage) : Promise.resolve('')
-      ]);
+      const { lead, trail } = _spreadAt(n);
+      const [lUrl, rUrl] = await Promise.all([lead, trail].map(p => p ? pageBlobUrl(pages[p - 1]) : ''));
       if (currentPage !== n || mode !== 'double') return;
-      const visibleImgs = rPage ? [imgLeft, imgRight] : [imgLeft];
-      _scrollPageModeWhenImgsLoad(visibleImgs, nav);
-      const leftPlaceholder  = _showPageImage(imgLeft, lUrl);
-      const rightPlaceholder = rPage ? _showPageImage(imgRight, rUrl) : false;
-      if (!rPage) {
-        imgRight.removeAttribute('src');
-        imgRight.classList.remove('page-placeholder');
-      }
+      const cold = _whenDecoded([lUrl, rUrl, lead && trail ? '' : _defaultBlankSrc(),
+        ...(lead ? _overlayImageUrls(lead) : []), ...(trail ? _overlayImageUrls(trail) : [])]);
+      const pageImgs = [lead && imgLeft, trail && imgRight].filter(Boolean);
+      _scrollPageModeWhenImgsLoad(pageImgs, nav);
+      const leftPlaceholder  = _showSpreadHalf(imgLeft, lead, lUrl);
+      const rightPlaceholder = _showSpreadHalf(imgRight, trail, rUrl);
       doubleInner.classList.toggle('left-placeholder', leftPlaceholder);
       doubleInner.classList.toggle('right-placeholder', rightPlaceholder);
-      _warmNeighbors(n);
-      await _waitForImgLayout(visibleImgs);
-      if (currentPage !== n || mode !== 'double') return;
       _scrollPageModeToStart();
+      _warmNeighbors(n);
+      if (cold) {
+        _clearBubbleLayers();
+        await cold;
+        if (currentPage !== n || mode !== 'double') return;
+      }
       if (_bubbleLayersOn()) _refreshBubbleLayers();
+      await _waitForImgLayout(pageImgs);
+      if (currentPage !== n || mode !== 'double') return;
+      if (!lead) _shapeBlankLike(imgLeft, imgRight);
+      if (!trail) _shapeBlankLike(imgRight, imgLeft);
+      _scrollPageModeToStart();
     }
   } finally {
     _finishPageNav(nav);
@@ -1961,11 +2054,31 @@ function buildStrip() {
 }
 
 // ── Mode switching ──
-function _applyReaderDirection(next, persist = true) {
-  readerDirection = next === 'rtl' ? 'rtl' : 'ltr';
-  document.body.classList.toggle('reader-rtl', readerDirection === 'rtl');
-  if (persist) platform.kv.set({ readerDirection });
+function _applyReaderNavDirection(next, persist = true) {
+  readerNavDirection = next === 'rtl' ? 'rtl' : 'ltr';
+  if (persist) platform.kv.set({ readerNavDirection });
   _syncReaderSettingsUI();
+}
+
+function _applyReaderPageDirection(next, persist = true) {
+  readerPageDirection = next === 'rtl' ? 'rtl' : 'ltr';
+  document.body.classList.toggle('reader-page-rtl', readerPageDirection === 'rtl');
+  if (persist) platform.kv.set({ readerPageDirection });
+  _syncReaderSettingsUI();
+}
+
+// Re-pairs the spreads around one page that stays in view (a showing transition page keeps its
+// place). That page is kept across toggles while it is still on screen: re-deriving it from each
+// new spread would land on that spread's first page and walk back a page with every press.
+let _coverAnchor = 0;
+function _applyReaderCoverOffset(on, persist = true) {
+  const shown = mode === 'double' && _pageDivider === null ? _spreadAt(currentPage) : null;   // old pairing
+  readerCoverOffset = !!on;
+  if (persist) platform.kv.set({ readerCoverOffset });
+  _syncReaderSettingsUI();
+  if (!shown) return;
+  if (!_coverAnchor || (_coverAnchor !== shown.lead && _coverAnchor !== shown.trail)) _coverAnchor = currentPage;
+  goTo(_coverAnchor, true);
 }
 
 function _applyReaderPageGap(next, persist = true) {
@@ -2114,7 +2227,6 @@ function _scrollStripToPage(n) {
 // there (release, then click-hold again) continues into the adjacent chapter.
 function _clickWheelPageNav(dir) {
   if (!pages.length) return false;
-  const step = mode === 'double' ? 2 : 1;
   if (mode === 'strip') {
     const base = _clickWheelNavPage ?? currentPage;
     const rawNext = base + dir;
@@ -2129,10 +2241,10 @@ function _clickWheelPageNav(dir) {
   }
   if (_clickWheelNavSteps > 0 && _pageDivider !== null) return false;   // parked on the transition page
   const chW = _chapters[_chapterAt(currentPage)];
-  const rawN = currentPage + dir * step;
+  const rawN = _flipTarget(dir);
   const crossing = chW ? (rawN > chW.start + chW.count || rawN < chW.start + 1) : false;
   if (_clickWheelNavSteps > 0 && crossing && !(_chapterDividersOn && _series)) return false;
-  if (Math.max(1, Math.min(pages.length, rawN)) === currentPage && !crossing) return false;
+  if (_landingPage(rawN) === currentPage && !crossing) return false;
   goTo(rawN);   // raw target — the intercept can show the transition page at the boundary
   _clickWheelNavSteps++;
   return true;
@@ -2185,18 +2297,18 @@ document.addEventListener('pointercancel', _endClickWheelNav);
 window.addEventListener('blur', _endClickWheelNav);
 document.addEventListener('visibilitychange', () => { if (document.hidden) _endClickWheelNav(); });
 
-function _physicalPageDelta(side, amount) {
-  const forward = readerDirection === 'rtl' ? side === 'left' : side === 'right';
-  return forward ? amount : -amount;
+// Forward (1) or back (−1) for a flip toward one side of the screen, per the navigation direction.
+function _sideDir(side) {
+  return (readerNavDirection === 'rtl') === (side === 'left') ? 1 : -1;
 }
 
-// Physical click zones follow the selected reading direction.
-clickPrev.addEventListener('click', () => goTo(currentPage + _physicalPageDelta('left', 1)));
-clickNext.addEventListener('click', () => goTo(currentPage + _physicalPageDelta('right', 1)));
+// Physical click zones follow the selected navigation direction.
+clickPrev.addEventListener('click', () => goTo(_flipTarget(_sideDir('left'))));
+clickNext.addEventListener('click', () => goTo(_flipTarget(_sideDir('right'))));
 
 // Double click zones
-dClickPrev.addEventListener('click', () => goTo(currentPage + _physicalPageDelta('left', 2)));
-dClickNext.addEventListener('click', () => goTo(currentPage + _physicalPageDelta('right', 2)));
+dClickPrev.addEventListener('click', () => goTo(_flipTarget(_sideDir('left'))));
+dClickNext.addEventListener('click', () => goTo(_flipTarget(_sideDir('right'))));
 
 // Scrubber — chapter-relative: its range is the current chapter, so the value maps onto the
 // chapter's slice of the merged page list.
@@ -2264,9 +2376,9 @@ function _swapVisibleVariant() {
   } else if (mode === 'single') {
     _swapImg(mainImg, pages[currentPage - 1]);
   } else if (mode === 'double') {
-    _swapImg(imgLeft, pages[currentPage - 1]);
-    const rPage = _rightPageForSpread(currentPage);
-    if (rPage) _swapImg(imgRight, rPage);
+    const { lead, trail } = _spreadAt(currentPage);
+    if (lead) _swapImg(imgLeft, pages[lead - 1]);
+    if (trail) _swapImg(imgRight, pages[trail - 1]);
   }
 }
 
@@ -2314,7 +2426,8 @@ function _mountTextBubble(box, b, idx, pageUrl, bgLayer, fgLayer, pg, srcOpts, h
     const clip = _clipInset(b.region);
     const bg = document.createElement('img');
     bg.className = 'study-layer-img'; bg.src = urls.bgUrl;
-    bg.decoding = 'async'; bg.loading = 'lazy';
+    // Lazy loading would hold a page mode's patch back a frame even when already decoded.
+    bg.decoding = 'async'; bg.loading = mode === 'strip' ? 'lazy' : 'eager';
     bg.style.clipPath = clip; bg.style.webkitClipPath = clip;
     bgLayer.appendChild(bg);
   }
@@ -2493,9 +2606,12 @@ function _renderBubbleLayer(wrap, pageNum) {
     const nav = document.createElement('div'); nav.className = 'bubble-nav';
     const zone = (handler) => { const z = document.createElement('div'); z.addEventListener('click', handler); return z; };
     if (mode === 'single') {
-      nav.append(zone(() => goTo(currentPage - 1)), zone(() => goTo(currentPage + 1)));
-    } else {              // double: this page turns the whole spread (left → back, right → forward)
-      nav.append(zone(() => goTo(currentPage + (pageNum <= currentPage ? -2 : 2))));
+      nav.append(zone(() => goTo(_flipTarget(_sideDir('left')))), zone(() => goTo(_flipTarget(_sideDir('right')))));
+    } else {              // double: this page turns the whole spread toward its side of the screen
+      nav.append(zone(() => {
+        const onLeft = (pageNum === _spreadAt(currentPage).lead) === (readerPageDirection === 'ltr');
+        goTo(_flipTarget(_sideDir(onLeft ? 'left' : 'right')));
+      }));
     }
     layer.appendChild(nav);
   }
@@ -2550,22 +2666,34 @@ function _renderBubbleLayer(wrap, pageNum) {
   wrap.appendChild(layer);
 }
 
+// Strip rows near the reading line that carry overlays.
+function _overlayStripRows() {
+  const center = currentPage - _viewBase;   // local, 1-based
+  return [..._mountedIdx].filter(idx => Math.abs(idx + 1 - center) <= MOUNT_AHEAD);
+}
+
+// Drop every overlay. The layer images of the pages shown (and, in page modes, of the warm pages
+// around them) keep their URLs, so the overlays rebuilt next paint from images already decoded.
+function _clearBubbleLayers() {
+  const keepPages = mode === 'strip' ? _overlayStripRows().map(idx => Number(_stripWraps[idx]?.dataset.page)) : _nearPages(currentPage);
+  _removeBubbleLayers(new Set(keepPages.map(p => pages[p - 1]?.url).filter(Boolean)));
+}
+
 // Rebuild the overlays for whichever page images are mounted in the current view.
 function _refreshBubbleLayers() {
-  _removeBubbleLayers();
+  _clearBubbleLayers();
   if (!_bubbleLayersOn()) return;
   if (mode === 'strip') {
-    const center = currentPage - _viewBase;   // local, 1-based
-    for (const idx of _mountedIdx) {
-      if (Math.abs(idx + 1 - center) > MOUNT_AHEAD) continue;
+    for (const idx of _overlayStripRows()) {
       const wrap = _stripWraps[idx];
       if (wrap) _renderBubbleLayer(wrap, parseInt(wrap.dataset.page));
     }
   } else if (mode === 'single') {
     _renderBubbleLayer(_ensureWrap(mainImg), currentPage);
   } else if (mode === 'double') {
-    _renderBubbleLayer(_ensureWrap(imgLeft), currentPage);
-    if (_rightPageForSpread(currentPage)) _renderBubbleLayer(_ensureWrap(imgRight), currentPage + 1);
+    const { lead, trail } = _spreadAt(currentPage);
+    if (lead) _renderBubbleLayer(_ensureWrap(imgLeft), lead);
+    if (trail) _renderBubbleLayer(_ensureWrap(imgRight), trail);
   }
   document.body.classList.toggle('study-bubbles-active', mode !== 'strip' && !!document.querySelector('.bubble-box'));
 }
@@ -2586,17 +2714,23 @@ function _syncReaderSettingsUI() {
   readerSettingsBox.querySelectorAll('[data-reader-mode]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.readerMode === mode);
   });
-  readerSettingsBox.querySelectorAll('[data-reader-direction]').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.readerDirection === readerDirection);
+  readerSettingsBox.querySelectorAll('[data-nav-direction]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.navDirection === readerNavDirection);
   });
+  readerSettingsBox.querySelectorAll('[data-page-direction]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.pageDirection === readerPageDirection);
+  });
+  readerCoverOffsetInput.checked = readerCoverOffset;
   readerSettingsBox.querySelectorAll('[data-progress-position]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.progressPosition === readerProgressPosition);
   });
   readerSettingsBox.querySelectorAll('[data-reader-fit]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.readerFit === readerFitMode);
   });
-  readerDirectionGroup.hidden = mode === 'strip';
+  // Spread settings only act in double page; elsewhere they stay put, disabled (fieldsets).
+  readerPageDirectionGroup.disabled = readerCoverOffsetGroup.disabled = mode !== 'double';
   readerGap.value = readerPageGap;
+  readerGap.style.setProperty('--fill', `${readerPageGap / Number(readerGap.max) * 100}%`);
   readerGapValue.textContent = `${readerPageGap} px`;
   const scale = _readerZoomScale();
   readerZoomValue.textContent = `${Math.round(scale * 100)}%`;
@@ -2624,8 +2758,10 @@ readerSettingsModal.addEventListener('click', (e) => {
 readerSettingsBox.addEventListener('click', (e) => {
   const modeBtn = e.target.closest('[data-reader-mode]');
   if (modeBtn) { setMode(modeBtn.dataset.readerMode); return; }
-  const directionBtn = e.target.closest('[data-reader-direction]');
-  if (directionBtn) { _applyReaderDirection(directionBtn.dataset.readerDirection); return; }
+  const navDirectionBtn = e.target.closest('[data-nav-direction]');
+  if (navDirectionBtn) { _applyReaderNavDirection(navDirectionBtn.dataset.navDirection); return; }
+  const pageDirectionBtn = e.target.closest('[data-page-direction]');
+  if (pageDirectionBtn) { _applyReaderPageDirection(pageDirectionBtn.dataset.pageDirection); return; }
   const progressBtn = e.target.closest('[data-progress-position]');
   if (progressBtn) { _applyReaderProgressPosition(progressBtn.dataset.progressPosition); return; }
   const fitBtn = e.target.closest('[data-reader-fit]');
@@ -2640,6 +2776,7 @@ readerSettingsBox.addEventListener('click', (e) => {
   }
 });
 readerGap.addEventListener('input', () => _applyReaderPageGap(readerGap.value));
+readerCoverOffsetInput.addEventListener('change', () => _applyReaderCoverOffset(readerCoverOffsetInput.checked));
 readerZoomOut.addEventListener('click', () => adjustPageZoom(-1));
 readerZoomIn.addEventListener('click', () => adjustPageZoom(1));
 
@@ -2757,7 +2894,7 @@ function _currentFitWidthFraction() {
     ? _fitPageImgs()
     : mode === 'single'
       ? (mainImg.naturalWidth ? [mainImg] : [])
-      : [imgLeft, imgRight].filter(img => img.style.display !== 'none' && img.naturalWidth);
+      : [imgLeft, imgRight].filter(img => img.naturalWidth);
   const widths = imgs
     .map(img => _fitItemForImg(img)?.getBoundingClientRect().width || 0)
     .filter(w => w > 0);
@@ -2832,7 +2969,7 @@ function _fitPageImgs() {
   // unmounted placeholders, and measuring thousands of rows for a median is pointless anyway.
   if (mode === 'strip')  return _stripImgs.filter((_, i) => Math.abs(i + 1 - (currentPage - _viewBase)) <= MOUNT_AHEAD);
   if (mode === 'single') return mainImg.naturalWidth ? [mainImg] : [];
-  return [imgLeft, imgRight].filter(i => i.style.display !== 'none' && i.naturalWidth);
+  return [imgLeft, imgRight].filter(i => i.naturalWidth);
 }
 function _median(nums) {
   const a = nums.filter(n => n > 0).sort((x, y) => x - y);
@@ -2903,7 +3040,7 @@ function _openHoveredFeedback() {
   _stopScroll(); _endClickWheelNav(); _setStudyTextSelectable(false);
   openFeedback({ pageUrl: page.url, study, index: hit.index, wrap: hit.wrap,
     context: { pageNumber: pageNum, pageWidth: study.page?.w || hit.wrap.querySelector('img')?.naturalWidth,
-      readerMode: mode, view: 'study', study: studyPrefs(), surface: hit.surface, zoom: _pageZoom, fit: readerFitMode, direction: readerDirection } });
+      readerMode: mode, view: 'study', study: studyPrefs(), surface: hit.surface, zoom: _pageZoom, fit: readerFitMode, direction: readerNavDirection } });
 }
 
 // Keyboard
@@ -2921,6 +3058,9 @@ document.addEventListener('keydown', (e) => {
   }
   if (keybindModal.classList.contains('show')) {
     if (e.key === 'Escape' || e.key === '?') { e.preventDefault(); setKeybindOpen(false); }
+    // Nothing in it takes focus, so scroll keys would otherwise move the pages behind it (Space on a
+    // focused button still presses it).
+    else if (e.key === ' ' ? !e.target.closest?.('button') : ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.key)) e.preventDefault();
     return;
   }
   if (editingTarget(e.target)) return;
@@ -2983,12 +3123,12 @@ document.addEventListener('keydown', (e) => {
     return;
   }
 
-  const step = mode === 'double' ? 2 : 1;
-  // ↑/↓ are scroll (handled above); page-flip stays on ←/→, A/D and Space.
-  const forwardArrow = mode !== 'strip' && readerDirection === 'rtl' ? 'ArrowLeft' : 'ArrowRight';
-  const backArrow = forwardArrow === 'ArrowRight' ? 'ArrowLeft' : 'ArrowRight';
-  const fwd  = e.key === forwardArrow || e.key === ' ' || e.key === 'd' || e.key === 'D';
-  const bck  = e.key === backArrow || e.key === 'a' || e.key === 'A';
+  // ↑/↓ are scroll (handled above); page-flip stays on ←/→, A/D and Space. ←/A and →/D turn
+  // toward their side of the screen (the navigation direction); Space always reads on.
+  const side = ['ArrowLeft', 'a', 'A'].includes(e.key) ? 'left' : ['ArrowRight', 'd', 'D'].includes(e.key) ? 'right' : null;
+  const dir  = e.key === ' ' ? 1 : side ? _sideDir(side) : 0;
+  const fwd  = dir > 0;
+  const bck  = dir < 0;
 
   // First/last page (Shift+arrows, Home/End) are CHAPTER-relative, matching the counter/scrubber.
   const chK     = _chapters[_chapterAt(currentPage)];
@@ -3017,7 +3157,7 @@ document.addEventListener('keydown', (e) => {
     if (fwd || bck) {
       e.preventDefault();
       if (held && _pageDivider !== null) return;       // held nav parks on the transition page
-      const rawN = currentPage + (fwd ? step : -step);
+      const rawN = _flipTarget(dir);
       // No transition page to park on (transitions off) → held nav stops at the chapter edge.
       if (held && (rawN > chLast || rawN < chFirst) && !(_chapterDividersOn && _series)) return;
       if (e.shiftKey) goTo(fwd ? chLast : chFirst);
@@ -3033,6 +3173,9 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '1') setMode('single');
   if (e.key === '2') setMode('double');
   if (e.key === '3') setMode('strip');
+  if ((e.key === 'c' || e.key === 'C') && mode === 'double' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    _applyReaderCoverOffset(!readerCoverOffset);   // Ctrl/Cmd+C stays copy
+  }
   if (e.key === '[') _gotoAdjacentChapter(-1);   // previous chapter (series)
   if (e.key === ']') _gotoAdjacentChapter(1);     // next chapter (series)
 });

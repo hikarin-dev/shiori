@@ -42,24 +42,24 @@ export async function openRerunMenu(anchor, galleryId, onPick) {
   const records = (await getGalleryImageRecords(galleryId)).filter(r => r.blob ?? r.dataUrl);
   const availability = rerunAvailability(records);
   const menu = document.createElement('div');
-  menu.className = 'rerun-menu';
+  menu.className = 'ctx-menu rerun-menu';
   menu.setAttribute('role', 'menu');
   const title = document.createElement('div');
-  title.className = 'rerun-menu-title';
+  title.className = 'ctx-menu-title';
   title.textContent = t('rerun.title');
   menu.append(title);
   for (const point of Object.keys(RERUN_POINTS)) {
     const status = rerunStatus(availability[point]);
     const item = document.createElement('button');
     item.type = 'button';
-    item.className = 'rerun-menu-item';
+    item.className = 'ctx-menu-item';
     item.setAttribute('role', 'menuitem');
     item.disabled = !status.enabled;
     const label = document.createElement('span');
-    label.className = 'rerun-menu-label';
+    label.className = 'ctx-menu-label';
     label.textContent = rerunLabel(point);
     const detail = document.createElement('span');
-    detail.className = 'rerun-menu-detail';
+    detail.className = 'ctx-menu-detail';
     detail.textContent = status.text;
     item.append(label, detail);
     item.addEventListener('click', () => { close(); onPick(point, label.textContent); });
@@ -72,7 +72,7 @@ export async function openRerunMenu(anchor, galleryId, onPick) {
   const top = r.bottom + 6 + m.height > innerHeight ? Math.max(8, r.top - m.height - 6) : r.bottom + 6;
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
-  const items = [...menu.querySelectorAll('.rerun-menu-item:not(:disabled)')];
+  const items = [...menu.querySelectorAll('.ctx-menu-item:not(:disabled)')];
   const outside = (e) => { if (!menu.contains(e.target)) close(); };
   const key = (e) => {
     if (e.key === 'Escape') { e.preventDefault(); close(); return; }

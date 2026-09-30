@@ -12,7 +12,7 @@ const el = (tag, text, className) => {
   return node;
 };
 const number = (value, digits = 2) => Number.isFinite(value) ? value.toFixed(digits) : '—';
-const button = (label, action) => { const b = el('button', label, 'btn-mini'); b.type = 'button'; b.onclick = action; return b; };
+const button = (label, action, className = 'btn-mini') => { const b = el('button', label, className); b.type = 'button'; b.onclick = action; return b; };
 const download = (value, name) => {
   const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }));
   const a = el('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -33,15 +33,15 @@ function table(headers, rows) {
 export function showBenchmarkReport(report, comparison = null) {
   const dialog = el('dialog', null, 'benchmark-dialog'); dialog.setAttribute('aria-labelledby', 'benchmarkReportTitle');
   const header = el('div', null, 'benchmark-dialog-header'), title = el('h2', 'Translation benchmark'); title.id = 'benchmarkReportTitle';
-  header.append(title, button('Close', () => dialog.close())); dialog.append(header);
+  header.append(title, button('Close', () => dialog.close(), 'btn')); dialog.append(header);
   dialog.append(el('p', `${report.status} · ${report.startedAt} · ${report.runs.length} runs including warm-ups`));
   const actions = el('div', null, 'benchmark-actions');
-  actions.append(button('Export JSON', () => download(report, `shiori-benchmark-${report.startedAt.slice(0, 10)}.json`)),
+  actions.append(button('Export JSON', () => download(report, `shiori-benchmark-${report.startedAt.slice(0, 10)}.json`), 'btn'),
     button('Compare JSON…', async () => {
       const other = await jsonFile();
       if (other?.schema !== 'shiori-benchmark/1' || !Array.isArray(other.runs)) return;
       dialog.close(); showBenchmarkReport(report, other);
-    }));
+    }, 'btn'));
   dialog.append(actions);
   if (report.error) dialog.append(el('p', report.error, 'benchmark-error'));
   dialog.append(el('p', 'Warm-ups, failed runs and runs affected by competing work or delayed polling are excluded from the summary. Stage times overlap and include nested substages; they do not add up to elapsed time. Missing telemetry is shown as unknown. Job percentiles span the selected galleries and repeats; they are not confidence intervals.'));

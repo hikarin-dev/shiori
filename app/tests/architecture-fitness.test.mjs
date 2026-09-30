@@ -40,6 +40,13 @@ test('the app never names a source site or the companion helper', () => {
   assert.deepEqual(offenders, [], 'source-site names must exist only in the private companion');
 });
 
+test('the app never opens the browser\'s own confirm / alert / prompt boxes', () => {
+  // notice.js has the app's styled replacements (confirmDialog / alertDialog / promptDialog).
+  const native = /(^|[^.\w])(?:window\.)?(?:confirm|alert|prompt)\s*\(/m;
+  const offenders = modules.filter((f) => native.test(code(read(f))));
+  assert.deepEqual(offenders, [], 'use notice.js dialogs instead of window.confirm/alert/prompt');
+});
+
 test('no third-party acquisition URLs are constructed in the app', () => {
   const offenders = [];
   for (const f of modules) {

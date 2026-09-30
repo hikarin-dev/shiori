@@ -1,4 +1,5 @@
 import { zipCreate as _zipCreate } from './zip.js';
+import { groupImports, importBytes, isImportable, droppedImports } from './import-files.js';
 // library.js — the library UI: windowed grid over the database, live job progress, uploads,
 // per-gallery actions. Imports boot.js first so services + the PWA worker are wired.
 
@@ -13,11 +14,15 @@ import * as store from './store.js';
 import * as platform from './platform.js';
 import { t, getLang } from './i18n.js';
 import { pickTitle, pickSeriesTitle, migrateTitle } from './titles.js';
-import { initTooltips, refreshTooltip } from './tooltip.js';
+import { initTooltips, onModifiers } from './tooltip.js';
 import { initDropdowns } from './dropdown.js';
 import { formatBytes, formatCount, formatMegapixels } from './format.js';
+import { TIERS, describePage } from './page-size.js';
 import { escHtml, safeExternalUrl } from './sanitize.js';
 import { openRerunMenu } from './rerun-menu.js';
+import { confirmDialog, alertDialog, promptDialog } from './notice.js';
+import { openTagEditor, TAG_TYPE_LABEL, TAG_VALUES, LANG_TAG_NAME, langDisplayName, tagPatchFor } from './tag-editor.js';
+import { initSearchField, searchQuery, setSearchQuery, appendSearchToken, SEARCH_TYPES } from './search-field.js';
 
 // Whether a series card opens straight into the reader (chapter 1) instead of the overview page.
 // Loaded from settings at boot; the card routing reads it synchronously.
@@ -50,6 +55,18 @@ try {
 } catch {
   applyQuickActionsMode(_quickActionsMode);
 }
+
+// Library details Settings can switch off (both shown by default): the top bar's storage stats and
+// the cards' category tag. CSS hides them, so a change needs no re-render.
+const _DETAIL_CLASS = { libShowNavStats: 'hide-nav-stats', libShowCategoryTag: 'hide-card-category' };
+function applyDetailPrefs() {
+  for (const [key, cls] of Object.entries(_DETAIL_CLASS)) {
+    let shown = true;
+    try { shown = JSON.parse(localStorage.getItem('shiori:' + key)) !== false; } catch {}
+    document.body.classList.toggle(cls, !shown);
+  }
+}
+applyDetailPrefs();
 
 // ── Source sites ── shared state lives in sites.js (site map, availability, warm start).
 const _sourceIconCache = new Map();
@@ -247,10 +264,26 @@ let currentPage  = 1;
 const PAGE_SIZE  = 30;
 const _pendingSourceChanges = new Map(); // galleryId → {source, sourceId} while SET_SOURCE is in-flight
 
+// Per tag type, value → 'include' | 'exclude'; a value that's absent doesn't filter. Kept across
+// visits (kv-backed → localStorage, read synchronously so the first paint is already filtered).
+const _filter = { rating: new Map(), category: new Map() };
+function _loadFilter(saved) {
+  for (const [type, states] of Object.entries(_filter)) {
+    states.clear();
+    for (const [v, s] of Object.entries(saved?.[type] || {})) {
+      if (TAG_VALUES[type].includes(v) && (s === 'include' || s === 'exclude')) states.set(v, s);
+    }
+  }
+}
+try { _loadFilter(JSON.parse(localStorage.getItem('shiori:libFilter') || 'null')); } catch {}
+function _saveFilter() {
+  platform.kv.set({ libFilter: Object.fromEntries(Object.entries(_filter).map(([type, m]) => [type, Object.fromEntries(m)])) });
+}
+
 function syncUrl() {
   const params = new URLSearchParams();
   if (currentPage > 1) params.set('page', currentPage);
-  const q = document.getElementById('searchBox').value.trim();
+  const q = searchQuery();
   if (q) params.set('q', q);
   const sort = document.getElementById('sortSelect').value;
   if (sort && sort !== 'id') params.set('sort', sort);
@@ -263,59 +296,26 @@ function initFromUrl() {
   const page = parseInt(params.get('page'));
   if (page > 1) currentPage = page;
   const q = params.get('q');
-  if (q) document.getElementById('searchBox').value = q;
+  if (q) { setSearchQuery(q); updateClearBtn(); }
   const sort = params.get('sort');
   if (sort) document.getElementById('sortSelect').value = sort;
 }
 
 // ── Card rendering ──
 
-// Language code → country flag (SVG file saved under app/flags/) + display name, for the
-// leading card flag chip. Covers every translator target language and common source languages.
+// Language code → country flag (SVG file saved under app/flags/), for the leading card flag
+// chip. Covers every translator target language and common source languages.
 const _LANG_FLAG = {
   en: 'GB', ja: 'JP', zh: 'CN', 'zh-CN': 'CN', 'zh-TW': 'TW', ko: 'KR', de: 'DE', fr: 'FR',
   es: 'ES', ru: 'RU', pt: 'PT', 'pt-BR': 'BR', it: 'IT', vi: 'VN', id: 'ID', th: 'TH',
   nl: 'NL', pl: 'PL', uk: 'UA',
 };
-const _LANG_DISPLAY = {
-  en: 'English', ja: '日本語', zh: '中文（简体）', 'zh-CN': '中文（简体）', 'zh-TW': '中文（繁體）',
-  ko: '한국어', de: 'Deutsch', fr: 'Français', es: 'Español', ru: 'Русский', pt: 'Português',
-  'pt-BR': 'Português (BR)', it: 'Italiano', vi: 'Tiếng Việt', id: 'Bahasa Indonesia',
-  th: 'ไทย', nl: 'Nederlands', pl: 'Polski', uk: 'Українська',
-};
-// Language code → the lowercase English name galleries are tagged with, for the flag's search filter.
-const _LANG_SEARCH = {
-  en: 'english', ja: 'japanese', zh: 'chinese', 'zh-TW': 'chinese', ko: 'korean', de: 'german',
-  fr: 'french', es: 'spanish', ru: 'russian', pt: 'portuguese', 'pt-BR': 'portuguese', it: 'italian',
-  vi: 'vietnamese', id: 'indonesian', th: 'thai', nl: 'dutch', pl: 'polish', uk: 'ukrainian',
-};
 // The app language as a base code (zh-CN → zh) — the flag for a gallery in this language is hidden.
 const _langBase = (code) => String(code || '').split('-')[0];
-// Language name shown in the app's current language (e.g. JP flag → "Japanese" in English).
-let _dnInst = null, _dnLang = null;
-function _langDisplayName(code) {
-  const lang = getLang();
-  try {
-    if (_dnLang !== lang) { _dnInst = new Intl.DisplayNames([lang], { type: 'language' }); _dnLang = lang; }
-    return _dnInst.of(code) || _LANG_DISPLAY[code] || code;
-  } catch { return _LANG_DISPLAY[code] || code; }
-}
-
-// Languages a gallery can be tagged with — the ones Shiori has a flag for. `value` is the
-// lowercase English name stored on the tag (what the flag derivation understands); `code` drives
-// the localized label. De-duplicated by name (zh / zh-TW both map to "chinese").
-const _LANG_TAG_OPTIONS = (() => {
-  const seen = new Set(); const out = [];
-  for (const [code, name] of Object.entries(_LANG_SEARCH)) {
-    if (seen.has(name)) continue;
-    seen.add(name);
-    out.push({ code, name });
-  }
-  return out;
-})();
 
 function buildCardTags(tags, languages) {
   const list = Array.isArray(tags) ? tags : [];
+  const category = list.filter(t => t.type === 'category');
   const artists = list.filter(t => t.type === 'artist');
   const regular = list.filter(t => t.type === 'tag');
   const female  = list.filter(t => t.type === 'tag:female');
@@ -327,9 +327,10 @@ function buildCardTags(tags, languages) {
   const appBase = _langBase(getLang());
   for (const code of (Array.isArray(languages) ? languages : [])) {
     if (!_LANG_FLAG[code] || (_hideAppLangFlag && _langBase(code) === appBase)) continue;
-    chips.push(`<span class="card-tag-flag" data-lang-code="${escHtml(code)}" data-lang-name="${escHtml(_LANG_SEARCH[code] || code)}" data-tip="${escHtml(_langDisplayName(code))}"><img class="flag-img" src="flags/${_LANG_FLAG[code]}.svg" alt="${escHtml(code)}" loading="lazy"></span>`);
+    chips.push(`<span class="card-tag-flag" data-lang-code="${escHtml(code)}" data-lang-name="${escHtml(LANG_TAG_NAME[code] || code)}" data-tip="${escHtml(langDisplayName(code))}"><img class="flag-img" src="flags/${_LANG_FLAG[code]}.svg" alt="${escHtml(code)}" loading="lazy"></span>`);
   }
   chips.push(
+    ...category.map(t => `<span class="card-tag category" data-type="category" data-original="${escHtml(t.name)}">${escHtml(t.name)}</span>`),
     ...artists.map(t => `<span class="card-tag artist" data-type="artist" data-original="${escHtml(t.name)}">${escHtml(t.name)}</span>`),
     ...regular.map(t => `<span class="card-tag" data-type="tag" data-original="${escHtml(t.name)}">${escHtml(t.name)}</span>`),
     ...female.map(t => `<span class="card-tag" data-type="tag:female" data-original="${escHtml(t.name)}">${escHtml(t.name)} ♀</span>`),
@@ -343,6 +344,56 @@ function buildCardTags(tags, languages) {
 function updateCardThumbFit(img) {
   if (!img?.naturalWidth || !img?.naturalHeight) return;
   img.classList.toggle('landscape', img.naturalWidth >= img.naturalHeight);
+  paintCardGlow(img);
+}
+
+// A landscape cover sits letterboxed in the portrait thumb; its bars are filled with an ambient glow
+// built the way ambient-light video players build theirs: copies of the cover stacked behind it,
+// each a step taller than the last so its edge colours reach outward, then blurred. Tuned to the
+// maximum spread (400%, in 12% edge steps) and a 100% blur (a radius of 25% of the cover's height).
+// The copies grow only vertically — the bars are above and below — so each colour runs straight
+// out of the edge it touches instead of fanning into radial rays.
+const _GLOW_SPREAD = 4, _GLOW_EDGE = 0.12, _GLOW_BLUR = 0.25;
+// The glow canvas overhangs the thumb by half its size on every side (CSS, same fraction), so the
+// blur's soft rim falls outside the card instead of darkening its edges.
+const _GLOW_BLEED = 0.5;
+function paintCardGlow(img) {
+  const wrap = img.closest('.card-thumb-wrap');
+  let glow = wrap?.querySelector('.card-thumb-glow');
+  if (!wrap || !img.classList.contains('landscape')) { glow?.remove(); return; }
+  if (!glow) {
+    glow = document.createElement('canvas');
+    glow.className = 'card-thumb-glow';
+    glow.setAttribute('aria-hidden', 'true');
+    img.before(glow);
+  }
+  const aspect = img.naturalWidth / img.naturalHeight;
+  // Small is enough: the result is blurred and scaled up by CSS. One downscaled copy of the cover
+  // is drawn repeatedly, rather than the full image.
+  const src = document.createElement('canvas');
+  src.width = 48; src.height = Math.max(1, Math.round(48 / aspect));
+  src.getContext('2d').drawImage(img, 0, 0, src.width, src.height);
+
+  const W = 96, H = W * Math.SQRT2;                       // the thumb box (1:√2) in canvas px
+  const padX = W * _GLOW_BLEED, padY = H * _GLOW_BLEED;
+  glow.width = Math.round(W + 2 * padX);
+  glow.height = Math.round(H + 2 * padY);
+  const ctx = glow.getContext('2d');
+  const coverW = W, coverH = W / aspect;                  // object-fit: contain, width-bound
+  const cx = glow.width / 2, cy = glow.height / 2;
+  // Tallest first, each shorter copy covering the middle of the one behind it; the step is scaled
+  // by the aspect ratio, as the spread would be for a glow around all four sides. Each copy's outer
+  // columns are stretched sideways across the overhang so the blur finds colour, not empty canvas,
+  // at the card's sides.
+  const x0 = cx - coverW / 2, x1 = cx + coverW / 2;
+  for (let level = Math.round(_GLOW_SPREAD / _GLOW_EDGE); level >= 0; level--) {
+    const h = coverH * (1 + _GLOW_EDGE * aspect * level), y0 = cy - h / 2;
+    ctx.drawImage(src, 0, 0, 1, src.height, 0, y0, x0, h);
+    ctx.drawImage(src, src.width - 1, 0, 1, src.height, x1, y0, glow.width - x1, h);
+    ctx.drawImage(src, x0, y0, coverW, h);
+  }
+  // The radius in the thumb's width units (cqw), so it holds at any card size.
+  glow.style.filter = `blur(${(_GLOW_BLUR * 100 / aspect).toFixed(2)}cqw)`;
 }
 
 function wireCardThumbFit(img) {
@@ -351,19 +402,26 @@ function wireCardThumbFit(img) {
   if (img.complete) updateCardThumbFit(img);
 }
 
-// Tag-category → i18n key, for the add/remove-tag flows.
-const _TAG_CAT_KEY = {
-  'tag': 'addtag.cat_tag', 'tag:female': 'addtag.cat_tagf', 'tag:male': 'addtag.cat_tagm',
-  'artist': 'addtag.cat_artist', 'group': 'addtag.cat_group', 'parody': 'addtag.cat_parody',
-  'character': 'addtag.cat_character', 'language': 'addtag.cat_language',
-};
-
-const _tagPatchFor = (g, tags) => g?.isSeries ? { seriesTags: tags } : { tags };
+// How a dialog names what it acts on: the title, then "#id · N pages" / "N chapters".
+function _galleryDetail(g) {
+  const id = g.sourceId || g.id;
+  return [pickTitle(g, getLang()) || `#${id}`, t('dlg.detail_pages', { id, n: formatCount(g.count || 0) })];
+}
+function _seriesDetail(g) {
+  return [pickSeriesTitle(g.seriesTitle, g, getLang()) || `#${g.id}`, t('dlg.detail_chapters', { n: formatCount(g.chapterCount || g.chapters?.length || 0) })];
+}
+// The cover a card shows, for a dialog about it — none while Safe Mode blurs it.
+function _cardCover(card) {
+  if (!card || (document.body.classList.contains('safe-mode') && !card.classList.contains('card-sfw'))) return '';
+  return card.querySelector('img.card-thumb')?.src || '';
+}
 
 function buildCard(g) {
   const card = document.createElement('div');
   card.className = 'card';
   card.dataset.galleryId = g.id;
+  // Safe Mode blurs a cover unless the gallery is rated safe or suggestive — an unrated one blurs.
+  if ((g.tags || []).some(tg => tg.type === 'rating' && (tg.name === 'safe' || tg.name === 'suggestive'))) card.classList.add('card-sfw');
 
   // A series owner renders (and acts) as a merged series card only while merging is on; unmerged,
   // it is shown as its own plain chapter-1 gallery. The real g.isSeries is kept for the delete path.
@@ -414,13 +472,17 @@ function buildCard(g) {
     ? `<a class="${idClass}" href="${escHtml(sourceHref)}" target="_blank" rel="noopener noreferrer" data-original="${idText}">${idText}</a>`
     : `<div class="${idClass}" data-original="${idText}">${idText}</div>`;
 
+  // Alt+click searches the library for the gallery's source — only when it has one.
+  const sourceSearchTip = g.source ? ` data-tip-alt="${escHtml(t('card.tip_search_source', { site: siteName }))}"` : '';
   const openBtnHtml = `
-      <button class="card-btn card-btn-open" data-id="${idA}" data-tip="${escHtml(openTitle)}"${visitUrl ? ` data-tip-shift="${t('card.tip_editsource')}"` : ''}><span class="open-inner">${_makeOpenBtnInner(g.source)}</span></button>`;
+      <button class="card-btn card-btn-open" data-id="${idA}" data-tip="${escHtml(openTitle)}"${visitUrl ? ` data-tip-shift="${t('card.tip_editsource')}"` : ''}${sourceSearchTip}><span class="open-inner">${_makeOpenBtnInner(g.source)}</span></button>`;
+  // The favorite heart on the cover: always shown once favorited, otherwise while hovered.
+  const favHtml = `<button class="card-fav${g.favorite ? ' on' : ''}" type="button" aria-pressed="${g.favorite ? 'true' : 'false'}" data-tip="${t(g.favorite ? 'card.tip_fav_remove' : 'card.tip_fav_add')}" data-tip-alt="${t(g.favorite ? 'card.tip_search_fav' : 'card.tip_search_unfav')}">${_HEART_SVG}</button>`;
 
   const actionsHtml = `
     <div class="card-actions">
       <button class="card-btn card-btn-dl" data-id="${idA}" data-tip="${canDownload ? dlTitle : t('card.tip_replace')}" ${canDownload ? `data-tip-shift="${t('card.tip_replace')}"` : ''}>${canDownload ? _DL_ICON : _UPLOAD_ICON}</button>
-      <button class="card-btn card-btn-translate${g.translated ? ' done' : ''}" data-id="${idA}" data-tip="${g.translated ? _translatedTip() : t('card.tip_translate')}"${g.translated ? ` data-tip-shift="${t('card.tip_revert')}"` : ''}>${_TRANSLATE_ICON}</button>
+      <button class="card-btn card-btn-translate${g.translated ? ' done' : ''}" data-id="${idA}" data-tip="${g.translated ? _translatedTip() : t('card.tip_translate')}"${g.translated ? ` data-tip-shift="${t('card.tip_revert')}"` : ''} data-tip-alt="${t(g.translated ? 'card.tip_search_translated' : 'card.tip_search_untranslated')}">${_TRANSLATE_ICON}</button>
       <button class="card-btn card-btn-export" data-id="${idA}" data-tip="${t('card.tip_export')}" data-tip-shift="${t('card.tip_export_meta')}">${_EXPORT_ICON}</button>
       <button class="card-btn card-btn-del" data-id="${idA}" data-tip="${t('card.tip_delete')}" data-tip-shift="${t('card.tip_quickdelete')}">${_DELETE_ICON}</button>
     </div>`;
@@ -433,6 +495,7 @@ function buildCard(g) {
         ${thumbInner}
         ${seriesBadge}
       </a>
+      ${favHtml}
       <div class="card-body">
         <div class="card-id-row">
           ${openBtnHtml}
@@ -442,7 +505,7 @@ function buildCard(g) {
         ${titleHtml}
         <div class="card-meta">${metaLine}</div>
         <div class="card-progress" id="prog-${idA}">
-          <div class="card-prog-track"><div class="card-prog-fill" id="progfill-${idA}"></div></div>
+          <div class="prog-track"><div class="prog-fill" id="progfill-${idA}"></div></div>
           <span class="card-prog-label" id="proglabel-${idA}"></span>
         </div>
         ${tagHtml}
@@ -451,6 +514,12 @@ function buildCard(g) {
   `;
 
   wireCardThumbFit(card.querySelector('img.card-thumb'));
+
+  card.querySelector('.card-fav').addEventListener('click', (e) => {
+    // Alt+click → search for galleries in the same state: favorited or not.
+    if (e.altKey) { _addSearchToken(`favorite:"${g.favorite ? 'yes' : 'no'}"`); return; }
+    store.mutate(g.id, { favorite: !g.favorite }, { touch: false });
+  });
 
   card.querySelectorAll('.card-btn-del').forEach(b => {
     b.addEventListener('mouseenter', () => {
@@ -464,14 +533,21 @@ function buildCard(g) {
     b.addEventListener('click', async (e) => {
       // A merged series card removes every chapter (its children never get their own card).
       if (showAsSeries) {
-        if (!e.shiftKey && !confirm(t('confirm.delete_series', { n: formatCount(g.chapterCount) }))) return;
+        const n = formatCount(g.chapterCount);
+        if (!e.shiftKey && !(await confirmDialog({
+          title: t('dlg.del_series_title'), body: t('dlg.del_series_body', { n }),
+          detail: _seriesDetail(g), cover: _cardCover(card), ok: t('dlg.del_series_ok', { n }), danger: true,
+        }))) return;
         const ids = (g.chapters || [{ id: g.id }]).map(c => c.id);
         for (const id of ids) await sendMsg({ type: 'DELETE_GALLERY', galleryId: id });
         applyFilters();
         updateHeaderStats();
         return;
       }
-      if (!e.shiftKey && !confirm(t('confirm.delete_gallery', { id: g.id }))) return;
+      if (!e.shiftKey && !(await confirmDialog({
+        title: t('dlg.del_gallery_title'), body: t('dlg.del_gallery_body'),
+        detail: _galleryDetail(g), cover: _cardCover(card), ok: t('dlg.delete'), danger: true,
+      }))) return;
       // In the unmerged view a card may still belong to a series (an owner shown plainly, or a
       // chapter). Go through the series-aware path so removing it re-owns/detaches instead of
       // orphaning its siblings; a true standalone falls through to a plain delete.
@@ -502,7 +578,7 @@ function buildCard(g) {
         if (e.shiftKey) await exportMetadataBundleZip(g.id);
         else            await exportGalleryZip(g.id);
       } catch (err) {
-        alert(t('alert.export_failed', { msg: err.message }));
+        alertDialog({ title: t('dlg.export_fail_title'), body: t('dlg.export_fail_body'), detail: err.message, tone: 'error' });
       } finally {
         card.querySelectorAll('.card-btn-export').forEach(x => { x.disabled = false; _exportFlip.snap(x, _EXPORT_SVG); });
       }
@@ -542,7 +618,10 @@ function buildCard(g) {
         const known = entities.filter(Boolean);
         if (!known.length || !known.some(x => _canDownload(x))) return;
         const nothingMissing = known.every(x => x.numPages > 0 && x.count >= x.numPages);
-        if (nothingMissing && !confirm(t('confirm.redownload_series'))) return;
+        if (nothingMissing && !(await confirmDialog({
+          title: t('dlg.redl_series_title'), body: t('dlg.redl_series_body'),
+          detail: _seriesDetail(g), cover: _cardCover(card), ok: t('dlg.redl_ok'),
+        }))) return;
         await sendMsg({ type: 'CACHE_ALL_PAGES', galleryId: g.id, source: g.source, series: true, overwrite: nothingMissing });
         return;
       }
@@ -551,7 +630,10 @@ function buildCard(g) {
       if ([...btns].some(x => x.disabled)) return;
 
       const alreadyComplete = g.numPages > 0 && g.count >= g.numPages;
-      if (alreadyComplete && !confirm(t('confirm.redownload', { n: formatCount(g.numPages) }))) return;
+      if (alreadyComplete && !(await confirmDialog({
+        title: t('dlg.redl_title'), body: t('dlg.redl_body', { n: formatCount(g.numPages) }),
+        detail: _galleryDetail(g), cover: _cardCover(card), ok: t('dlg.redl_ok'),
+      }))) return;
 
       btns.forEach(x => { x.disabled = true; x.innerHTML = '…'; });
 
@@ -578,6 +660,9 @@ function buildCard(g) {
       // Mid-translation the button is a Stop control → cancel this job and bail.
       if (b.classList.contains('cancelling')) { await sendMsg({ type: 'CANCEL_TRANSLATE', galleryId: g.id }); return; }
 
+      // Alt+click → search for galleries in the same state: translated (even partly) or not.
+      if (e.altKey) { _addSearchToken(`translated:"${g.translated ? 'yes' : 'no'}"`); return; }
+
       // A merged series translates one chapter per press → open the chapter picker (defaults to the
       // lowest untranslated chapter). Each chapter is its own gallery-scoped translate job.
       if (showAsSeries) { openSeriesTranslateModal(g); return; }
@@ -587,7 +672,10 @@ function buildCard(g) {
 
       // Shift+click on an already-translated gallery → revert to the originals.
       if (e.shiftKey && g.translated) {
-        if (!confirm(t('confirm.revert', { id: g.sourceId || g.id }))) return;
+        if (!(await confirmDialog({
+          title: t('dlg.revert_title'), body: t('dlg.revert_body'),
+          detail: _galleryDetail(g), cover: _cardCover(card), ok: t('dlg.revert_ok'), danger: true,
+        }))) return;
         btns.forEach(x => x.disabled = true);
         await sendMsg({ type: 'REVERT_GALLERY', galleryId: g.id });
         g.translated = false;
@@ -598,9 +686,15 @@ function buildCard(g) {
         return;
       }
 
-      if (g.count === 0) { alert(t('alert.no_pages_translate')); return; }
+      if (g.count === 0) {
+        alertDialog({ title: t('dlg.no_pages_title'), body: t('dlg.no_pages_body'), detail: _galleryDetail(g)[0], cover: _cardCover(card) });
+        return;
+      }
 
-      if (!g.translated && !confirm(t('confirm.translate', { n: formatCount(g.count), id: g.sourceId || g.id }))) return;
+      if (!g.translated && !(await confirmDialog({
+        title: t('dlg.tr_title'), body: t('dlg.tr_body', { n: formatCount(g.count) }),
+        detail: _galleryDetail(g), cover: _cardCover(card), ok: t('dlg.tr_ok'),
+      }))) return;
 
       btns.forEach(x => x.disabled = true);
       const progEl  = document.getElementById(`prog-${g.id}`);
@@ -616,7 +710,10 @@ function buildCard(g) {
       if (!g.translated || showAsSeries || b.disabled || b.classList.contains('cancelling')) return;
       e.preventDefault();
       openRerunMenu(b, g.id, async (point, label) => {
-        if (!confirm(t('confirm.rerun', { stage: label, id: g.sourceId || g.id }))) return;
+        if (!(await confirmDialog({
+          title: t('dlg.rerun_title', { stage: label }), body: t('dlg.rerun_body'),
+          detail: _galleryDetail(g), cover: _cardCover(card), ok: t('dlg.rerun_ok'),
+        }))) return;
         card.querySelectorAll('.card-btn-translate').forEach(x => x.disabled = true);
         const progEl  = document.getElementById(`prog-${g.id}`);
         const labelEl = document.getElementById(`proglabel-${g.id}`);
@@ -644,6 +741,8 @@ function buildCard(g) {
       });
     }
     b.addEventListener('click', async (e) => {
+    // Alt+click → search for galleries from the same source.
+    if (e.altKey && g.source) { _addSearchToken(`source:"${g.source}"`); return; }
     const curVisitUrl = galleryLink(g, 1);
     if (!curVisitUrl || e.shiftKey) {
       let prefill = curVisitUrl || '';
@@ -655,7 +754,11 @@ function buildCard(g) {
       }
       // Skip the prompt if clipboard gave us a usable URL and we're not editing.
       const autoApply = !e.shiftKey && !curVisitUrl && prefill && _looksLikeUrl(prefill);
-      const input = autoApply ? prefill : prompt(t('prompt.source_url'), prefill);
+      const input = autoApply ? prefill : await promptDialog({
+        title: t(curVisitUrl ? 'dlg.src_edit_title' : 'dlg.src_title'), body: t('dlg.src_body'),
+        detail: showAsSeries ? _seriesDetail(g)[0] : _galleryDetail(g)[0], cover: _cardCover(card),
+        value: prefill, placeholder: t('dlg.src_ph'), ok: t('common.save'),
+      });
       if (input === null) return;
 
       const parsed = await parseSourceInput(input);
@@ -664,7 +767,12 @@ function buildCard(g) {
       // onto every chapter, not just chapter 1. Declining keeps the source on the owner alone. In
       // the unmerged view the owner is treated as a single gallery, so no series-wide prompt.
       const applyToChapters = showAsSeries
-        && confirm(t('confirm.source_all_chapters', { n: g.chapters?.length || g.chapterCount || 0 }));
+        && await confirmDialog({
+          title: t('dlg.src_all_title'),
+          body: t('dlg.src_all_body', { n: formatCount(g.chapters?.length || g.chapterCount || 0) }),
+          ok: t('dlg.src_all_ok', { n: formatCount(g.chapters?.length || g.chapterCount || 0) }),
+          cancel: t('dlg.src_all_one'),
+        });
 
       // Register before the await so any reload that fires during the round-trip
       // knows this source change is in flight and uses this value, not stale DB.
@@ -724,6 +832,9 @@ function _beginCardDrag(startEvent, card, gid) {
     const rect = card.getBoundingClientRect();
     offX = startX - rect.left; offY = startY - rect.top;
     clone = card.cloneNode(true);
+    // A cloned canvas comes back blank; carry the cover glow over.
+    const glows = card.querySelectorAll('.card-thumb-glow');
+    clone.querySelectorAll('.card-thumb-glow').forEach((c, i) => c.getContext('2d').drawImage(glows[i], 0, 0));
     clone.classList.add('card-drag-clone');
     clone.classList.remove('merge-target');
     clone.style.width = rect.width + 'px';
@@ -788,11 +899,18 @@ function _beginCardDrag(startEvent, card, gid) {
 
 // Merge the dragged gallery into the drop target as its next chapter (target keeps its id).
 async function handleMergeDrop(targetId, sourceId) {
-  if (!confirm(t('confirm.merge', { source: sourceId, target: targetId }))) return;
+  const name = (id) => {
+    const x = _pageItems.find(p => p.id === String(id));
+    return (x && pickTitle(x, getLang())) || `#${id}`;
+  };
+  if (!(await confirmDialog({
+    title: t('dlg.merge_title'), body: t('dlg.merge_body'),
+    detail: [name(sourceId), t('dlg.merge_into', { title: name(targetId) })], ok: t('dlg.merge_ok'),
+  }))) return;
   try {
     await mergeIntoSeries(targetId, sourceId);
   } catch (err) {
-    alert(t('alert.merge_failed', { msg: err.message }));
+    alertDialog({ title: t('dlg.merge_fail_title'), body: t('dlg.merge_fail_body'), detail: err.message, tone: 'error' });
     return;
   }
   await applyFilters();
@@ -816,17 +934,19 @@ async function openSeriesTranslateModal(g) {
   }).join('');
 
   const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay open';
+  overlay.className = 'modal-overlay show';
   overlay.innerHTML = `<div class="modal-box">
     <div class="modal-title">${escHtml(t('sertr.title'))}</div>
     <div class="modal-label" style="margin-bottom:10px">${escHtml(t('sertr.desc'))}</div>
     <select class="modal-select" id="_serTrSel">${opts}</select>
     <div class="modal-actions">
-      <button class="modal-btn-cancel" id="_serTrCancel">${escHtml(t('common.cancel'))}</button>
-      <button class="modal-btn-confirm" id="_serTrGo">${escHtml(t('sertr.go'))}</button>
+      <button class="btn" id="_serTrCancel">${escHtml(t('common.cancel'))}</button>
+      <button class="btn primary" id="_serTrGo">${escHtml(t('sertr.go'))}</button>
     </div>
   </div>`;
   document.body.appendChild(overlay);
+  // Focus inside the modal, so keyboard scrolling stays in it instead of moving the page behind.
+  overlay.querySelector('#_serTrSel').focus();
   const close = () => overlay.remove();
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   overlay.querySelector('#_serTrCancel').addEventListener('click', close);
@@ -925,8 +1045,8 @@ const _jobDoneHandled = new Set();  // gids whose 'done' side-effects already ra
 const _interrupted = new Set();     // gids showing the transient "Interrupted" hint (protected from rebuilds)
 
 // While a translate job runs, the translate button doubles as a Stop control (stays enabled,
-// shows a stop icon, click cancels). Toggling also parks the shift-revert affordance so it
-// doesn't fight the stop state.
+// shows a stop icon, click cancels). Toggling also parks the shift-revert and alt-search
+// affordances so they don't fight the stop state.
 function _setTrCancelMode(btn, on) {
   if (!btn) return;
   if (on) {
@@ -934,12 +1054,14 @@ function _setTrCancelMode(btn, on) {
     btn.classList.add('cancelling');
     btn.disabled = false;
     if (btn.dataset.tipShift != null) { btn._tipShiftStash = btn.dataset.tipShift; delete btn.dataset.tipShift; }
+    if (btn.dataset.tipAlt != null) { btn._tipAltStash = btn.dataset.tipAlt; delete btn.dataset.tipAlt; }
     btn.dataset.tip = t('card.tip_cancel');
     _trFlip.snap(btn, _STOP_SVG);
   } else {
     if (!btn.classList.contains('cancelling')) return;
     btn.classList.remove('cancelling');
     if (btn._tipShiftStash != null) { btn.dataset.tipShift = btn._tipShiftStash; delete btn._tipShiftStash; }
+    if (btn._tipAltStash != null) { btn.dataset.tipAlt = btn._tipAltStash; delete btn._tipAltStash; }
     btn.dataset.tip = btn.classList.contains('done') ? _translatedTip() : t('card.tip_translate');
     _trFlip.snap(btn, _TRANSLATE_SVG);
   }
@@ -1144,13 +1266,23 @@ function parseSearch(raw) {
   const plain = [];
   const re = /([a-z:]+):"([^"]+)"/gi;
   const aliases = { female: 'tag:female', male: 'tag:male' };
+  const typeOf = (name) => aliases[name.toLowerCase()] ?? name.toLowerCase();
   let match;
   let rest = raw;
   while ((match = re.exec(raw)) !== null) {
-    const type = aliases[match[1].toLowerCase()] ?? match[1].toLowerCase();
-    typed.push({ type, value: match[2].toLowerCase() });
+    typed.push({ type: typeOf(match[1]), value: match[2].toLowerCase() });
     rest = rest.replace(match[0], '');
   }
+  // A filter still being typed — without quotes (`artist:an`) or with its quote still open
+  // (`tag:"big br`) — matches what starts with it; one with no value yet is left out.
+  const open = (m, pre, name, value) => {
+    const type = typeOf(name);
+    if (!SEARCH_TYPES.has(type)) return m;
+    if (value.trim()) typed.push({ type, value: value.trim().toLowerCase(), prefix: true });
+    return pre;
+  };
+  rest = rest.replace(/(^|\s)([a-z]+(?::(?:fe)?male)?):"([^"]*)$/i, open)
+    .replace(/(^|\s)([a-z]+(?::(?:fe)?male)?):([^\s"]*)(?=\s|$)/gi, open);
   rest.trim().split(/\s+/).filter(Boolean).forEach(t => plain.push(t.toLowerCase()));
   return { typed, plain };
 }
@@ -1160,10 +1292,12 @@ function parseSearch(raw) {
 let _loadSeq = 0;
 async function applyFilters() {
   const seq = ++_loadSeq;
-  const raw  = document.getElementById('searchBox').value.trim();
+  const raw  = searchQuery();
   const sort = document.getElementById('sortSelect').value;
   const { typed, plain } = parseSearch(raw);
-  const match = (typed.length || plain.length) ? (g) => _matchEntity(g, typed, plain) : null;
+  const filtering = Object.values(_filter).some(set => set.size);
+  const match = (typed.length || plain.length || filtering)
+    ? (g) => _matchFilter(g) && _matchEntity(g, typed, plain) : null;
 
   const { items, total } = await store.getPage({ sort, page: currentPage, pageSize: PAGE_SIZE, match, merge: _mergeSeries });
   if (seq !== _loadSeq) return; // a newer search/sort/page load superseded this one
@@ -1193,10 +1327,42 @@ async function applyFilters() {
   for (const gid of _interrupted) _applyInterruptedUI(gid);
 }
 
+// Filter predicate, per tag type: with any "show only" values the gallery needs one of them (so a
+// gallery without that tag type drops out); it must carry none of the "hide" values.
+function _matchFilter(g) {
+  for (const [type, states] of Object.entries(_filter)) {
+    if (!states.size) continue;
+    const names = (g.tags || []).filter(t => t.type === type).map(t => String(t.name).toLowerCase());
+    if (names.some(n => states.get(n) === 'exclude')) return false;
+    if ([...states.values()].includes('include') && !names.some(n => states.get(n) === 'include')) return false;
+  }
+  return true;
+}
+
+// A typed search matches the whole tag name ("big" finds "big", not "big breasts"). A language
+// also finds its regional variants, as its flag does: "chinese" finds "chinese (traditional)".
+function _tagNameMatches(type, name, value) {
+  const lower = String(name).toLowerCase();
+  if (lower === value) return true;
+  const want = type === 'language' && _LANG_NAME_TO_CODE[value];
+  const have = want && _LANG_NAME_TO_CODE[lower];
+  return !!have && (have === want || have.startsWith(`${want}-`));
+}
+
 // Search predicate; the store evaluates it against each gallery's metadata.
 function _matchEntity(g, typed, plain) {
-  for (const { type, value } of typed) {
-    if (!g.tags || !g.tags.some(t => t.type === type && t.name.toLowerCase().includes(value))) return false;
+  for (const { type, value, prefix } of typed) {
+    if (type === 'translated' || type === 'favorite') {   // translated:"yes" / favorite:"no"
+      if (g[type] !== (prefix ? { y: true, n: false }[value[0]] : { yes: true, no: false }[value])) return false;
+      continue;
+    }
+    if (type === 'source') {
+      const source = g.source.toLowerCase();
+      if (prefix ? !source.startsWith(value) : source !== value) return false;
+      continue;
+    }
+    const matches = prefix ? (t) => String(t.name).toLowerCase().startsWith(value) : (t) => _tagNameMatches(type, t.name, value);
+    if (!g.tags || !g.tags.some(t => t.type === type && matches(t))) return false;
   }
   for (const term of plain) {
     if (g.id.includes(term)) continue;
@@ -1263,12 +1429,38 @@ function _pagesHtml(text, page, original, count) {
   return `<span class="card-pages" data-tip="${escHtml(tip)}"${page ? ` data-tip-badge="${page.tier}"` : ''}>${text}</span>`;
 }
 
+// The Images total's hover: its images tallied by resolution tier, every tier listed. A gallery's
+// pages count in the tier of its typical (median) page; ones not sized yet are tallied apart.
+function _tierTally(stats) {
+  const byTier = new Map(TIERS.map(tier => [tier.id, 0]));
+  let unsized = 0;
+  for (const g of Object.values(stats.galleries)) {
+    if (!g.count) continue;
+    const tier = describePage(g.medianPage)?.tier;
+    if (tier) byTier.set(tier, byTier.get(tier) + g.count); else unsized += g.count;
+  }
+  const mp = (n) => n.toLocaleString(getLang(), { maximumFractionDigits: 1 });
+  const range = (i) => i === 0 ? `< ${mp(TIERS[0].max)} MP`
+    : TIERS[i].max === Infinity ? `≥ ${mp(TIERS[i - 1].max)} MP` : `${mp(TIERS[i - 1].max)}–${mp(TIERS[i].max)} MP`;
+  const rows = TIERS.map((tier, i) => [`${tier.id}\v${range(i)}`, byTier.get(tier.id)]);
+  if (unsized) rows.push([t('lib.tier_unsized'), unsized]);
+  const pct = (n) => {
+    const p = stats.totalImages ? n / stats.totalImages * 100 : 0;
+    return n && p < 1 ? '<1%' : `${Math.round(p)}%`;
+  };
+  // Percentages padded to one width with figure spaces (digit-wide, never collapsed), so the
+  // right-aligned values keep their "·" in one column.
+  const width = Math.max(...rows.map(([, n]) => pct(n).length));
+  return [t('lib.images_by_tier'), ...rows.map(([label, n]) => `${label}\t${formatCount(n)} · ${pct(n).padStart(width, ' ')}`)].join('\n');
+}
+
 async function updateHeaderStats() {
   const [stats, topLevel] = await Promise.all([getStats(), galleriesCount({ merge: _mergeSeries })]);
   // Merged, a series counts as one gallery here; unmerged, every chapter is counted. Image/storage
   // totals always include every chapter's pages.
   document.getElementById('hTotalGalleries').textContent = formatCount(topLevel);
   document.getElementById('hTotalImages').textContent    = formatCount(stats.totalImages);
+  document.getElementById('hImagesStat').dataset.tip     = _tierTally(stats);
   document.getElementById('hTotalSize').textContent      = formatBytes(stats.totalSize);
   const sizeStat = document.getElementById('hSizeStat');
   if (sizeStat) {
@@ -1297,7 +1489,9 @@ function _makeOpenBtnInner(source) {
   return `<img src="${escHtml(icon)}" data-fav="${escHtml(source)}" alt="" decoding="async" style="width:12px;height:12px;pointer-events:none;">`;
 }
 
-// ── Shift key tracking ──
+// ── Shift key state ──
+// The held modifiers come from the tooltip module (onModifiers), which also shows each control's
+// Shift / Alt label; this page flips the hovered control's icon to match.
 
 let _shiftHeld         = false;
 let _hoveredDlBtn      = null;
@@ -1305,33 +1499,39 @@ let _hoveredOpenBtn    = null;
 let _hoveredExportBtn  = null;
 let _hoveredDelBtn     = null;
 let _hoveredTrBtn      = null;
-let _hoveredShiftEl    = null;
 let _operatingOnCard   = null;
 
+// A button's icon flips over to another. Each icon keeps its own pending swap, so flipping one
+// button can never cancel another's halfway and leave it hidden or on the wrong icon.
 function _makeFlipBtn(innerClass) {
-  let timer = null;
+  const timers = new WeakMap();
+  const reset = (inner) => {
+    clearTimeout(timers.get(inner));
+    timers.delete(inner);
+    inner.style.transition = 'none';
+    inner.style.transform  = '';
+  };
   return {
     to(btn, html) {
       const inner = btn?.querySelector('.' + innerClass);
       if (!inner) return;
-      if (timer) { clearTimeout(timer); timer = null; inner.style.transition = 'none'; inner.style.transform = ''; void inner.offsetHeight; }
+      reset(inner);
+      void inner.offsetHeight;
       inner.style.transition = 'transform 0.1s ease-in';
       inner.style.transform  = 'scaleY(0)';
-      timer = setTimeout(() => {
-        timer = null;
+      timers.set(inner, setTimeout(() => {
+        timers.delete(inner);
         inner.style.transition = 'none';
         inner.innerHTML = html;
         void inner.offsetHeight;
         inner.style.transition = 'transform 0.1s ease-out';
         inner.style.transform  = '';
-      }, 100);
+      }, 100));
     },
     snap(btn, html) {
       const inner = btn?.querySelector('.' + innerClass);
       if (!inner) return;
-      if (timer) { clearTimeout(timer); timer = null; }
-      inner.style.transition = 'none';
-      inner.style.transform  = '';
+      reset(inner);
       inner.innerHTML = html;
     }
   };
@@ -1356,53 +1556,30 @@ const _DELETE_ICON      = '<span class="del-inner">' + _DELETE_SVG + '</span>';
 const _TRANSLATE_SVG    = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>';
 const _REVERT_SVG       = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
 const _TRANSLATE_ICON   = '<span class="tr-inner">' + _TRANSLATE_SVG + '</span>';
+const _HEART_SVG        = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>';
 const _STOP_SVG         = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
 
-document.addEventListener('keydown', e => {
-  // Ignore key auto-repeat (e.repeat): a held Shift fires keydown continuously, which would
-  // otherwise restart the icon flip every tick and make it jitter forever.
-  if (e.key !== 'Shift' || e.repeat) return;
-  _shiftHeld = true;
-  document.body.classList.add('shift-held');
-  if (_hoveredShiftEl && !_hoveredShiftEl.disabled) {
-    _hoveredShiftEl.dataset.tipOrig = _hoveredShiftEl.dataset.tip;
-    _hoveredShiftEl.dataset.tip = _hoveredShiftEl.dataset.tipShift;
-    refreshTooltip();
+// Shift pressed or released — including a release that happened outside the window, which the
+// tooltip module notices on the next mouse event or when the window is left.
+onModifiers(({ shift }) => {
+  if (shift === _shiftHeld) return;
+  _shiftHeld = shift;
+  document.body.classList.toggle('shift-held', shift);
+  if (shift) {
+    if (_hoveredDlBtn && !_hoveredDlBtn.disabled) _dlFlip.to(_hoveredDlBtn, _UPLOAD_ICON);
+    if (_hoveredOpenBtn && _hoveredOpenBtn.dataset.tipShift) _openFlip.to(_hoveredOpenBtn, _OPEN_SHIFT_ICON);
+    if (_hoveredExportBtn && !_hoveredExportBtn.disabled) _exportFlip.to(_hoveredExportBtn, _EXPORT_SHIFT_SVG);
+    if (_hoveredDelBtn) _delFlip.to(_hoveredDelBtn, _DELETE_SHIFT_SVG);
+    if (_hoveredTrBtn && !_hoveredTrBtn.classList.contains('cancelling') && _hoveredTrBtn.dataset.tipShift && !_hoveredTrBtn.disabled) _trFlip.to(_hoveredTrBtn, _REVERT_SVG);
+  } else {
+    if (_hoveredDlBtn) _dlFlip.to(_hoveredDlBtn, _DL_SVG);
+    if (_hoveredOpenBtn && _hoveredOpenBtn.dataset.tipShift) _openFlip.to(_hoveredOpenBtn, _hoveredOpenBtn._baseInner);
+    if (_hoveredExportBtn) _exportFlip.to(_hoveredExportBtn, _EXPORT_SVG);
+    if (_hoveredDelBtn) _delFlip.to(_hoveredDelBtn, _DELETE_SVG);
+    if (_hoveredTrBtn && _hoveredTrBtn.dataset.tipShift) _trFlip.to(_hoveredTrBtn, _TRANSLATE_SVG);
   }
-  if (_hoveredDlBtn && !_hoveredDlBtn.disabled) _dlFlip.to(_hoveredDlBtn, _UPLOAD_ICON);
-  if (_hoveredOpenBtn && _hoveredOpenBtn.dataset.tipShift) _openFlip.to(_hoveredOpenBtn, _OPEN_SHIFT_ICON);
-  if (_hoveredExportBtn && !_hoveredExportBtn.disabled) _exportFlip.to(_hoveredExportBtn, _EXPORT_SHIFT_SVG);
-  if (_hoveredDelBtn) _delFlip.to(_hoveredDelBtn, _DELETE_SHIFT_SVG);
-  if (_hoveredTrBtn && !_hoveredTrBtn.classList.contains('cancelling') && _hoveredTrBtn.dataset.tipShift && !_hoveredTrBtn.disabled) _trFlip.to(_hoveredTrBtn, _REVERT_SVG);
-});
-document.addEventListener('keyup', e => {
-  if (e.key !== 'Shift') return;
-  _shiftHeld = false;
-  document.body.classList.remove('shift-held');
-  if (_hoveredShiftEl && 'tipOrig' in _hoveredShiftEl.dataset) {
-    _hoveredShiftEl.dataset.tip = _hoveredShiftEl.dataset.tipOrig;
-    delete _hoveredShiftEl.dataset.tipOrig;
-    refreshTooltip();
-  }
-  if (_hoveredDlBtn) _dlFlip.to(_hoveredDlBtn, _DL_SVG);
-  if (_hoveredOpenBtn && _hoveredOpenBtn.dataset.tipShift) _openFlip.to(_hoveredOpenBtn, _hoveredOpenBtn._baseInner);
-  if (_hoveredExportBtn) _exportFlip.to(_hoveredExportBtn, _EXPORT_SVG);
-  if (_hoveredDelBtn) _delFlip.to(_hoveredDelBtn, _DELETE_SVG);
-  if (_hoveredTrBtn && _hoveredTrBtn.dataset.tipShift) _trFlip.to(_hoveredTrBtn, _TRANSLATE_SVG);
 });
 window.addEventListener('focus', () => {
-  _shiftHeld = false;
-  document.body.classList.remove('shift-held');
-  if (_hoveredShiftEl && 'tipOrig' in _hoveredShiftEl.dataset) {
-    _hoveredShiftEl.dataset.tip = _hoveredShiftEl.dataset.tipOrig;
-    delete _hoveredShiftEl.dataset.tipOrig;
-    refreshTooltip();
-  }
-  if (_hoveredDlBtn) _dlFlip.to(_hoveredDlBtn, _DL_SVG);
-  if (_hoveredOpenBtn && _hoveredOpenBtn.dataset.tipShift) _openFlip.to(_hoveredOpenBtn, _hoveredOpenBtn._baseInner);
-  if (_hoveredExportBtn) _exportFlip.to(_hoveredExportBtn, _EXPORT_SVG);
-  if (_hoveredDelBtn) _delFlip.to(_hoveredDelBtn, _DELETE_SVG);
-  if (_hoveredTrBtn && _hoveredTrBtn.dataset.tipShift) _trFlip.to(_hoveredTrBtn, _TRANSLATE_SVG);
   if (_operatingOnCard) {
     const c = _operatingOnCard;
     _operatingOnCard = null;
@@ -1411,29 +1588,12 @@ window.addEventListener('focus', () => {
     c.style.pointerEvents = '';
   }
 });
-// Swap a hovered element's data-tip to its Shift action label while Shift is held; the shared
-// tooltip module reads data-tip and renders/positions it. This listener is registered before
-// initTooltips() so the swap lands before the tooltip reads it on the same mousemove.
-document.addEventListener('mousemove', e => {
-  const el = e.target.closest('[data-tip]');
-  const newShiftEl = (el && el.dataset.tipShift) ? el : null;
-  if (newShiftEl === _hoveredShiftEl) return;
-  if (_hoveredShiftEl && 'tipOrig' in _hoveredShiftEl.dataset) {
-    _hoveredShiftEl.dataset.tip = _hoveredShiftEl.dataset.tipOrig;
-    delete _hoveredShiftEl.dataset.tipOrig;
-  }
-  _hoveredShiftEl = newShiftEl;
-  if (_hoveredShiftEl && _shiftHeld && !_hoveredShiftEl.disabled) {
-    _hoveredShiftEl.dataset.tipOrig = _hoveredShiftEl.dataset.tip;
-    _hoveredShiftEl.dataset.tip = _hoveredShiftEl.dataset.tipShift;
-  }
-});
 initTooltips();
 initDropdowns();
 
 // ── Local CBZ import (staged in OPFS, run by the most durable runner available) ──
 
-async function replaceGalleryImages(gid, file) {
+async function replaceGalleryImages(gid, group) {
   const card    = document.querySelector(`[data-gallery-id="${gid}"]`);
   const progEl  = document.getElementById(`prog-${gid}`);
   const labelEl = document.getElementById(`proglabel-${gid}`);
@@ -1446,10 +1606,10 @@ async function replaceGalleryImages(gid, file) {
 
   setLabel(t('prog.reading_file'));
   let buffer;
-  try { buffer = await file.arrayBuffer(); }
+  try { buffer = await importBytes(group, (p) => setLabel(t('prog.rendering', p))); }
   catch { setLabel(t('prog.err_read')); dlBtns.forEach(b => { b.disabled = false; b.innerHTML = _DL_ICON; }); return; }
 
-  setLabel(t('prog.uploading'));
+  setLabel(t('prog.importing_file'));
   const tempName = `cbz-${gid}-${Date.now()}.bin`;
   try {
     const root     = await navigator.storage.getDirectory();
@@ -1462,15 +1622,15 @@ async function replaceGalleryImages(gid, file) {
     dlBtns.forEach(b => { b.disabled = false; b.innerHTML = _DL_ICON; });
     return;
   }
-  sendMsg({ type: 'IMPORT_CBZ', galleryId: gid, tempFile: tempName, filename: file.name, skipExisting: false });
+  sendMsg({ type: 'IMPORT_CBZ', galleryId: gid, tempFile: tempName, filename: group.name, skipExisting: false });
 }
 
 document.getElementById('replaceImgInput').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
+  const [group] = groupImports(e.target.files);
   const gid  = e.target.dataset.gid;
   e.target.value = '';
-  if (!file || !gid) return;
-  await replaceGalleryImages(gid, file);
+  if (!group || !gid) return;
+  await replaceGalleryImages(gid, group);
 });
 
 function triggerImport() {
@@ -1479,7 +1639,7 @@ function triggerImport() {
 
 document.getElementById('uploadCbzBtn').addEventListener('click', triggerImport);
 
-async function importSingleFile(file, gid) {
+async function importSingleFile(group, gid) {
   // Placeholder card is reserved up front by _handleImportFiles, so just drive progress.
   const progEl  = document.getElementById(`prog-${gid}`);
   const labelEl = document.getElementById(`proglabel-${gid}`);
@@ -1488,10 +1648,10 @@ async function importSingleFile(file, gid) {
 
   setLabel(t('prog.reading_file'));
   let buffer;
-  try { buffer = await file.arrayBuffer(); }
+  try { buffer = await importBytes(group, (p) => setLabel(t('prog.rendering', p))); }
   catch (err) { setLabel(t('prog.err_read')); if (progEl) progEl.closest('.card-body')?.classList.remove('downloading'); return; }
 
-  setLabel(t('prog.uploading'));
+  setLabel(t('prog.importing_file'));
   const tempName = `cbz-${gid}-${Date.now()}.bin`;
   try {
     const root     = await navigator.storage.getDirectory();
@@ -1506,33 +1666,38 @@ async function importSingleFile(file, gid) {
   }
   // The upload runs in the service worker when available (survives this tab) and reports via
   // platform.jobs; applyJob() updates the card and drops the placeholder if it produced nothing.
-  sendMsg({ type: 'IMPORT_CBZ', galleryId: gid, tempFile: tempName, filename: file.name, skipExisting: true });
+  sendMsg({ type: 'IMPORT_CBZ', galleryId: gid, tempFile: tempName, filename: group.name, skipExisting: true });
 }
 
-async function _handleImportFiles(files) {
-  const accepted = [...files].filter(f => /\.(zip|cbz|shi|shioridb)$/i.test(f.name));
-  if (!accepted.length) return;
-  if (/\.(shi|shioridb)$/i.test(accepted[0].name)) {
+async function _handleImportFiles(files, folders = []) {
+  const accepted = [...files].filter(f => /\.(shi|shioridb)$/i.test(f.name) || isImportable(f));
+  if (!accepted.length && !folders.length) return;
+  if (accepted.length && /\.(shi|shioridb)$/i.test(accepted[0].name)) {
     try {
       const { kind, counts } = await importBackup(accepted[0]);
-      alert(kind === 'metadata'
-        ? t('alert.import_meta', { n: formatCount(counts.galleries) })
-        : t('alert.import_full', { g: formatCount(counts.galleries), i: formatCount(counts.images) }));
-    } catch (err) { alert(t('alert.backup_import_failed', { msg: err.message })); }
+      alertDialog({
+        title: t('dlg.import_done_title'), tone: 'success',
+        body: kind === 'metadata'
+          ? t('dlg.import_meta_body', { n: formatCount(counts.galleries) })
+          : t('dlg.import_full_body', { g: formatCount(counts.galleries), i: formatCount(counts.images) }),
+      });
+    } catch (err) {
+      alertDialog({ title: t('dlg.import_fail_title'), body: t('dlg.import_fail_body'), detail: err.message, tone: 'error' });
+    }
     await loadAll();
     return;
   }
-  // Reserve a placeholder card for every dropped file up front (drop 3 zips → 3 cards
-  // appear immediately), then upload them one at a time into their reserved ids.
-  const queued = accepted.map((file) => {
+  // Reserve a placeholder card for every gallery up front (drop 3 zips → 3 cards appear
+  // immediately; loose images share one), then upload them one at a time into their reserved ids.
+  const queued = groupImports(accepted, folders).map((group) => {
     const gid = nextGalleryId();   // the shared mint — per-context monotonic, never a raw Date.now()
-    return { file, gid, at: Number(gid), title: file.name.replace(/\.[^.]+$/, '') };
+    return { group, gid, at: Number(gid), title: group.name.replace(/\.[^.]+$/, '') };
   });
   await Promise.all(queued.map(({ gid, title, at }) =>
     store.mutate(gid, { title, count: 0, size: 0, addedAt: at, latestAt: at, isLocalImport: true })));
   await applyFilters();
-  for (const { file, gid } of queued) {
-    await importSingleFile(file, gid);
+  for (const { group, gid } of queued) {
+    await importSingleFile(group, gid);
   }
 }
 
@@ -1553,11 +1718,12 @@ document.addEventListener('dragleave', () => {
   if (--_dragDepth <= 0) { _dragDepth = 0; document.body.classList.remove('drag-over'); }
 });
 document.addEventListener('dragover', (e) => e.preventDefault());
-document.addEventListener('drop', (e) => {
+document.addEventListener('drop', async (e) => {
   e.preventDefault();
   _dragDepth = 0;
   document.body.classList.remove('drag-over');
-  _handleImportFiles(e.dataTransfer.files);
+  const { files, folders } = await droppedImports(e.dataTransfer);
+  _handleImportFiles(files, folders);
 });
 
 // ── Per-gallery ZIP export ──
@@ -1674,9 +1840,10 @@ if (new URLSearchParams(window.location.search).get('import') === '1') {
 
 const searchBox   = document.getElementById('searchBox');
 const searchClear = document.getElementById('searchClear');
+initSearchField(searchBox);
 
 function updateClearBtn() {
-  searchClear.classList.toggle('visible', searchBox.value.length > 0);
+  searchClear.classList.toggle('visible', searchQuery().length > 0);
 }
 
 let _searchTimer = null;
@@ -1686,13 +1853,72 @@ searchBox.addEventListener('input', () => {
   _searchTimer = setTimeout(() => { currentPage = 1; applyFilters(); }, 180);
 });
 searchClear.addEventListener('click', () => {
-  searchBox.value = '';
+  setSearchQuery('');
   currentPage = 1;
   applyFilters();
   updateClearBtn();
   searchBox.focus();
 });
 document.getElementById('sortSelect').addEventListener('change', () => { currentPage = 1; applyFilters(); });
+
+// ── Filter (rating / category) ──
+// Each option cycles any → show only → hide. Changes apply (and are saved) as they're clicked.
+const _filterBtn = document.getElementById('filterBtn');
+const _filterModal = document.getElementById('filterModal');
+const _FILTER_NEXT = { off: 'include', include: 'exclude', exclude: 'off' };
+const _FILTER_STATE_KEY = { off: 'filter.any', include: 'filter.include', exclude: 'filter.exclude' };
+
+function _renderFilter() {
+  for (const [type, id] of [['rating', 'filterRating'], ['category', 'filterCategory']]) {
+    document.getElementById(id).innerHTML = TAG_VALUES[type].map((v) => {
+      const state = _filter[type].get(v) || 'off';
+      return `<button type="button" class="fopt" data-type="${type}" data-value="${escHtml(v)}" data-state="${state}" aria-label="${escHtml(`${v}: ${t(_FILTER_STATE_KEY[state])}`)}"><span class="fopt-mark" aria-hidden="true"></span><span class="fopt-name">${escHtml(v)}</span></button>`;
+    }).join('');
+  }
+  _syncFilterBtn();
+}
+function _syncFilterBtn() {
+  _filterBtn.classList.toggle('active', _filter.rating.size + _filter.category.size > 0);
+}
+function _filterChanged() {
+  _saveFilter();
+  _renderFilter();
+  currentPage = 1;
+  applyFilters();
+}
+function _setFilterOpen(open) {
+  _filterModal.classList.toggle('show', open);
+  if (open) setTimeout(() => _filterModal.querySelector('.fopt')?.focus(), 30);
+  else _filterBtn.focus();
+}
+
+_filterBtn.addEventListener('click', () => { _renderFilter(); _setFilterOpen(true); });
+_filterModal.addEventListener('click', (e) => {
+  if (e.target === _filterModal) { _setFilterOpen(false); return; }
+  const opt = e.target.closest('.fopt');
+  if (!opt) return;
+  const states = _filter[opt.dataset.type];
+  const next = _FILTER_NEXT[states.get(opt.dataset.value) || 'off'];
+  if (next === 'off') states.delete(opt.dataset.value); else states.set(opt.dataset.value, next);
+  _filterChanged();
+  _filterModal.querySelector(`.fopt[data-type="${opt.dataset.type}"][data-value="${CSS.escape(opt.dataset.value)}"]`)?.focus();
+});
+document.getElementById('filterClear').addEventListener('click', () => {
+  for (const states of Object.values(_filter)) states.clear();
+  _filterChanged();
+});
+document.getElementById('filterClose').addEventListener('click', () => _setFilterOpen(false));
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && _filterModal.classList.contains('show')) _setFilterOpen(false);
+});
+// Changed in another tab: follow it.
+window.addEventListener('storage', (e) => {
+  if (e.key !== 'shiori:libFilter') return;
+  try { _loadFilter(JSON.parse(e.newValue || 'null')); } catch { return; }
+  _renderFilter();
+  currentPage = 1;
+  applyFilters();
+});
 
 // The series merge/unmerge display preference lives in Settings (kv-backed → localStorage). React
 // live when it changes in another tab (or the Settings page): re-query and re-render the grid.
@@ -1712,15 +1938,14 @@ window.addEventListener('storage', (e) => {
 function _addSearchToken(token) {
   const box = document.getElementById('searchBox');
   const wasSearchActive = document.activeElement === box;
-  const cur = box.value.trim();
-  box.value = cur ? `${cur} ${token}` : token;
+  appendSearchToken(token);
   currentPage = 1;
   applyFilters();
   updateClearBtn();
   if (wasSearchActive) box.focus();
 }
 
-document.getElementById('grid').addEventListener('click', (e) => {
+document.getElementById('grid').addEventListener('click', async (e) => {
   // Language flag → add a language filter to search (treated like a tag); Shift+click deletes the
   // gallery's matching language tag(s), like Shift+click on any other tag.
   const flagChip = e.target.closest('.card-tag-flag');
@@ -1735,20 +1960,23 @@ document.getElementById('grid').addEventListener('click', (e) => {
       if (!toRemove.length) return;   // flag came from source metadata / translated copy — no tag to delete
       const label = t('addtag.cat_language');
       const name  = flagChip.dataset.tip || flagChip.dataset.langName || code;
-      if (!confirm(t('confirm.remove_tag', { label, name }))) return;
-      store.mutate(gid, _tagPatchFor(g, g.tags.filter(tg => !toRemove.includes(tg))));
+      if (!(await confirmDialog({
+        title: t('dlg.tag_title'), body: t('dlg.tag_body'),
+        detail: [`${label} · ${name}`, _galleryDetail(g)[0]], cover: _cardCover(flagChip.closest('.card')), ok: t('dlg.tag_ok'), danger: true,
+      }))) return;
+      store.mutate(gid, tagPatchFor(g, g.tags.filter(tg => !toRemove.includes(tg))));
       return;
     }
     if (flagChip.dataset.langName) _addSearchToken(`language:"${flagChip.dataset.langName}"`);
     return;
   }
 
-  // '+' chip → open the add-metadata modal for this card's gallery.
+  // '+' chip → open the tag editor to add a tag to this card's gallery.
   const addBtn = e.target.closest('.card-tag-add');
   if (addBtn) {
     e.preventDefault(); e.stopPropagation();
     const gid = addBtn.closest('.card')?.dataset.galleryId;
-    if (gid) openAddTagModal(gid);
+    if (gid) openTagEditor(gid);
     return;
   }
 
@@ -1763,71 +1991,18 @@ document.getElementById('grid').addEventListener('click', (e) => {
   if (e.shiftKey) {
     const gid = tag.closest('.card')?.dataset.galleryId;
     if (!gid) return;
-    const label = t(_TAG_CAT_KEY[type] || 'addtag.cat_tag');
-    if (!confirm(t('confirm.remove_tag', { label, name }))) return;
+    const label = t(TAG_TYPE_LABEL[type] || 'addtag.cat_tag');
     const g = _pageItems.find(x => x.id === gid);
     if (!g || !Array.isArray(g.tags)) return;
-    store.mutate(gid, _tagPatchFor(g, g.tags.filter(t => !(t.type === type && t.name === name))));
+    if (!(await confirmDialog({
+      title: t('dlg.tag_title'), body: t('dlg.tag_body'),
+      detail: [`${label} · ${name}`, _galleryDetail(g)[0]], cover: _cardCover(tag.closest('.card')), ok: t('dlg.tag_ok'), danger: true,
+    }))) return;
+    store.mutate(gid, tagPatchFor(g, g.tags.filter(t => !(t.type === type && t.name === name))));
     return;
   }
 
   _addSearchToken(type ? `${type}:"${name}"` : name);
-});
-
-// ── Add-metadata-tag modal ──
-let _addTagGid = null;
-const _addTagModal = document.getElementById('addTagModal');
-const _addTagCategory = document.getElementById('addTagCategory');
-const _addTagLangSelect = document.getElementById('addTagLangValue');
-
-// A language tag's value must be one of the supported flags, so it is picked from a dropdown
-// instead of typed; every other category keeps the free-text input.
-const _isLangCategory = () => _addTagCategory.value === 'language';
-function _syncAddTagInput() {
-  const lang = _isLangCategory();
-  _addTagLangSelect.style.display = lang ? '' : 'none';
-  document.getElementById('addTagValue').style.display = lang ? 'none' : '';
-}
-// Fill (or refresh, so labels follow the app language) the language dropdown.
-function _fillLangOptions() {
-  _addTagLangSelect.innerHTML = _LANG_TAG_OPTIONS
-    .map(o => `<option value="${escHtml(o.name)}">${escHtml(_langDisplayName(o.code))}</option>`)
-    .join('');
-}
-_addTagCategory.addEventListener('change', _syncAddTagInput);
-
-function openAddTagModal(gid) {
-  _addTagGid = gid;
-  document.getElementById('addTagValue').value = '';
-  _fillLangOptions();
-  _syncAddTagInput();
-  _addTagModal.classList.add('show');
-  setTimeout(() => { (_isLangCategory() ? _addTagLangSelect : document.getElementById('addTagValue')).focus(); }, 30);
-}
-function closeAddTagModal() {
-  _addTagModal.classList.remove('show');
-  _addTagGid = null;
-}
-async function confirmAddTag() {
-  const gid = _addTagGid;
-  if (!gid) return;
-  const type = _addTagCategory.value;
-  const name = _isLangCategory()
-    ? _addTagLangSelect.value
-    : document.getElementById('addTagValue').value.trim().toLowerCase();
-  if (!name) { document.getElementById('addTagValue').focus(); return; }
-  const g = _pageItems.find(x => x.id === gid);
-  const tags = Array.isArray(g?.tags) ? [...g.tags] : [];
-  if (!tags.some(t => t.type === type && t.name === name)) tags.push({ type, name, url: '' });
-  await store.mutate(gid, _tagPatchFor(g, tags));
-  closeAddTagModal();
-}
-document.getElementById('addTagConfirm').addEventListener('click', confirmAddTag);
-document.getElementById('addTagCancel').addEventListener('click', closeAddTagModal);
-_addTagModal.addEventListener('click', (e) => { if (e.target === _addTagModal) closeAddTagModal(); });
-document.getElementById('addTagValue').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { e.preventDefault(); confirmAddTag(); }
-  if (e.key === 'Escape') closeAddTagModal();
 });
 
 document.getElementById('settingsBtn').addEventListener('click', () => {
@@ -2094,6 +2269,7 @@ setTimeout(updateExtStatus, 6500);   // first probe past the grace window — re
 window.addEventListener('shiori-lang-change', () => applyFilters());
 
 initFromUrl();
+_renderFilter();
 
 // Read the "skip chapter overview" preference before the first paint so series cards route right.
 platform.kv.get(['readerSkipOverview']).then(r => {
@@ -2115,6 +2291,9 @@ window.addEventListener('storage', (e) => {
   if (e.key !== 'shiori:libQuickActionsMode') return;
   try { applyQuickActionsMode(JSON.parse(e.newValue || 'null')); }
   catch { applyQuickActionsMode(_DEFAULT_QUICK_ACTIONS_MODE); }
+});
+window.addEventListener('storage', (e) => {
+  if (e.key?.startsWith('shiori:') && e.key.slice(7) in _DETAIL_CLASS) applyDetailPrefs();
 });
 
 // Windowed load: one page from the DB (covers come from the sessionStorage cache, so the

@@ -8,13 +8,13 @@
    browser can't style the list (no base-select), the native dropdown is used as-is. */
 
 :root {
-  --dd-bg: #111114;
-  --dd-bg-hover: #1c1c21;
+  --dd-bg: var(--surface-subtle);
+  --dd-bg-hover: var(--surface-raised);
   --dd-line: #52525c;
-  --dd-seam: #2a2a30;
-  --dd-text: #f4f4f5;
-  --dd-muted: #a1a1aa;
-  --dd-caret: #7c7c8c;
+  --dd-seam: var(--border);
+  --dd-text: var(--text);
+  --dd-muted: var(--muted);
+  --dd-caret: var(--muted-dim);
   --dd-radius: 6px;
   --dd-inset: 11px;
 }
@@ -62,8 +62,13 @@
   select:open::picker-icon { rotate: 180deg; }
 
   /* The list: exactly the box's width, overlapping its edge by the border so the two read as one
-     outline, with a faint seam where they meet. It unrolls away from the box. */
+     outline, with a faint seam where they meet. It unrolls away from the box. At most eight
+     options show at once (a row is one line plus the option's 6px padding above and below); the
+     rest scroll. dropdown.js assumes the same eight when choosing which way the list opens. */
   ::picker(select) {
+    box-sizing: border-box;
+    max-height: calc(8 * (1lh + 12px) + 10px);
+    overflow-y: auto;
     width: anchor-size(width);
     margin: -1px 0 0;
     padding: 4px 0;

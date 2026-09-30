@@ -6,6 +6,7 @@ import { dbPut, dbGet, imageRecordPut, metaPut, metaGet, galleryGet, deleteStale
          putTranslatedImage, putPageStudy, mutateGallery, refreshSeriesAggregate, pruneSeriesChildren, coverPut, nextGalleryId,
          BUBBLE_EXTRA_FIELDS } from './db.js';
 import { isValidGalleryId } from './sanitize.js';
+import { unionTags } from './series.js';
 
 // An embedded id that fails the app's numeric-id gate is ignored (remapped to the caller's
 // gallery) — imported ids reach DOM attributes and hrefs, so markup in one is an XSS attempt.
@@ -77,7 +78,7 @@ async function restoreExportedCovers(gid, byName) {
   if (!coverEntries.length) {
     for (const role of ['gallery', 'series']) {
       for (const name of byName.keys()) {
-        if (new RegExp(`^covers/${role}\\.(jpe?g|png|webp|gif)$`, 'i').test(name)) {
+        if (new RegExp(`^covers/${role}\\.(jpe?g|png|webp|gif|avif)$`, 'i').test(name)) {
           coverEntries.push({ role, file: name });
           break;
         }
@@ -95,7 +96,7 @@ async function restoreExportedCovers(gid, byName) {
 
 export function sortImageEntries(entries) {
   return entries
-    .filter(e => /\.(jpe?g|png|webp|gif)$/i.test(e.filename))
+    .filter(e => /\.(jpe?g|png|webp|gif|avif)$/i.test(e.filename))
     .sort((a, b) => {
       const na = a.filename.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
       const nb = b.filename.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
@@ -103,7 +104,7 @@ export function sortImageEntries(entries) {
     });
 }
 
-export const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' };
+export const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif' };
 export const normExt = (ext) => { const e = (ext || 'jpg').toLowerCase(); return e === 'jpeg' ? 'jpg' : e; };
 
 // Import a zip buffer into the library. Idempotent in skipExisting mode: re-running only
@@ -194,17 +195,6 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
   publishFeed(gid);
 }
 
-// Tag union de-duped by lower-cased `type:name` (the key db.js indexes on).
-function _unionTags(...lists) {
-  const seen = new Set(), out = [];
-  for (const list of lists) for (const t of (list || [])) {
-    if (!t || t.type == null || t.name == null) continue;
-    const k = `${t.type}:${t.name}`.toLowerCase();
-    if (seen.has(k)) continue; seen.add(k); out.push(t);
-  }
-  return out;
-}
-
 async function _putMetadataOnlyGallery(gid, meta) {
   const id = String(gid);
   const nextMeta = meta
@@ -265,7 +255,7 @@ async function _importSeriesZip(entries, manifest, onProgress) {
       seriesTitle: manifest.seriesTitle || '',
       seriesTags: Array.isArray(manifest.seriesTags)
         ? manifest.seriesTags
-        : (embeddedSeriesTags || _unionTags(ownerMeta?.tags, ...tagLists)),
+        : (embeddedSeriesTags || unionTags(ownerMeta?.tags, ...tagLists)),
       parentId: null,
     });
     for (const c of chapters) if (c.id !== ownerId) await mutateGallery(c.id, { parentId: ownerId });

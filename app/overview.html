@@ -8,6 +8,8 @@
   <link rel="icon" href="../icons/icon32.png">
   <title>Shiori — Series</title>
   <script src="font-init.js"></script>
+  <link rel="stylesheet" href="base.css">
+  <link rel="stylesheet" href="dropdown.css">
   <link rel="stylesheet" href="library.css">
   <link rel="stylesheet" href="overview.css">
   <link rel="stylesheet" href="notice.css">
@@ -19,6 +21,8 @@
   <link rel="modulepreload" href="js/sites.js">
   <link rel="modulepreload" href="js/store.js">
   <link rel="modulepreload" href="js/series.js">
+  <link rel="modulepreload" href="js/tag-editor.js">
+  <link rel="modulepreload" href="js/dropdown.js">
   <link rel="modulepreload" href="js/i18n.js">
   <link rel="modulepreload" href="js/locales.js">
   <link rel="manifest" href="manifest.webmanifest">
@@ -53,14 +57,14 @@
     <div class="modal-title" data-i18n="ov.remove_title">Remove chapter</div>
     <div class="modal-label" id="removeMsg" style="margin-bottom:14px"></div>
     <div class="modal-actions" style="flex-wrap:wrap; gap:8px">
-      <button class="modal-btn-cancel" id="removeCancel" data-i18n="common.cancel">Cancel</button>
-      <button class="modal-btn-cancel" id="removeDetach" data-i18n="ov.remove_detach">Detach (keep gallery)</button>
-      <button class="modal-btn-confirm" id="removeDelete" style="background:var(--danger)" data-i18n="ov.remove_delete">Delete images</button>
+      <button class="btn" id="removeCancel" data-i18n="common.cancel">Cancel</button>
+      <button class="btn" id="removeDetach" data-i18n="ov.remove_detach">Detach (keep gallery)</button>
+      <button class="btn danger" id="removeDelete" data-i18n="ov.remove_delete">Delete images</button>
     </div>
   </div>
 </div>
 
-<input type="file" id="ovFileInput" accept=".cbz,.zip,.shi,.shioridb" style="display:none">
+<input type="file" id="ovFileInput" accept=".cbz,.zip,.pdf,.jpg,.jpeg,.png,.webp,.gif,.avif" multiple style="display:none">
 
 <script type="module" src="js/overview.js"></script>
 </body>

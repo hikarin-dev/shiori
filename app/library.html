@@ -17,6 +17,7 @@
   <link rel="icon" href="../icons/icon32.png">
   <title>Shiori — Library</title>
   <script src="font-init.js"></script>
+  <link rel="stylesheet" href="base.css">
   <link rel="stylesheet" href="dropdown.css">
   <link rel="stylesheet" href="library.css">
   <link rel="stylesheet" href="notice.css">
@@ -41,6 +42,8 @@
   <link rel="modulepreload" href="js/submit-job.js">
   <link rel="modulepreload" href="js/jobs-runner.js">
   <link rel="modulepreload" href="js/import-cbz.js">
+  <link rel="modulepreload" href="js/tag-editor.js">
+  <link rel="modulepreload" href="js/search-field.js">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#111111">
   <meta name="shiori-app" content="library">  <!-- lets the extension's bridge recognise the app -->
@@ -57,7 +60,7 @@
     <span class="brand-sep">/</span>
     <span class="brand-page" data-i18n="nav.library">Library</span>
     <div class="search-wrap">
-      <input class="header-search" id="searchBox" type="text" placeholder="Search by ID, title or tags…" data-i18n-ph="lib.search_ph">
+      <div class="header-search" id="searchBox" contenteditable="plaintext-only" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-autocomplete="list" spellcheck="false" data-placeholder="Search by ID, title or tags…" data-i18n-ph="lib.search_ph" aria-label="Search by ID, title or tags…" data-i18n-aria="lib.search_ph"></div>
       <button class="search-clear" id="searchClear" data-tip="Clear search" data-i18n-tip="lib.clear_search"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
     </div>
     <button class="btn-pin" id="pinBtn" data-tip="Unpin header"></button>
@@ -69,7 +72,7 @@
         <div class="hstat-val" id="hTotalGalleries">—</div>
         <div class="hstat-label" data-i18n="stat.galleries">Galleries</div>
       </div>
-      <div class="hstat">
+      <div class="hstat" id="hImagesStat" data-tip="">
         <div class="hstat-val" id="hTotalImages">—</div>
         <div class="hstat-label" data-i18n="stat.images">Images</div>
       </div>
@@ -78,10 +81,10 @@
         <div class="hstat-label" data-i18n="stat.stored">Stored</div>
       </div>
     </div>
-    <!-- Upload stays in the bar at every width; when the nav minimizes it drops its label and
+    <!-- Import stays in the bar at every width; when the nav minimizes it drops its label and
          keeps just the icon (handled in CSS), so it is never hidden behind the burger. -->
-    <button class="btn-upload" id="uploadCbzBtn" data-tip="Upload" data-i18n-tip="nav.upload"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="btn-upload-icon"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg><span class="btn-upload-label" data-i18n="nav.upload">Upload</span></button>
-    <button class="btn-safe" id="safeBtn" data-tip="Enable Safe Mode (blur content for sharing)" data-i18n-tip="nav.safe_on"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg></button>
+    <button class="btn-upload" id="uploadCbzBtn" data-tip="Import" data-i18n-tip="nav.import"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="btn-upload-icon"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg><span class="btn-upload-label" data-i18n="nav.import">Import</span></button>
+    <button class="btn-safe" id="safeBtn" data-tip="Enable Safe Mode&#10;(blur content for sharing)" data-i18n-tip="nav.safe_on"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg></button>
     <button class="btn-settings" id="settingsBtn" data-tip="Settings" data-i18n-tip="nav.settings"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg></button>
   </div>
 </header>
@@ -94,36 +97,37 @@
     <option value="count" data-i18n="sort.count">Most Pages</option>
     <option value="uploadDate" data-i18n="sort.uploadDate">Published Date</option>
   </select>
+  <button class="filter-btn" id="filterBtn" type="button" aria-haspopup="dialog" data-tip="Filter" data-i18n-tip="filter.btn" aria-label="Filter" data-i18n-aria="filter.btn"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z"/></svg></button>
 </div>
-<input type="file" id="cbzFileInput" accept=".cbz,.zip,.shi,.shioridb" multiple style="display:none">
-<input type="file" id="replaceImgInput" accept=".cbz,.zip" style="display:none">
+<input type="file" id="cbzFileInput" accept=".cbz,.zip,.pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.shi,.shioridb" multiple style="display:none">
+<input type="file" id="replaceImgInput" accept=".cbz,.zip,.pdf,.jpg,.jpeg,.png,.webp,.gif,.avif" multiple style="display:none">
 
 
 <div class="grid" id="grid"></div>
 
 <div id="pagination"></div>
 
-<!-- Add-metadata-tag modal (opened by the per-card '+' chip on hover) -->
-<div id="addTagModal" class="modal-overlay">
-  <div class="modal-box">
-    <div class="modal-title" data-i18n="addtag.title">Add metadata tag</div>
-    <label class="modal-label" for="addTagCategory" data-i18n="addtag.category">Category</label>
-    <select class="modal-select" id="addTagCategory">
-      <option value="tag" data-i18n="addtag.cat_tag">Tag</option>
-      <option value="tag:female" data-i18n="addtag.cat_tagf">Tag · female</option>
-      <option value="tag:male" data-i18n="addtag.cat_tagm">Tag · male</option>
-      <option value="artist" data-i18n="addtag.cat_artist">Artist</option>
-      <option value="group" data-i18n="addtag.cat_group">Group</option>
-      <option value="parody" data-i18n="addtag.cat_parody">Parody</option>
-      <option value="character" data-i18n="addtag.cat_character">Character</option>
-      <option value="language" data-i18n="addtag.cat_language">Language</option>
-    </select>
-    <label class="modal-label" for="addTagValue" data-i18n="addtag.value">Value</label>
-    <input class="modal-input" id="addTagValue" type="text" placeholder="e.g. romance" data-i18n-ph="addtag.value_ph" autocomplete="off" spellcheck="false">
-    <select class="modal-select" id="addTagLangValue" style="display:none"></select>
+<!-- Library filter modal (opened by the toolbar's filter button). Each option cycles
+     any → show only → hide; the choice is kept across visits. -->
+<div id="filterModal" class="modal-overlay">
+  <div class="modal-box filter-box" role="dialog" aria-modal="true" aria-labelledby="filterTitle">
+    <div class="modal-title" id="filterTitle" data-i18n="filter.title">Filter library</div>
+    <div class="filter-hint" data-i18n="filter.hint">Click an option to show only it, click again to hide it, and once more to reset.</div>
+    <div class="filter-legend" aria-hidden="true">
+      <span class="fopt-legend" data-state="include"><span class="fopt-mark"></span><span data-i18n="filter.include">Show only</span></span>
+      <span class="fopt-legend" data-state="exclude"><span class="fopt-mark"></span><span data-i18n="filter.exclude">Hide</span></span>
+    </div>
+    <div class="filter-section">
+      <div class="modal-label" data-i18n="filter.rating">Rating</div>
+      <div class="filter-options" id="filterRating"></div>
+    </div>
+    <div class="filter-section">
+      <div class="modal-label" data-i18n="filter.category">Category</div>
+      <div class="filter-options" id="filterCategory"></div>
+    </div>
     <div class="modal-actions">
-      <button class="modal-btn-cancel" id="addTagCancel" data-i18n="common.cancel">Cancel</button>
-      <button class="modal-btn-confirm" id="addTagConfirm" data-i18n="common.add">Add</button>
+      <button class="btn" id="filterClear" type="button" data-i18n="filter.clear">Clear</button>
+      <button class="btn primary" id="filterClose" type="button" data-i18n="common.close">Close</button>
     </div>
   </div>
 </div>

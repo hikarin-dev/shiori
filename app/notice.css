@@ -1,5 +1,5 @@
-/* notice.css — the app-wide toast and the modal used for one-time library updates (notice.js). Pages
-   share it; colors come from each page's own tokens. */
+/* notice.css — the app-wide toast and the app's own dialogs (notice.js). Colours come from the
+   tokens in base.css; the buttons are base.css's .btn. */
 
 .notice-toast {
   position: fixed;
@@ -12,30 +12,15 @@
   gap: 12px;
   max-width: calc(100vw - 32px);
   padding: 10px 10px 10px 16px;
-  background: var(--surface, #18181b);
-  color: var(--text, #f4f4f5);
-  border: 1px solid var(--border-strong, var(--border, #3f3f46));
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
   font-size: 12.5px;
   line-height: 1.4;
 }
 .notice-toast-text { min-width: 0; }
-.notice-btn {
-  flex: none;
-  padding: 7px 14px;
-  border: 1px solid var(--border-strong, var(--border, #3f3f46));
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text, #f4f4f5);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-.notice-btn:hover:not(:disabled) { border-color: var(--muted, #a1a1aa); }
-.notice-btn.primary { background: var(--accent, #e11d48); border-color: var(--accent, #e11d48); color: #fff; }
-.notice-btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
-.notice-btn:disabled { opacity: .6; cursor: default; }
 .notice-close {
   flex: none;
   width: 28px;
@@ -43,12 +28,12 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: var(--muted, #a1a1aa);
+  color: var(--muted);
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
 }
-.notice-close:hover { color: var(--text, #f4f4f5); }
+.notice-close:hover { color: var(--text); }
 
 .notice-overlay {
   position: fixed;
@@ -58,52 +43,120 @@
   align-items: center;
   justify-content: center;
   padding: 16px;
-  background: rgba(0, 0, 0, .6);
+  background: var(--backdrop);
+  /* Any notice modal holds the page still behind it, keeping the page's scrollbar in view: as a
+     scroll container that contains overscroll, no scroll started over it reaches the page. */
+  overflow: hidden;
+  overscroll-behavior: contain;
 }
 .notice-modal {
   width: min(460px, 100%);
   padding: 22px 22px 18px;
-  background: var(--surface, #18181b);
-  color: var(--text, #f4f4f5);
-  border: 1px solid var(--border-strong, var(--border, #3f3f46));
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
   border-radius: 12px;
   box-shadow: 0 20px 50px rgba(0, 0, 0, .5);
   font-size: 12.5px;
   line-height: 1.55;
 }
-.notice-modal h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; }
-.notice-modal p { margin: 0 0 12px; color: var(--muted, #a1a1aa); }
+.notice-modal h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
+.notice-modal p { margin: 0 0 12px; color: var(--muted); white-space: pre-line; overflow-wrap: anywhere; }
+
+/* Confirm / alert / prompt: an optional tone icon beside the title, then — at full width — the
+   explanation, a boxed line naming what it applies to (or an error's own message), the actions. */
+.notice-dialog { width: min(440px, 100%); padding: 22px 22px 18px; }
+.notice-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.notice-icon {
+  flex: none;
+  display: flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 50%;
+  color: var(--muted);
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+.notice-icon svg { width: 18px; height: 18px; }
+.notice-icon.danger, .notice-icon.error { color: var(--danger); }
+.notice-icon.success { color: var(--success); }
+.notice-dialog h2 { flex: 1; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.notice-dialog p { margin: 0 0 12px; overflow-wrap: anywhere; }
+.notice-detail-box {
+  max-height: 30vh; overflow: auto;
+  padding: 9px 11px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+.notice-detail-sub { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+/* A gallery reads like a chapter row: its cover at the left, the title and its meta beside it —
+   each at most two lines. */
+.notice-detail-box.has-cover { display: flex; align-items: center; gap: 11px; padding: 7px 11px 7px 7px; }
+.notice-detail-box.has-cover .notice-detail-text { flex: 1; min-width: 0; font-size: 13px; line-height: 1.35; }
+.notice-detail-box.has-cover :is(.notice-detail-main, .notice-detail-sub) {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.notice-thumb {
+  flex: none;
+  display: flex; align-items: center; justify-content: center;
+  width: 38px; aspect-ratio: 1 / sqrt(2);
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 16px;
+}
+.notice-thumb > span { opacity: .5; }
+.notice-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.notice-thumb.landscape { background: transparent; border-color: transparent; }
+.notice-thumb.landscape img { height: auto; border: 1px solid var(--border); border-radius: 4px; box-sizing: border-box; }
+.notice-input {
+  display: block;
+  width: 100%;
+  padding: 9px 11px;
+  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  font: inherit;
+  outline: none;
+}
+.notice-input:focus { border-color: var(--accent); }
+.notice-dialog .notice-actions { margin-top: 18px; }
 .notice-choices { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
 .notice-choice {
   display: block;
   width: 100%;
   padding: 11px 14px;
   text-align: left;
-  border: 1px solid var(--border-strong, var(--border, #3f3f46));
+  border: 1px solid var(--border-strong);
   border-radius: 9px;
   background: transparent;
-  color: var(--text, #f4f4f5);
+  color: var(--text);
   font: inherit;
   cursor: pointer;
 }
-.notice-choice:hover { border-color: var(--accent, #e11d48); }
+.notice-choice:hover { border-color: var(--accent); }
 .notice-choice strong { display: block; font-size: 13px; }
-.notice-choice span { display: block; margin-top: 2px; color: var(--muted, #a1a1aa); font-size: 11.5px; }
+.notice-choice span { display: block; margin-top: 2px; color: var(--muted); font-size: 11.5px; }
 .notice-bar {
   height: 6px;
   margin: 14px 0 8px;
   overflow: hidden;
   border-radius: 999px;
-  background: var(--border, #27272a);
+  background: var(--border);
 }
 .notice-bar > div {
   height: 100%;
   width: 0;
   border-radius: inherit;
-  background: var(--accent, #e11d48);
+  background: var(--accent);
   transition: width .2s ease;
 }
 .notice-bar.indeterminate > div { width: 30%; animation: notice-slide 1.2s ease-in-out infinite; }
 @keyframes notice-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
-.notice-detail { color: var(--muted, #a1a1aa); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.notice-detail { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .notice-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }

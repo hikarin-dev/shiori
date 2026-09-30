@@ -13,9 +13,22 @@ class SilentBroadcastChannel {
 }
 globalThis.BroadcastChannel = SilentBroadcastChannel;
 
-const { dbPut, galleryGet, mutateGallery, metaGet, deleteGallery, getGalleryImageRecords, resolveGalleryId } = await import('../js/db.js');
+const { dbPut, galleryGet, mutateGallery, metaGet, deleteGallery, getGalleryImageRecords, resolveGalleryId,
+  listGalleryPageKeys, dbGetByGalleryPage, existingPageNums, coverRecordGet, rebuildGalleryEntry } = await import('../js/db.js');
 
 const blobOf = (n) => new Blob([new Uint8Array(n)], { type: 'image/jpeg' });
+
+test('an AVIF page is a page like any other: listed, found by number, and page 1 is the cover', async () => {
+  await dbPut('local://AV/1.avif', new Blob([new Uint8Array(20)], { type: 'image/avif' }), 'AV', 'AV');
+  await dbPut('local://AV/2.jpg', blobOf(10), 'AV', 'AV');
+  assert.deepEqual((await listGalleryPageKeys('AV')).map((p) => p.pageNum), [1, 2]);
+  assert.equal((await dbGetByGalleryPage('AV', 1))?.url, 'local://AV/1.avif');
+  assert.deepEqual([...await existingPageNums('AV')].sort(), [1, 2]);
+  assert.equal((await galleryGet('AV')).coverPage, 1);
+  assert.equal((await coverRecordGet('AV')).cover.type, 'image/avif');
+  await rebuildGalleryEntry('AV');
+  assert.equal((await galleryGet('AV')).coverPage, 1, 'a rebuilt stat record agrees');
+});
 
 test('same-gallery re-put adjusts size and never double-counts', async () => {
   await dbPut('site://a/1.jpg', blobOf(100), 'A', 'A');
@@ -54,6 +67,17 @@ test('mutateGallery writes metadata and stats as one logical mutation', async ()
   assert.equal(stat.coverPage, 3);
   assert.equal(stat.parentId, null, 'parentId is denormalized onto the stat record');
   assert.equal(meta.parentId, null);
+});
+
+test('a library upgrade (touch: false) keeps the gallery in its "Last updated" place', async () => {
+  await dbPut('site://u/1.jpg', blobOf(10), 'U', 'U');
+  const before = (await galleryGet('U')).latestAt;
+  await new Promise(r => setTimeout(r, 5));
+  await mutateGallery('U', { tags: [{ type: 'rating', name: 'safe', url: '' }] }, { touch: false });
+  assert.equal((await galleryGet('U')).latestAt, before);
+  assert.deepEqual((await metaGet('U')).tags, [{ type: 'rating', name: 'safe', url: '' }]);
+  await mutateGallery('U', { tags: [] });
+  assert.ok((await galleryGet('U')).latestAt > before, 'an ordinary edit still marks it updated');
 });
 
 test('resolving one source id repeatedly converges on one internal gallery', async () => {

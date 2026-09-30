@@ -42,7 +42,11 @@ export function t(key, vars) {
 // Fill every translatable node under `root`.
 export function applyTranslations(root = document) {
   root.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
-  root.querySelectorAll('[data-i18n-ph]').forEach(el => { el.placeholder = t(el.dataset.i18nPh); });
+  // A field without a placeholder of its own (an editable box) shows data-placeholder through CSS.
+  root.querySelectorAll('[data-i18n-ph]').forEach(el => {
+    if ('placeholder' in el) el.placeholder = t(el.dataset.i18nPh);
+    else el.dataset.placeholder = t(el.dataset.i18nPh);
+  });
   root.querySelectorAll('[data-i18n-tip]').forEach(el => { el.dataset.tip = t(el.dataset.i18nTip); });
   root.querySelectorAll('[data-i18n-title]').forEach(el => { el.title = t(el.dataset.i18nTitle); });
   root.querySelectorAll('[data-i18n-aria]').forEach(el => { el.setAttribute('aria-label', t(el.dataset.i18nAria)); });

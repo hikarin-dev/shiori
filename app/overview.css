@@ -1,13 +1,22 @@
-/* overview.css — the series overview page. Reuses library.css for the header, brand, buttons and
-   modal; this file only styles the series header block, the chapter list, and the add-chapter bar. */
+/* overview.css — the series overview page. Reuses base.css and library.css for the header, brand,
+   buttons, modal and progress bar; this file styles the header (cover, details, tags), the
+   chapter list, the page grid and the add-chapter bar. */
 
 .ov-wrap { max-width: 980px; margin: 0 auto; padding: 24px 20px 80px; }
 
-/* ── Series header ── */
-.series-head {
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: center;
-  padding-bottom: 20px; margin-bottom: 20px;
-  border-bottom: 1px solid var(--border);
+/* ── Header: the cover, and beside it the titles, actions, details and tags ── */
+.ov-hero {
+  display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 26px; align-items: start;
+  margin-bottom: 30px;
+}
+/* The cover, blurred and faint, across the page behind the header, fading out downward. It hangs
+   off the page itself (no positioned ancestor), so it spans the full width below the top bar. */
+.ov-backdrop {
+  position: absolute; left: 0; right: 0; top: 54px; z-index: -1; height: 480px;
+  background: center 25% / cover no-repeat;
+  filter: blur(28px) saturate(1.15); opacity: .16;
+  mask-image: linear-gradient(to bottom, #000 35%, transparent);
+  pointer-events: none;
 }
 .series-cover {
   position: relative; width: 100%; min-width: 0; aspect-ratio: 1 / sqrt(2);
@@ -36,7 +45,7 @@
 
 .series-info {
   --series-title-pad-x: 8px;
-  flex: 1; min-width: 0; align-self: stretch; display: flex; flex-direction: column;
+  min-width: 0; display: flex; flex-direction: column; gap: 14px;
 }
 .series-title-wrap { position: relative; }
 .series-title-input {
@@ -54,16 +63,14 @@
 #ovContent:not(.ov-editing) .ch-title-input {
   pointer-events: none;
 }
-#ovContent:not(.ov-editing) .ch-actions { display: none; }
 #ovContent.ov-editing .series-title-wrap.editable .series-title-open,
 #ovContent.ov-editing .ch-title-open { display: none; }
 .series-title-open { position: absolute; inset: 0; z-index: 2; border-radius: 6px; cursor: pointer; }
 .series-title-wrap:has(.series-title-open:hover) .series-title-input[readonly] { color: var(--accent); }
-.series-sub { color: var(--muted); font-size: 12px; margin: 8px 0 16px; display: flex; gap: 14px; flex-wrap: wrap; }
-.series-sub b { color: var(--text); font-weight: 600; }
-.ov-posted { color: var(--muted); font-size: 12px; margin: 8px 0 0; width: fit-content; cursor: default; }
+/* The title in the other script, right under the heading. */
+.ov-subtitle { margin-top: -10px; color: var(--muted); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
 
-.series-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
+.series-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .ov-btn {
   display: inline-flex; align-items: center; gap: 7px;
   background: var(--surface); border: 1px solid var(--border); color: var(--text);
@@ -73,8 +80,71 @@
 .ov-btn:hover { border-color: var(--accent); }
 .ov-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 .ov-btn.primary:hover { filter: brightness(1.08); }
-.ov-btn.active { border-color: var(--accent2); color: var(--accent2); background: rgba(255, 213, 79, .08); }
+.ov-btn.active { border-color: var(--accent2); color: var(--accent2); background: rgba(255, 209, 102, .08); }
 .ov-btn svg { width: 14px; height: 14px; }
+.ov-btn.fav.on { border-color: var(--accent); color: var(--accent); background: rgba(237, 39, 84, .08); }
+.ov-btn.fav.on svg { fill: currentColor; }
+
+/* Details: icon + value pairs, each explained on hover. */
+.ov-meta { display: flex; flex-direction: column; gap: 7px; color: var(--muted); font-size: 12px; }
+/* The details, then the posted and added dates on a line of their own. */
+.ov-meta-line { display: flex; flex-wrap: wrap; gap: 7px 18px; }
+.ov-meta-item { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; cursor: default; }
+.ov-meta-item svg { flex: none; width: 14px; height: 14px; color: var(--muted-dim); }
+.ov-meta-item.cap > span { text-transform: capitalize; }
+.ov-meta-item.done { color: var(--success); }
+.ov-meta-item.done svg { color: currentColor; }
+/* Edit mode: the category and rating open the tag editor too, so they outline on hover like a tag
+   (the negative margin cancels the padding and border, so nothing shifts). */
+#ovContent.ov-editing .ov-meta-item[data-tag-type] {
+  margin: -3px -7px; padding: 2px 6px; border: 1px solid transparent; border-radius: 4px;
+  cursor: pointer; transition: border-color .12s, color .12s;
+}
+#ovContent.ov-editing .ov-meta-item[data-tag-type]:hover { border-color: var(--muted); color: var(--text); }
+
+/* Tags: a label column, then the chips of that kind; each chip searches the library for it. */
+.ov-tag-table { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 7px 16px; font-size: 12px; }
+.ov-tag-row { display: contents; }
+.ov-tag-label { padding-top: 3px; color: var(--muted); white-space: nowrap; }
+.ov-tag-chips { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
+.ov-chip {
+  display: flex;
+  padding: 2px 8px;
+  background: var(--surface-raised); border: 1px solid var(--border-strong); border-radius: 4px;
+  color: var(--text); line-height: 1.5; text-decoration: none; overflow-wrap: anywhere;
+  transition: border-color .12s, color .12s;
+}
+/* Hover stays neutral, as on a library card's tags, so it can't be mistaken for Shift's delete red. */
+.ov-chip:hover { border-color: var(--muted); color: var(--text); }
+/* How many library entries carry the tag, set off by a divider in the chip's border colour that runs
+   the chip's inner height. */
+.ov-chip-n {
+  margin-left: 8px; padding-left: 8px; border-left: 1px solid; border-left-color: inherit;
+  color: var(--muted); font-variant-numeric: tabular-nums;
+}
+/* '+' adds a tag — edit mode only (with no tags yet, the table shows just for it). */
+.ov-chip-add { font-family: inherit; font-size: 12px; font-weight: 700; color: var(--muted); cursor: pointer; }
+.ov-chip-add:hover { color: var(--accent2); border-color: var(--accent2); }
+.ov-tag-add-only { grid-column: 1 / -1; }
+#ovContent:not(.ov-editing) :is(.ov-chip-add, .ov-tag-table.no-tags) { display: none; }
+/* While Shift is held in edit mode, hovering a tag previews its removal (Shift+click removes) in the
+   delete colour, as on a library card. */
+body.shift-held #ovContent.ov-editing .ov-chip:not(.ov-chip-add):hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+body.shift-held #ovContent.ov-editing .ov-chip:not(.ov-chip-add):hover .ov-chip-n { color: inherit; border-left-color: rgba(255, 255, 255, .5); }
+body.shift-held #ovContent.ov-editing .ov-meta-item[data-tag-type]:hover { border-color: var(--danger); color: var(--danger); }
+body.shift-held #ovContent.ov-editing .ov-meta-item[data-tag-type]:hover svg { color: currentColor; }
+
+/* The heading over the chapter list or the page grid, with its count. */
+.ov-section-title {
+  display: flex; align-items: baseline; gap: 8px; margin: 0 0 12px;
+  color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+}
+.ov-section-title span { color: var(--muted-dim); font-weight: 400; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 640px) {
+  .ov-hero { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .ov-hero .series-cover { width: 170px; }
+}
 
 /* ── Chapter list ── */
 .ch-list { display: flex; flex-direction: column; gap: 6px; }
@@ -109,7 +179,6 @@
   font-family: inherit; font-size: 13px; line-height: 1.25; padding: 3px 5px;
   border: 1px solid transparent; box-sizing: border-box;
 }
-.ch-title-input::placeholder { color: var(--muted); }
 .ch-title-input:hover  { border-color: var(--border); }
 .ch-title-input:focus  { border-color: var(--accent); background: var(--bg); }
 .ch-title-open { grid-area: 1 / 1; z-index: 2; border-radius: 5px; cursor: pointer; }
@@ -119,23 +188,21 @@
 .ch-progress { display: none; padding: 3px 5px 0; }
 .ch-row.working .ch-meta { display: none; }
 .ch-row.working .ch-progress { display: flex; flex-direction: column; }
-.ch-prog-track { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
-.ch-prog-fill {
-  width: 0%; height: 100%; background: var(--accent2); border-radius: 2px;
-  transition: width .25s;
-}
-.ch-prog-fill.done { background: var(--success); }
-.ch-prog-fill.indeterminate {
-  width: 35% !important; transition: none;
-  background: linear-gradient(90deg, transparent, var(--accent2), transparent);
-  background-size: 200% 100%; animation: prog-shimmer 1.2s linear infinite;
-}
 .ch-prog-label {
   margin-top: 3px; color: var(--muted); font-size: 10.5px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 .ch-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+/* A chapter's quick actions show instantly while its row is hovered — in and out of edit mode,
+   which is for renaming. They keep their space so nothing shifts, stay up while a job's Stop
+   button is live, and are always shown where there is no hover. */
+@media (hover: hover) {
+  .ch-actions { opacity: 0; pointer-events: none; }
+  .ch-head:hover .ch-actions,
+  .ch-actions:focus-within,
+  .ch-actions:has(.cancelling) { opacity: 1; pointer-events: auto; }
+}
 .ch-ibtn {
   background: none; border: 1px solid transparent; color: var(--muted); cursor: pointer;
   width: 30px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
@@ -157,8 +224,7 @@ body.translator-offline .ch-ibtn.translate { display: none; }
 .ch-dl-inner, .ch-tr-inner, .ch-del-inner { display: flex; align-items: center; justify-content: center; }
 
 /* ── Expand/collapse toggle + page-grid accordion ──
-   The toggle sits on the right, in the slot the action buttons take while editing: actions show
-   only in edit mode, the toggle only outside it. */
+   The toggle sits at the far right, after the actions; edit mode hides it. */
 .ch-expand { margin-left: 2px; }
 .ch-expand svg { transition: transform .18s ease; }
 .ch-row.expanded .ch-expand svg { transform: rotate(180deg); }
@@ -201,13 +267,6 @@ body.translator-offline .ch-ibtn.translate { display: none; }
 .add-res-id { color: var(--muted); font-size: 11px; flex-shrink: 0; }
 .add-empty { padding: 10px; color: var(--muted); font-size: 12px; text-align: center; }
 .add-hint { margin-top: 10px; color: var(--muted); font-size: 11px; }
-
-/* Series-head tags reuse the library's .card-tag chips but expanded (the library collapses them). */
-.ov-tags { max-height: none; min-height: 0; overflow: visible; margin-top: 8px; margin-bottom: 8px; }
-.ov-tags .card-tag {
-  max-width: none; white-space: normal; overflow: visible; text-overflow: clip;
-  line-height: 1.2; overflow-wrap: anywhere;
-}
 
 /* ── Page grids (a standalone gallery inline, a series' chapters via the accordion above) ── */
 .ov-pages {

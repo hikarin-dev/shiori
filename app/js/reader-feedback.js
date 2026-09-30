@@ -35,14 +35,14 @@ function displayEvidence(wrap, context) {
 export function openFeedback({ pageUrl, study, index, wrap, context }) {
   const surface = context.surface || 'translation';
   const key = `${pageUrl}|${study.job || 'legacy'}|${index}|${surface}`;
-  if (drafts.has(key)) { drafts.get(key).showModal(); document.body.classList.add('feedback-open'); return; }
+  if (drafts.has(key)) { drafts.get(key).showModal(); return; }
   const display = displayEvidence(wrap, context);
   const dialog = node('dialog', 'feedback-dialog');
   const titleId = 'feedback-' + crypto.randomUUID();
   dialog.setAttribute('aria-labelledby', titleId);
   const header = node('div', 'feedback-header');
   const title = node('h2', '', t('feedback.title')); title.id = titleId;
-  const close = node('button', '', t('common.close')); close.type = 'button';
+  const close = node('button', 'btn', t('common.close')); close.type = 'button';
   header.append(title, close);
   const content = node('div', 'feedback-content');
   const previewColumn = node('div', 'feedback-preview-column');
@@ -84,15 +84,23 @@ export function openFeedback({ pageUrl, study, index, wrap, context }) {
   });
   const status = node('p', 'feedback-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   const actions = node('div', 'feedback-actions');
-  const save = node('button', 'feedback-save', t('feedback.save')); save.type = 'submit'; save.disabled = true;
-  const exp = node('button', '', t('feedback.export')); exp.type = 'button'; exp.disabled = true;
+  const save = node('button', 'btn primary', t('feedback.save')); save.type = 'submit'; save.disabled = true;
+  const exp = node('button', 'btn', t('feedback.export')); exp.type = 'button'; exp.disabled = true;
   actions.append(save, exp);
   form.append(destinationText, subjectText, fidelity, issues, noteLabel, related, status, actions);
   content.append(previewColumn, form); dialog.append(header, content); document.body.append(dialog);
   drafts.set(key, dialog);
-  dialog.showModal(); document.body.classList.add('feedback-open');
+  dialog.showModal();
   close.onclick = () => dialog.close();
-  dialog.addEventListener('close', () => document.body.classList.remove('feedback-open'));
+  // The ::backdrop belongs to no scroller, so a wheel or swipe over it would scroll the pages
+  // behind; scrolls over the dialog itself stay in it (overscroll-behavior: contain).
+  const holdPage = (e) => {
+    const p = e.touches ? e.touches[0] : e;
+    const r = dialog.getBoundingClientRect();
+    if (p.clientX < r.left || p.clientX > r.right || p.clientY < r.top || p.clientY > r.bottom) e.preventDefault();
+  };
+  dialog.addEventListener('wheel', holdPage, { passive: false });
+  dialog.addEventListener('touchmove', holdPage, { passive: false });
   // Keep the frozen preview scaled to its own width, independent of the live reader's zoom.
   const observer = new ResizeObserver(() => preview.querySelectorAll('.bubble-layer').forEach(layer =>
     layer.style.setProperty('--pgscale', String(preview.clientWidth / (context.pageWidth || wrap.clientWidth)))));

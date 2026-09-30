@@ -25,9 +25,15 @@ export function canDetachChapter(entity) {
   return !entity || Number(entity.count) > 0;
 }
 
+// Ratings from lowest to highest.
+export const RATINGS = ['safe', 'suggestive', 'erotica', 'pornographic'];
+const _ratingRank = (t) => RATINGS.indexOf(String(t.name).toLowerCase());
+
 // Union tag lists, de-duped by lower-cased `type:name` (the key db.js already indexes on). The
 // first occurrence of each tag wins, so any extra fields on the original tag object are preserved.
-function unionTags(...lists) {
+// A series has one category and one rating, as a gallery does: the first category listed stays,
+// and the highest rating.
+export function unionTags(...lists) {
   const seen = new Set();
   const out = [];
   for (const list of lists) {
@@ -39,7 +45,9 @@ function unionTags(...lists) {
       out.push(t);
     }
   }
-  return out;
+  const category = out.find(t => t.type === 'category');
+  const rating = out.filter(t => t.type === 'rating').reduce((top, t) => (!top || _ratingRank(t) > _ratingRank(top) ? t : top), null);
+  return out.filter(t => (t.type !== 'category' || t === category) && (t.type !== 'rating' || t === rating));
 }
 
 // Resolve the series any gallery belongs to. Returns null for a standalone gallery.
@@ -123,23 +131,29 @@ export async function mergeIntoSeries(ownerId, childId, opts = {}) {
 async function _writeSeries(oldOwnerId, newChapters) {
   oldOwnerId = _id(oldOwnerId);
   const owner = newChapters[0] ? _id(newChapters[0].id) : null;
+  const prevMeta = await metaGet(oldOwnerId);
+  // A new head takes over the series' favorite, as it does its title and tags, and the old head
+  // gives it up — the card that stands for the series stays favorited (or not).
+  const handover = !!owner && owner !== oldOwnerId;
+  const takeFavorite = handover ? { favorite: !!prevMeta?.favorite } : {};
+  const dropFavorite = handover ? { favorite: false } : {};
 
   if (!owner || newChapters.length < 2) {
-    if (owner) await mutateGallery(owner, { chapters: null, seriesTitle: '', seriesTags: null, parentId: null });
+    if (owner) await mutateGallery(owner, { chapters: null, seriesTitle: '', seriesTags: null, parentId: null, ...takeFavorite });
     if (oldOwnerId !== owner) {
-      await mutateGallery(oldOwnerId, { chapters: null, seriesTitle: '', seriesTags: null, parentId: null });
+      await mutateGallery(oldOwnerId, { chapters: null, seriesTitle: '', seriesTags: null, parentId: null, ...dropFavorite });
       await refreshSeriesAggregate(oldOwnerId);
     }
     if (owner) await refreshSeriesAggregate(owner);
     return;
   }
 
-  const prevMeta = await metaGet(oldOwnerId);
   await mutateGallery(owner, {
     chapters: newChapters,
     seriesTitle: prevMeta?.seriesTitle || '',
     seriesTags: _seriesTagsOf(prevMeta),
     parentId: null,
+    ...takeFavorite,
   });
   for (const c of newChapters) {
     if (_id(c.id) === owner) continue;
@@ -148,8 +162,8 @@ async function _writeSeries(oldOwnerId, newChapters) {
   if (oldOwnerId !== owner) {
     const stillPresent = newChapters.some(c => _id(c.id) === oldOwnerId);
     await mutateGallery(oldOwnerId, stillPresent
-      ? { chapters: null, seriesTitle: '', seriesTags: null }              // demoted to a plain chapter
-      : { chapters: null, seriesTitle: '', seriesTags: null, parentId: null }); // removed entirely → standalone
+      ? { chapters: null, seriesTitle: '', seriesTags: null, ...dropFavorite }              // demoted to a plain chapter
+      : { chapters: null, seriesTitle: '', seriesTags: null, parentId: null, ...dropFavorite }); // removed entirely → standalone
     await refreshSeriesAggregate(oldOwnerId);
   }
   await refreshSeriesAggregate(owner);

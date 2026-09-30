@@ -1,7 +1,10 @@
+/* reader.css — the reader. Tokens, reset, brand, tooltip, context menu and the study-mode
+   typefaces come from base.css. */
+
 :root {
-  --bg: #0a0a0c; --surface: #16161a; --border: #2a2a30; --border-strong: #3f3f48;
-  --accent: #ed2754; --accent2: #ffd166; --text: #e8e8f0; --muted: #6b6b80;
+  --bg: #0a0a0c;    /* the reader's ground is a shade darker than the other pages' */
   --topbar-h: 54px; --botbar-h: 3px;
+  --thumb-h: 88px; --zoom-inv: 1;
   --page-zoom: 1;   /* +/- keys scale the in-view pages around this factor */
   --reader-page-gap: 4px;
   --sbw: 0px;       /* OS scrollbar width, measured once by reader.js */
@@ -9,12 +12,9 @@
   --botbar-visual-h: calc(var(--botbar-h) * var(--zoom-inv, 1));
   --reader-fit-page-height: calc(100vh - var(--topbar-h) - var(--botbar-visual-h));
 }
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; }
-body { min-height: 100vh; }
-/* The UI font's code ligatures redraw runs like the "//" in a URL — show text as typed. Form
-   controls are named too, as some browsers reset their font; .study-text turns them back on. */
-body, input, textarea, select, button { font-variant-ligatures: none; }
+html { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; }
+/* The reader never set a base text size: text that doesn't size itself keeps the browser's 16px. */
+body { font-size: 16px; }
 
 /* ── Chapter transition card (series only) ──
    "End of Ch. N" + prev/next chapter cards + Series/Home links. Rendered inline after a chapter's
@@ -81,14 +81,6 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
 #topbar { padding-right: calc(20px + var(--sbw)); }
 #topbar.has-vscroll { padding-right: 20px; }
 
-/* Brand cluster mirrors the main library nav (icon size, logo text, separator) so the two
-   headers read as the same chrome. */
-.tb-brand   { display: flex; align-items: center; gap: 8px; text-decoration: none; }
-.tb-brand:hover { opacity: 0.8; }
-.tb-icon    { width: 24px; height: 24px; border-radius: 6px; overflow: hidden; flex-shrink: 0; }
-.tb-icon img { width: 100%; height: 100%; display: block; }
-.tb-logo    { font-size: 15px; font-weight: 700; color: var(--accent); white-space: nowrap; letter-spacing: -0.3px; }
-.tb-sep     { color: var(--border); font-size: 13px; }
 /* Number + title in one link: the link shrinks first (so the title ellipsizes), the number holds. */
 /* A <button>, not a link — so no default blue/purple link underline. Strip the native button chrome
    and inherit the bar's text colour; the children carry their own colours. */
@@ -105,7 +97,7 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
 .tb-btn {
   background: none; border: 1px solid var(--border); color: var(--muted);
   font-family: inherit; font-size: 13px; width: 30px; height: 30px; padding: 0;
-  border-radius: 5px; cursor: pointer; transition: all 0.12s;
+  border-radius: 6px; cursor: pointer; transition: all 0.12s;
   text-decoration: none; display: inline-flex; align-items: center; justify-content: center;
 }
 .tb-btn:hover  { border-color: var(--accent); color: var(--accent); }
@@ -118,7 +110,7 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
    4. the translate ⇄ study toggle folds into the ⋯ menu too,
    5. and only as a last resort the gallery # clips.
    The brand, reading-mode toggle and page counter never give way. */
-.tb-brand, .tb-gallery, .tb-sep, #pageCounter, .seg-toggle, .tb-extra, .tb-btn { flex-shrink: 0; }
+.tb-gallery, #pageCounter, .seg-toggle, .tb-extra, .tb-btn { flex-shrink: 0; }
 /* The title + meta stay shrinkable so the right-hand controls never get pushed past the right padding.
    Step 2 (the .tb-extra → ⋯ fold) is a @container query that _recomputeFold injects at load: its
    breakpoint is the bar's natural width — exactly the window width at which step 1's gap hits zero.
@@ -141,7 +133,7 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
    indicator that slides between them. */
 .seg-toggle {
   position: relative; display: inline-flex;
-  border: 1px solid var(--border); border-radius: 5px; overflow: hidden; height: 30px;
+  border: 1px solid var(--border); border-radius: 6px; overflow: hidden; height: 30px;
 }
 .seg {
   position: relative; z-index: 1; width: 30px; height: 100%; padding: 0;
@@ -217,12 +209,12 @@ body.reader-fit-height #singleInner > .page-wrap > #mainImg { width: 100%; }
   position: relative; display: flex; justify-content: center; gap: var(--reader-page-gap);
   --reader-fit-double-page-width: calc((100% - var(--reader-page-gap) - 0.5px) / 2);
 }
-body.reader-rtl #doubleInner { flex-direction: row-reverse; }
-#doubleInner.single-spread { --reader-fit-double-page-width: calc(100% - 0.5px); }
-body.reader-rtl #doubleInner.left-placeholder::before { left: 75%; }
-body.reader-rtl #doubleInner.right-placeholder::after { left: 25%; }
-#doubleInner.single-spread > #imgRight,
-#doubleInner.single-spread > .page-wrap:has(#imgRight) { display: none; }
+body.reader-page-rtl #doubleInner { flex-direction: row-reverse; }
+body.reader-page-rtl #doubleInner.left-placeholder::before { left: 75%; }
+body.reader-page-rtl #doubleInner.right-placeholder::after { left: 25%; }
+/* A spread's blank half, a white page: before a chapter's first page (cover offset), and beside a
+   chapter's lone last page, keeping it on its own side of the spread. */
+.dImg.page-blank { background: #fff; }
 
 #doubleView .d-zones {
   position: fixed; inset: 0;
@@ -295,7 +287,6 @@ body.reader-fit-height #stripView .page-img {
 #stripView .page-wrap.page-placeholder::after { left: 50%; }
 #doubleInner.left-placeholder::before  { left: 25%; }
 #doubleInner.right-placeholder::after { left: 75%; }
-#doubleInner.single-spread.left-placeholder::before { left: 50%; }
 
 /* Inline transition card after a chapter's last page (see .chd above). */
 #stripView .chapter-divider {
@@ -356,24 +347,6 @@ body.reader-fit-height #stripView .page-img {
 .bubble-shape-line { stroke-width: 3; }
 .bubble-box.shaped:hover .bubble-shape-halo { stroke: rgb(255 255 255 / 92%); }
 .bubble-box.shaped:hover .bubble-shape-line { stroke: var(--accent); }
-/* The comic-lettering face the translation renderer typesets with, bundled so DOM-text
-   study bubbles use the exact same glyphs (a locally installed copy wins if present). */
-@font-face {
-  font-family: "CC Victory Speech";
-  src: local("CC Victory Speech"), url("fonts/ccvictoryspeech.ttf") format("truetype");
-  font-display: swap;
-}
-/* The two source-text faces for study bubbles (Settings → Reader), bundled likewise. */
-@font-face {
-  font-family: "Yasashisa Antique";
-  src: local("07やさしさアンチック"), local("YasashisaAntique"), url("fonts/YasashisaAntique.otf") format("opentype");
-  font-display: swap;
-}
-@font-face {
-  font-family: "Kiwi Maru";
-  src: local("Kiwi Maru"), url("fonts/KiwiMaru-Regular.ttf") format("truetype");
-  font-display: swap;
-}
 
 /* A bubble's translation as selectable DOM text, positioned at the rect the renderer drew at.
    Font size = the renderer's page-pixel size × --pgscale (wrap width ÷ page width, kept in
@@ -476,7 +449,6 @@ body.study-bubbles-active #clickPrev, body.study-bubbles-active #clickNext,
 body.study-bubbles-active #dClickPrev, body.study-bubbles-active #dClickNext { pointer-events: none; }
 
 /* ── Thumbnail strip ── */
-:root { --thumb-h: 88px; --zoom-inv: 1; }
 #thumbStrip {
   position: fixed; bottom: var(--botbar-h); left: 0; right: 0;
   height: 0; overflow: hidden;
@@ -628,41 +600,38 @@ body.thumb-dragging * {
 #bottombar[data-position="left"] #scrubber::-webkit-slider-thumb,
 #bottombar[data-position="right"] #scrubber::-webkit-slider-thumb { margin: 0 0 0 -3.5px; }
 
-/* ── Keybind modal ── */
-body.feedback-open { overflow: hidden; }
-.feedback-dialog { color: var(--text, #eee); background: var(--bg, #191919); border: 1px solid #555; border-radius: 12px; margin: auto; padding: 20px; width: min(960px, 94vw); max-height: 90vh; box-sizing: border-box; }
-.feedback-dialog::backdrop { background: rgba(0, 0, 0, .75); }
+/* ── Feedback dialog ── */
+.feedback-dialog { color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px; margin: auto; padding: 20px; width: min(960px, 94vw); max-height: 90vh; box-sizing: border-box; overflow: auto; overscroll-behavior: contain; font-size: 13px; }
+.feedback-dialog::backdrop { background: var(--backdrop); }
 .feedback-header, .feedback-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.feedback-header h2 { font-size: 19px; margin: 0; }
+.feedback-header h2 { font-size: 15px; margin: 0; }
 .feedback-content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 1fr); gap: 24px; margin-top: 16px; }
-.feedback-dialog button { color: inherit; font: inherit; background: #333; border: 1px solid #666; border-radius: 6px; padding: 8px 12px; cursor: pointer; }
-.feedback-dialog button:disabled { opacity: .5; cursor: default; }
-.feedback-dialog .feedback-save { background: var(--accent); border-color: var(--accent); color: white; }
 .feedback-preview { width: 100% !important; max-width: 100% !important; transform: none !important; margin: 0 !important; pointer-events: none; }
 .feedback-preview > img { display: block !important; width: 100% !important; height: auto !important; max-width: none !important; max-height: none !important; margin: 0 !important; }
 .feedback-region { position: absolute; outline: 1px dashed #558bff; color: #fff; font: bold 12px sans-serif; text-shadow: 0 1px 3px #000; z-index: 10; }
 .feedback-region.selected { outline: 3px solid var(--accent); background: rgba(237, 39, 84, .12); }
 .feedback-caption, .feedback-fidelity, .feedback-destination, .feedback-status { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
-.feedback-form fieldset { border: 1px solid #555; border-radius: 6px; margin: 12px 0; padding: 10px; }
+.feedback-form fieldset { border: 1px solid var(--border); border-radius: 6px; margin: 12px 0; padding: 10px; }
 .feedback-check { display: flex; align-items: baseline; gap: 8px; margin: 6px 0; font-size: 13px; }
 .feedback-note { display: block; font-size: 13px; }
-.feedback-note textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 8px; padding: 8px; resize: vertical; color: inherit; background: #222; border: 1px solid #666; border-radius: 6px; font: inherit; }
+.feedback-note textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 8px; padding: 8px; resize: vertical; color: inherit; background: var(--bg); border: 1px solid var(--border-strong); border-radius: 6px; font: inherit; }
 .feedback-related { max-height: 180px; overflow: auto; }
 @media (max-width: 650px) { .feedback-content { grid-template-columns: 1fr; } .feedback-preview-column { max-width: 330px; margin: auto; } }
 
+/* ── Keybind modal ── */
+/* The shortcuts and reader-settings modals hold the pages still behind them without hiding the
+   page's scrollbar: as scroll containers that contain overscroll, no wheel or swipe started over
+   them reaches the pages. */
 #keybindModal {
   display: none; position: fixed; inset: 0; z-index: 400;
-  background: rgba(0,0,0,0.65);
+  background: var(--backdrop);
   align-items: center; justify-content: center;
+  overflow: hidden; overscroll-behavior: contain;
 }
 #keybindModal.show { display: flex; }
-/* Lock page scroll while the shortcuts modal is open so wheeling over it doesn't move the
-   pages behind it. */
-html:has(#keybindModal.show), body:has(#keybindModal.show),
-html:has(#readerSettingsModal.show), body:has(#readerSettingsModal.show) { overflow: hidden; }
 #keybindBox {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 10px; padding: 20px 24px;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: 12px; padding: 20px 24px;
   min-width: 300px; max-width: 420px; width: 90%;
 }
 .kb-heading {
@@ -690,71 +659,136 @@ html:has(#readerSettingsModal.show), body:has(#readerSettingsModal.show) { overf
 /* ── Reader settings modal ── */
 #readerSettingsModal {
   display: none; position: fixed; inset: 0; z-index: 410;
-  background: rgba(0,0,0,.65); align-items: center; justify-content: center;
+  background: var(--backdrop); align-items: center; justify-content: center;
   padding: 20px;
+  overflow: hidden; overscroll-behavior: contain;
 }
 #readerSettingsModal.show { display: flex; }
 #readerSettingsBox {
-  width: min(520px, 100%); max-height: min(760px, calc(100vh - 40px)); overflow: auto;
-  padding: 20px; border: 1px solid var(--border); border-radius: 12px;
+  width: min(480px, 100%); max-height: calc(100vh - 40px); overflow: auto;
+  padding: 0 18px 18px; border: 1px solid var(--border-strong); border-radius: 12px;
   background: var(--surface); box-shadow: 0 18px 55px rgba(0,0,0,.45);
 }
-.reader-settings-head,
-.reader-settings-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.reader-settings-head { margin-bottom: 18px; }
-.reader-settings-title { font-size: 14px; font-weight: 700; }
+/* The header stays in view while the settings scroll under it. */
+.reader-settings-head {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 16px 0 12px; background: var(--surface);
+}
+.reader-settings-title { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 700; }
+.reader-settings-title .rs-ico { width: 17px; height: 17px; color: var(--muted); }
 .reader-settings-close {
-  width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 5px;
-  background: transparent; color: var(--muted); font: 18px/1 inherit; cursor: pointer;
+  display: grid; place-items: center; width: 28px; height: 28px; padding: 0;
+  border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer;
 }
-.reader-settings-close:hover { border-color: var(--accent); color: var(--accent); }
-.reader-settings-group { padding: 13px 0; border-top: 1px solid var(--border); }
-.reader-settings-label {
-  display: block; margin-bottom: 8px; color: var(--muted);
-  font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
+.reader-settings-close:hover { background: var(--surface-raised); color: var(--text); }
+.reader-settings-close .rs-ico { width: 15px; height: 15px; }
+
+/* One line-icon style for every glyph in the modal. */
+.rs-ico {
+  width: 15px; height: 15px; flex: none;
+  fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
 }
-.reader-settings-row .reader-settings-label { margin-bottom: 0; }
-.reader-settings-row output { color: var(--text); font-size: 10px; }
-.reader-choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
-.reader-choice-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.reader-choice-five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.reader-choice button,
-.reader-zoom-control button {
-  min-height: 36px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px;
-  background: var(--bg); color: var(--muted); font: 10px/1.25 inherit; cursor: pointer;
-  transition: border-color .12s, background .12s, color .12s;
+.rs-ico .rs-bar { stroke-width: 3; }   /* the progress bar inside the screen outline */
+
+/* Sections are set apart by space and a quiet heading alone; every control sits straight on the
+   modal, and the controls' own frames are the only lines inside it. */
+.rs-section + .rs-section { margin-top: 22px; }
+.rs-heading {
+  margin: 0 0 10px; color: var(--muted-dim);
+  font-size: 9.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
 }
-.reader-choice button:hover,
-.reader-zoom-control button:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
-.reader-choice button.active {
-  border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--bg)); color: var(--text);
+/* A setting: its name over its control, or beside it (rs-row-inline). */
+.rs-row { display: grid; gap: 8px; min-width: 0; border: 0; }   /* some rows are fieldsets */
+.rs-row + .rs-row { margin-top: 16px; }
+.rs-row-inline { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.rs-label { color: var(--text); font-size: 11.5px; font-weight: 600; }
+.rs-label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* A setting the current mode doesn't use stays in place, dimmed like Settings' disabled options. */
+.rs-row[disabled] { opacity: .42; }
+.rs-label-row output { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+/* Choices come as separate buttons; the chosen one takes Settings' highlight: a shade lighter than
+   the panel, in a lighter frame. */
+.rs-choices { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; }
+.rs-choices button {
+  min-width: 0; min-height: 34px; padding: 6px 8px;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-subtle); color: var(--muted);
+  font-family: inherit; font-size: 11px; font-weight: 600; line-height: 1.3; cursor: pointer;
+  transition: background-color .12s ease, border-color .12s ease, color .12s ease;
 }
-.reader-settings-range {
-  width: 100%; margin-top: 10px; accent-color: var(--accent); cursor: pointer;
+.rs-choices button span { min-width: 0; overflow-wrap: anywhere; }
+.rs-choices button:hover:not(:disabled, .active) { border-color: var(--border-strong); color: var(--text); }
+.rs-choices button:disabled { cursor: default; }
+.rs-choices button.active { background: var(--surface-raised); border-color: var(--border-strong); color: var(--text); }
+/* Three or more choices stack each icon over its name, so every name keeps room. */
+.rs-choices-stack button { flex-direction: column; gap: 5px; min-height: 52px; padding: 7px 4px; font-size: 10.5px; }
+.rs-choices-stack .rs-ico { width: 17px; height: 17px; }
+
+/* A setting's keyboard shortcut: in its button's corner, or after its name. */
+.rs-kbd {
+  padding: 0 3px; border: 1px solid var(--border-strong); border-radius: 3px;
+  color: var(--muted); font-family: inherit; font-size: 8.5px; font-weight: 600; line-height: 13px;
 }
-.reader-zoom-control {
-  display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; gap: 8px;
+.rs-choices button { position: relative; }
+.rs-choices button > .rs-kbd { position: absolute; top: 5px; right: 5px; }
+.rs-label > .rs-kbd { margin-left: 7px; vertical-align: 1px; }
+
+/* A tiny numbered spread for the page direction choices. */
+.rs-spread { display: inline-flex; gap: 2px; flex: none; }
+.rs-spread i {
+  display: grid; place-items: center; width: 11px; height: 15px;
+  border: 1.5px solid currentColor; border-radius: 2px;
+  font-size: 8px; font-style: normal; font-weight: 700; line-height: 1;
 }
-.reader-zoom-control output { text-align: center; font-size: 13px; color: var(--text); }
-.reader-zoom-control button { padding: 0; font-size: 18px; }
-.reader-zoom-control button:disabled { opacity: .35; cursor: default; }
+
+.rs-stepper {
+  display: grid; grid-template-columns: 30px 54px 30px; align-items: center; flex: none;
+  padding: 3px; background: var(--surface-subtle); border: 1px solid var(--border-strong); border-radius: 8px;
+}
+.rs-stepper button {
+  display: grid; place-items: center; height: 28px; padding: 0;
+  border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer;
+}
+.rs-stepper button:hover:not(:disabled) { background: var(--surface-raised); color: var(--text); }
+.rs-stepper button:disabled { opacity: .35; cursor: default; }
+.rs-stepper output { text-align: center; color: var(--text); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+/* A slider drawn like the switch: a dim track, filled in the accent up to the value (--fill, set by
+   reader.js), and a white knob. The browser's own track stays light beside an accent colour. */
+.rs-range {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 16px; margin: 0; background: transparent; cursor: pointer;
+}
+.rs-range::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 999px;
+  background: linear-gradient(var(--accent), var(--accent)) 0 0 / var(--fill, 0%) 100% no-repeat, var(--border-strong);
+}
+.rs-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; margin-top: -5px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .4);
+}
+.rs-range::-moz-range-track { height: 4px; border-radius: 999px; background: var(--border-strong); }
+.rs-range::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--accent); }
+.rs-range::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: #fff; }
 
 @media (max-width: 540px) {
   #readerSettingsModal { padding: 10px; align-items: flex-end; }
-  #readerSettingsBox { max-height: calc(100vh - 20px); border-radius: 12px 12px 6px 6px; }
-  .reader-choice-three { grid-template-columns: 1fr; }
-  .reader-choice-five { grid-template-columns: repeat(5, minmax(48px, 1fr)); overflow-x: auto; }
+  #readerSettingsBox { max-height: calc(100vh - 20px); padding: 0 14px 14px; border-radius: 12px 12px 6px 6px; }
+  .rs-choices-stack button { font-size: 9.5px; }
 }
 
 /* ── Page properties (I) ── */
-html:has(.pp-dialog[open]), body:has(.pp-dialog[open]) { overflow: hidden; }
+/* Contained overscroll keeps scrolls over the dialog off the pages behind it; its ::backdrop is
+   no scroller, so reader-properties.js stops wheels and swipes there. */
 .pp-dialog {
   width: min(780px, calc(100vw - 32px)); max-height: min(860px, calc(100vh - 40px)); margin: auto; padding: 0;
-  color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-  box-shadow: 0 18px 55px rgba(0,0,0,.45); overflow: hidden;
+  color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px;
+  box-shadow: 0 18px 55px rgba(0,0,0,.45); overflow: hidden; overscroll-behavior: contain;
 }
 .pp-dialog[open] { display: flex; flex-direction: column; }
-.pp-dialog::backdrop { background: rgba(0,0,0,.65); }
+.pp-dialog::backdrop { background: var(--backdrop); }
 .pp-head {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
   padding: 16px 20px 13px; border-bottom: 1px solid var(--border);
@@ -763,18 +797,22 @@ html:has(.pp-dialog[open]), body:has(.pp-dialog[open]) { overflow: hidden; }
 .pp-sub { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
 .pp-actions { display: flex; align-items: center; gap: 8px; flex: none; }
 .pp-btn, .pp-close {
-  height: 28px; border: 1px solid var(--border); border-radius: 5px; background: transparent;
-  color: var(--muted); font: 11px/1 inherit; cursor: pointer; transition: border-color .12s, color .12s;
+  height: 28px; border: 1px solid var(--border); border-radius: 6px; background: transparent;
+  color: var(--muted); font-family: inherit; font-size: 11px; line-height: 1; cursor: pointer; transition: border-color .12s, color .12s;
 }
 .pp-btn { padding: 0 10px; }
 .pp-close { width: 28px; font-size: 18px; }
 .pp-btn:hover:not(:disabled), .pp-close:hover { border-color: var(--accent); color: var(--text); }
 .pp-btn:disabled { opacity: .4; cursor: default; }
 .pp-body { overflow: auto; overscroll-behavior: contain; padding: 0 20px 18px; }
-/* The low-profile scrollbar of Settings' changelog, on every scrolling part of the modal. */
-.pp-dialog ::-webkit-scrollbar { width: 5px; height: 5px; }
-.pp-dialog ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
-.pp-dialog ::-webkit-scrollbar-corner { background: transparent; }
+/* The low-profile scrollbar of Settings' changelog, on every scrolling part of this modal and of
+   the reader settings. */
+.pp-dialog ::-webkit-scrollbar,
+#readerSettingsBox::-webkit-scrollbar, #readerSettingsBox ::-webkit-scrollbar { width: 5px; height: 5px; }
+.pp-dialog ::-webkit-scrollbar-thumb,
+#readerSettingsBox::-webkit-scrollbar-thumb, #readerSettingsBox ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
+.pp-dialog ::-webkit-scrollbar-corner,
+#readerSettingsBox::-webkit-scrollbar-corner, #readerSettingsBox ::-webkit-scrollbar-corner { background: transparent; }
 .pp-note { margin: 8px 0 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
 .pp-dim { color: var(--muted); }
 
@@ -789,7 +827,7 @@ html:has(.pp-dialog[open]), body:has(.pp-dialog[open]) { overflow: hidden; }
 .pp-chip {
   padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 10px;
 }
-.pp-chip.translated { color: #4cc38a; border-color: color-mix(in srgb, #4cc38a 45%, var(--border)); }
+.pp-chip.translated { color: var(--success); border-color: color-mix(in srgb, var(--success) 45%, var(--border)); }
 .pp-chip.reverted { color: var(--accent2); border-color: color-mix(in srgb, var(--accent2) 45%, var(--border)); }
 .pp-chip.own { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
 .pp-total { color: var(--muted); font-size: 11px; }
@@ -797,7 +835,7 @@ html:has(.pp-dialog[open]), body:has(.pp-dialog[open]) { overflow: hidden; }
 .pp-bar { display: flex; gap: 2px; height: 8px; border-radius: 4px; overflow: hidden; background: var(--bg); }
 .pp-seg { min-width: 3px; }
 .c-original { background: #7b8cff; }
-.c-translated { background: #4cc38a; }
+.c-translated { background: var(--success); }
 .c-steps { background: var(--accent2); }
 .c-study { background: var(--accent); }
 .pp-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: 10px; }
@@ -850,24 +888,8 @@ html:has(.pp-dialog[open]), body:has(.pp-dialog[open]) { overflow: hidden; }
 }
 
 /* ── A page's right-click menu, and the status line of its translation ── */
-.page-menu {
-  position: fixed; z-index: 430; min-width: 220px; max-width: 320px; padding: 5px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.45);
-}
-.page-menu-title { padding: 5px 9px 6px; color: var(--muted); font-size: 11px; }
-.page-menu-item {
-  display: block; width: 100%; padding: 7px 9px; border: 0; border-radius: 5px;
-  background: none; color: var(--text); font: inherit; font-size: 12px; text-align: left; cursor: pointer;
-}
-.page-menu-item:hover:not(:disabled), .page-menu-item:focus-visible { background: var(--border); outline: none; }
-.page-menu-item:disabled { cursor: default; opacity: .55; }
-.page-menu-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.page-menu-label kbd {
-  padding: 1px 5px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg);
-  color: var(--muted); font: 10px inherit;
-}
-.page-menu-detail { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+.page-menu { z-index: 430; min-width: 220px; }
+.page-menu .ctx-menu-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .page-status {
   position: fixed; left: 50%; bottom: 28px; z-index: 420; max-width: min(520px, calc(100vw - 32px));
   padding: 8px 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface);
@@ -878,9 +900,8 @@ html:has(.pp-dialog[open]), body:has(.pp-dialog[open]) { overflow: hidden; }
 .page-status.error { border-color: var(--accent); }
 .page-status.busy::before {
   content: ''; display: inline-block; width: 9px; height: 9px; margin-right: 8px; vertical-align: -1px;
-  border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: page-spin .8s linear infinite;
+  border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite;
 }
-@keyframes page-spin { to { transform: rotate(360deg); } }
 
 /* Unpinned: the header is a fixed overlay and contributes no document height. reader.js reveals
    it after the configured run of upward wheel events, then this transform supplies the slide. */
@@ -934,7 +955,6 @@ body.thumbs-open:not(.bar-hidden) #scrollTopBtn {
 }
 @keyframes loadingReveal { from { opacity: 0; } to { opacity: 1; } }
 .spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
 #loadingText { font-size: 11px; color: var(--muted); }
 
 #emptyScreen { display: none; position: fixed; inset: 0; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: var(--bg); z-index: 300; }
@@ -943,9 +963,3 @@ body.thumbs-open:not(.bar-hidden) #scrollTopBtn {
 .empty-msg  { font-size: 12px; color: var(--muted); text-align: center; line-height: 1.8; }
 .empty-link { color: var(--accent); text-decoration: none; font-size: 11px; }
 .empty-link:hover { text-decoration: underline; }
-.shiori-tip {
-  position: fixed; left: 0; top: 0; pointer-events: none; z-index: 9999;
-  background: #222; color: #eee; border: 1px solid #555;
-  padding: 3px 7px; border-radius: 4px; font-size: 11px;
-  white-space: nowrap; display: none;
-}

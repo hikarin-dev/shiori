@@ -18,7 +18,7 @@ export const galleries = {
   metaMap:   ()          => backend.metaGetAllMap(),         // gid -> metadata (no covers) for search
   get:       (id)        => backend.getGallery(id),
   byIds:     (ids)       => backend.getGalleriesByIds(ids),
-  mutate:    (id, patch) => backend.mutateGallery(id, patch),
+  mutate:    (id, patch, opts) => backend.mutateGallery(id, patch, opts),
   remove:    (id)        => backend.removeGallery(id),
 };
 

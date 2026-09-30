@@ -65,13 +65,14 @@ export function _ensureWrap(imgEl) {
   return wrap;
 }
 
-// Drop every bubble layer and free the page layers' object URLs.
-export function _removeBubbleLayers() {
+// Drop every bubble layer and free the page layers' object URLs — except those of the pages in
+// `keep` (page urls), which the caller is about to show again: their images stay decoded under the
+// same URLs, so the rebuilt layers paint complete instead of loading all over again.
+export function _removeBubbleLayers(keep) {
   document.querySelectorAll('.bubble-layer').forEach(l => { if (l._ro) l._ro.disconnect(); l.remove(); });
-  for (const u of _pageLayerUrls.values()) {
-    try { if (u.bgUrl) URL.revokeObjectURL(u.bgUrl); (u.textUrls || []).forEach(t => t && URL.revokeObjectURL(t)); } catch {}
+  for (const pageUrl of [..._pageLayerUrls.keys()]) {
+    if (!keep?.has(pageUrl)) _releaseLayerUrls(pageUrl);
   }
-  _pageLayerUrls.clear();
   document.body.classList.remove('study-bubbles-active');
 }
 

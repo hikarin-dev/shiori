@@ -13,6 +13,7 @@ import { formatBytes, formatCount } from './format.js';
 import { initTooltips } from './tooltip.js';
 import { initDropdowns } from './dropdown.js';
 import { initBenchmarkCard } from './benchmark-ui.js';
+import { confirmDialog } from './notice.js';
 
 initTooltips();
 initDropdowns();
@@ -258,15 +259,15 @@ async function performReset(factory) {
 }
 
 document.getElementById('clearAllBtn').addEventListener('click', async () => {
-  if (!confirm(t('set.clear_confirm1'))) return;
-  if (!confirm(t('set.clear_confirm2'))) return;
+  if (!(await confirmDialog({ title: t('dlg.clear_title'), body: t('dlg.clear_body'), ok: t('dlg.continue'), danger: true }))) return;
+  if (!(await confirmDialog({ title: t('dlg.clear2_title'), body: t('dlg.clear2_body'), ok: t('dlg.clear2_ok'), danger: true }))) return;
   await performReset(false);
   showStatus('clearAllStatus', t('set.clear_done'), 'ok');
 });
 
 document.getElementById('factoryResetBtn').addEventListener('click', async () => {
-  if (!confirm(t('set.factory_confirm1'))) return;
-  if (!confirm(t('set.factory_confirm2'))) return;
+  if (!(await confirmDialog({ title: t('dlg.factory_title'), body: t('dlg.factory_body'), ok: t('dlg.continue'), danger: true }))) return;
+  if (!(await confirmDialog({ title: t('dlg.factory2_title'), body: t('dlg.factory2_body'), ok: t('dlg.factory2_ok'), danger: true }))) return;
   await performReset(true);
   showStatus('clearAllStatus', t('set.factory_done'), 'ok');
   setTimeout(() => location.reload(), 1200);   // re-initialize this page with defaults
@@ -658,7 +659,7 @@ function saveTranslateSettings(statusId, { recheck = false } = {}) {
   }
   _settings = gatherTranslateSettings();
   platform.kv.set({ translateSettings: _settings });
-  showStatus(statusId, 'Saved.', 'ok');
+  showStatus(statusId, t('common.saved'), 'ok');
   if (recheck) { checkTranslatorStatus(); refreshCapabilities(); }
 }
 
@@ -699,8 +700,8 @@ document.getElementById('translateClose').addEventListener('click', () => setTra
 document.getElementById('translateModal').addEventListener('click', (e) => { if (e.target.id === 'translateModal') setTranslateModalOpen(false); });
 
 // Reset translator behavior to the server's recommendations while keeping the connection details.
-document.getElementById('resetTranslateBtn').addEventListener('click', () => {
-  if (!confirm('Reset all translator settings to defaults? (Your server URL and access token are kept.)')) return;
+document.getElementById('resetTranslateBtn').addEventListener('click', async () => {
+  if (!(await confirmDialog({ title: t('dlg.trreset_title'), body: t('dlg.trreset_body'), ok: t('common.reset') }))) return;
   _settings = { ...gatherTranslateSettings(), params: {}, batchCaps: {}, priceIn: 1.5, priceOut: 9 };
   saveTranslateSettings('translateModalStatus');
   renderTranslateSettings();
@@ -717,7 +718,7 @@ platform.kv.get(['libQuickActionsMode']).then((r) => {
 });
 document.getElementById('libQuickActionsMode').addEventListener('change', (e) => {
   platform.kv.set({ libQuickActionsMode: normalizeQuickActionsMode(e.target.value) });
-  showStatus('libStatus', 'Saved.', 'ok');
+  showStatus('libStatus', t('common.saved'), 'ok');
 });
 
 platform.kv.get(['libHideAppLangFlag']).then((r) => {
@@ -725,15 +726,24 @@ platform.kv.get(['libHideAppLangFlag']).then((r) => {
 });
 document.getElementById('libAppLangFlag').addEventListener('change', (e) => {
   platform.kv.set({ libHideAppLangFlag: e.target.checked });
-  showStatus('libStatus', 'Saved.', 'ok');
+  showStatus('libStatus', t('common.saved'), 'ok');
 });
+
+// Library details that can be switched off (both shown by default), each confirmed in its section.
+for (const [key, statusId] of [['libShowNavStats', 'libBarStatus'], ['libShowCategoryTag', 'libStatus']]) {
+  platform.kv.get([key]).then((r) => { document.getElementById(key).checked = r[key] !== false; });
+  document.getElementById(key).addEventListener('change', (e) => {
+    platform.kv.set({ [key]: e.target.checked });
+    showStatus(statusId, t('common.saved'), 'ok');
+  });
+}
 
 platform.kv.get(['libMergeSeries']).then((r) => {
   document.getElementById('libMergeSeries').checked = r.libMergeSeries !== false;
 });
 document.getElementById('libMergeSeries').addEventListener('change', (e) => {
   platform.kv.set({ libMergeSeries: e.target.checked });
-  showStatus('libStatus', 'Saved.', 'ok');
+  showStatus('libStatus', t('common.saved'), 'ok');
 });
 
 // ── Reader — study display, saved on change ───────────────────────────────
@@ -776,7 +786,7 @@ platform.kv.get(['readerStudyOriginal']).then((r) => {
 document.getElementById('readerStudyOriginal').addEventListener('change', (e) => {
   platform.kv.set({ readerStudyOriginal: e.target.value });
   syncStudyPreview();
-  showStatus('readerStatus', 'Saved.', 'ok');
+  showStatus('readerStatus', t('common.saved'), 'ok');
 });
 
 platform.kv.get(['readerStudySrcFont']).then((r) => {
@@ -786,12 +796,12 @@ platform.kv.get(['readerStudySrcFont']).then((r) => {
 document.getElementById('readerStudySrcFont').addEventListener('change', (e) => {
   platform.kv.set({ readerStudySrcFont: e.target.value });
   syncStudyPreview();
-  showStatus('readerStatus', 'Saved.', 'ok');
+  showStatus('readerStatus', t('common.saved'), 'ok');
 });
 document.getElementById('readerStudyDisplay').addEventListener('change', (e) => {
   platform.kv.set({ readerStudyDisplay: e.target.value });
   syncStudyPreview();
-  showStatus('readerStatus', 'Saved.', 'ok');
+  showStatus('readerStatus', t('common.saved'), 'ok');
 });
 
 platform.kv.get(['readerFurigana']).then((r) => {
@@ -801,7 +811,7 @@ platform.kv.get(['readerFurigana']).then((r) => {
 document.getElementById('readerFurigana').addEventListener('change', (e) => {
   platform.kv.set({ readerFurigana: e.target.checked ? 'on' : 'off' });
   syncStudyPreview();
-  showStatus('readerStatus', 'Saved.', 'ok');
+  showStatus('readerStatus', t('common.saved'), 'ok');
 });
 
 platform.kv.get(['readerTranslateDisplay']).then((r) => {
@@ -809,7 +819,7 @@ platform.kv.get(['readerTranslateDisplay']).then((r) => {
 });
 document.getElementById('readerTranslateDisplay').addEventListener('change', (e) => {
   platform.kv.set({ readerTranslateDisplay: e.target.value });
-  showStatus('readerStatus', 'Saved.', 'ok');
+  showStatus('readerStatus', t('common.saved'), 'ok');
 });
 
 platform.kv.get(['readerSkipOverview']).then((r) => {
@@ -817,7 +827,7 @@ platform.kv.get(['readerSkipOverview']).then((r) => {
 });
 document.getElementById('readerSkipOverview').addEventListener('change', (e) => {
   platform.kv.set({ readerSkipOverview: !e.target.checked });
-  showStatus('readerStatus', 'Saved.', 'ok');
+  showStatus('readerStatus', t('common.saved'), 'ok');
 });
 
 platform.kv.get(['readerChapterDivider']).then((r) => {
@@ -825,7 +835,7 @@ platform.kv.get(['readerChapterDivider']).then((r) => {
 });
 document.getElementById('readerChapterDivider').addEventListener('change', (e) => {
   platform.kv.set({ readerChapterDivider: e.target.checked });
-  showStatus('readerStatus', 'Saved.', 'ok');
+  showStatus('readerStatus', t('common.saved'), 'ok');
 });
 
 platform.kv.get(['readerStripMode']).then((r) => {
@@ -833,7 +843,7 @@ platform.kv.get(['readerStripMode']).then((r) => {
 });
 document.getElementById('readerStripMode').addEventListener('change', (e) => {
   platform.kv.set({ readerStripMode: e.target.checked ? 'series' : 'chapter' });
-  showStatus('readerStatus', 'Saved.', 'ok');
+  showStatus('readerStatus', t('common.saved'), 'ok');
 });
 
 syncStudyPreview();
@@ -906,12 +916,12 @@ platform.writes.get().then(updateWritesDisplay, () => {});
 platform.writes.subscribe(updateWritesDisplay);
 
 document.getElementById('resetWritesBtn').addEventListener('click', async () => {
-  if (!confirm('Reset the lifetime write counter to zero?')) return;
+  if (!(await confirmDialog({ title: t('dlg.writes_title'), body: t('dlg.writes_body'), ok: t('common.reset') }))) return;
   await platform.writes.reset();
-  showStatus('writesStatus', 'Counter reset.', 'ok');
+  showStatus('writesStatus', t('set.writes_reset_done'), 'ok');
 });
 
-// ── Storage layout ────────────────────────────────────────────────────────
+// ── Library upgrades ──────────────────────────────────────────────────────
 // Pages stored before images were kept apart convert as their galleries change, or all at once here.
 
 async function updateLayoutDisplay() {
@@ -930,6 +940,27 @@ document.getElementById('convertNowBtn').addEventListener('click', async (e) => 
   platform.kv.set({ storageLayout: 'now' });
   await convertNow().catch(() => {});
   await updateLayoutDisplay().catch(() => {});
+});
+
+// Category and rating from each gallery's stored source details — offered only while something
+// answers the bridge.
+async function updateClassifyDisplay() {
+  const { classifyAvailable, classifyPending } = await import('./storage-upgrade.js');
+  const [ok, pending] = await Promise.all([classifyAvailable(), classifyPending()]);
+  document.getElementById('classifyRow').hidden = !ok;
+  if (!ok) return;
+  document.getElementById('classifyStatus').textContent = pending.length
+    ? t('set.classify_status', { n: formatCount(pending.length) })
+    : t('set.classify_done');
+  document.getElementById('classifyNowBtn').disabled = !pending.length;
+}
+updateClassifyDisplay().catch(() => {});
+
+document.getElementById('classifyNowBtn').addEventListener('click', async (e) => {
+  e.currentTarget.disabled = true;
+  const { classifyNow } = await import('./storage-upgrade.js');
+  await classifyNow().catch(() => {});
+  await updateClassifyDisplay().catch(() => {});
 });
 
 // ── About modal ───────────────────────────────────────────────────────────

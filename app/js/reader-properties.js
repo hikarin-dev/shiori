@@ -178,6 +178,15 @@ export async function openPageProperties(page) {
   const urls = [];
   close.onclick = () => dialog.close();
   dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close(); });   // the backdrop
+  // The ::backdrop belongs to no scroller, so a wheel or swipe over it would scroll the pages
+  // behind; scrolls over the dialog itself stay in it (overscroll-behavior: contain).
+  const holdPage = (e) => {
+    const p = e.touches ? e.touches[0] : e;
+    const r = dialog.getBoundingClientRect();
+    if (p.clientX < r.left || p.clientX > r.right || p.clientY < r.top || p.clientY > r.bottom) e.preventDefault();
+  };
+  dialog.addEventListener('wheel', holdPage, { passive: false });
+  dialog.addEventListener('touchmove', holdPage, { passive: false });
   dialog.addEventListener('close', () => {
     urls.forEach(u => URL.revokeObjectURL(u));
     dialog.remove();

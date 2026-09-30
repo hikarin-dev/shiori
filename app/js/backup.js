@@ -41,11 +41,13 @@ const ARCHIVE_VERSION = 8;
 // ── Settings snapshot ───────────────────────────────────────────────────────────────────────
 // Every persistent preference rides in the full backup, both conventions: the shiori:* kv keys
 // and the small set of boot-synchronous dash keys. Per-browser state (integration status cache,
-// session-scoped caches), one-time repair flags (a restored library should re-run its repairs),
-// and the pairing capability stay out — they must not follow the library to another browser.
+// session-scoped caches, how this browser stores its images), one-time repair flags (a restored
+// library should re-run its repairs — `schemaSteps` now, the older per-repair flags before it), and
+// the pairing capability stay out — they must not follow the library to another browser.
 // Values are raw localStorage strings, restored verbatim.
 const SETTINGS_DASH_KEYS = ['shiori-lang', 'shiori-safe-mode', 'shiori-reader-pin', 'shiori-header-pin'];
-const SETTINGS_KV_EXCLUDE = new Set(['agentPairSecret', 'countsRepaired', 'seriesShellStatsRepaired', 'uploadDateBackfilled']);
+const SETTINGS_KV_EXCLUDE = new Set(['agentPairSecret', 'schemaSteps', 'countsRepaired', 'seriesShellStatsRepaired',
+  'uploadDateBackfilled', 'storageLayout']);
 
 function snapshotSettings() {
   const out = { kv: {}, dash: {} };

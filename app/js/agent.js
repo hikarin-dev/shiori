@@ -21,7 +21,7 @@ import {
   resizeCover, getStats, galleriesPage, galleriesCount, existingPageNums, pageExistsForGallery,
   deleteGallery, deleteGalleryImages, rebuildGalleryEntry,
   mutateGallery, refreshSeriesAggregate, isSeriesMeta, effectiveTagsOf, publishFeed,
-  metaGetAllMap, getGalleryPages, getGalleryPageRange, getGalleryImageRecords, imageToBlob, imageToDataUrl,
+  metaGetAllMap, getGalleryPages, getGalleryPageRange, getGalleryImageRecords, imageToBlob, imageToDataUrl, PAGE_URL,
 } from './db.js';
 import { translatedImage } from './page-image.js';
 import { pickTitle } from './titles.js';
@@ -66,8 +66,9 @@ async function allOrThrow(promises) {
 // list) or orphan a chapter (wiping its parentId) just by backfilling its metadata. Carry across
 // any grouping field the incoming meta didn't set so a metadata write can't destroy grouping.
 const GROUPING_FIELDS = ['chapters', 'parentId', 'seriesTitle', 'seriesTags'];
-// The record of which configs translated the gallery's pages is app-only too.
-const APP_ONLY_FIELDS = [...GROUPING_FIELDS, 'translations'];
+// The record of which configs translated the gallery's pages is app-only too, and so is whether
+// the user favorited the gallery.
+const APP_ONLY_FIELDS = [...GROUPING_FIELDS, 'translations', 'favorite'];
 async function metaPutKeepingGrouping(meta, opts) {
   const prev = await metaGet(meta.galleryId).catch(() => null);
   if (!prev) return metaPut(meta, opts);
@@ -163,7 +164,7 @@ const OPS = {
     const byUrl  = new Map(records.map(r => [r.url, r]));
     const byPage = new Map();
     for (const r of records) {
-      const m = r.url.match(/\/(\d+)\.(webp|jpg|jpeg|png|gif)$/i);
+      const m = r.url.match(PAGE_URL);
       if (m) byPage.set(parseInt(m[1]), r);
     }
     for (const { url, pageNum } of queries) {

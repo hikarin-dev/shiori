@@ -109,3 +109,79 @@ test('malformed pipeline data is not restored', async () => {
   assert.equal(rec.pipeline, undefined);
   assert.ok(rec.translated, 'the rest of the page still imports');
 });
+
+// ── What the real exporter (gallery-files.js) writes, restored into a library that lost it ──
+
+const { galleryFiles, fileBytes } = await import('../js/gallery-files.js');
+const { mergeIntoSeries, setChapterTitle } = await import('../js/series.js');
+
+const TAGS = [{ type: 'category', name: 'manga', url: '' }, { type: 'rating', name: 'safe', url: '' },
+  { type: 'artist', name: 'someone', url: '' }];
+const TITLE = { english: 'Kept', japanese: '残す', pretty: 'Kept' };
+const img = (type, ...values) => new Blob([new Uint8Array(values)], { type });
+
+async function galleryArchiveFiles(gid, prefix = '', opts = {}) {
+  const [meta, records, covers] = await Promise.all([db.metaGet(gid), db.getGalleryImageRecords(gid), db.coverRecordGet(gid)]);
+  const files = galleryFiles({ meta, records, covers: { gallery: covers?.cover, series: covers?.seriesCover } }, prefix, opts);
+  return Promise.all(files.map(async (f) => ({ name: f.name, data: await fileBytes(f.source) })));
+}
+
+async function pagesOf(gid) {
+  const recs = (await db.getGalleryImageRecords(gid)).sort((a, b) => a.url.localeCompare(b.url));
+  return Promise.all(recs.map(async (r) => [r.url, r.blob.type, [...new Uint8Array(await r.blob.arrayBuffer())]]));
+}
+
+async function seedGallery(gid, { favorite = true } = {}) {
+  await db.metaPut({ galleryId: gid, title: TITLE, tags: TAGS, numPages: 2 });
+  await db.dbPut(`local://${gid}/1.avif`, img('image/avif', 1, 1), gid, gid);
+  await db.dbPut(`local://${gid}/2.webp`, img('image/webp', 2, 2), gid, gid);
+  await db.mutateGallery(gid, { favorite }, { touch: false });
+}
+
+test('a gallery export restores its favorite, category, rating, title and AVIF/WebP pages', async () => {
+  await seedGallery('701');
+  const pages = await pagesOf('701');
+  const archive = zip(await galleryArchiveFiles('701'));
+  await db.deleteGallery('701');
+  await importCbzBuffer('701', archive, 'shiori-701.zip', true);
+  const meta = await db.metaGet('701');
+  assert.equal(meta.favorite, true);
+  assert.deepEqual(meta.tags, TAGS);
+  assert.deepEqual(meta.title, TITLE);
+  assert.deepEqual(await pagesOf('701'), pages, 'every page comes back in its own format, bytes untouched');
+  assert.equal((await db.coverRecordGet('701')).cover.type, 'image/avif', 'page 1 (AVIF) is the cover again');
+});
+
+test('a series export restores the series favorite, title, category, rating and chapter titles', async () => {
+  for (const gid of ['801', '802', '803']) await seedGallery(gid, { favorite: false });
+  await mergeIntoSeries('801', '802');
+  await mergeIntoSeries('801', '803');
+  await setChapterTitle('801', '803', 'Extra');
+  const seriesTags = [{ type: 'category', name: 'doujinshi', url: '' }, { type: 'rating', name: 'suggestive', url: '' }];
+  await db.mutateGallery('801', { favorite: true, seriesTags, seriesTitle: { english: 'Series', japanese: '', pretty: 'Series' } });
+  const before = await db.metaGet('801');
+
+  // The bundle library.js writes: chapter-NN/ per chapter (series fields stripped) + series.json.
+  const files = [];
+  const manifest = { format: 'shiori-series', version: 1, seriesTitle: before.seriesTitle, seriesTags: before.seriesTags, chapters: [] };
+  for (const [i, c] of before.chapters.entries()) {
+    const folder = `chapter-${String(i + 1).padStart(2, '0')}`;
+    manifest.chapters.push({ id: c.id, title: c.title, folder });
+    files.push(...await galleryArchiveFiles(c.id, `${folder}/`, { stripSeriesFields: true }));
+  }
+  files.push({ name: 'series.json', data: enc.encode(JSON.stringify(manifest)) });
+  for (const gid of ['801', '802', '803']) await db.deleteGallery(gid);
+
+  await importCbzBuffer('801', zip(files), 'shiori-series-801.zip', true);
+  const owner = await db.metaGet('801');
+  assert.equal(owner.favorite, true);
+  assert.deepEqual(owner.seriesTags, seriesTags);
+  assert.deepEqual(owner.seriesTitle, before.seriesTitle);
+  assert.deepEqual(owner.chapters, before.chapters);
+  for (const gid of ['802', '803']) {
+    const chapter = await db.metaGet(gid);
+    assert.equal(chapter.parentId, '801');
+    assert.deepEqual(chapter.tags, TAGS, "a chapter's own tags come back too");
+  }
+  assert.equal((await pagesOf('803')).length, 2);
+});

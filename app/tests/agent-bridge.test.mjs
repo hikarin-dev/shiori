@@ -146,3 +146,16 @@ test('a metadata write over the bridge keeps the record of how the gallery was t
   assert.equal(meta.title.english, 'Fresh');
   assert.deepEqual(meta.translations, translations);
 });
+
+test('a metadata write over the bridge keeps the gallery a favorite', async () => {
+  const { metaPut, metaGet } = await import('../js/db.js');
+  await metaPut({ galleryId: '4343', title: { english: 'Old', japanese: '', pretty: 'Old' }, tags: [], favorite: true });
+
+  const replies = hello(EXT_ORIGIN, SECRET);
+  await tick();
+  const port = replies[0].port;
+  _openPorts.push(port);
+  const res = await callOverPort(port, 'meta_put', { meta: { galleryId: '4343', title: { english: 'Fresh', japanese: '', pretty: 'Fresh' }, tags: [] } });
+  assert.equal(res.ok, true);
+  assert.equal((await metaGet('4343')).favorite, true);
+});

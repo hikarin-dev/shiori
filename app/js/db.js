@@ -17,6 +17,9 @@ const GALLERY_STORE = 'galleries';
 const COVER_STORE = 'covers';
 const SOURCE_ICON_STORE = 'sourceIcons';
 const BLOB_STORE = 'blobs';   // the images of page and cover records, one record each (see below)
+// A stored page's url ends in its page number and image type ("…/12.webp") — every type a page
+// can be stored as, so no page goes unnumbered.
+export const PAGE_URL = /\/(\d+)\.(webp|jpg|jpeg|png|gif|avif)$/i;
 
 // Reactive change feed: every durable gallery change is announced through one tiny beacon
 // (platform.feed); surfaces subscribe and re-read only the changed gallery from IndexedDB.
@@ -402,7 +405,7 @@ export async function dbPut(url, src, mediaId, galleryId) {
   const blob = await imageToBlob(src);
   const size = blob ? blob.size : 0;
   const cachedAt = Date.now();
-  const pm = canonUrl.match(/\/(\d+)\.(webp|jpg|jpeg|png|gif)$/i);
+  const pm = canonUrl.match(PAGE_URL);
   const pageNum = pm ? parseInt(pm[1]) : 9999;
   let coverChanged = false;
   // If this gallery is a chapter (has parentId) or is itself a series owner (has aggregate fields),
@@ -875,6 +878,7 @@ function _entityFrom(id, gal, meta) {
     fetchedAt: m.fetchedAt,
     translated: m.translated || false,
     translatedLang: m.translatedLang || '',
+    favorite: !!m.favorite,
     languages: _deriveLangs(m, tags),
     // Series/chapter grouping. `chapters` (owner only) is the ordered source of truth for order +
     // titles; `parentId` (children only) is the reverse link. The aggregate fields are denormalized
@@ -907,7 +911,7 @@ export async function rebuildGalleryEntry(galleryId, opts = {}) {
     count++;
     size += r.size || 0;
     latestAt = Math.max(latestAt, r.cachedAt || 0);
-    const pm = r.url.match(/\/(\d+)\.(webp|jpg|jpeg|png|gif)$/i);
+    const pm = r.url.match(PAGE_URL);
     const pn = pm ? parseInt(pm[1]) : 9999;
     if (pn < coverPage) { coverPage = pn; coverSrc = r.blob ?? r.dataUrl; coverUrl = r.url; }
   }
@@ -1075,7 +1079,7 @@ export async function dbGetByGalleryPage(galleryId, pageNum) {
     req.onsuccess = (e) => {
       const cursor = e.target.result;
       if (!cursor) return;
-      const m = cursor.value.url.match(/\/(\d+)\.(webp|jpg|jpeg|png|gif)$/i);
+      const m = cursor.value.url.match(PAGE_URL);
       if (m && parseInt(m[1]) === pageNum) { found = cursor.value; _loadPages(tx, [found]); return; }
       cursor.continue();
     };
@@ -1092,7 +1096,7 @@ export async function pageExistsForGallery(galleryId, pageNum) {
     req.onsuccess = (e) => {
       const cursor = e.target.result;
       if (!cursor) { resolve(false); return; }
-      const m = cursor.primaryKey.match(/\/(\d+)\.(webp|jpg|jpeg|png|gif)$/i);
+      const m = cursor.primaryKey.match(PAGE_URL);
       if (m && parseInt(m[1]) === pageNum) { resolve(true); return; }
       cursor.continue();
     };
@@ -1130,7 +1134,7 @@ export async function listGalleryPageKeys(galleryId) {
     req.onsuccess = (e) => {
       const c = e.target.result;
       if (!c) { out.sort((a, b) => a.pageNum - b.pageNum); resolve(out); return; }
-      const m = String(c.primaryKey).match(/\/(\d+)\.(webp|jpg|jpeg|png|gif)$/i);
+      const m = String(c.primaryKey).match(PAGE_URL);
       if (m) out.push({ pageNum: parseInt(m[1]), url: String(c.primaryKey) });
       c.continue();
     };
@@ -1369,7 +1373,7 @@ export async function getStats() {
   const galleries = {};
   let totalImages = 0, totalSize = 0, totalOrig = 0;
   for (const e of entries) {
-    galleries[e.galleryId] = { count: e.count, size: e.size, latestAt: e.latestAt };
+    galleries[e.galleryId] = { count: e.count, size: e.size, latestAt: e.latestAt, medianPage: e.medianPage };
     totalImages += e.count;
     totalSize += e.size;
     totalOrig += e.origSize ?? e.size;
@@ -1485,6 +1489,46 @@ export async function metaGetAllMap() {
   return map;
 }
 
+// How many library entries carry each tag, keyed like the tagNames index (`type:name`, lower-cased).
+// Read from that index, so it is never out of step with the tags themselves. An entry is a card in
+// the merged library: a series counts once (through its combined tags) and its chapters not on their
+// own; metadata that never became a gallery doesn't count. `keys` limits it to those tags, `prefix`
+// to one tag type ('artist:'); with neither, every tag in the library.
+export async function tagCounts({ keys, prefix } = {}) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([META_STORE, GALLERY_STORE], 'readonly');
+    const counts = new Map();
+    let entries = null, children = null;
+    const gals = tx.objectStore(GALLERY_STORE);
+    const allReq = gals.getAllKeys();
+    const childReq = gals.index('parentId').getAllKeys();
+    const counted = (gid) => entries.has(gid) && !children.has(gid);
+    const index = tx.objectStore(META_STORE).index('tagNames');
+    childReq.onsuccess = () => {
+      entries = new Set(allReq.result.map(String));
+      children = new Set(childReq.result.map(String));
+      if (keys) {
+        for (const key of new Set(keys)) {
+          const req = index.getAllKeys(IDBKeyRange.only(key));
+          req.onsuccess = () => { counts.set(key, req.result.filter(gid => counted(String(gid))).length); };
+        }
+        return;
+      }
+      const range = prefix ? IDBKeyRange.bound(prefix, prefix + '￿') : null;
+      const cur = index.openKeyCursor(range);
+      cur.onsuccess = () => {
+        const c = cur.result;
+        if (!c) return;
+        if (counted(String(c.primaryKey))) counts.set(c.key, (counts.get(c.key) || 0) + 1);
+        c.continue();
+      };
+    };
+    tx.oncomplete = () => resolve(counts);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export async function getGallery(galleryId) {
   const gid = String(galleryId);
   const [gal, meta] = await Promise.all([galleryGet(gid), metaGet(gid)]);
@@ -1501,6 +1545,7 @@ export async function getGalleriesByIds(ids) {
 const _META_FIELDS = new Set([
   'title', 'titlePretty', 'titleEnglish', 'numPages', 'tags', 'mediaId', 'pageExts',
   'isLocalImport', 'source', 'sourceId', 'sourceUrl', 'fetchedAt', 'translated', 'translatedLang', 'isStub', 'sourceMetadata',
+  'favorite',
   // Series/chapter grouping: `chapters`, `seriesTitle`, and `seriesTags` live on the owner's
   // metadata; `parentId` lives on a child's metadata AND is mirrored onto its stat record
   // (see mutateGallery).
@@ -1511,9 +1556,11 @@ const _META_FIELDS = new Set([
 // so every subscribed surface re-renders. The one mutation entry point for gallery
 // records — callers never touch metaPut/galleryPut directly. One logical mutation is one
 // transaction: metadata and stats can never disagree after an abort mid-way.
+// `touch: false` keeps the "Last updated" time — for library upgrades, which change no content.
 export async function mutateGallery(galleryId, patch, opts = {}) {
   const gid = String(galleryId);
   const silent = !!opts.silent;
+  const touch = opts.touch !== false;
   const metaPatch = {}, galPatch = {};
   for (const [k, v] of Object.entries(patch || {})) {
     if (_META_FIELDS.has(k)) metaPatch[k] = v; else galPatch[k] = v;
@@ -1551,7 +1598,7 @@ export async function mutateGallery(galleryId, patch, opts = {}) {
         // A metadata change marks a REAL gallery updated and keeps the denormalized published
         // date in step (metaPut parity) — never for a bare stub.
         if (hasMeta && cur && !merged.isStub) {
-          cur = { ...cur, latestAt: Math.max(cur.latestAt || 0, Date.now()) };
+          cur = touch ? { ...cur, latestAt: Math.max(cur.latestAt || 0, Date.now()) } : { ...cur };
           if (merged.uploadDate != null) cur.uploadDate = Number(merged.uploadDate) || 0;
           else if (cur.uploadDate == null) cur.uploadDate = 0;
         }
@@ -1692,7 +1739,7 @@ export async function getGalleryPages(galleryId, { preferTranslated = false, cap
 
   const entries = records
     .map(r => {
-      const m = r.url.match(/\/(\d+)\.(webp|jpg|jpeg|png|gif)$/i);
+      const m = r.url.match(PAGE_URL);
       return { pageNum: m ? parseInt(m[1]) : 9999, url: r.url, rec: r };
     })
     .sort((a, b) => a.pageNum - b.pageNum);
@@ -1715,7 +1762,7 @@ export async function getGalleryPageRange(galleryId, startPage, endPage, { prefe
 
   const entries = records
     .map(r => {
-      const m = r.url.match(/\/(\d+)\.(webp|jpg|jpeg|png|gif)$/i);
+      const m = r.url.match(PAGE_URL);
       return { pageNum: m ? parseInt(m[1]) : 9999, url: r.url, rec: r };
     })
     .filter(p => p.pageNum >= startPage && p.pageNum <= endPage)

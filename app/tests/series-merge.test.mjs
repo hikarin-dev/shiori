@@ -55,3 +55,36 @@ test('absorbing a series keeps every absorbed chapter title, its former owner in
   const meta = await metaGet('OWN3');
   assert.deepEqual(meta.chapters.map(c => c.title), ['A1', 'A2', 'B1', 'B2']);
 });
+
+const { reorderChapters, removeChapter } = await import('../js/series.js');
+const tag = (type, name) => ({ type, name, url: '' });
+const favorites = (...ids) => Promise.all(ids.map(async (id) => !!(await metaGet(id)).favorite));
+
+test('a merged series keeps one category, the first, and its highest rating', async () => {
+  await mutateGallery('RAT1', { ...titled('A'), tags: [tag('category', 'manga'), tag('rating', 'suggestive'), tag('artist', 'x')] });
+  await mutateGallery('RAT2', { ...titled('B'), tags: [tag('category', 'doujinshi'), tag('rating', 'pornographic')] });
+  await mutateGallery('RAT3', { ...titled('C'), tags: [tag('rating', 'safe'), tag('artist', 'y')] });
+
+  await mergeIntoSeries('RAT1', 'RAT2');
+  await mergeIntoSeries('RAT1', 'RAT3');
+
+  const { seriesTags } = await metaGet('RAT1');
+  assert.deepEqual(seriesTags.map(t => `${t.type}:${t.name}`), ['category:manga', 'artist:x', 'rating:pornographic', 'artist:y']);
+  assert.deepEqual((await metaGet('RAT2')).tags.map(t => t.name), ['doujinshi', 'pornographic'], "a chapter's own tags are untouched");
+});
+
+test('the series favorite moves with the first chapter: reordered, removed, dissolved', async () => {
+  for (const id of ['FAV1', 'FAV2', 'FAV3']) await mutateGallery(id, { ...titled(id), count: 1 });
+  await mergeIntoSeries('FAV1', 'FAV2');
+  await mergeIntoSeries('FAV1', 'FAV3');
+  await mutateGallery('FAV1', { favorite: true });
+
+  await reorderChapters('FAV1', ['FAV2', 'FAV1', 'FAV3']);   // FAV2 heads the series now
+  assert.deepEqual(await favorites('FAV1', 'FAV2', 'FAV3'), [false, true, false]);
+
+  await removeChapter('FAV2', 'FAV2');                       // the head leaves: FAV1 takes over
+  assert.deepEqual(await favorites('FAV1', 'FAV2', 'FAV3'), [true, false, false]);
+
+  await removeChapter('FAV1', 'FAV1');                       // one chapter left: it stands alone
+  assert.deepEqual(await favorites('FAV1', 'FAV3'), [false, true]);
+});

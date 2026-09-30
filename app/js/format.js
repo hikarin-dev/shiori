@@ -10,6 +10,13 @@ export function formatCount(value, locale = activeLocale()) {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(number);
 }
 
+// A count in its short form: 999, 1.2K, 53.2K.
+export function formatCompact(value, locale = activeLocale()) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return String(value ?? 0);
+  return new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(number);
+}
+
 export function formatMegapixels(mp, locale = activeLocale()) {
   return `${new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(mp)} MP`;
 }

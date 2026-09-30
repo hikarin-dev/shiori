@@ -11,6 +11,7 @@
   <title>Shiori — Settings</title>
   <meta name="shiori-app" content="options">
   <script src="font-init.js"></script>
+  <link rel="stylesheet" href="base.css">
   <link rel="stylesheet" href="dropdown.css">
   <link rel="stylesheet" href="settings.css">
   <link rel="stylesheet" href="benchmark.css">
@@ -82,6 +83,23 @@
       </div>
     </div>
   </div>
+  <!-- Top bar -->
+  <div class="section">
+    <div class="section-header">
+      <h2 class="section-title" data-i18n="set.lib_bar">Top bar</h2>
+    </div>
+    <div class="section-body">
+      <div class="field">
+        <div class="field-label" data-i18n="set.lib_nav_stats">Show storage stats</div>
+        <div class="field-desc" data-i18n="set.lib_nav_stats_desc">Show the gallery, image and storage totals in the top bar.</div>
+        <label class="switch-control" for="libShowNavStats">
+          <input type="checkbox" id="libShowNavStats" data-i18n-aria="set.lib_nav_stats">
+          <span class="switch-track" aria-hidden="true"></span>
+        </label>
+      </div>
+      <div class="status-msg hidden" id="libBarStatus" role="status" aria-live="polite"></div>
+    </div>
+  </div>
   <!-- Gallery cards -->
   <div class="section">
     <div class="section-header">
@@ -110,6 +128,14 @@
         <div class="field-desc" data-i18n="set.lib_applang_flag_desc">Hide the flag matching the app language.</div>
         <label class="switch-control" for="libAppLangFlag">
           <input type="checkbox" id="libAppLangFlag" data-i18n-aria="set.lib_applang_flag">
+          <span class="switch-track" aria-hidden="true"></span>
+        </label>
+      </div>
+      <div class="field">
+        <div class="field-label" data-i18n="set.lib_card_category">Show category tag</div>
+        <div class="field-desc" data-i18n="set.lib_card_category_desc">Show the category (manga, doujinshi, …) as the first tag on each card.</div>
+        <label class="switch-control" for="libShowCategoryTag">
+          <input type="checkbox" id="libShowCategoryTag" data-i18n-aria="set.lib_card_category">
           <span class="switch-track" aria-hidden="true"></span>
         </label>
       </div>
@@ -324,10 +350,10 @@
     </div>
   </div>
 
-  <!-- Storage layout -->
+  <!-- Library upgrades: bringing a library saved by an older version up to current standards -->
   <div class="section">
     <div class="section-header">
-      <h2 class="section-title" data-i18n="set.layout">Storage layout</h2>
+      <h2 class="section-title" data-i18n="set.layout">Library upgrades</h2>
     </div>
     <div class="section-body">
       <div class="toggle-row">
@@ -336,6 +362,13 @@
           <div class="toggle-desc" id="layoutStatus">—</div>
         </div>
         <button class="btn-save" id="convertNowBtn" type="button" data-i18n="storage.now" disabled>Convert now</button>
+      </div>
+      <div class="toggle-row" id="classifyRow" hidden>
+        <div class="toggle-info">
+          <div class="toggle-name" data-i18n="set.classify_name">Category and rating</div>
+          <div class="toggle-desc" id="classifyStatus">—</div>
+        </div>
+        <button class="btn-save" id="classifyNowBtn" type="button" data-i18n="set.classify_now" disabled>Update now</button>
       </div>
     </div>
   </div>
@@ -404,7 +437,7 @@
       <button class="backup-choice" id="backupFullBtn" type="button" data-i18n="set.bk_full">Full library (.shioridb) — everything, incl. images</button>
     </div>
     <div class="dialog-footer">
-      <button class="btn-secondary" id="backupCancelBtn" type="button" data-i18n="common.cancel">Cancel</button>
+      <button class="btn" id="backupCancelBtn" type="button" data-i18n="common.cancel">Cancel</button>
     </div>
   </div>
 </div>
@@ -437,7 +470,7 @@
       <div class="tcfg-grid" id="tcfgGrid"></div>
     </div>
     <div class="tcfg-footer">
-      <button class="btn-clear-key" id="resetTranslateBtn" type="button" data-i18n="tm.reset_defaults">Reset to defaults</button>
+      <button class="btn" id="resetTranslateBtn" type="button" data-i18n="tm.reset_defaults">Reset to defaults</button>
       <div class="status-msg modal-status hidden" id="translateModalStatus" role="status" aria-live="polite"></div>
     </div>
   </div>

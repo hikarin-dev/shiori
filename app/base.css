@@ -1,0 +1,228 @@
+/* base.css — what every page shares, loaded before the page's own stylesheet: the design tokens,
+   the reset, UI font and reduced motion, the study-mode typefaces, and the parts more
+   than one page shows (the header brand, the tooltip, the dialog button, the switch, the (i)
+   info icon, the small context menu).
+   A page stylesheet adds its own parts, and where it overrides a token it says so. */
+
+:root {
+  --bg: #0d0d0f;
+  --surface: #16161a;
+  --surface-subtle: #111114;   /* inputs and insets on a surface */
+  --surface-raised: #1c1c21;   /* hover and the chosen segment */
+  --border: #2a2a30;
+  --border-strong: #3f3f48;    /* controls and dialog frames */
+  --accent: #ed2754;
+  --accent2: #ffd166;
+  --text: #f4f4f5;
+  --muted: #a1a1aa;
+  --muted-dim: #7c7c8c;
+  --success: #06d6a0;
+  --danger: #ff4040;
+  --ring: #fb7185;             /* a focused text box's border */
+  --backdrop: rgba(0, 0, 0, .65);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+}
+/* The UI font's code ligatures redraw runs like the "//" in a URL — show text as typed. Form
+   controls are named too, as some browsers reset their font instead of inheriting it. */
+body, input, textarea, select, button { font-variant-ligatures: none; }
+
+/* A text box's placeholder: a step dimmer than secondary text, in every box. */
+::placeholder { color: var(--muted-dim); opacity: 1; }
+
+/* Less motion for anyone whose system asks for it. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* The comic-lettering face the translation renderer typesets with, and the two source-text faces
+   of study mode — bundled so the reader and the Settings preview draw the renderer's glyphs (a
+   locally installed copy wins if present). Nothing downloads until a page uses one. */
+@font-face {
+  font-family: 'CC Victory Speech';
+  src: local('CC Victory Speech'), url('fonts/ccvictoryspeech.ttf') format('truetype');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Yasashisa Antique';
+  src: local('07やさしさアンチック'), local('YasashisaAntique'), url('fonts/YasashisaAntique.otf') format('opentype');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Kiwi Maru';
+  src: local('Kiwi Maru'), url('fonts/KiwiMaru-Regular.ttf') format('truetype');
+  font-display: swap;
+}
+
+/* ── Header brand: icon and name, then "/ page" ── */
+.brand-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; text-decoration: none; }
+.brand-wrap:hover { opacity: 0.8; }
+.brand-icon { width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 6px; }
+.brand-icon img { display: block; width: 100%; height: 100%; }
+.brand-text { color: var(--accent); font-size: 15px; font-weight: 700; letter-spacing: -0.3px; white-space: nowrap; }
+.brand-sep { flex-shrink: 0; color: var(--border-strong); font-size: 13px; }
+.brand-page { flex-shrink: 0; color: var(--muted); font-size: 13px; white-space: nowrap; }
+
+/* ── Tooltip (tooltip.js): one line, or a first line with dimmer lines under it; "label  value"
+   rows, and a short badge that can open the tip or a row ── */
+.shiori-tip {
+  position: fixed; left: 0; top: 0; z-index: 9999;
+  display: none;
+  max-width: min(360px, calc(100vw - 20px));
+  padding: 3px 7px;
+  background: #222; color: #eee;
+  border: 1px solid #555; border-radius: 4px;
+  font-size: 11px; white-space: pre-wrap;
+  pointer-events: none;
+}
+.shiori-tip-sub { margin-top: 2px; color: #9a9aac; }
+.shiori-tip-pair { display: flex; justify-content: space-between; gap: 14px; }
+.shiori-tip-pair + .shiori-tip-pair { margin-top: 2px; }
+.shiori-tip-value { color: #9a9aac; }
+.shiori-tip-badge {
+  display: inline-block; margin-right: 6px; padding: 0 5px;
+  background: var(--text); color: var(--bg);
+  border-radius: 3px; font-weight: 700; line-height: 15px;
+}
+
+/* ── Button in dialogs and the toast: neutral, or .primary / .danger ── */
+.btn {
+  flex: none;
+  padding: 7px 14px;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.55;
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) { border-color: var(--muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn:is(.primary, .danger):hover:not(:disabled) { filter: brightness(1.1); }
+.btn:disabled { opacity: .6; cursor: default; }
+
+/* ── Switch: a hidden checkbox and its track (both class sets are retained for independently
+   supplied cards) ── */
+.switch-control,
+.toggle {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  cursor: pointer;
+}
+
+.switch-control input,
+.toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.switch-track,
+.slider {
+  position: absolute;
+  inset: 0;
+  background: #303038;
+  border: 1px solid #4a4a55;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+
+.switch-track::after,
+.slider::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: #b3b3bf;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .4);
+  transition: background-color .15s ease, transform .15s ease;
+}
+
+.switch-control input:checked + .switch-track,
+.toggle input:checked + .slider {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.switch-control input:checked + .switch-track::after,
+.toggle input:checked + .slider::before {
+  background: #fff;
+  transform: translateX(16px);
+}
+
+/* The checkbox itself is hidden, so its track shows the browser's own focus ring. */
+.switch-control input:focus-visible + .switch-track,
+.toggle input:focus-visible + .slider {
+  outline: auto 1px -webkit-focus-ring-color;
+}
+
+/* ── An (i) beside a setting's name: more detail on hover (tooltip.js) ── */
+.field-info {
+  display: inline-flex;
+  margin-left: 6px;
+  vertical-align: -2px;
+  color: var(--muted);
+  cursor: help;
+}
+.field-info:hover,
+.field-info:focus-visible { color: var(--text); outline: none; }
+.field-info svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ── Context menu (rerun-menu.js, reader-page-menu.js): a title, then items with an optional
+   detail line under the label. Each menu sets its own layer and width. ── */
+.ctx-menu {
+  position: fixed; max-width: 320px; padding: 5px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.ctx-menu-title { padding: 5px 9px 6px; color: var(--muted); font-size: 11px; }
+.ctx-menu-item {
+  display: block; width: 100%; padding: 7px 9px; border: 0; border-radius: 5px;
+  background: none; color: var(--text); font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+}
+.ctx-menu-item:hover:not(:disabled), .ctx-menu-item:focus-visible { background: var(--border); outline: none; }
+.ctx-menu-item:disabled { cursor: default; opacity: 0.55; }
+.ctx-menu-label { display: block; }
+.ctx-menu-label kbd {
+  padding: 1px 5px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg);
+  color: var(--muted); font-family: inherit; font-size: 10px;
+}
+.ctx-menu-detail { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; line-height: 1.35; }

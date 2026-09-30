@@ -1,42 +1,16 @@
+/* settings.css — the Settings page. Tokens, reset, brand, tooltip, buttons in dialogs
+   and the study-mode typefaces come from base.css. */
+
 :root {
   color-scheme: dark;
-  --bg: #0d0d0f;
-  --surface: #16161a;
-  --surface-subtle: #111114;
-  --surface-raised: #1c1c21;
-  --border: #2a2a30;
-  --border-strong: #3f3f48;
-  --accent: #f43f6b;
-  --accent2: #ffd166;
-  --primary: #be123c;
-  --primary-hover: #9f1239;
-  --text: #f4f4f5;
-  --muted: #a1a1aa;
-  --muted-dim: #7c7c8c;
-  --success: #34d399;
-  --danger: #fb7185;
-  --danger-fill: #9f1239;
-  --ring: #fb7185;
   --radius-card: 10px;
   --radius-control: 6px;
-}
-
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
 }
 
 html { min-width: 0; }
 
 body {
   min-width: 0;
-  min-height: 100vh;
-  background: var(--bg);
-  color: var(--text);
-  font-family: 'JetBrains Mono', monospace;
-  font-variant-ligatures: none;   /* the font's code ligatures redraw runs like a URL's "//" */
-  font-size: 13px;
   line-height: 1.5;
 }
 
@@ -47,11 +21,6 @@ textarea { font: inherit; }
 
 button,
 label[for] { -webkit-tap-highlight-color: transparent; }
-
-:is(button, input, select, textarea, [tabindex]):focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
 
 [hidden] { display: none !important; }
 
@@ -81,51 +50,13 @@ header {
 .header-left { gap: 10px; }
 .header-right { gap: 8px; flex: 0 0 auto; }
 
-.brand-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 0 0 auto;
-  text-decoration: none;
-}
-
-.brand-wrap:hover { opacity: .82; }
-
-.brand-icon {
-  width: 24px;
-  height: 24px;
-  flex: 0 0 auto;
-  overflow: hidden;
-  border-radius: 6px;
-}
-
-.brand-icon img {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.brand-text {
-  color: var(--accent);
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -.3px;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
-.brand-sep {
-  color: var(--border-strong);
-  font-size: 13px;
-}
-
+/* The brand (base.css) at Settings' taller line height; the page name gives way first. */
+.brand-text { line-height: 1.2; }
 .brand-page {
+  flex-shrink: 1;
   min-width: 0;
   overflow: hidden;
-  color: var(--muted);
-  font-size: 13px;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* Settings shell */
@@ -311,8 +242,6 @@ header {
   box-shadow: 0 0 0 1px var(--ring);
 }
 
-.field-input::placeholder { color: var(--muted-dim); }
-
 .field > .field-input:not(.choice-source) {
   grid-column: 2;
   grid-row: 1 / span 2;
@@ -369,7 +298,6 @@ textarea.field-input { min-height: 82px; }
   stroke-linejoin: round;
 }
 .reveal-btn[aria-busy="true"] > svg { animation: spin .8s linear infinite; }
-@keyframes spin { to { rotate: 360deg; } }
 
 /* Segmented controls */
 .choice-source { display: none; }
@@ -529,24 +457,6 @@ textarea.field-input { min-height: 82px; }
   color: var(--muted-dim);
 }
 
-/* Same look as the other pages' tooltip; `pre` so multi-line tips break per setting. */
-.shiori-tip {
-  position: fixed; left: 0; top: 0; pointer-events: none; z-index: 9999;
-  background: #222; color: #eee; border: 1px solid #555;
-  padding: 3px 7px; border-radius: 4px; font-size: 11px; line-height: 1.5;
-  white-space: pre-wrap; max-width: min(360px, calc(100vw - 20px)); display: none;
-}
-
-/* Switches — both class sets are retained for independently supplied cards. */
-.switch-control,
-.toggle {
-  position: relative;
-  width: 36px;
-  height: 20px;
-  flex: 0 0 auto;
-  display: inline-flex;
-  cursor: pointer;
-}
 
 .field > .switch-control {
   grid-column: 2;
@@ -554,101 +464,11 @@ textarea.field-input { min-height: 82px; }
   justify-self: end;
 }
 
-.switch-control input,
-.toggle input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.switch-track,
-.slider {
-  position: absolute;
-  inset: 0;
-  background: #303038;
-  border: 1px solid #4a4a55;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background-color .15s ease, border-color .15s ease;
-}
-
-.switch-track::after,
-.slider::before {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  background: #b3b3bf;
-  border-radius: 50%;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .4);
-  transition: background-color .15s ease, transform .15s ease;
-}
-
-.switch-control input:checked + .switch-track,
-.toggle input:checked + .slider {
-  background: var(--primary);
-  border-color: var(--primary);
-}
-
-.switch-control input:checked + .switch-track::after,
-.toggle input:checked + .slider::before {
-  background: #fff;
-  transform: translateX(16px);
-}
-
-.switch-control input:focus-visible + .switch-track,
-.toggle input:focus-visible + .slider {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-
-/* An (i) beside a setting's name: more detail on hover. */
-.field-info {
-  display: inline-flex;
-  margin-left: 6px;
-  vertical-align: -2px;
-  color: var(--muted);
-  cursor: help;
-}
-.field-info:hover,
-.field-info:focus-visible { color: var(--text); outline: none; }
-.field-info svg {
-  width: 13px;
-  height: 13px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
 /* A setting that belongs with the one above it. */
 .section-body > .field + .field-sub { border-top: 0; padding-top: 0; }
 .field-sub { padding-left: 40px; }
 
-/* Study mode preview */
-@font-face {
-  font-family: 'CC Victory Speech';
-  src: local('CC Victory Speech'), url('fonts/ccvictoryspeech.ttf') format('truetype');
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Yasashisa Antique';
-  src: local('YasashisaAntique'), url('fonts/YasashisaAntique.otf') format('opentype');
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Kiwi Maru';
-  src: local('Kiwi Maru'), url('fonts/KiwiMaru-Regular.ttf') format('truetype');
-  font-display: swap;
-}
-
+/* Study mode preview (its typefaces are in base.css) */
 .study-section-body {
   gap: 18px;
   padding: 20px;
@@ -772,31 +592,35 @@ textarea.field-input { min-height: 82px; }
   overflow: hidden;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  background: #0d0d10;
+  gap: 3px;
+  background: var(--surface-subtle);
   border: 1px solid var(--border-strong);
   border-radius: 8px;
 }
 
+/* The chosen side's highlight slides between the two halves; it is drawn like a .choice-toggle
+   segment. Border-box, as the reset doesn't reach pseudo-elements: half the box less the padding
+   and half the gap, moved one width plus the gap. */
 .icon-choice::before {
   content: '';
   position: absolute;
   top: 3px;
   bottom: 3px;
   left: 3px;
-  width: calc(50% - 3px);
+  box-sizing: border-box;
+  width: calc(50% - 4.5px);
   background: var(--surface-raised);
   border: 1px solid var(--border-strong);
   border-radius: 5px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, .28);
   transition: transform .16s ease;
 }
 
-.icon-choice[data-position='1']::before { transform: translateX(100%); }
+.icon-choice[data-position='1']::before { transform: translateX(calc(100% + 3px)); }
 
 .icon-choice button {
   position: relative;
   z-index: 1;
-  min-height: 36px;
+  min-height: 32px;
   padding: 7px;
   display: flex;
   align-items: center;
@@ -825,7 +649,7 @@ textarea.field-input { min-height: 82px; }
   padding: 11px 12px 12px;
   display: grid;
   gap: 13px;
-  background: #0d0d10;
+  background: var(--surface-subtle);
   border: 1px solid var(--border);
   border-radius: 7px;
   transition: opacity .15s ease;
@@ -892,7 +716,7 @@ textarea.field-input { min-height: 82px; }
   border-top: 1px solid var(--border);
 }
 
-:is(.btn-save, .btn-mini, .btn-clear-key, .btn-clear-all, .btn-secondary, .btn-about) {
+:is(.btn-save, .btn-mini, .btn-clear-key, .btn-clear-all, .btn-about) {
   min-width: 0;
   min-height: 36px;
   padding: 8px 14px;
@@ -914,14 +738,13 @@ textarea.field-input { min-height: 82px; }
 }
 
 .btn-save {
-  background: var(--primary);
-  border-color: var(--primary);
+  background: var(--accent);
+  border-color: var(--accent);
   color: #fff;
 }
 
-.btn-save:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+.btn-save:hover { filter: brightness(1.1); }
 .btn-save:active,
-.btn-secondary:active,
 .btn-mini:active { transform: translateY(1px); }
 
 .btn-mini {
@@ -932,7 +755,6 @@ textarea.field-input { min-height: 82px; }
 }
 
 .btn-mini:hover,
-.btn-secondary:hover,
 .btn-about:hover {
   background: var(--surface-raised);
   border-color: #52525c;
@@ -940,16 +762,16 @@ textarea.field-input { min-height: 82px; }
 }
 
 .btn-clear-key { color: var(--danger); }
-.btn-clear-key:hover { background: rgba(159, 18, 57, .2); border-color: var(--danger); }
+.btn-clear-key:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); border-color: var(--danger); }
 
 .btn-clear-all {
-  border-color: var(--danger-fill);
+  border-color: var(--danger);
   color: var(--danger);
 }
 
 .btn-clear-all:hover {
-  background: var(--danger-fill);
-  border-color: var(--danger-fill);
+  background: var(--danger);
+  border-color: var(--danger);
   color: #fff;
 }
 
@@ -960,7 +782,7 @@ textarea.field-input { min-height: 82px; }
   font-weight: 500;
 }
 
-:is(.btn-save, .btn-mini, .btn-clear-key, .btn-clear-all, .btn-secondary):disabled {
+:is(.btn-save, .btn-mini, .btn-clear-key, .btn-clear-all):disabled {
   cursor: not-allowed;
   opacity: .5;
 }
@@ -997,8 +819,8 @@ textarea.field-input { min-height: 82px; }
 }
 
 .key-status-badge.set {
-  background: rgba(52, 211, 153, .08);
-  border-color: rgba(52, 211, 153, .28);
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+  border-color: color-mix(in srgb, var(--success) 28%, transparent);
   color: var(--success);
 }
 
@@ -1034,8 +856,11 @@ textarea.field-input { min-height: 82px; }
   align-items: center;
   justify-content: center;
   padding: 16px;
-  background: rgba(0, 0, 0, .72);
-  backdrop-filter: blur(3px);
+  background: var(--backdrop);
+  /* Holds the page still behind it while keeping the page's scrollbar in view: as a scroll
+     container that contains overscroll, no scroll started over the modal reaches the page. */
+  overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 .modal-backdrop.show { display: flex; }
@@ -1166,8 +991,6 @@ textarea.field-input { min-height: 82px; }
 
 .about-close:hover { background: var(--surface-raised); border-color: var(--border); color: var(--text); }
 
-html:has(.modal-backdrop.show) { overflow: hidden; }
-
 .about-scroll::-webkit-scrollbar { width: 5px; }
 .about-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
 
@@ -1261,7 +1084,7 @@ html:has(.modal-backdrop.show) { overflow: hidden; }
 .tcfg-field .field-input { width: 100%; }
 .tcfg-field.tcfg-check { flex-direction: row; align-items: center; }
 .tcfg-field.tcfg-check label { display: flex; align-items: flex-start; gap: 7px; color: var(--text); font-size: 11px; }
-.tcfg-field.tcfg-check input { margin-top: 2px; accent-color: var(--primary); }
+.tcfg-field.tcfg-check input { margin-top: 2px; accent-color: var(--accent); }
 .tcfg-textarea { resize: vertical; font-size: 11px; line-height: 1.5; }
 .modal-status { flex: 1 1 auto; text-align: right; }
 
@@ -1410,15 +1233,4 @@ html:has(.modal-backdrop.show) { overflow: hidden; }
   .settings-page { padding-inline: 8px; }
   .content { grid-template-columns: 84px minmax(0, 1fr); gap: 8px; }
   .nav-item { padding-inline: 6px; font-size: 9.5px; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-    transition-duration: .01ms !important;
-    animation-duration: .01ms !important;
-    animation-iteration-count: 1 !important;
-  }
 }

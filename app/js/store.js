@@ -75,7 +75,8 @@ function _lite(id, meta) {
   const tags = isSeries && Array.isArray(m.seriesTags) ? m.seriesTags : (m.tags || []);
   // All title variants are searchable, so a query matches whichever language the user typed.
   const title = [tt.english, tt.japanese, tt.pretty].filter(Boolean).join(' ');
-  return { id: String(id), title, tags };
+  // A partly translated gallery counts as translated.
+  return { id: String(id), title, tags, translated: !!m.translated, source: m.source || '', favorite: !!m.favorite };
 }
 
 // One page of galleries. Without `match`, sorting + pagination happen in the database
@@ -106,8 +107,8 @@ export async function getPage({ sort = 'updated', dir, page = 1, pageSize = 60, 
   return { items, total };
 }
 
-export async function mutate(gid, patch) {
-  return galleries.mutate(gid, patch);
+export async function mutate(gid, patch, opts) {
+  return galleries.mutate(gid, patch, opts);
 }
 
 export async function remove(gid) {

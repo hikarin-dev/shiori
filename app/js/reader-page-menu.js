@@ -21,20 +21,20 @@ export const pageMenuOpen = () => !!_open;
 export function openPageMenu(x, y, title, items) {
   close();
   const menu = document.createElement('div');
-  menu.className = 'page-menu';
+  menu.className = 'ctx-menu page-menu';
   menu.setAttribute('role', 'menu');
   const head = document.createElement('div');
-  head.className = 'page-menu-title';
+  head.className = 'ctx-menu-title';
   head.textContent = title;
   menu.append(head);
   for (const item of items) {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'page-menu-item';
+    button.className = 'ctx-menu-item';
     button.setAttribute('role', 'menuitem');
     button.disabled = !!item.disabled;
     const label = document.createElement('span');
-    label.className = 'page-menu-label';
+    label.className = 'ctx-menu-label';
     label.textContent = item.label;
     if (item.kbd) {
       const kbd = document.createElement('kbd');
@@ -44,7 +44,7 @@ export function openPageMenu(x, y, title, items) {
     button.append(label);
     if (item.detail) {
       const detail = document.createElement('span');
-      detail.className = 'page-menu-detail';
+      detail.className = 'ctx-menu-detail';
       detail.textContent = item.detail;
       button.append(detail);
     }
@@ -55,7 +55,7 @@ export function openPageMenu(x, y, title, items) {
   const m = menu.getBoundingClientRect();
   menu.style.left = `${Math.max(8, Math.min(innerWidth - m.width - 8, x))}px`;
   menu.style.top = `${Math.max(8, Math.min(innerHeight - m.height - 8, y))}px`;
-  const enabled = [...menu.querySelectorAll('.page-menu-item:not(:disabled)')];
+  const enabled = [...menu.querySelectorAll('.ctx-menu-item:not(:disabled)')];
   const outside = (e) => { if (!menu.contains(e.target)) close(); };
   const key = (e) => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); return; }

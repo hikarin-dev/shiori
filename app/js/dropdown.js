@@ -8,13 +8,14 @@
 // free-standing box marked data-fit-widest is held at its widest option's width instead: it
 // doesn't jump between picks, and every option fits the list.
 
-const ROW = 28;   // rough option row height (px) — only used to judge whether the list fits below
+const ROW = 28;        // rough option row height (px) — only used to judge whether the list fits below
+const MAX_ROWS = 8;   // the list shows at most this many options and scrolls the rest (dropdown.css)
 
 function place(e) {
   const sel = e.target.closest && e.target.closest('select');
   if (!sel) return;
   const r = sel.getBoundingClientRect(), below = innerHeight - r.bottom;
-  sel.classList.toggle('opens-up', below < sel.options.length * ROW + 10 && r.top > below);
+  sel.classList.toggle('opens-up', below < Math.min(sel.options.length, MAX_ROWS) * ROW + 10 && r.top > below);
 }
 
 // Measured by showing each option in turn — synchronous, so nothing paints in between and no
