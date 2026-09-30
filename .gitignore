@@ -24,3 +24,4 @@ node_modules/
 # Release artifacts
 shiori-v*.zip
 extension*.zip
+extension*.xpi
