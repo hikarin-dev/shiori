@@ -93,7 +93,16 @@ async function warmDeferredShell() {
 // every file again on every visit wrote about 1 MB per page load. The browser's HTTP cache is
 // bypassed too, so the check doesn't store a second copy there. A changed file is stored, and a
 // changed piece of code tells open pages a newer version is ready. Resolves true when it changed.
-async function revalidateEntry(cache, key, cached, target = key) {
+// The CDN in front of the hosted app keeps serving the previous copy of a file from some of its edge
+// servers for minutes after a push, and nothing a request sends gets past that (query strings and
+// no-cache are both answered from the edge's copy). A check answered by such an edge would store the
+// old file over the new one, and the next check the new one again — an "update ready" each time.
+// So a copy older than the one already held is never taken: files only move forward.
+const _olderThan = (a, b) => Date.parse(a) < Date.parse(b);   // false when either date is missing
+
+// `announce: false` stores a changed file without announcing it (the update being applied).
+async function revalidateEntry(cache, key, cached, target = key, { announce = true } = {}) {
+  const startedAt = Date.now();
   const etag = cached.headers.get('etag');
   const modified = cached.headers.get('last-modified');
   const headers = new Headers();
@@ -101,26 +110,39 @@ async function revalidateEntry(cache, key, cached, target = key) {
   if (modified) headers.set('If-Modified-Since', modified);
   const resp = await fetch(target, { headers, cache: 'no-store' });
   if (resp.status === 304 || !resp.ok || resp.type !== 'basic') return false;
+  if (_olderThan(resp.headers.get('last-modified'), modified)) return false;
   await cache.put(key, resp);
-  if (isCode(new URL(key).pathname)) announceUpdate();
+  // A check that began before an update was applied is covered by it: the pages reloaded with
+  // every file current, so announcing what it found would offer them the update they just got.
+  if (announce && startedAt > _appliedAt && isCode(new URL(key).pathname)) announceUpdate();
   return true;
 }
 
 let _announceTimer = null;
+let _appliedAt = 0;   // when an update was last applied (refreshShell for the pages' Update)
 function announceUpdate() {
   clearTimeout(_announceTimer);
-  _announceTimer = setTimeout(() => platform.control.send({ type: 'APP_UPDATE_AVAILABLE' }), 1500);
+  _announceTimer = setTimeout(async () => {
+    // Every file is brought up to date before the pages hear of it, so a reload — by the button or
+    // by hand — lands in the whole new version, not just the files this check happened to see.
+    await refreshShell({ announce: false }).catch(() => 0);
+    platform.control.send({ type: 'APP_UPDATE_AVAILABLE' });
+  }, 1500);
 }
 
-// Every cached file checked the same way, a few at a time. Returns how many changed.
-async function refreshShell() {
+// Every cached file checked the same way, a few at a time. Returns how many changed. Applying an
+// update (`announce: false`) brings everything current right before the pages reload, so it calls
+// off an announcement still waiting to go out and makes none of its own — either would reach the
+// reloaded pages and offer them the update they already have.
+async function refreshShell({ announce = true } = {}) {
+  if (!announce) { clearTimeout(_announceTimer); _appliedAt = Date.now(); }
   const cache = await caches.open(await cacheName());
   const requests = await cache.keys();
   let changed = 0;
   for (let i = 0; i < requests.length; i += 8) {
     await Promise.all(requests.slice(i, i + 8).map(async (request) => {
       const cached = await cache.match(request);
-      if (cached && await revalidateEntry(cache, request.url, cached).catch(() => false)) changed++;
+      if (cached && await revalidateEntry(cache, request.url, cached, request.url, { announce }).catch(() => false)) changed++;
     }));
   }
   return changed;
@@ -251,7 +273,7 @@ self.addEventListener('message', (e) => {
   if (d && d.__shioriWarmShell) { e.waitUntil(warmDeferredShell().catch(() => {})); return; }
   // Updating: every cached file brought up to date before the pages reload (answered on the port).
   if (d && d.__shioriRefreshShell) {
-    e.waitUntil(refreshShell().catch(() => 0).then((changed) => e.ports[0]?.postMessage({ changed })));
+    e.waitUntil(refreshShell({ announce: false }).catch(() => 0).then((changed) => e.ports[0]?.postMessage({ changed })));
     return;
   }
   // A page left open looks for a newer version now and then; a changed file announces it.
