@@ -2206,6 +2206,56 @@ function _stripJumpTo(n) {
   return true;
 }
 
+// A page step in the strip glides to the page's top with our own motion, not the browser's smooth
+// scroll: Chrome's starts again from a standstill every time the target moves, so a quick run of
+// steps (a spun wheel, a held key) crawled until the input stopped and only then caught up. The
+// glide is a critically damped spring: it sets off gently, keeps its speed when the target moves on
+// — so a run of steps gets going at once — and settles on the page without overshooting, the same
+// in every browser. Anyone else scrolling the page (the reader, a jump) takes over: the glide stops
+// as soon as the page isn't where it left it.
+const STRIP_GLIDE_RATE = 22;   // spring rate (1/s): one step is 95 % done in about 0.2 s
+let _glideEl = null, _glideRaf = null, _glideY = 0, _glideV = 0, _glideAt = null;
+
+function _stopStripGlide() {
+  cancelAnimationFrame(_glideRaf);
+  _glideRaf = null;
+  _glideEl = null;
+}
+
+function _glideStripTo(el) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { _stopStripGlide(); el.scrollIntoView(); return; }
+  _glideEl = el;
+  if (_glideRaf !== null) return;   // already under way: it heads for the new page from here
+  _glideY = window.scrollY;
+  _glideV = 0;
+  _glideAt = null;
+  _glideRaf = requestAnimationFrame(_stripGlideFrame);
+}
+
+function _stripGlideFrame(now) {
+  if (mode !== 'strip' || !_glideEl?.isConnected || Math.abs(window.scrollY - _glideY) > 2) { _stopStripGlide(); return; }
+  const max = document.documentElement.scrollHeight - window.innerHeight;
+  const target = Math.max(0, Math.min(max, window.scrollY + _glideEl.getBoundingClientRect().top - _pinOffset()));
+  const from = window.scrollY;
+  // The first frame counts as one frame: no clock says how long ago the glide was asked for (the
+  // next frame's timestamp can come before that moment in Chrome — the first step went backwards —
+  // and in Firefox the last frame drawn can be long past — it covered the whole page at once).
+  const dt = (_glideAt === null ? 1000 / 60 : Math.max(0, now - _glideAt)) / 1000;
+  _glideAt = now;
+  // The spring's exact motion over dt, however long the frame took: offset from the target, speed.
+  const k = STRIP_GLIDE_RATE, offset = from - target, carry = _glideV + k * offset, decay = Math.exp(-k * dt);
+  const next = (offset + carry * dt) * decay;
+  _glideV = (_glideV - k * carry * dt) * decay;
+  // Within a pixel: settle exactly on the page's top.
+  if (Math.abs(next) < 1) { window.scrollTo(0, target); _stopStripGlide(); return; }
+  window.scrollTo(0, target + next);
+  _glideY = window.scrollY;
+  // The last steps can be finer than the page scrolls by (a fraction of a pixel on a scaled display),
+  // and then it doesn't move at all: that close, settle on the page's top too.
+  if (_glideY === from && Math.abs(next) < 8) { window.scrollTo(0, target); _stopStripGlide(); return; }
+  _glideRaf = requestAnimationFrame(_stripGlideFrame);
+}
+
 function _scrollStripToPage(n) {
   if (!pages.length) return false;
   n = Math.max(1, Math.min(pages.length, n));
@@ -2213,7 +2263,7 @@ function _scrollStripToPage(n) {
   if (n <= _viewBase || n > _viewBase + _viewCount) return _stripJumpTo(n);
   const t = stripView.querySelector(`[data-page="${n}"]`);
   if (!t) return false;
-  t.scrollIntoView({ behavior: 'smooth' });
+  _glideStripTo(t);
   currentPage = n;
   updateCounter();
   highlightThumb(n - 1);
