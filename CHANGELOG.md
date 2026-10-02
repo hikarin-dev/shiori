@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.0.14 — 2026-10-03
+
+### Added
+
+- Shiori Desktop: **Settings → System** has an **Updates** section. **Check for updates** shows a newer version as it downloads, and **Restart to update** installs it once it's ready.
+- Shiori Desktop: **Developer mode** in **Settings → System** takes updates from builds made on your own computer (`npm run dev-update` in the desktop folder) instead of the published releases.
+
+### Changed
+
+- Shiori Desktop: **Settings → Desktop app** is now **Settings → System**.
+- Shiori Desktop: the title bar and the taskbar show just the page's name ("Library", "Settings"), without "Shiori" before it.
+
 ## v1.0.13 — 2026-10-03
 
 ### Added

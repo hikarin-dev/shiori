@@ -1,7 +1,7 @@
 {
   "name": "shiori-desktop",
   "productName": "Shiori",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "Shiori as a desktop app, with the library kept as files.",
   "private": true,
   "type": "module",
@@ -11,7 +11,8 @@
     "test": "node --test --test-force-exit tests/*.test.mjs",
     "stage": "node scripts/stage-ui.mjs",
     "pack": "node scripts/stage-ui.mjs && electron-builder --win --dir",
-    "dist": "node scripts/stage-ui.mjs && electron-builder --win"
+    "dist": "node scripts/stage-ui.mjs && electron-builder --win",
+    "dev-update": "node scripts/dev-update.mjs"
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
