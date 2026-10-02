@@ -3,6 +3,7 @@
 // a previous Shiori layout registered at the site root.
 
 import * as platform from './platform.js';
+import { capabilities } from './api.js';
 import { services } from './services.js';
 import { pollActiveTranslations } from './submit-job.js';
 import { applyTranslations } from './i18n.js';
@@ -66,8 +67,9 @@ const maintenanceReady = new Promise((resolve) => {
 });
 
 // Ordered one-time repairs, then the recurring sweeps. Both live in migrations.js — a step
-// records completion only after it actually succeeded, so a failed repair retries next boot.
-maintenanceReady.then(async () => {
+// records completion only after it actually succeeded, so a failed repair retries next boot. They
+// repair the library this browser keeps; a library kept by the desktop app looks after itself.
+if (capabilities.browserLibrary) maintenanceReady.then(async () => {
   const { runMigrations, runMaintenance } = await import('./migrations.js');
   await runMigrations(undefined, _updateReport());
   await runMaintenance();
@@ -105,7 +107,9 @@ maintenanceReady.then(() => {
     .catch(() => {});
 });
 
-if ('serviceWorker' in navigator) {
+// The desktop app's window is served by the app itself, always there while it runs, and its jobs
+// run in the window: it has no worker.
+if ('serviceWorker' in navigator && capabilities.browserLibrary) {
   // Retire the previous layout's worker, which was scoped to THIS app's /app/ directory — the
   // app now lives at the site root with a root-scoped worker (registered below; registering at
   // root replaces any stale root worker in place). Exact-scope match only: another app on this

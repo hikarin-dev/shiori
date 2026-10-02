@@ -26,6 +26,9 @@ function makeChannelHub(name) {
       for (const cb of [...local]) { try { cb(msg); } catch {} }
     },
     subscribe(cb) { local.add(cb); return () => local.delete(cb); },
+    // A message that reached this context on its own (the desktop library's connection): for this
+    // context's listeners only, since every other context receives it the same way.
+    receive(msg) { for (const cb of [...local]) { try { cb(msg); } catch {} } },
   };
 }
 
@@ -60,6 +63,7 @@ const _controlHub = makeChannelHub('shiori-control');
 export const control = {
   send(msg) { _controlHub.publish(msg); },
   on(cb) { return _controlHub.subscribe(cb); },
+  receive(msg) { _controlHub.receive(msg); },
 };
 
 // ── Live job status (translate / upload / download), live across every open context ───────
@@ -101,7 +105,7 @@ function _writesTx(fn) {
     const req = store.get(WRITES_KEY);
     req.onsuccess = () => { out = fn(req.result || { key: WRITES_KEY, total: 0, by: {} }); if (out) store.put(out); };
     t.oncomplete = () => resolve(out || req.result || { key: WRITES_KEY, total: 0, by: {} });
-    t.onerror = () => reject(t.error);
+    t.onerror = t.onabort = () => reject(t.error);
   }));
 }
 export const writes = {
@@ -150,7 +154,7 @@ export const jobs = {
         if (job.status === 'done') s.delete(key);
         else if (job.status === 'error' || job.status === 'cancelled') s.put({ key, ...job, seen: false });
         else s.put({ key, ...job });
-        t.oncomplete = res; t.onerror = res;
+        t.oncomplete = res; t.onerror = res; t.onabort = res;
       });
     } catch {}
     _jobsHub.publish(job);
@@ -163,7 +167,7 @@ export const jobs = {
       await new Promise((res) => {
         const t = db.transaction('jobs', 'readwrite');
         t.objectStore('jobs').delete(_jobKey({ gid, kind }));
-        t.oncomplete = res; t.onerror = res;
+        t.oncomplete = res; t.onerror = res; t.onabort = res;
       });
     } catch {}
   },
@@ -193,7 +197,7 @@ export async function clearJobsData() {
     await new Promise((res) => {
       const t = db.transaction(['jobs', 'pending', 'resume'], 'readwrite');
       for (const s of ['jobs', 'pending', 'resume']) t.objectStore(s).clear();
-      t.oncomplete = res; t.onerror = res;
+      t.oncomplete = res; t.onerror = res; t.onabort = res;
     });
   } catch {}
 }
@@ -213,7 +217,7 @@ export const jobsPending = {
       });
     } catch { return false; }
   },
-  async remove(key) { try { const db = await _jobsDb(); await new Promise(r => { const t = db.transaction('pending', 'readwrite'); t.objectStore('pending').delete(key); t.oncomplete = r; t.onerror = r; }); } catch {} },
+  async remove(key) { try { const db = await _jobsDb(); await new Promise(r => { const t = db.transaction('pending', 'readwrite'); t.objectStore('pending').delete(key); t.oncomplete = r; t.onerror = r; t.onabort = r; }); } catch {} },
   async all() { try { const db = await _jobsDb(); return await new Promise(r => { const q = db.transaction('pending', 'readonly').objectStore('pending').getAll(); q.onsuccess = () => r(q.result || []); q.onerror = () => r([]); }); } catch { return []; } },
 };
 
@@ -274,7 +278,7 @@ export const translateResume = {
         const q = t.objectStore('resume').get(String(gid));
         const c = t.objectStore('cursors').get(String(gid));
         t.oncomplete = () => r(_withCursor(q.result || null, c.result));
-        t.onerror = () => r(null);
+        t.onerror = t.onabort = () => r(null);
       });
     } catch { return null; }
   },

@@ -25,3 +25,8 @@ node_modules/
 shiori-v*.zip
 extension*.zip
 extension*.xpi
+
+# Desktop app build output (staged app files, installers)
+desktop/ui/
+desktop/build/
+desktop/dist/

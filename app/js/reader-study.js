@@ -9,7 +9,7 @@
 // Preferences (Settings -> Reader) live here too, pushed in by the reader when they load or
 // change, so every builder reads one copy instead of threading four arguments everywhere.
 
-import { listGalleryStudyRecords } from './db.js';
+import * as api from './api.js';
 import { textOutline } from './page-image.js';
 
 // page url -> { bg:Blob|null, bubbles:[{box,region,tr,src,rbox?,style?,furi?,shape?,text?:Blob}], page:{w,h}|null }
@@ -38,7 +38,7 @@ export const hasAnyStudy = () => _pageStudy.size > 0;
 // Blobs, turned into object URLs lazily when a bubble is first revealed.
 export async function loadStudyRecords(chapterIds) {
   for (const id of chapterIds) {
-    for (const rec of await listGalleryStudyRecords(id)) {
+    for (const rec of await api.derived.studyList(id)) {
       _pageStudy.set(rec.url, { bg: rec.bg, bubbles: rec.bubbles, page: rec.page, job: rec.job, translated: rec.translated });
     }
   }

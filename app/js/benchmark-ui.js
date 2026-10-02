@@ -1,7 +1,7 @@
 import { benchmarkGalleries, benchmarkSettings, benchmarkCapabilities,
   runBenchmark, lastBenchmarkReport, DEFAULT_MODELS } from './benchmark.js';
 import { MODEL_STAGES, benchmarkCases, benchmarkSummary, benchmarkCoverage } from './benchmark-core.js';
-import { coverPreviewGet } from './db.js';
+import * as api from './api.js';
 import { TIERS } from './page-size.js';
 import { formatBytes, formatCount, formatMegapixels } from './format.js';
 
@@ -126,7 +126,7 @@ function coverLoader(root) {
   const queue = [];
   let active = 0;
   const draw = async (canvas) => {
-    const blob = await coverPreviewGet(canvas.dataset.id).catch(() => null);
+    const blob = await api.covers.preview(canvas.dataset.id).catch(() => null);
     if (!blob) return;
     const w = Math.round(COVER_W * (devicePixelRatio || 1)), h = Math.round(COVER_H * (devicePixelRatio || 1));
     let bitmap;

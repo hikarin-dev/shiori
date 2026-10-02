@@ -322,6 +322,7 @@ body.card-dragging { user-select: none; cursor: grabbing; }
 /* A card's page count, size and tags keep a deeper grey than the app's secondary text, so the
    title stays the brightest line. */
 .card :is(.card-meta, .card-tags) { --muted: #6b6b80; }
+.card-missing { color: var(--danger); }
 /* Category tag switched off in Settings. */
 body.hide-card-category .card-tag.category { display: none; }
 

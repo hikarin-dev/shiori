@@ -12,15 +12,16 @@ class SilentBroadcastChannel {
 }
 globalThis.BroadcastChannel = SilentBroadcastChannel;
 
-const { mutateGallery, metaPut, tagCounts } = await import('../js/db.js');
+const api = await import('../js/api.js');
+const metaPut = api.meta.put, tagCounts = api.galleries.tagCounts;
 const { mergeIntoSeries } = await import('../js/series.js');
 
 const tag = (type, name) => ({ type, name, url: '' });
 
-await mutateGallery('10', { tags: [tag('tag', 'Big'), tag('artist', 'ann')], count: 1 });
-await mutateGallery('11', { tags: [tag('tag', 'big breasts'), tag('tag:female', 'big')], count: 1 });
-await mutateGallery('12', { tags: [tag('tag', 'big')], count: 1 });
-await mutateGallery('13', { tags: [tag('tag', 'big'), tag('artist', 'bob')], count: 1 });
+await api.galleries.create('10', { tags: [tag('tag', 'Big'), tag('artist', 'ann')] });
+await api.galleries.create('11', { tags: [tag('tag', 'big breasts'), tag('tag:female', 'big')] });
+await api.galleries.create('12', { tags: [tag('tag', 'big')] });
+await api.galleries.create('13', { tags: [tag('tag', 'big'), tag('artist', 'bob')] });
 await mergeIntoSeries('12', '13');
 await metaPut({ galleryId: '14', tags: [tag('tag', 'big')] });
 

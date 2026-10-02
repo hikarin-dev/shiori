@@ -3,7 +3,7 @@
 // the filters first, then the library's tags matching the word being typed — or, once inside a
 // filter, that filter's values, most used first. Plain words keep searching as they're typed.
 
-import { tagCounts } from './db.js';
+import * as api from './api.js';
 import { t } from './i18n.js';
 import { escHtml } from './sanitize.js';
 import { formatCompact } from './format.js';
@@ -149,7 +149,7 @@ const ICON_SEARCH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 
 async function _loadTags() {
   const seq = ++_tagsSeq;
-  const counts = await tagCounts();
+  const counts = await api.galleries.tagCounts();
   if (seq !== _tagsSeq) return;
   _tags = [...counts].map(([key, n]) => {
     const two = /^tag:(?:fe)?male:/.exec(key);

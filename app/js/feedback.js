@@ -1,6 +1,6 @@
 // Data-only feedback capture. Every page asset comes from the cached record: the images, the study
 // layers, and the page's pipeline data with the config and builds of the translation behind it.
-import { metaGet } from './db.js';
+import * as api from './api.js';
 import { translatedImage } from './page-image.js';
 import { zipCreate } from './zip.js';
 
@@ -52,7 +52,7 @@ export async function captureFeedback(record, displayed, display, primaryIndex) 
       const ref = await asset(masks[name], null);
       if (ref) pipeline.masks[name] = ref;
     }
-    translation = (await metaGet(record.galleryId))?.translations?.[record.pipeline.job] || null;
+    translation = (await api.meta.get(record.galleryId))?.translations?.[record.pipeline.job] || null;
     if (!Array.isArray(data.lines)) missing.add('pipeline');   // it names its translation but kept no steps
   } else {
     missing.add('pipeline');

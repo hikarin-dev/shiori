@@ -3,20 +3,21 @@
 // chapter from an existing gallery (autocomplete) or by dropping a file, and jump into any chapter.
 
 import './boot.js';
-import { getGallery, metaGet, dbGet, imageToBlob, listGalleryPageKeys, nextGalleryId, tagCounts } from './db.js';
+import * as api from './api.js';
 import * as store from './store.js';
 import * as platform from './platform.js';
 import { request as extRequest } from './ext-bridge.js';
 import { canDownload as _canDownload, updateSitesStatus as updateExtStatus, galleryLink, siteName } from './sites.js';
-import { resolveSeries, getSeriesChapters, mergeIntoSeries, removeChapter, reorderChapters, setChapterTitle, setSeriesTitle, setGalleryTitle, canDetachChapter } from './series.js';
+import { resolveSeries, getSeriesChapters, mergeIntoSeries, removeChapter, reorderChapters, setChapterTitle, setSeriesTitle, setGalleryTitle, canDetachChapter, chapterNumberLabel, chapterTally } from './series.js';
 import { t, getLang, applyTranslations } from './i18n.js';
 import { pickTitle, pickSeriesTitle, normalizeTitle, seriesTitleObject } from './titles.js';
 import { initTooltips, refreshTooltip, onModifiers } from './tooltip.js';
 import { initDropdowns } from './dropdown.js';
 import { formatBytes, formatCount, formatCompact, formatMegapixels } from './format.js';
 import { describePage } from './page-size.js';
+import { memberKind } from './gallery-model.js';
 import { escHtml } from './sanitize.js';
-import { resizeToWidth } from './image-util.js';
+import { resizeToWidth, imageToBlob } from './image-util.js';
 import { IMPORT_ACCEPT, groupImports, importBytes, isImportable, droppedImports } from './import-files.js';
 import { openRerunMenu } from './rerun-menu.js';
 import { confirmDialog, alertDialog } from './notice.js';
@@ -38,7 +39,7 @@ const TAG_ROWS = [
 const TAG_MARK = { 'tag:female': ' ♀', 'tag:male': ' ♂' };
 async function tagTableHtml(tags) {
   const list = (Array.isArray(tags) ? tags : []).filter((tg) => TAG_ROWS.some(([, types]) => types.includes(tg.type)));
-  const counts = list.length ? await tagCounts({ keys: list.map((tg) => tagKey(tg.type, tg.name)) }) : new Map();
+  const counts = list.length ? await api.galleries.tagCounts({ keys: list.map((tg) => tagKey(tg.type, tg.name)) }) : new Map();
   const rows = TAG_ROWS.map(([labelKey, types]) => [labelKey, types.flatMap((type) => list.filter((tg) => tg.type === type).map((tg) => {
     const n = counts.get(tagKey(type, tg.name));
     return `<a class="ov-chip" href="../?q=${encodeURIComponent(`${type}:"${tg.name}"`)}" data-type="${esc(type)}" data-name="${esc(tg.name)}">${esc(tg.name)}${TAG_MARK[type] || ''}${n ? `<span class="ov-chip-n">${formatCompact(n)}</span>` : ''}</a>`;
@@ -77,7 +78,7 @@ let _hero = null;
 // when it was posted and added, and whether it's translated. Each explains itself on hover; in
 // edit mode the category and rating open the tag editor like a tag.
 function heroMetaHtml(chapters) {
-  const { isSeries, owner, ownerMeta } = _hero;
+  const { isSeries, owner, ownerMeta, kind } = _hero;
   const tags = owner?.tags || [];
   const names = (type) => tags.filter((tg) => tg.type === type).map((tg) => tg.name).join(', ');
   const items = [];
@@ -86,17 +87,25 @@ function heroMetaHtml(chapters) {
   const category = names('category'), rating = names('rating');
   if (category) item(META_ICON.category, category, { tip: t('filter.category'), cls: 'cap', tag: 'category' });
   if (rating) item(META_ICON.rating, rating, { tip: t('filter.rating'), cls: 'cap', tag: 'rating' });
-  if (isSeries) item(META_ICON.chapters, `${formatCount(chapters.length)} ${t('ov.chapters')}`);
+  if (isSeries && kind === 'volume') {
+    item(META_ICON.chapters, `${formatCount(chapters.filter(c => memberKind(c) === 'volume').length)} ${t('ov.volumes')}`);
+  } else if (isSeries) {
+    const tally = chapterTally(chapters);
+    item(META_ICON.chapters, `${formatCount(tally.chapters)} ${t('ov.chapters')}${tally.extras ? ` · ${t('card.extras_n', { n: formatCount(tally.extras) })}` : ''}`);
+  }
   const count = chapters.reduce((s, c) => s + (c.entity?.count || 0), 0);
   const size = chapters.reduce((s, c) => s + (c.entity?.size || 0), 0);
   const orig = chapters.reduce((s, c) => s + (c.entity?.origSize || 0), 0);
   const total = !isSeries && owner?.numPages ? ` / ${formatCount(owner.numPages)}` : '';
   item(META_ICON.pages, `${formatCount(count)}${total} ${t('card.pages')}`,
     { tip: count ? t('card.tip_page_avg', { size: formatBytes(orig / count) }) : '' });
-  item(META_ICON.size, formatBytes(size));
+  // Hovering the size splits it, as the library card does: the original pages, and the rest.
+  item(META_ICON.size, formatBytes(size), { tip: t('lib.size_split', { orig: formatBytes(orig), rest: formatBytes(Math.max(0, size - orig)) }) });
   const page = describePage(isSeries ? owner?.aggMedianPage : owner?.medianPage);
   if (page) item(META_ICON.resolution, `${page.w}×${page.h}`, { tip: formatMegapixels(page.mp), badge: page.tier });
   if (!isSeries && owner?.translated) item(ICON.translate, t('ov.translated'), { cls: 'done' });
+  // A library kept as files says when a gallery's (or any member's) files can't be found.
+  if (chapters.some(c => c.entity?.missing)) item('', t('card.files_missing'), { cls: 'missing' });
   // The dates get a line of their own.
   const details = items.splice(0);
   const posted = Number(ownerMeta?.uploadDate) || Number(owner?.uploadDate) || 0;
@@ -439,7 +448,7 @@ async function _processPageQueue() {
     const width = _pageThumbWidth(img);
     let entry = _pageCacheGet(url), replaced = null;
     if (!entry || entry.width < width) {
-      const made = await _makePageThumb(url, width);
+      const made = await _makePageThumb(img, width);
       if (!made) return;
       ({ entry, replaced } = _pageCacheStore(url, made));
     }
@@ -458,8 +467,8 @@ async function _processPageQueue() {
   }
 }
 
-async function _makePageThumb(url, width) {
-  const rec = await dbGet(url).catch(() => null);
+async function _makePageThumb(img, width) {
+  const rec = await api.pages.get(img.dataset.gid, Number(img.dataset.pageNum)).catch(() => null);
   const fullBlob = await imageToBlob(rec?.blob ?? rec?.dataUrl);
   if (!fullBlob) return null;
   const blob = await _resizeInWorker(fullBlob, width);
@@ -518,7 +527,7 @@ function _resizeInWorker(blob, width) {
 async function buildPageGrid(container, gid) {
   if (!container || container.dataset.built) return;
   container.dataset.built = '1';
-  const keys = await listGalleryPageKeys(gid);
+  const keys = await api.pages.list(gid);
   if (!keys.length) { container.innerHTML = `<div class="ov-pages-empty">${esc(t('ov.no_pages'))}</div>`; return; }
   const frag = document.createDocumentFragment();
   for (const { pageNum, url } of keys) {
@@ -528,6 +537,7 @@ async function buildPageGrid(container, gid) {
     a.draggable = false;
     const img = document.createElement('img');
     img.alt = ''; img.decoding = 'async'; img.dataset.pageUrl = url;
+    img.dataset.gid = gid; img.dataset.pageNum = pageNum;
     _pageThumbImg.set(url, img);
     const num = document.createElement('span');
     num.className = 'ov-page-num';
@@ -579,25 +589,30 @@ function resizeTitleAreas(root = document) {
 // title is editable and multi-language — the app language decides which variant is shown/edited.
 async function render() {
   const content = $('ovContent');
-  const meta = await metaGet(ownerId);
+  const meta = await api.meta.get(ownerId);
   const series = await resolveSeries(ownerId);
   if (series) ownerId = series.ownerId;
-  const ownerEntity = await getGallery(ownerId);
+  const ownerEntity = await api.galleries.get(ownerId);
   if (!ownerEntity && !series) { content.innerHTML = `<div class="ov-empty">${esc(t('ov.not_found'))}</div>`; return; }
   const isSeries = !!series;
   clearCovers();
 
-  const chapters = isSeries
+  // A series lists one kind of member at a time — its chapters or its volumes — while its totals
+  // count them all.
+  const members = isSeries
     ? await getSeriesChapters(ownerId)
     : [{ id: ownerId, title: '', entity: ownerEntity }];
-  const totalPages = chapters.reduce((s, c) => s + (c.entity?.count || 0), 0);
+  const kind = isSeries ? shownKind(members) : 'chapter';
+  _shownKind = kind;
+  const chapters = isSeries ? members.filter(m => memberKind(m) === kind) : members;
+  const totalPages = members.reduce((s, c) => s + (c.entity?.count || 0), 0);
 
-  const ownerMeta = isSeries ? await metaGet(ownerId) : meta;
+  const ownerMeta = isSeries ? await api.meta.get(ownerId) : meta;
   const heading = isSeries
     ? (pickSeriesTitle(ownerMeta?.seriesTitle, ownerEntity, getLang()) || `#${ownerId}`)
     : (pickTitle(ownerEntity, getLang()) || `#${ownerId}`);
   const seriesFallback = pickTitle(ownerEntity, getLang()) || `#${ownerId}`;
-  const startHref = readerHref(chapters[0].id);
+  const startHref = readerHref((chapters[0] || members[0]).id);
 
   // Both a series and a standalone gallery expose an editable owner title in edit mode: a series
   // edits its multi-language seriesTitle, a standalone gallery edits its own `title` object.
@@ -606,7 +621,7 @@ async function render() {
   const titleControl = `<div class="series-title-wrap editable"><textarea class="series-title-input" id="${ownerTitleId}" rows="1" data-original="${esc(heading)}" data-fallback="${esc(seriesFallback)}" placeholder="${esc(titlePlaceholder)}">${esc(heading)}</textarea><a class="series-title-open" href="${startHref}" aria-label="${esc(heading)}"></a></div>`;
   const titles = isSeries ? (seriesTitleObject(ownerMeta?.seriesTitle) || normalizeTitle(ownerEntity)) : normalizeTitle(ownerEntity);
   const subtitle = altTitle(titles, heading);
-  _hero = { isSeries, owner: ownerEntity, ownerMeta, heading };
+  _hero = { isSeries, owner: ownerEntity, ownerMeta, heading, kind };
   const source = galleryLink(ownerEntity, 1);
   const sourceLink = source
     ? `<a class="ov-btn" href="${esc(source)}" target="_blank" rel="noopener noreferrer" data-tip="${esc(`${siteName(ownerEntity?.source)}: ${source}`)}">${ICON.open}<span>${esc(t('page.source'))}</span></a>`
@@ -614,7 +629,7 @@ async function render() {
   const editLabel = editMode ? t('ov.done_editing') : t('ov.edit');
   const addBar = `
     <div class="add-bar" id="addBar">
-      <h3 data-i18n="ov.add_chapter">Add chapter</h3>
+      <h3>${esc(t(kind === 'volume' ? 'ov.add_volume' : 'ov.add_chapter'))}</h3>
       <div class="add-search-wrap">
         <input class="add-search" id="addSearch" placeholder="${esc(t('ov.add_search_ph'))}" autocomplete="off" spellcheck="false">
         <div class="add-results" id="addResults"></div>
@@ -641,18 +656,28 @@ async function render() {
           <button class="ov-btn${editMode ? ' active' : ''}" id="editToggle" aria-pressed="${editMode ? 'true' : 'false'}">${editMode ? ICON.done : ICON.edit}<span>${esc(editLabel)}</span></button>
           ${sourceLink}
         </div>
-        <div class="ov-meta" id="ovMeta">${heroMetaHtml(chapters)}</div>
+        <div class="ov-meta" id="ovMeta">${heroMetaHtml(members)}</div>
         ${tagsHtml}
       </div>
     </section>
-    <h2 class="ov-section-title">${esc(isSeries ? t('ov.chapters') : t('card.pages'))}<span>${formatCount(isSeries ? chapters.length : totalPages)}</span></h2>
+    <h2 class="ov-section-title">${isSeries ? viewToggleHtml(kind) : esc(t('card.pages'))}<span>${formatCount(isSeries ? chapters.length : totalPages)}</span></h2>
     ${isSeries ? '<div class="ch-list" id="chList"></div>' : '<div class="ov-pages" id="ovPages"></div>'}
     ${addBar}`;
   content.classList.toggle('ov-editing', editMode);
+  for (const button of content.querySelectorAll('[data-view]')) {
+    button.addEventListener('click', () => {
+      if (button.classList.contains('active')) return;
+      _view = _forcedView = button.dataset.view;
+      platform.kv.set({ seriesView: _view });
+      render().catch(() => {});
+    });
+  }
 
   const coverPromise = coverUrl(ownerId, { preferSeries: isSeries, width: 480 });
   if (isSeries) {
     const list = $('chList');
+    // The number column fits the longest label (1084.5) so every row's thumbnail lines up.
+    list.style.setProperty('--ch-num-chars', String(Math.max(2, ...chapters.map((c, i) => String(chapterNumberLabel(c) ?? i + 1).length))));
     for (let i = 0; i < chapters.length; i++) list.appendChild(await chapterRow(chapters[i], i, chapters.length));
   } else {
     await buildPageGrid($('ovPages'), ownerId);
@@ -771,10 +796,12 @@ async function chapterRow(ch, idx, total) {
   if (e) _chapterRowEntities.set(row, e);
   const title = pickTitle(e, getLang()) || '';
   const href = readerHref(ch.id);
-  const displayTitle = ch.title || title || t('ov.chapter_n', { n: idx + 1 });
+  const num = chapterNumberLabel(ch) ?? idx + 1;
+  const nameKey = memberKind(ch) === 'volume' ? 'ov.volume_n' : 'ov.chapter_n';
+  const displayTitle = ch.title || title || t(nameKey, { n: num });
   const pageStr = e ? `${formatCount(e.count)}${e.numPages ? ` / ${formatCount(e.numPages)}` : ''} ${t('card.pages')}` : t('ov.missing');
   const translated = e?.translated ? `<span class="done">${esc(t('ov.translated'))}</span>` : '';
-  const fallbackTitle = title || t('ov.chapter_n', { n: idx + 1 });
+  const fallbackTitle = title || t(nameKey, { n: num });
   const titleControl = `
     <div class="ch-title-wrap">
       <span class="ch-title-sizer" aria-hidden="true">${esc(displayTitle)}</span>
@@ -811,11 +838,11 @@ async function chapterRow(ch, idx, total) {
     : '';
   row.innerHTML = `
     <div class="ch-head">
-      <div class="ch-num">${idx + 1}</div>
+      <div class="ch-num">${esc(num)}</div>
       ${thumbControl}
       <div class="ch-main">
         ${titleControl}
-        <div class="ch-meta"><span>#${esc(e?.sourceId || ch.id)}</span><span>${esc(pageStr)}</span>${translated}</div>
+        <div class="ch-meta"><span>#${esc(e?.sourceId || ch.id)}</span><span>${esc(pageStr)}</span>${translated}${e?.missing ? `<span class="missing">${esc(t('card.files_missing'))}</span>` : ''}</div>
         <div class="ch-progress">
           <div class="prog-track"><div class="prog-fill"></div></div>
           <span class="ch-prog-label"></span>
@@ -1026,6 +1053,19 @@ async function downloadOrReplaceChapter(ch, entity, ev, label) {
   if (!resp || resp.ok === false || resp.started === false) discardChapterJob(ch.id);
 }
 
+// Which members the series list shows: chapters or volumes, remembered for every series. A series
+// with none of the chosen kind shows the other, unless the choice was just made on this page.
+let _view = 'chapters', _forcedView = null, _shownKind = 'chapter';
+function shownKind(members) {
+  const want = (_forcedView || _view) === 'volumes' ? 'volume' : 'chapter';
+  if (_forcedView || members.some(m => memberKind(m) === want)) return want;
+  return members.some(m => memberKind(m) !== want) ? (want === 'volume' ? 'chapter' : 'volume') : want;
+}
+function viewToggleHtml(kind) {
+  return `<span class="ov-view-toggle" role="tablist">${[['chapters', 'chapter', 'ov.chapters'], ['volumes', 'volume', 'ov.volumes']]
+    .map(([view, k, key]) => `<button type="button" role="tab" class="ov-view${k === kind ? ' active' : ''}" data-view="${view}" aria-selected="${k === kind}">${esc(t(key))}</button>`).join('')}</span>`;
+}
+
 function visibleChapterIds() {
   return [...document.querySelectorAll('.ch-row[data-chapter-id]')].map(row => row.dataset.chapterId);
 }
@@ -1190,7 +1230,7 @@ async function refreshTags() {
 // an edit made here, whose change beacon is held back so the page isn't rebuilt around it.
 async function refreshHero() {
   if (!_hero) return;
-  const owner = await getGallery(ownerId);
+  const owner = await api.galleries.get(ownerId);
   if (!owner) return;
   updateHeaderSummary(_hero.isSeries ? await getSeriesChapters(ownerId) : [{ id: ownerId, title: '', entity: owner }]);
 }
@@ -1240,15 +1280,16 @@ async function refreshChangedChapter(gid, { rowOnly = false } = {}) {
     return;
   }
 
-  const meta = await metaGet(ownerId);
-  const order = (meta?.chapters || []).map(c => String(c.id));
+  const meta = await api.meta.get(ownerId);
+  const order = (meta?.chapters || []).filter(c => memberKind(c) === _shownKind).map(c => String(c.id));
   if (!sameOrder(order, visibleIds)) { if (!rowOnly) await render(); return; }
 
   const idx = order.indexOf(String(gid));
   if (idx < 0) return;
 
-  const chapters = await getSeriesChapters(ownerId);
-  updateHeaderSummary(chapters);
+  const members = await getSeriesChapters(ownerId);
+  updateHeaderSummary(members);
+  const chapters = members.filter(c => memberKind(c) === _shownKind);
 
   invalidateCover(gid);
   if (String(gid) === String(ownerId)) {
@@ -1267,14 +1308,18 @@ async function refreshChangedChapter(gid, { rowOnly = false } = {}) {
 }
 
 async function currentOrder() {
-  const meta = await metaGet(ownerId);
+  const meta = await api.meta.get(ownerId);
   return (meta?.chapters || []).map(c => String(c.id));
 }
+// Moves the shown row `idx` up or down among the members of its kind; the other kind keeps its
+// places in the series' order.
 async function move(idx, delta) {
-  const order = await currentOrder();
+  const refs = (await api.meta.get(ownerId))?.chapters || [];
+  const slots = refs.map((c, i) => [c, i]).filter(([c]) => memberKind(c) === _shownKind).map(([, i]) => i);
   const j = idx + delta;
-  if (j < 0 || j >= order.length) return;
-  [order[idx], order[j]] = [order[j], order[idx]];
+  if (j < 0 || j >= slots.length || idx >= slots.length) return;
+  const order = refs.map(c => String(c.id));
+  [order[slots[idx]], order[slots[j]]] = [order[slots[j]], order[slots[idx]]];
   await reorderChapters(ownerId, order);
   ownerId = order[0];   // head may have changed → ownership moved
   await render();
@@ -1284,7 +1329,7 @@ async function move(idx, delta) {
 let _removeTarget = null;
 function openRemove(ch, idx) {
   _removeTarget = ch;
-  $('removeMsg').textContent = t('ov.remove_msg', { n: idx + 1 });
+  $('removeMsg').textContent = t(memberKind(ch) === 'volume' ? 'ov.remove_vol_msg' : 'ov.remove_msg', { n: chapterNumberLabel(ch) ?? idx + 1 });
   $('removeModal').classList.add('open');
 }
 function closeRemove() { $('removeModal').classList.remove('open'); _removeTarget = null; }
@@ -1320,7 +1365,7 @@ async function doRemove(deleteImages) {
   }
 
   const series = await resolveSeries(ownerId);
-  const ownerExists = series ? true : !!(await getGallery(ownerId));
+  const ownerExists = series ? true : !!(await api.galleries.get(ownerId));
   if (series) ownerId = series.ownerId;
   else if (!ownerExists) {
     location.replace('../');
@@ -1412,10 +1457,10 @@ async function importChapters(files, folders = []) {
 // Import one group as a brand-new gallery, immediately attach it as the next chapter (so it appears
 // straight away and fills in as its pages import), then stage it for the durable runner.
 async function importAsChapter(group) {
-  const gid = nextGalleryId();   // the shared mint — per-context monotonic, never a raw Date.now()
-  const at = Number(gid);
+  const gid = api.newGalleryId();   // the shared mint — per-context monotonic, never a raw Date.now()
   const title = group.name.replace(/\.[^.]+$/, '');
-  await store.mutate(gid, { title, count: 0, size: 0, addedAt: at, latestAt: at, isLocalImport: true });
+  await api.galleries.create(gid, { title: { english: title, japanese: '', pretty: '' }, isLocalImport: true,
+    ...(_shownKind === 'volume' ? { kind: 'volume' } : {}) });
   try { await mergeIntoSeries(ownerId, gid, { title }); } catch (err) { chapterFailAlert(err); return; }
   beginChapterJob(gid, 'upload', t('prog.reading_file'));
   await render();
@@ -1490,6 +1535,7 @@ platform.jobs.subscribe(applyChapterJob);
   // the first render behind their timeouts.
   const availabilityProbe = updateExtStatus().catch(() => false);
   updateTranslatorStatus();
+  _view = (await platform.kv.get(['seriesView'])).seriesView === 'volumes' ? 'volumes' : 'chapters';
   const series = await resolveSeries(g);
   ownerId = series ? series.ownerId : g;
   const jobs = await platform.jobs.current();

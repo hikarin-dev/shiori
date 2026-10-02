@@ -8,241 +8,75 @@
 // other member's metadata carries `parentId` pointing back at the owner. db.js keeps a denormalized
 // aggregate (chapterCount / aggPages / aggSize) on the owner's stat record for O(1) card rendering.
 //
-// This module is the ONE place that keeps `chapters` and `parentId` in sync — every mutation ends
-// by refreshing the affected aggregate so open surfaces re-render.
+// What each change does is planned in series-plan.js and applied by the library in one
+// transaction, so `chapters`, every `parentId` and the series totals change together or not at all.
 
-import { metaGet, mutateGallery, deleteGallery, refreshSeriesAggregate, getGalleriesByIds } from './db.js';
-import { pickTitle, normalizeTitle, seriesTitleObject, editKeyForLang } from './titles.js';
+import * as api from './api.js';
+import { memberKind } from './gallery-model.js';
+import { normalizeTitle, seriesTitleObject, editKeyForLang } from './titles.js';
+export { RATINGS, unionTags, canDetachChapter } from './series-plan.js';
 
 const _id = (v) => String(v);
-const _tagKey = (t) => `${t.type}:${t.name}`.toLowerCase();
-const _seriesTagsOf = (m) => Array.isArray(m?.seriesTags) ? m.seriesTags : m?.tags;
-
-// Metadata-only chapter shells must stay inside their series: detached, they would become empty
-// top-level galleries with no useful reader context. A missing record remains detachable so stale
-// chapter references can still be pruned from an owner's list.
-export function canDetachChapter(entity) {
-  return !entity || Number(entity.count) > 0;
-}
-
-// Ratings from lowest to highest.
-export const RATINGS = ['safe', 'suggestive', 'erotica', 'pornographic'];
-const _ratingRank = (t) => RATINGS.indexOf(String(t.name).toLowerCase());
-
-// Union tag lists, de-duped by lower-cased `type:name` (the key db.js already indexes on). The
-// first occurrence of each tag wins, so any extra fields on the original tag object are preserved.
-// A series has one category and one rating, as a gallery does: the first category listed stays,
-// and the highest rating.
-export function unionTags(...lists) {
-  const seen = new Set();
-  const out = [];
-  for (const list of lists) {
-    for (const t of (list || [])) {
-      if (!t || t.type == null || t.name == null) continue;
-      const k = _tagKey(t);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      out.push(t);
-    }
-  }
-  const category = out.find(t => t.type === 'category');
-  const rating = out.filter(t => t.type === 'rating').reduce((top, t) => (!top || _ratingRank(t) > _ratingRank(top) ? t : top), null);
-  return out.filter(t => (t.type !== 'category' || t === category) && (t.type !== 'rating' || t === rating));
-}
 
 // Resolve the series any gallery belongs to. Returns null for a standalone gallery.
-// { ownerId, chapters:[{id,title}], seriesTitle, currentId } — `currentId` is the queried gallery.
-export async function resolveSeries(galleryId) {
-  const gid = _id(galleryId);
-  const meta = await metaGet(gid);
-  if (!meta) return null;
-  const ownerId = meta.parentId ? _id(meta.parentId) : gid;
-  const ownerMeta = meta.parentId ? await metaGet(ownerId) : meta;
-  if (!ownerMeta || !Array.isArray(ownerMeta.chapters) || ownerMeta.chapters.length < 2) return null;
-  return { ownerId, chapters: ownerMeta.chapters, seriesTitle: ownerMeta.seriesTitle || '', currentId: gid };
+// { ownerId, chapters:[{id,title,number?}], seriesTitle, currentId } — `currentId` is the queried gallery.
+export function resolveSeries(galleryId) {
+  return api.series.resolve(galleryId);
 }
 
-// Hydrated chapter list for the overview: each { id, title, entity } in series order. `entity` is
-// the full gallery entity (or null if the chapter's gallery has gone missing — rendered tolerantly).
-export async function getSeriesChapters(ownerId) {
-  const meta = await metaGet(_id(ownerId));
-  const chapters = Array.isArray(meta?.chapters) ? meta.chapters : [];
-  const entities = await getGalleriesByIds(chapters.map(c => c.id));
-  return chapters.map((c, i) => ({ id: _id(c.id), title: c.title || '', entity: entities[i] || null }));
+// Hydrated chapter list for the overview: each { id, title, number?, entity } in series order.
+// `entity` is the full gallery entity (or null if the chapter's gallery has gone missing — rendered
+// tolerantly).
+export function getSeriesChapters(ownerId) {
+  return api.series.chapters(ownerId);
 }
 
-// Merge `childId` into the series owned by `ownerId` as its next chapter (owner keeps its id).
-// If the child is itself a series, its chapters are flattened in and its members re-parented.
-// Tags from every absorbed gallery are unioned into the owner's `seriesTags`; chapter `tags` stay
-// chapter-local. `opts.title` overrides the default chapter title (the child's own gallery title).
-export async function mergeIntoSeries(ownerId, childId, opts = {}) {
-  ownerId = _id(ownerId); childId = _id(childId);
-  if (ownerId === childId) throw new Error('Cannot merge a gallery into itself');
-  const [ownerMeta, childMeta] = await Promise.all([metaGet(ownerId), metaGet(childId)]);
-  if (!ownerMeta) throw new Error('Target gallery not found');
-  if (!childMeta) throw new Error('Chapter gallery not found');
-  if (ownerMeta.parentId) throw new Error('Target is already a chapter of another series');
-  if (childMeta.parentId) throw new Error('That gallery is already part of a series');
-
-  const hadSeries = Array.isArray(ownerMeta.chapters) && ownerMeta.chapters.length > 0;
-  // Chapter one is titled the same way every other chapter is — from its own gallery title — so
-  // it still reads as a chapter once it is no longer the head (reorder, or absorbed into another
-  // series) and so surfaces that show the stored titles verbatim don't leave it blank.
-  const chapters = hadSeries ? ownerMeta.chapters.slice() : [{ id: ownerId, title: pickTitle(ownerMeta, 'en') || '' }];
-  const present = new Set(chapters.map(c => _id(c.id)));
-
-  const tagLists = [hadSeries ? _seriesTagsOf(ownerMeta) : ownerMeta.tags];
-  const childChapters = Array.isArray(childMeta.chapters) ? childMeta.chapters : null;
-
-  if (childChapters && childChapters.length > 1) {
-    const childSeriesTags = Array.isArray(childMeta.seriesTags) ? childMeta.seriesTags : null;
-    tagLists.push(childSeriesTags || childMeta.tags);
-    // Child is a series → absorb every member, re-parenting each to the new owner.
-    for (const c of childChapters) {
-      const cid = _id(c.id);
-      if (present.has(cid)) continue;
-      chapters.push({ id: cid, title: c.title || '' });
-      present.add(cid);
-      if (!childSeriesTags) {
-        const cm = await metaGet(cid);
-        if (cm) tagLists.push(cm.tags);
-      }
-      if (cid !== childId) await mutateGallery(cid, { parentId: ownerId });
-    }
-    // The former sub-owner is now a plain chapter — clear its owner-only fields.
-    await mutateGallery(childId, { chapters: null, seriesTitle: '', seriesTags: null });
-  } else {
-    const title = opts.title != null ? opts.title : (pickTitle(childMeta, 'en') || '');
-    chapters.push({ id: childId, title });
-    tagLists.push(childMeta.tags);
-  }
-
-  const patch = { chapters, seriesTags: unionTags(...tagLists) };
-  // Converting a standalone gallery into a series: seed the series title from the owner's own title
-  // so every source language it had (english/japanese/pretty) is preserved and editable.
-  if (!hadSeries && !ownerMeta.seriesTitle) patch.seriesTitle = normalizeTitle(ownerMeta);
-  await mutateGallery(ownerId, patch);
-  await mutateGallery(childId, { parentId: ownerId });
-  await refreshSeriesAggregate(ownerId);
+// A chapter's own number from its source (a chapter-list entry's `number`: 23.5, "10.5", 0) as a
+// label, decimals kept; null when the source gave none — a series merged by hand — so callers fall
+// back to the chapter's position. Never a position: an extra (23.5) would shift every later one.
+export function chapterNumberLabel(chapter) {
+  const raw = chapter?.number;
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? String(Math.round(n * 1000) / 1000) : (String(raw).trim() || null);
 }
 
-// Establish `newChapters` (already in final order) as a series owned by newChapters[0], migrating
-// ownership off `oldOwnerId` if the head changed. Dissolves to standalone when < 2 chapters remain.
-async function _writeSeries(oldOwnerId, newChapters) {
-  oldOwnerId = _id(oldOwnerId);
-  const owner = newChapters[0] ? _id(newChapters[0].id) : null;
-  const prevMeta = await metaGet(oldOwnerId);
-  // A new head takes over the series' favorite, as it does its title and tags, and the old head
-  // gives it up — the card that stands for the series stays favorited (or not).
-  const handover = !!owner && owner !== oldOwnerId;
-  const takeFavorite = handover ? { favorite: !!prevMeta?.favorite } : {};
-  const dropFavorite = handover ? { favorite: false } : {};
-
-  if (!owner || newChapters.length < 2) {
-    if (owner) await mutateGallery(owner, { chapters: null, seriesTitle: '', seriesTags: null, parentId: null, ...takeFavorite });
-    if (oldOwnerId !== owner) {
-      await mutateGallery(oldOwnerId, { chapters: null, seriesTitle: '', seriesTags: null, parentId: null, ...dropFavorite });
-      await refreshSeriesAggregate(oldOwnerId);
-    }
-    if (owner) await refreshSeriesAggregate(owner);
-    return;
+// How many chapters a series has, counted as readers count them: each whole-numbered chapter once,
+// the extras apart — the decimal ones (23.5) and a chapter 0 (a prologue or one-shot ahead of the
+// story). A chapter without a number counts as a chapter; volumes aren't chapters.
+export function chapterTally(chapters) {
+  const wholes = new Set();
+  let unnumbered = 0, extras = 0;
+  for (const c of chapters || []) {
+    if (memberKind(c) === 'volume') continue;
+    const n = c?.number == null || c.number === '' ? NaN : Number(c.number);
+    if (!Number.isFinite(n)) unnumbered++;
+    else if (Number.isInteger(n) && n !== 0) wholes.add(n);
+    else extras++;
   }
-
-  await mutateGallery(owner, {
-    chapters: newChapters,
-    seriesTitle: prevMeta?.seriesTitle || '',
-    seriesTags: _seriesTagsOf(prevMeta),
-    parentId: null,
-    ...takeFavorite,
-  });
-  for (const c of newChapters) {
-    if (_id(c.id) === owner) continue;
-    await mutateGallery(c.id, { parentId: owner });
-  }
-  if (oldOwnerId !== owner) {
-    const stillPresent = newChapters.some(c => _id(c.id) === oldOwnerId);
-    await mutateGallery(oldOwnerId, stillPresent
-      ? { chapters: null, seriesTitle: '', seriesTags: null, ...dropFavorite }              // demoted to a plain chapter
-      : { chapters: null, seriesTitle: '', seriesTags: null, parentId: null, ...dropFavorite }); // removed entirely → standalone
-    await refreshSeriesAggregate(oldOwnerId);
-  }
-  await refreshSeriesAggregate(owner);
+  return { chapters: wholes.size + unnumbered, extras };
 }
 
-// Remove one chapter from a series. `deleteImages` deletes the chapter's gallery outright;
-// otherwise it detaches and returns to the top-level library as a standalone gallery. Removing the
-// owner (chapter 1) promotes the next chapter to owner; dropping below 2 chapters dissolves the
-// series (the survivor becomes standalone).
-export async function removeChapter(ownerId, childId, { deleteImages = false } = {}) {
-  ownerId = _id(ownerId); childId = _id(childId);
-  const ownerMeta = await metaGet(ownerId);
-  // Orphaned chapter: its owner is gone (or is no longer a series), so there is no chapter list to
-  // update. Act on the chapter alone — delete it outright, or detach it into a standalone gallery —
-  // clearing its dangling parentId so no trail of the vanished series remains.
-  if (!ownerMeta || !Array.isArray(ownerMeta.chapters)) {
-    if (deleteImages) { await deleteGallery(childId); return true; }
-    const [child] = await getGalleriesByIds([childId]);
-    if (child) await mutateGallery(childId, { parentId: null });
-    return true;
-  }
-  const remaining = ownerMeta.chapters.filter(c => _id(c.id) !== childId);
-  let child = null;
-
-  if (!deleteImages) {
-    [child] = await getGalleriesByIds([childId]);
-    if (!canDetachChapter(child)) return false;
-  }
-
-  if (childId === ownerId) {
-    // Removing the owner: re-own the remainder (or dissolve), then detach/delete the old owner.
-    await _writeSeries(ownerId, remaining);
-    if (deleteImages) await deleteGallery(ownerId);
-    return;
-  }
-
-  if (deleteImages) await deleteGallery(childId);
-  else {
-    // A series can contain a stale chapter id whose gallery record is already gone. Detaching that
-    // should only prune the owner's chapter list; writing parentId:null would create an empty
-    // top-level gallery shell.
-    if (child) await mutateGallery(childId, { parentId: null });
-  }
-
-  if (remaining.length < 2) {
-    await _writeSeries(ownerId, remaining);   // dissolve — owner reverts to standalone
-  } else {
-    await mutateGallery(ownerId, { chapters: remaining });
-    await refreshSeriesAggregate(ownerId);
-  }
-  return true;
+// Merge `childId` into the series owned by `ownerId` as its next chapter (the owner keeps its id).
+// A child that is itself a series is flattened in. `opts.title` overrides the chapter title.
+export function mergeIntoSeries(ownerId, childId, opts = {}) {
+  return api.series.attach(ownerId, childId, opts);
 }
 
-// Persist a new chapter order (ids in the desired order). If the head changes, ownership moves.
-export async function reorderChapters(ownerId, orderedIds) {
-  ownerId = _id(ownerId);
-  const ownerMeta = await metaGet(ownerId);
-  if (!ownerMeta || !Array.isArray(ownerMeta.chapters)) return;
-  const byId = new Map(ownerMeta.chapters.map(c => [_id(c.id), c]));
-  const next = orderedIds.map(id => byId.get(_id(id))).filter(Boolean);
-  // Keep any chapter the caller forgot to list, appended in existing order (defensive).
-  for (const c of ownerMeta.chapters) if (!orderedIds.map(_id).includes(_id(c.id))) next.push(c);
-  if (next.length < 2) return;
-
-  if (_id(next[0].id) === ownerId) {
-    await mutateGallery(ownerId, { chapters: next });
-    await refreshSeriesAggregate(ownerId);
-  } else {
-    await _writeSeries(ownerId, next);   // head changed → transfer ownership
-  }
+// Remove one chapter from a series: `deleteImages` deletes its gallery, otherwise it becomes a
+// standalone gallery again. Resolves false when it can't be detached (a chapter with no pages).
+export function removeChapter(ownerId, childId, { deleteImages = false } = {}) {
+  return api.series.remove(ownerId, childId, { deleteImages });
 }
 
-// Set one chapter's optional title.
-export async function setChapterTitle(ownerId, chapterId, title) {
-  ownerId = _id(ownerId); chapterId = _id(chapterId);
-  const ownerMeta = await metaGet(ownerId);
-  if (!ownerMeta || !Array.isArray(ownerMeta.chapters)) return;
-  const chapters = ownerMeta.chapters.map(c => _id(c.id) === chapterId ? { ...c, title: title || '' } : c);
-  await mutateGallery(ownerId, { chapters });
+// A new chapter order (ids in the desired order). If the head changes, ownership moves.
+export function reorderChapters(ownerId, orderedIds) {
+  return api.series.reorder(ownerId, orderedIds);
+}
+
+// One chapter's optional title.
+export function setChapterTitle(ownerId, chapterId, title) {
+  return api.series.setChapterTitle(ownerId, chapterId, title);
 }
 
 // Set the series title for the given app language (Japanese UI edits `japanese`, everything else
@@ -250,10 +84,10 @@ export async function setChapterTitle(ownerId, chapterId, title) {
 // the matching variant with an English fallback.
 export async function setSeriesTitle(ownerId, langCode, value) {
   ownerId = _id(ownerId);
-  const meta = await metaGet(ownerId);
+  const meta = await api.meta.get(ownerId);
   const cur = seriesTitleObject(meta?.seriesTitle) || { english: '', japanese: '', pretty: '' };
   cur[editKeyForLang(langCode)] = value || '';
-  await mutateGallery(ownerId, { seriesTitle: cur });
+  await api.galleries.mutate(ownerId, { seriesTitle: cur });
 }
 
 // Set a standalone gallery's OWN title for the given app language — the mirror of setSeriesTitle
@@ -261,8 +95,8 @@ export async function setSeriesTitle(ownerId, langCode, value) {
 // languages are preserved.
 export async function setGalleryTitle(galleryId, langCode, value) {
   galleryId = _id(galleryId);
-  const meta = await metaGet(galleryId);
+  const meta = await api.meta.get(galleryId);
   const cur = normalizeTitle(meta);
   cur[editKeyForLang(langCode)] = value || '';
-  await mutateGallery(galleryId, { title: cur });
+  await api.galleries.mutate(galleryId, { title: cur });
 }

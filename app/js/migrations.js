@@ -56,6 +56,38 @@ export const STEPS = [
       if (filled) console.log(`[shiori] backfilled uploadDate for ${filled} galleries`);
     },
   },
+  {
+    id: 'seriesPageSizes',
+    // A series' typical page became the median of all its chapters' pages: tally the page sizes of
+    // every series' chapters once, then work each series' typical page out again.
+    async run(progress) {
+      const { galleryGetAll, refreshMedianPage, refreshSeriesAggregate, publishFeed } = await import('./db.js');
+      const stats = await galleryGetAll();
+      const members = stats.filter(g => (g.parentId || g.chapterCount != null) && g.count > 0 && !Array.isArray(g.pageSizes));
+      const owners = new Set(stats.filter(g => g.chapterCount != null).map(g => String(g.galleryId)));
+      for (const [i, g] of members.entries()) {
+        await refreshMedianPage(g.galleryId);
+        progress(i + 1, members.length);
+      }
+      for (const owner of owners) { await refreshSeriesAggregate(owner, { silent: true }); publishFeed(owner); }
+      if (members.length) console.log(`[shiori] measured the pages of ${members.length} series chapters`);
+    },
+  },
+  {
+    id: 'uploadDatesInSeconds',
+    // Published dates are Unix seconds. Some arrived in milliseconds: they showed as a date tens of
+    // thousands of years away and sorted ahead of everything under "Published date".
+    async run(progress) {
+      const api = await import('./api.js');
+      const late = (await api.meta.all()).filter(m => Number(m.uploadDate) >= 1e12);
+      for (const [i, m] of late.entries()) {
+        await api.galleries.mutate(m.galleryId, { uploadDate: m.uploadDate }, { touch: false, silent: true });
+        api.events.announce(m.galleryId);
+        progress(i + 1, late.length);
+      }
+      if (late.length) console.log(`[shiori] corrected the published date of ${late.length} galleries`);
+    },
+  },
 ];
 
 // Legacy per-repair flags. A profile that already ran them must not run them again.

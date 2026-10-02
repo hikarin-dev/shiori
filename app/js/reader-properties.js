@@ -3,7 +3,7 @@
 // where a new translation would start), what each pipeline step saved and how big it is, its study
 // layers and its text — plus all of it as JSON, so nothing has to be dug out of an export.
 
-import { dbGet, metaGet } from './db.js';
+import * as api from './api.js';
 import { kv } from './platform.js';
 import { t, getLang } from './i18n.js';
 import { formatBytes, formatCount } from './format.js';
@@ -156,7 +156,8 @@ let _dialog = null;
 export const propertiesOpen = () => !!_dialog?.open;
 export function closePageProperties() { _dialog?.close(); }
 
-// `page`: { url, number, total, chapter } — chapter is a label for a series, else null.
+// `page`: { gid, pageNum, url, number, total, chapter } — gid and pageNum say which stored page it
+// is; chapter is a label for a series, else null.
 export async function openPageProperties(page) {
   closePageProperties();
   const dialog = _dialog = node('dialog', 'pp-dialog');
@@ -194,10 +195,10 @@ export async function openPageProperties(page) {
   });
   dialog.showModal();
 
-  const record = await dbGet(page.url).catch(() => null);
+  const record = await api.pages.get(page.gid, page.pageNum).catch(() => null);
   if (!dialog.open) return;
   if (!record) { body.replaceChildren(node('p', 'pp-note', t('page.not_stored'))); return; }
-  const meta = await metaGet(record.galleryId).catch(() => null);
+  const meta = await api.meta.get(record.galleryId).catch(() => null);
   const masks = record.pipeline?.masks || {};
   const [original, translated, raw, text, bg, layer] = await Promise.all([record.blob, record.translated, masks.raw, masks.text,
     record.studyBg, (record.bubbles || []).find(b => b.text instanceof Blob)?.text].map(inspectImage));
@@ -219,7 +220,7 @@ export async function openPageProperties(page) {
   const again = body.querySelector('[data-again]');
   if (!again) return;
   const settings = (await kv.get('translateSettings')).translateSettings;
-  const preview = await previewPagePlans(record.galleryId, page.url, settings).catch(() => ({ unavailable: 'offline' }));
+  const preview = await previewPagePlans(record.galleryId, record.pageNum, settings).catch(() => ({ unavailable: 'offline' }));
   if (!dialog.open) return;
   if (preview.unavailable) { again.replaceChildren(_rows([[t('page.again'), t(`page.again_${preview.unavailable}`)]])); return; }
   again.replaceChildren(_rows([

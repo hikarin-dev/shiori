@@ -1,7 +1,7 @@
-import { galleryGetAll, metaGetAll, listGalleryPageKeys, dbGet, imageToBlob, isSeriesMeta } from './db.js';
+import * as api from './api.js';
+import { imageToBlob } from './image-util.js';
 import { kv, jobsPending, translateResume } from './platform.js';
 import { pickTitle } from './titles.js';
-import { describePage } from './page-size.js';
 import { buildConfig, migrateTranslateSettings, batchCap, stageOf } from './translate-config.js';
 import { BENCHMARK_LOCK, MODEL_STAGES, benchmarkCases, samplePages, parseBenchmarkFrames, benchmarkSummary, distribution } from './benchmark-core.js';
 
@@ -22,12 +22,9 @@ const sleep = (ms, signal) => new Promise((resolve, reject) => {
 // Every standalone gallery with stored pages — no series or their chapters — smallest typical page
 // first (page-size.js); not yet measured last.
 export async function benchmarkGalleries() {
-  const [galleries, metas] = await Promise.all([galleryGetAll(), metaGetAll()]);
-  const byId = new Map(metas.map(m => [String(m.galleryId), m]));
-  const inSeries = (g, meta) => g.parentId || meta?.parentId || isSeriesMeta(meta);
-  return galleries.filter(g => g.count > 0 && !inSeries(g, byId.get(String(g.galleryId))))
-    .map(g => ({ id: String(g.galleryId), title: pickTitle(byId.get(String(g.galleryId)), 'en') || String(g.galleryId),
-      pages: g.count, bytes: g.origSize ?? g.size ?? 0, page: describePage(g.medianPage) }))
+  const galleries = await api.galleries.page({ sort: 'id', limit: Infinity, merge: false });
+  return galleries.filter(g => g.count > 0 && !g.parentId && !g.isSeries)
+    .map(g => ({ id: g.id, title: pickTitle(g, 'en') || g.id, pages: g.count, bytes: g.origSize, page: g.medianPage }))
     .sort((a, b) => (a.page?.mp ?? Infinity) - (b.page?.mp ?? Infinity) || a.title.localeCompare(b.title));
 }
 
@@ -44,12 +41,12 @@ export async function benchmarkCapabilities(settings) {
 }
 
 export async function inspectBenchmarkGallery(id, { limit = 0, signal } = {}) {
-  const keys = await listGalleryPageKeys(id);
+  const keys = await api.pages.list(id);
   if (!keys.length) throw new Error(`Gallery ${id} has no stored pages`);
   const pages = [];
   for (const key of samplePages(keys, limit)) {
     check(signal);
-    const rec = await dbGet(key.url);
+    const rec = await api.pages.get(id, key.pageNum);
     const blob = await imageToBlob(rec?.blob ?? rec?.dataUrl);
     if (!blob) throw new Error(`Gallery ${id}, page ${key.pageNum}: original missing`);
     const bitmap = await createImageBitmap(blob);
@@ -163,7 +160,7 @@ async function executeBenchmark(options, { signal, onProgress, onReport }) {
   const run = async (caseIndex, gallery, phase, repetition, resolved, config) => {
     await pace();
     const before = await waitIdle();
-    const keys = await listGalleryPageKeys(gallery.id), byPage = new Map(keys.map(k => [k.pageNum, k]));
+    const stored = new Set((await api.pages.list(gallery.id)).map(k => k.pageNum));
     // Warm a few interior pages; a cover alone may never exercise OCR or rendering.
     const interior = gallery.pages.length > 2 ? gallery.pages.slice(1, -1) : gallery.pages;
     const selected = phase === 'warmup' ? samplePages(interior, opts.warmupPages) : gallery.pages;
@@ -179,7 +176,7 @@ async function executeBenchmark(options, { signal, onProgress, onReport }) {
     const prepStart = now(), blobs = [];
     for (const page of selected) {
       check(signal);
-      const rec = await dbGet(byPage.get(page.page)?.url);
+      const rec = stored.has(page.page) ? await api.pages.get(gallery.id, page.page) : null;
       const blob = await imageToBlob(rec?.blob ?? rec?.dataUrl);
       if (!blob || blob.size !== page.bytes) throw new Error('Corpus changed during benchmark');
       const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());

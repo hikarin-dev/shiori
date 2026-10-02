@@ -12,7 +12,8 @@ class SilentBroadcastChannel {
 }
 globalThis.BroadcastChannel = SilentBroadcastChannel;
 
-const { mutateGallery, metaGet } = await import('../js/db.js');
+const api = await import('../js/api.js');
+const mutateGallery = api.galleries.mutate, metaGet = api.meta.get;
 const { mergeIntoSeries } = await import('../js/series.js');
 
 const titled = (english, japanese = '') => ({ title: { english, japanese, pretty: '' } });
@@ -74,7 +75,10 @@ test('a merged series keeps one category, the first, and its highest rating', as
 });
 
 test('the series favorite moves with the first chapter: reordered, removed, dissolved', async () => {
-  for (const id of ['FAV1', 'FAV2', 'FAV3']) await mutateGallery(id, { ...titled(id), count: 1 });
+  for (const id of ['FAV1', 'FAV2', 'FAV3']) {   // galleries with a page each
+    await api.galleries.create(id, titled(id));
+    await api.pages.put(id, 1, new Blob([new Uint8Array([1])], { type: 'image/webp' }));
+  }
   await mergeIntoSeries('FAV1', 'FAV2');
   await mergeIntoSeries('FAV1', 'FAV3');
   await mutateGallery('FAV1', { favorite: true });

@@ -3,7 +3,7 @@
 // tags already in the library, most used first; a type with a fixed vocabulary is picked from a list.
 
 import * as store from './store.js';
-import { getGallery, tagCounts } from './db.js';
+import * as api from './api.js';
 import { RATINGS } from './series.js';
 import { t, getLang } from './i18n.js';
 import { escHtml } from './sanitize.js';
@@ -72,7 +72,7 @@ const _standsFor = (tag) => (tg) => tg.type === tag.type && (SINGLE.has(tag.type
 // Re-read the gallery and store edit(tags) as its tag list, unless that changes nothing. Returns
 // whether it wrote.
 async function updateTags(gid, edit, beforeWrite) {
-  const g = await getGallery(gid);
+  const g = await api.galleries.get(gid);
   if (!g) return false;
   const tags = Array.isArray(g.tags) ? g.tags : [];
   const next = edit(tags);
@@ -211,7 +211,7 @@ async function _loadSuggestions(type) {
   _suggest.type = type;
   _suggest.all = [];
   const prefix = `${type}:`;
-  const counts = await tagCounts({ prefix });
+  const counts = await api.galleries.tagCounts({ prefix });
   if (seq !== _suggest.seq) return;
   for (const [key, n] of counts) {
     const name = key.slice(prefix.length);
@@ -309,7 +309,7 @@ function _done(changed) {
 export async function openTagEditor(gid, { tag = null, beforeWrite = null } = {}) {
   if (!_el) _build();
   _done(false);
-  const g = await getGallery(gid);
+  const g = await api.galleries.get(gid);
   return new Promise((resolve) => {
     _state = { gid: String(gid), edit: tag, have: Array.isArray(g?.tags) ? g.tags : [], beforeWrite, resolve };
     _texts();

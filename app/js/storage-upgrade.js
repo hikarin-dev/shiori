@@ -9,11 +9,11 @@ import * as platform from './platform.js';
 import { t } from './i18n.js';
 import { formatBytes, formatCount } from './format.js';
 import { ask, showProgress } from './notice.js';
-import { storageLayoutStatus, convertStorage, getStats, metaGetAll, metaGet, mutateGallery } from './db.js';
+import * as api from './api.js';
 
 // { pages, converted, remaining, bytes }: bytes estimates what converting the rest writes.
 export async function storageEstimate() {
-  const [status, stats] = await Promise.all([storageLayoutStatus(), getStats()]);
+  const [status, stats] = await Promise.all([api.maintenance.storageLayout.status(), api.galleries.stats()]);
   const bytes = status.pages ? Math.round(stats.totalSize * status.remaining / status.pages) : 0;
   return { ...status, bytes };
 }
@@ -25,7 +25,7 @@ export async function convertNow() {
   const modal = showProgress({ title: t('storage.converting'), body: t('storage.converting_body'),
     stopLabel: t('storage.stop'), onStop: () => { stop = true; } });
   try {
-    const done = await convertStorage({
+    const done = await api.maintenance.storageLayout.convert({
       stopped: () => stop,
       onProgress: ({ phase, done, total }) => modal.update(done, total,
         t(phase === 'covers' ? 'storage.covers_progress' : 'storage.pages_progress', { done: formatCount(done), total: formatCount(total) })),
@@ -69,7 +69,7 @@ const CLASS_TYPES = new Set(['category', 'rating']);
 
 // Galleries that hold source details but no rating yet.
 export async function classifyPending() {
-  const metas = await metaGetAll();
+  const metas = await api.meta.all();
   return metas
     .filter(m => m.source && m.sourceMetadata && !m.isStub && !(m.tags || []).some(tg => tg?.type === 'rating'))
     .map(m => ({ id: String(m.galleryId), source: m.source }));
@@ -85,13 +85,13 @@ async function _applyClassTags(gid, tags) {
   const add = (tags || []).filter(tg => CLASS_TYPES.has(tg?.type) && tg.name)
     .map(tg => ({ type: tg.type, name: String(tg.name), url: '' }));
   if (!add.length) return;
-  const meta = await metaGet(gid);
+  const meta = await api.meta.get(gid);
   if (!meta) return;
   const types = new Set(add.map(tg => tg.type));
   const merge = (list) => [...add, ...(list || []).filter(tg => !types.has(tg?.type))];
   const patch = { tags: merge(meta.tags) };
   if (Array.isArray(meta.seriesTags)) patch.seriesTags = merge(meta.seriesTags);
-  await mutateGallery(gid, patch, { touch: false });
+  await api.galleries.mutate(gid, patch, { touch: false });
 }
 
 // Update every pending gallery behind a progress modal; Stop keeps what's done. Resolves the

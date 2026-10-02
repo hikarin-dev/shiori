@@ -3,9 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test app/tests/*.test.mjs"
+    "test": "node --test app/tests/*.test.mjs",
+    "test:browser": "node --test app/tests/browser/*.browser.mjs",
+    "test:desktop": "node --test --test-force-exit --import ./desktop/tests/contract-setup.mjs app/tests/*.test.mjs"
   },
   "devDependencies": {
-    "fake-indexeddb": "^6.2.5"
+    "fake-indexeddb": "^6.2.5",
+    "fast-check": "^4.10.2",
+    "puppeteer-core": "^25.12.0"
   }
 }

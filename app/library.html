@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <!-- script-src: 'self' plus the hash of the one inline script below (the base corrector).
-       connect-src stays open to http(s) for the user-configured translator server. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-hY3v5/hK8HEXGvbWdwpC9QwryUrAFnXUNYc6GOBIxBU='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' data: blob: http: https:; object-src 'none'; base-uri 'self'">
+       connect-src stays open to http(s) for the user-configured translator server, and to a
+       library on this computer (ws://127.0.0.1). -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-hY3v5/hK8HEXGvbWdwpC9QwryUrAFnXUNYc6GOBIxBU='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' data: blob: http: https: ws://127.0.0.1:*; object-src 'none'; base-uri 'self'">
   <!-- The app's files live under /app/ but the pages are served at clean URLs (/, /settings,
        /reader). This base (relative, so it works under both localhost / and Pages /shiori/)
        points asset references back at the app folder; in-page nav links use ../ to stay clean.

@@ -20,7 +20,7 @@ const metas = new Map([
   ['4', {}],
 ]);
 galleries.idsSorted = async () => [...metas.keys()];
-galleries.metaMap = async () => metas;
+galleries.searchIndex = async () => metas;
 galleries.byIds = async (ids) => ids.map(id => ({ id }));
 
 test('partly translated galleries match as translated; the rest as untranslated', async () => {

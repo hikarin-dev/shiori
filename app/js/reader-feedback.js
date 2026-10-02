@@ -1,4 +1,4 @@
-import { dbGet } from './db.js';
+import * as api from './api.js';
 import { kv } from './platform.js';
 import { t } from './i18n.js';
 import { ISSUES, captureFeedback, feedbackZip, feedbackDestination, feedbackRequest, sha256 } from './feedback.js';
@@ -32,7 +32,7 @@ function displayEvidence(wrap, context) {
   };
 }
 
-export function openFeedback({ pageUrl, study, index, wrap, context }) {
+export function openFeedback({ pageUrl, page, study, index, wrap, context }) {
   const surface = context.surface || 'translation';
   const key = `${pageUrl}|${study.job || 'legacy'}|${index}|${surface}`;
   if (drafts.has(key)) { drafts.get(key).showModal(); return; }
@@ -159,7 +159,7 @@ export function openFeedback({ pageUrl, study, index, wrap, context }) {
   });
   (async () => {
     try {
-      capture = await captureFeedback(await dbGet(pageUrl), study, display, index);
+      capture = await captureFeedback(await api.pages.get(page.gid, page.pageNum), study, display, index);
       const settings = (await kv.get('translateSettings')).translateSettings || {};
       destination = feedbackDestination(settings);
       destinationText.textContent = t('feedback.destination');

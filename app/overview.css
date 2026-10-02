@@ -140,6 +140,13 @@ body.shift-held #ovContent.ov-editing .ov-meta-item[data-tag-type]:hover svg { c
   color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
 }
 .ov-section-title span { color: var(--muted-dim); font-weight: 400; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.ov-section-title .ov-view-toggle { display: inline-flex; gap: 2px; color: inherit; letter-spacing: inherit; }
+.ov-view {
+  font: inherit; letter-spacing: inherit; text-transform: inherit; color: var(--muted-dim);
+  background: none; border: 0; border-bottom: 2px solid transparent; padding: 0 2px 2px; margin-right: 10px; cursor: pointer;
+}
+.ov-view:hover { color: var(--text); }
+.ov-view.active { color: var(--muted); border-bottom-color: var(--accent); cursor: default; }
 
 @media (max-width: 640px) {
   .ov-hero { grid-template-columns: minmax(0, 1fr); gap: 18px; }
@@ -156,7 +163,7 @@ body.shift-held #ovContent.ov-editing .ov-meta-item[data-tag-type]:hover svg { c
 .ch-row:hover { border-color: #3a3a44; }
 .ch-row.missing { opacity: .5; }
 .ch-head { display: flex; align-items: center; gap: 10px; padding: 6px 9px; }
-.ch-num { width: 22px; text-align: center; color: var(--muted); font-size: 12px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.ch-num { width: max(22px, calc(var(--ch-num-chars, 2) * 1ch + 4px)); text-align: center; color: var(--muted); font-size: 12px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .ch-thumb {
   position: relative; width: 36px; aspect-ratio: 1 / sqrt(2); flex-shrink: 0; border-radius: 5px; overflow: hidden;
   background: var(--bg); border: 1px solid var(--border);
@@ -185,6 +192,7 @@ body.shift-held #ovContent.ov-editing .ov-meta-item[data-tag-type]:hover svg { c
 .ch-title-wrap:has(.ch-title-open:hover) .ch-title-input[readonly] { color: var(--accent); }
 .ch-meta { color: var(--muted); font-size: 10.5px; padding: 1px 5px 0; display: flex; gap: 10px; flex-wrap: wrap; }
 .ch-meta .done { color: var(--success); }
+.ch-meta .missing, .ov-meta-item.missing { color: var(--danger); }
 .ch-progress { display: none; padding: 3px 5px 0; }
 .ch-row.working .ch-meta { display: none; }
 .ch-row.working .ch-progress { display: flex; flex-direction: column; }

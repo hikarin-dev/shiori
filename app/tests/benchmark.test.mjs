@@ -4,6 +4,12 @@ import { readFileSync } from 'node:fs';
 import 'fake-indexeddb/auto';
 import { benchmarkCases, samplePages, parseBenchmarkFrames, benchmarkSummary, benchmarkCoverage } from '../js/benchmark-core.js';
 
+globalThis.BroadcastChannel = class { postMessage() {} close() {} };
+const api = await import('../js/api.js');
+await api.events.revision();   // the library is open before a test fakes the clock, as it is once a page has loaded
+const { kv } = await import('../js/platform.js');
+const { runBenchmark } = await import('../js/benchmark.js');
+
 const models = { detect: ['default'], ocr: ['hayai', 'mocr_fast', '48px', 'mocr'], translate: ['deepseek', 'sugoi'], inpaint: ['lama_large'], render: ['manga2eng', 'shiori', 'shiori_v2'] };
 test('a controlled sweep changes one factor; the matrix covers all combinations', () => {
   const sweep = benchmarkCases(models);
@@ -53,10 +59,6 @@ test('comparison coverage catches a missing measured gallery despite identical i
   assert.equal(benchmarkCoverage(complete, 0), benchmarkCoverage({ runs: [...complete.runs].reverse() }, 0));
 });
 
-globalThis.BroadcastChannel = class { postMessage() {} close() {} };
-const { dbPut, dbGet, putTranslatedImage } = await import('../js/db.js');
-const { kv } = await import('../js/platform.js');
-const { runBenchmark } = await import('../js/benchmark.js');
 const caps = JSON.parse(readFileSync(new URL('./fixtures/capabilities.json', import.meta.url)));
 const selectedModels = { detect: ['default'], ocr: ['48px'], translate: ['sugoi'], inpaint: ['lama_large'], render: ['manga2eng'] };
 const json = data => new Response(JSON.stringify(data));
@@ -68,8 +70,8 @@ async function scenario(t, { rejectStart = false, abortAfterStart = false, pageC
   Object.defineProperty(navigator, 'locks', { configurable: true, value: { request: (_n, _o, fn) => fn({}) } });
   globalThis.createImageBitmap = async () => ({ width: 720, height: 1400, close() {} });
   const id = String(Math.random()), urls = [];
-  for (let i = 1; i <= pageCount; i++) { const url = `/${id}/${i}.png`; urls.push(url); await dbPut(url, new Blob(['original']), id, id); }
-  await putTranslatedImage(urls[0], new Blob(['saved translation']));
+  for (let i = 1; i <= pageCount; i++) { const url = `/${id}/${i}.png`; urls.push(url); await api.pages.put(id, i, new Blob(['original']), { key: url }); }
+  await api.derived.putTranslatedImage(id, 1, new Blob(['saved translation']));
   await kv.set({ translateSettings: { schema: 2, params: {}, serverToken: 'secret-test-token' } });
   const controller = new AbortController(), starts = [], cancels = [], calls = [];
   let token, count;
@@ -95,7 +97,7 @@ async function scenario(t, { rejectStart = false, abortAfterStart = false, pageC
     throw new Error(path);
   });
   const report = await runBenchmark({ galleryIds: [id], models: selectedModels, cooldownSeconds: 1 }, { signal: controller.signal });
-  assert.equal(await (await dbGet(urls[0])).translated.text(), 'saved translation');
+  assert.equal(await (await api.pages.get(id, 1)).translated.text(), 'saved translation');
   assert.equal(JSON.stringify(report).includes('secret-test-token'), false);
   assert.ok(calls.every(p => p !== '/translate/gallery/start' && p !== '/stats'));
   return { report, starts, cancels, token, waits };

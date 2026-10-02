@@ -16,7 +16,11 @@ export const perPageJson = (value) => (Array.isArray(value)
   ? `[\n${value.map((v) => JSON.stringify(v)).join(',\n')}\n]`
   : `{\n${Object.entries(value).map(([k, v]) => `${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(',\n')}\n}`);
 
-const _pageNum = (url) => parseInt(url.match(/\/(\d+)\.\w+$/)?.[1] || '9999');
+// Page records as the library returns them carry their page number; an archive names a page's
+// files by it (images/0007.webp), keeping the extension its key was stored with.
+const _pageNum = (rec) => rec.pageNum ?? 9999;
+const _fileNum = (rec) => (rec.pageNum != null ? String(rec.pageNum).padStart(4, '0') : null);
+const _keyExt = (rec) => String(rec.url).match(/\.(\w+)$/)?.[1]?.toLowerCase() || 'jpg';
 // An image is a Blob, or a stored image's reference ({ size, type } — db.js), or a legacy base64
 // data URL.
 const _blobLike = (src) => src instanceof Blob || (src != null && typeof src === 'object' && typeof src.size === 'number' && typeof src.type === 'string');
@@ -42,6 +46,26 @@ export async function fileBytes(src) {
   return bytes;
 }
 
+// A series bundle's series.json for the owner's `meta`: the members in order, each with its id,
+// title, number, kind (a volume says so) and chapter-NN folder, plus the series title and tags. The importer rebuilds the
+// series from it.
+export function seriesManifest(meta, { metadataOnly = false } = {}) {
+  return {
+    format: 'shiori-series',
+    version: 1,
+    ...(metadataOnly ? { metadataOnly: true } : {}),
+    seriesTitle: meta.seriesTitle || '',
+    seriesTags: Array.isArray(meta.seriesTags) ? meta.seriesTags : (meta.tags || []),
+    chapters: meta.chapters.map((c, i) => ({
+      id: String(c.id),
+      title: c.title || '',
+      ...(c.number != null ? { number: c.number } : {}),
+      ...(c.kind === 'volume' ? { kind: 'volume' } : {}),
+      folder: `chapter-${String(i + 1).padStart(2, '0')}`,
+    })),
+  };
+}
+
 // [{ name, source, original? }] for the gallery's stored `meta`, image `records` and `covers`
 // ({ gallery, series }), every name under `prefix` ("chapter-01/" in a series bundle).
 export function galleryFiles({ meta, records, covers = {} }, prefix = '', { stripSeriesFields = false } = {}) {
@@ -51,7 +75,7 @@ export function galleryFiles({ meta, records, covers = {} }, prefix = '', { stri
     const { chapters, parentId, seriesTitle, seriesTags, ...plainMeta } = m || {};
     m = plainMeta;
   }
-  const pages = [...(records || [])].sort((a, b) => _pageNum(a.url) - _pageNum(b.url));
+  const pages = [...(records || [])].sort((a, b) => _pageNum(a) - _pageNum(b));
   const files = [];
   const text = (name, value) => files.push({ name: prefix + name, source: enc.encode(value) });
 
@@ -94,27 +118,27 @@ export function galleryFiles({ meta, records, covers = {} }, prefix = '', { stri
   if (coverEntries.length) text('covers/manifest.json', JSON.stringify({ version: 1, covers: coverEntries }, null, 2));
 
   for (const rec of pages) {
-    const num = rec.url.match(/\/(\d+)\.(\w+)$/);
+    const num = _fileNum(rec);
     const src = rec.blob ?? rec.dataUrl;
     if (!num || !_hasBytes(src)) continue;
-    files.push({ name: `${prefix}images/${num[1].padStart(4, '0')}.${num[2].toLowerCase()}`, source: src, original: true });
+    files.push({ name: `${prefix}images/${num}.${_keyExt(rec)}`, source: src, original: true });
   }
 
   for (const rec of pages) {
-    const num = rec.url.match(/\/(\d+)\.\w+$/);
+    const num = _fileNum(rec);
     if (!num || !rec.pipeline?.masks) continue;
     for (const name of ['raw', 'text']) {
       const mask = rec.pipeline.masks[name];
-      if (_hasBytes(mask)) files.push({ name: `${prefix}pipeline/${num[1].padStart(4, '0')}-${name}.${_imgExt(mask)}`, source: mask });
+      if (_hasBytes(mask)) files.push({ name: `${prefix}pipeline/${num}-${name}.${_imgExt(mask)}`, source: mask });
     }
   }
 
   // Translated variants in a parallel folder (only pages that have one).
   for (const rec of pages) {
-    const num = rec.url.match(/\/(\d+)\.\w+$/);
+    const num = _fileNum(rec);
     if (!num || !rec.translated || !_hasBytes(rec.translated)) continue;
     const ext = (typeof rec.translated === 'string' ? rec.translated.match(/^data:image\/(\w+)/)?.[1] : rec.translated.type?.split('/')[1]) || 'png';
-    files.push({ name: `${prefix}translated/${num[1].padStart(4, '0')}.${ext.toLowerCase()}`, source: rec.translated });
+    files.push({ name: `${prefix}translated/${num}.${ext.toLowerCase()}`, source: rec.translated });
   }
 
   // Study-mode layers: the shared inpaint bg (study/bg) + each bubble's transparent text layer
@@ -122,9 +146,8 @@ export function galleryFiles({ meta, records, covers = {} }, prefix = '', { stri
   // so the import can restore it losslessly.
   const studyIndex = {};
   for (const rec of pages) {
-    const num = rec.url.match(/\/(\d+)\.\w+$/);
-    if (!num || !Array.isArray(rec.bubbles) || !rec.bubbles.length) continue;
-    const n = num[1].padStart(4, '0');
+    const n = _fileNum(rec);
+    if (!n || !Array.isArray(rec.bubbles) || !rec.bubbles.length) continue;
     if (rec.studyBg && _hasBytes(rec.studyBg)) files.push({ name: `${prefix}study/bg/${n}.${_imgExt(rec.studyBg)}`, source: rec.studyBg });
     const entries = rec.bubbles.map((b, k) => {
       const textFile = `${n}-${k}.${_imgExt(b.text)}`;

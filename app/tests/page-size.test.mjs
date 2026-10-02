@@ -122,3 +122,20 @@ test('galleries stored before it was kept are measured once, and a series stands
   const series = await db.getGallery('710');
   assert.equal(series.aggMedianPage.tier, 'T1', 'three low pages outweigh one print page');
 });
+
+// A series' typical page is the median of all its chapters' pages, not a median of their medians:
+// chapter A is 2 small pages and 3 large (its median large), chapter B 3 small — 5 small pages of 8.
+test('a series\' typical page is the median of every chapter\'s pages', async () => {
+  const small = [720, 1024], large = [1280, 1807];
+  for (const [gid, sizes] of [['730', [small, small, large, large, large]], ['731', [small, small, small]]]) {
+    for (const [i, size] of sizes.entries()) await db.dbPut(`local://${gid}/${i + 1}.png`, new Blob([png(...size)]), gid, gid);
+    await db.refreshMedianPage(gid);
+  }
+  assert.deepEqual((await db.galleryGet('730')).pageSizes, [[720, 1024, 2], [1280, 1807, 3]], 'each page size tallied');
+  await db.mutateGallery('730', { title: { english: 'A', japanese: '', pretty: '' },
+    chapters: [{ id: '730', title: 'A' }, { id: '731', title: 'B' }] });
+  await db.mutateGallery('731', { parentId: '730' });
+  await db.refreshSeriesAggregate('730');
+  const series = await db.getGallery('730');
+  assert.deepEqual([series.aggMedianPage.w, series.aggMedianPage.h], small);
+});

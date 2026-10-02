@@ -1,10 +1,11 @@
 // reader.js — offline gallery reader
 
 import './boot.js';
-import { openDB, imageToBlob, dbGet, metaGet, listGalleryPageUrls } from './db.js';
-import { resolveSeries } from './series.js';
+import * as api from './api.js';
+import { resolveSeries, chapterNumberLabel } from './series.js';
+import { memberKind } from './gallery-model.js';
 import { request as extRequest, send as extSend } from './ext-bridge.js';
-import { siteName, galleryLink, updateSitesStatus } from './sites.js';
+import { siteName, galleryLink, updateSitesStatus, canDownload } from './sites.js';
 import * as platform from './platform.js';
 import { t, getLang } from './i18n.js';
 import { formatCount } from './format.js';
@@ -17,7 +18,7 @@ import {
   _studySourceRect, _studyTranslationRect, _positionBubbleIndicator, _buildBubbleShape, _sharedShapes,
   _wireSelectableText, _setStudyTextSelectable, _sourceTextLang, _sniffSourceLang, _syncLayerScale, forgetStudy, hasAnyStudy,
 } from './reader-study.js';
-import { resizeToWidth } from './image-util.js';
+import { resizeToWidth, imageToBlob } from './image-util.js';
 import { feedbackKey, editingTarget, feedbackTarget, tagFeedback } from './feedback.js';
 import { openFeedback, feedbackOpen } from './reader-feedback.js';
 import { openPageProperties, propertiesOpen, closePageProperties } from './reader-properties.js';
@@ -93,15 +94,8 @@ const _translateAsText = () => _showTranslated() && translateDisplay === 'text';
 // text over the inpainted page (DOM text, or the balloons' text layers of a page kept as them).
 const _bubbleLayersOn = () => studyMode || _showTranslated();
 const _variantKey = (page) => page?.url ? (_translateAsText() ? 'b:' : _showTranslated() ? 't:' : 'o:') + page.url : '';
-let _readerDb = null;
+let _libraryOpen = false;   // the library has answered (init); page reads wait for it
 let _stripGen  = 0; // bumped on every buildStrip call to cancel stale loads
-
-// Reader reads page images from the shared cache DB through the one canonical opener
-// (db.js), so its schema/version stay in lockstep with the service worker — no
-// duplicate version constant and no destructive upgrade handler that could wipe data.
-function _openReaderDb() {
-  return openDB();
-}
 
 // Load every page's stored study layers (reader-study.js owns the records) and note whether any
 // exist (→ show the study button). Cache the in-flight/completed pass so startup, idle loading
@@ -110,9 +104,11 @@ let _studyLoadPromise = null;
 let _studyLoaded = false;
 function _loadStudy() {
   if (_studyLoadPromise) return _studyLoadPromise;
-  if (!_readerDb) return Promise.resolve(false);
+  if (!_libraryOpen) return Promise.resolve(false);
   _studyLoadPromise = (async () => {
-    hasStudy = await loadStudyRecords(_chapters.map(ch => ch.id));
+    // Study layers are optional: a gallery whose layers can't be read is read without them.
+    try { hasStudy = await loadStudyRecords(_chapters.map(ch => ch.id)); }
+    catch { hasStudy = false; }
     _studyLoaded = true;
     _syncStudyAvailability();
     return hasStudy;
@@ -133,8 +129,8 @@ async function pageBlobUrl(page) {
   if (!page?.cached || !page.url) return '';
   const key = _variantKey(page);
   if (_pageUrlCache.has(key)) return _pageUrlCache.get(key);
-  if (!_readerDb) return '';
-  const record = await dbGet(page.url).catch(() => null);
+  if (!_libraryOpen) return '';
+  const record = await api.pages.get(page.gid, page.pageNum).catch(() => null);
   const src = record ? _variantSrc(record) : null;
   const blob = await imageToBlob(src);
   const url = blob ? URL.createObjectURL(blob) : '';
@@ -153,7 +149,7 @@ const PLACEHOLDER_DIM_CONCURRENCY = 2;
 async function _cachedPageHeightRatio(page) {
   let bitmap = null;
   try {
-    const record = await dbGet(page.url).catch(() => null);
+    const record = await api.pages.get(page.gid, page.pageNum).catch(() => null);
     const blob = await imageToBlob(record?.blob ?? record?.dataUrl);
     if (!blob) return 0;
     bitmap = await createImageBitmap(blob);
@@ -223,7 +219,9 @@ function _showPageImage(img, url) {
   const placeholder = !url;
   img.classList.toggle('page-placeholder', placeholder);
   if (placeholder) {
-    img.removeAttribute('src');
+    // A sized <img> with no source draws the browser's broken-image glyph (even with alt=""):
+    // a page still loading shows a transparent page of the placeholder's shape instead.
+    img.src = _defaultBlankSrc();
     _setPlaceholderGeometry(img);
   } else {
     img.src = url;
@@ -351,8 +349,8 @@ async function _processThumbQueue() {
   try {
     const cached = _cachedThumb(page.url);
     if (cached) { resolve(cached); return; }
-    if (!_readerDb) { resolve(''); return; }
-    const record = await dbGet(page.url).catch(() => null);
+    if (!_libraryOpen) { resolve(''); return; }
+    const record = await api.pages.get(page.gid, page.pageNum).catch(() => null);
     const src = record?.blob ?? record?.dataUrl;
     if (!src) { resolve(''); return; }
     const fullBlob = await imageToBlob(src);
@@ -459,12 +457,6 @@ function _scheduleStudyLoad() {
   }
 }
 
-function _storedPageNum(url) {
-  const match = String(url || '').match(/\/([1-9]\d*)\.[^/?#]+(?:[?#].*)?$/);
-  const pageNum = match ? Number(match[1]) : 0;
-  return Number.isSafeInteger(pageNum) && pageNum > 0 ? pageNum : null;
-}
-
 // ── Init ──
 async function init() {
   if (!galleryId) { showEmpty(); return; }
@@ -473,49 +465,57 @@ async function init() {
   document.title        = `Shiori — #${galleryId}`;
 
   loadingText.textContent = t('rd.opening_db');
-  try { _readerDb = await _openReaderDb(); }
+  try { await api.meta.get(galleryId); _libraryOpen = true; }
   catch (e) { showEmpty(); return; }
 
   loadingText.textContent = t('rd.loading_pages');
   const gid = String(galleryId);
+  // A library kept as files says when this gallery's files can't be found in its folder.
+  api.galleries.get(gid).then((g) => {
+    if (g?.missing) import('./notice.js').then(({ showToast }) => showToast({ text: t('rd.files_missing'), closeLabel: t('common.close') }));
+  }).catch(() => {});
 
   // Series membership FIRST: a series is read as ONE continuous page list — every cached
   // chapter's pages concatenated in series order — so a chapter transition is just the next
   // scroll row (or page flip), never a reload.
   try { _series = await resolveSeries(galleryId); } catch { _series = null; }
+  // A series is read one kind of member at a time: the chapters, or the volumes — whichever the
+  // opened gallery is.
+  const readKind = _series ? memberKind(_series.chapters.find(c => String(c.id) === gid)) : 'chapter';
   const chapterRefs = _series
-    ? _series.chapters.map((c, i) => ({ id: String(c.id), num: i + 1, title: c.title || '' }))
+    ? _series.chapters.filter(c => memberKind(c) === readKind)
+      .map((c, i) => ({ id: String(c.id), num: chapterNumberLabel(c) ?? i + 1, title: c.title || '', kind: readKind }))
     : [{ id: gid, num: 1, title: '' }];
   _seriesTotal = chapterRefs.length;
 
   // Page list (key-only cursor, no image bytes) and metadata for every chapter, in parallel.
   const [lists, metas] = await Promise.all([
-    Promise.all(chapterRefs.map(c => listGalleryPageUrls(c.id).catch(() => []))),
-    Promise.all(chapterRefs.map(c => metaGet(c.id).catch(() => null))),
+    Promise.all(chapterRefs.map(c => api.pages.list(c.id).catch(() => []))),
+    Promise.all(chapterRefs.map(c => api.meta.get(c.id).catch(() => null))),
   ]);
 
   // Merge into the flat list by chapter-local page number. Metadata supplies the true total;
   // cached keys fill their fixed slots and every gap remains a placeholder until its page arrives.
-  // With no declared total, the highest cached page preserves the reader's previous behaviour.
+  // With no declared total, a chapter holds up to its highest cached page and grows as later pages
+  // or its total arrive (_growChapters). With nothing cached either, a chapter that can still be
+  // downloaded reads as one loading page — navigable, and announced like any page so it can fill
+  // in; one that can't has nothing to show.
   pages = [];
   _chapters = [];
   _pageIdxByUrl.clear();
   chapterRefs.forEach((c, i) => {
     const cachedByNum = new Map();
     let highestCached = 0;
-    for (const url of lists[i]) {
-      const pageNum = _storedPageNum(url);
-      if (pageNum != null) {
-        cachedByNum.set(pageNum, { pageNum, url, cached: true });
-        highestCached = Math.max(highestCached, pageNum);
-      }
+    for (const { pageNum, url } of lists[i]) {
+      cachedByNum.set(pageNum, { gid: c.id, pageNum, url, cached: true });
+      highestCached = Math.max(highestCached, pageNum);
     }
     const declaredTotal = Number(metas[i]?.numPages);
     const trueTotal = Number.isSafeInteger(declaredTotal) && declaredTotal > 0 ? declaredTotal : 0;
-    const count = Math.max(highestCached, trueTotal);
+    const count = Math.max(highestCached, trueTotal) || (canDownload(metas[i]) ? 1 : 0);
     if (!count) return;
     const slots = Array.from({ length: count }, (_, pageIdx) =>
-      cachedByNum.get(pageIdx + 1) || { pageNum: pageIdx + 1, url: null, cached: false }
+      cachedByNum.get(pageIdx + 1) || { gid: c.id, pageNum: pageIdx + 1, url: null, cached: false }
     );
     _chapters.push({
       ...c,
@@ -525,6 +525,7 @@ async function init() {
       start: pages.length,
       count,
       missing: count - cachedByNum.size,
+      growing: !trueTotal,   // its length isn't known yet
       meta: metas[i],
     });
     pages.push(...slots);
@@ -593,10 +594,12 @@ async function init() {
 
   // Resolve the initial position BEFORE the first render — a chapter-scoped strip and the
   // thumbnails both build around it. ?g targets a chapter; ?page / ?p is a page within THAT
-  // chapter ('last' = its final page). A ?g whose chapter has no cached pages falls back to
-  // the first cached chapter.
+  // chapter ('last' = its final page). A ?g whose chapter has nothing to show (no pages, and no way
+  // to download them) falls back to the first chapter.
   const startCh = _chapters.find(c => c.id === gid) || _chapters[0];
-  const within = String(initialPageParam).toLowerCase() === 'last'
+  const fromEnd = String(initialPageParam).toLowerCase() === 'last';
+  if (fromEnd) startCh.entry = 'end';
+  const within = fromEnd
     ? startCh.count
     : Math.max(1, Math.min(startCh.count, parseInt(initialPageParam, 10) || 1));
   await placeholderRatioReady;
@@ -651,11 +654,13 @@ function _handlePageStored(event) {
   const ch = _chapters.find(c => String(c.id) === String(event.galleryId));
   const pageNum = Number(event.pageNum);
   const url = typeof event.url === 'string' ? event.url : '';
-  if (!ch || !url || !Number.isSafeInteger(pageNum) || pageNum < 1 || pageNum > ch.count) return;
+  if (!ch || !url || !Number.isSafeInteger(pageNum) || pageNum < 1) return;
+  if (pageNum > ch.count) { if (ch.growing) _queueGrowth(ch, event); return; }
+  if (ch.growing) _queueGrowth(ch, null);   // its total may have arrived with this page
   const pageIdx = ch.start + pageNum - 1;
   if (pages[pageIdx]?.cached) return;
 
-  pages[pageIdx] = { pageNum, url, cached: true };
+  pages[pageIdx] = { gid: String(ch.id), pageNum, url, cached: true };
   ch.missing = Math.max(0, ch.missing - 1);
   _pageIdxByUrl.set(url, pageIdx);
   if (_chapters[_curChIdx] === ch) scrubSegments.children[pageNum - 1]?.classList.add('cached');
@@ -686,6 +691,116 @@ function _handlePageStored(event) {
   }
 }
 
+// ── Growing chapters ──
+// A chapter whose length isn't known yet holds as many slots as its highest cached page (one
+// loading slot when it has none). A later page, or a total arriving in its metadata, grows it. The
+// merged list, every later chapter's start and the view change together in one debounced step —
+// the reader stays on the page it was on — and the pages held for it fill in afterwards.
+const _growth = new Map();   // chapter id → { upTo, events }
+let _growthTimer = null;
+
+function _queueGrowth(ch, event) {
+  const id = String(ch.id);
+  const g = _growth.get(id) || { upTo: 0, events: [] };
+  if (event) { g.upTo = Math.max(g.upTo, event.pageNum); g.events.push(event); }
+  _growth.set(id, g);
+  if (!_growthTimer) _growthTimer = setTimeout(() => { _growthTimer = null; void _growChapters(); }, 250);
+}
+
+async function _growChapters() {
+  const jobs = [..._growth];
+  _growth.clear();
+  const sizes = new Map();
+  for (const [id, { upTo }] of jobs) {
+    const ch = _chapters.find(c => String(c.id) === id);
+    if (!ch?.growing) continue;
+    const meta = await api.meta.get(id).catch(() => null);
+    const total = Number(meta?.numPages);
+    if (meta) ch.meta = meta;
+    if (Number.isSafeInteger(total) && total > 0) ch.growing = false;
+    const size = Math.max(ch.count, upTo, ch.growing ? 0 : total);
+    if (size > ch.count) sizes.set(ch, size);
+  }
+  if (sizes.size) _resizeChapters(sizes);
+  for (const [, { events }] of jobs) events.forEach(_handlePageStored);
+}
+
+// Give each chapter in `sizes` (chapter → new slot count) that many slots and keep the reader
+// where it was: the same page of the same chapter — or, in a chapter entered backwards and still on
+// its last page, its new last page — and in the strip the same scroll offset. Strip rows are
+// inserted in place (no rebuild), so pages on screen never flash while totals arrive.
+function _resizeChapters(sizes) {
+  const at = _chapterAt(currentPage);
+  const cur = _chapters[at];
+  const atLocal = currentPage - cur.start;
+  const atEnd = cur.entry === 'end' && atLocal === cur.count;
+  const anchor = mode === 'strip' ? _stripWraps[currentPage - _viewBase - 1]?.getBoundingClientRect().top : null;
+  const ratios = new Map(_pageRatios);
+  _pageRatios.clear();
+  const grown = [];
+  const next = [];
+  for (const ch of _chapters) {
+    const slots = pages.slice(ch.start, ch.start + ch.count);
+    for (let i = 0; i < slots.length; i++) {
+      const r = ratios.get(ch.start + i);
+      if (r) _pageRatios.set(next.length + i, r);
+    }
+    const size = sizes.get(ch) || ch.count;
+    if (size > ch.count) grown.push({ ch, oldEnd: ch.start + ch.count, from: ch.count, to: size });
+    for (let n = ch.count + 1; n <= size; n++) slots.push({ gid: String(ch.id), pageNum: n, url: null, cached: false });
+    ch.missing += size - ch.count;
+    ch.count = size;
+    ch.start = next.length;
+    next.push(...slots);
+  }
+  pages = next;
+  _pageIdxByUrl.clear();
+  pages.forEach((p, i) => { if (p.url) _pageIdxByUrl.set(p.url, i); });
+  const before = currentPage;
+  currentPage = cur.start + (atEnd ? cur.count : atLocal);
+  _curChIdx = -1;   // re-apply the chapter chrome: the scrubber's range may have changed
+  if (mode === 'strip') {
+    _growStripRows(grown);
+    const top = _stripWraps[currentPage - _viewBase - 1]?.getBoundingClientRect().top;
+    if (anchor != null && top != null) window.scrollBy(0, top - anchor);
+    else _scrollStripToCurrent();
+  } else if (_pageDivider !== null) {
+    _showPageDivider(_pageDivider);   // stay on the transition card, now at its chapter's new end
+  } else if (atEnd) {
+    goTo(currentPage, true);
+  }
+  updateCounter();
+  _syncThumbScope();
+  highlightThumb(currentPage - 1);
+  if (atEnd && currentPage !== before) _announceCurrentPage();   // fetch from the end, where the reader is
+}
+
+// Insert the new rows of grown chapters (each { ch, oldEnd: its old last global page number, from,
+// to }) after their old last rows — before any chapter divider — then renumber every row. Rows on
+// screen keep their element and image. Chapters outside the strip's scope have no rows to grow.
+function _growStripRows(grown) {
+  ++_stripGen;               // in-flight loads were aimed at the old row indices
+  _stripAnnouncedPage = -1;
+  // Find every target row first: inserted rows carry new numbers that an old one may share.
+  const targets = grown.map(g => ({ ...g, last: stripView.querySelector(`.page-wrap[data-page="${g.oldEnd}"]`) }));
+  for (const { ch, from, to, last } of targets) {
+    if (!last) continue;
+    const rows = [];
+    for (let n = from; n < to; n++) rows.push(_makeStripRow(ch.start + n));
+    last.after(...rows);
+  }
+  const scope = _stripScope();
+  _viewBase  = scope.base;
+  _viewCount = scope.count;
+  _stripWraps = [...stripView.querySelectorAll('.page-wrap')];
+  _stripImgs  = _stripWraps.map(w => w.firstElementChild);
+  _stripWraps.forEach((w, i) => { w.dataset.page = _viewBase + i + 1; });
+  _mountedIdx.clear();
+  _stripImgs.forEach((img, i) => { if (img.getAttribute('src')) _mountedIdx.add(i); });
+  _lastSyncCenter = Infinity;
+  _syncStripWindow();
+}
+
 const _queuedPageStores = new Map();
 let _pageSkeletonReady = false;
 
@@ -714,6 +829,12 @@ platform.jobs.subscribe((event) => {
   else if (event?.kind === 'translate') _onTranslateEvent(event);
 });
 
+// A chapter whose length isn't known yet often learns it from its metadata before any of its pages
+// arrive — so every chapter can be laid out ahead of reading it.
+api.events.watch((gid) => {
+  for (const ch of _chapters) if (ch.growing && (gid === '*' || String(ch.id) === gid)) _queueGrowth(ch, null);
+});
+
 // ── A page on its own: properties, translation, settings (right-click, or I) ──
 // Which page is under a point: strip rows carry their number; the single view shows the current
 // page, and the double view the two halves of its spread (a blank half is no page).
@@ -729,10 +850,13 @@ function _pageAtPoint(x, y) {
 }
 
 // A page's place for display: its chapter, its number within it, and the chapter's gallery.
+// "Ch. 12" / "Vol. 3".
+const _memberLabel = (ch) => t(ch.kind === 'volume' ? 'rd.vol_n' : 'rd.ch_n', { n: ch.num });
+
 function _pagePlace(n) {
   const ch = _chapters[_chapterAt(n)];
   return { ch, gid: String(ch?.id ?? galleryId), number: ch ? n - ch.start : n, total: ch ? ch.count : pages.length,
-    chapter: _series && ch ? [t('rd.ch_n', { n: ch.num }), ch.title].filter(Boolean).join(' · ') : null };
+    chapter: _series && ch ? [_memberLabel(ch), ch.title].filter(Boolean).join(' · ') : null };
 }
 
 function _openProperties(n) {
@@ -740,7 +864,7 @@ function _openProperties(n) {
   if (!page?.cached) return;
   _stopScroll();
   const { number, total, chapter } = _pagePlace(n);
-  openPageProperties({ url: page.url, number, total, chapter });
+  openPageProperties({ gid: page.gid, pageNum: page.pageNum, url: page.url, number, total, chapter });
 }
 
 const _pageJobs = new Map();   // gallery id → page number (in its chapter) being translated on its own
@@ -753,7 +877,7 @@ async function _translationRunning(gid) {
 async function _openPageMenu(n, x, y) {
   const page = pages[n - 1];
   const { gid, number } = _pagePlace(n);
-  const [record, busy] = await Promise.all([dbGet(page.url).catch(() => null), _translationRunning(gid)]);
+  const [record, busy] = await Promise.all([api.pages.get(gid, number).catch(() => null), _translationRunning(gid)]);
   const own = !!record?.own;
   openPageMenu(x, y, [t('page.menu_title', { n: formatCount(number) }), own ? t('page.keeps_own') : ''].filter(Boolean).join(' · '), [
     { label: t('page.translate'), detail: t(busy ? 'page.translate_busy' : 'page.translate_detail'), disabled: busy,
@@ -793,7 +917,7 @@ function _onTranslateEvent(event) {
 async function _refreshTranslations(gid) {
   const ch = _chapters.find(c => String(c.id) === gid);
   if (!ch) return;
-  ch.meta = (await metaGet(gid).catch(() => null)) || ch.meta;
+  ch.meta = (await api.meta.get(gid).catch(() => null)) || ch.meta;
   _translateAvailable = _chapters.some(c => !!c.meta?.translated);
   const urls = new Set(pages.slice(ch.start, ch.start + ch.count).map(p => p?.url).filter(Boolean));
   const stale = [];
@@ -854,8 +978,13 @@ function _flipTarget(dir) {
 }
 // Jump to a merged page number in whatever the current mode is: strip lands there instantly
 // (re-scoping a chapter-only strip if needed), page modes flip straight there — no transition page.
+// A jump lands at a page chosen outright, so it enters a chapter at its start whichever way it
+// moved (see _applyChapterChrome). Both paths apply the chapter chrome before their first await.
+let _jumping = false;
 function _jumpToPage(n) {
-  if (mode === 'strip') _stripJumpTo(n); else goTo(n, true);
+  _jumping = true;
+  try { if (mode === 'strip') _stripJumpTo(n); else goTo(n, true); }
+  finally { _jumping = false; }
 }
 function _gotoAdjacentChapter(delta) {
   if (_chapters.length < 2) return false;
@@ -887,12 +1016,12 @@ function _buildDividerCard(k, compact = false) {
       ${dir < 0 ? CHD_PREV_SVG : ''}
       <span class="chd-adj-txt">
         <span class="chd-lbl">${_escR(t(dir < 0 ? 'rd.divider_prev' : 'rd.divider_next'))}</span>
-        <span class="chd-num">${c ? _escR(t('rd.ch_n', { n: c.num })) : '—'}</span>
+        <span class="chd-num">${c ? _escR(_memberLabel(c)) : '—'}</span>
       </span>
       ${dir > 0 ? CHD_NEXT_SVG : ''}
     </button>`;
   el.innerHTML = `
-    <div class="chd-end">${_escR(t('rd.end_of_ch', { n: ch.num }))}</div>
+    <div class="chd-end">${_escR(t(ch.kind === 'volume' ? 'rd.end_of_vol' : 'rd.end_of_ch', { n: ch.num }))}</div>
     ${ch.title ? `<div class="chd-sub">(${_escR(ch.title)})</div>` : ''}
     ${compact ? '' : `
     <div class="chd-nav">${adj(prev, -1)}${adj(next, 1)}</div>
@@ -1141,6 +1270,9 @@ function _applyChapterChrome(idx) {
   const ch = _chapters[idx];
   if (!ch) return;
   const wasApplied = _curChIdx !== -1;
+  // Which way the reader came in: from a later chapter means at its end, so a chapter that grows
+  // while it's read keeps the reader on its last page (_resizeChapters).
+  if (wasApplied && idx !== _curChIdx) ch.entry = !_jumping && idx < _curChIdx ? 'end' : 'start';
   _curChIdx = idx;
   const meta = ch.meta;
   const displayId = meta?.sourceId || ch.id;
@@ -1982,6 +2114,46 @@ function _scheduleStripSync() {
   });
 }
 
+// One strip row for global page index `gi`. Each page-img sits in its own .page-wrap (relative) so
+// study-mode bubble overlays can anchor to the image box; the wrap carries data-page (GLOBAL page
+// number) and is the row measured by the scroll-sync geometry. The row reads its page number from
+// data-page when it needs it, so it stays right when rows are inserted before it (_growStripRows).
+function _makeStripRow(gi) {
+  const wrap = document.createElement('div');
+  wrap.className    = pages[gi]?.cached ? 'page-wrap' : 'page-wrap page-placeholder';
+  wrap.dataset.page = gi + 1;
+  const img = document.createElement('img');
+  img.className    = 'page-img';
+  img.decoding     = 'async';
+  // Missing rows always use the immutable baseline. Cached rows may reuse a previously learned
+  // page-specific ratio, then refine it from the real image after loading.
+  if (pages[gi]?.cached) {
+    img.style.aspectRatio = _pageRatios.get(gi) || _placeholderRatio;
+  } else {
+    _setPlaceholderGeometry(img, wrap);
+  }
+  img.addEventListener('load', () => {
+    if (img.naturalWidth > 1 && img.naturalHeight > 1) {
+      const r = `${img.naturalWidth} / ${img.naturalHeight}`;
+      if (img.style.aspectRatio !== r) {
+        // A page ABOVE the viewport learning its true ratio would shove the reading position
+        // by its height delta — compensate the scroll so the visible content doesn't move.
+        const above  = wrap.offsetTop + wrap.offsetHeight <= window.scrollY;
+        const before = above ? wrap.offsetHeight : 0;
+        img.style.aspectRatio = r;
+        if (above) {
+          const delta = wrap.offsetHeight - before;
+          if (delta) window.scrollBy(0, delta);
+        }
+      }
+      _pageRatios.set(Number(wrap.dataset.page) - 1, r);
+      _setPageRatioVars(img);
+    }
+  });
+  wrap.appendChild(img);
+  return wrap;
+}
+
 function buildStrip() {
   ++_stripGen;               // cancel in-flight loads aimed at the previous strip DOM
   _stripAnnouncedPage = -1;  // re-scope / re-enter re-arms the position broadcast
@@ -1992,46 +2164,12 @@ function buildStrip() {
   _viewCount = scope.count;
   const fragment = document.createDocumentFragment();
 
-  // Build the full row skeleton upfront so DOM order is fixed before any async work. Each
-  // page-img sits in its own .page-wrap (relative) so study-mode bubble overlays can anchor to
-  // the image box; the wrap carries data-page (GLOBAL page number) and is the row measured by
-  // the scroll-sync geometry. Transition cards slot after a chapter's last page — the sync math
-  // only measures .page-wrap rows, so their height is absorbed by the between-page interpolation.
+  // Build the full row skeleton upfront so DOM order is fixed before any async work (rows:
+  // _makeStripRow). Transition cards slot after a chapter's last page — the sync math only
+  // measures .page-wrap rows, so their height is absorbed by the between-page interpolation.
   for (let i = 0; i < _viewCount; i++) {
     const gi = _viewBase + i;
-    const wrap = document.createElement('div');
-    wrap.className    = pages[gi]?.cached ? 'page-wrap' : 'page-wrap page-placeholder';
-    wrap.dataset.page = gi + 1;
-    const img = document.createElement('img');
-    img.className    = 'page-img';
-    img.decoding     = 'async';
-    // Missing rows always use the immutable baseline. Cached rows may reuse a previously learned
-    // page-specific ratio, then refine it from the real image after loading.
-    if (pages[gi]?.cached) {
-      img.style.aspectRatio = _pageRatios.get(gi) || _placeholderRatio;
-    } else {
-      _setPlaceholderGeometry(img, wrap);
-    }
-    img.addEventListener('load', () => {
-      if (img.naturalWidth > 1 && img.naturalHeight > 1) {
-        const r = `${img.naturalWidth} / ${img.naturalHeight}`;
-        if (img.style.aspectRatio !== r) {
-          // A page ABOVE the viewport learning its true ratio would shove the reading position
-          // by its height delta — compensate the scroll so the visible content doesn't move.
-          const above  = wrap.offsetTop + wrap.offsetHeight <= window.scrollY;
-          const before = above ? wrap.offsetHeight : 0;
-          img.style.aspectRatio = r;
-          if (above) {
-            const delta = wrap.offsetHeight - before;
-            if (delta) window.scrollBy(0, delta);
-          }
-        }
-        _pageRatios.set(gi, r);
-        _setPageRatioVars(img);
-      }
-    });
-    wrap.appendChild(img);
-    fragment.appendChild(wrap);
+    fragment.appendChild(_makeStripRow(gi));
 
     // End-of-chapter transition card. Always present in the per-chapter flow (it IS the next/
     // previous-chapter navigation there); in the continuous flow it's the optional divide.
@@ -3088,7 +3226,7 @@ function _openHoveredFeedback() {
   const study = page && studyFor(page.url);
   if (!study?.bubbles[hit.index]) return;
   _stopScroll(); _endClickWheelNav(); _setStudyTextSelectable(false);
-  openFeedback({ pageUrl: page.url, study, index: hit.index, wrap: hit.wrap,
+  openFeedback({ pageUrl: page.url, page, study, index: hit.index, wrap: hit.wrap,
     context: { pageNumber: pageNum, pageWidth: study.page?.w || hit.wrap.querySelector('img')?.naturalWidth,
       readerMode: mode, view: 'study', study: studyPrefs(), surface: hit.surface, zoom: _pageZoom, fit: readerFitMode, direction: readerNavDirection } });
 }

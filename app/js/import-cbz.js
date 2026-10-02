@@ -2,11 +2,10 @@
 // sorting) the download orchestration reuses. Runs in a page or in the PWA service worker.
 
 import * as platform from './platform.js';
-import { dbPut, dbGet, imageRecordPut, metaPut, metaGet, galleryGet, deleteStaleGalleryImages, existingPageNums, publishFeed,
-         putTranslatedImage, putPageStudy, mutateGallery, refreshSeriesAggregate, pruneSeriesChildren, coverPut, nextGalleryId,
-         BUBBLE_EXTRA_FIELDS } from './db.js';
+import * as api from './api.js';
+import { BUBBLE_EXTRA_FIELDS } from './gallery-files.js';
 import { isValidGalleryId } from './sanitize.js';
-import { unionTags } from './series.js';
+import { unionTags } from './series-plan.js';
 
 // An embedded id that fails the app's numeric-id gate is ignored (remapped to the caller's
 // gallery) — imported ids reach DOM attributes and hrefs, so markup in one is an XSS attempt.
@@ -90,7 +89,7 @@ async function restoreExportedCovers(gid, byName) {
     const data = byName.get(c.file);
     if (!data) continue;
     const ext = normExt(c.file.match(/\.(\w+)$/)?.[1]);
-    await coverPut(gid, new Blob([data], { type: c.mime || MIME[ext] || 'image/jpeg' }), { role: c.role });
+    await api.covers.put(gid, new Blob([data], { type: c.mime || MIME[ext] || 'image/jpeg' }), { role: c.role });
   }
 }
 
@@ -152,47 +151,47 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
     if (!embeddedMeta) throw new CbzImportError('cbz_empty', 'No images found in CBZ.');
     await _putMetadataOnlyGallery(gid, embeddedMeta);
     onProgress({ status: 'done', done: 0, total: 0, skipped: 0 });
-    publishFeed(gid);
+    api.events.announce(gid);
     return;
   }
 
   const pageExts = imgEntries.map(en => normExt(en.filename.match(/\.(\w+)$/)?.[1]));
   // Uploading a Shiori-exported CBZ over an existing gallery is a replace.
   if (skipExisting && embeddedMeta) {
-    const gal = await galleryGet(gid).catch(() => null);
+    const gal = await api.galleries.get(gid).catch(() => null);
     if (gal?.count > 0) skipExisting = false;
   }
   if (skipExisting) {
-    await metaPut(embeddedMeta
+    await api.meta.put(embeddedMeta
       ? { ...embeddedMeta, galleryId: gid, pageExts, fetchedAt: Date.now() }
       : { galleryId: gid, title: { english: nameNoExt, japanese: '', pretty: nameNoExt }, tags: [], numPages: 0, pageExts, fetchedAt: Date.now(), isLocalImport: true, source: '' });
   } else {
-    const existing = await metaGet(gid).catch(() => null);
-    await metaPut(existing
+    const existing = await api.meta.get(gid).catch(() => null);
+    await api.meta.put(existing
       ? { ...existing, isLocalImport: true }
       : { galleryId: gid, title: { english: nameNoExt, japanese: '', pretty: nameNoExt }, tags: [], numPages: 0, pageExts, fetchedAt: Date.now(), isLocalImport: true, source: '' });
     // Replace mode intentionally does NOT delete the old pages here: the new set is written over
-    // them in place (dbPut overwrites shared keys without double-counting), and stale leftovers
+    // them in place (a page stored again replaces it without double-counting), and stale leftovers
     // are swept only after every new page is stored — so a crash or quota failure mid-write can
     // never leave fewer pages than the old or the new set.
   }
 
   // Pages already stored (a resumed/interrupted run) are skipped, never re-put — re-putting
   // would double-count the gallery's stat record.
-  const have = skipExisting ? await existingPageNums(gid) : new Set();
+  const have = skipExisting ? new Set((await api.pages.list(gid)).map(p => p.pageNum)) : new Set();
 
   onProgress({ status: 'started', done: 0, total: imgEntries.length, skipped: 0 });
   let done = 0, skipped = 0;
   for (let i = 0; i < imgEntries.length; i++) {
     if (have.has(i + 1)) { skipped++; onProgress({ done, total: imgEntries.length, skipped, status: 'progress' }); continue; }
-    await dbPut(`local://${gid}/${i + 1}.${pageExts[i]}`, new Blob([imgEntries[i].data], { type: MIME[pageExts[i]] || 'image/jpeg' }), gid, gid);
+    await api.pages.put(gid, i + 1, new Blob([imgEntries[i].data], { type: MIME[pageExts[i]] || 'image/jpeg' }), { key: `local://${gid}/${i + 1}.${pageExts[i]}` });
     onProgress({ done: ++done, total: imgEntries.length, skipped, status: 'progress' });
   }
   // Only now that the whole new set is stored: drop old pages the new set didn't overwrite
   // (different extensions, remote-source keys, pages past the new count).
-  if (!skipExisting) await deleteStaleGalleryImages(gid, pageExts.map((ext, i) => `local://${gid}/${i + 1}.${ext}`));
+  if (!skipExisting) await api.pages.prune(gid, pageExts.map((ext, i) => `local://${gid}/${i + 1}.${ext}`));
   onProgress({ status: 'done', done, total: imgEntries.length, skipped });
-  publishFeed(gid);
+  api.events.announce(gid);
 }
 
 async function _putMetadataOnlyGallery(gid, meta) {
@@ -200,25 +199,16 @@ async function _putMetadataOnlyGallery(gid, meta) {
   const nextMeta = meta
     ? { ...meta, galleryId: id, fetchedAt: Date.now() }
     : { galleryId: id, title: { english: id, japanese: '', pretty: id }, tags: [], numPages: 0, pageExts: [], fetchedAt: Date.now(), isLocalImport: true, source: '' };
-  await metaPut(nextMeta);
-  const existing = await galleryGet(id).catch(() => null);
-  await mutateGallery(id, {
-    count: existing?.count || 0,
-    size: existing?.size || 0,
-    latestAt: Date.now(),
-    addedAt: existing?.addedAt || (Number(id) || Date.now()),
-    coverPage: existing?.coverPage ?? 9999,
-    uploadDate: Number(nextMeta.uploadDate) || existing?.uploadDate || 0,
-    parentId: nextMeta.parentId ? String(nextMeta.parentId) : null,
-    ...(Array.isArray(nextMeta.chapters) && nextMeta.chapters.length > 1 ? { chapterCount: nextMeta.chapters.length } : {}),
-  });
+  await api.meta.put(nextMeta);
+  // Its stat record (an empty one when it has none), linked to its series like its metadata.
+  await api.galleries.create(id, { parentId: nextMeta.parentId ? String(nextMeta.parentId) : null });
 }
 
 // Restore a Shiori series export: each chapter-NN/ folder is a self-contained per-gallery export.
 // Import every chapter into its own gallery (its embedded id), then wire the grouping onto the
 // first chapter (the owner) and back-link every other chapter.
 async function _importSeriesZip(entries, manifest, onProgress) {
-  const chapters = [];   // { id, title } in series order, with the imported gids
+  const chapters = [];   // { id, title, number?, kind? } in series order, with the imported gids
   const tagLists = [];
   let embeddedSeriesTags = null;
   const total = manifest.chapters.length;
@@ -233,7 +223,7 @@ async function _importSeriesZip(entries, manifest, onProgress) {
     if (metaEntry) { try { cmeta = JSON.parse(new TextDecoder().decode(metaEntry.data)); } catch {} }
     if (i === 0 && Array.isArray(cmeta?.seriesTags)) embeddedSeriesTags = cmeta.seriesTags;
     if (cmeta) { delete cmeta.chapters; delete cmeta.parentId; delete cmeta.seriesTitle; delete cmeta.seriesTags; }  // grouping is rebuilt below
-    const gid = _validEmbeddedId(cmeta?.galleryId) || _validEmbeddedId(c.id) || nextGalleryId();
+    const gid = _validEmbeddedId(cmeta?.galleryId) || _validEmbeddedId(c.id) || api.newGalleryId();
     const hasFullPayload = sub.some(en =>
       en.filename === 'image_records.json' ||
       /^(images|translated|study|covers)\//i.test(en.filename));
@@ -241,31 +231,24 @@ async function _importSeriesZip(entries, manifest, onProgress) {
       await _importShioriEntries(gid, sub, cmeta, (p) => { if (p.status !== 'done') onProgress({ ...p, chapter: i + 1, chapterCount: total }); });
     } else {
       await _putMetadataOnlyGallery(gid, cmeta);
-      publishFeed(gid);
+      api.events.announce(gid);
     }
-    chapters.push({ id: gid, title: c.title || '' });
+    const number = c.number == null || c.number === '' ? NaN : Number(c.number);
+    chapters.push({ id: gid, title: c.title || '', ...(Number.isFinite(number) ? { number } : {}), ...(c.kind === 'volume' ? { kind: 'volume' } : {}) });
     if (cmeta?.tags) tagLists.push(cmeta.tags);
   }
 
-  if (chapters.length >= 2) {
+  // The whole series in one step: its chapter list, every chapter linked to it, and any chapter it
+  // held before that this import doesn't list deleted.
+  if (chapters.length) {
     const ownerId = chapters[0].id;
-    const ownerMeta = await metaGet(ownerId).catch(() => null);
-    await mutateGallery(ownerId, {
-      chapters,
+    const ownerMeta = await api.meta.get(ownerId).catch(() => null);
+    await api.series.write(ownerId, chapters, {
       seriesTitle: manifest.seriesTitle || '',
       seriesTags: Array.isArray(manifest.seriesTags)
         ? manifest.seriesTags
         : (embeddedSeriesTags || unionTags(ownerMeta?.tags, ...tagLists)),
-      parentId: null,
     });
-    for (const c of chapters) if (c.id !== ownerId) await mutateGallery(c.id, { parentId: ownerId });
-    await pruneSeriesChildren(ownerId, chapters.map(c => c.id));
-    await refreshSeriesAggregate(ownerId);
-  } else if (chapters.length === 1) {
-    const ownerId = chapters[0].id;
-    await mutateGallery(ownerId, { chapters: null, seriesTitle: '', seriesTags: null, parentId: null });
-    await pruneSeriesChildren(ownerId, [ownerId]);
-    await refreshSeriesAggregate(ownerId);
   }
 
   onProgress({ status: 'done', done: total, total });
@@ -274,7 +257,7 @@ async function _importSeriesZip(entries, manifest, onProgress) {
 // Pipeline data from image_records.json (plus its pipeline/NNNN-{raw,text}.webp masks): what a later
 // translation of the page reuses. Only the shape is checked; the translation server validates
 // whatever it is sent and runs a page in full when its data doesn't fit.
-async function _restorePipelines(data, urlByNum, byName) {
+async function _restorePipelines(gid, data, urlByNum, byName) {
   let records = null;
   try { records = JSON.parse(new TextDecoder().decode(data)); } catch {}
   if (!Array.isArray(records)) return;
@@ -296,8 +279,7 @@ async function _restorePipelines(data, urlByNum, byName) {
       if (typeof e.own === 'string') patch.own = e.own;   // the translation whose settings it keeps
     }
     if (!Object.keys(patch).length) continue;
-    const rec = await dbGet(url);
-    if (rec) await imageRecordPut({ ...rec, ...patch });
+    await api.derived.restore(gid, parseInt(m[1]), patch);
   }
 }
 
@@ -324,17 +306,17 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
     if (embeddedMeta.parentId != null && !isValidGalleryId(embeddedMeta.parentId)) delete embeddedMeta.parentId;
     if (Array.isArray(embeddedMeta.chapters) && embeddedMeta.chapters.some(c => !isValidGalleryId(c?.id))) delete embeddedMeta.chapters;
   }
-  await metaPut(embeddedMeta
+  await api.meta.put(embeddedMeta
     ? { ...embeddedMeta, galleryId: gid, pageExts, fetchedAt: Date.now() }
     : { galleryId: gid, title: { english: gid, japanese: '', pretty: gid }, tags: [], numPages: pageEntries.length, pageExts, fetchedAt: Date.now(), isLocalImport: true, source: '' });
   // Full replace, but old pages are only removed after the whole new set is stored (see the
   // stale sweep below) so an interruption cannot destroy a previously valid gallery.
 
   if (pageEntries.length === 0) {
-    await deleteStaleGalleryImages(gid, []);
+    await api.pages.prune(gid, []);
     await restoreExportedCovers(gid, byName);
     onProgress({ status: 'done', done: 0, total: 0, skipped: 0 });
-    publishFeed(gid);
+    api.events.announce(gid);
     return;
   }
 
@@ -347,19 +329,19 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
     const num = parseInt(m[1]);
     const ext = normExt(m[2]);
     const url = `local://${gid}/${num}.${ext}`;
-    await dbPut(url, new Blob([en.data], { type: MIME[ext] || 'image/jpeg' }), gid, gid);
+    await api.pages.put(gid, num, new Blob([en.data], { type: MIME[ext] || 'image/jpeg' }), { key: url });
     urlByNum.set(num, url);
     onProgress({ done: ++done, total: pageEntries.length, skipped: 0, status: 'progress' });
   }
 
   // The whole new set is stored — now drop the old pages it didn't overwrite in place.
-  await deleteStaleGalleryImages(gid, [...urlByNum.values()]);
+  await api.pages.prune(gid, [...urlByNum.values()]);
 
   // Translated variants → rec.translated on the matching page.
   for (const en of entries) {
     const m = en.filename.match(/^translated\/(\d+)\.(\w+)$/i);
     const url = m && urlByNum.get(parseInt(m[1]));
-    if (url) await putTranslatedImage(url, new Blob([en.data], { type: MIME[normExt(m[2])] || 'image/png' }));
+    if (url) await api.derived.putTranslatedImage(gid, parseInt(m[1]), new Blob([en.data], { type: MIME[normExt(m[2])] || 'image/png' }));
   }
 
   // Study layers → rec.studyBg + rec.bubbles, driven by study/bubbles.json. Files may be PNG
@@ -389,14 +371,14 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
         }
         bubbles.push(bubble);
       }
-      if (bubbles.length) await putPageStudy(url, { bg: bgData ? new Blob([bgData], { type: mimeOf(bgName) }) : null, bubbles, page });
+      if (bubbles.length) await api.derived.putStudy(gid, parseInt(numStr), { bg: bgData ? new Blob([bgData], { type: mimeOf(bgName) }) : null, bubbles, page });
     }
   }
 
   const recordsData = byName.get('image_records.json');
-  if (recordsData) await _restorePipelines(recordsData, urlByNum, byName);
+  if (recordsData) await _restorePipelines(gid, recordsData, urlByNum, byName);
 
   await restoreExportedCovers(gid, byName);
   onProgress({ status: 'done', done, total: pageEntries.length, skipped: 0 });
-  publishFeed(gid);
+  api.events.announce(gid);
 }

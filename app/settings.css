@@ -703,6 +703,8 @@ textarea.field-input { min-height: 82px; }
 }
 
 .toggle-desc code { overflow-wrap: anywhere; }
+.toggle-name code { overflow-wrap: anywhere; font-weight: 600; }
+.desk-actions { display: inline-flex; gap: 8px; }
 
 .actions-row {
   width: 100%;

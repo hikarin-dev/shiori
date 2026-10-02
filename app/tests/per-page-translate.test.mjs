@@ -11,7 +11,12 @@ globalThis.BroadcastChannel = class { postMessage() {} close() {} };
 const CAPS = JSON.parse(readFileSync(new URL('./fixtures/capabilities.json', import.meta.url), 'utf8'));
 const S = 'http://127.0.0.1:5003';
 
-const { dbPut, dbGet, metaPut, metaGet } = await import('../js/db.js');
+// The library through its interface, by the page keys these tests use ("/<gallery>/<n>.webp").
+const api = await import('../js/api.js');
+const _at = (key) => { const m = String(key).match(/^(?:local:\/)?\/([^/]+)\/(\d+)\.\w+$/); return [m[1], Number(m[2])]; };
+const dbPut = (key, image, mediaId, gid) => api.pages.put(gid, _at(key)[1], image, { key, mediaId });
+const dbGet = (key) => api.pages.get(..._at(key));
+const metaPut = api.meta.put, metaGet = api.meta.get;
 const { startTranslation, pollTranslation, followGallerySettings } = await import('../js/translate.js');
 const { translateResume, jobsPending } = await import('../js/platform.js');
 const { migrateTranslateSettings } = await import('../js/translate-config.js');

@@ -1,7 +1,7 @@
 // settings.js — the app's Settings page: preferences, translator config, backups and storage.
 
 import './boot.js';
-import { clearAll } from './db.js';
+import * as api from './api.js';
 import * as platform from './platform.js';
 import { cancelJob } from './submit-job.js';
 import { pingServer, serverUrlFromSettings, hasConfiguredServer, isLocalServer } from './translate.js';
@@ -57,6 +57,9 @@ initBenchmarkCard();
   }
   show(nav.querySelector('.nav-item.active:not([hidden])')?.dataset.panel || 'panelLibrary');
 })();
+
+// ── The desktop app's own settings, in its window only ──
+if (globalThis.shioriDesktop?.shell) import('./desktop-settings.js').then(m => m.initDesktopSettings()).catch(() => {});
 
 // ── Companion download ────────────────────────────────────────────
 // The optional panel carries the download from the first paint, so the nav item is there without
@@ -223,6 +226,12 @@ document.addEventListener('keydown', (event) => {
   }
 });
 
+// Library upgrades and the disk-writes count are about the library this browser keeps; a library
+// kept by the desktop app has neither.
+if (!api.capabilities.browserLibrary) {
+  for (const id of ['upgradesSection', 'statsSection']) document.getElementById(id).style.display = 'none';
+}
+
 // ── Load saved values ──────────────────────────────────────────────────────
 
 platform.kv.get(['translateSettings']).then((r) => {
@@ -242,7 +251,7 @@ async function performReset(factory) {
     }
   } catch {}
   await platform.clearJobsData();
-  await clearAll();
+  await api.maintenance.clearAll();
   try {
     const root = await navigator.storage.getDirectory();
     for await (const name of root.keys()) {

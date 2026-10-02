@@ -4,10 +4,11 @@ import { groupImports, importBytes, isImportable, droppedImports } from './impor
 // per-gallery actions. Imports boot.js first so services + the PWA worker are wired.
 
 import './boot.js';
-import { metaGet, metaPut, getStats, getGalleriesByIds, galleriesCount, coverRecordGet, getGalleryImageRecords, sourceIconGet, sourceIconPut, sourceIconsAll, nextGalleryId, _LANG_NAME_TO_CODE } from './db.js';
-import { galleryFiles, fileBytes } from './gallery-files.js';
+import * as api from './api.js';
+import { LANG_NAME_TO_CODE, memberKind } from './gallery-model.js';
+import { galleryFiles, fileBytes, seriesManifest } from './gallery-files.js';
 import { importBackup } from './backup.js';
-import { mergeIntoSeries, removeChapter } from './series.js';
+import { mergeIntoSeries, removeChapter, chapterNumberLabel, chapterTally } from './series.js';
 import { request as extRequest } from './ext-bridge.js';
 import { siteMap, helperAvailable, siteName as _siteName, canDownload as _canDownload, galleryLink as _galleryLinkOf, updateSitesStatus, onSitesChanged } from './sites.js';
 import * as store from './store.js';
@@ -75,7 +76,7 @@ const _sourceIconLoading = new Set();
 
 async function hydrateSourceIcons() {
   try {
-    for (const rec of await sourceIconsAll()) {
+    for (const rec of await api.icons.all()) {
       if (rec?.source && /^data:image\//i.test(rec.dataUrl || '')) _sourceIconCache.set(String(rec.source), rec);
     }
   } catch {}
@@ -101,7 +102,7 @@ function _loadSourceIcon(source) {
   const key = String(source || '');
   if (!key || _sourceIconCache.has(key) || _sourceIconLoading.has(key)) return;
   _sourceIconLoading.add(key);
-  sourceIconGet(key)
+  api.icons.get(key)
     .then((rec) => {
       if (!rec || !/^data:image\//i.test(rec.dataUrl || '')) return;
       _sourceIconCache.set(key, rec);
@@ -124,7 +125,7 @@ function _requestSourceIcon(source) {
       if (!r || !r.ok || !/^data:image\//i.test(r.dataUrl || '')) return;
       const rec = { source: key, url: r.url || null, dataUrl: r.dataUrl, cachedAt: Date.now() };
       _sourceIconCache.set(key, rec);
-      sourceIconPut(key, rec).catch(() => {});
+      api.icons.put(key, rec).catch(() => {});
       _replaceRenderedSourceIcons(key, r.dataUrl);
     })
     .finally(() => { _sourceIconPending.delete(key); });
@@ -163,6 +164,10 @@ const _looksLikeUrl = (s) => /^https?:\/\//i.test(s) || /^[\w-]+(\.[\w-]+)+([/?#
 
 // A translated gallery's translate button also offers "Re-run from…" on right-click.
 const _translatedTip = () => `${t('card.tip_translate_new')} · ${t('card.tip_rerun')}`;
+
+// The series view the overview remembers: 'chapters' or 'volumes'.
+let _seriesView = 'chapters';
+platform.kv.get(['seriesView']).then(({ seriesView }) => { if (seriesView === 'volumes') _seriesView = 'volumes'; });
 
 function sendMsg(msg) {
   return platform.rpc(msg);
@@ -450,7 +455,15 @@ function buildCard(g) {
   const metaLine = showAsSeries
     ? `${_pagesHtml(`${formatCount(g.aggPages)} ${t('card.pages')}`, g.aggMedianPage, g.aggOrig, g.aggPages)} · ${size}`
     : `${_pagesHtml(`${formatCount(cachedCount)}${totalCount} ${t('card.pages')}`, g.medianPage, g.origSize, cachedCount)} · ${size}`;
-  const seriesBadge = showAsSeries ? `<span class="card-series-badge">${t('card.chapters_n', { n: formatCount(g.chapterCount) })}</span>` : '';
+  // A library kept as files says when a gallery's files can't be found in its folder.
+  const missingHtml = g.missing ? ` · <span class="card-missing">${escHtml(t('card.files_missing'))}</span>` : '';
+  // A series card counts what the overview lists — its chapters or its volumes (the view chosen
+  // there), or the other kind when it has none of that one.
+  const tally = showAsSeries && g.chapters ? chapterTally(g.chapters) : { chapters: g.chapterCount, extras: 0 };
+  const volumes = showAsSeries && g.chapters ? g.chapters.filter(c => memberKind(c) === 'volume').length : 0;
+  const countVolumes = volumes > 0 && (_seriesView === 'volumes' || !tally.chapters);
+  const seriesBadge = showAsSeries ? `<span class="card-series-badge">${countVolumes
+    ? t('card.volumes_n', { n: formatCount(volumes) }) : t('card.chapters_n', { n: formatCount(tally.chapters) })}</span>` : '';
   // Record-derived id, escaped once for every attribute interpolation below (ids are validated
   // numeric at import boundaries; this is defense in depth for legacy records).
   const idA = escHtml(g.id);
@@ -503,7 +516,7 @@ function buildCard(g) {
           ${actionsHtml}
         </div>
         ${titleHtml}
-        <div class="card-meta">${metaLine}</div>
+        <div class="card-meta">${metaLine}${missingHtml}</div>
         <div class="card-progress" id="prog-${idA}">
           <div class="prog-track"><div class="prog-fill" id="progfill-${idA}"></div></div>
           <span class="card-prog-label" id="proglabel-${idA}"></span>
@@ -538,8 +551,7 @@ function buildCard(g) {
           title: t('dlg.del_series_title'), body: t('dlg.del_series_body', { n }),
           detail: _seriesDetail(g), cover: _cardCover(card), ok: t('dlg.del_series_ok', { n }), danger: true,
         }))) return;
-        const ids = (g.chapters || [{ id: g.id }]).map(c => c.id);
-        for (const id of ids) await sendMsg({ type: 'DELETE_GALLERY', galleryId: id });
+        await sendMsg({ type: 'DELETE_SERIES', galleryId: g.id });
         applyFilters();
         updateHeaderStats();
         return;
@@ -614,7 +626,7 @@ function buildCard(g) {
       // UI: nothing already-complete in the local library means the press can only mean
       // "fetch it all again".
       if (showAsSeries) {
-        const entities = await getGalleriesByIds((g.chapters || []).map(c => c.id));
+        const entities = await api.galleries.byIds((g.chapters || []).map(c => c.id));
         const known = entities.filter(Boolean);
         if (!known.length || !known.some(x => _canDownload(x))) return;
         const nothingMissing = known.every(x => x.numPages > 0 && x.count >= x.numPages);
@@ -922,7 +934,7 @@ async function handleMergeDrop(targetId, sourceId) {
 // by the chosen chapter's id.
 async function openSeriesTranslateModal(g) {
   const chapters = g.chapters || [];
-  const entities = await getGalleriesByIds(chapters.map(c => c.id));
+  const entities = await api.galleries.byIds(chapters.map(c => c.id));
   let defaultIdx = entities.findIndex(e => e && !e.translated);
   if (defaultIdx < 0) defaultIdx = 0;
 
@@ -930,7 +942,7 @@ async function openSeriesTranslateModal(g) {
     const e = entities[i];
     const nm = c.title || pickTitle(e, getLang()) || '';
     const flag = e?.translated ? ` · ${t('ov.translated')}` : '';
-    return `<option value="${escHtml(c.id)}" ${i === defaultIdx ? 'selected' : ''}>${escHtml(t('ov.chapter_n', { n: i + 1 }))}${nm ? ' — ' + escHtml(nm) : ''}${flag}</option>`;
+    return `<option value="${escHtml(c.id)}" ${i === defaultIdx ? 'selected' : ''}>${escHtml(t(memberKind(c) === 'volume' ? 'ov.volume_n' : 'ov.chapter_n', { n: chapterNumberLabel(c) ?? i + 1 }))}${nm ? ' — ' + escHtml(nm) : ''}${flag}</option>`;
   }).join('');
 
   const overlay = document.createElement('div');
@@ -1107,14 +1119,16 @@ function applyJob(job) {
     // Translate runs on an EXISTING gallery, so if its card isn't in the current view there's
     // nothing to reveal; reloading on every progress frame would thrash the visible cards'
     // hover animations. Only reload for kinds that can introduce a new card.
-    if (kind !== 'translate' && status !== 'done' && status !== 'error') _scheduleReloadPage();
+    if (kind !== 'translate' && kind !== 'sync' && status !== 'done' && status !== 'error') _scheduleReloadPage();
     return;
   }
   const fillEl  = document.getElementById(`progfill-${gid}`);
   const labelEl = document.getElementById(`proglabel-${gid}`);
   const body    = card.querySelector('.card-body');
   const isTranslate = kind === 'translate';
-  const btns = [...card.querySelectorAll(isTranslate ? '.card-btn-translate' : '.card-btn-dl')];
+  // A sync job fills in a series' chapter info: it has its own bar and never touches the buttons.
+  const isSync = kind === 'sync';
+  const btns = isSync ? [] : [...card.querySelectorAll(isTranslate ? '.card-btn-translate' : '.card-btn-dl')];
 
   if (status === 'done' && _jobDoneHandled.has(gid)) return;
 
@@ -1163,7 +1177,7 @@ function applyJob(job) {
   }
   if (status === 'started') {
     if (fillEl) { fillEl.classList.remove('indeterminate', 'done'); fillEl.style.width = '0%'; }
-    if (labelEl) labelEl.textContent = jobLabel || (job.total ? `0 / ${formatCount(job.total)}` : t('prog.starting'));
+    if (labelEl) labelEl.textContent = jobLabel || (isSync ? t('prog.syncing') : job.total ? `0 / ${formatCount(job.total)}` : t('prog.starting'));
     if (isTranslate) btns.forEach(b => _setTrCancelMode(b, true));
     else btns.forEach(b => { b.disabled = true; });
     return;
@@ -1173,7 +1187,7 @@ function applyJob(job) {
     const done = job.done || 0, total = job.total || 0;
     let pct;
     if (isTranslate) pct = (typeof job.pct === 'number') ? job.pct : (total > 0 ? Math.round((done / total) * 100) : 0);  // weighted across the read/translate/render stages
-    else if (kind === 'upload') pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    else if (kind === 'upload' || isSync) pct = total > 0 ? Math.round((done / total) * 100) : 0;
     else pct = total > 0 ? Math.round(85 + (done / total) * 15) : 85;  // download store loop: last 15%
     if (fillEl) {
       fillEl.classList.remove('indeterminate');
@@ -1189,6 +1203,8 @@ function applyJob(job) {
         labelEl.textContent = status === 'done'
           ? `${t('prog.translated')} ${doneText}/${totalText}${job.failed ? ` (${formatCount(job.failed)} failed)` : ''}${job.costNote ? ` · ${job.costNote}` : ''}`
           : jobLabel ? jobLabel : `${t('prog.translating')} ${doneText} / ${totalText}`;
+      } else if (isSync) {
+        labelEl.textContent = status === 'done' ? t('prog.synced') : `${t('prog.syncing')} · ${doneText}/${totalText}`;
       } else {
         labelEl.textContent = status === 'done'
           ? `${t('prog.done')} — ${doneText}/${totalText}${skippedNote}`
@@ -1344,8 +1360,8 @@ function _matchFilter(g) {
 function _tagNameMatches(type, name, value) {
   const lower = String(name).toLowerCase();
   if (lower === value) return true;
-  const want = type === 'language' && _LANG_NAME_TO_CODE[value];
-  const have = want && _LANG_NAME_TO_CODE[lower];
+  const want = type === 'language' && LANG_NAME_TO_CODE[value];
+  const have = want && LANG_NAME_TO_CODE[lower];
   return !!have && (have === want || have.startsWith(`${want}-`));
 }
 
@@ -1455,7 +1471,7 @@ function _tierTally(stats) {
 }
 
 async function updateHeaderStats() {
-  const [stats, topLevel] = await Promise.all([getStats(), galleriesCount({ merge: _mergeSeries })]);
+  const [stats, topLevel] = await Promise.all([api.galleries.stats(), api.galleries.count({ merge: _mergeSeries })]);
   // Merged, a series counts as one gallery here; unmerged, every chapter is counted. Image/storage
   // totals always include every chapter's pages.
   document.getElementById('hTotalGalleries').textContent = formatCount(topLevel);
@@ -1690,11 +1706,10 @@ async function _handleImportFiles(files, folders = []) {
   // Reserve a placeholder card for every gallery up front (drop 3 zips → 3 cards appear
   // immediately; loose images share one), then upload them one at a time into their reserved ids.
   const queued = groupImports(accepted, folders).map((group) => {
-    const gid = nextGalleryId();   // the shared mint — per-context monotonic, never a raw Date.now()
-    return { group, gid, at: Number(gid), title: group.name.replace(/\.[^.]+$/, '') };
+    const gid = api.newGalleryId();   // the shared mint — per-context monotonic, never a raw Date.now()
+    return { group, gid, title: group.name.replace(/\.[^.]+$/, '') };
   });
-  await Promise.all(queued.map(({ gid, title, at }) =>
-    store.mutate(gid, { title, count: 0, size: 0, addedAt: at, latestAt: at, isLocalImport: true })));
+  await Promise.all(queued.map(({ gid, title }) => api.galleries.create(gid, { title: { english: title, japanese: '', pretty: '' }, isLocalImport: true })));
   await applyFilters();
   for (const { group, gid } of queued) {
     await importSingleFile(group, gid);
@@ -1741,7 +1756,7 @@ function _saveBlob(blob, filename) {
 
 async function exportMetadataZip(galleryId) {
   const gid = String(galleryId);
-  const meta = await metaGet(gid);
+  const meta = await api.meta.get(gid);
 
   // Strip image-specific fields — this is a metadata-only backup. migrateTitle gives the export
   // the canonical shape (galleryId + title leading) regardless of when the record was stored.
@@ -1755,7 +1770,7 @@ async function exportMetadataZip(galleryId) {
 async function exportMetadataBundleZip(galleryId) {
   const gid = String(galleryId);
   const enc = new TextEncoder();
-  const getMeta = (id) => metaGet(String(id));
+  const getMeta = (id) => api.meta.get(String(id));
   const cleanMeta = (raw, { stripSeriesFields = false } = {}) => {
     const { pageExts, ...base } = migrateTitle(raw || {});
     if (!stripSeriesFields) return base;
@@ -1772,21 +1787,11 @@ async function exportMetadataBundleZip(galleryId) {
   }
 
   const files = [];
-  const manifest = {
-    format: 'shiori-series',
-    version: 1,
-    metadataOnly: true,
-    seriesTitle: meta.seriesTitle || '',
-    seriesTags: Array.isArray(meta.seriesTags) ? meta.seriesTags : (meta.tags || []),
-    chapters: [],
-  };
-  for (let i = 0; i < chapters.length; i++) {
-    const cid = String(chapters[i].id);
-    const folder = `chapter-${String(i + 1).padStart(2, '0')}`;
-    manifest.chapters.push({ id: cid, title: chapters[i].title || '', folder });
+  const manifest = seriesManifest(meta, { metadataOnly: true });
+  for (const { id, folder } of manifest.chapters) {
     files.push({
       name: `${folder}/metadata.json`,
-      data: enc.encode(JSON.stringify(cleanMeta(await getMeta(cid), { stripSeriesFields: true }), null, 2)),
+      data: enc.encode(JSON.stringify(cleanMeta(await getMeta(id), { stripSeriesFields: true }), null, 2)),
     });
   }
   files.push({ name: 'series.json', data: enc.encode(JSON.stringify(manifest, null, 2)) });
@@ -1796,8 +1801,8 @@ async function exportMetadataBundleZip(galleryId) {
 // One gallery's export files, every name under `prefix` (e.g. "chapter-01/" for a series bundle,
 // "" for a standalone gallery). The layout lives in gallery-files.js, which also sizes the gallery.
 async function _collectGalleryFiles(gid, prefix, opts = {}) {
-  const [meta, records, covers] = await Promise.all([metaGet(gid), getGalleryImageRecords(gid), coverRecordGet(gid).catch(() => null)]);
-  const files = galleryFiles({ meta, records, covers: { gallery: covers?.cover, series: covers?.seriesCover } }, prefix, opts);
+  const { meta, pages: records, cover } = await api.transfer.read(gid);
+  const files = galleryFiles({ meta, records, covers: { gallery: cover?.cover, series: cover?.seriesCover } }, prefix, opts);
   const out = [];
   for (const f of files) out.push({ name: f.name, data: await fileBytes(f.source) });
   return out;
@@ -1807,7 +1812,7 @@ async function _collectGalleryFiles(gid, prefix, opts = {}) {
 // a top-level series.json describing chapter order + titles.
 async function exportGalleryZip(galleryId) {
   const gid = String(galleryId);
-  const meta = await metaGet(gid);
+  const meta = await api.meta.get(gid);
 
   const chapters = (Array.isArray(meta?.chapters) && meta.chapters.length > 1) ? meta.chapters : null;
   if (!chapters) {
@@ -1817,18 +1822,10 @@ async function exportGalleryZip(galleryId) {
   }
 
   const enc = new TextEncoder();
-  const manifest = {
-    format: 'shiori-series',
-    version: 1,
-    seriesTitle: meta.seriesTitle || '',
-    seriesTags: Array.isArray(meta.seriesTags) ? meta.seriesTags : (meta.tags || []),
-    chapters: [],
-  };
+  const manifest = seriesManifest(meta);
   const files = [];
-  for (let i = 0; i < chapters.length; i++) {
-    const folder = `chapter-${String(i + 1).padStart(2, '0')}`;
-    manifest.chapters.push({ id: String(chapters[i].id), title: chapters[i].title || '', folder });
-    files.push(...await _collectGalleryFiles(String(chapters[i].id), `${folder}/`, { stripSeriesFields: true }));
+  for (const { id, folder } of manifest.chapters) {
+    files.push(...await _collectGalleryFiles(id, `${folder}/`, { stripSeriesFields: true }));
   }
   files.push({ name: 'series.json', data: enc.encode(JSON.stringify(manifest, null, 2)) });
   _saveBlob(new Blob([_zipCreate(files)], { type: 'application/zip' }), `shiori-series-${gid}.zip`);
@@ -1956,7 +1953,7 @@ document.getElementById('grid').addEventListener('click', async (e) => {
       const g = gid && _pageItems.find(x => x.id === gid);
       if (!g || !Array.isArray(g.tags)) return;
       const code = flagChip.dataset.langCode;
-      const toRemove = g.tags.filter(tg => tg.type === 'language' && _LANG_NAME_TO_CODE[String(tg.name).toLowerCase()] === code);
+      const toRemove = g.tags.filter(tg => tg.type === 'language' && LANG_NAME_TO_CODE[String(tg.name).toLowerCase()] === code);
       if (!toRemove.length) return;   // flag came from source metadata / translated copy — no tag to delete
       const label = t('addtag.cat_language');
       const name  = flagChip.dataset.tip || flagChip.dataset.langName || code;
@@ -2149,9 +2146,31 @@ store.subscribe('*', (gid) => {
     if (!card) _scheduleReloadPage();
     return;
   }
-  if (idx >= 0 && card) { card.replaceWith(buildCard(entity)); fetchPageCovers([entity]); }
-  else if (idx < 0) _scheduleReloadPage(); // a new gallery may belong on this page
+  if (idx >= 0 && card) _rebuildCard(card, gid);
+  // A new gallery may belong on this page — but a chapter never has a card of its own in the
+  // merged view (its series card hears about its own changes).
+  else if (idx < 0 && !(_mergeSeries && entity.parentId)) _scheduleReloadPage();
 });
+
+// Rebuilding a card the pointer is over restarts its expand-on-hover, so a hovered card is rebuilt
+// once the pointer leaves — from the latest data, however many changes arrived meanwhile.
+function _rebuildCard(card, gid) {
+  if (card.matches(':hover')) {
+    if (!card._rebuildPending) {
+      card._rebuildPending = true;
+      card.addEventListener('mouseleave', () => {
+        card._rebuildPending = false;   // still hovered (a child's leave)? the next call re-arms
+        const entity = _pageItems.find(g => g.id === gid);
+        if (entity && card.isConnected && !_liveJobs.has(gid) && !_interrupted.has(gid)) _rebuildCard(card, gid);
+      }, { once: true });
+    }
+    return;
+  }
+  const entity = _pageItems.find(g => g.id === gid);
+  if (!entity) return;
+  card.replaceWith(buildCard(entity));
+  fetchPageCovers([entity]);
+}
 
 if (safeMode) setSafeMode(true);
 

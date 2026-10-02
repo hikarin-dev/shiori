@@ -1,0 +1,77 @@
+{
+  "name": "shiori-desktop",
+  "productName": "Shiori",
+  "version": "1.0.12",
+  "description": "Shiori as a desktop app, with the library kept as files.",
+  "private": true,
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test --test-force-exit tests/*.test.mjs",
+    "stage": "node scripts/stage-ui.mjs",
+    "pack": "node scripts/stage-ui.mjs && electron-builder --win --dir",
+    "dist": "node scripts/stage-ui.mjs && electron-builder --win"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "author": "hikarin-dev",
+  "homepage": "https://shiori.cc",
+  "build": {
+    "appId": "cc.shiori.app",
+    "productName": "Shiori",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.cjs",
+      "i18n.js",
+      "titlebar.html",
+      "titlebar.js",
+      "titlebar-preload.cjs",
+      "server/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "ui",
+        "to": "ui"
+      }
+    ],
+    "protocols": [
+      {
+        "name": "Shiori",
+        "schemes": [
+          "shiori"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Shiori-Setup-${version}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "hikarin-dev",
+        "repo": "shiori"
+      }
+    ]
+  }
+}

@@ -132,7 +132,8 @@ test('the paired session works over its port, and kv is allowlisted', async () =
 });
 
 test('a metadata write over the bridge keeps the record of how the gallery was translated', async () => {
-  const { metaPut, metaGet } = await import('../js/db.js');
+  const api = await import('../js/api.js');
+  const metaPut = api.meta.put, metaGet = api.meta.get;
   const translations = { j1: { at: 1, config: { render: { renderer: 'shiori_v2' } }, builds: { render: 'r1' } } };
   await metaPut({ galleryId: '4242', title: { english: 'Old', japanese: '', pretty: 'Old' }, tags: [], translations });
 
@@ -148,7 +149,8 @@ test('a metadata write over the bridge keeps the record of how the gallery was t
 });
 
 test('a metadata write over the bridge keeps the gallery a favorite', async () => {
-  const { metaPut, metaGet } = await import('../js/db.js');
+  const api = await import('../js/api.js');
+  const metaPut = api.meta.put, metaGet = api.meta.get;
   await metaPut({ galleryId: '4343', title: { english: 'Old', japanese: '', pretty: 'Old' }, tags: [], favorite: true });
 
   const replies = hello(EXT_ORIGIN, SECRET);
@@ -158,4 +160,87 @@ test('a metadata write over the bridge keeps the gallery a favorite', async () =
   const res = await callOverPort(port, 'meta_put', { meta: { galleryId: '4343', title: { english: 'Fresh', japanese: '', pretty: 'Fresh' }, tags: [] } });
   assert.equal(res.ok, true);
   assert.equal((await metaGet('4343')).favorite, true);
+});
+
+async function session() {
+  const replies = hello(EXT_ORIGIN, SECRET);
+  await tick();
+  const port = replies[0].port;
+  _openPorts.push(port);
+  return port;
+}
+const pageBytes = () => new Uint8Array([1, 2, 3]).buffer;
+
+test("a page can carry its own gallery's metadata — never another gallery's", async () => {
+  const api = await import('../js/api.js');
+  const metaPut = api.meta.put, metaGet = api.meta.get, galleryGet = api.galleries.get;
+  await metaPut({ galleryId: '5151', favorite: true });   // a placeholder the user already favorited
+  const port = await session();
+  const title = { english: 'Arrived', japanese: '', pretty: 'Arrived' };
+
+  const res = await callOverPort(port, 'store_page', {
+    galleryId: '5151', url: 'src://5151/1.jpg', pageNum: 1, bytes: pageBytes(), mime: 'image/jpeg',
+    meta: { galleryId: '5151', title, tags: [] },
+  });
+  assert.equal(res.ok, true);
+  assert.equal(res.data.metaStored, true, 'the caller learns the metadata was taken');
+  const meta = await metaGet('5151');
+  assert.equal(meta.title.english, 'Arrived');
+  assert.equal(meta.favorite, true, 'app-only fields survive, as with meta_put');
+  assert.equal((await galleryGet('5151')).count, 1);
+
+  const crossed = await callOverPort(port, 'store_page', {
+    galleryId: '5152', url: 'src://5152/1.jpg', pageNum: 1, bytes: pageBytes(), mime: 'image/jpeg',
+    meta: { galleryId: '5151', title, tags: [] },
+  });
+  assert.equal(crossed.ok, false);
+  assert.match(crossed.error, /another gallery/);
+  assert.equal(await galleryGet('5152'), null, 'nothing is stored when the metadata is refused');
+});
+
+test('prune_pages keeps only the named pages, and never empties a gallery', async () => {
+  const api = await import('../js/api.js');
+  const getGalleryImageRecords = api.pages.all, galleryGet = api.galleries.get;
+  const port = await session();
+  for (const n of [1, 2, 3]) {
+    await callOverPort(port, 'store_page', { galleryId: '5253', url: `src://5253/${n}.jpg`, pageNum: n, bytes: pageBytes(), mime: 'image/jpeg' });
+  }
+  const res = await callOverPort(port, 'prune_pages', { galleryId: '5253', keepUrls: ['src://5253/1.jpg', 'src://5253/2.jpg'] });
+  assert.equal(res.ok, true);
+  assert.equal(res.data.removed, 1);
+  assert.deepEqual((await getGalleryImageRecords('5253')).map(r => r.url).sort(), ['src://5253/1.jpg', 'src://5253/2.jpg']);
+  assert.equal((await galleryGet('5253')).count, 2);
+
+  const empty = await callOverPort(port, 'prune_pages', { galleryId: '5253', keepUrls: [] });
+  assert.equal(empty.ok, false);
+  assert.match(empty.error, /empty/);
+  assert.equal((await galleryGet('5253')).count, 2);
+});
+
+// A source's series sync that moves ownership (a new first chapter appeared) arrives as one batch:
+// the old owner becomes a chapter, every chapter points at the new owner. Applied in any order, the
+// library ends with one whole series.
+test('a series sync that moves ownership leaves one whole series', async () => {
+  const api = await import('../js/api.js');
+  const { checkInvariants } = await import('../js/library-check.js');
+  const port = await session();
+  const ids = ['6001', '6002', '6003', '6004'];
+  for (const gid of ids) {
+    await callOverPort(port, 'store_page', { galleryId: gid, url: `src://${gid}/1.jpg`, pageNum: 1, bytes: pageBytes(), mime: 'image/jpeg',
+      meta: { galleryId: gid, title: { english: gid, japanese: '', pretty: '' }, tags: [] } });
+  }
+  const ref = (gid) => ({ id: gid, title: gid });
+  const roster = (owner, members) => [
+    { galleryId: owner, patch: { parentId: null, chapters: members.map(ref) } },
+    ...members.filter(g => g !== owner).map(g => ({ galleryId: g, patch: { parentId: owner, chapters: null } })),
+  ];
+  await callOverPort(port, 'gallery_batch', { mutations: roster('6002', ['6002', '6003', '6004']) });
+  // 6001 is the new first chapter: the old owner's patch comes last in the batch.
+  const moved = roster('6001', ids);
+  const res = await callOverPort(port, 'gallery_batch', { mutations: [moved[0], ...moved.slice(2), moved[1]] });
+  assert.equal(res.ok, true);
+  assert.deepEqual((await api.meta.get('6001')).chapters.map(c => c.id), ids);
+  for (const gid of ids.slice(1)) assert.equal((await api.meta.get(gid)).parentId, '6001', gid);
+  const errors = checkInvariants(await api.maintenance.integritySnapshot()).violations.filter(v => v.severity === 'error' && ids.includes(v.gid));
+  assert.deepEqual(errors, []);
 });

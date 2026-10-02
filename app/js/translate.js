@@ -13,23 +13,24 @@
 // (a privileged helper can bypass CORS via host permissions; a web origin cannot). See
 // ARCHITECTURE.md and the translator patches noted in the project memory.
 
-import {
-  getGalleryImageRecords, putTranslatedPage, putPageStudy, clearGalleryTranslations, metaGet, metaPut, imageToBlob,
-  setPagesOwn, dbGet,
-} from './db.js';
+import * as api from './api.js';
 import {
   decodePageData, encodePageData, planPage, translationGroups, keptConfig, referencedTranslations, contextBefore,
 } from './page-data.js';
 import { hasTranslation } from './page-image.js';
 import { translateResume, jobsPending } from './platform.js';
-import { resizeToWidth } from './image-util.js';
+import { resizeToWidth, imageToBlob } from './image-util.js';
 import { getCapabilities } from './capabilities.js';
 import { BENCHMARK_LOCK } from './benchmark-core.js';
 import {
   buildConfig, migrateTranslateSettings, languageTag, batchCap, unavailableChoices, stageOf,
 } from './translate-config.js';
 
-const _pageNumOf = (url) => parseInt(url.match(/\/(\d+)\.\w+$/)?.[1] || '999999');
+// A job names its pages by their keys (what a resumed job kept); the library addresses them by
+// number. A gallery's numbers by key, read without loading a page.
+async function _pageNums(gid) {
+  return new Map((await api.pages.list(gid)).map(p => [p.url, p.pageNum]));
+}
 
 // Sniff PNG vs WebP from the leading bytes so a page frame is stored with the right MIME — the
 // server may send either (it prefers WebP for size), and the type drives blob URLs + the file
@@ -161,23 +162,23 @@ export function cancelTranslate(arg) {
 // Translation), and with them the translation entries no page refers to any more.
 export async function revertGallery(galleryId, { keepSnapshots = false } = {}) {
   const gid = String(galleryId);
-  await clearGalleryTranslations(gid, { keepSnapshots });
-  const meta = await metaGet(gid);
+  await api.derived.clear(gid, { keepSnapshots });
+  const meta = await api.meta.get(gid);
   if (!meta) return;
   const { translatedLang, ...rest } = meta;   // drop the override so the flag reverts
-  const translations = referencedTranslations(meta.translations, await getGalleryImageRecords(gid));
-  await metaPut({ ...rest, translated: false, translations });
+  const translations = referencedTranslations(meta.translations, await api.pages.all(gid));
+  await api.meta.put({ ...rest, translated: false, translations });
 }
 
 // Where translating one page again would start, without starting anything: `gallery` for a
 // gallery translation (the page's kept settings, when it keeps its own), `page` for translating
 // just this page (the current settings) — each a planPage result, null meaning up to date. Only a
 // server the user set up is asked; `unavailable` says why there is no answer.
-export async function previewPagePlans(galleryId, url, ts) {
+export async function previewPagePlans(galleryId, pageNum, ts) {
   ts = migrateTranslateSettings(ts);
   if (!hasConfiguredServer(ts)) return { unavailable: 'no_server' };
   const serverUrl = serverUrlFromSettings(ts);
-  const [{ doc: capsDoc }, rec, meta] = await Promise.all([getCapabilities(serverUrl, ts), dbGet(url), metaGet(galleryId)]);
+  const [{ doc: capsDoc }, rec, meta] = await Promise.all([getCapabilities(serverUrl, ts), api.pages.get(galleryId, pageNum), api.meta.get(galleryId)]);
   if (!rec) return { unavailable: 'no_page' };
   const entries = meta?.translations || {};
   const base = buildConfig(ts, capsDoc);
@@ -191,7 +192,8 @@ export async function previewPagePlans(galleryId, url, ts) {
 // Pages back on the gallery's settings: they stop keeping their own, and the next gallery
 // translation brings them in line.
 export async function followGallerySettings(galleryId, urls) {
-  await setPagesOwn(urls, null);
+  const nums = await _pageNums(String(galleryId));
+  await api.derived.setOwn(urls.filter(url => nums.has(url)).map(url => ({ galleryId: String(galleryId), pageNum: nums.get(url) })), null);
   await _finishGallery(String(galleryId));
 }
 
@@ -216,14 +218,14 @@ const CONTEXT_BYTES = 60 * 1024;
 // still comes from or keeps, and take its status from the pages — every page translated, some
 // ('partial') or none. `lang` is set by a job that ran the gallery's own settings.
 async function _finishGallery(gid, { job = null, entry = null, lang = null } = {}) {
-  const meta = await metaGet(gid);
+  const meta = await api.meta.get(gid);
   if (!meta) return;
-  const records = (await getGalleryImageRecords(gid)).filter(r => r.blob ?? r.dataUrl);
+  const records = (await api.pages.all(gid)).filter(r => r.blob ?? r.dataUrl);
   const translations = referencedTranslations(job ? { ...(meta.translations || {}), [job]: entry } : meta.translations, records);
   const done = records.filter(hasTranslation).length;
   const translated = done && done === records.length ? true : done ? 'partial' : false;
   const { translation, ...rest } = meta;   // the previous format's single record
-  await metaPut({ ...rest, translated, translatedLang: lang || meta.translatedLang, translations });
+  await api.meta.put({ ...rest, translated, translatedLang: lang || meta.translatedLang, translations });
 }
 
 // Page data frames (status 9) wait here until their page (status 5) arrives, possibly one poll later.
@@ -327,11 +329,12 @@ async function startTranslationUnlocked(galleryId, ts, send, { forceFrom, pages,
       send({ status: 'error', error: 'the translation server could not describe its pipeline' });
     };
 
-    const records = (await getGalleryImageRecords(gid)).filter(r => r.blob ?? r.dataUrl);
+    const records = (await api.pages.all(gid)).filter(r => r.blob ?? r.dataUrl);
     const byUrl = new Map(records.map(r => [r.url, r]));
     const total = Number(resume && resume.total) || records.length;
-    const entries = (await metaGet(gid))?.translations || {};
-    const byPage = (a, b) => _pageNumOf(a.url) - _pageNumOf(b.url);
+    const entries = (await api.meta.get(gid))?.translations || {};
+    const numOf = (url) => byUrl.get(url)?.pageNum ?? 999999;
+    const byPage = (a, b) => numOf(a.url) - numOf(b.url);
 
     // The group of pages this job runs, with its config, the server's resolve document for it and
     // where each page starts (null = current, from the translation that produced its saved data).
@@ -365,7 +368,7 @@ async function startTranslationUnlocked(galleryId, ts, send, { forceFrom, pages,
       }
       if (!group) {
         // Nothing to redo. Pages asked for by themselves keep the settings they are current with.
-        if (pages) for (const r of current) if (entries[r.pipeline?.job]) await setPagesOwn([r.url], r.pipeline.job);
+        if (pages) for (const r of current) if (entries[r.pipeline?.job]) await api.derived.setOwn([r], r.pipeline.job);
         await _finishGallery(gid, { lang: pages ? null : languageTag(capsDoc, base.translator?.target_lang) });
         send({ status: 'done', done: total, total });
         return;
@@ -378,7 +381,7 @@ async function startTranslationUnlocked(galleryId, ts, send, { forceFrom, pages,
     const cap = batchCap(capsDoc, tlName, ts.batchCaps);
     // A context-aware translator starting mid-gallery gets the pages before as context.
     const usesContext = !!stageOf(capsDoc, 'translate')?.implementations.find(i => i.id === tlName)?.context;
-    let context = resume ? resume.context || null : (usesContext ? contextBefore(records, pending[0], _pageNumOf) : null);
+    let context = resume ? resume.context || null : (usesContext ? contextBefore(records, pending[0], numOf) : null);
     while (context && context.length && JSON.stringify(context).length > CONTEXT_BYTES) context = context.slice(1);
     if (!context?.length) context = null;
 
@@ -392,7 +395,7 @@ async function startTranslationUnlocked(galleryId, ts, send, { forceFrom, pages,
     // Sent with the job so the server's operator can tell their own queued translations apart.
     // Whatever the gallery already carries, passed through verbatim; kept on the resume record
     // so a job that resumes after a restart still reports the same origin.
-    const sourceUrl = (resume && resume.sourceUrl) || ((await metaGet(gid))?.sourceUrl || '');
+    const sourceUrl = (resume && resume.sourceUrl) || ((await api.meta.get(gid))?.sourceUrl || '');
     if (!resume) {
       // `settings` stays on the record deliberately: a notfound restart can run in the service
       // worker, which cannot read localStorage-backed settings — this row is the only durable
@@ -491,8 +494,8 @@ async function startTranslationUnlocked(galleryId, ts, send, { forceFrom, pages,
 
     // Record this translation before any page names it, so a page stored mid-job always points at
     // a known config (the entry is pruned once no page refers to it).
-    const meta = await metaGet(gid);
-    if (meta) await metaPut({ ...meta, translations: { ...(meta.translations || {}), [job]: _entry(resolved) } }, { silent: true });
+    const meta = await api.meta.get(gid);
+    if (meta) await api.meta.put({ ...meta, translations: { ...(meta.translations || {}), [job]: _entry(resolved) } }, { silent: true });
 
     // Atomically hand the durable claim from the upload phase to the poller. If cancellation won
     // this race, stop the just-created remote job and publish nothing over the cancelled state.
@@ -546,6 +549,8 @@ export async function pollTranslation(galleryId, send = () => {}) {
     const staged = _staged.get(token);
     const cursor = rec.cursor || 0;
     const ownsToken = async () => (await translateResume.get(gid))?.token === token;
+    let nums = null;
+    const at = async (url) => { nums ??= await _pageNums(gid); return nums.get(url); };
 
     const form = new FormData();
     form.append('job_token', token);
@@ -597,8 +602,9 @@ export async function pollTranslation(galleryId, send = () => {}) {
           // or, when none came back (snapshots are off, or a worker with other builds), only
           // which translation made it; a page that keeps its own settings keeps this translation's.
           // No image: the page is its study data, in the frame that follows.
-          await putTranslatedPage(url, payload.length ? new Blob([payload], { type: _imgMime(payload) }) : null,
-            page ? { job, ...page.record, masks: page.masks } : { job }, rec.pin ? job : undefined);
+          const n = await at(url);
+          if (n != null) await api.derived.putTranslation(gid, n, { image: payload.length ? new Blob([payload], { type: _imgMime(payload) }) : null,
+            pipeline: page ? { job, ...page.record, masks: page.masks } : { job }, own: rec.pin ? job : undefined });
         } else {
           let study = null; try { study = JSON.parse(dec.decode(payload)); } catch {}
           if (study && Array.isArray(study.bubbles) && study.bubbles.length) {
@@ -623,7 +629,8 @@ export async function pollTranslation(galleryId, send = () => {}) {
                 if (bb.text) { const text = await imageToBlob(bb.text); if (!text) continue; bubble.text = text; }
                 bubbles.push(bubble);
               }
-              if (bubbles.length && await ownsToken()) await putPageStudy(url, { bg, bubbles, page: study.page || null }, job);
+              const n = await at(url);
+              if (bubbles.length && n != null && await ownsToken()) await api.derived.putStudy(gid, n, { bg, bubbles, page: study.page || null }, job);
             }
           }
         }

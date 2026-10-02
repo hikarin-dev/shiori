@@ -7,7 +7,7 @@
 // button's context menu.
 
 import { t } from './i18n.js';
-import { getGalleryImageRecords } from './db.js';
+import * as api from './api.js';
 import { RERUN_POINTS, rerunAvailability } from './page-data.js';
 
 let _open = null;
@@ -39,7 +39,7 @@ export function rerunStatus({ pages, ready }) {
 // Show the menu under `anchor` for `galleryId`; `onPick(pointId, label)` runs for a chosen step.
 export async function openRerunMenu(anchor, galleryId, onPick) {
   close();
-  const records = (await getGalleryImageRecords(galleryId)).filter(r => r.blob ?? r.dataUrl);
+  const records = (await api.pages.all(galleryId)).filter(r => r.blob ?? r.dataUrl);
   const availability = rerunAvailability(records);
   const menu = document.createElement('div');
   menu.className = 'ctx-menu rerun-menu';

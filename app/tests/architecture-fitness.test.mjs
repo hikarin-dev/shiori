@@ -22,6 +22,18 @@ test('only the data layer opens IndexedDB transactions', () => {
   assert.deepEqual(offenders, [], 'raw transactions must live in db.js / platform.js');
 });
 
+test('the app reaches its library only through the library interface', () => {
+  // api.js is the interface and picks the backend; migrations.js runs the browser library's own
+  // one-time repairs of what it stores. Everything else goes through api.js, so either backend
+  // (db.js, or desktop-backend.js for the desktop app's library) can stand behind it.
+  const allowed = new Set(['db.js', 'api.js', 'migrations.js']);
+  const imports = /from\s*['"]\.\/db\.js['"]|import\(\s*['"]\.\/db\.js['"]\s*\)/;
+  const offenders = modules.filter((f) => !allowed.has(f) && imports.test(code(read(f))));
+  assert.deepEqual(offenders, [], 'import api.js, not db.js');
+  const desktop = /from\s*['"]\.\/desktop-backend\.js['"]|import\(\s*['"]\.\/desktop-backend\.js['"]\s*\)/;
+  assert.deepEqual(modules.filter((f) => f !== 'api.js' && desktop.test(code(read(f)))), [], 'import api.js, not desktop-backend.js');
+});
+
 test('object stores are only reached through the data layer', () => {
   const allowed = new Set(['db.js', 'platform.js']);
   const offenders = modules.filter((f) => !allowed.has(f) && /objectStore\s*\(/.test(code(read(f))));

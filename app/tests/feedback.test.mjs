@@ -4,7 +4,8 @@ import 'fake-indexeddb/auto';
 
 globalThis.BroadcastChannel = class { postMessage() {} close() {} };
 const { captureFeedback, feedbackZip, feedbackDestination, feedbackRequest, feedbackKey, feedbackTarget, sha256 } = await import('../js/feedback.js');
-const { dbPut, dbGet, imageRecordPut, deleteGallery, metaPut } = await import('../js/db.js');
+const api = await import('../js/api.js');
+const metaPut = api.meta.put;
 const { unzip } = await import('../js/import-cbz.js');
 
 const TRANSLATION = { at: 1, config: { render: { renderer: 'shiori_v2' } }, builds: { render: 'a'.repeat(12) } };
@@ -24,15 +25,15 @@ async function example(mode = 'text', gallery = 'feedback-example') {
 }
 
 for (const mode of ['text', 'image']) test(`${mode} feedback freezes all cached page data and survives library deletion`, async () => {
-  const url = `page://feedback/${mode}`, gallery = `feedback-${mode}`;
+  const gallery = `feedback-${mode}`, url = `page://${gallery}/1.png`;
   const { record, displayed, display } = await example(mode, gallery);
-  await dbPut(url, record.blob, gallery, gallery);
-  await imageRecordPut({ ...await dbGet(url), ...record });
-  const capture = await captureFeedback(await dbGet(url), displayed, display, 1);
+  await api.pages.put(gallery, 1, record.blob, { key: url });
+  await api.transfer.write({ galleryId: gallery, pages: [{ ...await api.pages.get(gallery, 1), ...record }] });   // the page as stored
+  const capture = await captureFeedback(await api.pages.get(gallery, 1), displayed, display, 1);
   capture.manifest.issues = ['grouping']; capture.manifest.note = 'Join with the first region';
   capture.manifest.selection.related = [0];
-  await deleteGallery(gallery);
-  assert.equal(await dbGet(url), null);
+  await api.galleries.delete(gallery);
+  assert.equal(await api.pages.get(gallery, 1), null);
   const files = new Map((await unzip(await (await feedbackZip(capture)).arrayBuffer())).map(e => [e.filename, e.data]));
   const manifest = JSON.parse(new TextDecoder().decode(files.get('manifest.json')));
   assert.equal(manifest.note, 'Join with the first region');

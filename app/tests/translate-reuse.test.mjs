@@ -11,7 +11,16 @@ globalThis.BroadcastChannel = class { postMessage() {} close() {} };
 const CAPS = JSON.parse(readFileSync(new URL('./fixtures/capabilities.json', import.meta.url), 'utf8'));
 const S = 'http://127.0.0.1:5003';
 
-const { dbPut, dbGet, putTranslatedPage, putTranslatedImage, metaPut, metaGet, clearGalleryTranslations, setPagesOwn } = await import('../js/db.js');
+// The library through its interface, by the page keys these tests use ("/<gallery>/<n>.webp").
+const api = await import('../js/api.js');
+const _at = (key) => { const m = String(key).match(/^(?:local:\/)?\/([^/]+)\/(\d+)\.\w+$/); return [m[1], Number(m[2])]; };
+const dbPut = (key, image, mediaId, gid) => api.pages.put(gid, _at(key)[1], image, { key, mediaId });
+const dbGet = (key) => api.pages.get(..._at(key));
+const putTranslatedPage = (key, image, pipeline, own) => api.derived.putTranslation(..._at(key), { image, pipeline, own });
+const putTranslatedImage = (key, image) => api.derived.putTranslatedImage(..._at(key), image);
+const putPageStudy = (key, study, job) => api.derived.putStudy(..._at(key), study, job);
+const setPagesOwn = (keys, own) => api.derived.setOwn(keys.map(k => { const [galleryId, pageNum] = _at(k); return { galleryId, pageNum }; }), own);
+const metaPut = api.meta.put, metaGet = api.meta.get, clearGalleryTranslations = api.derived.clear;
 const { startTranslation, pollTranslation, revertGallery } = await import('../js/translate.js');
 const { translateResume } = await import('../js/platform.js');
 const { buildConfig, migrateTranslateSettings } = await import('../js/translate-config.js');
@@ -245,7 +254,6 @@ test('a stale study frame never lands on a newer translation', async () => {
   await seed('89');
   const rec = await dbGet('/89/1.webp');
   await putTranslatedPage(rec.url, new Blob(['newer']), { ...rec.pipeline, job: 'newer' });
-  const { putPageStudy } = await import('../js/db.js');
   await putPageStudy(rec.url, { bg: null, bubbles: [{ id: 0, box: [0, 0, 1, 1] }], page: null }, rec.pipeline.job);
   assert.equal((await dbGet(rec.url)).bubbles, undefined);
 });

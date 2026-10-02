@@ -16,32 +16,37 @@
 
 import * as platform from './platform.js';
 import { isValidGalleryId } from './sanitize.js';
-import {
-  resolveGalleryId, dbGet, dbPut, metaGet, metaPut, galleryGet, coverGet, coverPut,
-  resizeCover, getStats, galleriesPage, galleriesCount, existingPageNums, pageExistsForGallery,
-  deleteGallery, deleteGalleryImages, rebuildGalleryEntry,
-  mutateGallery, refreshSeriesAggregate, isSeriesMeta, effectiveTagsOf, publishFeed,
-  metaGetAllMap, getGalleryPages, getGalleryPageRange, getGalleryImageRecords, imageToBlob, imageToDataUrl, PAGE_URL,
-} from './db.js';
+import * as api from './api.js';
+import { resizeCover, imageToBlob, imageToDataUrl } from './image-util.js';
+import { isSeriesMeta, effectiveTagsOf } from './gallery-model.js';
 import { translatedImage } from './page-image.js';
 import { pickTitle } from './titles.js';
 
-function storedPageNum(pageNum, url) {
-  const explicit = Number(pageNum);
-  if (Number.isSafeInteger(explicit) && explicit > 0) return explicit;
-  const match = String(url || '').match(/\/([1-9]\d*)\.[^/?#]+$/);
-  const parsed = match ? Number(match[1]) : 0;
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+// A gallery's pages as data URLs for the caller across the bridge, the translated image preferred
+// (stored, or composed from its study layers): every page up to `capBytes`, or those from `start`
+// to `end`.
+async function _pageDataUrls(gid, { start = 1, end = Infinity, capBytes = Infinity } = {}) {
+  const pages = [];
+  let total = 0;
+  for (const { pageNum, url } of await api.pages.list(gid)) {
+    if (pageNum < start || pageNum > end) continue;
+    // One page at a time: a page kept as study layers is composed only when it fits.
+    const blob = total < capBytes ? await api.pages.blob(gid, pageNum, 'translated') : null;
+    let dataUrl;
+    if (blob && total + blob.size <= capBytes) { dataUrl = await imageToDataUrl(blob); total += blob.size; }
+    pages.push({ pageNum, url, dataUrl });
+  }
+  return { pages };
 }
 
 // ── Toast payload (the "saved to library" card the extension shows on-site) ────────────────
 async function toastFor(gid) {
-  const m = await metaGet(gid).catch(() => null);
+  const m = await api.meta.get(gid).catch(() => null);
   if (!m || m.isStub) return null;
   const isSeries = isSeriesMeta(m);
   const tags = effectiveTagsOf(m) || [];
   let cover = null;
-  try { const src = await coverGet(gid, { preferSeries: isSeries }); if (src) cover = await resizeCover(src, 96); } catch {}
+  try { const src = await api.covers.get(gid, { preferSeries: isSeries }); if (src) cover = await resizeCover(src, 96); } catch {}
   return {
     galleryId: m.sourceId || gid,
     title: pickTitle(m),
@@ -69,14 +74,17 @@ const GROUPING_FIELDS = ['chapters', 'parentId', 'seriesTitle', 'seriesTags'];
 // The record of which configs translated the gallery's pages is app-only too, and so is whether
 // the user favorited the gallery.
 const APP_ONLY_FIELDS = [...GROUPING_FIELDS, 'translations', 'favorite'];
-async function metaPutKeepingGrouping(meta, opts) {
-  const prev = await metaGet(meta.galleryId).catch(() => null);
-  if (!prev) return metaPut(meta, opts);
+async function withAppOnlyFields(meta) {
+  const prev = await api.meta.get(meta.galleryId).catch(() => null);
+  if (!prev) return meta;
   const merged = { ...meta };
   for (const field of APP_ONLY_FIELDS) {
     if (merged[field] === undefined && prev[field] !== undefined) merged[field] = prev[field];
   }
-  return metaPut(merged, opts);
+  return merged;
+}
+async function metaPutKeepingGrouping(meta, opts) {
+  return api.meta.put(await withAppOnlyFields(meta), opts);
 }
 
 // ── Payload validation ──────────────────────────────────────────────────────────────────────
@@ -87,6 +95,7 @@ const MAX_PAGE_BYTES  = 64 * 1024 * 1024;
 const MAX_COVER_BYTES = 16 * 1024 * 1024;
 const MAX_BATCH = 500;
 const MAX_CHAPTERS = 2000;
+const MAX_PAGES = 10000;
 const _id = (v) => { const s = String(v ?? ''); if (!isValidGalleryId(s)) throw new Error('invalid gallery id'); return s; };
 const _cap = (arr, n, what) => { const a = Array.isArray(arr) ? arr : []; if (a.length > n) throw new Error(`${what} exceeds the allowed size`); return a; };
 const _bytesOk = (bytes, max) => bytes == null || ((bytes.byteLength ?? bytes.length ?? 0) <= max);
@@ -126,11 +135,11 @@ const OPS = {
   async snapshot({ coverWidth = 88, limit = 5 } = {}) {
     coverWidth = Math.min(Math.max(Number(coverWidth) || 88, 1), 1024);
     limit = Math.min(Math.max(Number(limit) || 5, 1), 50);
-    const [stats, total, recent] = await Promise.all([getStats(), galleriesCount(), galleriesPage({ sort: 'updated', limit })]);
+    const [stats, total, recent] = await Promise.all([api.galleries.stats(), api.galleries.count(), api.galleries.page({ sort: 'updated', limit })]);
     const galleries = [];
     for (const g of recent) {
       let cover = null;
-      try { const src = await coverGet(g.id, { preferSeries: g.isSeries }); if (src) cover = await resizeCover(src, coverWidth); } catch {}
+      try { const src = await api.covers.get(g.id, { preferSeries: g.isSeries }); if (src) cover = await resizeCover(src, coverWidth); } catch {}
       galleries.push({
         id: g.id, sourceId: g.sourceId, title: pickTitle(g), count: g.count || 0, size: g.size || 0,
         source: g.source || '', tags: (g.tags || []).slice(0, 8), cover,
@@ -140,33 +149,30 @@ const OPS = {
   },
 
   async delete_gallery({ galleryId }) {
-    await deleteGallery(_id(galleryId));
+    await api.galleries.delete(_id(galleryId));
     return { ok: true };
   },
 
   // ── Serving cached pages back (translated variant preferred) ──
   async gallery_pages({ galleryId }) {
-    const gid = await resolveGalleryId(_id(galleryId));
-    return getGalleryPages(gid, { preferTranslated: true });
+    const gid = await api.galleries.resolveSource(_id(galleryId));
+    return _pageDataUrls(gid, { capBytes: 8 * 1024 * 1024 });
   },
 
   async pages_window({ galleryId, startPage, endPage }) {
-    const gid = await resolveGalleryId(_id(galleryId));
-    return getGalleryPageRange(gid, Number(startPage) || 0, Number(endPage) || 0, { preferTranslated: true });
+    const gid = await api.galleries.resolveSource(_id(galleryId));
+    return _pageDataUrls(gid, { start: Number(startPage) || 0, end: Number(endPage) || 0 });
   },
 
   async images_batch({ galleryId, queries }) {
     const results = {};
     if (!galleryId || !queries?.length) return { results };
     _cap(queries, 2000, 'queries');
-    const gid = await resolveGalleryId(_id(galleryId));
-    const records = await getGalleryImageRecords(gid);
+    const gid = await api.galleries.resolveSource(_id(galleryId));
+    const records = await api.pages.all(gid);
     const byUrl  = new Map(records.map(r => [r.url, r]));
     const byPage = new Map();
-    for (const r of records) {
-      const m = r.url.match(PAGE_URL);
-      if (m) byPage.set(parseInt(m[1]), r);
-    }
+    for (const r of records) if (r.pageNum != null) byPage.set(r.pageNum, r);
     for (const { url, pageNum } of queries) {
       const rec = byUrl.get(url) ?? (!isNaN(pageNum) ? byPage.get(pageNum) : undefined);
       const dataUrl = rec ? await imageToDataUrl((await translatedImage(rec)) ?? rec.blob ?? rec.dataUrl) : undefined;
@@ -183,26 +189,26 @@ const OPS = {
   async resolve_gid({ sourceRef }) {
     const ref = _id(sourceRef);
     if (/^\d{13,}$/.test(ref)) throw new Error('source ref collides with the internal id space');
-    return { gid: await resolveGalleryId(ref) };
+    return { gid: await api.galleries.resolveSource(ref) };
   },
 
   async resolve_gids({ sourceRefs }) {
     return { gids: await allOrThrow(_cap(sourceRefs, 2000, 'sourceRefs').map((r) => {
       const ref = _id(r);
       if (/^\d{13,}$/.test(ref)) throw new Error('source ref collides with the internal id space');
-      return resolveGalleryId(ref);
+      return api.galleries.resolveSource(ref);
     })) };
   },
 
   // Everything an engine needs to decide what to do with a gallery: stats + the meta record.
   async gallery_info({ galleryId }) {
     const gid = _id(galleryId);
-    const [gal, meta] = await Promise.all([galleryGet(gid), metaGet(gid)]);
+    const [gal, meta] = await Promise.all([api.galleries.get(gid), api.meta.get(gid)]);
     return { gid, count: gal?.count || 0, size: gal?.size || 0, meta: meta || null };
   },
 
   async source_galleries({ source }) {
-    const [metas, stats] = await Promise.all([metaGetAllMap(), getStats()]);
+    const [metas, stats] = await Promise.all([api.galleries.searchIndex(), api.galleries.stats()]);
     const galleries = [];
     for (const [gid, meta] of metas) {
       if (source && meta?.source !== source) continue;
@@ -218,27 +224,32 @@ const OPS = {
   },
 
   async existing_pages({ galleryId }) {
-    return { pages: [...await existingPageNums(_id(galleryId))] };
+    return { pages: (await api.pages.list(_id(galleryId))).map(p => p.pageNum) };
   },
 
-  async page_exists({ galleryId, url, pageNum }) {
-    if (url && await dbGet(String(url))) return { exists: true };
-    if (pageNum != null && await pageExistsForGallery(_id(galleryId), Number(pageNum))) return { exists: true };
-    return { exists: false };
+  // Whether the gallery has page `pageNum` (its key carries the same number).
+  async page_exists({ galleryId, pageNum }) {
+    const n = Number(pageNum);
+    return { exists: Number.isSafeInteger(n) && n > 0 && await api.pages.has(_id(galleryId), n) };
   },
 
   // Store one page under the key the engine chose. Accepts raw bytes (transferred) or a data URL.
-  async store_page({ galleryId, url, bytes, dataUrl, mime, mediaId, pageNum, wantDataUrl }) {
+  // `meta` may ride along (a gallery's first page): page and metadata land in one transaction.
+  async store_page({ galleryId, url, bytes, dataUrl, mime, mediaId, pageNum, wantDataUrl, meta }) {
     const gid = _id(galleryId);
     if (typeof url !== 'string' || !url || url.length > 2048) throw new Error('invalid page key');
     if (!_bytesOk(bytes, MAX_PAGE_BYTES) || !_bytesOk(dataUrl, MAX_PAGE_BYTES * 1.4)) throw new Error('page too large');
-    const src = bytes ? new Blob([bytes], { type: mime || 'application/octet-stream' }) : dataUrl;
-    await dbPut(url, src, mediaId ?? gid, gid);
-    const storedNum = storedPageNum(pageNum, url);
-    if (storedNum != null) {
-      platform.jobs.signal({ type: 'PAGE_STORED', galleryId: gid, pageNum: storedNum, url });
+    if (meta != null) {
+      _checkMetaIds(meta);
+      if (String(meta.galleryId) !== gid) throw new Error('metadata is for another gallery');
     }
+    const src = bytes ? new Blob([bytes], { type: mime || 'application/octet-stream' }) : dataUrl;
+    // The page's number is the one given, else its key's; a key naming another page is refused.
+    const given = Number(pageNum) > 0 ? Number(pageNum) : null;
+    const storedNum = await api.pages.put(gid, given, src, { key: url, mediaId: mediaId ?? gid, meta: meta != null ? await withAppOnlyFields(meta) : undefined });
+    platform.jobs.signal({ type: 'PAGE_STORED', galleryId: gid, pageNum: storedNum, url });
     const out = { stored: true };
+    if (meta != null) out.metaStored = true;   // tells the caller this app version took the metadata
     if (wantDataUrl) out.dataUrl = await imageToDataUrl(src instanceof Blob ? src : dataUrl);
     return out;
   },
@@ -251,7 +262,7 @@ const OPS = {
     const cover = await imageToBlob(src);
     if (!cover) return { ok: false };
     // coverPut normally announces the change itself; a prepared batch can defer that announcement.
-    await coverPut(gid, cover, { role: role === 'series' ? 'series' : 'gallery', silent: !!silent });
+    await api.covers.put(gid, cover, { role: role === 'series' ? 'series' : 'gallery', silent: !!silent });
     return { ok: true };
   },
 
@@ -265,13 +276,15 @@ const OPS = {
   async mutate_gallery({ galleryId, patch }) {
     if (!galleryId) return { ok: false };
     if (patch) _checkMetaIds({ ...patch, galleryId });
-    await mutateGallery(_id(galleryId), patch || {});
+    await api.galleries.mutate(_id(galleryId), patch || {});
     return { ok: true };
   },
 
   // Apply a prepared set of generic gallery records without exposing each intermediate state.
   // The caller chooses the final records and notification ids; the app only commits them and
-  // announces the completed batch once.
+  // announces the completed batch once. A batch only updates galleries that exist (a new one
+  // already has its placeholder from resolve_gid/resolve_gids): a batch arriving after its gallery
+  // was deleted — a long background pass — must not bring it back.
   async gallery_batch({ metas, mutations, refreshSeries, notifyGalleryIds, invalidateCoverIds }) {
     for (const meta of _cap(metas, MAX_BATCH, 'metas')) { if (meta?.galleryId) _checkMetaIds(meta); }
     for (const mutation of _cap(mutations, MAX_BATCH, 'mutations')) {
@@ -282,23 +295,27 @@ const OPS = {
     _cap(invalidateCoverIds, 2000, 'invalidateCoverIds').forEach((gid) => _id(gid));
     await allOrThrow((metas || [])
       .filter(meta => meta?.galleryId)
-      .map(meta => metaPutKeepingGrouping(meta, { silent: true })));
-    await allOrThrow((mutations || [])
-      .filter(mutation => mutation?.galleryId)
-      .map(mutation => mutateGallery(String(mutation.galleryId), mutation.patch || {}, { silent: true })));
+      .map(meta => metaPutKeepingGrouping(meta, { silent: true, onlyIfExists: true })));
+    // Chapter lists first: a chapter that moves to another series then finds its old list already
+    // replaced, instead of shrinking it one chapter at a time.
+    const ordered = (mutations || []).filter(mutation => mutation?.galleryId);
+    const listsFirst = (mutation) => ('chapters' in (mutation.patch || {}) ? 0 : 1);
+    ordered.sort((a, b) => listsFirst(a) - listsFirst(b));
+    await allOrThrow(ordered
+      .map(mutation => api.galleries.mutate(String(mutation.galleryId), mutation.patch || {}, { silent: true, onlyIfExists: true })));
     await allOrThrow((refreshSeries || [])
       .filter(ownerId => ownerId != null)
-      .map(ownerId => refreshSeriesAggregate(String(ownerId), { silent: true })));
+      .map(ownerId => api.series.refreshTotals(String(ownerId), { silent: true })));
     for (const galleryId of new Set(invalidateCoverIds || [])) {
       platform.control.send({ type: 'COVER_INVALIDATED', galleryId: String(galleryId) });
     }
-    for (const galleryId of new Set(notifyGalleryIds || [])) publishFeed(String(galleryId));
+    for (const galleryId of new Set(notifyGalleryIds || [])) api.events.announce(String(galleryId));
     return { ok: true };
   },
 
   async refresh_series({ ownerId }) {
     if (!ownerId) return { ok: false };
-    await refreshSeriesAggregate(_id(ownerId));
+    await api.series.refreshTotals(_id(ownerId));
     return { ok: true };
   },
 
@@ -311,14 +328,20 @@ const OPS = {
     return { toast };
   },
 
-  async delete_pages({ galleryId }) {
-    await deleteGalleryImages(_id(galleryId));
-    return { ok: true };
+  // Drop a gallery's pages whose keys aren't in keepUrls and recompute its stats — the tidy-up
+  // after a set of pages was replaced in place. Never an empty set: that would empty the gallery.
+  async prune_pages({ galleryId, keepUrls }) {
+    const gid = _id(galleryId);
+    const keep = _cap(keepUrls, MAX_PAGES, 'keepUrls');
+    if (!keep.length) throw new Error('keepUrls is empty');
+    const removed = await api.pages.prune(gid, keep);
+    if (removed) api.events.announce(gid);
+    return { removed };
   },
 
   // Recompute a gallery's stat record from its actual stored pages.
   async rebuild({ galleryId }) {
-    await rebuildGalleryEntry(_id(galleryId));
+    await api.galleries.recount(_id(galleryId));
     return { ok: true };
   },
 

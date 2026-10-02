@@ -11,11 +11,8 @@
 //
 // importBackup() detects the format from the file itself, so one picker handles both.
 
-import {
-  publishFeed, metaPut, backfillUploadDates, coverPut, refreshSeriesAggregate, sourceIconPut,
-  metaGetAll, galleryGetAll, galleryGet, galleryPut, sourceIconsAll,
-  imageKeysAll, imageRecordPut, dbGet, coverKeysAll, coverRecordGet, BUBBLE_EXTRA_FIELDS,
-} from './db.js';
+import * as api from './api.js';
+import { BUBBLE_EXTRA_FIELDS } from './gallery-files.js';
 import { isValidGalleryId } from './sanitize.js';
 
 // Decode a base64 data-URL to a Blob (legacy records store images as strings). One image at a time.
@@ -83,9 +80,14 @@ function restoreSettings(settings) {
 }
 
 // ── Metadata-only export (.shi) ─────────────────────────────────────────────────────────────
+// Only galleries in the library: metadata that never became a gallery (a download that failed
+// before its first page) would otherwise come back from the backup as an empty gallery.
 export async function exportMetadata() {
-  const allMeta = await metaGetAll();
-  const payload = allMeta.map(({ pageExts, ...rest }) => rest);
+  const payload = [];
+  for (const gid of await api.transfer.ids()) {
+    const { meta, stat } = await api.transfer.read(gid);
+    if (meta && stat) { const { pageExts, ...rest } = meta; payload.push(rest); }
+  }
   return {
     blob: new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }),
     suggestedName: `shiori-backup-${new Date().toISOString().slice(0, 10)}.shi`,
@@ -135,63 +137,64 @@ export async function exportFull(onProgress) {
 let lastCounts = null;
 const PIPELINE_MASKS = ['raw', 'text'];
 
-// Walk every store one record at a time, handing each blob to `sink` (which writes it and returns
-// its { off, len, type }). Returns the manifest. Holds at most one image at a time.
+// Walk the library one gallery at a time, handing each image to `sink` (which writes it and returns
+// its { off, len, type }). Returns the manifest. Holds one gallery's records at a time.
 async function build(sink, onProgress) {
-  const images = [];
-  const imgKeys = await imageKeysAll();
-  for (let i = 0; i < imgKeys.length; i++) {
-    const r = await dbGet(imgKeys[i]);
-    if (!r) continue;
-    const ent = { url: r.url, mediaId: r.mediaId, galleryId: r.galleryId, cachedAt: r.cachedAt, size: r.size };
-    // The page's pipeline data (what a later translation reuses): inline, with its masks streamed.
-    if (r.pipeline) {
-      const { masks = {}, ...data } = r.pipeline;
-      const specs = {};
-      for (const name of PIPELINE_MASKS) { const m = toBlob(masks[name]); if (m) specs[name] = await sink(m); }
-      ent.pipeline = { ...data, masks: specs };
+  const images = [], covers = [], metadata = [], galleries = [];
+  const ids = await api.transfer.ids();
+  for (let i = 0; i < ids.length; i++) {
+    const { meta, stat, pages, cover } = await api.transfer.read(ids[i]);
+    for (const r of pages) images.push(await pageEntry(r, sink));
+    if (cover) {
+      const ent = { galleryId: ids[i] };
+      const body = toBlob(cover.cover);
+      if (body) ent.body = await sink(body);
+      const seriesBody = toBlob(cover.seriesCover);
+      if (seriesBody) ent.seriesBody = await sink(seriesBody);
+      if (ent.body || ent.seriesBody) covers.push(ent);
     }
-    if (r.own) ent.own = r.own;   // the translation whose settings the page keeps
-    if (r.translatedLayers) ent.translatedLayers = true;   // the translated page is its study layers
-    const body = toBlob(r.blob ?? r.dataUrl);
-    if (body) ent.body = await sink(body);
-    if (r.translated != null) { const tb = toBlob(r.translated); if (tb) ent.translated = await sink(tb); }
-    // Study-mode layers: stream the shared inpaint bg and each bubble's transparent text PNG
-    // into the blob region (like body/translated), and keep layout/text metadata inline in the
-    // manifest. A text-only study record has bubbles but no studyBg and must still round-trip.
-    if (r.studyBg != null) { const sb = toBlob(r.studyBg); if (sb) ent.studyBg = await sink(sb); }
-    if (r.studyPage != null) ent.studyPage = r.studyPage;
-    if (Array.isArray(r.bubbles) && r.bubbles.length) {
-      const bubs = [];
-      for (const b of r.bubbles) {
-        const tb = toBlob(b.text);
-        const bubble = { box: b.box, region: b.region, tr: b.tr || '', src: b.src || '', text: tb ? await sink(tb) : null };
-        for (const key of BUBBLE_EXTRA_FIELDS) {
-          if (b[key] != null) bubble[key] = b[key];
-        }
-        bubs.push(bubble);
-      }
-      ent.bubbles = bubs;
-    }
-    images.push(ent);
-    if (onProgress && i % 25 === 0) onProgress('images', i + 1, imgKeys.length);
+    if (meta) metadata.push(meta);
+    if (stat) galleries.push(stat);
+    if (onProgress && i % 5 === 0) onProgress('galleries', i + 1, ids.length);
   }
-  const covers = [];
-  for (const key of await coverKeysAll()) {
-    const c = await coverRecordGet(key);
-    if (!c) continue;
-    const ent = { galleryId: c.galleryId };
-    const body = toBlob(c.cover);
-    if (body) ent.body = await sink(body);
-    const seriesBody = toBlob(c.seriesCover);
-    if (seriesBody) ent.seriesBody = await sink(seriesBody);
-    if (ent.body || ent.seriesBody) covers.push(ent);
-  }
-  const metadata = await metaGetAll();
-  const galleries = await galleryGetAll();
-  const sourceIcons = await sourceIconsAll().catch(() => []);
+  const sourceIcons = await api.icons.all().catch(() => []);
   lastCounts = { images: images.length, galleries: galleries.length, covers: covers.length, sourceIcons: sourceIcons.length };
   return { format: 'shiori-db', version: ARCHIVE_VERSION, exportedAt: Date.now(), counts: lastCounts, images, covers, sourceIcons, metadata, galleries, settings: snapshotSettings() };
+}
+
+// One page's manifest entry, its images streamed to `sink`.
+async function pageEntry(r, sink) {
+  const ent = { url: r.url, mediaId: r.mediaId, galleryId: r.galleryId, cachedAt: r.cachedAt, size: r.size };
+  // The page's pipeline data (what a later translation reuses): inline, with its masks streamed.
+  if (r.pipeline) {
+    const { masks = {}, ...data } = r.pipeline;
+    const specs = {};
+    for (const name of PIPELINE_MASKS) { const m = toBlob(masks[name]); if (m) specs[name] = await sink(m); }
+    ent.pipeline = { ...data, masks: specs };
+  }
+  if (r.own) ent.own = r.own;   // the translation whose settings the page keeps
+  if (r.translatedLayers) ent.translatedLayers = true;   // the translated page is its study layers
+  const body = toBlob(r.blob ?? r.dataUrl);
+  if (body) ent.body = await sink(body);
+  if (r.translated != null) { const tb = toBlob(r.translated); if (tb) ent.translated = await sink(tb); }
+  // Study-mode layers: stream the shared inpaint bg and each bubble's transparent text PNG
+  // into the blob region (like body/translated), and keep layout/text metadata inline in the
+  // manifest. A text-only study record has bubbles but no studyBg and must still round-trip.
+  if (r.studyBg != null) { const sb = toBlob(r.studyBg); if (sb) ent.studyBg = await sink(sb); }
+  if (r.studyPage != null) ent.studyPage = r.studyPage;
+  if (Array.isArray(r.bubbles) && r.bubbles.length) {
+    const bubs = [];
+    for (const b of r.bubbles) {
+      const tb = toBlob(b.text);
+      const bubble = { box: b.box, region: b.region, tr: b.tr || '', src: b.src || '', text: tb ? await sink(tb) : null };
+      for (const key of BUBBLE_EXTRA_FIELDS) {
+        if (b[key] != null) bubble[key] = b[key];
+      }
+      bubs.push(bubble);
+    }
+    ent.bubbles = bubs;
+  }
+  return ent;
 }
 
 // ── Import (auto-detect) ────────────────────────────────────────────────────────────────────
@@ -226,9 +229,8 @@ async function importMetadataFile(file) {
     if (!meta.galleryId) continue;
     const gid = String(meta.galleryId);
     const nextMeta = { ...meta, galleryId: gid, fetchedAt: Date.now() };
-    await metaPut(nextMeta);
-    const existingGal = await galleryGet(gid).catch(() => null);
-    await galleryPut({
+    const existingGal = (await api.transfer.read(gid).catch(() => null))?.stat || null;
+    await api.transfer.write({ galleryId: gid, meta: nextMeta, stat: {
       galleryId: gid,
       count:     existingGal?.count    || 0,
       size:      existingGal?.size     || 0,
@@ -239,13 +241,12 @@ async function importMetadataFile(file) {
       // Keep the stat record's series link in step with the metadata, so a chapter restored from a
       // metadata-only backup stays hidden from the top-level grid (which filters on stat.parentId).
       ...(nextMeta.parentId ? { parentId: String(nextMeta.parentId) } : {}),
-      ...(Array.isArray(nextMeta.chapters) && nextMeta.chapters.length > 1 ? { chapterCount: nextMeta.chapters.length } : {}),
-    });
+    } });
     if (nextMeta.parentId) seriesOwners.add(String(nextMeta.parentId));
     if (Array.isArray(nextMeta.chapters) && nextMeta.chapters.length > 1) seriesOwners.add(gid);
     n++;
   }
-  for (const ownerId of seriesOwners) await refreshSeriesAggregate(ownerId).catch(() => {});
+  for (const ownerId of seriesOwners) await api.series.refreshTotals(ownerId).catch(() => {});
   return { galleries: n, images: 0 };
 }
 
@@ -275,6 +276,32 @@ function validateFullManifest(manifest, blobRegionEnd) {
   for (const g of (manifest.galleries || [])) { if (!isValidGalleryId(g.galleryId)) bad('invalid gallery id'); }
 }
 
+// A page record from its manifest entry, its images sliced lazily out of the picked file.
+function pageRecord(e, sliceOf) {
+  const rec = { url: e.url, mediaId: e.mediaId, galleryId: e.galleryId, cachedAt: e.cachedAt, size: e.size };
+  if (e.pipeline && typeof e.pipeline === 'object') {
+    const { masks = {}, ...data } = e.pipeline;
+    rec.pipeline = { ...data, masks: {} };
+    for (const name of PIPELINE_MASKS) { const m = sliceOf(masks[name]); if (m) rec.pipeline.masks[name] = m; }
+  }
+  if (typeof e.own === 'string') rec.own = e.own;
+  if (e.translatedLayers === true) rec.translatedLayers = true;
+  const b = sliceOf(e.body); if (b) rec.blob = b;
+  const tb = sliceOf(e.translated); if (tb) rec.translated = tb;
+  const sb = sliceOf(e.studyBg); if (sb) rec.studyBg = sb;
+  if (e.studyPage != null) rec.studyPage = e.studyPage;
+  if (Array.isArray(e.bubbles) && e.bubbles.length) {
+    rec.bubbles = e.bubbles.map((b) => {
+      const bubble = { box: b.box, region: b.region || b.box, tr: b.tr || '', src: b.src || '', text: sliceOf(b.text) };
+      for (const key of BUBBLE_EXTRA_FIELDS) {
+        if (b[key] != null) bubble[key] = b[key];
+      }
+      return bubble;
+    });
+  }
+  return rec;
+}
+
 // Reads the manifest from the file's tail, then lazily slices each image out of the picked
 // file — the whole archive is never loaded.
 async function importFullFile(file, onProgress) {
@@ -287,53 +314,34 @@ async function importFullFile(file, onProgress) {
   validateFullManifest(manifest, manifestStart);
 
   const sliceOf = (spec) => spec ? file.slice(spec.off, spec.off + spec.len, spec.type || '') : null;
+  // Each gallery's records, written together: a gallery arrives whole or not at all.
+  const bundles = new Map();
+  const bundle = (gid) => {
+    gid = String(gid);
+    if (!bundles.has(gid)) bundles.set(gid, { galleryId: gid, meta: null, stat: null, pages: [], cover: null });
+    return bundles.get(gid);
+  };
+  for (const e of (manifest.images || [])) bundle(e.galleryId).pages.push(e);
+  for (const m of (manifest.metadata || [])) bundle(m.galleryId).meta = m;
+  for (const g of (manifest.galleries || [])) bundle(g.galleryId).stat = g;
+  for (const e of (manifest.covers || [])) bundle(e.galleryId).cover = e;
   let n = 0;
-  for (const e of (manifest.images || [])) {
-    const rec = { url: e.url, mediaId: e.mediaId, galleryId: e.galleryId, cachedAt: e.cachedAt, size: e.size };
-    if (e.pipeline && typeof e.pipeline === 'object') {
-      const { masks = {}, ...data } = e.pipeline;
-      rec.pipeline = { ...data, masks: {} };
-      for (const name of PIPELINE_MASKS) { const m = sliceOf(masks[name]); if (m) rec.pipeline.masks[name] = m; }
-    }
-    if (typeof e.own === 'string') rec.own = e.own;
-    if (e.translatedLayers === true) rec.translatedLayers = true;
-    const b = sliceOf(e.body); if (b) rec.blob = b;
-    const tb = sliceOf(e.translated); if (tb) rec.translated = tb;
-    const sb = sliceOf(e.studyBg); if (sb) rec.studyBg = sb;
-    if (e.studyPage != null) rec.studyPage = e.studyPage;
-    if (Array.isArray(e.bubbles) && e.bubbles.length) {
-      rec.bubbles = e.bubbles.map((b) => {
-        const bubble = { box: b.box, region: b.region || b.box, tr: b.tr || '', src: b.src || '', text: sliceOf(b.text) };
-        for (const key of BUBBLE_EXTRA_FIELDS) {
-          if (b[key] != null) bubble[key] = b[key];
-        }
-        return bubble;
-      });
-    }
-    await imageRecordPut(rec);
-    if (onProgress && (++n % 25 === 0)) onProgress('images', n, (manifest.images || []).length);
-  }
-  for (const m of (manifest.metadata || [])) await metaPut(m);
-  for (const g of (manifest.galleries || [])) await galleryPut(g);
-  // Silent cover writes: the per-gallery publishFeed pass below announces the restore — loud
-  // coverPuts here would additionally ping every open surface once per cover blob.
-  for (const e of (manifest.covers || [])) {
-    const b = sliceOf(e.body);
-    const sb = sliceOf(e.seriesBody);
-    if (b) await coverPut(e.galleryId, b, { role: 'gallery', silent: true });
-    if (sb) await coverPut(e.galleryId, sb, { role: 'series', silent: true });
+  for (const b of bundles.values()) {
+    const pages = b.pages.map(e => pageRecord(e, sliceOf));
+    const cover = b.cover ? { cover: sliceOf(b.cover.body), seriesCover: sliceOf(b.cover.seriesBody) } : null;
+    await api.transfer.write({ ...b, pages, cover }, { silent: true });
+    if (onProgress && (++n % 5 === 0)) onProgress('galleries', n, bundles.size);
   }
   for (const icon of (manifest.sourceIcons || [])) {
-    if (icon?.source && /^data:image\//i.test(icon.dataUrl || '')) await sourceIconPut(icon.source, icon);
+    if (icon?.source && /^data:image\//i.test(icon.dataUrl || '')) await api.icons.put(icon.source, icon);
   }
-  await backfillUploadDates();   // older archives predate the denormalized uploadDate — fill it from metadata
   const seriesOwners = new Set();
   for (const m of (manifest.metadata || [])) {
     if (m?.parentId) seriesOwners.add(String(m.parentId));
     if (Array.isArray(m?.chapters) && m.chapters.length > 1) seriesOwners.add(String(m.galleryId));
   }
-  for (const ownerId of seriesOwners) await refreshSeriesAggregate(ownerId).catch(() => {});
-  for (const g of (manifest.galleries || [])) publishFeed(g.galleryId);
+  for (const ownerId of seriesOwners) await api.series.refreshTotals(ownerId).catch(() => {});
+  for (const gid of bundles.keys()) api.events.announce(gid);
   // Settings restore LAST: preferences must never land if the data restore failed part-way.
   restoreSettings(manifest.settings);
   if (onProgress) onProgress('done', 1, 1);

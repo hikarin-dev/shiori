@@ -168,19 +168,19 @@ test('page properties describe what is stored for a page and how big each part i
 });
 
 test('a full backup keeps each page\'s pipeline data and masks', async () => {
-  const db = await import('../js/db.js');
+  const api = await import('../js/api.js');
   const { exportFull, importBackup } = await import('../js/backup.js');
-  await db.metaPut({ galleryId: '555', title: { english: 'B', japanese: '', pretty: 'B' }, tags: [], translations: { j1: ENTRY } });
-  await db.dbPut('local://555/1.png', png(3), '555', '555');
-  await db.putTranslatedPage('local://555/1.png', png(9), PIPELINE, 'j1');
+  await api.meta.put({ galleryId: '555', title: { english: 'B', japanese: '', pretty: 'B' }, tags: [], translations: { j1: ENTRY } });
+  await api.pages.put('555', 1, png(3), { key: 'local://555/1.png' });
+  await api.derived.putTranslation('555', 1, { image: png(9), pipeline: PIPELINE, own: 'j1' });
   const { archive } = await exportFull();
-  await db.putTranslatedPage('local://555/1.png', png(9), null, null);
-  assert.equal((await db.dbGet('local://555/1.png')).pipeline, undefined);
-  assert.equal((await db.dbGet('local://555/1.png')).own, undefined);
+  await api.derived.putTranslation('555', 1, { image: png(9), pipeline: null, own: null });
+  assert.equal((await api.pages.get('555', 1)).pipeline, undefined);
+  assert.equal((await api.pages.get('555', 1)).own, undefined);
   await importBackup(new File([archive], 'backup.shioridb'));
-  const rec = await db.dbGet('local://555/1.png');
+  const rec = await api.pages.get('555', 1);
   assert.deepEqual(rec.pipeline.regions, PIPELINE.regions);
   assert.deepEqual([...new Uint8Array(await rec.pipeline.masks.text.arrayBuffer())], [137, 80, 78, 71, 2]);
   assert.equal(rec.own, 'j1', 'a page keeping its own settings still does');
-  assert.deepEqual((await db.metaGet('555')).translations, { j1: ENTRY });
+  assert.deepEqual((await api.meta.get('555')).translations, { j1: ENTRY });
 });

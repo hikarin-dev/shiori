@@ -3,7 +3,7 @@
 // The single client-side view over the durable library. Surfaces read one page at a
 // time, subscribe per-gallery, and re-render from a pure function of state; they never
 // keep their own divergent copy or hand-patch fields. Reads/writes and the change feed go
-// through api.js, which names the library in entity terms over db.js (the one data layer).
+// through api.js, the library interface.
 
 import { galleries, events } from './api.js';
 import { normalizeTitle } from './titles.js';
@@ -58,10 +58,17 @@ export function get(gid) {
   return _cache.get(String(gid));
 }
 
-// Re-read one gallery from the database into the cache.
+// Re-read one gallery from the database into the cache. Reads of one gallery can overlap (two
+// changes in quick succession); only the newest one started may land, so a slower, older read can
+// never put back what a newer one replaced.
+const _loads = new Map();   // gid → number of the newest read started
 export async function load(gid) {
   const key = String(gid);
+  const n = (_loads.get(key) || 0) + 1;
+  _loads.set(key, n);
   const entity = await galleries.get(key);
+  if (_loads.get(key) !== n) return _cache.get(key) ?? entity ?? null;   // a newer read is on its way
+  _loads.delete(key);
   if (entity) { _cachePut(key, entity); _evictCache(); } else _cache.delete(key);
   return entity || null;
 }
@@ -94,7 +101,7 @@ export async function getPage({ sort = 'updated', dir, page = 1, pageSize = 60, 
     return { items, total };
   }
 
-  const [ids, metaMap] = await Promise.all([galleries.idsSorted({ sort, dir }), galleries.metaMap()]);
+  const [ids, metaMap] = await Promise.all([galleries.idsSorted({ sort, dir }), galleries.searchIndex()]);
   // Child chapters surface as their own search hit only in the unmerged view; merged, they live
   // inside their series.
   const matched = ids.filter(id => (!merge || !metaMap.get(id)?.parentId) && match(_lite(id, metaMap.get(id))));
@@ -113,18 +120,23 @@ export async function mutate(gid, patch, opts) {
 
 export async function remove(gid) {
   _cache.delete(String(gid));
-  return galleries.remove(gid);
+  return galleries.delete(gid);
 }
 
-// Feed listener: on a beacon, re-read just the changed gallery and notify its subscribers.
-// Galleries nobody is watching (and not cached) are ignored — the lazy path that keeps a
-// large library cheap. The transport (a BroadcastChannel) is hidden behind api.events.
-events.onChange((v) => {
-  const token = v.context ? `${v.context}:${v.n}` : `${v.gid}:${v.n}:${v.at}`;
-  if (_seenFeedTokens.has(token)) return;
-  _seenFeedTokens.add(token);
-  if (_seenFeedTokens.size > FEED_TOKEN_LIMIT) _seenFeedTokens.delete(_seenFeedTokens.values().next().value);
-  const gid = String(v.gid);
-  if (!_subs.has(gid) && !_subs.has('*') && !_cache.has(gid)) return;
-  load(gid).then(() => _emit(gid)).catch(() => _emit(gid));
+// Change listener: re-read just the changed gallery and notify its subscribers. Galleries nobody
+// is watching (and not cached) are ignored — the lazy path that keeps a large library cheap.
+// api.events.watch also hands over, when this window comes back, what changed while it wasn't
+// listening; '*' (too much to list) re-reads everything cached.
+events.watch((changed, beacon) => {
+  if (beacon) {
+    const token = beacon.context ? `${beacon.context}:${beacon.n}` : `${beacon.gid}:${beacon.n}:${beacon.at}`;
+    if (_seenFeedTokens.has(token)) return;
+    _seenFeedTokens.add(token);
+    if (_seenFeedTokens.size > FEED_TOKEN_LIMIT) _seenFeedTokens.delete(_seenFeedTokens.values().next().value);
+  }
+  const ids = changed === '*' ? [...new Set([..._cache.keys(), ..._subs.keys()])].filter(k => k !== '*') : [String(changed)];
+  for (const gid of ids) {
+    if (!_subs.has(gid) && !_subs.has('*') && !_cache.has(gid)) continue;
+    load(gid).then(() => _emit(gid)).catch(() => _emit(gid));
+  }
 });

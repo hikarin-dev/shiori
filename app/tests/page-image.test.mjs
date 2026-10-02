@@ -23,7 +23,7 @@ globalThis.OffscreenCanvas = class {
 };
 
 const { hasTranslation, translationView, translatedImage } = await import('../js/page-image.js');
-const db = await import('../js/db.js');
+const api = await import('../js/api.js');
 const { planPage } = await import('../js/page-data.js');
 
 const blob = (s, type = 'image/webp') => new Blob([s], { type });
@@ -92,15 +92,13 @@ test('a page kept as text over its background is typeset as the reader shows it'
 });
 
 test('the page is served back as one image, like a stored translation', async () => {
-  await db.metaPut({ galleryId: '70', numPages: 1 });
-  await db.dbPut('local://70/1.webp', blob('original'), '70', '70');
-  const rec = await db.dbGet('local://70/1.webp');
-  await db.imageRecordPut({ ...rec, ...LAYERED(), url: 'local://70/1.webp' });
-  const served = await db.getPageBlob('70', 1, 'translated');
+  await api.meta.put({ galleryId: '70', numPages: 1 });
+  await api.pages.put('70', 1, blob('original'), { key: 'local://70/1.webp' });
+  const rec = await api.pages.get('70', 1);
+  await api.transfer.write({ galleryId: '70', pages: [{ ...rec, ...LAYERED(), url: 'local://70/1.webp' }] });   // the record as stored
+  const served = await api.pages.blob('70', 1, 'translated');
   assert.match(await served.text(), /^composed/);
-  const { pages } = await db.getGalleryPageRange('70', 1, 1, { preferTranslated: true });
-  assert.match(atob(pages[0].dataUrl.split(',')[1]), /^composed/);
-  assert.equal(await (await db.getPageBlob('70', 1)).text(), 'original');
+  assert.equal(await (await api.pages.blob('70', 1)).text(), 'original');
 });
 
 // ── The job flow ────────────────────────────────────────────────────────────────────────────
@@ -140,8 +138,8 @@ globalThis.fetch = async (url, init = {}) => {
 };
 
 test('a page sent as its study layers is stored as them, counts as translated, and is current next time', async () => {
-  await db.metaPut({ galleryId: '71', numPages: 1, translated: false });
-  await db.dbPut('local://71/1.webp', blob('original'), '71', '71');
+  await api.meta.put({ galleryId: '71', numPages: 1, translated: false });
+  await api.pages.put('71', 1, blob('original'), { key: 'local://71/1.webp' });
   await startTranslation('71', { ...SETTINGS, saveSnapshots: true }, () => {});
   assert.equal(started.capture, null, 'snapshots on: the page data comes back');
   const record = { lines: [{ pts: [[0, 0], [9, 0], [9, 9], [0, 9]], score: 0.9, text: 'あ' }], read: [0], regions: [{ lines: [0], tr: 'Hi' }], bubbles: [] };
@@ -152,24 +150,24 @@ test('a page sent as its study layers is stored as them, counts as translated, a
     frame(0, new TextEncoder().encode(JSON.stringify({ count: 1, failed: [] })))];
   poll = new Uint8Array(parts.flatMap(p => [...p]));
   await pollTranslation('71', () => {});
-  const rec = await db.dbGet('local://71/1.webp');
+  const rec = await api.pages.get('71', 1);
   assert.equal(rec.translated, undefined, 'no second copy of the page');
   assert.equal(rec.translatedLayers, true);
   assert.equal(await rec.studyBg.text(), 'bg');
   assert.equal(hasTranslation(rec), true);
-  assert.equal((await db.metaGet('71')).translated, true);
-  const meta = await db.metaGet('71');
+  assert.equal((await api.meta.get('71')).translated, true);
+  const meta = await api.meta.get('71');
   const resolved = { config: meta.translations[rec.pipeline.job].config, builds: BUILDS, fields: FIELDS };
   assert.equal(planPage(rec, meta.translations, resolved, new Map()), null, 'nothing to redo');
-  assert.equal(await db.clearGalleryTranslations('71'), 1, 'a revert counts it');
-  const reverted = await db.dbGet('local://71/1.webp');
+  assert.equal(await api.derived.clear('71'), 1, 'a revert counts it');
+  const reverted = await api.pages.get('71', 1);
   assert.equal(reverted.translatedLayers, undefined);
   assert.notEqual(planPage(reverted, meta.translations, resolved, new Map()), null, 'reverted: it is produced again');
 });
 
 test('with snapshots off (the default), a page keeps only which translation made it — and its study data', async () => {
-  await db.metaPut({ galleryId: '72', numPages: 1, translated: false });
-  await db.dbPut('local://72/1.webp', blob('original'), '72', '72');
+  await api.meta.put({ galleryId: '72', numPages: 1, translated: false });
+  await api.pages.put('72', 1, blob('original'), { key: 'local://72/1.webp' });
   await startTranslation('72', SETTINGS, () => {});
   assert.equal(started.capture, '0', 'the server is asked for no page data');
   const study = { page: { w: 8, h: 6 }, bg: dataUrl('bg'), bubbles: [{ box: { x: 0, y: 0, w: 1, h: 1 }, tr: 'Hi', src: 'あ' }] };
@@ -179,11 +177,11 @@ test('with snapshots off (the default), a page keeps only which translation made
     frame(0, new TextEncoder().encode(JSON.stringify({ count: 1, failed: [] })))];
   poll = new Uint8Array(parts.flatMap(p => [...p]));
   await pollTranslation('72', () => {});
-  const rec = await db.dbGet('local://72/1.webp');
+  const rec = await api.pages.get('72', 1);
   assert.deepEqual(Object.keys(rec.pipeline), ['job']);
   assert.equal(rec.bubbles?.length, 1, 'its study data is kept: the page is that data');
   assert.equal(hasTranslation(rec), true);
-  const meta = await db.metaGet('72');
+  const meta = await api.meta.get('72');
   assert.equal(meta.translated, true);
   const resolved = { config: meta.translations[rec.pipeline.job].config, builds: BUILDS, fields: FIELDS };
   assert.equal(planPage(rec, meta.translations, resolved, new Map()), null, 'current while its settings are');

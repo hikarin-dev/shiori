@@ -6,10 +6,8 @@
 // platform.jobs / the change feed.
 
 import * as platform from './platform.js';
-import {
-  coverThumbnailGet, coverThumbnailPut, resizeCoverBlob, imageToDataUrl,
-  deleteGallery, metaGet, metaPut,
-} from './db.js';
+import * as api from './api.js';
+import { resizeCoverBlob, imageToDataUrl } from './image-util.js';
 import { resolveSeries } from './series.js';
 import { pingServer, revertGallery, followGallerySettings, serverUrlFromSettings, hasConfiguredServer } from './translate.js';
 import { request as extRequest } from './ext-bridge.js';
@@ -55,7 +53,7 @@ function coverRequesterKey(msg) {
 async function buildCover(msg) {
   const preferSeries = !!msg.preferSeries;
   const width = normalizedCoverWidth(msg.thumbWidth);
-  let entry = await coverThumbnailGet(msg.galleryId, width, { preferSeries });
+  let entry = await api.covers.thumbnail(msg.galleryId, width, { preferSeries });
   if (!entry.source) {
     if (msg.source) extRequest({ type: 'EXT_FETCH_COVER', galleryId: msg.galleryId, source: msg.source, preferSeries });
     return null;
@@ -69,7 +67,7 @@ async function buildCover(msg) {
     if (!thumbnail) {
       thumbnail = await withCoverResizeSlot(() => resizeCoverBlob(entry.source, width));
       if (thumbnail) {
-        stored = await coverThumbnailPut(msg.galleryId, entry.role, width, thumbnail, entry.revision);
+        stored = await api.covers.putThumbnail(msg.galleryId, entry.role, width, thumbnail, entry.revision);
       }
     }
 
@@ -77,7 +75,7 @@ async function buildCover(msg) {
     // A series cover may land while its gallery fallback is being prepared. Recheck that fallback
     // before emitting; a duplicate invalidation request may have joined this same in-flight work.
     if (stored && !(preferSeries && entry.role === 'gallery')) return { coverDataUrl };
-    const latest = await coverThumbnailGet(msg.galleryId, width, { preferSeries });
+    const latest = await api.covers.thumbnail(msg.galleryId, width, { preferSeries });
     if (latest.source && latest.role === entry.role && latest.revision === entry.revision) {
       return { coverDataUrl };
     }
@@ -119,7 +117,8 @@ export const services = {
   async handle(msg) {
     switch (msg && msg.type) {
       case 'GET_COVER':      getCover(msg); return null;                  // result arrives via COVER_READY
-      case 'DELETE_GALLERY': await deleteGallery(msg.galleryId); return { ok: true };
+      case 'DELETE_GALLERY': await api.galleries.delete(msg.galleryId); return { ok: true };
+      case 'DELETE_SERIES': await api.series.delete(msg.galleryId); return { ok: true };
 
       case 'IMPORT_CBZ': {                                                // upload → durable runner
         // started:true only after the durable enqueue acknowledgement inside submitJob.
@@ -194,7 +193,7 @@ export const services = {
 
       case 'SET_SOURCE': {
         const gid = String(msg.galleryId);
-        const meta = await metaGet(gid);
+        const meta = await api.meta.get(gid);
         if (!meta) return { ok: false };
 
         // Normally just this gallery. When asked, the whole series (owner + every chapter) so one
@@ -207,12 +206,12 @@ export const services = {
         }
 
         for (const id of targetIds) {
-          const m = id === gid ? meta : await metaGet(id);
+          const m = id === gid ? meta : await api.meta.get(id);
           if (!m) continue;
           const updated = { ...m, source: msg.source };
           if (msg.sourceId) updated.sourceId = String(msg.sourceId);
           if (msg.sourceUrl) updated.sourceUrl = String(msg.sourceUrl);
-          await metaPut(updated);
+          await api.meta.put(updated);
           // Offer the new source to the extension for metadata enrichment; the change feed
           // updates the card when it lands. Fire-and-forget — no extension, no enrichment.
           if (msg.source) extRequest({ type: 'EXT_FETCH_META', galleryId: id, source: msg.source, sourceId: msg.sourceId || null });
