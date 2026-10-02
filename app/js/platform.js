@@ -58,10 +58,22 @@ export const kv = {
   },
 };
 
+// ── Beyond this origin ──
+// The windows of one desktop library can be pages of several origins (the desktop app's window, a
+// site's tabs, a page the desktop app serves), which no BroadcastChannel spans. While this context
+// uses that library, desktop-backend.js hands `relayTo` a way to reach them through it: cover
+// refreshes and job status go that way too, and what arrives that way is `receive`d.
+let _relay = null;
+export function relayTo(fn) { _relay = fn; }
+const RELAYED_CONTROL = new Set(['COVER_INVALIDATED']);
+
 // ── Cross-context control signals (e.g. cover-cache invalidation) — distinct from the data feed ──
 const _controlHub = makeChannelHub('shiori-control');
 export const control = {
-  send(msg) { _controlHub.publish(msg); },
+  send(msg) {
+    _controlHub.publish(msg);
+    if (_relay && RELAYED_CONTROL.has(msg?.type)) _relay('control', msg);
+  },
   on(cb) { return _controlHub.subscribe(cb); },
   receive(msg) { _controlHub.receive(msg); },
 };
@@ -135,7 +147,7 @@ const PROGRESS_SAVE_EVERY = 5000;
 const _progressSavedAt = new Map();   // job key → when its progress row was last saved
 export const jobs = {
   // Ephemeral cross-context events share the live jobs channel but skip the durable registry.
-  signal(event) { _jobsHub.publish(event); },
+  signal(event) { _jobsHub.publish(event); _relay?.('jobs', event); },
   async publish(job) {
     job = { ...job, at: Date.now() };
     const key = _jobKey(job);
@@ -158,8 +170,11 @@ export const jobs = {
       });
     } catch {}
     _jobsHub.publish(job);
+    _relay?.('jobs', job);
   },
   subscribe(cb) { return _jobsHub.subscribe(cb); },
+  // Job status from a window of this library on another origin (see relayTo): live only.
+  receive(event) { _jobsHub.receive(event); },
   // Drop a registry row without broadcasting — for clearing orphaned rows whose runner died.
   async clear(gid, kind) {
     try {

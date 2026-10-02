@@ -3,6 +3,7 @@
 // and leaves a durable replay entry if the tab closes. Either way status broadcasts everywhere.
 import { RUNNERS, cancelJobRun, runPoll } from './jobs-runner.js';
 import * as platform from './platform.js';
+import { capabilities } from './api.js';
 
 // The active service worker, even when it isn't CONTROLLING this page. A hard reload
 // (Ctrl+Shift+R) loads the document uncontrolled — controller is null for its whole life — but
@@ -15,6 +16,8 @@ if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
   try { navigator.serviceWorker.addEventListener('controllerchange', () => { _swActive = navigator.serviceWorker.controller || _swActive; }); } catch {}
 }
 function _sw() {
+  // The worker only knows this browser's library: a page using another library runs its jobs itself.
+  if (!capabilities.browserLibrary) return null;
   if (typeof navigator === 'undefined' || !navigator.serviceWorker) return null;
   return navigator.serviceWorker.controller || _swActive || null;
 }

@@ -1,7 +1,11 @@
 // server.js — the desktop app's local server: the app's own files for its windows, and the library
-// over one WebSocket per window. It listens on 127.0.0.1 only. A library connection must carry the
-// pairing token, come from an allowed origin (a browser always says which), and name this server
-// as its host (so a page that rebinds its own domain to this address gets nowhere).
+// over one WebSocket per window or tab. It listens on 127.0.0.1 only, and every request must name
+// this server as its host (so a page that rebinds its own domain to this address gets nowhere).
+// A library connection carries a token: the desktop app's own (for its windows) or the one a site
+// was given when the person allowed it (/api/pair), which opens connections from that site only —
+// and from the pages this server serves, which a helper of that site embeds handing them its token
+// (a site's page can't always reach this server, a page served here always can). The library's
+// windows can reach each other through it ('relay'), whatever their origin.
 import http from 'node:http';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -26,6 +30,8 @@ export const OPS = new Set([
   'publishFeed', 'changeRevision', 'changesSince', 'integritySnapshot', 'clearAll',
 ]);
 const MAX_ARGS = 8;
+// What a window may hand the library's other windows: control signals and job status.
+const RELAY_CHANNELS = new Set(['control', 'jobs']);
 const MAX_FRAME = 1 << 30;
 
 // The app's pages at their clean addresses (the app's service worker and dev server map them alike).
@@ -50,18 +56,24 @@ function errorOf(e) {
   return { code: quota ? 'quota' : 'aborted', message: text };
 }
 
+// What a site's page needs to read an answer (its own origin, never a wildcard with credentials).
+const cors = (origin) => (origin ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {});
+
 const sameToken = (a, b) => {
   const x = Buffer.from(String(a || '')), y = Buffer.from(String(b || ''));
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 };
 
 // Start serving. `ports` are tried in turn (the first free one is used; 0 picks any). `origins` are
-// the web origins allowed besides this server's own.
-export async function startServer({ library, token, ports = [0], webRoot = path.dirname(UI_DIR), origins = [], version = '' }) {
+// the web origins allowed besides this server's own. `clients`, when given, lets sites ask to use
+// the library: { tokenFor(origin) → its token or null, siteOf(token) → the site it was given to or
+// null, approve(origin) → a new token once the person allows it, or null }.
+export async function startServer({ library, token, ports = [0], webRoot = path.dirname(UI_DIR), origins = [], version = '', clients = null }) {
   const root = path.resolve(webRoot);
   let port = 0;
   const hosts = () => new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
-  const allowed = () => new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`, ...origins]);
+  const served = () => new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
+  const allowed = () => new Set([...served(), ...origins]);
 
   async function serveFile(req, res, pathname) {
     const page = PAGES[pathname.replace(/\/+$/, '') || '/'];
@@ -87,11 +99,24 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
       if (!hosts().has(String(req.headers.host || ''))) { res.writeHead(421).end(); return; }
       const url = new URL(req.url, `http://127.0.0.1:${port}`);
       const origin = req.headers.origin;
+      // A site's page may ask first (CORS, and its browser's check before it reaches a local app).
+      if (req.method === 'OPTIONS' && url.pathname.startsWith('/api/')) {
+        res.writeHead(204, { ...cors(origin), 'Access-Control-Allow-Methods': 'GET, POST', 'Access-Control-Allow-Headers': 'content-type',
+          'Access-Control-Allow-Private-Network': 'true', 'Access-Control-Max-Age': '600' }).end();
+        return;
+      }
       if (url.pathname === '/api/ping') {
-        // Lets a page find the desktop app; it says nothing about the library.
-        const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
-        if (origin && allowed().has(origin)) headers['Access-Control-Allow-Origin'] = origin;
-        res.writeHead(200, headers).end(JSON.stringify({ app: 'shiori-desktop', protocol: PROTOCOL, version }));
+        // Lets any page find the desktop app; it says nothing about the library.
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...cors(origin) })
+          .end(JSON.stringify({ app: 'shiori-desktop', protocol: PROTOCOL, version }));
+        return;
+      }
+      if (url.pathname === '/api/pair') {
+        // A site asks to use the library: the person decides, in the desktop app.
+        if (req.method !== 'POST' || !origin || !clients || allowed().has(origin)) { res.writeHead(403, cors(origin)).end(); return; }
+        const given = clients.tokenFor(origin) || await clients.approve(origin);
+        if (!given) { res.writeHead(403, cors(origin)).end(); return; }
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...cors(origin) }).end(JSON.stringify({ token: given }));
         return;
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405).end(); return; }
@@ -106,10 +131,20 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url, `http://127.0.0.1:${port}`);
     const origin = req.headers.origin;
-    const ok = url.pathname === '/api/ws' && hosts().has(String(req.headers.host || ''))
-      && (!origin || allowed().has(origin)) && sameToken(url.searchParams.get('k'), token);
+    const key = url.searchParams.get('k');
+    // The app's own windows (and a client with no page, as tests are) present the app's token; a
+    // site presents the one it was given, from that site or from a page served here.
+    const own = !!token && (!origin || allowed().has(origin)) && sameToken(key, token);
+    const siteToken = origin && clients ? clients.tokenFor(origin) : null;
+    let site = siteToken && sameToken(key, siteToken) ? origin : null;
+    if (!site && !own && clients && served().has(origin)) site = clients.siteOf(key);
+    const ok = url.pathname === '/api/ws' && hosts().has(String(req.headers.host || '')) && (own || !!site);
     if (!ok) { socket.end('HTTP/1.1 403 Forbidden\r\n\r\n'); return; }
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      ws.site = site;
+      ws.origin = origin || null;
+      wss.emit('connection', ws, req);
+    });
   });
 
   const send = async (ws, message) => {
@@ -123,6 +158,14 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
       try { msg = wire.decode(data); } catch { ws.close(1007, 'unreadable frame'); return; }
       const { id, op, args } = msg || {};
       try {
+        if (op === 'relay') {
+          // To the library's windows on other origins: those on the sender's own get it from the sender.
+          const [channel, payload] = Array.isArray(args) ? args : [];
+          if (!RELAY_CHANNELS.has(channel) || !payload || typeof payload !== 'object') throw new BackendError('invalid', 'nothing to relay');
+          for (const other of wss.clients) if (other !== ws && other.origin !== ws.origin) send(other, { push: channel, msg: payload }).catch(() => {});
+          await send(ws, { id, ok: true, result: true });
+          return;
+        }
         if (!OPS.has(op) || !Array.isArray(args) || args.length > MAX_ARGS) throw new BackendError('invalid', `no operation ${op}`);
         const result = await library[op](...args);
         await send(ws, { id, ok: true, result });
@@ -151,6 +194,8 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
   return {
     port,
     url: `http://127.0.0.1:${port}`,
+    // Close the library connections a site has open (it was disconnected).
+    dropSite(origin) { for (const ws of wss.clients) if (ws.site === origin) ws.terminate(); },
     async close() {
       offPush();
       for (const ws of wss.clients) ws.terminate();

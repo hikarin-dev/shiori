@@ -4,6 +4,7 @@
 
 import * as platform from './platform.js';
 import { capabilities } from './api.js';
+import { savedLocation } from './library-location.js';
 import { services } from './services.js';
 import { pollActiveTranslations } from './submit-job.js';
 import { applyTranslations } from './i18n.js';
@@ -25,6 +26,9 @@ platform.registerServices(services);
 platform.control.on((msg) => {
   if (msg?.type === 'LIBRARY_RESET' && msg.context !== platform.contextId) location.reload();
 });
+
+// A site that keeps its library in Shiori Desktop: what to do when the app can't be reached.
+if (savedLocation() && !capabilities.desktopWindow) import('./desktop-link.js').then(m => m.initDesktopGate()).catch(() => {});
 
 // Drive any in-flight translation: a translation is a server-owned job, and this polls it for new
 // chunks (preferring the service worker) on every page load and on a short timer. Short polls keep
@@ -107,9 +111,12 @@ maintenanceReady.then(() => {
     .catch(() => {});
 });
 
-// The desktop app's window is served by the app itself, always there while it runs, and its jobs
-// run in the window: it has no worker.
-if ('serviceWorker' in navigator && capabilities.browserLibrary) {
+// The worker keeps this browser's library and its jobs. A page whose library is the desktop app's
+// (its window, or a site that chose it) runs its jobs itself and needs the app running anyway: it
+// has no worker, and one left from before goes.
+if ('serviceWorker' in navigator && !capabilities.browserLibrary) {
+  navigator.serviceWorker.getRegistrations().then((regs) => { for (const r of regs) r.unregister(); }).catch(() => {});
+} else if ('serviceWorker' in navigator) {
   // Retire the previous layout's worker, which was scoped to THIS app's /app/ directory — the
   // app now lives at the site root with a root-scoped worker (registered below; registering at
   // root replaces any stale root worker in place). Exact-scope match only: another app on this

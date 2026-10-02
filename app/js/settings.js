@@ -58,8 +58,9 @@ initBenchmarkCard();
   show(nav.querySelector('.nav-item.active:not([hidden])')?.dataset.panel || 'panelLibrary');
 })();
 
-// ── The desktop app's own settings, in its window only ──
+// ── The desktop app's own settings, in its window only; elsewhere, where the library is kept ──
 if (globalThis.shioriDesktop?.shell) import('./desktop-settings.js').then(m => m.initDesktopSettings()).catch(() => {});
+else import('./desktop-link.js').then(m => m.initLocationSettings()).catch(() => {});
 
 // ── Companion download ────────────────────────────────────────────
 // The optional panel carries the download from the first paint, so the nav item is there without

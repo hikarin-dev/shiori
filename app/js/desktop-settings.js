@@ -1,6 +1,6 @@
 // desktop-settings.js — Settings → Desktop app, shown only in the desktop app's window: closing to
 // the tray, the library folder (open, change, check again), how new galleries are saved, the local
-// server's port, and the app's version and data folder. Each setting is the desktop app's own,
+// server's port and the sites allowed to use the library, and the app's version and data folder. Each setting is the desktop app's own,
 // read and changed through the window's bridge to it (`shioriDesktop.shell`).
 import { t, applyTranslations } from './i18n.js';
 import { confirmDialog } from './notice.js';
@@ -82,6 +82,13 @@ function markup() {
         <div class="field-desc" id="deskPortDesc"></div>
         <select class="field-input" id="deskPort"></select>
       </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-name" data-i18n="set.desk_sites"></div>
+          <div class="toggle-desc" data-i18n="set.desk_sites_desc"></div>
+        </div>
+      </div>
+      <div id="deskSites"></div>
     </div>
   </div>
   <div class="section">
@@ -138,6 +145,10 @@ export async function initDesktopSettings() {
     $('deskPortDesc').textContent = t('set.desk_port_desc', { port: state.ports[0] });
     $('deskPort').innerHTML = [0, ...state.ports].map(p =>
       `<option value="${p}"${p === state.port ? ' selected' : ''}>${p ? p : esc(t('set.desk_port_auto'))}</option>`).join('');
+    $('deskSites').innerHTML = state.sites.length
+      ? state.sites.map(site => `<div class="toggle-row"><div class="toggle-info"><div class="toggle-name"><code>${esc(site)}</code></div></div>
+          <button class="btn-mini" type="button" data-forget="${esc(site)}">${esc(t('set.desk_disconnect'))}</button></div>`).join('')
+      : `<div class="toggle-row"><div class="toggle-info"><div class="toggle-desc">${esc(t('set.desk_sites_none'))}</div></div></div>`;
     $('deskVersion').textContent = t('set.desk_version', { version: state.version });
     $('deskDataPath').textContent = state.dataDir;
   };
@@ -155,6 +166,10 @@ export async function initDesktopSettings() {
   $('deskPort').addEventListener('change', async (e) => {
     await set('port', Number(e.target.value));
     restart(t('set.desk_restart_port'));
+  });
+  $('deskSites').addEventListener('click', async (e) => {
+    const site = e.target.closest?.('[data-forget]')?.dataset.forget;
+    if (site) { state = await shell('forgetSite', site); render(); }
   });
   $('deskOpenFolder').addEventListener('click', () => shell('openLibraryFolder'));
   $('deskOpenData').addEventListener('click', () => shell('openDataFolder'));

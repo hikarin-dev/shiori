@@ -35,7 +35,7 @@ const FRAME = { bg: '#0d0d0f', symbols: '#a1a1aa' };   // the app's palette (bas
 protocol.registerSchemesAsPrivileged([{ scheme: APP_SCHEME,
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } }]);
 
-// ── Settings: { libraryDir, port, bounds, lang, closeToTray } in the app's data folder ──
+// ── Settings: { libraryDir, port, bounds, lang, closeToTray, sites } in the app's data folder ──
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 function readSettings() {
   try { return JSON.parse(fs.readFileSync(settingsFile(), 'utf8')) || {}; } catch { return {}; }
@@ -217,6 +217,7 @@ function shellState() {
     libraryDir: libraryDirOf(settings), dataDir: dataDirOf(libraryDir),
     writeFormat: library.files.writeFormat(), comicInfo: library.files.comicInfo(),
     port: settings.port || 0, ports: PORTS, url: server.url, version: app.getVersion(),
+    sites: Object.keys(settings.sites || {}).sort(),
   };
 }
 ipcMain.handle('shiori:shell', async (event, action, args = []) => {
@@ -244,6 +245,14 @@ ipcMain.handle('shiori:shell', async (event, action, args = []) => {
       const r = await library.rescan();
       return { added: r.added.length, moved: r.moved.length, missing: r.missing.length, found: r.found.length };
     }
+    case 'forgetSite': {
+      const sites = { ...sitesOf() };
+      if (typeof key !== 'string' || !(key in sites)) return shellState();
+      delete sites[key];
+      writeSettings({ sites });
+      server.dropSite(key);
+      return shellState();
+    }
     case 'restart': requestQuit({ relaunch: true }); return true;
     default: throw new Error(`no action ${action}`);
   }
@@ -255,6 +264,38 @@ async function pickFolder(current, parent = null) {
   const { canceled, filePaths } = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
   return canceled || !filePaths[0] ? null : path.resolve(filePaths[0]);
 }
+
+// ── Sites allowed to use the library (from a browser: library-location.js in the app) ──
+// Each has a token of its own, given once the person allows it here. One question at a time; a
+// site that was refused waits a minute before it can ask again.
+const sitesOf = () => readSettings().sites || {};
+let asking = null;
+const refusedUntil = new Map();
+const clients = {
+  tokenFor: (origin) => sitesOf()[origin] || null,
+  siteOf(token) {
+    const key = Buffer.from(String(token || ''));
+    for (const [origin, given] of Object.entries(sitesOf())) {
+      const other = Buffer.from(String(given));
+      if (other.length === key.length && crypto.timingSafeEqual(other, key)) return origin;
+    }
+    return null;
+  },
+  async approve(origin) {
+    if ((refusedUntil.get(origin) || 0) > Date.now() || asking) return null;
+    asking = (async () => {
+      if (mainWindow) { if (!mainWindow.isVisible()) mainWindow.show(); mainWindow.focus(); }
+      const options = { type: 'question', title: 'Shiori', noLink: true, defaultId: 1, cancelId: 1,
+        message: t('pair_title', { site: origin }), detail: t('pair_body'), buttons: [t('pair_allow'), t('pair_deny')] };
+      const { response } = mainWindow ? await dialog.showMessageBox(mainWindow, options) : await dialog.showMessageBox(options);
+      if (response !== 0) { refusedUntil.set(origin, Date.now() + 60000); return null; }
+      const token = crypto.randomBytes(24).toString('base64url');
+      writeSettings({ sites: { ...sitesOf(), [origin]: token } });
+      return token;
+    })();
+    try { return await asking; } finally { asking = null; }
+  },
+};
 
 // ── The tray ──
 function buildTray() {
@@ -346,7 +387,7 @@ async function start() {
   }
   token = crypto.randomBytes(24).toString('base64url');
   const ports = settings.port ? [settings.port, ...PORTS.filter(p => p !== settings.port), 0] : [...PORTS, 0];
-  server = await startServer({ library, token, ports, webRoot: UI_ROOT, version: app.getVersion(), origins: [APP_ORIGIN] });
+  server = await startServer({ library, token, ports, webRoot: UI_ROOT, version: app.getVersion(), origins: [APP_ORIGIN], clients });
   // The app's pages, served by the local server whatever its port.
   protocol.handle(APP_SCHEME, async (request) => {
     const url = new URL(request.url);

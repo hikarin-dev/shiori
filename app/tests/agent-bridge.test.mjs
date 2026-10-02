@@ -244,3 +244,23 @@ test('a series sync that moves ownership leaves one whole series', async () => {
   const errors = checkInvariants(await api.maintenance.integritySnapshot()).violations.filter(v => v.severity === 'error' && ids.includes(v.gid));
   assert.deepEqual(errors, []);
 });
+
+test('the agent says where its library is, so its embedder can reach that library itself', async (t) => {
+  const port = await session();
+  // (Run as the desktop app's window — npm run test:desktop — this is a site's agent.)
+  const desktopWindow = globalThis.shioriDesktop;
+  delete globalThis.shioriDesktop;
+  t.after(() => { if (desktopWindow) globalThis.shioriDesktop = desktopWindow; });
+  assert.deepEqual((await callOverPort(port, 'library_location', {})).data, { kind: 'browser' });
+  _store.set('shiori:libraryLocation', JSON.stringify({ kind: 'desktop', url: 'http://127.0.0.1:47153', token: 'site-token-0123456789abcdef' }));
+  try {
+    assert.deepEqual((await callOverPort(port, 'library_location', {})).data,
+      { kind: 'desktop', url: 'http://127.0.0.1:47153', token: 'site-token-0123456789abcdef' });
+    _store.set('shiori:libraryFallback', JSON.stringify({ since: Date.now() }));
+    assert.deepEqual((await callOverPort(port, 'library_location', {})).data, { kind: 'browser' },
+      'continuing in the browser for now, the library is this browser\'s');
+  } finally {
+    _store.delete('shiori:libraryLocation');
+    _store.delete('shiori:libraryFallback');
+  }
+});

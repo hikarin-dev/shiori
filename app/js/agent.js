@@ -11,7 +11,11 @@
 //
 // Protocol (window.postMessage handshake, then a dedicated MessagePort):
 //   host → agent   { __shioriAgentHello, secret }             pairing attempt (repeat until paired)
-//   agent → host   { __shioriAgentPaired } + [MessagePort]    session opened; ops use the port
+//   agent → host   { __shioriAgentPaired, protocol } + [MessagePort]   session opened; ops use the port
+//                  (`protocol`: this protocol's version, raised when an op changes incompatibly)
+// The library may be the desktop app's (library-location.js); `library_location` tells the embedder
+// so, and an agent page the desktop app serves at its own address, handed the site's token in its
+// address, holds that library and is paired by that token.
 //   port: host → agent { id, op, data } · agent → host { __shioriAgentReply, id, ok, data|error }
 
 import * as platform from './platform.js';
@@ -21,6 +25,7 @@ import { resizeCover, imageToBlob, imageToDataUrl } from './image-util.js';
 import { isSeriesMeta, effectiveTagsOf } from './gallery-model.js';
 import { translatedImage } from './page-image.js';
 import { pickTitle } from './titles.js';
+import { activeDesktop, servedLibrary } from './library-location.js';
 
 // A gallery's pages as data URLs for the caller across the bridge, the translated image preferred
 // (stored, or composed from its study layers): every page up to `capBytes`, or those from `start`
@@ -114,6 +119,13 @@ const KV_HAS_KEYS = new Set(['cacheEnabled', 'apiKey', 'translateSettings']);
 // ── Operations ──────────────────────────────────────────────────────────────────────────────
 const OPS = {
   async ping() { return { ok: true, at: Date.now() }; },
+
+  // Where this app keeps its library: in this browser, or in the desktop app (its address and the
+  // token it gave this site), for an embedder that has to reach that library from elsewhere.
+  async library_location() {
+    const desktop = activeDesktop();
+    return desktop ? { kind: 'desktop', url: desktop.url, token: desktop.token } : { kind: 'browser' };
+  },
 
   async kv_get({ keys }) {
     return platform.kv.get((Array.isArray(keys) ? keys : []).filter((k) => KV_GET_KEYS.has(k)));
@@ -367,9 +379,13 @@ const _isPlausibleEmbedder = (o) =>
   o.startsWith('chrome-extension://') || o.startsWith('moz-extension://') || o === location.origin;
 
 let _session = null;   // { source, origin, port }
+const AGENT_PROTOCOL = 1;
 
 async function _pairSecretOk(secret) {
   if (typeof secret !== 'string' || secret.length < 16) return false;
+  // At the desktop app's own address, the site's library token this page was handed pairs it.
+  const served = servedLibrary();
+  if (served) return secret === served.token;
   const { agentPairSecret } = await platform.kv.get(['agentPairSecret']);
   return typeof agentPairSecret === 'string' && agentPairSecret.length >= 16 && secret === agentPairSecret;
 }
@@ -385,7 +401,7 @@ function _openSession(source, origin) {
       .then((result) => channel.port1.postMessage({ __shioriAgentReply: true, id, ok: true, data: result }))
       .catch((err) => channel.port1.postMessage({ __shioriAgentReply: true, id, ok: false, error: String(err && err.message || err) }));
   };
-  source.postMessage({ __shioriAgentPaired: true }, origin, [channel.port2]);
+  source.postMessage({ __shioriAgentPaired: true, protocol: AGENT_PROTOCOL }, origin, [channel.port2]);
 }
 
 window.addEventListener('message', (e) => {
@@ -398,10 +414,11 @@ window.addEventListener('message', (e) => {
   });
 });
 
-// The app updated in a tab: reload onto the new code like every other app page (the embedder
-// opens a new session with the reloaded page).
+// The app updated in a tab, or the site switched libraries: reload onto the new code or library
+// like every other app page (the embedder opens a new session with the reloaded page).
 platform.control.on((msg) => {
   if (msg?.type === 'APP_UPDATED') location.reload();
+  else if (msg?.type === 'LIBRARY_RESET' && msg.context !== platform.contextId) location.reload();
 });
 
-console.log('[shiori] agent loaded', location.href);
+console.log('[shiori] agent loaded', location.origin + location.pathname);

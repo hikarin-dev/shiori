@@ -1,7 +1,7 @@
 // api.js — the library interface: everything the app reads from or writes to its library goes
 // through here, never to a backend directly. Two backends offer the same operations: db.js, the
 // library kept in this browser's IndexedDB, and desktop-backend.js, the library the desktop app
-// keeps as files (used when the desktop app's window says so).
+// keeps as files (used in the desktop app's window, and by a site that chose it: library-location.js).
 //
 // The rules every operation keeps:
 //   • async, and its arguments and results are plain data plus Blobs for images;
@@ -26,7 +26,51 @@ const backend = desktopLibrary.active ? desktopLibrary : browserLibrary;
 
 // What this library can do beyond the common interface; surfaces hide what it lacks.
 // `browserLibrary`: it is this browser's own (its one-time repairs and storage upgrades apply).
-export const capabilities = { storageLayout: backend === browserLibrary, browserLibrary: backend === browserLibrary };
+// `desktopWindow`: this page is the desktop app's own window.
+export const capabilities = { storageLayout: backend === browserLibrary, browserLibrary: backend === browserLibrary,
+  desktopWindow: !!globalThis.shioriDesktop?.shell };
+
+// Whether this page's library can be reached now — always, for this browser's — and, for the
+// desktop app's, being told when the connection to it is lost.
+export const connection = {
+  reachable: () => backend.reachable?.() ?? Promise.resolve(true),
+  onUnavailable: (cb) => backend.onUnavailable?.(cb) ?? (() => {}),
+};
+
+// The libraries a move reads from and writes to, whichever this page uses: this browser's (its
+// galleries as stored, and clearing it once moved) and the desktop library `config` names
+// ({ url, token }), opened for the move and closed after it.
+export function browserLibraryForMove() {
+  return _typed({
+    // Every gallery it holds: { gid, isStub, addedAt, count }, read without any page.
+    async list() {
+      const [ids, metas, entries] = await Promise.all([browserLibrary.transferIds(), browserLibrary.metaGetAllMap(),
+        browserLibrary.galleriesPage({ sort: 'id', limit: Infinity, merge: false })]);
+      const byId = new Map(entries.map(e => [e.id, e]));
+      return ids.map(gid => ({ gid, isStub: !!metas.get(gid)?.isStub, addedAt: byId.get(gid)?.addedAt ?? (Number(gid) || 0),
+        count: byId.get(gid)?.count || 0 }));
+    },
+    ids: () => browserLibrary.transferIds(),
+    read: (gid) => browserLibrary.transferRead(gid),
+    clear: () => browserLibrary.clearAll(),
+  });
+}
+// Whether the desktop library `config` names can be reached now (a site continuing without it asks).
+export async function desktopReachable(config) {
+  const client = desktopLibrary.createClient(config);
+  try { return await client.reachable(); } finally { client.close(); }
+}
+export function desktopLibraryForMove(config) {
+  const client = desktopLibrary.createClient(config);
+  return {
+    ..._typed({
+      write: (bundle, opts) => client.transferWrite(bundle, opts),
+      pages: (gid) => client.pageList(gid),
+      integritySnapshot: () => client.integritySnapshot(),
+    }),
+    close: () => client.close(),
+  };
+}
 
 // A new gallery's id: its creation time, minted by the caller so it is known before anything is
 // written. Monotonic within one window.
