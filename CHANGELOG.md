@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.0.13 — 2026-10-03
+
+### Added
+
+- **Shiori Desktop**, an optional Windows app that keeps your library as files on your computer. Each gallery is a .cbz file (or a .zip, or a folder of images) with its details inside, so other comic readers can open it too. Translations and covers are kept separately, so your files stay as they are. Galleries you move or rename outside the app are found again, one whose files are gone shows **Files missing** until they're back, and archives or image folders you put in the library folder yourself join the library.
+- In Shiori Desktop, the title bar has back and forward buttons, closing the window keeps Shiori running in the tray (you can turn this off), and quitting while an import or translation is running asks whether to wait for it, stop it, or keep Shiori open. Its own settings (library folder, file format, port, connected sites) are in **Settings → Desktop app**, and full or metadata backups can be restored in it.
+- Use your Shiori Desktop library from the website: **Settings → Storage → Library location → Use Shiori Desktop…**. Shiori Desktop asks whether to allow the site, then Shiori offers to move the galleries this browser holds. An interrupted move carries on where it stopped, and this browser keeps its copies until you delete them. **Settings → Desktop app → Connected sites** lists the sites you allowed, each with **Disconnect**.
+- When Shiori Desktop isn't running, the site asks you to open it or to continue in this browser for now; once it's back, Shiori offers to move what you saved meanwhile and switch back. If your browser asks to let the site connect to apps on this device, allow it; if it's blocked, Shiori tells you where to allow it.
+- Volumes: a series lists its volumes apart from its chapters, with a switch between chapters and volumes on the series page that is remembered, and the reader reads volumes one after another like chapters.
+- Chapters are labelled with their own numbers, decimals included ("Ch. 23.5"), and a series counts its chapters and extras separately ("125 chapters · 13 extras").
+- A series card shows the progress while its chapter details are being fetched.
+
+### Fixed
+
+- A gallery no longer loses a page from its count, or disappears from the library, when pages arrive while its count is being updated; a series no longer ends up a page short; and sizes stay current after every change.
+- A chapter with no pages saved yet now opens in the reader, and loads when it can be downloaded, instead of being skipped.
+- Deleting a series while its chapter details were still being fetched no longer brings its chapters back.
+- Re-downloading a gallery replaces its pages in place, so an interrupted re-download never leaves it with fewer pages.
+- Exporting a series as a zip keeps each chapter's number.
+- Reader: a page that is still loading no longer shows the browser's broken-image icon, and scrolling page by page in the strip view glides smoothly and keeps up with a fast mouse wheel in every browser.
+- Library cards no longer jitter when you hover them while a series is being updated.
+- One update notice per new version, without repeated notices after an update is published.
+- The Firefox download in **Settings → Extension** now installs without Firefox blocking it.
+
 ## v1.0.12 — 2026-10-01
 
 ### Added
