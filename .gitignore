@@ -30,3 +30,4 @@ extension*.xpi
 desktop/ui/
 desktop/build/
 desktop/dist/
+desktop/dist-dev/

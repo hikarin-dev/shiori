@@ -105,11 +105,14 @@ const partsOf = (contents) => [...windows.values()].find(p => p.view.webContents
 const windowOf = (contents) => [...windows].find(([, p]) => p.view.webContents === contents || p.bar.webContents === contents)?.[0] || null;
 
 // ── Windows: the title bar strip over the app's page ──
+// A page's title without the app's name before it ("Shiori — Library" → "Library"): the window is
+// Shiori's already.
+const pageTitle = (title) => String(title || '').replace(/^Shiori\s*[—–-]\s*/, '') || 'Shiori';
 function sendTitlebar({ view, bar }) {
   if (bar.webContents.isDestroyed() || view.webContents.isDestroyed()) return;
   const history = view.webContents.navigationHistory;
   bar.webContents.send('titlebar:state', { canGoBack: history.canGoBack(), canGoForward: history.canGoForward(),
-    title: view.webContents.getTitle(), labels: { back: t('back'), forward: t('forward') } });
+    title: pageTitle(view.webContents.getTitle()), labels: { back: t('back'), forward: t('forward') } });
 }
 
 function createWindow(target) {
@@ -141,7 +144,7 @@ function createWindow(target) {
 
   const contents = view.webContents;
   for (const e of ['did-navigate', 'did-navigate-in-page', 'page-title-updated']) contents.on(e, () => sendTitlebar(parts));
-  contents.on('page-title-updated', (_event, title) => win.setTitle(title || 'Shiori'));   // the taskbar's name for it
+  contents.on('page-title-updated', (_event, title) => win.setTitle(pageTitle(title)));   // the taskbar's name for it
   bar.webContents.on('did-finish-load', () => sendTitlebar(parts));
   let shown = false;
   const reveal = () => { if (!shown) { shown = true; win.show(); } };
@@ -209,7 +212,7 @@ ipcMain.on('shiori:lang', (event, value) => {
   useLanguage(value);
 });
 
-// ── Settings → Desktop app ──
+// ── Settings → System ──
 function shellState() {
   const settings = readSettings();
   return {
@@ -218,6 +221,7 @@ function shellState() {
     writeFormat: library.files.writeFormat(), comicInfo: library.files.comicInfo(),
     port: settings.port || 0, ports: PORTS, url: server.url, version: app.getVersion(),
     sites: Object.keys(settings.sites || {}).sort(),
+    devUpdates: !!settings.devUpdates, devFeed: DEV_FEED, update, packaged: app.isPackaged,
   };
 }
 ipcMain.handle('shiori:shell', async (event, action, args = []) => {
@@ -230,6 +234,11 @@ ipcMain.handle('shiori:shell', async (event, action, args = []) => {
       else if (key === 'writeFormat' && FORMATS.has(value)) library._kvSet('writeFormat', value);
       else if (key === 'comicInfo' && typeof value === 'boolean') library._kvSet('comicInfo', value);
       else if (key === 'port' && (value === 0 || PORTS.includes(value))) writeSettings({ port: value || undefined });
+      else if (key === 'devUpdates' && typeof value === 'boolean') {
+        writeSettings({ devUpdates: value || undefined });
+        if (update.status !== 'downloading' && update.status !== 'ready') update = { status: 'idle' };
+        checkForUpdates();
+      }
       else throw new Error(`no setting ${key}`);
       return shellState();
     case 'openLibraryFolder': await shell.openPath(libraryDir); return true;
@@ -254,6 +263,9 @@ ipcMain.handle('shiori:shell', async (event, action, args = []) => {
       return shellState();
     }
     case 'restart': requestQuit({ relaunch: true }); return true;
+    case 'checkUpdates': checkForUpdates(); return shellState();
+    case 'updateState': return update;
+    case 'installUpdate': if (update.status === 'ready') requestQuit({ relaunch: true, install: true }); return true;
     default: throw new Error(`no action ${action}`);
   }
 });
@@ -325,13 +337,15 @@ async function pageCall(fn) {
 }
 const activeJobs = async () => (await pageCall('activeJobs')) || { count: 0, titles: [] };
 
-let quitting = false, closingAfterJobs = false, relaunchAfter = false;
+let quitting = false, closingAfterJobs = false, relaunchAfter = false, installAfter = false;
 
 // Quit for real, after asking when work is still running: close once it finishes (from the tray),
-// stop it and close now, or stay.
-async function requestQuit({ relaunch = false } = {}) {
+// stop it and close now, or stay. `install`: the downloaded update is installed, and Shiori started
+// again by it.
+async function requestQuit({ relaunch = false, install = false } = {}) {
   if (quitting) return;
   relaunchAfter = relaunchAfter || relaunch;
+  installAfter = installAfter || install;
   const jobs = await activeJobs();
   if (!jobs.count) { reallyQuit(); return; }
   const shown = jobs.titles.slice(0, 5);
@@ -343,7 +357,7 @@ async function requestQuit({ relaunch = false } = {}) {
   const { response } = mainWindow ? await dialog.showMessageBox(mainWindow, options) : await dialog.showMessageBox(options);
   if (response === 0) { closingAfterJobs = true; mainWindow?.hide(); buildTray(); waitForJobs(); }
   else if (response === 1) { await pageCall('cancelJobs'); reallyQuit(); }
-  else relaunchAfter = false;
+  else relaunchAfter = installAfter = false;
 }
 
 function waitForJobs() {
@@ -355,12 +369,58 @@ function waitForJobs() {
 async function reallyQuit() {
   if (quitting) return;
   quitting = true;
-  if (relaunchAfter) app.relaunch();
+  if (relaunchAfter && !installAfter) app.relaunch();
   await library?.files.flush().catch(() => {});
   await server?.close().catch(() => {});
   library?.close();
   tray?.destroy();
-  app.quit();
+  if (installAfter && updater) updater.quitAndInstall(true, true);   // the installer starts Shiori again
+  else app.quit();
+}
+
+// ── Updates ──
+// From the published releases (the feed the installer names, app-update.yml), or — in developer
+// mode, Settings → System — from builds made on this computer (`npm run dev-update` in desktop/
+// serves them at DEV_FEED). Checked at startup and when asked; a newer version downloads by itself
+// and is installed when Shiori restarts for it, or next quits. Packaged builds only.
+const DEV_FEED = 'http://127.0.0.1:47199/';
+let updater = null;
+let update = { status: 'idle' };   // idle | checking | none | downloading | ready | error | unavailable (+ version, percent, error)
+
+function releasesFeed() {
+  const feed = {};
+  try {
+    for (const line of fs.readFileSync(path.join(process.resourcesPath, 'app-update.yml'), 'utf8').split(/\r?\n/)) {
+      const m = /^(\w+):\s*(.+)$/.exec(line);
+      if (m) feed[m[1]] = m[2].trim();
+    }
+  } catch {}
+  return feed;
+}
+
+async function updaterReady() {
+  if (!app.isPackaged) return null;
+  if (!updater) {
+    ({ autoUpdater: updater } = (await import('electron-updater')).default);
+    updater.on('checking-for-update', () => { update = { status: 'checking' }; });
+    updater.on('update-not-available', () => { update = { status: 'none' }; });
+    updater.on('update-available', (info) => { update = { status: 'downloading', version: info.version, percent: 0 }; });
+    updater.on('download-progress', (p) => { update = { ...update, status: 'downloading', percent: Math.floor(p.percent || 0) }; });
+    updater.on('update-downloaded', (info) => { update = { status: 'ready', version: info.version }; });
+    updater.on('error', (e) => { update = { status: 'error', error: String(e?.message || e).split('\n')[0] }; });
+  }
+  updater.setFeedURL(readSettings().devUpdates ? { provider: 'generic', url: DEV_FEED } : releasesFeed());
+  return updater;
+}
+
+// Look for a newer version now (it downloads by itself when there is one); `notify`: say so in a
+// system notification once it is ready.
+async function checkForUpdates({ notify = false } = {}) {
+  if (update.status === 'checking' || update.status === 'downloading' || update.status === 'ready') return;
+  let u;
+  try { u = await updaterReady(); } catch (e) { update = { status: 'error', error: String(e?.message || e).split('\n')[0] }; return; }
+  if (!u) { update = { status: 'unavailable' }; return; }
+  await (notify ? u.checkForUpdatesAndNotify() : u.checkForUpdates()).catch(() => {});   // 'error' says why
 }
 app.on('before-quit', (event) => { if (!quitting && library) { event.preventDefault(); requestQuit(); } });
 app.on('window-all-closed', () => { if (quitting) app.quit(); });
@@ -406,12 +466,7 @@ async function start() {
   if (first) openLink(first);
   // The library folder may have changed while the app was closed.
   library.rescan().catch((e) => console.warn('[shiori] rescan failed:', e));
-  if (app.isPackaged) {
-    try {
-      const { default: updater } = await import('electron-updater');
-      updater.autoUpdater.checkForUpdatesAndNotify().catch(() => {});
-    } catch {}
-  }
+  checkForUpdates({ notify: true });
 }
 
 app.whenReady().then(start);

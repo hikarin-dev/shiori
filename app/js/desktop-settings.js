@@ -1,7 +1,8 @@
-// desktop-settings.js — Settings → Desktop app, shown only in the desktop app's window: closing to
-// the tray, the library folder (open, change, check again), how new galleries are saved, the local
-// server's port and the sites allowed to use the library, and the app's version and data folder. Each setting is the desktop app's own,
-// read and changed through the window's bridge to it (`shioriDesktop.shell`).
+// desktop-settings.js — Settings → System, shown only in the desktop app's window: closing to the
+// tray, the library folder (open, change, check again), how new galleries are saved, the local
+// server's port and the sites allowed to use the library, updates (and developer mode, which takes
+// them from builds made on this computer), and the app's version and data folder. Each setting is
+// the desktop app's own, read and changed through the window's bridge to it (`shioriDesktop.shell`).
 import { t, applyTranslations } from './i18n.js';
 import { confirmDialog } from './notice.js';
 
@@ -92,6 +93,25 @@ function markup() {
     </div>
   </div>
   <div class="section">
+    <div class="section-header"><h2 class="section-title" data-i18n="set.desk_updates"></h2></div>
+    <div class="section-body">
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-name" id="deskUpdateStatus"></div>
+        </div>
+        <span class="desk-actions">
+          <button class="btn-save hidden" id="deskInstallUpdate" type="button" data-i18n="set.desk_restart_update"></button>
+          <button class="btn-mini" id="deskCheckUpdates" type="button" data-i18n="set.desk_check"></button>
+        </span>
+      </div>
+      <div class="field">
+        <div class="field-label" data-i18n="set.desk_dev"></div>
+        <div class="field-desc" id="deskDevDesc"></div>
+        ${SWITCH('deskDev', 'set.desk_dev')}
+      </div>
+    </div>
+  </div>
+  <div class="section">
     <div class="section-header"><h2 class="section-title" data-i18n="set.desk_about"></h2></div>
     <div class="section-body">
       <div class="toggle-row">
@@ -151,6 +171,30 @@ export async function initDesktopSettings() {
       : `<div class="toggle-row"><div class="toggle-info"><div class="toggle-desc">${esc(t('set.desk_sites_none'))}</div></div></div>`;
     $('deskVersion').textContent = t('set.desk_version', { version: state.version });
     $('deskDataPath').textContent = state.dataDir;
+    $('deskDev').checked = state.devUpdates;
+    $('deskDevDesc').textContent = t('set.desk_dev_desc', { address: state.devFeed });
+    renderUpdate();
+  };
+  // The update's progress, followed while something is under way.
+  const UPDATE_TEXT = {
+    idle: () => t('set.desk_check_desc'), checking: () => t('set.desk_checking'), none: () => t('set.desk_up_to_date'),
+    downloading: (u) => t('set.desk_downloading', { version: u.version, percent: u.percent ?? 0 }),
+    ready: (u) => t('set.desk_ready', { version: u.version }), error: (u) => t('set.desk_update_error', { error: u.error }),
+    unavailable: () => t('set.desk_update_unavailable'),
+  };
+  let following = null;
+  const renderUpdate = () => {
+    const u = state.update || { status: 'idle' };
+    $('deskUpdateStatus').textContent = (UPDATE_TEXT[u.status] || UPDATE_TEXT.idle)(u);
+    $('deskInstallUpdate').classList.toggle('hidden', u.status !== 'ready');
+    $('deskCheckUpdates').disabled = u.status === 'checking' || u.status === 'downloading';
+    if ((u.status === 'checking' || u.status === 'downloading') && !following) {
+      following = setTimeout(async () => {
+        following = null;
+        state = { ...state, update: await shell('updateState') };
+        renderUpdate();
+      }, 700);
+    }
   };
   render();
   window.addEventListener('shiori-lang-change', render);
@@ -167,6 +211,11 @@ export async function initDesktopSettings() {
     await set('port', Number(e.target.value));
     restart(t('set.desk_restart_port'));
   });
+  // Both look for an update at once: follow it from the start.
+  const followCheck = () => { state.update = { status: 'checking' }; renderUpdate(); };
+  $('deskDev').addEventListener('change', async (e) => { await set('devUpdates', e.target.checked); followCheck(); });
+  $('deskCheckUpdates').addEventListener('click', async () => { state = await shell('checkUpdates'); followCheck(); });
+  $('deskInstallUpdate').addEventListener('click', () => shell('installUpdate'));
   $('deskSites').addEventListener('click', async (e) => {
     const site = e.target.closest?.('[data-forget]')?.dataset.forget;
     if (site) { state = await shell('forgetSite', site); render(); }
