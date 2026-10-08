@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.2 — 2026-10-09
+
+### Fixed
+
+- A full library backup is now saved as an ordinary download of one `.shioridb` file, which your browser lists with its size and time left. The way 1.1.1 saved it could fail right at the end. With a very large backup (tens of GB), Chrome's own safety check can still end the download with "Failed – System busy" even though the whole file was saved. It's left in your Downloads folder as `Unconfirmed ….crdownload`: rename it to end in `.shioridb` and it's a complete backup.
+- Shiori Desktop no longer closes with an error when you import a backup, or move a browser library into it, that holds very large galleries.
+
 ## v1.1.1 — 2026-10-09
 
 ### Fixed
