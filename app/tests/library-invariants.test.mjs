@@ -71,7 +71,7 @@ const metaFor = (gid, ref, pages) => ({
 // `diesAfter` stored pages: the run dies there, or (`continueOnError`, a flaky source) the
 // remaining pages fail and the run still finishes with its recount.
 async function download(ref, pages, { diesAfter = Infinity, ext = 'webp', overwrite = false, continueOnError = false } = {}) {
-  const { gid } = await op('resolve_gid', { sourceRef: ref });
+  const { gid } = await op('resolve_gid', { sourceRef: ref, source: 'test' });
   const info = await op('gallery_info', { galleryId: gid });
   const meta = metaFor(gid, ref, pages);
   let held = null;
@@ -94,7 +94,7 @@ async function download(ref, pages, { diesAfter = Infinity, ext = 'webp', overwr
 
 // One page captured while browsing source `ref`, then its metadata filled in.
 async function capture(ref, n) {
-  const { gid } = await op('resolve_gid', { sourceRef: ref });
+  const { gid } = await op('resolve_gid', { sourceRef: ref, source: 'test' });
   const url = `src://${ref}/${n}.webp`;
   if (!(await op('page_exists', { galleryId: gid, url, pageNum: n })).exists) {
     await op('store_page', { galleryId: gid, url, pageNum: n, bytes: bytes(n), mime: 'image/webp' });
@@ -135,7 +135,7 @@ const commands = [
   // A real gallery with no pages yet — a series member listed before its download, or one restored
   // from a metadata-only backup.
   step('pagelessGallery', fc.tuple(ref, fc.boolean()), async (r, announced) => {
-    const { gid } = await op('resolve_gid', { sourceRef: r });
+    const { gid } = await op('resolve_gid', { sourceRef: r, source: 'test' });
     const info = await op('gallery_info', { galleryId: gid });
     if (info.meta && !info.meta.isStub) return;
     // What a series roster sync sends: grouping fields only, which create a zero entry if none exists.
@@ -145,7 +145,7 @@ const commands = [
   // A background pass (a series' chapter info) still writing after the gallery it writes for was
   // deleted: its late batch must not bring the gallery's metadata back.
   step('lateBatchWriteAfterDelete', fc.tuple(ref, fc.boolean()), async (r, asMutation) => {
-    const { gid } = await op('resolve_gid', { sourceRef: r });
+    const { gid } = await op('resolve_gid', { sourceRef: r, source: 'test' });
     await api.galleries.delete(gid);
     await op('gallery_batch', asMutation
       ? { mutations: [{ galleryId: gid, patch: { parentId: null } }], notifyGalleryIds: [gid] }
@@ -162,7 +162,7 @@ const commands = [
   }),
   step('capture', fc.tuple(ref, fc.integer({ min: 1, max: 5 })), capture),
   step('recountWhileCapturing', fc.tuple(ref, fc.integer({ min: 1, max: 6 })), async (r, n) => {
-    const { gid } = await op('resolve_gid', { sourceRef: r });
+    const { gid } = await op('resolve_gid', { sourceRef: r, source: 'test' });
     await Promise.all([
       op('rebuild', { galleryId: gid }),
       op('store_page', { galleryId: gid, url: `src://${r}/${n}.webp`, pageNum: n, bytes: bytes(n), mime: 'image/webp' }),

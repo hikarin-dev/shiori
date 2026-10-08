@@ -6,6 +6,7 @@
 // translateGallery only translates not-yet-translated pages — so re-running a job resumes it.
 
 import * as platform from './platform.js';
+import { capabilities } from './api.js';
 import { importCbzBuffer } from './import-cbz.js';
 import { startTranslation, pollTranslation, cancelTranslate } from './translate.js';
 
@@ -18,21 +19,49 @@ export async function runImport({ galleryId, tempFile, filename, skipExisting = 
   try {
     const root = await navigator.storage.getDirectory();
     const fh = await root.getFileHandle(tempFile);
-    const buffer = await (await fh.getFile()).arrayBuffer();
-    await importCbzBuffer(gid, buffer, filename, !!skipExisting, (p) => {
-      if (p.status === 'progress' || p.status === 'started')
-        platform.jobs.publish({ gid, kind: 'upload', status: 'progress', done: p.done, total: p.total, labelKey: 'prog.importing' });
-    });
+    await _import(gid, await (await fh.getFile()).arrayBuffer(), filename, skipExisting);
     // Success only — a failed import (importCbzBuffer throws) retains the staged file so the
     // import can be retried; boot maintenance sweeps abandoned ones after a grace period.
     root.removeEntry(tempFile).catch(() => {});
     platform.jobs.publish({ gid, kind: 'upload', status: 'done' });
-  } catch (e) {
-    platform.jobs.publish({
-      gid, kind: 'upload', status: 'error', error: String(e && e.message || e),
-      ...(e && e.code ? { errorKey: `err.${e.code}` } : {}),
-    });
+  } catch (e) { _importFailed(gid, e); }
+}
+
+// Import a zip (import-files.js importBytes) from a page into gallery `galleryId`. This browser's
+// library has it staged in OPFS first and handed to the durable runner (the service worker, which
+// survives the page). A library kept as files has no service worker to hand it to, so it is
+// imported here and now, straight from memory — not written a second time on its way in; an import
+// cut short by closing the page is started again. Resolves false when it couldn't be staged.
+export async function startImport({ galleryId, buffer, filename, skipExisting = true }) {
+  const gid = String(galleryId);
+  if (!capabilities.browserLibrary) {
+    platform.jobs.publish({ gid, kind: 'upload', status: 'started', labelKey: 'prog.reading' });
+    try {
+      await _import(gid, buffer, filename, skipExisting);
+      platform.jobs.publish({ gid, kind: 'upload', status: 'done' });
+    } catch (e) { _importFailed(gid, e); }
+    return true;
   }
+  const tempFile = `cbz-${gid}-${Date.now()}.bin`;
+  try {
+    const root = await navigator.storage.getDirectory();
+    const writable = await (await root.getFileHandle(tempFile, { create: true })).createWritable();
+    await writable.write(buffer);
+    await writable.close();
+  } catch { return false; }
+  platform.rpc({ type: 'IMPORT_CBZ', galleryId: gid, tempFile, filename, skipExisting });
+  return true;
+}
+
+const _import = (gid, buffer, filename, skipExisting) => importCbzBuffer(gid, buffer, filename, !!skipExisting, (p) => {
+  if (p.status === 'progress' || p.status === 'started')
+    platform.jobs.publish({ gid, kind: 'upload', status: 'progress', done: p.done, total: p.total, labelKey: 'prog.importing' });
+});
+function _importFailed(gid, e) {
+  platform.jobs.publish({
+    gid, kind: 'upload', status: 'error', error: String(e && e.message || e),
+    ...(e && e.code ? { errorKey: `err.${e.code}` } : {}),
+  });
 }
 
 // Start a gallery translation: upload the not-yet-translated pages and create the server-owned job.

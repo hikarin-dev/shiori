@@ -1,7 +1,8 @@
-// scan.test.mjs — the library folder may change while the app isn't looking: a gallery moved or
-// renamed is found again by its id, one whose files are gone is marked missing (and found again
-// when they come back), archives and image folders added by hand join the library, the index can be
-// rebuilt from the files alone, and leftovers of interrupted writes are cleared.
+// scan.test.mjs — the full check: the library folder may change while the app isn't looking (and the
+// app doesn't look on its own): a gallery moved or renamed is found again by its id, one whose files
+// are gone is marked missing (and found again when they come back), archives and image folders added
+// by hand join the library, the index can be rebuilt from the files alone (a folder in the gallery
+// format with its translations, where they lie), and leftovers of interrupted writes are cleared.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
@@ -20,7 +21,7 @@ const bytesOf = async (blob) => (blob ? [...new Uint8Array(await blob.arrayBuffe
 
 function folders() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-scan-'));
-  return { dir, dataDir: path.join(dir, 'data'), libraryDir: path.join(dir, 'library'), packDelay: 60_000 };
+  return { dir, dataDir: path.join(dir, 'data'), libraryDir: path.join(dir, 'library'), placeDelay: 60_000 };
 }
 // Closed, then its folders removed, when the test ends.
 async function open(t, where) {
@@ -29,7 +30,7 @@ async function open(t, where) {
   return library;
 }
 const pathOf = (library, gid) => library._s('SELECT path FROM files WHERE gid = ?').get(gid)?.path;
-async function packed(library, gid, name, pages = [1, 2]) {
+async function settled(library, gid, name, pages = [1, 2]) {
   await library.metaPut({ galleryId: gid, title: title(name), tags: [], numPages: pages.length });
   for (const n of pages) await library.pagePut(gid, n, png(n));
   await library.files.flush();
@@ -43,27 +44,29 @@ async function whole(library) {
 test('a gallery moved or renamed outside the app is found again by its id', async (t) => {
   const library = await open(t, folders());
   const gid = '1790000000101';
-  const archive = await packed(library, gid, 'Wanderer');
+  const folder = await settled(library, gid, 'Wanderer');
   fs.mkdirSync(path.join(library.libraryDir, 'Elsewhere'));
-  fs.renameSync(archive, path.join(library.libraryDir, 'Elsewhere', 'renamed.cbz'));
+  fs.renameSync(folder, path.join(library.libraryDir, 'Elsewhere', 'renamed'));
   const result = await library.rescan();
   assert.deepEqual(result.moved, [gid]);
-  assert.equal(pathOf(library, gid), 'Elsewhere/renamed.cbz');
+  assert.equal(pathOf(library, gid), 'Elsewhere/renamed');
   assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 2)), [...pngBytes(2)]);
   await whole(library);
 });
 
 test('a gallery whose files are gone is missing, not deleted, and comes back with them', async (t) => {
-  const library = await open(t, folders());
+  const where = folders();
+  const library = await open(t, where);
   const gid = '1790000000102';
-  const archive = await packed(library, gid, 'Away');
-  fs.renameSync(archive, `${archive}.away`);
+  const folder = await settled(library, gid, 'Away');
+  const away = path.join(where.dir, 'away');   // out of the library folder
+  fs.renameSync(folder, away);
   assert.deepEqual((await library.rescan()).missing, [gid]);
   const entity = await library.getGallery(gid);
   assert.equal(entity.missing, true);
   assert.equal(entity.count, 2, 'still in the library, with what it had');
   assert.equal(await library.getPageBlob(gid, 1), null);
-  fs.renameSync(`${archive}.away`, archive);
+  fs.renameSync(away, folder);
   assert.deepEqual((await library.rescan()).found, [gid]);
   assert.equal((await library.getGallery(gid)).missing, undefined);
   assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1)), [...pngBytes(1)]);
@@ -93,13 +96,15 @@ test('the index can be rebuilt from the files alone', async (t) => {
   const where = folders();
   const first = await new Library(where).open();
   const gid = '1790000000103';
-  await packed(first, gid, 'Kept');
+  await settled(first, gid, 'Kept');
   await first.galleriesPage();
   first.close();
   fs.rmSync(where.dataDir, { recursive: true, force: true });   // the index is lost
 
   const library = await open(t, where);
+  assert.equal(library.indexEmpty(), true, 'an empty index: the app checks the folder once at start');
   assert.deepEqual((await library.rescan()).added, [gid], 'under the id its files carry');
+  assert.equal(library.indexEmpty(), false);
   const meta = await library.metaGet(gid);
   assert.equal(meta.title.english, 'Kept');
   assert.deepEqual((await library.pageList(gid)).map(p => p.url), [`local://${gid}/1.png`, `local://${gid}/2.png`], 'with its page keys');
@@ -110,8 +115,10 @@ test('the index can be rebuilt from the files alone', async (t) => {
 test('leftovers of an interrupted write are cleared', async (t) => {
   const library = await open(t, folders());
   const gid = '1790000000104';
-  const archive = await packed(library, gid, 'Tidy');
-  fs.writeFileSync(`${archive}.shiori-tmp`, 'half an archive');
+  const folder = await settled(library, gid, 'Tidy');
+  fs.mkdirSync(`${folder}.shiori-tmp`);
+  fs.writeFileSync(path.join(`${folder}.shiori-tmp`, '0001.png'), pngBytes(1));   // half an unpacked archive
+  fs.writeFileSync(path.join(folder, 'shiori.json.shiori-tmp'), 'half a description');
   const stray = path.join(library.stagingDir, gid, '9-stray.png');
   fs.mkdirSync(path.dirname(stray), { recursive: true });
   fs.writeFileSync(stray, pngBytes(9));
@@ -120,8 +127,52 @@ test('leftovers of an interrupted write are cleared', async (t) => {
   const old = new Date(Date.now() - 60 * 60 * 1000);
   fs.utimesSync(stray, old, old);
   await library.rescan();
-  assert.equal(fs.existsSync(`${archive}.shiori-tmp`), false);
+  assert.equal(fs.existsSync(`${folder}.shiori-tmp`), false);
+  assert.equal(fs.existsSync(path.join(folder, 'shiori.json.shiori-tmp')), false);
   assert.equal(fs.existsSync(stray), false, 'a staged page nothing refers to');
   assert.equal(fs.existsSync(fresh), true, 'one just written may still be on its way');
   assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1)), [...pngBytes(1)]);
+});
+
+test('a translation file no page refers to is cleared from the gallery’s folder', async (t) => {
+  const library = await open(t, folders());
+  const gid = '1790000000105';
+  const folder = await settled(library, gid, 'Layers');
+  await library.putTranslatedPage({ galleryId: gid, pageNum: 1 }, png(9), null);
+  const kept = JSON.parse(library._pageRow(gid, 1).record).translated.$own;
+  assert.equal(kept, 'translated/0001.png');
+  const stray = path.join(folder, 'translated', '0002.png');
+  fs.writeFileSync(stray, pngBytes(5));
+  const old = new Date(Date.now() - 60 * 60 * 1000);
+  fs.utimesSync(stray, old, old);
+  fs.utimesSync(path.join(folder, 'translated', '0001.png'), old, old);
+  await library.rescan();
+  assert.deepEqual(fs.readdirSync(path.join(folder, 'translated')), ['0001.png']);
+  assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1, 'translated')), [...pngBytes(9)]);
+});
+
+test('the index rebuilt from a folder in the gallery format has its translations and study layers, where they lie', async (t) => {
+  const where = folders();
+  const first = await new Library(where).open();
+  const gid = '1790000000106';
+  await settled(first, gid, 'Kept Translated');
+  await first.putTranslatedPage({ galleryId: gid, pageNum: 1 }, png(9), { job: 'j1', lines: [], read: [], regions: [], masks: { raw: png(4) } }, 'j1');
+  await first.putPageStudy({ galleryId: gid, pageNum: 2 }, { bg: png(7), page: { w: 10, h: 10 },
+    bubbles: [{ box: [0, 0, 1, 1], region: [0, 0, 1, 1], tr: 'Hi', src: 'やあ', text: png(8) }] });
+  await first.files.flush();
+  first.close();
+  fs.rmSync(where.dataDir, { recursive: true, force: true });   // the index is lost
+
+  const library = await open(t, where);
+  assert.deepEqual((await library.rescan()).added, [gid]);
+  const one = await library.pageGet(gid, 1);
+  assert.deepEqual(await bytesOf(one.translated), [...pngBytes(9)], 'its translation');
+  assert.equal(one.pipeline.job, 'j1');
+  assert.deepEqual(await bytesOf(one.pipeline.masks.raw), [...pngBytes(4)], 'its masks');
+  assert.equal(one.own, 'j1');
+  const two = await library.pageGet(gid, 2);
+  assert.deepEqual([two.bubbles.length, two.bubbles[0].tr], [1, 'Hi'], 'its study layers');
+  assert.deepEqual(await bytesOf(two.bubbles[0].text), [...pngBytes(8)]);
+  assert.deepEqual(await bytesOf(two.studyBg), [...pngBytes(7)]);
+  await whole(library);
 });

@@ -1,8 +1,11 @@
 // import-files.js — what a picked or dropped set of files imports as. Each archive is one gallery
 // as it is, each PDF is one gallery with an image per PDF page, and loose images together make one
 // more gallery. A dropped folder is read the same way, its subfolders included: its images make one
-// gallery named after it. The import engine always receives a zip, so staging and the durable runner
-// are the same for every kind. Runs in a page only (PDF pages are drawn on a canvas).
+// gallery named after it — except a folder in the Shiori gallery format (gallery-files.js: one
+// holding metadata.json, image_records.json or series.json), which goes in whole, as the archive it
+// would be if zipped, so each such gallery or series inside a dropped folder is imported as itself.
+// The import engine always receives a zip, so staging and the durable runner are the same for every
+// kind. Runs in a page only (PDF pages are drawn on a canvas).
 
 import { zipCreate } from './zip.js';
 
@@ -35,8 +38,31 @@ function _byPath(a, b) {
 export function groupImports(files, folders = []) {
   return [
     ..._groups([...files].map((file) => ({ file, path: file.name })), _imagesTitle),
-    ...folders.flatMap((folder) => _groups(folder.entries, () => folder.name)),
+    ...folders.flatMap(_folderGroups),
   ];
+}
+
+// The files that say a folder is in the Shiori gallery format.
+const LAYOUT_FILES = new Set(['metadata.json', 'image_records.json', 'series.json']);
+
+// A dropped folder's groups: each folder in the Shiori gallery format within it (the outermost —
+// a series' members go with their series) whole, its files under their paths in it; whatever else
+// it holds, as any folder.
+function _folderGroups(folder) {
+  const roots = [];
+  const byDepth = [...folder.entries].sort((a, b) => a.path.split('/').length - b.path.split('/').length);
+  for (const { path } of byDepth) {
+    const cut = path.lastIndexOf('/') + 1;
+    const dir = path.slice(0, cut);
+    if (LAYOUT_FILES.has(path.slice(cut)) && !roots.some((r) => dir.startsWith(r))) roots.push(dir);
+  }
+  const groups = roots.map((root) => {
+    const inside = folder.entries.filter((e) => e.path.startsWith(root)).sort(_byPath);
+    const name = root ? root.slice(0, -1).split('/').pop() : folder.name;
+    return { files: inside.map((e) => e.file), paths: inside.map((e) => e.path.slice(root.length)), name: `${name}.zip` };
+  });
+  const rest = folder.entries.filter((e) => !roots.some((r) => e.path.startsWith(r)));
+  return [...groups, ..._groups(rest, () => folder.name)];
 }
 
 function _groups(entries, imagesTitle) {
@@ -49,7 +75,8 @@ function _groups(entries, imagesTitle) {
 
 // A drop's files and folders → { files, folders } for groupImports. Call it straight from the drop
 // handler: the dropped items can only be listed before the event ends. Each folder is read in full,
-// its subfolders flattened into it; hidden files (".name") are left out.
+// its subfolders flattened into it (their pictures, archives, PDFs and the format's JSON files);
+// hidden files and folders (".name") are left out.
 export async function droppedImports(dataTransfer) {
   const files = [], dirs = [];
   for (const item of dataTransfer.items) {
@@ -72,7 +99,7 @@ async function _readFolder(dir, prefix = '') {
       if (entry.name.startsWith('.')) continue;
       const path = prefix + entry.name;
       if (entry.isDirectory) out.push(...await _readFolder(entry, `${path}/`));
-      else if (isImportable(entry)) out.push({ file: await new Promise((resolve, reject) => entry.file(resolve, reject)), path });
+      else if (isImportable(entry) || /\.json$/i.test(entry.name)) out.push({ file: await new Promise((resolve, reject) => entry.file(resolve, reject)), path });
     }
   }
   return out;
@@ -87,9 +114,21 @@ function _imagesTitle(images) {
   return (stems.length > 1 && common.replace(/\d+$/, '').replace(/[\s._\-#([]+$/, '')) || stems[0];
 }
 
-// The zip the import engine reads for one group. An archive passes through untouched; a PDF
-// reports its pages as they are drawn via onProgress({ done, total }).
-export async function importBytes({ files }, onProgress = () => {}) {
+// The zip the import engine reads for one group. An archive passes through untouched, a folder in
+// the Shiori gallery format is zipped as it is (`paths`) — a member of a series kept as an archive
+// in its series' folder (Shiori Desktop archives galleries left alone) going in as the folder it
+// is the archive of; a PDF reports its pages as they are drawn via onProgress({ done, total }).
+export async function importBytes({ files, paths }, onProgress = () => {}) {
+  if (paths) {
+    const out = [];
+    for (const [i, f] of files.entries()) {
+      const data = new Uint8Array(await f.arrayBuffer());
+      if (!ARCHIVE.test(paths[i])) { out.push({ name: paths[i], data }); continue; }
+      const { unzip } = await import('./import-cbz.js');
+      for (const e of await unzip(data.buffer)) out.push({ name: `${_stem(paths[i])}/${e.filename}`, data: e.data });
+    }
+    return zipCreate(out);
+  }
   if (ARCHIVE.test(files[0].name)) return files[0].arrayBuffer();
   const pages = PDF.test(files[0].name)
     ? await _renderPdf(files[0], onProgress)

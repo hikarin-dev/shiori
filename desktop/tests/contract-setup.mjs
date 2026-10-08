@@ -10,10 +10,11 @@ import { Library } from '../server/library.js';
 import { startServer } from '../server/server.js';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-desktop-'));
-// Galleries are packed as soon as their pages change (SHIORI_PACK_DELAY, in ms, to wait instead), so
-// the tests read pages from archives, and from staging while they are packed, not only from staging.
-const packDelay = process.env.SHIORI_PACK_DELAY ? Number(process.env.SHIORI_PACK_DELAY) : 0;
-const library = await new Library({ dataDir: path.join(dir, 'data'), libraryDir: path.join(dir, 'library'), packDelay }).open();
+// Galleries are settled into their folders as soon as their pages change (SHIORI_PLACE_DELAY, in ms,
+// to wait instead), so the tests read pages from the folders, and from staging while they are moved,
+// not only from staging.
+const placeDelay = process.env.SHIORI_PLACE_DELAY ? Number(process.env.SHIORI_PLACE_DELAY) : 0;
+const library = await new Library({ dataDir: path.join(dir, 'data'), libraryDir: path.join(dir, 'library'), placeDelay }).open();
 const token = crypto.randomBytes(16).toString('hex');
 const server = await startServer({ library, token });
 globalThis.shioriDesktop = { url: server.url, token };

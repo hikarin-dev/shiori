@@ -26,9 +26,10 @@ const backend = desktopLibrary.active ? desktopLibrary : browserLibrary;
 
 // What this library can do beyond the common interface; surfaces hide what it lacks.
 // `browserLibrary`: it is this browser's own (its one-time repairs and storage upgrades apply).
-// `desktopWindow`: this page is the desktop app's own window.
+// `desktopWindow`: this page is the desktop app's own window. `archive`: it keeps galleries as files
+// and can pack one into an archive (galleries.archive).
 export const capabilities = { storageLayout: backend === browserLibrary, browserLibrary: backend === browserLibrary,
-  desktopWindow: !!globalThis.shioriDesktop?.shell };
+  desktopWindow: !!globalThis.shioriDesktop?.shell, archive: typeof backend.archiveGallery === 'function' };
 
 // Whether this page's library can be reached now — always, for this browser's — and, for the
 // desktop app's, being told when the connection to it is lost.
@@ -117,15 +118,21 @@ export const galleries = _typed({
   stats:       () => backend.getStats(),
   tagCounts:   (opts) => backend.tagCounts(opts),
   searchIndex: () => backend.metaGetAllMap(),                  // gid → metadata, for search
-  // The gallery a source reference stands for, a placeholder created on first sight; the first one
+  // The gallery a source and reference stand for, a placeholder created on first sight; the first one
   // added when several galleries share it.
-  resolveSource: (ref) => backend.resolveGalleryId(ref),
+  resolveSource: (ref, source) => backend.resolveGalleryId(ref, source),
   // A gallery under a minted id with this metadata merged in (an import reserving its card); an
   // empty stat record when it has none yet.
   create: (gid, meta = {}) => { _metadataOnly(meta); return backend.galleryCreate(_gid(gid), meta); },
   mutate: (gid, patch, opts) => { _metadataOnly(patch); return backend.mutateGallery(_gid(gid), patch, opts); },
   recount: (gid, opts) => backend.rebuildGalleryEntry(_gid(gid), opts),
   delete:  (gid) => backend.deleteGallery(_gid(gid)),
+  // The gallery this page's reader shows (null: none). A library that writes a gallery's files in
+  // the background writes them once the reader leaves it — for another, or by closing.
+  reading: async (gid) => backend.reading?.(gid == null ? null : _gid(gid)),
+  // The gallery — a series owner: its whole series — packed into an archive now (capabilities.archive):
+  // { archived, kept } (gallery ids; kept: one in use, or holding files of someone else's).
+  archive: async (gid) => backend.archiveGallery?.(_gid(gid)) ?? { archived: [], kept: [String(gid)] },
 });
 
 // ── A gallery's metadata record ──
@@ -192,6 +199,14 @@ export const icons = _typed({
   get: (source) => backend.sourceIconGet(source),
   all: () => backend.sourceIconsAll(),
   put: (source, patch) => backend.sourceIconPut(source, patch),
+});
+
+// ── Disk writes of a library that keeps galleries as files (capabilities.archive) ──
+// { total, by: { pages, pictures, descriptions, archive, database, thumbnails }, since } in bytes,
+// or null for this browser's own library (platform.writes counts what the browser stores).
+export const diskWrites = _typed({
+  get: async () => backend.diskWrites?.() ?? null,
+  reset: async () => backend.resetDiskWrites?.() ?? null,
 });
 
 // ── Transfer: a gallery's records exactly as stored (backup, restore, moving a library) ──

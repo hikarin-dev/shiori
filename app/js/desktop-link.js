@@ -1,5 +1,5 @@
-// desktop-link.js — a site's use of the Shiori Desktop library, in a browser (never in the desktop
-// app's own window, which is that library):
+// desktop-link.js — a site's use of the Shiori Desktop library, in a browser (never on a page the
+// desktop app serves — its window, or a browser tab at its address — whose library it always is):
 //   • Settings → Storage → Library location: switching between this browser's library and the
 //     desktop app's (finding the app, asking it to allow this site, offering to move what this
 //     browser holds), moving or deleting what this browser still holds;
@@ -8,13 +8,14 @@
 //     saved meanwhile and switch back; when it runs but no longer lets this site in, a prompt to
 //     ask it again or go back to this browser's library; when the browser doesn't let this site
 //     reach apps on this device, where to allow it.
+//   • a browser tab at the desktop app's own address: when the app is closed, a prompt to open it.
 // The location itself is library-location.js's; every page of the site reloads onto a new one.
 import * as api from './api.js';
 import * as platform from './platform.js';
 import { t, applyTranslations } from './i18n.js';
 import { formatCount } from './format.js';
 import { ask, showProgress, confirmDialog, alertDialog, showToast } from './notice.js';
-import { savedLocation, setLocation, fallback, setFallback, findDesktop, pingDesktop, localAccess, requestPairing } from './library-location.js';
+import { savedLocation, setLocation, fallback, setFallback, findDesktop, pingDesktop, localAccess, requestPairing, desktopHosted } from './library-location.js';
 import { browserGalleries, moveToDesktop, clearBrowserLibrary } from './library-move.js';
 
 const OPEN_APP = 'shiori://open';
@@ -89,9 +90,9 @@ async function useDesktop(status) {
   switchTo(config);
 }
 
-// Settings → Storage → Library location (not in the desktop app's own window).
+// Settings → Storage → Library location (not on a page the desktop app serves).
 export async function initLocationSettings() {
-  if (api.capabilities.desktopWindow) return;
+  if (desktopHosted()) return;
   const panel = document.getElementById('panelStorage');
   if (!panel || document.getElementById('locationSection')) return;
   const section = document.createElement('div');
@@ -217,7 +218,7 @@ async function offerReturn(saved, { asked = false } = {}) {
 // Every page of a site using the desktop library: the prompt when the app can't be reached, the
 // reminder while continuing without it, and noticing when it is back.
 export async function initDesktopGate() {
-  if (api.capabilities.desktopWindow) return;
+  if (desktopHosted()) return;
   const saved = savedLocation();
   if (!saved) return;
   if (fallback()) {
@@ -258,5 +259,22 @@ export async function initDesktopGate() {
   window.addEventListener('unhandledrejection', (e) => { if (e.reason?.code === 'unavailable') e.preventDefault(); });
   if (!(await api.connection.reachable())) { gate(); return; }
   // Lost later (the app was closed): give it a moment to come back first.
+  api.connection.onUnavailable(() => setTimeout(async () => { if (!(await api.connection.reachable())) gate(); }, 5000));
+}
+
+// A browser tab at the desktop app's own address: its library is the app's and nowhere else, so
+// while the app is closed the one way on is to open it. The page reloads as soon as it is back.
+export async function initHostedGate() {
+  if (api.capabilities.desktopWindow || !desktopHosted()) return;
+  let asking = false;
+  const gate = async () => {
+    if (asking) return;
+    asking = true;
+    (async () => { for (;;) { await sleep(2000); if (await api.connection.reachable()) { location.reload(); return; } } })();
+    await ask({ title: t('gate.title'), body: t('gate.hosted_body'), choices: [{ value: 'open', label: t('gate.open'), detail: t('gate.open_detail') }] });
+    location.href = OPEN_APP;
+  };
+  window.addEventListener('unhandledrejection', (e) => { if (e.reason?.code === 'unavailable') e.preventDefault(); });
+  if (!(await api.connection.reachable())) { gate(); return; }
   api.connection.onUnavailable(() => setTimeout(async () => { if (!(await api.connection.reachable())) gate(); }, 5000));
 }

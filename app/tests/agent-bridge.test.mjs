@@ -171,6 +171,48 @@ async function session() {
 }
 const pageBytes = () => new Uint8Array([1, 2, 3]).buffer;
 
+test('source resolution and cached-page reads keep identical IDs on different sources separate', async () => {
+  const port = await session();
+  const sid = '910099';
+  const resolve = async source => {
+    const reply = await callOverPort(port, 'resolve_gid', { source, sourceRef: sid });
+    assert.equal(reply.ok, true);
+    return reply.data.gid;
+  };
+  const a = await resolve('source-a');
+  const b = await resolve('source-b');
+  assert.notEqual(a, b);
+  const batch = await callOverPort(port, 'resolve_gids', { source: 'source-b', sourceRefs: [sid, '910100', sid] });
+  assert.equal(batch.ok, true);
+  assert.equal(batch.data.gids[0], b);
+  assert.equal(batch.data.gids[2], b);
+  assert.notEqual(batch.data.gids[1], b);
+  for (const [galleryId, source, value] of [[a, 'source-a', 1], [b, 'source-b', 2]]) {
+    const reply = await callOverPort(port, 'store_page', {
+      galleryId, pageNum: 1, url: `saved://${source}/${sid}/1.jpg`,
+      bytes: new Uint8Array([value]).buffer, mime: 'image/jpeg',
+      meta: { galleryId, sourceId: sid, source, title: { english: 'Same title' } },
+    });
+    assert.equal(reply.ok, true);
+  }
+  for (const [source, expected] of [['source-a', 'data:image/jpeg;base64,AQ=='], ['source-b', 'data:image/jpeg;base64,Ag==']]) {
+    const all = await callOverPort(port, 'gallery_pages', { galleryId: sid, source });
+    assert.equal(all.ok, true);
+    assert.equal(all.data.pages[0].dataUrl, expected);
+    const window = await callOverPort(port, 'pages_window', { galleryId: sid, source, startPage: 1, endPage: 1 });
+    assert.equal(window.ok, true);
+    assert.equal(window.data.pages[0].dataUrl, expected);
+    const images = await callOverPort(port, 'images_batch', { galleryId: sid, source, queries: [{ url: 'query', pageNum: 1 }] });
+    assert.equal(images.ok, true);
+    assert.equal(images.data.results.query, expected, 'page-number fallback stays within the source');
+  }
+  assert.equal((await callOverPort(port, 'resolve_gid', { sourceRef: sid })).ok, false);
+  assert.equal((await callOverPort(port, 'gallery_pages', { galleryId: sid })).ok, false);
+  const internal = await callOverPort(port, 'gallery_pages', { galleryId: a });
+  assert.equal(internal.ok, true);
+  assert.equal(internal.data.pages[0].dataUrl, 'data:image/jpeg;base64,AQ==');
+});
+
 test("a page can carry its own gallery's metadata — never another gallery's", async () => {
   const api = await import('../js/api.js');
   const metaPut = api.meta.put, metaGet = api.meta.get, galleryGet = api.galleries.get;
@@ -259,6 +301,10 @@ test('the agent says where its library is, so its embedder can reach that librar
     _store.set('shiori:libraryFallback', JSON.stringify({ since: Date.now() }));
     assert.deepEqual((await callOverPort(port, 'library_location', {})).data, { kind: 'browser' },
       'continuing in the browser for now, the library is this browser\'s');
+    _store.delete('shiori:libraryFallback');
+    _store.set('shiori:libraryLocation', JSON.stringify({ kind: 'desktop', url: location.origin, token: 'window-token-0123456789abcdef' }));
+    assert.deepEqual((await callOverPort(port, 'library_location', {})).data, { kind: 'here' },
+      'at the desktop app\'s own address, this agent holds the library itself');
   } finally {
     _store.delete('shiori:libraryLocation');
     _store.delete('shiori:libraryFallback');

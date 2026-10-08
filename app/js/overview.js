@@ -19,6 +19,7 @@ import { memberKind } from './gallery-model.js';
 import { escHtml } from './sanitize.js';
 import { resizeToWidth, imageToBlob } from './image-util.js';
 import { IMPORT_ACCEPT, groupImports, importBytes, isImportable, droppedImports } from './import-files.js';
+import { startImport } from './jobs-runner.js';
 import { openRerunMenu } from './rerun-menu.js';
 import { confirmDialog, alertDialog } from './notice.js';
 import { openTagEditor, removeTag, tagKey, TAG_TYPE_LABEL } from './tag-editor.js';
@@ -156,6 +157,7 @@ const ICON = {
   read:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>',
   edit:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.4 2.6a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>',
   done:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  archive: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>',
   heart:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>',
   download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>',
   upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>',
@@ -627,6 +629,12 @@ async function render() {
     ? `<a class="ov-btn" href="${esc(source)}" target="_blank" rel="noopener noreferrer" data-tip="${esc(`${siteName(ownerEntity?.source)}: ${source}`)}">${ICON.open}<span>${esc(t('page.source'))}</span></a>`
     : '';
   const editLabel = editMode ? t('ov.done_editing') : t('ov.edit');
+  // A library that keeps galleries as files can pack this one — a series: every member — into an
+  // archive now; once all of it is, the button says so.
+  const archived = members.every(m => m.entity?.archived);
+  const archiveButton = api.capabilities.archive
+    ? `<button class="ov-btn" id="archiveNow" type="button"${archived ? ' disabled' : ''} data-tip="${esc(t('ov.archive_tip'))}">${ICON.archive}<span>${esc(t(archived ? 'ov.archived' : 'ov.archive'))}</span></button>`
+    : '';
   const addBar = `
     <div class="add-bar" id="addBar">
       <h3>${esc(t(kind === 'volume' ? 'ov.add_volume' : 'ov.add_chapter'))}</h3>
@@ -654,6 +662,7 @@ async function render() {
           <a class="ov-btn primary" id="readStart" href="${startHref}">${ICON.read}<span>${esc(t('ov.read_start'))}</span></a>
           <button class="ov-btn fav" id="favToggle" type="button"></button>
           <button class="ov-btn${editMode ? ' active' : ''}" id="editToggle" aria-pressed="${editMode ? 'true' : 'false'}">${editMode ? ICON.done : ICON.edit}<span>${esc(editLabel)}</span></button>
+          ${archiveButton}
           ${sourceLink}
         </div>
         <div class="ov-meta" id="ovMeta">${heroMetaHtml(members)}</div>
@@ -696,6 +705,16 @@ async function render() {
     ownerInput.addEventListener('change', (e) => saveOwnerTitleInput(e.target));
   }
   $('editToggle').addEventListener('click', () => setEditMode(!editMode));
+  $('archiveNow')?.addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true;
+    try {
+      const { kept } = await api.galleries.archive(ownerId);
+      if (kept.length) alertDialog({ title: t('ov.archive_kept_title'), body: t('ov.archive_kept') });
+    } catch (err) {
+      alertDialog({ title: t('ov.archive_kept_title'), body: String(err?.message || err), tone: 'error' });
+    }
+    render().catch(() => {});
+  });
   syncFavButton();
   $('favToggle').addEventListener('click', toggleFavorite);
   wireAdd();
@@ -1468,7 +1487,7 @@ async function importAsChapter(group) {
   if (!ok) discardChapterJob(gid);
 }
 
-// Minimal mirror of library.js's importSingleFile: stage into OPFS, hand to the SW/runner.
+// Minimal mirror of library.js's importSingleFile (jobs-runner.js startImport).
 async function stageImport(group, gid, { skipExisting = true } = {}) {
   let buffer;
   try { buffer = await importBytes(group, (p) => beginChapterJob(gid, 'upload', t('prog.rendering', p))); }
@@ -1476,18 +1495,9 @@ async function stageImport(group, gid, { skipExisting = true } = {}) {
     alertDialog({ title: t('dlg.file_read_title'), body: t('dlg.file_read_body'), detail: group.name, tone: 'error' });
     return false;
   }
-  const tempName = `cbz-${gid}-${Date.now()}.bin`;
-  try {
-    const root = await navigator.storage.getDirectory();
-    const fh = await root.getFileHandle(tempName, { create: true });
-    const w = await fh.createWritable();
-    await w.write(buffer); await w.close();
-  } catch {
-    alertDialog({ title: t('dlg.file_stage_title'), body: t('dlg.file_stage_body'), detail: group.name, tone: 'error' });
-    return false;
-  }
-  platform.rpc({ type: 'IMPORT_CBZ', galleryId: gid, tempFile: tempName, filename: group.name, skipExisting });
-  return true;
+  if (await startImport({ galleryId: gid, buffer, filename: group.name, skipExisting })) return true;
+  alertDialog({ title: t('dlg.file_stage_title'), body: t('dlg.file_stage_body'), detail: group.name, tone: 'error' });
+  return false;
 }
 
 // ── Boot ──

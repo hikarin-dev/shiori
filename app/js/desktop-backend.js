@@ -2,8 +2,8 @@
 // offers the operations db.js offers, under the same names, so api.js can use either one. This
 // page's own desktop library is the one library-location.js names: the desktop app's window says
 // so itself; a site that chose the desktop library keeps its address and token; a page the desktop
-// app serves at its own address is handed a site's token. Without any, this module stays inactive
-// and opens nothing.
+// app serves at its own address is handed a site's token, or — opened there in a browser — is let
+// in for being the app's own. Without any, this module stays inactive and opens nothing.
 //
 // Every call is one message over one WebSocket (desktop-wire.js), sent in the order made. What the
 // library announces arrives on the same connection and is handed to this window's own listeners
@@ -30,18 +30,34 @@ const OPS = ['galleriesPage', 'galleriesCount', 'galleryIdsSorted', 'getGallery'
   'putTranslatedPage', 'putTranslatedImage', 'putPageStudy', 'setPagesOwn', 'clearGalleryTranslations',
   'listGalleryStudyRecords', 'putPageData', 'coverGet', 'coverThumbnailGet', 'coverPreviewGet', 'coverThumbnailPut', 'coverPut',
   'sourceIconGet', 'sourceIconsAll', 'sourceIconPut', 'transferIds', 'transferRead', 'transferWrite',
-  'changeRevision', 'changesSince', 'integritySnapshot', 'clearAll'];
+  'changeRevision', 'changesSince', 'integritySnapshot', 'clearAll', 'archiveGallery', 'diskWrites', 'resetDiskWrites'];
+
+// This page's scope: the pages that hear one another without the desktop app (BroadcastChannel —
+// the same origin in the same browser, which is also what shares localStorage). The app relays a
+// page's messages to the pages of every other scope. A page that can't keep one gets its own.
+function relayScope() {
+  try {
+    let scope = globalThis.localStorage?.getItem('shiori:relayScope');
+    if (!scope) { scope = crypto.randomUUID(); globalThis.localStorage?.setItem('shiori:relayScope', scope); }
+    return scope;
+  } catch { return crypto.randomUUID(); }
+}
 
 // A connection to the desktop library `config` names ({ url, token }; `own` for a page the desktop
-// app serves itself, its window or a page at its address, whose address never changes). `announce`: hand what it announces to this window.
+// app serves itself, its window or a page at its address, whose address never changes — without a
+// token when the app lets the page in for being its own). `announce`: hand what it announces to
+// this window.
 export function createClient(config, { announce = false } = {}) {
   let socket = null, opening = null, connected = false, retry = null, sent = Promise.resolve(), seq = 0, closed = false;
+  let shown = null;   // the gallery this page's reader shows
   const pending = new Map();
   const reconnects = new Set();
   const unavailable = new Set();
+  const scope = relayScope();
 
   const connect = (url) => new Promise((resolve, reject) => {
-    const ws = new WebSocket(`${url.replace(/^http/, 'ws')}/api/ws?k=${encodeURIComponent(config.token)}`);
+    const key = config.token ? `k=${encodeURIComponent(config.token)}&` : '';
+    const ws = new WebSocket(`${url.replace(/^http/, 'ws')}/api/ws?${key}s=${encodeURIComponent(scope)}`);
     ws.binaryType = 'arraybuffer';
     let open = false;
     ws.onopen = () => { open = true; resolve(ws); };
@@ -80,6 +96,7 @@ export function createClient(config, { announce = false } = {}) {
         socket = ws;
         const again = connected;
         connected = true;
+        if (again && shown != null) call('reading', shown).catch(() => {});
         if (again) for (const cb of [...reconnects]) { try { cb(); } catch {} }
         return ws;
       } finally { opening = null; }
@@ -127,6 +144,12 @@ export function createClient(config, { announce = false } = {}) {
     publishFeed(galleryId) { call('publishFeed', galleryId).catch(() => {}); },
     // Hands a message to this library's windows on other origins (platform.relayTo).
     relay(channel, msg) { call('relay', channel, msg).catch(() => {}); },
+    // The gallery this page's reader shows (null: none), said again after a break in the connection:
+    // the library writes a gallery's files once the reader leaves it.
+    reading(gid) {
+      shown = gid ?? null;
+      call('reading', shown).catch(() => {});
+    },
     // A page's image. A translated page kept as its study layers is composed here, where it can be
     // drawn; anything else comes as stored.
     async getPageBlob(galleryId, pageNum, variant) {
@@ -211,8 +234,12 @@ export const changeRevision = ownCall('changeRevision');
 export const changesSince = ownCall('changesSince');
 export const integritySnapshot = ownCall('integritySnapshot');
 export const clearAll = ownCall('clearAll');
+export const archiveGallery = ownCall('archiveGallery');
+export const diskWrites = ownCall('diskWrites');
+export const resetDiskWrites = ownCall('resetDiskWrites');
 export const getPageBlob = ownCall('getPageBlob');
 export function publishFeed(galleryId) { own?.publishFeed(galleryId); }
+export function reading(galleryId) { own?.reading(galleryId); }
 export function onReconnect(cb) { return own ? own.onReconnect(cb) : () => {}; }
 export function onUnavailable(cb) { return own ? own.onUnavailable(cb) : () => {}; }
 export const reachable = () => (own ? own.reachable() : Promise.resolve(false));

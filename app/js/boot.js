@@ -3,8 +3,9 @@
 // a previous Shiori layout registered at the site root.
 
 import * as platform from './platform.js';
+import './scrollbar.js';
 import { capabilities } from './api.js';
-import { savedLocation } from './library-location.js';
+import { savedLocation, desktopHosted } from './library-location.js';
 import { services } from './services.js';
 import { pollActiveTranslations } from './submit-job.js';
 import { applyTranslations } from './i18n.js';
@@ -27,8 +28,10 @@ platform.control.on((msg) => {
   if (msg?.type === 'LIBRARY_RESET' && msg.context !== platform.contextId) location.reload();
 });
 
-// A site that keeps its library in Shiori Desktop: what to do when the app can't be reached.
-if (savedLocation() && !capabilities.desktopWindow) import('./desktop-link.js').then(m => m.initDesktopGate()).catch(() => {});
+// A site that keeps its library in Shiori Desktop, or a browser tab at the app's own address: what
+// to do when the app can't be reached.
+if (desktopHosted() && !capabilities.desktopWindow) import('./desktop-link.js').then(m => m.initHostedGate()).catch(() => {});
+else if (savedLocation() && !capabilities.desktopWindow) import('./desktop-link.js').then(m => m.initDesktopGate()).catch(() => {});
 
 // Drive any in-flight translation: a translation is a server-owned job, and this polls it for new
 // chunks (preferring the service worker) on every page load and on a short timer. Short polls keep

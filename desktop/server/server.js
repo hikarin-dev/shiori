@@ -4,8 +4,12 @@
 // A library connection carries a token: the desktop app's own (for its windows) or the one a site
 // was given when the person allowed it (/api/pair), which opens connections from that site only —
 // and from the pages this server serves, which a helper of that site embeds handing them its token
-// (a site's page can't always reach this server, a page served here always can). The library's
-// windows can reach each other through it ('relay'), whatever their origin.
+// (a site's page can't always reach this server, a page served here always can). A page this server
+// served, connecting without a token, is let in as the app's own: a browser names a page's origin
+// truthfully, only this app's pages run at its address, the host check keeps a rebound domain out,
+// and a program on this computer that could fake the origin can read the library's files anyway.
+// The library's pages reach each other through it ('relay'), whatever their origin and browser, and
+// a reader says which gallery it shows ('reading').
 import http from 'node:http';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -27,11 +31,15 @@ export const OPS = new Set([
   'coverGet', 'coverThumbnailGet', 'coverPreviewGet', 'coverThumbnailPut', 'coverPut',
   'sourceIconGet', 'sourceIconsAll', 'sourceIconPut',
   'transferIds', 'transferRead', 'transferWrite',
-  'publishFeed', 'changeRevision', 'changesSince', 'integritySnapshot', 'clearAll',
+  'publishFeed', 'changeRevision', 'changesSince', 'integritySnapshot', 'clearAll', 'archiveGallery',
+  'diskWrites', 'resetDiskWrites',
 ]);
 const MAX_ARGS = 8;
 // What a window may hand the library's other windows: control signals and job status.
 const RELAY_CHANNELS = new Set(['control', 'jobs']);
+// A job no longer running — done, failed or cancelled — has its gallery's files brought up to date
+// then (library.js settle), rather than once the gallery has been left alone a while.
+const JOB_ENDED = new Set(['done', 'error', 'cancelled']);
 const MAX_FRAME = 1 << 30;
 
 // The app's pages at their clean addresses (the app's service worker and dev server map them alike).
@@ -133,8 +141,9 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
     const origin = req.headers.origin;
     const key = url.searchParams.get('k');
     // The app's own windows (and a client with no page, as tests are) present the app's token; a
-    // site presents the one it was given, from that site or from a page served here.
-    const own = !!token && (!origin || allowed().has(origin)) && sameToken(key, token);
+    // site presents the one it was given, from that site or from a page served here; any other page
+    // served here comes without one.
+    const own = (!!token && (!origin || allowed().has(origin)) && sameToken(key, token)) || (!key && served().has(origin));
     const siteToken = origin && clients ? clients.tokenFor(origin) : null;
     let site = siteToken && sameToken(key, siteToken) ? origin : null;
     if (!site && !own && clients && served().has(origin)) site = clients.siteOf(key);
@@ -143,6 +152,8 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
     wss.handleUpgrade(req, socket, head, (ws) => {
       ws.site = site;
       ws.origin = origin || null;
+      // The pages that hear one another without this server (the same origin in the same browser).
+      ws.scope = url.searchParams.get('s') || ws.origin;
       wss.emit('connection', ws, req);
     });
   });
@@ -152,6 +163,7 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
     ws.send(await wire.encode(message));
   };
   wss.on('connection', (ws) => {
+    ws.on('close', () => { if (ws.reading) library.leftReader(ws.reading); });
     ws.on('message', async (data, isBinary) => {
       if (!isBinary) { ws.close(1003, 'binary frames only'); return; }
       let msg;
@@ -159,10 +171,27 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
       const { id, op, args } = msg || {};
       try {
         if (op === 'relay') {
-          // To the library's windows on other origins: those on the sender's own get it from the sender.
+          // To the library's pages in other scopes: those in the sender's own get it from the sender.
+          // (The desktop app's window and a browser tab at its address share an origin, not a scope.)
           const [channel, payload] = Array.isArray(args) ? args : [];
           if (!RELAY_CHANNELS.has(channel) || !payload || typeof payload !== 'object') throw new BackendError('invalid', 'nothing to relay');
-          for (const other of wss.clients) if (other !== ws && other.origin !== ws.origin) send(other, { push: channel, msg: payload }).catch(() => {});
+          for (const other of wss.clients) if (other !== ws && other.scope !== ws.scope) send(other, { push: channel, msg: payload }).catch(() => {});
+          if (channel === 'jobs' && payload.gid != null && JOB_ENDED.has(payload.status)) library.settle(String(payload.gid));
+          await send(ws, { id, ok: true, result: true });
+          return;
+        }
+        if (op === 'reading') {
+          // The gallery this page's reader shows now (null: none): in use (never archived meanwhile).
+          // The one it leaves — for another, or by closing or going to another page — has its files
+          // brought up to date then.
+          const [gid] = Array.isArray(args) ? args : [];
+          if (gid != null && typeof gid !== 'string') throw new BackendError('invalid', 'no gallery');
+          const next = gid ?? null;
+          if (ws.reading !== next) {
+            if (ws.reading) library.leftReader(ws.reading);
+            if (next) library.openedInReader(next);
+            ws.reading = next;
+          }
           await send(ws, { id, ok: true, result: true });
           return;
         }

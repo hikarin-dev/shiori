@@ -102,6 +102,11 @@ const MAX_BATCH = 500;
 const MAX_CHAPTERS = 2000;
 const MAX_PAGES = 10000;
 const _id = (v) => { const s = String(v ?? ''); if (!isValidGalleryId(s)) throw new Error('invalid gallery id'); return s; };
+const _source = (v) => { if (typeof v !== 'string' || !v.trim() || v.length > 2048) throw new Error('invalid source'); return v; };
+const _resolveGallery = (id, source) => {
+  const ref = _id(id);
+  return api.galleries.resolveSource(ref, /^\d{13,}$/.test(ref) ? undefined : _source(source));
+};
 const _cap = (arr, n, what) => { const a = Array.isArray(arr) ? arr : []; if (a.length > n) throw new Error(`${what} exceeds the allowed size`); return a; };
 const _bytesOk = (bytes, max) => bytes == null || ((bytes.byteLength ?? bytes.length ?? 0) <= max);
 function _checkMetaIds(meta) {
@@ -120,11 +125,14 @@ const KV_HAS_KEYS = new Set(['cacheEnabled', 'apiKey', 'translateSettings']);
 const OPS = {
   async ping() { return { ok: true, at: Date.now() }; },
 
-  // Where this app keeps its library: in this browser, or in the desktop app (its address and the
-  // token it gave this site), for an embedder that has to reach that library from elsewhere.
+  // Where this app keeps its library: in this browser, in the desktop app (its address and the token
+  // it gave this site, for an embedder that has to reach that library from elsewhere), or — on a page
+  // at the desktop app's own address — here.
   async library_location() {
     const desktop = activeDesktop();
-    return desktop ? { kind: 'desktop', url: desktop.url, token: desktop.token } : { kind: 'browser' };
+    if (!desktop) return { kind: 'browser' };
+    if (new URL(desktop.url).origin === location.origin) return { kind: 'here' };
+    return { kind: 'desktop', url: desktop.url, token: desktop.token };
   },
 
   async kv_get({ keys }) {
@@ -166,21 +174,21 @@ const OPS = {
   },
 
   // ── Serving cached pages back (translated variant preferred) ──
-  async gallery_pages({ galleryId }) {
-    const gid = await api.galleries.resolveSource(_id(galleryId));
+  async gallery_pages({ galleryId, source }) {
+    const gid = await _resolveGallery(galleryId, source);
     return _pageDataUrls(gid, { capBytes: 8 * 1024 * 1024 });
   },
 
-  async pages_window({ galleryId, startPage, endPage }) {
-    const gid = await api.galleries.resolveSource(_id(galleryId));
+  async pages_window({ galleryId, source, startPage, endPage }) {
+    const gid = await _resolveGallery(galleryId, source);
     return _pageDataUrls(gid, { start: Number(startPage) || 0, end: Number(endPage) || 0 });
   },
 
-  async images_batch({ galleryId, queries }) {
+  async images_batch({ galleryId, source, queries }) {
     const results = {};
     if (!galleryId || !queries?.length) return { results };
     _cap(queries, 2000, 'queries');
-    const gid = await api.galleries.resolveSource(_id(galleryId));
+    const gid = await _resolveGallery(galleryId, source);
     const records = await api.pages.all(gid);
     const byUrl  = new Map(records.map(r => [r.url, r]));
     const byPage = new Map();
@@ -198,17 +206,18 @@ const OPS = {
   // Map an external source reference to this library's gallery id (creates a stub on first
   // sight). Internal ids are ≥13-digit timestamps (see resolveGalleryId): an external ref that
   // long would silently bypass resolution and alias an internal record, so it is refused here.
-  async resolve_gid({ sourceRef }) {
+  async resolve_gid({ sourceRef, source }) {
     const ref = _id(sourceRef);
     if (/^\d{13,}$/.test(ref)) throw new Error('source ref collides with the internal id space');
-    return { gid: await api.galleries.resolveSource(ref) };
+    return { gid: await api.galleries.resolveSource(ref, _source(source)) };
   },
 
-  async resolve_gids({ sourceRefs }) {
+  async resolve_gids({ sourceRefs, source }) {
+    source = _source(source);
     return { gids: await allOrThrow(_cap(sourceRefs, 2000, 'sourceRefs').map((r) => {
       const ref = _id(r);
       if (/^\d{13,}$/.test(ref)) throw new Error('source ref collides with the internal id space');
-      return api.galleries.resolveSource(ref);
+      return api.galleries.resolveSource(ref, source);
     })) };
   },
 

@@ -63,7 +63,9 @@ export async function unzip(buffer) {
   return out;
 }
 
-async function restoreExportedCovers(gid, byName) {
+// A cover the archive holds as a picture of its own. One that is the gallery's first page (`first`,
+// its bytes — exports before the gallery format wrote such copies) is implied, not stored again.
+async function restoreExportedCovers(gid, byName, first = null) {
   const coverEntries = [];
   const manifestData = byName.get('covers/manifest.json');
   if (manifestData) {
@@ -87,11 +89,13 @@ async function restoreExportedCovers(gid, byName) {
 
   for (const c of coverEntries) {
     const data = byName.get(c.file);
-    if (!data) continue;
+    if (!data || (first && _sameBytes(data, first))) continue;
     const ext = normExt(c.file.match(/\.(\w+)$/)?.[1]);
     await api.covers.put(gid, new Blob([data], { type: c.mime || MIME[ext] || 'image/jpeg' }), { role: c.role });
   }
 }
+
+const _sameBytes = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 
 export function sortImageEntries(entries) {
   return entries
@@ -256,8 +260,10 @@ async function _importSeriesZip(entries, manifest, onProgress) {
 
 // Pipeline data from image_records.json (plus its pipeline/NNNN-{raw,text}.webp masks): what a later
 // translation of the page reuses. Only the shape is checked; the translation server validates
-// whatever it is sent and runs a page in full when its data doesn't fit.
-async function _restorePipelines(gid, data, urlByNum, byName) {
+// whatever it is sent and runs a page in full when its data doesn't fit. `studied`: the pages whose
+// study layers came back — only those can be translated as their layers (an archive's study/
+// folder may have been deleted by hand).
+async function _restorePipelines(gid, data, urlByNum, byName, studied) {
   let records = null;
   try { records = JSON.parse(new TextDecoder().decode(data)); } catch {}
   if (!Array.isArray(records)) return;
@@ -267,7 +273,7 @@ async function _restorePipelines(gid, data, urlByNum, byName) {
     const url = m && urlByNum.get(parseInt(m[1]));
     if (!url) continue;
     // A translated page kept as its study layers (restored with the study files).
-    const patch = e.translatedLayers === true ? { translatedLayers: true } : {};
+    const patch = e.translatedLayers === true && studied.has(parseInt(m[1])) ? { translatedLayers: true } : {};
     if (pipeline && typeof pipeline === 'object' && typeof pipeline.job === 'string') {
       const num = m[1].padStart(4, '0');
       const masks = {};
@@ -348,6 +354,7 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
   // or WebP, so match by name prefix and read the MIME from the extension.
   const mimeOf = (name) => MIME[normExt(name?.match(/\.(\w+)$/)?.[1])] || 'image/png';
   const bubblesData = byName.get('study/bubbles.json');
+  const studied = new Set();
   if (bubblesData) {
     let index = {};
     try { index = JSON.parse(new TextDecoder().decode(bubblesData)); } catch {}
@@ -371,14 +378,16 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
         }
         bubbles.push(bubble);
       }
-      if (bubbles.length) await api.derived.putStudy(gid, parseInt(numStr), { bg: bgData ? new Blob([bgData], { type: mimeOf(bgName) }) : null, bubbles, page });
+      if (!bubbles.length) continue;
+      await api.derived.putStudy(gid, parseInt(numStr), { bg: bgData ? new Blob([bgData], { type: mimeOf(bgName) }) : null, bubbles, page });
+      studied.add(parseInt(numStr));
     }
   }
 
   const recordsData = byName.get('image_records.json');
-  if (recordsData) await _restorePipelines(gid, recordsData, urlByNum, byName);
+  if (recordsData) await _restorePipelines(gid, recordsData, urlByNum, byName, studied);
 
-  await restoreExportedCovers(gid, byName);
+  await restoreExportedCovers(gid, byName, pageEntries[0]?.data);
   onProgress({ status: 'done', done, total: pageEntries.length, skipped: 0 });
   api.events.announce(gid);
 }

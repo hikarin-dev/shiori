@@ -14,6 +14,7 @@
 import * as api from './api.js';
 import { BUBBLE_EXTRA_FIELDS } from './gallery-files.js';
 import { isValidGalleryId } from './sanitize.js';
+import { writesAs } from './disk-writes.js';
 
 // Decode a base64 data-URL to a Blob (legacy records store images as strings). One image at a time.
 function dataUrlToBlob(dataUrl) {
@@ -111,7 +112,7 @@ export async function exportFull(onProgress) {
   }
 
   if (handle) {
-    const writable = await handle.createWritable();
+    const writable = writesAs(await handle.createWritable(), 'exports');
     let offset = 0;
     const writeBlob = async (blob) => { await writable.write(blob); const spec = { off: offset, len: blob.size, type: blob.type || '' }; offset += blob.size; return spec; };
     try {

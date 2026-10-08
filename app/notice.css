@@ -142,6 +142,25 @@
 .notice-choice:hover { border-color: var(--accent); }
 .notice-choice strong { display: block; font-size: 13px; }
 .notice-choice span { display: block; margin-top: 2px; color: var(--muted); font-size: 11.5px; }
+/* choiceDialog: options as radio rows, checkboxes beneath */
+.notice-options { display: flex; flex-direction: column; gap: 8px; }
+.notice-detail-box + .notice-options { margin-top: 12px; }
+.notice-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  cursor: pointer;
+}
+.notice-option:hover, .notice-option:has(input:checked) { border-color: var(--accent); }
+.notice-option input { margin: 2px 0 0; accent-color: var(--accent); }
+.notice-option-text strong { display: block; font-size: 13px; }
+.notice-option-text span { display: block; margin-top: 2px; color: var(--muted); font-size: 11.5px; }
+.notice-checks { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.notice-check { display: flex; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; }
+.notice-check input { margin: 0; accent-color: var(--accent); }
 .notice-bar {
   height: 6px;
   margin: 14px 0 8px;

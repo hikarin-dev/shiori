@@ -142,6 +142,48 @@
       <div class="status-msg hidden" id="libStatus" role="status" aria-live="polite"></div>
     </div>
   </div>
+  <!-- Gallery export -->
+  <div class="section">
+    <div class="section-header">
+      <h2 class="section-title" data-i18n="set.lib_export">Gallery export</h2>
+    </div>
+    <div class="section-body">
+      <div class="field">
+        <label class="field-label" for="libExportFormat" data-i18n="set.lib_export_format">Export galleries as</label>
+        <div class="field-desc" data-i18n="set.lib_export_format_desc">ZIP holds everything Shiori needs to restore a gallery. CBZ holds the same files plus ComicInfo.xml, so other comic readers open it too.</div>
+        <select class="field-input" id="libExportFormat">
+          <option value="ask" data-i18n="set.lib_export_ask">Ask each time</option>
+          <option value="zip" data-i18n="set.lib_export_zip">ZIP</option>
+          <option value="cbz" data-i18n="set.lib_export_cbz">CBZ</option>
+        </select>
+      </div>
+      <div class="field">
+        <div class="field-label" data-i18n="set.lib_export_tr">Include translations</div>
+        <div class="field-desc" data-i18n="set.lib_export_tr_desc">Translated pages go in a folder of their own inside the ZIP or CBZ (other comic readers show them as extra pages). Turn this off to export the original pages only.</div>
+        <label class="switch-control" for="libExportTranslations">
+          <input type="checkbox" id="libExportTranslations" data-i18n-aria="set.lib_export_tr">
+          <span class="switch-track" aria-hidden="true"></span>
+        </label>
+      </div>
+      <div class="status-msg hidden" id="libExportStatus" role="status" aria-live="polite"></div>
+    </div>
+  </div>
+  <div class="section" id="experimentalSection" hidden>
+    <div class="section-header">
+      <h2 class="section-title" data-i18n="set.experimental">Experimental</h2>
+    </div>
+    <div class="section-body">
+      <div class="field">
+            <div class="field-label" data-i18n="set.custom_scrollbar">Overlay Scrollbars</div>
+            <div class="field-desc" data-i18n="set.custom_scrollbar_desc">Displays over page content and automatically shrinks or hides when not in use. May be less responsive on older hardware.</div>
+        <label class="switch-control" for="customScrollbar">
+          <input type="checkbox" id="customScrollbar" data-i18n-aria="set.custom_scrollbar">
+          <span class="switch-track" aria-hidden="true"></span>
+        </label>
+      </div>
+      <div class="status-msg hidden" id="experimentalStatus" role="status" aria-live="polite"></div>
+    </div>
+  </div>
   </div>
 
   <div class="panel" id="panelReader" aria-labelledby="navReader">

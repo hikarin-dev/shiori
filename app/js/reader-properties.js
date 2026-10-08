@@ -299,11 +299,13 @@ function _render(info, record, urls) {
     const settings = _flatten(c);
     const all = node('dl', 'pp-grid pp-mono');
     for (const [k, v] of settings) all.append(node('dt', '', k), node('dd', '', v));
-    tr.append(_details(t('page.all_settings', { n: formatCount(settings.length) }), all));
+    const allScroll = node('div', 'pp-detail-scroll'); allScroll.append(all);
+    tr.append(_details(t('page.all_settings', { n: formatCount(settings.length) }), allScroll));
     const builds = node('dl', 'pp-grid pp-mono');
     for (const stage of STAGES) if (info.entry.builds?.[stage]) builds.append(node('dt', '', _step(stage)), node('dd', '', info.entry.builds[stage]));
+    const buildsScroll = node('div', 'pp-detail-scroll'); buildsScroll.append(builds);
     const buildsBox = node('div');
-    buildsBox.append(node('p', 'pp-note', t('page.builds_note')), builds);
+    buildsBox.append(node('p', 'pp-note', t('page.builds_note')), buildsScroll);
     tr.append(_details(t('page.builds', { n: formatCount(Object.keys(info.entry.builds || {}).length) }), buildsBox));
   } else {
     tr.append(node('p', 'pp-note', t('page.no_translation')));

@@ -3,7 +3,8 @@
 // site when the person allowed it. Kept in localStorage, so it is known synchronously when a page
 // loads (api.js picks its backend then) and shared by every page of the site, the pages a helper
 // embeds included. While the desktop app can't be reached the person may continue in this browser
-// alone for a while ("fallback"); what is saved then stays in this browser until it is moved.
+// alone for a while ("fallback"); what is saved then stays in this browser until it is moved. A page
+// the desktop app serves at its own address (desktopHosted) has no choice: its library is the app's.
 //
 // Also: finding the desktop app (it answers /api/ping on one of its ports), whether the browser lets
 // this site reach it, and asking it to let this site use its library (/api/pair, which the desktop
@@ -34,24 +35,35 @@ export function setLocation(loc) { _write(LOCATION_KEY, loc ? { kind: 'desktop',
 export function fallback() { const f = _read(FALLBACK_KEY); return f && Number.isFinite(f.since) ? f : null; }
 export function setFallback(on) { _write(FALLBACK_KEY, on ? { since: Date.now() } : null); }
 
+// Whether this page is served by the desktop app at its own address — in the app's window, or
+// opened in a browser. Such a page's library is the desktop app's, always: it never keeps one in
+// the browser.
+export function desktopHosted() {
+  const loc = globalThis.location;
+  return loc?.protocol === 'http:' && (loc.hostname === '127.0.0.1' || loc.hostname === 'localhost')
+    && DESKTOP_PORTS.includes(Number(loc.port));
+}
+
 // A page the desktop app serves at its own address, handed a site's library token in its address
 // (`#library=…`) by whoever embeds it there: that site's library, reached at the page's own
 // address. (A helper of the site that can't reach the desktop app from the site's own pages
 // reaches it this way.)
 export function servedLibrary() {
+  if (!desktopHosted()) return null;
   const loc = globalThis.location;
-  if (loc?.protocol !== 'http:' || loc.hostname !== '127.0.0.1' || !DESKTOP_PORTS.includes(Number(loc.port))) return null;
   const token = new URLSearchParams(String(loc.hash || '').slice(1)).get('library');
   return token ? { url: loc.origin, token } : null;
 }
 
 // The desktop library this page uses now: the desktop app's own window says so itself, as does a
-// page it serves (servedLibrary); a site that chose the desktop library uses it unless it is
-// continuing in this browser for now.
+// page it serves (servedLibrary, or any other page at its address, which the app lets in without a
+// token); a site that chose the desktop library uses it unless it is continuing in this browser for
+// now.
 export function activeDesktop() {
   if (globalThis.shioriDesktop?.url && globalThis.shioriDesktop?.token) return { ...globalThis.shioriDesktop, own: true };
   const served = servedLibrary();
   if (served) return { ...served, own: true };
+  if (desktopHosted()) return { url: globalThis.location.origin, token: '', own: true };
   const loc = savedLocation();
   return loc && !fallback() ? loc : null;
 }

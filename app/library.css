@@ -54,7 +54,6 @@ header {
   overflow-y: auto; overscroll-behavior: contain;
   background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px;
   box-shadow: 0 10px 24px rgb(0 0 0 / .35);
-  scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
 }
 .search-suggest.open { display: block; }
 .search-suggest-head {

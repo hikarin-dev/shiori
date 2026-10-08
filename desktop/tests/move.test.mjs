@@ -20,7 +20,7 @@ const { browserGalleries, moveToDesktop } = await import('../../app/js/library-m
 const { checkInvariants } = await import('../../app/js/library-check.js');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-move-'));
-const desktop = await new Library({ dataDir: path.join(dir, 'data'), libraryDir: path.join(dir, 'library'), packDelay: 0 }).open();
+const desktop = await new Library({ dataDir: path.join(dir, 'data'), libraryDir: path.join(dir, 'library'), placeDelay: 0 }).open();
 const TOKEN = 'move-test-token-0123456789';
 const server = await startServer({ library: desktop, token: TOKEN });
 const config = { url: server.url, token: TOKEN };

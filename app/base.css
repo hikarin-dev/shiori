@@ -1,8 +1,10 @@
 /* base.css — what every page shares, loaded before the page's own stylesheet: the design tokens,
-   the reset, UI font and reduced motion, the study-mode typefaces, and the parts more
+   the reset, UI font and reduced motion, the scrollbars, the study-mode typefaces, and the parts more
    than one page shows (the header brand, the tooltip, the dialog button, the switch, the (i)
    info icon, the small context menu).
    A page stylesheet adds its own parts, and where it overrides a token it says so. */
+
+@import url('../vendor/overlayscrollbars/overlayscrollbars.min.css');
 
 :root {
   --bg: #0d0d0f;
@@ -20,16 +22,29 @@
   --danger: #ff4040;
   --ring: #fb7185;             /* a focused text box's border */
   --backdrop: rgba(0, 0, 0, .65);
+  --scrollbar-track: #171717;
+  --scrollbar-thumb: #959595;
+  --scrollbar-thumb-active: #787878;
+  --scrollbar-inner-thumb: #52525c;
+  --page-scrollbar-width: 0px;
+  --page-scrollbar-gap: 0px;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
   min-height: 100vh;
+  padding-right: var(--page-scrollbar-gap);
   background: var(--bg);
   color: var(--text);
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
+}
+/* Reserve only the space a native page scrollbar would take. The header's background can
+   still reach the viewport edge while its controls share the body's stable content width. */
+body > header {
+  margin-right: calc(-1 * var(--page-scrollbar-gap));
+  padding-right: calc(var(--header-padding-x, 20px) + var(--page-scrollbar-gap));
 }
 /* The UI font's code ligatures redraw runs like the "//" in a URL — show text as typed. Form
    controls are named too, as some browsers reset their font instead of inheriting it. */
@@ -48,6 +63,96 @@ body, input, textarea, select, button { font-variant-ligatures: none; }
     animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+/* Main pages keep native controls. Only inner controls use the slim profile. */
+:root.chromium-scrollbars { color-scheme: dark; }
+:root.chromium-scrollbars:not(.custom-scrollbars) { scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track); }
+:where(:root:not(.custom-scrollbars) body, :root:not(.custom-scrollbars) body *) {
+  scrollbar-width: thin; scrollbar-color: var(--scrollbar-inner-thumb) transparent;
+}
+
+:root.custom-scrollbars .overlay-scroll-target, :root.overlay-scroll-target { scrollbar-width: auto; scrollbar-color: auto; }
+.overlay-scroll-target::-webkit-scrollbar { width: 0; }
+.overlay-scroll-target::-webkit-scrollbar:horizontal { height: calc(12 * var(--scrollbar-unit)); }
+.overlay-scroll-target::-webkit-scrollbar-thumb:horizontal {
+  background: var(--scrollbar-thumb); background-clip: content-box;
+  border: solid transparent; border-width: calc(7 * var(--scrollbar-unit)) 0 calc(3 * var(--scrollbar-unit));
+  border-radius: var(--scrollbar-unit) / calc(8 * var(--scrollbar-unit)) calc(8 * var(--scrollbar-unit)) calc(4 * var(--scrollbar-unit)) calc(4 * var(--scrollbar-unit));
+}
+.overlay-scroll-target::-webkit-scrollbar-thumb:horizontal:hover {
+  border-width: calc(3 * var(--scrollbar-unit)) 0;
+  border-radius: var(--scrollbar-unit) / calc(6 * var(--scrollbar-unit));
+}
+.overlay-scroll-target::-webkit-scrollbar-thumb:horizontal:active { background-color: var(--scrollbar-thumb-active); }
+.overlay-scroll-target[data-overlayscrollbars-viewport],
+html.overlay-scroll-target[data-overlayscrollbars-viewport] > body { scrollbar-width: auto !important; }
+/* Keep horizontal controls native; OverlayScrollbars owns only the vertical controls. */
+.overlay-scroll-target[data-overlayscrollbars-viewport]::-webkit-scrollbar {
+  display: block !important; width: 0 !important; height: calc(12 * var(--scrollbar-unit)) !important;
+}
+.overlay-scroll-target > .os-scrollbar-horizontal { display: none; }
+.scrollbar-host.os-scrollbar.os-scrollbar-vertical {
+  position: sticky; top: 0; float: right; width: 0; height: 0; min-height: 0;
+  flex: 0 0 0; align-self: flex-end; z-index: 10;
+  padding: 0; contain: none; opacity: 1; visibility: visible; transition: none;
+  transform: none !important; /* Sticky positioning already follows the viewport. */
+  --os-handle-min-size: calc(20 * var(--scrollbar-unit));
+  bottom: auto; left: auto;
+}
+.scrollbar-host.os-scrollbar.page-scrollbar { position: fixed; top: 0; right: 0; z-index: 300; }
+.scrollbar-overlay {
+  position: absolute; right: 0; top: 0; width: calc(12 * var(--scrollbar-unit));
+  background: transparent; opacity: 0; transition: opacity .35s ease;
+  user-select: none; touch-action: none; pointer-events: auto;
+}
+.scrollbar-overlay .os-scrollbar-track {
+  position: absolute; top: calc(12 * var(--scrollbar-unit)); bottom: calc(12 * var(--scrollbar-unit));
+  width: 100%; height: auto; background: transparent; border-radius: 0; transition: none;
+}
+.scrollbar-overlay[hidden] { display: none; }
+.scrollbar-overlay:is(.visible, :hover, .held) { opacity: 1; }
+.page-scrollbar .scrollbar-overlay:is(:hover, .held) { background: var(--scrollbar-track); }
+.scrollbar-overlay .scrollbar-thumb {
+  position: absolute; right: calc(3 * var(--scrollbar-unit)); width: calc(2 * var(--scrollbar-unit));
+  background: var(--scrollbar-thumb); border-radius: 999px; will-change: transform; transition: none;
+  min-height: min(calc(20 * var(--scrollbar-unit)), 100%);
+}
+.scrollbar-overlay .scrollbar-thumb::before {
+  content: ''; position: absolute; top: 0; bottom: 0; right: calc(-3 * var(--scrollbar-unit));
+  left: auto; width: calc(12 * var(--scrollbar-unit));
+}
+.scrollbar-overlay:is(:hover, .held) .scrollbar-thumb { width: calc(6 * var(--scrollbar-unit)); }
+/* Firefox's automatic-width overlay changes shape on hover and darkens only when pressed. */
+.scrollbar-overlay.dragging .scrollbar-thumb { background: var(--scrollbar-thumb-active); }
+.scrollbar-arrow {
+  position: absolute; left: 0; width: 100%; height: calc(12 * var(--scrollbar-unit));
+  color: var(--scrollbar-thumb); opacity: 0;
+}
+.scrollbar-overlay:is(:hover, .held) .scrollbar-arrow { opacity: 1; }
+.scrollbar-arrow.up { top: 0; }
+.scrollbar-arrow.down { bottom: 0; }
+/* Firefox's Windows overlay outlines, inset 1px within each 12px button. */
+.scrollbar-arrow::before {
+  content: ''; position: absolute; inset: var(--scrollbar-unit);
+  background: currentColor;
+  clip-path: polygon(12.5% 70.8333%, 87.5% 70.8333%, 87.5% 58.3333%, 54.1667% 16.6667%, 45.8333% 16.6667%, 12.5% 58.3333%);
+}
+.scrollbar-arrow:hover::before {
+  clip-path: polygon(8.3333% 75%, 91.6667% 75%, 91.6667% 62.5%, 56.25% 12.5%, 43.75% 12.5%, 8.3333% 62.5%);
+}
+.scrollbar-arrow:active::before {
+  clip-path: polygon(16.6667% 66.6667%, 83.3333% 66.6667%, 83.3333% 54.1667%, 47.9167% 20.8333%, 16.6667% 54.1667%);
+}
+.scrollbar-arrow:active { color: var(--scrollbar-thumb-active); }
+.scrollbar-arrow.down::before {
+  scale: 1 -1; translate: 0 calc(-5 * var(--scrollbar-unit) / 6);
+}
+@media (forced-colors: active) {
+  .scrollbar-host { display: none; }
+  .overlay-scroll-target { scrollbar-width: auto; scrollbar-color: auto; }
+  .overlay-scroll-target::-webkit-scrollbar { width: auto; }
+  .overlay-scroll-target[data-overlayscrollbars-viewport]::-webkit-scrollbar { width: auto !important; height: auto !important; }
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }

@@ -931,7 +931,8 @@ textarea.field-input { min-height: 82px; }
 }
 
 .backup-options {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 9px;
 }
 
@@ -992,9 +993,6 @@ textarea.field-input { min-height: 82px; }
 }
 
 .about-close:hover { background: var(--surface-raised); border-color: var(--border); color: var(--text); }
-
-.about-scroll::-webkit-scrollbar { width: 5px; }
-.about-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
 
 /* Translator dialog */
 .tcfg-grid {
@@ -1098,7 +1096,7 @@ textarea.field-input { min-height: 82px; }
   font-weight: 700;
 }
 
-#aboutChangelog h2:not(:first-child) {
+#aboutChangelog h2:not(:first-child, .scrollbar-host + h2) {
   margin-top: 12px;
   padding-top: 20px;
   border-top: 1px solid var(--border);
@@ -1207,7 +1205,7 @@ textarea.field-input { min-height: 82px; }
 }
 
 @media (max-width: 520px) {
-  header { padding: 0 12px; }
+  header { --header-padding-x: 12px; padding: 0 12px; }
   .settings-page { padding: 22px 10px 64px; }
   .content { grid-template-columns: 96px minmax(0, 1fr); gap: 10px; }
   .settings-nav { top: 68px; }

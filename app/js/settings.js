@@ -14,10 +14,23 @@ import { initTooltips } from './tooltip.js';
 import { initDropdowns } from './dropdown.js';
 import { initBenchmarkCard } from './benchmark-ui.js';
 import { confirmDialog } from './notice.js';
+import { customScrollbarAvailable, applyScrollbarPreference } from './scrollbar.js';
 
 initTooltips();
 initDropdowns();
 initBenchmarkCard();
+
+const scrollbarToggle = document.getElementById('customScrollbar');
+document.getElementById('experimentalSection').hidden = !customScrollbarAvailable;
+platform.kv.get(['customScrollbar']).then((r) => { scrollbarToggle.checked = r.customScrollbar === true; });
+scrollbarToggle.addEventListener('change', () => {
+  platform.kv.set({ customScrollbar: scrollbarToggle.checked });
+  applyScrollbarPreference();
+  showStatus('experimentalStatus', t('common.saved'), 'ok');
+});
+window.addEventListener('storage', (e) => {
+  if (e.key === 'shiori:customScrollbar' || e.key === null) scrollbarToggle.checked = e.newValue === 'true';
+});
 
 // ── Side nav ────────────────────────────────────────────────────────────────
 // Panel switching is pure show/hide, so hidden panels keep unsaved form state.
@@ -227,10 +240,11 @@ document.addEventListener('keydown', (event) => {
   }
 });
 
-// Library upgrades and the disk-writes count are about the library this browser keeps; a library
-// kept by the desktop app has neither.
+// Library upgrades are about the library this browser keeps; a library kept by the desktop app has
+// none (its disk writes it counts itself: updateDeskWrites).
 if (!api.capabilities.browserLibrary) {
-  for (const id of ['upgradesSection', 'statsSection']) document.getElementById(id).style.display = 'none';
+  document.getElementById('upgradesSection').style.display = 'none';
+  if (!api.capabilities.archive) document.getElementById('statsSection').style.display = 'none';
 }
 
 // ── Load saved values ──────────────────────────────────────────────────────
@@ -751,6 +765,22 @@ for (const [key, statusId] of [['libShowNavStats', 'libBarStatus'], ['libShowCat
   });
 }
 
+// Gallery export: ZIP, CBZ, or asked at each export (the default); either holds the translations
+// unless turned off.
+const EXPORT_FORMATS = new Set(['ask', 'zip', 'cbz']);
+platform.kv.get(['libExportFormat', 'libExportTranslations', 'libExportCbzTranslations']).then((r) => {
+  setChoiceValue('libExportFormat', EXPORT_FORMATS.has(r.libExportFormat) ? r.libExportFormat : 'ask');
+  document.getElementById('libExportTranslations').checked = (r.libExportTranslations ?? r.libExportCbzTranslations) !== false;
+});
+document.getElementById('libExportFormat').addEventListener('change', (e) => {
+  platform.kv.set({ libExportFormat: EXPORT_FORMATS.has(e.target.value) ? e.target.value : 'ask' });
+  showStatus('libExportStatus', t('common.saved'), 'ok');
+});
+document.getElementById('libExportTranslations').addEventListener('change', (e) => {
+  platform.kv.set({ libExportTranslations: e.target.checked });
+  showStatus('libExportStatus', t('common.saved'), 'ok');
+});
+
 platform.kv.get(['libMergeSeries']).then((r) => {
   document.getElementById('libMergeSeries').checked = r.libMergeSeries !== false;
 });
@@ -917,7 +947,7 @@ document.getElementById('backupImportFile').addEventListener('change', async (e)
 // ── Storage Writes ────────────────────────────────────────────────────────
 
 // Everything the app has written to this browser's storage; hovering the total splits it by kind.
-const WRITE_KINDS = ['pages', 'covers', 'library', 'jobs', 'settings', 'app', 'other'];
+const WRITE_KINDS = ['pages', 'covers', 'library', 'jobs', 'settings', 'app', 'staging', 'exports', 'other'];
 function updateWritesDisplay(writes) {
   const el = document.getElementById('totalWritesCount');
   el.textContent = formatBytes(writes?.total || 0);
@@ -925,12 +955,44 @@ function updateWritesDisplay(writes) {
     .map(kind => `${t(`set.writes_${kind}`)}: ${formatBytes(writes.by[kind])}`).join('\n');
 }
 
-platform.writes.get().then(updateWritesDisplay, () => {});
-platform.writes.subscribe(updateWritesDisplay);
+// A library kept as files (the desktop app's) counts what it writes itself: shown instead, by the
+// drive it went to and by kind, with what this window stored in its own browser storage beside it.
+const DESK_KINDS = { pages: 'set.writes_desk_pages', pictures: 'set.writes_desk_pictures', descriptions: 'set.writes_desk_descriptions',
+  archive: 'set.writes_desk_archive', database: 'set.writes_desk_database', thumbnails: 'set.writes_desk_thumbnails' };
+const LIBRARY_DRIVE_KINDS = ['pages', 'pictures', 'descriptions', 'archive'], APP_DATA_KINDS = ['database', 'thumbnails'];
+async function updateDeskWrites() {
+  const [desk, own] = await Promise.all([api.diskWrites.get().catch(() => null), platform.writes.get().catch(() => null)]);
+  if (!desk) return;
+  const sum = (kinds) => kinds.reduce((total, kind) => total + (desk.by[kind] || 0), 0);
+  const lines = (kinds) => kinds.filter(kind => desk.by[kind]).map(kind => `  ${t(DESK_KINDS[kind])}: ${formatBytes(desk.by[kind])}`);
+  // Saved files: downloads (counted by the desktop app) and backups saved through a dialog (by this
+  // window); an import's staging copy, should one have been written here.
+  const exports = (desk.by.exports || 0) + (own?.by?.exports || 0), staging = own?.by?.staging || 0;
+  const el = document.getElementById('totalWritesCount');
+  el.textContent = formatBytes(desk.total + (own?.total || 0));
+  el.dataset.tip = [
+    t('set.writes_desk_library_drive', { size: formatBytes(sum(LIBRARY_DRIVE_KINDS)) }), ...lines(LIBRARY_DRIVE_KINDS),
+    t('set.writes_desk_app_drive', { size: formatBytes(sum(APP_DATA_KINDS)) }), ...lines(APP_DATA_KINDS),
+    ...(exports ? [`${t('set.writes_exports')}: ${formatBytes(exports)}`] : []),
+    ...(staging ? [`${t('set.writes_staging')}: ${formatBytes(staging)}`] : []),
+    t('set.writes_desk_window', { size: formatBytes((own?.total || 0) - (own?.by?.exports || 0) - staging) }),
+  ].join('\n');
+}
+
+if (api.capabilities.archive) {
+  const desc = document.querySelector('[data-i18n="set.total_writes_desc"]');
+  if (desc) { desc.dataset.i18n = 'set.writes_desk_desc'; desc.textContent = t('set.writes_desk_desc'); }
+  updateDeskWrites();
+  setInterval(() => { if (!document.hidden) updateDeskWrites(); }, 3000);
+} else {
+  platform.writes.get().then(updateWritesDisplay, () => {});
+  platform.writes.subscribe(updateWritesDisplay);
+}
 
 document.getElementById('resetWritesBtn').addEventListener('click', async () => {
   if (!(await confirmDialog({ title: t('dlg.writes_title'), body: t('dlg.writes_body'), ok: t('common.reset') }))) return;
   await platform.writes.reset();
+  if (api.capabilities.archive) { await api.diskWrites.reset(); updateDeskWrites(); }
   showStatus('writesStatus', t('set.writes_reset_done'), 'ok');
 });
 

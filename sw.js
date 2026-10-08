@@ -18,7 +18,7 @@ const ROOT = new URL('./', self.location.href);
 // user-facing app version: precached code can change outside a release, and changing this value
 // makes the browser install every BOOT asset into a fresh cache.
 const CACHE_PREFIX = `shiori${ROOT.pathname.replace(/\//g, '_')}`;
-const SHELL_CACHE_REVISION = 53;
+const SHELL_CACHE_REVISION = 54;
 const CACHE_NAME = `${CACHE_PREFIX}-shell-v${SHELL_CACHE_REVISION}`;
 function cacheName() {
   return CACHE_NAME;
@@ -45,12 +45,13 @@ const SHELL = [
   'app/js/benchmark.js', 'app/js/benchmark-core.js', 'app/js/benchmark-ui.js', 'app/benchmark.css',
   'app/js/feedback.js', 'app/js/reader-feedback.js', 'app/js/reader-properties.js', 'app/js/reader-page-menu.js', 'app/js/zip.js',
   'app/js/jobs-runner.js', 'app/js/submit-job.js', 'app/js/services.js', 'app/js/ext-bridge.js', 'app/js/boot.js',
-  'app/js/i18n.js', 'app/js/locales.js', 'app/js/tooltip.js', 'app/js/dropdown.js', 'app/js/rerun-menu.js', 'app/js/titles.js', 'app/js/format.js', 'app/js/thumb-worker.js', 'app/js/tag-editor.js', 'app/js/search-field.js',
+  'app/js/i18n.js', 'app/js/locales.js', 'app/js/tooltip.js', 'app/js/scrollbar.js', 'app/js/dropdown.js', 'app/js/rerun-menu.js', 'app/js/titles.js', 'app/js/format.js', 'app/js/thumb-worker.js', 'app/js/tag-editor.js', 'app/js/search-field.js',
   'app/js/library.js', 'app/js/reader.js', 'app/js/reader-study.js', 'app/js/settings.js', 'app/js/agent.js', 'app/js/overview.js',
   ...FLAGS,
   'icons/icon16.png', 'icons/icon32.png', 'icons/icon48.png', 'icons/icon128.png',
   'icons/icon192.png', 'icons/icon512.png', 'icons/shiori-logo.svg',
   'vendor/marked.min.js', 'CHANGELOG.md',
+  'vendor/overlayscrollbars/overlayscrollbars.mjs', 'vendor/overlayscrollbars/overlayscrollbars.min.css',
   'vendor/pdfjs/pdf.min.mjs', 'vendor/pdfjs/pdf.worker.min.mjs',
   'vendor/pdfjs/jbig2.wasm', 'vendor/pdfjs/openjpeg.wasm', 'vendor/pdfjs/qcms_bg.wasm',
 ];

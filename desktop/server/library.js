@@ -8,27 +8,34 @@
 //   library.db (SQLite)  every record db.js keeps — metadata, gallery entry (stat record), page and
 //                        cover records, source icons, the change log — as JSON, with a column for
 //                        each thing it is looked up or sorted by;
-//   cache/<gid>/         every image other than an original page: translations, study layers,
-//                        pipeline masks, covers, cover thumbnails;
-//   the library folder   original pages: staged as they arrive (.shiori/staging/<gid>/), then packed
-//                        into the gallery's archive or folder (files.js).
+//   cache/<gid>/         cover thumbnails (on this computer, beside the index);
+//   the library folder   each gallery's folder in the Shiori gallery format (files.js,
+//                        gallery-files.js): its original pages — staged as they arrive
+//                        (.shiori/staging/<gid>/), then moved into images/ — and what was made
+//                        from them under their layout names: translated/, study/, pipeline/, and a
+//                        cover that is a picture of its own in covers/.
 // Where db.js keeps a Blob, a record here keeps a reference: { $file, size, type } for a cache file,
-// { $orig, size, type } for the page's original, { $page: n, size, type } for a cover that is its
-// gallery's page n. Records go back to the app with their Blobs in place.
+// { $own: 'translated/0001.png', size, type } for a file in the gallery's folder, { $orig, size,
+// type } for the page's original, { $page: n, size, type } for a cover that is its gallery's page n.
+// A file of the gallery's own is written under a temporary name and renamed into place once the
+// index has recorded it, so the file a record names is always the one it describes. Records go back
+// to the app with their Blobs in place.
 
+import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { plans, model, titles, pageSize, files as galleryFilesModule, BackendError } from './shared.js';
 import { FileLibrary } from './files.js';
+import { WriteMeter } from './writes.js';
 import { scanLibrary } from './scan.js';
 
 const { planAttach, planRemove, planReorder, planChapterTitle, planWrite, planDelete, planDeleteSeries, planRelink } = plans;
 const { isSeriesMeta, effectiveTagsOf, LANG_NAME_TO_CODE, uploadDateSeconds } = model;
 const { normalizeTitle, migrateTitle } = titles;
 const { medianPage, describePage, headerSize } = pageSize;
-const { galleryFiles, exportSize } = galleryFilesModule;
+const { galleryFiles, exportSize, layoutPath, extOfType } = galleryFilesModule;
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -75,7 +82,7 @@ CREATE TABLE IF NOT EXISTS pages (
 );
 CREATE TABLE IF NOT EXISTS covers (gid TEXT PRIMARY KEY, record TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS icons (source TEXT PRIMARY KEY, record TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS changes (rev INTEGER PRIMARY KEY AUTOINCREMENT, gid TEXT NOT NULL, at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS changes (rev INTEGER PRIMARY KEY, gid TEXT NOT NULL, at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
 
@@ -85,7 +92,6 @@ const keyPage = (key) => { const m = String(key ?? '').match(PAGE_URL); return m
 const EXT_OF_TYPE = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/avif': 'avif' };
 const extOf = (type) => EXT_OF_TYPE[type] || 'bin';
 const CHANGES_KEPT = 20000;
-const MEDIAN_PAGE_SETTLE_MS = 3000;
 // Per-page fields an earlier storage format wrote; dropped whenever a page is translated again.
 const RETIRED_FIELDS = ['translatedLang', 'translatedConfig', 'translatedOutputHash', 'translatedJob', 'snapshot',
   'pendingSnapshot', 'studySnapshot', 'priorSnapshot', 'sourceSha256'];
@@ -93,7 +99,7 @@ const RESTORABLE = ['pipeline', 'own', 'translatedLayers'];
 // Sort orders and the column each reads (db.js's indexes); 'id' sorts by the gallery id itself.
 const SORT_COLUMN = { updated: 'latest_at', size: 'size', count: 'count', uploadDate: 'upload_date' };
 
-const isRef = (v) => v != null && typeof v === 'object' && !Array.isArray(v) && ('$file' in v || '$orig' in v || '$page' in v);
+const isRef = (v) => v != null && typeof v === 'object' && !Array.isArray(v) && ('$file' in v || '$own' in v || '$orig' in v || '$page' in v);
 // A value as an IndexedDB index holds it: a number (not NaN) or a string; anything else isn't indexed.
 const num = (v) => (typeof v === 'number' && !Number.isNaN(v) ? v : null);
 const indexKey = (v) => (typeof v === 'string' || (typeof v === 'number' && !Number.isNaN(v)) ? String(v) : null);
@@ -216,6 +222,36 @@ function fileRefs(value, out = new Set()) {
   return out;
 }
 
+// Every file of the gallery's own (its folder's .shiori/) a value refers to, by name.
+function ownRefs(value, out = new Set()) {
+  if (value == null || typeof value !== 'object') return out;
+  if (isRef(value)) { if (typeof value.$own === 'string') out.add(value.$own); return out; }
+  for (const v of Array.isArray(value) ? value : Object.values(value)) ownRefs(v, out);
+  return out;
+}
+// A path an own-file reference may carry: a picture in one of the gallery format's folders.
+const ownName = (rel) => typeof rel === 'string' && /^(translated|study\/bg|study\/text|pipeline|covers)\/[\w.-]+$/.test(rel);
+
+// Where a picture made from page `n` goes in its gallery's folder (gallery-files.js layoutPath), by
+// the field it is stored under (`keys`: its path in the record, or in what is stored with it).
+function pageFileFor(keys, n, type) {
+  const ext = extOfType(type) || 'png';
+  const last = keys.at(-1);
+  if (last === 'image' || last === 'translated') return layoutPath.translated(n, ext);
+  if (last === 'bg' || last === 'studyBg') return layoutPath.studyBg(n, ext);
+  const bubbles = keys.indexOf('bubbles');
+  if (last === 'text' && bubbles >= 0) return layoutPath.studyText(n, keys[bubbles + 1], ext);
+  if (keys.at(-2) === 'masks') return layoutPath.mask(n, last, ext);
+  throw new BackendError('invalid', `a picture stored as ${keys.join('.')} has no place in a gallery's folder`);
+}
+
+// Two pictures with the same bytes.
+async function sameBytes(a, b) {
+  if (!a || !b || a.size !== b.size) return false;
+  const [x, y] = (await Promise.all([a.arrayBuffer(), b.arrayBuffer()])).map(buf => new Uint8Array(buf));
+  return Buffer.compare(x, y) === 0;
+}
+
 async function imageToBlob(src) {
   if (!src) return null;
   if (src instanceof Blob) return src;
@@ -224,21 +260,25 @@ async function imageToBlob(src) {
 }
 
 export class Library {
-  // `dataDir` holds library.db and the cache; `libraryDir` is the library folder. `trash(path)` puts
-  // a gallery's files out of the way when it is deleted (the recycle bin, in the app). `packDelay`:
-  // how long a gallery's pages stay staged after its last change before it is packed (files.js).
-  constructor({ dataDir, libraryDir, trash, packDelay } = {}) {
+  // `dataDir` holds library.db and the cache; `libraryDir` is the library folder. `remove(path)`
+  // deletes a gallery's folder or archive outright (not to the recycle bin); `vacate(path, to)` moves
+  // a file browser's window showing `path` (or a folder in it) to `to` first, as before a folder is
+  // moved (files.js). `placeDelay`: how long a gallery's pages stay staged
+  // after its last change before they are moved into its folder; `describeDelay`: how long it is
+  // left alone, when nothing settles it sooner, before its folder's descriptions are rewritten;
+  // `archiveAfter` and `archiveFormat`: when and how it is archived (files.js).
+  constructor({ dataDir, libraryDir, remove, vacate, placeDelay, describeDelay, archiveAfter, archiveFormat } = {}) {
     this.dataDir = path.resolve(dataDir);
     this.libraryDir = path.resolve(libraryDir);
     this.cacheDir = path.join(this.dataDir, 'cache');
     this.stagingDir = path.join(this.libraryDir, '.shiori', 'staging');
-    this.trash = trash || ((p) => fsp.rm(p, { recursive: true, force: true }));
+    this.remove = remove || ((p) => fsp.rm(p, { recursive: true, force: true }));
+    this.vacate = vacate || (async () => {});
     this.context = crypto.randomUUID();
     this._subs = new Set();
     this._timers = new Set();
     this._feedTimers = new Map();
     this._sizeTimers = new Map();
-    this._medianTimers = new Map();
     this._aggTimers = new Map();
     this._feedSeq = 0;
     this._lastRev = 0;
@@ -246,7 +286,10 @@ export class Library {
     this._inTx = null;
     this._stmts = new Map();
     this._dirs = new Set();
-    this.files = new FileLibrary(this, packDelay != null ? { packDelay } : {});
+    this.reading = new Map();   // gid → how many readers show it (server.js 'reading'): never archived meanwhile
+    this.writes = new WriteMeter(path.join(this.dataDir, 'writes.json'));
+    this.files = new FileLibrary(this, Object.fromEntries(Object.entries({ placeDelay, describeDelay, archiveAfter, archiveFormat })
+      .filter(([, v]) => v != null)));
   }
 
   async open() {
@@ -254,16 +297,34 @@ export class Library {
     await fsp.mkdir(this.stagingDir, { recursive: true });
     this._db = new DatabaseSync(path.join(this.dataDir, 'library.db'));
     this._db.exec(SCHEMA);
-    this._lastRev = Number(this._s('SELECT max(rev) AS rev FROM changes').get()?.rev || 0);
+    // The change log numbered by the library itself (an index made before 2026-10-08 kept a counter
+    // of its own, written with every change): taken over as it is.
+    if (/AUTOINCREMENT/i.test(this._s(`SELECT sql FROM sqlite_schema WHERE name = 'changes'`).get()?.sql || '')) {
+      this._db.exec(`BEGIN; ALTER TABLE changes RENAME TO changes_old;
+        CREATE TABLE changes (rev INTEGER PRIMARY KEY, gid TEXT NOT NULL, at REAL NOT NULL);
+        INSERT INTO changes SELECT rev, gid, at FROM changes_old; DROP TABLE changes_old; COMMIT;`);
+      this._stmts.clear();
+    }
+    this._lastRev = Math.max(Number(this._s('SELECT max(rev) AS rev FROM changes').get()?.rev || 0), Number(this._kvGet('compactedUpTo')) || 0);
+    // The library checkpoints the database itself, so what it writes can be counted (_meterDb).
+    this._db.exec('PRAGMA wal_autocheckpoint = 0');
+    this._pageSize = this._s('PRAGMA page_size').get().page_size;
+    this._walPath = path.join(this.dataDir, 'library.db-wal');
+    this._walCounted = fs.statSync(this._walPath, { throwIfNoEntry: false })?.size || 0;
+    this._meterTimer = setInterval(() => { try { this._meterDb(); } catch {} }, 5000);
+    this._meterTimer.unref?.();
     this.files.init();
     return this;
   }
 
   close() {
+    clearInterval(this._meterTimer);
+    try { this._meterDb({ checkpoint: true }); } catch {}
+    this.writes.save();
     this.files.close();
     for (const t of this._timers) clearTimeout(t);
     this._timers.clear();
-    for (const m of [this._feedTimers, this._sizeTimers, this._medianTimers, this._aggTimers]) m.clear();
+    for (const m of [this._feedTimers, this._sizeTimers, this._aggTimers]) m.clear();
     this._stmts.clear();
     this._db?.close();
     this._db = null;
@@ -306,10 +367,38 @@ export class Library {
       throw e;
     }
     this._inTx = null;
+    try { this._meterDb(); } catch {}
     for (const file of drop) fsp.rm(file, { force: true }).catch(() => {});
     for (const fn of after) { try { fn(); } catch {} }
     return out;
   }
+
+  // The database's writes so far (writes.js). SQLite appends every change to its write-ahead log —
+  // a frame per database page a commit touched — and a checkpoint writes the latest copy of each of
+  // those pages back into library.db. The log only grows between checkpoints, so its growth is what
+  // was written to it; once it holds a thousand pages' worth (when SQLite's own checkpoint would
+  // run) or the library closes, the pages it holds are counted, written back, and the log emptied.
+  _meterDb({ checkpoint = false } = {}) {
+    if (!this._db) return;
+    const size = fs.statSync(this._walPath, { throwIfNoEntry: false })?.size || 0;
+    if (size > this._walCounted) this.writes.add('database', size - this._walCounted);
+    this._walCounted = size;
+    const frame = this._pageSize + 24;
+    if (size < 32 + frame || (!checkpoint && size < 32 + 1000 * frame)) return;
+    const pages = new Set();
+    const fd = fs.openSync(this._walPath, 'r');
+    try {
+      const head = Buffer.alloc(4);
+      for (let at = 32; at + frame <= size; at += frame) { fs.readSync(fd, head, 0, 4, at); pages.add(head.readUInt32BE(0)); }
+    } finally { fs.closeSync(fd); }
+    const done = this._db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
+    if (!done?.busy) this.writes.add('database', pages.size * this._pageSize);
+    this._walCounted = fs.statSync(this._walPath, { throwIfNoEntry: false })?.size || 0;
+  }
+
+  // What the library has written to disk (writes.js): { total, by, since }.
+  async diskWrites() { this._meterDb(); return this.writes.snapshot(); }
+  async resetDiskWrites() { this._meterDb(); this.writes.reset(); return this.writes.snapshot(); }
   _drop(file) { this._inTx.drop.push(file); }
   _afterCommit(fn) { this._inTx.after.push(fn); }
   async _mkdir(dir) {
@@ -324,30 +413,103 @@ export class Library {
     await this._mkdir(dir);
     const rel = `${gid}/${label}-${crypto.randomBytes(5).toString('hex')}.${extOf(blob.type)}`;
     await fsp.writeFile(path.join(this.cacheDir, rel), new Uint8Array(await blob.arrayBuffer()));
+    this.writes.add('thumbnails', blob.size);
     return { $file: rel, size: blob.size, type: blob.type || '' };
   }
 
-  // `value` with every Blob in it written to the cache and referenced: { value, fresh } (`fresh` the
-  // files written, deleted again should the write they were for fail).
-  async _externalize(value, gid, label) {
-    const fresh = [];
-    const walk = async (v) => {
+  // A picture of the gallery's own — made from its pages (a translation, a study layer, a mask) or
+  // its custom cover — written into its folder (claimed now if it has none yet) under a temporary
+  // name beside `rel`, its place there: { ref, temp, file }. Once the index records it,
+  // _settleOwn renames it into place (_commitOwn). A gallery kept in an archive in the gallery
+  // format has it staged instead ({ ref, temp, staged, gid, rel }), to be added to its archive when
+  // it settles (files.js). `meta`: the gallery's metadata when it isn't stored yet.
+  async _writeOwn(gid, rel, blob, meta) {
+    const ref = { $own: rel, size: blob.size, type: blob.type || '' };
+    const staged = await this.files.stageOwn(gid, rel, blob);
+    if (staged) return { ref, temp: path.join(this.stagingDir, staged), staged, gid: String(gid), rel };
+    const file = path.join(await this.files.home(gid, meta), ...rel.split('/'));
+    const temp = `${file}.${crypto.randomBytes(5).toString('hex')}.shiori-new`;
+    await fsp.mkdir(path.dirname(file), { recursive: true });
+    await fsp.writeFile(temp, new Uint8Array(await blob.arrayBuffer()));
+    this.writes.add('pictures', blob.size);
+    return { ref, temp, file };
+  }
+
+  // Inside the transaction recording them, pictures _writeOwn wrote put where they belong once it
+  // commits: renamed into the gallery's folder (_settleOwn), or — staged for an archive — recorded
+  // to be added to it at its next settle.
+  _commitOwn(moves) {
+    for (const m of moves) if (m.staged) this.files.ownStaged(m.gid, m.rel, m.staged, m.ref.size);
+    const folder = moves.filter(m => !m.staged);
+    if (folder.length) this._afterCommit(() => this._settleOwn(folder));
+  }
+
+  // Pictures written by _writeOwn renamed into place (the index has just recorded them). One that
+  // can't be yet (a reader holding the old one) is tried again shortly.
+  _settleOwn(moves) {
+    for (const { temp, file } of moves) {
+      const attempt = (left) => {
+        try { fs.renameSync(temp, file); } catch (e) {
+          if (left) setTimeout(() => attempt(left - 1), 200).unref?.();
+          else console.warn('[shiori] a picture could not take its place:', file, String(e?.message || e));
+        }
+      };
+      attempt(5);
+    }
+  }
+
+  // Where gallery `gid`'s own file `rel` is, or null when the gallery has no folder.
+  _ownPath(gid, rel) {
+    const dir = this.files.folderOf(gid);
+    return dir && ownName(rel) ? path.join(dir, ...rel.split('/')) : null;
+  }
+
+  // `value` with every Blob in it written to the cache and referenced: { value, fresh, moves }
+  // (`fresh` the files written, deleted again should the write they were for fail). With `own`, the
+  // Blobs are the gallery's own and go into its folder instead, each where `place(keys, blob)` says
+  // (keys: its path in `value`), to be renamed into place (`moves`, _settleOwn) once recorded.
+  async _externalize(value, gid, label, { own = false, meta, place } = {}) {
+    const fresh = [], moves = [];
+    const walk = async (v, keys) => {
       if (v instanceof Blob) {
+        if (own) {
+          const made = await this._writeOwn(gid, place(keys, v), v, meta);
+          fresh.push(made.temp);
+          moves.push(made);
+          return made.ref;
+        }
         const ref = await this._writeCache(gid, label, v);
         fresh.push(path.join(this.cacheDir, ref.$file));
         return ref;
       }
       if (v == null || typeof v !== 'object') return v;
       if (isRef(v)) throw new BackendError('invalid', 'a stored reference cannot be written');
-      if (Array.isArray(v)) { const out = []; for (const x of v) out.push(await walk(x)); return out; }
+      if (Array.isArray(v)) { const out = []; for (const [i, x] of v.entries()) out.push(await walk(x, [...keys, i])); return out; }
       const out = {};
-      for (const [k, x] of Object.entries(v)) out[k] = await walk(x);
+      for (const [k, x] of Object.entries(v)) out[k] = await walk(x, [...keys, k]);
       return out;
     };
-    try { return { value: await walk(value), fresh }; } catch (e) {
+    try { return { value: await walk(value, []), fresh, moves }; } catch (e) {
       for (const file of fresh) fsp.rm(file, { force: true }).catch(() => {});
       throw e;
     }
+  }
+
+  // A cover to store for gallery `gid` (`blob`): its first page when it is that picture (`first`:
+  // { n, blob } to compare with, else the gallery's own first page) — a reference, no copy — else a
+  // picture of its own in covers/. { ref, fresh, moves } as _externalize; `meta` as for _writeOwn.
+  async _coverRef(gid, blob, role, { first, meta } = {}) {
+    const page = first ?? await this._firstPage(gid);
+    if (page && await sameBytes(blob, page.blob)) return { ref: { $page: page.n, size: blob.size, type: blob.type || '' }, fresh: [], moves: [] };
+    const made = await this._writeOwn(gid, layoutPath.cover(role, extOfType(blob.type) || 'png'), blob, meta);
+    return { ref: made.ref, fresh: [made.temp], moves: [made] };
+  }
+
+  // A gallery's first page as stored: { n, blob }, or null.
+  async _firstPage(gid) {
+    const row = this._s('SELECT * FROM pages WHERE gid = ? ORDER BY n LIMIT 1').get(String(gid));
+    const blob = row ? await this._readOrig(row.gid, row.n, parse(row.orig)) : null;
+    return blob ? { n: row.n, blob } : null;
   }
 
   async _readCache(ref) {
@@ -356,7 +518,18 @@ export class Library {
     try { return new Blob([await fsp.readFile(file)], ref.type ? { type: ref.type } : {}); } catch { return null; }
   }
 
-  // A page's original as a Blob, from where `orig` (its row's) says it is: staged, or packed.
+  // An own file's reference read back, from the gallery's folder or archive.
+  async _readOwn(gid, ref) {
+    if (!ownName(ref.$own)) return null;
+    const bytes = await this.files.readOwn(gid, ref.$own);
+    return bytes ? new Blob([bytes], ref.type ? { type: ref.type } : {}) : null;
+  }
+
+  // A cache file's or an own file's reference read back into a Blob.
+  _readFile(gid, ref) { return typeof ref.$own === 'string' ? this._readOwn(gid, ref) : this._readCache(ref); }
+
+  // A page's original as a Blob, from where `orig` (its row's) says it is: staged, or in its folder
+  // (or archive).
   async _readOrigAt(gid, orig) {
     if (orig?.at === 's') {
       const file = path.resolve(this.stagingDir, String(orig.file));
@@ -366,9 +539,9 @@ export class Library {
     return this.files.readOriginal(gid, orig);
   }
 
-  // Page `n`'s original (`orig`: where its row said it was). Packing moves an original from staging
-  // into its archive, and a repack replaces the archive; a read begun before such a move reads the
-  // page where its row says it is now.
+  // Page `n`'s original (`orig`: where its row said it was). Settling moves an original from staging
+  // into its folder, and unpacks an archive into one; a read begun before such a move reads the page
+  // where its row says it is now.
   async _readOrig(gid, n, orig) {
     const blob = await this._readOrigAt(gid, orig);
     if (blob || n == null) return blob;
@@ -382,7 +555,7 @@ export class Library {
     const walk = async (v) => {
       if (v == null || typeof v !== 'object') return v;
       if (isRef(v)) {
-        if (typeof v.$file === 'string') return this._readCache(v);
+        if (typeof v.$file === 'string' || typeof v.$own === 'string') return this._readFile(gid, v);
         if (v.$orig) return this._readOrig(gid, n, orig);
         if (v.$page != null) {
           const row = this._pageRow(gid, v.$page);
@@ -398,39 +571,70 @@ export class Library {
     return walk(value);
   }
 
-  // Page `n`'s original bytes, staged until the gallery is packed.
+  // Page `n`'s original bytes, staged until the gallery is settled.
   async _stage(gid, n, bytes, type) {
-    const dir = path.join(this.stagingDir, gid);
-    await this._mkdir(dir);
     const file = `${gid}/${n}-${crypto.randomBytes(5).toString('hex')}.${extOf(type)}`;
-    await fsp.writeFile(path.join(this.stagingDir, file), bytes);
+    await this._writeStaged(file, bytes, 'pages');
     return { at: 's', file, size: bytes.length, type };
+  }
+
+  // `bytes` written to staging as `file` (`<gid>/<name>`), counted as `kind` (writes.js).
+  async _writeStaged(file, bytes, kind) {
+    const dir = path.join(this.stagingDir, path.dirname(file));
+    await this._mkdir(dir);
+    try {
+      await fsp.writeFile(path.join(this.stagingDir, file), bytes);
+    } catch (e) {
+      if (e.code !== 'ENOENT') throw e;
+      // Its folder was cleared just now, emptied by the gallery's last settle (files.js _unstage).
+      this._dirs.delete(dir);
+      await this._mkdir(dir);
+      await fsp.writeFile(path.join(this.stagingDir, file), bytes);
+    }
+    this.writes.add(kind, bytes.length);
   }
 
   // ── Records ──
   _metaGet(gid) { return parse(this._s('SELECT record FROM meta WHERE gid = ?').get(String(gid))?.record); }
+  // A record identical to the one stored writes nothing — not the index, not the gallery's files.
   _metaPutRaw(record) {
     const gid = String(record.galleryId);
+    const stored = this._s('SELECT record FROM meta WHERE gid = ?').get(gid)?.record;
+    const text = JSON.stringify(record);
+    if (stored === text) return;
+    const before = parse(stored);
+    const grouping = (m) => JSON.stringify([m?.parentId ?? null, Array.isArray(m?.chapters) && m.chapters.length > 1 ? m.chapters.map(c => String(c?.id)) : null]);
     this._s(`INSERT INTO meta (gid, source_id, is_stub, record) VALUES (?, ?, ?, ?)
       ON CONFLICT(gid) DO UPDATE SET source_id = excluded.source_id, is_stub = excluded.is_stub, record = excluded.record`)
-      .run(gid, indexKey(record.sourceId), record.isStub ? 1 : 0, JSON.stringify(record));
+      .run(gid, indexKey(record.sourceId), record.isStub ? 1 : 0, text);
     this._s('DELETE FROM meta_tags WHERE gid = ?').run(gid);
     const tags = Array.isArray(record.tagNames) ? new Set(record.tagNames.filter(t => typeof t === 'string')) : [];
     for (const tag of tags) this._s('INSERT OR IGNORE INTO meta_tags (tag, gid) VALUES (?, ?)').run(tag, gid);
+    this.files.metaChanged(gid, { grouping: grouping(before) !== grouping(record) });
   }
   _metaDel(gid) {
     this._s('DELETE FROM meta WHERE gid = ?').run(String(gid));
     this._s('DELETE FROM meta_tags WHERE gid = ?').run(String(gid));
   }
   _statGet(gid) { return parse(this._s('SELECT record FROM stats WHERE gid = ?').get(String(gid))?.record); }
+  // A gallery's stat record stored. Each sort column has an index of its own, so only the columns
+  // that changed are set (setting one rewrites its index entry even to the same value); a record
+  // identical to the stored one writes nothing. Returns whether it wrote.
   _statPut(rec) {
-    this._s(`INSERT INTO stats (gid, latest_at, added_at, size, count, upload_date, parent_key, child, record)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(gid) DO UPDATE SET latest_at = excluded.latest_at, added_at = excluded.added_at, size = excluded.size,
-        count = excluded.count, upload_date = excluded.upload_date, parent_key = excluded.parent_key, child = excluded.child,
-        record = excluded.record`)
-      .run(String(rec.galleryId), num(rec.latestAt), num(rec.addedAt), num(rec.size), num(rec.count), num(rec.uploadDate),
-        indexKey(rec.parentId), rec.parentId ? 1 : 0, JSON.stringify(rec));
+    const gid = String(rec.galleryId);
+    const text = JSON.stringify(rec);
+    const cols = { latest_at: num(rec.latestAt), added_at: num(rec.addedAt), size: num(rec.size), count: num(rec.count),
+      upload_date: num(rec.uploadDate), parent_key: indexKey(rec.parentId), child: rec.parentId ? 1 : 0 };
+    const cur = this._s('SELECT latest_at, added_at, size, count, upload_date, parent_key, child, record FROM stats WHERE gid = ?').get(gid);
+    if (!cur) {
+      this._s(`INSERT INTO stats (gid, latest_at, added_at, size, count, upload_date, parent_key, child, record)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(gid, ...Object.values(cols), text);
+      return true;
+    }
+    if (cur.record === text) return false;
+    const set = Object.keys(cols).filter(k => cur[k] !== cols[k]);
+    this._s(`UPDATE stats SET ${[...set, 'record'].map(k => `${k} = ?`).join(', ')} WHERE gid = ?`).run(...set.map(k => cols[k]), text, gid);
+    return true;
   }
   _statDel(gid) { this._s('DELETE FROM stats WHERE gid = ?').run(String(gid)); }
   _pageRow(gid, n) { return this._s('SELECT * FROM pages WHERE gid = ? AND n = ?').get(String(gid), Number(n)); }
@@ -444,21 +648,35 @@ export class Library {
   }
   // A page's record as db.js returns it before its images are read: its number, references in place.
   _rowRecord(row) { return { ...parse(row.record), pageNum: row.n }; }
-  // A row's record rewritten; the cache files it no longer refers to are deleted once committed.
+  // A row's record rewritten; the files it no longer refers to are deleted once committed.
   _pageRewrite(row, rec) {
     const { pageNum, ...stored } = rec;
-    const before = fileRefs(parse(row.record));
-    const after = fileRefs(stored);
-    for (const ref of before) if (!after.has(ref)) this._drop(path.join(this.cacheDir, ref));
+    const old = parse(row.record);
+    const after = fileRefs(stored), afterOwn = ownRefs(stored);
+    for (const ref of fileRefs(old)) if (!after.has(ref)) this._drop(path.join(this.cacheDir, ref));
+    for (const name of ownRefs(old)) if (!afterOwn.has(name)) this._dropOwn(row.gid, name);
     this._s('UPDATE pages SET record = ? WHERE gid = ? AND n = ?').run(JSON.stringify(stored), row.gid, row.n);
+    this.files.describeLater(row.gid);
   }
-  // A page row deleted with its staged original and its cache files.
-  _pageDrop(row) {
+  // A page row deleted with its staged original and its files. With `whole` (its gallery is being
+  // deleted) the files in the gallery's folder are left to go with the folder.
+  _pageDrop(row, { whole = false } = {}) {
     this._s('DELETE FROM pages WHERE gid = ? AND n = ?').run(row.gid, row.n);
-    for (const ref of fileRefs(parse(row.record))) this._drop(path.join(this.cacheDir, ref));
+    const rec = parse(row.record);
+    for (const ref of fileRefs(rec)) this._drop(path.join(this.cacheDir, ref));
     const orig = parse(row.orig);
     if (orig?.at === 's') this._drop(path.join(this.stagingDir, orig.file));
-    else this.files.pageRemoved(row.gid);   // its archive still holds it until packed again
+    if (whole) return;
+    for (const name of ownRefs(rec)) this._dropOwn(row.gid, name);
+    if (orig?.at !== 's') this.files.pageRemoved(row.gid, orig);   // its file goes when the gallery is next settled
+  }
+  // A picture of the gallery's own no record names any more, deleted once the transaction commits —
+  // at once then, so a picture written under the same name later can't be caught by it.
+  // One kept in an archive (or staged for it) leaves it at the archive's next settle.
+  _dropOwn(gid, rel) {
+    const file = this._ownPath(gid, rel);
+    if (file) this._afterCommit(() => fs.rmSync(file, { force: true }));
+    else this.files.ownDropped(gid, rel);
   }
   // The page `at` names: { galleryId, pageNum }, or its key.
   _pageAt(at) {
@@ -476,8 +694,8 @@ export class Library {
     const id = String(gid);
     if (this._inTx.logged.has(id)) return;
     this._inTx.logged.add(id);
-    const rev = Number(this._s('INSERT INTO changes (gid, at) VALUES (?, ?)').run(id, Date.now()).lastInsertRowid);
-    this._lastRev = Math.max(this._lastRev, rev);
+    const rev = ++this._lastRev;
+    this._s('INSERT INTO changes (rev, gid, at) VALUES (?, ?, ?)').run(rev, id, Date.now());
     if (rev % 1000 === 0 && rev > CHANGES_KEPT) {
       this._s('DELETE FROM changes WHERE rev <= ?').run(rev - CHANGES_KEPT);
       this._kvSet('compactedUpTo', rev - CHANGES_KEPT);
@@ -520,15 +738,6 @@ export class Library {
     }));
   }
 
-  scheduleMedianPage(galleryId) {
-    const gid = String(galleryId);
-    clearTimeout(this._medianTimers.get(gid));
-    this._medianTimers.set(gid, this._later(MEDIAN_PAGE_SETTLE_MS, () => {
-      this._medianTimers.delete(gid);
-      this.refreshMedianPage(gid).then(changed => { if (changed) this.publishFeed(gid); }, () => {});
-    }));
-  }
-
   scheduleSeriesAggregate(ownerId) {
     const oid = String(ownerId);
     if (this._aggTimers.has(oid)) return;
@@ -538,59 +747,79 @@ export class Library {
     }));
   }
 
-  // A gallery's size is its export archive's (gallery-files.js), recomputed from what is stored.
+  // A gallery's size is its export archive's (gallery-files.js), recomputed from what is stored —
+  // and, when its pages changed since they were last measured, its typical page and page-size tally
+  // (from the sizes measured as each page was stored), in the same save.
   async refreshGallerySize(galleryId) {
     const gid = String(galleryId);
-    let changed = null, stat = null, records = [];
+    let changed = null;
     this._tx(() => {
       const meta = this._metaGet(gid);
-      records = this._pageRows(gid).map(r => this._rowRecord(r));
+      const rows = this._pageRows(gid);
+      const records = rows.map(r => this._rowRecord(r));
       const cover = this._coverGet(gid);
       const { total, original } = exportSize(galleryFiles({ meta, records,
         covers: { gallery: cover?.cover, series: cover?.seriesCover } }));
-      const cur = stat = this._statGet(gid);
-      if (!cur || (cur.size === total && cur.origSize === original)) return;
+      const cur = this._statGet(gid);
+      if (!cur) return;
+      let next = { ...cur, size: total, origSize: original };
+      if (medianPageStale(cur, records)) {
+        const sizes = rows.filter(r => r.w > 0 && r.h > 0).map(r => ({ w: r.w, h: r.h }));
+        const median = medianPage(sizes);
+        const { medianPage: _, pageSizes: __, ...rest } = next;
+        next = rows.length
+          ? { ...rest, medianPage: { w: median?.w || 0, h: median?.h || 0, ...pagesSig(rows.map(r => ({ size: sizeOf(r) }))) }, pageSizes: sizeTally(sizes) }
+          : rest;
+      }
+      if (!this._statPut(next)) return;
       changed = cur;
-      this._statPut({ ...cur, size: total, origSize: original });
       this._logIn(gid);
     });
-    if (stat && medianPageStale(stat, records)) this.scheduleMedianPage(gid);
     if (!changed) return false;
     if (changed.parentId) this.scheduleSeriesAggregate(changed.parentId);
     if (changed.chapterCount != null) this.scheduleSeriesAggregate(gid);
     return true;
   }
 
-  // The typical page and the page-size tally, from the sizes measured as each page was stored.
-  async refreshMedianPage(galleryId) {
-    const gid = String(galleryId);
-    let prev = null, stat = null, tallied = false, next = null;
-    this._tx(() => {
-      const rows = this._pageRows(gid);
-      const pages = rows.map(r => ({ size: sizeOf(r) }));
-      const sizes = rows.filter(r => r.w > 0 && r.h > 0).map(r => ({ w: r.w, h: r.h }));
-      const median = medianPage(sizes);
-      next = pages.length ? { w: median?.w || 0, h: median?.h || 0, ...pagesSig(pages) } : null;
-      const tally = pages.length ? sizeTally(sizes) : null;
-      const cur = this._statGet(gid);
-      prev = cur?.medianPage;
-      tallied = JSON.stringify(cur?.pageSizes ?? null) !== JSON.stringify(tally);
-      if (!cur || (['w', 'h', 'n', 'bytes'].every(k => prev?.[k] === next?.[k]) && !tallied)) return;
-      stat = cur;
-      const { medianPage: _, pageSizes: __, ...rest } = cur;
-      this._statPut(next ? { ...rest, medianPage: next, pageSizes: tally } : rest);
-      this._logIn(gid);
-    });
-    const typical = !!stat && (prev?.w !== next?.w || prev?.h !== next?.h);
-    if (stat && (typical || tallied)) {
-      if (stat.parentId) this.scheduleSeriesAggregate(stat.parentId);
-      if (stat.chapterCount != null) this.scheduleSeriesAggregate(gid);
-    }
-    return typical;
-  }
-
-  // The library folder and the index brought into agreement (scan.js).
+  // The library folder and the index brought into agreement (scan.js): only when asked, or for an
+  // index with no galleries yet (indexEmpty) — files are otherwise opened only when needed.
   rescan() { return scanLibrary(this); }
+  // Gallery `gid`'s files brought up to date now, in the background (files.js settle): after a
+  // change made by hand, when a job writing its pages ends, when the reader leaves it (server.js).
+  settle(gid) { this.files.settle(gid).catch(() => {}); }
+  // Gallery `gid` archived now, by hand (the overview) — a series owner's whole series, member by
+  // member: { archived, kept } (gallery ids). One open in a reader, still being written to, or whose
+  // folder holds files put there by hand stays a folder (files.js archive); one archived already is
+  // neither.
+  async archiveGallery(galleryId) {
+    const gid = String(galleryId);
+    const meta = this._metaGet(gid);
+    const ids = Array.isArray(meta?.chapters) && meta.chapters.length > 1 ? meta.chapters.map(c => String(c.id)) : [gid];
+    const out = { archived: [], kept: [] };
+    for (const id of ids) {
+      const row = this.files._row(id);
+      if (row && row.format !== 'folder') continue;
+      if (row) await this.files.settle(id);
+      const done = !!row && await this.files.archive(id).catch(() => false);
+      out[done ? 'archived' : 'kept'].push(id);
+    }
+    return out;
+  }
+  // A reader showing gallery `gid` now, or no longer (server.js 'reading'): it counts as used — its
+  // archiving waits — and once the last reader leaves it, it is settled.
+  openedInReader(gid) {
+    const id = String(gid);
+    this.reading.set(id, (this.reading.get(id) || 0) + 1);
+    try { this.files.used(id); } catch {}
+  }
+  leftReader(gid) {
+    const id = String(gid);
+    const left = (this.reading.get(id) || 1) - 1;
+    if (left) this.reading.set(id, left); else this.reading.delete(id);
+    try { this.files.used(id); } catch {}
+    this.settle(id);
+  }
+  indexEmpty() { return !this._s('SELECT 1 FROM meta LIMIT 1').get() && !this._s('SELECT 1 FROM files LIMIT 1').get(); }
 
   // ── Gallery ids ──
   nextGalleryId() {
@@ -598,17 +827,18 @@ export class Library {
     return String(this._lastGid);
   }
 
-  // The gallery a source reference stands for; a placeholder is created on first sight. The first
+  // The gallery a source and reference stand for; a placeholder is created on first sight. The first
   // one added answers when several share it — a real gallery before a placeholder.
-  async resolveGalleryId(id) {
+  async resolveGalleryId(id, source = '') {
     const raw = String(id);
     if (/^\d{13,}$/.test(raw)) return raw;
+    source = String(source || '');
     return this._tx(() => {
-      const held = this._s('SELECT gid, is_stub FROM meta WHERE source_id = ? ORDER BY gid').all(raw);
+      const held = this._s("SELECT gid, is_stub FROM meta WHERE source_id = ? AND COALESCE(json_extract(record, '$.source'), '') = ? ORDER BY gid").all(raw, source);
       const found = held.find(m => !m.is_stub) || held[0];
       if (found) return String(found.gid);
       const gid = this.nextGalleryId();
-      this._metaPutRaw({ galleryId: gid, sourceId: raw, isStub: true });
+      this._metaPutRaw({ galleryId: gid, sourceId: raw, source, isStub: true });
       return gid;
     });
   }
@@ -643,10 +873,13 @@ export class Library {
     return this._entity(gid, gal, meta);
   }
 
-  // A gallery as surfaces render it; `missing` when its files can't be found in the library folder.
+  // A gallery as surfaces render it; `missing` when its files can't be found in the library folder,
+  // `archived` when it is kept in an archive there.
   _entity(gid, gal, meta) {
     const entity = entityFrom(gid, gal, meta);
-    if (this.files.isMissing(gid)) entity.missing = true;
+    const row = this.files._row(gid);
+    if (row?.state === 'missing') entity.missing = true;
+    if (row && row.format !== 'folder') entity.archived = true;
     return entity;
   }
 
@@ -712,6 +945,7 @@ export class Library {
     });
     if (!written) return false;
     if (!record.isStub) { if (silent) this.scheduleGallerySize(gid); else this.publishFeed(gid); }
+    this.settle(gid);
     return true;
   }
 
@@ -726,6 +960,7 @@ export class Library {
     const info = this._tx(() => this._mutateIn(gid, patch, { touch: opts.touch !== false, onlyIfExists: !!opts.onlyIfExists }));
     if (!silent) this.publishFeed(gid);
     else this.scheduleGallerySize(gid);
+    if (info.written) this.settle(gid);
     return info.written;
   }
 
@@ -825,7 +1060,7 @@ export class Library {
     if (!chapters || chapters.length < 2) {
       if (owner.chapterCount != null || owner.aggPages != null || owner.aggSize != null) {
         const { chapterCount, aggPages, aggSize, aggOrig, aggMedianPage, ...rest } = owner;
-        this._statPut(rest);
+        if (!this._statPut(rest)) return false;
         this._logIn(oid);
         return true;
       }
@@ -842,7 +1077,7 @@ export class Library {
     // The owner's record as it is now: it may be among its own chapters, read above.
     const current = this._statGet(oid);
     const { aggMedianPage: _, ...base } = current;
-    this._statPut({ ...base, chapterCount: chapters.length, aggPages, aggSize, aggOrig, ...(aggMedianPage ? { aggMedianPage } : {}) });
+    if (!this._statPut({ ...base, chapterCount: chapters.length, aggPages, aggSize, aggOrig, ...(aggMedianPage ? { aggMedianPage } : {}) })) return false;
     this._logIn(oid);
     return true;
   }
@@ -908,6 +1143,7 @@ export class Library {
       if (meta?.parentId && !totalled.has(String(meta.parentId))) this.scheduleSeriesAggregate(meta.parentId);
     }
     for (const gid of written) { if (plan.silent) this.scheduleGallerySize(gid); else this.publishFeed(gid); }
+    for (const gid of written) this.settle(gid);
     return plan.result;
   }
 
@@ -924,7 +1160,7 @@ export class Library {
       for (const ref of fileRefs(cover)) this._drop(path.join(this.cacheDir, ref));
       this._s('DELETE FROM covers WHERE gid = ?').run(gid);
     }
-    for (const row of this._pageRows(gid)) this._pageDrop(row);
+    for (const row of this._pageRows(gid)) this._pageDrop(row, { whole: true });
     this.files.deleteIn(gid);
     return meta;
   }
@@ -963,7 +1199,7 @@ export class Library {
     const rec = parse(row.record);
     if (variant === 'translated' && rec.translated != null) {
       if (typeof rec.translated === 'string') return imageToBlob(rec.translated);
-      if (isRef(rec.translated)) return this._readCache(rec.translated);
+      if (isRef(rec.translated)) return this._readFile(row.gid, rec.translated);
     }
     if (typeof rec.dataUrl === 'string' && !rec.blob) return imageToBlob(rec.dataUrl);
     return this._readOrig(row.gid, row.n, parse(row.orig));
@@ -1066,18 +1302,21 @@ export class Library {
 
   // ── Page-derived data ──
   // A page record changed by `change(rec)` (true when it changed it), with `value`'s Blobs written to
-  // the cache first. Resolves whether the page was there and changed.
+  // the gallery's folder first. Resolves whether the page was there and changed.
   async _derive(at, value, change, { size = true } = {}) {
-    const gid = String(typeof at === 'string' ? (this._pageRowByKey(at)?.gid ?? '') : at?.galleryId);
-    const { value: stored, fresh } = await this._externalize(value, gid || '_', `p${typeof at === 'string' ? keyPage(at) : at?.pageNum}`);
+    const found = this._pageAt(at);
+    if (!found) return false;
+    const { value: stored, fresh, moves } = await this._externalize(value, found.gid, `p${found.n}`,
+      { own: true, place: (keys, blob) => pageFileFor(keys, found.n, blob.type) });
     let changed = false;
     this._tx(() => {
       const row = this._pageAt(at);
-      if (!row) return;
+      if (!row || row.gid !== found.gid || row.n !== found.n) return;   // gone, or moved meanwhile
       const rec = this._rowRecord(row);
       if (change(rec, stored) === false) return;
       this._pageRewrite(row, rec);
       this._logIn(row.gid);
+      this._commitOwn(moves);
       changed = row.gid;
     }, fresh);
     if (!changed) { for (const file of fresh) fsp.rm(file, { force: true }).catch(() => {}); return false; }
@@ -1173,10 +1412,12 @@ export class Library {
     const next = { ...current, galleryId: gid, ...patch, coverRevisions };
     if (Object.keys(coverThumbs).length) next.coverThumbs = coverThumbs;
     else delete next.coverThumbs;
-    const kept = fileRefs(next);
+    const kept = fileRefs(next), keptOwn = ownRefs(next);
     for (const ref of fileRefs(current)) if (!kept.has(ref)) this._drop(path.join(this.cacheDir, ref));
+    for (const rel of ownRefs(current)) if (!keptOwn.has(rel)) this._dropOwn(gid, rel);
     this._coverPut(next);
     this._logIn(gid);
+    this.files.describeLater(gid);
   }
 
   _coverDeleteIn(galleryId, role) {
@@ -1184,7 +1425,7 @@ export class Library {
     const rec = this._coverGet(gid);
     if (!rec) return;
     this._logIn(gid);
-    const before = fileRefs(rec);
+    const before = fileRefs(rec), beforeOwn = ownRefs(rec);
     const coverRole = role === 'series' ? 'series' : 'gallery';
     if (coverRole === 'series') delete rec.seriesCover;
     else delete rec.cover;
@@ -1197,10 +1438,12 @@ export class Library {
       if (!Object.keys(rec.coverRevisions).length) delete rec.coverRevisions;
     }
     const keep = rec.cover || rec.seriesCover;
-    const after = keep ? fileRefs(rec) : new Set();
+    const after = keep ? fileRefs(rec) : new Set(), afterOwn = keep ? ownRefs(rec) : new Set();
     for (const ref of before) if (!after.has(ref)) this._drop(path.join(this.cacheDir, ref));
+    for (const rel of beforeOwn) if (!afterOwn.has(rel)) this._dropOwn(gid, rel);
     if (keep) this._coverPut(rec);
     else this._s('DELETE FROM covers WHERE gid = ?').run(gid);
+    this.files.describeLater(gid);
   }
 
   async coverGet(galleryId, opts = {}) {
@@ -1254,12 +1497,18 @@ export class Library {
     const gid = String(galleryId);
     const role = opts === 'series' ? 'series' : opts.role;
     const silent = opts !== 'series' && !!opts.silent;
-    const { value: image, fresh } = await this._externalize(await imageToBlob(cover) ?? cover, gid, `cover-${role === 'series' ? 'series' : 'gallery'}`);
-    this._tx(() => this._coverPatchIn(gid, role === 'series' ? { seriesCover: image } : { cover: image }), fresh);
+    const blob = await imageToBlob(cover);
+    if (!blob) throw new BackendError('invalid', 'no cover image');
+    const { ref, fresh, moves } = await this._coverRef(gid, blob, role === 'series' ? 'series' : 'gallery');
+    this._tx(() => {
+      this._coverPatchIn(gid, role === 'series' ? { seriesCover: ref } : { cover: ref });
+      this._commitOwn(moves);
+    }, fresh);
     if (!silent) {
       this._push('control', { type: 'COVER_INVALIDATED', galleryId: gid });
       this.publishFeed(gid);
     }
+    this.settle(gid);
   }
 
   // ── Source icons ──
@@ -1300,29 +1549,35 @@ export class Library {
   async transferWrite({ galleryId = null, meta = null, stat = null, pages = [], cover = null } = {}, { silent = false } = {}) {
     const gid = String(galleryId ?? meta?.galleryId ?? stat?.galleryId ?? pages[0]?.galleryId ?? '');
     if (!gid) throw new BackendError('invalid', 'a gallery to restore names no gallery');
-    const fresh = [];
+    const fresh = [], moves = [];
     const staged = [];
+    let first = null;   // the lowest page given: { n, blob }, a cover's match
     try {
       for (const rec of pages || []) {
         const n = keyPage(rec?.url);
         if (n == null) continue;   // a page with no number can't be addressed; it is left out
         const { blob, dataUrl, pageNum, ...rest } = rec;
+        for (const key of RETIRED_FIELDS) delete rest[key];   // an earlier format's leftovers have no place in a folder
         const original = await imageToBlob(blob ?? dataUrl);
         if (!original) continue;
         const bytes = new Uint8Array(await original.arrayBuffer());
+        if (!first || n < first.n) first = { n, blob: new Blob([bytes]) };
         const orig = await this._stage(gid, n, bytes, original.type || '');
         fresh.push(path.join(this.stagingDir, orig.file));
-        const { value, fresh: files } = await this._externalize(rest, gid, `p${n}`);
-        fresh.push(...files);
+        const own = await this._externalize(rest, gid, `p${n}`, { own: true, meta, place: (keys, b) => pageFileFor(keys, n, b.type) });
+        fresh.push(...own.fresh);
+        moves.push(...own.moves);
         staged.push({ n, key: String(rec.url), dims: measure(bytes), orig,
-          record: { ...value, galleryId: gid, blob: { $orig: 1, size: bytes.length, type: original.type || '' } } });
+          record: { ...own.value, galleryId: gid, blob: { $orig: 1, size: bytes.length, type: original.type || '' } } });
       }
       const coverPatch = {};
-      for (const field of ['cover', 'seriesCover']) {
-        if (!cover?.[field]) continue;
-        const { value, fresh: files } = await this._externalize(await imageToBlob(cover[field]) ?? cover[field], gid, `cover-${field}`);
-        fresh.push(...files);
-        coverPatch[field] = value;
+      for (const [field, role] of [['cover', 'gallery'], ['seriesCover', 'series']]) {
+        const blob = cover?.[field] ? await imageToBlob(cover[field]) : null;
+        if (!blob) continue;
+        const made = await this._coverRef(gid, blob, role, { first: first ?? undefined, meta });
+        fresh.push(...made.fresh);
+        moves.push(...made.moves);
+        coverPatch[field] = made.ref;
       }
       this._tx(() => {
         this._logIn(gid);
@@ -1336,6 +1591,7 @@ export class Library {
           this._pagePutRow({ gid, n: p.n, key: p.key, w: p.dims?.w, h: p.dims?.h, orig: p.orig, record: p.record });
         }
         if (Object.keys(coverPatch).length) this._coverPatchIn(gid, coverPatch);
+        this._commitOwn(moves);   // after the replaced pages' pictures went
       }, fresh);
     } catch (e) {
       for (const file of fresh) fsp.rm(file, { force: true }).catch(() => {});
@@ -1370,7 +1626,7 @@ export class Library {
       for (const r of this._s('SELECT record FROM covers ORDER BY gid').all()) {
         const c = parse(r.record);
         coverById.set(String(c.galleryId), c);
-        const refs = [...fileRefs(c)];
+        const refs = [...fileRefs(c), ...[...ownRefs(c)].map(rel => `own:${c.galleryId}/${rel}`)];
         for (const v of [c.cover, c.seriesCover]) if (v?.$page != null) refs.push(`orig:${c.galleryId}/${v.$page}`);
         out.covers.push({ gid: String(c.galleryId), refs });
       }
@@ -1378,7 +1634,8 @@ export class Library {
         const rec = this._rowRecord(row);
         if (!pagesBy.has(row.gid)) pagesBy.set(row.gid, []);
         pagesBy.get(row.gid).push(rec);
-        out.pages.push({ url: row.key, gid: row.gid, pageNum: row.n, refs: [`orig:${row.gid}/${row.n}`, ...fileRefs(rec)] });
+        out.pages.push({ url: row.key, gid: row.gid, pageNum: row.n,
+          refs: [`orig:${row.gid}/${row.n}`, ...fileRefs(rec), ...[...ownRefs(rec)].map(name => `own:${row.gid}/${name}`)] });
         origIds.push([row.gid, row.n, parse(row.orig)]);
       }
     });
@@ -1390,7 +1647,7 @@ export class Library {
     for (const gid of pagesBy.keys()) sizeOfGallery(gid);
     for (const g of out.galleries) if (!(g.gid in out.exportSizes)) sizeOfGallery(g.gid);
     for (const [gid, n, orig] of origIds) if (await this._origExists(gid, n, orig)) out.images.push(`orig:${gid}/${n}`);
-    out.images.push(...await this._cacheFiles());
+    out.images.push(...await this._cacheFiles(), ...await this._ownFiles());
     return out;
   }
 
@@ -1400,6 +1657,15 @@ export class Library {
     if (await at(orig)) return true;
     const now = parse(this._pageRow(gid, n)?.orig);
     return !!now && !sameOrig(now, orig) && at(now);
+  }
+
+  // Every own file in every gallery's folder or archive, as `own:<gid>/<name>`.
+  async _ownFiles() {
+    const out = [];
+    for (const { gid } of this._s('SELECT gid FROM files').all()) {
+      for (const name of await this.files.ownNames(gid)) if (ownName(name)) out.push(`own:${gid}/${name}`);
+    }
+    return out;
   }
 
   async _cacheFiles() {

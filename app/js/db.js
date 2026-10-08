@@ -586,7 +586,7 @@ export async function dbPut(url, src, mediaId, galleryId, opts = {}) {
     };
   });
 
-  _forgetOtherSourceLookup(meta?.sourceId, gid);
+  _forgetOtherSourceLookup(meta?.sourceId, gid, meta?.source);
   if (coverChanged) {
     platform.control.send({ type: 'COVER_INVALIDATED', galleryId: gid });
   }
@@ -636,8 +636,8 @@ export async function metaPut(meta, opts = {}) {
     // (see the pageless-stub grace window in purgePagelessStubs).
     tx.oncomplete = () => {
       if (!written) { resolve(false); return; }
-      if (prevSourceId && String(prevSourceId) !== String(record.sourceId || '')) _sourceIdToGalleryId.delete(String(prevSourceId));
-      _forgetOtherSourceLookup(record.sourceId, gid);
+      if (prevSourceId && String(prevSourceId) !== String(record.sourceId || '')) forgetSourceMapping(prevSourceId, gid);
+      _forgetOtherSourceLookup(record.sourceId, gid, record.source);
       // A silent write still moves the gallery's size (its metadata is part of the export).
       if (!record.isStub) { if (silent) scheduleGallerySize(gid); else publishFeed(gid); }
       resolve(true);
@@ -1348,7 +1348,7 @@ export async function transferWrite({ galleryId = null, meta = null, stat = null
     if (cover?.seriesCover) patch.seriesCover = cover.seriesCover;
     if (Object.keys(patch).length) putCoverPatch(tx, gid, patch);
   });
-  _forgetOtherSourceLookup(meta?.sourceId, gid);
+  _forgetOtherSourceLookup(meta?.sourceId, gid, meta?.source);
   if (!silent) publishFeed(gid);
   else scheduleGallerySize(gid);
 }
@@ -1417,9 +1417,11 @@ export const _sourceIdToGalleryId = new Map();
 const _galleryResolvePending      = new Map();
 let _lastGeneratedGalleryId       = 0;
 
-function forgetSourceMapping(sourceId, galleryId) {
+const sourceLookupKey = (sid, source) => JSON.stringify([String(source || ''), String(sid)]);
+
+function forgetSourceMapping(sourceId, galleryId, source) {
   const sid = sourceId != null ? String(sourceId) : '';
-  if (sid) _sourceIdToGalleryId.delete(sid);
+  if (sid) _sourceIdToGalleryId.delete(sourceLookupKey(sid, source));
   if (galleryId != null) {
     const gid = String(galleryId);
     for (const [k, v] of _sourceIdToGalleryId) {
@@ -1432,24 +1434,26 @@ platform.control.on((msg) => {
   if (msg?.type === 'GALLERY_DELETED') forgetSourceMapping(msg.sourceId, msg.galleryId);
 });
 
-async function cachedGalleryIdForSource(sid) {
-  if (!_sourceIdToGalleryId.has(sid)) return null;
-  const gid = String(_sourceIdToGalleryId.get(sid));
+async function cachedGalleryIdForSource(sid, source) {
+  const key = sourceLookupKey(sid, source);
+  if (!_sourceIdToGalleryId.has(key)) return null;
+  const gid = String(_sourceIdToGalleryId.get(key));
   const meta = await metaGet(gid).catch(() => null);
-  if (meta && String(meta.sourceId || '') === sid) return gid;
-  forgetSourceMapping(sid, gid);
+  if (meta && String(meta.sourceId || '') === sid && String(meta.source || '') === source) return gid;
+  forgetSourceMapping(sid, gid, source);
   return null;
 }
 
 // ── Gallery ID resolution ──
-// Site source ids (short numbers) map to internal gallery ids (timestamps). A first sighting
+// Source + reference pairs map to internal gallery ids (timestamps). A first sighting
 // creates a stub metadata record so concurrent captures agree on the same internal id. Several
-// galleries may share a source id (a copy kept on purpose): a lookup always answers the first one
+// galleries may share a source and reference (a copy kept on purpose): a lookup answers the first one
 // added — a real gallery before any placeholder — so only the lookup itself fills the cache, and a
 // metadata write only drops an entry it may have made stale.
-function _forgetOtherSourceLookup(sourceId, gid) {
+function _forgetOtherSourceLookup(sourceId, gid, source) {
   const sid = sourceId != null ? String(sourceId) : '';
-  if (sid && _sourceIdToGalleryId.has(sid) && _sourceIdToGalleryId.get(sid) !== gid) _sourceIdToGalleryId.delete(sid);
+  const key = sourceLookupKey(sid, source);
+  if (sid && _sourceIdToGalleryId.has(key) && _sourceIdToGalleryId.get(key) !== gid) _sourceIdToGalleryId.delete(key);
 }
 
 // The one internal-id mint: Date.now()-sequenced, monotonic per context. Import paths must
@@ -1459,12 +1463,12 @@ export function nextGalleryId() {
   return String(_lastGeneratedGalleryId);
 }
 
-async function resolveSourceGalleryId(sid) {
-  const cached = await cachedGalleryIdForSource(sid);
+async function resolveSourceGalleryId(sid, source) {
+  const cached = await cachedGalleryIdForSource(sid, source);
   if (cached) return cached;
   const db = await openDB();
   // Index lookup + stub creation in ONE readwrite transaction: two contexts racing on the same
-  // source id serialize here, so the loser sees the winner's stub instead of minting a second
+  // source and reference serialize here, so the loser sees the winner's stub instead of minting a second
   // internal id for the same gallery. (The stub bypasses metaPut deliberately — it carries no
   // title/tags to canonicalize, and metaPut's stat-record touch skips stubs anyway.)
   const gid = await new Promise((resolve, reject) => {
@@ -1473,30 +1477,33 @@ async function resolveSourceGalleryId(sid) {
     const store = tx.objectStore(META_STORE);
     const req = store.index('sourceId').getAll(sid);   // oldest first: ids are creation times
     req.onsuccess = () => {
-      const held = req.result.find(m => !m.isStub) || req.result[0];
+      const matches = req.result.filter(m => String(m.source || '') === source);
+      const held = matches.find(m => !m.isStub) || matches[0];
       if (held) { result = String(held.galleryId); return; }
       const newGid = nextGalleryId();
-      store.put({ galleryId: newGid, sourceId: sid, isStub: true });
+      store.put({ galleryId: newGid, sourceId: sid, source, isStub: true });
       result = newGid;
     };
     tx.oncomplete = () => resolve(result);
     tx.onerror = () => reject(tx.error);
   });
-  _sourceIdToGalleryId.set(sid, gid);
+  _sourceIdToGalleryId.set(sourceLookupKey(sid, source), gid);
   return gid;
 }
 
-export async function resolveGalleryId(id) {
+export async function resolveGalleryId(id, source = '') {
   const raw = String(id);
   // Internal ids are Date.now()-derived → always ≥13 digits. Anything that long is treated as
   // already-internal; SOURCE refs that long are rejected at the agent boundary (resolve_gid)
   // so an unusually long external id can never silently bypass resolution.
   if (/^\d{13,}$/.test(raw)) return raw;
-  if (_galleryResolvePending.has(raw)) return _galleryResolvePending.get(raw);
-  const pending = resolveSourceGalleryId(raw).finally(() => {
-    if (_galleryResolvePending.get(raw) === pending) _galleryResolvePending.delete(raw);
+  source = String(source || '');
+  const key = sourceLookupKey(raw, source);
+  if (_galleryResolvePending.has(key)) return _galleryResolvePending.get(key);
+  const pending = resolveSourceGalleryId(raw, source).finally(() => {
+    if (_galleryResolvePending.get(key) === pending) _galleryResolvePending.delete(key);
   });
-  _galleryResolvePending.set(raw, pending);
+  _galleryResolvePending.set(key, pending);
   return pending;
 }
 
@@ -1790,9 +1797,9 @@ export async function galleryCreate(galleryId, meta = {}) {
 }
 
 // The source-id lookup cache after a mutation committed.
-function _afterMutate(gid, { prevSourceId = null, nextSourceId = null } = {}) {
-  if (prevSourceId && String(prevSourceId) !== String(nextSourceId || '')) _sourceIdToGalleryId.delete(String(prevSourceId));
-  _forgetOtherSourceLookup(nextSourceId, gid);
+function _afterMutate(gid, { prevSourceId = null, nextSourceId = null, nextSource } = {}) {
+  if (prevSourceId && String(prevSourceId) !== String(nextSourceId || '')) forgetSourceMapping(prevSourceId, gid);
+  _forgetOtherSourceLookup(nextSourceId, gid, nextSource);
 }
 
 // mutateGallery's work inside `tx` (which includes META_STORE and GALLERY_STORE). `done` gets
@@ -1854,7 +1861,7 @@ function _mutateIn(tx, gid, patch, { touch = true, onlyIfExists = false, ensureS
       }
       if (cur) gals.put(cur);
       _logIn(tx, gid);
-      done({ written: true, prevSourceId, nextSourceId });
+      done({ written: true, prevSourceId, nextSourceId, nextSource: merged.source });
     };
   };
 }

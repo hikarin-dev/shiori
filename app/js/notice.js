@@ -1,5 +1,5 @@
 // notice.js — the app-wide toast, a choice prompt, a progress modal and the app's own confirm /
-// alert / prompt dialogs, used instead of the browser's (styles: notice.css).
+// alert / prompt / choice dialogs, used instead of the browser's (styles: notice.css).
 
 import { t } from './i18n.js';
 
@@ -107,7 +107,7 @@ const _ICONS = {
 };
 let _dialogSeq = 0;
 
-function _dialog({ title, body, detail, cover, tone, input, ok, cancel }) {
+function _dialog({ title, body, detail, cover, tone, input, form, ok, cancel }) {
   return new Promise((resolve) => {
     const id = `notice-dlg-${++_dialogSeq}`;
     const overlay = _el('div', 'notice-overlay');
@@ -167,6 +167,45 @@ function _dialog({ title, body, detail, cover, tone, input, ok, cancel }) {
       field.setAttribute('aria-labelledby', `${id}-t`);
       modal.append(field);
     }
+    // A choice among options (radio buttons), with checkboxes beneath — each shown only while the
+    // option it belongs to (`for`) is chosen.
+    let picked = form?.value;
+    const checks = [];
+    function syncChecks() { for (const c of checks) c.row.hidden = c.check.for != null && c.check.for !== picked; }
+    if (form) {
+      const group = _el('div', 'notice-options');
+      group.setAttribute('role', 'radiogroup');
+      group.setAttribute('aria-labelledby', `${id}-t`);
+      for (const choice of form.choices) {
+        const row = _el('label', 'notice-option');
+        const radio = _el('input');
+        radio.type = 'radio';
+        radio.name = `${id}-choice`;
+        radio.value = choice.value;
+        radio.checked = choice.value === picked;
+        radio.addEventListener('change', () => { picked = choice.value; syncChecks(); });
+        const text = _el('span', 'notice-option-text');
+        text.append(_el('strong', null, choice.label));
+        if (choice.detail) text.append(_el('span', null, choice.detail));
+        row.append(radio, text);
+        group.append(row);
+      }
+      modal.append(group);
+      if (form.checks?.length) {
+        const list = _el('div', 'notice-checks');
+        for (const check of form.checks) {
+          const row = _el('label', 'notice-check');
+          const box = _el('input');
+          box.type = 'checkbox';
+          box.checked = !!check.checked;
+          row.append(box, _el('span', null, check.label));
+          list.append(row);
+          checks.push({ check, row, box });
+        }
+        modal.append(list);
+      }
+      syncChecks();
+    }
     const actions = _el('div', 'notice-actions');
     const no = cancel ? _el('button', 'btn', cancel) : null;
     const yes = _el('button', `btn ${tone === 'danger' ? 'danger' : 'primary'}`, ok || t('common.ok'));
@@ -182,8 +221,9 @@ function _dialog({ title, body, detail, cover, tone, input, ok, cancel }) {
       returnFocus?.focus?.();
       resolve(answer);
     };
-    const accept = () => finish(field ? field.value.trim() : true);
-    const dismiss = () => finish(field ? null : (cancel ? false : undefined));
+    const accept = () => finish(field ? field.value.trim()
+      : form ? { value: picked, checks: Object.fromEntries(checks.map(c => [c.check.name, c.box.checked])) } : true);
+    const dismiss = () => finish(field || form ? null : (cancel ? false : undefined));
     const onKey = (e) => {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); dismiss(); return; }
       if (e.key === 'Enter' && e.target === field) { e.preventDefault(); e.stopPropagation(); accept(); return; }
@@ -212,3 +252,8 @@ export const alertDialog = ({ title, body, detail, cover, tone = 'info' }) =>
 // Resolves with the trimmed text, or null when cancelled.
 export const promptDialog = ({ title, body, detail, cover, value = '', placeholder = '', ok, cancel }) =>
   _dialog({ title, body, detail, cover, input: { value: String(value ?? ''), placeholder }, ok, cancel: cancel || t('common.cancel') });
+// One of `choices` ({ value, label, detail }), starting at `value`, and `checks` ({ name, label,
+// checked, for? } — shown only while choice `for` is picked). Resolves { value, checks: { name:
+// checked } }, or null when cancelled.
+export const choiceDialog = ({ title, body, detail, cover, choices, value, checks = [], ok, cancel }) =>
+  _dialog({ title, body, detail, cover, form: { choices, value: value ?? choices[0]?.value, checks }, ok, cancel: cancel || t('common.cancel') });

@@ -14,8 +14,31 @@ const MAX_ROWS = 8;   // the list shows at most this many options and scrolls th
 function place(e) {
   const sel = e.target.closest && e.target.closest('select');
   if (!sel) return;
+  wrapOptions(sel);
   const r = sel.getBoundingClientRect(), below = innerHeight - r.bottom;
   sel.classList.toggle('opens-up', below < Math.min(sel.options.length, MAX_ROWS) * ROW + 10 && r.top > below);
+}
+
+// Give long customizable pickers a real scroll container, also usable by the shared overlay.
+function wrapOptions(sel) {
+  if (!document.documentElement.classList.contains('custom-scrollbars')) {
+    const list = sel.querySelector('.dd-options');
+    if (list) {
+      const selected = sel.selectedIndex;
+      list.replaceWith(...list.children);
+      sel.selectedIndex = selected;
+    }
+    return;
+  }
+  if (sel.multiple || sel.size > 1 || sel.options.length <= MAX_ROWS || sel.querySelector('.dd-options')) return;
+  const selected = sel.selectedIndex;
+  const list = document.createElement('div');
+  list.className = 'dd-options';
+  for (const child of [...sel.children]) {
+    if (child.matches('option, optgroup')) list.append(child);
+  }
+  sel.append(list);
+  sel.selectedIndex = selected;
 }
 
 // Measured by showing each option in turn — synchronous, so nothing paints in between and no
@@ -38,6 +61,8 @@ let _inited = false;
 export function initDropdowns() {
   if (_inited || !CSS.supports('appearance', 'base-select')) return;
   _inited = true;
+  document.querySelectorAll('select').forEach(wrapOptions);
+  window.addEventListener('shiori-scrollbar-change', () => document.querySelectorAll('select').forEach(wrapOptions));
   document.addEventListener('pointerdown', place, true);
   document.addEventListener('keydown', place, true);
   document.fonts.ready.then(fitWidest);                    // widths depend on the loaded font

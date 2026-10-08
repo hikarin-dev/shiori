@@ -79,13 +79,15 @@
     border-top-color: var(--dd-seam);
     border-radius: 0 0 var(--dd-radius) var(--dd-radius);
     box-shadow: 0 10px 24px rgb(0 0 0 / .35);
-    scrollbar-color: var(--dd-line) transparent;
+    scrollbar-color: var(--scrollbar-inner-thumb) transparent;
     scrollbar-width: thin;
     opacity: 0;
     clip-path: inset(0 -24px 100% -24px);
     transition: clip-path .18s ease-out, opacity .12s ease-out, display .18s allow-discrete, overlay .18s allow-discrete;
   }
   select:open::picker(select) { opacity: 1; clip-path: inset(0 -24px -24px -24px); }
+  select:has(.dd-options)::picker(select) { overflow: hidden; }
+  .dd-options { max-height: calc(8 * (1lh + 12px)); overflow-y: auto; }
   @starting-style {
     select:open::picker(select) { opacity: 0; clip-path: inset(0 -24px 100% -24px); }
   }

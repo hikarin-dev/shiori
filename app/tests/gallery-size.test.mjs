@@ -1,6 +1,7 @@
 // gallery-size.test.mjs — a gallery's size in the library is its export archive's exact size:
-// original pages, translations, study data, snapshots, covers and metadata, split into the
-// original pages and the rest, and kept current as the gallery changes.
+// original pages, translations, study data, snapshots, a custom cover and metadata (a cover that is
+// the first page is implied, not a copy), split into the original pages and the rest, and kept
+// current as the gallery changes.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import 'fake-indexeddb/auto';
@@ -8,17 +9,16 @@ import 'fake-indexeddb/auto';
 globalThis.BroadcastChannel = class { postMessage() {} close() {} };
 
 const db = await import('../js/db.js');
-const { galleryFiles, fileBytes } = await import('../js/gallery-files.js');
+const { exportFiles } = await import('../js/gallery-files.js');
 const { zipCreate } = await import('../js/zip.js');
 
 const png = (n, fill = 1) => new Blob([new Uint8Array(n).fill(fill)], { type: 'image/png' });
 const webp = (n) => new Blob([new Uint8Array(n).fill(7)], { type: 'image/webp' });
 
-// The archive the gallery export writes, from what is stored.
+// The archive the gallery export writes (library.js exportGallery → exportFiles).
 async function archiveBytes(gid) {
-  const [meta, records, covers] = await Promise.all([db.metaGet(gid), db.getGalleryImageRecords(gid), db.coverRecordGet(gid)]);
-  const files = galleryFiles({ meta, records, covers: { gallery: covers?.cover, series: covers?.seriesCover } });
-  return zipCreate(await Promise.all(files.map(async f => ({ name: f.name, data: await fileBytes(f.source) })))).length;
+  const { files } = await exportFiles(gid, { read: db.transferRead, metaGet: db.metaGet });
+  return zipCreate(files).length;
 }
 
 test('a gallery is as big as its export, and hovering splits off the original pages', async () => {
@@ -35,7 +35,8 @@ test('a gallery is as big as its export, and hovering splits off the original pa
   const stat = await db.galleryGet(gid);
   assert.equal(stat.size, await archiveBytes(gid), 'the exact size of the export');
   assert.equal(stat.origSize, 5000, 'the two original pages');
-  assert.ok(stat.size > 5000 + 1500 + 400 + 100 + 900 + 300 + 3000, 'translations, snapshots, study data and the cover copy count too');
+  assert.ok(stat.size > 5000 + 1500 + 400 + 100 + 900 + 300, 'translations, snapshots and study data count too');
+  assert.ok(stat.size < 5000 + 1500 + 400 + 100 + 900 + 300 + 3000, 'its cover, the first page, is not counted twice');
 
   await db.clearGalleryTranslations(gid);
   await db.refreshGallerySize(gid);

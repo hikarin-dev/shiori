@@ -1,14 +1,16 @@
 // main.js — Shiori Desktop: the app in its own window, over a library kept as files. The main
 // process owns the library (server/library.js) and serves it on 127.0.0.1 (server/server.js). Each
-// window shows the app's pages at one fixed address, shiori-app://shiori (forwarded to the server,
-// so the app's own settings, kept per address, survive a change of port), under a title bar strip
-// of its own: back and forward, the page's title, and Windows' window buttons. One instance runs at
-// a time; a second launch (or a shiori:// link) brings its window forward. Closing the window can
-// leave Shiori in the tray; quitting while work runs asks first.
-import { app, BaseWindow, WebContentsView, Menu, Tray, nativeImage, dialog, shell, ipcMain, protocol, net } from 'electron';
+// window shows the app's pages from that server, under a title bar strip of its own: back and
+// forward, the page's title, and Windows' window buttons. The app keeps its settings per address, so
+// when the server's port changes they are carried to the new one. Browser extensions the person adds
+// (Settings → System) run in the windows as they would in a browser. One instance runs at a time; a
+// second launch (or a shiori:// link) brings its window forward. Closing the window can leave Shiori
+// in the tray; quitting while work runs asks first.
+import { app, BaseWindow, BrowserWindow, WebContentsView, Menu, Tray, nativeImage, dialog, shell, ipcMain, protocol, net, session } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -17,25 +19,66 @@ const UI_ROOT = app.isPackaged ? path.join(process.resourcesPath, 'ui') : path.r
 process.env.SHIORI_UI_DIR = path.join(UI_ROOT, 'app');
 // Where this run keeps its settings (overridable, so a test run never touches a person's own).
 if (process.env.SHIORI_USER_DATA) app.setPath('userData', path.resolve(process.env.SHIORI_USER_DATA));
+// No HTTP disk cache: the windows show only the app's own pages, from its local server, and keep
+// what they need in the library — a cache would only write what they fetch a second time.
+app.commandLine.appendSwitch('disable-http-cache');
 
 const { Library } = await import('./server/library.js');
+const { libraryId } = await import('./server/files.js');
 const { startServer } = await import('./server/server.js');
+
+// ── Folders Explorer shows ──
+// Explorer windows showing `from` (or a folder inside it) are moved to `to` (its parent, when `to`
+// isn't there yet) before the library deletes or moves that folder, so Explorer never finds the
+// folder it shows gone — which makes it complain, and can bring it down. Through Windows' own
+// Shell.Application, in a short PowerShell; a moment's wait after, for the windows it moved to let
+// go of the folder.
+const VACATE = `
+$from = $env:SHIORI_FROM; $to = $env:SHIORI_TO; $moved = 0
+if (-not (Test-Path -LiteralPath $to)) { $to = Split-Path -Parent $from }
+foreach ($w in @((New-Object -ComObject Shell.Application).Windows())) {
+  try { $p = $w.Document.Folder.Self.Path } catch { continue }
+  if ($p -and ($p -ieq $from -or $p.StartsWith($from + '\\', [StringComparison]::OrdinalIgnoreCase))) {
+    try { $w.Navigate2($to); $moved++ } catch {}
+  }
+}
+Write-Output $moved`;
+function vacate(from, to) {
+  if (process.platform !== 'win32') return Promise.resolve();
+  return new Promise((resolve) => {
+    let out = '';
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', VACATE],
+      { env: { ...process.env, SHIORI_FROM: from, SHIORI_TO: to }, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    const timer = setTimeout(() => child.kill(), 5000);
+    child.stdout.on('data', (d) => { out += d; });
+    const done = () => { clearTimeout(timer); setTimeout(resolve, parseInt(out, 10) > 0 ? 400 : 0); };
+    child.on('exit', done);
+    child.on('error', done);
+  });
+}
+
+// The library folder's .shiori (its id, pages on their way in) hidden in Explorer, as .git is.
+function hide(dir) {
+  if (process.platform !== 'win32') return;
+  spawn('attrib.exe', ['+h', dir], { windowsHide: true, stdio: 'ignore' }).on('error', () => {});
+}
 const { translator, pickLanguage, isLanguage } = await import('./i18n.js');
 
+// The address the windows used until 1.0.14: only read now, to carry the settings kept there.
 const APP_SCHEME = 'shiori-app';
 const APP_ORIGIN = `${APP_SCHEME}://shiori`;
 const DEFAULT_PORT = 47153;   // tried first, then the next nine (D14)
 const PORTS = Array.from({ length: 10 }, (_, i) => DEFAULT_PORT + i);
 const PAGES = new Set(['library', 'reader', 'overview', 'settings']);
-const FORMATS = new Set(['cbz', 'zip', 'folder']);
 const TITLEBAR_HEIGHT = 32;
 const FRAME = { bg: '#0d0d0f', symbols: '#a1a1aa' };   // the app's palette (base.css --bg, --muted)
 
-// The app's pages are a standard, secure origin of their own: storage, modules and fetch as on the web.
+// (A standard, secure origin of its own: storage, modules and fetch as on the web.)
 protocol.registerSchemesAsPrivileged([{ scheme: APP_SCHEME,
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } }]);
 
-// ── Settings: { libraryDir, port, bounds, lang, closeToTray, sites } in the app's data folder ──
+// ── Settings: { libraryDir, port, bounds, lang, closeToTray, sites, devUpdates, extensions,
+//    windowOrigin, archiveAfter, archiveFormat } in the app's data folder ──
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 function readSettings() {
   try { return JSON.parse(fs.readFileSync(settingsFile(), 'utf8')) || {}; } catch { return {}; }
@@ -47,13 +90,17 @@ function writeSettings(patch) {
   return next;
 }
 const libraryDirOf = (settings) => path.resolve(process.env.SHIORI_LIBRARY_DIR || settings.libraryDir || path.join(app.getPath('documents'), 'Shiori Library'));
-// Each library folder has its own index and cache, kept on this computer even when the folder is on
-// a network drive.
-const dataDirOf = (libraryDir) => path.join(app.getPath('userData'), 'libraries',
-  crypto.createHash('sha256').update(libraryDir.toLowerCase()).digest('hex').slice(0, 16));
+// Each library folder has its own index and thumbnails on this computer (even when the folder is on
+// a network drive), found by the id the folder carries — not by its path, so a drive that comes back
+// under another letter, or a folder moved or renamed, still finds them.
+const dataDirOf = (libraryDir) => path.join(app.getPath('userData'), 'libraries', libraryId(libraryDir));
 const closeToTray = () => readSettings().closeToTray !== false;
+// Galleries left alone this long are archived (files.js), as ZIP or CBZ: never, and ZIP, unless chosen.
+const ARCHIVE_AFTER = { never: 0, day: 24 * 60 * 60_000, week: 7 * 24 * 60 * 60_000, month: 30 * 24 * 60 * 60_000 };
+const archiveAfterOf = (settings) => (settings.archiveAfter in ARCHIVE_AFTER ? settings.archiveAfter : 'never');
+const archiveFormatOf = (settings) => (settings.archiveFormat === 'cbz' ? 'cbz' : 'zip');
 
-let library = null, server = null, token = null, mainWindow = null, tray = null, libraryDir = null;
+let library = null, server = null, token = null, mainWindow = null, tray = null, libraryDir = null, dataDir = null;
 const windows = new Map();   // window → { view, bar }
 const pending = [];          // shiori:// links that arrived before the window
 
@@ -91,14 +138,14 @@ function openLink(link) {
 function showWindow(target = null) {
   closingAfterJobs = false;
   if (!mainWindow || mainWindow.isDestroyed()) { mainWindow = createWindow(target || '/library'); return; }
-  if (target) windows.get(mainWindow).view.webContents.loadURL(APP_ORIGIN + target);
+  if (target) windows.get(mainWindow).view.webContents.loadURL(server.url + target);
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
   buildTray();
 }
 
-const isApp = (url) => { try { const u = new URL(url); return u.protocol === `${APP_SCHEME}:` && u.hostname === 'shiori'; } catch { return false; } };
+const isApp = (url) => { try { return !!server && new URL(url).origin === server.url; } catch { return false; } };
 const external = (url) => { if (/^https?:\/\//i.test(url)) shell.openExternal(url); };
 const fromApp = (event) => !!server && isApp(event.senderFrame?.url || '');
 const partsOf = (contents) => [...windows.values()].find(p => p.view.webContents === contents || p.bar.webContents === contents);
@@ -178,9 +225,62 @@ function createWindow(target) {
   win.on('session-end', () => { quitting = true; });
 
   bar.webContents.loadFile(path.join(here, 'titlebar.html'));
-  contents.loadURL(APP_ORIGIN + target);
+  contents.loadURL(server.url + target);
   return win;
 }
+
+// ── The app's settings follow its address ──
+// The app keeps its settings in its address's browser storage, and the windows' address is the
+// local server's, whose port can change (a setting, or the usual port busy at start). When it has —
+// and once from the address used until 1.0.14 — what the old address held is copied to the new one.
+// Each start also leaves the library's place there (library-location.js), so every page at this
+// address finds it: the window's, and those a browser extension embeds. Runs before any extension
+// loads: until then this process can stand in for an address nothing serves any more.
+async function atAddress(origin, script) {
+  const page = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true } });
+  const stand = origin.startsWith('http:') && origin !== server.url;
+  if (stand) {
+    protocol.handle('http', (request) => (new URL(request.url).origin === origin
+      ? new Response('', { headers: { 'content-type': 'text/html' } })
+      : net.fetch(request, { bypassCustomProtocolHandlers: true })));
+  }
+  try {
+    await page.loadURL(`${origin}/__settings`).catch(() => {});
+    return await page.webContents.executeJavaScript(script);
+  } finally {
+    if (stand) protocol.unhandle('http');
+    page.destroy();
+  }
+}
+async function prepareAddress() {
+  const settings = readSettings();
+  const before = settings.windowOrigin || (fs.existsSync(settingsFile()) ? APP_ORIGIN : null);
+  let carried = null;
+  if (before && before !== server.url) {
+    carried = await atAddress(before, 'JSON.stringify(Object.fromEntries(Object.keys(localStorage).map(k => [k, localStorage.getItem(k)])))')
+      .then(JSON.parse).catch((e) => { console.warn('[shiori] settings not carried over:', e?.message || e); return null; });
+  }
+  const place = JSON.stringify({ kind: 'desktop', url: server.url, token });
+  await atAddress(server.url, `(() => {
+    const carried = ${JSON.stringify(carried)};
+    if (carried) { localStorage.clear(); for (const [k, v] of Object.entries(carried)) localStorage.setItem(k, v); }
+    localStorage.setItem('shiori:libraryLocation', ${JSON.stringify(place)});
+    return true;
+  })()`).catch((e) => console.warn('[shiori] address not prepared:', e?.message || e));
+  if (settings.windowOrigin !== server.url) writeSettings({ windowOrigin: server.url });
+}
+
+// ── Browser extensions the person added (Settings → System), each an unpacked extension's folder ──
+const extensionsLoaded = new Map();   // folder → { id, name, version } or { error }
+async function loadExtension(dir) {
+  try {
+    const ext = await session.defaultSession.extensions.loadExtension(dir);
+    extensionsLoaded.set(dir, { id: ext.id, name: ext.name, version: ext.version });
+  } catch (e) {
+    extensionsLoaded.set(dir, { error: String(e?.message || e).split('\n')[0] });
+  }
+}
+const reloadPages = () => { for (const { view } of windows.values()) if (!view.webContents.isDestroyed()) view.webContents.reload(); };
 
 // The shortcuts a menu would have carried. Returns true when `input` was one.
 function shortcut(win, contents, input) {
@@ -217,11 +317,12 @@ function shellState() {
   const settings = readSettings();
   return {
     closeToTray: settings.closeToTray !== false,
-    libraryDir: libraryDirOf(settings), dataDir: dataDirOf(libraryDir),
-    writeFormat: library.files.writeFormat(), comicInfo: library.files.comicInfo(),
+    libraryDir: libraryDirOf(settings), dataDir,
+    archiveAfter: archiveAfterOf(settings), archiveFormat: archiveFormatOf(settings),
     port: settings.port || 0, ports: PORTS, url: server.url, version: app.getVersion(),
     sites: Object.keys(settings.sites || {}).sort(),
     devUpdates: !!settings.devUpdates, devFeed: DEV_FEED, update, packaged: app.isPackaged,
+    extensions: (settings.extensions || []).map(dir => ({ dir, ...extensionsLoaded.get(dir) })),
   };
 }
 ipcMain.handle('shiori:shell', async (event, action, args = []) => {
@@ -231,9 +332,15 @@ ipcMain.handle('shiori:shell', async (event, action, args = []) => {
     case 'state': return shellState();
     case 'set':
       if (key === 'closeToTray' && typeof value === 'boolean') writeSettings({ closeToTray: value });
-      else if (key === 'writeFormat' && FORMATS.has(value)) library._kvSet('writeFormat', value);
-      else if (key === 'comicInfo' && typeof value === 'boolean') library._kvSet('comicInfo', value);
       else if (key === 'port' && (value === 0 || PORTS.includes(value))) writeSettings({ port: value || undefined });
+      else if (key === 'archiveAfter' && value in ARCHIVE_AFTER) {
+        writeSettings({ archiveAfter: value });
+        library.files.archiveAfter = ARCHIVE_AFTER[value];
+        library.files.sweepSoon();
+      } else if (key === 'archiveFormat' && (value === 'zip' || value === 'cbz')) {
+        writeSettings({ archiveFormat: value });
+        library.files.archiveFormat = value;
+      }
       else if (key === 'devUpdates' && typeof value === 'boolean') {
         writeSettings({ devUpdates: value || undefined });
         if (update.status !== 'downloading' && update.status !== 'ready') update = { status: 'idle' };
@@ -242,7 +349,7 @@ ipcMain.handle('shiori:shell', async (event, action, args = []) => {
       else throw new Error(`no setting ${key}`);
       return shellState();
     case 'openLibraryFolder': await shell.openPath(libraryDir); return true;
-    case 'openDataFolder': await shell.openPath(dataDirOf(libraryDir)); return true;
+    case 'openDataFolder': await shell.openPath(dataDir); return true;
     case 'chooseLibraryFolder': {
       const current = libraryDirOf(readSettings());
       const chosen = await pickFolder(current, windowOf(event.sender) || mainWindow);
@@ -263,6 +370,25 @@ ipcMain.handle('shiori:shell', async (event, action, args = []) => {
       return shellState();
     }
     case 'restart': requestQuit({ relaunch: true }); return true;
+    case 'addExtension': {
+      const chosen = await pickFolder(undefined, windowOf(event.sender) || mainWindow, t('choose_extension'));
+      const list = readSettings().extensions || [];
+      if (!chosen || list.includes(chosen)) return shellState();
+      await loadExtension(chosen);
+      writeSettings({ extensions: [...list, chosen] });
+      reloadPages();   // its scripts join the pages as they load
+      return shellState();
+    }
+    case 'removeExtension': {
+      const list = readSettings().extensions || [];
+      if (typeof key !== 'string' || !list.includes(key)) return shellState();
+      const loaded = extensionsLoaded.get(key);
+      if (loaded?.id) { try { session.defaultSession.extensions.removeExtension(loaded.id); } catch {} }
+      extensionsLoaded.delete(key);
+      writeSettings({ extensions: list.filter(dir => dir !== key) });
+      reloadPages();
+      return shellState();
+    }
     case 'checkUpdates': checkForUpdates(); return shellState();
     case 'updateState': return update;
     case 'installUpdate': if (update.status === 'ready') requestQuit({ relaunch: true, install: true }); return true;
@@ -270,9 +396,9 @@ ipcMain.handle('shiori:shell', async (event, action, args = []) => {
   }
 });
 
-// A folder chosen for the library, or null.
-async function pickFolder(current, parent = null) {
-  const options = { title: t('choose_folder'), defaultPath: current, properties: ['openDirectory', 'createDirectory'] };
+// A folder chosen (for the library unless `title` says otherwise), or null.
+async function pickFolder(current, parent = null, title = t('choose_folder')) {
+  const options = { title, defaultPath: current, properties: ['openDirectory', 'createDirectory'] };
   const { canceled, filePaths } = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
   return canceled || !filePaths[0] ? null : path.resolve(filePaths[0]);
 }
@@ -365,7 +491,7 @@ function waitForJobs() {
   activeJobs().then((jobs) => { if (!closingAfterJobs) return; if (jobs.count) setTimeout(waitForJobs, 3000); else reallyQuit(); });
 }
 
-// Every gallery waiting to be packed is packed, then the app ends.
+// Every gallery waiting to be settled into its folder is, then the app ends.
 async function reallyQuit() {
   if (quitting) return;
   quitting = true;
@@ -433,7 +559,15 @@ async function start() {
   for (;;) {
     try {
       fs.mkdirSync(libraryDir, { recursive: true });
-      library = await new Library({ dataDir: dataDirOf(libraryDir), libraryDir, trash: (p) => shell.trashItem(p) }).open();
+      dataDir = dataDirOf(libraryDir);
+      library = await new Library({ dataDir, libraryDir, vacate,
+        archiveAfter: ARCHIVE_AFTER[archiveAfterOf(settings)], archiveFormat: archiveFormatOf(settings) }).open();
+      hide(path.join(libraryDir, '.shiori'));
+      // A file the person saves from a window (an export, a backup): counted with the library's writes
+      // once it is written whole (a save dialog cancelled writes nothing).
+      session.defaultSession.on('will-download', (_event, item) => {
+        item.once('done', (_e, state) => { if (state === 'completed') library?.writes.add('exports', item.getReceivedBytes()); });
+      });
       break;
     } catch (e) {
       const { response } = await dialog.showMessageBox({ type: 'error', buttons: [t('try_again'), t('choose_other'), t('quit')], defaultId: 0,
@@ -448,7 +582,7 @@ async function start() {
   token = crypto.randomBytes(24).toString('base64url');
   const ports = settings.port ? [settings.port, ...PORTS.filter(p => p !== settings.port), 0] : [...PORTS, 0];
   server = await startServer({ library, token, ports, webRoot: UI_ROOT, version: app.getVersion(), origins: [APP_ORIGIN], clients });
-  // The app's pages, served by the local server whatever its port.
+  // The address used until 1.0.14, served by the local server (prepareAddress reads it once).
   protocol.handle(APP_SCHEME, async (request) => {
     const url = new URL(request.url);
     try {
@@ -458,14 +592,17 @@ async function start() {
       return new Response('', { status: 502 });
     }
   });
+  await prepareAddress();
+  for (const dir of settings.extensions || []) await loadExtension(dir);
   Menu.setApplicationMenu(null);
   buildTray();
   mainWindow = createWindow('/library');
   for (const link of pending.splice(0)) openLink(link);
   const first = process.argv.find(a => a.startsWith('shiori://'));
   if (first) openLink(first);
-  // The library folder may have changed while the app was closed.
-  library.rescan().catch((e) => console.warn('[shiori] rescan failed:', e));
+  // A library folder opened for the first time: the galleries already in it join the library. It is
+  // otherwise walked only when asked (Settings → System); files are opened when they are needed.
+  if (library.indexEmpty()) library.rescan().catch((e) => console.warn('[shiori] rescan failed:', e));
   checkForUpdates({ notify: true });
 }
 

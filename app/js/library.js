@@ -1,12 +1,13 @@
 import { zipCreate as _zipCreate } from './zip.js';
 import { groupImports, importBytes, isImportable, droppedImports } from './import-files.js';
+import { startImport } from './jobs-runner.js';
 // library.js — the library UI: windowed grid over the database, live job progress, uploads,
 // per-gallery actions. Imports boot.js first so services + the PWA worker are wired.
 
 import './boot.js';
 import * as api from './api.js';
 import { LANG_NAME_TO_CODE, memberKind } from './gallery-model.js';
-import { galleryFiles, fileBytes, seriesManifest } from './gallery-files.js';
+import { seriesManifest, exportFiles } from './gallery-files.js';
 import { importBackup } from './backup.js';
 import { mergeIntoSeries, removeChapter, chapterNumberLabel, chapterTally } from './series.js';
 import { request as extRequest } from './ext-bridge.js';
@@ -21,7 +22,7 @@ import { formatBytes, formatCount, formatMegapixels } from './format.js';
 import { TIERS, describePage } from './page-size.js';
 import { escHtml, safeExternalUrl } from './sanitize.js';
 import { openRerunMenu } from './rerun-menu.js';
-import { confirmDialog, alertDialog, promptDialog } from './notice.js';
+import { confirmDialog, alertDialog, promptDialog, choiceDialog } from './notice.js';
 import { openTagEditor, TAG_TYPE_LABEL, TAG_VALUES, LANG_TAG_NAME, langDisplayName, tagPatchFor } from './tag-editor.js';
 import { initSearchField, searchQuery, setSearchQuery, appendSearchToken, SEARCH_TYPES } from './search-field.js';
 
@@ -588,7 +589,7 @@ function buildCard(g) {
       btns.forEach(x => { x.disabled = true; const _i = x.querySelector('.export-inner'); if (_i) _i.textContent = '…'; });
       try {
         if (e.shiftKey) await exportMetadataBundleZip(g.id);
-        else            await exportGalleryZip(g.id);
+        else            await exportGallery(g.id);
       } catch (err) {
         alertDialog({ title: t('dlg.export_fail_title'), body: t('dlg.export_fail_body'), detail: err.message, tone: 'error' });
       } finally {
@@ -1607,7 +1608,8 @@ window.addEventListener('focus', () => {
 initTooltips();
 initDropdowns();
 
-// ── Local CBZ import (staged in OPFS, run by the most durable runner available) ──
+// ── Local CBZ import (jobs-runner.js startImport: staged in OPFS for the most durable runner
+//    available, or imported at once into a library kept as files) ──
 
 async function replaceGalleryImages(gid, group) {
   const card    = document.querySelector(`[data-gallery-id="${gid}"]`);
@@ -1626,19 +1628,10 @@ async function replaceGalleryImages(gid, group) {
   catch { setLabel(t('prog.err_read')); dlBtns.forEach(b => { b.disabled = false; b.innerHTML = _DL_ICON; }); return; }
 
   setLabel(t('prog.importing_file'));
-  const tempName = `cbz-${gid}-${Date.now()}.bin`;
-  try {
-    const root     = await navigator.storage.getDirectory();
-    const fh       = await root.getFileHandle(tempName, { create: true });
-    const writable = await fh.createWritable();
-    await writable.write(buffer);
-    await writable.close();
-  } catch (e) {
+  if (!await startImport({ galleryId: gid, buffer, filename: group.name, skipExisting: false })) {
     setLabel(t('prog.err_stage'));
     dlBtns.forEach(b => { b.disabled = false; b.innerHTML = _DL_ICON; });
-    return;
   }
-  sendMsg({ type: 'IMPORT_CBZ', galleryId: gid, tempFile: tempName, filename: group.name, skipExisting: false });
 }
 
 document.getElementById('replaceImgInput').addEventListener('change', async (e) => {
@@ -1668,21 +1661,12 @@ async function importSingleFile(group, gid) {
   catch (err) { setLabel(t('prog.err_read')); if (progEl) progEl.closest('.card-body')?.classList.remove('downloading'); return; }
 
   setLabel(t('prog.importing_file'));
-  const tempName = `cbz-${gid}-${Date.now()}.bin`;
-  try {
-    const root     = await navigator.storage.getDirectory();
-    const fh       = await root.getFileHandle(tempName, { create: true });
-    const writable = await fh.createWritable();
-    await writable.write(buffer);
-    await writable.close();
-  } catch (e) {
+  // It reports via platform.jobs (jobs-runner.js startImport); applyJob() updates the card and drops
+  // the placeholder if it produced nothing.
+  if (!await startImport({ galleryId: gid, buffer, filename: group.name, skipExisting: true })) {
     setLabel(t('prog.err_stage'));
     if (progEl) progEl.closest('.card-body')?.classList.remove('downloading');
-    return;
   }
-  // The upload runs in the service worker when available (survives this tab) and reports via
-  // platform.jobs; applyJob() updates the card and drops the placeholder if it produced nothing.
-  sendMsg({ type: 'IMPORT_CBZ', galleryId: gid, tempFile: tempName, filename: group.name, skipExisting: true });
 }
 
 async function _handleImportFiles(files, folders = []) {
@@ -1798,37 +1782,43 @@ async function exportMetadataBundleZip(galleryId) {
   _saveBlob(new Blob([_zipCreate(files)], { type: 'application/zip' }), `shiori-series-${gid}-metadata.zip`);
 }
 
-// One gallery's export files, every name under `prefix` (e.g. "chapter-01/" for a series bundle,
-// "" for a standalone gallery). The layout lives in gallery-files.js, which also sizes the gallery.
-async function _collectGalleryFiles(gid, prefix, opts = {}) {
-  const { meta, pages: records, cover } = await api.transfer.read(gid);
-  const files = galleryFiles({ meta, records, covers: { gallery: cover?.cover, series: cover?.seriesCover } }, prefix, opts);
-  const out = [];
-  for (const f of files) out.push({ name: f.name, data: await fileBytes(f.source) });
-  return out;
+// How to export (Settings → Library): { format: 'zip' | 'cbz', translations }, asked each time
+// unless a format is set there — the question can set it ("remember my choice"). Null when
+// cancelled. Either holds the translations (study layers among them) unless turned off.
+async function _exportFormat(gid, meta) {
+  const kv = await platform.kv.get(['libExportFormat', 'libExportTranslations', 'libExportCbzTranslations']);
+  const translations = (kv.libExportTranslations ?? kv.libExportCbzTranslations) !== false;
+  if (kv.libExportFormat === 'zip' || kv.libExportFormat === 'cbz') return { format: kv.libExportFormat, translations };
+  const answer = await choiceDialog({
+    title: t('dlg.export_title'),
+    detail: [pickTitle(meta || {}, getLang()) || `#${gid}`],
+    choices: [
+      { value: 'zip', label: t('set.lib_export_zip'), detail: t('dlg.export_zip_desc') },
+      { value: 'cbz', label: t('set.lib_export_cbz'), detail: t('dlg.export_cbz_desc') },
+    ],
+    checks: [
+      { name: 'translations', label: t('set.lib_export_tr'), checked: translations },
+      { name: 'remember', label: t('dlg.export_remember'), checked: false },
+    ],
+    ok: t('dlg.export_ok'),
+  });
+  if (!answer) return null;
+  const choice = { format: answer.value, translations: answer.checks.translations };
+  if (answer.checks.remember) platform.kv.set({ libExportFormat: choice.format, libExportTranslations: choice.translations });
+  return choice;
 }
 
-// Export one gallery — or, when it is a series owner, the whole series as chapter-NN/ folders plus
-// a top-level series.json describing chapter order + titles.
-async function exportGalleryZip(galleryId) {
+// Export one gallery — or, when it is a series owner, its whole series — in the Shiori gallery
+// format (gallery-files.js): a ZIP, or a CBZ (the same files plus ComicInfo.xml, so other comic
+// readers open it too), named after its title.
+async function exportGallery(galleryId) {
   const gid = String(galleryId);
   const meta = await api.meta.get(gid);
-
-  const chapters = (Array.isArray(meta?.chapters) && meta.chapters.length > 1) ? meta.chapters : null;
-  if (!chapters) {
-    const files = await _collectGalleryFiles(gid, '');
-    _saveBlob(new Blob([_zipCreate(files)], { type: 'application/zip' }), `shiori-${gid}.zip`);
-    return;
-  }
-
-  const enc = new TextEncoder();
-  const manifest = seriesManifest(meta);
-  const files = [];
-  for (const { id, folder } of manifest.chapters) {
-    files.push(...await _collectGalleryFiles(id, `${folder}/`, { stripSeriesFields: true }));
-  }
-  files.push({ name: 'series.json', data: enc.encode(JSON.stringify(manifest, null, 2)) });
-  _saveBlob(new Blob([_zipCreate(files)], { type: 'application/zip' }), `shiori-series-${gid}.zip`);
+  const how = await _exportFormat(gid, meta);
+  if (!how) return;
+  const { format, translations } = how;
+  const { name, files } = await exportFiles(gid, { read: api.transfer.read, metaGet: api.meta.get, translations, comicInfo: format === 'cbz' });
+  _saveBlob(new Blob([_zipCreate(files)], { type: format === 'cbz' ? 'application/vnd.comicbook+zip' : 'application/zip' }), `${name}.${format}`);
 }
 
 if (new URLSearchParams(window.location.search).get('import') === '1') {

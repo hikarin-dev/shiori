@@ -1,13 +1,18 @@
 // desktop-settings.js — Settings → System, shown only in the desktop app's window: closing to the
-// tray, the library folder (open, change, check again), how new galleries are saved, the local
-// server's port and the sites allowed to use the library, updates (and developer mode, which takes
-// them from builds made on this computer), and the app's version and data folder. Each setting is
+// tray, the library folder (open, change, check again, when and how galleries left alone are
+// archived), the local
+// server's port and the sites allowed to use the library, browser extensions to run in the windows,
+// updates (and developer mode, which takes them from builds made on this computer), and the app's
+// version and data folder. Each setting is
 // the desktop app's own, read and changed through the window's bridge to it (`shioriDesktop.shell`).
 import { t, applyTranslations } from './i18n.js';
 import { confirmDialog } from './notice.js';
 
 const shell = (action, ...args) => globalThis.shioriDesktop.shell(action, ...args);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+// How long a gallery is left alone before it is archived (main.js ARCHIVE_AFTER).
+const ARCHIVE_AFTER = { never: 'set.desk_archive_never', day: 'set.desk_archive_day', week: 'set.desk_archive_week', month: 'set.desk_archive_month' };
 
 const SWITCH = (id, label) => `
   <label class="switch-control" for="${id}">
@@ -48,24 +53,15 @@ function markup() {
         <button class="btn-mini" id="deskRescan" type="button" data-i18n="set.desk_rescan_btn"></button>
       </div>
       <div class="status-msg hidden" id="deskFolderStatus" role="status" aria-live="polite"></div>
-    </div>
-  </div>
-  <div class="section">
-    <div class="section-header"><h2 class="section-title" data-i18n="set.desk_new"></h2></div>
-    <div class="section-body">
       <div class="field">
-        <label class="field-label" for="deskFormat" data-i18n="set.desk_format"></label>
-        <div class="field-desc" data-i18n="set.desk_format_desc"></div>
-        <select class="field-input" id="deskFormat">
-          <option value="cbz" data-i18n="set.desk_format_cbz"></option>
-          <option value="zip" data-i18n="set.desk_format_zip"></option>
-          <option value="folder" data-i18n="set.desk_format_folder"></option>
-        </select>
+        <label class="field-label" for="deskArchiveAfter" data-i18n="set.desk_archive"></label>
+        <div class="field-desc" data-i18n="set.desk_archive_desc"></div>
+        <select class="field-input" id="deskArchiveAfter"></select>
       </div>
       <div class="field">
-        <div class="field-label" data-i18n="set.desk_comicinfo"></div>
-        <div class="field-desc" data-i18n="set.desk_comicinfo_desc"></div>
-        ${SWITCH('deskComicInfo', 'set.desk_comicinfo')}
+        <label class="field-label" for="deskArchiveFormat" data-i18n="set.desk_archive_format"></label>
+        <div class="field-desc" data-i18n="set.desk_archive_format_desc"></div>
+        <select class="field-input" id="deskArchiveFormat"></select>
       </div>
     </div>
   </div>
@@ -90,6 +86,18 @@ function markup() {
         </div>
       </div>
       <div id="deskSites"></div>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-header"><h2 class="section-title" data-i18n="set.desk_ext"></h2></div>
+    <div class="section-body">
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-desc" data-i18n="set.desk_ext_desc"></div>
+        </div>
+        <button class="btn-mini" id="deskAddExtension" type="button" data-i18n="set.desk_ext_add"></button>
+      </div>
+      <div id="deskExtensions"></div>
     </div>
   </div>
   <div class="section">
@@ -159,8 +167,10 @@ export async function initDesktopSettings() {
   const render = () => {
     $('deskTray').checked = state.closeToTray;
     $('deskFolderPath').textContent = state.libraryDir;
-    $('deskFormat').value = state.writeFormat;
-    $('deskComicInfo').checked = state.comicInfo;
+    $('deskArchiveAfter').innerHTML = Object.entries(ARCHIVE_AFTER).map(([v, key]) =>
+      `<option value="${v}"${v === state.archiveAfter ? ' selected' : ''}>${esc(t(key))}</option>`).join('');
+    $('deskArchiveFormat').innerHTML = ['zip', 'cbz'].map(v =>
+      `<option value="${v}"${v === state.archiveFormat ? ' selected' : ''}>${esc(t(`set.lib_export_${v}`))}</option>`).join('');
     $('deskServerUrl').textContent = state.url;
     $('deskPortDesc').textContent = t('set.desk_port_desc', { port: state.ports[0] });
     $('deskPort').innerHTML = [0, ...state.ports].map(p =>
@@ -169,6 +179,12 @@ export async function initDesktopSettings() {
       ? state.sites.map(site => `<div class="toggle-row"><div class="toggle-info"><div class="toggle-name"><code>${esc(site)}</code></div></div>
           <button class="btn-mini" type="button" data-forget="${esc(site)}">${esc(t('set.desk_disconnect'))}</button></div>`).join('')
       : `<div class="toggle-row"><div class="toggle-info"><div class="toggle-desc">${esc(t('set.desk_sites_none'))}</div></div></div>`;
+    $('deskExtensions').innerHTML = state.extensions.length
+      ? state.extensions.map(ext => `<div class="toggle-row"><div class="toggle-info">
+          <div class="toggle-name">${esc(ext.name ? `${ext.name} ${ext.version || ''}` : ext.dir)}</div>
+          <div class="toggle-desc">${ext.error ? esc(t('set.desk_ext_failed', { error: ext.error })) : `<code>${esc(ext.dir)}</code>`}</div></div>
+          <button class="btn-mini" type="button" data-remove-extension="${esc(ext.dir)}">${esc(t('set.desk_ext_remove'))}</button></div>`).join('')
+      : `<div class="toggle-row"><div class="toggle-info"><div class="toggle-desc">${esc(t('set.desk_ext_none'))}</div></div></div>`;
     $('deskVersion').textContent = t('set.desk_version', { version: state.version });
     $('deskDataPath').textContent = state.dataDir;
     $('deskDev').checked = state.devUpdates;
@@ -205,8 +221,8 @@ export async function initDesktopSettings() {
   const set = async (key, value) => { state = await shell('set', key, value); render(); };
 
   $('deskTray').addEventListener('change', (e) => set('closeToTray', e.target.checked));
-  $('deskFormat').addEventListener('change', (e) => set('writeFormat', e.target.value));
-  $('deskComicInfo').addEventListener('change', (e) => set('comicInfo', e.target.checked));
+  $('deskArchiveAfter').addEventListener('change', (e) => set('archiveAfter', e.target.value));
+  $('deskArchiveFormat').addEventListener('change', (e) => set('archiveFormat', e.target.value));
   $('deskPort').addEventListener('change', async (e) => {
     await set('port', Number(e.target.value));
     restart(t('set.desk_restart_port'));
@@ -216,6 +232,11 @@ export async function initDesktopSettings() {
   $('deskDev').addEventListener('change', async (e) => { await set('devUpdates', e.target.checked); followCheck(); });
   $('deskCheckUpdates').addEventListener('click', async () => { state = await shell('checkUpdates'); followCheck(); });
   $('deskInstallUpdate').addEventListener('click', () => shell('installUpdate'));
+  $('deskAddExtension').addEventListener('click', async () => { state = await shell('addExtension'); render(); });
+  $('deskExtensions').addEventListener('click', async (e) => {
+    const dir = e.target.closest?.('[data-remove-extension]')?.dataset.removeExtension;
+    if (dir) { state = await shell('removeExtension', dir); render(); }
+  });
   $('deskSites').addEventListener('click', async (e) => {
     const site = e.target.closest?.('[data-forget]')?.dataset.forget;
     if (site) { state = await shell('forgetSite', site); render(); }

@@ -1,6 +1,6 @@
 // preload.cjs — tells the app's page where its library is: the desktop app's local server and its
 // pairing token. The main process answers only for the app's own pages. It also carries the page's
-// requests to the desktop app (Settings → Desktop app: `shell(action, ...args)`), and tells the main
+// requests to the desktop app (Settings → System: `shell(action, ...args)`), and tells the main
 // process which language the app is in, so its dialogs, tray and title bar speak it too.
 const { contextBridge, ipcRenderer } = require('electron');
 

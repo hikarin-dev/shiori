@@ -636,9 +636,14 @@ function _chapterAt(page) {
   return lo;
 }
 
+let _shownGallery = null;   // the chapter last told to the library as the one being read
 function _announceCurrentPage() {
   if (!_chapters.length) return;
   const ch = _chapters[_chapterAt(currentPage)];
+  if (ch && String(ch.id) !== _shownGallery) {
+    _shownGallery = String(ch.id);
+    api.galleries.reading(_shownGallery).catch(() => {});
+  }
   if (!ch?.meta?.source) return;
   const gid = String(ch.id);
   extSend({
@@ -2138,7 +2143,8 @@ function _makeStripRow(gi) {
       if (img.style.aspectRatio !== r) {
         // A page ABOVE the viewport learning its true ratio would shove the reading position
         // by its height delta — compensate the scroll so the visible content doesn't move.
-        const above  = wrap.offsetTop + wrap.offsetHeight <= window.scrollY;
+        // During a glide, its next frame follows the updated geometry instead.
+        const above  = !_glideEl && wrap.offsetTop + wrap.offsetHeight <= window.scrollY;
         const before = above ? wrap.offsetHeight : 0;
         img.style.aspectRatio = r;
         if (above) {
@@ -2285,6 +2291,11 @@ function _scrollStripToCurrent() {
 }
 
 // ── Events ──
+// Keep image drags from leaving the reader unless Ctrl is held when the drag starts.
+document.addEventListener('dragstart', (e) => {
+  if (e.target instanceof HTMLImageElement && !e.ctrlKey) e.preventDefault();
+});
+
 const CLICK_WHEEL_NAV_THRESHOLD = 60;   // fine-grained input: how far to travel for one page
 const CLICK_WHEEL_NAV_NOTCH_MIN = 30;   // smallest event still read as one whole wheel detent
 let _clickWheelNavHeld = false;
@@ -2358,11 +2369,15 @@ function _stopStripGlide() {
   cancelAnimationFrame(_glideRaf);
   _glideRaf = null;
   _glideEl = null;
+  document.documentElement.classList.remove('reader-strip-gliding');
 }
 
 function _glideStripTo(el) {
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) { _stopStripGlide(); el.scrollIntoView(); return; }
   _glideEl = el;
+  // The glide follows the target's live geometry. Automatic scroll anchoring as images load
+  // would look like user scrolling to the cancellation check and strand a long jump midway.
+  document.documentElement.classList.add('reader-strip-gliding');
   if (_glideRaf !== null) return;   // already under way: it heads for the new page from here
   _glideY = window.scrollY;
   _glideV = 0;
@@ -2371,8 +2386,9 @@ function _glideStripTo(el) {
 }
 
 function _stripGlideFrame(now) {
-  if (mode !== 'strip' || !_glideEl?.isConnected || Math.abs(window.scrollY - _glideY) > 2) { _stopStripGlide(); return; }
-  const max = document.documentElement.scrollHeight - window.innerHeight;
+  const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+  // A shorter loaded page can shrink the document and clamp the previous scroll offset.
+  if (mode !== 'strip' || !_glideEl?.isConnected || Math.abs(window.scrollY - Math.min(_glideY, max)) > 2) { _stopStripGlide(); return; }
   const target = Math.max(0, Math.min(max, window.scrollY + _glideEl.getBoundingClientRect().top - _pinOffset()));
   const from = window.scrollY;
   // The first frame counts as one frame: no clock says how long ago the glide was asked for (the
@@ -2969,24 +2985,6 @@ readerZoomOut.addEventListener('click', () => adjustPageZoom(-1));
 readerZoomIn.addEventListener('click', () => adjustPageZoom(1));
 
 readerPinBtn.addEventListener('click', () => applyReaderPin(!readerPinned));
-
-// Measure the OS scrollbar width once and expose it as --sbw. The topbar reserves this much
-// extra right padding and gives it back (via a 100vw − 100% calc) exactly when a page scrollbar
-// is present, so the right-hand controls hold the same position whether or not one is showing.
-(function measureScrollbar() {
-  const probe = document.createElement('div');
-  probe.style.cssText = 'position:absolute;top:-9999px;width:100px;height:100px;overflow:scroll';
-  document.body.appendChild(probe);
-  document.documentElement.style.setProperty('--sbw', (probe.offsetWidth - probe.clientWidth) + 'px');
-  probe.remove();
-})();
-
-// Reflect whether a vertical page scrollbar is currently present (its width is what would shift
-// the right-hand controls). Observing the document element catches both window resizes and the
-// scrollbar appearing/disappearing as content height changes.
-const _syncVScroll = () => topbar.classList.toggle('has-vscroll', window.innerWidth - document.documentElement.clientWidth > 1);
-new ResizeObserver(_syncVScroll).observe(document.documentElement);
-_syncVScroll();
 
 // ── Responsive navbar: fold controls into a ⋯ menu, in stages, as the bar runs out of room ──
 // Stage 1 folds the secondary buttons (.tb-extra) so the title can start to ellipsize; stage 2
