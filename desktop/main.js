@@ -534,6 +534,10 @@ async function updaterReady() {
     updater.on('download-progress', (p) => { update = { ...update, status: 'downloading', percent: Math.floor(p.percent || 0) }; });
     updater.on('update-downloaded', (info) => { update = { status: 'ready', version: info.version }; });
     updater.on('error', (e) => { update = { status: 'error', error: String(e?.message || e).split('\n')[0] }; });
+    // Published releases are never prereleases. A build from developer mode (1.0.15-dev.…) would
+    // otherwise look on GitHub only for releases of its own "dev" channel, find none, and never get
+    // back to the published ones. (The developer feed doesn't look at this.)
+    updater.allowPrerelease = false;
   }
   updater.setFeedURL(readSettings().devUpdates ? { provider: 'generic', url: DEV_FEED } : releasesFeed());
   return updater;
