@@ -164,6 +164,9 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
   };
   wss.on('connection', (ws) => {
     ws.on('close', () => { if (ws.reading) library.leftReader(ws.reading); });
+    // A frame it won't take (past MAX_FRAME, or no proper frame) ends that connection, which ws
+    // closes itself; unheard, the error would take the whole app down.
+    ws.on('error', () => {});
     ws.on('message', async (data, isBinary) => {
       if (!isBinary) { ws.close(1003, 'binary frames only'); return; }
       let msg;

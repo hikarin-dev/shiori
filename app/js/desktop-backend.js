@@ -47,7 +47,38 @@ function relayScope() {
 // app serves itself, its window or a page at its address, whose address never changes — without a
 // token when the app lets the page in for being its own). `announce`: hand what it announces to
 // this window.
-export function createClient(config, { announce = false } = {}) {
+// A gallery written to the app goes in parts of about this many bytes of pictures: a message
+// carries every picture it names, whole, and the app takes messages only up to a size (server.js).
+const PART_BYTES = 256 * 1024 * 1024;
+
+// The bytes of the pictures in `value` (a page record, a cover).
+function blobBytes(value) {
+  if (value instanceof Blob) return value.size;
+  if (!value || typeof value !== 'object') return 0;
+  let n = 0;
+  for (const v of Array.isArray(value) ? value : Object.values(value)) n += blobBytes(v);
+  return n;
+}
+
+// `bundle` (transferWrite's) as bundles of at most `partBytes` of pictures each (a page larger than
+// that goes on its own). Pages replace their own and leave the others, so the parts add up to the
+// gallery. Its details and cover go with the first part, which holds its first pages (a cover is
+// matched against the first page written with it).
+function transferParts(bundle, partBytes) {
+  const { pages = [], ...rest } = bundle || {};
+  const galleryId = rest.galleryId ?? rest.meta?.galleryId ?? rest.stat?.galleryId ?? pages[0]?.galleryId;
+  const groups = [[]];
+  let size = blobBytes(rest.cover);
+  for (const page of pages) {
+    const n = blobBytes(page);
+    if (groups.at(-1).length && size + n > partBytes) { groups.push([]); size = 0; }
+    groups.at(-1).push(page);
+    size += n;
+  }
+  return groups.map((group, i) => (i === 0 ? { ...rest, pages: group } : { galleryId, pages: group }));
+}
+
+export function createClient(config, { announce = false, partBytes = PART_BYTES } = {}) {
   let socket = null, opening = null, connected = false, retry = null, sent = Promise.resolve(), seq = 0, closed = false;
   let shown = null;   // the gallery this page's reader shows
   const pending = new Map();
@@ -140,6 +171,13 @@ export function createClient(config, { announce = false } = {}) {
 
   const client = Object.fromEntries(OPS.map(op => [op, (...args) => call(op, ...args)]));
   return Object.assign(client, {
+    // A gallery in parts (transferParts), the library told of it once, with the last.
+    async transferWrite(bundle, opts = {}) {
+      const parts = transferParts(bundle, partBytes);
+      for (let i = 0; i < parts.length; i++) {
+        await call('transferWrite', parts[i], i < parts.length - 1 ? { ...opts, silent: true } : opts);
+      }
+    },
     // Ends a run of silent writes; like db.js's, it returns at once.
     publishFeed(galleryId) { call('publishFeed', galleryId).catch(() => {}); },
     // Hands a message to this library's windows on other origins (platform.relayTo).
