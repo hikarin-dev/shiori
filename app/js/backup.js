@@ -5,7 +5,8 @@
 //     restoring recreates gallery entries without images.
 //   • Full (.shioridb)      — the whole database, images included, streamed to disk.
 //     Layout: [ blob bytes … ][ manifest JSON ][ uint32 LE manifest length ]. Export streams
-//     each blob straight to the destination file (File System Access API) recording offsets;
+//     each blob straight into the file (the browser's downloads, or a save dialog's file),
+//     recording offsets;
 //     import reads only the manifest and lazily slices each image out of the picked file —
 //     nothing but one image (and the manifest) is ever resident, so multi-GB libraries work.
 //
@@ -14,7 +15,7 @@
 import * as api from './api.js';
 import { BUBBLE_EXTRA_FIELDS } from './gallery-files.js';
 import { isValidGalleryId } from './sanitize.js';
-import { writesAs } from './disk-writes.js';
+import { writesAs, savedDownload } from './disk-writes.js';
 
 // Decode a base64 data-URL to a Blob (legacy records store images as strings). One image at a time.
 function dataUrlToBlob(dataUrl) {
@@ -97,10 +98,16 @@ export async function exportMetadata() {
 }
 
 // ── Full export (.shioridb) ─────────────────────────────────────────────────────────────────
-// Streams to a user-chosen file when the File System Access API is available (no archive ever
-// held in memory). Otherwise falls back to assembling a Blob the caller downloads.
+// One file, written as it is produced (no archive is ever held in memory). Where a worker controls
+// the page, the browser's own downloads write it: they take a file of any size as it arrives.
+// Otherwise a file chosen in a save dialog, when the File System Access API is available — the
+// browser re-reads and renames that file once it is written, which fails for files of tens of GB —
+// or, failing both, a Blob the caller downloads.
 export async function exportFull(onProgress) {
   const suggestedName = `shiori-${new Date().toISOString().slice(0, 10)}.shioridb`;
+
+  const worker = downloadWorker();
+  if (worker) return exportToDownload(worker, suggestedName, onProgress);
 
   // Ask for the destination FIRST, while the export click's user activation is still live
   // (before any await), so the file picker is allowed to open.
@@ -133,6 +140,81 @@ export async function exportFull(onProgress) {
   const archive = new Blob([...parts, mb, footerBytes(mb.length)], { type: 'application/octet-stream' });
   if (onProgress) onProgress('done', 1, 1);
   return { counts: lastCounts, savedVia: 'download', archive, suggestedName };
+}
+
+// ── Through the browser's downloads ──
+// The worker (sw.js) holds the stream and answers a link only it knows with it; a hidden frame opens
+// the link, and the browser saves what comes back as a download. The worker would be stopped once
+// idle, the download with it, so the page keeps it awake while the file is written — from the
+// export's own progress as well as a timer, which a background tab slows to a crawl.
+const DOWNLOAD_PATH = 'shiori-download/';   // sw.js answers it
+const KEEP_AWAKE_MS = 10_000;
+
+// The worker controlling this page, if a stream can be handed to it.
+function downloadWorker() {
+  const worker = typeof navigator !== 'undefined' ? navigator.serviceWorker?.controller : null;
+  if (!worker || typeof document === 'undefined') return null;
+  try {
+    const probe = new ReadableStream();
+    new MessageChannel().port1.postMessage(probe, [probe]);
+    return worker;
+  } catch { return null; }
+}
+
+async function exportToDownload(worker, suggestedName, onProgress) {
+  const id = crypto.randomUUID();
+  const { readable, writable } = new TransformStream();
+  const channel = new MessageChannel();
+  const heard = {};
+  const hear = (word) => new Promise((resolve) => { heard[word] = resolve; });
+  const ready = hear('ready'), started = hear('started'), ended = Promise.race([hear('done'), hear('failed')]);
+  channel.port1.onmessage = (e) => heard[e.data]?.(e.data);
+  const within = (promise, ms, message) => {
+    let timeout;
+    return Promise.race([promise, new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error(message)), ms); })])
+      .finally(() => clearTimeout(timeout));
+  };
+
+  let awake = 0;
+  const keepAwake = () => {
+    if (Date.now() - awake < KEEP_AWAKE_MS) return;
+    awake = Date.now();
+    worker.postMessage({ __shioriKeepDownload: id });
+  };
+  const ticker = setInterval(keepAwake, KEEP_AWAKE_MS);
+  const frame = document.createElement('iframe');
+  frame.hidden = true;
+  try {
+    worker.postMessage({ __shioriDownload: { id, name: suggestedName }, stream: readable }, [readable, channel.port2]);
+    await within(ready, 5000, 'The download could not be prepared. Reload the page and try again.');
+    frame.src = new URL(DOWNLOAD_PATH + id, worker.scriptURL).href;
+    document.body.append(frame);
+    await within(started, 30000, 'The download did not start.');
+
+    let offset = 0;
+    const sink = async (blob) => {
+      keepAwake();
+      await blob.stream().pipeTo(writable, { preventClose: true });
+      const spec = { off: offset, len: blob.size, type: blob.type || '' };
+      offset += blob.size;
+      return spec;
+    };
+    const manifest = await build(sink, onProgress);
+    const mb = new TextEncoder().encode(JSON.stringify(manifest));
+    await new Blob([mb, footerBytes(mb.length)]).stream().pipeTo(writable);   // closing it ends the download
+    // Done once the browser has taken the last byte (the tab may close after that).
+    if (await ended !== 'done') throw new Error('The download stopped before the backup was complete.');
+    savedDownload(offset + mb.length + 4);
+  } catch (e) {
+    writable.abort(e).catch(() => {});
+    throw e?.name === 'AbortError' || !e?.message ? new Error('The download stopped before the backup was complete.') : e;
+  } finally {
+    clearInterval(ticker);
+    frame.remove();
+    channel.port1.close();
+  }
+  if (onProgress) onProgress('done', 1, 1);
+  return { counts: lastCounts, savedVia: 'download' };
 }
 
 let lastCounts = null;

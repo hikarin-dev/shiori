@@ -929,7 +929,7 @@ document.getElementById('backupFullBtn').addEventListener('click', async () => {
     else if (result.archive) {
       _saveBlob(result.archive, result.suggestedName || 'shiori.shioridb');
       showStatus('backupStatus', `Exported ${formatCount(result.counts.galleries)} galleries / ${formatCount(result.counts.images)} images — downloaded.`, 'ok');
-    } else showStatus('backupStatus', `Exported ${formatCount(result.counts.galleries)} galleries / ${formatCount(result.counts.images)} images — saved.`, 'ok');
+    } else showStatus('backupStatus', `Exported ${formatCount(result.counts.galleries)} galleries / ${formatCount(result.counts.images)} images — ${result.savedVia === 'download' ? 'downloaded' : 'saved'}.`, 'ok');
   } catch (err) { showStatus('backupStatus', 'Export failed: ' + (err && err.message || err), 'err'); }
 });
 

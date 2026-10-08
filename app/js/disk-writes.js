@@ -165,6 +165,9 @@ if (typeof HTMLAnchorElement !== 'undefined' && !globalThis.shioriDesktop?.shell
     return click.apply(this, arguments);
   };
 }
+// A file the browser's downloads write as the app produces it (a backup streamed through the
+// worker), counted once the browser has taken all of it.
+export const savedDownload = (bytes) => _add('exports', bytes);
 
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushWrites(); });

@@ -1,7 +1,7 @@
 // sw.js — root-scoped service worker. The app's files live under /app/, but its pages are served
 // at clean URLs (the library at the scope root, plus /settings and /reader). This worker maps
-// those clean navigations to the real app/*.html files, caches the shell for offline, and runs
-// the durable background jobs.
+// those clean navigations to the real app/*.html files, caches the shell for offline, runs the
+// durable background jobs, and hands a page's large saves to the browser's downloads.
 //
 // It has to live at the repo root: a worker under /app/ can only control /app/*, and GitHub Pages
 // can't grant a wider scope via the Service-Worker-Allowed header. Same two roles as before —
@@ -175,6 +175,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   if (!url.pathname.startsWith(ROOT.pathname)) return;
+  if (url.pathname.startsWith(DOWNLOADS)) { e.respondWith(serveDownload(e, url.pathname.slice(DOWNLOADS.length))); return; }
   // Cache keys are pathname-only; a query-carrying non-navigation request is semantically
   // distinct, so it goes straight to the network instead of colliding in the cache.
   if (url.search && req.mode !== 'navigate') return;
@@ -209,6 +210,44 @@ self.addEventListener('fetch', (e) => {
     return cached || new Response('', { status: 504 });
   })());
 });
+
+// ── Saving a large file through the browser's downloads ──
+// A page hands over a file it is producing (a full backup) as a stream, then opens a link only this
+// worker answers; the browser saves what comes back as an ordinary download, written as it arrives —
+// one file of any size, never held whole. The page keeps this worker awake meanwhile (an idle worker
+// is stopped, and the download with it), and hears on its port when the download has taken the
+// last byte.
+const DOWNLOADS = new URL('shiori-download/', ROOT).pathname;   // backup.js opens it
+const _downloads = new Map();   // id → { name, stream, port, ended }
+const _sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function serveDownload(e, id) {
+  const job = _downloads.get(id);
+  if (!job || job.ended) return new Response('', { status: 404 });
+  let settle;
+  job.ended = new Promise((r) => { settle = r; });
+  const end = (word) => {
+    if (!_downloads.delete(id)) return;
+    job.port.postMessage(word);
+    settle();
+  };
+  const reader = job.stream.getReader();
+  const body = new ReadableStream({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) { controller.close(); end('done'); } else controller.enqueue(value);
+      } catch (err) { controller.error(err); end('failed'); }
+    },
+    cancel(reason) { reader.cancel(reason).catch(() => {}); end('failed'); },
+  }, { highWaterMark: 0 });
+  e.waitUntil(Promise.race([job.ended, _sleep(30_000)]));
+  job.port.postMessage('started');
+  return new Response(body, { headers: {
+    'Content-Type': 'application/octet-stream',
+    'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(job.name)}`,
+  } });
+}
 
 // ── Background jobs ──
 // Keys of jobs this worker is actively running, so a duplicate submit for one already in flight
@@ -271,6 +310,16 @@ async function pollLoop() {
 
 self.addEventListener('message', (e) => {
   const d = e.data;
+  if (d && d.__shioriDownload) {
+    _downloads.set(d.__shioriDownload.id, { name: d.__shioriDownload.name, stream: d.stream, port: e.ports[0], ended: null });
+    e.ports[0]?.postMessage('ready');
+    return;
+  }
+  if (d && d.__shioriKeepDownload) {
+    const job = _downloads.get(d.__shioriKeepDownload);
+    if (job?.ended) e.waitUntil(Promise.race([job.ended, _sleep(30_000)]));
+    return;
+  }
   if (d && d.__shioriWarmShell) { e.waitUntil(warmDeferredShell().catch(() => {})); return; }
   // Updating: every cached file brought up to date before the pages reload (answered on the port).
   if (d && d.__shioriRefreshShell) {
