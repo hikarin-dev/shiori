@@ -1,13 +1,12 @@
-// backup-download.browser.mjs — a full backup goes through the app's worker to Chrome's own
-// downloads (sw.js), which write one file of any size as it arrives: Settings' full export saves a
-// single .shioridb into the download folder and says so, and importing that file restores the
-// library. The page keeps its worker here (the smoke tests bypass it).
+// backup-download.browser.mjs — a full backup is one file Chrome's own downloads save: Settings'
+// full export hands it over, the download folder ends up with a single whole .shioridb, and
+// importing that file restores the library.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { startServer, chromePath, launch, until } from './harness.mjs';
+import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 
 let server, origin, browser, dir;
 
@@ -28,15 +27,8 @@ after(async () => {
 const statusMatching = (pattern) => { const t = document.getElementById('backupStatus')?.textContent || ''; return new RegExp(pattern).test(t) ? t : 0; };
 
 test("a full backup is saved as one file by the browser's downloads, and restores", { skip: !chromePath() }, async () => {
-  const page = await browser.newPage();
-  const problems = [];
-  page.on('pageerror', (e) => problems.push(`uncaught: ${e?.message || e}`));
-  page.on('console', (m) => { if (m.type() === 'error') problems.push(`console: ${m.text()}`); });
+  const page = await openPage(browser, origin);
   await page.goto(`${origin}/settings`, { waitUntil: 'load' });
-  await page.evaluate(() => navigator.serviceWorker.ready);
-  if (!await page.evaluate(() => !!navigator.serviceWorker.controller)) await page.reload({ waitUntil: 'load' });
-  await until(page, () => !!navigator.serviceWorker.controller, null, { what: 'the worker controlling the page' });
-
   const library = await page.evaluate(async () => {
     const api = await import('/app/js/api.js');
     for (const [gid, n] of [['1790000000301', 2], ['1790000000302', 3]]) {
@@ -55,20 +47,22 @@ test("a full backup is saved as one file by the browser's downloads, and restore
 
   const cdp = await browser.target().createCDPSession();
   await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dir, eventsEnabled: true });
-  const saved = new Promise((resolve) => cdp.on('Browser.downloadProgress', (e) => { if (e.state !== 'inProgress') resolve(e.state); }));
+  const saved = new Promise((resolve) => cdp.on('Browser.downloadProgress', (e) => { if (e.state !== 'inProgress') resolve(e); }));
   await page.evaluate(() => document.getElementById('exportBackupBtn').click());
   await page.evaluate(() => document.getElementById('backupFullBtn').click());
-  const status = await until(page, statusMatching, 'downloaded|saved|failed', { what: 'the export status', timeout: 30000 });
-  assert.match(status, /^Exported 2 galleries \/ 5 images — downloaded\.$/);
-  assert.equal(await saved, 'completed');
+  const status = await until(page, statusMatching, 'downloads|failed', { what: 'the export status' });
+  assert.match(status, /^Exported 2 galleries \/ 5 images — saving to your downloads\.$/);
+  const download = await saved;
+  assert.equal(download.state, 'completed');
   const files = fs.readdirSync(dir);
   assert.equal(files.length, 1, `one file: ${files}`);
   assert.match(files[0], /^shiori-\d{4}-\d{2}-\d{2}\.shioridb$/);
+  assert.equal(fs.statSync(path.join(dir, files[0])).size, download.totalBytes);
 
   await page.evaluate(async () => (await import('/app/js/api.js')).maintenance.clearAll());
   await (await page.$('#backupImportFile')).uploadFile(path.join(dir, files[0]));
   assert.match(await until(page, statusMatching, '^Imported|failed', { what: 'the import status' }), /^Imported 2 galleries, 5 images/);
   assert.deepEqual(await page.evaluate(async () => (await (await import('/app/js/api.js')).transfer.ids()).sort()), library);
-  assert.deepEqual(problems, []);
+  assert.deepEqual(page.problems, []);
   await page.close();
 });

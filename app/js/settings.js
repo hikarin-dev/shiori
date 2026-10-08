@@ -925,11 +925,8 @@ document.getElementById('backupFullBtn').addEventListener('click', async () => {
   setBackupModalOpen(false);
   try {
     const result = await exportFull((phase, done, total) => showStatus('backupStatus', `Exporting ${phase}: ${formatCount(done)}/${formatCount(total)}`, 'ok', 120000));
-    if (result.aborted) showStatus('backupStatus', 'Export cancelled.', 'ok');
-    else if (result.archive) {
-      _saveBlob(result.archive, result.suggestedName || 'shiori.shioridb');
-      showStatus('backupStatus', `Exported ${formatCount(result.counts.galleries)} galleries / ${formatCount(result.counts.images)} images — downloaded.`, 'ok');
-    } else showStatus('backupStatus', `Exported ${formatCount(result.counts.galleries)} galleries / ${formatCount(result.counts.images)} images — ${result.savedVia === 'download' ? 'downloaded' : 'saved'}.`, 'ok');
+    _saveBlob(result.archive, result.suggestedName);
+    showStatus('backupStatus', `Exported ${formatCount(result.counts.galleries)} galleries / ${formatCount(result.counts.images)} images — saving to your downloads.`, 'ok');
   } catch (err) { showStatus('backupStatus', 'Export failed: ' + (err && err.message || err), 'err'); }
 });
 

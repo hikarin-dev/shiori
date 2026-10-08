@@ -72,56 +72,6 @@ test('a full backup restores galleries, pages, stats, covers and settings — no
   assert.equal(localStorage.getItem('shiori:storageLayout'), null, "another browser's storage state stays behind");
 });
 
-// A .shioridb's image bytes and its manifest (less the export time, which differs between two exports).
-async function archiveParts(blob) {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  const length = new DataView(bytes.buffer).getUint32(bytes.length - 4, true);
-  const start = bytes.length - 4 - length;
-  const { exportedAt, ...manifest } = JSON.parse(new TextDecoder().decode(bytes.subarray(start, bytes.length - 4)));
-  return { images: [...bytes.subarray(0, start)], manifest };
-}
-
-test("a full backup saved through the browser's downloads is the same file, and restores", async () => {
-  await seed('906');
-  const pages = await pagesOf('906');
-  const { archive } = await exportFull();
-  // A stand-in for the page's worker, doing with the stream what sw.js does: answers that it is
-  // ready, and once the hidden frame opens its link, says the download started, reads the stream to
-  // the end as the browser's downloads would, and says it is done.
-  const chunks = [];
-  let job = null;
-  const worker = {
-    scriptURL: 'http://localhost/sw.js',
-    postMessage(message, transfer) {
-      if (!message.__shioriDownload) return;
-      job = { name: message.__shioriDownload.name, stream: message.stream, port: transfer[1] };
-      job.port.postMessage('ready');
-    },
-  };
-  const download = async () => {
-    job.port.postMessage('started');
-    for await (const chunk of job.stream) chunks.push(chunk);
-    job.port.postMessage('done');
-  };
-  const navigatorWas = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
-  Object.defineProperty(globalThis, 'navigator', { value: { serviceWorker: { controller: worker } }, configurable: true });
-  globalThis.document = { createElement: () => ({ remove() {} }), body: { append: () => { download(); } } };
-  try {
-    const result = await exportFull();
-    assert.equal(result.savedVia, 'download');
-    assert.equal(result.archive, undefined, 'nothing assembled in memory');
-  } finally {
-    if (navigatorWas) Object.defineProperty(globalThis, 'navigator', navigatorWas); else delete globalThis.navigator;
-    delete globalThis.document;
-  }
-  assert.match(job.name, /^shiori-\d{4}-\d{2}-\d{2}\.shioridb$/);
-  const saved = new Blob(chunks);
-  assert.deepEqual(await archiveParts(saved), await archiveParts(archive), 'the same images and manifest as the file a save writes');
-  await api.galleries.delete('906');
-  await importBackup(new File([saved], job.name));
-  assert.deepEqual(await pagesOf('906'), pages);
-});
-
 test('a metadata-only backup restores favorite, category, rating and title', async () => {
   await seed('902');
   const { blob } = await exportMetadata();

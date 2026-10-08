@@ -1,7 +1,7 @@
 // disk-writes.js — counts every byte the app writes to this browser's storage: IndexedDB records in
 // every database and store, localStorage, the offline app files in Cache Storage, and files written
-// through the File System Access API (an import's staging copy in OPFS, a backup saved through a
-// save dialog) — and the files the person saves (exports, backups), as they are saved. It hooks the
+// through the File System Access API (an import's staging copy in OPFS) — and the files the person
+// saves (exports, backups), as they are saved. It hooks the
 // storage APIs themselves, once per context (pages, the agent, the service worker), so no writer
 // can slip past it — including a record put back to change one field, which the browser rewrites
 // whole, images and all. It counts what the app asks the browser to store; the browser's own
@@ -133,16 +133,13 @@ if (typeof Cache !== 'undefined') {
 }
 
 // ── Files written through the File System Access API ──────────────────────────────────────────
-// An import's staging copy in OPFS by default; a stream to a file the person chose to save (a
-// backup) is marked an export (writesAs).
-const _streamKind = new WeakMap();
-export const writesAs = (stream, kind) => { _streamKind.set(stream, kind); return stream; };
+// An import's staging copy in OPFS.
 if (typeof FileSystemWritableFileStream !== 'undefined') {
   const write = FileSystemWritableFileStream.prototype.write;
   FileSystemWritableFileStream.prototype.write = function (data) {
     const params = data && typeof data === 'object' && 'type' in data && !(data instanceof Blob);
     const bytes = params ? (data.type === 'write' ? valueBytes(data.data) : 0) : valueBytes(data);
-    return write.apply(this, arguments).then((result) => { _add(_streamKind.get(this) || 'staging', bytes); return result; });
+    return write.apply(this, arguments).then((result) => { _add('staging', bytes); return result; });
   };
 }
 
@@ -165,9 +162,6 @@ if (typeof HTMLAnchorElement !== 'undefined' && !globalThis.shioriDesktop?.shell
     return click.apply(this, arguments);
   };
 }
-// A file the browser's downloads write as the app produces it (a backup streamed through the
-// worker), counted once the browser has taken all of it.
-export const savedDownload = (bytes) => _add('exports', bytes);
 
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushWrites(); });
