@@ -1,5 +1,36 @@
 # Changelog
 
+## v1.1.0 — 2026-10-08
+
+### Added
+
+- **Archiving** in Shiori Desktop: **Archive** on a gallery's or series' page packs it into one uncompressed ZIP or CBZ in your library folder, the same file its export would be, and Shiori reads it straight from there. **Settings → System → Archive galleries left alone** can do it by itself once a gallery hasn't been opened or changed for a day, a week or a month (off unless you choose), and **Archive format** picks ZIP or CBZ. Edits to an archived gallery, new pages and translations are added to the archive without writing the rest of it again; it's rewritten whole only when a change replaces much of it. A gallery open in the reader, or whose folder holds files you put there yourself, stays a folder.
+- **Settings → Library → Gallery export**: export as ZIP or CBZ, or be asked each time, and choose whether to **Include translations**. The export question can **Remember my choice**. A CBZ also holds ComicInfo.xml so other comic readers show the gallery's details, and an export is named after its gallery.
+- Drop a folder laid out like a Shiori export into Shiori and it imports like its ZIP, translations included. Dropping a whole Shiori Desktop library folder imports each gallery and series in it.
+- Shiori Desktop: **Settings → Storage → Total Disk Writes** counts everything the library writes. Hover it to see the split by where it went (the library folder, this computer's app data, the files you saved) and by kind: pages, translations, gallery details, the library database, thumbnails.
+- The disk-writes count also includes the files you save (exports, backups) and the temporary copies imports make.
+- **Settings → Experimental → Overlay Scrollbars** (Chrome, Edge and other Chromium browsers): scrollbars that float over the page and shrink or hide when not in use.
+
+### Changed
+
+- Shiori Desktop keeps each gallery as a plain folder laid out exactly like its export: the pages in `images/`, translations and study layers next to them, its details in `metadata.json`. A series keeps its chapters together in one folder. A page is written to disk once and moved into place, and adding pages never writes the other pages again. Translations now live with the gallery in your library folder instead of on this computer's drive.
+- Shiori Desktop writes a gallery's details when you change them, when a download, import or translation finishes, or when you leave a gallery you were reading, instead of on a timer; a save that changes nothing writes nothing. The library database writes about half as much for each page added.
+- Shiori Desktop no longer keeps a browser cache, and imports without an extra temporary copy, so downloads and imports are written to disk once.
+- Shiori Desktop no longer checks the whole library folder at every start; **Settings → System → Check the library folder** does that when you ask. Its own `.shiori` folder inside the library folder is hidden, and temporary folders it leaves there are cleaned up.
+- Shiori Desktop finds its library again when the drive comes back under a different letter, or the library folder is moved or renamed.
+- Shiori Desktop deletes a gallery's files outright instead of moving them to the Recycle Bin, and moves an Explorer window out of a folder before deleting or moving it.
+- A page opened at Shiori Desktop's own address in your browser always uses the desktop library; while the app is closed, the page waits for it.
+- Reader: dragging a page image out of the reader now needs Ctrl held as you start dragging.
+- Upgrading from Shiori Desktop 1.0.13 or 1.0.14: your galleries are found again in your library folder on first start. Translations made in those versions aren't carried over.
+
+### Fixed
+
+- Galleries from different sites that happen to share a reference number are kept apart. If you use the browser extension, update it to this version as well: an older one can't add pages to this version of Shiori.
+- Deleting a gallery while Explorer shows its folder no longer makes Explorer complain that the folder is gone, or crash.
+- Exporting with translations turned off now leaves them out of a ZIP as well as a CBZ.
+- Job progress shows in every window using the Shiori Desktop library, including a browser tab at the desktop app's address.
+- Reader: a long jump in the strip view no longer stops partway while pages load.
+
 ## v1.0.14 — 2026-10-03
 
 ### Added
