@@ -1,7 +1,7 @@
 {
   "name": "shiori-desktop",
   "productName": "Shiori",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Shiori as a desktop app, with the library kept as files.",
   "private": true,
   "type": "module",

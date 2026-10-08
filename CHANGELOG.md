@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.1 — 2026-10-09
+
+### Fixed
+
+- A full library backup of any size now saves as one `.shioridb` file. It goes to your browser's downloads instead of a save dialog, because very large libraries (tens of GB) used to end with an empty `.shioridb` and a leftover `.crswap` file. Keep the tab open until Settings says the backup was downloaded. If an earlier export left you with that pair, the `.crswap` file is the complete backup: delete the empty `.shioridb` and rename the `.crswap` file to end in `.shioridb`.
+- Shiori Desktop installed from a developer-mode build can check for updates again instead of reporting "No published versions on GitHub".
+
 ## v1.1.0 — 2026-10-08
 
 ### Added
