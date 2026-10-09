@@ -2,7 +2,9 @@
 // pages (bytes untouched), translations, cover and series links, the desktop library passing its
 // checks afterwards; a move cut short carries on where it stopped; only what was added since a
 // moment can be moved (what was saved while the desktop app couldn't be reached). A gallery too big
-// for one message goes in parts, and a message the app won't take ends that connection, not the app.
+// for one message goes in parts, recorded whole or not at all (what a part wrote goes when a later
+// one fails or its connection does), and a message the app won't take ends that connection, not the
+// app.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
@@ -99,18 +101,128 @@ test('a gallery too big for one message goes in parts and arrives whole', async 
   const client = createClient(config, { partBytes: 12 });   // each page's pictures fill a part
   const written = [];
   const original = desktop.transferWrite.bind(desktop);
-  desktop.transferWrite = (part, opts) => { written.push([part.pages.map(p => p.url), !!part.meta, !!opts.silent]); return original(part, opts); };
+  desktop.transferWrite = (part, opts) => { written.push([part.pages.map(p => p.url), !!part.meta, opts.transfer?.id, !!opts.transfer?.last]); return original(part, opts); };
+  let result;
   try {
-    await client.transferWrite({ galleryId: gid, ...bundle }, { silent: false });
+    result = await client.transferWrite({ galleryId: gid, ...bundle }, { silent: false });
   } finally {
     desktop.transferWrite = original;
     client.close();
   }
-  assert.deepEqual(written, bundle.pages.map((p, i) => [[p.url], i === 0, i < 2]), 'one part a page; the details with the first; the library told with the last');
+  const id = written[0][2];
+  assert.ok(id, 'the parts are one transfer');
+  assert.deepEqual(written, bundle.pages.map((p, i) => [[p.url], i === 0, id, i === 2]), 'one part a page; the details with the first; recorded with the last');
+  assert.deepEqual(result, { pages: 3 });
   const after = await desktop.transferRead(gid);
   assert.equal(after.meta.title.english, 'Large');
   assert.deepEqual(await Promise.all(after.pages.map(p => bytes(p.blob))), await Promise.all(bundle.pages.map(p => bytes(p.blob))));
   assert.deepEqual(await bytes((await desktop.pageGet(gid, 2)).translated), await bytes(png(7, 7, 7)));
+});
+
+// Every file under the desktop library's folder (its galleries' folders and staging).
+const filesUnder = (root) => fs.readdirSync(root, { recursive: true, withFileTypes: true })
+  .filter(d => d.isFile()).map(d => path.join(d.parentPath ?? d.path, d.name));
+const pictures = () => filesUnder(path.join(dir, 'library')).filter(f => /\.(png|webp|jpg)$/i.test(f));
+
+test('a gallery in parts is recorded whole or not at all: a part that fails takes the others with it', async () => {
+  const gid = await gallery('Parts fail', 3);
+  const bundle = await api.transfer.read(gid);
+  const before = pictures().length;
+  const client = createClient(config, { partBytes: 12 });
+  const original = desktop.transferWrite.bind(desktop);
+  desktop.transferWrite = (part, opts) => (opts.transfer?.last ? Promise.reject(new Error('disk gone')) : original(part, opts));
+  try {
+    await assert.rejects(client.transferWrite({ galleryId: gid, ...bundle }, { silent: true }));
+  } finally {
+    desktop.transferWrite = original;
+  }
+  await new Promise(r => setTimeout(r, 100));   // the abort it sends
+  client.close();
+  assert.equal(await desktop.metaGet(gid), null, 'nothing recorded');
+  assert.deepEqual(await desktop.pageList(gid), []);
+  assert.equal(pictures().length, before, 'and no picture the first parts wrote is left');
+});
+
+test('a gallery in parts whose connection goes before the last part leaves nothing behind', async () => {
+  const gid = await gallery('Parts cut', 2);
+  const bundle = await api.transfer.read(gid);
+  const before = pictures().length;
+  const client = createClient(config);
+  // The first part only, as a transfer that never finishes.
+  await client.transferWrite({ galleryId: gid, meta: bundle.meta, stat: bundle.stat, pages: bundle.pages.slice(0, 1) }, { silent: true, transfer: { id: 't1', last: false } });
+  assert.equal(pictures().length, before + 1, 'its page was written');
+  client.close();
+  for (let i = 0; i < 50 && pictures().length !== before; i++) await new Promise(r => setTimeout(r, 20));
+  assert.equal(pictures().length, before, 'and went with the connection');
+  assert.equal(await desktop.metaGet(gid), null);
+});
+
+test('a gallery whose connection goes while its last part is written records nothing', async () => {
+  const gid = await gallery('Last part cut', 12);
+  const bundle = await api.transfer.read(gid);
+  const before = pictures().length;
+  const client = createClient(config, { partBytes: 40 });   // a few pages a part
+  const page = desktop._transferPage.bind(desktop);
+  desktop._transferPage = async (...a) => { await new Promise(r => setTimeout(r, 15)); return page(...a); };   // a slow disk
+  const original = desktop.transferWrite.bind(desktop);
+  desktop.transferWrite = (part, opts) => { if (opts?.transfer?.last) setTimeout(() => client.close(), 5); return original(part, opts); };
+  try {
+    await assert.rejects(client.transferWrite({ galleryId: gid, ...bundle }, { silent: true }));
+    for (let i = 0; i < 100 && (desktop._transfers.size || pictures().length !== before); i++) await new Promise(r => setTimeout(r, 20));
+  } finally {
+    desktop._transferPage = page;
+    desktop.transferWrite = original;
+  }
+  assert.equal(await desktop.metaGet(gid), null, 'nothing recorded');
+  assert.deepEqual(await desktop.pageList(gid), []);
+  assert.equal(pictures().length, before, 'and none of its files are left');
+  assert.equal(desktop.files._row(gid), undefined, 'nor the folder claimed for it');
+});
+
+test('a page that fails while the others are written leaves nothing of its gallery', async () => {
+  const gid = '1790999999990';
+  const before = pictures().length;
+  class Unreadable extends Blob { arrayBuffer() { return new Promise((_, reject) => setTimeout(() => reject(new Error('read failed')), 5)); } }
+  const pages = Array.from({ length: 30 }, (_, i) => ({ url: `local://${gid}/${i + 1}.png`, galleryId: gid, blob: png(i + 1, 3) }));
+  pages[1] = { ...pages[1], blob: new Unreadable([png(2)], { type: 'image/png' }) };
+  await assert.rejects(desktop.transferWrite({ galleryId: gid, meta: { galleryId: gid, title: title('Fails part way') }, pages }));
+  assert.equal(pictures().length, before, 'nothing written stays');
+  assert.equal(desktop.files._row(gid), undefined);
+  assert.equal(await desktop.metaGet(gid), null);
+});
+
+test('a page another gallery holds is refused, not taken from it', async () => {
+  const owner = await gallery('Owner of key', 1);
+  const bundle = await api.transfer.read(owner);
+  const moved = await moveToDesktop(config, [owner]);
+  assert.equal(moved.moved, 1);
+  const thief = '1790999999999';
+  const client = createClient(config);
+  try {
+    await assert.rejects(client.transferWrite({ galleryId: thief, meta: { ...bundle.meta, galleryId: thief }, stat: null,
+      pages: bundle.pages.map(p => ({ ...p, galleryId: thief })) }), (e) => e.code === 'conflict');
+  } finally { client.close(); }
+  assert.equal((await desktop.pageList(owner)).length, 1, 'the owner keeps its page');
+  assert.equal(await desktop.metaGet(thief), null);
+  assert.equal(desktop.files._row(thief), undefined, 'and no folder was claimed for it');
+});
+
+test('a page with no number or no picture is refused, not left out', async () => {
+  const client = createClient(config);
+  try {
+    await assert.rejects(client.transferWrite({ galleryId: '1790999999998', meta: { galleryId: '1790999999998', title: title('x') },
+      pages: [{ url: 'local://1790999999998/cover.png', blob: png(1) }] }), (e) => e.code === 'invalid');
+    await assert.rejects(client.transferWrite({ galleryId: '1790999999998', meta: { galleryId: '1790999999998', title: title('x') },
+      pages: [{ url: 'local://1790999999998/1.png' }] }), (e) => e.code === 'invalid');
+  } finally { client.close(); }
+  assert.equal(await desktop.metaGet('1790999999998'), null);
+});
+
+test('a frame whose pictures are shorter than it says is refused', async () => {
+  const { encode, decode } = await import('../../app/js/desktop-wire.js');
+  const frame = await encode({ id: 1, op: 'x', args: [png(1, 2, 3)] });
+  assert.throws(() => decode(frame.subarray(0, frame.length - 1)));
+  assert.equal((await decode(frame).args[0].arrayBuffer()).byteLength, 7);
 });
 
 test('a message the app will not take ends that connection, and the app carries on', async () => {

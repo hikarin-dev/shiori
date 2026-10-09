@@ -18,7 +18,7 @@ const ROOT = new URL('./', self.location.href);
 // user-facing app version: precached code can change outside a release, and changing this value
 // makes the browser install every BOOT asset into a fresh cache.
 const CACHE_PREFIX = `shiori${ROOT.pathname.replace(/\//g, '_')}`;
-const SHELL_CACHE_REVISION = 54;
+const SHELL_CACHE_REVISION = 55;
 const CACHE_NAME = `${CACHE_PREFIX}-shell-v${SHELL_CACHE_REVISION}`;
 function cacheName() {
   return CACHE_NAME;
@@ -41,7 +41,7 @@ const SHELL = [
   'app/fonts/LICENSE-Kiwi-Maru-OFL.txt', 'app/fonts/LICENSE-YasashisaAntique-IPA.txt',
   'app/fonts/LICENSE-YasashisaAntique-MPLUS.txt', 'app/fonts/LICENSE-JetBrainsMono-OFL.txt', 'app/fonts/README.md',
   'app/js/platform.js', 'app/js/disk-writes.js', 'app/js/notice.js', 'app/js/app-update.js', 'app/js/storage-upgrade.js', 'app/notice.css', 'app/js/db.js', 'app/js/backend-error.js', 'app/js/library-check.js', 'app/js/gallery-files.js', 'app/js/api.js', 'app/js/desktop-backend.js', 'app/js/desktop-wire.js', 'app/js/desktop-shell.js', 'app/js/desktop-settings.js', 'app/js/library-location.js', 'app/js/library-move.js', 'app/js/desktop-link.js', 'app/js/store.js', 'app/js/series.js', 'app/js/series-plan.js', 'app/js/gallery-model.js', 'app/js/sanitize.js', 'app/js/sites.js', 'app/js/image-util.js', 'app/js/page-size.js', 'app/js/migrations.js',
-  'app/js/import-cbz.js', 'app/js/import-files.js', 'app/js/translate.js', 'app/js/translate-config.js', 'app/js/capabilities.js', 'app/js/page-data.js', 'app/js/page-image.js', 'app/js/backup.js',
+  'app/js/import-cbz.js', 'app/js/import-files.js', 'app/js/translate.js', 'app/js/translate-config.js', 'app/js/capabilities.js', 'app/js/page-data.js', 'app/js/page-image.js', 'app/js/backup.js', 'app/js/backup-core.js', 'app/js/backup-ui.js',
   'app/js/benchmark.js', 'app/js/benchmark-core.js', 'app/js/benchmark-ui.js', 'app/benchmark.css',
   'app/js/feedback.js', 'app/js/reader-feedback.js', 'app/js/reader-properties.js', 'app/js/reader-page-menu.js', 'app/js/zip.js',
   'app/js/jobs-runner.js', 'app/js/submit-job.js', 'app/js/services.js', 'app/js/ext-bridge.js', 'app/js/boot.js',

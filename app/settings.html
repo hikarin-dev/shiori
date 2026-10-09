@@ -386,9 +386,17 @@
           <div class="toggle-desc" data-i18n="set.import_backup_desc">Restore a <code>.shi</code> or <code>.shioridb</code> backup into this library. The format is detected automatically. Importing merges into the existing library: records with the same id are overwritten, everything else is kept.</div>
         </div>
         <button class="btn-save" id="importBackupBtn" type="button" data-i18n="common.import">Import…</button>
-        <input type="file" id="backupImportFile" accept=".shi,.shioridb,application/octet-stream,application/json" hidden>
+        <input type="file" id="backupImportFile" accept=".shi,.shioridb,.crdownload,.crswap,application/octet-stream,application/json" hidden>
       </div>
-      <div class="status-msg hidden" id="backupStatus" role="status" aria-live="polite"></div>
+
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-name" data-i18n="set.check_backup">Check a backup file</div>
+          <div class="toggle-desc" data-i18n="set.check_backup_desc">Reads a backup through and checks that it is complete and intact, without changing your library. Useful when a large backup’s download ended with an error: the file it left in your downloads folder may still be complete.</div>
+        </div>
+        <button class="btn-save" id="checkBackupBtn" type="button" data-i18n="common.check">Check…</button>
+        <input type="file" id="backupCheckFile" accept=".shi,.shioridb,.crdownload,.crswap,application/octet-stream,application/json" hidden>
+      </div>
     </div>
   </div>
 

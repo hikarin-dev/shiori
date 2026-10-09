@@ -44,6 +44,8 @@ export async function moveToDesktop(config, ids, { onProgress = () => {}, signal
       if (!done.has(gid)) {
         try {
           const bundle = await source.read(gid);
+          // A page stored without a page number (long ago) can't be addressed in either library.
+          bundle.pages = bundle.pages.filter(p => /\/\d+\.(webp|jpg|jpeg|png|gif|avif)$/i.test(String(p.url)));
           await target.write({ galleryId: gid, ...bundle }, { silent: true });
           const there = new Set((await target.pages(gid)).map(p => p.url));
           const lost = bundle.pages.filter(p => /\/\d+\.\w+$/.test(String(p.url)) && !there.has(p.url));

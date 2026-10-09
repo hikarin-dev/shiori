@@ -8,7 +8,8 @@ import './boot.js';
 import * as api from './api.js';
 import { LANG_NAME_TO_CODE, memberKind } from './gallery-model.js';
 import { seriesManifest, exportFiles } from './gallery-files.js';
-import { importBackup } from './backup.js';
+import { probeBackup } from './backup.js';
+import { importBackups, attachNativeBackup } from './backup-ui.js';
 import { mergeIntoSeries, removeChapter, chapterNumberLabel, chapterTally } from './series.js';
 import { request as extRequest } from './ext-bridge.js';
 import { siteMap, helperAvailable, siteName as _siteName, canDownload as _canDownload, galleryLink as _galleryLinkOf, updateSitesStatus, onSitesChanged } from './sites.js';
@@ -1670,26 +1671,21 @@ async function importSingleFile(group, gid) {
 }
 
 async function _handleImportFiles(files, folders = []) {
-  const accepted = [...files].filter(f => /\.(shi|shioridb)$/i.test(f.name) || isImportable(f));
-  if (!accepted.length && !folders.length) return;
-  if (accepted.length && /\.(shi|shioridb)$/i.test(accepted[0].name)) {
-    try {
-      const { kind, counts } = await importBackup(accepted[0]);
-      alertDialog({
-        title: t('dlg.import_done_title'), tone: 'success',
-        body: kind === 'metadata'
-          ? t('dlg.import_meta_body', { n: formatCount(counts.galleries) })
-          : t('dlg.import_full_body', { g: formatCount(counts.galleries), i: formatCount(counts.images) }),
-      });
-    } catch (err) {
-      alertDialog({ title: t('dlg.import_fail_title'), body: t('dlg.import_fail_body'), detail: err.message, tone: 'error' });
-    }
-    await loadAll();
-    return;
+  // A backup is told by what is in it, whatever it is named (a download left as "… .crdownload"):
+  // each one dropped or picked is restored in turn, behind its own progress window.
+  const media = [], backups = [];
+  for (const file of files) {
+    if (isImportable(file)) media.push(file);
+    else if (await probeBackup(file)) backups.push(file);
   }
+  if (backups.length) {
+    await importBackups(backups);
+    await loadAll();
+  }
+  if (!media.length && !folders.length) return;
   // Reserve a placeholder card for every gallery up front (drop 3 zips → 3 cards appear
   // immediately; loose images share one), then upload them one at a time into their reserved ids.
-  const queued = groupImports(accepted, folders).map((group) => {
+  const queued = groupImports(media, folders).map((group) => {
     const gid = api.newGalleryId();   // the shared mint — per-context monotonic, never a raw Date.now()
     return { group, gid, title: group.name.replace(/\.[^.]+$/, '') };
   });
@@ -1699,6 +1695,9 @@ async function _handleImportFiles(files, folders = []) {
     await importSingleFile(group, gid);
   }
 }
+
+// A backup the desktop app was making or restoring when this window was reloaded.
+attachNativeBackup().catch(() => {});
 
 document.getElementById('cbzFileInput').addEventListener('change', (e) => {
   const files = [...e.target.files];

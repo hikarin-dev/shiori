@@ -178,4 +178,12 @@
 .notice-bar.indeterminate > div { width: 30%; animation: notice-slide 1.2s ease-in-out infinite; }
 @keyframes notice-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 .notice-detail { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.notice-detail + .notice-detail { margin-top: 2px; }
+.notice-detail[hidden] { display: none; }
+/* A blocking progress modal (showOperation): the same box, its focus kept off the page behind. */
+.notice-operation { width: min(480px, 100%); outline: none; }
+.notice-operation p[hidden] { display: none; }
+/* Set aside while a dialog on top asks something: the page stays covered, without a second dimming. */
+.notice-overlay.notice-set-aside { background: transparent; }
+.notice-overlay.notice-set-aside > .notice-modal { visibility: hidden; }
 .notice-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }

@@ -48,8 +48,9 @@ function relayScope() {
 // token when the app lets the page in for being its own). `announce`: hand what it announces to
 // this window.
 // A gallery written to the app goes in parts of about this many bytes of pictures: a message
-// carries every picture it names, whole, and the app takes messages only up to a size (server.js).
-const PART_BYTES = 256 * 1024 * 1024;
+// carries every picture it names, whole (held in memory on both sides while it travels), and the
+// app takes messages only up to a size (server.js). The parts of one gallery are recorded together.
+const PART_BYTES = 64 * 1024 * 1024;
 
 // The bytes of the pictures in `value` (a page record, a cover).
 function blobBytes(value) {
@@ -171,11 +172,21 @@ export function createClient(config, { announce = false, partBytes = PART_BYTES 
 
   const client = Object.fromEntries(OPS.map(op => [op, (...args) => call(op, ...args)]));
   return Object.assign(client, {
-    // A gallery in parts (transferParts), the library told of it once, with the last.
+    // A gallery in parts (transferParts) under one transfer id: the library records it with the last
+    // part, whole, and drops what the others wrote should one fail. Resolves the library's { pages }.
     async transferWrite(bundle, opts = {}) {
       const parts = transferParts(bundle, partBytes);
-      for (let i = 0; i < parts.length; i++) {
-        await call('transferWrite', parts[i], i < parts.length - 1 ? { ...opts, silent: true } : opts);
+      if (parts.length === 1) return call('transferWrite', parts[0], opts);
+      const id = crypto.randomUUID();
+      try {
+        let result;
+        for (let i = 0; i < parts.length; i++) {
+          result = await call('transferWrite', parts[i], { ...opts, transfer: { id, first: i === 0, last: i === parts.length - 1 } });
+        }
+        return result;
+      } catch (e) {
+        call('transferAbort', id).catch(() => {});
+        throw e;
       }
     },
     // Ends a run of silent writes; like db.js's, it returns at once.

@@ -26,6 +26,7 @@ app.commandLine.appendSwitch('disable-http-cache');
 const { Library } = await import('./server/library.js');
 const { libraryId } = await import('./server/files.js');
 const { startServer } = await import('./server/server.js');
+const { BackupJobs, backupName } = await import('./server/backup.js');
 
 // ── Folders Explorer shows ──
 // Explorer windows showing `from` (or a folder inside it) are moved to `to` (its parent, when `to`
@@ -102,6 +103,8 @@ const archiveFormatOf = (settings) => (settings.archiveFormat === 'cbz' ? 'cbz' 
 
 let library = null, server = null, token = null, mainWindow = null, tray = null, libraryDir = null, dataDir = null;
 const windows = new Map();   // window → { view, bar }
+let backups = null;          // full backups made and restored here for a window (server/backup.js)
+const busy = new Map();      // a page → the backup it runs itself (shell 'busy'), as it names it
 const pending = [];          // shiori:// links that arrived before the window
 
 // Dialogs, the tray and the title bar speak the app's language: the one its window last reported
@@ -138,7 +141,8 @@ function openLink(link) {
 function showWindow(target = null) {
   closingAfterJobs = false;
   if (!mainWindow || mainWindow.isDestroyed()) { mainWindow = createWindow(target || '/library'); return; }
-  if (target) windows.get(mainWindow).view.webContents.loadURL(server.url + target);
+  const contents = windows.get(mainWindow).view.webContents;
+  if (target && !held(contents)) contents.loadURL(server.url + target);
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
@@ -150,6 +154,9 @@ const external = (url) => { if (/^https?:\/\//i.test(url)) shell.openExternal(ur
 const fromApp = (event) => !!server && isApp(event.senderFrame?.url || '');
 const partsOf = (contents) => [...windows.values()].find(p => p.view.webContents === contents || p.bar.webContents === contents);
 const windowOf = (contents) => [...windows].find(([, p]) => p.view.webContents === contents || p.bar.webContents === contents)?.[0] || null;
+// A page in the middle of a backup — one run here for it, or one it runs itself — isn't reloaded or
+// taken back or forward meanwhile: that would leave the backup half done.
+const held = (contents) => !!contents && (busy.has(contents) || backups?.running()?.owner === contents);
 
 // ── Windows: the title bar strip over the app's page ──
 // A page's title without the app's name before it ("Shiori — Library" → "Library"): the window is
@@ -204,8 +211,11 @@ function createWindow(target) {
   });
   contents.on('will-navigate', (event, url) => { if (!isApp(url)) { event.preventDefault(); external(url); } });
   contents.on('before-input-event', (event, input) => { if (shortcut(win, contents, input)) event.preventDefault(); });
+  // A page gone (or gone elsewhere) runs no backup any more.
+  for (const e of ['did-navigate', 'render-process-gone', 'destroyed']) contents.on(e, () => busy.delete(contents));
   // The mouse's back and forward buttons.
   win.on('app-command', (_event, command) => {
+    if (held(contents)) return;
     if (command === 'browser-backward' && contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack();
     if (command === 'browser-forward' && contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward();
   });
@@ -280,16 +290,19 @@ async function loadExtension(dir) {
     extensionsLoaded.set(dir, { error: String(e?.message || e).split('\n')[0] });
   }
 }
-const reloadPages = () => { for (const { view } of windows.values()) if (!view.webContents.isDestroyed()) view.webContents.reload(); };
+const reloadPages = () => { for (const { view } of windows.values()) if (!view.webContents.isDestroyed() && !held(view.webContents)) view.webContents.reload(); };
 
 // The shortcuts a menu would have carried. Returns true when `input` was one.
 function shortcut(win, contents, input) {
   if (input.type !== 'keyDown') return false;
   const key = input.key, ctrl = input.control || input.meta, k = key.length === 1 ? key.toLowerCase() : key;
-  const history = contents.navigationHistory;
-  if ((input.alt && k === 'ArrowLeft') || k === 'BrowserBack') { if (history.canGoBack()) history.goBack(); return true; }
-  if ((input.alt && k === 'ArrowRight') || k === 'BrowserForward') { if (history.canGoForward()) history.goForward(); return true; }
-  if (k === 'F5' || (ctrl && k === 'r')) { if (input.shift || (ctrl && k === 'F5')) contents.reloadIgnoringCache(); else contents.reload(); return true; }
+  const history = contents.navigationHistory, still = held(contents);
+  if ((input.alt && k === 'ArrowLeft') || k === 'BrowserBack') { if (!still && history.canGoBack()) history.goBack(); return true; }
+  if ((input.alt && k === 'ArrowRight') || k === 'BrowserForward') { if (!still && history.canGoForward()) history.goForward(); return true; }
+  if (k === 'F5' || (ctrl && k === 'r')) {
+    if (!still) { if (input.shift || (ctrl && k === 'F5')) contents.reloadIgnoringCache(); else contents.reload(); }
+    return true;
+  }
   if (k === 'F12' || (ctrl && input.shift && k === 'i')) { contents.toggleDevTools(); return true; }
   if (ctrl && (k === '=' || k === '+')) { contents.setZoomLevel(Math.min(5, contents.getZoomLevel() + 0.5)); return true; }
   if (ctrl && (k === '-' || k === '_')) { contents.setZoomLevel(Math.max(-5, contents.getZoomLevel() - 0.5)); return true; }
@@ -298,8 +311,8 @@ function shortcut(win, contents, input) {
   return false;
 }
 
-ipcMain.on('titlebar:back', (event) => { const p = partsOf(event.sender); if (p?.view.webContents.navigationHistory.canGoBack()) p.view.webContents.navigationHistory.goBack(); });
-ipcMain.on('titlebar:forward', (event) => { const p = partsOf(event.sender); if (p?.view.webContents.navigationHistory.canGoForward()) p.view.webContents.navigationHistory.goForward(); });
+ipcMain.on('titlebar:back', (event) => { const p = partsOf(event.sender); if (p && !held(p.view.webContents) && p.view.webContents.navigationHistory.canGoBack()) p.view.webContents.navigationHistory.goBack(); });
+ipcMain.on('titlebar:forward', (event) => { const p = partsOf(event.sender); if (p && !held(p.view.webContents) && p.view.webContents.navigationHistory.canGoForward()) p.view.webContents.navigationHistory.goForward(); });
 
 // The page asks where its library is; only the app's own pages are told.
 ipcMain.on('shiori:config', (event) => {
@@ -392,6 +405,41 @@ ipcMain.handle('shiori:shell', async (event, action, args = []) => {
     case 'checkUpdates': checkForUpdates(); return shellState();
     case 'updateState': return update;
     case 'installUpdate': if (update.status === 'ready') requestQuit({ relaunch: true, install: true }); return true;
+    // Full backups, made and restored here (server/backup.js) for the page asking, which follows one
+    // by its id. Answers are { ok, … }, what went wrong a `code` (an error thrown here would reach the
+    // page without one).
+    case 'backupExport': {
+      if (backups.running()) return { ok: false, code: 'busy' };
+      const parent = windowOf(event.sender) || mainWindow;
+      const options = { title: t('save_backup'), defaultPath: path.join(app.getPath('downloads'), backupName()),
+        filters: [{ name: t('backup_file'), extensions: ['shioridb'] }] };
+      const { canceled, filePath } = parent ? await dialog.showSaveDialog(parent, options) : await dialog.showSaveDialog(options);
+      if (canceled || !filePath) return { ok: false, code: 'cancelled' };
+      return backups.export(filePath, { settings: key?.settings ?? null, owner: event.sender });
+    }
+    case 'backupOpen': {
+      const file = typeof key?.path === 'string' && path.isAbsolute(key.path) ? path.normalize(key.path) : null;
+      if (!file || !(await fs.promises.stat(file).catch(() => null))?.isFile()) return { ok: false, code: 'not-found' };
+      return backups.open(file, { owner: event.sender });
+    }
+    // A backup is its page's own: another window (one opened meanwhile) neither finds it nor stops it.
+    case 'backupRestore':
+      if (backups.job?.id !== key?.id || backups.job.owner !== event.sender) return { ok: false, code: 'not-found' };
+      return backups.restore(key?.id, { resume: !!key?.resume, owner: event.sender });
+    case 'backupState': {
+      const state = backups.job?.owner === event.sender ? backups.state(key?.id) : null;
+      return state ? { ok: true, state } : { ok: false, code: 'not-found' };
+    }
+    case 'backupCancel': if (backups.job?.owner === event.sender) backups.cancel(key?.id); return { ok: true };
+    case 'backupClose': return backups.job?.owner === event.sender ? backups.close(key?.id) : { ok: false, code: 'not-found' };
+    case 'backupCurrent': return { ok: true, id: backups.job?.owner === event.sender ? backups.job.id : null };
+    case 'revealPath':
+      if (typeof key?.path === 'string' && path.isAbsolute(key.path)) shell.showItemInFolder(path.normalize(key.path));
+      return { ok: true };
+    case 'busy':
+      if (key?.on) busy.set(event.sender, typeof key.label === 'string' ? key.label.slice(0, 200) : '');
+      else busy.delete(event.sender);
+      return { ok: true };
     default: throw new Error(`no action ${action}`);
   }
 });
@@ -461,7 +509,14 @@ async function pageCall(fn) {
   const call = contents.executeJavaScript(`import('/app/js/desktop-shell.js').then((m) => m.${fn}())`, true).catch(() => null);
   return Promise.race([call, new Promise(r => setTimeout(() => r(null), 5000))]);
 }
-const activeJobs = async () => (await pageCall('activeJobs')) || { count: 0, titles: [] };
+// …and before them, a backup: one made or restored here, and any a page runs itself.
+async function activeJobs() {
+  const jobs = (await pageCall('activeJobs')) || { count: 0, titles: [] };
+  const job = backups?.running();
+  const own = [...(job ? [job.kind === 'export' ? t('quit_backup_export') : t('quit_backup_restore')] : []),
+    ...[...busy.values()].map(label => label || t('quit_backup'))];
+  return { count: own.length + jobs.count, titles: [...own, ...jobs.titles] };
+}
 
 let quitting = false, closingAfterJobs = false, relaunchAfter = false, installAfter = false;
 
@@ -496,6 +551,7 @@ async function reallyQuit() {
   if (quitting) return;
   quitting = true;
   if (relaunchAfter && !installAfter) app.relaunch();
+  await backups?.stop();   // a backup under way stops first, between galleries, its partial file deleted
   await library?.files.flush().catch(() => {});
   await server?.close().catch(() => {});
   library?.close();
@@ -559,6 +615,13 @@ app.on('window-all-closed', () => { if (quitting) app.quit(); });
 async function start() {
   const settings = readSettings();
   useLanguage(isLanguage(settings.lang) ? settings.lang : pickLanguage(app.getPreferredSystemLanguages()));
+  // What a backup being made when Shiori was last stopped short (Windows shutting down) had written.
+  if (settings.backupPartial) {
+    if (typeof settings.backupPartial === 'string' && /\.partial$/i.test(settings.backupPartial)) {
+      try { fs.rmSync(settings.backupPartial, { force: true }); } catch {}
+    }
+    writeSettings({ backupPartial: undefined });
+  }
   libraryDir = libraryDirOf(settings);
   for (;;) {
     try {
@@ -567,6 +630,7 @@ async function start() {
       library = await new Library({ dataDir, libraryDir, vacate,
         archiveAfter: ARCHIVE_AFTER[archiveAfterOf(settings)], archiveFormat: archiveFormatOf(settings) }).open();
       hide(path.join(libraryDir, '.shiori'));
+      backups = new BackupJobs(library, { onPartial: (file) => writeSettings({ backupPartial: file || undefined }) });
       // A file the person saves from a window (an export, a backup): counted with the library's writes
       // once it is written whole (a save dialog cancelled writes nothing).
       session.defaultSession.on('will-download', (_event, item) => {

@@ -7,13 +7,13 @@ import { cancelJob } from './submit-job.js';
 import { pingServer, serverUrlFromSettings, hasConfiguredServer, isLocalServer } from './translate.js';
 import { getCapabilities, cachedCapabilities } from './capabilities.js';
 import { migrateTranslateSettings, settingsModel, GROUP_HEADING_KEYS } from './translate-config.js';
-import { exportMetadata, exportFull, importBackup } from './backup.js';
+import { exportBackup, importBackups, checkBackup, backupRunning, attachNativeBackup } from './backup-ui.js';
 import { t, applyTranslations, getLang, setLang, SUPPORTED, LANG_NAMES } from './i18n.js';
 import { formatBytes, formatCount } from './format.js';
 import { initTooltips } from './tooltip.js';
 import { initDropdowns } from './dropdown.js';
 import { initBenchmarkCard } from './benchmark-ui.js';
-import { confirmDialog } from './notice.js';
+import { confirmDialog, alertDialog } from './notice.js';
 import { customScrollbarAvailable, applyScrollbarPreference } from './scrollbar.js';
 
 initTooltips();
@@ -285,7 +285,15 @@ async function performReset(factory) {
   platform.control.send({ type: 'LIBRARY_RESET', context: platform.contextId, factory: !!factory });
 }
 
+// Never under a backup being made or restored, in this window or another.
+async function backupBlocksReset() {
+  if (!(await backupRunning())) return false;
+  await alertDialog({ title: t('bk.lock_title'), body: t('bk.reset_blocked'), tone: 'info' });
+  return true;
+}
+
 document.getElementById('clearAllBtn').addEventListener('click', async () => {
+  if (await backupBlocksReset()) return;
   if (!(await confirmDialog({ title: t('dlg.clear_title'), body: t('dlg.clear_body'), ok: t('dlg.continue'), danger: true }))) return;
   if (!(await confirmDialog({ title: t('dlg.clear2_title'), body: t('dlg.clear2_body'), ok: t('dlg.clear2_ok'), danger: true }))) return;
   await performReset(false);
@@ -293,6 +301,7 @@ document.getElementById('clearAllBtn').addEventListener('click', async () => {
 });
 
 document.getElementById('factoryResetBtn').addEventListener('click', async () => {
+  if (await backupBlocksReset()) return;
   if (!(await confirmDialog({ title: t('dlg.factory_title'), body: t('dlg.factory_body'), ok: t('dlg.continue'), danger: true }))) return;
   if (!(await confirmDialog({ title: t('dlg.factory2_title'), body: t('dlg.factory2_body'), ok: t('dlg.factory2_ok'), danger: true }))) return;
   await performReset(true);
@@ -903,43 +912,31 @@ backupModal.addEventListener('click', (e) => { if (e.target === backupModal) set
 document.getElementById('importBackupBtn').addEventListener('click', () => {
   document.getElementById('backupImportFile').click();
 });
-
-function _saveBlob(blob, filename) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-}
-
-document.getElementById('backupMetaBtn').addEventListener('click', async () => {
-  setBackupModalOpen(false);
-  try {
-    const { blob, suggestedName, count } = await exportMetadata();
-    _saveBlob(blob, suggestedName);
-    showStatus('backupStatus', `Exported metadata for ${formatCount(count)} galleries.`, 'ok');
-  } catch (err) { showStatus('backupStatus', 'Export failed: ' + (err && err.message || err), 'err'); }
+document.getElementById('checkBackupBtn').addEventListener('click', () => {
+  document.getElementById('backupCheckFile').click();
 });
 
-document.getElementById('backupFullBtn').addEventListener('click', async () => {
+// Each runs behind its own progress window (backup-ui.js), which says how it went.
+document.getElementById('backupMetaBtn').addEventListener('click', () => {
   setBackupModalOpen(false);
-  try {
-    const result = await exportFull((phase, done, total) => showStatus('backupStatus', `Exporting ${phase}: ${formatCount(done)}/${formatCount(total)}`, 'ok', 120000));
-    _saveBlob(result.archive, result.suggestedName);
-    showStatus('backupStatus', `Exported ${formatCount(result.counts.galleries)} galleries / ${formatCount(result.counts.images)} images — saving to your downloads.`, 'ok');
-  } catch (err) { showStatus('backupStatus', 'Export failed: ' + (err && err.message || err), 'err'); }
+  exportBackup('metadata');
 });
-
+document.getElementById('backupFullBtn').addEventListener('click', () => {
+  setBackupModalOpen(false);
+  exportBackup('full');
+});
 document.getElementById('backupImportFile').addEventListener('change', async (e) => {
-  const file = e.target.files[0]; if (!file) return;
-  try {
-    const { kind, counts } = await importBackup(file, (phase, done, total) => showStatus('backupStatus', `Importing ${phase}: ${formatCount(done)}/${formatCount(total)}`, 'ok', 120000));
-    showStatus('backupStatus', kind === 'metadata'
-      ? `Imported metadata for ${formatCount(counts.galleries)} galleries.`
-      : `Imported ${formatCount(counts.galleries)} galleries, ${formatCount(counts.images)} images. Open the library to see them.`, 'ok');
-  } catch (err) { showStatus('backupStatus', 'Import failed: ' + (err && err.message || err), 'err'); }
+  const file = e.target.files[0];
   e.target.value = '';
+  if (file) await importBackups([file]);
 });
+document.getElementById('backupCheckFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (file) await checkBackup(file);
+});
+// A backup the desktop app was making or restoring when this window was reloaded.
+attachNativeBackup().catch(() => {});
 
 // ── Storage Writes ────────────────────────────────────────────────────────
 

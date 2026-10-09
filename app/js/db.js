@@ -1304,21 +1304,25 @@ export async function transferIds() {
   });
 }
 
-// { meta, stat, pages, cover } for one gallery, images as Blobs (null for what it lacks).
-export async function transferRead(galleryId) {
+// { meta, stat, pages, cover } for one gallery, images as Blobs (null for what it lacks). With
+// `pages: false`, only its metadata and stat record.
+export async function transferRead(galleryId, { pages: withPages = true } = {}) {
   const gid = String(galleryId);
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const out = { meta: null, stat: null, pages: [], cover: null };
-    const tx = _tx(db, [STORE, META_STORE, GALLERY_STORE, COVER_STORE, BLOB_STORE], 'readonly');
+    const stores = withPages ? [STORE, META_STORE, GALLERY_STORE, COVER_STORE, BLOB_STORE] : [META_STORE, GALLERY_STORE];
+    const tx = _tx(db, stores, 'readonly');
     const meta = tx.objectStore(META_STORE).get(gid);
     meta.onsuccess = () => { out.meta = meta.result || null; };
     const stat = tx.objectStore(GALLERY_STORE).get(gid);
     stat.onsuccess = () => { out.stat = stat.result || null; };
-    const pages = tx.objectStore(STORE).index('galleryId').getAll(IDBKeyRange.only(gid));
-    pages.onsuccess = () => { out.pages = pages.result || []; _loadPages(tx, out.pages); };
-    const cover = tx.objectStore(COVER_STORE).get(gid);
-    cover.onsuccess = () => { out.cover = cover.result || null; _loadCovers(tx, [out.cover]); };
+    if (withPages) {
+      const pages = tx.objectStore(STORE).index('galleryId').getAll(IDBKeyRange.only(gid));
+      pages.onsuccess = () => { out.pages = pages.result || []; _loadPages(tx, out.pages); };
+      const cover = tx.objectStore(COVER_STORE).get(gid);
+      cover.onsuccess = () => { out.cover = cover.result || null; _loadCovers(tx, [out.cover]); };
+    }
     tx.oncomplete = () => resolve(out);
     tx.onerror = () => reject(tx.error);
   });
@@ -1326,31 +1330,53 @@ export async function transferRead(galleryId) {
 
 // Write one gallery's records as given (a restore), in one transaction: its metadata, its stat
 // record (sort times kept; the published date filled from the metadata when the record predates
-// it), its pages and its cover's images. Sizes are brought up to date afterwards.
+// it), its pages and its cover's images — all of it, or nothing. Sizes are brought up to date
+// afterwards. Refused: a page with no page number or no picture, and a page whose key another
+// gallery's page is stored under (`conflict`: it would be taken from that gallery). Resolves
+// { pages }: how many pages it stored.
 export async function transferWrite({ galleryId = null, meta = null, stat = null, pages = [], cover = null } = {}, { silent = false } = {}) {
   const gid = String(galleryId ?? meta?.galleryId ?? stat?.galleryId ?? pages[0]?.galleryId ?? '');
   if (!gid) throw new BackendError('invalid', 'a gallery to restore names no gallery');
+  for (const rec of pages) {
+    if (_keyPage(rec?.url) == null) throw new BackendError('invalid', 'a page to restore has no page number');
+    if (!(rec.blob instanceof Blob) && typeof rec.dataUrl !== 'string') throw new BackendError('invalid', `page ${_keyPage(rec.url)} to restore has no picture`);
+  }
   const db = await openDB();
   await new Promise((resolve, reject) => {
     const tx = _tx(db, [STORE, META_STORE, GALLERY_STORE, COVER_STORE, BLOB_STORE], 'readwrite');
+    let failure = null;
+    // Anything going wrong while the writes are queued aborts them all: nothing queued so far commits.
+    const fail = (e) => { if (!failure) { failure = e; try { tx.abort(); } catch {} } };
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    _logIn(tx, gid);
-    if (meta) tx.objectStore(META_STORE).put(canonicalMeta({ ...meta, galleryId: gid }));
-    if (stat) tx.objectStore(GALLERY_STORE).put({ ...stat, galleryId: gid, uploadDate: uploadDateSeconds(stat.uploadDate ?? (Number(meta?.uploadDate) || 0)) });
-    const images = tx.objectStore(STORE);
-    for (const rec of pages) {
-      const prev = images.get(rec.url);
-      prev.onsuccess = () => images.put(_stash(tx, { ...rec, galleryId: gid }, _refIds(prev.result, PAGE), PAGE));
-    }
-    const patch = {};
-    if (cover?.cover) patch.cover = cover.cover;
-    if (cover?.seriesCover) patch.seriesCover = cover.seriesCover;
-    if (Object.keys(patch).length) putCoverPatch(tx, gid, patch);
+    tx.onerror = () => reject(failure || tx.error);
+    try {
+      _logIn(tx, gid);
+      if (meta) tx.objectStore(META_STORE).put(canonicalMeta({ ...meta, galleryId: gid }));
+      if (stat) tx.objectStore(GALLERY_STORE).put({ ...stat, galleryId: gid, uploadDate: uploadDateSeconds(stat.uploadDate ?? (Number(meta?.uploadDate) || 0)) });
+      const images = tx.objectStore(STORE);
+      for (const rec of pages) {
+        const prev = images.get(rec.url);
+        prev.onsuccess = () => {
+          if (failure) return;
+          try {
+            if (prev.result && String(prev.result.galleryId) !== gid) {
+              fail(new BackendError('conflict', `page ${_keyPage(rec.url)} is stored for gallery ${prev.result.galleryId}`));
+              return;
+            }
+            images.put(_stash(tx, { ...rec, galleryId: gid }, _refIds(prev.result, PAGE), PAGE));
+          } catch (e) { fail(e); }
+        };
+      }
+      const patch = {};
+      if (cover?.cover) patch.cover = cover.cover;
+      if (cover?.seriesCover) patch.seriesCover = cover.seriesCover;
+      if (Object.keys(patch).length) putCoverPatch(tx, gid, patch);
+    } catch (e) { fail(e); }
   });
   _forgetOtherSourceLookup(meta?.sourceId, gid, meta?.source);
   if (!silent) publishFeed(gid);
   else scheduleGallerySize(gid);
+  return { pages: pages.length };
 }
 
 // ── Raw record access (backup/restore) ──

@@ -45,14 +45,14 @@ test('safeExternalUrl allows only credential-free http(s)', () => {
 test('a .shi backup with markup ids is rejected before any write', async () => {
   const payload = [{ galleryId: '"><img src=x onerror=alert(1)>', title: 'x' }];
   const file = new File([JSON.stringify(payload)], 'evil.shi', { type: 'application/json' });
-  await assert.rejects(importBackup(file), /invalid gallery id/i);
+  await assert.rejects(importBackup(file), { code: 'unsafe' });
   assert.equal(globalThis.indexedDB, undefined);
 });
 
 test('a .shi backup with a markup chapter reference is rejected', async () => {
   const payload = [{ galleryId: '123', chapters: [{ id: '1"><script>' }, { id: '2' }] }];
   const file = new File([JSON.stringify(payload)], 'evil.shi', { type: 'application/json' });
-  await assert.rejects(importBackup(file), /invalid gallery id/i);
+  await assert.rejects(importBackup(file), { code: 'unsafe' });
   assert.equal(globalThis.indexedDB, undefined);
 });
 
@@ -69,17 +69,20 @@ test('a .shioridb manifest with markup ids is rejected before any write', async 
     images: [], covers: [], sourceIcons: [],
     metadata: [{ galleryId: '"><svg onload=alert(1)>' }], galleries: [],
   });
-  await assert.rejects(importBackup(file), /invalid gallery id/i);
+  await assert.rejects(importBackup(file), { code: 'unsafe' });
   assert.equal(globalThis.indexedDB, undefined);
 });
 
-test('a .shioridb blob slice outside the file bounds is rejected', async () => {
+test('a .shioridb blob slice outside the file bounds fails its gallery before any write', async () => {
   const file = fullArchive({
     format: 'shiori-db', version: 7, counts: {},
     images: [{ url: 'local://1/1.jpg', galleryId: '1', body: { off: 0, len: 99999999 } }],
     covers: [], sourceIcons: [], metadata: [], galleries: [],
   });
-  await assert.rejects(importBackup(file), /out of bounds/i);
+  const result = await importBackup(file);
+  assert.deepEqual(result.written, []);
+  assert.equal(result.problems.length, 1);
+  assert.equal(result.problems[0].reason, 'invalid');
   assert.equal(globalThis.indexedDB, undefined);
 });
 
@@ -87,6 +90,6 @@ test('a truncated .shioridb (bad manifest length) is rejected', async () => {
   const footer = new Uint8Array(4);
   new DataView(footer.buffer).setUint32(0, 5000, true);
   const file = new File([new Uint8Array(10), footer], 'evil.shioridb');
-  await assert.rejects(importBackup(file));
+  await assert.rejects(importBackup(file), { code: 'not-backup' });
   assert.equal(globalThis.indexedDB, undefined);
 });

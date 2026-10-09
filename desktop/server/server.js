@@ -163,7 +163,15 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
     ws.send(await wire.encode(message));
   };
   wss.on('connection', (ws) => {
-    ws.on('close', () => { if (ws.reading) library.leftReader(ws.reading); });
+    // A gallery arriving in parts (transferWrite's `transfer`) is this connection's own: its id is
+    // made unique here, and what its parts wrote goes if the connection does before the last part.
+    ws.transferKey = crypto.randomUUID();
+    ws.transfers = new Set();
+    ws.on('close', () => {
+      if (ws.reading) library.leftReader(ws.reading);
+      for (const id of ws.transfers) library.transferAbort(id).catch(() => {});
+      ws.transfers.clear();
+    });
     // A frame it won't take (past MAX_FRAME, or no proper frame) ends that connection, which ws
     // closes itself; unheard, the error would take the whole app down.
     ws.on('error', () => {});
@@ -198,7 +206,30 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
           await send(ws, { id, ok: true, result: true });
           return;
         }
+        if (op === 'transferAbort') {
+          const [transferId] = Array.isArray(args) ? args : [];
+          const key = `${ws.transferKey}:${String(transferId)}`;
+          ws.transfers.delete(key);
+          await library.transferAbort(key);
+          await send(ws, { id, ok: true, result: true });
+          return;
+        }
         if (!OPS.has(op) || !Array.isArray(args) || args.length > MAX_ARGS) throw new BackendError('invalid', `no operation ${op}`);
+        const transfer = op === 'transferWrite' && args[1]?.transfer?.id != null ? args[1].transfer : null;
+        if (transfer) {
+          const key = `${ws.transferKey}:${String(transfer.id)}`;
+          args[1] = { ...args[1], transfer: { id: key, first: transfer.first !== false, last: !!transfer.last } };
+          ws.transfers.add(key);
+          try {
+            const result = await library.transferWrite(...args);
+            if (transfer.last) ws.transfers.delete(key);
+            await send(ws, { id, ok: true, result });
+          } catch (e) {
+            ws.transfers.delete(key);
+            throw e;
+          }
+          return;
+        }
         const result = await library[op](...args);
         await send(ws, { id, ok: true, result });
       } catch (e) {

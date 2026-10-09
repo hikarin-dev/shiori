@@ -54,14 +54,19 @@ export async function encode(message) {
   return out;
 }
 
-// The message a frame holds; `bytes` is an ArrayBuffer or a Uint8Array.
+// The message a frame holds; `bytes` is an ArrayBuffer or a Uint8Array. A frame whose bytes don't
+// add up to what its header declares is refused, never read as shorter pictures.
 export function decode(bytes) {
   const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  if (view.byteLength < 4) throw new Error('a frame too short');
   const headLength = new DataView(view.buffer, view.byteOffset, view.byteLength).getUint32(0, true);
+  if (4 + headLength > view.byteLength) throw new Error('a frame shorter than its header');
   const { body, blobs: sizes } = JSON.parse(new TextDecoder().decode(view.subarray(4, 4 + headLength)));
+  if (!Array.isArray(sizes) || sizes.some(s => !Array.isArray(s) || !Number.isSafeInteger(s[0]) || s[0] < 0)) throw new Error('a frame with a bad header');
   let at = 4 + headLength;
+  if (at + sizes.reduce((n, [size]) => n + size, 0) !== view.byteLength) throw new Error('a frame whose pictures don\'t add up');
   const blobs = sizes.map(([size, type]) => {
-    const blob = new Blob([view.subarray(at, at + size)], type ? { type } : {});
+    const blob = new Blob([view.subarray(at, at + size)], typeof type === 'string' && type ? { type } : {});
     at += size;
     return blob;
   });

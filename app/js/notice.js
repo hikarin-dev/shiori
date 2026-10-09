@@ -89,6 +89,113 @@ export function showProgress({ title, body, stopLabel, onStop }) {
   };
 }
 
+// A progress modal for work nothing else may interrupt (a backup made or restored): until close(),
+// the page behind it is inert — no clicks, keys, focus, scrolling or dropped files reach it — and
+// leaving the page asks first. A dialog opened on top of it (a question, the outcome) works as
+// usual. update({ title, body, done, total, lines }) — total 0 shows an indeterminate bar, `lines`
+// up to two lines of detail under it; stopping(label) disables the Stop button with a new label;
+// hide()/show() set the box aside while a dialog asks something (the page stays locked).
+export function showOperation({ title, body = '', stopLabel, onStop }) {
+  const { overlay, modal } = _modal(title, body);
+  modal.classList.add('notice-operation');
+  const id = `notice-op-${++_dialogSeq}`;
+  const heading = modal.querySelector('h2');
+  heading.id = `${id}-t`;
+  modal.setAttribute('aria-labelledby', heading.id);
+  let text = modal.querySelector('p');
+  if (!text) { text = _el('p', null, ''); text.hidden = true; heading.after(text); }
+  const bar = _el('div', 'notice-bar indeterminate');
+  bar.setAttribute('role', 'progressbar');
+  bar.setAttribute('aria-labelledby', heading.id);
+  bar.setAttribute('aria-valuemin', '0');
+  bar.setAttribute('aria-valuemax', '100');
+  bar.append(_el('div'));
+  const lines = [_el('div', 'notice-detail', ''), _el('div', 'notice-detail', '')];
+  modal.append(bar, ...lines);
+  let stop = null;
+  if (stopLabel) {
+    const actions = _el('div', 'notice-actions');
+    stop = _el('button', 'btn', stopLabel);
+    stop.type = 'button';
+    stop.addEventListener('click', () => { stop.disabled = true; onStop?.(); }, { once: true });
+    actions.append(stop);
+    modal.append(actions);
+  }
+  modal.tabIndex = -1;
+
+  // The lock. Everything already on the page goes inert; a dialog opened later sits on top of it.
+  const returnFocus = document.activeElement;
+  const behind = [...document.body.children].filter(el => el !== overlay && !el.inert);
+  for (const el of behind) el.inert = true;
+  const onTop = (target) => {
+    const layer = target?.closest?.('.notice-overlay');
+    return !!layer && layer !== overlay && !!(overlay.compareDocumentPosition(layer) & Node.DOCUMENT_POSITION_FOLLOWING);
+  };
+  // Keys: a dialog on top handles its own; in this box only moving between its buttons and pressing
+  // one; nothing else (no shortcuts, no reload, no scrolling the page behind).
+  const onKey = (e) => {
+    if (onTop(e.target)) return;
+    // Focus lost to the page (a dialog on top closed): Tab brings it back into the box.
+    if (e.key === 'Tab' && !overlay.contains(e.target)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (e.type === 'keydown') (stop && !stop.disabled ? stop : modal).focus();
+      return;
+    }
+    if (overlay.contains(e.target) && (e.key === 'Tab' || ((e.key === 'Enter' || e.key === ' ') && e.target.tagName === 'BUTTON'))) {
+      if (e.key === 'Tab' && e.type === 'keydown') {
+        e.preventDefault();
+        const stops = [...modal.querySelectorAll('button:not(:disabled)')];
+        if (stops.length) stops[(stops.indexOf(document.activeElement) + (e.shiftKey ? -1 : 1) + stops.length) % stops.length].focus();
+        else modal.focus();
+      }
+      return;
+    }
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  };
+  // Files dragged in are turned away, wherever they are dropped.
+  const onDrag = (e) => {
+    if (onTop(e.target)) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+  };
+  const onLeave = (e) => { e.preventDefault(); e.returnValue = ''; };
+  window.addEventListener('keydown', onKey, true);
+  window.addEventListener('keyup', onKey, true);
+  for (const type of ['dragenter', 'dragover', 'drop']) window.addEventListener(type, onDrag, true);
+  window.addEventListener('beforeunload', onLeave);
+  requestAnimationFrame(() => (stop || modal).focus());
+
+  let closed = false;
+  return {
+    update({ title: nextTitle, body: nextBody, done = 0, total = 0, lines: detail = [] } = {}) {
+      if (nextTitle != null) heading.textContent = nextTitle;
+      if (nextBody != null) { text.textContent = nextBody; text.hidden = !nextBody; }
+      const pct = total ? Math.min(100, (done / total) * 100) : 0;
+      bar.classList.toggle('indeterminate', !total);
+      bar.firstChild.style.width = total ? `${pct}%` : '';
+      if (total) bar.setAttribute('aria-valuenow', String(Math.round(pct))); else bar.removeAttribute('aria-valuenow');
+      lines.forEach((line, i) => { line.textContent = detail[i] || ''; line.hidden = !detail[i]; });
+    },
+    stopping(label) { if (stop) { stop.disabled = true; if (label) stop.textContent = label; } },
+    hide() { overlay.classList.add('notice-set-aside'); },
+    show() { overlay.classList.remove('notice-set-aside'); (stop && !stop.disabled ? stop : modal).focus(); },
+    close() {
+      if (closed) return;
+      closed = true;
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('keyup', onKey, true);
+      for (const type of ['dragenter', 'dragover', 'drop']) window.removeEventListener(type, onDrag, true);
+      window.removeEventListener('beforeunload', onLeave);
+      for (const el of behind) el.inert = false;
+      overlay.remove();
+      if (returnFocus?.isConnected) returnFocus.focus?.();
+    },
+  };
+}
+
 // ── Confirm / alert / prompt ──
 // The app's own dialogs, used instead of the browser's. Each is laid out for what it asks:
 //   title   the question or outcome, one line

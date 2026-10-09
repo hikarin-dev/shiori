@@ -27,7 +27,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { plans, model, titles, pageSize, files as galleryFilesModule, BackendError } from './shared.js';
-import { FileLibrary } from './files.js';
+import { FileLibrary, writeFlushed } from './files.js';
 import { WriteMeter } from './writes.js';
 import { scanLibrary } from './scan.js';
 
@@ -35,7 +35,7 @@ const { planAttach, planRemove, planReorder, planChapterTitle, planWrite, planDe
 const { isSeriesMeta, effectiveTagsOf, LANG_NAME_TO_CODE, uploadDateSeconds } = model;
 const { normalizeTitle, migrateTitle } = titles;
 const { medianPage, describePage, headerSize } = pageSize;
-const { galleryFiles, exportSize, layoutPath, extOfType } = galleryFilesModule;
+const { galleryFiles, exportSize, layoutPath, extOfType, originalExt } = galleryFilesModule;
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -245,11 +245,33 @@ function pageFileFor(keys, n, type) {
   throw new BackendError('invalid', `a picture stored as ${keys.join('.')} has no place in a gallery's folder`);
 }
 
+// `fn` over `items`, at most `limit` at a time (a gallery's files written side by side). Once one
+// fails no more are started, and it rejects only when those under way have finished, so nothing is
+// still being written while its caller cleans up.
+async function mapLimit(items, limit, fn) {
+  let next = 0, failure = null;
+  const worker = async () => {
+    while (!failure && next < items.length) {
+      try { await fn(items[next++]); } catch (e) { failure ??= { e }; }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  if (failure) throw failure.e;
+}
+
 // Two pictures with the same bytes.
 async function sameBytes(a, b) {
   if (!a || !b || a.size !== b.size) return false;
   const [x, y] = (await Promise.all([a.arrayBuffer(), b.arrayBuffer()])).map(buf => new Uint8Array(buf));
   return Buffer.compare(x, y) === 0;
+}
+
+// A file as a Blob that reads it only when its bytes are read; null when it isn't there.
+async function fileBlob(file, type) {
+  try {
+    const blob = await fs.openAsBlob(file, type ? { type } : {});
+    return blob instanceof Blob ? blob : null;
+  } catch { return null; }
 }
 
 async function imageToBlob(src) {
@@ -287,6 +309,7 @@ export class Library {
     this._stmts = new Map();
     this._dirs = new Set();
     this.reading = new Map();   // gid → how many readers show it (server.js 'reading'): never archived meanwhile
+    this._transfers = new Map();   // a gallery arriving in parts: transfer id → what its parts wrote so far (transferWrite)
     this.writes = new WriteMeter(path.join(this.dataDir, 'writes.json'));
     this.files = new FileLibrary(this, Object.fromEntries(Object.entries({ placeDelay, describeDelay, archiveAfter, archiveFormat })
       .filter(([, v]) => v != null)));
@@ -550,11 +573,12 @@ export class Library {
   }
 
   // `value` with its references read back into Blobs; `gid` the gallery it belongs to, and for a page
-  // record its number `n` and where its original is (`orig`).
-  async _internalize(value, gid, orig = null, n = null) {
+  // record its number `n` and where its original is (`orig`). `lazy`: as _lazyRef reads them.
+  async _internalize(value, gid, orig = null, n = null, lazy = false) {
     const walk = async (v) => {
       if (v == null || typeof v !== 'object') return v;
       if (isRef(v)) {
+        if (lazy) return this._lazyRef(v, gid, orig, n);
         if (typeof v.$file === 'string' || typeof v.$own === 'string') return this._readFile(gid, v);
         if (v.$orig) return this._readOrig(gid, n, orig);
         if (v.$page != null) {
@@ -569,6 +593,33 @@ export class Library {
       return Object.fromEntries(Object.keys(v).map(k => [k, out[k]]));
     };
     return walk(value);
+  }
+
+  // A reference read back for a backup, which reads a gallery's pictures one after another: a file
+  // in the cache or in the gallery's folder as a Blob that reads it only then (so they are never all
+  // in memory at once). A picture inside an archive, or staged — moved into the folder when its
+  // gallery settles, maybe before it would be read — is read now, as is one not where its record
+  // said (moved meanwhile); null when it can't be read.
+  async _lazyRef(ref, gid, orig, n) {
+    if (typeof ref.$file === 'string') {
+      const file = path.resolve(this.cacheDir, ref.$file);
+      return file.startsWith(this.cacheDir + path.sep) ? fileBlob(file, ref.type) : null;
+    }
+    if (typeof ref.$own === 'string') {
+      const staged = this._s('SELECT 1 FROM staged_own WHERE gid = ? AND rel = ?').get(String(gid), ref.$own);
+      const file = !staged && this._ownPath(gid, ref.$own);
+      return (file && await fileBlob(file, ref.type)) || this._readOwn(gid, ref);
+    }
+    if (ref.$orig) return this._lazyOrig(gid, n, orig);
+    if (ref.$page != null) {
+      const row = this._pageRow(gid, ref.$page);
+      return row ? this._lazyOrig(gid, row.n, parse(row.orig)) : null;
+    }
+    return null;
+  }
+  async _lazyOrig(gid, n, orig) {
+    const dir = orig?.at === 'p' ? this.files.folderOf(gid) : null;
+    return (dir && await fileBlob(path.join(dir, ...String(orig.entry).split('/')), orig.type)) || this._readOrig(gid, n, orig);
   }
 
   // Page `n`'s original bytes, staged until the gallery is settled.
@@ -1534,9 +1585,22 @@ export class Library {
     return [...ids];
   }
 
-  async transferRead(galleryId) {
+  // { meta, stat, pages, cover } for one gallery, pictures as Blobs. With `pages: false`, only its
+  // metadata and stat record (nothing read from disk). With `lazy` (a backup made here, backup.js),
+  // its pictures kept as files are read only as each is used (_lazyRef).
+  async transferRead(galleryId, { pages = true, lazy = false } = {}) {
     const gid = String(galleryId);
+    if (!pages) return { meta: this._metaGet(gid), stat: this._statGet(gid), pages: [], cover: null };
     const cover = this._coverGet(gid);
+    if (lazy) {
+      const rows = this._pageRows(gid);
+      const records = new Array(rows.length);
+      await mapLimit(rows.map((row, i) => [row, i]), 8, async ([row, i]) => {
+        records[i] = { ...await this._internalize(parse(row.record), row.gid, parse(row.orig), row.n, true), pageNum: row.n };
+      });
+      return { meta: this._metaGet(gid), stat: this._statGet(gid), pages: records,
+        cover: cover ? await this._internalize(cover, gid, null, null, true) : null };
+    }
     return {
       meta: this._metaGet(gid),
       stat: this._statGet(gid),
@@ -1545,61 +1609,171 @@ export class Library {
     };
   }
 
-  // Write one gallery's records as given, in one transaction; sizes are brought up to date after.
-  async transferWrite({ galleryId = null, meta = null, stat = null, pages = [], cover = null } = {}, { silent = false } = {}) {
+  // Write one gallery's records as given (a restore, a library moving in): all of it in one
+  // transaction, or nothing; sizes are brought up to date after. Refused: a page with no page number
+  // or no picture, and a page whose key another gallery's page is stored under (`conflict`: it would
+  // be taken from that gallery). Its files are written several at a time; a gallery with no pages
+  // yet has its pages written straight into its folder, where they stay — nothing staged to move
+  // later. It resolves once its own pictures (translations, study layers, masks, a cover of its own)
+  // are in place: { pages } stored.
+  // A gallery too big for one message comes in parts (`transfer`: { id, first, last }): each part's
+  // files are written as it arrives and the gallery is recorded with the last one; the files of a
+  // transfer that never finishes go (transferAbort — server.js calls it when its connection closes),
+  // and a part still being written then records nothing.
+  async transferWrite({ galleryId = null, meta = null, stat = null, pages = [], cover = null } = {}, { silent = false, transfer = null } = {}) {
     const gid = String(galleryId ?? meta?.galleryId ?? stat?.galleryId ?? pages[0]?.galleryId ?? '');
     if (!gid) throw new BackendError('invalid', 'a gallery to restore names no gallery');
-    const fresh = [], moves = [];
-    const staged = [];
-    let first = null;   // the lowest page given: { n, blob }, a cover's match
+    const id = transfer?.id != null ? String(transfer.id) : null;
+    let state = id ? this._transfers.get(id) : null;
+    if (state && state.gid !== gid) throw new BackendError('invalid', 'a transfer\'s parts name different galleries');
+    // A later part of a transfer given up meanwhile (its first parts' files gone) can't be recorded.
+    if (id && !state && transfer.first === false) throw new BackendError('aborted', 'the rest of this gallery was given up');
+    // Every page checked before anything is written or a folder claimed for it.
+    const numbers = new Set(state?.numbers);
     try {
       for (const rec of pages || []) {
         const n = keyPage(rec?.url);
-        if (n == null) continue;   // a page with no number can't be addressed; it is left out
-        const { blob, dataUrl, pageNum, ...rest } = rec;
-        for (const key of RETIRED_FIELDS) delete rest[key];   // an earlier format's leftovers have no place in a folder
-        const original = await imageToBlob(blob ?? dataUrl);
-        if (!original) continue;
-        const bytes = new Uint8Array(await original.arrayBuffer());
-        if (!first || n < first.n) first = { n, blob: new Blob([bytes]) };
-        const orig = await this._stage(gid, n, bytes, original.type || '');
-        fresh.push(path.join(this.stagingDir, orig.file));
-        const own = await this._externalize(rest, gid, `p${n}`, { own: true, meta, place: (keys, b) => pageFileFor(keys, n, b.type) });
-        fresh.push(...own.fresh);
-        moves.push(...own.moves);
-        staged.push({ n, key: String(rec.url), dims: measure(bytes), orig,
-          record: { ...own.value, galleryId: gid, blob: { $orig: 1, size: bytes.length, type: original.type || '' } } });
+        if (n == null) throw new BackendError('invalid', 'a page to restore has no page number');
+        if (!(rec.blob instanceof Blob) && typeof rec.dataUrl !== 'string') throw new BackendError('invalid', `page ${n} to restore has no picture`);
+        if (numbers.has(n)) throw new BackendError('invalid', `page ${n} given twice`);
+        numbers.add(n);
+        const owner = this._pageRowByKey(String(rec.url));
+        if (owner && owner.gid !== gid) throw new BackendError('conflict', `page ${n} is stored for gallery ${owner.gid}`);
       }
-      const coverPatch = {};
+    } catch (e) {
+      if (id && state) await this.transferAbort(id);
+      throw e;
+    }
+    if (!state) {
+      state = { gid, meta, stat, fresh: [], moves: [], staged: [], numbers, coverPatch: {}, first: null, dir: null, timer: null,
+        writing: 0, aborted: false };
+      // A gallery with no pages yet, kept (or to be kept) as a folder, has its pages written there.
+      const row = this.files._row(gid);
+      if (!this._pageCount(gid) && (!row || row.format === 'folder')) {
+        state.claimed = !row;
+        state.dir = await this.files.home(gid, meta);
+      }
+      if (id) this._transfers.set(id, state);
+    }
+    state.numbers = numbers;
+    if (id) {
+      clearTimeout(state.timer);
+      state.timer = this._later(10 * 60_000, () => { this.transferAbort(id).catch(() => {}); });
+    }
+    state.writing++;
+    try {
+      if (state.dir) await this._mkdir(path.join(state.dir, 'images'));
+      await mapLimit(pages || [], 6, (rec) => this._transferPage(gid, rec, state));
       for (const [field, role] of [['cover', 'gallery'], ['seriesCover', 'series']]) {
         const blob = cover?.[field] ? await imageToBlob(cover[field]) : null;
         if (!blob) continue;
-        const made = await this._coverRef(gid, blob, role, { first: first ?? undefined, meta });
-        fresh.push(...made.fresh);
-        moves.push(...made.moves);
-        coverPatch[field] = made.ref;
+        const made = await this._coverRef(gid, blob, role, { first: state.first ?? undefined, meta: state.meta });
+        state.fresh.push(...made.fresh);
+        state.moves.push(...made.moves);
+        state.coverPatch[field] = made.ref;
       }
+      if (state.aborted) throw new BackendError('aborted', 'this gallery was given up while it was written');
+      if (id && !transfer.last) return { pages: 0, pending: true };
+      const { staged, moves, coverPatch } = state;
       this._tx(() => {
         this._logIn(gid);
-        if (meta) this._metaPutRaw(canonicalMeta({ ...meta, galleryId: gid }));
-        if (stat) this._statPut({ ...stat, galleryId: gid, uploadDate: uploadDateSeconds(stat.uploadDate ?? (Number(meta?.uploadDate) || 0)) });
+        if (state.meta) this._metaPutRaw(canonicalMeta({ ...state.meta, galleryId: gid }));
+        if (state.stat) this._statPut({ ...state.stat, galleryId: gid, uploadDate: uploadDateSeconds(state.stat.uploadDate ?? (Number(state.meta?.uploadDate) || 0)) });
         for (const p of staged) {
           const prev = this._pageRowByKey(p.key);
+          if (prev && prev.gid !== gid) throw new BackendError('conflict', `page ${p.n} is stored for gallery ${prev.gid}`);
           if (prev) this._pageDrop(prev);
           const atN = this._pageRow(gid, p.n);
           if (atN) this._pageDrop(atN);
           this._pagePutRow({ gid, n: p.n, key: p.key, w: p.dims?.w, h: p.dims?.h, orig: p.orig, record: p.record });
         }
         if (Object.keys(coverPatch).length) this._coverPatchIn(gid, coverPatch);
-        this._commitOwn(moves);   // after the replaced pages' pictures went
-      }, fresh);
+        // After the replaced pages' pictures went: staged ones are recorded for the gallery's archive;
+        // the others are put in place below, before this resolves.
+        for (const m of moves) if (m.staged) this.files.ownStaged(m.gid, m.rel, m.staged, m.ref.size);
+      }, state.fresh);
     } catch (e) {
-      for (const file of fresh) fsp.rm(file, { force: true }).catch(() => {});
+      if (id) { this._transfers.delete(id); clearTimeout(state.timer); }
+      await this._transferDiscard(state);
       throw e;
+    } finally {
+      state.writing--;
     }
-    if (staged.length) this.files.pageStored(gid);
+    if (id) { this._transfers.delete(id); clearTimeout(state.timer); }
+    if (state.staged.length) this.files.pageStored(gid);
     if (!silent) this.publishFeed(gid);
     else this.scheduleGallerySize(gid);
+    await this._placeOwn(state.moves.filter(m => !m.staged));
+    return { pages: state.staged.length };
+  }
+
+  // One page of a transfer written: its original (into its gallery's folder, or staged) and the
+  // pictures made from it (_externalize), noted in `state` for the transaction recording them.
+  async _transferPage(gid, rec, state) {
+    const n = keyPage(rec.url);
+    const { blob, dataUrl, pageNum, ...rest } = rec;
+    for (const key of RETIRED_FIELDS) delete rest[key];   // an earlier format's leftovers have no place in a folder
+    const original = await imageToBlob(blob ?? dataUrl);
+    if (!original) throw new BackendError('invalid', `page ${n}'s picture can't be read`);
+    const bytes = new Uint8Array(await original.arrayBuffer());
+    const type = original.type || '';
+    let orig;
+    if (state.dir) {
+      const entry = layoutPath.original(n, originalExt(type, rec.url));
+      const file = path.join(state.dir, ...entry.split('/'));
+      state.fresh.push(file);
+      await writeFlushed(file, bytes);
+      this.writes.add('pages', bytes.length);
+      orig = { at: 'p', entry, size: bytes.length, type };
+    } else {
+      orig = await this._stage(gid, n, bytes, type);
+      state.fresh.push(path.join(this.stagingDir, orig.file));
+    }
+    const own = await this._externalize(rest, gid, `p${n}`, { own: true, meta: state.meta, place: (keys, b) => pageFileFor(keys, n, b.type) });
+    state.fresh.push(...own.fresh);
+    state.moves.push(...own.moves);
+    if (!state.first || n < state.first.n) state.first = { n, blob: new Blob([bytes]) };
+    state.staged.push({ n, key: String(rec.url), dims: measure(bytes), orig,
+      record: { ...own.value, galleryId: gid, blob: { $orig: 1, size: bytes.length, type } } });
+  }
+
+  // The files a transfer's parts wrote, deleted: it won't finish (its connection went, or it was
+  // left unfinished too long).
+  async transferAbort(id) {
+    const state = this._transfers.get(String(id));
+    if (!state) return;
+    this._transfers.delete(String(id));
+    clearTimeout(state.timer);
+    state.aborted = true;
+    // A part being written finishes its files, sees it was given up, and deletes them all itself.
+    if (state.writing) return;
+    await this._transferDiscard(state);
+  }
+
+  // What a transfer that came to nothing wrote, deleted — and the folder it claimed for a gallery
+  // that has nothing recorded, let go again.
+  async _transferDiscard(state) {
+    await Promise.all(state.fresh.map(file => fsp.rm(file, { force: true }).catch(() => {})));
+    const gid = state.gid;
+    if (!state.claimed || this._metaGet(gid) || this._statGet(gid) || this._pageCount(gid)) return;
+    try { this._tx(() => this.files.deleteIn(gid)); } catch {}
+  }
+
+  // Pictures _writeOwn wrote, renamed into place now (their records have just been committed); one
+  // that can't be (a reader holding the file it replaces) is tried again for a few seconds, then
+  // reported — the write isn't done until every picture it recorded can be read.
+  async _placeOwn(moves) {
+    const failed = [];
+    for (const { temp, file } of moves) {
+      let placed = false;
+      for (let attempt = 0; attempt < 7 && !placed; attempt++) {
+        try { fs.renameSync(temp, file); placed = true; } catch {
+          await new Promise(r => setTimeout(r, 50 * 2 ** attempt));
+        }
+      }
+      if (!placed) failed.push(file);
+    }
+    if (failed.length) throw new BackendError('aborted', `${failed.length} picture(s) could not take their place: ${failed[0]}`);
   }
 
   // ── Maintenance ──

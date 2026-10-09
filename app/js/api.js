@@ -212,7 +212,10 @@ export const diskWrites = _typed({
 // ── Transfer: a gallery's records exactly as stored (backup, restore, moving a library) ──
 export const transfer = _typed({
   ids:   () => backend.transferIds(),
-  read:  (gid) => backend.transferRead(gid),
+  // { meta, stat, pages, cover }; with { pages: false } only its metadata and stat record.
+  read:  (gid, opts) => backend.transferRead(gid, opts),
+  // The gallery whole or not at all → { pages } stored. Refuses a page with no number or picture,
+  // and (`conflict`) one whose key another gallery's page is stored under.
   write: (bundle, opts) => backend.transferWrite(bundle, opts),
 });
 
