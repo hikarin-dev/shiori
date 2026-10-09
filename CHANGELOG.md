@@ -1,5 +1,34 @@
 # Changelog
 
+## v1.2.0 — 2026-10-09
+
+### Added
+
+- Backups now run in a progress window that shows how far along they are and about how long is left, with **Cancel**. Until it finishes, the page behind it can't be used or left by accident, other Shiori tabs can't start another backup or clear the library, and Shiori Desktop asks before quitting.
+- Dropping a backup on the library page restores it in the same progress window.
+- Before restoring, Shiori checks the whole backup and shows what it holds: when it was made, how many galleries and pages, and its size. Nothing is written until you choose **Restore**. Galleries that can't be restored are listed and left out, and the rest is restored.
+- If a restore stops part-way, importing the same file again offers to carry on where it stopped instead of writing everything again.
+- **Settings → Storage → Check a backup file** reads a backup through and checks that it is complete and intact, without changing your library.
+- Full backups now record a checksum for every picture, so restoring or checking one confirms each picture is exactly the one saved. Backups made by 1.2.0 can't be opened by older versions of Shiori; backups from older versions still import.
+- Shiori Desktop makes full backups itself: you choose where the file goes, it's written straight there, and Shiori shows where it was saved, with **Show in folder**.
+
+### Changed
+
+- Importing a full backup into Shiori Desktop is about three times faster, and its galleries are complete in your library folder when the import finishes.
+- A backup is recognised by what's in it, not by its name: a large backup your browser left as `Unconfirmed ….crdownload` after its download failed at the very end can be imported or checked as it is, without renaming it.
+- Making a full backup in the browser now reads every picture once to check it before handing the file to your downloads, so a picture that can't be read is reported instead of breaking the download partway.
+- Backups now carry only your display and reading preferences. Which library a device uses, its connection to Shiori Desktop, your translation server's address and access token, and other details of the device stay behind — also when you restore a backup made by an earlier version.
+- When a website uses the Shiori Desktop library, full backups are made in Shiori Desktop (**Settings → Storage → Export** there).
+- Backup files are named after your local date.
+
+### Fixed
+
+- Restoring a gallery whose pages already belong to another gallery in your library no longer takes them away from it; that gallery is left out and listed.
+- A restore that stops part-way (out of disk space, Shiori Desktop closed) no longer leaves a gallery half-written, and says how many galleries were restored.
+- A gallery that already had more pages than the backup shows its true page count after a restore.
+- Restoring gallery details (`.shi`) no longer resets the page count of a gallery it couldn't read at that moment.
+- A gallery that changes while a backup is being made is saved as it is at the end.
+
 ## v1.1.2 — 2026-10-09
 
 ### Fixed
