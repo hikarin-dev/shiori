@@ -2,15 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-WgPzGCXWfCEsyaKSitMuA5Yz7Gh8I4tEsSCkPAtGncU='; style-src 'unsafe-inline'; object-src 'none'; base-uri 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-fGOgmFUeD9/Agm9fLX+8m+1R/irYn1EI+EzYZyEUW9M='; style-src 'unsafe-inline'; object-src 'none'; base-uri 'self'">
   <title>Shiori</title>
   <style>html,body{margin:0;height:100%;background:#111;color:#888;font:14px system-ui,sans-serif;display:flex;align-items:center;justify-content:center}</style>
 </head>
 <body>
 <script>
   // GitHub Pages serves this file (with a 404 status) for the clean deep links /reader?…, /settings —
-  // they aren't real files. A hard reload bypasses the service worker, so we register it and reload:
+  // they aren't real files. A hard reload bypasses the service worker, so we reload once it's ready:
   // that reload IS served by the worker (as the mapped app page), with the address bar left clean.
+  // With no worker yet (a first visit) this goes straight to the plain app file rather than wait on
+  // an install; the app registers the worker that suits where its library is kept (boot.js).
   // The retry flag (cleared by the app once it boots, in boot.js) lets this run on every hard reload,
   // while bailing to the plain app file if the worker can't take over. Truly unknown paths say so.
   (async () => {
@@ -21,21 +23,23 @@
     if (!known) { document.body.textContent = 'Not found.'; return; }
     // This page is served AT the missing deep-link URL, which can sit at any depth (/library,
     // or /app/library after a clean-URL refresh without a worker) — so relative paths would
-    // nest wrongly. Resolve the worker and the real file against the computed site root.
+    // nest wrongly. Resolve the real file against the computed site root.
     let root = parts.join('/') + '/';
     if (root.endsWith('/app/')) root = root.slice(0, -4);
     if ('serviceWorker' in navigator && !sessionStorage.getItem(RETRY)) {
       sessionStorage.setItem(RETRY, '1');
       try {
-        await navigator.serviceWorker.register(root + 'sw.js', { type: 'module' });
-        // Bounded: a worker whose install fails never reaches "ready", and an unbounded await
-        // would strand this page instead of falling through to the real file below.
-        await Promise.race([
-          navigator.serviceWorker.ready,
-          new Promise((_, reject) => setTimeout(() => reject(new Error('sw timeout')), 8000)),
-        ]);
-        location.reload();
-        return;
+        const existing = await navigator.serviceWorker.getRegistration();
+        if (existing && existing.active) {
+          // Bounded: a worker stuck activating never reaches "ready", and an unbounded await
+          // would strand this page instead of falling through to the real file below.
+          await Promise.race([
+            navigator.serviceWorker.ready,
+            new Promise((_, reject) => setTimeout(() => reject(new Error('sw timeout')), 8000)),
+          ]);
+          location.reload();
+          return;
+        }
       } catch {}
     }
     location.replace(root + 'app/' + seg + '.html' + location.search + location.hash);   // worker unavailable → real file

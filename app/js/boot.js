@@ -114,10 +114,12 @@ maintenanceReady.then(() => {
     .catch(() => {});
 });
 
-// The worker keeps this browser's library and its jobs. A page whose library is the desktop app's
-// (its window, or a site that chose it) runs its jobs itself and needs the app running anyway: it
-// has no worker, and one left from before goes.
-if ('serviceWorker' in navigator && !capabilities.browserLibrary) {
+// The worker keeps the app's files, so pages open from this browser's cache (offline too), and runs
+// the jobs of the library this browser keeps. A site whose library the desktop app keeps runs its
+// jobs itself: its worker keeps the files only (sw.js?library=desktop). A page the desktop app
+// serves (its window, or a browser tab at its address) has the files at hand: it has no worker, and
+// one left from before goes.
+if ('serviceWorker' in navigator && (desktopHosted() || capabilities.desktopWindow)) {
   navigator.serviceWorker.getRegistrations().then((regs) => { for (const r of regs) r.unregister(); }).catch(() => {});
 } else if ('serviceWorker' in navigator) {
   // Retire the previous layout's worker, which was scoped to THIS app's /app/ directory — the
@@ -130,5 +132,6 @@ if ('serviceWorker' in navigator && !capabilities.browserLibrary) {
       try { if (new URL(r.scope).pathname === _appDir) r.unregister(); } catch {}
     }
   }).catch(() => {});
-  navigator.serviceWorker.register(new URL('../../sw.js', import.meta.url), { type: 'module' }).catch(() => {});
+  const worker = capabilities.browserLibrary ? '../../sw.js' : '../../sw.js?library=desktop';
+  navigator.serviceWorker.register(new URL(worker, import.meta.url), { type: 'module' }).catch(() => {});
 }

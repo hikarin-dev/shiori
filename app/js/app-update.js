@@ -50,9 +50,12 @@ export async function applyUpdate() {
 }
 
 if ('serviceWorker' in navigator) {
-  // A worker replacing the one this page started with means newer code is live.
-  const hadController = !!navigator.serviceWorker.controller;
-  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) offer(); });
+  // A worker replacing the one this page started with means newer code is live — unless it is the
+  // other kind (the site's library moved between this browser and the desktop app; boot.js).
+  const startedWith = navigator.serviceWorker.controller?.scriptURL;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (startedWith && navigator.serviceWorker.controller?.scriptURL === startedWith) offer();
+  });
   let last = Date.now();
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible' || Date.now() - last < CHECK_EVERY) return;

@@ -6,12 +6,18 @@
 // It has to live at the repo root: a worker under /app/ can only control /app/*, and GitHub Pages
 // can't grant a wider scope via the Service-Worker-Allowed header. Same two roles as before —
 // app-shell cache (stale-while-revalidate) + background job runner. (See ARCHITECTURE.md §2.)
+//
+// A site whose library the desktop app keeps registers it as sw.js?library=desktop: then it keeps
+// the app's files and nothing else. That site's jobs run in its pages, against the desktop library;
+// a worker can't tell which library a site uses (it has no localStorage) and would run them
+// against this browser's.
 
 import * as platform from './app/js/platform.js';
 import { RUNNERS, cancelJobRun, runPoll } from './app/js/jobs-runner.js';
 
 // The scope root: http://localhost:5500/ locally, https://…/shiori/ on GitHub Pages.
 const ROOT = new URL('./', self.location.href);
+const FILES_ONLY = new URL(self.location.href).searchParams.get('library') === 'desktop';
 
 // Cache names are deployment-root-scoped (Cache Storage is origin-wide, so a sibling project on
 // this origin must keep its caches). The shell revision is deliberately independent from the
@@ -160,7 +166,7 @@ self.addEventListener('activate', (e) => {
       .filter((k) => isStaleShellCache(k, current))
       .map((k) => caches.delete(k)));
     await self.clients.claim();
-    await resumePending();   // keep replayed jobs inside activate.waitUntil
+    if (!FILES_ONLY) await resumePending();   // keep replayed jobs inside activate.waitUntil
   })());
 });
 
@@ -285,6 +291,7 @@ self.addEventListener('message', (e) => {
     }
     return;
   }
+  if (FILES_ONLY) return;
   if (d && d.__shioriPoll) {
     e.waitUntil((async () => {
       // Resume uploads/imports alongside the heartbeat so a long import cannot starve an
