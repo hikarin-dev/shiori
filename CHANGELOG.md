@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.2.1 — 2026-10-09
+
+### Fixed
+
+- Shiori Desktop can import full backups of 4 GB and more again. In 1.2.0 it said such a backup was incomplete ("its last part, which lists what it holds, is missing") even when the file was whole; the backup itself was fine and imports as it is.
+
 ## v1.2.0 — 2026-10-09
 
 ### Added
