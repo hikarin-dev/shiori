@@ -151,12 +151,54 @@ export async function exportArchive(library, file, { settings = null, signal = n
 }
 
 // ── Restoring one ──
-// A backup file opened for reading (backup-core openArchive), nothing restored. Its bytes are read
-// from the file as they are needed; a file that changes meanwhile (a download still being written)
-// can't be read any more, and says so.
+// A part of a file on disk as a Blob, its bytes read only when asked for (positioned reads, good to
+// 2^53 bytes). Not fs.openAsBlob: Node gets a file of 4 GiB or more wrong with it (its size wraps at
+// 2^32 and reads past 2 GiB come back empty), and a full backup is often far larger. A file that
+// changes meanwhile (a download still being written) can't be read any more, and says so.
+export class FileSlice extends Blob {
+  #file; #start; #end; #type; #stamp;
+  constructor(file, start, end, type = '', stamp = null) {
+    super([]);
+    this.#file = file; this.#start = start; this.#end = end; this.#type = type; this.#stamp = stamp;
+  }
+  static async open(file) {
+    const stat = await fsp.stat(file);
+    if (!stat.isFile()) throw new Error(`not a file: ${file}`);
+    return new FileSlice(file, 0, stat.size, '', { size: stat.size, mtimeMs: stat.mtimeMs });
+  }
+  get size() { return this.#end - this.#start; }
+  get type() { return this.#type; }
+  slice(start = 0, end = this.size, type = '') {
+    const size = this.size;
+    const at = (v) => (v < 0 ? Math.max(size + v, 0) : Math.min(v, size));
+    const from = at(Number(start) || 0), to = Math.max(at(end === undefined ? size : Number(end) || 0), from);
+    return new FileSlice(this.#file, this.#start + from, this.#start + to, String(type || ''), this.#stamp);
+  }
+  async bytes() {
+    const handle = await fsp.open(this.#file, 'r');
+    try {
+      const now = await handle.stat();
+      if (this.#stamp && (now.size !== this.#stamp.size || now.mtimeMs !== this.#stamp.mtimeMs)) {
+        throw Object.assign(new Error('the file changed while it was being read'), { name: 'NotReadableError' });
+      }
+      const out = Buffer.allocUnsafe(this.size);
+      for (let got = 0; got < out.length;) {
+        const { bytesRead } = await handle.read(out, got, out.length - got, this.#start + got);
+        if (!bytesRead) throw Object.assign(new Error('the file ended early'), { name: 'NotReadableError' });
+        got += bytesRead;
+      }
+      return new Uint8Array(out.buffer, out.byteOffset, out.length);
+    } finally { await handle.close(); }
+  }
+  async arrayBuffer() { const b = await this.bytes(); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); }
+  async text() { return new TextDecoder().decode(await this.bytes()); }
+}
+
+// A backup file opened for reading (backup-core openArchive), nothing restored; its bytes are read
+// as they are needed.
 export async function openBackupFile(file) {
   let blob;
-  try { blob = await fs.openAsBlob(file); } catch (e) { throw new BackupError('unreadable', String(e?.message || e)); }
+  try { blob = await FileSlice.open(file); } catch (e) { throw new BackupError('unreadable', String(e?.message || e)); }
   return openArchive(blob);
 }
 

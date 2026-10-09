@@ -5,16 +5,18 @@
 // it would have replaced as it was); a restore stopped part-way carries on where it stopped; a gallery
 // whose pages another gallery here has is refused, that one kept; a version 8 backup still restores;
 // only portable settings come back. Checksums are the ones the app's own checks expect, and backups
-// run one at a time, followed by their state.
+// run one at a time, followed by their state. A backup file larger than 4 GiB is read where its bytes
+// are.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 
 const { Library } = await import('../server/library.js');
-const { exportArchive, openBackupFile, inspectBackup, restoreBackupFile, BackupJobs, hashOf, partialOf } = await import('../server/backup.js');
+const { exportArchive, openBackupFile, inspectBackup, restoreBackupFile, BackupJobs, hashOf, partialOf, FileSlice } = await import('../server/backup.js');
 const { sha256, BackupError } = await import('../../app/js/backup-core.js');
 
 const png = (...b) => new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...b])], { type: 'image/png' });
@@ -309,4 +311,40 @@ test('backups run one at a time, followed by their state', async (t) => {
   await jobs.stop();
   assert.equal(jobs.state(stopped.id).phase, 'cancelled');
   assert.ok(!fs.existsSync(fileIn('jobs-stopped.shioridb')) && !fs.existsSync(partialOf(fileIn('jobs-stopped.shioridb'))));
+});
+
+// A file this large written for real would cost gigabytes of disk writes; a sparse one holds only the
+// few bytes written into it. Null when this disk can't make one (the test is then skipped).
+function sparseFile(name, size) {
+  const file = fileIn(name);
+  fs.writeFileSync(file, '');
+  if (process.platform === 'win32') {
+    try {
+      execFileSync('fsutil', ['sparse', 'setflag', file], { stdio: 'ignore' });
+      if (!/is set as sparse/i.test(execFileSync('fsutil', ['sparse', 'queryflag', file]).toString())) return null;
+    } catch { return null; }
+  }
+  fs.truncateSync(file, size);
+  return file;
+}
+
+test('a backup file of more than 4 GiB is read where its bytes are (its index at its real end)', async (t) => {
+  const size = 5 * 1024 ** 3 + 12345;
+  const file = sparseFile('large.shioridb', size);
+  if (!file) { t.skip('no sparse files here'); return; }
+  const index = Buffer.from(JSON.stringify({ format: 'shiori-db', version: 8, counts: {}, images: [], covers: [], sourceIcons: [], metadata: [], galleries: [] }));
+  const footer = Buffer.alloc(4); footer.writeUInt32LE(index.length);
+  const fd = fs.openSync(file, 'r+');
+  try {
+    fs.writeSync(fd, Buffer.from('past 4 GiB'), 0, 10, 4.5 * 1024 ** 3);
+    fs.writeSync(fd, Buffer.concat([index, footer]), 0, index.length + 4, size - index.length - 4);
+  } finally { fs.closeSync(fd); }
+  const whole = await FileSlice.open(file);
+  assert.equal(whole.size, size, 'its whole size (fs.openAsBlob wraps it at 2^32)');
+  assert.equal(await whole.slice(4.5 * 1024 ** 3, 4.5 * 1024 ** 3 + 10).text(), 'past 4 GiB');
+  assert.ok(whole.slice(0, 10) instanceof Blob);
+  const archive = await openBackupFile(file);
+  assert.equal(archive.version, 8);
+  assert.deepEqual(archive.galleries, []);
+  fs.rmSync(file, { force: true });
 });
