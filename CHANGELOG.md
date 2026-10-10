@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.2.2 — 2026-10-10
+
+### Fixed
+
+- A website that uses your Shiori Desktop library now opens from the app files your browser keeps: it starts up to a couple of seconds sooner, and it opens offline too.
+- Galleries from a source that names them with letters as well as numbers can now be saved to your library and found again.
+
 ## v1.2.1 — 2026-10-09
 
 ### Fixed
