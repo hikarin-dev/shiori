@@ -102,9 +102,17 @@ const MAX_BATCH = 500;
 const MAX_CHAPTERS = 2000;
 const MAX_PAGES = 10000;
 const _id = (v) => { const s = String(v ?? ''); if (!isValidGalleryId(s)) throw new Error('invalid gallery id'); return s; };
+// A source's own reference for a gallery: often a number, but any short token a link can carry
+// (letters, digits, . _ ~ -) — never markup or a path. Internal ids still pass _id's check.
+const _ref = (v) => {
+  const s = String(v ?? '');
+  if (/^\d{13,}$/.test(s)) return _id(s);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$/.test(s)) throw new Error('invalid source reference');
+  return s;
+};
 const _source = (v) => { if (typeof v !== 'string' || !v.trim() || v.length > 2048) throw new Error('invalid source'); return v; };
 const _resolveGallery = (id, source) => {
-  const ref = _id(id);
+  const ref = _ref(id);
   return api.galleries.resolveSource(ref, /^\d{13,}$/.test(ref) ? undefined : _source(source));
 };
 const _cap = (arr, n, what) => { const a = Array.isArray(arr) ? arr : []; if (a.length > n) throw new Error(`${what} exceeds the allowed size`); return a; };
@@ -207,7 +215,7 @@ const OPS = {
   // sight). Internal ids are ≥13-digit timestamps (see resolveGalleryId): an external ref that
   // long would silently bypass resolution and alias an internal record, so it is refused here.
   async resolve_gid({ sourceRef, source }) {
-    const ref = _id(sourceRef);
+    const ref = _ref(sourceRef);
     if (/^\d{13,}$/.test(ref)) throw new Error('source ref collides with the internal id space');
     return { gid: await api.galleries.resolveSource(ref, _source(source)) };
   },
@@ -215,7 +223,7 @@ const OPS = {
   async resolve_gids({ sourceRefs, source }) {
     source = _source(source);
     return { gids: await allOrThrow(_cap(sourceRefs, 2000, 'sourceRefs').map((r) => {
-      const ref = _id(r);
+      const ref = _ref(r);
       if (/^\d{13,}$/.test(ref)) throw new Error('source ref collides with the internal id space');
       return api.galleries.resolveSource(ref, source);
     })) };

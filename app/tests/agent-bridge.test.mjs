@@ -213,6 +213,25 @@ test('source resolution and cached-page reads keep identical IDs on different so
   assert.equal(internal.data.pages[0].dataUrl, 'data:image/jpeg;base64,AQ==');
 });
 
+test('a source whose references are not numbers resolves and serves its galleries; markup never passes', async () => {
+  const port = await session();
+  const ref = '7d3f0c2e-41b5-4c8a-9e6f-2b1a0d9c8e7f';
+  const first = await callOverPort(port, 'resolve_gid', { source: 'source-c', sourceRef: ref });
+  assert.equal(first.ok, true);
+  assert.match(first.data.gid, /^\d+$/, 'the gallery id is still the app’s own');
+  const batch = await callOverPort(port, 'resolve_gids', { source: 'source-c', sourceRefs: [ref, 'ab12-cd34'] });
+  assert.equal(batch.data.gids[0], first.data.gid);
+  const galleryId = first.data.gid;
+  await callOverPort(port, 'store_page', { galleryId, pageNum: 1, url: `saved://source-c/${ref}/1.jpg`, bytes: new Uint8Array([3]).buffer, mime: 'image/jpeg' });
+  const images = await callOverPort(port, 'images_batch', { galleryId: ref, source: 'source-c', queries: [{ url: 'q', pageNum: 1 }] });
+  assert.equal(images.data.results.q, 'data:image/jpeg;base64,Aw==');
+  for (const bad of ['"><svg onload=alert(1)>', '../../etc', 'a b', '', '-lead', 'x'.repeat(129)]) {
+    assert.equal((await callOverPort(port, 'resolve_gid', { source: 'source-c', sourceRef: bad })).ok, false, bad);
+    assert.equal((await callOverPort(port, 'gallery_pages', { galleryId: bad, source: 'source-c' })).ok, false, bad);
+  }
+  assert.match((await callOverPort(port, 'resolve_gid', { source: 'source-c', sourceRef: '1234567890123' })).error, /internal id space/);
+});
+
 test("a page can carry its own gallery's metadata — never another gallery's", async () => {
   const api = await import('../js/api.js');
   const metaPut = api.meta.put, metaGet = api.meta.get, galleryGet = api.galleries.get;
