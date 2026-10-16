@@ -1,6 +1,7 @@
 // import-cbz.test.mjs — an invalid archive must throw a typed error (never look like success),
 // and it must fail before any database write: these tests run without an indexedDB global and
-// assert it stays undefined, proving the failure paths cannot have touched the library.
+// assert it stays undefined, proving the failure paths cannot have touched the library. A zip is
+// read from whatever holds its bytes, a view of a larger buffer included.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -11,7 +12,7 @@ class SilentBroadcastChannel {
 }
 globalThis.BroadcastChannel = SilentBroadcastChannel;
 
-const { importCbzBuffer, CbzImportError } = await import('../js/import-cbz.js');
+const { importCbzBuffer, CbzImportError, unzip } = await import('../js/import-cbz.js');
 
 const enc = new TextEncoder();
 
@@ -86,4 +87,12 @@ test('duplicate page numbers reject before any write', async () => {
     importCbzBuffer('1', zip, 'x.cbz', true),
     (e) => e instanceof CbzImportError && e.code === 'cbz_duplicate_pages');
   assert.equal(globalThis.indexedDB, undefined);
+});
+
+test('a zip handed over as a view of a larger buffer is read from where the view starts', async () => {
+  const zip = new Uint8Array(buildZip([{ name: 'a.jpg', data: enc.encode('page') }]));
+  const larger = new Uint8Array(zip.length + 16);
+  larger.set(zip, 8);
+  const entries = await unzip(larger.subarray(8, 8 + zip.length));
+  assert.deepEqual(entries.map((e) => [e.filename, new TextDecoder().decode(e.data)]), [['a.jpg', 'page']]);
 });

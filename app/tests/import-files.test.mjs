@@ -52,9 +52,25 @@ test('loose images are named for what their names share, else for the first imag
 
 test('loose images reach the import engine as pages in order, bytes untouched', async () => {
   const [group] = groupImports([file('b 10.jpg', [10]), file('b 9.avif', [9]), file('b 1.gif', [1])]);
-  const pages = sortImageEntries(await unzip((await importBytes(group)).slice().buffer));
-  assert.deepEqual(pages.map((p) => [p.filename, [...p.data]]), [['1.gif', [1]], ['2.avif', [9]], ['3.jpg', [10]]]);
+  // Read as importBytes gives it: a library kept as files imports it straight from memory.
+  const pages = sortImageEntries(await unzip(await importBytes(group)));
+  assert.deepEqual(pages.map((p) => [p.filename, [...p.data]]), [['b 1.gif', [1]], ['b 9.avif', [9]], ['b 10.jpg', [10]]]);
   assert.equal(MIME.avif, 'image/avif');
+});
+
+test('a dropped folder\'s images reach the import engine under their paths in it, folder by folder', async () => {
+  const { files, folders } = await droppedImports(fakeDrop({ name: 'Series', children: [
+    { name: 'Ch 10', children: [file('1.jpg')] },
+    { name: 'Ch 2', children: [file('10.png'), file('9.png')] },
+  ] }));
+  const [group] = groupImports(files, folders);
+  const pages = sortImageEntries(await unzip(await importBytes(group)));
+  assert.deepEqual(pages.map((p) => p.filename), ['Ch 2/9.png', 'Ch 2/10.png', 'Ch 10/1.jpg']);
+});
+
+test('an archive\'s hidden files and folders are not pictures', () => {
+  const names = ['Ch 1/1.jpg', 'Ch 1/._1.jpg', '__MACOSX/Ch 1/._1.jpg', '.thumbs/1.jpg'];
+  assert.deepEqual(sortImageEntries(names.map((filename) => ({ filename }))).map((e) => e.filename), ['Ch 1/1.jpg']);
 });
 
 test('a dropped folder is one gallery named after it, subfolders flattened in path order', async () => {

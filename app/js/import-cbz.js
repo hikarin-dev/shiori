@@ -27,11 +27,13 @@ async function inflateRaw(bytes) {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-// Parse a zip via its central directory (store + deflate entries) -> [{ filename, data }].
+// Parse a zip via its central directory (store + deflate entries) -> [{ filename, data }]. `buffer`
+// is its bytes as an ArrayBuffer or a view of one (a Uint8Array, as zipCreate makes).
 export async function unzip(buffer) {
-  const view = new DataView(buffer), bytes = new Uint8Array(buffer);
+  const bytes = ArrayBuffer.isView(buffer) ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength) : new Uint8Array(buffer);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let eocd = -1;
-  for (let i = buffer.byteLength - 22; i >= 0; i--) { if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
+  for (let i = bytes.byteLength - 22; i >= 0; i--) { if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
   if (eocd === -1) throw new CbzImportError('cbz_parse', 'Not a valid ZIP file');
   const count = view.getUint16(eocd + 10, true);
   if (count > MAX_ZIP_ENTRIES) throw new CbzImportError('cbz_limits', `Archive has too many entries (${count}).`);
@@ -97,14 +99,34 @@ async function restoreExportedCovers(gid, byName, first = null) {
 
 const _sameBytes = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 
+// An archive's pictures in natural order by path, folder by folder, the extension not counting
+// ("Ch 2/10.jpg" after "Ch 2/9.png", "Ch 10/" after "Ch 2/"). Hidden files and folders (".name",
+// and the "__MACOSX" folder a Mac adds to the zips it makes) are left out.
 export function sortImageEntries(entries) {
+  const parts = (e) => e.filename.replace(/\.[^./\\]+$/, '').split(/[\\/]/);
   return entries
-    .filter(e => /\.(jpe?g|png|webp|gif|avif)$/i.test(e.filename))
+    .filter(e => /\.(jpe?g|png|webp|gif|avif)$/i.test(e.filename)
+      && !e.filename.split(/[\\/]/).some(s => s.startsWith('.') || s === '__MACOSX'))
     .sort((a, b) => {
-      const na = a.filename.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
-      const nb = b.filename.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
-      return na.localeCompare(nb, undefined, { numeric: true, sensitivity: 'base' });
+      const pa = parts(a), pb = parts(b);
+      for (let i = 0; i < Math.min(pa.length, pb.length); i++) {
+        const c = pa[i].localeCompare(pb[i], undefined, { numeric: true, sensitivity: 'base' });
+        if (c) return c;
+      }
+      return pa.length - pb.length;
     });
+}
+
+// The folders an archive's pictures (in order) sit in, each [path, pictures] in the order of its
+// first picture; the archive's own top level is "".
+function _byFolder(imgEntries) {
+  const folders = new Map();
+  for (const e of imgEntries) {
+    const dir = e.filename.replace(/[^\\/]*$/, '');
+    if (!folders.has(dir)) folders.set(dir, []);
+    folders.get(dir).push(e);
+  }
+  return [...folders];
 }
 
 export const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif' };
@@ -159,16 +181,26 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
     return;
   }
 
-  const pageExts = imgEntries.map(en => normExt(en.filename.match(/\.(\w+)$/)?.[1]));
+  // A plain archive whose pictures sit in more than one folder is a series (replacing a gallery's
+  // pages takes them all, in order, instead).
+  const subfolders = _byFolder(imgEntries).filter(([dir]) => dir);
+  if (skipExisting && !embeddedMeta && subfolders.length > 1) {
+    const loose = imgEntries.filter(e => !/[\\/]/.test(e.filename));
+    const chapters = subfolders.map(([dir, pictures], i) => ({
+      title: dir.replace(/[\\/]$/, '').split(/[\\/]/).pop(), entries: i === 0 ? [...loose, ...pictures] : pictures,
+    }));
+    return _importChapters(gid, chapters, nameNoExt, onProgress);
+  }
+
+  const pageExts = imgEntries.map(_extOf);
   // Uploading a Shiori-exported CBZ over an existing gallery is a replace.
   if (skipExisting && embeddedMeta) {
     const gal = await api.galleries.get(gid).catch(() => null);
     if (gal?.count > 0) skipExisting = false;
   }
   if (skipExisting) {
-    await api.meta.put(embeddedMeta
-      ? { ...embeddedMeta, galleryId: gid, pageExts, fetchedAt: Date.now() }
-      : { galleryId: gid, title: { english: nameNoExt, japanese: '', pretty: nameNoExt }, tags: [], numPages: 0, pageExts, fetchedAt: Date.now(), isLocalImport: true, source: '' });
+    if (embeddedMeta) await api.meta.put({ ...embeddedMeta, galleryId: gid, pageExts, fetchedAt: Date.now() });
+    else await _putPlainMeta(gid, nameNoExt, pageExts);
   } else {
     const existing = await api.meta.get(gid).catch(() => null);
     await api.meta.put(existing
@@ -188,7 +220,7 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
   let done = 0, skipped = 0;
   for (let i = 0; i < imgEntries.length; i++) {
     if (have.has(i + 1)) { skipped++; onProgress({ done, total: imgEntries.length, skipped, status: 'progress' }); continue; }
-    await api.pages.put(gid, i + 1, new Blob([imgEntries[i].data], { type: MIME[pageExts[i]] || 'image/jpeg' }), { key: `local://${gid}/${i + 1}.${pageExts[i]}` });
+    await _putPage(gid, i + 1, imgEntries[i], pageExts[i]);
     onProgress({ done: ++done, total: imgEntries.length, skipped, status: 'progress' });
   }
   // Only now that the whole new set is stored: drop old pages the new set didn't overwrite
@@ -196,6 +228,59 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
   if (!skipExisting) await api.pages.prune(gid, pageExts.map((ext, i) => `local://${gid}/${i + 1}.${ext}`));
   onProgress({ status: 'done', done, total: imgEntries.length, skipped });
   api.events.announce(gid);
+}
+
+const _extOf = (en) => normExt(en.filename.match(/\.(\w+)$/)?.[1]);
+const _putPage = (gid, n, en, ext) =>
+  api.pages.put(gid, n, new Blob([en.data], { type: MIME[ext] || 'image/jpeg' }), { key: `local://${gid}/${n}.${ext}` });
+const _title = (s) => ({ english: s, japanese: '', pretty: s });
+
+// A plain import's metadata, merged into what the gallery has — the card its import reserved, the
+// series it was added to as a chapter.
+async function _putPlainMeta(gid, title, pageExts) {
+  const existing = await api.meta.get(gid).catch(() => null);
+  await api.meta.put({ ...existing, galleryId: gid, title: _title(title), tags: [], numPages: 0, pageExts, fetchedAt: Date.now(), isLocalImport: true, source: '' });
+}
+
+// A plain archive (a dropped folder arrives as one) whose pictures sit in more than one folder: a
+// series named after the archive, each folder holding pictures a chapter named after that folder
+// (folders holding only folders don't count; pictures beside the folders open the first chapter).
+// The first chapter is `gid`, the gallery the import is for. The chapters are linked up before
+// their pages are stored, so a re-run finds the galleries it made (listed right after `gid`, under
+// their titles) and stores only the pages still missing. A `gid` that is already a chapter (an
+// import on its series' page) keeps its series, the other chapters joining it right after `gid`.
+async function _importChapters(gid, chapters, seriesTitle, onProgress) {
+  const series = await api.series.resolve(gid);
+  const listed = series ? series.chapters.slice(series.chapters.findIndex(c => String(c.id) === gid) + 1) : [];
+  const ids = chapters.map((c, i) => (i === 0 ? gid : listed[i - 1]?.title === c.title ? String(listed[i - 1].id) : api.newGalleryId()));
+  const made = new Set(ids.filter((id, i) => i > 0 && id !== String(listed[i - 1]?.id)));
+  for (const [i, c] of chapters.entries()) {
+    if (made.has(ids[i])) await api.galleries.create(ids[i], { title: _title(c.title), isLocalImport: true });
+    await _putPlainMeta(ids[i], c.title, c.entries.map(_extOf));
+  }
+  const list = chapters.map((c, i) => ({ id: ids[i], title: c.title }));
+  if (!series) await api.series.write(gid, list, { seriesTitle: _title(seriesTitle) });
+  else {
+    for (const c of list) if (made.has(c.id)) await api.series.attach(series.ownerId, c.id, { title: c.title });
+    const order = (await api.series.chapters(series.ownerId)).map(c => c.id).filter(id => id === gid || !ids.includes(id));
+    order.splice(order.indexOf(gid) + 1, 0, ...ids.slice(1));
+    await api.series.reorder(series.ownerId, order);
+    await api.series.setChapterTitle(series.ownerId, gid, chapters[0].title);
+  }
+
+  const total = chapters.reduce((n, c) => n + c.entries.length, 0);
+  let done = 0, skipped = 0;
+  onProgress({ status: 'started', done, total, skipped });
+  for (const [i, c] of chapters.entries()) {
+    const have = new Set((await api.pages.list(ids[i])).map(p => p.pageNum));
+    for (const [n, en] of c.entries.entries()) {
+      if (have.has(n + 1)) skipped++;
+      else { await _putPage(ids[i], n + 1, en, _extOf(en)); done++; }
+      onProgress({ done, total, skipped, status: 'progress' });
+    }
+    api.events.announce(ids[i]);
+  }
+  onProgress({ status: 'done', done, total, skipped });
 }
 
 async function _putMetadataOnlyGallery(gid, meta) {
