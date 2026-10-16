@@ -141,10 +141,16 @@ let editMode  = false;
 let _suppressRenderUntil = 0;
 const _liveChapterJobs = new Map();
 const _chapterJobClearTimers = new Map();
-const _chapterRowEntities = new WeakMap();
+// row → what it shows now ({ ch, e, idx, total, displayTitle, … }). A row is kept across renders
+// and its handlers read this when they fire, so a row that moved or changed acts on what it shows.
+const _rowState = new WeakMap();
 
 const $ = (id) => document.getElementById(id);
 const esc = escHtml;
+// Change an element only where it differs, so a render that finds nothing new touches nothing.
+const setText = (el, text) => { if (el && el.textContent !== text) el.textContent = text; };
+const setAttr = (el, name, value) => { if (el && el.getAttribute(name) !== value) el.setAttribute(name, value); };
+const setHtml = (el, html) => { if (el && el._html !== html) { el._html = html; el.innerHTML = html; } };
 const readerHref = (gid) => `../reader?g=${encodeURIComponent(String(gid))}`;
 const sendMsg = (msg) => platform.rpc(msg);
 // A translated chapter's translate button also offers "Re-run from…" on right-click.
@@ -166,6 +172,7 @@ const ICON = {
   stop: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
   detach: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7H7a5 5 0 0 0 0 10h2"/><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M8 12h8"/><path d="m4 4 16 16"/></svg>',
   removeShift: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M9 13l2 2 4-4"/></svg>',
+  grip:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>',
 };
 
 // ── Shift-hold affordance on the chapter-row download/delete buttons (mirrors the library card
@@ -263,7 +270,6 @@ async function coverUrl(gid, opts = {}) {
   if (url) _covers.set(key, url);
   return url;
 }
-function clearCovers() { _covers.clear(); }
 function invalidateCover(gid) {
   const id = String(gid);
   for (const key of [..._covers.keys()]) {
@@ -524,55 +530,82 @@ function _resizeInWorker(blob, width) {
   });
 }
 
-// Fill a container with one tile per cached page of a gallery. Tiles carry only a page url and a
-// reader link; images fill in lazily as they scroll into view. Idempotent per container.
-async function buildPageGrid(container, gid) {
-  if (!container || container.dataset.built) return;
-  container.dataset.built = '1';
+// One page's tile: a page url and a reader link; the image fills in lazily as it nears the view.
+function pageTile(gid, pageNum, url) {
+  const a = document.createElement('a');
+  a.className = 'ov-page';
+  a.href = `${readerHref(gid)}&page=${pageNum}`;
+  a.draggable = false;
+  const img = document.createElement('img');
+  img.alt = ''; img.decoding = 'async'; img.dataset.pageUrl = url;
+  img.dataset.gid = gid; img.dataset.pageNum = pageNum;
+  _pageThumbImg.set(url, img);
+  const num = document.createElement('span');
+  num.className = 'ov-page-num';
+  num.textContent = pageNum;
+  a.append(img, num);
+  _pageMountObserver.observe(img);
+  _pageUnmountObserver.observe(img);
+  return a;
+}
+
+// Fill a container with one tile per cached page of a gallery, or bring it up to date: the tiles
+// it has stay as they are (thumbnails and all), new pages get tiles, and gone ones are dropped.
+async function syncPageGrid(container, gid) {
+  if (!container) return;
+  const seq = container._gridSeq = (container._gridSeq || 0) + 1;
   const keys = await api.pages.list(gid);
-  if (!keys.length) { container.innerHTML = `<div class="ov-pages-empty">${esc(t('ov.no_pages'))}</div>`; return; }
-  const frag = document.createDocumentFragment();
-  for (const { pageNum, url } of keys) {
-    const a = document.createElement('a');
-    a.className = 'ov-page';
-    a.href = `${readerHref(gid)}&page=${pageNum}`;
-    a.draggable = false;
-    const img = document.createElement('img');
-    img.alt = ''; img.decoding = 'async'; img.dataset.pageUrl = url;
-    img.dataset.gid = gid; img.dataset.pageNum = pageNum;
-    _pageThumbImg.set(url, img);
-    const num = document.createElement('span');
-    num.className = 'ov-page-num';
-    num.textContent = pageNum;
-    a.append(img, num);
-    frag.appendChild(a);
-    _pageMountObserver.observe(img);
-    _pageUnmountObserver.observe(img);
+  if (seq !== container._gridSeq || !container.isConnected) return;
+  const keyOf = (pageNum, url) => `${pageNum}\n${url}`;
+  const old = new Map([...container.querySelectorAll(':scope > .ov-page')].map((a) => {
+    const img = a.querySelector('img');
+    return [keyOf(img.dataset.pageNum, img.dataset.pageUrl), a];
+  }));
+  if (!keys.length) {
+    if (!old.size && container.firstElementChild) return;
+    releasePageTiles(container);
+    container.innerHTML = `<div class="ov-pages-empty">${esc(t('ov.no_pages'))}</div>`;
+    return;
   }
-  container.appendChild(frag);
+  container.querySelector(':scope > .ov-pages-empty')?.remove();
+  const tiles = keys.map(({ pageNum, url }) => {
+    const key = keyOf(pageNum, url);
+    const tile = old.get(key);
+    if (!tile) return pageTile(gid, pageNum, url);
+    old.delete(key);
+    return tile;
+  });
+  for (const tile of old.values()) { releasePageTiles(tile); tile.remove(); }
+  tiles.forEach((tile, i) => { if (container.children[i] !== tile) container.insertBefore(tile, container.children[i] || null); });
 }
 
 // Drop a cover into an A4-ratio thumbnail box, matching the library card: a portrait image fills
 // the box (cover), a landscape one is contained so it isn't cropped. `container` is the fixed-ratio
-// wrapper; the .landscape class flips object-fit once the image's dimensions are known.
+// wrapper; the .landscape class follows the image's dimensions. The image is decoded before it
+// takes the box, so the box never shows empty in between, and the cover it already shows is kept.
+const _thumbOf = new WeakMap();   // box → the cover url it shows (or is about to)
 function setThumb(container, url) {
-  if (!container || !url) return;
-  container.innerHTML = `<img class="ov-thumb" src="${url}" alt="">`;
-  const img = container.querySelector('img');
-  const fit = () => {
-    if (!img.naturalWidth || !img.naturalHeight) return;
+  if (!container || !url || _thumbOf.get(container) === url) return;
+  _thumbOf.set(container, url);
+  const img = new Image();
+  img.className = 'ov-thumb';
+  img.alt = '';
+  img.src = url;
+  img.decode().then(() => {
+    if (_thumbOf.get(container) !== url) return;   // a newer cover took the box meanwhile
     const landscape = img.naturalWidth >= img.naturalHeight;
     img.classList.toggle('landscape', landscape);
     container.classList.toggle('landscape', landscape);
-  };
-  img.addEventListener('load', fit);
-  if (img.complete) fit();
+    container.replaceChildren(img);
+  }, () => {});
 }
 
 // The same cover, blurred and faint, behind the header.
 function setBackdrop(url) {
   const el = $('ovBackdrop');
-  if (el && url) el.style.backgroundImage = `url("${url}")`;
+  if (!el || !url || el._url === url) return;
+  el._url = url;
+  el.style.backgroundImage = `url("${url}")`;
 }
 
 function resizeTitleArea(el) {
@@ -589,121 +622,153 @@ function resizeTitleAreas(root = document) {
 // Every gallery has an overview. A standalone gallery shows its own info plus the add-chapter bar
 // (adding a chapter turns it into a series); a series shows its ordered chapter list. The series
 // title is editable and multi-language — the app language decides which variant is shown/edited.
+// The page is built once. Each render after that reads the gallery again and changes only what
+// differs: rows are kept and updated in place, a row that moved slides to its new place, and a
+// cover already shown stays until a different one is ready — so nothing blanks or flickers.
+let _shell = null;   // the built page ({ isSeries } of what its list shows), null before the first render
+let _renderSeq = 0, _renderAfterDrag = false;
 async function render() {
+  if (_drag) { _renderAfterDrag = true; return; }   // the drop renders once it lands
+  _renderAfterDrag = false;
+  const seq = ++_renderSeq;
+  await _orderSave;   // never read an order a pending save is about to replace
   const content = $('ovContent');
-  const meta = await api.meta.get(ownerId);
   const series = await resolveSeries(ownerId);
   if (series) ownerId = series.ownerId;
   const ownerEntity = await api.galleries.get(ownerId);
-  if (!ownerEntity && !series) { content.innerHTML = `<div class="ov-empty">${esc(t('ov.not_found'))}</div>`; return; }
+  if (!ownerEntity && !series) {
+    if (seq !== _renderSeq) return;
+    releasePageTiles(content);
+    _shell = null;
+    content.innerHTML = `<div class="ov-empty">${esc(t('ov.not_found'))}</div>`;
+    return;
+  }
   const isSeries = !!series;
-  clearCovers();
 
   // A series lists one kind of member at a time — its chapters or its volumes — while its totals
   // count them all.
   const members = isSeries
     ? await getSeriesChapters(ownerId)
     : [{ id: ownerId, title: '', entity: ownerEntity }];
+  const ownerMeta = await api.meta.get(ownerId);
+  const tagsHtml = _shell ? '' : await tagTableHtml(ownerEntity?.tags);
+  if (seq !== _renderSeq) return;
+  if (_drag) { _renderAfterDrag = true; return; }
+
   const kind = isSeries ? shownKind(members) : 'chapter';
   _shownKind = kind;
   const chapters = isSeries ? members.filter(m => memberKind(m) === kind) : members;
   const totalPages = members.reduce((s, c) => s + (c.entity?.count || 0), 0);
-
-  const ownerMeta = isSeries ? await api.meta.get(ownerId) : meta;
   const heading = isSeries
     ? (pickSeriesTitle(ownerMeta?.seriesTitle, ownerEntity, getLang()) || `#${ownerId}`)
     : (pickTitle(ownerEntity, getLang()) || `#${ownerId}`);
   const seriesFallback = pickTitle(ownerEntity, getLang()) || `#${ownerId}`;
   const startHref = readerHref((chapters[0] || members[0]).id);
-
-  // Both a series and a standalone gallery expose an editable owner title in edit mode: a series
-  // edits its multi-language seriesTitle, a standalone gallery edits its own `title` object.
-  const ownerTitleId = isSeries ? 'seriesTitle' : 'galleryTitle';
-  const titlePlaceholder = isSeries ? t('ov.series_title_ph') : t('ov.gallery_title_ph');
-  const titleControl = `<div class="series-title-wrap editable"><textarea class="series-title-input" id="${ownerTitleId}" rows="1" data-original="${esc(heading)}" data-fallback="${esc(seriesFallback)}" placeholder="${esc(titlePlaceholder)}">${esc(heading)}</textarea><a class="series-title-open" href="${startHref}" aria-label="${esc(heading)}"></a></div>`;
   const titles = isSeries ? (seriesTitleObject(ownerMeta?.seriesTitle) || normalizeTitle(ownerEntity)) : normalizeTitle(ownerEntity);
   const subtitle = altTitle(titles, heading);
   _hero = { isSeries, owner: ownerEntity, ownerMeta, heading, kind };
-  const source = galleryLink(ownerEntity, 1);
-  const sourceLink = source
-    ? `<a class="ov-btn" href="${esc(source)}" target="_blank" rel="noopener noreferrer" data-tip="${esc(`${siteName(ownerEntity?.source)}: ${source}`)}">${ICON.open}<span>${esc(t('page.source'))}</span></a>`
-    : '';
-  const editLabel = editMode ? t('ov.done_editing') : t('ov.edit');
+
+  const firstBuild = !_shell;
+  if (firstBuild) buildShell(tagsHtml);
+  else refreshTags();
+
+  // Paint the header cover as soon as it resolves instead of behind the chapter list: a long
+  // series builds many rows, and the head must not wait for the last one. A cover that resolves
+  // after ownership has moved on is dropped.
+  const coverOwner = String(ownerId);
+  coverUrl(ownerId, { preferSeries: isSeries, width: 480 }).then((url) => {
+    if (String(ownerId) !== coverOwner) return;
+    setThumb($('seriesCover'), url);
+    setBackdrop(url);
+  }).catch(() => {});
+
+  // Both a series and a standalone gallery expose an editable owner title in edit mode: a series
+  // edits its multi-language seriesTitle, a standalone gallery edits its own `title` object. A
+  // title being typed is left alone.
+  const titleInput = content.querySelector('.series-title-input');
+  titleInput.id = isSeries ? 'seriesTitle' : 'galleryTitle';
+  titleInput.placeholder = isSeries ? t('ov.series_title_ph') : t('ov.gallery_title_ph');
+  titleInput.dataset.fallback = seriesFallback;
+  if (document.activeElement !== titleInput && titleInput.dataset.original !== heading) {
+    titleInput.dataset.original = heading;
+    titleInput.value = editMode ? heading : (heading.trim() || seriesFallback);
+    resizeTitleArea(titleInput);
+  }
+  const titleOpen = content.querySelector('.series-title-open');
+  setAttr(titleOpen, 'href', startHref);
+  setAttr(titleOpen, 'aria-label', heading);
+  setText($('ovSubtitle'), subtitle);
+  $('ovSubtitle').hidden = !subtitle;
+  setAttr($('seriesCover'), 'href', startHref);
+  setAttr($('readStart'), 'href', startHref);
+  syncFavButton();
   // A library that keeps galleries as files can pack this one — a series: every member — into an
   // archive now; once all of it is, the button says so.
-  const archived = members.every(m => m.entity?.archived);
-  const archiveButton = api.capabilities.archive
-    ? `<button class="ov-btn" id="archiveNow" type="button"${archived ? ' disabled' : ''} data-tip="${esc(t('ov.archive_tip'))}">${ICON.archive}<span>${esc(t(archived ? 'ov.archived' : 'ov.archive'))}</span></button>`
-    : '';
-  const addBar = `
+  const archiveButton = $('archiveNow');
+  if (archiveButton) {
+    const archived = members.every(m => m.entity?.archived);
+    archiveButton.disabled = archived;
+    setHtml(archiveButton, `${ICON.archive}<span>${esc(t(archived ? 'ov.archived' : 'ov.archive'))}</span>`);
+  }
+  const source = galleryLink(ownerEntity, 1);
+  const sourceLink = $('ovSource');
+  sourceLink.style.display = source ? '' : 'none';
+  if (source) {
+    setAttr(sourceLink, 'href', source);
+    setAttr(sourceLink, 'data-tip', `${siteName(ownerEntity?.source)}: ${source}`);
+  }
+  setHtml($('ovMeta'), heroMetaHtml(members));
+
+  syncSection(isSeries, kind, isSeries ? chapters.length : totalPages);
+  setText($('addHeading'), t(kind === 'volume' ? 'ov.add_volume' : 'ov.add_chapter'));
+  if (isSeries) syncChapterList($('chList'), chapters);
+  if (firstBuild) {
+    applyEditMode();
+    applyTranslations(content);   // fill any [data-i18n] nodes in the freshly-built content
+  }
+  if (!isSeries) await syncPageGrid($('ovPages'), ownerId);
+}
+
+// The page's frame, made by the first render; the renders after it only fill it in.
+function buildShell(tagsHtml) {
+  const content = $('ovContent');
+  releasePageTiles(content);
+  content.innerHTML = `
+    <section class="ov-hero">
+      <div class="ov-backdrop" id="ovBackdrop" aria-hidden="true"></div>
+      <a class="series-cover" id="seriesCover" draggable="false"><div class="ph">📚</div></a>
+      <div class="series-info">
+        <div class="series-title-wrap editable"><textarea class="series-title-input" rows="1"></textarea><a class="series-title-open"></a></div>
+        <div class="ov-subtitle" id="ovSubtitle" hidden></div>
+        <div class="series-actions">
+          <a class="ov-btn primary" id="readStart">${ICON.read}<span>${esc(t('ov.read_start'))}</span></a>
+          <button class="ov-btn fav" id="favToggle" type="button"></button>
+          <button class="ov-btn" id="editToggle"></button>
+          ${api.capabilities.archive ? `<button class="ov-btn" id="archiveNow" type="button" data-tip="${esc(t('ov.archive_tip'))}"></button>` : ''}
+          <a class="ov-btn" id="ovSource" target="_blank" rel="noopener noreferrer">${ICON.open}<span>${esc(t('page.source'))}</span></a>
+        </div>
+        <div class="ov-meta" id="ovMeta"></div>
+        ${tagsHtml}
+      </div>
+    </section>
+    <h2 class="ov-section-title" id="ovSection"></h2>
+    <div id="ovBody"></div>
     <div class="add-bar" id="addBar">
-      <h3>${esc(t(kind === 'volume' ? 'ov.add_volume' : 'ov.add_chapter'))}</h3>
+      <h3 id="addHeading"></h3>
       <div class="add-search-wrap">
         <input class="add-search" id="addSearch" placeholder="${esc(t('ov.add_search_ph'))}" autocomplete="off" spellcheck="false">
         <div class="add-results" id="addResults"></div>
       </div>
       <div class="add-hint">${esc(t('ov.add_hint'))}</div>
     </div>`;
-
-  _tagsSeq++;   // this render's tags supersede any refresh still reading its counts
-  const tagsHtml = await tagTableHtml(ownerEntity?.tags);
-
-  // Keep encoded thumbnails across a DOM rebuild, as the reader does when rebuilding its strip.
-  // Detach the old tiles from visibility tracking, then let the new tiles reuse the warm LRU.
-  releasePageTiles(content);
-  content.innerHTML = `
-    <section class="ov-hero">
-      <div class="ov-backdrop" id="ovBackdrop" aria-hidden="true"></div>
-      <a class="series-cover" id="seriesCover" href="${startHref}" draggable="false"><div class="ph">📚</div></a>
-      <div class="series-info">
-        ${titleControl}
-        ${subtitle ? `<div class="ov-subtitle">${esc(subtitle)}</div>` : ''}
-        <div class="series-actions">
-          <a class="ov-btn primary" id="readStart" href="${startHref}">${ICON.read}<span>${esc(t('ov.read_start'))}</span></a>
-          <button class="ov-btn fav" id="favToggle" type="button"></button>
-          <button class="ov-btn${editMode ? ' active' : ''}" id="editToggle" aria-pressed="${editMode ? 'true' : 'false'}">${editMode ? ICON.done : ICON.edit}<span>${esc(editLabel)}</span></button>
-          ${archiveButton}
-          ${sourceLink}
-        </div>
-        <div class="ov-meta" id="ovMeta">${heroMetaHtml(members)}</div>
-        ${tagsHtml}
-      </div>
-    </section>
-    <h2 class="ov-section-title">${isSeries ? viewToggleHtml(kind) : esc(t('card.pages'))}<span>${formatCount(isSeries ? chapters.length : totalPages)}</span></h2>
-    ${isSeries ? '<div class="ch-list" id="chList"></div>' : '<div class="ov-pages" id="ovPages"></div>'}
-    ${addBar}`;
-  content.classList.toggle('ov-editing', editMode);
-  for (const button of content.querySelectorAll('[data-view]')) {
-    button.addEventListener('click', () => {
-      if (button.classList.contains('active')) return;
-      _view = _forcedView = button.dataset.view;
-      platform.kv.set({ seriesView: _view });
-      render().catch(() => {});
-    });
-  }
-
-  const coverPromise = coverUrl(ownerId, { preferSeries: isSeries, width: 480 });
-  if (isSeries) {
-    const list = $('chList');
-    // The number column fits the longest label (1084.5) so every row's thumbnail lines up.
-    list.style.setProperty('--ch-num-chars', String(Math.max(2, ...chapters.map((c, i) => String(chapterNumberLabel(c) ?? i + 1).length))));
-    for (let i = 0; i < chapters.length; i++) list.appendChild(await chapterRow(chapters[i], i, chapters.length));
-  } else {
-    await buildPageGrid($('ovPages'), ownerId);
-  }
-  // Resolve first, THEN look the container up: a re-render during the await replaces the head,
-  // and an element captured beforehand would be detached — the thumbnail would land nowhere.
-  // Paint the header cover as soon as it resolves instead of behind the chapter list: a long
-  // series builds many rows, and the head must not wait for the last one. Looked up after the
-  // await, since a re-render in between replaces the element this would otherwise have captured.
-  coverPromise.then((url) => { setThumb($('seriesCover'), url); setBackdrop(url); }).catch(() => {});
+  _shell = { isSeries: null };
+  _tagsSeq++;   // these tags supersede any refresh still reading its counts
+  _tagsKey = JSON.stringify(_hero.owner?.tags || []);
   // Edit the owner title variant for the current app language; other languages are preserved. A
   // series saves its seriesTitle, a standalone gallery saves its own title.
-  const ownerInput = $('seriesTitle') || $('galleryTitle');
-  if (ownerInput) {
-    ownerInput.addEventListener('input', (e) => resizeTitleArea(e.target));
-    ownerInput.addEventListener('change', (e) => saveOwnerTitleInput(e.target));
-  }
+  const ownerInput = content.querySelector('.series-title-input');
+  ownerInput.addEventListener('input', (e) => resizeTitleArea(e.target));
+  ownerInput.addEventListener('change', (e) => saveOwnerTitleInput(e.target));
   $('editToggle').addEventListener('click', () => setEditMode(!editMode));
   $('archiveNow')?.addEventListener('click', async (e) => {
     e.currentTarget.disabled = true;
@@ -715,11 +780,86 @@ async function render() {
     }
     render().catch(() => {});
   });
-  syncFavButton();
   $('favToggle').addEventListener('click', toggleFavorite);
   wireAdd();
-  applyEditMode();
-  applyTranslations(content);   // fill any [data-i18n] nodes in the freshly-built content
+}
+
+// The heading over the list — a series' chapters/volumes switch, or a gallery's pages — with its
+// count, and the list under it, which is made again only when a gallery becomes a series or back.
+function syncSection(isSeries, kind, count) {
+  const head = $('ovSection');
+  if (_shell.isSeries !== isSeries) {
+    _shell.isSeries = isSeries;
+    const body = $('ovBody');
+    releasePageTiles(body);
+    head.innerHTML = `${isSeries ? viewToggleHtml(kind) : esc(t('card.pages'))}<span class="ov-count"></span>`;
+    body.innerHTML = isSeries ? '<div class="ch-list" id="chList"></div>' : '<div class="ov-pages" id="ovPages"></div>';
+    for (const button of head.querySelectorAll('[data-view]')) {
+      button.addEventListener('click', () => {
+        if (button.classList.contains('active')) return;
+        _view = _forcedView = button.dataset.view;
+        platform.kv.set({ seriesView: _view });
+        render().catch(() => {});
+      });
+    }
+  }
+  for (const button of head.querySelectorAll('[data-view]')) {
+    const on = button.dataset.view === (kind === 'volume' ? 'volumes' : 'chapters');
+    button.classList.toggle('active', on);
+    setAttr(button, 'aria-selected', String(on));
+  }
+  setText(head.querySelector('.ov-count'), formatCount(count));
+}
+
+// Bring the list to `chapters`: a row is kept for each chapter it already shows and updated in
+// place, new chapters get rows, gone ones lose theirs, and the rows that changed places slide.
+function syncChapterList(list, chapters) {
+  const old = new Map([...list.children].map(row => [row.dataset.chapterId, row]));
+  const rows = chapters.map((ch, i) => {
+    const id = String(ch.id);
+    const row = old.get(id);
+    // A chapter whose gallery went missing (or came back) is laid out differently: a new row.
+    if (row && !!_rowState.get(row)?.e === !!ch.entity) {
+      old.delete(id);
+      updateChapterRow(row, ch, i, chapters.length);
+      return row;
+    }
+    const fresh = chapterRow(ch, i, chapters.length);
+    applyEditMode(fresh);
+    return fresh;
+  });
+  // The number column fits the longest label (1084.5) so every row's thumbnail lines up.
+  const numChars = String(Math.max(1, ...chapters.map((c, i) => String(chapterNumberLabel(c) ?? i + 1).length)));
+  if (list.style.getPropertyValue('--ch-num-chars') !== numChars) list.style.setProperty('--ch-num-chars', numChars);
+  if (!old.size && rows.length === list.children.length && rows.every((row, i) => list.children[i] === row)) return;
+  flipRows(list, () => {
+    for (const row of old.values()) { releasePageTiles(row); row.remove(); }
+    rows.forEach((row, i) => { if (list.children[i] !== row) list.insertBefore(row, list.children[i] || null); });
+  });
+}
+
+// Rows change places with a FLIP animation: where each row shows is read before `mutate` changes
+// the list and again after, and each row that moved slides from the old place to the new one. A
+// slide still running is picked up from where it is; rows that stay off screen just move.
+const FLIP_MS = 220;
+const FLIP_EASING = 'cubic-bezier(.2, .8, .2, 1)';
+const _reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+function flipRows(list, mutate) {
+  const before = new Map([...list.children].map(row => [row, row.getBoundingClientRect().top]));
+  for (const row of before.keys()) for (const a of row.getAnimations()) a.cancel();
+  const focused = document.activeElement;
+  mutate();
+  // Moving a row out of the DOM and back drops its focus; give it back.
+  if (focused !== document.activeElement && focused?.isConnected) focused.focus({ preventScroll: true });
+  if (_reducedMotion.matches) return;
+  for (const row of list.children) {
+    const was = before.get(row);
+    if (was == null) continue;
+    const now = row.getBoundingClientRect().top;
+    const offScreen = Math.max(was, now) < -row.offsetHeight || Math.min(was, now) > innerHeight;
+    if (Math.abs(was - now) < 0.5 || offScreen) continue;
+    row.animate([{ transform: `translateY(${was - now}px)` }, { transform: 'none' }], { duration: FLIP_MS, easing: FLIP_EASING });
+  }
 }
 
 async function saveVisibleTitles() {
@@ -807,31 +947,115 @@ async function setEditMode(next) {
   applyEditMode();
 }
 
-async function chapterRow(ch, idx, total) {
+// One chapter's row. updateChapterRow fills it in, and every later render calls that on the same
+// row rather than making it again.
+function chapterRow(ch, idx, total) {
   const row = document.createElement('div');
-  row.className = 'ch-row' + (ch.entity ? '' : ' missing');
-  row.dataset.chapterId = String(ch.id);
   const e = ch.entity;
-  if (e) _chapterRowEntities.set(row, e);
+  row.className = 'ch-row' + (e ? '' : ' missing');
+  row.dataset.chapterId = String(ch.id);
+  // The grip leads the row: dragging it moves the row through the list. The expand/collapse toggle
+  // at the end reveals this chapter's pages as an accordion grid — shown only outside edit mode
+  // (CSS), after the hover-revealed action buttons.
+  row.innerHTML = `
+    <div class="ch-head">
+      <span class="ch-grip" data-tip="${esc(t('ov.drag_reorder'))}">${ICON.grip}</span>
+      <div class="ch-num"></div>
+      ${e ? '<a class="ch-thumb link" draggable="false"><div class="ph">📄</div></a>' : '<div class="ch-thumb"><div class="ph">📄</div></div>'}
+      <div class="ch-main">
+        <div class="ch-title-wrap">
+          <span class="ch-title-sizer" aria-hidden="true"></span>
+          <input class="ch-title-input" size="1" data-chapter-id="${esc(ch.id)}">
+          <a class="ch-title-open"></a>
+        </div>
+        <div class="ch-meta"></div>
+        <div class="ch-progress">
+          <div class="prog-track"><div class="prog-fill"></div></div>
+          <span class="ch-prog-label"></span>
+        </div>
+      </div>
+      <div class="ch-actions"></div>
+      ${e ? `<button class="ch-ibtn ch-expand" data-expand aria-expanded="false" data-tip="${esc(t('ov.show_pages'))}">${ICON.down}</button>` : ''}
+    </div>
+    <div class="ch-pages"></div>`;
+  _rowState.set(row, { ch, e });
+
+  const titleInput = row.querySelector('.ch-title-input');
+  titleInput.addEventListener('input', (ev) => {
+    ev.target.dataset.editValue = ev.target.value;
+    updateChapterLinkFromInput(ev.target);
+  });
+  titleInput.addEventListener('change', (ev) => saveChapterTitleInput(ev.target));
+  row.querySelector('.ch-grip').addEventListener('pointerdown', (ev) => startRowDrag(ev, row));
+  const expand = row.querySelector('[data-expand]');
+  if (expand) expand.addEventListener('click', () => toggleChapterPages(row, expand));
+  updateChapterRow(row, ch, idx, total);
+
+  // Thumbnails stream in per row rather than gating it: a long series would otherwise build its
+  // list one cover round-trip at a time. `row` is this call's own element, so it stays valid.
+  if (e) coverUrl(ch.id).then((url) => setThumb(row.querySelector('.ch-thumb'), url)).catch(() => {});
+  return row;
+}
+
+// Bring a row up to date with `ch` at place `idx` of `total`, changing only what differs. A title
+// being typed (or not saved yet) is left as it is.
+function updateChapterRow(row, ch, idx, total) {
+  const st = _rowState.get(row);
+  const e = ch.entity;
+  const countChanged = st.e?.count !== e?.count;
   const title = pickTitle(e, getLang()) || '';
   const href = readerHref(ch.id);
   const num = chapterNumberLabel(ch) ?? idx + 1;
   const nameKey = memberKind(ch) === 'volume' ? 'ov.volume_n' : 'ov.chapter_n';
-  const displayTitle = ch.title || title || t(nameKey, { n: num });
+  const custom = ch.title || '';
+  const fallbackTitle = title || t(nameKey, { n: num });
+  Object.assign(st, { ch, e, idx, total, displayTitle: custom || fallbackTitle });
+
+  setText(row.querySelector('.ch-num'), String(num));
+  setAttr(row.querySelector('.ch-thumb.link'), 'href', href);
+  setAttr(row.querySelector('.ch-title-open'), 'href', href);
+  const input = row.querySelector('.ch-title-input');
+  const typing = document.activeElement === input
+    || (input.dataset.editValue ?? '').trim() !== (input.dataset.original ?? '').trim();
+  if (!typing) {
+    input.dataset.original = custom;
+    input.dataset.editValue = custom;
+    input.dataset.fallback = fallbackTitle;
+    input.placeholder = fallbackTitle;
+    const value = editMode ? custom : (custom.trim() || fallbackTitle);
+    if (input.value !== value) input.value = value;
+    updateChapterLinkFromInput(input);
+  }
   const pageStr = e ? `${formatCount(e.count)}${e.numPages ? ` / ${formatCount(e.numPages)}` : ''} ${t('card.pages')}` : t('ov.missing');
   const translated = e?.translated ? `<span class="done">${esc(t('ov.translated'))}</span>` : '';
-  const fallbackTitle = title || t(nameKey, { n: num });
-  const titleControl = `
-    <div class="ch-title-wrap">
-      <span class="ch-title-sizer" aria-hidden="true">${esc(displayTitle)}</span>
-      <input class="ch-title-input" size="1" data-chapter-id="${esc(ch.id)}" data-original="${esc(ch.title)}" value="${esc(displayTitle)}" data-edit-value="${esc(ch.title)}" data-fallback="${esc(fallbackTitle)}" placeholder="${esc(fallbackTitle)}">
-      <a class="ch-title-open" href="${href}" data-fallback="${esc(fallbackTitle)}" aria-label="${esc(displayTitle)}"></a>
-    </div>`;
-  const thumbControl = e
-    ? `<a class="ch-thumb link" href="${href}" draggable="false"><div class="ph">📄</div></a>`
-    : `<div class="ch-thumb"><div class="ph">📄</div></div>`;
-  const canDownload = e && _canDownload(e);
+  setHtml(row.querySelector('.ch-meta'), `<span>#${esc(e?.sourceId || ch.id)}</span><span>${esc(pageStr)}</span>${translated}${e?.missing ? `<span class="missing">${esc(t('card.files_missing'))}</span>` : ''}`);
+  syncRowActions(row);
+  // An open page grid takes in the pages that arrived.
+  if (countChanged && row.classList.contains('expanded')) syncPageGrid(row.querySelector('.ch-pages'), ch.id);
+}
+
+// The row's buttons, made again only when what they offer changes (a job starting or ending, the
+// chapter translated, a download possible now). A row that only moved just has its arrows set.
+function syncRowActions(row) {
+  const st = _rowState.get(row);
+  const { ch, e, idx, total } = st;
   const liveJob = _liveChapterJobs.get(String(ch.id));
+  const html = rowActionsHtml(e, liveJob);
+  const key = `${html}\n${liveJob?.status || ''}`;
+  const box = row.querySelector('.ch-actions');
+  if (st.actionsKey !== key) {
+    st.actionsKey = key;
+    box.innerHTML = html;
+    wireRowActions(row);
+    if (liveJob) paintChapterJob(row, liveJob);
+    else row.classList.remove('working');
+  }
+  box.querySelector('[data-up]').disabled = idx === 0;
+  box.querySelector('[data-down]').disabled = idx === total - 1;
+}
+
+function rowActionsHtml(e, liveJob) {
+  const canDownload = e && _canDownload(e);
   const activeJob = liveJob && !['done', 'error', 'cancelled', 'interrupted'].includes(liveJob.status);
   const busyDownload = activeJob && (liveJob.kind === 'download' || liveJob.kind === 'upload');
   const busyTranslate = activeJob && liveJob.kind === 'translate';
@@ -840,79 +1064,39 @@ async function chapterRow(ch, idx, total) {
   const downloadAction = e ? `<button class="ch-ibtn download" data-download data-tip="${esc(canDownload ? dlTitle : t('card.tip_replace'))}"${canDownload ? ` data-tip-shift="${esc(t('card.tip_replace'))}"` : ''}${busyDownload ? ' disabled' : ''}>${dlInner}</button>` : '';
   const translateTip = busyTranslate ? t('card.tip_cancel') : (e?.translated ? _translatedTip() : t('card.tip_translate'));
   const translateAction = e ? `<button class="ch-ibtn translate${e.translated ? ' done' : ''}${busyTranslate ? ' cancelling' : ''}" data-translate data-tip="${esc(translateTip)}"${e.translated && !busyTranslate ? ` data-tip-shift="${esc(t('card.tip_revert'))}"` : ''}><span class="ch-tr-inner">${busyTranslate ? ICON.stop : ICON.translate}</span></button>` : '';
-  const actions = `
-    <div class="ch-actions">
-      <button class="ch-ibtn" data-up ${idx === 0 ? 'disabled' : ''} data-tip="${esc(t('ov.move_up'))}">${ICON.up}</button>
-      <button class="ch-ibtn" data-down ${idx === total - 1 ? 'disabled' : ''} data-tip="${esc(t('ov.move_down'))}">${ICON.down}</button>
+  return `
+      <button class="ch-ibtn" data-up data-tip="${esc(t('ov.move_up'))}">${ICON.up}</button>
+      <button class="ch-ibtn" data-down data-tip="${esc(t('ov.move_down'))}">${ICON.down}</button>
       ${downloadAction}
       ${translateAction}
       ${canDetachChapter(e) ? `<button class="ch-ibtn detach" data-detach data-tip="${esc(t('ov.remove_detach'))}">${ICON.detach}</button>` : ''}
-      <button class="ch-ibtn danger" data-remove data-tip="${esc(t('card.tip_delete'))}" data-tip-shift="${esc(t('card.tip_quickdelete'))}"><span class="ch-del-inner">${ICON.remove}</span></button>
-    </div>`;
+      <button class="ch-ibtn danger" data-remove data-tip="${esc(t('card.tip_delete'))}" data-tip-shift="${esc(t('card.tip_quickdelete'))}"><span class="ch-del-inner">${ICON.remove}</span></button>`;
+}
 
-  // Expand/collapse toggle — reveals this chapter's pages as an accordion grid. Shown only outside
-  // edit mode (CSS), after the hover-revealed action buttons.
-  const expandBtn = e
-    ? `<button class="ch-ibtn ch-expand" data-expand aria-expanded="false" data-tip="${esc(t('ov.show_pages'))}">${ICON.down}</button>`
-    : '';
-  row.innerHTML = `
-    <div class="ch-head">
-      <div class="ch-num">${esc(num)}</div>
-      ${thumbControl}
-      <div class="ch-main">
-        ${titleControl}
-        <div class="ch-meta"><span>#${esc(e?.sourceId || ch.id)}</span><span>${esc(pageStr)}</span>${translated}${e?.missing ? `<span class="missing">${esc(t('card.files_missing'))}</span>` : ''}</div>
-        <div class="ch-progress">
-          <div class="prog-track"><div class="prog-fill"></div></div>
-          <span class="ch-prog-label"></span>
-        </div>
-      </div>
-      ${actions}
-      ${expandBtn}
-    </div>
-    <div class="ch-pages"></div>`;
-
-  // Thumbnails stream in per row rather than gating it: a long series would otherwise build its
-  // list one cover round-trip at a time. `row` is this call's own element, so it stays valid.
-  if (e) coverUrl(ch.id).then((url) => setThumb(row.querySelector('.ch-thumb'), url)).catch(() => {});
-
-  const titleInput = row.querySelector('.ch-title-input');
-  if (titleInput) {
-    titleInput.addEventListener('input', (ev) => {
-      ev.target.dataset.editValue = ev.target.value;
-      updateChapterLinkFromInput(ev.target);
-    });
-    titleInput.addEventListener('change', (ev) => saveChapterTitleInput(ev.target));
-  }
-  const up = row.querySelector('[data-up]');
-  const down = row.querySelector('[data-down]');
-  const download = row.querySelector('[data-download]');
-  const translate = row.querySelector('[data-translate]');
-  const detach = row.querySelector('[data-detach]');
-  const remove = row.querySelector('[data-remove]');
-  if (up) up.addEventListener('click', () => move(idx, -1));
-  if (down) down.addEventListener('click', () => move(idx, 1));
+function wireRowActions(row) {
+  const st = () => _rowState.get(row);
+  const box = row.querySelector('.ch-actions');
+  const download = box.querySelector('[data-download]');
+  const translate = box.querySelector('[data-translate]');
+  const detach = box.querySelector('[data-detach]');
+  const remove = box.querySelector('[data-remove]');
+  box.querySelector('[data-up]').addEventListener('click', () => move(row, -1));
+  box.querySelector('[data-down]').addEventListener('click', () => move(row, 1));
   if (download) {
     download.addEventListener('mouseenter', () => { _hoveredDlBtn = download; if (_dlCanFlip(download) && _shiftHeld) _dlFlip.to(download, ICON.upload); });
     download.addEventListener('mouseleave', () => { if (_dlCanFlip(download) && _shiftHeld) _dlFlip.to(download, ICON.download); _hoveredDlBtn = null; });
-    download.addEventListener('click', (ev) => downloadOrReplaceChapter(ch, e, ev, displayTitle));
+    download.addEventListener('click', (ev) => { const { ch, e, displayTitle } = st(); downloadOrReplaceChapter(ch, e, ev, displayTitle); });
   }
   if (translate) {
     translate.addEventListener('mouseenter', () => { _hoveredTrBtn = translate; if (translate.dataset.tipShift != null && _shiftHeld && !translate.disabled) _trFlip.to(translate, ICON.revert); });
     translate.addEventListener('mouseleave', () => { if (translate.dataset.tipShift != null && _shiftHeld) _trFlip.to(translate, ICON.translate); _hoveredTrBtn = null; });
-    translate.addEventListener('click', (ev) => translateChapter(ch, e, ev, displayTitle));
-    translate.addEventListener('contextmenu', (ev) => rerunChapter(ch, e, ev, displayTitle));
+    translate.addEventListener('click', (ev) => { const { ch, e, displayTitle } = st(); translateChapter(ch, e, ev, displayTitle); });
+    translate.addEventListener('contextmenu', (ev) => { const { ch, e, displayTitle } = st(); rerunChapter(ch, e, ev, displayTitle); });
   }
-  if (detach) detach.addEventListener('click', () => detachChapter(ch));
-  if (remove) {
-    remove.addEventListener('mouseenter', () => { _hoveredDelBtn = remove; if (_shiftHeld) _delFlip.to(remove, ICON.removeShift); });
-    remove.addEventListener('mouseleave', () => { if (_shiftHeld) _delFlip.to(remove, ICON.remove); _hoveredDelBtn = null; });
-    remove.addEventListener('click', (ev) => deleteChapter(ch, { prompt: !ev.shiftKey, entity: e, label: displayTitle }));
-  }
-  const expand = row.querySelector('[data-expand]');
-  if (expand) expand.addEventListener('click', () => toggleChapterPages(row, ch.id, expand));
-  if (liveJob) paintChapterJob(row, liveJob);
-  return row;
+  if (detach) detach.addEventListener('click', () => detachChapter(st().ch));
+  remove.addEventListener('mouseenter', () => { _hoveredDelBtn = remove; if (_shiftHeld) _delFlip.to(remove, ICON.removeShift); });
+  remove.addEventListener('mouseleave', () => { if (_shiftHeld) _delFlip.to(remove, ICON.remove); _hoveredDelBtn = null; });
+  remove.addEventListener('click', (ev) => { const { ch, e, displayTitle } = st(); deleteChapter(ch, { prompt: !ev.shiftKey, entity: e, label: displayTitle }); });
 }
 
 // Availability can resolve while a large chapter list is still being built. Reconcile only the
@@ -920,7 +1104,7 @@ async function chapterRow(ch, idx, total) {
 // for another round of metadata and cover reads.
 function refreshDownloadControls() {
   for (const row of document.querySelectorAll('.ch-row[data-chapter-id]')) {
-    const entity = _chapterRowEntities.get(row);
+    const entity = _rowState.get(row)?.e;
     const btn = row.querySelector('[data-download]');
     if (!entity || !btn) continue;
 
@@ -939,12 +1123,12 @@ function refreshDownloadControls() {
 
 // Accordion: reveal/hide a chapter's page grid. Pages are built on first open (then kept, so
 // re-opening is instant); thumbnails still fill in lazily as they scroll into view.
-async function toggleChapterPages(row, gid, btn) {
+async function toggleChapterPages(row, btn) {
   const open = row.classList.toggle('expanded');
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   btn.dataset.tip = t(open ? 'ov.hide_pages' : 'ov.show_pages');
   refreshTooltip();
-  if (open) await buildPageGrid(row.querySelector('.ch-pages'), gid);
+  if (open) await syncPageGrid(row.querySelector('.ch-pages'), _rowState.get(row).ch.id);
 }
 
 function setTranslateButtonBusy(btn, busy) {
@@ -1229,17 +1413,22 @@ function updateHeaderSummary(chapters) {
   if (!el || !_hero) return;
   const owner = chapters.find((c) => String(c.id) === String(ownerId))?.entity;
   if (owner) _hero.owner = owner;
-  el.innerHTML = heroMetaHtml(chapters);
+  setHtml(el, heroMetaHtml(chapters));
   syncFavButton();
   refreshTags();
 }
 
-// Rebuild the tag table in place from the owner's current tags (and the library's counts).
-let _tagsSeq = 0;
+// Rebuild the tag table in place from the owner's current tags (and the library's counts) — when
+// they changed since it was last built.
+let _tagsSeq = 0, _tagsKey = '';
 async function refreshTags() {
+  const tags = _hero?.owner?.tags;
+  const key = JSON.stringify(tags || []);
+  if (key === _tagsKey) return;
   const seq = ++_tagsSeq;
-  const html = await tagTableHtml(_hero?.owner?.tags);
+  const html = await tagTableHtml(tags);
   if (seq !== _tagsSeq) return;
+  _tagsKey = key;
   const tpl = document.createElement('template');
   tpl.innerHTML = html;
   $('ovTags')?.replaceWith(tpl.content);
@@ -1262,7 +1451,7 @@ function syncFavButton() {
   const on = !!_hero.owner?.favorite;
   btn.classList.toggle('on', on);
   btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-  btn.innerHTML = `${ICON.heart}<span>${esc(t(on ? 'ov.favorited' : 'ov.fav_add'))}</span>`;
+  setHtml(btn, `${ICON.heart}<span>${esc(t(on ? 'ov.favorited' : 'ov.fav_add'))}</span>`);
   if (on) btn.dataset.tip = t('card.tip_fav_remove');
   else delete btn.dataset.tip;
 }
@@ -1293,6 +1482,7 @@ async function removeTagConfirmed(tag) {
 }
 
 async function refreshChangedChapter(gid, { rowOnly = false } = {}) {
+  await _orderSave;
   const visibleIds = visibleChapterIds();
   if (!visibleIds.length) {
     if (!rowOnly && String(gid) === String(ownerId)) await render();
@@ -1310,6 +1500,7 @@ async function refreshChangedChapter(gid, { rowOnly = false } = {}) {
   updateHeaderSummary(members);
   const chapters = members.filter(c => memberKind(c) === _shownKind);
 
+  // Covers are read again; one that is unchanged leaves its box as it is.
   invalidateCover(gid);
   if (String(gid) === String(ownerId)) {
     invalidateCover(ownerId);
@@ -1318,30 +1509,195 @@ async function refreshChangedChapter(gid, { rowOnly = false } = {}) {
     setBackdrop(refreshedCover);
   }
 
-  const oldRow = findChapterRow(gid);
-  if (!oldRow || !chapters[idx]) { if (!rowOnly) await render(); return; }
-  releasePageTiles(oldRow);   // detach the outgoing row's tiles from the observer/img map
-  const nextRow = await chapterRow(chapters[idx], idx, chapters.length);
-  oldRow.replaceWith(nextRow);
-  applyEditMode(nextRow);
+  const row = findChapterRow(gid);
+  const ch = chapters[idx];
+  if (!row || !ch) { if (!rowOnly) await render(); return; }
+  if (!!_rowState.get(row)?.e !== !!ch.entity) {   // its gallery went missing or came back
+    releasePageTiles(row);   // detach the outgoing row's tiles from the observer/img map
+    const next = chapterRow(ch, idx, chapters.length);
+    row.replaceWith(next);
+    applyEditMode(next);
+    return;
+  }
+  updateChapterRow(row, ch, idx, chapters.length);
+  if (ch.entity) coverUrl(gid).then((url) => setThumb(row.querySelector('.ch-thumb'), url)).catch(() => {});
 }
 
 async function currentOrder() {
   const meta = await api.meta.get(ownerId);
   return (meta?.chapters || []).map(c => String(c.id));
 }
-// Moves the shown row `idx` up or down among the members of its kind; the other kind keeps its
-// places in the series' order.
-async function move(idx, delta) {
-  const refs = (await api.meta.get(ownerId))?.chapters || [];
-  const slots = refs.map((c, i) => [c, i]).filter(([c]) => memberKind(c) === _shownKind).map(([, i]) => i);
-  const j = idx + delta;
-  if (j < 0 || j >= slots.length || idx >= slots.length) return;
-  const order = refs.map(c => String(c.id));
-  [order[slots[idx]], order[slots[j]]] = [order[slots[j]], order[slots[idx]]];
-  await reorderChapters(ownerId, order);
-  ownerId = order[0];   // head may have changed → ownership moved
+// Moves a row up or down a place. Its neighbour is the one moved in the DOM, so the pressed
+// button keeps its focus.
+function move(row, delta) {
+  const list = row.parentElement;
+  if (!list || _drag) return;
+  const rows = [...list.children];
+  const other = rows[rows.indexOf(row) + delta];
+  if (!other) return;
+  flipRows(list, () => list.insertBefore(other, delta < 0 ? row.nextSibling : row));
+  commitRowOrder(list).catch(() => {});
+}
+
+// The list's rows are in a new order: renumber them at once, save, then render whatever the new
+// order changes elsewhere (the head's cover and title when ownership moved, the start link).
+async function commitRowOrder(list) {
+  const rows = [...list.children];
+  rows.forEach((row, i) => { const st = _rowState.get(row); if (st) updateChapterRow(row, st.ch, i, rows.length); });
+  await saveShownOrder();
   await render();
+}
+
+// Saves the list's order: the places the shown kind holds in the series' order take its rows in
+// turn, so the other kind keeps its places. Saves run one after another, each reading the list
+// as it is by then, and renders wait for them.
+let _orderSave = Promise.resolve();
+function saveShownOrder() {
+  _orderSave = _orderSave.then(async () => {
+    const refs = (await api.meta.get(ownerId))?.chapters || [];
+    const order = refs.map(c => String(c.id));
+    const shown = visibleChapterIds();
+    const slots = order.filter((id, i) => memberKind(refs[i]) === _shownKind);
+    const shownSet = new Set(shown);
+    if (shown.length !== slots.length || !slots.every(id => shownSet.has(id))) return;   // the list is stale; a render redoes it
+    let k = 0;
+    const next = refs.map((c, i) => (memberKind(c) === _shownKind ? shown[k++] : order[i]));
+    if (sameOrder(next, order)) return;
+    await reorderChapters(ownerId, next);
+    ownerId = next[0];   // head may have changed → ownership moved
+  }).catch(() => {});
+  return _orderSave;
+}
+
+// ── Drag to reorder ──
+// A row's grip drags it along the list. The rows it passes slide aside to open the place where it
+// will land, and nothing in the DOM moves until the drop — the way dnd-kit's sortable lists work.
+// On release the row settles into that place and the order is saved; Escape puts it back. Near
+// the window's top or bottom edge the page scrolls, so a row can travel the whole of a long list.
+const DRAG_START_PX = 3;   // a press becomes a drag once it has moved this far
+const DRAG_EDGE_PX = 64;   // how near an edge the page starts scrolling
+let _drag = null;
+
+function startRowDrag(ev, row) {
+  if (ev.button !== 0 || _drag) return;
+  const list = row.parentElement;
+  const rows = [...list.children];
+  if (rows.length < 2) return;
+  ev.preventDefault();
+  for (const r of rows) for (const a of r.getAnimations()) a.finish();   // measure rows where they land
+  const grip = ev.currentTarget;
+  grip.setPointerCapture(ev.pointerId);
+  const sy = window.scrollY;
+  _drag = {
+    row, list, rows, grip, pointerId: ev.pointerId,
+    from: rows.indexOf(row), to: rows.indexOf(row),
+    // Each row's place in page coordinates, so scrolling while dragging doesn't move them.
+    slots: rows.map(r => { const b = r.getBoundingClientRect(); return { top: b.top + sy, h: b.height }; }),
+    gap: parseFloat(getComputedStyle(list).rowGap) || 0,
+    startY: ev.clientY + sy, y: ev.clientY,
+    edgeTop: (document.querySelector('body > header')?.getBoundingClientRect().bottom || 0) + DRAG_EDGE_PX,
+    active: false, raf: 0, tip: '',
+  };
+  grip.addEventListener('pointermove', onRowDragMove);
+  grip.addEventListener('pointerup', onRowDragUp);
+  grip.addEventListener('pointercancel', onRowDragCancel);
+  grip.addEventListener('lostpointercapture', onRowDragCancel);
+  window.addEventListener('keydown', onRowDragKey, true);
+}
+
+function onRowDragMove(ev) {
+  if (ev.pointerId !== _drag?.pointerId) return;
+  _drag.y = ev.clientY;
+  layoutRowDrag();
+}
+function onRowDragUp(ev) { if (ev.pointerId === _drag?.pointerId) endRowDrag(true); }
+function onRowDragCancel() { if (_drag) endRowDrag(false); }
+function onRowDragKey(ev) {
+  if (ev.key !== 'Escape' || !_drag) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  endRowDrag(false);
+}
+
+// Place the dragged row under the pointer (kept within the list), pick the place it would land in
+// — the one nearest where it is now — and slide the rows between there and its own place aside.
+function layoutRowDrag() {
+  const d = _drag;
+  const own = d.slots[d.from];
+  const first = d.slots[0], last = d.slots[d.slots.length - 1];
+  const pointerDy = d.y + window.scrollY - d.startY;
+  if (!d.active) {
+    if (Math.abs(pointerDy) < DRAG_START_PX) return;
+    d.active = true;
+    d.list.classList.add('sorting');
+    d.row.classList.add('dragging');
+    document.body.classList.add('ch-dragging');
+    d.tip = d.grip.dataset.tip || '';   // its tip would otherwise follow the pointer the whole way
+    delete d.grip.dataset.tip;
+    refreshTooltip();
+    d.raf = requestAnimationFrame(rowDragScroll);
+  }
+  const dy = Math.max(first.top - own.top, Math.min(last.top + last.h - own.top - own.h, pointerDy));
+  d.row.style.transform = `translateY(${dy}px)`;
+  // Landing below its place, its bottom meets the bottom of the row it passed; above, the tops meet.
+  const top = own.top + dy;
+  let to = d.from, best = Math.abs(dy);
+  d.slots.forEach((s, i) => {
+    if (i === d.from) return;
+    const distance = Math.abs(top - (i > d.from ? s.top + s.h - own.h : s.top));
+    if (distance < best) { best = distance; to = i; }
+  });
+  if (to === d.to) return;
+  d.to = to;
+  const shift = own.h + d.gap;
+  d.rows.forEach((r, i) => {
+    if (i === d.from) return;
+    const offset = i > d.from && i <= to ? -shift : i < d.from && i >= to ? shift : 0;
+    r.style.transform = offset ? `translateY(${offset}px)` : '';
+  });
+}
+
+function rowDragScroll() {
+  const d = _drag;
+  if (!d) return;
+  const bottom = innerHeight - DRAG_EDGE_PX;
+  const over = d.y < d.edgeTop ? d.y - d.edgeTop : d.y > bottom ? d.y - bottom : 0;
+  if (over) {
+    const before = window.scrollY;
+    window.scrollBy(0, Math.sign(over) * Math.min(24, Math.ceil(Math.abs(over) / 3)));
+    if (window.scrollY !== before) layoutRowDrag();
+  }
+  d.raf = requestAnimationFrame(rowDragScroll);
+}
+
+function endRowDrag(commit) {
+  const d = _drag;
+  _drag = null;
+  cancelAnimationFrame(d.raf);
+  d.grip.removeEventListener('pointermove', onRowDragMove);
+  d.grip.removeEventListener('pointerup', onRowDragUp);
+  d.grip.removeEventListener('pointercancel', onRowDragCancel);
+  d.grip.removeEventListener('lostpointercapture', onRowDragCancel);
+  window.removeEventListener('keydown', onRowDragKey, true);
+  if (d.grip.hasPointerCapture(d.pointerId)) d.grip.releasePointerCapture(d.pointerId);
+  const moved = commit && d.active && d.to !== d.from;
+  if (d.active) {
+    if (d.tip) d.grip.dataset.tip = d.tip;
+    // The rows that slid aside already stand where the drop puts them, so only the dragged row
+    // travels: from under the pointer into its place, above the others until it is there.
+    flipRows(d.list, () => {
+      d.list.classList.remove('sorting');
+      document.body.classList.remove('ch-dragging');
+      for (const r of d.rows) r.style.transform = '';
+      if (moved) d.list.insertBefore(d.row, d.to > d.from ? d.rows[d.to].nextSibling : d.rows[d.to]);
+    });
+    const settle = d.row.getAnimations().find((a) => !(a instanceof CSSTransition));
+    const settled = () => d.row.classList.remove('dragging');
+    if (settle) settle.finished.then(settled, settled);
+    else settled();
+  }
+  if (moved) commitRowOrder(d.list).catch(() => {});
+  else if (_renderAfterDrag) render().catch(() => {});
 }
 
 // ── Remove modal ──
@@ -1521,6 +1877,18 @@ $('ovContent').addEventListener('click', (e) => {
   else editTag(tag);
 });
 $('ovFileInput').addEventListener('change', (e) => { const files = [...e.target.files]; e.target.value = ''; importChapters(files); });
+// A row's buttons stay up while one of them has keyboard focus, but not the focus a click leaves
+// behind: the clicked row may slide away from the pointer (an arrow press), and its buttons would
+// stay up beside the hovered row's. :focus-visible can't tell them apart — holding Shift (the
+// quick-delete key) turns a clicked button's focus visible too — so a key other than a modifier
+// marks keyboard use, and a press of the pointer clears it.
+let _keyboardFocus = false;
+document.addEventListener('keydown', (e) => { if (!['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) _keyboardFocus = true; }, true);
+document.addEventListener('pointerdown', () => { _keyboardFocus = false; }, true);
+$('ovContent').addEventListener('focusin', (e) => {
+  for (const box of document.querySelectorAll('.ch-actions.key-focus')) box.classList.remove('key-focus');
+  if (_keyboardFocus) e.target.closest('.ch-actions')?.classList.add('key-focus');
+});
 
 // Re-render when a member gallery changes (e.g. a chapter import finishes filling pages).
 // Row-debounced so download/import feed beacons update only the affected chapter row.

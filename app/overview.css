@@ -158,14 +158,37 @@ body.shift-held #ovContent.ov-editing .ov-meta-item[data-tag-type]:hover svg { c
 /* ── Chapter list ── */
 .ch-list { display: flex; flex-direction: column; gap: 6px; }
 .ch-row {
+  position: relative;
   display: flex; flex-direction: column;
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: 8px; transition: border-color .12s; overflow: hidden;
+  border-radius: 8px; transition: border-color .12s, background-color .2s, box-shadow .2s; overflow: hidden;
 }
 .ch-row:hover { border-color: #3a3a44; }
 .ch-row.missing { opacity: .5; }
-.ch-head { display: flex; align-items: center; gap: 10px; padding: 6px 9px; }
-.ch-num { width: max(22px, calc(var(--ch-num-chars, 2) * 1ch + 4px)); text-align: center; color: var(--muted); font-size: 12px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.ch-head { position: relative; display: flex; align-items: center; gap: 10px; padding: 6px 9px 6px 0; }
+
+/* The grip at a row's left edge drags it to another place in the list (a lone row has nowhere to
+   go). While a row is dragged it rides above the list, and the rows it passes slide aside. It takes
+   no room of its own: it shows in the space left of the chapter number, centred in it. */
+.ch-grip {
+  position: absolute; left: 2px; top: 0; bottom: 0; margin: auto 0; width: 14px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted-dim); cursor: grab; touch-action: none; border-radius: 4px;
+  transition: color .12s;
+}
+.ch-grip:hover, .ch-row.dragging .ch-grip { color: var(--text); }
+.ch-grip svg { width: 14px; height: 14px; }
+.ch-row:only-child .ch-grip { visibility: hidden; }
+.ch-list.sorting .ch-row:not(.dragging) { transition: transform .2s cubic-bezier(.2, .8, .2, 1); }
+.ch-row.dragging { z-index: 5; background: var(--surface-raised); border-color: var(--border-strong); box-shadow: 0 10px 28px rgba(0, 0, 0, .45); }
+body.ch-dragging, body.ch-dragging * { cursor: grabbing !important; user-select: none; }
+/* The number sits centred between the row's left border and the cover, in a column that fits the
+   list's longest label so every row's cover lines up. The negative margin takes back the row's gap,
+   so the padding is all the space on either side. */
+.ch-num {
+  box-sizing: content-box; width: calc(var(--ch-num-chars, 1) * 1ch); padding: 0 18px; margin-right: -10px;
+  text-align: center; color: var(--muted); font-size: 12px; flex-shrink: 0; font-variant-numeric: tabular-nums;
+}
 .ch-thumb {
   position: relative; width: 36px; aspect-ratio: 1 / sqrt(2); flex-shrink: 0; border-radius: 5px; overflow: hidden;
   background: var(--bg); border: 1px solid var(--border);
@@ -206,13 +229,18 @@ body.shift-held #ovContent.ov-editing .ov-meta-item[data-tag-type]:hover svg { c
 .ch-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 /* A chapter's quick actions show instantly while its row is hovered — in and out of edit mode,
    which is for renaming. They keep their space so nothing shifts, stay up while a job's Stop
-   button is live, and are always shown where there is no hover. */
+   button is live or one of them has keyboard focus (.key-focus, set from overview.js — a clicked
+   button keeps its focus too, and its row would keep its buttons up after sliding away from the
+   pointer), and are always shown where there is no hover. */
 @media (hover: hover) {
-  .ch-actions { opacity: 0; pointer-events: none; }
-  .ch-head:hover .ch-actions,
-  .ch-actions:focus-within,
-  .ch-actions:has(.cancelling) { opacity: 1; pointer-events: auto; }
+  .ch-actions, .ch-grip { opacity: 0; pointer-events: none; }
+  .ch-head:hover :is(.ch-actions, .ch-grip),
+  .ch-actions.key-focus:focus-within,
+  .ch-actions:has(.cancelling),
+  .ch-row.dragging .ch-grip { opacity: 1; pointer-events: auto; }
 }
+/* While a row is dragged, the rows show only what is being moved. */
+.ch-list.sorting .ch-actions { opacity: 0; pointer-events: none; }
 .ch-ibtn {
   background: none; border: 1px solid transparent; color: var(--muted); cursor: pointer;
   width: 30px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
