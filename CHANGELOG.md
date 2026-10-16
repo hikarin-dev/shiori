@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.2.3 — 2026-10-16
+
+### Added
+
+- On a series overview, every chapter and volume row has a grip at its left edge: drag it to move the row. The rows you pass slide aside to show where it will land, the page scrolls along near the top or bottom of the window, and **Escape** puts the row back. The up and down arrows still work, and now slide the rows into place too.
+- A zip, or a dropped folder, that holds chapter folders now imports as a series: a chapter for each folder with pictures in it, named after that folder. Pages go in natural order, folder by folder, and hidden files (and the `__MACOSX` folder a Mac adds to its zips) are left out.
+
+### Fixed
+
+- Reordering chapters on a series overview no longer rebuilds the whole page: the covers stay on screen instead of flashing a placeholder, and only what changed is updated. A chapter's download or translation updating its row works the same way.
+- A chapter's page grid you've opened on the overview stays open while its pages download, and shows new pages as they arrive.
+- After moving a chapter with its arrows, only the row under the pointer shows its buttons.
+- The text on library cards — ids, titles and tags — no longer turns thinner for a moment while a hovered card grows or shrinks.
+- A library card whose gallery changed while you hovered it now shrinks back smoothly when you move away, instead of snapping shut.
+- Shiori Desktop: deleting a gallery whose folder is open in an Explorer window no longer upsets Explorer — the window steps out of the folder on its own. A folder that can't be moved while an Explorer window is open inside it is moved as soon as the window leaves.
+
 ## v1.2.2 — 2026-10-10
 
 ### Fixed
