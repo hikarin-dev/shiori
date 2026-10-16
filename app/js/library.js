@@ -361,16 +361,20 @@ function updateCardThumbFit(img) {
 // The copies grow only vertically — the bars are above and below — so each colour runs straight
 // out of the edge it touches instead of fanning into radial rays.
 const _GLOW_SPREAD = 4, _GLOW_EDGE = 0.12, _GLOW_BLUR = 0.25;
-// The glow canvas overhangs the thumb by half its size on every side (CSS, same fraction), so the
-// blur's soft rim falls outside the card instead of darkening its edges.
+// The glow overhangs the thumb by half its size on every side (CSS, same fraction), so the blur's
+// soft rim falls outside the card instead of darkening its edges.
 const _GLOW_BLEED = 0.5;
 function paintCardGlow(img) {
   const wrap = img.closest('.card-thumb-wrap');
   let glow = wrap?.querySelector('.card-thumb-glow');
   if (!wrap || !img.classList.contains('landscape')) { glow?.remove(); return; }
+  // Shown as an image rather than the canvas it is drawn on: a canvas gets a compositor layer of its
+  // own, and a hovered card that grows over one is then drawn on another layer, where its text loses
+  // subpixel antialiasing and turns thin.
   if (!glow) {
-    glow = document.createElement('canvas');
+    glow = document.createElement('img');
     glow.className = 'card-thumb-glow';
+    glow.alt = '';
     glow.setAttribute('aria-hidden', 'true');
     img.before(glow);
   }
@@ -383,11 +387,12 @@ function paintCardGlow(img) {
 
   const W = 96, H = W * Math.SQRT2;                       // the thumb box (1:√2) in canvas px
   const padX = W * _GLOW_BLEED, padY = H * _GLOW_BLEED;
-  glow.width = Math.round(W + 2 * padX);
-  glow.height = Math.round(H + 2 * padY);
-  const ctx = glow.getContext('2d');
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(W + 2 * padX);
+  canvas.height = Math.round(H + 2 * padY);
+  const ctx = canvas.getContext('2d');
   const coverW = W, coverH = W / aspect;                  // object-fit: contain, width-bound
-  const cx = glow.width / 2, cy = glow.height / 2;
+  const cx = canvas.width / 2, cy = canvas.height / 2;
   // Tallest first, each shorter copy covering the middle of the one behind it; the step is scaled
   // by the aspect ratio, as the spread would be for a glow around all four sides. Each copy's outer
   // columns are stretched sideways across the overhang so the blur finds colour, not empty canvas,
@@ -396,9 +401,10 @@ function paintCardGlow(img) {
   for (let level = Math.round(_GLOW_SPREAD / _GLOW_EDGE); level >= 0; level--) {
     const h = coverH * (1 + _GLOW_EDGE * aspect * level), y0 = cy - h / 2;
     ctx.drawImage(src, 0, 0, 1, src.height, 0, y0, x0, h);
-    ctx.drawImage(src, src.width - 1, 0, 1, src.height, x1, y0, glow.width - x1, h);
+    ctx.drawImage(src, src.width - 1, 0, 1, src.height, x1, y0, canvas.width - x1, h);
     ctx.drawImage(src, x0, y0, coverW, h);
   }
+  glow.src = canvas.toDataURL();
   // The radius in the thumb's width units (cqw), so it holds at any card size.
   glow.style.filter = `blur(${(_GLOW_BLUR * 100 / aspect).toFixed(2)}cqw)`;
 }
@@ -503,28 +509,24 @@ function buildCard(g) {
     </div>`;
 
   card.innerHTML = `
-    <div class="card-thumb-spacer"></div>
-    <div class="card-body-spacer"></div>
-    <div class="card-hover-overlay">
-      <a class="card-thumb-wrap" href="${cardHref}" draggable="false">
-        ${thumbInner}
-        ${seriesBadge}
-      </a>
-      ${favHtml}
-      <div class="card-body">
-        <div class="card-id-row">
-          ${openBtnHtml}
-          ${idHtml}
-          ${actionsHtml}
-        </div>
-        ${titleHtml}
-        <div class="card-meta">${metaLine}${missingHtml}</div>
-        <div class="card-progress" id="prog-${idA}">
-          <div class="prog-track"><div class="prog-fill" id="progfill-${idA}"></div></div>
-          <span class="card-prog-label" id="proglabel-${idA}"></span>
-        </div>
-        ${tagHtml}
+    <a class="card-thumb-wrap" href="${cardHref}" draggable="false">
+      ${thumbInner}
+      ${seriesBadge}
+    </a>
+    ${favHtml}
+    <div class="card-body">
+      <div class="card-id-row">
+        ${openBtnHtml}
+        ${idHtml}
+        ${actionsHtml}
       </div>
+      ${titleHtml}
+      <div class="card-meta">${metaLine}${missingHtml}</div>
+      <div class="card-progress" id="prog-${idA}">
+        <div class="prog-track"><div class="prog-fill" id="progfill-${idA}"></div></div>
+        <span class="card-prog-label" id="proglabel-${idA}"></span>
+      </div>
+      ${tagHtml}
     </div>
   `;
 
@@ -846,9 +848,6 @@ function _beginCardDrag(startEvent, card, gid) {
     const rect = card.getBoundingClientRect();
     offX = startX - rect.left; offY = startY - rect.top;
     clone = card.cloneNode(true);
-    // A cloned canvas comes back blank; carry the cover glow over.
-    const glows = card.querySelectorAll('.card-thumb-glow');
-    clone.querySelectorAll('.card-thumb-glow').forEach((c, i) => c.getContext('2d').drawImage(glows[i], 0, 0));
     clone.classList.add('card-drag-clone');
     clone.classList.remove('merge-target');
     clone.style.width = rect.width + 'px';
@@ -2142,17 +2141,18 @@ store.subscribe('*', (gid) => {
 });
 
 // Rebuilding a card the pointer is over restarts its expand-on-hover, so a hovered card is rebuilt
-// once the pointer leaves — from the latest data, however many changes arrived meanwhile.
+// once the pointer has left and the card has shrunk back (a new card would show at rest at once) —
+// from the latest data, however many changes arrived meanwhile.
+const CARD_SHRINK_MS = 250;   // library.css: a card's title and tags shrinking back
 function _rebuildCard(card, gid) {
+  if (card._rebuildPending) return;
   if (card.matches(':hover')) {
-    if (!card._rebuildPending) {
-      card._rebuildPending = true;
-      card.addEventListener('mouseleave', () => {
-        card._rebuildPending = false;   // still hovered (a child's leave)? the next call re-arms
-        const entity = _pageItems.find(g => g.id === gid);
-        if (entity && card.isConnected && !_liveJobs.has(gid) && !_interrupted.has(gid)) _rebuildCard(card, gid);
-      }, { once: true });
-    }
+    card._rebuildPending = true;
+    card.addEventListener('mouseleave', () => setTimeout(() => {
+      card._rebuildPending = false;   // hovered again meanwhile? the next call re-arms
+      const entity = _pageItems.find(g => g.id === gid);
+      if (entity && card.isConnected && !_liveJobs.has(gid) && !_interrupted.has(gid)) _rebuildCard(card, gid);
+    }, CARD_SHRINK_MS), { once: true });
     return;
   }
   const entity = _pageItems.find(g => g.id === gid);
@@ -2162,29 +2162,6 @@ function _rebuildCard(card, gid) {
 }
 
 if (safeMode) setSafeMode(true);
-
-// Collapsing card stays above resting cards; actively hovered card beats any collapsing card
-// that is below it, but yields to a collapsing card that is above it (still retracting).
-(function () {
-  const grid = document.getElementById('grid');
-  const cardOf = el => el?.closest('.card');
-
-  grid.addEventListener('mouseout', (e) => {
-    const from = cardOf(e.target), to = cardOf(e.relatedTarget);
-    if (!from || from === to) return;
-    const goingForward = to && !!(from.compareDocumentPosition(to) & Node.DOCUMENT_POSITION_FOLLOWING);
-    from.style.zIndex = goingForward ? '20' : '10';
-    clearTimeout(from._zt);
-    from._zt = setTimeout(() => { from.style.zIndex = ''; }, 250);
-  });
-
-  grid.addEventListener('mouseover', (e) => {
-    const from = cardOf(e.relatedTarget), to = cardOf(e.target);
-    if (!to || from === to) return;
-    clearTimeout(to._zt);
-    to.style.zIndex = '';
-  });
-}());
 
 // Intercept F5 / Ctrl+R and do an in-place data refresh instead of a full page
 // reload — eliminates the GPU compositor black frame that appears during navigation.

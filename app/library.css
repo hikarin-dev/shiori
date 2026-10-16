@@ -202,6 +202,9 @@ body.safe-mode .card:not(.card-sfw) .card-thumb-placeholder {
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  /* Every row as tall as a card at rest. A hovered card doesn't count (below), so a row keeps its
+     height even when that card is the only one in it. */
+  grid-auto-rows: 1fr;
   gap: 16px;
   padding: 0 24px 40px;
   align-items: start;
@@ -209,29 +212,42 @@ body.safe-mode .card:not(.card-sfw) .card-thumb-placeholder {
   margin: 0 auto;
 }
 
+/* A card shows two lines of its title and one row of its tags; hovered, it grows to show all of
+   both, over the cards below. Its negative bottom margin then takes it out of its row's height, so
+   the grid doesn't move — and stays until the card has shrunk back (0.25s). A card alone in the
+   grid has nothing to grow over, so it grows the grid. */
 .card {
   --card-radius: 10px;
   --card-border-width: 1px;
   --card-inner-radius: calc(var(--card-radius) - var(--card-border-width));
-  border-radius: var(--card-radius);
+  --card-leave-z: linear(0.5, 0.5 50%, 1 50%);
   position: relative;
   display: flex;
   flex-direction: column;
+  background: var(--surface);
+  border: var(--card-border-width) solid var(--border);
+  border-radius: var(--card-radius);
   z-index: 0;
+  transition: border-color 0.15s, z-index 0.5s var(--card-leave-z), margin-bottom 0s 0.3s;
 }
-.card:hover { z-index: 15; }
+.card:hover { z-index: 16; border-color: var(--accent); transition: border-color 0.15s; }
+.card:hover:not(:only-child) { margin-bottom: -10000px; }
+/* Which card is drawn over which: the hovered one over all the rest, at once. One that stops being
+   hovered stays above the resting cards while it shrinks back (z 8 for 0.25s, then 0) — and when it
+   comes before the card now hovered, above that one too (z 24): only then can its shrinking body
+   reach over it. No other card's order changes. */
+.card:has(~ .card:hover) { --card-leave-z: linear(-0.5, -0.5 50%, 1 50%); }
 /* Drag one card onto another to merge into a series. */
 .card.drag-source { opacity: 0.3; }
-/* Merge-target ring: an OUTER shadow around the whole overlay (thumbnail + body) — an inset shadow
+/* Merge-target ring: an OUTER shadow around the whole card (thumbnail + body) — an inset shadow
    would be hidden behind the cover image, leaving only the info area outlined. */
-.card.merge-target { z-index: 16; }
-.card.merge-target .card-hover-overlay { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent); }
+.card.merge-target { z-index: 16; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent); }
 /* Floating clone that follows the cursor while dragging a card. */
 .card-drag-clone {
   position: fixed; z-index: 9999; margin: 0; pointer-events: none;
+  border-color: var(--accent);
   filter: drop-shadow(0 14px 28px rgba(0, 0, 0, 0.55));
 }
-.card-drag-clone .card-hover-overlay { border-color: var(--accent); }
 .card-drag-clone.dropping { transition: left .2s ease, top .2s ease, opacity .2s ease; }
 body.card-dragging { user-select: none; cursor: grabbing; }
 /* Chapter-count badge on a series card's cover. */
@@ -242,19 +258,20 @@ body.card-dragging { user-select: none; cursor: grabbing; }
   font-size: 11px; font-weight: 600; padding: 3px 9px; letter-spacing: .2px;
   pointer-events: none;
 }
-.card-thumb-spacer { aspect-ratio: 1/sqrt(2); width: 100%; flex-shrink: 0; }
 /* Favorite heart over the cover's top-right corner: always shown once favorited (filled), otherwise
-   only while the card is hovered. */
+   only while the card is hovered. It fades by its colours, as the '+' tag does, not by opacity: an
+   opacity or transform animation runs on the compositor, which lifts the text drawn over it (here, a
+   card shrinking back over this cover) onto a layer for the while, where it loses its subpixel
+   antialiasing. */
 .card-fav {
   position: absolute; top: 8px; right: 8px; z-index: 7;
   width: 26px; height: 26px; padding: 0;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(13, 13, 15, 0.82); color: var(--muted);
+  background-color: rgba(13, 13, 15, 0.82); color: var(--muted);
   border: 1px solid var(--border); border-radius: 999px; cursor: pointer;
-  opacity: 0; pointer-events: none;
-  transition: opacity 0.12s, color 0.12s, border-color 0.12s;
+  transition: background-color 0.12s, color 0.12s, border-color 0.12s;
 }
-.card:hover .card-fav, .card-fav.on { opacity: 1; pointer-events: auto; }
+.card:not(:hover) .card-fav:not(.on) { background-color: transparent; color: transparent; border-color: transparent; pointer-events: none; }
 .card-fav:hover { color: var(--accent); border-color: var(--accent); }
 .card-fav.on { color: var(--accent); }
 .card-fav.on svg { fill: currentColor; }
@@ -292,11 +309,14 @@ body.card-dragging { user-select: none; cursor: grabbing; }
   color: var(--muted); font-size: 32px;
 }
 
+/* At rest every card is a full-width cover's height plus 122px. The cover sits inside the border,
+   2px narrower and so 2(√2 − 1)px shorter, and the body takes that up too. */
 .card-body {
   padding: 10px;
   display: flex;
   flex-direction: column;
   flex: 1;
+  min-height: calc(122px + 2 * (sqrt(2) - 1) * var(--card-border-width));
 }
 
 .card-id {
@@ -333,22 +353,8 @@ body.hide-card-category .card-tag.category { display: none; }
   overflow: hidden;
   transition: max-height 0.25s ease;
 }
-.card-body-spacer { height: 122px; flex-shrink: 0; }
-
-.card-hover-overlay {
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  min-height: 100%;
-  background: var(--surface);
-  border: var(--card-border-width) solid var(--border);
-  border-radius: var(--card-radius);
-  display: flex;
-  flex-direction: column;
-  transition: border-color 0.15s;
-}
-.card:hover .card-hover-overlay { border-color: var(--accent); }
-.card:hover .card-hover-overlay .card-title { max-height: 300px; transition: max-height 0.3s ease; }
-.card:hover .card-hover-overlay .card-tags  { max-height: 500px; transition: max-height 0.3s ease; }
+.card:hover .card-title { max-height: 300px; transition: max-height 0.3s ease; }
+.card:hover .card-tags  { max-height: 500px; transition: max-height 0.3s ease; }
 
 .card-tag {
   font-size: 10px; padding: 1px 6px; line-height: 1;
@@ -388,12 +394,11 @@ body.shift-held .card-tag-flag:hover .flag-img { border-color: var(--danger); }
 .card-tag-add {
   display: inline-flex; align-items: center; justify-content: center;
   font-weight: 700; padding: 1px 7px; color: var(--muted);
-  opacity: 0; pointer-events: none;
-  transition: opacity 0.12s ease 0.25s, color 0.12s, border-color 0.12s;
+  transition: color 0.1s, background-color 0.1s, border-color 0.1s;
 }
-.card:hover .card-tag-add {
-  opacity: 1; pointer-events: auto;
-  transition: opacity 0.1s ease 0s, color 0.12s, border-color 0.12s;
+.card:not(:hover) .card-tag-add {
+  color: transparent; background-color: transparent; border-color: transparent; pointer-events: none;
+  transition: color 0.12s ease 0.25s, background-color 0.12s ease 0.25s, border-color 0.12s ease 0.25s;
 }
 .card-tag-add:hover { color: var(--accent2); border-color: var(--accent2); }
 
@@ -441,7 +446,7 @@ body.shift-held .card-tag-flag:hover .flag-img { border-color: var(--danger); }
 .card-progress { display: none; padding: 6px 0 2px; }
 .card-body.downloading .card-meta,
 .card-body.downloading .card-tags { display: none; }
-.card:hover .card-hover-overlay .card-body.downloading .card-tags  { display: flex; }
+.card:hover .card-body.downloading .card-tags  { display: flex; }
 .card-body.downloading .card-progress {
   display: flex;
   flex-direction: column;
@@ -481,20 +486,24 @@ body.shift-held .card-tag-flag:hover .flag-img { border-color: var(--danger); }
   display: flex; align-items: center; gap: 4px;
 }
 
+/* In hover mode the buttons fade in sliding by `top`, not a transform: a transform animation makes the
+   compositor lift everything drawn after it onto layers (see .card-fav). Their opacity fade only
+   lifts the buttons themselves, which hold icons and nothing drawn over them. */
 .card-actions {
   display: flex; gap: 3px; margin-left: auto; flex-shrink: 0;
-  transition: opacity 0.12s ease, transform 0.12s ease;
+  position: relative; top: 0;
+  transition: opacity 0.12s ease, top 0.12s ease;
 }
 body.quick-actions-hover .card-actions {
   opacity: 0;
   pointer-events: none;
-  transform: translateY(-2px);
+  top: -2px;
 }
 body.quick-actions-hover .card:hover .card-actions,
 body.quick-actions-hover .card:focus-within .card-actions {
   opacity: 1;
   pointer-events: auto;
-  transform: translateY(0);
+  top: 0;
 }
 body.quick-actions-hidden .card-actions {
   display: none;
