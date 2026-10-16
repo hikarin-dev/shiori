@@ -31,12 +31,11 @@ function folders() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-archive-'));
   return { dir, dataDir: path.join(dir, 'data'), libraryDir: path.join(dir, 'library'), placeDelay: 60_000, describeDelay: 600_000, archiveAfter: 30 * DAY };
 }
-// With a list of what was deleted, and of the folders a file browser was moved out of.
+// With a list of what was deleted.
 async function open(t, opts = {}, where = folders()) {
-  const removed = [], vacated = [];
-  const library = await new Library({ ...where, remove: async (p) => { removed.push(p); fs.rmSync(p, { recursive: true, force: true }); },
-    vacate: async (from) => { vacated.push(from); }, ...opts }).open();
-  Object.assign(library, { removed, vacated });
+  const removed = [];
+  const library = await new Library({ ...where, remove: async (p) => { removed.push(p); fs.rmSync(p, { recursive: true, force: true }); }, ...opts }).open();
+  Object.assign(library, { removed });
   t.after(() => { library.close(); fs.rmSync(where.dir, { recursive: true, force: true }); });
   return library;
 }
@@ -77,7 +76,6 @@ test('a gallery left alone is archived into one uncompressed ZIP — its export 
   const row = rowOf(library, gid);
   assert.deepEqual([row.path, row.format], ['Quiet Book.zip', 'zip'], 'beside where its folder was');
   assert.deepEqual(library.removed, [folder], 'its folder deleted');
-  assert.ok(library.vacated.includes(folder), 'a file browser showing it moved out first');
   assert.equal(fs.existsSync(folder), false);
   assert.equal(rowOf(library, other).format, 'folder', 'one used lately stays a folder');
   const file = absOf(library, gid);

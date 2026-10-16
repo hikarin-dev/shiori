@@ -22,9 +22,9 @@
 // there (renamed: nothing in it is written); a changed title moves nothing. Renaming or moving
 // folders by hand is left to the person (the full check, scan.js, finds them again by their id).
 // A gallery's folder or archive that goes is deleted outright, not put in the recycle bin (where it
-// would look like something important thrown away). Explorer isn't told about a folder deleted or
-// moved that way, and finding the folder it shows gone can bring it down: an Explorer window
-// showing one is moved out of it first (`vacate`).
+// would look like something important thrown away) — in the desktop app the way Explorer deletes
+// (remove.js), so an Explorer window showing it steps back out of it on its own. A folder Windows
+// won't move (a window shows a folder inside it) moves once that is left: tried again a little later.
 //
 // A gallery left alone a while — neither changed nor opened in the reader for `archiveAfter` (a day,
 // a week or a month; never unless chosen: Settings → System) — or archived by hand (the overview), is
@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS staged_own (
 // or archive no gallery has any more (an archived gallery's folder), to delete. `staged_own`: a
 // picture of its own (`rel`) waiting in staging (`file`) to be added to its gallery's archive.
 const UNUSED_AT_MOST = 0.25;   // the share of an archive left unused before it is written whole again
+const REGROUP_RETRY = 10_000;  // how soon a folder Windows wouldn't move is tried again
 const COLUMNS = { unpack: 'INTEGER NOT NULL DEFAULT 0', used_at: 'REAL', tail: 'REAL' };
 const HOUR = 60 * 60_000, DAY = 24 * HOUR;
 // Files Windows puts in a folder on its own: not the gallery's, and not worth keeping it a folder for.
@@ -183,6 +184,7 @@ export class FileLibrary {
     this._describing = new Map();      // gid → the descriptions' write running for it
     this._touched = new Set();         // galleries changed since their descriptions' write began
     this._regroupWanted = new Set();   // galleries that joined or left a series, to move at their next settle
+    this._regroupRetries = new Map();  // gid → the settle trying again a folder Windows wouldn't move
     this._reserved = new Set();        // folders chosen by unpacks still running
     this._dirs = new Map();            // archive path → { mtimeMs, size, entries }
     this._reading = new Map();         // archive path → reads in flight
@@ -225,7 +227,7 @@ export class FileLibrary {
   }
 
   close() {
-    for (const timers of [this._timers, this._describeTimers]) {
+    for (const timers of [this._timers, this._describeTimers, this._regroupRetries]) {
       for (const t of timers.values()) clearTimeout(t);
       timers.clear();
     }
@@ -400,10 +402,8 @@ export class FileLibrary {
     await this._tidy(path.dirname(file));
   }
 
-  // A folder or file deleted outright — a folder once any Explorer window showing it is moved to
-  // its parent. Resolves whether it is gone.
+  // A folder or file deleted outright. Resolves whether it is gone.
   async _delete(file) {
-    if (fs.statSync(file, { throwIfNoEntry: false })?.isDirectory()) await this.library.vacate(file, path.dirname(file)).catch(() => {});
     try { await this.library.remove(file); } catch {}
     return !fs.existsSync(file);
   }
@@ -508,10 +508,22 @@ export class FileLibrary {
     this._timers.set(id, t);
   }
 
+  // A folder Windows wouldn't move, settled again in a little while — on a timer of its own, as a
+  // change to the gallery puts its settle off again.
+  _retryRegroup(gid) {
+    const id = String(gid);
+    clearTimeout(this._regroupRetries.get(id));
+    const t = setTimeout(() => { this._regroupRetries.delete(id); this.place(id).catch(() => {}); }, REGROUP_RETRY);
+    t.unref?.();
+    this._regroupRetries.set(id, t);
+  }
+
   // Settle everything waiting, and write every out-of-date description (the app is closing).
   async flush() {
-    const ids = [...this._timers.keys()];
-    for (const id of ids) { clearTimeout(this._timers.get(id)); this._timers.delete(id); }
+    const ids = [...new Set([...this._timers.keys(), ...this._regroupRetries.keys()])];
+    for (const timers of [this._timers, this._regroupRetries]) {
+      for (const id of ids) { clearTimeout(timers.get(id)); timers.delete(id); }
+    }
     await Promise.all([...this._placing.values()]);
     for (const id of ids) await this.place(id).catch(() => {});
     for (const t of this._describeTimers.values()) clearTimeout(t);
@@ -697,11 +709,19 @@ export class FileLibrary {
       rel = this._freePath(layout.galleryName(lib._metaGet(gid) || { galleryId: gid }), ext);
     }
     const from = this._abs(row.path), to = this._abs(rel);
-    if (row.format === 'folder') await lib.vacate(from, to).catch(() => {});
     // One synchronous step from here.
     if (this._row(gid)?.path !== row.path) return;
-    fs.mkdirSync(path.dirname(to), { recursive: true });
-    fs.renameSync(from, to);
+    const made = fs.mkdirSync(path.dirname(to), { recursive: true });
+    try { fs.renameSync(from, to); } catch (e) {
+      // Windows won't move a folder while something shows or uses a folder inside it (an Explorer
+      // window): it stays where it is until then, tried again a little later — and a series' folder
+      // made for it goes again at once, so no other member takes it for one already there.
+      if (made) try { fs.rmdirSync(made); } catch {}
+      if (!['EPERM', 'EBUSY', 'EACCES'].includes(e?.code)) throw e;
+      this._regroupWanted.add(gid);
+      this._retryRegroup(gid);
+      return;
+    }
     lib._tx(() => {
       lib._s('UPDATE files SET path = ? WHERE gid = ?').run(rel, gid);
       this._pend(gid);
@@ -838,15 +858,16 @@ export class FileLibrary {
   }
 
   // Gallery `gid`'s folder in staging (inside the library folder's hidden .shiori), once nothing is
-  // staged in it: removed, an Explorer window showing it moved out first. (A page staged meanwhile
-  // makes the folder again: library.js _stage.)
+  // staged in it: removed — only while empty, so a page staged meanwhile is never lost with it (it
+  // makes the folder again: library.js _stage).
   async _unstage(gid) {
     const lib = this.library;
     const dir = path.join(lib.stagingDir, String(gid));
     const empty = async () => !this._staged(gid).length && !this._stagedOwn(gid).length && (await fsp.readdir(dir).catch(() => null))?.length === 0;
     try {
+      // Looked at twice: a page whose file was on its way in when it was first looked at has landed
+      // by the second.
       if (!await empty()) return;
-      await lib.vacate(dir, lib.stagingDir).catch(() => {});
       if (!await empty()) return;
       lib._dirs.delete(dir);
       await fsp.rmdir(dir);

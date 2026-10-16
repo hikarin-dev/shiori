@@ -25,38 +25,9 @@ app.commandLine.appendSwitch('disable-http-cache');
 
 const { Library } = await import('./server/library.js');
 const { libraryId } = await import('./server/files.js');
+const { removeOutright } = await import('./server/remove.js');
 const { startServer } = await import('./server/server.js');
 const { BackupJobs, backupName } = await import('./server/backup.js');
-
-// ── Folders Explorer shows ──
-// Explorer windows showing `from` (or a folder inside it) are moved to `to` (its parent, when `to`
-// isn't there yet) before the library deletes or moves that folder, so Explorer never finds the
-// folder it shows gone — which makes it complain, and can bring it down. Through Windows' own
-// Shell.Application, in a short PowerShell; a moment's wait after, for the windows it moved to let
-// go of the folder.
-const VACATE = `
-$from = $env:SHIORI_FROM; $to = $env:SHIORI_TO; $moved = 0
-if (-not (Test-Path -LiteralPath $to)) { $to = Split-Path -Parent $from }
-foreach ($w in @((New-Object -ComObject Shell.Application).Windows())) {
-  try { $p = $w.Document.Folder.Self.Path } catch { continue }
-  if ($p -and ($p -ieq $from -or $p.StartsWith($from + '\\', [StringComparison]::OrdinalIgnoreCase))) {
-    try { $w.Navigate2($to); $moved++ } catch {}
-  }
-}
-Write-Output $moved`;
-function vacate(from, to) {
-  if (process.platform !== 'win32') return Promise.resolve();
-  return new Promise((resolve) => {
-    let out = '';
-    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', VACATE],
-      { env: { ...process.env, SHIORI_FROM: from, SHIORI_TO: to }, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
-    const timer = setTimeout(() => child.kill(), 5000);
-    child.stdout.on('data', (d) => { out += d; });
-    const done = () => { clearTimeout(timer); setTimeout(resolve, parseInt(out, 10) > 0 ? 400 : 0); };
-    child.on('exit', done);
-    child.on('error', done);
-  });
-}
 
 // The library folder's .shiori (its id, pages on their way in) hidden in Explorer, as .git is.
 function hide(dir) {
@@ -627,7 +598,7 @@ async function start() {
     try {
       fs.mkdirSync(libraryDir, { recursive: true });
       dataDir = dataDirOf(libraryDir);
-      library = await new Library({ dataDir, libraryDir, vacate,
+      library = await new Library({ dataDir, libraryDir, remove: removeOutright,
         archiveAfter: ARCHIVE_AFTER[archiveAfterOf(settings)], archiveFormat: archiveFormatOf(settings) }).open();
       hide(path.join(libraryDir, '.shiori'));
       backups = new BackupJobs(library, { onPartial: (file) => writeSettings({ backupPartial: file || undefined }) });

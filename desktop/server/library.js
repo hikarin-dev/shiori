@@ -283,19 +283,17 @@ async function imageToBlob(src) {
 
 export class Library {
   // `dataDir` holds library.db and the cache; `libraryDir` is the library folder. `remove(path)`
-  // deletes a gallery's folder or archive outright (not to the recycle bin); `vacate(path, to)` moves
-  // a file browser's window showing `path` (or a folder in it) to `to` first, as before a folder is
-  // moved (files.js). `placeDelay`: how long a gallery's pages stay staged
+  // deletes a gallery's folder or archive outright (not to the recycle bin; the desktop app's,
+  // remove.js, as Explorer deletes). `placeDelay`: how long a gallery's pages stay staged
   // after its last change before they are moved into its folder; `describeDelay`: how long it is
   // left alone, when nothing settles it sooner, before its folder's descriptions are rewritten;
   // `archiveAfter` and `archiveFormat`: when and how it is archived (files.js).
-  constructor({ dataDir, libraryDir, remove, vacate, placeDelay, describeDelay, archiveAfter, archiveFormat } = {}) {
+  constructor({ dataDir, libraryDir, remove, placeDelay, describeDelay, archiveAfter, archiveFormat } = {}) {
     this.dataDir = path.resolve(dataDir);
     this.libraryDir = path.resolve(libraryDir);
     this.cacheDir = path.join(this.dataDir, 'cache');
     this.stagingDir = path.join(this.libraryDir, '.shiori', 'staging');
     this.remove = remove || ((p) => fsp.rm(p, { recursive: true, force: true }));
-    this.vacate = vacate || (async () => {});
     this.context = crypto.randomUUID();
     this._subs = new Set();
     this._timers = new Set();

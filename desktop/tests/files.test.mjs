@@ -15,6 +15,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { spawn } from 'node:child_process';
 
 globalThis.BroadcastChannel = class { postMessage() {} close() {} };
 const { Library } = await import('../server/library.js');
@@ -179,8 +180,7 @@ test('a page moved into its folder just before an interruption is found there', 
 });
 
 test('a series keeps its members in "<Series> Ch. 001" folders with series.json; joining or leaving moves a folder, never rewrites it', async (t) => {
-  const vacated = [];
-  const library = await open(t, { vacate: async (from, to) => { vacated.push([from, to]); } });
+  const library = await open(t);
   const [o, a, v] = ['1790000000010', '1790000000011', '1790000000012'];
   for (const [gid, name] of [[o, 'One'], [a, 'Two'], [v, 'Vol']]) {
     await library.metaPut({ galleryId: gid, title: title(name), numPages: 1, ...(gid === v ? { kind: 'volume' } : {}) });
@@ -196,7 +196,6 @@ test('a series keeps its members in "<Series> Ch. 001" folders with series.json;
   assert.deepEqual([o, a, v].map(gid => fileOf(library, gid).path),
     ['The Series/The Series Ch. 001', 'The Series/The Series Ch. 002.5', 'The Series/The Series Vol. 003'], 'moved into the series\' folder');
   assert.deepEqual(identity(path.join(dirOf(library, a), 'images', '0001.png')), page, 'moved, not written again');
-  assert.ok(vacated.some(([from]) => from === path.join(library.libraryDir, 'Two')), 'a file browser showing it was moved out first');
   const series = JSON.parse(fs.readFileSync(path.join(library.libraryDir, 'The Series', 'series.json'), 'utf8'));
   assert.deepEqual(series.chapters.map(c => [c.id, c.folder]),
     [[o, 'The Series Ch. 001'], [a, 'The Series Ch. 002.5'], [v, 'The Series Vol. 003']]);
@@ -209,21 +208,57 @@ test('a series keeps its members in "<Series> Ch. 001" folders with series.json;
   await whole(library);
 });
 
-test('deleting a gallery deletes its folder outright, a file browser showing it moved out first', async (t) => {
-  const vacated = [];
-  const library = await open(t, { vacate: async (from, to) => { vacated.push([from, to]); } });
+test('deleting a gallery deletes its folder outright, with the library\'s own delete', async (t) => {
+  const removed = [];
+  const library = await open(t, { remove: async (p) => { removed.push(p); fs.rmSync(p, { recursive: true, force: true }); } });
   const gid = '1790000000030';
   await library.metaPut({ galleryId: gid, title: title('Gone'), numPages: 1 });
   await library.pagePut(gid, 1, png(1));
   await library.files.flush();
   const dir = dirOf(library, gid);
-  vacated.length = 0;
+  removed.length = 0;
   await library.deleteGallery(gid);
   await settle();
-  assert.deepEqual(vacated, [[dir, library.libraryDir]]);
+  assert.deepEqual(removed, [dir], 'the folder, whole, through the library\'s delete (the desktop app\'s: remove.js)');
   assert.equal(fs.existsSync(dir), false, 'gone, not kept anywhere');
   assert.ok(fs.existsSync(library.libraryDir), 'the library folder itself stays');
   assert.equal(fileOf(library, gid), undefined);
+});
+
+// Windows won't rename a folder while a process has a folder inside it as its current directory,
+// just as while an Explorer window shows one.
+test('a folder Windows won\'t move while a folder inside it is in use moves once that is left', { skip: process.platform !== 'win32' && 'Windows\' rule' }, async (t) => {
+  const library = await open(t);
+  const [o, a] = ['1790000000050', '1790000000051'];
+  for (const [gid, name] of [[o, 'One'], [a, 'Two']]) {
+    await library.metaPut({ galleryId: gid, title: title(name), numPages: 1 });
+    await library.pagePut(gid, 1, png(1));
+  }
+  await library.files.flush();
+  const inside = path.join(dirOf(library, a), 'images');
+  const holder = spawn(process.execPath, ['-e', 'process.stdout.write("in"); setTimeout(() => {}, 60000)'], { cwd: inside, stdio: ['ignore', 'pipe', 'ignore'] });
+  t.after(() => holder.kill());
+  await new Promise((resolve) => holder.stdout.once('data', resolve));   // running, in the folder
+
+  await library.seriesCommand('write', o, [{ id: o, title: 'One', number: 1 }, { id: a, title: 'Two', number: 2 }], { seriesTitle: title('The Series') });
+  await library.files.place(o);
+  await library.files.place(a);
+  assert.equal(fileOf(library, a).path, 'Two', 'stays where it is while in use');
+  assert.ok(fs.existsSync(path.join(inside, '0001.png')), 'untouched');
+  assert.ok(library.files._regroupRetries.has(a), 'tried again later, on a timer of its own');
+  library.files.schedule(a);   // a change to the gallery puts its settle off: not its next try
+  assert.ok(library.files._regroupRetries.has(a), 'still tried again in a little while');
+
+  holder.kill();
+  await new Promise((resolve) => holder.once('exit', resolve));
+  // Windows lets go of the folder a moment after the process ends; each try is another settle.
+  for (let i = 0; i < 30 && fileOf(library, a).path === 'Two'; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await library.files.flush();
+  }
+  assert.equal(fileOf(library, a).path, 'The Series/The Series Ch. 002', 'moved once left');
+  assert.deepEqual(pagesIn(library, a), ['0001.png']);
+  await whole(library);
 });
 
 test('a page stored while its gallery is being settled is settled next', async (t) => {
