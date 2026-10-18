@@ -20,6 +20,7 @@
   --muted-dim: #7c7c8c;
   --success: #06d6a0;
   --danger: #ff4040;
+  --debug: #2f7cf6;            /* debug views */
   --ring: #fb7185;             /* a focused text box's border */
   --backdrop: rgba(0, 0, 0, .65);
   --scrollbar-track: #171717;

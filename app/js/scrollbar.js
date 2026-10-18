@@ -88,9 +88,15 @@ function installCustomScrollbars() {
   const { signal } = events;
 
   function add(el) {
-    if (bars.has(el) || el.closest('.os-scrollbar, .os-size-observer, .os-trinsic-observer') || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
-    const page = el === root, style = getComputedStyle(el);
-    if (!page && (style.scrollbarWidth === 'none' || !/auto|scroll/.test(style.overflowY) || el.scrollHeight <= el.clientHeight + 1)) return;
+    if (bars.has(el)) return;
+    const page = el === root;
+    // Nothing to scroll is by far the common case (every image, row, label…) and the cheapest test:
+    // decide it from layout alone, before asking for an ancestor walk or the computed style — a scan
+    // visits every element on the page, and a page of thousands made each one cost a frame.
+    if (!page && el.scrollHeight <= el.clientHeight + 1) return;
+    if (el.closest('.os-scrollbar, .os-size-observer, .os-trinsic-observer') || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+    const style = getComputedStyle(el);
+    if (!page && (style.scrollbarWidth === 'none' || !/auto|scroll/.test(style.overflowY))) return;
     if (!page && style.display !== 'block' && !(style.display === 'flex' && style.flexDirection === 'column')) return;
     el.classList.add('overlay-scroll-target');
     const target = page ? document.body : el;
@@ -193,22 +199,44 @@ function installCustomScrollbars() {
     bar.el.classList.remove('overlay-scroll-target');
     bars.delete(bar.el);
   }
+  // What a scan looks at: everything, or only around what changed — a changed element and what it
+  // holds (a class or a new subtree can make any of them scroll), plus its ancestors (content that
+  // grew can make any of them scroll). A page that changes a few elements every frame (a reader
+  // being scrubbed) then costs a few dozen checks a frame instead of a pass over every element.
+  let scanAll = true;
+  const changed = new Set();
   function scan() {
     for (const bar of bars.values()) {
       if (!bar.el.isConnected || !bar.host.isConnected) remove(bar);
     }
     add(root);
-    for (const el of document.body.querySelectorAll('*')) add(el);
+    if (scanAll) {
+      for (const el of document.body.querySelectorAll('*')) add(el);
+    } else {
+      for (const el of changed) {
+        if (!el.isConnected) continue;
+        add(el);
+        for (const inner of el.querySelectorAll('*')) add(inner);
+        for (let up = el.parentElement; up && up !== root; up = up.parentElement) add(up);
+      }
+    }
+    scanAll = false;
+    changed.clear();
     for (const bar of bars.values()) updateAppearance(bar);
   }
-  function schedule() {
+  function schedule(el) {
+    if (el?.nodeType !== 1 || el === document.body) scanAll = true;
+    else if (!scanAll) changed.add(el);
     if (frame) return;
     frame = requestAnimationFrame(() => { frame = 0; scan(); });
   }
   const mutations = new MutationObserver((records) => {
-    if (records.every((r) => r.target.closest?.('.os-scrollbar, .os-size-observer, .os-trinsic-observer') ||
-        r.type === 'attributes' && bars.has(r.target))) return;
-    schedule();
+    for (const r of records) {
+      if (r.target.closest?.('.os-scrollbar, .os-size-observer, .os-trinsic-observer') ||
+          r.type === 'attributes' && bars.has(r.target)) continue;
+      schedule(r.target.nodeType === 1 ? r.target : r.target.parentElement);
+      for (const node of r.addedNodes) if (node.nodeType === 1) schedule(node);
+    }
   });
   mutations.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'open'], characterData: true });
   document.addEventListener('mousemove', (e) => {
@@ -227,7 +255,8 @@ function installCustomScrollbars() {
   document.addEventListener('pointercancel', release, { capture: true, signal });
   window.addEventListener('blur', release, { signal });
   window.addEventListener('resize', () => { measure(); schedule(); }, { signal });
-  document.addEventListener('load', schedule, { capture: true, signal });
+  // A loaded image can make the areas around it scroll: its ancestors are checked.
+  document.addEventListener('load', (e) => schedule(e.target), { capture: true, signal });
   add(root);
   schedule();
   return () => {

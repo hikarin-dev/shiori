@@ -47,6 +47,19 @@ test('a page is stored and found by its number, under a key that agrees with it'
   assert.equal(await pageHas('PN', 3), false, 'a refused page leaves nothing behind');
 });
 
+// A reader that already holds a page's key (from pageList) reads it directly; a key that isn't that
+// gallery's page of that number is ignored, and the page is found by its number as before.
+test('a page is read by its key when given one, and by its number when the key does not answer for it', async () => {
+  await pagePut('PK', 1, blobOf(4), { key: 'site://pk/1.jpg' });
+  await pagePut('PK', 2, blobOf(6), { key: 'site://pk/2.jpg' });
+  await pagePut('PO', 2, blobOf(9), { key: 'site://po/2.jpg' });
+  assert.equal((await pageGet('PK', 2, 'site://pk/2.jpg')).blob.size, 6);
+  assert.equal((await pageGet('PK', 2, 'site://pk/1.jpg')).blob.size, 6, 'a key for another page of it');
+  assert.equal((await pageGet('PK', 2, 'site://po/2.jpg')).blob.size, 6, "another gallery's key");
+  assert.equal((await pageGet('PK', 2, 'site://gone/2.jpg')).blob.size, 6, 'a key that is no longer stored');
+  assert.equal(await pageGet('PK', 3, 'site://pk/2.jpg'), null);
+});
+
 test("a page's translation and study layers are written by its number; its number is never stored", async () => {
   await pagePut('PD', 1, blobOf(5));
   const webp = new Blob([new Uint8Array(3)], { type: 'image/webp' });

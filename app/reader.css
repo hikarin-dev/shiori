@@ -4,7 +4,9 @@
 :root {
   --bg: #0a0a0c;    /* the reader's ground is a shade darker than the other pages' */
   --topbar-h: 54px; --botbar-h: 3px;
+  --bar-zone: 12px;   /* how close to the progress bar's edge pointing grows it, and how thick it grows */
   --thumb-h: 88px; --zoom-inv: 1;
+  --top-btn-lift: 20px;   /* the go-to-top button's height above the bottom bar or the thumbnails */
   --page-zoom: 1;   /* +/- keys scale the in-view pages around this factor */
   --reader-page-gap: 4px;
   --reader-fit-max-width: 100%;
@@ -97,6 +99,27 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
 }
 .tb-btn:hover  { border-color: var(--accent); color: var(--accent); }
 .tb-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+/* A play button being dragged to set the auto-scroll speed (_wireSpeedDrag), and its readout: the
+   tooltip's look, a bar for where the speed sits in its range, and the value. */
+.speed-dragging { cursor: ew-resize !important; }
+.speed-tip {
+  position: fixed; left: 0; top: 0; z-index: 9999; display: none;
+  align-items: center; gap: 8px; padding: 4px 7px;
+  background: #222; color: #eee; border: 1px solid #555; border-radius: 4px;
+  font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none;
+}
+.speed-tip.show { display: flex; }
+.speed-tip-bar { width: 96px; height: 4px; border-radius: 2px; background: #444; overflow: hidden; }
+.speed-tip-fill { display: block; height: 100%; background: var(--accent); }
+.speed-tip-value { min-width: 60px; text-align: right; }
+/* Auto-play in single/double: how much of the pages' time has run, along their bottom edge. */
+.auto-bar {
+  position: fixed; z-index: 140; height: 4px; display: none; pointer-events: none; opacity: 0.85;
+  background: color-mix(in srgb, var(--bg) 40%, transparent);
+}
+.auto-bar.show { display: block; }
+.auto-bar-fill { display: block; height: 100%; background: var(--accent); transform-origin: left; transform: scaleX(0); }
+.auto-bar.rtl .auto-bar-fill { transform-origin: right; }
 
 /* Responsive nav — space is given up as the window narrows, in this order:
    1. the title→pages spacer (gap) closes — the only flexible item while expanded,
@@ -161,22 +184,19 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
 .mode-seg[data-state="double"] .seg-indicator { transform: translateX(100%); }
 .mode-seg[data-state="strip"]  .seg-indicator { transform: translateX(200%); }
 
+/* The pages, the ground around them and the reader's chrome are never selected: a double-click (which
+   hides the controls) would otherwise reach for the nearest text around the pointer and paint every
+   page between blue. Study text that's meant to be selected opts back in itself (a Ctrl-drag). */
+#viewport, #topbar, #sideNav, #sideZoom, .sn-zone, #bottombar, #thumbStrip {
+  user-select: none; -webkit-user-select: none;
+}
+
 /* ── SINGLE mode ── */
 #singleView { display: none; }
 #singleView.active { display: block; }
 
 #singleInner {
   position: relative; display: flex; justify-content: center;
-}
-
-#singleZones {
-  position: fixed; inset: 0;
-  right: var(--page-scrollbar-gap);
-  display: flex; pointer-events: none; z-index: 50;
-}
-#clickPrev, #clickNext {
-  flex: 1; height: 100%;
-  cursor: pointer; pointer-events: all;
 }
 
 #mainImg {
@@ -212,16 +232,6 @@ body.reader-page-rtl #doubleInner.right-placeholder::after { left: 25%; }
    chapter's lone last page, keeping it on its own side of the spread. */
 .dImg.page-blank { background: #fff; }
 
-#doubleView .d-zones {
-  position: fixed; inset: 0;
-  right: var(--page-scrollbar-gap);
-  display: flex; pointer-events: none; z-index: 50;
-}
-#dClickPrev, #dClickNext {
-  flex: 1; height: 100%;
-  cursor: pointer; pointer-events: all;
-}
-
 .dImg { display: block; max-width: none; height: auto; user-select: none; flex-shrink: 0; }
 /* Each page is half the row. The 50% is resolved against #doubleInner (a definite width); when
    study mode wraps the image in .page-wrap, the WRAP takes the 50% and the image fills it — so
@@ -247,7 +257,8 @@ html.reader-strip-gliding { overflow-anchor: none; }
 #stripView {
   display: none;
   flex-direction: column; align-items: center; gap: var(--reader-page-gap);
-  padding-bottom: 20px;
+  /* Scrolled to the end, the last page stops right above the bottom bar, as a fitted page does. */
+  padding-bottom: var(--botbar-visual-h);
 }
 #stripView.active { display: flex; }
 /* Default aspect-ratio reserves approximate height before each page is measured, so the
@@ -285,6 +296,9 @@ body.reader-fit-height #stripView .page-img {
 #stripView .page-wrap.page-placeholder::after { left: 50%; }
 #doubleInner.left-placeholder::before  { left: 25%; }
 #doubleInner.right-placeholder::after { left: 75%; }
+/* A series can hold thousands of missing pages, and every running spinner costs each frame's
+   rendering whether it's on screen or not: only those near the screen show one (_syncStripWindow). */
+#stripView .page-wrap.page-placeholder:not(.near)::after { content: none; }
 
 /* Inline transition card after a chapter's last page (see .chd above). */
 #stripView .chapter-divider {
@@ -292,7 +306,6 @@ body.reader-fit-height #stripView .page-img {
   display: flex; justify-content: center;
   padding: 26px 16px;
 }
-#stripView .chapter-divider:last-child { padding-bottom: 10px; }
 
 /* ── Study mode: per-bubble translation overlays (layered) ── */
 /* Each page image lives in a relative wrap so overlays anchor to the image box in every mode. */
@@ -443,8 +456,10 @@ body.study-text-selecting.study-sel-lock .study-text-content.study-sel-host {
 }
 /* Disable fixed zones only while visible bubble boxes need the lower in-page navigation layer.
    Study-less pages and chapter transition cards retain the normal full-viewport click zones. */
-body.study-bubbles-active #clickPrev, body.study-bubbles-active #clickNext,
-body.study-bubbles-active #dClickPrev, body.study-bubbles-active #dClickNext { pointer-events: none; }
+/* Single/double: a click on the page turns it (reader.js, _pageFlipSideAt); the screen beside it is
+   left alone. With study bubbles on the page, its clicks are theirs. */
+#mainImg, .dImg { cursor: pointer; }
+body.study-bubbles-active #mainImg, body.study-bubbles-active .dImg { cursor: auto; }
 
 /* ── Thumbnail strip ── */
 #thumbStrip {
@@ -452,7 +467,7 @@ body.study-bubbles-active #dClickPrev, body.study-bubbles-active #dClickNext { p
   height: 0; overflow: hidden;
   zoom: var(--zoom-inv);
   background: rgba(10,10,12,0.97); border-top: 1px solid var(--border);
-  transition: height 0.2s ease, padding 0.2s ease, border-width 0.2s ease;
+  transition: height 0.2s ease, padding 0.2s ease, border-width 0.2s ease, bottom 0.18s;
   display: flex; align-items: flex-end; gap: 3px; padding: 3px;
   padding-right: calc(3px + var(--page-scrollbar-gap) / var(--zoom-inv));
   overflow-x: auto; overflow-y: hidden; z-index: 150;
@@ -465,7 +480,15 @@ body.study-bubbles-active #dClickPrev, body.study-bubbles-active #dClickNext { p
    strip leaves no trace; they animate back in alongside the height. */
 #thumbStrip:not(.open) { padding-top: 0; padding-bottom: 0; border-top-width: 0; }
 #thumbStrip.dragging { cursor: grabbing; user-select: none; }
-#thumbStrip.resizing { transition: none; }
+/* While the strip is resized, it and everything riding on its top edge follow the pointer at once:
+   an eased move restarted by every pointer move would trail behind it. */
+body.thumb-resizing #thumbStrip { transition: none; }
+body.thumb-resizing #thumbResizeHandle { transition: background 0.12s; }
+body.thumb-resizing #scrollTopBtn { transition: opacity 0.2s, border-color 0.12s, color 0.12s; }
+/* Pulled out of the progress bar, the strip is as tall as the drag has gone (_barReveal sets it);
+   its resize handle shows once it's let go all the way out, and stays open. */
+body.thumb-revealing #thumbStrip { transition: none; }
+body.thumb-revealing #thumbResizeHandle { display: none; }
 body.bar-hidden #thumbStrip { bottom: 0; }
 #thumbStrip.open { height: var(--thumb-h); }
 
@@ -473,10 +496,13 @@ body.bar-hidden #thumbStrip { bottom: 0; }
   position: fixed; left: 0; right: 0; height: 6px;
   bottom: calc(var(--botbar-h) + var(--thumb-h) - 3px);
   cursor: ns-resize; z-index: 160; display: none;
-  transition: background 0.12s;
+  transition: background 0.12s, bottom 0.18s;
   zoom: var(--zoom-inv);
 }
 body.bar-hidden #thumbResizeHandle { bottom: calc(var(--thumb-h) - 3px); }
+/* A grown progress bar lifts the thumbnails above it rather than covering their bottom edge. */
+body.bar-grown:not(.bar-hidden) #thumbStrip { bottom: var(--bar-zone); }
+body.bar-grown:not(.bar-hidden) #thumbResizeHandle { bottom: calc(var(--bar-zone) + var(--thumb-h) - 3px); }
 #thumbResizeHandle.show { display: block; }
 #thumbResizeHandle:hover, #thumbResizeHandle.active { background: var(--accent); }
 
@@ -518,6 +544,8 @@ body.thumb-dragging * {
   position: relative;
 }
 .thumb-item img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+/* A thumb still being made shows the item's own ground, never a broken-image glyph. */
+.thumb-item img:not([src]) { visibility: hidden; }
 .thumb-item.active { border-color: var(--accent); }
 .thumb-item:hover:not(.active) { border-color: var(--muted); }
 .thumb-num {
@@ -526,77 +554,109 @@ body.thumb-dragging * {
   text-shadow: 0 1px 2px #000; pointer-events: none;
 }
 
-/* ── Page progress ── */
+/* ── Page progress ──
+   One segment per page of the chapter, along an edge of the screen. Resting, it is a thin line;
+   pointing within --bar-zone of that edge (or pressing it) grows the track to the zone's thickness,
+   and the page under the pointer shows its number in a pill that slides out of its segment as it
+   fades in. Everything is opaque — the gaps between pages are the reader's own ground — so no page
+   shows through. Pages read, the page being read and the band over the segments (#scrubView) that
+   covers exactly what the screen shows are three tones of the accent, darkest to most vivid. */
 #bottombar {
   position: fixed; bottom: 0; left: 0; right: calc(var(--page-scrollbar-gap) / var(--zoom-inv));
-  height: var(--botbar-h);
-  display: flex; align-items: center; padding: 0;
-  transition: opacity 0.25s; z-index: 200;
+  height: var(--bar-zone);
+  display: flex; align-items: flex-end;
+  z-index: 201;   /* over the header: the side bars run the window's full height */
   zoom: var(--zoom-inv);
+  touch-action: none;
+  transition: opacity 0.25s;
 }
 #bottombar.hidden { opacity: 0; pointer-events: none; }
-#bottombar[data-position="top"] { top: 0; bottom: auto; }
-#bottombar[data-position="left"],
-#bottombar[data-position="right"] {
-  top: 0; bottom: 0; width: var(--botbar-h); height: auto;
-  padding: 0;
+#scrubTrack {
+  position: relative; flex: 1; min-width: 0;
+  height: var(--botbar-h);
+  transition: height 0.18s, width 0.18s;
 }
-#bottombar[data-position="left"] { right: auto; }
-#bottombar[data-position="right"] { left: auto; }
-
-#scrubWrap { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; }
-#scrubTrack { position: relative; flex: 1; min-width: 0; height: 3px; }
-#scrubSegments {
-  position: absolute; z-index: 0; inset: 0; height: 3px;
-  display: flex; gap: 1px; pointer-events: none;
-}
+#bottombar.grown #scrubTrack { height: var(--bar-zone); }
+#scrubSegments { position: absolute; inset: 0; display: flex; }
 .scrub-segment {
-  flex: 1 1 0; min-width: 0; border-radius: 1px;
-  background: rgba(255, 255, 255, 0.18);
+  position: relative; flex: 1 1 0; min-width: 0; min-height: 0;
+  background: color-mix(in srgb, #fff 10%, var(--bg));   /* not downloaded yet */
+  border-right: 1px solid var(--bg);
+  cursor: pointer;
 }
-.scrub-segment.cached { background: rgba(255, 255, 255, 0.38); }
-.scrub-segment.played { background: var(--accent); }
+.scrub-segment:last-child { border-right: 0; }
+.scrub-segment.cached  { background: color-mix(in srgb, #fff 22%, var(--bg)); }
+/* The accent in three evenly spaced tones, all of them saturated: darkest on the pages read, a calm
+   deeper tone on the page being read (and the one pointed at), and the vivid accent on what the
+   screen shows. Lightening that last one far enough to stand apart would wash it toward white, so
+   the room comes from below instead. */
+.scrub-segment.visited { background: color-mix(in srgb, var(--accent) 42%, var(--bg)); }
+.scrub-segment.active,
+.scrub-segment.tip {
+  background: #b90038;
+  background: oklch(from var(--accent) calc(l - 0.12) calc(c * 0.9) h);
+}
+/* Only the page pointed at fades in. A jump turns hundreds of pages read or unread at once, and a
+   transition on each made every jump restyle and animate them all (7-11 ms a jump, then 120 ms of
+   animating backgrounds) — the page the jump was for showed that much later. */
+.scrub-segment.tip { transition: background 0.12s; }
+/* Debug (Reader settings → Debug): the pages the reader holds, loaded and ready to show. */
+.scrub-segment.debug-loaded { background: var(--debug); }
+.scrub-segment.debug-loaded:is(.active, .tip) { background: color-mix(in srgb, var(--debug) 55%, #000); }
+/* The number of the page pointed at: one pill for the whole bar. It rises out of the bar at the first
+   page pointed at, glides along it from page to page (_glideTip), and sinks back where it is. */
+#scrubTip {
+  position: absolute; z-index: 2; left: var(--tip-at, 50%); bottom: 0; transform: translateX(-50%);
+  padding: 0 6px; border-radius: 4px; line-height: 1.5;
+  background: var(--muted); color: var(--bg);
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+  opacity: 0; pointer-events: none;
+  transition: top 0.2s, bottom 0.2s, opacity 0.2s;
+}
+#scrubTip.show { opacity: 1; bottom: 100%; }
+#scrubView { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.scrub-view {
+  position: absolute; top: 0; bottom: 0;
+  background: #ff205c;
+  background: oklch(from var(--accent) calc(l + 0.05) calc(c * 1.12) h);
+}
+/* A double spread's two pages keep the gap between them (the second band starts at the seam). */
+.scrub-view + .scrub-view { border-left: 1px solid var(--bg); }
 
-#scrubber {
-  position: absolute; z-index: 1; left: 0; right: 0; top: -5px;
-  width: 100%; height: 13px; margin: 0;
-  -webkit-appearance: none; appearance: none;
-  background: transparent; outline: none; cursor: pointer;
-}
-#scrubber::-webkit-slider-runnable-track { height: 3px; background: transparent; }
-#scrubber::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 10px; height: 10px; margin-top: -3.5px;
-  border-radius: 50%; background: var(--accent); cursor: pointer;
-  opacity: 0; transform: scale(.7); transition: opacity .12s, transform .12s;
-}
-#scrubber:focus-visible::-webkit-slider-thumb,
-#scrubTrack:hover #scrubber::-webkit-slider-thumb { opacity: 1; transform: scale(1); }
-#scrubber::-moz-range-track { height: 3px; background: transparent; }
-#scrubber::-moz-range-progress { background: transparent; }
-#scrubber::-moz-range-thumb {
-  width: 10px; height: 10px; border: none;
-  border-radius: 50%; background: var(--accent); cursor: pointer; opacity: 0;
-  transform: scale(.7); transition: opacity .12s, transform .12s;
-}
-#scrubber:focus-visible::-moz-range-thumb,
-#scrubTrack:hover #scrubber::-moz-range-thumb { opacity: 1; transform: scale(1); }
-#bottombar[data-position="left"] #scrubWrap,
-#bottombar[data-position="right"] #scrubWrap { flex-direction: column; }
+/* The other edges: the zone, the growth and the pill all face the pages. */
+#bottombar[data-position="top"] { top: 0; bottom: auto; align-items: flex-start; }
+#bottombar[data-position="top"] #scrubTip { top: 0; bottom: auto; }
+#bottombar[data-position="top"] #scrubTip.show { top: 100%; }
+#bottombar[data-position="left"],
+#bottombar[data-position="right"] { top: 0; bottom: 0; width: var(--bar-zone); height: auto; align-items: stretch; }
+#bottombar[data-position="left"] { right: auto; justify-content: flex-start; }
+#bottombar[data-position="right"] { left: auto; justify-content: flex-end; }
 #bottombar[data-position="left"] #scrubTrack,
-#bottombar[data-position="right"] #scrubTrack { width: 3px; min-height: 0; }
+#bottombar[data-position="right"] #scrubTrack { flex: 0 0 auto; width: var(--botbar-h); height: auto; }
+#bottombar[data-position="left"].grown #scrubTrack,
+#bottombar[data-position="right"].grown #scrubTrack { width: var(--bar-zone); height: auto; }
 #bottombar[data-position="left"] #scrubSegments,
-#bottombar[data-position="right"] #scrubSegments {
-  inset: 0; width: 3px; height: auto; flex-direction: column;
+#bottombar[data-position="right"] #scrubSegments { flex-direction: column; }
+#bottombar[data-position="left"] .scrub-segment,
+#bottombar[data-position="right"] .scrub-segment { border-right: 0; border-bottom: 1px solid var(--bg); }
+#bottombar[data-position="left"] .scrub-segment:last-child,
+#bottombar[data-position="right"] .scrub-segment:last-child { border-bottom: 0; }
+/* Too many pages for the bar's length: no gaps, so it reads as one line rather than stripes. After
+   the side bars' gaps, which would otherwise win and leave a page of a pixel or so all gap. */
+#bottombar.dense .scrub-segment { border-width: 0; }
+#bottombar[data-position="left"] #scrubTip,
+#bottombar[data-position="right"] #scrubTip {
+  top: var(--tip-at, 50%); bottom: auto; transform: translateY(-50%);
+  transition: left 0.2s, right 0.2s, opacity 0.2s;
 }
-#bottombar[data-position="left"] #scrubber,
-#bottombar[data-position="right"] #scrubber {
-  top: 0; left: -5px; right: auto; width: 13px; height: 100%;
-  writing-mode: vertical-lr; direction: ltr;
-}
-#bottombar[data-position="left"] #scrubber::-webkit-slider-runnable-track,
-#bottombar[data-position="right"] #scrubber::-webkit-slider-runnable-track { width: 3px; height: 100%; }
-#bottombar[data-position="left"] #scrubber::-webkit-slider-thumb,
-#bottombar[data-position="right"] #scrubber::-webkit-slider-thumb { margin: 0 0 0 -3.5px; }
+#bottombar[data-position="left"] #scrubTip { left: 0; }
+#bottombar[data-position="left"] #scrubTip.show { left: 100%; }
+#bottombar[data-position="right"] #scrubTip { left: auto; right: 0; }
+#bottombar[data-position="right"] #scrubTip.show { right: 100%; }
+#bottombar[data-position="left"] .scrub-view,
+#bottombar[data-position="right"] .scrub-view { left: 0; right: 0; }
+#bottombar[data-position="left"] .scrub-view + .scrub-view,
+#bottombar[data-position="right"] .scrub-view + .scrub-view { border-left: 0; border-top: 1px solid var(--bg); }
 
 /* ── Feedback dialog ── */
 .feedback-dialog { color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px; margin: auto; padding: 20px; width: min(960px, 94vw); max-height: 90vh; box-sizing: border-box; overflow: auto; overscroll-behavior: contain; font-size: 13px; }
@@ -916,7 +976,7 @@ html.reader-scroll, body.reader-scroll { height: auto; }
 
 /* ── Scroll-to-top button (strip mode only) ── */
 #scrollTopBtn {
-  position: fixed; bottom: 20px; right: calc(18px + var(--page-scrollbar-gap)); z-index: 300;
+  position: fixed; bottom: var(--top-btn-lift); right: calc(18px + var(--page-scrollbar-gap)); z-index: 300;
   width: 36px; height: 36px; border-radius: 50%;
   background: var(--surface); border: 1px solid var(--border);
   color: var(--muted); cursor: pointer;
@@ -927,11 +987,16 @@ html.reader-scroll, body.reader-scroll { height: auto; }
 /* Push the button up so it rides above the thumbnail strip instead of sitting on top of it.
    The strip is counter-scaled by --zoom-inv, so its visual height is thumb-h × zoom-inv. */
 body.thumbs-open.bar-hidden #scrollTopBtn {
-  bottom: calc(var(--thumb-h) * var(--zoom-inv) + 20px);
+  bottom: calc(var(--thumb-h) * var(--zoom-inv) + var(--top-btn-lift));
 }
-body:not(.bar-hidden) #scrollTopBtn { bottom: calc(var(--botbar-visual-h) + 20px); }
+body:not(.bar-hidden) #scrollTopBtn { bottom: calc(var(--botbar-visual-h) + var(--top-btn-lift)); }
 body.thumbs-open:not(.bar-hidden) #scrollTopBtn {
-  bottom: calc(var(--thumb-h) * var(--zoom-inv) + var(--botbar-visual-h) + 20px);
+  bottom: calc(var(--thumb-h) * var(--zoom-inv) + var(--botbar-visual-h) + var(--top-btn-lift));
+}
+/* While the strip is pulled out of the progress bar, as far as it has come (--thumb-shown). */
+body.thumbs-open.thumb-revealing #scrollTopBtn {
+  bottom: calc(var(--thumb-shown, 0px) * var(--zoom-inv) + var(--botbar-visual-h) + var(--top-btn-lift));
+  transition: opacity 0.2s, border-color 0.12s, color 0.12s;
 }
 #scrollTopBtn.visible { opacity: 1; pointer-events: all; }
 #scrollTopBtn:hover { border-color: var(--accent); color: var(--accent); }
@@ -953,3 +1018,125 @@ body.thumbs-open:not(.bar-hidden) #scrollTopBtn {
 .empty-msg  { font-size: 12px; color: var(--muted); text-align: center; line-height: 1.8; }
 .empty-link { color: var(--accent); text-decoration: none; font-size: 11px; }
 .empty-link:hover { text-decoration: underline; }
+
+/* ── Dim pages (Reader settings) ── */
+body.reader-dim #stripView .page-wrap,
+body.reader-dim #singleInner > *,
+body.reader-dim #doubleInner > * { filter: brightness(var(--reader-dim, 1)); }
+
+/* ── Side controls (Reader settings → Navigation → Side) ──
+   The chapter pill over a column of buttons at the top right, fit and zoom at the bottom right (see-
+   through, unlike the rest of the reader's chrome), in
+   place of the top bar; the pages start at the top of the window, as with an unpinned header.
+   Hidden (body.reader-side-hidden: X, a double-click, the pin), they come back while the pointer is
+   on them or at the right edge and its corners (.sn-zone), or while the keyboard is on one of them. */
+#sideNav, #sideZoom, .sn-zone, #snChapters { display: none; }
+/* On <html>, set before the first paint (reader-init.js), so the top bar never shows first. */
+html.reader-side-nav #topbar, html.reader-side-nav #topbarReveal { display: none; }
+body.reader-side-nav {
+  /* See-through panels in the reader's own colour, with no border; a soft shadow lifts them off the page. */
+  --sn-panel: color-mix(in srgb, var(--surface) 82%, transparent);
+  --sn-shadow: 0 16px 40px -16px rgba(0, 0, 0, 0.8);
+  --sn-top: 12px;
+  --sn-right: calc(12px + var(--page-scrollbar-gap));   /* as far from the right as from the top: a fixed box's right edge is already the scrollbar's */
+}
+/* Clear of a progress bar on the same edge, however far it grows. */
+body.reader-side-nav:has(#bottombar[data-position="top"]) { --sn-top: calc(8px + var(--bar-zone) * var(--zoom-inv)); }
+body.reader-side-nav:has(#bottombar[data-position="right"]) { --sn-right: calc(8px + var(--page-scrollbar-gap) + var(--bar-zone) * var(--zoom-inv)); }
+
+#sideNav {
+  position: fixed; z-index: 210; top: var(--sn-top); right: var(--sn-right);
+  flex-direction: column; align-items: flex-end; gap: 10px;
+  transition: opacity 0.25s;
+}
+#sideZoom {
+  position: fixed; z-index: 210; right: var(--sn-right); bottom: calc(var(--sn-bottom) + 12px);
+  align-items: stretch; gap: 6px;
+  transition: opacity 0.25s, bottom 0.2s ease;
+}
+body.reader-side-nav #sideNav, body.reader-side-nav #sideZoom { display: flex; }
+/* Zoom and its hover zone stand on --sn-bottom: the bottom progress bar and an open (or opening)
+   thumbnail strip, like the go-to-top button, which rides above zoom in turn. */
+body.reader-side-nav { --sn-bottom: 0px; }
+body.reader-side-nav:not(.bar-hidden) { --sn-bottom: var(--botbar-visual-h); }
+body.reader-side-nav.thumbs-open.bar-hidden { --sn-bottom: calc(var(--thumb-h) * var(--zoom-inv)); }
+body.reader-side-nav.thumbs-open:not(.bar-hidden) { --sn-bottom: calc(var(--thumb-h) * var(--zoom-inv) + var(--botbar-visual-h)); }
+body.reader-side-nav.thumbs-open.thumb-revealing { --sn-bottom: calc(var(--thumb-shown, 0px) * var(--zoom-inv) + var(--botbar-visual-h)); }
+body.thumbs-open.thumb-revealing #sideZoom { transition: opacity 0.25s; }
+/* While the thumbnails are resized, zoom follows their top edge at once, as the go-to-top button does. */
+body.thumb-resizing #sideZoom { transition: opacity 0.25s; }
+/* The go-to-top button joins the side controls: their right edge, their size and look, 10px above zoom. */
+body.reader-side-nav { --top-btn-lift: 56px; }
+body.reader-side-nav #scrollTopBtn {
+  right: var(--sn-right); width: 34px; height: 34px; border: 0;
+  background: var(--sn-panel); box-shadow: var(--sn-shadow); color: var(--muted);
+}
+body.reader-side-nav #scrollTopBtn:hover { background: var(--surface-raised); color: var(--text); }
+
+.sn-row, .sn-col { display: inline-flex; background: var(--sn-panel); box-shadow: var(--sn-shadow); border-radius: 4px; }
+.sn-row { height: 34px; align-items: stretch; }
+.sn-col { flex-direction: column; gap: 2px; padding: 4px; }
+.sn-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; padding: 0; border: 0; border-radius: 4px;
+  background: transparent; color: var(--muted); cursor: pointer; text-decoration: none;
+  transition: background 0.12s, color 0.12s;
+}
+.sn-btn svg { width: 18px; height: 18px; }
+.sn-btn[hidden] { display: none; }
+.sn-btn:hover:not(:disabled) { background: var(--surface-raised); color: var(--text); }
+.sn-btn:disabled { color: var(--muted-dim); opacity: 0.5; cursor: not-allowed; }
+.sn-btn.is-on { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+.sn-row > .sn-btn:first-child:not(:last-child) { border-radius: 4px 0 0 4px; }
+.sn-row > .sn-btn:last-child:not(:first-child) { border-radius: 0 4px 4px 0; }
+.sn-chap {
+  display: inline-flex; align-items: center; gap: 4px; height: 100%; padding: 0 12px;
+  border: 0; background: transparent; color: var(--text); cursor: pointer;
+  font: inherit; font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums;
+  transition: background 0.12s;
+}
+.sn-chap:hover:not(:disabled) { background: var(--surface-raised); }
+.sn-chap:disabled { cursor: default; }
+.sn-chap-total { color: var(--muted-dim); }
+.sn-zoom-value {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 48px;
+  font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums; user-select: none;
+}
+
+body.reader-side-hidden #sideNav, body.reader-side-hidden #sideZoom { opacity: 0; pointer-events: none; }
+body.reader-side-hidden:has(#snZoneTop:hover, #snZoneRight:hover) #sideNav,
+body.reader-side-hidden #sideNav:hover, body.reader-side-hidden #sideNav:has(:focus-visible),
+body.reader-side-hidden.sn-pop-open #sideNav,
+body.reader-side-hidden:has(#snZoneBottom:hover) #sideZoom,
+body.reader-side-hidden #sideZoom:hover, body.reader-side-hidden #sideZoom:has(:focus-visible) { opacity: 1; pointer-events: auto; }
+body.reader-side-nav.reader-side-hidden .sn-zone { display: block; }
+.sn-zone { position: fixed; z-index: 200; right: var(--page-scrollbar-gap); }
+#snZoneTop { top: 0; width: 200px; height: 72px; }
+#snZoneRight { top: 0; width: 72px; height: min(100vh, 480px); }
+#snZoneBottom { bottom: var(--sn-bottom); width: 200px; height: 72px; }   /* wherever zoom stands */
+
+/* The chapter list: under the pill. */
+#snChapters {
+  position: fixed; z-index: 220; top: calc(var(--sn-top) + 42px); right: var(--sn-right);
+  width: 320px; max-width: calc(100vw - 24px); max-height: min(70vh, 560px);
+  flex-direction: column; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 40px 80px -20px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+body.reader-side-nav.sn-pop-open #snChapters { display: flex; }
+.sn-pop-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 8px 4px 16px; font-size: 14px; font-weight: 700;
+}
+.sn-chlist { overflow-y: auto; padding: 4px 8px 8px; }
+.sn-ch {
+  display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 9px 10px;
+  border: 0; border-radius: 8px; background: transparent; color: var(--text); cursor: pointer;
+  font: inherit; font-size: 13px; text-align: left;
+}
+.sn-ch:hover:not(:disabled) { background: var(--surface-raised); }
+.sn-ch.current { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--accent); }
+.sn-ch:disabled { color: var(--muted-dim); cursor: default; }
+.sn-ch-num { flex-shrink: 0; font-weight: 700; }
+.sn-ch-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.sn-ch.current .sn-ch-title { color: inherit; }

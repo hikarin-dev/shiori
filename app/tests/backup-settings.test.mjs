@@ -114,6 +114,7 @@ const DEVICE_SETTINGS = new Set([
   'translateCapabilities', 'translationBenchmarkReport', 'translationBenchmarkStarts',     // caches and measurements of this device
   'schemaSteps', 'countsRepaired', 'seriesShellStatsRepaired', 'uploadDateBackfilled', 'storageLayout', 'totalWrittenBytes',
   'agentPairSecret', 'apiKey', 'cacheEnabled',                                             // pairing and an integration's own state
+  'readerDebugLoaded',                                                                     // a debug view of this device's reader
 ]);
 const DEVICE_DASH = new Set(['shiori-ext-status', 'shiori-font', 'shiori-covers', 'shiori-sw-retry']);
 

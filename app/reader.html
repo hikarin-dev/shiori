@@ -9,6 +9,7 @@
   <link rel="icon" href="../icons/icon32.png">
   <title>Shiori — Reader</title>
   <script src="font-init.js"></script>
+  <script src="reader-init.js"></script>
   <link rel="stylesheet" href="base.css">
   <link rel="stylesheet" href="reader.css">
   <link rel="stylesheet" href="notice.css">
@@ -68,6 +69,9 @@
   <div class="tb-spacer"></div>
   <span id="pageCounter">— / —</span>
 
+  <!-- Auto-scroll (the strip): a press plays or pauses, a drag sets the speed. -->
+  <button class="tb-btn" id="autoBtn" type="button" aria-pressed="false"></button>
+
   <!-- Reading mode: single | double | strip, a 3-way segmented toggle with a sliding indicator. -->
   <div class="seg-toggle mode-seg" id="modeToggle" data-state="strip">
     <div class="seg-indicator"></div>
@@ -95,6 +99,47 @@
   <button class="tb-btn tb-menu-btn" id="tbMenuBtn" data-tip="More"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
 </div>
 
+<!-- Side controls (Reader settings -> Navigation -> Side): the chapter pill over a column of buttons at
+     the right edge, fit and zoom at the bottom right. Hidden (X, a double-click, the pin), they come
+     back while the pointer is at the right edge or its corners (.sn-zone). -->
+<div id="sideNav">
+  <div class="sn-row" id="snChapter">
+    <button class="sn-btn" id="snChPrev" type="button" data-tip="Previous chapter" data-i18n-tip="rd.prev_chapter" data-i18n-aria="rd.prev_chapter"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+    <button class="sn-chap" id="snChLabel" type="button"><span id="snChNum">&mdash; / &mdash;</span><span class="sn-chap-total" id="snChTotal"></span></button>
+    <button class="sn-btn" id="snChNext" type="button" data-tip="Next chapter" data-i18n-tip="rd.next_chapter" data-i18n-aria="rd.next_chapter"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
+  </div>
+  <div class="sn-col" id="snRail">
+    <a class="sn-btn" id="snHome" href="../" data-tip="Home" data-i18n-tip="rd.divider_home" data-i18n-aria="rd.divider_home"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"/></svg></a>
+    <a class="sn-btn" id="snOverview" href="../" data-tip="Overview" data-i18n-tip="rd.tip_overview" data-i18n-aria="rd.tip_overview"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5a1 1 0 0 1 1-1h6a3 3 0 0 1 3 3v14a3 3 0 0 0-3-3H3a1 1 0 0 1-1-1V5z"/><path d="M22 5a1 1 0 0 0-1-1h-6a3 3 0 0 0-3 3v14a3 3 0 0 1 3-3h6a1 1 0 0 0 1-1V5z"/></svg></a>
+    <button class="sn-btn" id="snMode" type="button"></button>
+    <button class="sn-btn" id="snTranslate" type="button" aria-pressed="false" data-tip="Show translation" data-i18n-tip="rd.tip_translate"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg></button>
+    <button class="sn-btn" id="snStudy" type="button" aria-pressed="false" data-tip="Study mode" data-i18n-tip="rd.tip_study"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg></button>
+    <button class="sn-btn" id="snThumbs" type="button" aria-pressed="false" data-tip="Thumbnails" data-i18n-tip="rd.tip_thumbs"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="14" x="3" y="3" rx="2"/><path d="M4 21h1"/><path d="M9 21h1"/><path d="M14 21h1"/><path d="M19 21h1"/></svg></button>
+    <button class="sn-btn" id="snAuto" type="button" aria-pressed="false"></button>
+    <button class="sn-btn" id="snSettings" type="button" data-tip="Reader settings" data-i18n-tip="rd.tip_reader_settings" data-i18n-aria="rd.tip_reader_settings"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+    <button class="sn-btn" id="snKeys" type="button" data-tip="Keyboard shortcuts" data-i18n-tip="rd.tip_keys" data-i18n-aria="rd.tip_keys"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><path d="M6 9h.01"/><path d="M10 9h.01"/><path d="M14 9h.01"/><path d="M18 9h.01"/><path d="M6 13h.01"/><path d="M10 13h.01"/><path d="M14 13h.01"/><path d="M18 13h.01"/><path d="M10 17h4"/></svg></button>
+    <button class="sn-btn" id="snPin" type="button" aria-pressed="false"></button>
+  </div>
+</div>
+<div id="sideZoom">
+  <div class="sn-row"><button class="sn-btn" id="snFit" type="button" aria-pressed="false"></button></div>
+  <div class="sn-row sn-zoom">
+    <button class="sn-btn" id="snZoomOut" type="button" data-tip="Zoom out" data-i18n-tip="rd.zoom_out" data-i18n-aria="rd.zoom_out"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg></button>
+    <output class="sn-zoom-value" id="snZoomValue">100%</output>
+    <button class="sn-btn" id="snZoomIn" type="button" data-tip="Zoom in" data-i18n-tip="rd.zoom_in" data-i18n-aria="rd.zoom_in"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+  </div>
+</div>
+<div class="sn-zone" id="snZoneTop" aria-hidden="true"></div>
+<div class="sn-zone" id="snZoneRight" aria-hidden="true"></div>
+<div class="sn-zone" id="snZoneBottom" aria-hidden="true"></div>
+<div id="snChapters" role="dialog" aria-labelledby="snChaptersTitle">
+  <div class="sn-pop-head">
+    <span id="snChaptersTitle" data-i18n="rd.chapters">Chapters</span>
+    <button class="sn-btn" id="snChaptersClose" type="button" aria-label="Close" data-i18n-aria="common.close"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+  </div>
+  <div class="sn-chlist" id="snChList"></div>
+</div>
+
 <!-- Viewport -->
 <div id="viewport">
 
@@ -103,10 +148,6 @@
     <div id="singleInner">
       <img id="mainImg" src="" alt="">
     </div>
-    <div id="singleZones">
-      <div id="clickPrev"></div>
-      <div id="clickNext"></div>
-    </div>
   </div>
 
   <!-- Double view -->
@@ -114,10 +155,6 @@
     <div id="doubleInner">
       <img id="imgLeft"  class="dImg" src="" alt="">
       <img id="imgRight" class="dImg" src="" alt="">
-    </div>
-    <div class="d-zones">
-      <div id="dClickPrev"></div>
-      <div id="dClickNext"></div>
     </div>
   </div>
 
@@ -134,13 +171,12 @@
 <div id="thumbResizeHandle"></div>
 <div id="thumbStrip"></div>
 
-<!-- Bottom bar -->
-<div id="bottombar" data-position="bottom">
-  <div id="scrubWrap">
-    <div id="scrubTrack">
-      <div id="scrubSegments" aria-hidden="true"></div>
-      <input type="range" id="scrubber" min="1" value="1" aria-label="Page progress" data-i18n-title="rd.progress_bar" data-i18n-aria="rd.progress_bar">
-    </div>
+<!-- Page progress: one segment per page of the chapter; reader.js handles pointing and dragging. -->
+<div id="bottombar" data-position="bottom" role="progressbar" aria-valuemin="1" aria-valuenow="1" aria-valuemax="1" aria-label="Page progress" data-i18n-aria="rd.progress_bar">
+  <div id="scrubTrack">
+    <div id="scrubSegments" aria-hidden="true"></div>
+    <div id="scrubView" aria-hidden="true"></div>
+    <div id="scrubTip" aria-hidden="true"></div>
   </div>
 </div>
 
@@ -176,6 +212,8 @@
     <div class="kb-row"><span class="kb-desc" data-i18n="page.menu_hint">Page menu (translate this page…)</span><div class="kb-keys"><kbd class="kb-key" data-i18n="page.right_click">Right-click</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.toggle_thumbs">Toggle thumbnails</span><div class="kb-keys"><kbd class="kb-key">G</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.toggle_pin">Toggle pinned header</span><div class="kb-keys"><kbd class="kb-key">N</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc" data-i18n="kb.hide_controls">Hide / show controls</span><div class="kb-keys"><kbd class="kb-key">X</kbd><kbd class="kb-key" data-i18n="kb.double_click">Double-click</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc" data-i18n="kb.autoscroll">Auto-scroll (scroll strip)</span><div class="kb-keys"><kbd class="kb-key">K</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.swipe_thumbs">Swipe thumbnails</span><div class="kb-keys"><kbd class="kb-key" data-i18n="kb.drag">Drag</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.scrub">Scrub to page</span><div class="kb-keys"><kbd class="kb-key" data-i18n="kb.shift_drag">Shift+Drag</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.help">This help</span><div class="kb-keys"><kbd class="kb-key">?</kbd><kbd class="kb-key">Esc</kbd></div></div>
@@ -228,6 +266,13 @@
     <section class="rs-section">
       <h3 class="rs-heading" data-i18n="rd.sec_display">Display</h3>
       <div class="rs-row">
+        <div class="rs-label" data-i18n="rd.navigation">Navigation</div>
+        <div class="rs-choices">
+          <button type="button" data-reader-nav="top"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path class="rs-bar" d="M7.5 7.5h9"/></svg><span data-i18n="rd.nav_top">Top bar</span></button>
+          <button type="button" data-reader-nav="side"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path class="rs-bar" d="M16.5 7.5v6"/></svg><span data-i18n="rd.nav_side">Side</span></button>
+        </div>
+      </div>
+      <div class="rs-row">
         <div class="rs-label" data-i18n="rd.image_fit">Image fit</div>
         <div class="rs-choices rs-choices-stack">
           <button type="button" data-reader-fit="off"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg><span data-i18n="rd.original_size">Original size</span></button>
@@ -251,6 +296,20 @@
         <input class="rs-range" type="range" id="readerGap" min="0" max="40" step="1" value="4">
       </div>
       <div class="rs-row">
+        <div class="rs-label-row">
+          <label class="rs-label" for="readerAutoScroll" data-i18n="rd.autoscroll_speed">Auto-scroll speed</label>
+          <output id="readerAutoScrollValue" for="readerAutoScroll">150 px/s</output>
+        </div>
+        <input class="rs-range" type="range" id="readerAutoScroll" min="20" max="1000" step="10" value="150">
+      </div>
+      <div class="rs-row">
+        <div class="rs-label-row">
+          <label class="rs-label" for="readerDim" data-i18n="rd.dim_pages">Dim pages</label>
+          <output id="readerDimValue" for="readerDim">0%</output>
+        </div>
+        <input class="rs-range" type="range" id="readerDim" min="0" max="100" step="1" value="0">
+      </div>
+      <div class="rs-row">
         <div class="rs-label" data-i18n="rd.progress_bar">Progress bar</div>
         <div class="rs-choices rs-choices-stack">
           <button type="button" data-progress-position="left"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path class="rs-bar" d="M7.5 7.5v9"/></svg><span data-i18n="rd.left">Left</span></button>
@@ -259,6 +318,14 @@
           <button type="button" data-progress-position="bottom"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path class="rs-bar" d="M7.5 16.5h9"/></svg><span data-i18n="rd.bottom">Bottom</span></button>
           <button type="button" data-progress-position="off"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="m3.5 3.5 17 17"/></svg><span data-i18n="rd.off">Off</span></button>
         </div>
+      </div>
+    </section>
+
+    <section class="rs-section">
+      <h3 class="rs-heading" data-i18n="rd.sec_debug">Debug</h3>
+      <div class="rs-row rs-row-inline">
+        <div class="rs-label"><span data-i18n="rd.debug_loaded">Show loaded pages</span><span class="field-info" tabindex="0" data-i18n-tip="rd.debug_loaded_desc" data-i18n-aria="rd.debug_loaded_desc"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span></div>
+        <label class="switch-control" for="readerDebugLoaded"><input type="checkbox" id="readerDebugLoaded" data-i18n-aria="rd.debug_loaded"><span class="switch-track" aria-hidden="true"></span></label>
       </div>
     </section>
   </div>

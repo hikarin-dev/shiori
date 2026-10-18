@@ -91,3 +91,16 @@ export async function until(page, fn, arg, { timeout = 15000, what = 'condition'
   const reported = page.problems?.length ? ` — the page reported: ${page.problems.join(' | ')}` : '';
   throw new Error(`timed out waiting for ${what} (last: ${JSON.stringify(last)})${reported}`);
 }
+
+// Waits until the page has stopped scrolling (still for a few frames): scrubs and glides ease the
+// page toward where they point.
+export function scrollSettled(page) {
+  return page.evaluate(() => new Promise((resolve) => {
+    let last = scrollY, still = 0;
+    const tick = () => {
+      if (scrollY === last) still++; else { still = 0; last = scrollY; }
+      if (still >= 4) resolve(); else requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }));
+}

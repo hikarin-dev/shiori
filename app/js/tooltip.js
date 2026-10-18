@@ -126,11 +126,35 @@ const _tipOf = (el) => {
   return el.dataset.tipBadge ? `${el.dataset.tipBadge}\0${tip}` : tip;
 };
 
+const TIP_SELECTOR = '[data-tip], [data-tip-shift], [data-tip-alt]';
+const _tipTarget = (el) => (el?.closest && el.closest(TIP_SELECTOR)) || null;
+
+// A tip that changes while the cursor rests on its element (a toggle's label after a click, a value
+// being dragged, a control turning disabled) shows the change at once, not at the next mouse move.
+const _watch = new MutationObserver(() => refreshTooltip());
+function _setTarget(el) {
+  if (el === _target) return;
+  _target = el;
+  _watch.disconnect();
+  if (el) _watch.observe(el, { attributes: true, attributeFilter: ['data-tip', 'data-tip-shift', 'data-tip-alt', 'data-tip-badge', 'disabled'] });
+}
+
 function _onMove(e) {
   _x = e.clientX; _y = e.clientY;
-  _target = (e.target.closest && e.target.closest('[data-tip], [data-tip-shift], [data-tip-alt]')) || null;
+  _setTarget(_tipTarget(e.target));
   _setModifiers(e.shiftKey, e.altKey);
   _place(_tipOf(_target));
+}
+
+// A click can also put something else under a still cursor (a control re-rendered, a panel opened):
+// look again once it has done its work.
+function _onClick() {
+  if (!_target) return;
+  requestAnimationFrame(() => {
+    if (!_target) return;
+    _setTarget(_tipTarget(document.elementFromPoint(_x, _y)));
+    _place(_tipOf(_target));
+  });
 }
 
 // A key event carries the modifiers as they are after it. Releasing Alt after an Alt label showed
@@ -147,7 +171,7 @@ function _onScroll() {
   if (!_target) return;
   const under = document.elementFromPoint(_x, _y);
   if (under && _target.contains(under)) return;
-  _target = null;
+  _setTarget(null);
   _place('');
 }
 
@@ -164,6 +188,7 @@ export function initTooltips() {
   _inited = true;
   document.addEventListener('mousemove', _onMove, { passive: true });
   document.addEventListener('mousedown', (e) => _setModifiers(e.shiftKey, e.altKey), { capture: true, passive: true });
+  document.addEventListener('click', _onClick, { capture: true, passive: true });
   // Capture, so a handler that stops a key event can't hide a modifier change from the tip.
   document.addEventListener('keydown', _onKey, true);
   document.addEventListener('keyup', _onKey, true);
@@ -171,7 +196,7 @@ export function initTooltips() {
   document.addEventListener('scroll', _onScroll, { capture: true, passive: true });
   // With the cursor off the page or the window left, the tip also forgets its target, so a key
   // press (a modifier change calling refreshTooltip) can't bring it back until the cursor moves.
-  const hide = () => { _target = null; _place(''); };
+  const hide = () => { _setTarget(null); _place(''); };
   document.addEventListener('mouseleave', hide);
   window.addEventListener('blur', () => { hide(); _setModifiers(false, false); });
   if (_OPEN_LIST) for (const type of ['pointerdown', 'click', 'keydown']) document.addEventListener(type, _checkOpenList);

@@ -1202,12 +1202,19 @@ function _pageIn(tx, at, found) {
   else _pageKeyIn(tx, at.galleryId, Number(at.pageNum), get);
 }
 
-export async function pageGet(galleryId, pageNum) {
+// `key`, when the caller already knows the page's key (pageList's url), reads it directly. Finding it
+// by gallery and number walks the gallery's keys one at a time, each step a round trip through a main
+// thread that may be busy: a reader scrubbing a long chapter waited on that for every page. A key
+// that doesn't answer for this gallery and page falls back to the walk.
+export async function pageGet(galleryId, pageNum, key) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = _tx(db, [STORE, BLOB_STORE], 'readonly');
     let found = null;
-    _pageIn(tx, { galleryId, pageNum }, (rec) => { found = rec; _loadPages(tx, [rec]); });
+    const use = (rec) => { found = rec; _loadPages(tx, [rec]); };
+    const byNumber = () => _pageIn(tx, { galleryId, pageNum }, use);
+    if (typeof key !== 'string') byNumber();
+    else _pageIn(tx, key, (rec) => (rec && String(rec.galleryId) === String(galleryId) && _keyPage(key) === Number(pageNum) ? use(rec) : byNumber()));
     tx.oncomplete = () => resolve(found);
     tx.onerror = () => reject(tx.error);
   });

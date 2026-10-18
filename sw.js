@@ -24,7 +24,7 @@ const FILES_ONLY = new URL(self.location.href).searchParams.get('library') === '
 // user-facing app version: precached code can change outside a release, and changing this value
 // makes the browser install every BOOT asset into a fresh cache.
 const CACHE_PREFIX = `shiori${ROOT.pathname.replace(/\//g, '_')}`;
-const SHELL_CACHE_REVISION = 55;
+const SHELL_CACHE_REVISION = 56;
 const CACHE_NAME = `${CACHE_PREFIX}-shell-v${SHELL_CACHE_REVISION}`;
 function cacheName() {
   return CACHE_NAME;
@@ -39,8 +39,8 @@ const PAGES = { '': 'library', 'library': 'library', 'settings': 'settings', 're
 const FLAGS = ['BR','CN','DE','ES','FR','GB','ID','IT','JP','KR','NL','PL','PT','RU','TH','TW','UA','US','VN']
   .map((c) => `app/flags/${c}.svg`);
 const SHELL = [
-  'app/library.html', 'app/reader.html', 'app/settings.html', 'app/agent.html', 'app/overview.html',
-  'app/manifest.webmanifest', 'app/font-init.js', 'boot-root.js',
+  'app/library.html', 'app/reader.html', 'app/settings.html', 'app/agent.html', 'app/overview.html', 'app/runner.html',
+  'app/manifest.webmanifest', 'app/font-init.js', 'app/reader-init.js', 'boot-root.js',
   'app/base.css', 'app/library.css', 'app/reader.css', 'app/settings.css', 'app/overview.css', 'app/dropdown.css',
   'app/fonts/ccvictoryspeech.ttf', 'app/fonts/KiwiMaru-Regular.ttf', 'app/fonts/YasashisaAntique.otf',
   'app/fonts/JetBrainsMono-Regular.woff2', 'app/fonts/JetBrainsMono-SemiBold.woff2', 'app/fonts/JetBrainsMono-Bold.woff2',
@@ -52,7 +52,7 @@ const SHELL = [
   'app/js/feedback.js', 'app/js/reader-feedback.js', 'app/js/reader-properties.js', 'app/js/reader-page-menu.js', 'app/js/zip.js',
   'app/js/jobs-runner.js', 'app/js/submit-job.js', 'app/js/services.js', 'app/js/ext-bridge.js', 'app/js/boot.js',
   'app/js/i18n.js', 'app/js/locales.js', 'app/js/tooltip.js', 'app/js/scrollbar.js', 'app/js/dropdown.js', 'app/js/rerun-menu.js', 'app/js/titles.js', 'app/js/format.js', 'app/js/thumb-worker.js', 'app/js/tag-editor.js', 'app/js/search-field.js',
-  'app/js/library.js', 'app/js/reader.js', 'app/js/reader-study.js', 'app/js/settings.js', 'app/js/agent.js', 'app/js/overview.js',
+  'app/js/library.js', 'app/js/reader.js', 'app/js/reader-study.js', 'app/js/settings.js', 'app/js/agent.js', 'app/js/overview.js', 'app/js/runner.js',
   ...FLAGS,
   'icons/icon16.png', 'icons/icon32.png', 'icons/icon48.png', 'icons/icon128.png',
   'icons/icon192.png', 'icons/icon512.png', 'icons/shiori-logo.svg',

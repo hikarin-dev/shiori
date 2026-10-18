@@ -159,7 +159,7 @@ export const series = _typed({
 export const pages = _typed({
   list: (gid) => backend.pageList(gid),                         // [{ pageNum, url }] by page number
   has:  (gid, n) => backend.pageHas(gid, n),
-  get:  (gid, n) => backend.pageGet(gid, n),
+  get:  (gid, n, key) => backend.pageGet(gid, n, key),            // key: its url from list, read directly
   all:  (gid) => backend.getGalleryImageRecords(gid),           // every page with its data
   blob: (gid, n, variant) => backend.getPageBlob(gid, n, variant),
   // What an <img> loads; the caller releases it with releaseUrl when done.
