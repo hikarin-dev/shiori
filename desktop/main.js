@@ -210,6 +210,25 @@ function createWindow(target) {
   return win;
 }
 
+// ── The runner: a page of the app kept open out of sight (app/js/runner.js) ──
+// The imports the windows start run there, so a window going to another page, reloading or closing
+// to the tray doesn't stop them. Opened when a window first hands one over; ready once it listens.
+let runner = null, runnerReady = null, markRunnerReady = () => {};
+function openRunner() {
+  if (!runner || runner.isDestroyed()) {
+    runnerReady = new Promise((resolve) => { markRunnerReady = resolve; });
+    const win = runner = new BrowserWindow({ show: false, webPreferences: { preload: path.join(here, 'preload.cjs'),
+      contextIsolation: true, sandbox: true, backgroundThrottling: false } });
+    const gone = () => { if (runner === win) runner = null; markRunnerReady(false); };
+    win.on('closed', gone);
+    // A runner that crashed is closed; the next import opens another.
+    win.webContents.on('render-process-gone', () => { gone(); if (!win.isDestroyed()) win.destroy(); });
+    win.webContents.loadURL(`${server.url}/app/runner.html`).catch(() => markRunnerReady(false));
+  }
+  return Promise.race([runnerReady, new Promise((resolve) => setTimeout(() => resolve(false), 15000))]);
+}
+const runnerContents = () => (runner && !runner.isDestroyed() ? runner.webContents : null);
+
 // ── The app's settings follow its address ──
 // The app keeps its settings in its address's browser storage, and the windows' address is the
 // local server's, whose port can change (a setting, or the usual port busy at start). When it has —
@@ -411,6 +430,9 @@ ipcMain.handle('shiori:shell', async (event, action, args = []) => {
       if (key?.on) busy.set(event.sender, typeof key.label === 'string' ? key.label.slice(0, 200) : '');
       else busy.delete(event.sender);
       return { ok: true };
+    // The runner (above): opened for a window handing an import over; the runner saying it listens.
+    case 'runner': return openRunner();
+    case 'runnerReady': if (event.sender === runnerContents()) markRunnerReady(true); return { ok: true };
     default: throw new Error(`no action ${action}`);
   }
 });
@@ -466,27 +488,30 @@ function buildTray() {
     { label: t('open_app'), click: () => showWindow() },
     { type: 'separator' },
     closingAfterJobs
-      ? { label: t('quit_now'), click: async () => { await pageCall('cancelJobs'); reallyQuit(); } }
+      ? { label: t('quit_now'), click: async () => { await cancelJobs(); reallyQuit(); } }
       : { label: t('quit'), click: () => requestQuit() },
   ]));
 }
 
 // ── Quitting ──
-// The work running in the app's window: { count, titles } (app/js/desktop-shell.js). A window that
-// can't say (still loading, or gone) holds nothing up.
-async function pageCall(fn) {
-  const contents = mainWindow && windows.get(mainWindow)?.view.webContents;
+// The work running in the app's window (app/js/desktop-shell.js) and in the runner (app/js/runner.js):
+// { count, titles } from each. A page that can't say (still loading, or gone) holds nothing up.
+async function callIn(contents, module, fn) {
   if (!contents || contents.isDestroyed()) return null;
-  const call = contents.executeJavaScript(`import('/app/js/desktop-shell.js').then((m) => m.${fn}())`, true).catch(() => null);
+  const call = contents.executeJavaScript(`import('/app/js/${module}').then((m) => m.${fn}())`, true).catch(() => null);
   return Promise.race([call, new Promise(r => setTimeout(() => r(null), 5000))]);
 }
+const pageCall = (fn) => callIn(mainWindow && windows.get(mainWindow)?.view.webContents, 'desktop-shell.js', fn);
+const runnerCall = (fn) => callIn(runnerContents(), 'runner.js', fn);
+const cancelJobs = () => Promise.all([pageCall('cancelJobs'), runnerCall('cancelJobs')]);
 // …and before them, a backup: one made or restored here, and any a page runs itself.
 async function activeJobs() {
-  const jobs = (await pageCall('activeJobs')) || { count: 0, titles: [] };
+  const none = { count: 0, titles: [] };
+  const [jobs, imports] = (await Promise.all([pageCall('activeJobs'), runnerCall('activeJobs')])).map(j => j || none);
   const job = backups?.running();
   const own = [...(job ? [job.kind === 'export' ? t('quit_backup_export') : t('quit_backup_restore')] : []),
     ...[...busy.values()].map(label => label || t('quit_backup'))];
-  return { count: own.length + jobs.count, titles: [...own, ...jobs.titles] };
+  return { count: own.length + jobs.count + imports.count, titles: [...own, ...jobs.titles, ...imports.titles] };
 }
 
 let quitting = false, closingAfterJobs = false, relaunchAfter = false, installAfter = false;
@@ -508,7 +533,7 @@ async function requestQuit({ relaunch = false, install = false } = {}) {
     buttons: [t('quit_wait'), t('quit_cancel'), t('quit_stay')] };
   const { response } = mainWindow ? await dialog.showMessageBox(mainWindow, options) : await dialog.showMessageBox(options);
   if (response === 0) { closingAfterJobs = true; mainWindow?.hide(); buildTray(); waitForJobs(); }
-  else if (response === 1) { await pageCall('cancelJobs'); reallyQuit(); }
+  else if (response === 1) { await cancelJobs(); reallyQuit(); }
   else relaunchAfter = installAfter = false;
 }
 

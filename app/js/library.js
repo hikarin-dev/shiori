@@ -1,6 +1,7 @@
 import { zipCreate as _zipCreate } from './zip.js';
 import { groupImports, importBytes, isImportable, droppedImports } from './import-files.js';
 import { startImport } from './jobs-runner.js';
+import { handImport } from './submit-job.js';
 // library.js — the library UI: windowed grid over the database, live job progress, uploads,
 // per-gallery actions. Imports boot.js first so services + the PWA worker are wired.
 
@@ -38,7 +39,7 @@ let _bypassOverview = false;
 let _mergeSeries = localStorage.getItem('shiori:libMergeSeries') !== 'false';
 
 // Whether the leading card flag matching the app's current language is hidden (default: on, the
-// historical behaviour). Loaded from settings at boot; buildCardTags reads it while rendering.
+// historical behaviour). Loaded from settings at boot; cardTagChips reads it while rendering.
 let _hideAppLangFlag = true;
 
 // Gallery card quick actions: download/replace, translate, export and delete.
@@ -193,6 +194,21 @@ let _total     = 0;    // total galleries matching the current search (for pagin
 // of feed events (e.g. caching every page of a download) collapses into one DB query.
 let _reloadTimer = null;
 const _scheduleReloadPage = () => { clearTimeout(_reloadTimer); _reloadTimer = setTimeout(applyFilters, 250); };
+// A gallery the page shows no card for may need one — an import or a download just made it, or a
+// change moved it onto this page — so the page is loaded again to see. Never for a chapter of a
+// series shown merged (it has no card of its own; its series card hears about it), and for any one
+// gallery not more than every few seconds: one on another page, or filtered out, would otherwise
+// reload the page with each change and progress report it sends.
+const REVEAL_EVERY_MS = 5000;
+const _revealedAt = new Map();   // gid → when the page was last reloaded to find its card
+function _revealCard(gid) {
+  gid = String(gid);
+  if (_mergeSeries && (store.get(gid)?.parentId || _pageItems.some(g => g.chapters?.some(c => String(c.id) === gid)))) return;
+  const now = Date.now();
+  if (now - (_revealedAt.get(gid) || 0) < REVEAL_EVERY_MS) return;
+  _revealedAt.set(gid, now);
+  _scheduleReloadPage();
+}
 let _headerStatsTimer = null;
 const _scheduleHeaderStats = () => { clearTimeout(_headerStatsTimer); _headerStatsTimer = setTimeout(updateHeaderStats, 800); };
 
@@ -320,7 +336,8 @@ const _LANG_FLAG = {
 // The app language as a base code (zh-CN → zh) — the flag for a gallery in this language is hidden.
 const _langBase = (code) => String(code || '').split('-')[0];
 
-function buildCardTags(tags, languages) {
+// A card's tag chips (the inside of its .card-tags row).
+function cardTagChips(tags, languages) {
   const list = Array.isArray(tags) ? tags : [];
   const category = list.filter(t => t.type === 'category');
   const artists = list.filter(t => t.type === 'artist');
@@ -345,7 +362,7 @@ function buildCardTags(tags, languages) {
   );
   // Trailing '+' chip — opens the add-metadata modal (shown only while the card is hovered).
   chips.push(`<span class="card-tag card-tag-add" data-tip="${t('card.tip_addtag')}">+</span>`);
-  return `<div class="card-tags">${chips.join('')}</div>`;
+  return chips.join('');
 }
 
 function updateCardThumbFit(img) {
@@ -429,110 +446,114 @@ function _cardCover(card) {
   return card.querySelector('img.card-thumb')?.src || '';
 }
 
-function buildCard(g) {
-  const card = document.createElement('div');
-  card.className = 'card';
-  card.dataset.galleryId = g.id;
-  // Safe Mode blurs a cover unless the gallery is rated safe or suggestive — an unrated one blurs.
-  if ((g.tags || []).some(tg => tg.type === 'rating' && (tg.name === 'safe' || tg.name === 'suggestive'))) card.classList.add('card-sfw');
-
+// What a card shows of its gallery, part by part. buildCard lays a card out from it; updateCard
+// compares a new one with the card's last and changes only the parts that differ.
+function _cardView(g) {
   // A series owner renders (and acts) as a merged series card only while merging is on; unmerged,
   // it is shown as its own plain chapter-1 gallery. The real g.isSeries is kept for the delete path.
-  const showAsSeries = _mergeSeries && g.isSeries;
-
-  const thumbSrc = _coverCache.get(coverCacheKey(g.id, showAsSeries)) || null;
-  const hasThumb = showAsSeries ? ((g.aggPages || g.count || 0) > 0 || !!thumbSrc) : (g.count > 0 || !!thumbSrc);
-  // draggable="false" on the cover + link so grabbing the thumbnail starts the CARD's merge-drag
-  // (below), not a native image/link drag — the native image drag exposes a 'Files' type that was
-  // wrongly triggering the file-import overlay.
-  const thumbInner = hasThumb
-    ? `<img class="card-thumb" draggable="false"${thumbSrc ? ` src="${thumbSrc}"` : ''} alt="">`
-    : `<div class="card-thumb-placeholder">📁</div>`;
-
-  const displayTitle = showAsSeries ? pickSeriesTitle(g.seriesTitle, g, getLang()) : pickTitle(g, getLang());
-  const titleHtml = displayTitle
-    ? `<div class="card-title" data-original="${escHtml(displayTitle)}">${escHtml(displayTitle)}</div>`
-    : '';
-
-  const cachedCount = g.count;
-  const totalCount = g.numPages ? ` / ${formatCount(g.numPages)}` : '';
+  const series = !!(_mergeSeries && g.isSeries);
+  const thumbSrc = _coverCache.get(coverCacheKey(g.id, series)) || null;
   // A series card shows the whole-series aggregate (stored on the owner) and a chapter badge; a
-  // standalone gallery shows its own page count. Series open the overview unless the user bypasses.
-  // The size is what the gallery's export holds; hovering it splits off the original pages.
-  const size = showAsSeries ? _sizeHtml(g.aggSize, g.aggOrig) : _sizeHtml(g.size, g.origSize);
-  const metaLine = showAsSeries
+  // standalone gallery shows its own page count. The size is what the gallery's export holds;
+  // hovering it splits off the original pages.
+  const totalCount = g.numPages ? ` / ${formatCount(g.numPages)}` : '';
+  const size = series ? _sizeHtml(g.aggSize, g.aggOrig) : _sizeHtml(g.size, g.origSize);
+  const metaLine = series
     ? `${_pagesHtml(`${formatCount(g.aggPages)} ${t('card.pages')}`, g.aggMedianPage, g.aggOrig, g.aggPages)} · ${size}`
-    : `${_pagesHtml(`${formatCount(cachedCount)}${totalCount} ${t('card.pages')}`, g.medianPage, g.origSize, cachedCount)} · ${size}`;
+    : `${_pagesHtml(`${formatCount(g.count)}${totalCount} ${t('card.pages')}`, g.medianPage, g.origSize, g.count)} · ${size}`;
   // A library kept as files says when a gallery's files can't be found in its folder.
   const missingHtml = g.missing ? ` · <span class="card-missing">${escHtml(t('card.files_missing'))}</span>` : '';
   // A series card counts what the overview lists — its chapters or its volumes (the view chosen
   // there), or the other kind when it has none of that one.
-  const tally = showAsSeries && g.chapters ? chapterTally(g.chapters) : { chapters: g.chapterCount, extras: 0 };
-  const volumes = showAsSeries && g.chapters ? g.chapters.filter(c => memberKind(c) === 'volume').length : 0;
+  const tally = series && g.chapters ? chapterTally(g.chapters) : { chapters: g.chapterCount, extras: 0 };
+  const volumes = series && g.chapters ? g.chapters.filter(c => memberKind(c) === 'volume').length : 0;
   const countVolumes = volumes > 0 && (_seriesView === 'volumes' || !tally.chapters);
-  const seriesBadge = showAsSeries ? `<span class="card-series-badge">${countVolumes
-    ? t('card.volumes_n', { n: formatCount(volumes) }) : t('card.chapters_n', { n: formatCount(tally.chapters) })}</span>` : '';
+  const canDownload = _canDownload(g);
+  const visitUrl = galleryLink(g, 1);
+  const siteName = _siteName(g.source);
+  const idText = escHtml(g.sourceId || g.id);
+  const idClass = `card-id${g.isLocalImport ? ' local' : ''}`;
+  const sourceHref = safeExternalUrl(g.sourceUrl);
+  return {
+    series,
+    // Safe Mode blurs a cover unless the gallery is rated safe or suggestive — an unrated one blurs.
+    sfw: (g.tags || []).some(tg => tg.type === 'rating' && (tg.name === 'safe' || tg.name === 'suggestive')),
+    // Every gallery gets an overview landing page (a standalone one can gain chapters there); the
+    // "skip overview" setting sends cards straight into the reader instead.
+    href: _bypassOverview ? `../reader?g=${encodeURIComponent(g.id)}` : `../overview?g=${encodeURIComponent(g.id)}`,
+    thumbSrc,
+    hasThumb: series ? ((g.aggPages || g.count || 0) > 0 || !!thumbSrc) : (g.count > 0 || !!thumbSrc),
+    badge: !series ? '' : countVolumes ? t('card.volumes_n', { n: formatCount(volumes) }) : t('card.chapters_n', { n: formatCount(tally.chapters) }),
+    favorite: !!g.favorite,
+    openTip: visitUrl ? `${siteName}: ${visitUrl}` : t('card.tip_setsource'),
+    openShift: visitUrl ? t('card.tip_editsource') : null,
+    // Alt+click searches the library for the gallery's source — only when it has one.
+    openAlt: g.source ? t('card.tip_search_source', { site: siteName }) : null,
+    openInner: _makeOpenBtnInner(g.source),
+    id: sourceHref
+      ? `<a class="${idClass}" href="${escHtml(sourceHref)}" target="_blank" rel="noopener noreferrer" data-original="${idText}">${idText}</a>`
+      : `<div class="${idClass}" data-original="${idText}">${idText}</div>`,
+    canDownload,
+    dlTip: !canDownload ? t('card.tip_replace') : g.numPages ? t('card.tip_dl', { n: formatCount(g.numPages) }) : t('card.tip_dl_meta'),
+    dlShift: canDownload ? t('card.tip_replace') : null,
+    translated: !!g.translated,
+    title: (series ? pickSeriesTitle(g.seriesTitle, g, getLang()) : pickTitle(g, getLang())) || '',
+    meta: metaLine + missingHtml,
+    tags: cardTagChips(g.tags, g.languages),
+  };
+}
+
+// A card's frame; _paintCard fills it in from the gallery's view, here and on every update.
+function buildCard(g) {
+  const v = _cardView(g);
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.dataset.galleryId = g.id;
+  card._g = g;
+  // A series owner shown merged acts as its series (delete, download, translate) for as long as
+  // the card lives: a card that turns into a series card or back is made again (updateCard).
+  const showAsSeries = v.series;
   // Record-derived id, escaped once for every attribute interpolation below (ids are validated
   // numeric at import boundaries; this is defense in depth for legacy records).
   const idA = escHtml(g.id);
-  // Every gallery gets an overview landing page (a standalone one can gain chapters there); the
-  // "skip overview" setting sends cards straight into the reader instead.
-  const cardHref = _bypassOverview ? `../reader?g=${encodeURIComponent(g.id)}` : `../overview?g=${encodeURIComponent(g.id)}`;
-
-  const tagHtml = buildCardTags(g.tags, g.languages);
-
-  const canDownload  = _canDownload(g);
-  const visitUrl     = galleryLink(g, 1);
-  const siteName     = _siteName(g.source);
-  const openTitle    = visitUrl ? `${siteName}: ${visitUrl}` : t('card.tip_setsource');
-  const dlTitle      = g.numPages ? t('card.tip_dl', { n: formatCount(g.numPages) }) : t('card.tip_dl_meta');
-  const idText       = escHtml(g.sourceId || g.id);
-  const idClass      = `card-id${g.isLocalImport ? ' local' : ''}`;
-  const sourceHref   = safeExternalUrl(g.sourceUrl);
-  const idHtml       = sourceHref
-    ? `<a class="${idClass}" href="${escHtml(sourceHref)}" target="_blank" rel="noopener noreferrer" data-original="${idText}">${idText}</a>`
-    : `<div class="${idClass}" data-original="${idText}">${idText}</div>`;
-
-  // Alt+click searches the library for the gallery's source — only when it has one.
-  const sourceSearchTip = g.source ? ` data-tip-alt="${escHtml(t('card.tip_search_source', { site: siteName }))}"` : '';
-  const openBtnHtml = `
-      <button class="card-btn card-btn-open" data-id="${idA}" data-tip="${escHtml(openTitle)}"${visitUrl ? ` data-tip-shift="${t('card.tip_editsource')}"` : ''}${sourceSearchTip}><span class="open-inner">${_makeOpenBtnInner(g.source)}</span></button>`;
+  // draggable="false" on the cover + link so grabbing the thumbnail starts the CARD's merge-drag
+  // (below), not a native image/link drag — the native image drag exposes a 'Files' type that was
+  // wrongly triggering the file-import overlay.
+  const thumbInner = v.hasThumb
+    ? `<img class="card-thumb" draggable="false"${v.thumbSrc ? ` src="${v.thumbSrc}"` : ''} alt="">`
+    : `<div class="card-thumb-placeholder">📁</div>`;
   // The favorite heart on the cover: always shown once favorited, otherwise while hovered.
-  const favHtml = `<button class="card-fav${g.favorite ? ' on' : ''}" type="button" aria-pressed="${g.favorite ? 'true' : 'false'}" data-tip="${t(g.favorite ? 'card.tip_fav_remove' : 'card.tip_fav_add')}" data-tip-alt="${t(g.favorite ? 'card.tip_search_fav' : 'card.tip_search_unfav')}">${_HEART_SVG}</button>`;
-
-  const actionsHtml = `
-    <div class="card-actions">
-      <button class="card-btn card-btn-dl" data-id="${idA}" data-tip="${canDownload ? dlTitle : t('card.tip_replace')}" ${canDownload ? `data-tip-shift="${t('card.tip_replace')}"` : ''}>${canDownload ? _DL_ICON : _UPLOAD_ICON}</button>
-      <button class="card-btn card-btn-translate${g.translated ? ' done' : ''}" data-id="${idA}" data-tip="${g.translated ? _translatedTip() : t('card.tip_translate')}"${g.translated ? ` data-tip-shift="${t('card.tip_revert')}"` : ''} data-tip-alt="${t(g.translated ? 'card.tip_search_translated' : 'card.tip_search_untranslated')}">${_TRANSLATE_ICON}</button>
-      <button class="card-btn card-btn-export" data-id="${idA}" data-tip="${t('card.tip_export')}" data-tip-shift="${t('card.tip_export_meta')}">${_EXPORT_ICON}</button>
-      <button class="card-btn card-btn-del" data-id="${idA}" data-tip="${t('card.tip_delete')}" data-tip-shift="${t('card.tip_quickdelete')}">${_DELETE_ICON}</button>
-    </div>`;
-
   card.innerHTML = `
-    <a class="card-thumb-wrap" href="${cardHref}" draggable="false">
+    <a class="card-thumb-wrap" draggable="false">
       ${thumbInner}
-      ${seriesBadge}
+      ${showAsSeries ? '<span class="card-series-badge"></span>' : ''}
     </a>
-    ${favHtml}
+    <button class="card-fav" type="button">${_HEART_SVG}</button>
     <div class="card-body">
       <div class="card-id-row">
-        ${openBtnHtml}
-        ${idHtml}
-        ${actionsHtml}
+        <button class="card-btn card-btn-open" data-id="${idA}"><span class="open-inner"></span></button>
+        <div class="card-id"></div>
+        <div class="card-actions">
+          <button class="card-btn card-btn-dl" data-id="${idA}"></button>
+          <button class="card-btn card-btn-translate" data-id="${idA}">${_TRANSLATE_ICON}</button>
+          <button class="card-btn card-btn-export" data-id="${idA}" data-tip="${t('card.tip_export')}" data-tip-shift="${t('card.tip_export_meta')}">${_EXPORT_ICON}</button>
+          <button class="card-btn card-btn-del" data-id="${idA}" data-tip="${t('card.tip_delete')}" data-tip-shift="${t('card.tip_quickdelete')}">${_DELETE_ICON}</button>
+        </div>
       </div>
-      ${titleHtml}
-      <div class="card-meta">${metaLine}${missingHtml}</div>
+      <div class="card-meta"></div>
       <div class="card-progress" id="prog-${idA}">
         <div class="prog-track"><div class="prog-fill" id="progfill-${idA}"></div></div>
         <span class="card-prog-label" id="proglabel-${idA}"></span>
       </div>
-      ${tagHtml}
+      <div class="card-tags"></div>
     </div>
   `;
-
+  _paintCard(card, v, null);
   wireCardThumbFit(card.querySelector('img.card-thumb'));
 
+  // The handlers act on the gallery as the card shows it now (card._g), not as it was built.
   card.querySelector('.card-fav').addEventListener('click', (e) => {
+    const g = card._g;
     // Alt+click → search for galleries in the same state: favorited or not.
     if (e.altKey) { _addSearchToken(`favorite:"${g.favorite ? 'yes' : 'no'}"`); return; }
     store.mutate(g.id, { favorite: !g.favorite }, { touch: false });
@@ -548,6 +569,7 @@ function buildCard(g) {
       if (_shiftHeld) _delFlip.to(b, _DELETE_SVG);
     });
     b.addEventListener('click', async (e) => {
+      const g = card._g;
       // A merged series card removes every chapter (its children never get their own card).
       if (showAsSeries) {
         const n = formatCount(g.chapterCount);
@@ -603,16 +625,17 @@ function buildCard(g) {
 
   card.querySelectorAll('.card-btn-dl').forEach(b => {
     b.addEventListener('mouseenter', () => {
-      if (_canDownload(g)) {
+      if (_canDownload(card._g)) {
         _hoveredDlBtn = b;
         if (_shiftHeld && !b.disabled) _dlFlip.to(b, _UPLOAD_ICON);
       }
     });
     b.addEventListener('mouseleave', () => {
       _hoveredDlBtn = null;
-      if (_canDownload(g) && _shiftHeld) _dlFlip.to(b, _DL_SVG);
+      if (_canDownload(card._g) && _shiftHeld) _dlFlip.to(b, _DL_SVG);
     });
     b.addEventListener('click', async (e) => {
+      const g = card._g;
       const curCanDl = _canDownload(g);
       if (e.shiftKey || !curCanDl) {
         _hoveredDlBtn = null;
@@ -673,6 +696,7 @@ function buildCard(g) {
       if (!b.classList.contains('cancelling') && _shiftHeld && b.dataset.tipShift) _trFlip.to(b, _TRANSLATE_SVG);
     });
     b.addEventListener('click', async (e) => {
+      const g = card._g;
       // Mid-translation the button is a Stop control → cancel this job and bail.
       if (b.classList.contains('cancelling')) { await sendMsg({ type: 'CANCEL_TRANSLATE', galleryId: g.id }); return; }
 
@@ -698,7 +722,7 @@ function buildCard(g) {
         const liveEntry = _pageItems.find(x => x.id === g.id);
         if (liveEntry) liveEntry.translated = false;
         const $card = document.querySelector(`.card[data-gallery-id="${g.id}"]`);
-        if ($card) $card.replaceWith(buildCard(liveEntry || g));
+        if ($card) updateCard($card, liveEntry || g);
         return;
       }
 
@@ -723,6 +747,7 @@ function buildCard(g) {
     // Right-click on a translated gallery → "Re-run from…": redo every page from one stage,
     // reusing everything before it.
     b.addEventListener('contextmenu', (e) => {
+      const g = card._g;
       if (!g.translated || showAsSeries || b.disabled || b.classList.contains('cancelling')) return;
       e.preventDefault();
       openRerunMenu(b, g.id, async (point, label) => {
@@ -741,22 +766,20 @@ function buildCard(g) {
   });
 
   card.querySelectorAll('.card-btn-open').forEach(b => {
-    // Remember the button's resting icon (the site favicon) once, up front. Flipping always
-    // targets this stored base or the shift icon — never the live DOM — so spamming Shift can
-    // never capture a half-flipped frame and lose the favicon.
-    const _innerEl = b.querySelector('.open-inner');
-    b._baseInner = _innerEl ? _innerEl.innerHTML : '';
-    if (b.dataset.tipShift) {
-      b.addEventListener('mouseenter', () => {
-        _hoveredOpenBtn = b;
-        if (_shiftHeld) _openFlip.to(b, _OPEN_SHIFT_ICON);
-      });
-      b.addEventListener('mouseleave', () => {
-        if (_shiftHeld) _openFlip.to(b, b._baseInner);
-        _hoveredOpenBtn = null;
-      });
-    }
+    // Flipping always targets the button's resting icon (the site favicon, kept in b._baseInner by
+    // _paintCard) or the shift icon — never the live DOM — so spamming Shift can never capture a
+    // half-flipped frame and lose the favicon. Only a button with a source to edit flips.
+    b.addEventListener('mouseenter', () => {
+      if (!b.dataset.tipShift) return;
+      _hoveredOpenBtn = b;
+      if (_shiftHeld) _openFlip.to(b, _OPEN_SHIFT_ICON);
+    });
+    b.addEventListener('mouseleave', () => {
+      if (_hoveredOpenBtn === b && _shiftHeld) _openFlip.to(b, b._baseInner);
+      _hoveredOpenBtn = null;
+    });
     b.addEventListener('click', async (e) => {
+    const g = card._g;
     // Alt+click → search for galleries from the same source.
     if (e.altKey && g.source) { _addSearchToken(`source:"${g.source}"`); return; }
     const curVisitUrl = galleryLink(g, 1);
@@ -814,9 +837,8 @@ function buildCard(g) {
         liveEntry.sourceUrl = g.sourceUrl;
       }
 
-      // Replace card so listeners reflect the new source state.
-      _hoveredOpenBtn = null;
-      if ($card) $card.replaceWith(buildCard(liveEntry || g));
+      // The card takes the new source in place: its button, tips and id link.
+      if ($card) updateCard($card, liveEntry || g);
     } else {
       const safeVisit = safeExternalUrl(curVisitUrl);
       if (safeVisit) window.open(safeVisit, '_blank', 'noopener');
@@ -835,6 +857,123 @@ function buildCard(g) {
   });
 
   return card;
+}
+
+// Bring a card up to date with its gallery, in place: only the parts that differ change, so a
+// card that is hovered (grown), shrinking back, or showing a job's progress keeps all of that while
+// its values update. Returns the card — a new one when it turns into a series card or back, which
+// is laid out differently.
+function updateCard(card, g) {
+  const v = _cardView(g);
+  if (v.series !== card._view.series) {
+    const next = buildCard(g);
+    card.replaceWith(next);
+    const gid = String(g.id), job = _liveJobs.get(gid);
+    if (job) applyJob(job);
+    if (_interrupted.has(gid)) _applyInterruptedUI(gid);
+    return next;
+  }
+  card._g = g;
+  _paintCard(card, v, card._view);
+  return card;
+}
+
+// Set or drop a data attribute, touching it only when it changes.
+function _data(el, key, value) {
+  if (value == null) { if (key in el.dataset) delete el.dataset[key]; }
+  else if (el.dataset[key] !== value) el.dataset[key] = value;
+}
+
+// Fill a card's parts from a view of its gallery — all of them (`was` null, a new card) or the
+// ones that differ from the view it shows (`was`). Text Safe Mode scrambles is scrambled as it lands.
+function _paintCard(card, v, was) {
+  const changed = (part) => !was || v[part] !== was[part];
+  card._view = v;
+  if (changed('sfw')) card.classList.toggle('card-sfw', v.sfw);
+  const wrap = card.querySelector('.card-thumb-wrap');
+  if (changed('href')) wrap.setAttribute('href', v.href);
+  _syncThumb(wrap, v);
+  if (changed('badge')) { const badge = wrap.querySelector('.card-series-badge'); if (badge) badge.textContent = v.badge; }
+  if (changed('favorite')) {
+    const fav = card.querySelector('.card-fav');
+    fav.classList.toggle('on', v.favorite);
+    fav.setAttribute('aria-pressed', v.favorite ? 'true' : 'false');
+    fav.dataset.tip = t(v.favorite ? 'card.tip_fav_remove' : 'card.tip_fav_add');
+    fav.dataset.tipAlt = t(v.favorite ? 'card.tip_search_fav' : 'card.tip_search_unfav');
+  }
+  const open = card.querySelector('.card-btn-open');
+  _data(open, 'tip', v.openTip);
+  _data(open, 'tipShift', v.openShift);
+  _data(open, 'tipAlt', v.openAlt);
+  if (changed('openInner')) {
+    open._baseInner = v.openInner;
+    // Flipped to its Shift icon under the pointer, it flips back to the new one when let go.
+    if (!(_shiftHeld && _hoveredOpenBtn === open)) open.querySelector('.open-inner').innerHTML = v.openInner;
+  }
+  if (changed('id')) {
+    card.querySelector('.card-id').outerHTML = v.id;
+    if (safeMode) _scrambleId(card.querySelector('.card-id'));
+  }
+  if (changed('title')) {
+    let title = card.querySelector('.card-title');
+    if (!v.title) title?.remove();
+    else {
+      if (!title) { title = document.createElement('div'); title.className = 'card-title'; card.querySelector('.card-id-row').after(title); }
+      title.dataset.original = v.title;
+      if (safeMode) _scrambleTitle(title); else title.textContent = v.title;
+    }
+  }
+  if (changed('meta')) card.querySelector('.card-meta').innerHTML = v.meta;
+  if (changed('tags')) {
+    const tags = card.querySelector('.card-tags');
+    tags.innerHTML = v.tags;
+    if (safeMode) tags.querySelectorAll('.card-tag[data-original]').forEach(_scrambleTag);
+  }
+  _syncCardActions(card, v);
+}
+
+// The cover: an image once the gallery has one (the placeholder until then), showing the cached
+// cover — swapped only when it differs; the image keeps showing the old one until the new loads.
+function _syncThumb(wrap, v) {
+  let img = wrap.querySelector('img.card-thumb');
+  if (v.hasThumb && !img) {
+    img = document.createElement('img');
+    img.className = 'card-thumb';
+    img.draggable = false;
+    img.alt = '';
+    const placeholder = wrap.querySelector('.card-thumb-placeholder');
+    if (placeholder) placeholder.replaceWith(img); else wrap.prepend(img);
+    wireCardThumbFit(img);
+  } else if (!v.hasThumb && img) {
+    wrap.querySelector('.card-thumb-glow')?.remove();
+    img.outerHTML = '<div class="card-thumb-placeholder">📁</div>';
+    return;
+  }
+  if (img && v.thumbSrc && img.getAttribute('src') !== v.thumbSrc) img.src = v.thumbSrc;
+}
+
+// The download and translate buttons as the gallery has them — unless a job's progress shows on
+// the card: the job owns them until it clears (_clearCardProgress, or the reload after it).
+function _syncCardActions(card, v) {
+  if (card.querySelector('.card-body').classList.contains('downloading')) return;
+  for (const b of card.querySelectorAll('.card-btn-dl')) {
+    if (b.disabled) b.disabled = false;
+    b.classList.toggle('done', false);
+    _data(b, 'tip', v.dlTip);
+    _data(b, 'tipShift', v.dlShift);
+    // The resting icon, unless it shows already — the download icon flipped to Replace under Shift
+    // counts. A job leaves "…" or "✓" in its place.
+    const icon = b.firstElementChild;
+    if (v.canDownload ? !icon?.matches('.dl-inner') : !icon?.matches('svg')) b.innerHTML = v.canDownload ? _DL_ICON : _UPLOAD_ICON;
+  }
+  for (const b of card.querySelectorAll('.card-btn-translate')) {
+    if (b.classList.contains('cancelling')) continue;
+    if (b.disabled) b.disabled = false;
+    b.classList.toggle('done', v.translated);
+    _data(b, 'tip', v.translated ? _translatedTip() : t('card.tip_translate'));
+    _data(b, 'tipShift', v.translated ? t('card.tip_revert') : null);
+    _data(b, 'tipAlt', t(v.translated ? 'card.tip_search_translated' : 'card.tip_search_untranslated'));
+  }
 }
 
 // Custom animated card drag. Starts once the pointer moves past a small threshold (so plain clicks
@@ -970,20 +1109,29 @@ async function openSeriesTranslateModal(g) {
   });
 }
 
-function renderGrid(galleries) {
+// Bring the grid to `galleries`: a card already showing one of them is kept and updated in place,
+// the others are built, and cards no longer on the page are dropped. `rebuild` makes every card
+// again (the app's language changed).
+function renderGrid(galleries, { rebuild = false } = {}) {
   const grid = document.getElementById('grid');
-
-  // Release decoded bitmaps immediately so Chrome can evict them before the new page loads.
-  grid.querySelectorAll('img.card-thumb').forEach(img => { img.src = ''; });
-
+  const old = new Map([...grid.querySelectorAll(':scope > .card')].map((card) => [card.dataset.galleryId, card]));
+  const cards = galleries.map((g) => {
+    const card = !rebuild && old.get(String(g.id));
+    if (!card) return buildCard(g);
+    old.delete(String(g.id));
+    return updateCard(card, g);
+  });
+  // Release the decoded bitmaps of the cards that go, so Chrome can evict them.
+  for (const card of old.values()) {
+    card.querySelectorAll('img.card-thumb').forEach(img => { img.src = ''; });
+    card.remove();
+  }
   if (galleries.length === 0) {
     grid.innerHTML = `<div class="empty">${escHtml(t('lib.empty_title'))}<br>${escHtml(t('lib.empty_sub'))}</div>`;
     return;
   }
-
-  grid.innerHTML = '';
-  for (const g of galleries) grid.appendChild(buildCard(g));
-  if (safeMode) applyGibberishToGrid();
+  grid.querySelector(':scope > .empty')?.remove();
+  cards.forEach((card, i) => { if (grid.children[i] !== card) grid.insertBefore(card, grid.children[i] || null); });
 }
 
 function fetchPageCovers(pageSlice) {
@@ -1022,17 +1170,7 @@ platform.onControl((msg) => {
       _coverCache.delete(coverCacheKey(msg.galleryId, !preferSeries));
       _scheduleCoverCacheSave();
       document.querySelectorAll(`.card[data-gallery-id="${msg.galleryId}"] .card-thumb-wrap`).forEach(wrap => {
-        let img = wrap.querySelector('.card-thumb');
-        if (!img) {
-          wrap.innerHTML = '';
-          img = document.createElement('img');
-          img.className = 'card-thumb';
-          img.alt = '';
-          wireCardThumbFit(img);
-          wrap.appendChild(img);
-        }
-        img.classList.remove('landscape');
-        img.src = msg.coverDataUrl;
+        _syncThumb(wrap, { hasThumb: true, thumbSrc: msg.coverDataUrl });
       });
     }
     // For galleries that were empty before (count=0), refresh the entity from the DB.
@@ -1040,7 +1178,7 @@ platform.onControl((msg) => {
       store.load(msg.galleryId).then(entity => {
         if (entity) { gEntry.count = entity.count; gEntry.size = entity.size; gEntry.origSize = entity.origSize; }
         const $card = document.querySelector(`.card[data-gallery-id="${msg.galleryId}"]`);
-        if ($card) $card.replaceWith(buildCard(gEntry));
+        if ($card) updateCard($card, gEntry);
         updateHeaderStats();
       }).catch(console.error);
     }
@@ -1099,6 +1237,9 @@ function _clearCardProgress(gid) {
     if (b.classList.contains('cancelling')) _setTrCancelMode(b, false);
     b.disabled = false;
   });
+  // The buttons back to what the gallery has now (a finished download left "✓" on its button).
+  const g = _pageItems.find(x => x.id === gid) || card._g;
+  if (g) updateCard(card, g);
 }
 
 function applyJob(job) {
@@ -1117,10 +1258,8 @@ function applyJob(job) {
   const card    = document.querySelector(`.card[data-gallery-id="${gid}"]`);
   if (!card) {
     // A brand-new gallery mid-job (a download/upload started elsewhere) has no card yet — reveal it.
-    // Translate runs on an EXISTING gallery, so if its card isn't in the current view there's
-    // nothing to reveal; reloading on every progress frame would thrash the visible cards'
-    // hover animations. Only reload for kinds that can introduce a new card.
-    if (kind !== 'translate' && kind !== 'sync' && status !== 'done' && status !== 'error') _scheduleReloadPage();
+    // Translate and sync run on an EXISTING gallery, so there's nothing to reveal.
+    if (kind !== 'translate' && kind !== 'sync' && status !== 'done' && status !== 'error') _revealCard(gid);
     return;
   }
   const fillEl  = document.getElementById(`progfill-${gid}`);
@@ -1307,7 +1446,7 @@ function parseSearch(raw) {
 // Loads the current page from the database (sorted + filtered server-side), so only the
 // galleries on screen are ever materialized — memory is bounded by PAGE_SIZE, not library size.
 let _loadSeq = 0;
-async function applyFilters() {
+async function applyFilters({ rebuild = false } = {}) {
   const seq = ++_loadSeq;
   const raw  = searchQuery();
   const sort = document.getElementById('sortSelect').value;
@@ -1320,7 +1459,7 @@ async function applyFilters() {
   if (seq !== _loadSeq) return; // a newer search/sort/page load superseded this one
   _total = total;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  if (currentPage > totalPages) { currentPage = totalPages; return applyFilters(); }
+  if (currentPage > totalPages) { currentPage = totalPages; return applyFilters({ rebuild }); }
 
   // Apply any in-flight optimistic source edits the DB hasn't committed yet.
   for (const g of items) {
@@ -1333,7 +1472,7 @@ async function applyFilters() {
   }
 
   _pageItems = items;
-  renderGrid(items);
+  renderGrid(items, { rebuild });
   renderPagination(currentPage, totalPages);
   fetchPageCovers(items);
   syncUrl();
@@ -1623,6 +1762,8 @@ async function replaceGalleryImages(gid, group) {
   if (progEl) progEl.closest('.card-body')?.classList.add('downloading');
 
   setLabel(t('prog.reading_file'));
+  // The desktop app's runner takes it when there is one; it reports via platform.jobs (applyJob).
+  if (await handImport({ galleryId: gid, group, skipExisting: false })) return;
   let buffer;
   try { buffer = await importBytes(group, (p) => setLabel(t('prog.rendering', p))); }
   catch { setLabel(t('prog.err_read')); dlBtns.forEach(b => { b.disabled = false; b.innerHTML = _DL_ICON; }); return; }
@@ -1655,18 +1796,19 @@ async function importSingleFile(group, gid) {
   const setLabel = (txt) => { if (labelEl) labelEl.textContent = txt; };
   if (progEl) progEl.closest('.card-body')?.classList.add('downloading');
 
+  // A file that couldn't be read or staged keeps its error on the card (shown only while the card
+  // shows progress) rather than leaving a placeholder that looks idle.
   setLabel(t('prog.reading_file'));
+  // The desktop app's runner takes it when there is one, so it goes on whatever this window does.
+  if (await handImport({ galleryId: gid, group, skipExisting: true })) return;
   let buffer;
   try { buffer = await importBytes(group, (p) => setLabel(t('prog.rendering', p))); }
-  catch (err) { setLabel(t('prog.err_read')); if (progEl) progEl.closest('.card-body')?.classList.remove('downloading'); return; }
+  catch { setLabel(t('prog.err_read')); return; }
 
   setLabel(t('prog.importing_file'));
   // It reports via platform.jobs (jobs-runner.js startImport); applyJob() updates the card and drops
   // the placeholder if it produced nothing.
-  if (!await startImport({ galleryId: gid, buffer, filename: group.name, skipExisting: true })) {
-    setLabel(t('prog.err_stage'));
-    if (progEl) progEl.closest('.card-body')?.classList.remove('downloading');
-  }
+  if (!await startImport({ galleryId: gid, buffer, filename: group.name, skipExisting: true })) setLabel(t('prog.err_stage'));
 }
 
 async function _handleImportFiles(files, folders = []) {
@@ -2015,19 +2157,25 @@ function randomGibberish(original) {
 
 let safeMode = localStorage.getItem('shiori-safe-mode') === '1';
 
+// Safe Mode's stand-ins, element by element — a card's text scrambled as it lands (_paintCard), or
+// the whole grid's when Safe Mode is turned on.
+function _scrambleTag(tag) {
+  tag.textContent = randomGibberish(tag.dataset.original);
+}
+function _scrambleTitle(el) {
+  el.textContent = el.dataset.original.split(/\s+/).map(w => randomGibberish(w)).join(' ');
+}
+function _scrambleId(el) {
+  el.textContent = el.dataset.original.replace(/\d/g, () => Math.floor(Math.random() * 10));
+  // The id can be a link to the real source URL — park the href so hover/status-bar/devtools
+  // don't reveal it while safe mode is on.
+  if (el.hasAttribute('href')) { el.dataset.safeHref = el.getAttribute('href'); el.removeAttribute('href'); }
+}
+
 function applyGibberishToGrid() {
-  document.querySelectorAll('.card-tag[data-original]').forEach(tag => {
-    tag.textContent = randomGibberish(tag.dataset.original);
-  });
-  document.querySelectorAll('.card-title[data-original]').forEach(el => {
-    el.textContent = el.dataset.original.split(/\s+/).map(w => randomGibberish(w)).join(' ');
-  });
-  document.querySelectorAll('.card-id[data-original]').forEach(el => {
-    el.textContent = el.dataset.original.replace(/\d/g, () => Math.floor(Math.random() * 10));
-    // The id can be a link to the real source URL — park the href so hover/status-bar/devtools
-    // don't reveal it while safe mode is on.
-    if (el.hasAttribute('href')) { el.dataset.safeHref = el.getAttribute('href'); el.removeAttribute('href'); }
-  });
+  document.querySelectorAll('.card-tag[data-original]').forEach(_scrambleTag);
+  document.querySelectorAll('.card-title[data-original]').forEach(_scrambleTitle);
+  document.querySelectorAll('.card-id[data-original]').forEach(_scrambleId);
 }
 
 function restoreTagsInGrid() {
@@ -2122,44 +2270,16 @@ store.subscribe('*', (gid) => {
     }
   }
 
-  // Keep the on-screen page model current even while a job is in flight, so the card shows
-  // the right data once the job clears.
   if (idx >= 0) _pageItems[idx] = entity;
 
+  // A card on the page takes the change at once, in place — hovered, mid-job or not: only the parts
+  // that changed are redrawn, and a job's progress (and the buttons it holds) are left to the job.
   const card = document.querySelector(`.card[data-gallery-id="${gid}"]`);
-  if (_liveJobs.has(gid) || _interrupted.has(gid)) {
-    // A job owns an existing card's progress bar / interrupted hint — don't rebuild it (that
-    // would reset the bar or wipe the hint). A brand-new gallery mid-job (e.g. an import) has
-    // no card yet, so reload the page.
-    if (!card) _scheduleReloadPage();
-    return;
-  }
-  if (idx >= 0 && card) _rebuildCard(card, gid);
-  // A new gallery may belong on this page — but a chapter never has a card of its own in the
-  // merged view (its series card hears about its own changes).
-  else if (idx < 0 && !(_mergeSeries && entity.parentId)) _scheduleReloadPage();
+  if (idx >= 0 && card) {
+    updateCard(card, entity);
+    fetchPageCovers([entity]);   // a gallery that just got its first page gets its cover
+  } else if (idx < 0) _revealCard(gid);
 });
-
-// Rebuilding a card the pointer is over restarts its expand-on-hover, so a hovered card is rebuilt
-// once the pointer has left and the card has shrunk back (a new card would show at rest at once) —
-// from the latest data, however many changes arrived meanwhile.
-const CARD_SHRINK_MS = 250;   // library.css: a card's title and tags shrinking back
-function _rebuildCard(card, gid) {
-  if (card._rebuildPending) return;
-  if (card.matches(':hover')) {
-    card._rebuildPending = true;
-    card.addEventListener('mouseleave', () => setTimeout(() => {
-      card._rebuildPending = false;   // hovered again meanwhile? the next call re-arms
-      const entity = _pageItems.find(g => g.id === gid);
-      if (entity && card.isConnected && !_liveJobs.has(gid) && !_interrupted.has(gid)) _rebuildCard(card, gid);
-    }, CARD_SHRINK_MS), { once: true });
-    return;
-  }
-  const entity = _pageItems.find(g => g.id === gid);
-  if (!entity) return;
-  card.replaceWith(buildCard(entity));
-  fetchPageCovers([entity]);
-}
 
 if (safeMode) setSafeMode(true);
 
@@ -2251,7 +2371,7 @@ setTimeout(updateExtStatus, 2500);
 setTimeout(updateExtStatus, 6500);   // first probe past the grace window — reconciles a stale cached "available"
 
 // Language changed (in this or another tab) — re-render so the per-card language flags update.
-window.addEventListener('shiori-lang-change', () => applyFilters());
+window.addEventListener('shiori-lang-change', () => applyFilters({ rebuild: true }));
 
 initFromUrl();
 _renderFilter();

@@ -55,6 +55,30 @@ export async function submitJob(kind, payload) {
   return 'tab';
 }
 
+// ── The desktop app's runner ──
+// The desktop app keeps a page of its own open out of sight (runner.js), where an import a window
+// hands over runs to the end whatever the window does meanwhile — goes to an overview or the
+// reader, reloads, closes to the tray. The app is asked to open it (it answers once the page
+// listens), the import goes over this channel, and the runner says it took it. Resolves false when
+// there is no runner to take it: the caller imports it itself.
+export const RUNNER_CHANNEL = 'shiori-runner';
+const RUNNER_ANSWER_MS = 30000;   // the runner answers between steps of the import it is running
+export async function handImport({ galleryId, group, skipExisting = true }) {
+  const shell = globalThis.shioriDesktop?.shell;
+  if (typeof shell !== 'function') return false;
+  try { if (!await shell('runner')) return false; } catch { return false; }
+  const id = crypto.randomUUID();
+  const channel = new BroadcastChannel(RUNNER_CHANNEL);
+  try {
+    return await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(false), RUNNER_ANSWER_MS);
+      channel.onmessage = ({ data }) => { if (data?.type === 'taken' && data.id === id) { clearTimeout(timer); resolve(true); } };
+      channel.postMessage({ type: 'import', id, galleryId: String(galleryId), skipExisting,
+        group: { files: [...group.files], paths: group.paths, name: group.name } });
+    });
+  } finally { channel.close(); }
+}
+
 // Cancel a job. The abort handle lives in whichever context is running the job, so route
 // the cancel the same way submitJob routed the work: to the SW if one controls this page,
 // otherwise in-tab.

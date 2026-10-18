@@ -3,12 +3,19 @@
 // durable runner, which reads it back; a library kept as files imports it straight from memory.
 // test:desktop runs this file against the desktop library, so each run covers one of the two ways.
 // Pictures in more than one folder (a dropped folder or a zip) make a series: a chapter per folder
-// holding pictures, named after it, the dropped folder or zip naming the series.
+// holding pictures, named after it, the dropped folder or zip naming the series. A page in the
+// desktop app hands its import to the app's runner, where it runs whatever the page does next.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import 'fake-indexeddb/auto';
 
-globalThis.BroadcastChannel = class { postMessage() {} close() {} };
+// Channels of one name hear one another (Node's own can't post a File twice), as in a browser.
+const channels = new Map();
+globalThis.BroadcastChannel = class {
+  constructor(name) { this.name = name; if (!channels.has(name)) channels.set(name, new Set()); channels.get(name).add(this); }
+  postMessage(data) { for (const c of channels.get(this.name)) if (c !== this) setTimeout(() => c.onmessage?.({ data })); }
+  close() { channels.get(this.name).delete(this); }
+};
 
 // A stand-in OPFS: a written file reads back as a Blob of what was written.
 const opfs = new Map();
@@ -28,6 +35,7 @@ const platform = await import('../js/platform.js');
 const { startImport, runImport } = await import('../js/jobs-runner.js');
 const { groupImports, importBytes, droppedImports } = await import('../js/import-files.js');
 const { zipCreate } = await import('../js/zip.js');
+const { handImport } = await import('../js/submit-job.js');
 
 // The durable runner a staged import is handed to (the service worker's job, here in this context).
 platform.registerServices({ handle: (msg) => { if (msg.type === 'IMPORT_CBZ') runImport(msg); } });
@@ -111,6 +119,16 @@ test('a zip of chapter folders is a series the same way; pictures in one folder,
   assert.equal((await api.meta.get(deep)).title.english, 'Deep');
 });
 
+test('an archive too big to read into one buffer (the browser\'s bound is 2 GiB) imports in full', async () => {
+  const gid = '1790600000025';
+  class TooBigToReadWhole extends File {
+    arrayBuffer() { return Promise.reject(new DOMException('The requested file could not be read.', 'NotReadableError')); }
+  }
+  const small = zip('Big.zip', [['2.png', 2], ['1.png', 1], ['10.png', 10]]);
+  await importInto(gid, groupImports([new TooBigToReadWhole([small], small.name)])[0]);
+  assert.deepEqual(await pictures(gid), [1, 2, 10]);
+});
+
 test('importing a series again (a resumed import) adds no chapters', async () => {
   const gid = '1790600000030';
   const group = groupImports([zip('Again.zip', [['Ch 1/1.png', 11], ['Ch 2/1.png', 21]])])[0];
@@ -136,4 +154,31 @@ test('on a series\' page, an imported chapter keeps its series, and a folder of 
   const [, chapters] = await seriesOf(owner);
   assert.deepEqual(chapters.map(([t]) => t), ['p 1', 'Ch 5', 'Ch 6', 'Next']);
   assert.deepEqual(chapters.map(([, p]) => p), [[1], [51], [61], [7]]);
+});
+
+test('without the desktop app\'s runner, a page imports itself', async () => {
+  const group = groupImports([png(1)])[0];
+  assert.equal(await handImport({ galleryId: '1790600000050', group }), false);
+  const desktop = globalThis.shioriDesktop;
+  globalThis.shioriDesktop = { ...desktop, shell: async () => false };   // the app couldn't open it
+  try { assert.equal(await handImport({ galleryId: '1790600000050', group }), false); }
+  finally { globalThis.shioriDesktop = desktop; }
+});
+
+test('an import handed to the desktop app\'s runner runs there, in order, and reports like any import', async () => {
+  const desktop = globalThis.shioriDesktop;
+  const asked = [];
+  globalThis.shioriDesktop = { ...desktop, shell: async (action) => { asked.push(action); return true; } };
+  try {
+    const runner = await import('../js/runner.js');
+    const [a, b] = ['1790600000060', '1790600000061'];
+    for (const [gid, name] of [[a, 'A'], [b, 'B']]) await api.galleries.create(gid, { title: title(name), isLocalImport: true });
+    const done = [outcome(a), outcome(b)];
+    assert.equal(await handImport({ galleryId: a, group: groupImports([zip('A.zip', [['2.png', 2], ['1.png', 1]])])[0] }), true);
+    assert.equal(await handImport({ galleryId: b, group: groupImports([png(7), png(3)])[0] }), true);
+    assert.deepEqual(await Promise.all(done), [{ status: 'done', error: undefined }, { status: 'done', error: undefined }]);
+    assert.deepEqual([await pictures(a), await pictures(b)], [[1, 2], [3, 7]]);
+    assert.deepEqual(runner.activeJobs(), { count: 0, titles: [] });
+    assert.deepEqual(asked, ['runnerReady', 'runner', 'runner']);
+  } finally { globalThis.shioriDesktop = desktop; }
 });

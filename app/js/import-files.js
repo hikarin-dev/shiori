@@ -119,7 +119,9 @@ function _imagesTitle(images) {
   return (stems.length > 1 && common.replace(/\d+$/, '').replace(/[\s._\-#([]+$/, '')) || stems[0];
 }
 
-// The zip the import engine reads for one group. An archive passes through untouched; images, and
+// The zip the import engine reads for one group. An archive passes through untouched, as the file
+// it is (the engine reads it a piece at a time, so its size is not bound by what fits one buffer);
+// images, and
 // a folder in the Shiori gallery format, are zipped under their paths (`paths`) — a member of a
 // series kept as an archive in its series' folder (Shiori Desktop archives galleries left alone)
 // going in as the folder it is the archive of; a PDF reports its pages as they are drawn via
@@ -135,7 +137,7 @@ export async function importBytes({ files, paths }, onProgress = () => {}) {
     }
     return zipCreate(out);
   }
-  if (ARCHIVE.test(files[0].name)) return files[0].arrayBuffer();
+  if (ARCHIVE.test(files[0].name)) return files[0];
   const pages = await _renderPdf(files[0], onProgress);
   return zipCreate(pages.map((p, i) => ({ name: `${i + 1}.${p.ext}`, data: p.data })));
 }

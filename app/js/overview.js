@@ -20,6 +20,7 @@ import { escHtml } from './sanitize.js';
 import { resizeToWidth, imageToBlob } from './image-util.js';
 import { IMPORT_ACCEPT, groupImports, importBytes, isImportable, droppedImports } from './import-files.js';
 import { startImport } from './jobs-runner.js';
+import { handImport } from './submit-job.js';
 import { openRerunMenu } from './rerun-menu.js';
 import { confirmDialog, alertDialog } from './notice.js';
 import { openTagEditor, removeTag, tagKey, TAG_TYPE_LABEL } from './tag-editor.js';
@@ -1845,6 +1846,8 @@ async function importAsChapter(group) {
 
 // Minimal mirror of library.js's importSingleFile (jobs-runner.js startImport).
 async function stageImport(group, gid, { skipExisting = true } = {}) {
+  // The desktop app's runner takes it when there is one, so it goes on whatever this window does.
+  if (await handImport({ galleryId: gid, group, skipExisting })) return true;
   let buffer;
   try { buffer = await importBytes(group, (p) => beginChapterJob(gid, 'upload', t('prog.rendering', p))); }
   catch {
@@ -1891,12 +1894,14 @@ $('ovContent').addEventListener('focusin', (e) => {
 });
 
 // Re-render when a member gallery changes (e.g. a chapter import finishes filling pages).
-// Row-debounced so download/import feed beacons update only the affected chapter row.
+// Per row, at most once every 150 ms, so download/import feed beacons update only the affected
+// chapter row — and a steady stream of them (an import stores pages faster than that) still paints
+// as it goes rather than only once it stops.
 const _refreshTimers = new Map();
 store.subscribe('*', (gid) => {
   if (Date.now() < _suppressRenderUntil) return;
   const key = String(gid);
-  clearTimeout(_refreshTimers.get(key));
+  if (_refreshTimers.has(key)) return;
   _refreshTimers.set(key, setTimeout(() => {
     _refreshTimers.delete(key);
     refreshChangedChapter(key).catch(() => render().catch(() => {}));

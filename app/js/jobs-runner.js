@@ -19,7 +19,7 @@ export async function runImport({ galleryId, tempFile, filename, skipExisting = 
   try {
     const root = await navigator.storage.getDirectory();
     const fh = await root.getFileHandle(tempFile);
-    await _import(gid, await (await fh.getFile()).arrayBuffer(), filename, skipExisting);
+    await _import(gid, await fh.getFile(), filename, skipExisting);
     // Success only — a failed import (importCbzBuffer throws) retains the staged file so the
     // import can be retried; boot maintenance sweeps abandoned ones after a grace period.
     root.removeEntry(tempFile).catch(() => {});
@@ -27,11 +27,12 @@ export async function runImport({ galleryId, tempFile, filename, skipExisting = 
   } catch (e) { _importFailed(gid, e); }
 }
 
-// Import a zip (import-files.js importBytes) from a page into gallery `galleryId`. This browser's
-// library has it staged in OPFS first and handed to the durable runner (the service worker, which
-// survives the page). A library kept as files has no service worker to hand it to, so it is
-// imported here and now, straight from memory — not written a second time on its way in; an import
-// cut short by closing the page is started again. Resolves false when it couldn't be staged.
+// Import a zip (import-files.js importBytes: a file, or bytes) from a page into gallery `galleryId`.
+// This browser's library has it staged in OPFS first and handed to the durable runner (the service
+// worker, which survives the page). A library kept as files has no service worker to hand it to, so
+// it is imported here and now, straight from the file or memory — not written a second time on its
+// way in; an import cut short by closing the page is started again. Resolves false when it couldn't
+// be staged.
 export async function startImport({ galleryId, buffer, filename, skipExisting = true }) {
   const gid = String(galleryId);
   if (!capabilities.browserLibrary) {

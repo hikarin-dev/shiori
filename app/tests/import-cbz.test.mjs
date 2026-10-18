@@ -16,11 +16,12 @@ const { importCbzBuffer, CbzImportError, unzip } = await import('../js/import-cb
 
 const enc = new TextEncoder();
 
-// Minimal store-method zip: enough structure for unzip's central-directory walk (CRCs unused).
+// Minimal zip: enough structure for unzip's central-directory walk (CRCs and uncompressed sizes
+// unused). An entry's `data` is held as it is: stored, or already deflated when `method` is 8.
 function buildZip(entries) {
   const chunks = [], central = [];
   let offset = 0;
-  for (const { name, data } of entries) {
+  for (const { name, data, method = 0 } of entries) {
     const nameBytes = enc.encode(name);
     const local = new DataView(new ArrayBuffer(30));
     local.setUint32(0, 0x04034b50, true);
@@ -30,7 +31,7 @@ function buildZip(entries) {
     chunks.push(new Uint8Array(local.buffer), nameBytes, data);
     const cd = new DataView(new ArrayBuffer(46));
     cd.setUint32(0, 0x02014b50, true);
-    cd.setUint16(10, 0, true);
+    cd.setUint16(10, method, true);
     cd.setUint32(20, data.length, true);
     cd.setUint32(24, data.length, true);
     cd.setUint16(28, nameBytes.length, true);
@@ -95,4 +96,33 @@ test('a zip handed over as a view of a larger buffer is read from where the view
   larger.set(zip, 8);
   const entries = await unzip(larger.subarray(8, 8 + zip.length));
   assert.deepEqual(entries.map((e) => [e.filename, new TextDecoder().decode(e.data)]), [['a.jpg', 'page']]);
+});
+
+// A file too big to read into one buffer, as the browser has it past 2 GiB: read whole, it fails;
+// its pieces read.
+class TooBigToReadWhole extends File {
+  arrayBuffer() { return Promise.reject(new DOMException('The requested file could not be read.', 'NotReadableError')); }
+}
+const deflate = async (bytes) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer());
+
+test('a zip handed over as a file is read a piece at a time, stored and deflated entries alike', async () => {
+  const zip = buildZip([
+    { name: 'Ch 1/', data: new Uint8Array() },
+    { name: 'Ch 1/1.jpg', data: enc.encode('stored page') },
+    { name: 'Ch 1/2.jpg', data: await deflate(enc.encode('deflated page '.repeat(50))), method: 8 },
+  ]);
+  const read = async (source) => (await unzip(source)).map((e) => [e.filename, new TextDecoder().decode(e.data)]);
+  const expected = [['Ch 1/1.jpg', 'stored page'], ['Ch 1/2.jpg', 'deflated page '.repeat(50)]];
+  assert.deepEqual(await read(zip), expected);
+  assert.deepEqual(await read(new TooBigToReadWhole([zip], 'big.zip')), expected);
+});
+
+test('a file that is not a zip, or one cut short, rejects with a typed parse error', async () => {
+  await assert.rejects(unzip(new TooBigToReadWhole([new Uint8Array(64)], 'x.zip')),
+    (e) => e instanceof CbzImportError && e.code === 'cbz_parse');
+  // An entry whose local header points past the end of the file.
+  const zip = new Uint8Array(buildZip([{ name: 'a.jpg', data: enc.encode('page') }]));
+  new DataView(zip.buffer).setUint32(zip.length - 22 - 46 - 5 + 42, 1 << 20, true);
+  await assert.rejects(unzip(new TooBigToReadWhole([zip], 'x.zip')),
+    (e) => e instanceof CbzImportError && e.code === 'cbz_parse');
 });

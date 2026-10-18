@@ -89,7 +89,7 @@ test('a dropped folder is one gallery named after it, subfolders flattened in pa
   assert.deepEqual(groups[2].files.map((f) => f.name), ['01.avif', '02.png', '10.gif', '01.jpg']);
 });
 
-test('an archive is handed over as it is', async () => {
+test('an archive is handed over as it is, the file itself (never read whole)', async () => {
   const [group] = groupImports([file('a.zip', [7, 8, 9])]);
-  assert.deepEqual([...new Uint8Array(await importBytes(group))], [7, 8, 9]);
+  assert.equal(await importBytes(group), group.files[0]);
 });

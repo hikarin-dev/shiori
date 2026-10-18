@@ -18,28 +18,52 @@ export class CbzImportError extends Error {
 }
 
 // Archive guards: generous bounds no real archive reaches, cheap insurance against a corrupt
-// central directory or a zip bomb expanding into memory.
+// central directory or a zip bomb expanding into memory (unzip holds every entry at once).
 const MAX_ZIP_ENTRIES = 20000;
 const MAX_EXPANDED_BYTES = 4 * 1024 * 1024 * 1024;   // 4 GiB decompressed
 
-async function inflateRaw(bytes) {
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+async function inflateRaw(part) {
+  const stream = new Blob([part]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-// Parse a zip via its central directory (store + deflate entries) -> [{ filename, data }]. `buffer`
-// is its bytes as an ArrayBuffer or a view of one (a Uint8Array, as zipCreate makes).
-export async function unzip(buffer) {
-  const bytes = ArrayBuffer.isView(buffer) ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength) : new Uint8Array(buffer);
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  let eocd = -1;
-  for (let i = bytes.byteLength - 22; i >= 0; i--) { if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
-  if (eocd === -1) throw new CbzImportError('cbz_parse', 'Not a valid ZIP file');
-  const count = view.getUint16(eocd + 10, true);
-  if (count > MAX_ZIP_ENTRIES) throw new CbzImportError('cbz_limits', `Archive has too many entries (${count}).`);
-  let pos = view.getUint32(eocd + 16, true);
+// Parse a zip via its central directory (store + deflate entries) -> [{ filename, data }]. `source`
+// is as zipEntries takes it.
+export async function unzip(source) {
   const out = [];
   let expanded = 0;
+  for (const { filename, read } of await zipEntries(source)) {
+    const data = await read();
+    expanded += data.length;
+    if (expanded > MAX_EXPANDED_BYTES) throw new CbzImportError('cbz_limits', 'Archive expands beyond the supported size.');
+    out.push({ filename, data });
+  }
+  return out;
+}
+
+// A zip's entries, from its central directory (store + deflate entries) -> [{ filename, read }],
+// read() resolving to the entry's bytes. `source` is the zip as a Blob (a picked or dropped file),
+// read a piece at a time — the browser reads no more than 2 GiB of a file into one buffer — or its
+// bytes as an ArrayBuffer or a view of one (a Uint8Array, as zipCreate makes).
+export async function zipEntries(source) {
+  const bytes = source instanceof Blob ? null
+    : ArrayBuffer.isView(source) ? new Uint8Array(source.buffer, source.byteOffset, source.byteLength) : new Uint8Array(source);
+  const part = (from, to) => (bytes || source).slice(from, to);
+  const read = async (from, to) => (bytes ? part(from, to) : new Uint8Array(await part(from, to).arrayBuffer()));
+  // The end record closes the zip, followed only by its comment (at most 64 KiB).
+  const size = bytes ? bytes.byteLength : source.size;
+  const tailAt = Math.max(0, size - 22 - 0xffff);
+  const tail = await read(tailAt, size);
+  const tv = new DataView(tail.buffer, tail.byteOffset, tail.byteLength);
+  let eocd = -1;
+  for (let i = tail.byteLength - 22; i >= 0; i--) { if (tv.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
+  if (eocd === -1) throw new CbzImportError('cbz_parse', 'Not a valid ZIP file');
+  const count = tv.getUint16(eocd + 10, true);
+  if (count > MAX_ZIP_ENTRIES) throw new CbzImportError('cbz_limits', `Archive has too many entries (${count}).`);
+  const cd = await read(tv.getUint32(eocd + 16, true), tailAt + eocd);
+  const view = new DataView(cd.buffer, cd.byteOffset, cd.byteLength);
+  const out = [];
+  let pos = 0;
   for (let i = 0; i < count; i++) {
     if (view.getUint32(pos, true) !== 0x02014b50) break;
     const method = view.getUint16(pos + 10, true);
@@ -48,28 +72,27 @@ export async function unzip(buffer) {
     const extraLen = view.getUint16(pos + 30, true);
     const commentLen = view.getUint16(pos + 32, true);
     const local = view.getUint32(pos + 42, true);
-    const filename = new TextDecoder().decode(bytes.slice(pos + 46, pos + 46 + nameLen));
+    const filename = new TextDecoder().decode(cd.slice(pos + 46, pos + 46 + nameLen));
     pos += 46 + nameLen + extraLen + commentLen;
-    if (filename.endsWith('/')) continue;
-    const lNameLen = view.getUint16(local + 26, true), lExtraLen = view.getUint16(local + 28, true);
-    const dataStart = local + 30 + lNameLen + lExtraLen;
-    const comp = bytes.slice(dataStart, dataStart + compSize);
-    let data;
-    if (method === 0) data = comp;
-    else if (method === 8) data = await inflateRaw(comp);
-    else continue;
-    expanded += data.length;
-    if (expanded > MAX_EXPANDED_BYTES) throw new CbzImportError('cbz_limits', 'Archive expands beyond the supported size.');
-    out.push({ filename, data });
+    if (filename.endsWith('/') || (method !== 0 && method !== 8)) continue;
+    out.push({ filename, read: async () => {
+      try {
+        const head = await read(local, local + 30);
+        const hv = new DataView(head.buffer, head.byteOffset, head.byteLength);
+        const dataStart = local + 30 + hv.getUint16(26, true) + hv.getUint16(28, true);
+        return method === 0 ? await read(dataStart, dataStart + compSize) : await inflateRaw(part(dataStart, dataStart + compSize));
+      } catch (e) { throw new CbzImportError('cbz_parse', `Failed to read ${filename}: ${e && e.message || e}`); }
+    } });
   }
   return out;
 }
 
 // A cover the archive holds as a picture of its own. One that is the gallery's first page (`first`,
-// its bytes — exports before the gallery format wrote such copies) is implied, not stored again.
+// its entry — exports before the gallery format wrote such copies) is implied, not stored again.
+// `byName`: the archive's entries by name.
 async function restoreExportedCovers(gid, byName, first = null) {
   const coverEntries = [];
-  const manifestData = byName.get('covers/manifest.json');
+  const manifestData = await byName.get('covers/manifest.json')?.read();
   if (manifestData) {
     try {
       const manifest = JSON.parse(new TextDecoder().decode(manifestData));
@@ -89,9 +112,10 @@ async function restoreExportedCovers(gid, byName, first = null) {
     }
   }
 
+  const firstData = first && coverEntries.length ? await first.read() : null;
   for (const c of coverEntries) {
-    const data = byName.get(c.file);
-    if (!data || (first && _sameBytes(data, first))) continue;
+    const data = await byName.get(c.file)?.read();
+    if (!data || (firstData && _sameBytes(data, firstData))) continue;
     const ext = normExt(c.file.match(/\.(\w+)$/)?.[1]);
     await api.covers.put(gid, new Blob([data], { type: c.mime || MIME[ext] || 'image/jpeg' }), { role: c.role });
   }
@@ -132,15 +156,16 @@ function _byFolder(imgEntries) {
 export const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif' };
 export const normExt = (ext) => { const e = (ext || 'jpg').toLowerCase(); return e === 'jpeg' ? 'jpg' : e; };
 
-// Import a zip buffer into the library. Idempotent in skipExisting mode: re-running only
-// stores missing pages, which is what makes the upload job resumable.
+// Import a zip (as zipEntries takes it) into the library, each entry read as it is stored.
+// Idempotent in skipExisting mode: re-running only stores missing pages, which is what makes the
+// upload job resumable.
 //   skipExisting=false → replace mode: delete existing pages, write all from CBZ
 //   skipExisting=true  → import mode:  keep existing pages, write only new ones
 export async function importCbzBuffer(galleryId, buffer, filename, skipExisting, onProgress = () => {}) {
   const origGid = String(galleryId);
   onProgress({ status: 'extracting' });
   let entries;
-  try { entries = await unzip(buffer); }
+  try { entries = await zipEntries(buffer); }
   catch (e) {
     if (e instanceof CbzImportError) throw e;
     throw new CbzImportError('cbz_parse', 'Failed to parse CBZ: ' + (e && e.message || e));
@@ -151,7 +176,8 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
   const seriesEntry = entries.find(en => en.filename === 'series.json');
   if (seriesEntry) {
     let manifest = null;
-    try { manifest = JSON.parse(new TextDecoder().decode(seriesEntry.data)); } catch {}
+    const data = await seriesEntry.read();
+    try { manifest = JSON.parse(new TextDecoder().decode(data)); } catch {}
     if (manifest && Array.isArray(manifest.chapters) && manifest.chapters.length) {
       return _importSeriesZip(entries, manifest, onProgress);
     }
@@ -159,7 +185,7 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
 
   const metaEntry = entries.find(en => en.filename === 'metadata.json');
   let embeddedMeta = null;
-  if (metaEntry) { try { embeddedMeta = JSON.parse(new TextDecoder().decode(metaEntry.data)); } catch {} }
+  if (metaEntry) { const data = await metaEntry.read(); try { embeddedMeta = JSON.parse(new TextDecoder().decode(data)); } catch {} }
 
   // A Shiori per-gallery export (has image_records.json) carries pages under images/ plus
   // translated/ and study/ folders. Restore it losslessly — and never let those parallel
@@ -231,8 +257,14 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
 }
 
 const _extOf = (en) => normExt(en.filename.match(/\.(\w+)$/)?.[1]);
-const _putPage = (gid, n, en, ext) =>
-  api.pages.put(gid, n, new Blob([en.data], { type: MIME[ext] || 'image/jpeg' }), { key: `local://${gid}/${n}.${ext}` });
+const _putPage = async (gid, n, en, ext) =>
+  _storePage(gid, n, new Blob([await en.read()], { type: MIME[ext] || 'image/jpeg' }), `local://${gid}/${n}.${ext}`);
+// A page stored, and said so to every page (PAGE_STORED, as a download's pages are): a reader open
+// on the gallery shows each page as it arrives.
+async function _storePage(gid, n, blob, key) {
+  await api.pages.put(gid, n, blob, { key });
+  platform.jobs.signal({ type: 'PAGE_STORED', galleryId: gid, pageNum: n, url: key });
+}
 const _title = (s) => ({ english: s, japanese: '', pretty: s });
 
 // A plain import's metadata, merged into what the gallery has — the card its import reserved, the
@@ -305,11 +337,11 @@ async function _importSeriesZip(entries, manifest, onProgress) {
     const c = manifest.chapters[i];
     const folder = String(c.folder || `chapter-${String(i + 1).padStart(2, '0')}`).replace(/\/+$/, '') + '/';
     const sub = entries.filter(en => en.filename.startsWith(folder))
-      .map(en => ({ filename: en.filename.slice(folder.length), data: en.data }));
+      .map(en => ({ filename: en.filename.slice(folder.length), read: en.read }));
     if (!sub.length) continue;
     const metaEntry = sub.find(en => en.filename === 'metadata.json');
     let cmeta = null;
-    if (metaEntry) { try { cmeta = JSON.parse(new TextDecoder().decode(metaEntry.data)); } catch {} }
+    if (metaEntry) { const data = await metaEntry.read(); try { cmeta = JSON.parse(new TextDecoder().decode(data)); } catch {} }
     if (i === 0 && Array.isArray(cmeta?.seriesTags)) embeddedSeriesTags = cmeta.seriesTags;
     if (cmeta) { delete cmeta.chapters; delete cmeta.parentId; delete cmeta.seriesTitle; delete cmeta.seriesTags; }  // grouping is rebuilt below
     const gid = _validEmbeddedId(cmeta?.galleryId) || _validEmbeddedId(c.id) || api.newGalleryId();
@@ -364,7 +396,7 @@ async function _restorePipelines(gid, data, urlByNum, byName, studied) {
       const masks = {};
       for (const name of ['raw', 'text']) {
         const ext = ['webp', 'png'].find((e) => byName.has(`pipeline/${num}-${name}.${e}`));
-        if (ext) masks[name] = new Blob([byName.get(`pipeline/${num}-${name}.${ext}`)], { type: MIME[ext] });
+        if (ext) masks[name] = new Blob([await byName.get(`pipeline/${num}-${name}.${ext}`).read()], { type: MIME[ext] });
       }
       patch.pipeline = { ...pipeline, masks };
       if (typeof e.own === 'string') patch.own = e.own;   // the translation whose settings it keeps
@@ -378,7 +410,7 @@ async function _restorePipelines(gid, data, urlByNum, byName, studied) {
 // image_records.json) into `gid`. Always a full replace, so the originals, the translated
 // variants AND the study-mode layers all come back intact.
 async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
-  const byName = new Map(entries.map(en => [en.filename, en.data]));
+  const byName = new Map(entries.map(en => [en.filename, en]));
 
   const pageEntries = sortImageEntries(entries.filter(en => /^images\//i.test(en.filename)));
   const pageExts = pageEntries.map(en => normExt(en.filename.match(/\.(\w+)$/)?.[1]));
@@ -420,7 +452,7 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
     const num = parseInt(m[1]);
     const ext = normExt(m[2]);
     const url = `local://${gid}/${num}.${ext}`;
-    await api.pages.put(gid, num, new Blob([en.data], { type: MIME[ext] || 'image/jpeg' }), { key: url });
+    await _storePage(gid, num, new Blob([await en.read()], { type: MIME[ext] || 'image/jpeg' }), url);
     urlByNum.set(num, url);
     onProgress({ done: ++done, total: pageEntries.length, skipped: 0, status: 'progress' });
   }
@@ -432,13 +464,13 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
   for (const en of entries) {
     const m = en.filename.match(/^translated\/(\d+)\.(\w+)$/i);
     const url = m && urlByNum.get(parseInt(m[1]));
-    if (url) await api.derived.putTranslatedImage(gid, parseInt(m[1]), new Blob([en.data], { type: MIME[normExt(m[2])] || 'image/png' }));
+    if (url) await api.derived.putTranslatedImage(gid, parseInt(m[1]), new Blob([await en.read()], { type: MIME[normExt(m[2])] || 'image/png' }));
   }
 
   // Study layers → rec.studyBg + rec.bubbles, driven by study/bubbles.json. Files may be PNG
   // or WebP, so match by name prefix and read the MIME from the extension.
   const mimeOf = (name) => MIME[normExt(name?.match(/\.(\w+)$/)?.[1])] || 'image/png';
-  const bubblesData = byName.get('study/bubbles.json');
+  const bubblesData = await byName.get('study/bubbles.json')?.read();
   const studied = new Set();
   if (bubblesData) {
     let index = {};
@@ -447,8 +479,8 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
       const url = urlByNum.get(parseInt(numStr));
       let bgName = null;
       for (const k of byName.keys()) { if (k.startsWith(`study/bg/${numStr}.`)) { bgName = k; break; } }
-      const bgData = bgName ? byName.get(bgName) : null;
       if (!url) continue;
+      const bgData = bgName ? await byName.get(bgName).read() : null;
       // Older bundles store a bare entry array; newer ones wrap it with the page dimensions.
       const raw = index[numStr] || [];
       const ents = Array.isArray(raw) ? raw : (Array.isArray(raw.bubbles) ? raw.bubbles : []);
@@ -456,7 +488,7 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
       const bubbles = [];
       for (const ent of ents) {
         if (!ent || !ent.box) continue;
-        const td = ent.textFile ? byName.get(`study/text/${ent.textFile}`) : null;
+        const td = ent.textFile ? await byName.get(`study/text/${ent.textFile}`)?.read() : null;
         const bubble = { box: ent.box, region: ent.region || ent.box, tr: ent.tr || '', src: ent.src || '', text: td ? new Blob([td], { type: mimeOf(ent.textFile) }) : null };
         for (const key of BUBBLE_EXTRA_FIELDS) {
           if (ent[key] != null) bubble[key] = ent[key];
@@ -469,10 +501,10 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
     }
   }
 
-  const recordsData = byName.get('image_records.json');
+  const recordsData = await byName.get('image_records.json')?.read();
   if (recordsData) await _restorePipelines(gid, recordsData, urlByNum, byName, studied);
 
-  await restoreExportedCovers(gid, byName, pageEntries[0]?.data);
+  await restoreExportedCovers(gid, byName, pageEntries[0]);
   onProgress({ status: 'done', done, total: pageEntries.length, skipped: 0 });
   api.events.announce(gid);
 }
