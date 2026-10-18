@@ -1,5 +1,43 @@
 # Changelog
 
+## v1.2.4 — 2026-10-19
+
+### Added
+
+- The reader can keep its controls at the side instead of the top bar (**Reader settings → Navigation**): a chapter pill at the top right, a column of buttons down the right edge (home, overview, reading mode, translate, study, thumbnails, auto-play, settings, shortcuts and pin), and fit and zoom at the bottom right. It's the starting choice for anyone new to the reader; the top bar stays for everyone who has read before.
+- The side controls can be hidden: press **X**, double-click beside the page, or use the pin. They come back while you point at the right edge or the bottom-right corner.
+- The chapter pill steps to the previous or next chapter, and opens a list of the series' chapters to jump to.
+- Auto-play, in every reading mode: press the play button (now also on the top bar, left of the reading mode) or **K**. The scroll strip scrolls on by itself; single and double page turn the page after a set time, with a thin bar along the bottom of the page showing how much is left, and a page taller than the screen scrolls down on its way.
+- Drag a play button to change the auto-play speed, the way you'd drag a number in an image editor: up or right for faster, down or left for slower. Keep the pointer against the edge of the screen to keep going.
+- Auto-play stops when you scroll back up, turn back a page, change chapter or reading mode, or reach the end; it waits while settings or a dialog is open.
+- **Reader settings** has an auto-play speed (20–1000 px/s in the scroll strip, 60 to 1 seconds a page in single page, 120 to 2 in double page) and a way to dim the pages.
+- Pointing at a page on the progress bar, or at a thumbnail, gets that page ready, so a click there shows it at once. Pointing at the progress bar also gets the thumbnails around it ready.
+- **Reader settings → Debug → Show loaded pages** colours the pages the reader holds ready on the progress bar.
+
+### Changed
+
+- The thumbnail strip follows the page lazily: it stays where you put it, follows once the current page passes its middle, pushes along at its edges instead of letting the page slip out of view, and only jumps when the page is far out of sight. In single and double page it keeps up with every page turn at once.
+- In single and double page, a click turns the page only when it lands on the page itself; the space beside the page is left free.
+- Zooming in or out now turns off fit width or fit height in single and double page too, carrying on from the size the page was shown at.
+- Dragging the thumbnails out of the progress bar keeps them only if you let go with the strip all the way out; while you still hold it, you can bring it back in.
+- The progress bar grows half as thick when you point at it, a left or right progress bar runs the full height of the window, and a double-page spread shows a line between its two pages.
+- The address in your browser follows the page you're reading, without adding to your history, so a reload or a copied link opens on that page.
+- Scrubbing the scroll strip from the progress bar or the thumbnails glides along smoothly instead of in steps.
+- A jump far ahead in the scroll strip starts loading where it's going straight away, so the pages there show sooner.
+- The reader keeps a few more pages ready around the one you're reading.
+- Tooltips now change the moment you click a button, without moving the mouse.
+
+### Fixed
+
+- Jumping back and forth between far pages on the progress bar could stop pages from loading at all until the reader was reopened.
+- A long series with many missing pages no longer slows the reader down.
+- Scrubbing a middle chapter from the progress bar now stops at the top of its first page and the bottom of its last, and no longer snaps back to the top when the pointer leaves the window.
+- Scrubbing in single and double page is fast again.
+- Double-clicking a page no longer highlights it in blue.
+- Shiori Desktop: an import keeps running when you open a gallery's overview or the reader, reload the window, or close it to the tray. An open reader or overview shows the pages as they arrive.
+- Zips bigger than 2 GB can be imported.
+- Library cards take changes in place: covers stay put, a card you're pointing at stays grown, and a gallery that was just imported or downloaded shows up.
+
 ## v1.2.3 — 2026-10-16
 
 ### Added
