@@ -161,7 +161,7 @@ export function closePageProperties() { _dialog?.close(); }
 export async function openPageProperties(page) {
   closePageProperties();
   const dialog = _dialog = node('dialog', 'pp-dialog');
-  const titleId = 'pp-' + crypto.randomUUID();
+  const titleId = 'pp-' + (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`);
   dialog.setAttribute('aria-labelledby', titleId);
   const head = node('header', 'pp-head');
   const heading = node('div');

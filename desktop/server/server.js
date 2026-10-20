@@ -10,7 +10,13 @@
 // and a program on this computer that could fake the origin can read the library's files anyway.
 // The library's pages reach each other through it ('relay'), whatever their origin and browser, and
 // a reader says which gallery it shows ('reading').
+//
+// Opened to the person's network (`lan`), it listens on every address of this computer, and its
+// addresses and name there count as its own: any device on that network that reaches it is let in
+// as a page it served — the person's choice, made knowing that. A domain rebound to one of those
+// addresses still gets nowhere.
 import http from 'node:http';
+import os from 'node:os';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -72,15 +78,28 @@ const sameToken = (a, b) => {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 };
 
+// This computer's IPv4 addresses on its networks (not loopback, not link-local): where other devices
+// reach it. Read when asked, as they change (another network, a new lease).
+export function networkAddresses() {
+  const found = [];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const a of list || []) if (a.family === 'IPv4' && !a.internal && !a.address.startsWith('169.254.')) found.push(a.address);
+  }
+  return found;
+}
+
 // Start serving. `ports` are tried in turn (the first free one is used; 0 picks any). `origins` are
 // the web origins allowed besides this server's own. `clients`, when given, lets sites ask to use
 // the library: { tokenFor(origin) → its token or null, siteOf(token) → the site it was given to or
-// null, approve(origin) → a new token once the person allows it, or null }.
-export async function startServer({ library, token, ports = [0], webRoot = path.dirname(UI_DIR), origins = [], version = '', clients = null }) {
+// null, approve(origin) → a new token once the person allows it, or null }. `lan`: open to the
+// person's network as well.
+export async function startServer({ library, token, ports = [0], webRoot = path.dirname(UI_DIR), origins = [], version = '', clients = null, lan = false }) {
   const root = path.resolve(webRoot);
   let port = 0;
-  const hosts = () => new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
-  const served = () => new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
+  const names = () => (lan ? ['127.0.0.1', 'localhost', ...networkAddresses(), os.hostname().toLowerCase(), `${os.hostname().toLowerCase()}.local`]
+    : ['127.0.0.1', 'localhost']);
+  const hosts = () => new Set(names().map(name => `${name}:${port}`));
+  const served = () => new Set(names().map(name => `http://${name}:${port}`));
   const allowed = () => new Set([...served(), ...origins]);
 
   async function serveFile(req, res, pathname) {
@@ -245,7 +264,7 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
     try {
       await new Promise((resolve, reject) => {
         server.once('error', reject);
-        server.listen(candidate, '127.0.0.1', () => { server.off('error', reject); resolve(); });
+        server.listen(candidate, lan ? '0.0.0.0' : '127.0.0.1', () => { server.off('error', reject); resolve(); });
       });
       port = server.address().port;
       break;
@@ -257,6 +276,7 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
   return {
     port,
     url: `http://127.0.0.1:${port}`,
+    lan,
     // Close the library connections a site has open (it was disconnected).
     dropSite(origin) { for (const ws of wss.clients) if (ws.site === origin) ws.terminate(); },
     async close() {

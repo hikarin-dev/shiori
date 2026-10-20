@@ -313,7 +313,7 @@ test('pulled all the way out and brought back while held, the thumbnails follow 
 const pulledStrip = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => {
   const strip = document.getElementById('thumbStrip').getBoundingClientRect();
   const button = document.getElementById('scrollTopBtn').getBoundingClientRect();
-  resolve({ height: strip.height, buttonGap: button.bottom + 20 - strip.top,
+  resolve({ height: strip.height, buttonGap: button.bottom + 56 - strip.top,
     handle: getComputedStyle(document.getElementById('thumbResizeHandle')).display });
 })));
 

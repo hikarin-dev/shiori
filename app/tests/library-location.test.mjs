@@ -34,14 +34,15 @@ test('only a page at the desktop app\'s address, handed a token, is one', () => 
 });
 
 test('any page at the desktop app\'s address uses its library, with no token and no choice', () => {
-  for (const href of ['http://127.0.0.1:47153/library', 'http://localhost:47160/reader?g=1', 'http://127.0.0.1:47153/app/agent.html']) {
+  for (const href of ['http://127.0.0.1:47153/library', 'http://localhost:47160/reader?g=1', 'http://127.0.0.1:47153/app/agent.html',
+    'http://192.168.1.2:47153/library']) {
     at(href);
     setLocation({ url: 'http://127.0.0.1:47999', token: 'an-old-choice' });
     setFallback(true);
     assert.equal(desktopHosted(), true, href);
     assert.deepEqual(activeDesktop(), { url: new URL(href).origin, token: '', own: true }, `${href}: never this browser's library`);
   }
-  for (const href of ['http://127.0.0.1:5500/library', 'https://127.0.0.1:47153/library', 'http://192.168.1.2:47153/library',
+  for (const href of ['http://127.0.0.1:5500/library', 'https://127.0.0.1:47153/library', 'http://192.168.1.2:5500/library',
     'https://shiori.example/library']) {
     at(href);
     assert.equal(desktopHosted(), false, href);

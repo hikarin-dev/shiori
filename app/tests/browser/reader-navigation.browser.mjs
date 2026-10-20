@@ -336,7 +336,7 @@ test('resizing the thumbnails, the handle and the go-to-top button keep up with 
       const strip = document.getElementById('thumbStrip').getBoundingClientRect();
       const handle = document.getElementById('thumbResizeHandle').getBoundingClientRect();
       const button = document.getElementById('scrollTopBtn').getBoundingClientRect();
-      resolve(Math.max(Math.abs((handle.top + handle.bottom) / 2 - strip.top), Math.abs(button.bottom + 20 - strip.top)));
+      resolve(Math.max(Math.abs((handle.top + handle.bottom) / 2 - strip.top), Math.abs(button.bottom + 56 - strip.top)));
     })))));
   }
   await page.mouse.up();

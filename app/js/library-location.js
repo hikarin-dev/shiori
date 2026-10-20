@@ -36,12 +36,11 @@ export function fallback() { const f = _read(FALLBACK_KEY); return f && Number.i
 export function setFallback(on) { _write(FALLBACK_KEY, on ? { since: Date.now() } : null); }
 
 // Whether this page is served by the desktop app at its own address — in the app's window, or
-// opened in a browser. Such a page's library is the desktop app's, always: it never keeps one in
-// the browser.
+// opened in a browser, on this computer or (when the app is open to its network) another device.
+// Such a page's library is the desktop app's, always: it never keeps one in the browser.
 export function desktopHosted() {
   const loc = globalThis.location;
-  return loc?.protocol === 'http:' && (loc.hostname === '127.0.0.1' || loc.hostname === 'localhost')
-    && DESKTOP_PORTS.includes(Number(loc.port));
+  return loc?.protocol === 'http:' && DESKTOP_PORTS.includes(Number(loc.port));
 }
 
 // A page the desktop app serves at its own address, handed a site's library token in its address

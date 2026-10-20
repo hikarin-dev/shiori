@@ -326,3 +326,17 @@ body.translator-offline .ch-ibtn.translate { display: none; }
 .ov-pages-empty { grid-column: 1 / -1; color: var(--muted); font-size: 12px; text-align: center; padding: 24px 0; }
 
 .ov-loading, .ov-empty { text-align: center; color: var(--muted); padding: 80px 20px; font-size: 14px; }
+
+/* ── Phones ── A chapter's buttons take a line of their own under it, on the right, so its title and
+   page count keep the row's width. */
+@media (max-width: 600px) {
+  .ch-head { flex-wrap: wrap; row-gap: 2px; }
+  .ch-head::after { content: ''; order: 1; flex-basis: 100%; }
+  .ch-actions { order: 2; margin-left: auto; }
+  .ch-expand { order: 3; }
+}
+/* A finger needs bigger buttons than a mouse. */
+@media (pointer: coarse) {
+  .ch-ibtn { width: 40px; height: 40px; }
+  .ov-view { padding: 10px 2px 6px; }
+}

@@ -1,5 +1,6 @@
 // main.js — Shiori Desktop: the app in its own window, over a library kept as files. The main
-// process owns the library (server/library.js) and serves it on 127.0.0.1 (server/server.js). Each
+// process owns the library (server/library.js) and serves it on 127.0.0.1 — and to the person's
+// network too, when they open it to other devices (server/server.js). Each
 // window shows the app's pages from that server, under a title bar strip of its own: back and
 // forward, the page's title, and Windows' window buttons. The app keeps its settings per address, so
 // when the server's port changes they are carried to the new one. Browser extensions the person adds
@@ -26,7 +27,7 @@ app.commandLine.appendSwitch('disable-http-cache');
 const { Library } = await import('./server/library.js');
 const { libraryId } = await import('./server/files.js');
 const { removeOutright } = await import('./server/remove.js');
-const { startServer } = await import('./server/server.js');
+const { startServer, networkAddresses } = await import('./server/server.js');
 const { BackupJobs, backupName } = await import('./server/backup.js');
 
 // The library folder's .shiori (its id, pages on their way in) hidden in Explorer, as .git is.
@@ -49,7 +50,7 @@ const FRAME = { bg: '#0d0d0f', symbols: '#a1a1aa' };   // the app's palette (bas
 protocol.registerSchemesAsPrivileged([{ scheme: APP_SCHEME,
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } }]);
 
-// ── Settings: { libraryDir, port, bounds, lang, closeToTray, sites, devUpdates, extensions,
+// ── Settings: { libraryDir, port, lan, bounds, lang, closeToTray, sites, devUpdates, extensions,
 //    windowOrigin, archiveAfter, archiveFormat } in the app's data folder ──
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 function readSettings() {
@@ -323,6 +324,8 @@ function shellState() {
     libraryDir: libraryDirOf(settings), dataDir,
     archiveAfter: archiveAfterOf(settings), archiveFormat: archiveFormatOf(settings),
     port: settings.port || 0, ports: PORTS, url: server.url, version: app.getVersion(),
+    // Open to other devices: from the next start; the addresses they use while it is.
+    lan: !!settings.lan, lanUrls: server.lan ? networkAddresses().map(a => `http://${a}:${server.port}`) : null,
     sites: Object.keys(settings.sites || {}).sort(),
     devUpdates: !!settings.devUpdates, devFeed: DEV_FEED, update, packaged: app.isPackaged,
     extensions: (settings.extensions || []).map(dir => ({ dir, ...extensionsLoaded.get(dir) })),
@@ -336,6 +339,7 @@ ipcMain.handle('shiori:shell', async (event, action, args = []) => {
     case 'set':
       if (key === 'closeToTray' && typeof value === 'boolean') writeSettings({ closeToTray: value });
       else if (key === 'port' && (value === 0 || PORTS.includes(value))) writeSettings({ port: value || undefined });
+      else if (key === 'lan' && typeof value === 'boolean') writeSettings({ lan: value || undefined });
       else if (key === 'archiveAfter' && value in ARCHIVE_AFTER) {
         writeSettings({ archiveAfter: value });
         library.files.archiveAfter = ARCHIVE_AFTER[value];
@@ -645,7 +649,7 @@ async function start() {
   }
   token = crypto.randomBytes(24).toString('base64url');
   const ports = settings.port ? [settings.port, ...PORTS.filter(p => p !== settings.port), 0] : [...PORTS, 0];
-  server = await startServer({ library, token, ports, webRoot: UI_ROOT, version: app.getVersion(), origins: [APP_ORIGIN], clients });
+  server = await startServer({ library, token, ports, webRoot: UI_ROOT, version: app.getVersion(), origins: [APP_ORIGIN], clients, lan: !!settings.lan });
   // The address used until 1.0.14, served by the local server (prepareAddress reads it once).
   protocol.handle(APP_SCHEME, async (request) => {
     const url = new URL(request.url);

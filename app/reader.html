@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-hY3v5/hK8HEXGvbWdwpC9QwryUrAFnXUNYc6GOBIxBU='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' data: blob: http: https: ws://127.0.0.1:*; object-src 'none'; base-uri 'self'">
   <!-- Files live under /app/; pages are served at clean URLs. See library.html. -->
   <base href="app/">
@@ -12,6 +13,7 @@
   <script src="reader-init.js"></script>
   <link rel="stylesheet" href="base.css">
   <link rel="stylesheet" href="reader.css">
+  <link rel="stylesheet" href="dropdown.css">
   <link rel="stylesheet" href="notice.css">
   <!-- Preload the whole module graph in one parallel wave instead of a 4-level import waterfall. -->
   <link rel="modulepreload" href="js/reader.js">
@@ -22,6 +24,7 @@
   <link rel="modulepreload" href="js/i18n.js">
   <link rel="modulepreload" href="js/locales.js">
   <link rel="modulepreload" href="js/tooltip.js">
+  <link rel="modulepreload" href="js/dropdown.js">
   <link rel="modulepreload" href="js/platform.js">
   <link rel="modulepreload" href="js/services.js">
   <link rel="modulepreload" href="js/db.js">
@@ -99,10 +102,13 @@
   <button class="tb-btn tb-menu-btn" id="tbMenuBtn" data-tip="More"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
 </div>
 
-<!-- Side controls (Reader settings -> Navigation -> Side): the chapter pill over a column of buttons at
-     the right edge, fit and zoom at the bottom right. Hidden (X, a double-click, the pin), they come
-     back while the pointer is at the right edge or its corners (.sn-zone). -->
+<!-- Modern navigation (Reader settings -> Display -> Navigation): the chapter pill at the top corner on
+     the rail's side, and a rail of buttons along any edge, at its start, centre or end (data-sn-pos and
+     data-sn-align on <html>). Hidden (X, N, a double-click), they come back while the pointer is where
+     they stand (.sn-zone). -->
 <div id="sideNav">
+  <div class="sn-zone" id="snZonePill" aria-hidden="true"></div>
+  <div class="sn-zone" id="snZoneRail" aria-hidden="true"></div>
   <div class="sn-row" id="snChapter">
     <button class="sn-btn" id="snChPrev" type="button" data-tip="Previous chapter" data-i18n-tip="rd.prev_chapter" data-i18n-aria="rd.prev_chapter"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
     <button class="sn-chap" id="snChLabel" type="button"><span id="snChNum">&mdash; / &mdash;</span><span class="sn-chap-total" id="snChTotal"></span></button>
@@ -118,9 +124,10 @@
     <button class="sn-btn" id="snAuto" type="button" aria-pressed="false"></button>
     <button class="sn-btn" id="snSettings" type="button" data-tip="Reader settings" data-i18n-tip="rd.tip_reader_settings" data-i18n-aria="rd.tip_reader_settings"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
     <button class="sn-btn" id="snKeys" type="button" data-tip="Keyboard shortcuts" data-i18n-tip="rd.tip_keys" data-i18n-aria="rd.tip_keys"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><path d="M6 9h.01"/><path d="M10 9h.01"/><path d="M14 9h.01"/><path d="M18 9h.01"/><path d="M6 13h.01"/><path d="M10 13h.01"/><path d="M14 13h.01"/><path d="M18 13h.01"/><path d="M10 17h4"/></svg></button>
-    <button class="sn-btn" id="snPin" type="button" aria-pressed="false"></button>
+    <button class="sn-btn" id="snTop" type="button" disabled data-tip="Back to top" data-i18n-tip="rd.tip_top" data-i18n-aria="rd.tip_top"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg></button>
   </div>
 </div>
+<!-- Fit and zoom, at the bottom right with either navigation. -->
 <div id="sideZoom">
   <div class="sn-row"><button class="sn-btn" id="snFit" type="button" aria-pressed="false"></button></div>
   <div class="sn-row sn-zoom">
@@ -129,8 +136,6 @@
     <button class="sn-btn" id="snZoomIn" type="button" data-tip="Zoom in" data-i18n-tip="rd.zoom_in" data-i18n-aria="rd.zoom_in"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
   </div>
 </div>
-<div class="sn-zone" id="snZoneTop" aria-hidden="true"></div>
-<div class="sn-zone" id="snZoneRight" aria-hidden="true"></div>
 <div class="sn-zone" id="snZoneBottom" aria-hidden="true"></div>
 <div id="snChapters" role="dialog" aria-labelledby="snChaptersTitle">
   <div class="sn-pop-head">
@@ -211,8 +216,7 @@
     <div class="kb-row"><span class="kb-desc" data-i18n="page.properties">Page properties</span><div class="kb-keys"><kbd class="kb-key">I</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="page.menu_hint">Page menu (translate this page…)</span><div class="kb-keys"><kbd class="kb-key" data-i18n="page.right_click">Right-click</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.toggle_thumbs">Toggle thumbnails</span><div class="kb-keys"><kbd class="kb-key">G</kbd></div></div>
-    <div class="kb-row"><span class="kb-desc" data-i18n="kb.toggle_pin">Toggle pinned header</span><div class="kb-keys"><kbd class="kb-key">N</kbd></div></div>
-    <div class="kb-row"><span class="kb-desc" data-i18n="kb.hide_controls">Hide / show controls</span><div class="kb-keys"><kbd class="kb-key">X</kbd><kbd class="kb-key" data-i18n="kb.double_click">Double-click</kbd></div></div>
+    <div class="kb-row"><span class="kb-desc" data-i18n="kb.hide_controls">Hide / show controls</span><div class="kb-keys"><kbd class="kb-key">X</kbd><kbd class="kb-key">N</kbd><kbd class="kb-key" data-i18n="kb.double_click">Double-click</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.autoscroll">Auto-scroll (scroll strip)</span><div class="kb-keys"><kbd class="kb-key">K</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.swipe_thumbs">Swipe thumbnails</span><div class="kb-keys"><kbd class="kb-key" data-i18n="kb.drag">Drag</kbd></div></div>
     <div class="kb-row"><span class="kb-desc" data-i18n="kb.scrub">Scrub to page</span><div class="kb-keys"><kbd class="kb-key" data-i18n="kb.shift_drag">Shift+Drag</kbd></div></div>
@@ -222,112 +226,218 @@
 
 <div id="readerSettingsModal" role="dialog" aria-modal="true" aria-labelledby="readerSettingsTitle">
   <div id="readerSettingsBox">
-    <div class="reader-settings-head">
-      <div class="reader-settings-title" id="readerSettingsTitle">
-        <svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-        <span data-i18n="rd.reader_settings">Reader settings</span>
+    <div class="reader-settings-top">
+      <div class="reader-settings-head">
+        <div class="reader-settings-title" id="readerSettingsTitle">
+          <svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+          <span data-i18n="rd.reader_settings">Reader settings</span>
+        </div>
+        <button class="reader-settings-close" id="readerSettingsClose" type="button" aria-label="Close" data-i18n-title="common.close" data-i18n-aria="common.close"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
       </div>
-      <button class="reader-settings-close" id="readerSettingsClose" type="button" aria-label="Close" data-i18n-title="common.close" data-i18n-aria="common.close"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      <!-- The most used settings come first. -->
+      <div class="rs-tabs" role="tablist" aria-labelledby="readerSettingsTitle">
+        <button type="button" role="tab" id="rsTabReading" data-rs-tab="reading" aria-controls="rsPanelReading" aria-selected="true" data-i18n="rd.tab_reading">Reading</button>
+        <button type="button" role="tab" id="rsTabPages" data-rs-tab="pages" aria-controls="rsPanelPages" aria-selected="false" data-i18n="rd.tab_pages">Pages</button>
+        <button type="button" role="tab" id="rsTabDisplay" data-rs-tab="display" aria-controls="rsPanelDisplay" aria-selected="false" data-i18n="rd.tab_display">Display</button>
+      </div>
     </div>
 
-    <section class="rs-section">
-      <h3 class="rs-heading" data-i18n="rd.reader_mode">Reader mode</h3>
-      <div class="rs-choices rs-choices-stack">
-        <button type="button" data-reader-mode="single"><kbd class="rs-kbd">1</kbd><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 3v18"/><rect width="12" height="18" x="6" y="3" rx="2"/><path d="M22 3v18"/></svg><span data-i18n="kb.single">Single page</span></button>
-        <button type="button" data-reader-mode="double"><kbd class="rs-kbd">2</kbd><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/></svg><span data-i18n="kb.double">Double page</span></button>
-        <button type="button" data-reader-mode="strip"><kbd class="rs-kbd">3</kbd><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 2h18"/><rect width="18" height="12" x="3" y="6" rx="2"/><path d="M3 22h18"/></svg><span data-i18n="kb.strip">Scroll strip</span></button>
-      </div>
-    </section>
-
-    <!-- The two spread settings stay in place outside double page, disabled, so the modal keeps
-         its size across modes. -->
-    <section class="rs-section">
-      <h3 class="rs-heading" data-i18n="rd.sec_turning">Page turning</h3>
-      <div class="rs-row" id="readerNavDirectionGroup">
-        <div class="rs-label"><span data-i18n="rd.nav_direction">Navigation direction</span><span class="field-info" tabindex="0" data-i18n-tip="rd.nav_direction_desc" data-i18n-aria="rd.nav_direction_desc"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span></div>
-        <div class="rs-choices">
-          <button type="button" data-nav-direction="ltr"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg><span data-i18n="rd.left_to_right">Left to right</span></button>
-          <button type="button" data-nav-direction="rtl"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg><span data-i18n="rd.right_to_left">Right to left</span></button>
-        </div>
-      </div>
-      <fieldset class="rs-row" id="readerPageDirectionGroup">
-        <div class="rs-label"><span data-i18n="rd.page_direction">Page direction</span><span class="field-info" tabindex="0" data-i18n-tip="rd.page_direction_desc" data-i18n-aria="rd.page_direction_desc"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span></div>
-        <div class="rs-choices">
-          <button type="button" data-page-direction="ltr"><span class="rs-spread" aria-hidden="true"><i>1</i><i>2</i></span><span data-i18n="rd.left_to_right">Left to right</span></button>
-          <button type="button" data-page-direction="rtl"><span class="rs-spread" aria-hidden="true"><i>2</i><i>1</i></span><span data-i18n="rd.right_to_left">Right to left</span></button>
-        </div>
-      </fieldset>
-      <fieldset class="rs-row rs-row-inline" id="readerCoverOffsetGroup">
-        <div class="rs-label"><span data-i18n="rd.cover_offset">Cover offset</span><kbd class="rs-kbd">C</kbd><span class="field-info" tabindex="0" data-i18n-tip="rd.cover_offset_desc" data-i18n-aria="rd.cover_offset_desc"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span></div>
-        <label class="switch-control" for="readerCoverOffset"><input type="checkbox" id="readerCoverOffset" data-i18n-aria="rd.cover_offset"><span class="switch-track" aria-hidden="true"></span></label>
-      </fieldset>
-    </section>
-
-    <section class="rs-section">
-      <h3 class="rs-heading" data-i18n="rd.sec_display">Display</h3>
-      <div class="rs-row">
-        <div class="rs-label" data-i18n="rd.navigation">Navigation</div>
-        <div class="rs-choices">
-          <button type="button" data-reader-nav="top"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path class="rs-bar" d="M7.5 7.5h9"/></svg><span data-i18n="rd.nav_top">Top bar</span></button>
-          <button type="button" data-reader-nav="side"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path class="rs-bar" d="M16.5 7.5v6"/></svg><span data-i18n="rd.nav_side">Side</span></button>
-        </div>
-      </div>
-      <div class="rs-row">
-        <div class="rs-label" data-i18n="rd.image_fit">Image fit</div>
+    <!-- The panels share one grid cell, so the box is as tall as the tallest and keeps its size from
+         tab to tab. -->
+    <div class="rs-panels">
+    <div class="rs-panel active" role="tabpanel" id="rsPanelReading" data-rs-panel="reading" aria-labelledby="rsTabReading">
+      <section class="rs-section">
+        <h3 class="rs-heading" data-i18n="rd.reader_mode">Reader mode</h3>
         <div class="rs-choices rs-choices-stack">
-          <button type="button" data-reader-fit="off"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg><span data-i18n="rd.original_size">Original size</span></button>
-          <button type="button" data-reader-fit="width"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m18 8 4 4-4 4"/><path d="M2 12h20"/><path d="m6 8-4 4 4 4"/></svg><span data-i18n="kb.fit_width">Fit width</span></button>
-          <button type="button" data-reader-fit="height"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20"/><path d="m8 18 4 4 4-4"/><path d="m8 6 4-4 4 4"/></svg><span data-i18n="kb.fit_height">Fit height</span></button>
+          <button type="button" data-reader-mode="single"><kbd class="rs-kbd">1</kbd><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 3v18"/><rect width="12" height="18" x="6" y="3" rx="2"/><path d="M22 3v18"/></svg><span data-i18n="kb.single">Single page</span></button>
+          <button type="button" data-reader-mode="double"><kbd class="rs-kbd">2</kbd><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/></svg><span data-i18n="kb.double">Double page</span></button>
+          <button type="button" data-reader-mode="strip"><kbd class="rs-kbd">3</kbd><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 2h18"/><rect width="18" height="12" x="3" y="6" rx="2"/><path d="M3 22h18"/></svg><span data-i18n="kb.strip">Scroll strip</span></button>
         </div>
-      </div>
-      <div class="rs-row rs-row-inline">
-        <div class="rs-label" data-i18n="rd.zoom">Zoom</div>
-        <div class="rs-stepper">
-          <button type="button" id="readerZoomOut" aria-label="Zoom out" data-i18n-title="rd.zoom_out" data-i18n-aria="rd.zoom_out"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
-          <output id="readerZoomValue">100%</output>
-          <button type="button" id="readerZoomIn" aria-label="Zoom in" data-i18n-title="rd.zoom_in" data-i18n-aria="rd.zoom_in"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
-        </div>
-      </div>
-      <div class="rs-row">
-        <div class="rs-label-row">
-          <label class="rs-label" for="readerGap" data-i18n="rd.page_gap">Page gap</label>
-          <output id="readerGapValue" for="readerGap">4 px</output>
-        </div>
-        <input class="rs-range" type="range" id="readerGap" min="0" max="40" step="1" value="4">
-      </div>
-      <div class="rs-row">
-        <div class="rs-label-row">
-          <label class="rs-label" for="readerAutoScroll" data-i18n="rd.autoscroll_speed">Auto-scroll speed</label>
-          <output id="readerAutoScrollValue" for="readerAutoScroll">150 px/s</output>
-        </div>
-        <input class="rs-range" type="range" id="readerAutoScroll" min="20" max="1000" step="10" value="150">
-      </div>
-      <div class="rs-row">
-        <div class="rs-label-row">
-          <label class="rs-label" for="readerDim" data-i18n="rd.dim_pages">Dim pages</label>
-          <output id="readerDimValue" for="readerDim">0%</output>
-        </div>
-        <input class="rs-range" type="range" id="readerDim" min="0" max="100" step="1" value="0">
-      </div>
-      <div class="rs-row">
-        <div class="rs-label" data-i18n="rd.progress_bar">Progress bar</div>
-        <div class="rs-choices rs-choices-stack">
-          <button type="button" data-progress-position="left"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path class="rs-bar" d="M7.5 7.5v9"/></svg><span data-i18n="rd.left">Left</span></button>
-          <button type="button" data-progress-position="top"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path class="rs-bar" d="M7.5 7.5h9"/></svg><span data-i18n="rd.top">Top</span></button>
-          <button type="button" data-progress-position="right"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path class="rs-bar" d="M16.5 7.5v9"/></svg><span data-i18n="rd.right">Right</span></button>
-          <button type="button" data-progress-position="bottom"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path class="rs-bar" d="M7.5 16.5h9"/></svg><span data-i18n="rd.bottom">Bottom</span></button>
-          <button type="button" data-progress-position="off"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="m3.5 3.5 17 17"/></svg><span data-i18n="rd.off">Off</span></button>
-        </div>
-      </div>
-    </section>
+      </section>
 
-    <section class="rs-section">
-      <h3 class="rs-heading" data-i18n="rd.sec_debug">Debug</h3>
-      <div class="rs-row rs-row-inline">
-        <div class="rs-label"><span data-i18n="rd.debug_loaded">Show loaded pages</span><span class="field-info" tabindex="0" data-i18n-tip="rd.debug_loaded_desc" data-i18n-aria="rd.debug_loaded_desc"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span></div>
-        <label class="switch-control" for="readerDebugLoaded"><input type="checkbox" id="readerDebugLoaded" data-i18n-aria="rd.debug_loaded"><span class="switch-track" aria-hidden="true"></span></label>
-      </div>
-    </section>
+      <section class="rs-section">
+        <h3 class="rs-heading" data-i18n="rd.sec_view">View</h3>
+        <div class="rs-row">
+          <div class="rs-label" data-i18n="rd.image_fit">Image fit</div>
+          <div class="rs-choices rs-choices-stack">
+            <button type="button" data-reader-fit="off"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg><span data-i18n="rd.original_size">Original size</span></button>
+            <button type="button" data-reader-fit="width"><kbd class="rs-kbd">Shift+E</kbd><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m18 8 4 4-4 4"/><path d="M2 12h20"/><path d="m6 8-4 4 4 4"/></svg><span data-i18n="kb.fit_width">Fit width</span></button>
+            <button type="button" data-reader-fit="height"><kbd class="rs-kbd">Shift+Q</kbd><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20"/><path d="m8 18 4 4 4-4"/><path d="m8 6 4-4 4 4"/></svg><span data-i18n="kb.fit_height">Fit height</span></button>
+          </div>
+        </div>
+        <div class="rs-row rs-row-inline">
+          <div class="rs-label" data-i18n="rd.zoom">Zoom</div>
+          <div class="rs-stepper">
+            <button type="button" id="readerZoomOut" aria-label="Zoom out" data-i18n-title="rd.zoom_out" data-i18n-aria="rd.zoom_out"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+            <output id="readerZoomValue">100%</output>
+            <button type="button" id="readerZoomIn" aria-label="Zoom in" data-i18n-title="rd.zoom_in" data-i18n-aria="rd.zoom_in"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+          </div>
+        </div>
+        <div class="rs-row">
+          <div class="rs-label-row">
+            <label class="rs-label" for="readerGap" data-i18n="rd.page_gap">Page gap</label>
+            <output id="readerGapValue" for="readerGap">4 px</output>
+          </div>
+          <input class="rs-range" type="range" id="readerGap" min="0" max="40" step="1" value="4">
+        </div>
+        <div class="rs-row">
+          <div class="rs-label-row">
+            <label class="rs-label" for="readerDim" data-i18n="rd.dim_pages">Dim pages</label>
+            <output id="readerDimValue" for="readerDim">0%</output>
+          </div>
+          <input class="rs-range" type="range" id="readerDim" min="0" max="100" step="1" value="0">
+        </div>
+      </section>
+
+      <section class="rs-section">
+        <h3 class="rs-heading" data-i18n="rd.sec_autoplay">Auto-scroll</h3>
+        <div class="rs-row">
+          <div class="rs-label-row">
+            <label class="rs-label" for="readerAutoScroll" data-i18n="rd.autoscroll_speed">Auto-scroll speed</label>
+            <output id="readerAutoScrollValue" for="readerAutoScroll">150 px/s</output>
+          </div>
+          <input class="rs-range" type="range" id="readerAutoScroll" min="20" max="1000" step="10" value="150">
+        </div>
+      </section>
+    </div>
+
+    <div class="rs-panel" role="tabpanel" id="rsPanelPages" data-rs-panel="pages" aria-labelledby="rsTabPages">
+      <!-- The two spread settings act in double page; they're set from any mode, the reading mode
+           being on another tab. -->
+      <section class="rs-section">
+        <h3 class="rs-heading" data-i18n="rd.sec_turning">Page turning</h3>
+        <div class="rs-row" id="readerNavDirectionGroup">
+          <div class="rs-label"><span data-i18n="rd.nav_direction">Navigation direction</span><span class="field-info" tabindex="0" data-i18n-tip="rd.nav_direction_desc" data-i18n-aria="rd.nav_direction_desc"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span></div>
+          <div class="rs-choices">
+            <button type="button" data-nav-direction="ltr"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg><span data-i18n="rd.left_to_right">Left to right</span></button>
+            <button type="button" data-nav-direction="rtl"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg><span data-i18n="rd.right_to_left">Right to left</span></button>
+          </div>
+        </div>
+        <div class="rs-row">
+          <div class="rs-label"><span data-i18n="rd.page_direction">Page direction</span><span class="field-info" tabindex="0" data-i18n-tip="rd.page_direction_desc" data-i18n-aria="rd.page_direction_desc"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span></div>
+          <div class="rs-choices">
+            <button type="button" data-page-direction="ltr"><span class="rs-spread" aria-hidden="true"><i>1</i><i>2</i></span><span data-i18n="rd.left_to_right">Left to right</span></button>
+            <button type="button" data-page-direction="rtl"><span class="rs-spread" aria-hidden="true"><i>2</i><i>1</i></span><span data-i18n="rd.right_to_left">Right to left</span></button>
+          </div>
+        </div>
+        <div class="rs-row rs-row-inline">
+          <div class="rs-label"><span data-i18n="rd.cover_offset">Cover offset</span><kbd class="rs-kbd">C</kbd><span class="field-info" tabindex="0" data-i18n-tip="rd.cover_offset_desc" data-i18n-aria="rd.cover_offset_desc"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span></div>
+          <label class="switch-control" for="readerCoverOffset"><input type="checkbox" id="readerCoverOffset" data-i18n-aria="rd.cover_offset"><span class="switch-track" aria-hidden="true"></span></label>
+        </div>
+        <div class="rs-row rs-row-inline">
+          <div class="rs-label"><span data-i18n="rd.smooth_scroll">Smooth page scrolling</span><span class="field-info" tabindex="0" data-i18n-tip="rd.smooth_scroll_desc" data-i18n-aria="rd.smooth_scroll_desc"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span></div>
+          <label class="switch-control" for="readerSmoothScroll"><input type="checkbox" id="readerSmoothScroll" data-i18n-aria="rd.smooth_scroll"><span class="switch-track" aria-hidden="true"></span></label>
+        </div>
+      </section>
+
+      <section class="rs-section">
+        <h3 class="rs-heading" data-i18n="rd.sec_chapters">Chapters</h3>
+        <div class="rs-row rs-row-inline">
+          <div class="rs-label"><span data-i18n="set.skip_overview">Chapter overview</span><span class="field-info" tabindex="0" data-i18n-tip="set.skip_overview_desc" data-i18n-aria="set.skip_overview_desc"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span></div>
+          <label class="switch-control" for="readerOverview"><input type="checkbox" id="readerOverview" data-i18n-aria="set.skip_overview"><span class="switch-track" aria-hidden="true"></span></label>
+        </div>
+        <div class="rs-row rs-row-inline">
+          <div class="rs-label"><span data-i18n="set.strip_flow">Scroll strip flow</span><span class="field-info" tabindex="0" data-i18n-tip="set.strip_flow_desc" data-i18n-aria="set.strip_flow_desc"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span></div>
+          <label class="switch-control" for="readerStripFlow"><input type="checkbox" id="readerStripFlow" data-i18n-aria="set.strip_flow"><span class="switch-track" aria-hidden="true"></span></label>
+        </div>
+        <div class="rs-row rs-row-inline">
+          <div class="rs-label"><span data-i18n="set.ch_divider">Chapter transitions</span><span class="field-info" tabindex="0" data-i18n-tip="set.ch_divider_desc" data-i18n-aria="set.ch_divider_desc"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span></div>
+          <label class="switch-control" for="readerTransitions"><input type="checkbox" id="readerTransitions" data-i18n-aria="set.ch_divider"><span class="switch-track" aria-hidden="true"></span></label>
+        </div>
+      </section>
+
+      <section class="rs-section">
+        <h3 class="rs-heading" data-i18n="rd.sec_autoplay">Auto-scroll</h3>
+        <div class="rs-row rs-row-inline">
+          <div class="rs-label"><span data-i18n="rd.pause_on_up">Pause when going back up</span><span class="field-info" tabindex="0" data-i18n-tip="rd.pause_on_up_desc" data-i18n-aria="rd.pause_on_up_desc"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span></div>
+          <label class="switch-control" for="readerPauseOnUp"><input type="checkbox" id="readerPauseOnUp" data-i18n-aria="rd.pause_on_up"><span class="switch-track" aria-hidden="true"></span></label>
+        </div>
+      </section>
+    </div>
+
+    <div class="rs-panel" role="tabpanel" id="rsPanelDisplay" data-rs-panel="display" aria-labelledby="rsTabDisplay">
+      <section class="rs-section">
+        <h3 class="rs-heading" data-i18n="rd.nav_bar">Navigation bar</h3>
+        <div class="rs-row">
+          <div class="rs-choices">
+            <button type="button" data-reader-nav="top"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path class="rs-bar" d="M7.5 7.5h9"/></svg><span data-i18n="rd.nav_classic">Classic</span></button>
+            <button type="button" data-reader-nav="side"><svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path class="rs-bar" d="M16.5 7.5v6"/></svg><span data-i18n="rd.nav_modern">Modern</span></button>
+          </div>
+        </div>
+        <!-- Classic has no placement: the row stays, disabled, so nothing moves. -->
+        <fieldset class="rs-row rs-row-inline" id="readerNavPlaceGroup">
+          <div class="rs-label" id="readerNavPlaceLabel" data-i18n="rd.nav_position">Position</div>
+          <div class="rs-pick-wrap"><span class="rs-pick-value" id="readerNavPlaceValue"></span><button type="button" class="rs-pick" id="readerNavPlace" aria-haspopup="true" aria-labelledby="readerNavPlaceLabel readerNavPlaceValue"></button></div>
+        </fieldset>
+      </section>
+
+      <section class="rs-section">
+        <h3 class="rs-heading" data-i18n="rd.sec_bars">Progress bars</h3>
+        <div class="rs-row rs-row-inline">
+          <div class="rs-label" id="readerProgressLabel" data-i18n="rd.page_bar">Page bar</div>
+          <div class="rs-pick-wrap"><span class="rs-pick-value" id="readerProgressValue"></span><button type="button" class="rs-pick" id="readerProgress" aria-haspopup="true" aria-labelledby="readerProgressLabel readerProgressValue"></button></div>
+        </div>
+        <div class="rs-row rs-row-inline">
+          <div class="rs-label" id="readerAutoBarLabel" data-i18n="rd.auto_bar">Auto-scroll bar</div>
+          <div class="rs-pick-wrap"><span class="rs-pick-value" id="readerAutoBarValue"></span><button type="button" class="rs-pick" id="readerAutoBar" aria-haspopup="true" aria-labelledby="readerAutoBarLabel readerAutoBarValue"></button></div>
+        </div>
+      </section>
+
+      <section class="rs-section">
+        <h3 class="rs-heading" data-i18n="set.translation_short">Translation</h3>
+        <div class="rs-row rs-row-inline">
+          <div class="rs-label"><span data-i18n="set.tr_display">Translation display</span><span class="field-info" tabindex="0" data-i18n-tip="set.tr_display_desc" data-i18n-aria="set.tr_display_desc"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span></div>
+          <div class="rs-choices rs-choices-small">
+            <button type="button" data-translate-display="image" data-i18n="set.image">Image</button>
+            <button type="button" data-translate-display="text" data-i18n="set.text">Text</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="rs-section">
+        <h3 class="rs-heading" data-i18n="set.study">Study Mode</h3>
+        <!-- Side by side, as in Settings: how the original shows, and the translation. -->
+        <div class="rs-cols">
+          <div class="rs-col">
+            <div class="rs-label" data-i18n="set.original">Original</div>
+            <div class="rs-choices rs-choices-small">
+              <button type="button" data-study-original="image" data-i18n="set.image">Image</button>
+              <button type="button" data-study-original="text" data-i18n="set.text">Text</button>
+            </div>
+            <!-- The original as text has a font and furigana; as the image, neither applies. -->
+            <fieldset class="rs-col-opts" id="readerStudyTextGroup">
+              <select class="rs-select" id="readerStudyFont" data-i18n-aria="set.font">
+                <option value="yasashisa" class="rs-font-yasashisa">やさしさアンチック</option>
+                <option value="kiwi" class="rs-font-kiwi">Kiwi Maru</option>
+              </select>
+              <div class="rs-row-inline">
+                <span class="rs-col-name" data-i18n="set.study_furi">Furigana</span>
+                <label class="switch-control" for="readerFurigana"><input type="checkbox" id="readerFurigana" data-i18n-aria="set.study_furi"><span class="switch-track" aria-hidden="true"></span></label>
+              </div>
+            </fieldset>
+          </div>
+          <div class="rs-col">
+            <div class="rs-label" data-i18n="set.translation_short">Translation</div>
+            <div class="rs-choices rs-choices-small">
+              <button type="button" data-study-display="hardcoded_images" data-i18n="set.image">Image</button>
+              <button type="button" data-study-display="text" data-i18n="set.text">Text</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="rs-section">
+        <h3 class="rs-heading" data-i18n="rd.sec_debug">Debug</h3>
+        <div class="rs-row rs-row-inline">
+          <div class="rs-label"><span data-i18n="rd.debug_loaded">Show loaded pages</span><span class="field-info" tabindex="0" data-i18n-tip="rd.debug_loaded_desc" data-i18n-aria="rd.debug_loaded_desc"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span></div>
+          <label class="switch-control" for="readerDebugLoaded"><input type="checkbox" id="readerDebugLoaded" data-i18n-aria="rd.debug_loaded"><span class="switch-track" aria-hidden="true"></span></label>
+        </div>
+      </section>
+    </div>
+    </div>
+
+    <!-- The placement picker (one at a time): the choices around the button that opened it. -->
+    <div class="rs-picker" id="rsPicker" role="menu" hidden></div>
   </div>
 </div>
 

@@ -852,6 +852,7 @@ function buildCard(g) {
   // the title, tags and metadata stay selectable for copying.
   card.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;                        // left button only
+    if (e.pointerType === 'touch') return;             // a finger on a cover scrolls the library (no merging by touch, for now)
     if (!e.target.closest('.card-thumb-wrap')) return; // only the cover initiates a merge-drag
     _beginCardDrag(e, card, g.id);
   });

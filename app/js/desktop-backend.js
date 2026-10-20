@@ -32,15 +32,19 @@ const OPS = ['galleriesPage', 'galleriesCount', 'galleryIdsSorted', 'getGallery'
   'sourceIconGet', 'sourceIconsAll', 'sourceIconPut', 'transferIds', 'transferRead', 'transferWrite',
   'changeRevision', 'changesSince', 'integritySnapshot', 'clearAll', 'archiveGallery', 'diskWrites', 'resetDiskWrites'];
 
+// A unique id. (A page at an address that isn't a secure one — another device reaching the desktop
+// app over its network — has no randomUUID.)
+const uniqueId = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 // This page's scope: the pages that hear one another without the desktop app (BroadcastChannel —
 // the same origin in the same browser, which is also what shares localStorage). The app relays a
 // page's messages to the pages of every other scope. A page that can't keep one gets its own.
 function relayScope() {
   try {
     let scope = globalThis.localStorage?.getItem('shiori:relayScope');
-    if (!scope) { scope = crypto.randomUUID(); globalThis.localStorage?.setItem('shiori:relayScope', scope); }
+    if (!scope) { scope = uniqueId(); globalThis.localStorage?.setItem('shiori:relayScope', scope); }
     return scope;
-  } catch { return crypto.randomUUID(); }
+  } catch { return uniqueId(); }
 }
 
 // A connection to the desktop library `config` names ({ url, token }; `own` for a page the desktop
@@ -177,7 +181,7 @@ export function createClient(config, { announce = false, partBytes = PART_BYTES 
     async transferWrite(bundle, opts = {}) {
       const parts = transferParts(bundle, partBytes);
       if (parts.length === 1) return call('transferWrite', parts[0], opts);
-      const id = crypto.randomUUID();
+      const id = uniqueId();
       try {
         let result;
         for (let i = 0; i < parts.length; i++) {

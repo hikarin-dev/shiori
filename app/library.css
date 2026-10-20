@@ -583,3 +583,36 @@ body.translator-offline .card-btn-translate { display: none; }
 
 /* "Re-run from…" — a translated gallery's translate button, right-clicked (base.css .ctx-menu). */
 .rerun-menu { z-index: 9000; min-width: 190px; }
+
+/* ── Phones ──
+   The library's search takes a row of its own under the bar, the logo and its buttons above it. The
+   cards come two to a row, their quick actions a row of their own under the gallery number, sharing
+   its width. */
+@media (max-width: 600px) {
+  header:has(.search-wrap) { flex-wrap: wrap; height: auto; min-height: 54px; padding: 7px 12px; gap: 8px; }
+  header:has(.search-wrap) .header-left { display: contents; }
+  header:has(.search-wrap) :is(.brand-sep, .brand-page) { display: none; }
+  .search-wrap { order: 9; flex: 1 1 100%; width: auto; }
+  header:has(.search-wrap) .header-right { margin-left: auto; gap: 6px; }
+  .collapsible-group { top: 52px; right: 12px; max-width: calc(100vw - 24px); }
+  .toolbar { padding: 10px 12px; }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 0 12px 32px; }
+  .card-body { padding: 8px; }
+  .card-id-row { flex-wrap: wrap; row-gap: 6px; }
+  .card-actions { flex: 1 1 100%; margin-left: 0; gap: 4px; }
+  .card-actions .card-btn { flex: 1 1 0; width: auto; }
+}
+/* Where nothing hovers, quick actions set to show on hover show always, as a chapter's do. */
+@media (hover: none) {
+  body.quick-actions-hover .card-actions { opacity: 1; pointer-events: auto; top: 0; }
+}
+/* A finger needs bigger buttons than a mouse: the header's and the cards'. */
+@media (pointer: coarse) {
+  .burger-btn, .btn-settings, .btn-safe, .btn-pin { width: 40px; height: 40px; }
+  .btn-upload { min-height: 40px; }
+  .card-actions .card-btn { height: 36px; min-width: 36px; }
+  .card-fav { width: 36px; height: 36px; }
+}
+@media (pointer: coarse) and (max-width: 1400px) {
+  .btn-upload { width: 40px; height: 40px; }
+}

@@ -11,6 +11,7 @@ import { t, getLang } from './i18n.js';
 import { formatCount } from './format.js';
 import { pickTitle } from './titles.js';
 import { initTooltips } from './tooltip.js';
+import { initDropdowns } from './dropdown.js';
 import { escHtml, safeExternalUrl } from './sanitize.js';
 import {
   setStudyPrefs, studyPrefs, studyFor, loadStudyRecords, _ensureWrap, _removeBubbleLayers,
@@ -61,6 +62,10 @@ let readerDim = 0;               // 0–100: how far the pages are darkened (Rea
 let _autoRaf = 0;                // the auto-scroll's frame request; non-zero while it runs (_autoScrollFrame)
 let readerPageGap = 4;
 let readerProgressPosition = 'bottom';
+let readerAutoBarPosition = 'bottom';   // the auto-play bar: across the window's top or bottom (_placeAutoBar)
+let readerAutoPauseOnUp = true;         // going back up (a scroll, a page turned back) pauses auto-play
+let readerSmoothScroll = true;          // the strip glides to another page (_glideStripTo), or is there at once
+let _skipOverview = false;              // Settings → Reader: open a series straight to reading (the library reads it)
 // Cached pages may learn their own true aspect ratio as they decode. Missing-page slots share one
 // baseline measured before the first render, so changing reader modes cannot change their geometry.
 const _pageRatios = new Map();   // page index (0-based) → "w / h"
@@ -675,8 +680,6 @@ const readerSettingsBtn = document.getElementById('readerSettingsBtn');
 const readerSettingsModal = document.getElementById('readerSettingsModal');
 const readerSettingsBox = document.getElementById('readerSettingsBox');
 const readerSettingsClose = document.getElementById('readerSettingsClose');
-const readerPageDirectionGroup = document.getElementById('readerPageDirectionGroup');
-const readerCoverOffsetGroup   = document.getElementById('readerCoverOffsetGroup');
 const readerCoverOffsetInput   = document.getElementById('readerCoverOffset');
 const readerDebugLoadedInput   = document.getElementById('readerDebugLoaded');
 const readerGap = document.getElementById('readerGap');
@@ -688,6 +691,16 @@ const readerDimValue = document.getElementById('readerDimValue');
 const readerZoomOut = document.getElementById('readerZoomOut');
 const readerZoomIn = document.getElementById('readerZoomIn');
 const readerZoomValue = document.getElementById('readerZoomValue');
+const readerOverviewInput    = document.getElementById('readerOverview');
+const readerStripFlowInput   = document.getElementById('readerStripFlow');
+const readerTransitionsInput = document.getElementById('readerTransitions');
+const readerPauseOnUpInput   = document.getElementById('readerPauseOnUp');
+const readerSmoothScrollInput = document.getElementById('readerSmoothScroll');
+const readerFuriganaInput    = document.getElementById('readerFurigana');
+const readerStudyFontSelect  = document.getElementById('readerStudyFont');
+const readerStudyTextGroup   = document.getElementById('readerStudyTextGroup');
+const readerNavPlaceGroup    = document.getElementById('readerNavPlaceGroup');
+const rsPicker      = document.getElementById('rsPicker');
 const readerPinBtn  = document.getElementById('readerPinBtn');
 const tbGallery     = document.getElementById('tbGallery');
 const tbMeta        = document.getElementById('tbMeta');
@@ -708,7 +721,10 @@ const snAuto        = document.getElementById('snAuto');
 const autoBtn       = document.getElementById('autoBtn');   // the top bar's play button
 const snSettings    = document.getElementById('snSettings');
 const snKeys        = document.getElementById('snKeys');
-const snPin         = document.getElementById('snPin');
+const snTop         = document.getElementById('snTop');      // the rail's go-to-top button
+const snChapter     = document.getElementById('snChapter');  // the chapter pill
+const snRail        = document.getElementById('snRail');
+const sideZoom      = document.getElementById('sideZoom');
 const snFit         = document.getElementById('snFit');
 const snZoomOut     = document.getElementById('snZoomOut');
 const snZoomIn      = document.getElementById('snZoomIn');
@@ -827,7 +843,7 @@ async function init() {
     return;
   }
 
-  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerFitMode', 'readerFitMaxWidth', 'readerDirection', 'readerNavDirection', 'readerPageDirection', 'readerCoverOffset', 'readerDebugLoaded', 'readerAutoScrollSpeed', 'readerDim', 'readerPageGap', 'readerProgressPosition', 'readerView', 'readerTranslateDisplay', 'readerStudyDisplay', 'readerStudyOriginal', 'readerStudySrcFont', 'readerFurigana', 'readerChapterDivider', 'readerStripMode']);
+  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerFitMode', 'readerFitMaxWidth', 'readerDirection', 'readerNavDirection', 'readerPageDirection', 'readerCoverOffset', 'readerDebugLoaded', 'readerAutoScrollSpeed', 'readerDim', 'readerPageGap', 'readerProgressPosition', 'readerView', 'readerTranslateDisplay', 'readerStudyDisplay', 'readerStudyOriginal', 'readerStudySrcFont', 'readerFurigana', 'readerChapterDivider', 'readerStripMode', 'readerAutoBarPosition', 'readerAutoPauseOnUp', 'readerSkipOverview', 'readerSmoothScroll']);
 
   // A saved study view needs its layers before the first paint, and so does a translate view that
   // draws its text from them — otherwise the inpainted page would paint with empty bubbles until
@@ -847,6 +863,10 @@ async function init() {
   });
   _chapterDividersOn = saved.readerChapterDivider !== false;
   _stripSeriesFlow   = saved.readerStripMode !== 'chapter';
+  _skipOverview      = !!saved.readerSkipOverview;
+  readerAutoPauseOnUp = saved.readerAutoPauseOnUp !== false;
+  readerSmoothScroll = saved.readerSmoothScroll !== false;
+  readerAutoBarPosition = saved.readerAutoBarPosition === 'top' ? 'top' : 'bottom';
   applyThumbHeight(saved.readerThumbHeight || _thumbHeight);
   if (saved.readerPageZoom) { _pageZoom = saved.readerPageZoom; document.documentElement.style.setProperty('--page-zoom', _pageZoom); }
   _applyReaderFitMaxWidth(saved.readerFitMaxWidth || FIT_WIDTH_MAX, false);
@@ -2442,6 +2462,7 @@ thumbResizeHandle.addEventListener('pointerdown', (e) => {
 });
 
 function setKeybindOpen(open) {
+  if (open && readerSettingsModal.classList.contains('show')) setReaderSettingsOpen(false);   // one dialog at a time
   keybindModal.classList.toggle('show', open);
   keybindBtn.classList.toggle('active', open);
 }
@@ -2471,6 +2492,8 @@ function applyReaderPin(p) {
   readerPinBtn.innerHTML = p ? READER_PIN_SVG : READER_UNPIN_SVG;
   readerPinBtn.dataset.tip = p ? t('rd.tip_unpin') : t('rd.tip_pin');
   localStorage.setItem('shiori-reader-pin', p ? '1' : '0');
+  // Unpinned, fit and zoom hide too, and let go of the focus that would hold them up.
+  if (!p && document.activeElement?.closest?.('#sideZoom')) document.activeElement.blur();
   _applyNavChrome();
 }
 
@@ -2488,6 +2511,8 @@ function _applyNavChrome() {
   document.body.classList.toggle('reader-side-nav', side);
   document.documentElement.classList.toggle('reader-side-nav', side);   // set early by reader-init.js
   document.body.classList.toggle('reader-side-hidden', side && !readerSidePinned);
+  // Fit and zoom hide with either (set early by reader-init.js).
+  document.documentElement.classList.toggle('reader-controls-hidden', side ? !readerSidePinned : !readerPinned);
   document.body.classList.remove('reader-nav-hover');
   _hideReaderNav();
   _syncSideNav();
@@ -2507,12 +2532,55 @@ function applyReaderSidePin(p) {
 function applyReaderNavLayout(layout) {
   readerNavLayout = layout === 'side' ? 'side' : 'top';
   localStorage.setItem('shiori-reader-nav', readerNavLayout);
+  _settleSideNav();
   _keepStripLine(_applyNavChrome, false);
   _syncReaderSettingsUI();
 }
 
-// X, or a double-click on the pages: hide the controls, or bring them back for good (the top bar:
-// unpin or pin it).
+// Where the modern navigation stands (Reader settings → Display → Position): the rail's edge, and
+// its start, centre or end along it; the chapter pill takes the top corner on its side. Read before
+// the page draws (reader-init.js), like the navigation itself.
+const NAV_POSITIONS = ['top', 'bottom', 'left', 'right'];
+const NAV_ALIGNS = ['start', 'center', 'end'];
+let readerNavPos = NAV_POSITIONS.includes(document.documentElement.dataset.snPos) ? document.documentElement.dataset.snPos : 'right';
+let readerNavAlign = NAV_ALIGNS.includes(document.documentElement.dataset.snAlign) ? document.documentElement.dataset.snAlign : 'start';
+document.documentElement.dataset.snPos = readerNavPos;
+document.documentElement.dataset.snAlign = readerNavAlign;
+
+function applyReaderNavPlace(pos, align) {
+  readerNavPos = NAV_POSITIONS.includes(pos) ? pos : 'right';
+  readerNavAlign = NAV_ALIGNS.includes(align) ? align : 'start';
+  _settleSideNav();
+  document.documentElement.dataset.snPos = readerNavPos;
+  document.documentElement.dataset.snAlign = readerNavAlign;
+  localStorage.setItem('shiori-reader-nav-place', `${readerNavPos}-${readerNavAlign}`);
+  _syncReaderSettingsUI();
+}
+
+// The panels' sizes, for CSS to place them by (reader.css works out the rest, crowding included): kept
+// on the root as they change (a chapter label's width, buttons that come and go, the rail turning).
+// Only a change is written, so a window being resized never restyles the page for nothing.
+const _sideNavSizes = new ResizeObserver(() => {
+  const root = document.documentElement.style;
+  for (const [key, el] of [['pill', snChapter], ['zoom', sideZoom], ['rail', snRail]]) {
+    const { width, height } = el.getBoundingClientRect();   // exact: a panel is placed by its width
+    for (const [name, px] of [[`--sn-${key}-w`, width], [`--sn-${key}-h`, height]]) {
+      if (px && root.getPropertyValue(name) !== `${px}px`) root.setProperty(name, `${px}px`);
+    }
+  }
+});
+for (const el of [snChapter, sideZoom, snRail]) _sideNavSizes.observe(el);
+
+// A change of place or navigation puts the panels where they go at once; only a window resized (or the
+// rail crowded by it) eases them there.
+function _settleSideNav() {
+  document.documentElement.classList.add('sn-settling');
+  requestAnimationFrame(() => requestAnimationFrame(() => document.documentElement.classList.remove('sn-settling')));
+}
+_settleSideNav();   // the first paint
+
+// X or N, or a double-click on the pages: hide the controls, or bring them back for good (the top
+// bar: unpin or pin it).
 function _toggleControls() {
   if (readerNavLayout === 'side') applyReaderSidePin(!readerSidePinned);
   else applyReaderPin(!readerPinned);
@@ -2605,9 +2673,15 @@ function _syncSideNav() {
   }
   snAuto.classList.toggle('is-on', scrolling);
   autoBtn.classList.toggle('active', scrolling);
-  snPin.innerHTML = readerSidePinned ? READER_PIN_SVG : READER_UNPIN_SVG;
-  _snOn(snPin, readerSidePinned);
-  _snTip(snPin, readerSidePinned ? 'rd.tip_controls_unpin' : 'rd.tip_controls_pin');
+  _syncTopButtons();
+}
+
+// Back to top, in the strip once it's scrolled down: the classic button shows then, and the rail's
+// last button, always there, can be pressed then.
+function _syncTopButtons() {
+  const usable = mode === 'strip' && window.scrollY > 400;
+  scrollTopBtn.classList.toggle('visible', usable);
+  if (snTop.disabled === usable) snTop.disabled = !usable;
 }
 
 // The chapter pill: a series' chapter, with the previous and next beside it and the list on a click;
@@ -2684,7 +2758,7 @@ _wireSpeedDrag(snAuto);
 _wireSpeedDrag(autoBtn);
 snSettings.addEventListener('click', () => setReaderSettingsOpen(!readerSettingsModal.classList.contains('show')));
 snKeys.addEventListener('click', () => setKeybindOpen(!keybindModal.classList.contains('show')));
-snPin.addEventListener('click', () => applyReaderSidePin(!readerSidePinned));
+snTop.addEventListener('click', _backToTop);
 snFit.addEventListener('click', () => (readerFitMode === 'width' ? fitPageHeight() : fitPageWidth()));
 snZoomOut.addEventListener('click', () => adjustPageZoom(-1));
 snZoomIn.addEventListener('click', () => adjustPageZoom(1));
@@ -2811,11 +2885,12 @@ autoBar.innerHTML = '<span class="auto-bar-fill"></span>';
 document.body.appendChild(autoBar);
 const autoBarFill = autoBar.firstElementChild;
 
-// The reader going back up stops auto-play: a wheel turned up (even with nothing to scroll), a touch
-// swiped back down, a key scrolling up, the scrollbar or the progress bar dragged back, a page turned
-// back. So do leaving its chapter (it never runs on into another; reaching the end stops it) and
-// changing the reading mode. While a dialog is open over the pages (settings, shortcuts, the chapter
-// list, page properties, feedback) or the tab is hidden, it waits, and goes on once that's gone. Only what the reader does counts (a wheel or a
+// The reader going back up stops auto-play (unless Reader settings says to read on from there): a
+// wheel turned up (even with nothing to scroll), a touch swiped back down, a key scrolling up, the
+// scrollbar or the progress bar dragged back, a page turned back. So do leaving its chapter (it never
+// runs on into another; reaching the end stops it) and changing the reading mode. While a dialog is
+// open over the pages (the shortcuts, the chapter list, page properties, feedback; not the reader
+// settings) or the tab is hidden, it waits, and goes on once that's gone. Only what the reader does counts (a wheel or a
 // moving key a moment ago, or a pointer held down); the page moving by itself (a page above learning
 // its height, a turn putting the next page at its top, which waits for its image) doesn't. A press on
 // a play button isn't a move.
@@ -2838,14 +2913,15 @@ const _readerActing = () => _readerPointerHeld || performance.now() - _readerInp
 const AUTO_TOUCH_BACK_PX = 12;
 const _ownScroller = (el) => !!el?.closest?.('#thumbStrip, #readerSettingsModal, #keybindModal, #snChapters');
 window.addEventListener('wheel', (e) => {
-  if (_autoRaf && e.deltaY < 0 && !e.ctrlKey && !_ownScroller(e.target)) setAutoScroll(false);
+  if (_autoRaf && readerAutoPauseOnUp && e.deltaY < 0 && !e.ctrlKey && !_ownScroller(e.target)) setAutoScroll(false);
 }, { capture: true, passive: true });
 let _touchY = 0;
 window.addEventListener('touchstart', (e) => { _touchY = e.touches[0]?.clientY ?? 0; }, { capture: true, passive: true });
 window.addEventListener('touchmove', (e) => {
-  if (_autoRaf && !_ownScroller(e.target) && (e.touches[0]?.clientY ?? 0) - _touchY > AUTO_TOUCH_BACK_PX) setAutoScroll(false);
+  if (_autoRaf && readerAutoPauseOnUp && !_ownScroller(e.target) && (e.touches[0]?.clientY ?? 0) - _touchY > AUTO_TOUCH_BACK_PX) setAutoScroll(false);
 }, { capture: true, passive: true });
-const _autoWaits = () => document.hidden || readerSettingsModal.classList.contains('show') || keybindModal.classList.contains('show')
+// The reader settings don't hold it up: their speed is easiest set watching it.
+const _autoWaits = () => document.hidden || keybindModal.classList.contains('show')
   || _chapterListOpen() || propertiesOpen() || feedbackOpen();
 
 function setAutoScroll(on) {
@@ -2880,10 +2956,11 @@ function _autoScrollFrame(now) {
     return;
   }
   if (currentPage !== _autoPage) _autoPageAt = now;
-  // Back up, by the reader: it stops. (In single/double, a later page put at its top isn't up.)
+  // Back up, by the reader: it stops, unless Reader settings says to read on from there. (In
+  // single/double, a later page put at its top isn't up.)
   const scrolledUp = _autoSetY !== null && y < _autoSetY - 1
     && (mode === 'strip' || (currentPage === _autoPage && now - _autoPageAt > AUTO_TURN_SETTLE_MS));
-  if ((currentPage < _autoPage || scrolledUp) && _readerActing()) { _stopAutoFrame(); return; }
+  if (readerAutoPauseOnUp && (currentPage < _autoPage || scrolledUp) && _readerActing()) { _stopAutoFrame(); return; }
   _autoPage = currentPage;
   const moved = _autoSetY === null || Math.abs(y - _autoSetY) > 1;   // by something else
   if (moved) _autoY = y;
@@ -2964,24 +3041,10 @@ function _autoPageSeconds() {
 // The speed as the reader shows it: px/s in the strip, seconds a page in single/double.
 const _speedLabel = () => (mode === 'strip' ? `${readerAutoScrollSpeed} px/s` : `${_autoPageSeconds().toFixed(1)} s/page`);
 
-// Along the bottom edge of the pages on screen, or of what shows of them, filling the way the pages
-// read. It stands on a bottom progress bar's line (not its taller pointing zone), so the bar growing
-// under the pointer lifts it, as it does open thumbnails.
+// Across the window at its top or bottom (Reader settings), filling the way the pages read; where it
+// stands is reader.css's, from the page bar's and the thumbnails' state.
 function _placeAutoBar(done) {
-  let left = Infinity, right = -Infinity, bottom = -Infinity;
-  const els = _pageDivider !== null ? [dividerPage] : (mode === 'single' ? [mainImg] : [imgLeft, imgRight]).map(_fitItemForImg);
-  for (const el of els) {
-    const r = el.getBoundingClientRect();
-    if (!r.width || !r.height) continue;
-    left = Math.min(left, r.left); right = Math.max(right, r.right); bottom = Math.max(bottom, r.bottom);
-  }
-  if (right <= left) { autoBar.classList.remove('show'); return; }
-  let floor = document.documentElement.clientHeight;
-  if (readerProgressPosition === 'bottom') floor = Math.min(floor, scrubTrack.getBoundingClientRect().top);
-  if (thumbsOpen) floor = Math.min(floor, thumbStrip.getBoundingClientRect().top);
-  autoBar.style.left = `${left}px`;
-  autoBar.style.width = `${right - left}px`;
-  autoBar.style.top = `${Math.min(bottom, floor) - 4}px`;
+  autoBar.dataset.at = readerAutoBarPosition;
   autoBar.classList.toggle('rtl', readerNavDirection === 'rtl');
   autoBarFill.style.transform = `scaleX(${done})`;
   autoBar.classList.add('show');
@@ -3480,6 +3543,74 @@ function _applyReaderProgressPosition(next, persist = true) {
   _syncReaderSettingsUI();
 }
 
+function _applyReaderAutoBarPosition(next) {
+  readerAutoBarPosition = next === 'top' ? 'top' : 'bottom';
+  platform.kv.set({ readerAutoBarPosition });
+  _syncReaderSettingsUI();
+}
+
+function _applyReaderPauseOnUp(on) {
+  readerAutoPauseOnUp = !!on;
+  platform.kv.set({ readerAutoPauseOnUp });
+  _syncReaderSettingsUI();
+}
+
+function _applyReaderSmoothScroll(on) {
+  readerSmoothScroll = !!on;
+  platform.kv.set({ readerSmoothScroll });
+  _syncReaderSettingsUI();
+}
+
+// The settings Settings → Reader also has, changed here while reading: they apply at once.
+function _applyStripFlow(on) {
+  _stripSeriesFlow = !!on;
+  platform.kv.set({ readerStripMode: _stripSeriesFlow ? 'series' : 'chapter' });
+  _rebuildStripInPlace();
+  _syncReaderSettingsUI();
+}
+function _applyChapterTransitions(on) {
+  _chapterDividersOn = !!on;
+  platform.kv.set({ readerChapterDivider: _chapterDividersOn });
+  _rebuildStripInPlace();
+  _syncReaderSettingsUI();
+}
+// A strip built again (another scope, chapter cards coming or going) keeps the point being read on the
+// reading line. Page modes take the change at their next turn.
+function _rebuildStripInPlace() {
+  if (mode !== 'strip') return;
+  const at = _stripLineAt(true);
+  const n = at ? Number(at.wrap.dataset.page) : currentPage;
+  buildStrip();
+  _syncThumbScope();
+  const wrap = stripView.querySelector(`.page-wrap[data-page="${n}"]`);
+  if (wrap) _scrollStripLineTo({ wrap, frac: at?.frac ?? 0, px: at?.px ?? 0 });
+  _stripLine = _stripLineAt(true);
+}
+function _applyTranslateDisplay(next) {
+  translateDisplay = next === 'text' ? 'text' : 'image';
+  platform.kv.set({ readerTranslateDisplay: translateDisplay });
+  if (_showTranslated()) _redrawView();
+  _syncReaderSettingsUI();
+}
+// Study mode's look: how the original and the translation show, and the original's font and furigana.
+const STUDY_PREF_KEYS = {
+  display:  (v) => ({ readerStudyDisplay: v }),
+  original: (v) => ({ readerStudyOriginal: v }),
+  srcFont:  (v) => ({ readerStudySrcFont: v }),
+  furigana: (v) => ({ readerFurigana: v ? 'on' : 'off' }),
+};
+function _applyStudyPref(key, value) {
+  setStudyPrefs({ [key]: value });
+  platform.kv.set(STUDY_PREF_KEYS[key](value));
+  if (_bubbleLayersOn()) _refreshBubbleLayers();
+  _syncReaderSettingsUI();
+}
+function _applySkipOverview(skip) {
+  _skipOverview = !!skip;
+  platform.kv.set({ readerSkipOverview: _skipOverview });
+  _syncReaderSettingsUI();
+}
+
 let _modeApplied = false;
 function setMode(m, skipAnim) {
   // Already in this mode (e.g. pressing 3 repeatedly) → no-op, so we don't rebuild the view
@@ -3487,9 +3618,9 @@ function setMode(m, skipAnim) {
   if (_modeApplied && m === mode) return;
   _modeApplied = true;
   _hidePageDivider();   // never carry a transition page across modes
-  if (m !== 'strip') scrollTopBtn.classList.remove('visible');
 
   mode = m;
+  _syncTopButtons();
   setAutoScroll(false);   // a new reading mode stops auto-play
   document.documentElement.classList.add('reader-scroll');
   document.body.classList.add('reader-scroll');
@@ -3613,7 +3744,8 @@ function _stopStripGlide() {
 
 function _glideStripTo(el) {
   _stopScrubEase();   // a scrub that ended easing gives way to the new destination
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { _stopStripGlide(); el.scrollIntoView(); return; }
+  // Smooth page scrolling off (Reader settings), or less motion asked for: there at once.
+  if (!readerSmoothScroll || matchMedia('(prefers-reduced-motion: reduce)').matches) { _stopStripGlide(); el.scrollIntoView(); return; }
   _glideEl = el;
   // The glide follows the target's live geometry. Automatic scroll anchoring as images load
   // would look like user scrolling to the cancellation check and strand a long jump midway.
@@ -3765,16 +3897,19 @@ function _pageFlipSideAt(e) {
   if (!(e.clientX >= left && e.clientX <= right && e.clientY >= top && e.clientY <= bottom)) return null;
   return e.clientX < (left + right) / 2 ? 'left' : 'right';
 }
+
+// A double-click on the pages hides the controls, or brings them back for good (like X). Not on the
+// page in single/double, where those clicks were two page turns. Counted in pairs of quick clicks
+// rather than by dblclick, which fires once per run of them: double-clicking again straight away,
+// to toggle back, would otherwise do nothing until the pointer had rested.
+let _clickPairOpen = false;   // the last click began a pair; a quick next one completes it
 viewport.addEventListener('click', (e) => {
   const side = _pageFlipSideAt(e);
   if (side) goTo(_flipTarget(_sideDir(side)));
-});
-
-// A double-click on the pages hides the controls, or brings them back for good (like X). Not on the
-// page in single/double, where those clicks were two page turns.
-viewport.addEventListener('dblclick', (e) => {
-  if (e.target.closest?.('button, a, input, .bubble-box, .chd')) return;
-  if (_pageFlipSideAt(e)) return;
+  const open = _clickPairOpen;
+  _clickPairOpen = false;
+  if (side || !e.detail || e.target.closest?.('button, a, input, .bubble-box, .chd')) return;
+  if (e.detail === 1 || !open) { _clickPairOpen = true; return; }
   window.getSelection()?.removeAllRanges();
   _toggleControls();
 });
@@ -4079,11 +4214,18 @@ modeSingle.addEventListener('click', () => setMode('single'));
 modeDouble.addEventListener('click', () => setMode('double'));
 modeStrip.addEventListener('click', () => setMode('strip'));
 
-// Scroll-to-top button
-scrollTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+// Back to top (the classic button, the rail's last one): the strip glides to its top, the way a jump
+// does, and auto-play makes way for the glide (_autoScrollFrame). Going back up pauses auto-play,
+// unless Reader settings says not to; then it reads on from the top.
+function _backToTop() {
+  if (mode !== 'strip') return;
+  if (_autoRaf && readerAutoPauseOnUp) setAutoScroll(false);
+  _glideStripTo(stripView);
+}
+scrollTopBtn.addEventListener('click', _backToTop);
 window.addEventListener('scroll', () => {
   _noteScroll();   // how fast the strip moves decides whether full pages load (_stripFlying)
-  scrollTopBtn.classList.toggle('visible', mode === 'strip' && window.scrollY > 400);
+  _syncTopButtons();
   if (mode === 'strip' && !_thumbDragging) {
     // One proportion drives everything: the current page (counter + active-thumb border) and the
     // fill indicator, so the border tracks the fill. This listener fires every frame (unlike the
@@ -4134,12 +4276,17 @@ function setView(target) {
   studyMode     = target === 'study';
   translateView = target === 'translate';
   document.body.classList.toggle('study-mode', studyMode);
-  _swapVisibleVariant();      // re-point images to the right variant (study forces original)
-  _refreshBubbleLayers();     // builds overlays when studyMode, tears them down otherwise
-  // Overlays come from the study layers; if they are still loading, build them once they land.
-  if (_bubbleLayersOn() && !_studyLoaded) _loadStudy().then(() => { if (_bubbleLayersOn()) _refreshBubbleLayers(); });
+  _redrawView();
   _updateViewToggle();
   platform.kv.set({ readerView: target });
+}
+
+// The pages on screen drawn again in the variant and with the overlays the view now asks for.
+function _redrawView() {
+  _swapVisibleVariant();      // re-point images to the right variant (study forces original)
+  _refreshBubbleLayers();     // builds overlays when they're on, tears them down otherwise
+  // Overlays come from the study layers; if they are still loading, build them once they land.
+  if (_bubbleLayersOn() && !_studyLoaded) _loadStudy().then(() => { if (_bubbleLayersOn()) _refreshBubbleLayers(); });
 }
 
 // Reflect the current view on the segmented toggle (slides the indicator + tooltips).
@@ -4466,14 +4613,26 @@ function _syncReaderSettingsUI() {
   });
   readerCoverOffsetInput.checked = readerCoverOffset;
   readerDebugLoadedInput.checked = readerDebugLoaded;
-  readerSettingsBox.querySelectorAll('[data-progress-position]').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.progressPosition === readerProgressPosition);
-  });
+  readerOverviewInput.checked = !_skipOverview;
+  readerStripFlowInput.checked = _stripSeriesFlow;
+  readerTransitionsInput.checked = _chapterDividersOn;
+  readerPauseOnUpInput.checked = readerAutoPauseOnUp;
+  readerSmoothScrollInput.checked = readerSmoothScroll;
+  const study = studyPrefs();
+  readerFuriganaInput.checked = study.furigana;
+  readerStudyFontSelect.value = study.srcFont;
+  for (const [attr, value] of [['data-translate-display', translateDisplay], ['data-study-original', study.original],
+    ['data-study-display', study.display]]) {
+    readerSettingsBox.querySelectorAll(`[${attr}]`).forEach(btn => btn.classList.toggle('active', btn.getAttribute(attr) === value));
+  }
+  // The original's font and furigana are for the original shown as text.
+  readerStudyTextGroup.disabled = study.original !== 'text';
+  // The modern navigation's place; the classic one has none.
+  readerNavPlaceGroup.disabled = readerNavLayout !== 'side';
+  for (const picker of PICKERS) _syncPickButton(picker);
   readerSettingsBox.querySelectorAll('[data-reader-fit]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.readerFit === readerFitMode);
   });
-  // Spread settings only act in double page; elsewhere they stay put, disabled (fieldsets).
-  readerPageDirectionGroup.disabled = readerCoverOffsetGroup.disabled = mode !== 'double';
   readerGap.value = readerPageGap;
   readerGap.style.setProperty('--fill', `${readerPageGap / Number(readerGap.max) * 100}%`);
   readerGapValue.textContent = `${readerPageGap} px`;
@@ -4500,10 +4659,225 @@ function setReaderSettingsOpen(open) {
     setKeybindOpen(false);
     _syncReaderSettingsUI();
     readerSettingsClose.focus();
-  } else if (document.activeElement && readerSettingsModal.contains(document.activeElement)) {
-    readerSettingsBtn.focus();
+  } else {
+    _closePicker();
+    // The keyboard goes back to the button that opened them; a mouse leaves the focus nowhere.
+    if (document.activeElement && readerSettingsModal.contains(document.activeElement)) {
+      if (_focusByKeys) (readerNavLayout === 'side' ? snSettings : readerSettingsBtn).focus();
+      else document.activeElement.blur();
+    }
   }
 }
+
+// The settings are set in the UI font's semibold and bold, which the reader's own chrome hardly
+// uses: asked for now, so the settings open at their size instead of growing once a face arrives.
+for (const weight of [600, 700]) document.fonts?.load(`${weight} 1em "JetBrains Mono"`).catch(() => {});
+
+// ── Reader settings: tabs ──
+// The most used settings first; they open on the tab last shown. The box keeps its top from tab to
+// tab, ending with the tab shown (reader.css).
+const rsTabs = [...readerSettingsBox.querySelectorAll('[role="tab"]')];
+const rsPanels = [...readerSettingsBox.querySelectorAll('[role="tabpanel"]')];
+// Every tab is a stop for Tab (Enter or Space shows it); the arrows, Home and End go from tab to tab.
+function _showSettingsTab(tab, focus) {
+  for (const other of rsTabs) other.setAttribute('aria-selected', String(other === tab));
+  for (const panel of rsPanels) panel.classList.toggle('active', panel.id === tab.getAttribute('aria-controls'));
+  _closePicker();
+  if (focus) tab.focus();
+}
+for (const tab of rsTabs) {
+  tab.addEventListener('click', () => _showSettingsTab(tab));
+  tab.addEventListener('keydown', (e) => {
+    const i = rsTabs.indexOf(tab);
+    const next = { ArrowLeft: i - 1, ArrowRight: i + 1, Home: 0, End: rsTabs.length - 1 }[e.key];
+    if (next === undefined) return;
+    e.preventDefault();
+    _showSettingsTab(rsTabs[(next + rsTabs.length) % rsTabs.length], true);
+  });
+}
+
+// ── Reader settings: placement pickers ──
+// A button drawn as where something stands. Pressed, its choices come up around it: a cross of the
+// window's edges (the progress bar's Off in a corner) and, for the navigation, once an edge is
+// picked, the places along it: its start and end in the corners beside that edge, its centre on the
+// edge's own cell. A click opens them and a click picks; a press dragged onto a choice picks it where
+// it lets go, an edge with places showing them as the drag comes onto it. The button stays in the
+// middle: pressed again, it puts them away.
+const EDGE_CELL = { top: [0, -1], left: [-1, 0], right: [1, 0], bottom: [0, 1] };
+const ALONG_CELL = {
+  top:    { start: [-1, -1], center: [0, -1], end: [1, -1] },
+  bottom: { start: [-1, 1],  center: [0, 1],  end: [1, 1] },
+  left:   { start: [-1, -1], center: [-1, 0], end: [-1, 1] },
+  right:  { start: [1, -1],  center: [1, 0],  end: [1, 1] },
+};
+const _acrossEdge = (edge) => edge === 'top' || edge === 'bottom';
+const _edgeLabel = (edge) => t(`rd.${edge}`);
+// Along a top or bottom edge, its start is the left; along a side, the top.
+const _alongLabel = (edge, along) => t(along === 'center' ? 'rd.center'
+  : _acrossEdge(edge) ? (along === 'start' ? 'rd.left' : 'rd.right') : (along === 'start' ? 'rd.top' : 'rd.bottom'));
+const _placeLabel = (edge, along) => (along ? `${_edgeLabel(edge)} · ${_alongLabel(edge, along)}` : _edgeLabel(edge));
+
+// A window, with a bar along the whole of an edge or at a place along it; Off crosses it out.
+function _pickIcon(edge, along) {
+  const frame = '<rect width="18" height="18" x="3" y="3" rx="2"/>';
+  if (edge === 'off') return `<svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true">${frame}<path d="m3.5 3.5 17 17"/></svg>`;
+  const at = edge === 'top' || edge === 'left' ? 7.5 : 16.5;
+  const [from, len] = along ? [{ start: 7, center: 9.5, end: 12 }[along], 5] : [7.5, 9];
+  const d = _acrossEdge(edge) ? `M${from} ${at}h${len}` : `M${at} ${from}v${len}`;
+  return `<svg class="rs-ico" viewBox="0 0 24 24" aria-hidden="true">${frame}<path class="rs-bar" d="${d}"/></svg>`;
+}
+
+const PICKERS = [
+  { btn: document.getElementById('readerNavPlace'), value: document.getElementById('readerNavPlaceValue'),
+    edges: ['top', 'left', 'right', 'bottom'], along: true,
+    current: () => ({ edge: readerNavPos, along: readerNavAlign }), pick: (edge, along) => applyReaderNavPlace(edge, along) },
+  { btn: document.getElementById('readerProgress'), value: document.getElementById('readerProgressValue'),
+    edges: ['top', 'left', 'right', 'bottom'], off: [1, 1],
+    current: () => ({ edge: readerProgressPosition }), pick: (edge) => _applyReaderProgressPosition(edge) },
+  { btn: document.getElementById('readerAutoBar'), value: document.getElementById('readerAutoBarValue'),
+    edges: ['top', 'bottom'],
+    current: () => ({ edge: readerAutoBarPosition }), pick: (edge) => _applyReaderAutoBarPosition(edge) },
+];
+
+function _syncPickButton(p) {
+  const { edge, along } = p.current();
+  p.btn.innerHTML = _pickIcon(edge, along);
+  p.value.textContent = _placeLabel(edge, along);
+}
+
+let _pick = null;          // the open picker: { picker, edge (whose places show), press }
+let _pickOwnClick = false; // the click that ends a press on a picker's button is that press's
+
+// Its choices, each in its cell of the 3×3 around the button (--col, --row); reader.css stands them
+// around the button that opened them (anchored to it), as near it as the window allows.
+function _renderPicker() {
+  const p = _pick.picker, now = p.current();
+  const cells = [];
+  for (const edge of p.edges) {
+    if (p.along && _pick.edge === edge) {
+      for (const along of NAV_ALIGNS) cells.push({ edge, along, at: ALONG_CELL[edge][along], current: now.edge === edge && now.along === along });
+    } else {
+      cells.push({ edge, at: EDGE_CELL[edge], current: now.edge === edge, opens: !!p.along });
+    }
+  }
+  if (p.off) cells.push({ edge: 'off', at: p.off, current: now.edge === 'off' });
+  rsPicker.replaceChildren(...cells.map(c => {
+    const cell = document.createElement('button');
+    cell.type = 'button';
+    cell.className = `rs-pick-cell${c.current ? ' current' : ''}`;
+    cell.setAttribute('role', 'menuitem');
+    cell.dataset.edge = c.edge;
+    if (c.along) cell.dataset.along = c.along;
+    if (c.opens) cell.dataset.opens = '';
+    cell.style.setProperty('--col', c.at[0]);
+    cell.style.setProperty('--row', c.at[1]);
+    cell.innerHTML = _pickIcon(c.edge, c.along);
+    cell.dataset.tip = _placeLabel(c.edge, c.along);
+    cell.setAttribute('aria-label', cell.dataset.tip);
+    return cell;
+  }));
+}
+
+function _openPicker(p) {
+  _closePicker();
+  _pick = { picker: p, edge: null, press: null };
+  p.btn.setAttribute('aria-expanded', 'true');
+  rsPicker.hidden = false;
+  _renderPicker();
+}
+function _closePicker(refocus) {
+  if (!_pick) return;
+  const { btn } = _pick.picker;
+  _pick = null;
+  rsPicker.hidden = true;
+  rsPicker.replaceChildren();
+  btn.setAttribute('aria-expanded', 'false');
+  if (refocus && _focusByKeys) btn.focus();   // for the keyboard, back to its button
+}
+const _pickerOpen = () => !!_pick;
+
+// A choice taken: clicked, an edge with places shows them; anything else, or a drag let go on an edge
+// (its centre), is picked.
+function _takeCell(cell, dragged) {
+  const p = _pick.picker, edge = cell.dataset.edge;
+  if (cell.dataset.opens !== undefined && !dragged) {
+    _pick.edge = edge;
+    _renderPicker();
+    rsPicker.querySelector('[data-along="center"]')?.focus();
+    return;
+  }
+  _closePicker(true);
+  p.pick(edge, cell.dataset.along || (cell.dataset.opens !== undefined ? 'center' : undefined));
+}
+
+function _cellUnder(e) {
+  return document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.rs-pick-cell') || null;
+}
+const _onButton = (btn, e) => {
+  const r = btn.getBoundingClientRect();
+  return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+};
+
+for (const p of PICKERS) {
+  p.btn.setAttribute('aria-expanded', 'false');
+  p.btn.addEventListener('pointerdown', (e) => {
+    _pickOwnClick = false;
+    if (e.button !== 0 || p.btn.matches(':disabled')) return;   // its row may be what's disabled
+    const opening = _pick?.picker !== p;
+    if (opening) _openPicker(p);
+    // Until the pointer leaves the button it's a click on it, even with a choice drawn over it (in a
+    // narrow window the choices shift to stay inside it).
+    _pick.press = { id: e.pointerId, opening, left: false };
+    p.btn.setPointerCapture(e.pointerId);
+  });
+  p.btn.addEventListener('pointermove', (e) => {
+    const press = _pick?.press;
+    if (!press || e.pointerId !== press.id) return;
+    if (!press.left && _onButton(p.btn, e)) return;
+    press.left = true;
+    let cell = _cellUnder(e);
+    if (cell?.dataset.opens !== undefined && _pick.edge !== cell.dataset.edge) {
+      _pick.edge = cell.dataset.edge;   // dragged onto an edge: its places come up, the drag on its centre
+      _renderPicker();
+      cell = _cellUnder(e);
+    }
+    for (const other of rsPicker.children) other.classList.toggle('hot', other === cell);
+  });
+  p.btn.addEventListener('pointerup', (e) => {
+    const press = _pick?.press;
+    if (!press || e.pointerId !== press.id) return;
+    _pick.press = null;
+    _pickOwnClick = true;
+    if (!press.left) {   // a click on the button: it opened them, or puts them away again
+      if (!press.opening) _closePicker();
+      return;
+    }
+    const cell = _cellUnder(e);
+    if (cell) { _takeCell(cell, true); return; }
+    if (!_onButton(p.btn, e)) _closePicker();   // let go anywhere else: nothing picked (back on the button, they stay)
+  });
+  p.btn.addEventListener('pointercancel', () => { if (_pick) _pick.press = null; });
+  // From the keyboard (or a click the press didn't make): open on the choice it is now, or close.
+  p.btn.addEventListener('click', () => {
+    if (_pickOwnClick) { _pickOwnClick = false; return; }
+    if (_pick?.picker === p) { _closePicker(); return; }
+    _openPicker(p);
+    (rsPicker.querySelector('.current') || rsPicker.firstElementChild)?.focus();
+  });
+}
+rsPicker.addEventListener('click', (e) => {
+  // Kept from the dialog's outside-click check: showing an edge's places takes the clicked cell out of
+  // the page, and from there the click would look like one outside the box.
+  e.stopPropagation();
+  const cell = e.target.closest('.rs-pick-cell');
+  if (cell && _pick) _takeCell(cell, false);
+});
+// A press anywhere else, the settings scrolling under it or the window resizing puts it away.
+document.addEventListener('pointerdown', (e) => {
+  if (_pick && !e.target.closest?.('#rsPicker') && !_pick.picker.btn.contains(e.target)) _closePicker();
+}, true);
+readerSettingsBox.addEventListener('scroll', () => _closePicker());
+window.addEventListener('resize', () => _closePicker());
 
 readerSettingsBtn.addEventListener('click', () => setReaderSettingsOpen(!readerSettingsModal.classList.contains('show')));
 readerSettingsClose.addEventListener('click', () => setReaderSettingsOpen(false));
@@ -4517,8 +4891,12 @@ readerSettingsBox.addEventListener('click', (e) => {
   if (navDirectionBtn) { _applyReaderNavDirection(navDirectionBtn.dataset.navDirection); return; }
   const pageDirectionBtn = e.target.closest('[data-page-direction]');
   if (pageDirectionBtn) { _applyReaderPageDirection(pageDirectionBtn.dataset.pageDirection); return; }
-  const progressBtn = e.target.closest('[data-progress-position]');
-  if (progressBtn) { _applyReaderProgressPosition(progressBtn.dataset.progressPosition); return; }
+  const translateBtn = e.target.closest('[data-translate-display]');
+  if (translateBtn) { _applyTranslateDisplay(translateBtn.dataset.translateDisplay); return; }
+  const originalBtn = e.target.closest('[data-study-original]');
+  if (originalBtn) { _applyStudyPref('original', originalBtn.dataset.studyOriginal); return; }
+  const studyDisplayBtn = e.target.closest('[data-study-display]');
+  if (studyDisplayBtn) { _applyStudyPref('display', studyDisplayBtn.dataset.studyDisplay); return; }
   const fitBtn = e.target.closest('[data-reader-fit]');
   if (fitBtn) {
     const next = fitBtn.dataset.readerFit;
@@ -4538,6 +4916,14 @@ readerSettingsBox.querySelectorAll('[data-reader-nav]').forEach(btn => {
 });
 readerCoverOffsetInput.addEventListener('change', () => _applyReaderCoverOffset(readerCoverOffsetInput.checked));
 readerDebugLoadedInput.addEventListener('change', () => _applyReaderDebugLoaded(readerDebugLoadedInput.checked));
+readerOverviewInput.addEventListener('change', () => _applySkipOverview(!readerOverviewInput.checked));
+readerStripFlowInput.addEventListener('change', () => _applyStripFlow(readerStripFlowInput.checked));
+readerTransitionsInput.addEventListener('change', () => _applyChapterTransitions(readerTransitionsInput.checked));
+readerPauseOnUpInput.addEventListener('change', () => _applyReaderPauseOnUp(readerPauseOnUpInput.checked));
+readerSmoothScrollInput.addEventListener('change', () => _applyReaderSmoothScroll(readerSmoothScrollInput.checked));
+readerFuriganaInput.addEventListener('change', () => _applyStudyPref('furigana', readerFuriganaInput.checked));
+readerStudyFontSelect.addEventListener('change', () => _applyStudyPref('srcFont', readerStudyFontSelect.value));
+initDropdowns();
 readerZoomOut.addEventListener('click', () => adjustPageZoom(-1));
 readerZoomIn.addEventListener('click', () => adjustPageZoom(1));
 
@@ -4801,6 +5187,32 @@ function _openHoveredFeedback() {
       readerMode: mode, view: 'study', study: studyPrefs(), surface: hit.surface, zoom: _pageZoom, fit: readerFitMode, direction: readerNavDirection } });
 }
 
+// The browser rings whatever has the focus once a key is pressed. A button the mouse pressed a moment
+// ago (or one that took the focus for it, as the settings' close button does) isn't where the
+// keyboard is: a key lets it go instead of ringing it, and hidden controls that focus held up hide
+// again. Focus moved there by the keyboard (Tab) stays, ringed.
+let _focusByKeys = false;
+document.addEventListener('keydown', (e) => { if (e.key === 'Tab') _focusByKeys = true; }, true);
+document.addEventListener('pointerdown', () => { _focusByKeys = false; }, true);
+function _dropPointerFocus(e) {
+  if (_focusByKeys || ['Shift', 'Control', 'Alt', 'Meta', 'Tab'].includes(e.key)) return;
+  const el = document.activeElement;
+  if (el && el !== document.body) el.blur();
+}
+
+// The keys a focused control in the reader settings uses itself: a slider's arrows, Home, End and page
+// keys; a dropdown's too, with Space and Enter; a tab's arrows, Home and End; Space and Enter on a
+// button or a switch.
+const SLIDER_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
+function _settingsControlKey(e) {
+  const el = e.target;
+  if (!readerSettingsBox.contains(el)) return false;
+  if (el.matches('input[type="range"]')) return SLIDER_KEYS.has(e.key);
+  if (el.matches('select')) return SLIDER_KEYS.has(e.key) || e.key === ' ' || e.key === 'Enter';
+  if (el.matches('[role="tab"]') && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return true;
+  return (e.key === ' ' || e.key === 'Enter') && el.matches('button, input, [tabindex]');
+}
+
 // Keyboard
 document.addEventListener('keydown', (e) => {
   if (propertiesOpen()) {
@@ -4809,10 +5221,18 @@ document.addEventListener('keydown', (e) => {
   }
   if (feedbackOpen() || e.isComposing) return;
   _setStudyTextSelectable(e.ctrlKey);   // Ctrl held → study text is selectable
+  // Open, the reader settings leave the reader's keys working, so a change can be tried at once,
+  // except the keys their focused control uses itself; Escape puts a picker away, then closes them.
   if (readerSettingsModal.classList.contains('show')) {
-    if (e.key === 'Escape') { e.preventDefault(); setReaderSettingsOpen(false); }
-    return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (_pickerOpen()) _closePicker(true); else setReaderSettingsOpen(false);
+      return;
+    }
+    if (_pickerOpen() || _settingsControlKey(e)) return;
   }
+  const typing = editingTarget(e.target) && !readerSettingsBox.contains(e.target);   // the settings have no text to type
+  if (!typing) _dropPointerFocus(e);
   if (_chapterListOpen() && e.key === 'Escape') {
     e.preventDefault();
     _closeChapterList();
@@ -4825,7 +5245,7 @@ document.addEventListener('keydown', (e) => {
     else if (e.key === ' ' ? !e.target.closest?.('button') : ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.key)) e.preventDefault();
     return;
   }
-  if (editingTarget(e.target)) return;
+  if (typing) return;
   if (e.key.toLowerCase() === 'f') {
     if (feedbackKey(e)) _openHoveredFeedback();
     return;   // Ctrl/Cmd+F remains the browser's Find command.
@@ -4929,7 +5349,7 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'End')  goTo(chLast);
   }
   if (e.key === 'g' || e.key === 'G') setThumbsOpen(!thumbsOpen);
-  if (e.key === 'n' || e.key === 'N') { if (readerNavLayout === 'side') applyReaderSidePin(!readerSidePinned); else applyReaderPin(!readerPinned); }
+  if (e.key === 'n' || e.key === 'N') _toggleControls();
   if ((e.key === 'x' || e.key === 'X') && !e.ctrlKey && !e.metaKey) _toggleControls();   // Ctrl/Cmd+X stays cut
   if ((e.key === 'k' || e.key === 'K') && !e.ctrlKey && !e.metaKey && !_chapterListOpen()) setAutoScroll(!_autoRaf);   // play / pause auto-play
   if (e.key === 't' || e.key === 'T') setView(translateView ? 'off' : 'translate');

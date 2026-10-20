@@ -10,7 +10,12 @@ before(async () => {
   ({ server, origin } = await startServer());
   browser = await puppeteer.launch({ executablePath: chromePath(), headless: true,
     ignoreDefaultArgs: ['--hide-scrollbars'], args: ['--force-device-scale-factor=1'] });
-  const page = await openPage(browser, origin);
+  await seed(browser);
+});
+after(async () => { await browser?.close(); server?.close(); });
+
+async function seed(instance) {
+  const page = await openPage(instance, origin);
   await page.goto(origin + '/library');
   await page.evaluate(async gid => {
     const api = await import('/app/js/api.js');
@@ -24,8 +29,7 @@ before(async () => {
     }
   }, GALLERY);
   await page.close();
-});
-after(async () => { await browser?.close(); server?.close(); });
+}
 
 async function fresh(t, route, instance = browser) {
   const page = await openPage(instance, origin);
@@ -126,7 +130,48 @@ test('reader images and controls stay aligned across page sizes, modes and pinni
   }
 });
 
-test('custom overlays clear compensation and disabling them restores it', { skip: !chromePath() }, async t => {
+test('at a fractional display scale the side controls and the reader dialogs stay put as the scrollbar comes and goes', { skip: !chromePath() }, async t => {
+  // At 1.25 the scrollbar is 15.2px wide, which the window's whole-pixel sizes read as 15 or 16.
+  const scaled = await puppeteer.launch({ executablePath: chromePath(), headless: true,
+    ignoreDefaultArgs: ['--hide-scrollbars'], args: ['--force-device-scale-factor=1.25'] });
+  await seed(scaled);
+  const page = await fresh(t, `/reader?g=${GALLERY}&page=1`, scaled);
+  t.after(() => scaled.close());
+  await page.evaluate(() => localStorage.setItem('shiori-reader-nav', 'side'));
+  await page.reload();
+  await page.waitForFunction(() => document.body.classList.contains('reader-side-nav') && document.querySelector('#mainImg').naturalWidth > 0);
+  const edges = () => page.evaluate(() => {
+    const rect = sel => document.querySelector(sel).getBoundingClientRect();
+    const open = (overlay, box) => {
+      document.querySelector(overlay).classList.add('show');
+      const { left, right } = rect(box);
+      document.querySelector(overlay).classList.remove('show');
+      return [left, right];
+    };
+    const [settingsLeft, settingsRight] = open('#readerSettingsModal', '#readerSettingsBox');
+    const [shortcutsLeft, shortcutsRight] = open('#keybindModal', '#keybindBox');
+    // The rail across the top, centred: in the width the pages keep, a scrollbar beside them or not.
+    const root = document.documentElement.dataset;
+    [root.snPos, root.snAlign] = ['top', 'center'];
+    const topCentre = rect('#snRail').left;
+    [root.snPos, root.snAlign] = ['right', 'start'];
+    return {
+      scrollbar: innerWidth > document.documentElement.clientWidth,
+      edges: { pill: rect('#snChapter').right, rail: rect('#snRail').right, topCentre, sideZoom: rect('#sideZoom').right, settingsLeft, settingsRight, shortcutsLeft, shortcutsRight },
+    };
+  });
+  await overflow(page, 'hidden');
+  const short = await edges();
+  await overflow(page, 'auto');
+  const tall = await edges();
+  assert.deepEqual([short.scrollbar, tall.scrollbar], [false, true]);
+  // Within a layout unit (1/64 px): what's left is rounding, not a shift.
+  for (const [name, edge] of Object.entries(short.edges)) {
+    assert.ok(Math.abs(edge - tall.edges[name]) < 1 / 64, `${name} moved from ${edge} to ${tall.edges[name]}`);
+  }
+});
+
+test('custom overlays clear compensation and disabling them restores it',{ skip: !chromePath() }, async t => {
   const page = await fresh(t, '/library');
   await overflow(page, 'hidden');
   const native = await geometry(page, ['.toolbar']);

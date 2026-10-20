@@ -1,7 +1,8 @@
 // desktop-settings.js — Settings → System, shown only in the desktop app's window: closing to the
 // tray, the library folder (open, change, check again, when and how galleries left alone are
 // archived), the local
-// server's port and the sites allowed to use the library, browser extensions to run in the windows,
+// server's port, whether other devices on the network may open the library, and the sites allowed
+// to use it, browser extensions to run in the windows,
 // updates (and developer mode, which takes them from builds made on this computer), and the app's
 // version and data folder. Each setting is
 // the desktop app's own, read and changed through the window's bridge to it (`shioriDesktop.shell`).
@@ -79,6 +80,12 @@ function markup() {
         <div class="field-desc" id="deskPortDesc"></div>
         <select class="field-input" id="deskPort"></select>
       </div>
+      <div class="field">
+        <div class="field-label" data-i18n="set.desk_lan"></div>
+        <div class="field-desc" data-i18n="set.desk_lan_desc"></div>
+        ${SWITCH('deskLan', 'set.desk_lan')}
+      </div>
+      <div id="deskLanUrls"></div>
       <div class="toggle-row">
         <div class="toggle-info">
           <div class="toggle-name" data-i18n="set.desk_sites"></div>
@@ -175,6 +182,12 @@ export async function initDesktopSettings() {
     $('deskPortDesc').textContent = t('set.desk_port_desc', { port: state.ports[0] });
     $('deskPort').innerHTML = [0, ...state.ports].map(p =>
       `<option value="${p}"${p === state.port ? ' selected' : ''}>${p ? p : esc(t('set.desk_port_auto'))}</option>`).join('');
+    $('deskLan').checked = state.lan;
+    // While it is open: the addresses another device opens (none while this computer is on no network).
+    $('deskLanUrls').innerHTML = !state.lanUrls ? ''
+      : `<div class="toggle-row"><div class="toggle-info">${state.lanUrls.length
+        ? `<div class="toggle-name">${esc(t('set.desk_lan_at'))}</div><div class="toggle-desc">${state.lanUrls.map(u => `<code>${esc(u)}</code>`).join('<br>')}</div>`
+        : `<div class="toggle-desc">${esc(t('set.desk_lan_none'))}</div>`}</div></div>`;
     $('deskSites').innerHTML = state.sites.length
       ? state.sites.map(site => `<div class="toggle-row"><div class="toggle-info"><div class="toggle-name"><code>${esc(site)}</code></div></div>
           <button class="btn-mini" type="button" data-forget="${esc(site)}">${esc(t('set.desk_disconnect'))}</button></div>`).join('')
@@ -226,6 +239,10 @@ export async function initDesktopSettings() {
   $('deskPort').addEventListener('change', async (e) => {
     await set('port', Number(e.target.value));
     restart(t('set.desk_restart_port'));
+  });
+  $('deskLan').addEventListener('change', async (e) => {
+    await set('lan', e.target.checked);
+    restart(t('set.desk_restart_lan'));
   });
   // Both look for an update at once: follow it from the start.
   const followCheck = () => { state.update = { status: 'checking' }; renderUpdate(); };

@@ -6,12 +6,19 @@
   --topbar-h: 54px; --botbar-h: 3px;
   --bar-zone: 12px;   /* how close to the progress bar's edge pointing grows it, and how thick it grows */
   --thumb-h: 88px; --zoom-inv: 1;
-  --top-btn-lift: 20px;   /* the go-to-top button's height above the bottom bar or the thumbnails */
+  /* The panels' buttons (the modern rail, the chapter pill, fit and zoom, the classic go-to-top):
+     compact for a mouse, the standard 44px a touch needs on a touch screen. */
+  --sn-size: 34px;
+  --top-btn-lift: calc(var(--sn-size) + 22px);   /* the classic go-to-top button's height above the bottom bar or the thumbnails: 10px above zoom */
   --page-zoom: 1;   /* +/- keys scale the in-view pages around this factor */
   --reader-page-gap: 4px;
   --reader-fit-max-width: 100%;
   --botbar-visual-h: calc(var(--botbar-h) * var(--zoom-inv, 1));
   --reader-fit-page-height: calc(100vh - var(--topbar-h) - var(--botbar-visual-h));
+}
+@media (pointer: coarse) {
+  :root { --sn-size: 44px; }
+  :root .sn-btn svg { width: 20px; height: 20px; }
 }
 html { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; }
 /* The reader never set a base text size: text that doesn't size itself keeps the browser's 16px. */
@@ -83,7 +90,7 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
    and inherit the bar's text colour; the children carry their own colours. */
 .tb-meta    { display: flex; align-items: baseline; gap: 6px; flex-shrink: 1; overflow: hidden;
               background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; }
-.tb-meta:hover { opacity: 0.8; }
+.tb-meta:hover { filter: brightness(1.3); }   /* pointed at, it lights up */
 .tb-gallery { font-size: 13px; color: var(--accent); white-space: nowrap; flex-shrink: 0; }
 .tb-gallery.local { color: var(--accent2); }
 .tb-title   { font-size: 13px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; flex-shrink: 1; }
@@ -112,12 +119,29 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
 .speed-tip-bar { width: 96px; height: 4px; border-radius: 2px; background: #444; overflow: hidden; }
 .speed-tip-fill { display: block; height: 100%; background: var(--accent); }
 .speed-tip-value { min-width: 60px; text-align: right; }
-/* Auto-play in single/double: how much of the pages' time has run, along their bottom edge. */
+/* Auto-play in single/double: how much of the pages' time has run, across the window at its top or
+   bottom (Reader settings), just inside a progress bar on that edge (_placeAutoBar). */
 .auto-bar {
-  position: fixed; z-index: 140; height: 4px; display: none; pointer-events: none; opacity: 0.85;
+  position: fixed; z-index: 202; height: 4px; display: none; pointer-events: none; opacity: 0.85;
   background: color-mix(in srgb, var(--bg) 40%, transparent);
 }
 .auto-bar.show { display: block; }
+/* Where it stands. A page bar on the same edge stays nearer the edge: it stands on the bar's line
+   (resting, or as far as the bar has grown under the pointer, which moves it along), at the bottom
+   above open thumbnails too; beside a page bar down the side. Held by the bottom edge there, as the
+   page bar is, so a phone's toolbar sliding carries it along. */
+.auto-bar {
+  --line: calc(var(--botbar-h) * var(--zoom-inv)); --thumbs: 0px;
+  left: 0; right: var(--page-scrollbar-gap); bottom: var(--thumbs);
+}
+body.bar-grown .auto-bar { --line: calc(var(--bar-zone) * var(--zoom-inv)); }
+body.thumbs-open .auto-bar { --thumbs: calc(var(--thumb-h) * var(--zoom-inv)); }
+body.thumbs-open.thumb-revealing .auto-bar { --thumbs: calc(var(--thumb-shown, 0px) * var(--zoom-inv)); }
+body:has(#bottombar[data-position="bottom"]) .auto-bar { bottom: calc(var(--thumbs) + var(--line)); }
+body:has(#bottombar[data-position="left"]) .auto-bar { left: var(--line); }
+body:has(#bottombar[data-position="right"]) .auto-bar { right: calc(var(--page-scrollbar-gap) + var(--line)); }
+.auto-bar[data-at="top"] { top: 0; bottom: auto; }
+body:has(#bottombar[data-position="top"]) .auto-bar[data-at="top"] { top: var(--line); }
 .auto-bar-fill { display: block; height: 100%; background: var(--accent); transform-origin: left; transform: scaleX(0); }
 .auto-bar.rtl .auto-bar-fill { transform-origin: right; }
 
@@ -193,7 +217,12 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
 
 /* ── SINGLE mode ── */
 #singleView { display: none; }
-#singleView.active { display: block; }
+/* A page, or a spread, shorter than the room it has (the window, less a pinned header and the bottom
+   bar) stands in the middle of it, as it does across; a taller one starts at the top and scrolls. */
+#singleView.active, #doubleView.active {
+  display: flex; flex-direction: column; justify-content: center;
+  min-height: var(--reader-fit-page-height);
+}
 
 #singleInner {
   position: relative; display: flex; justify-content: center;
@@ -219,7 +248,6 @@ body.reader-fit-height #singleInner > .page-wrap > #mainImg { width: 100%; }
 
 /* ── DOUBLE mode ── */
 #doubleView { display: none; }
-#doubleView.active { display: block; }
 
 #doubleInner {
   position: relative; display: flex; justify-content: center; gap: var(--reader-page-gap);
@@ -266,14 +294,17 @@ html.reader-strip-gliding { overflow-anchor: none; }
    to the exact natural ratio. object-fit: contain prevents stretching during the brief window
    between src-set and the load event (matters for double-wide pages whose true ratio differs). */
 .page-img {
-  width: calc((100vw - var(--page-scrollbar-width)) * var(--page-zoom));
-  max-width: calc(100vw - var(--page-scrollbar-width)); display: block;
+  width: 100%; display: block;
   aspect-ratio: 2 / 3;
   object-fit: contain;
 }
-body.reader-fit-width #stripView .page-img { width: calc(100vw - var(--page-scrollbar-width)); }
-body.reader-fit-height #stripView .page-img {
-  width: min(calc(100vw - var(--page-scrollbar-width)), calc(var(--reader-fit-page-height) * var(--page-ratio, 0.681)));
+/* Each row is a share of the strip (the window less a scrollbar), not a length in vw: a row sized in
+   viewport units is restyled, every row of a long series, on each step of a window being resized;
+   a share is only laid out again. Fit-height still follows the window's height. */
+#stripView > .page-wrap { width: calc(100% * var(--page-zoom)); max-width: 100%; }
+body.reader-fit-width #stripView > .page-wrap { width: 100%; }
+body.reader-fit-height #stripView > .page-wrap {
+  width: min(100%, calc(var(--reader-fit-page-height) * var(--page-ratio, 0.681)));
 }
 /* The strip is virtualized: rows outside the mounted window hold an <img> with no src. Keep the
    reserved slot as a quiet surface (and never a broken-image glyph) until its page mounts. */
@@ -484,7 +515,7 @@ body.study-bubbles-active #mainImg, body.study-bubbles-active .dImg { cursor: au
    an eased move restarted by every pointer move would trail behind it. */
 body.thumb-resizing #thumbStrip { transition: none; }
 body.thumb-resizing #thumbResizeHandle { transition: background 0.12s; }
-body.thumb-resizing #scrollTopBtn { transition: opacity 0.2s, border-color 0.12s, color 0.12s; }
+body.thumb-resizing #scrollTopBtn { transition: opacity 0.2s, background 0.12s, color 0.12s; }
 /* Pulled out of the progress bar, the strip is as tall as the drag has gone (_barReveal sets it);
    its resize handle shows once it's let go all the way out, and stays open. */
 body.thumb-revealing #thumbStrip { transition: none; }
@@ -679,11 +710,13 @@ body.thumb-dragging * {
 /* ── Keybind modal ── */
 /* The shortcuts and reader-settings modals hold the pages still behind them without hiding the
    page's scrollbar: as scroll containers that contain overscroll, no wheel or swipe started over
-   them reaches the pages. */
+   them reaches the pages. They reserve the room of a scrollbar that isn't there, as the body does,
+   so their box stays put when a change behind them brings the scrollbar or takes it away. */
 #keybindModal {
   display: none; position: fixed; inset: 0; z-index: 400;
   background: var(--backdrop);
   align-items: center; justify-content: center;
+  padding-right: var(--page-scrollbar-gap);
   overflow: hidden; overscroll-behavior: contain;
 }
 #keybindModal.show { display: flex; }
@@ -715,24 +748,48 @@ body.thumb-dragging * {
 }
 
 /* ── Reader settings modal ── */
+/* The box is as tall as its tallest tab (every tab laid out in one grid cell) and centred, so its top
+   and the tabs stay where they are from tab to tab. Only the header and the tab shown are drawn and
+   take the pointer: the room below a shorter tab is the backdrop's, and a click there closes the
+   settings as one anywhere outside does. */
 #readerSettingsModal {
   display: none; position: fixed; inset: 0; z-index: 410;
   background: var(--backdrop); align-items: center; justify-content: center;
-  padding: 20px;
+  padding: 20px calc(20px + var(--page-scrollbar-gap)) 20px 20px;
   overflow: hidden; overscroll-behavior: contain;
 }
 #readerSettingsModal.show { display: flex; }
-#readerSettingsBox {
-  width: min(480px, 100%); max-height: calc(100vh - 40px); overflow: auto;
-  padding: 0 18px 18px; border: 1px solid var(--border-strong); border-radius: 12px;
-  background: var(--surface); box-shadow: 0 18px 55px rgba(0,0,0,.45);
+#readerSettingsBox { width: min(480px, 100%); max-height: calc(100vh - 40px); overflow: auto; pointer-events: none; }
+/* The header and the tabs stay in view while the settings scroll under them. */
+.reader-settings-top {
+  position: sticky; top: 0; z-index: 2; padding: 0 18px 16px; pointer-events: auto;
+  background: var(--surface); border: 1px solid var(--border-strong); border-bottom: 0; border-radius: 12px 12px 0 0;
 }
-/* The header stays in view while the settings scroll under it. */
 .reader-settings-head {
-  position: sticky; top: 0; z-index: 2;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 16px 0 12px; background: var(--surface);
+  padding: 16px 0 12px;
 }
+/* The tabs: one segmented control, the chosen one a shade lighter, like the choices below. */
+.rs-tabs {
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 3px; padding: 3px;
+  background: var(--surface-subtle); border: 1px solid var(--border); border-radius: 9px;
+}
+.rs-tabs button {
+  min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted); cursor: pointer;
+  font-family: inherit; font-size: 11px; font-weight: 600;
+  transition: background-color .12s ease, color .12s ease;
+}
+.rs-tabs button:hover { color: var(--text); }
+.rs-tabs button[aria-selected="true"] { background: var(--surface-raised); color: var(--text); }
+.rs-panels { display: grid; }
+.rs-panel {
+  grid-area: 1 / 1; align-self: start; min-width: 0; padding: 0 18px 18px;
+  background: var(--surface); border: 1px solid var(--border-strong); border-top: 0; border-radius: 0 0 12px 12px;
+  box-shadow: 0 18px 55px rgba(0,0,0,.45);
+}
+.rs-panel.active { pointer-events: auto; }
+.rs-panel:not(.active) { visibility: hidden; }
 .reader-settings-title { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 700; }
 .reader-settings-title .rs-ico { width: 17px; height: 17px; color: var(--muted); }
 .reader-settings-close {
@@ -831,9 +888,64 @@ body.thumb-dragging * {
 .rs-range::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--accent); }
 .rs-range::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: #fff; }
 
+/* Two small choices beside a setting's name. */
+.rs-choices-small { gap: 6px; flex: none; }
+.rs-choices-small button { min-height: 28px; padding: 4px 12px; font-size: 10.5px; }
+/* Settings side by side, each column its name over its controls. */
+.rs-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.rs-col { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.rs-col-opts { display: grid; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.rs-col-opts[disabled] { opacity: .42; }
+.rs-col-name { color: var(--muted); font-size: 11px; font-weight: 600; }
+/* A dropdown, in the app's one look (dropdown.css). */
+.rs-select {
+  --dd-inset: 10px;
+  width: 100%; min-width: 0; height: 30px; padding: 0 var(--dd-inset);
+  background: var(--dd-bg); border: 1px solid var(--border); border-radius: var(--dd-radius);
+  color: var(--text); font-family: inherit; font-size: 11px; cursor: pointer;
+}
+.rs-select:disabled { cursor: default; }
+.rs-font-yasashisa { font-family: 'Yasashisa Antique', sans-serif; }
+.rs-font-kiwi { font-family: 'Kiwi Maru', sans-serif; }
+
+/* A placement: what it is now, and a button showing it that opens the picker. */
+.rs-pick-wrap { display: flex; align-items: center; gap: 10px; flex: none; }
+.rs-pick-value { color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.rs-pick, .rs-pick-cell {
+  display: grid; place-items: center; width: 38px; height: 38px; padding: 0;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-subtle); color: var(--muted);
+  cursor: pointer; transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+}
+.rs-pick:hover:not(:disabled), .rs-pick[aria-expanded="true"] { border-color: var(--border-strong); color: var(--text); }
+.rs-pick:disabled { cursor: default; }
+.rs-pick .rs-ico, .rs-pick-cell .rs-ico { width: 20px; height: 20px; }
+/* The picker: its choices around the button that opened it (anchored to it), a cross of edges, then
+   the places along the edge picked, each in its cell of the 3×3 (--col, --row, 44px apart); as near
+   the button as the window allows: a cell a step out, half a cell and a margin inside it. Pressed and
+   dragged, it's picked where the drag lets go. */
+.rs-pick[aria-expanded="true"] { anchor-name: --rs-pick; }
+.rs-picker {
+  position: fixed; z-index: 430; width: 0; height: 0; touch-action: none; pointer-events: auto;
+  position-anchor: --rs-pick;
+  left: clamp(71px, anchor(center), calc(100% - 71px));
+  top: clamp(71px, anchor(center), calc(100% - 71px));
+}
+.rs-picker[hidden] { display: none; }
+.rs-pick-cell {
+  position: absolute; left: calc(var(--col) * 44px); top: calc(var(--row) * 44px); transform: translate(-50%, -50%);
+  background: var(--surface-raised); border-color: var(--border-strong); box-shadow: 0 8px 22px rgba(0, 0, 0, .5);
+}
+.rs-pick-cell.current { color: var(--accent); }
+.rs-pick-cell:is(:hover, .hot, :focus-visible) { border-color: var(--accent); color: var(--text); }
+.rs-pick-cell.current:is(:hover, .hot) { color: var(--accent); }
+
 @media (max-width: 540px) {
-  #readerSettingsModal { padding: 10px; align-items: flex-end; }
-  #readerSettingsBox { max-height: calc(100vh - 20px); padding: 0 14px 14px; border-radius: 12px 12px 6px 6px; }
+  /* A sheet at the bottom, as tall as its tallest tab, so its top stays put from tab to tab: the tab
+     shown reaches down to its foot. */
+  #readerSettingsModal { padding: 10px calc(10px + var(--page-scrollbar-gap)) 10px 10px; align-items: flex-end; }
+  #readerSettingsBox { max-height: calc(100vh - 20px); }
+  .reader-settings-top { padding: 0 14px 16px; }
+  .rs-panel { align-self: stretch; padding: 0 14px 14px; border-radius: 0 0 6px 6px; }
   .rs-choices-stack button { font-size: 9.5px; }
 }
 
@@ -974,32 +1086,22 @@ body.reader-unpinned #doubleView.active { min-height: 100vh; }
 /* ── All modes use document scroll ── */
 html.reader-scroll, body.reader-scroll { height: auto; }
 
-/* ── Scroll-to-top button (strip mode only) ── */
+/* ── Scroll-to-top button (the classic navigation, strip mode only) ──
+   The panels' right edge, size and look, 10px above zoom, riding with it on the bottom progress bar
+   and the thumbnails (--sn-bottom). The modern navigation has its own: the rail's last button. */
 #scrollTopBtn {
-  position: fixed; bottom: var(--top-btn-lift); right: calc(18px + var(--page-scrollbar-gap)); z-index: 300;
-  width: 36px; height: 36px; border-radius: 50%;
-  background: var(--surface); border: 1px solid var(--border);
-  color: var(--muted); cursor: pointer;
+  position: fixed; bottom: calc(var(--sn-bottom) + var(--top-btn-lift)); right: var(--sn-right); z-index: 300;
+  width: var(--sn-size); height: var(--sn-size); border: 0; border-radius: 4px;
+  background: var(--sn-panel); box-shadow: var(--sn-shadow); color: var(--muted); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   opacity: 0; pointer-events: none;
-  transition: opacity 0.2s, border-color 0.12s, color 0.12s, bottom 0.2s ease;
-}
-/* Push the button up so it rides above the thumbnail strip instead of sitting on top of it.
-   The strip is counter-scaled by --zoom-inv, so its visual height is thumb-h × zoom-inv. */
-body.thumbs-open.bar-hidden #scrollTopBtn {
-  bottom: calc(var(--thumb-h) * var(--zoom-inv) + var(--top-btn-lift));
-}
-body:not(.bar-hidden) #scrollTopBtn { bottom: calc(var(--botbar-visual-h) + var(--top-btn-lift)); }
-body.thumbs-open:not(.bar-hidden) #scrollTopBtn {
-  bottom: calc(var(--thumb-h) * var(--zoom-inv) + var(--botbar-visual-h) + var(--top-btn-lift));
+  transition: opacity 0.2s, background 0.12s, color 0.12s, bottom 0.2s ease;
 }
 /* While the strip is pulled out of the progress bar, as far as it has come (--thumb-shown). */
-body.thumbs-open.thumb-revealing #scrollTopBtn {
-  bottom: calc(var(--thumb-shown, 0px) * var(--zoom-inv) + var(--botbar-visual-h) + var(--top-btn-lift));
-  transition: opacity 0.2s, border-color 0.12s, color 0.12s;
-}
+body.thumbs-open.thumb-revealing #scrollTopBtn { transition: opacity 0.2s, background 0.12s, color 0.12s; }
 #scrollTopBtn.visible { opacity: 1; pointer-events: all; }
-#scrollTopBtn:hover { border-color: var(--accent); color: var(--accent); }
+#scrollTopBtn:hover { background: var(--surface-raised); color: var(--text); }
+body.reader-side-nav #scrollTopBtn { display: none; }
 
 /* ── Loading / Empty ── */
 #loadingScreen {
@@ -1024,61 +1126,150 @@ body.reader-dim #stripView .page-wrap,
 body.reader-dim #singleInner > *,
 body.reader-dim #doubleInner > * { filter: brightness(var(--reader-dim, 1)); }
 
-/* ── Side controls (Reader settings → Navigation → Side) ──
-   The chapter pill over a column of buttons at the top right, fit and zoom at the bottom right (see-
-   through, unlike the rest of the reader's chrome), in
-   place of the top bar; the pages start at the top of the window, as with an unpinned header.
-   Hidden (body.reader-side-hidden: X, a double-click, the pin), they come back while the pointer is
-   on them or at the right edge and its corners (.sn-zone), or while the keyboard is on one of them. */
-#sideNav, #sideZoom, .sn-zone, #snChapters { display: none; }
+/* ── Modern navigation (Reader settings → Display → Navigation) ──
+   In place of the top bar, see-through panels over the pages (unlike the rest of the reader's
+   chrome); the pages start at the top of the window, as with an unpinned header. The chapter pill
+   stands at the top corner on the rail's side (left for a rail on the left, right otherwise), and the
+   rail of buttons runs along any edge (data-sn-pos on <html>), at its start, centre or end
+   (data-sn-align), clear of the pill and of fit and zoom, which stand at the bottom right with either
+   navigation. Hidden (body.reader-side-hidden: X, N, a double-click), they come back while the pointer
+   is where they stand (.sn-zone), or while the keyboard is on one of them. */
+#sideNav, .sn-zone, #snChapters { display: none; }
 /* On <html>, set before the first paint (reader-init.js), so the top bar never shows first. */
 html.reader-side-nav #topbar, html.reader-side-nav #topbarReveal { display: none; }
-body.reader-side-nav {
+body {
   /* See-through panels in the reader's own colour, with no border; a soft shadow lifts them off the page. */
   --sn-panel: color-mix(in srgb, var(--surface) 82%, transparent);
   --sn-shadow: 0 16px 40px -16px rgba(0, 0, 0, 0.8);
+  /* How far the panels stand from each edge of the window. */
   --sn-top: 12px;
+  --sn-left: 12px;
   --sn-right: calc(12px + var(--page-scrollbar-gap));   /* as far from the right as from the top: a fixed box's right edge is already the scrollbar's */
 }
 /* Clear of a progress bar on the same edge, however far it grows. */
-body.reader-side-nav:has(#bottombar[data-position="top"]) { --sn-top: calc(8px + var(--bar-zone) * var(--zoom-inv)); }
-body.reader-side-nav:has(#bottombar[data-position="right"]) { --sn-right: calc(8px + var(--page-scrollbar-gap) + var(--bar-zone) * var(--zoom-inv)); }
+body:has(#bottombar[data-position="top"]) { --sn-top: calc(8px + var(--bar-zone) * var(--zoom-inv)); }
+body:has(#bottombar[data-position="left"]) { --sn-left: calc(8px + var(--bar-zone) * var(--zoom-inv)); }
+body:has(#bottombar[data-position="right"]) { --sn-right: calc(8px + var(--page-scrollbar-gap) + var(--bar-zone) * var(--zoom-inv)); }
+/* Zoom, a bottom rail and their hover zones stand on --sn-bottom: the bottom progress bar and an open
+   (or opening) thumbnail strip, like the classic go-to-top button, which rides above zoom in turn. */
+body { --sn-bottom: 0px; }
+body:not(.bar-hidden) { --sn-bottom: var(--botbar-visual-h); }
+body.thumbs-open.bar-hidden { --sn-bottom: calc(var(--thumb-h) * var(--zoom-inv)); }
+body.thumbs-open:not(.bar-hidden) { --sn-bottom: calc(var(--thumb-h) * var(--zoom-inv) + var(--botbar-visual-h)); }
+body.thumbs-open.thumb-revealing { --sn-bottom: calc(var(--thumb-shown, 0px) * var(--zoom-inv) + var(--botbar-visual-h)); }
 
-#sideNav {
-  position: fixed; z-index: 210; top: var(--sn-top); right: var(--sn-right);
-  flex-direction: column; align-items: flex-end; gap: 10px;
+/* The pill, the rail and their hover zones, together for hiding and showing; it has no size and takes
+   no pointer itself. Each is fixed to the window on its own, held by its nearest edge as zoom is, so a
+   phone's toolbar sliding in or out carries each along with its edge. */
+body.reader-side-nav #sideNav {
+  display: block; position: relative; z-index: 210; height: 0; pointer-events: none;
   transition: opacity 0.25s;
 }
+/* What the panels are placed by, worked out on the panels themselves: values that follow the window
+   (vw, dvh) on <body> would be inherited by every element of the page, all restyled on each step of a
+   window being resized. */
+:is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) {
+  /* The pill's, zoom's and the rail's measured sizes (reader.js, _sideNavSizes). */
+  --pill-w: var(--sn-pill-w, 150px); --pill-h: var(--sn-pill-h, var(--sn-size));
+  --zoom-w: var(--sn-zoom-w, 160px); --zoom-h: var(--sn-zoom-h, var(--sn-size));
+  /* A fixed box's width: the window less a scrollbar showing. Placed from the left of it, a panel by
+     the right edge stays put as a scrollbar comes or goes (the room it keeps changes with the bar), so
+     it eases only when the window or a crowding moves it. */
+  --cb-w: calc(100vw - var(--page-scrollbar-width) + var(--page-scrollbar-gap));
+  /* The room inside the panels' margins. */
+  --room-w: calc(var(--cb-w) - var(--sn-left) - var(--sn-right));
+  --room-h: calc(100dvh - var(--sn-top) - var(--sn-bottom) - 12px);
+  /* Crowding moves (below): none unless the modern navigation is crowded. */
+  --pill-down: 0px; --pill-in: 0px; --zoom-up: 0px; --zoom-in: 0px; --push: 0px;
+}
+#snChapter, #snRail { position: fixed; pointer-events: auto; }
+
+/* Along its edge the rail has from --lo (its start, past the pill on that side) to --far before the
+   end (short of zoom there, and down a side short of the bottom bar and open thumbnails); --len is
+   its length along the edge.
+   Crowded (a window too narrow or short for the rail between the panels in the corners of its edge,
+   --over > 0): those panels move a row in from the edge, toward the middle, and the rail has the
+   whole edge. CSS can't branch, but a length can: clamp(0px, var(--over) * 1000, A) is 0 while the
+   rail fits and A once it's crowded by a fraction of a pixel. */
+html.reader-side-nav[data-sn-pos="top"] :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) {
+  --len: var(--sn-rail-w, 300px);
+  --over: calc(var(--len) - var(--room-w) + var(--pill-w) + 10px);
+  --pill-down: clamp(0px, var(--over) * 1000, var(--sn-size) + 10px);
+  --lo: var(--sn-left);
+  --far: calc(var(--sn-right) + var(--pill-w) + 10px - clamp(0px, var(--over) * 1000, var(--pill-w) + 10px));
+}
+html.reader-side-nav[data-sn-pos="bottom"] :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) {
+  --len: var(--sn-rail-w, 300px);
+  --over: calc(var(--len) - var(--room-w) + var(--zoom-w) + 10px);
+  --zoom-up: clamp(0px, var(--over) * 1000, var(--sn-size) + 10px);
+  --lo: var(--sn-left);
+  --far: calc(var(--sn-right) + var(--zoom-w) + 10px - clamp(0px, var(--over) * 1000, var(--zoom-w) + 10px));
+}
+html.reader-side-nav[data-sn-pos="left"] :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) {
+  --len: var(--sn-rail-h, 300px);
+  --over: calc(var(--len) - var(--room-h) + var(--pill-h) + 10px);
+  --pill-in: clamp(0px, var(--over) * 1000, var(--sn-size) + 10px);
+  --lo: calc(var(--sn-top) + var(--pill-h) + 10px - clamp(0px, var(--over) * 1000, var(--pill-h) + 10px));
+  --far: calc(var(--sn-bottom) + 12px);
+}
+html.reader-side-nav[data-sn-pos="right"] :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) {
+  --len: var(--sn-rail-h, 300px);
+  --over: calc(var(--len) - var(--room-h) + var(--pill-h) + var(--zoom-h) + 20px);
+  --pill-in: clamp(0px, var(--over) * 1000, var(--sn-size) + 10px);
+  --zoom-in: var(--pill-in);
+  --lo: calc(var(--sn-top) + var(--pill-h) + 10px - clamp(0px, var(--over) * 1000, var(--pill-h) + 10px));
+  --far: calc(var(--sn-bottom) + 22px + var(--zoom-h) - clamp(0px, var(--over) * 1000, var(--zoom-h) + 10px));
+}
+/* Across the top or bottom, from the left (--x): from --lo; centred in the width the pages keep, a
+   scrollbar beside them or not (as the pages and the dialogs reserve its room); or --far from the
+   right. */
+html.reader-side-nav:is([data-sn-pos="top"], [data-sn-pos="bottom"])[data-sn-align="start"] :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) { --x: var(--lo); }
+html.reader-side-nav:is([data-sn-pos="top"], [data-sn-pos="bottom"])[data-sn-align="center"] :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) {
+  --x: clamp(var(--lo), calc((var(--cb-w) - var(--page-scrollbar-gap) - var(--len)) / 2), calc(var(--cb-w) - var(--far) - var(--len)));
+}
+html.reader-side-nav:is([data-sn-pos="top"], [data-sn-pos="bottom"])[data-sn-align="end"] :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) { --x: max(var(--lo), calc(var(--cb-w) - var(--far) - var(--len))); }
+/* Down a side: from --lo, or centred in the window as it shows (dvh, a phone's toolbar or not), and
+   pushed up by zoom and the thumbnails as they come and grow (--push, a transform that eases as zoom
+   does); or --far from the bottom, riding on them. */
+html.reader-side-nav:is([data-sn-pos="left"], [data-sn-pos="right"])[data-sn-align="start"] :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) { --near: var(--lo); }
+html.reader-side-nav:is([data-sn-pos="left"], [data-sn-pos="right"])[data-sn-align="center"] :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) { --near: max(var(--lo), calc(50dvh - var(--len) / 2)); }
+html.reader-side-nav:is([data-sn-pos="left"], [data-sn-pos="right"]):not([data-sn-align="end"]) :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) { --push: min(0px, calc(100dvh - var(--far) - var(--len) - var(--near))); }
+
+/* The pill at the top corner on the rail's side, moved in a row when crowded. */
+#snChapter { top: calc(var(--sn-top) + var(--pill-down)); left: calc(var(--cb-w) - var(--sn-right) - var(--pill-w) - var(--pill-in)); }
+html[data-sn-pos="left"] #snChapter { left: calc(var(--sn-left) + var(--pill-in)); }
+/* The rail: its edge… */
+html[data-sn-pos="right"] #snRail { right: var(--sn-right); }
+html[data-sn-pos="left"] #snRail { left: var(--sn-left); }
+html[data-sn-pos="top"] #snRail { top: var(--sn-top); }
+html[data-sn-pos="bottom"] #snRail { bottom: calc(var(--sn-bottom) + 12px); }
+html:is([data-sn-pos="top"], [data-sn-pos="bottom"]) #snRail { flex-direction: row; left: var(--x); }
+/* …and where along it. */
+html:is([data-sn-pos="left"], [data-sn-pos="right"]):not([data-sn-align="end"]) #snRail { top: var(--near); transform: translateY(var(--push)); }
+html:is([data-sn-pos="left"], [data-sn-pos="right"])[data-sn-align="end"] #snRail { bottom: var(--far); }
+/* They ease to where the thumbnails, a resized window or a crowding puts them. */
+#snRail { transition: left 0.2s ease, top 0.2s ease, bottom 0.2s ease, transform 0.2s ease; }
+#snChapter { transition: left 0.2s ease, top 0.2s ease; }
+
 #sideZoom {
-  position: fixed; z-index: 210; right: var(--sn-right); bottom: calc(var(--sn-bottom) + 12px);
+  display: flex; position: fixed; z-index: 210;
+  left: calc(var(--cb-w) - var(--sn-right) - var(--zoom-w) - var(--zoom-in)); bottom: calc(var(--sn-bottom) + 12px + var(--zoom-up));
   align-items: stretch; gap: 6px;
-  transition: opacity 0.25s, bottom 0.2s ease;
+  transition: opacity 0.25s, left 0.2s ease, bottom 0.2s ease;
 }
-body.reader-side-nav #sideNav, body.reader-side-nav #sideZoom { display: flex; }
-/* Zoom and its hover zone stand on --sn-bottom: the bottom progress bar and an open (or opening)
-   thumbnail strip, like the go-to-top button, which rides above zoom in turn. */
-body.reader-side-nav { --sn-bottom: 0px; }
-body.reader-side-nav:not(.bar-hidden) { --sn-bottom: var(--botbar-visual-h); }
-body.reader-side-nav.thumbs-open.bar-hidden { --sn-bottom: calc(var(--thumb-h) * var(--zoom-inv)); }
-body.reader-side-nav.thumbs-open:not(.bar-hidden) { --sn-bottom: calc(var(--thumb-h) * var(--zoom-inv) + var(--botbar-visual-h)); }
-body.reader-side-nav.thumbs-open.thumb-revealing { --sn-bottom: calc(var(--thumb-shown, 0px) * var(--zoom-inv) + var(--botbar-visual-h)); }
-body.thumbs-open.thumb-revealing #sideZoom { transition: opacity 0.25s; }
-/* While the thumbnails are resized, zoom follows their top edge at once, as the go-to-top button does. */
-body.thumb-resizing #sideZoom { transition: opacity 0.25s; }
-/* The go-to-top button joins the side controls: their right edge, their size and look, 10px above zoom. */
-body.reader-side-nav { --top-btn-lift: 56px; }
-body.reader-side-nav #scrollTopBtn {
-  right: var(--sn-right); width: 34px; height: 34px; border: 0;
-  background: var(--sn-panel); box-shadow: var(--sn-shadow); color: var(--muted);
-}
-body.reader-side-nav #scrollTopBtn:hover { background: var(--surface-raised); color: var(--text); }
+/* While the thumbnails are pulled out or resized, everything on their top edge follows it at once. */
+body.thumbs-open.thumb-revealing #sideZoom, body.thumb-resizing #sideZoom { transition: opacity 0.25s; }
+body.thumbs-open.thumb-revealing #snRail, body.thumb-resizing #snRail { transition: none; }
+/* A change of place or navigation (not the window's) puts them there at once (reader.js). */
+html.sn-settling :is(#snChapter, #snRail, #sideZoom) { transition: none !important; }
 
 .sn-row, .sn-col { display: inline-flex; background: var(--sn-panel); box-shadow: var(--sn-shadow); border-radius: 4px; }
-.sn-row { height: 34px; align-items: stretch; }
-.sn-col { flex-direction: column; gap: 2px; padding: 4px; }
+.sn-row { height: var(--sn-size); align-items: stretch; }
+/* The rail: as thick as the chapter pill and zoom, its buttons filling it as theirs do, across or down. */
+.sn-col { flex-direction: column; gap: 2px; }
 .sn-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 34px; height: 34px; padding: 0; border: 0; border-radius: 4px;
+  width: var(--sn-size); height: var(--sn-size); padding: 0; border: 0; border-radius: 4px;
   background: transparent; color: var(--muted); cursor: pointer; text-decoration: none;
   transition: background 0.12s, color 0.12s;
 }
@@ -1103,26 +1294,46 @@ body.reader-side-nav #scrollTopBtn:hover { background: var(--surface-raised); co
   font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums; user-select: none;
 }
 
-body.reader-side-hidden #sideNav, body.reader-side-hidden #sideZoom { opacity: 0; pointer-events: none; }
-body.reader-side-hidden:has(#snZoneTop:hover, #snZoneRight:hover) #sideNav,
-body.reader-side-hidden #sideNav:hover, body.reader-side-hidden #sideNav:has(:focus-visible),
-body.reader-side-hidden.sn-pop-open #sideNav,
-body.reader-side-hidden:has(#snZoneBottom:hover) #sideZoom,
-body.reader-side-hidden #sideZoom:hover, body.reader-side-hidden #sideZoom:has(:focus-visible) { opacity: 1; pointer-events: auto; }
+/* Hidden: nothing to see or press, until the pointer comes where they stand. */
+body.reader-side-hidden #sideNav { opacity: 0; }
+body.reader-side-hidden :is(#snChapter, #snRail) { pointer-events: none; }
+body.reader-side-hidden #sideNav:is(:hover, :has(:focus-visible)), body.reader-side-hidden.sn-pop-open #sideNav { opacity: 1; }
+body.reader-side-hidden #sideNav:is(:hover, :has(:focus-visible)) :is(#snChapter, #snRail),
+body.reader-side-hidden.sn-pop-open :is(#snChapter, #snRail) { pointer-events: auto; }
 body.reader-side-nav.reader-side-hidden .sn-zone { display: block; }
-.sn-zone { position: fixed; z-index: 200; right: var(--page-scrollbar-gap); }
-#snZoneTop { top: 0; width: 200px; height: 72px; }
-#snZoneRight { top: 0; width: 72px; height: min(100vh, 480px); }
-#snZoneBottom { bottom: var(--sn-bottom); width: 200px; height: 72px; }   /* wherever zoom stands */
+/* Fit and zoom hide with the controls (html.reader-controls-hidden, set before the first paint by
+   reader-init.js): the modern navigation hidden, or the classic header unpinned. They come back while
+   the pointer is where they stand, or for as long as the navigation shows: the pointer on the modern
+   one, or the classic header out. */
+html.reader-controls-hidden #sideZoom { opacity: 0; pointer-events: none; }
+html.reader-controls-hidden body:is(.sn-pop-open, .reader-nav-hover, .reader-nav-auto,
+  :has(#sideNav:hover, #sideNav :focus-visible, #topbar :focus-visible, #snZoneBottom:hover)) #sideZoom,
+html.reader-controls-hidden #sideZoom:is(:hover, :has(:focus-visible)) { opacity: 1; pointer-events: auto; }
+html.reader-controls-hidden #snZoneBottom { display: block; }
+/* The zones: the pill's corner, a band along the rail out to its edge, and zoom's corner. */
+.sn-zone { position: fixed; pointer-events: auto; }
+#snZonePill { top: 0; right: var(--page-scrollbar-gap); width: calc(var(--pill-w) + 60px + var(--pill-in)); height: calc(72px + var(--pill-down)); }
+html[data-sn-pos="left"] #snZonePill { right: auto; left: 0; }
+html[data-sn-pos="right"] #snZoneRail { right: var(--page-scrollbar-gap); width: 72px; }
+html[data-sn-pos="left"] #snZoneRail { left: 0; width: 72px; }
+html[data-sn-pos="top"] #snZoneRail { top: 0; height: 72px; }
+html[data-sn-pos="bottom"] #snZoneRail { bottom: var(--sn-bottom); height: 72px; }
+html:is([data-sn-pos="left"], [data-sn-pos="right"]) #snZoneRail { height: calc(var(--len) + 48px); }
+html:is([data-sn-pos="top"], [data-sn-pos="bottom"]) #snZoneRail { width: calc(var(--len) + 48px); }
+html:is([data-sn-pos="left"], [data-sn-pos="right"]):not([data-sn-align="end"]) #snZoneRail { top: calc(var(--near) - 24px); transform: translateY(var(--push)); }
+html:is([data-sn-pos="left"], [data-sn-pos="right"])[data-sn-align="end"] #snZoneRail { bottom: calc(var(--far) - 24px); }
+html:is([data-sn-pos="top"], [data-sn-pos="bottom"]) #snZoneRail { left: calc(var(--x) - 24px); }
+#snZoneBottom { position: fixed; z-index: 200; right: var(--page-scrollbar-gap); bottom: var(--sn-bottom); width: calc(200px + var(--zoom-in)); height: calc(72px + var(--zoom-up)); }   /* wherever zoom stands */
 
 /* The chapter list: under the pill. */
 #snChapters {
-  position: fixed; z-index: 220; top: calc(var(--sn-top) + 42px); right: var(--sn-right);
+  position: fixed; z-index: 220; top: calc(var(--sn-top) + var(--pill-down) + var(--sn-pill-h, var(--sn-size)) + 8px); right: calc(var(--sn-right) + var(--pill-in));
   width: 320px; max-width: calc(100vw - 24px); max-height: min(70vh, 560px);
   flex-direction: column; overflow: hidden;
   background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
   box-shadow: 0 40px 80px -20px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.3);
 }
+html[data-sn-pos="left"] #snChapters { right: auto; left: calc(var(--sn-left) + var(--pill-in)); }
 body.reader-side-nav.sn-pop-open #snChapters { display: flex; }
 .sn-pop-head {
   display: flex; align-items: center; justify-content: space-between;

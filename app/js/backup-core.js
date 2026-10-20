@@ -111,11 +111,12 @@ export const PORTABLE_SETTINGS = new Set([
   'readerTranslateDisplay', 'readerChapterDivider', 'readerStripMode', 'readerMode', 'readerLastPageMode',
   'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerFitMode', 'readerFitMaxWidth',
   'readerNavDirection', 'readerPageDirection', 'readerDirection', 'readerCoverOffset', 'readerPageGap',
-  'readerProgressPosition', 'readerView', 'readerAutoScrollSpeed', 'readerDim',
+  'readerProgressPosition', 'readerView', 'readerAutoScrollSpeed', 'readerDim', 'readerAutoBarPosition',
+  'readerAutoPauseOnUp', 'readerSmoothScroll',
   'translateSettings',
 ]);
 // Kept outside the shiori: settings, read before the page draws.
-export const PORTABLE_DASH_SETTINGS = ['shiori-lang', 'shiori-safe-mode', 'shiori-reader-pin', 'shiori-header-pin', 'shiori-reader-nav', 'shiori-reader-side-pin'];
+export const PORTABLE_DASH_SETTINGS = ['shiori-lang', 'shiori-safe-mode', 'shiori-reader-pin', 'shiori-header-pin', 'shiori-reader-nav', 'shiori-reader-side-pin', 'shiori-reader-nav-place'];
 // The translation settings travel without how this device reaches its translation server.
 const TRANSLATE_DEVICE_FIELDS = ['serverUrl', 'serverToken'];
 const MAX_SETTING = 256 * 1024;

@@ -42,7 +42,10 @@ function syncPageScrollbarSpace() {
   pageProbeBox.style.scrollbarWidth = getComputedStyle(root).scrollbarWidth;
   const nativeWidth = pageProbeBox.getBoundingClientRect().width - pageProbeContent.getBoundingClientRect().width;
   const custom = root.classList.contains('custom-scrollbars');
-  const occupied = Math.max(0, window.innerWidth - root.clientWidth);
+  // Whole pixels, each rounded on its own: at a fractional display scale a 15.2px bar reads as 15 or
+  // 16, which would leave a sliver of gap beside it. Within a pixel of the native width, it is that bar.
+  const rounded = Math.max(0, window.innerWidth - root.clientWidth);
+  const occupied = Math.abs(rounded - nativeWidth) < 1 ? nativeWidth : rounded;
   const width = custom ? 0 : Math.max(occupied, nativeWidth);
   for (const [name, value] of [
     ['--page-scrollbar-width', width],
