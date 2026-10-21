@@ -1,5 +1,39 @@
 # Changelog
 
+## v1.2.5 — 2026-10-22
+
+### Added
+
+- A tasks page lists every job under way (downloads, translations, imports and chapter-info fetches), including ones the library doesn't show, like a chapter inside a series or a gallery on another page. Open it by adding `/tasks` to Shiori's address. Each job has a row with its progress and a Stop button, so a gallery downloading and translating at once has two; **Stop all** stops every one. A job that has gone quiet says for how long.
+- While a gallery downloads, its download button is a Stop button, on the library card and on a chapter in the overview, as the translate button is while it translates. A stopped download keeps the pages it saved, and downloading again carries on from there.
+- An import can be stopped from the tasks page. The pages it already brought in stay, and importing the same file again picks up where it stopped.
+- The reader settings come in three tabs, the most used first: **Reading**, **Pages** and **Display**. They keep their place from tab to tab, and every change applies at once.
+- **Reader settings → Display → Navigation bar** chooses **Classic** (the top bar) or **Modern** (the side controls). **Position** puts the modern one's buttons along any edge, at its start, centre or end: twelve places in all. Click through the picker's edges and places, or drag to where you want it.
+- **Reader settings → Display → Progress bars** picks the edge of the page bar and of the auto-scroll bar the same way, or turns either off. The auto-scroll bar runs across the top or bottom of the window.
+- **Pause when going back up** (**Reader settings → Pages**): turned off, scrolling back up or turning a page back leaves auto-play playing.
+- **Smooth page scrolling** (**Reader settings → Pages**): in the scroll strip, going to another page glides there; turned off, it's there at once.
+- The side controls end with a go-to-top button, ready once the scroll strip is scrolled down. It works while auto-play plays.
+- **N** hides and shows the controls, as **X** does.
+- Shiori Desktop can open your library to other devices on your network (**Settings → System → Open to other devices**): phones, tablets and other computers can then open it in a browser at the addresses shown there. Anyone on your network can then read and change your library. The change applies once Shiori restarts.
+
+### Changed
+
+- The side controls no longer have a pin button: **X**, **N** or a double-click hide and show them.
+- The side controls keep up with the window as you resize or zoom it, instead of trailing behind. When the window is too small for them, the panels in the corners make way one at a time and glide there; with no room at all, the home button stays in view.
+- In single and double page, a page shorter than the window stands in its middle.
+- Auto-play keeps playing while the reader settings are open; other dialogs still pause it.
+- Fit and zoom stand at the bottom right with the classic top bar too, and hide with the controls.
+- The classic top bar's title lights up when you point at it.
+- On a phone, the library fits the screen: the search has a row of its own, cards come two to a row with their buttons under the gallery number, and a chapter's buttons in the overview take a line of their own.
+- On a touch screen, the buttons in the library, the overview and the reader are big enough for a finger.
+
+### Fixed
+
+- A finger on a library cover scrolls the library instead of starting to merge galleries.
+- At display scaling like 125%, the reader's side controls and dialogs no longer shift slightly when the scrollbar appears or disappears.
+- Double-clicks in a row toggle the controls each time.
+- A key pressed after clicking a button no longer leaves a focus ring on it, or keeps hidden controls showing.
+
 ## v1.2.4 — 2026-10-19
 
 ### Added
