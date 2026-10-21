@@ -16,15 +16,20 @@ import { startTranslation, pollTranslation, cancelTranslate } from './translate.
 export async function runImport({ galleryId, tempFile, filename, skipExisting = true }) {
   const gid = String(galleryId);
   platform.jobs.publish({ gid, kind: 'upload', status: 'started', labelKey: 'prog.reading' });
+  let root = null;
   try {
-    const root = await navigator.storage.getDirectory();
+    root = await navigator.storage.getDirectory();
     const fh = await root.getFileHandle(tempFile);
     await _import(gid, await fh.getFile(), filename, skipExisting);
     // Success only — a failed import (importCbzBuffer throws) retains the staged file so the
     // import can be retried; boot maintenance sweeps abandoned ones after a grace period.
     root.removeEntry(tempFile).catch(() => {});
     platform.jobs.publish({ gid, kind: 'upload', status: 'done' });
-  } catch (e) { _importFailed(gid, e); }
+  } catch (e) {
+    // A stopped import isn't coming back: its staged file goes too.
+    if (e instanceof ImportStopped) root?.removeEntry(tempFile).catch(() => {});
+    _importFailed(gid, e);
+  }
 }
 
 // Import a zip (import-files.js importBytes: a file, or bytes) from a page into gallery `galleryId`.
@@ -54,11 +59,35 @@ export async function startImport({ galleryId, buffer, filename, skipExisting = 
   return true;
 }
 
-const _import = (gid, buffer, filename, skipExisting) => importCbzBuffer(gid, buffer, filename, !!skipExisting, (p) => {
-  if (p.status === 'progress' || p.status === 'started')
-    platform.jobs.publish({ gid, kind: 'upload', status: 'progress', done: p.done, total: p.total, labelKey: 'prog.importing' });
+// ── Stopping an import ──
+// Whichever context runs an import (the service worker, a tab, the desktop app's runner) hears a
+// stop on the jobs channel (STOP_IMPORT, sent by services.js) and ends it between two pages. What
+// was stored stays, as after any interrupted import; importing the file again resumes it.
+class ImportStopped extends Error {}
+const _importing = new Map();   // gid → { stopped } of the import running in this context
+platform.jobs.subscribe((e) => {
+  if (e?.type !== 'STOP_IMPORT') return;
+  const run = _importing.get(String(e.galleryId));
+  if (run) run.stopped = true;
 });
+
+async function _import(gid, buffer, filename, skipExisting) {
+  const run = { stopped: false };
+  _importing.set(gid, run);
+  try {
+    // Every way through an import reports each page as it lands, so a stop takes effect there.
+    await importCbzBuffer(gid, buffer, filename, !!skipExisting, (p) => {
+      if (run.stopped) throw new ImportStopped();
+      if (p.status === 'progress' || p.status === 'started')
+        platform.jobs.publish({ gid, kind: 'upload', status: 'progress', done: p.done, total: p.total, labelKey: 'prog.importing' });
+    });
+  } finally {
+    if (_importing.get(gid) === run) _importing.delete(gid);
+  }
+}
 function _importFailed(gid, e) {
+  // Stopped: the last word on the job channel, after any progress still on its way.
+  if (e instanceof ImportStopped) { platform.jobs.publish({ gid, kind: 'upload', status: 'cancelled' }); return; }
   platform.jobs.publish({
     gid, kind: 'upload', status: 'error', error: String(e && e.message || e),
     ...(e && e.code ? { errorKey: `err.${e.code}` } : {}),

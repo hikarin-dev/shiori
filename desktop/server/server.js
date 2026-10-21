@@ -50,7 +50,7 @@ const MAX_FRAME = 1 << 30;
 
 // The app's pages at their clean addresses (the app's service worker and dev server map them alike).
 const PAGES = { '/': 'app/library.html', '/library': 'app/library.html', '/settings': 'app/settings.html',
-  '/reader': 'app/reader.html', '/overview': 'app/overview.html' };
+  '/reader': 'app/reader.html', '/overview': 'app/overview.html', '/tasks': 'app/tasks.html' };
 // What of the web root is served: the app and the assets its pages load, nothing else.
 const PUBLIC = new Set(['app', 'icons', 'vendor', 'index.html', 'boot-root.js', 'CHANGELOG.md']);
 const MIME = {

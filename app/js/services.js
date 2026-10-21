@@ -11,6 +11,7 @@ import { resizeCoverBlob, imageToDataUrl } from './image-util.js';
 import { resolveSeries } from './series.js';
 import { pingServer, revertGallery, followGallerySettings, serverUrlFromSettings, hasConfiguredServer } from './translate.js';
 import { request as extRequest } from './ext-bridge.js';
+import { helperAvailable } from './sites.js';
 import { submitJob, cancelJob } from './submit-job.js';
 
 const _coverWork = new Map();
@@ -163,6 +164,26 @@ export const services = {
         }
         if (removePending) await platform.jobsPending.remove(`${gid}:translate`);
         platform.jobs.publish({ gid, kind: 'translate', status: 'cancelled' });  // drop the registry row + reset every tab
+        return { ok: true };
+      }
+
+      // Stop one job of a gallery, whatever kind and wherever it runs. A job this page can't reach
+      // (its runner gone, nothing answering) is over all the same: its row is cleared, so it never
+      // sits there for good.
+      case 'STOP_JOB': {
+        const gid = String(msg.galleryId);
+        const kind = String(msg.kind || '');
+        if (kind === 'translate') return services.handle({ type: 'CANCEL_TRANSLATE', galleryId: gid });
+        if (kind === 'upload') {
+          // Never replayed, and stopped where it runs (jobs-runner.js).
+          await platform.jobsPending.remove(`${gid}:upload`);
+          platform.jobs.signal({ type: 'STOP_IMPORT', galleryId: gid });
+          platform.jobs.publish({ gid, kind, status: 'cancelled' });
+          return { ok: true };
+        }
+        // The rest (a download) is the helper's: it stops its run and says so on the job channel.
+        const resp = helperAvailable() ? await extRequest({ type: 'EXT_STOP_JOB', galleryId: gid, kind }, 4000) : null;
+        if (!resp?.stopped) platform.jobs.publish({ gid, kind, status: 'cancelled' });
         return { ok: true };
       }
 

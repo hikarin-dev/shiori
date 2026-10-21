@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- script-src: 'self' plus the hash of the one inline script below (the base corrector), as on
+       the library page; connect-src as there too (the translation server, a library on this computer). -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-hY3v5/hK8HEXGvbWdwpC9QwryUrAFnXUNYc6GOBIxBU='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' data: blob: http: https: ws://127.0.0.1:*; object-src 'none'; base-uri 'self'">
+  <base href="app/">
+  <script>if (/\/app\/[^/]*$/.test(location.pathname)) document.querySelector('base').href = './';</script>
+  <link rel="icon" href="../icons/icon32.png">
+  <title>Shiori — Tasks</title>
+  <script src="font-init.js"></script>
+  <link rel="stylesheet" href="base.css">
+  <link rel="stylesheet" href="library.css">
+  <link rel="stylesheet" href="tasks.css">
+  <link rel="stylesheet" href="notice.css">
+  <link rel="modulepreload" href="js/tasks.js">
+  <link rel="modulepreload" href="js/boot.js">
+  <link rel="modulepreload" href="js/platform.js">
+  <link rel="modulepreload" href="js/api.js">
+  <link rel="modulepreload" href="js/services.js">
+  <link rel="modulepreload" href="js/ext-bridge.js">
+  <link rel="modulepreload" href="js/sites.js">
+  <link rel="modulepreload" href="js/submit-job.js">
+  <link rel="modulepreload" href="js/jobs-runner.js">
+  <link rel="modulepreload" href="js/i18n.js">
+  <link rel="modulepreload" href="js/locales.js">
+  <link rel="modulepreload" href="js/titles.js">
+  <link rel="modulepreload" href="js/tooltip.js">
+  <link rel="modulepreload" href="js/notice.js">
+  <link rel="modulepreload" href="js/format.js">
+  <link rel="modulepreload" href="js/sanitize.js">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#111111">
+  <meta name="shiori-app" content="tasks">
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <a class="brand-wrap" href="../">
+      <div class="brand-icon"><img src="../icons/shiori-logo.svg" alt=""></div>
+      <span class="brand-text">Shiori</span>
+    </a>
+    <span class="brand-sep">/</span>
+    <span class="brand-page" data-i18n="tasks.title">Tasks</span>
+  </div>
+  <div class="header-right">
+    <div class="hstat">
+      <div class="hstat-val" id="tkCount">0</div>
+      <div class="hstat-label" data-i18n="tasks.running">Running</div>
+    </div>
+    <button class="btn-stop-all" id="stopAllBtn" type="button" disabled data-tip="Stop all" data-i18n-tip="tasks.stop_all"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg><span class="btn-stop-all-label" data-i18n="tasks.stop_all">Stop all</span></button>
+    <button class="btn-settings" id="settingsBtn" type="button" data-tip="Settings" data-i18n-tip="nav.settings"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg></button>
+  </div>
+</header>
+
+<!-- Every job under way, one row each — a gallery with two jobs has two rows. -->
+<main class="tk-wrap">
+  <div class="tk-list" id="tkList"></div>
+  <div class="tk-empty" id="tkEmpty" hidden data-i18n="tasks.empty">Nothing is running.</div>
+</main>
+
+<script type="module" src="js/tasks.js"></script>
+</body>
+</html>

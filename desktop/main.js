@@ -42,7 +42,7 @@ const APP_SCHEME = 'shiori-app';
 const APP_ORIGIN = `${APP_SCHEME}://shiori`;
 const DEFAULT_PORT = 47153;   // tried first, then the next nine (D14)
 const PORTS = Array.from({ length: 10 }, (_, i) => DEFAULT_PORT + i);
-const PAGES = new Set(['library', 'reader', 'overview', 'settings']);
+const PAGES = new Set(['library', 'reader', 'overview', 'settings', 'tasks']);
 const TITLEBAR_HEIGHT = 32;
 const FRAME = { bg: '#0d0d0f', symbols: '#a1a1aa' };   // the app's palette (base.css --bg, --muted)
 

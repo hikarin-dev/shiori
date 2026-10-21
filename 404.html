@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-fGOgmFUeD9/Agm9fLX+8m+1R/irYn1EI+EzYZyEUW9M='; style-src 'unsafe-inline'; object-src 'none'; base-uri 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-lmhvP94DHWJ+SFdEAch4U8PXeT9HsayWfS7PRVdY1Wo='; style-src 'unsafe-inline'; object-src 'none'; base-uri 'self'">
   <title>Shiori</title>
   <style>html,body{margin:0;height:100%;background:#111;color:#888;font:14px system-ui,sans-serif;display:flex;align-items:center;justify-content:center}</style>
 </head>
@@ -19,7 +19,7 @@
     const RETRY = 'shiori-sw-retry';
     const parts = location.pathname.replace(/\/+$/, '').split('/');
     const seg = (parts.pop() || '').replace(/\.html$/, '');
-    const known = seg === 'settings' || seg === 'reader' || seg === 'library' || seg === 'overview';
+    const known = seg === 'settings' || seg === 'reader' || seg === 'library' || seg === 'overview' || seg === 'tasks';
     if (!known) { document.body.textContent = 'Not found.'; return; }
     // This page is served AT the missing deep-link URL, which can sit at any depth (/library,
     // or /app/library after a clean-URL refresh without a worker) — so relative paths would

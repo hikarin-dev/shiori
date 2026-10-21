@@ -117,7 +117,8 @@ test('changes land on the cards in place and at once, a hovered card staying gro
   await until(page, (sel) => /\b2 \/ 6 pages\b/.test(document.querySelector(`${sel} .card-meta`).textContent), card(PLAIN[2]), { what: 'its page count', timeout: 2000 });
   assert.equal(await page.evaluate((sel) => {
     const c = document.querySelector(sel);
-    return c.querySelector('.card-body').classList.contains('downloading') && c.querySelector('.prog-fill').style.width !== '' && c.querySelector('.card-btn-dl').disabled;
+    const dl = c.querySelector('.card-btn-dl');   // busy downloading: its Stop control
+    return c.querySelector('.card-body').classList.contains('downloading') && c.querySelector('.prog-fill').style.width !== '' && dl.classList.contains('cancelling') && !!dl.querySelector('rect');
   }, card(PLAIN[2])), true, 'the progress bar and the busy button stay while it changes');
 
   await sleep(800);

@@ -1,0 +1,84 @@
+/* tasks.css — the tasks page: every running job as a row, each with its own Stop. The header,
+   its stat box and the progress bar are the library's (library.css); tokens come from base.css. */
+
+/* Stop all: the header's text button (as Import is), in the colour of stopping. */
+.btn-stop-all {
+  padding: 6px 12px;
+  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+  background: transparent; border: 1px solid var(--danger);
+  color: var(--danger); font-family: inherit; font-size: 11px; font-weight: 600;
+  border-radius: 6px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.btn-stop-all svg { display: block; flex-shrink: 0; }
+.btn-stop-all:hover:not(:disabled) { background: var(--danger); color: #fff; }
+.btn-stop-all:disabled { border-color: var(--border); color: var(--muted-dim); cursor: default; }
+
+.tk-wrap { max-width: 960px; margin: 0 auto; padding: 20px 24px 48px; }
+.tk-list { display: flex; flex-direction: column; gap: 8px; }
+.tk-empty { padding: 80px 20px; text-align: center; color: var(--muted); font-size: 13px; }
+
+.tk-row {
+  display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center; gap: 14px;
+  padding: 10px 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+}
+
+/* The cover keeps its place before it arrives, and shows no broken-image mark meanwhile. */
+.tk-thumb {
+  display: block; width: 48px; aspect-ratio: 2 / 3; overflow: hidden;
+  border-radius: 4px; background: var(--surface-subtle);
+}
+.tk-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.tk-thumb img:not([src]) { visibility: hidden; }
+
+.tk-body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.tk-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tk-title {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text); font-size: 13px; font-weight: 600; text-decoration: none;
+}
+.tk-title:hover { color: var(--accent); }
+.tk-sub {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--muted-dim); font-size: 11px;
+}
+
+/* What kind of job a row is, in its button's colour on a card: download and import yellow,
+   translation pink. */
+.tk-kind {
+  flex-shrink: 0; padding: 1px 6px;
+  border: 1px solid var(--border-strong); border-radius: 4px;
+  color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;
+}
+.tk-kind[data-kind="download"], .tk-kind[data-kind="upload"] { color: var(--accent2); border-color: #3a3a20; }
+.tk-kind[data-kind="translate"] { color: var(--accent); border-color: #4a1a26; }
+
+.tk-prog { display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
+.tk-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
+.tk-quiet { color: var(--muted-dim); }
+.tk-row.error .tk-label { color: var(--danger); }
+
+.tk-stop {
+  width: 28px; height: 28px; padding: 0; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--muted); cursor: pointer; transition: all 0.15s;
+}
+.tk-stop:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
+.tk-stop:disabled { opacity: 0.4; cursor: default; }
+/* A finished row keeps its Stop's place, so nothing beside it moves while it lingers. */
+.tk-row:is(.done, .error, .cancelled) .tk-stop { visibility: hidden; }
+
+@media (max-width: 600px) {
+  .tk-wrap { padding: 12px 12px 32px; }
+  .tk-row { gap: 10px; padding: 8px 10px; }
+  .btn-stop-all { width: 28px; height: 28px; padding: 0; justify-content: center; }
+  .btn-stop-all-label { display: none; }
+}
+@media (pointer: coarse) {
+  .tk-stop { width: 44px; height: 44px; }
+  .btn-stop-all { min-height: 40px; }
+}
+@media (pointer: coarse) and (max-width: 600px) {
+  .btn-stop-all { width: 40px; height: 40px; }
+}

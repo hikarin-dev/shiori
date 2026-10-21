@@ -17,7 +17,7 @@ const TYPES = {
   '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.wasm': 'application/wasm', '.mjs.map': 'application/json',
 };
 const PAGES = { '/': 'app/library.html', '/library': 'app/library.html', '/settings': 'app/settings.html',
-  '/reader': 'app/reader.html', '/overview': 'app/overview.html' };
+  '/reader': 'app/reader.html', '/overview': 'app/overview.html', '/tasks': 'app/tasks.html' };
 
 const _file = async (path) => { try { return (await stat(path)).isFile(); } catch { return false; } };
 

@@ -1058,11 +1058,14 @@ function syncRowActions(row) {
 function rowActionsHtml(e, liveJob) {
   const canDownload = e && _canDownload(e);
   const activeJob = liveJob && !['done', 'error', 'cancelled', 'interrupted'].includes(liveJob.status);
-  const busyDownload = activeJob && (liveJob.kind === 'download' || liveJob.kind === 'upload');
+  // A running download's button is its Stop control (as a translation's is); an import's is disabled.
+  const stopDownload = activeJob && liveJob.kind === 'download';
+  const busyImport = activeJob && liveJob.kind === 'upload';
   const busyTranslate = activeJob && liveJob.kind === 'translate';
   const dlTitle = e?.numPages ? t('card.tip_dl', { n: formatCount(e.numPages) }) : t('card.tip_dl_meta');
-  const dlInner = `<span class="ch-dl-inner">${canDownload ? ICON.download : ICON.upload}</span>`;
-  const downloadAction = e ? `<button class="ch-ibtn download" data-download data-tip="${esc(canDownload ? dlTitle : t('card.tip_replace'))}"${canDownload ? ` data-tip-shift="${esc(t('card.tip_replace'))}"` : ''}${busyDownload ? ' disabled' : ''}>${dlInner}</button>` : '';
+  const dlTip = stopDownload ? t('card.tip_stop_dl') : canDownload ? dlTitle : t('card.tip_replace');
+  const dlInner = `<span class="ch-dl-inner">${stopDownload ? ICON.stop : canDownload ? ICON.download : ICON.upload}</span>`;
+  const downloadAction = e ? `<button class="ch-ibtn download${stopDownload ? ' cancelling' : ''}" data-download data-tip="${esc(dlTip)}"${canDownload && !stopDownload ? ` data-tip-shift="${esc(t('card.tip_replace'))}"` : ''}${busyImport ? ' disabled' : ''}>${dlInner}</button>` : '';
   const translateTip = busyTranslate ? t('card.tip_cancel') : (e?.translated ? _translatedTip() : t('card.tip_translate'));
   const translateAction = e ? `<button class="ch-ibtn translate${e.translated ? ' done' : ''}${busyTranslate ? ' cancelling' : ''}" data-translate data-tip="${esc(translateTip)}"${e.translated && !busyTranslate ? ` data-tip-shift="${esc(t('card.tip_revert'))}"` : ''}><span class="ch-tr-inner">${busyTranslate ? ICON.stop : ICON.translate}</span></button>` : '';
   return `
@@ -1107,19 +1110,23 @@ function refreshDownloadControls() {
   for (const row of document.querySelectorAll('.ch-row[data-chapter-id]')) {
     const entity = _rowState.get(row)?.e;
     const btn = row.querySelector('[data-download]');
-    if (!entity || !btn) continue;
-
-    const canDownload = _canDownload(entity);
-    btn.dataset.tip = canDownload
-      ? (entity.numPages ? t('card.tip_dl', { n: formatCount(entity.numPages) }) : t('card.tip_dl_meta'))
-      : t('card.tip_replace');
-    if (canDownload) btn.dataset.tipShift = t('card.tip_replace');
-    else delete btn.dataset.tipShift;
-
-    const shifted = canDownload && _shiftHeld && _hoveredDlBtn === btn && !btn.disabled;
-    if (btn.querySelector('.ch-dl-inner')) _dlFlip.snap(btn, shifted || !canDownload ? ICON.upload : ICON.download);
+    if (!entity || !btn || btn.classList.contains('cancelling')) continue;
+    restDownloadButton(btn, entity);
   }
   refreshTooltip();
+}
+
+// A download button at rest, as its chapter has it now: Download (Replace under Shift), or Replace.
+function restDownloadButton(btn, entity) {
+  const canDownload = _canDownload(entity);
+  btn.dataset.tip = canDownload
+    ? (entity.numPages ? t('card.tip_dl', { n: formatCount(entity.numPages) }) : t('card.tip_dl_meta'))
+    : t('card.tip_replace');
+  if (canDownload) btn.dataset.tipShift = t('card.tip_replace');
+  else delete btn.dataset.tipShift;
+
+  const shifted = canDownload && _shiftHeld && _hoveredDlBtn === btn && !btn.disabled;
+  if (btn.querySelector('.ch-dl-inner')) _dlFlip.snap(btn, shifted || !canDownload ? ICON.upload : ICON.download);
 }
 
 // Accordion: reveal/hide a chapter's page grid. Pages are built on first open (then kept, so
@@ -1148,6 +1155,25 @@ function setTranslateButtonBusy(btn, busy) {
     if (btn._tipShiftStash != null) { btn.dataset.tipShift = btn._tipShiftStash; delete btn._tipShiftStash; }
     btn.dataset.tip = btn.classList.contains('done') ? _translatedTip() : t('card.tip_translate');
     _trFlip.snap(btn, ICON.translate);
+  }
+  refreshTooltip();
+}
+
+// The same for a running download's button; Replace (Shift) is off meanwhile.
+function setDownloadButtonBusy(btn, busy) {
+  if (!btn) return;
+  if (busy) {
+    if (btn.classList.contains('cancelling')) return;
+    btn.classList.add('cancelling');
+    btn.disabled = false;
+    delete btn.dataset.tipShift;
+    btn.dataset.tip = t('card.tip_stop_dl');
+    _dlFlip.snap(btn, ICON.stop);
+  } else {
+    if (!btn.classList.contains('cancelling')) return;
+    btn.classList.remove('cancelling');
+    const entity = _rowState.get(btn.closest('.ch-row'))?.e;
+    if (entity) restDownloadButton(btn, entity);
   }
   refreshTooltip();
 }
@@ -1237,6 +1263,7 @@ function ensureReplaceInput() {
 async function downloadOrReplaceChapter(ch, entity, ev, label) {
   if (!entity) return;
   const btn = ev.currentTarget;
+  if (btn.classList.contains('cancelling')) { await sendMsg({ type: 'STOP_JOB', galleryId: ch.id, kind: 'download' }); return; }
   if (btn.disabled) return;
   const curCanDl = _canDownload(entity);
   if (ev.shiftKey || !curCanDl) {
@@ -1295,6 +1322,17 @@ function paintChapterJob(row, job) {
   const translate = row.querySelector('[data-translate]');
   const isTranslate = job.kind === 'translate';
   const { status } = job;
+  // While it runs, a translation's or a download's button is its Stop control; an import's is disabled.
+  const hold = () => {
+    if (isTranslate) setTranslateButtonBusy(translate, true);
+    else if (job.kind === 'download') setDownloadButtonBusy(download, true);
+    else if (download) download.disabled = true;
+  };
+  const release = () => {
+    if (isTranslate) { setTranslateButtonBusy(translate, false); return; }
+    setDownloadButtonBusy(download, false);
+    if (download) download.disabled = false;
+  };
   // The job layer publishes label/error keys — resolve them to the user's language here.
   const jobLabel = job.labelKey ? t(job.labelKey, job.labelArgs) : job.label;
   const jobError = job.errorKey ? t(job.errorKey) : job.error;
@@ -1304,20 +1342,17 @@ function paintChapterJob(row, job) {
 
   if (status === 'error') {
     if (label) label.textContent = `${t('prog.error')}: ${jobError || 'unknown'}`;
-    if (isTranslate) setTranslateButtonBusy(translate, false);
-    else if (download) download.disabled = false;
+    release();
     return;
   }
   if (status === 'cancelled') {
     if (label) label.textContent = t('prog.cancelled');
-    if (isTranslate) setTranslateButtonBusy(translate, false);
-    else if (download) download.disabled = false;
+    release();
     return;
   }
   if (status === 'interrupted') {
     if (label) label.textContent = t('prog.interrupted');
-    if (isTranslate) setTranslateButtonBusy(translate, false);
-    else if (download) download.disabled = false;
+    release();
     return;
   }
 
@@ -1332,19 +1367,18 @@ function paintChapterJob(row, job) {
         ? `~${formatCount(Math.min(pages, Math.round(downloaded * pages / downloadTotal)))} / ${formatCount(pages)} · ${formatBytes(downloaded)}`
         : `↓ ${formatBytes(downloaded)}`;
     }
-    if (download) download.disabled = true;
+    hold();
     return;
   }
   if (status === 'extracting') {
     if (fill) fill.style.width = '85%';
     if (label) label.textContent = t('prog.extracting');
-    if (download) download.disabled = true;
+    hold();
     return;
   }
   if (status === 'started') {
     if (label) label.textContent = jobLabel || (job.total ? `0 / ${formatCount(job.total)}` : t('prog.starting'));
-    if (isTranslate) setTranslateButtonBusy(translate, true);
-    else if (download) download.disabled = true;
+    hold();
     return;
   }
   if (status !== 'progress' && status !== 'done') return;
@@ -1372,10 +1406,9 @@ function paintChapterJob(row, job) {
     }
   }
   if (status === 'done') {
-    if (isTranslate) setTranslateButtonBusy(translate, false);
-    else if (download) { download.disabled = false; download.textContent = '✓'; download.classList.add('done'); }
-  } else if (isTranslate) setTranslateButtonBusy(translate, true);
-  else if (download) download.disabled = true;
+    release();
+    if (!isTranslate && download) { download.textContent = '✓'; download.classList.add('done'); }
+  } else hold();
 }
 
 function beginChapterJob(gid, kind, label) {

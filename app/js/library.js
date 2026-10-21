@@ -636,6 +636,8 @@ function buildCard(g) {
     });
     b.addEventListener('click', async (e) => {
       const g = card._g;
+      // Mid-download the button is a Stop control → stop this download and bail.
+      if (b.classList.contains('cancelling')) { await sendMsg({ type: 'STOP_JOB', galleryId: g.id, kind: 'download' }); return; }
       const curCanDl = _canDownload(g);
       if (e.shiftKey || !curCanDl) {
         _hoveredDlBtn = null;
@@ -958,6 +960,7 @@ function _syncThumb(wrap, v) {
 function _syncCardActions(card, v) {
   if (card.querySelector('.card-body').classList.contains('downloading')) return;
   for (const b of card.querySelectorAll('.card-btn-dl')) {
+    if (b.classList.contains('cancelling')) continue;
     if (b.disabled) b.disabled = false;
     b.classList.toggle('done', false);
     _data(b, 'tip', v.dlTip);
@@ -1219,6 +1222,28 @@ function _setTrCancelMode(btn, on) {
   }
 }
 
+// While a download runs, the download button is a Stop control the same way. Its icon sits outside
+// .dl-inner, so the Shift flip to Replace leaves it alone; Replace's tip is parked meanwhile.
+function _setDlCancelMode(btn, on) {
+  if (!btn) return;
+  if (on) {
+    if (btn.classList.contains('cancelling')) return;
+    btn.classList.add('cancelling');
+    btn.disabled = false;
+    btn._tipStash = btn.dataset.tip;
+    if (btn.dataset.tipShift != null) { btn._tipShiftStash = btn.dataset.tipShift; delete btn.dataset.tipShift; }
+    btn.dataset.tip = t('card.tip_stop_dl');
+    btn.innerHTML = _STOP_SVG;
+  } else {
+    if (!btn.classList.contains('cancelling')) return;
+    btn.classList.remove('cancelling');
+    if (btn._tipStash != null) { btn.dataset.tip = btn._tipStash; delete btn._tipStash; }
+    if (btn._tipShiftStash != null) { btn.dataset.tipShift = btn._tipShiftStash; delete btn._tipShiftStash; }
+    btn.innerHTML = _canDownload(btn.closest('.card')?._g) ? _DL_ICON : _UPLOAD_ICON;
+  }
+}
+const _setCancelMode = (btn, on) => (btn.classList.contains('card-btn-dl') ? _setDlCancelMode : _setTrCancelMode)(btn, on);
+
 // How long a terminal job message (done / error / cancelled / interrupted) lingers on the card
 // before it returns to its normal resting state — long enough to read, short enough not to nag.
 const JOB_MSG_LINGER_MS = 4000;
@@ -1235,7 +1260,7 @@ function _clearCardProgress(gid) {
   if (fill) { fill.classList.remove('indeterminate', 'done'); fill.style.width = ''; }
   if (label) label.textContent = '';
   card.querySelectorAll('.card-btn-translate, .card-btn-dl').forEach(b => {
-    if (b.classList.contains('cancelling')) _setTrCancelMode(b, false);
+    _setCancelMode(b, false);
     b.disabled = false;
   });
   // The buttons back to what the gallery has now (a finished download left "✓" on its button).
@@ -1270,6 +1295,8 @@ function applyJob(job) {
   // A sync job fills in a series' chapter info: it has its own bar and never touches the buttons.
   const isSync = kind === 'sync';
   const btns = isSync ? [] : [...card.querySelectorAll(isTranslate ? '.card-btn-translate' : '.card-btn-dl')];
+  // While it runs, a translation's or a download's button is its Stop control; an import's is disabled.
+  const busy = (b) => (isTranslate ? _setTrCancelMode(b, true) : kind === 'download' ? _setDlCancelMode(b, true) : (b.disabled = true));
 
   if (status === 'done' && _jobDoneHandled.has(gid)) return;
 
@@ -1277,7 +1304,7 @@ function applyJob(job) {
     if (body) body.classList.add('downloading');
     if (fillEl) fillEl.classList.remove('done', 'indeterminate');
     if (labelEl) labelEl.textContent = `${t('prog.error')}: ${jobError || 'unknown'}`;
-    btns.forEach(b => { if (isTranslate) _setTrCancelMode(b, false); b.disabled = false; });
+    btns.forEach(b => { _setCancelMode(b, false); b.disabled = false; });
     if (kind === 'upload') store.load(gid).then(g => { if (!g || g.count === 0) store.remove(gid); });
     setTimeout(() => _clearCardProgress(gid), JOB_MSG_LINGER_MS);
     return;
@@ -1288,7 +1315,8 @@ function applyJob(job) {
     // briefly show "Cancelled", then return the card to normal.
     if (fillEl) { fillEl.classList.remove('indeterminate', 'done'); fillEl.style.width = '0%'; }
     if (labelEl) labelEl.textContent = t('prog.cancelled');
-    btns.forEach(b => { _setTrCancelMode(b, false); b.disabled = false; });
+    btns.forEach(b => { _setCancelMode(b, false); b.disabled = false; });
+    if (kind === 'upload') store.load(gid).then(g => { if (!g || g.count === 0) store.remove(gid); });
     setTimeout(() => _clearCardProgress(gid), JOB_MSG_LINGER_MS);
     return;
   }
@@ -1307,20 +1335,19 @@ function applyJob(job) {
         ? `~${formatCount(Math.min(pages, Math.round(downloaded * pages / dlTotal)))} / ${formatCount(pages)} · ${formatBytes(downloaded)}`
         : `↓ ${formatBytes(downloaded)}`;
     }
-    btns.forEach(b => { b.disabled = true; });
+    btns.forEach(busy);
     return;
   }
   if (status === 'extracting') {
     if (fillEl) { fillEl.classList.remove('indeterminate'); fillEl.style.width = '85%'; }
     if (labelEl) labelEl.textContent = t('prog.extracting');
-    btns.forEach(b => { b.disabled = true; });
+    btns.forEach(busy);
     return;
   }
   if (status === 'started') {
     if (fillEl) { fillEl.classList.remove('indeterminate', 'done'); fillEl.style.width = '0%'; }
     if (labelEl) labelEl.textContent = jobLabel || (isSync ? t('prog.syncing') : job.total ? `0 / ${formatCount(job.total)}` : t('prog.starting'));
-    if (isTranslate) btns.forEach(b => _setTrCancelMode(b, true));
-    else btns.forEach(b => { b.disabled = true; });
+    btns.forEach(busy);
     return;
   }
 
@@ -1353,16 +1380,14 @@ function applyJob(job) {
       }
     }
     if (status === 'done') {
-      btns.forEach(b => { if (isTranslate) _setTrCancelMode(b, false); b.disabled = false; if (!isTranslate) { b.textContent = '✓'; } b.classList.add('done'); });
+      btns.forEach(b => { _setCancelMode(b, false); b.disabled = false; if (!isTranslate) { b.textContent = '✓'; } b.classList.add('done'); });
       if (!_jobDoneHandled.has(gid)) {
         _jobDoneHandled.add(gid);
         if (kind === 'upload') store.load(gid).then(g => { if (!g || g.count === 0) store.remove(gid); });
         setTimeout(() => { if (body) body.classList.remove('downloading'); loadAll(); }, JOB_MSG_LINGER_MS);
       }
-    } else if (isTranslate) {
-      btns.forEach(b => _setTrCancelMode(b, true));
     } else {
-      btns.forEach(b => { b.disabled = true; });
+      btns.forEach(busy);
     }
   }
 }

@@ -182,3 +182,28 @@ test('an import handed to the desktop app\'s runner runs there, in order, and re
     assert.deepEqual(asked, ['runnerReady', 'runner', 'runner']);
   } finally { globalThis.shioriDesktop = desktop; }
 });
+
+test('a stopped import ends between two pages: it keeps what it stored, says it was cancelled, and drops its staged file', async () => {
+  const gid = '1790600000070';
+  await api.galleries.create(gid, { title: title('Stopped'), isLocalImport: true });
+  const group = groupImports([zip('Stopped.zip', Array.from({ length: 12 }, (_, i) => [`${i + 1}.png`, i + 1]))])[0];
+  const heard = [];
+  const ended = new Promise((resolve) => {
+    const off = platform.jobs.subscribe((job) => {
+      if (job.gid !== gid) return;
+      heard.push(job.status);
+      // The first page in: stop it, as the tasks page's Stop does (services.js STOP_JOB).
+      if (job.status === 'progress' && job.done === 1) platform.jobs.signal({ type: 'STOP_IMPORT', galleryId: gid });
+      if (['done', 'error', 'cancelled'].includes(job.status)) { off(); resolve(job.status); }
+    });
+  });
+  assert.equal(await startImport({ galleryId: gid, buffer: await importBytes(group), filename: group.name }), true);
+  assert.equal(await ended, 'cancelled');
+  // The stop lands at the next page boundary after it is heard: the pages before it stay, in order.
+  const stored = await pictures(gid);
+  assert.ok(stored.length >= 1 && stored.length < 12, `stopped part-way (stored ${stored.length} of 12)`);
+  assert.deepEqual(stored, stored.map((_, i) => i + 1));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(heard.at(-1), 'cancelled', 'nothing reported after it stopped');
+  assert.deepEqual([...opfs.keys()].filter((k) => k.includes(gid)), [], 'its staged file is gone');
+});

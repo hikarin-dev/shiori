@@ -19,18 +19,29 @@ channel.onmessage = ({ data }) => {
   if (!current) run();
 };
 
+// A stop (STOP_IMPORT, see jobs-runner.js) drops a waiting import, and ends the one being read here
+// once its file is read; from then on jobs-runner.js stops it like any other import.
+platform.jobs.subscribe((e) => {
+  if (e?.type !== 'STOP_IMPORT') return;
+  const gid = String(e.galleryId);
+  for (let i = queue.length - 1; i >= 0; i--) if (String(queue[i].galleryId) === gid) queue.splice(i, 1);
+  if (current && String(current.galleryId) === gid) current.stopped = true;
+});
+
 async function run() {
   while ((current = queue.shift())) {
-    const { galleryId: gid, group, skipExisting } = current;
+    const job = current;
+    const { galleryId: gid, group, skipExisting } = job;
     let buffer;
     try {
-      buffer = await importBytes(group, ({ done, total }) => platform.jobs.publish({
+      buffer = await importBytes(group, ({ done, total }) => job.stopped || platform.jobs.publish({
         gid, kind: 'upload', status: 'progress', done, total, labelKey: 'prog.rendering', labelArgs: { done, total },
       }));
     } catch (e) {
-      platform.jobs.publish({ gid, kind: 'upload', status: 'error', error: String(e?.message || e) });
+      if (!job.stopped) platform.jobs.publish({ gid, kind: 'upload', status: 'error', error: String(e?.message || e) });
       continue;
     }
+    if (job.stopped) { platform.jobs.publish({ gid, kind: 'upload', status: 'cancelled' }); continue; }
     await startImport({ galleryId: gid, buffer, filename: group.name, skipExisting });
   }
 }

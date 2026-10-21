@@ -58,7 +58,7 @@ test('the UI font is served locally — no hosted-font URLs anywhere in the app'
 const CLEAN = new Set(['', 'library', 'reader', 'settings', 'overview']);
 
 test('app pages resolve their assets when loaded directly (no service worker)', () => {
-  for (const page of ['library', 'reader', 'settings', 'overview']) {
+  for (const page of ['library', 'reader', 'settings', 'overview', 'tasks']) {
     const html = read(`app/${page}.html`);
     assert.match(html, /document\.querySelector\('base'\)\.href = '\.\/'/,
       `${page}.html lacks the runtime base corrector for direct file loads`);
