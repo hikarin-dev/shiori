@@ -1150,10 +1150,10 @@ body {
 body:has(#bottombar[data-position="top"]) { --sn-top: calc(8px + var(--bar-zone) * var(--zoom-inv)); }
 body:has(#bottombar[data-position="left"]) { --sn-left: calc(8px + var(--bar-zone) * var(--zoom-inv)); }
 body:has(#bottombar[data-position="right"]) { --sn-right: calc(8px + var(--page-scrollbar-gap) + var(--bar-zone) * var(--zoom-inv)); }
-/* Zoom, a bottom rail and their hover zones stand on --sn-bottom: the bottom progress bar and an open
-   (or opening) thumbnail strip, like the classic go-to-top button, which rides above zoom in turn. */
-body { --sn-bottom: 0px; }
-body:not(.bar-hidden) { --sn-bottom: var(--botbar-visual-h); }
+/* The classic go-to-top button stands on --sn-bottom: the bottom progress bar and an open (or opening)
+   thumbnail strip. Zoom, a bottom rail and their hover zones work out their own from --sn-bar (below). */
+body { --sn-bottom: 0px; --sn-bar: 0px; }
+body:not(.bar-hidden) { --sn-bottom: var(--botbar-visual-h); --sn-bar: var(--botbar-visual-h); }
 body.thumbs-open.bar-hidden { --sn-bottom: calc(var(--thumb-h) * var(--zoom-inv)); }
 body.thumbs-open:not(.bar-hidden) { --sn-bottom: calc(var(--thumb-h) * var(--zoom-inv) + var(--botbar-visual-h)); }
 body.thumbs-open.thumb-revealing { --sn-bottom: calc(var(--thumb-shown, 0px) * var(--zoom-inv) + var(--botbar-visual-h)); }
@@ -1167,58 +1167,88 @@ body.reader-side-nav #sideNav {
 }
 /* What the panels are placed by, worked out on the panels themselves: values that follow the window
    (vw, dvh) on <body> would be inherited by every element of the page, all restyled on each step of a
-   window being resized. */
+   window being resized.
+   Where a panel stands follows the window, a scrollbar, browser zoom and the panels' own sizes at
+   once; nothing eases but states, each a registered property that transitions: --crowd and --crowd2
+   (below), and --sn-thumbs, the thumbnails' height in their strip's own pixels, eased as the strip
+   opens and closes (browser zoom scales it outside the easing). */
+@property --crowd { syntax: '<number>'; inherits: false; initial-value: 0; }
+@property --crowd2 { syntax: '<number>'; inherits: false; initial-value: 0; }
+@property --sn-thumbs { syntax: '<length>'; inherits: false; initial-value: 0px; }
 :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) {
   /* The pill's, zoom's and the rail's measured sizes (reader.js, _sideNavSizes). */
   --pill-w: var(--sn-pill-w, 150px); --pill-h: var(--sn-pill-h, var(--sn-size));
   --zoom-w: var(--sn-zoom-w, 160px); --zoom-h: var(--sn-zoom-h, var(--sn-size));
-  /* A fixed box's width: the window less a scrollbar showing. Placed from the left of it, a panel by
-     the right edge stays put as a scrollbar comes or goes (the room it keeps changes with the bar), so
-     it eases only when the window or a crowding moves it. */
+  /* A fixed box's width: the window less a scrollbar showing. Placed from the left of it, a rail
+     across stays put as a scrollbar comes or goes (the room it keeps changes with the bar). */
   --cb-w: calc(100vw - var(--page-scrollbar-width) + var(--page-scrollbar-gap));
+  /* The bottom progress bar and the thumbnails, as they come out. */
+  --sn-thumbs: 0px;
+  --sn-bottom: calc(var(--sn-bar) + var(--sn-thumbs) * var(--zoom-inv));
   /* The room inside the panels' margins. */
   --room-w: calc(var(--cb-w) - var(--sn-left) - var(--sn-right));
   --room-h: calc(100dvh - var(--sn-top) - var(--sn-bottom) - 12px);
   /* Crowding moves (below): none unless the modern navigation is crowded. */
+  --crowd: max(0, sign(var(--over, 0px)));
+  --crowd2: max(0, sign(var(--over2, 0px)));
   --pill-down: 0px; --pill-in: 0px; --zoom-up: 0px; --zoom-in: 0px; --push: 0px;
+  /* What eases, in one list each panel's transition takes up, so a panel with transitions of its own
+     (zoom) can't miss one. */
+  --sn-ease-crowd: --crowd 0.2s ease, --crowd2 0.2s ease;
+  --sn-ease: var(--sn-ease-crowd), --sn-thumbs 0.2s ease;
+  transition: var(--sn-ease);
 }
+body.thumbs-open :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) { --sn-thumbs: var(--thumb-h); }
+/* Pulled out or resized, the strip is as tall as the pointer has it, and they ride on its edge at once. */
+body.thumbs-open.thumb-revealing :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) { --sn-thumbs: var(--thumb-shown, 0px); }
+body:is(.thumb-revealing, .thumb-resizing) :is(#snChapter, #snRail, .sn-zone, #snChapters) { transition: var(--sn-ease-crowd); }
 #snChapter, #snRail { position: fixed; pointer-events: auto; }
 
 /* Along its edge the rail has from --lo (its start, past the pill on that side) to --far before the
    end (short of zoom there, and down a side short of the bottom bar and open thumbnails); --len is
    its length along the edge.
    Crowded (a window too narrow or short for the rail between the panels in the corners of its edge,
-   --over > 0): those panels move a row in from the edge, toward the middle, and the rail has the
-   whole edge. CSS can't branch, but a length can: clamp(0px, var(--over) * 1000, A) is 0 while the
-   rail fits and A once it's crowded by a fraction of a pixel. */
+   --over > 0, so --crowd is 1): those panels move a row in from the edge, toward the middle, and the
+   rail has the whole edge. --crowd eases between 0 and 1, so they glide there and back. */
 html.reader-side-nav[data-sn-pos="top"] :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) {
   --len: var(--sn-rail-w, 300px);
   --over: calc(var(--len) - var(--room-w) + var(--pill-w) + 10px);
-  --pill-down: clamp(0px, var(--over) * 1000, var(--sn-size) + 10px);
+  --pill-down: calc(var(--crowd) * (var(--sn-size) + 10px));
   --lo: var(--sn-left);
-  --far: calc(var(--sn-right) + var(--pill-w) + 10px - clamp(0px, var(--over) * 1000, var(--pill-w) + 10px));
+  --far: calc(var(--sn-right) + (1 - var(--crowd)) * (var(--pill-w) + 10px));
 }
 html.reader-side-nav[data-sn-pos="bottom"] :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) {
   --len: var(--sn-rail-w, 300px);
   --over: calc(var(--len) - var(--room-w) + var(--zoom-w) + 10px);
-  --zoom-up: clamp(0px, var(--over) * 1000, var(--sn-size) + 10px);
+  --zoom-up: calc(var(--crowd) * (var(--sn-size) + 10px));
   --lo: var(--sn-left);
-  --far: calc(var(--sn-right) + var(--zoom-w) + 10px - clamp(0px, var(--over) * 1000, var(--zoom-w) + 10px));
+  --far: calc(var(--sn-right) + (1 - var(--crowd)) * (var(--zoom-w) + 10px));
 }
 html.reader-side-nav[data-sn-pos="left"] :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) {
   --len: var(--sn-rail-h, 300px);
   --over: calc(var(--len) - var(--room-h) + var(--pill-h) + 10px);
-  --pill-in: clamp(0px, var(--over) * 1000, var(--sn-size) + 10px);
-  --lo: calc(var(--sn-top) + var(--pill-h) + 10px - clamp(0px, var(--over) * 1000, var(--pill-h) + 10px));
+  --pill-in: calc(var(--crowd) * (var(--sn-size) + 10px));
+  --lo: calc(var(--sn-top) + (1 - var(--crowd)) * (var(--pill-h) + 10px));
   --far: calc(var(--sn-bottom) + 12px);
 }
+/* Down the right both corners are the rail's, and they make way one at a time (--crowd), the other
+   only once the rail still has no room (--crowd2). First the corner at the end the rail is held by:
+   centred or at the end, it rides on the bottom, so zoom; at the start, the pill. */
 html.reader-side-nav[data-sn-pos="right"] :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) {
   --len: var(--sn-rail-h, 300px);
   --over: calc(var(--len) - var(--room-h) + var(--pill-h) + var(--zoom-h) + 20px);
-  --pill-in: clamp(0px, var(--over) * 1000, var(--sn-size) + 10px);
-  --zoom-in: var(--pill-in);
-  --lo: calc(var(--sn-top) + var(--pill-h) + 10px - clamp(0px, var(--over) * 1000, var(--pill-h) + 10px));
-  --far: calc(var(--sn-bottom) + 22px + var(--zoom-h) - clamp(0px, var(--over) * 1000, var(--zoom-h) + 10px));
+  --over2: calc(var(--len) - var(--room-h) + var(--pill-h) + 10px);
+  --zoom-in: calc(var(--crowd) * (var(--sn-size) + 10px));
+  --pill-in: calc(var(--crowd2) * (var(--sn-size) + 10px));
+  --lo: calc(var(--sn-top) + (1 - var(--crowd2)) * (var(--pill-h) + 10px));
+  --far: calc(var(--sn-bottom) + 12px + (1 - var(--crowd)) * (var(--zoom-h) + 10px));
+}
+html.reader-side-nav[data-sn-pos="right"][data-sn-align="start"] :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) {
+  --over2: calc(var(--len) - var(--room-h) + var(--zoom-h) + 10px);
+  --pill-in: calc(var(--crowd) * (var(--sn-size) + 10px));
+  --zoom-in: calc(var(--crowd2) * (var(--sn-size) + 10px));
+  --lo: calc(var(--sn-top) + (1 - var(--crowd)) * (var(--pill-h) + 10px));
+  --far: calc(var(--sn-bottom) + 12px + (1 - var(--crowd2)) * (var(--zoom-h) + 10px));
 }
 /* Across the top or bottom, from the left (--x): from --lo; centred in the width the pages keep, a
    scrollbar beside them or not (as the pages and the dialogs reserve its room); or --far from the
@@ -1229,15 +1259,22 @@ html.reader-side-nav:is([data-sn-pos="top"], [data-sn-pos="bottom"])[data-sn-ali
 }
 html.reader-side-nav:is([data-sn-pos="top"], [data-sn-pos="bottom"])[data-sn-align="end"] :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) { --x: max(var(--lo), calc(var(--cb-w) - var(--far) - var(--len))); }
 /* Down a side: from --lo, or centred in the window as it shows (dvh, a phone's toolbar or not), and
-   pushed up by zoom and the thumbnails as they come and grow (--push, a transform that eases as zoom
-   does); or --far from the bottom, riding on them. */
+   pushed up by zoom and the thumbnails as they come and grow; or --far from the bottom, riding on
+   them. Never above --lo (--push): with no room at all, its start (home) stays in view and its end
+   runs off. */
 html.reader-side-nav:is([data-sn-pos="left"], [data-sn-pos="right"])[data-sn-align="start"] :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) { --near: var(--lo); }
 html.reader-side-nav:is([data-sn-pos="left"], [data-sn-pos="right"])[data-sn-align="center"] :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) { --near: max(var(--lo), calc(50dvh - var(--len) / 2)); }
-html.reader-side-nav:is([data-sn-pos="left"], [data-sn-pos="right"]):not([data-sn-align="end"]) :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) { --push: min(0px, calc(100dvh - var(--far) - var(--len) - var(--near))); }
+html.reader-side-nav:is([data-sn-pos="left"], [data-sn-pos="right"]):not([data-sn-align="end"]) :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) {
+  --push: clamp(var(--lo) - var(--near), 100dvh - var(--far) - var(--len) - var(--near), 0px);
+}
+html.reader-side-nav:is([data-sn-pos="left"], [data-sn-pos="right"])[data-sn-align="end"] :is(#snChapter, #snRail, #sideZoom, .sn-zone, #snChapters) {
+  --push: max(0px, var(--lo) + var(--far) + var(--len) - 100dvh);
+}
 
-/* The pill at the top corner on the rail's side, moved in a row when crowded. */
-#snChapter { top: calc(var(--sn-top) + var(--pill-down)); left: calc(var(--cb-w) - var(--sn-right) - var(--pill-w) - var(--pill-in)); }
-html[data-sn-pos="left"] #snChapter { left: calc(var(--sn-left) + var(--pill-in)); }
+/* The pill at the top corner on the rail's side, moved in a row when crowded; held by that edge, so it
+   grows and shrinks away from it. */
+#snChapter { top: calc(var(--sn-top) + var(--pill-down)); right: calc(var(--sn-right) + var(--pill-in)); }
+html[data-sn-pos="left"] #snChapter { right: auto; left: calc(var(--sn-left) + var(--pill-in)); }
 /* The rail: its edge… */
 html[data-sn-pos="right"] #snRail { right: var(--sn-right); }
 html[data-sn-pos="left"] #snRail { left: var(--sn-left); }
@@ -1245,22 +1282,18 @@ html[data-sn-pos="top"] #snRail { top: var(--sn-top); }
 html[data-sn-pos="bottom"] #snRail { bottom: calc(var(--sn-bottom) + 12px); }
 html:is([data-sn-pos="top"], [data-sn-pos="bottom"]) #snRail { flex-direction: row; left: var(--x); }
 /* …and where along it. */
-html:is([data-sn-pos="left"], [data-sn-pos="right"]):not([data-sn-align="end"]) #snRail { top: var(--near); transform: translateY(var(--push)); }
+html:is([data-sn-pos="left"], [data-sn-pos="right"]) #snRail { transform: translateY(var(--push)); }
+html:is([data-sn-pos="left"], [data-sn-pos="right"]):not([data-sn-align="end"]) #snRail { top: var(--near); }
 html:is([data-sn-pos="left"], [data-sn-pos="right"])[data-sn-align="end"] #snRail { bottom: var(--far); }
-/* They ease to where the thumbnails, a resized window or a crowding puts them. */
-#snRail { transition: left 0.2s ease, top 0.2s ease, bottom 0.2s ease, transform 0.2s ease; }
-#snChapter { transition: left 0.2s ease, top 0.2s ease; }
 
 #sideZoom {
   display: flex; position: fixed; z-index: 210;
-  left: calc(var(--cb-w) - var(--sn-right) - var(--zoom-w) - var(--zoom-in)); bottom: calc(var(--sn-bottom) + 12px + var(--zoom-up));
+  right: calc(var(--sn-right) + var(--zoom-in)); bottom: calc(var(--sn-bottom) + 12px + var(--zoom-up));
   align-items: stretch; gap: 6px;
-  transition: opacity 0.25s, left 0.2s ease, bottom 0.2s ease;
+  transition: opacity 0.25s, var(--sn-ease);
 }
-/* While the thumbnails are pulled out or resized, everything on their top edge follows it at once. */
-body.thumbs-open.thumb-revealing #sideZoom, body.thumb-resizing #sideZoom { transition: opacity 0.25s; }
-body.thumbs-open.thumb-revealing #snRail, body.thumb-resizing #snRail { transition: none; }
-/* A change of place or navigation (not the window's) puts them there at once (reader.js). */
+body:is(.thumb-revealing, .thumb-resizing) #sideZoom { transition: opacity 0.25s, var(--sn-ease-crowd); }
+/* A change of place or navigation puts them there at once (reader.js). */
 html.sn-settling :is(#snChapter, #snRail, #sideZoom) { transition: none !important; }
 
 .sn-row, .sn-col { display: inline-flex; background: var(--sn-panel); box-shadow: var(--sn-shadow); border-radius: 4px; }
@@ -1320,7 +1353,8 @@ html[data-sn-pos="top"] #snZoneRail { top: 0; height: 72px; }
 html[data-sn-pos="bottom"] #snZoneRail { bottom: var(--sn-bottom); height: 72px; }
 html:is([data-sn-pos="left"], [data-sn-pos="right"]) #snZoneRail { height: calc(var(--len) + 48px); }
 html:is([data-sn-pos="top"], [data-sn-pos="bottom"]) #snZoneRail { width: calc(var(--len) + 48px); }
-html:is([data-sn-pos="left"], [data-sn-pos="right"]):not([data-sn-align="end"]) #snZoneRail { top: calc(var(--near) - 24px); transform: translateY(var(--push)); }
+html:is([data-sn-pos="left"], [data-sn-pos="right"]) #snZoneRail { transform: translateY(var(--push)); }
+html:is([data-sn-pos="left"], [data-sn-pos="right"]):not([data-sn-align="end"]) #snZoneRail { top: calc(var(--near) - 24px); }
 html:is([data-sn-pos="left"], [data-sn-pos="right"])[data-sn-align="end"] #snZoneRail { bottom: calc(var(--far) - 24px); }
 html:is([data-sn-pos="top"], [data-sn-pos="bottom"]) #snZoneRail { left: calc(var(--x) - 24px); }
 #snZoneBottom { position: fixed; z-index: 200; right: var(--page-scrollbar-gap); bottom: var(--sn-bottom); width: calc(200px + var(--zoom-in)); height: calc(72px + var(--zoom-up)); }   /* wherever zoom stands */

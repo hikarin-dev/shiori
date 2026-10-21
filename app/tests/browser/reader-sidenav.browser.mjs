@@ -1274,7 +1274,8 @@ test('crowded, the rail takes the whole edge and the panels in its corners move 
   for (const [place, width, height, check] of [
     ['top-end', 400, 800, (g) => Math.round(g.snChapter.top - g.snRail.bottom) === 10],     // the pill a row down
     ['bottom-center', 400, 800, (g) => Math.round(g.snRail.top - g.sideZoom.bottom) === 10],   // zoom a row up
-    ['right-start', 1200, 380, (g) => Math.round(g.snRail.left - g.snChapter.right) === 10 && Math.round(g.snRail.left - g.sideZoom.right) === 10],   // both a column in
+    // Held at its start, the rail takes the top: the pill a column in, zoom left in its corner.
+    ['right-start', 1200, 380, (g) => Math.round(g.snRail.left - g.snChapter.right) === 10 && Math.round(g.snRail.top) === 12 && Math.round(g.sideZoom.right) === Math.round(g.snRail.right)],
   ]) {
     const page = await reader(t, { gallery: SERIES[0], place, position: 'off' });   // a series: the pill with its arrows
     await settle();
@@ -1287,6 +1288,95 @@ test('crowded, the rail takes the whole edge and the panels in its corners move 
     assert.ok(check(g), `${place}: crowded at ${width}×${height}: ${JSON.stringify(g)}`);
     assert.ok(apart(g.snRail, g.snChapter) && apart(g.snRail, g.sideZoom), `${place}: nothing overlaps`);
 
+  }
+});
+
+test('the side controls follow the window (a resize, browser zoom) and their own sizes at once; nothing trails behind', { skip: !chromePath() }, async t => {
+  // Measured in the very next frame.
+  const now = (page) => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => {
+    const ids = ['snChapter', 'snRail', 'sideZoom'];
+    const [pill, rail, zoom] = ids.map(id => document.getElementById(id).getBoundingClientRect());
+    const w = document.documentElement.clientWidth;
+    resolve({ pill: w - pill.right, pillWidth: pill.width, zoom: [w - zoom.right, innerHeight - zoom.bottom],
+      across: rail.left + rail.width / 2 - w / 2, down: rail.top + rail.height / 2 - innerHeight / 2,
+      moving: ids.flatMap(id => document.getElementById(id).getAnimations().map(a => a.transitionProperty)) });
+  })));
+  for (const [place, centred] of [['top-center', 'across'], ['right-center', 'down']]) {
+    const page = await reader(t, { place, position: 'off' });
+    await settle();
+    const before = await now(page);
+    await page.setViewport({ width: 1200, height: 800 });
+    const after = await now(page);
+    assert.deepEqual(after.moving, [], `${place}: nothing eases after a resize`);
+    assert.deepEqual([after.pill, after.zoom], [before.pill, before.zoom], `${place}: the pill and zoom keep to their corners`);
+    assert.ok(Math.abs(after[centred] - before[centred]) <= 1, `${place}: the rail stays centred (${before[centred]} → ${after[centred]})`);
+  }
+  // The pill grows with its page number, away from the edge it's held by.
+  const page = await reader(t, { mode: 'single', position: 'off' });   // a single gallery: the pill shows its page
+  await settle();
+  const before = await now(page);
+  for (let k = 0; k < 9; k++) await page.keyboard.press('ArrowRight');
+  await page.waitForFunction(() => /^10\b/.test(document.getElementById('snChNum').textContent.trim()));
+  const after = await now(page);
+  assert.ok(after.pillWidth > before.pillWidth, `the pill grew (${before.pillWidth} → ${after.pillWidth})`);
+  assert.equal(after.pill, before.pill, 'its right edge stays put');
+  assert.deepEqual(after.moving, [], 'and nothing slides');
+});
+
+test('down the right the corners make way one at a time: zoom first, or the pill for a rail held at the top', { skip: !chromePath() }, async t => {
+  for (const [place, first] of [['right-center', 'zoom'], ['right-end', 'zoom'], ['right-start', 'pill']]) {
+    const page = await reader(t, { gallery: SERIES[0], place, position: 'off' });   // a series: the pill with its arrows
+    await page.evaluate(() => localStorage.removeItem('shiori:readerThumbHeight'));   // their usual height
+    await page.reload({ waitUntil: 'load' });
+    await settle();
+    const g = () => page.evaluate(() => {
+      const r = id => { const b = document.getElementById(id).getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom, height: b.height }; };
+      return { rail: r('snRail'), pill: r('snChapter'), zoom: r('sideZoom'), thumbs: r('thumbStrip'), W: document.documentElement.clientWidth, H: innerHeight };
+    });
+    // How much the thumbnails lift what stands on the bottom.
+    const shut = await g();
+    await page.keyboard.press('g');
+    await settle(500);
+    const lift = shut.zoom.bottom - (await g()).zoom.bottom;
+    await page.keyboard.press('g');
+    await settle(500);
+    // A window with room for the rail between the pill and zoom; with the thumbnails out, room for it
+    // beside only one of them (22px short of both).
+    const below = shut.H - shut.zoom.bottom - 12;   // what zoom stands on, the thumbnails shut
+    const H = Math.round(12 + shut.pill.height + 10 + shut.rail.height + 10 + shut.zoom.height + 12 + below + lift - 22);
+    await page.setViewport({ width: 1400, height: H });
+    await settle(500);
+    let now = await g();
+    assert.deepEqual([Math.round(now.W - now.pill.right), Math.round(now.W - now.zoom.right)], [12, 12], `${place}: room enough, each in its corner`);
+    await page.keyboard.press('g');
+    await settle(500);
+    now = await g();
+    const [moved, stays] = first === 'zoom' ? [now.zoom, now.pill] : [now.pill, now.zoom];
+    assert.equal(Math.round(now.rail.left - moved.right), 10, `${place}: ${first} steps in beside the rail`);
+    assert.equal(Math.round(now.W - stays.right), 12, `${place}: the other stays in its corner`);
+    const [top, bottom] = first === 'zoom' ? [now.pill.bottom + 10, now.thumbs.top - 12] : [12, now.zoom.top - 10];
+    assert.ok(now.rail.top >= top - 1 && now.rail.bottom <= bottom + 1, `${place}: the rail between them: ${JSON.stringify(now)}`);
+    // Shorter still: no room beside the other either, so it steps in too, easing there as the first did.
+    const otherId = first === 'zoom' ? 'snChapter' : 'sideZoom';
+    await page.setViewport({ width: 1400, height: H - 30 });
+    const easing = await page.evaluate(id => new Promise(resolve => requestAnimationFrame(() =>
+      resolve(document.getElementById(id).getAnimations().map(a => a.transitionProperty)))), otherId);
+    assert.ok(easing.length > 0, `${place}: ${otherId} eases to its row, not jumps`);
+    await settle(500);
+    now = await g();
+    const other = first === 'zoom' ? now.pill : now.zoom;
+    assert.equal(Math.round(now.rail.left - other.right), 10, `${place}: the other steps in too`);
+  }
+});
+
+test('with no room at all, a rail keeps its start (home) in view, and its end runs off', { skip: !chromePath() }, async t => {
+  for (const place of ['right-start', 'right-center', 'right-end', 'left-center', 'left-end', 'top-end', 'bottom-center']) {
+    const page = await reader(t, { place, position: 'off' });
+    const across = /^(top|bottom)/.test(place);
+    await page.setViewport(across ? { width: 220, height: 800 } : { width: 1400, height: 220 });
+    await settle(500);
+    const home = await rect(page, '#snHome');
+    assert.equal(Math.round(across ? home.left : home.top), 12, `${place}: home 12px from the ${across ? 'left' : 'top'}`);
   }
 });
 

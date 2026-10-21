@@ -2563,7 +2563,7 @@ function applyReaderNavPlace(pos, align) {
 const _sideNavSizes = new ResizeObserver(() => {
   const root = document.documentElement.style;
   for (const [key, el] of [['pill', snChapter], ['zoom', sideZoom], ['rail', snRail]]) {
-    const { width, height } = el.getBoundingClientRect();   // exact: a panel is placed by its width
+    const { width, height } = el.getBoundingClientRect();   // exact: the rail's place and crowding are worked out from them
     for (const [name, px] of [[`--sn-${key}-w`, width], [`--sn-${key}-h`, height]]) {
       if (px && root.getPropertyValue(name) !== `${px}px`) root.setProperty(name, `${px}px`);
     }
@@ -2571,8 +2571,8 @@ const _sideNavSizes = new ResizeObserver(() => {
 });
 for (const el of [snChapter, sideZoom, snRail]) _sideNavSizes.observe(el);
 
-// A change of place or navigation puts the panels where they go at once; only a window resized (or the
-// rail crowded by it) eases them there.
+// A change of place or navigation puts the panels where they go at once, a crowding included (only a
+// crowding by the window, or the thumbnails opening, eases them: reader.css).
 function _settleSideNav() {
   document.documentElement.classList.add('sn-settling');
   requestAnimationFrame(() => requestAnimationFrame(() => document.documentElement.classList.remove('sn-settling')));
