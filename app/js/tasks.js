@@ -1,7 +1,9 @@
 // tasks.js — the tasks page: every job under way in the library, wherever it runs and whether or not
 // another page shows it (a chapter inside a series, a gallery filtered out or on another page of the
-// library, a job that went quiet), each with its own Stop, and Stop all. Reached only by its address
-// (/tasks). A gallery doing two jobs at once (downloading while translating) has a row for each.
+// library, a job that went quiet), each with its own Stop, and Stop all. Reached from the page menu in
+// every header (page-nav.js), or at /tasks. A gallery doing two jobs at once (downloading while
+// translating) has a row for each. A batch of imports is one job, shown by its tracker above the rows
+// (import-tracker.js); its titles have no rows of their own.
 
 import './boot.js';
 import * as api from './api.js';
@@ -12,6 +14,8 @@ import { initTooltips } from './tooltip.js';
 import { confirmDialog } from './notice.js';
 import { formatBytes, formatCount } from './format.js';
 import { escHtml } from './sanitize.js';
+import { mountImportTracker } from './import-tracker.js';
+import { paintRunnerTag } from './runner-tag.js';
 
 const LINGER_MS = 4000;            // a finished job's last word stays this long, as on a library card
 const QUIET_MS = 2 * 60 * 1000;    // a running job silent this long says for how long
@@ -25,9 +29,12 @@ const $list = document.getElementById('tkList');
 const $empty = document.getElementById('tkEmpty');
 const $count = document.getElementById('tkCount');
 const $stopAll = document.getElementById('stopAllBtn');
+const $imports = document.getElementById('tkImports');
 
 // key → { job, el, stopping, endedAt, hasCover, fillTimer }, in the order the jobs were first seen.
 const _rows = new Map();
+let _importsRunning = 0;
+const _imports = mountImportTracker($imports, { onChange: (running) => { _importsRunning = running; paintHeader(); } });
 
 // ── What a row says about its job (the progress mapping is a library card's) ──
 function view(job) {
@@ -80,13 +87,15 @@ function paint(row) {
     label.append(quiet);
   }
   el.querySelector('.tk-stop').disabled = row.stopping || !running;
+  // Where it runs: what ending would stop it.
+  paintRunnerTag(el.querySelector('.run-tag'), job.runner);
 }
 
 function paintHeader() {
   const running = [..._rows.values()].filter((row) => isRunning(row.job));
-  $count.textContent = formatCount(running.length);
-  $stopAll.disabled = !running.some((row) => !row.stopping);
-  $empty.hidden = _rows.size > 0;
+  $count.textContent = formatCount(running.length + _importsRunning);
+  $stopAll.disabled = !running.some((row) => !row.stopping) && !_importsRunning;
+  $empty.hidden = _rows.size > 0 || !$imports.hidden;
 }
 
 // ── A row's gallery: its title, where it belongs, its cover ──
@@ -99,7 +108,7 @@ function makeRow(job) {
   el.innerHTML = `
     <a class="tk-thumb" href="${href}" tabindex="-1" aria-hidden="true"><img alt=""></a>
     <div class="tk-body">
-      <div class="tk-head"><span class="tk-kind"></span><a class="tk-title" href="${href}"></a></div>
+      <div class="tk-head"><span class="tk-kind"></span><span class="run-tag" hidden></span><a class="tk-title" href="${href}"></a></div>
       <div class="tk-sub"></div>
       <div class="tk-prog"><div class="prog-track"><div class="prog-fill"></div></div><span class="tk-label"></span></div>
     </div>
@@ -149,6 +158,7 @@ api.events.watch((gid) => {
 // last word, and leaves only while the pointer is off the list, so the rows under it never shift.
 function onJob(job) {
   if (!job || job.gid == null || !job.status) return;   // a signal on the jobs channel, not a job
+  if (job.kind === 'import' || job.batch) return;        // a batch, and its titles: the tracker's
   job = { ...job, gid: String(job.gid) };
   const key = keyOf(job);
   let row = _rows.get(key);
@@ -203,8 +213,9 @@ async function stop(row) {
 }
 
 $stopAll.addEventListener('click', async () => {
-  if (![..._rows.values()].some((row) => isRunning(row.job) && !row.stopping)) return;
+  if (![..._rows.values()].some((row) => isRunning(row.job) && !row.stopping) && !_importsRunning) return;
   if (!(await confirmDialog({ title: t('tasks.stop_all_title'), body: t('tasks.stop_all_body'), ok: t('tasks.stop_all'), danger: true }))) return;
+  _imports.stopAll();
   await Promise.all([..._rows.values()].filter((row) => isRunning(row.job)).map(stop));
 });
 

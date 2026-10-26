@@ -431,6 +431,7 @@ function _gallery(gid, { meta, stat, cover, pages, missing: listed }, { file, en
     return blob;
   };
   const numbers = new Set();
+  const urls = new Set();
   const records = [];
   const missing = [];
   let bytes = 0;
@@ -439,8 +440,11 @@ function _gallery(gid, { meta, stat, cover, pages, missing: listed }, { file, en
     if (typeof e.url !== 'string' || !e.url || e.url.length > MAX_KEY) throw new GalleryProblem('invalid', 'a page key');
     const n = pageNumOf(e.url);
     if (n == null || n < 1) throw new GalleryProblem('invalid', `a page key without a page number`);
-    if (numbers.has(n)) throw new GalleryProblem('invalid', `page ${n} twice`);
+    // A number may come twice, under two keys: an overwrite cut short leaves the old copy beside the
+    // new one, and the library keeps both until a complete one prunes it. A key may not.
+    if (urls.has(e.url)) throw new GalleryProblem('invalid', `page ${n} twice`);
     numbers.add(n);
+    urls.add(e.url);
     if (keys.has(e.url) && keys.get(e.url) !== gid) throw new GalleryProblem('invalid', 'a page another gallery in the file has');
     keys.set(e.url, gid);
     if (!finiteOrAbsent(e.cachedAt) || !finiteOrAbsent(e.size)) throw new GalleryProblem('invalid', `page ${n}`);

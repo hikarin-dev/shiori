@@ -52,7 +52,8 @@ test('Electron shares Chromium native defaults and can enable and disable the cu
     assert.equal(result.zooms[0].paintedRail, Math.round(physicalRail));
     for (const zoom of result.zooms) {
       assert.equal(zoom.customWidth, 'auto', `${zoom.factor}x zoom must use browser geometry`);
-      assert.ok(zoom.reserved >= zoom.occupied, `${zoom.factor}x zoom must reserve the native scrollbar space`);
+      // The bar's own width, not the window's whole-pixel difference (19 for an 18.75px bar at 0.8x).
+      assert.ok(Math.abs(zoom.reserved * zoom.dpr - zoom.paintedRail) < 1, `${zoom.factor}x zoom must reserve the native scrollbar space`);
       assert.equal(zoom.paintedRail, result.zooms[0].paintedRail,
         `${zoom.factor}x zoom must paint the same track width: ${JSON.stringify(result.zooms)}`);
     }

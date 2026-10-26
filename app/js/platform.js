@@ -13,6 +13,34 @@ import { meterWrites, ignoreWrites } from './disk-writes.js';
 export const contextId = globalThis.crypto?.randomUUID?.()
   || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
+// Where THIS context runs, as every job it publishes says (`runner`, unless the job names another) —
+// for a translation, the context collecting what the server has done — so a page can tell what ending
+// would stop a job: { kind, page?, id }. Kinds: tab (a page in a
+// browser), desktop-window (a window of the desktop app), desktop-background (the desktop app's
+// runner page), helper (the page a download helper hosts; `host` says where), service-worker,
+// shared-worker, worker (a page's own), other.
+//
+// The download helper beside this context runs inside the desktop app ('desktop'), or else in this
+// browser, named as a person knows it ('Chrome', 'Edge'…).
+export const helperHost = (() => {
+  const nav = globalThis.navigator || {}, ua = nav.userAgent || '';
+  if (globalThis.shioriDesktop || /\bElectron\//.test(ua)) return 'desktop';
+  const brand = (nav.userAgentData?.brands || []).map((b) => b.brand).find((b) => !/not.?a.?brand|^chromium$/i.test(b));
+  return brand ? brand.replace(/^(Google|Microsoft) /, '') : /\bEdg\//.test(ua) ? 'Edge' : /\bFirefox\//.test(ua) ? 'Firefox' : 'Chrome';
+})();
+export const runner = (() => {
+  const g = globalThis;
+  const is = (scope) => typeof g[scope] === 'function' && g instanceof g[scope];
+  if (is('ServiceWorkerGlobalScope')) return { kind: 'service-worker', id: contextId };
+  if (is('SharedWorkerGlobalScope')) return { kind: 'shared-worker', id: contextId };
+  if (is('DedicatedWorkerGlobalScope')) return { kind: 'worker', id: contextId };
+  if (typeof document === 'undefined' || !g.location) return { kind: 'other', id: contextId };
+  const page = g.location.pathname.split('/').pop().replace(/\.html$/, '') || 'library';
+  if (page === 'agent') return { kind: 'helper', host: helperHost, id: contextId };
+  if (page === 'runner') return { kind: 'desktop-background', id: contextId };
+  return { kind: g.shioriDesktop ? 'desktop-window' : 'tab', page, id: contextId };
+})();
+
 // ── Change feed ──────────────────────────────────────────────────────────────────────────
 // One beacon `{ gid, context, n, at }` per gallery mutation, delivered to every same-origin context so
 // each surface re-reads just the gallery that changed (see store.js).
@@ -145,36 +173,49 @@ const _jobsHub = makeChannelHub('shiori-jobs');
 // at most every few seconds; every other status is saved as it happens.
 const PROGRESS_SAVE_EVERY = 5000;
 const _progressSavedAt = new Map();   // job key → when its progress row was last saved
+// Keeps `job`'s registry row as the job now stands.
+async function _saveJob(job) {
+  const key = _jobKey(job);
+  const progress = job.status === 'progress';
+  const save = !progress || job.at - (_progressSavedAt.get(key) || 0) >= PROGRESS_SAVE_EVERY;
+  if (progress && save) _progressSavedAt.set(key, job.at);
+  else if (!progress) _progressSavedAt.delete(key);
+  if (save) try {
+    const db = await _jobsDb();
+    await new Promise((res) => {
+      const t = db.transaction('jobs', 'readwrite');
+      const s = t.objectStore('jobs');
+      // Success rows vanish at publish; error/cancelled rows are RETAINED (seen:false) so a
+      // failure produced with no live listener is still visible on the next open — the UI
+      // acknowledges (clears) them after painting, and the 24h purge reaps stragglers.
+      if (job.status === 'done') s.delete(key);
+      else if (job.status === 'error' || job.status === 'cancelled') s.put({ key, ...job, seen: false });
+      else s.put({ key, ...job });
+      t.oncomplete = res; t.onerror = res; t.onabort = res;
+    });
+  } catch {}
+}
 export const jobs = {
   // Ephemeral cross-context events share the live jobs channel but skip the durable registry.
-  signal(event) { _jobsHub.publish(event); _relay?.('jobs', event); },
+  signal(event) {
+    if (event?.gid != null && event.status && !event.runner) event = { ...event, runner };
+    _jobsHub.publish(event); _relay?.('jobs', event);
+  },
   async publish(job) {
-    job = { ...job, at: Date.now() };
-    const key = _jobKey(job);
-    const progress = job.status === 'progress';
-    const save = !progress || job.at - (_progressSavedAt.get(key) || 0) >= PROGRESS_SAVE_EVERY;
-    if (progress && save) _progressSavedAt.set(key, job.at);
-    else if (!progress) _progressSavedAt.delete(key);
-    if (save) try {
-      const db = await _jobsDb();
-      await new Promise((res) => {
-        const t = db.transaction('jobs', 'readwrite');
-        const s = t.objectStore('jobs');
-        // Success rows vanish at publish; error/cancelled rows are RETAINED (seen:false) so a
-        // failure produced with no live listener is still visible on the next open — the UI
-        // acknowledges (clears) them after painting, and the 24h purge reaps stragglers.
-        if (job.status === 'done') s.delete(key);
-        else if (job.status === 'error' || job.status === 'cancelled') s.put({ key, ...job, seen: false });
-        else s.put({ key, ...job });
-        t.oncomplete = res; t.onerror = res; t.onabort = res;
-      });
-    } catch {}
+    job = { runner, ...job, at: Date.now() };
+    await _saveJob(job);
     _jobsHub.publish(job);
     _relay?.('jobs', job);
   },
   subscribe(cb) { return _jobsHub.subscribe(cb); },
-  // Job status from a window of this library on another origin (see relayTo): live only.
-  receive(event) { _jobsHub.receive(event); },
+  // Job status from a window of this library on another origin (see relayTo). Its runner keeps the
+  // registry of its own origin; this one's is kept here, as a local status would be, or a row this
+  // origin wrote (a download's hand-off to its helper) would outlast the job and show again on every
+  // page opened next. Saved first, so it is heard after any status published here before it.
+  async receive(event) {
+    if (event?.gid != null && event.status) await _saveJob(event);
+    _jobsHub.receive(event);
+  },
   // Drop a registry row without broadcasting — for clearing orphaned rows whose runner died.
   async clear(gid, kind) {
     try {
@@ -185,6 +226,11 @@ export const jobs = {
         t.oncomplete = res; t.onerror = res; t.onabort = res;
       });
     } catch {}
+  },
+  // Whether this app's service worker is importing a batch now (import-batch.js says so every 5 s).
+  async workerImporting() {
+    return (await jobs.current()).some((j) => j.kind === 'import' && j.status === 'progress'
+      && j.runner?.kind === 'service-worker' && Date.now() - (j.at || 0) < 20000);
   },
   async current() {
     try {

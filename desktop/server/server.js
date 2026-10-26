@@ -43,6 +43,10 @@ export const OPS = new Set([
 const MAX_ARGS = 8;
 // What a window may hand the library's other windows: control signals and job status.
 const RELAY_CHANNELS = new Set(['control', 'jobs']);
+// The jobs a page may hand the app itself (runJob/stopJob), which runs them in its runner page so
+// they go on whatever the page that asked does next: a translation, and the polling that collects
+// what the translation server has done ('poll').
+const RUN_KINDS = new Set(['translate', 'poll']);
 // A job no longer running — done, failed or cancelled — has its gallery's files brought up to date
 // then (library.js settle), rather than once the gallery has been left alone a while.
 const JOB_ENDED = new Set(['done', 'error', 'cancelled']);
@@ -93,7 +97,7 @@ export function networkAddresses() {
 // the library: { tokenFor(origin) → its token or null, siteOf(token) → the site it was given to or
 // null, approve(origin) → a new token once the person allows it, or null }. `lan`: open to the
 // person's network as well.
-export async function startServer({ library, token, ports = [0], webRoot = path.dirname(UI_DIR), origins = [], version = '', clients = null, lan = false }) {
+export async function startServer({ library, token, ports = [0], webRoot = path.dirname(UI_DIR), origins = [], version = '', clients = null, lan = false, jobs = null }) {
   const root = path.resolve(webRoot);
   let port = 0;
   const names = () => (lan ? ['127.0.0.1', 'localhost', ...networkAddresses(), os.hostname().toLowerCase(), `${os.hostname().toLowerCase()}.local`]
@@ -208,6 +212,15 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
           for (const other of wss.clients) if (other !== ws && other.scope !== ws.scope) send(other, { push: channel, msg: payload }).catch(() => {});
           if (channel === 'jobs' && payload.gid != null && JOB_ENDED.has(payload.status)) library.settle(String(payload.gid));
           await send(ws, { id, ok: true, result: true });
+          return;
+        }
+        if (op === 'runJob' || op === 'stopJob') {
+          // A job handed to the app (`jobs`, desktop/main.js: its runner page), from any page of the
+          // library — its own window, or a site's tab that keeps its library here.
+          const [kind, payload] = Array.isArray(args) ? args : [];
+          if (!jobs || !RUN_KINDS.has(kind) || !payload || typeof payload !== 'object') throw new BackendError('invalid', 'no such job');
+          const result = await jobs[op === 'runJob' ? 'run' : 'stop'](kind, payload);
+          await send(ws, { id, ok: true, result: result ?? null });
           return;
         }
         if (op === 'reading') {

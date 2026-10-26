@@ -39,9 +39,7 @@
       <span class="brand-text">Shiori</span>
     </a>
     <span class="brand-sep">/</span>
-    <a class="brand-page" href="../" style="text-decoration:none" data-i18n="nav.library">Library</a>
-    <span class="brand-sep">/</span>
-    <span class="brand-page" data-i18n="ov.series">Series</span>
+    <select class="brand-page page-nav" id="pageNav" data-page="overview" aria-label="Go to page" data-i18n-aria="nav.go_to"><option value="overview" data-i18n="nav.overview">Overview</option></select>
   </div>
   <div class="header-right">
     <button class="btn-settings" id="settingsBtn" data-tip="Settings" data-i18n-tip="nav.settings"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg></button>
@@ -50,6 +48,7 @@
 
 <div class="ov-wrap">
   <div id="ovContent"><div class="ov-loading" data-i18n="ov.loading">Loading…</div></div>
+  <div class="ib-host" id="ovImports" hidden></div>
 </div>
 
 <!-- Remove-chapter confirm modal -->

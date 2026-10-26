@@ -6,21 +6,22 @@
 // translateGallery only translates not-yet-translated pages — so re-running a job resumes it.
 
 import * as platform from './platform.js';
-import { capabilities } from './api.js';
+import { capabilities, galleries } from './api.js';
 import { importCbzBuffer } from './import-cbz.js';
+import { galleryLog } from './import-log.js';
 import { startTranslation, pollTranslation, cancelTranslate } from './translate.js';
 
 // Import a CBZ the UI staged in OPFS. Resumable: re-running skips already-stored pages.
 // The job layer publishes label/error KEYS (resolved via t() in the UI, which owns i18n) —
 // this code also runs in the service worker, which has no localStorage-backed language.
-export async function runImport({ galleryId, tempFile, filename, skipExisting = true }) {
+export async function runImport({ galleryId, tempFile, filename, skipExisting = true, importHash = null }) {
   const gid = String(galleryId);
   platform.jobs.publish({ gid, kind: 'upload', status: 'started', labelKey: 'prog.reading' });
   let root = null;
   try {
     root = await navigator.storage.getDirectory();
     const fh = await root.getFileHandle(tempFile);
-    await _import(gid, await fh.getFile(), filename, skipExisting);
+    await _import(gid, await fh.getFile(), filename, skipExisting, { importHash });
     // Success only — a failed import (importCbzBuffer throws) retains the staged file so the
     // import can be retried; boot maintenance sweeps abandoned ones after a grace period.
     root.removeEntry(tempFile).catch(() => {});
@@ -28,25 +29,35 @@ export async function runImport({ galleryId, tempFile, filename, skipExisting = 
   } catch (e) {
     // A stopped import isn't coming back: its staged file goes too.
     if (e instanceof ImportStopped) root?.removeEntry(tempFile).catch(() => {});
-    _importFailed(gid, e);
+    _importFailed(gid, e, platform.jobs.publish);
   }
 }
 
-// Import a zip (import-files.js importBytes: a file, or bytes) from a page into gallery `galleryId`.
-// This browser's library has it staged in OPFS first and handed to the durable runner (the service
-// worker, which survives the page). A library kept as files has no service worker to hand it to, so
-// it is imported here and now, straight from the file or memory — not written a second time on its
-// way in; an import cut short by closing the page is started again. Resolves false when it couldn't
-// be staged.
-export async function startImport({ galleryId, buffer, filename, skipExisting = true }) {
+// Import a zip (import-files.js importBytes: a file, bytes, or a folder's files as a zip's entries)
+// from a page into gallery `galleryId`. This browser's library has a zip staged in OPFS first and
+// handed to the durable runner (the service worker, which survives the page). A library kept as
+// files has no service worker to hand it to, and what a dropped folder holds (`inPlace`, and a
+// folder's files) is never copied first: those are imported here and now, straight from the files
+// or memory — not written a second time on their way in; an import cut short by closing the page is
+// started again, and finds the pages it stored (import-cbz.js). Resolves false when it couldn't be
+// staged; one imported here resolves with how it ended, { status: done|error|cancelled, error }.
+// `importHash`: the title's fingerprint (import-files.js importFingerprint), kept on its gallery —
+// as begun, then as finished — so the same files dropped again are found. `batch`: the import job
+// this title is one of (import-batch.js), which keeps the record: the title's own news goes on the
+// live channel only. `onProgress` hears the engine's every step.
+export async function startImport({ galleryId, buffer, filename, skipExisting = true, inPlace = false, importHash = null, batch = null, onProgress = null }) {
   const gid = String(galleryId);
-  if (!capabilities.browserLibrary) {
-    platform.jobs.publish({ gid, kind: 'upload', status: 'started', labelKey: 'prog.reading' });
+  if (!capabilities.browserLibrary || inPlace || Array.isArray(buffer)) {
+    const say = batch ? (job) => platform.jobs.signal({ ...job, batch, at: Date.now() }) : platform.jobs.publish;
+    say({ gid, kind: 'upload', status: 'started', labelKey: 'prog.reading' });
     try {
-      await _import(gid, buffer, filename, skipExisting);
-      platform.jobs.publish({ gid, kind: 'upload', status: 'done' });
-    } catch (e) { _importFailed(gid, e); }
-    return true;
+      await _import(gid, buffer, filename, skipExisting, { importHash, say, onProgress });
+      say({ gid, kind: 'upload', status: 'done' });
+      return { status: 'done' };
+    } catch (e) {
+      _importFailed(gid, e, say);
+      return { status: e instanceof ImportStopped ? 'cancelled' : 'error', error: String(e && e.message || e) };
+    }
   }
   const tempFile = `cbz-${gid}-${Date.now()}.bin`;
   try {
@@ -55,7 +66,7 @@ export async function startImport({ galleryId, buffer, filename, skipExisting = 
     await writable.write(buffer);
     await writable.close();
   } catch { return false; }
-  platform.rpc({ type: 'IMPORT_CBZ', galleryId: gid, tempFile, filename, skipExisting });
+  platform.rpc({ type: 'IMPORT_CBZ', galleryId: gid, tempFile, filename, skipExisting, importHash });
   return true;
 }
 
@@ -71,24 +82,36 @@ platform.jobs.subscribe((e) => {
   if (run) run.stopped = true;
 });
 
-async function _import(gid, buffer, filename, skipExisting) {
+async function _import(gid, buffer, filename, skipExisting, { importHash = null, say = platform.jobs.publish, onProgress = null } = {}) {
   const run = { stopped: false };
   _importing.set(gid, run);
+  const log = galleryLog(gid, filename, buffer);
+  // The fingerprint as begun: dropped again before it ends, the same files carry on in this gallery.
+  const mark = (patch) => (importHash ? galleries.mutate(gid, patch, { touch: false, silent: true }).catch(() => {}) : null);
   try {
+    await mark({ importingHash: importHash });
     // Every way through an import reports each page as it lands, so a stop takes effect there.
+    // Pages found stored already (a resumed import) count as done.
     await importCbzBuffer(gid, buffer, filename, !!skipExisting, (p) => {
       if (run.stopped) throw new ImportStopped();
+      log.progress(p);
+      onProgress?.(p);
       if (p.status === 'progress' || p.status === 'started')
-        platform.jobs.publish({ gid, kind: 'upload', status: 'progress', done: p.done, total: p.total, labelKey: 'prog.importing' });
+        say({ gid, kind: 'upload', status: 'progress', done: p.done + (p.skipped || 0), total: p.total, labelKey: 'prog.importing' });
     });
+    await mark({ importHash, importingHash: null });
+    await log.end('done');
+  } catch (e) {
+    await log.end(e instanceof ImportStopped ? 'stopped' : 'failed', e instanceof ImportStopped ? null : e);
+    throw e;
   } finally {
     if (_importing.get(gid) === run) _importing.delete(gid);
   }
 }
-function _importFailed(gid, e) {
+function _importFailed(gid, e, say) {
   // Stopped: the last word on the job channel, after any progress still on its way.
-  if (e instanceof ImportStopped) { platform.jobs.publish({ gid, kind: 'upload', status: 'cancelled' }); return; }
-  platform.jobs.publish({
+  if (e instanceof ImportStopped) { say({ gid, kind: 'upload', status: 'cancelled' }); return; }
+  say({
     gid, kind: 'upload', status: 'error', error: String(e && e.message || e),
     ...(e && e.code ? { errorKey: `err.${e.code}` } : {}),
   });

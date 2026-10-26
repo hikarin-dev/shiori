@@ -114,12 +114,148 @@ export function _clipInset(r) {
   return `inset(${top}% ${right}% ${bottom}% ${left}%)`;
 }
 
-// The outline scales with the page; paint-order lets the fill cover the stroke's inner half.
+// The outline scales with the page; _traceOutline draws it beneath the text. Returns whether there is one.
 function _applyTextOutline(el, st) {
   const outline = textOutline(st);
-  if (!outline) return;
+  if (!outline) return false;
   el.style.setProperty('--outline-w', outline.px != null ? `calc(${outline.px}px * var(--pgscale, 1))` : `${outline.em}em`);
   el.style.setProperty('--outline-c', `rgb(${outline.color.join(',')})`);
+  return true;
+}
+
+// A bubble's outline is SVG text under its DOM text, each line drawn where the DOM laid it out,
+// rather than a stroke on the DOM text: an HTML text stroke always mitres, so sharp corners grow
+// spikes, and each line paints its stroke over the line before it. In the SVG every stroke lies
+// under every glyph, with round joins. It spans the text's box, so it zooms with the page; it is
+// drawn again whenever the text's own box changes, and once fonts arrive.
+const SVG_NS = 'http://www.w3.org/2000/svg';
+let _outlined = null, _outlineIds = 0;
+function _traceOutline(content) {
+  if (!_outlined && typeof ResizeObserver === 'function') {
+    _outlined = new ResizeObserver(entries => _drawOutlines(entries.flatMap(({ target }) => {
+      if (target.isConnected) return [target.parentNode];
+      _outlined.unobserve(target);
+      return [];
+    })));
+    document.fonts?.addEventListener('loadingdone', () =>
+      _drawOutlines([...document.querySelectorAll('.study-text > .study-outline')].map(outline => outline.parentNode)));
+  }
+  _outlined?.observe(content);
+}
+
+// Every text is measured before any outline goes in, so the page is laid out once for them all.
+function _drawOutlines(els) {
+  const outlines = els.map(_buildOutline);
+  els.forEach((el, i) => {
+    if (!outlines[i]) return;
+    el.querySelector(':scope > .study-outline')?.remove();
+    el.prepend(outlines[i]);
+  });
+}
+
+// A text's outline, or null while it is hidden (it is drawn when shown). The SVG sits in an inert
+// box, which keeps its copy of the text out of find-in-page; an SVG element can't be inert itself.
+function _buildOutline(el) {
+  const box = el.getBoundingClientRect();
+  if (!box.width) return null;
+  const outline = document.createElement('div');
+  outline.className = 'study-outline';
+  outline.inert = true;
+  const svg = outline.appendChild(document.createElementNS(SVG_NS, 'svg'));
+  svg.setAttribute('viewBox', `0 0 ${box.width} ${box.height}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  const runs = svg.appendChild(document.createElementNS(SVG_NS, 'g'));
+  const range = document.createRange();
+  const walker = document.createTreeWalker(el.querySelector(':scope > .study-text-content'), NodeFilter.SHOW_TEXT);
+  for (let node; (node = walker.nextNode());) {
+    const cs = getComputedStyle(node.parentElement);
+    // Text combined upright sits across its column.
+    const combined = cs.textCombineUpright === 'all';
+    const vertical = !combined && cs.writingMode.startsWith('vertical');
+    for (const [from, to] of combined ? [[0, node.length]] : _lineRuns(node, range, vertical)) {
+      range.setStart(node, from); range.setEnd(node, to);
+      const r = range.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      const text = document.createElementNS(SVG_NS, 'text');
+      text.textContent = node.data.slice(from, to);
+      Object.assign(text.style, {
+        fontFamily: cs.fontFamily, fontSize: cs.fontSize, fontWeight: cs.fontWeight, fontStyle: cs.fontStyle,
+        letterSpacing: cs.letterSpacing, textTransform: cs.textTransform, textOrientation: cs.textOrientation,
+        writingMode: vertical ? cs.writingMode : 'horizontal-tb',
+      });
+      const x = r.left - box.left, y = r.top - box.top;
+      // Ruby centres a reading over its base (or a base under a longer reading) with room at its
+      // ends, which the run's box takes in: such text is placed by its middle.
+      const middle = combined || !!node.parentElement.closest('ruby');
+      if (middle) text.style.textAnchor = 'middle';
+      if (combined) {
+        text.style.dominantBaseline = 'central';
+        // Squeezed only when it's wider than its box, as the DOM squeezed it: the box is the glyphs
+        // (Chrome) or the whole cell (Firefox).
+        if (_textWidth(text.textContent, cs) > r.width) {
+          text.setAttribute('textLength', r.width);
+          text.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+        }
+        text.setAttribute('x', x + r.width / 2); text.setAttribute('y', y + r.height / 2);
+      } else if (vertical) {   // a column's glyphs centre on it
+        text.setAttribute('x', x + r.width / 2); text.setAttribute('y', middle ? y + r.height / 2 : y);
+      } else {                 // a line's glyph boxes start at its top
+        text.style.dominantBaseline = 'text-before-edge';
+        text.setAttribute('x', middle ? x + r.width / 2 : x); text.setAttribute('y', y);
+      }
+      runs.appendChild(text);
+    }
+  }
+  // The width in the page's pixels of the moment (--outline-w is a registered length); fixed, it
+  // zooms with the rest of the SVG.
+  const cs = getComputedStyle(el);
+  const width = parseFloat(cs.getPropertyValue('--outline-w'));
+  svg.style.strokeWidth = width + 'px';
+  // A stroke much wider than a dot or a curl folds back on itself around it and leaves thin rings
+  // open; narrower strokes of the same runs, a tenth of an em apart, close them.
+  const steps = Math.ceil(width / 2 / (0.1 * parseFloat(cs.fontSize)));
+  if (steps > 1) {
+    runs.id = `study-outline-${++_outlineIds}`;
+    for (let k = steps - 1; k > 0; k--) {
+      const layer = svg.appendChild(document.createElementNS(SVG_NS, 'use'));
+      layer.setAttribute('href', '#' + runs.id);
+      layer.style.strokeWidth = (width * k / steps) + 'px';
+    }
+  }
+  return outline;
+}
+
+let _measure = null;
+function _textWidth(text, cs) {
+  _measure ??= document.createElement('canvas').getContext('2d');
+  _measure.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  return _measure.measureText(text).width;
+}
+
+// A text node's stretches that each sit on one line, as [from, to) offsets: its line breaks split
+// it, and a stretch that wraps is split where its characters move to the next line.
+function _lineRuns(node, range, vertical) {
+  const runs = [], data = node.data;
+  for (let from = 0; from < data.length;) {
+    let to = data.indexOf('\n', from);
+    if (to < 0) to = data.length;
+    range.setStart(node, from); range.setEnd(node, to);
+    if (to > from && range.getClientRects().length > 1) {
+      let start = from, line = null;
+      for (let i = from, len; i < to; i += len) {
+        len = data.codePointAt(i) > 0xffff ? 2 : 1;
+        range.setStart(node, i); range.setEnd(node, i + len);
+        const r = range.getBoundingClientRect();
+        if (!r.width && !r.height) continue;
+        const at = vertical ? r.left + r.width / 2 : r.top + r.height / 2;
+        if (line && (at < line[0] || at > line[1])) { runs.push([start, i]); start = i; line = null; }
+        line ??= vertical ? [r.left, r.right] : [r.top, r.bottom];
+      }
+      runs.push([start, to]);
+    } else if (to > from) runs.push([from, to]);
+    from = to + 1;
+  }
+  return runs;
 }
 
 // A DOM-text block for one bubble's translation, positioned at the rect the renderer actually
@@ -138,7 +274,7 @@ export function _buildStudyText(b, hasBg, pageW) {
   const st = b.style || {};
   el.style.setProperty('--fs', (st.fontSize || Math.max(12, Math.round((pageW || 1000) * 0.022))) + 'px');
   if (Array.isArray(st.fg)) el.style.color = `rgb(${st.fg.join(',')})`;
-  _applyTextOutline(el, st);
+  const outlined = _applyTextOutline(el, st);
   // manga2eng typesets in comic caps with a tight line advance — mirror both, then prefer the
   // exact pitch the renderer drew at when the pipeline recorded it.
   if (st.caps) { el.style.textTransform = 'uppercase'; el.style.lineHeight = '1.0'; }
@@ -150,6 +286,7 @@ export function _buildStudyText(b, hasBg, pageW) {
   body.className = 'study-text-content';
   body.textContent = b.tr;
   el.appendChild(body);
+  if (outlined) _traceOutline(body);
   return el;
 }
 
@@ -224,6 +361,9 @@ export function _buildStudySrc(b, hasBg, pg, srcOpts) {
         const combined = document.createElement('span');
         combined.className = 'study-combined';
         combined.style.textCombineUpright = 'all';
+        // Fitting two characters, a browser asks the face for half-width forms (Firefox always,
+        // Chrome when they're too wide), and Yasashisa Antique's are blank: the group vanished.
+        combined.style.fontFeatureSettings = '"hwid" 0';
         // Use narrow punctuation before fitting the group, so full-width marks do not
         // get squeezed into hairlines (and compatibility pairs use supported glyphs).
         combined.textContent = glyph.normalize('NFKC');
@@ -275,7 +415,7 @@ export function _buildStudySrc(b, hasBg, pg, srcOpts) {
   el.style.width  = (r.w * 100) + '%';
   el.style.height = (r.h * 100) + '%';
   if (Array.isArray(st.fg)) el.style.color = `rgb(${st.fg.join(',')})`;
-  _applyTextOutline(el, st);
+  const outlined = _applyTextOutline(el, st);
   // Language drives the appropriate Han glyph forms when source metadata identifies it.
   if (srcOpts && srcOpts.lang) el.lang = srcOpts.lang;
   if (vertical) el.classList.add('vert');
@@ -290,6 +430,7 @@ export function _buildStudySrc(b, hasBg, pg, srcOpts) {
     if (i < lines.length - 1) body.appendChild(document.createElement('br'));
   });
   el.appendChild(body);
+  if (outlined) _traceOutline(body);
   return el;
 }
 
@@ -448,12 +589,12 @@ export function _sniffSourceLang(bubbles) {
 }
 
 // Keep a layer's DOM text sized in page pixels × --pgscale (wrap width ÷ page width), so it
-// tracks zoom/resize exactly like the image layers do.
+// tracks zoom/resize exactly like the image layers do. The observer's first report comes before the
+// layer is first painted, with the width layout already worked out: reading the wrap's width here
+// instead forced a layout for every page mounted, several a frame while the strip scrolls fast.
 export function _syncLayerScale(layer, wrap, pageW) {
   if (!pageW) return;
-  const sync = () => layer.style.setProperty('--pgscale', String((wrap.clientWidth / pageW) || 1));
-  sync();
-  layer._ro = new ResizeObserver(sync);
+  layer._ro = new ResizeObserver(([entry]) => layer.style.setProperty('--pgscale', String((entry.contentRect.width / pageW) || 1)));
   layer._ro.observe(wrap);
 }
 

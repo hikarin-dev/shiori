@@ -158,6 +158,24 @@ test('malformed galleries are listed and left out; the others restore', async ()
   for (const gid of ['12', '13', '14', '15', '16', '17']) assert.equal(await api.meta.get(gid), null, gid);
 });
 
+test('a page an overwrite cut short holds twice, the old copy beside the new, restores as it was', async () => {
+  await fresh();
+  const gid = await gallery('Half overwritten', 2);
+  await api.pages.put(gid, 1, png(7, 7), { key: `local://${gid}/1.webp` });
+  const state = async () => {
+    const { stat, pages } = await api.transfer.read(gid);
+    return { count: stat.count, pages: await Promise.all(pages.sort((a, b) => a.url.localeCompare(b.url)).map(async (p) => [p.url, await bytes(p.blob)])) };
+  };
+  const before = await state();
+  // (The desktop app's library keeps one picture a page, the new one.)
+  if (!globalThis.__desktopLibrary) assert.deepEqual(before.pages.map(([url]) => url), [`local://${gid}/1.png`, `local://${gid}/1.webp`, `local://${gid}/2.png`]);
+  const buf = await archiveBytes();
+  await fresh();
+  const result = await importBackup(asFile(new Blob([buf])));
+  assert.deepEqual(result.written, [gid]);
+  assert.deepEqual(await state(), before);
+});
+
 test('a metadata backup with a broken entry writes nothing; an empty one restores nothing, without error', async () => {
   await fresh();
   const shi = (list) => new File([JSON.stringify(list)], 'm.shi', { type: 'application/json' });

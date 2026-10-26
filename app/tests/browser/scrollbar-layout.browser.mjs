@@ -171,6 +171,39 @@ test('at a fractional display scale the side controls and the reader dialogs sta
   }
 });
 
+// Short, the reader settings once scrolled as a whole, the scrollbar down the box's outside on the
+// backdrop. The tab shown scrolls under the header now, its scrollbar inside its frame; beside that
+// scrollbar a place button still stands in only as far as its picker needs.
+test("in a short window the reader settings' tab scrolls inside its frame, and a place button keeps its picker's room beside the scrollbar", { skip: !chromePath() }, async t => {
+  const page = await fresh(t, `/reader?g=${GALLERY}&page=1`);
+  await page.evaluate(() => localStorage.setItem('shiori-reader-nav', 'side'));
+  await page.reload();
+  await page.waitForFunction(() => document.body.classList.contains('reader-side-nav'));
+  await page.evaluate(() => document.getElementById('snSettings').click());
+  await page.waitForSelector('#readerSettingsModal.show');
+  await page.$eval('[data-rs-tab="display"]', el => el.click());
+  for (const [width, moves] of [[900, false], [420, true]]) {
+    await page.setViewport({ width, height: 420 });
+    const at = await page.evaluate(() => {
+      const rect = el => el.getBoundingClientRect();
+      const box = document.getElementById('readerSettingsBox'), panel = document.querySelector('.rs-panel.active');
+      const btn = document.getElementById('readerNavPlace');
+      btn.scrollIntoView({ block: 'center' });
+      const b = rect(btn);
+      return { boxScrolls: box.scrollHeight > box.clientHeight, panelScrolls: panel.scrollHeight > panel.clientHeight,
+        scrollbar: panel.offsetWidth - panel.clientWidth - 2,   // less its borders
+        rights: [rect(box).right, rect(document.querySelector('.reader-settings-top')).right, rect(panel).right],
+        room: rect(document.getElementById('readerSettingsModal')).right - (b.left + b.right) / 2,
+        inset: rect(btn.closest('.rs-section')).right - b.right };
+    });
+    assert.deepEqual([at.boxScrolls, at.panelScrolls], [false, true], `${width}px: the tab scrolls, not the box`);
+    assert.ok(at.scrollbar > 0, `${width}px: a scrollbar shows`);
+    assert.ok(at.rights.every(r => r === at.rights[0]), `${width}px: the header and the tab reach the box's edge, the scrollbar inside them: ${at.rights}`);
+    assert.equal(at.inset > 0.01, moves, `${width}px: moved in by ${at.inset}px with ${at.room}px of room`);
+    if (moves) assert.ok(Math.abs(at.room - 71) < 0.02, `${width}px: just the picker's room beside the scrollbar, ${at.room}px`);
+  }
+});
+
 test('custom overlays clear compensation and disabling them restores it',{ skip: !chromePath() }, async t => {
   const page = await fresh(t, '/library');
   await overflow(page, 'hidden');

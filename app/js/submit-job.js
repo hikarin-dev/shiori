@@ -1,9 +1,14 @@
-// submit-job.js — route a job to the most durable runner available. With a controlling PWA
-// service worker the job runs there and survives this tab closing; otherwise it runs in this tab
-// and leaves a durable replay entry if the tab closes. Either way status broadcasts everywhere.
+// submit-job.js — route a job to the most durable runner available. With the library in the desktop
+// app, a translation runs in the app itself (its runner page), which keeps it going whatever this page
+// does next. With a controlling PWA service worker the job runs there and survives this tab closing;
+// otherwise it runs in this tab and leaves a durable replay entry if the tab closes. Either way
+// status broadcasts everywhere.
 import { RUNNERS, cancelJobRun, runPoll } from './jobs-runner.js';
 import * as platform from './platform.js';
-import { capabilities } from './api.js';
+import { capabilities, keeperJobs } from './api.js';
+
+// The desktop app's runner itself routes nothing back to the app.
+const _inDesktopRunner = platform.runner.kind === 'desktop-background';
 
 // The active service worker, even when it isn't CONTROLLING this page. A hard reload
 // (Ctrl+Shift+R) loads the document uncontrolled — controller is null for its whole life — but
@@ -42,8 +47,15 @@ async function _runInTab(kind, payload, existingKey = null) {
   }
 }
 
+// Resolves where it went: 'desktop', 'sw' or 'tab' — or 'busy' when the desktop app is translating
+// that gallery already (a few pages asked for meanwhile), or null for a kind nothing runs.
 export async function submitJob(kind, payload) {
   if (!RUNNERS[kind]) return null;
+  if (kind === 'translate' && !_inDesktopRunner) {
+    const answer = await keeperJobs.run('translate', payload);
+    if (answer?.ok) return 'desktop';
+    if (answer?.busy) return 'busy';
+  }
   const key = `${payload && payload.galleryId}:${kind}`;
   // Durable-first: the replay row is written HERE, before any handoff — so closing the tab in
   // the gap between the "started" reply and the runner's own (idempotent) re-add can no longer
@@ -74,9 +86,46 @@ export async function handImport({ galleryId, group, skipExisting = true }) {
       const timer = setTimeout(() => resolve(false), RUNNER_ANSWER_MS);
       channel.onmessage = ({ data }) => { if (data?.type === 'taken' && data.id === id) { clearTimeout(timer); resolve(true); } };
       channel.postMessage({ type: 'import', id, galleryId: String(galleryId), skipExisting,
-        group: { files: [...group.files], paths: group.paths, name: group.name } });
+        group: { files: [...group.files], paths: group.paths, name: group.name, unreadable: group.unreadable } });
     });
   } finally { channel.close(); }
+}
+
+// A batch of titles (import-batch.js runImportBatch takes it) handed to the desktop app's runner
+// whole, the same way: false when there is none, and this page runs it.
+export async function handImportBatch({ id, name, groups, attachTo = null, meta = {} }) {
+  const shell = globalThis.shioriDesktop?.shell;
+  if (typeof shell !== 'function') return false;
+  try { if (!await shell('runner')) return false; } catch { return false; }
+  const channel = new BroadcastChannel(RUNNER_CHANNEL);
+  try {
+    return await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(false), RUNNER_ANSWER_MS);
+      channel.onmessage = ({ data }) => { if (data?.type === 'taken' && data.id === id) { clearTimeout(timer); resolve(true); } };
+      channel.postMessage({ type: 'batch', id, batch: { id, name, attachTo, meta, groups: groups.map((g) => ({
+        files: [...g.files], paths: g.paths, name: g.name, unreadable: g.unreadable, fromFolder: g.fromFolder })) } });
+    });
+  } finally { channel.close(); }
+}
+
+// A batch of titles (import-batch.js runImportBatch takes it) handed to this browser's service
+// worker, which runs it for as long as any app page is open — each page's poll tick keeps it awake
+// (pollActiveTranslations) — whatever the page it came from does. False when there is no worker, or
+// it doesn't take it in time: this page runs it.
+const WORKER_ANSWER_MS = 10000;
+export const workerAvailable = () => !!_sw();
+export function handBatchToWorker({ id, name, groups, attachTo = null, meta = {} }) {
+  const sw = _sw();
+  if (!sw) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    const timer = setTimeout(() => resolve(false), WORKER_ANSWER_MS);
+    channel.port1.onmessage = ({ data }) => { clearTimeout(timer); resolve(!!data?.taken); };
+    try {
+      sw.postMessage({ __shioriImportBatch: true, batch: { id, name, attachTo, meta, groups: groups.map((g) => ({
+        files: [...g.files], paths: g.paths, name: g.name, unreadable: g.unreadable, fromFolder: g.fromFolder })) } }, [channel.port2]);
+    } catch { clearTimeout(timer); resolve(false); }
+  });
 }
 
 // Cancel a job. The abort handle lives in whichever context is running the job, so route
@@ -102,13 +151,17 @@ function _recoverPendingInTab(entries) {
 // the service worker — one short __shioriPoll event keeps it warm (no single long event to hit the
 // ~5-min cap) and it keeps running across navigations; fall back to polling in this tab when there's
 // no worker. A cheap no-op when nothing is translating. Called on a short timer from boot.js, this
-// is the heartbeat that drives a server-owned translation to completion and survives SW recycling.
+// is the heartbeat that drives a server-owned translation to completion and survives SW recycling
+// — and that keeps the worker awake while it imports a batch (handBatchToWorker), from any page.
 export async function pollActiveTranslations() {
   let records = [];
   let pending = [];
   try { records = await platform.translateResume.all(); } catch {}
   try { pending = await platform.jobsPending.all(); } catch {}
-  if (!records.length && !pending.length) return false;   // idle — boot.js backs its timer off
+  if (!records.length && !pending.length && !await platform.jobs.workerImporting()) return false;   // idle — boot.js backs its timer off
+  // A window of the desktop app keeps its jobs where the app's runner does: the runner collects
+  // them (polled here too, every result would be stored twice).
+  if (capabilities.desktopWindow && (await keeperJobs.run('poll'))?.ok) return true;
   const sw = _sw();
   if (sw) { try { sw.postMessage({ __shioriPoll: true }); return true; } catch {} }
   if (pending.length) await _recoverPendingInTab(pending);

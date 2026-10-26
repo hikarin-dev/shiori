@@ -6,10 +6,15 @@
 // gallery format (gallery-files.js: one holding metadata.json, image_records.json or series.json),
 // which goes in whole, as the archive it would be if zipped, so each such gallery or series inside
 // a dropped folder is imported as itself.
-// The import engine always receives a zip, so staging and the durable runner are the same for every
-// kind. Runs in a page only (PDF pages are drawn on a canvas).
+// The import engine receives a zip — staged for the durable runner like any — or, for loose images
+// and a dropped folder, their files as a zip's entries, imported from where they are (jobs-runner.js
+// startImport). Runs in a page only (PDF pages are drawn on a canvas).
 
 import { zipCreate } from './zip.js';
+import { isValidGalleryId } from './sanitize.js';
+// Static, not lazy: the service worker runs imports too, and a worker can't import() (pdf.js, below,
+// is a page's only).
+import { zipEntries, sha256Hex } from './import-cbz.js';
 
 const ARCHIVE = /\.(zip|cbz)$/i;
 const PDF = /\.pdf$/i;
@@ -49,31 +54,51 @@ const LAYOUT_FILES = new Set(['metadata.json', 'image_records.json', 'series.jso
 
 // A dropped folder's groups: each folder in the Shiori gallery format within it (the outermost —
 // a series' members go with their series) whole, its files under their paths in it; whatever else
-// it holds, as any folder.
+// it holds, as any folder. Each file is placed by looking up its own folders, so a folder of any
+// number of galleries is sorted in one pass.
 function _folderGroups(folder) {
-  const roots = [];
-  const byDepth = [...folder.entries].sort((a, b) => a.path.split('/').length - b.path.split('/').length);
-  for (const { path } of byDepth) {
-    const cut = path.lastIndexOf('/') + 1;
-    const dir = path.slice(0, cut);
-    if (LAYOUT_FILES.has(path.slice(cut)) && !roots.some((r) => dir.startsWith(r))) roots.push(dir);
+  const dirOf = (path) => path.slice(0, path.lastIndexOf('/') + 1);
+  // The outermost format folder holding `path` ("" for the dropped folder itself), else null.
+  const rootOf = (path, roots) => {
+    for (let at = 0; at !== -1; at = path.indexOf('/', at) + 1 || -1) if (roots.has(path.slice(0, at))) return path.slice(0, at);
+    return null;
+  };
+  const roots = new Map();   // root → its entries, in the order the roots are found (shallowest first)
+  const depth = (path) => path.split('/').length;
+  const layout = folder.entries.filter((e) => LAYOUT_FILES.has(e.path.slice(e.path.lastIndexOf('/') + 1)));
+  for (const { path } of layout.sort((a, b) => depth(a.path) - depth(b.path))) {
+    if (rootOf(path, roots) == null) roots.set(dirOf(path), []);
   }
-  const groups = roots.map((root) => {
-    const inside = folder.entries.filter((e) => e.path.startsWith(root)).sort(_byPath);
+  const rest = [];
+  for (const e of folder.entries) {
+    const root = rootOf(e.path, roots);
+    (root == null ? rest : roots.get(root)).push(e);
+  }
+  const groups = [...roots].map(([root, inside]) => {
+    inside.sort(_byPath);
     const name = root ? root.slice(0, -1).split('/').pop() : folder.name;
-    return { files: inside.map((e) => e.file), paths: inside.map((e) => e.path.slice(root.length)), name: `${name}.zip` };
+    const read = inside.filter((e) => e.file);
+    const unreadable = inside.filter((e) => !e.file).map((e) => e.path);
+    return { files: read.map((e) => e.file), paths: read.map((e) => e.path.slice(root.length)), name: `${name}.zip`, ...(unreadable.length ? { unreadable } : {}) };
   });
-  const rest = folder.entries.filter((e) => !roots.some((r) => e.path.startsWith(r)));
-  return [...groups, ..._groups(rest, () => folder.name)];
+  // All of it imported where it is, an archive or PDF in it too: a dropped folder is never copied first.
+  return [...groups, ..._groups(rest, () => folder.name)].map((g) => ({ ...g, fromFolder: true }));
 }
 
+// An entry is { file, path }, or { file: null, path } for one the browser couldn't open
+// (droppedImports): a folder's ends in "/", and may have held pictures. A group with such entries
+// says so (`unreadable`, their paths), so it fails whole rather than coming in with pages missing.
+const _nameOf = (path) => path.replace(/\/$/, '').split('/').pop();
 function _groups(entries, imagesTitle) {
-  const list = entries.filter(({ file }) => isImportable(file)).sort(_byPath);
-  const images = list.filter(({ file }) => IMAGE.test(file.name));
-  const groups = list.filter(({ file }) => !IMAGE.test(file.name)).map(({ file }) => ({ files: [file], name: file.name }));
+  const list = entries.filter(({ file, path }) => (file ? isImportable(file) : path.endsWith('/') || isImportable({ name: _nameOf(path) }))).sort(_byPath);
+  const isImage = ({ path }) => path.endsWith('/') || IMAGE.test(path);
+  const groups = list.filter((e) => !isImage(e)).map(({ file, path }) => (file ? { files: [file], name: file.name } : { files: [], name: _nameOf(path), unreadable: [path] }));
+  const images = list.filter(isImage);
   if (images.length) {
-    const files = images.map(({ file }) => file);
-    groups.push({ files, paths: images.map(({ path }) => path), name: `${imagesTitle(files)}.zip` });
+    const read = images.filter(({ file }) => file);
+    const files = read.map(({ file }) => file);
+    const unreadable = images.filter(({ file }) => !file).map(({ path }) => path);
+    groups.push({ files, paths: read.map(({ path }) => path), name: `${imagesTitle(files)}.zip`, ...(unreadable.length ? { unreadable } : {}) });
   }
   return groups;
 }
@@ -81,8 +106,11 @@ function _groups(entries, imagesTitle) {
 // A drop's files and folders → { files, folders } for groupImports. Call it straight from the drop
 // handler: the dropped items can only be listed before the event ends. Each folder is read in full,
 // its subfolders flattened into it (their pictures, archives, PDFs and the format's JSON files);
-// hidden files and folders (".name") are left out.
-export async function droppedImports(dataTransfer) {
+// hidden files and folders (".name") are left out. A file or folder the browser can't open (on
+// Windows, one whose path is 260 characters or longer) is listed without its file, so the gallery
+// holding it fails on its own and the rest of the drop still imports. `leftOut` counts the files that
+// are none of these; onProgress(found) says how many files the folders have shown so far.
+export async function droppedImports(dataTransfer, onProgress = () => {}) {
   const files = [], dirs = [];
   for (const item of dataTransfer.items) {
     if (item.kind !== 'file') continue;
@@ -91,23 +119,77 @@ export async function droppedImports(dataTransfer) {
     else { const file = item.getAsFile(); if (file) files.push(file); }
   }
   const folders = [];
-  for (const dir of dirs) folders.push({ name: dir.name, entries: await _readFolder(dir) });
-  return { files, folders };
+  const count = { found: 0, leftOut: 0, onProgress };
+  for (const dir of dirs) folders.push({ name: dir.name, entries: await _readFolder(dir, '', count) });
+  return { files, folders, leftOut: count.leftOut };
 }
 
-async function _readFolder(dir, prefix = '') {
+async function _readFolder(dir, prefix, count) {
   const out = [];
   const reader = dir.createReader();
   // readEntries hands a folder over in batches; an empty one means it's done.
-  for (let batch; (batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject))).length;) {
+  for (;;) {
+    let batch;
+    try { batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject)); }
+    catch { out.push({ file: null, path: prefix }); break; }
+    if (!batch.length) break;
     for (const entry of batch) {
       if (entry.name.startsWith('.')) continue;
       const path = prefix + entry.name;
-      if (entry.isDirectory) out.push(...await _readFolder(entry, `${path}/`));
-      else if (isImportable(entry) || /\.json$/i.test(entry.name)) out.push({ file: await new Promise((resolve, reject) => entry.file(resolve, reject)), path });
+      if (entry.isDirectory) { out.push(...await _readFolder(entry, `${path}/`, count)); continue; }
+      count.onProgress(++count.found);
+      if (isImportable(entry) || /\.json$/i.test(entry.name)) {
+        out.push({ file: await new Promise((resolve, reject) => entry.file(resolve, reject)).catch(() => null), path });
+      } else count.leftOut++;
     }
   }
   return out;
+}
+
+// What a title is, as a fingerprint: the same files always give the same one, and any changed byte
+// another. An archive is known by its own index (each entry's name, size and CRC-32, import-cbz.js
+// zipEntries), so it isn't read; a folder's files and a PDF by their contents, read a piece at a
+// time. Null where the browser can't hash.
+export async function importFingerprint({ files, paths }) {
+  if (!globalThis.crypto?.subtle) return null;
+  if (!paths) return ARCHIVE.test(files[0].name) ? `zip:${(await zipEntries(files[0])).fingerprint}` : `pdf:${await _contentHash(files[0])}`;
+  const lines = [];
+  for (const [i, f] of files.entries()) {
+    const sum = ARCHIVE.test(paths[i]) ? `zip:${(await zipEntries(f)).fingerprint}` : await _contentHash(f);
+    lines.push(`${paths[i]}\n${f.size}\n${sum}\n`);
+  }
+  return `files:${await sha256Hex(new TextEncoder().encode(lines.join('')))}`;
+}
+
+// A file's contents as the SHA-256 of its pieces' SHA-256s (a file past 2 GiB can't be read whole).
+const HASH_PIECE = 8 * 1024 * 1024;
+async function _contentHash(file) {
+  const sums = [];
+  for (let at = 0; at === 0 || at < file.size; at += HASH_PIECE) sums.push(await sha256Hex(await file.slice(at, at + HASH_PIECE).arrayBuffer()));
+  return sha256Hex(new TextEncoder().encode(sums.join('')));
+}
+
+// The gallery a title says it is, when it is in the Shiori gallery format (gallery-files.js): its
+// metadata.json's id — a series', its first member's that has files, as the import engine makes it
+// the series' owner — so its card is the one the import fills. Null for anything else.
+export async function importTarget({ files, paths }) {
+  const entries = paths ? files.map((f, i) => ({ filename: paths[i], read: async () => new Uint8Array(await f.arrayBuffer()) }))
+    : ARCHIVE.test(files[0].name) ? await zipEntries(files[0]) : [];
+  const json = async (name) => {
+    const entry = entries.find((e) => e.filename === name);
+    try { return entry ? JSON.parse(new TextDecoder().decode(await entry.read())) : null; } catch { return null; }
+  };
+  const id = (v) => (v != null && isValidGalleryId(v) ? String(v) : null);
+  const series = await json('series.json');
+  if (Array.isArray(series?.chapters) && series.chapters.length) {
+    for (const [i, c] of series.chapters.entries()) {
+      const folder = `${String(c.folder || `chapter-${String(i + 1).padStart(2, '0')}`).replace(/\/+$/, '')}/`;
+      if (!entries.some((e) => e.filename.startsWith(folder))) continue;
+      return id((await json(`${folder}metadata.json`))?.galleryId) || id(c.id);
+    }
+    return null;
+  }
+  return id((await json('metadata.json'))?.galleryId);
 }
 
 // Loose images are named for what their file names share ("Ch 3 - 001", "Ch 3 - 002" → "Ch 3"),
@@ -119,23 +201,34 @@ function _imagesTitle(images) {
   return (stems.length > 1 && common.replace(/\d+$/, '').replace(/[\s._\-#([]+$/, '')) || stems[0];
 }
 
-// The zip the import engine reads for one group. An archive passes through untouched, as the file
-// it is (the engine reads it a piece at a time, so its size is not bound by what fits one buffer);
-// images, and
-// a folder in the Shiori gallery format, are zipped under their paths (`paths`) — a member of a
+// Why a group can't be imported — files the browser couldn't open (droppedImports) — or null.
+export const unreadableError = ({ unreadable }) => (unreadable?.length
+  ? new Error(`${unreadable.length} of its files could not be opened, the first: ${unreadable[0]}`) : null);
+
+// What the import engine reads for one group: a zip, or a zip's entries. An archive passes through
+// untouched, as the file it is (the engine reads it a piece at a time, so its size is not bound by
+// what fits one buffer). Images, and a folder in the Shiori gallery format, go as the engine's
+// entries ([{ filename, size, read, blob }], import-cbz.js zipEntries) under their paths
+// (`paths`), each file read only when the engine takes it — and a page not even then: it goes into
+// the library as the file it is, so a folder of any size never sits in memory — a member of a
 // series kept as an archive in its series' folder (Shiori Desktop archives galleries left alone)
-// going in as the folder it is the archive of; a PDF reports its pages as they are drawn via
-// onProgress({ done, total }).
-export async function importBytes({ files, paths }, onProgress = () => {}) {
+// going in as the folder it is the archive of. A PDF is a zip of its pages, reporting them as they
+// are drawn via onProgress({ done, total }).
+export async function importBytes(group, onProgress = () => {}) {
+  const { files, paths } = group;
+  const unreadable = unreadableError(group);
+  if (unreadable) throw unreadable;
   if (paths) {
     const out = [];
     for (const [i, f] of files.entries()) {
-      const data = new Uint8Array(await f.arrayBuffer());
-      if (!ARCHIVE.test(paths[i])) { out.push({ name: paths[i], data }); continue; }
-      const { unzip } = await import('./import-cbz.js');
-      for (const e of await unzip(data.buffer)) out.push({ name: `${_stem(paths[i])}/${e.filename}`, data: e.data });
+      if (!ARCHIVE.test(paths[i])) {
+        out.push({ filename: paths[i], size: f.size,
+          read: async () => new Uint8Array(await f.arrayBuffer()), blob: async (type = '') => f.slice(0, f.size, type) });
+        continue;
+      }
+      for (const e of await zipEntries(f)) out.push({ ...e, filename: `${_stem(paths[i])}/${e.filename}` });
     }
-    return zipCreate(out);
+    return out;
   }
   if (ARCHIVE.test(files[0].name)) return files[0];
   const pages = await _renderPdf(files[0], onProgress);

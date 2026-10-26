@@ -26,8 +26,9 @@ function displayEvidence(wrap, context) {
       const st = getComputedStyle(el), body = el.querySelector('.study-text-content');
       return { index: Number(el.dataset.feedbackIndex), translation: !el.classList.contains('src'),
         text: body?.textContent || '', rect: rect(el.getBoundingClientRect()), contentRect: body ? rect(body.getBoundingClientRect()) : null,
-        style: Object.fromEntries(['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'textAlign', 'textTransform',
-          'whiteSpace', 'wordBreak', 'textWrap', 'writingMode', 'color', 'webkitTextStroke'].map(k => [k, st[k]])) };
+        style: { ...Object.fromEntries(['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'textAlign', 'textTransform',
+          'whiteSpace', 'wordBreak', 'textWrap', 'writingMode', 'color'].map(k => [k, st[k]])),
+          outline: `${st.getPropertyValue('--outline-w')} ${st.getPropertyValue('--outline-c')}`.trim() } };
     }),
   };
 }

@@ -4,21 +4,31 @@ function activeLocale() {
   return document.documentElement.lang || navigator.language || 'en';
 }
 
+// One formatter per locale and style: making one costs far more than formatting with it, and the
+// reader's page counter formats on every frame the page moves (a library page, on every card).
+const _formats = new Map();
+function _format(locale, style, options) {
+  const key = `${locale}|${style}`;
+  let format = _formats.get(key);
+  if (!format) _formats.set(key, format = new Intl.NumberFormat(locale, options));
+  return format;
+}
+
 export function formatCount(value, locale = activeLocale()) {
   const number = Number(value);
   if (!Number.isFinite(number)) return String(value ?? 0);
-  return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(number);
+  return _format(locale, 'count', { maximumFractionDigits: 0 }).format(number);
 }
 
 // A count in its short form: 999, 1.2K, 53.2K.
 export function formatCompact(value, locale = activeLocale()) {
   const number = Number(value);
   if (!Number.isFinite(number)) return String(value ?? 0);
-  return new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(number);
+  return _format(locale, 'compact', { notation: 'compact', maximumFractionDigits: 1 }).format(number);
 }
 
 export function formatMegapixels(mp, locale = activeLocale()) {
-  return `${new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(mp)} MP`;
+  return `${_format(locale, 'mp', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(mp)} MP`;
 }
 
 export function formatBytes(bytes, locale = activeLocale()) {
@@ -29,8 +39,6 @@ export function formatBytes(bytes, locale = activeLocale()) {
     value /= 1024;
     unit++;
   }
-  const number = new Intl.NumberFormat(locale, {
-    maximumFractionDigits: unit === 0 ? 0 : 1,
-  }).format(value);
+  const number = _format(locale, unit === 0 ? 'bytes0' : 'bytes1', { maximumFractionDigits: unit === 0 ? 0 : 1 }).format(value);
   return `${number}${units[unit]}`;
 }

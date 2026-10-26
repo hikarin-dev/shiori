@@ -60,7 +60,7 @@
       <span class="brand-text">Shiori</span>
     </a>
     <span class="brand-sep">/</span>
-    <span class="brand-page" data-i18n="nav.library">Library</span>
+    <select class="brand-page page-nav" id="pageNav" data-page="library" aria-label="Go to page" data-i18n-aria="nav.go_to"><option value="library" data-i18n="nav.library">Library</option></select>
     <div class="search-wrap">
       <div class="header-search" id="searchBox" contenteditable="plaintext-only" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-autocomplete="list" spellcheck="false" data-placeholder="Search by ID, title or tags…" data-i18n-ph="lib.search_ph" aria-label="Search by ID, title or tags…" data-i18n-aria="lib.search_ph"></div>
       <button class="search-clear" id="searchClear" data-tip="Clear search" data-i18n-tip="lib.clear_search"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
@@ -101,6 +101,8 @@
   </select>
   <button class="filter-btn" id="filterBtn" type="button" aria-haspopup="dialog" data-tip="Filter" data-i18n-tip="filter.btn" aria-label="Filter" data-i18n-aria="filter.btn"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z"/></svg></button>
 </div>
+<!-- A batch of imports, while it runs and after (import-tracker.js). -->
+<div class="ib-host" id="importTracker" hidden></div>
 <input type="file" id="cbzFileInput" accept=".cbz,.zip,.pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.shi,.shioridb,.crdownload,.crswap" multiple style="display:none">
 <input type="file" id="replaceImgInput" accept=".cbz,.zip,.pdf,.jpg,.jpeg,.png,.webp,.gif,.avif" multiple style="display:none">
 

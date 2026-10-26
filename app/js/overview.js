@@ -16,11 +16,12 @@ import { initDropdowns } from './dropdown.js';
 import { formatBytes, formatCount, formatCompact, formatMegapixels } from './format.js';
 import { describePage } from './page-size.js';
 import { memberKind } from './gallery-model.js';
-import { escHtml } from './sanitize.js';
+import { escHtml, safeExternalUrl } from './sanitize.js';
 import { resizeToWidth, imageToBlob } from './image-util.js';
 import { IMPORT_ACCEPT, groupImports, importBytes, isImportable, droppedImports } from './import-files.js';
 import { startImport } from './jobs-runner.js';
 import { handImport } from './submit-job.js';
+import { importDropped, mountImportTracker } from './import-tracker.js';
 import { openRerunMenu } from './rerun-menu.js';
 import { confirmDialog, alertDialog } from './notice.js';
 import { openTagEditor, removeTag, tagKey, TAG_TYPE_LABEL } from './tag-editor.js';
@@ -296,8 +297,9 @@ const PAGE_THUMB_MAX_W  = 768;
 const PAGE_THUMB_FORMAT = { format: 'image/webp', quality: 0.82 };
 const THUMB_WORKERS     = Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency || 4) / 4)));
 const PAGE_GEN_MAX      = THUMB_WORKERS * 2;   // in flight — each holds one decoded page for a moment
-const PAGE_CACHE_MAX    = 1024;
-const PAGE_CACHE_BYTES  = 32 * 1024 * 1024;
+const PAGE_WARM_MAX     = THUMB_WORKERS;       // of those, the warm-up's at most: the rest stay free for the view
+const PAGE_CACHE_MAX    = 4000;                // as the reader's thumbnails: a long gallery's set is a few tens of MB
+const PAGE_CACHE_BYTES  = 64 * 1024 * 1024;
 const PAGE_MOUNT_MARGIN  = 900;
 const PAGE_UNMOUNT_MARGIN = 5400;
 const _pageThumbCache = new Map();   // page url → { src: blob: URL, width, bytes } (Map order = LRU order)
@@ -306,6 +308,8 @@ const _pageThumbImg   = new Map();   // page url → current <img>
 const _pageGenQueue    = [];         // <img> awaiting a copy
 const _pageThumbNear   = new Set();   // tiles inside the load band
 let   _pageGenActive   = 0;
+let   _pageWarmActive  = 0;           // warm-up copies under way (counted in _pageGenActive too)
+let   _pageTileList    = null;        // every tile's <img> in grid order, built again after the grids change
 
 const _pageMountObserver = new IntersectionObserver((entries) => {
   for (const e of entries) {
@@ -395,6 +399,7 @@ function _trimPageCache() {
 // Stop tracking a subtree's page tiles before it is removed from the DOM (partial row refresh),
 // so the observer and img map don't retain detached nodes.
 function releasePageTiles(root) {
+  _pageTileList = null;
   root.querySelectorAll('.ov-page img[data-page-url]').forEach(img => {
     _pageMountObserver.unobserve(img);
     _pageUnmountObserver.unobserve(img);
@@ -406,6 +411,20 @@ function releasePageTiles(root) {
 function _enqueuePageThumb(img) {
   if (img.dataset.ready || img.dataset.queued) return;
   img.dataset.queued = '1';
+  // A copy already made (by the warm-up, or before the tile scrolled away) shows at once, without a
+  // turn in the queue behind copies still being made.
+  const url = img.dataset.pageUrl, made = _pageThumbCache.get(url);
+  if (made && made.width >= _pageThumbWidth(img)) {
+    _pageCacheGet(url);
+    _attachPageThumb(img, made, url).then((shown) => {
+      delete img.dataset.queued;
+      if (shown) return;
+      if (_pageThumbCache.get(url) === made) { _pageThumbCache.delete(url); _pageCacheBytes -= made.bytes; }
+      try { URL.revokeObjectURL(made.src); } catch {}
+      _enqueuePageThumb(img);
+    });
+    return;
+  }
   _pageGenQueue.push(img);
   _drainPageQueue();
 }
@@ -428,8 +447,76 @@ function _takeNearestPageThumb() {
   return _pageGenQueue.splice(best, 1)[0];
 }
 
-function _drainPageQueue() {
+function _drainPageQueue(warmOn = false) {
+  // Tiles that left the load band while they waited go (they're queued again if they come back): a
+  // fast scroll queued hundreds, and picking the nearest measured every one of them each time.
+  for (let i = _pageGenQueue.length - 1; i >= 0; i--) {
+    const img = _pageGenQueue[i];
+    if (img.isConnected && _pageThumbNear.has(img)) continue;
+    _pageGenQueue.splice(i, 1);
+    delete img.dataset.queued;
+  }
   while (_pageGenActive < PAGE_GEN_MAX && _pageGenQueue.length) _processPageQueue();
+  if (!_pageGenQueue.length) _schedulePageWarm(warmOn);
+}
+
+// ── Warm-up ──
+// As in the reader, every tile's copy is made ahead, so scrolling anywhere (or back) finds them made:
+// once no tile near the view is waiting, the next tile without a copy of the size the grid needs,
+// nearest to the view first, gets one, until the cache is full. A tile that comes near meanwhile
+// shows its copy as soon as it's made. Tiles of a collapsed chapter wait until it's opened.
+// It starts a moment after the view's own work, so tiles scrolled to meanwhile go first, and then
+// carries on from one copy to the next.
+let _pageWarmTimer = 0;
+function _schedulePageWarm(warmOn) {
+  if (_pageWarmTimer) return;
+  _pageWarmTimer = setTimeout(() => {
+    _pageWarmTimer = 0;
+    while (!_pageGenQueue.length && _pageWarmActive < PAGE_WARM_MAX && _pageGenActive < PAGE_GEN_MAX
+           && _pageThumbCache.size < PAGE_CACHE_MAX && _pageCacheBytes < PAGE_CACHE_BYTES * 0.9) {
+      const img = _nextPageToWarm();
+      if (!img) return;
+      _warmPageThumb(img);
+    }
+  }, warmOn ? 0 : 150);
+}
+
+function _nextPageToWarm() {
+  const tiles = _pageTileList ||= [...document.querySelectorAll('.ov-page img[data-page-url]')];
+  if (!tiles.length) return null;
+  // From the middle of the tiles near the view, outward.
+  const near = [];
+  for (let i = 0; i < tiles.length; i++) if (_pageThumbNear.has(tiles[i])) near.push(i);
+  const centre = near.length ? near[near.length >> 1] : 0;
+  let width = 0;
+  for (let d = 0; d < tiles.length; d++) {
+    for (const i of d ? [centre + d, centre - d] : [centre]) {
+      const img = tiles[i];
+      if (!img || img.dataset.queued || !img.isConnected || !img.parentElement?.offsetWidth) continue;
+      width ||= _pageThumbWidth(img);
+      if ((_pageThumbCache.get(img.dataset.pageUrl)?.width || 0) < width) return img;
+    }
+  }
+  return null;
+}
+
+async function _warmPageThumb(img) {
+  img.dataset.queued = '1';
+  _pageGenActive++;
+  _pageWarmActive++;
+  try {
+    const url = img.dataset.pageUrl;
+    const made = await _makePageThumb(img, _pageThumbWidth(img));
+    if (!made) return;
+    const { entry, replaced } = _pageCacheStore(url, made);
+    if (_pageThumbNear.has(img) && !img.dataset.ready && img.isConnected) await _attachPageThumb(img, entry, url);
+    if (replaced && img.getAttribute('src') !== replaced.src) { try { URL.revokeObjectURL(replaced.src); } catch {} }
+  } catch {} finally {
+    delete img.dataset.queued;
+    _pageGenActive--;
+    _pageWarmActive--;
+    _drainPageQueue(true);
+  }
 }
 
 // Decoded before it's swapped in, so a tile never flashes empty; a tile that left the load band
@@ -477,7 +564,9 @@ async function _processPageQueue() {
 }
 
 async function _makePageThumb(img, width) {
-  const rec = await api.pages.get(img.dataset.gid, Number(img.dataset.pageNum)).catch(() => null);
+  // Read by the page's key, as the reader does: by number alone walks the gallery's index a key at a
+  // time, one round trip each through a busy main thread.
+  const rec = await api.pages.get(img.dataset.gid, Number(img.dataset.pageNum), img.dataset.pageUrl).catch(() => null);
   const fullBlob = await imageToBlob(rec?.blob ?? rec?.dataUrl);
   if (!fullBlob) return null;
   const blob = await _resizeInWorker(fullBlob, width);
@@ -541,6 +630,7 @@ function pageTile(gid, pageNum, url) {
   img.alt = ''; img.decoding = 'async'; img.dataset.pageUrl = url;
   img.dataset.gid = gid; img.dataset.pageNum = pageNum;
   _pageThumbImg.set(url, img);
+  _pageTileList = null;
   const num = document.createElement('span');
   num.className = 'ov-page-num';
   num.textContent = pageNum;
@@ -1029,7 +1119,13 @@ function updateChapterRow(row, ch, idx, total) {
   }
   const pageStr = e ? `${formatCount(e.count)}${e.numPages ? ` / ${formatCount(e.numPages)}` : ''} ${t('card.pages')}` : t('ov.missing');
   const translated = e?.translated ? `<span class="done">${esc(t('ov.translated'))}</span>` : '';
-  setHtml(row.querySelector('.ch-meta'), `<span>#${esc(e?.sourceId || ch.id)}</span><span>${esc(pageStr)}</span>${translated}${e?.missing ? `<span class="missing">${esc(t('card.files_missing'))}</span>` : ''}`);
+  // The id opens the chapter's source page, as a library card's id does.
+  const idText = `#${esc(e?.sourceId || ch.id)}`;
+  const sourceHref = safeExternalUrl(e?.sourceUrl);
+  const idHtml = sourceHref
+    ? `<a class="ch-id" href="${esc(sourceHref)}" target="_blank" rel="noopener noreferrer">${idText}</a>`
+    : `<span>${idText}</span>`;
+  setHtml(row.querySelector('.ch-meta'), `${idHtml}<span>${esc(pageStr)}</span>${translated}${e?.missing ? `<span class="missing">${esc(t('card.files_missing'))}</span>` : ''}`);
   syncRowActions(row);
   // An open page grid takes in the pages that arrived.
   if (countChanged && row.classList.contains('expanded')) syncPageGrid(row.querySelector('.ch-pages'), ch.id);
@@ -1849,35 +1945,24 @@ function wireDrop() {
   bar.addEventListener('drop', async (e) => {
     if (!e.dataTransfer.types.includes('Files')) return;
     e.preventDefault(); depth = 0; bar.classList.remove('drag');
-    const { files, folders } = await droppedImports(e.dataTransfer);
-    await importChapters(files, folders);
+    const { files, folders, leftOut } = await droppedImports(e.dataTransfer);
+    await importChapters(files, folders, leftOut);
   });
 }
 
 // Import files as the next chapters: each archive or PDF is one, loose images together are one
-// more, and so are each dropped folder's images.
-async function importChapters(files, folders = []) {
+// more, and so are each dropped folder's images. Several ask first and go as one job
+// (import-tracker.js); each new chapter joins the series as its turn comes.
+async function importChapters(files, folders = [], leftOut = 0) {
   const list = [...files];
   const rejected = list.find((f) => !isImportable(f));
   if (rejected) fileTypeAlert(rejected);
-  for (const group of groupImports(list, folders)) await importAsChapter(group);
+  const media = list.filter((f) => isImportable(f));
+  await importDropped(groupImports(media, folders), { files: media, folders, leftOut: leftOut + list.length - media.length,
+    attachTo: ownerId, meta: _shownKind === 'volume' ? { kind: 'volume' } : {} });
 }
 
-// Import one group as a brand-new gallery, immediately attach it as the next chapter (so it appears
-// straight away and fills in as its pages import), then stage it for the durable runner.
-async function importAsChapter(group) {
-  const gid = api.newGalleryId();   // the shared mint — per-context monotonic, never a raw Date.now()
-  const title = group.name.replace(/\.[^.]+$/, '');
-  await api.galleries.create(gid, { title: { english: title, japanese: '', pretty: '' }, isLocalImport: true,
-    ...(_shownKind === 'volume' ? { kind: 'volume' } : {}) });
-  try { await mergeIntoSeries(ownerId, gid, { title }); } catch (err) { chapterFailAlert(err); return; }
-  beginChapterJob(gid, 'upload', t('prog.reading_file'));
-  await render();
-  const ok = await stageImport(group, gid);
-  if (!ok) discardChapterJob(gid);
-}
-
-// Minimal mirror of library.js's importSingleFile (jobs-runner.js startImport).
+// A chapter's pages replaced from a file (jobs-runner.js startImport), as library.js replaceGalleryImages does.
 async function stageImport(group, gid, { skipExisting = true } = {}) {
   // The desktop app's runner takes it when there is one, so it goes on whatever this window does.
   if (await handImport({ galleryId: gid, group, skipExisting })) return true;
@@ -1887,7 +1972,7 @@ async function stageImport(group, gid, { skipExisting = true } = {}) {
     alertDialog({ title: t('dlg.file_read_title'), body: t('dlg.file_read_body'), detail: group.name, tone: 'error' });
     return false;
   }
-  if (await startImport({ galleryId: gid, buffer, filename: group.name, skipExisting })) return true;
+  if (await startImport({ galleryId: gid, buffer, filename: group.name, skipExisting, inPlace: group.fromFolder })) return true;
   alertDialog({ title: t('dlg.file_stage_title'), body: t('dlg.file_stage_body'), detail: group.name, tone: 'error' });
   return false;
 }
@@ -1942,6 +2027,7 @@ store.subscribe('*', (gid) => {
 });
 
 platform.jobs.subscribe(applyChapterJob);
+mountImportTracker($('ovImports'));
 
 (async () => {
   applyTranslations(document);

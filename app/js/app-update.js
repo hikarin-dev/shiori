@@ -56,6 +56,11 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (startedWith && navigator.serviceWorker.controller?.scriptURL === startedWith) offer();
   });
+  // A newer worker kept waiting while the one in charge imported (sw.js install) takes over once
+  // nothing is being imported: should that worker have stopped mid-import, it would wait for ever.
+  navigator.serviceWorker.getRegistration().then(async (reg) => {
+    if (reg?.waiting && !await platform.jobs.workerImporting()) reg.waiting.postMessage({ __shioriTakeOver: true });
+  }).catch(() => {});
   let last = Date.now();
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible' || Date.now() - last < CHECK_EVERY) return;

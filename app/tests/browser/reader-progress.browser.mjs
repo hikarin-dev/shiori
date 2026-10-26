@@ -283,6 +283,38 @@ test('pulled all the way out of the bar, the thumbnails scrub and then stay open
   assert.equal(await counterPage(page), 30);
 });
 
+// Chrome picks a pointer move's cursor from the element it hovers, styled as it was before that move's
+// handlers ran. Held, the bar keeps the pointer, so every move of the drag hovers the bar: the hand, then
+// the grabbing hand once out in the thumbnails, never the arrow of the pages the drag passes over.
+test("dragging out of the bar keeps the bar's cursor, never the pages' arrow", { skip: !chromePath() }, async t => {
+  for (const position of ['bottom', 'left']) {
+    const page = await reader(t, { at: 12, position });
+    await page.evaluate(() => {
+      window.__cursors = [];
+      window.addEventListener('pointermove', () => {   // capture phase: before any of the move's handlers
+        const hovered = [...document.querySelectorAll(':hover')].at(-1);
+        window.__cursors.push(hovered ? getComputedStyle(hovered).cursor : 'none');
+      }, true);
+    });
+    const a = await page.$eval('.scrub-segment:nth-child(10)', seg => {
+      const r = seg.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    const pull = parseFloat(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--thumb-h'))) + 40;
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.evaluate(() => { window.__cursors.length = 0; });
+    await page.mouse.move(position === 'left' ? a.x + pull : a.x, position === 'left' ? a.y : a.y - pull, { steps: 30 });
+    const cursors = await page.evaluate(() => window.__cursors);
+    assert.deepEqual([...new Set(cursors)].filter(c => c !== 'pointer' && c !== 'grabbing'), [], `${position}: ${cursors.join(' ')}`);
+    assert.equal(cursors.at(-1), 'grabbing', `${position}: out in the thumbnails, the cursor is the grabbing hand`);
+    await page.mouse.up();
+    await settle(100);
+    const bar = await page.evaluate(() => ({ grown: document.getElementById('bottombar').classList.contains('grown'), tip: !!document.querySelector('.scrub-segment.tip') }));
+    assert.deepEqual(bar, { grown: false, tip: false }, `${position}: let go away from the bar, it neither stays grown nor shows a page`);
+  }
+});
+
 // All the way out but still held, nothing is kept yet: the strip goes back in as the drag comes back,
 // and let go short of all the way, it goes back in altogether.
 test('pulled all the way out and brought back while held, the thumbnails follow the drag back in', { skip: !chromePath() }, async t => {

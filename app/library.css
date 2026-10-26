@@ -215,7 +215,8 @@ body.safe-mode .card:not(.card-sfw) .card-thumb-placeholder {
 /* A card shows two lines of its title and one row of its tags; hovered, it grows to show all of
    both, over the cards below. Its negative bottom margin then takes it out of its row's height, so
    the grid doesn't move — and stays until the card has shrunk back (0.25s). A card alone in the
-   grid has nothing to grow over, so it grows the grid. */
+   grid has nothing to grow over, so it grows the grid. Only where something hovers: on a touch
+   screen a tap would leave the card grown (see the end of this file). */
 .card {
   --card-radius: 10px;
   --card-border-width: 1px;
@@ -230,13 +231,15 @@ body.safe-mode .card:not(.card-sfw) .card-thumb-placeholder {
   z-index: 0;
   transition: border-color 0.15s, z-index 0.5s var(--card-leave-z), margin-bottom 0s 0.3s;
 }
-.card:hover { z-index: 16; border-color: var(--accent); transition: border-color 0.15s; }
-.card:hover:not(:only-child) { margin-bottom: -10000px; }
-/* Which card is drawn over which: the hovered one over all the rest, at once. One that stops being
-   hovered stays above the resting cards while it shrinks back (z 8 for 0.25s, then 0) — and when it
-   comes before the card now hovered, above that one too (z 24): only then can its shrinking body
-   reach over it. No other card's order changes. */
-.card:has(~ .card:hover) { --card-leave-z: linear(-0.5, -0.5 50%, 1 50%); }
+@media (hover: hover) {
+  .card:hover { z-index: 16; border-color: var(--accent); transition: border-color 0.15s; }
+  .card:hover:not(:only-child) { margin-bottom: -10000px; }
+  /* Which card is drawn over which: the hovered one over all the rest, at once. One that stops being
+     hovered stays above the resting cards while it shrinks back (z 8 for 0.25s, then 0) — and when it
+     comes before the card now hovered, above that one too (z 24): only then can its shrinking body
+     reach over it. No other card's order changes. */
+  .card:has(~ .card:hover) { --card-leave-z: linear(-0.5, -0.5 50%, 1 50%); }
+}
 /* Drag one card onto another to merge into a series. */
 .card.drag-source { opacity: 0.3; }
 /* Merge-target ring: an OUTER shadow around the whole card (thumbnail + body) — an inset shadow
@@ -353,8 +356,10 @@ body.hide-card-category .card-tag.category { display: none; }
   overflow: hidden;
   transition: max-height 0.25s ease;
 }
-.card:hover .card-title { max-height: 300px; transition: max-height 0.3s ease; }
-.card:hover .card-tags  { max-height: 500px; transition: max-height 0.3s ease; }
+@media (hover: hover) {
+  .card:hover .card-title { max-height: 300px; transition: max-height 0.3s ease; }
+  .card:hover .card-tags  { max-height: 500px; transition: max-height 0.3s ease; }
+}
 
 .card-tag {
   font-size: 10px; padding: 1px 6px; line-height: 1;
@@ -446,7 +451,7 @@ body.shift-held .card-tag-flag:hover .flag-img { border-color: var(--danger); }
 .card-progress { display: none; padding: 6px 0 2px; }
 .card-body.downloading .card-meta,
 .card-body.downloading .card-tags { display: none; }
-.card:hover .card-body.downloading .card-tags  { display: flex; }
+@media (hover: hover) { .card:hover .card-body.downloading .card-tags  { display: flex; } }
 .card-body.downloading .card-progress {
   display: flex;
   flex-direction: column;
@@ -585,13 +590,13 @@ body.translator-offline .card-btn-translate { display: none; }
 .rerun-menu { z-index: 9000; min-width: 190px; }
 
 /* ── Phones ──
-   The library's search takes a row of its own under the bar, the logo and its buttons above it. The
-   cards come two to a row, their quick actions a row of their own under the gallery number, sharing
-   its width. */
+   The library's search takes a row of its own under the bar, the logo, the page menu and the buttons
+   above it (the brand's word gives way so the menu keeps its place). The cards come two to a row,
+   their quick actions a row of their own under the gallery number, sharing its width. */
 @media (max-width: 600px) {
   header:has(.search-wrap) { flex-wrap: wrap; height: auto; min-height: 54px; padding: 7px 12px; gap: 8px; }
   header:has(.search-wrap) .header-left { display: contents; }
-  header:has(.search-wrap) :is(.brand-sep, .brand-page) { display: none; }
+  header:has(.search-wrap) :is(.brand-text, .brand-sep) { display: none; }
   .search-wrap { order: 9; flex: 1 1 100%; width: auto; }
   header:has(.search-wrap) .header-right { margin-left: auto; gap: 6px; }
   .collapsible-group { top: 52px; right: 12px; max-width: calc(100vw - 24px); }
@@ -602,9 +607,12 @@ body.translator-offline .card-btn-translate { display: none; }
   .card-actions { flex: 1 1 100%; margin-left: 0; gap: 4px; }
   .card-actions .card-btn { flex: 1 1 0; width: auto; }
 }
-/* Where nothing hovers, quick actions set to show on hover show always, as a chapter's do. */
+/* Where nothing hovers (a phone, a tablet), a card is for opening. Its quick actions are made for a
+   mouse, and the gallery's overview has them all; nothing on it waits for a hover either (the
+   growing, above; the heart that adds a favourite, the '+' tag), which a tap would leave stuck. A
+   favourite's heart still shows that it is one. */
 @media (hover: none) {
-  body.quick-actions-hover .card-actions { opacity: 1; pointer-events: auto; top: 0; }
+  .card-actions, .card-fav:not(.on), .card-tag-add { display: none; }
 }
 /* A finger needs bigger buttons than a mouse: the header's and the cards'. */
 @media (pointer: coarse) {
@@ -616,3 +624,93 @@ body.translator-offline .card-btn-translate { display: none; }
 @media (pointer: coarse) and (max-width: 1400px) {
   .btn-upload { width: 40px; height: 40px; }
 }
+
+/* A batch of imports (import-tracker.js): a panel per batch, under the library's toolbar (as wide as
+   the grid), above the tasks page's rows, and under a series' add bar. Its badge and buttons are the
+   tasks page's rows' (tasks.css); the bar is a card's. */
+.ib-host { display: flex; flex-direction: column; gap: 8px; }
+.ib-host[hidden] { display: none; }
+#importTracker { max-width: 1512px; margin: 0 auto 16px; padding: 0 24px; }
+#tkImports { margin-bottom: 8px; }
+#ovImports { margin-top: 16px; }
+.ib {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+}
+.ib-head { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 28px; }
+.ib-kind {
+  flex-shrink: 0; padding: 1px 6px;
+  border: 1px solid #3a3a20; border-radius: 4px;
+  color: var(--accent2); font-size: 9px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;
+}
+.ib-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text); font-size: 13px; font-weight: 600;
+}
+.ib-total { flex-shrink: 0; color: var(--muted-dim); font-size: 11px; white-space: nowrap; }
+.ib-btn {
+  height: 28px; padding: 0 10px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--muted); font-family: inherit; font-size: 11px; cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.ib-btn:hover:not(:disabled) { border-color: var(--muted); color: var(--text); }
+.ib-btn:disabled { opacity: 0.4; cursor: default; }
+.ib-btn[hidden] { display: none; }
+.ib-icon { width: 28px; padding: 0; }
+.ib-icon svg { display: block; }
+.ib-stop:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
+.ib-list-btn { margin-left: auto; }
+.ib-list-btn[aria-expanded="true"] { border-color: var(--muted); color: var(--text); }
+.ib-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
+.ib-line:empty { display: none; }
+/* What a stopped or interrupted batch says is a sentence or two: it wraps. */
+.ib:is([data-state="stopped"], [data-state="lost"]) .ib-tally { white-space: normal; }
+.ib-now.quiet { color: var(--accent2); }
+.ib-issues.has-failed { color: var(--danger); }
+
+.ib-titles { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--border); }
+.ib-titles[hidden] { display: none; }
+.ib-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.ib-filter {
+  height: 24px; padding: 0 9px;
+  background: none; border: 1px solid var(--border); border-radius: 12px;
+  color: var(--muted); font-family: inherit; font-size: 11px; font-variant-numeric: tabular-nums; cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.ib-filter:hover { border-color: var(--muted); color: var(--text); }
+.ib-filter[aria-pressed="true"] { border-color: var(--muted); color: var(--text); background: var(--surface-raised); }
+.ib-filter[hidden] { display: none; }
+.ib-rows { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; }
+.ib-row { display: grid; grid-template-columns: 96px minmax(0, 1fr); column-gap: 10px; padding: 3px 0; font-size: 12px; }
+.ib-row-status { color: var(--muted-dim); font-size: 11px; line-height: 18px; }
+.ib-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); line-height: 18px; }
+.ib-row-error { grid-column: 2; color: var(--danger); font-size: 11px; overflow-wrap: anywhere; }
+.ib-row-error:empty { display: none; }
+.ib-row[data-status="importing"] .ib-row-status { color: var(--accent2); }
+.ib-row[data-status="done"] .ib-row-status { color: var(--success); }
+.ib-row[data-status="failed"] .ib-row-status { color: var(--danger); }
+.ib-more { align-self: flex-start; }
+
+@media (max-width: 600px) {
+  #importTracker { padding: 0 12px; margin-bottom: 10px; }
+  .ib { padding: 8px 10px; }
+  .ib-total { display: none; }
+  .ib-row { grid-template-columns: 76px minmax(0, 1fr); }
+}
+@media (pointer: coarse) {
+  .ib-btn { height: 44px; }
+  .ib-icon { width: 44px; }
+  .ib-filter { height: 36px; border-radius: 18px; }
+}
+
+/* Where a job runs (runner-tag.js): a quiet tag beside its kind, on the tasks page's rows and the
+   import tracker; its tooltip says what ending would stop it. */
+.run-tag {
+  flex-shrink: 0; padding: 1px 6px;
+  border: 1px solid var(--border); border-radius: 4px;
+  color: var(--muted-dim); font-size: 10px; white-space: nowrap; cursor: default;
+}
+.run-tag[hidden] { display: none; }

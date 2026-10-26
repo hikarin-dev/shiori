@@ -16,7 +16,13 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-desktop-'));
 const placeDelay = process.env.SHIORI_PLACE_DELAY ? Number(process.env.SHIORI_PLACE_DELAY) : 0;
 const library = await new Library({ dataDir: path.join(dir, 'data'), libraryDir: path.join(dir, 'library'), placeDelay }).open();
 const token = crypto.randomBytes(16).toString('hex');
-const server = await startServer({ library, token });
+// Jobs handed to the app (server.js runJob/stopJob) go to the handler a test sets (globalThis
+// .__keeperJobs(op, kind, payload)); without one the app takes none, and the page runs them itself.
+const jobs = {
+  run: async (kind, payload) => globalThis.__keeperJobs?.('run', kind, payload) ?? null,
+  stop: async (kind, payload) => globalThis.__keeperJobs?.('stop', kind, payload) ?? null,
+};
+const server = await startServer({ library, token, jobs });
 globalThis.shioriDesktop = { url: server.url, token };
 globalThis.__desktopLibrary = library;
 // Removed when the process ends (run with --test-force-exit, which ends it once the file's tests

@@ -12,6 +12,7 @@
   <title>Shiori — Tasks</title>
   <script src="font-init.js"></script>
   <link rel="stylesheet" href="base.css">
+  <link rel="stylesheet" href="dropdown.css">
   <link rel="stylesheet" href="library.css">
   <link rel="stylesheet" href="tasks.css">
   <link rel="stylesheet" href="notice.css">
@@ -44,7 +45,7 @@
       <span class="brand-text">Shiori</span>
     </a>
     <span class="brand-sep">/</span>
-    <span class="brand-page" data-i18n="tasks.title">Tasks</span>
+    <select class="brand-page page-nav" id="pageNav" data-page="tasks" aria-label="Go to page" data-i18n-aria="nav.go_to"><option value="tasks" data-i18n="tasks.title">Tasks</option></select>
   </div>
   <div class="header-right">
     <div class="hstat">
@@ -58,6 +59,7 @@
 
 <!-- Every job under way, one row each — a gallery with two jobs has two rows. -->
 <main class="tk-wrap">
+  <div class="ib-host" id="tkImports" hidden></div>
   <div class="tk-list" id="tkList"></div>
   <div class="tk-empty" id="tkEmpty" hidden data-i18n="tasks.empty">Nothing is running.</div>
 </main>

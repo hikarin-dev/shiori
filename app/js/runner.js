@@ -1,59 +1,59 @@
-// runner.js — the page the desktop app keeps open out of sight (desktop/main.js) for the imports its
-// windows start. Handed over here (submit-job.js handImport), an import runs to the end whatever the
-// window does meanwhile — goes to an overview or the reader, reloads, closes to the tray — as a
-// browser's service worker keeps a browser's going. One at a time, in the order given; each reports
-// through platform.jobs as any import does, so every page shows it.
+// runner.js — the page the desktop app keeps open out of sight (desktop/main.js) for the work its
+// windows start. Handed over here (submit-job.js handImport, handImportBatch), an import runs to the
+// end whatever the window does meanwhile — goes to an overview or the reader, reloads, closes to the
+// tray — as a browser's service worker keeps a browser's going. What it runs, and how what waits
+// shows, is import-queue.js's. A translation a page of the library hands the app (server.js runJob,
+// from the desktop app's own window or a site's tab) runs here too, and is polled from here.
 import * as platform from './platform.js';
-import { importBytes } from './import-files.js';
-import { startImport } from './jobs-runner.js';
-import { RUNNER_CHANNEL } from './submit-job.js';
-
-const queue = [];
-let current = null;
+import { RUNNER_CHANNEL, submitJob } from './submit-job.js';
+import { runPoll } from './jobs-runner.js';
+import { enqueue, activeJobs, cancelJobs } from './import-queue.js';
 
 const channel = new BroadcastChannel(RUNNER_CHANNEL);
 channel.onmessage = ({ data }) => {
-  if (data?.type !== 'import' || !data.group?.files?.length) return;
-  queue.push(data);
+  if (!(data?.type === 'import' && data.group?.files?.length) && !(data?.type === 'batch' && data.batch?.groups?.length)) return;
   channel.postMessage({ type: 'taken', id: data.id });
-  if (!current) run();
+  enqueue(data);
 };
 
-// A stop (STOP_IMPORT, see jobs-runner.js) drops a waiting import, and ends the one being read here
-// once its file is read; from then on jobs-runner.js stops it like any other import.
-platform.jobs.subscribe((e) => {
-  if (e?.type !== 'STOP_IMPORT') return;
-  const gid = String(e.galleryId);
-  for (let i = queue.length - 1; i >= 0; i--) if (String(queue[i].galleryId) === gid) queue.splice(i, 1);
-  if (current && String(current.galleryId) === gid) current.stopped = true;
-});
-
-async function run() {
-  while ((current = queue.shift())) {
-    const job = current;
-    const { galleryId: gid, group, skipExisting } = job;
-    let buffer;
+// ── Translations ──
+// `translate`: start one (payload as jobs-runner.js runTranslate takes it) — refused while the
+// gallery is translating already when it names pages; `poll`: make sure what is in flight is
+// collected. Resolves { ok, busy }.
+const POLL_EVERY_MS = 3000;
+const _translating = async (gid) => !!(await platform.translateResume.get(gid))
+  || (await platform.jobsPending.all()).some((e) => e.key === `${gid}:translate`);
+export async function runJob(kind, payload) {
+  if (kind === 'translate') {
+    const gid = String(payload.galleryId);
+    if (payload.pages && await _translating(gid)) return { ok: false, busy: true };
+    await submitJob('translate', payload);   // this page has no service worker: it runs here
+  } else if (kind !== 'poll') return { ok: false };
+  _pollWhileTranslating();
+  return { ok: true };
+}
+export async function stopJob(kind, payload) {
+  if (kind !== 'translate') return { ok: false };
+  const { services } = await import('./services.js');
+  return services.handle({ type: 'CANCEL_TRANSLATE', galleryId: String(payload.galleryId) });
+}
+// Poll while anything is in flight, every few seconds; then rest until asked again.
+let _polling = null;
+function _pollWhileTranslating() {
+  _polling ||= (async () => {
     try {
-      buffer = await importBytes(group, ({ done, total }) => job.stopped || platform.jobs.publish({
-        gid, kind: 'upload', status: 'progress', done, total, labelKey: 'prog.rendering', labelArgs: { done, total },
-      }));
-    } catch (e) {
-      if (!job.stopped) platform.jobs.publish({ gid, kind: 'upload', status: 'error', error: String(e?.message || e) });
-      continue;
-    }
-    if (job.stopped) { platform.jobs.publish({ gid, kind: 'upload', status: 'cancelled' }); continue; }
-    await startImport({ galleryId: gid, buffer, filename: group.name, skipExisting });
-  }
+      for (;;) {
+        const inFlight = (await platform.translateResume.all()).length
+          || (await platform.jobsPending.all()).some((e) => e.kind === 'translate');
+        if (!inFlight) return;
+        await runPoll().catch(() => {});
+        await new Promise((r) => setTimeout(r, POLL_EVERY_MS));
+      }
+    } finally { _polling = null; }
+  })();
 }
 
-// What runs here, for the desktop app's question before it quits: { count, titles }, as
-// desktop-shell.js answers for its window.
-export function activeJobs() {
-  const jobs = [current, ...queue].filter(Boolean);
-  return { count: jobs.length, titles: jobs.map((j) => j.group.name.replace(/\.[^.]+$/, '')) };
-}
-
-// Stop: the imports waiting are dropped; the one running stops with the app.
-export function cancelJobs() { queue.length = 0; }
+// For the desktop app's question before it quits, as desktop-shell.js answers for its window.
+export { activeJobs, cancelJobs };
 
 globalThis.shioriDesktop?.shell?.('runnerReady').catch(() => {});

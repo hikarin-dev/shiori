@@ -135,6 +135,16 @@ export const galleries = _typed({
   archive: async (gid) => backend.archiveGallery?.(_gid(gid)) ?? { archived: [], kept: [String(gid)] },
 });
 
+// ── Jobs the library's keeper runs itself ──
+// A library kept by the desktop app runs a job it is handed (a translation, and collecting what the
+// translation server has done: 'poll') in the app itself, so it goes on whatever this page does
+// next. Resolves its answer ({ ok, busy }), or null when the library can't take jobs (this
+// browser's own) or the app didn't answer.
+export const keeperJobs = {
+  run: (kind, payload = {}) => Promise.resolve(backend.runJob?.(kind, payload)).then((r) => r ?? null, () => null),
+  stop: (kind, payload = {}) => Promise.resolve(backend.stopJob?.(kind, payload)).then((r) => r ?? null, () => null),
+};
+
 // ── A gallery's metadata record ──
 export const meta = _typed({
   get: (gid) => backend.metaGet(gid),

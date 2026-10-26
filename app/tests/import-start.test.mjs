@@ -17,11 +17,14 @@ globalThis.BroadcastChannel = class {
   close() { channels.get(this.name).delete(this); }
 };
 
-// A stand-in OPFS: a written file reads back as a Blob of what was written.
+// A stand-in OPFS: a written file reads back as a Blob of what was written. `staged` counts the
+// files written (a staged copy is removed once its import is done).
 const opfs = new Map();
+let staged = 0;
 Object.defineProperty(navigator, 'storage', { configurable: true, value: { getDirectory: async () => ({
   getFileHandle: async (name) => ({
     createWritable: async () => {
+      staged++;
       const parts = [];
       return { write: async (data) => { parts.push(data); }, close: async () => { opfs.set(name, new Blob(parts)); } };
     },
@@ -35,7 +38,7 @@ const platform = await import('../js/platform.js');
 const { startImport, runImport } = await import('../js/jobs-runner.js');
 const { groupImports, importBytes, droppedImports } = await import('../js/import-files.js');
 const { zipCreate } = await import('../js/zip.js');
-const { handImport } = await import('../js/submit-job.js');
+const { handImport, handImportBatch } = await import('../js/submit-job.js');
 
 // The durable runner a staged import is handed to (the service worker's job, here in this context).
 platform.registerServices({ handle: (msg) => { if (msg.type === 'IMPORT_CBZ') runImport(msg); } });
@@ -66,7 +69,9 @@ const drop = (...nodes) => droppedImports({ items: nodes.map((n) => ({ kind: 'fi
 async function importInto(gid, group, reserve = true) {
   if (reserve) await api.galleries.create(gid, { title: title(group.name.replace(/\.[^.]+$/, '')), isLocalImport: true });
   const done = outcome(gid);
-  assert.equal(await startImport({ galleryId: gid, buffer: await importBytes(group), filename: group.name }), true);
+  const started = await startImport({ galleryId: gid, buffer: await importBytes(group), filename: group.name, inPlace: group.fromFolder });
+  // Staged, it is under way (true); imported where it is, it is over ({ status }).
+  assert.ok(started === true || started?.status === 'done', `started: ${JSON.stringify(started)}`);
   assert.deepEqual(await done, { status: 'done', error: undefined });
 }
 // A gallery's pages, as the pictures they are.
@@ -197,7 +202,9 @@ test('a stopped import ends between two pages: it keeps what it stored, says it 
       if (['done', 'error', 'cancelled'].includes(job.status)) { off(); resolve(job.status); }
     });
   });
-  assert.equal(await startImport({ galleryId: gid, buffer: await importBytes(group), filename: group.name }), true);
+  // Staged (this browser's library) it is under way; imported where it is (a library kept as files), over.
+  const started = await startImport({ galleryId: gid, buffer: await importBytes(group), filename: group.name });
+  assert.ok(started === true || started?.status === 'cancelled', `started: ${JSON.stringify(started)}`);
   assert.equal(await ended, 'cancelled');
   // The stop lands at the next page boundary after it is heard: the pages before it stay, in order.
   const stored = await pictures(gid);
@@ -206,4 +213,83 @@ test('a stopped import ends between two pages: it keeps what it stored, says it 
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(heard.at(-1), 'cancelled', 'nothing reported after it stopped');
   assert.deepEqual([...opfs.keys()].filter((k) => k.includes(gid)), [], 'its staged file is gone');
+});
+
+test('a dropped folder imports from its files where they are: none is read whole, and nothing is staged', async () => {
+  const gid = '1790600000080';
+  // Pictures the browser could not read into one buffer (past 2 GiB): only their slices are read.
+  class TooBigToReadWhole extends File {
+    arrayBuffer() { return Promise.reject(new DOMException('The requested file could not be read.', 'NotReadableError')); }
+  }
+  const big = (n, name) => new TooBigToReadWhole([new Uint8Array([0x89, 0x50, 0x4e, 0x47, n])], name);
+  const { files, folders } = await drop({ name: 'Huge', children: [big(2, '2.png'), big(10, '10.png'), big(1, '1.png')] });
+  const before = staged;
+  await importInto(gid, groupImports(files, folders)[0]);
+  assert.deepEqual(await pictures(gid), [1, 2, 10]);
+  assert.equal(staged, before, 'no staged copy');
+});
+
+test('a dropped folder of folders of archives: each archive is a gallery of its own, named after it, imported where it is', async () => {
+  const { files, folders } = await drop({ name: 'Shelf', children: [
+    { name: 'part 1-2', children: [zip('Title B.cbz', [['p/1.png', 4], ['p/2.png', 5]]), zip('Title A.cbz', [['10.png', 10], ['01.png', 1], ['02.png', 2]])] },
+    { name: 'part 3', children: [{ name: 'deeper', children: [zip('Title C.zip', [['1.png', 7]])] }] },
+  ] });
+  const groups = groupImports(files, folders);
+  assert.deepEqual(groups.map((g) => g.name), ['Title A.cbz', 'Title B.cbz', 'Title C.zip']);
+  const gids = ['1790600000090', '1790600000091', '1790600000092'];
+  const before = staged;
+  for (const [i, group] of groups.entries()) await importInto(gids[i], group);
+  assert.equal(staged, before, 'no staged copy');
+  const got = [];
+  for (const gid of gids) got.push([(await api.meta.get(gid)).title.english, await pictures(gid)]);
+  assert.deepEqual(got, [['Title A', [1, 2, 10]], ['Title B', [4, 5]], ['Title C', [7]]]);
+});
+
+test('a batch handed to the desktop app\'s runner runs there whole, as one job', async () => {
+  const desktop = globalThis.shioriDesktop;
+  globalThis.shioriDesktop = { ...desktop, shell: async () => true };
+  try {
+    await import('../js/runner.js');
+    const groups = groupImports([zip('Run A.zip', [['1.png', 81]]), zip('Run B.zip', [['1.png', 91], ['2.png', 92]])]);
+    const ended = new Promise((resolve) => {
+      const off = platform.jobs.subscribe((job) => { if (job.kind === 'import' && job.gid === 'import-runner' && job.status === 'done') { off(); resolve(job); } });
+    });
+    assert.equal(await handImportBatch({ id: 'import-runner', name: 'Two', groups }), true);
+    const job = await ended;
+    assert.deepEqual([job.name, job.imported, job.total], ['Two', 2, 2]);
+    const made = [];
+    for (const id of (await api.galleries.idsSorted({})).map(String)) {
+      const g = await api.galleries.get(id);
+      if (/^Run /.test(g?.title?.english)) made.push([g.title.english, await pictures(id)]);
+    }
+    assert.deepEqual(made.sort(), [['Run A', [81]], ['Run B', [91, 92]]]);
+  } finally { globalThis.shioriDesktop = desktop; }
+});
+
+test('in the desktop app\'s runner what waits says so: a single title goes in between a batch\'s titles, a batch after it, and one stopped waiting never runs', async () => {
+  const desktop = globalThis.shioriDesktop;
+  globalThis.shioriDesktop = { ...desktop, shell: async () => true };
+  try {
+    await import('../js/runner.js');
+    const pages = (base, n) => Array.from({ length: n }, (_, i) => [`${i + 1}.png`, base + i]);
+    const big = groupImports([zip('Q A1.zip', pages(10, 30)), zip('Q A2.zip', pages(60, 30)), zip('Q A3.zip', pages(100, 30))]);
+    const order = [], waiting = new Set(), ended = new Map();
+    const off = platform.jobs.subscribe((e) => {
+      if (e?.type === 'IMPORT_TITLE' && /^Q /.test(e.name)) order.push(e.name);
+      if (e?.kind === 'import' && e.waiting) waiting.add(e.gid);
+      if (e?.kind === 'import' && ['done', 'cancelled'].includes(e.status)) ended.set(e.gid, e.status);
+    });
+    assert.equal(await handImportBatch({ id: 'import-qa', name: 'Big', groups: big }), true);
+    assert.equal(await handImportBatch({ id: 'import-qb', name: 'One', groups: groupImports([zip('Q B.zip', [['1.png', 7]])]) }), true);
+    assert.equal(await handImportBatch({ id: 'import-qc', name: 'Two', groups: groupImports([zip('Q C1.zip', [['1.png', 8]]), zip('Q C2.zip', [['1.png', 9]])]) }), true);
+    assert.equal(await handImportBatch({ id: 'import-qd', name: 'Dropped', groups: groupImports([zip('Q D1.zip', [['1.png', 5]]), zip('Q D2.zip', [['1.png', 6]])]) }), true);
+    platform.jobs.signal({ type: 'STOP_IMPORT_BATCH', batch: 'import-qd' });
+    for (let i = 0; i < 400 && !(ended.has('import-qa') && ended.has('import-qc')); i++) await new Promise((r) => setTimeout(r, 25));
+    off();
+    assert.deepEqual([...waiting].sort(), ['import-qb', 'import-qc', 'import-qd'], 'each said it was waiting');
+    assert.equal(order.indexOf('Q B'), 1, `the single title went in after the batch's first: ${order}`);
+    assert.deepEqual(order.filter((n) => n !== 'Q B'), ['Q A1', 'Q A2', 'Q A3', 'Q C1', 'Q C2'], 'the batches in order');
+    assert.equal(ended.get('import-qd'), 'cancelled');
+    assert.ok(!order.some((n) => n.startsWith('Q D')), 'the stopped one never ran');
+  } finally { globalThis.shioriDesktop = desktop; }
 });

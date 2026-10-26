@@ -96,7 +96,7 @@ test('other modal bodies, lists and nested details share native styling and acce
       ['Search suggestions', '<div class="search-suggest open"></div>', '.search-suggest'],
       ['Tag suggestions', '<div class="tag-ed-list open"></div>', '.tag-ed-list'],
       ['Overview results', '<div class="add-results open"></div>', '.add-results'],
-      ['Reader settings', '<div id="readerSettingsBox"></div>', '#readerSettingsBox'],
+      ['Reader settings', '<div id="readerSettingsBox"><div class="rs-panel active"></div></div>', '.rs-panel'],   // the tab shown scrolls
       ['Feedback dialog', '<dialog class="feedback-dialog" open></dialog>', '.feedback-dialog'],
       ['Related feedback', '<fieldset class="feedback-related"></fieldset>', '.feedback-related'],
       ['Page properties body', '<div class="pp-body"></div>', '.pp-body'],

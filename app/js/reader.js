@@ -1445,13 +1445,24 @@ async function _waitForImgLayout(imgs) {
   await _nextLayoutFrame();
 }
 
+// A page's view is as tall as the window (100vh), and on a phone that is the window without the
+// browser's address bar: with the bar out, the page has the bar's height to spare, which the browser
+// keeps for sliding the bar away. Scrolled into by script, Firefox on Android moves its layout without
+// the screen, and then stops painting what's fixed along the bottom (the rail's icons, the progress
+// bar) until something repaints it. So a turn never scrolls into that room. (100vh as the pages are
+// sized; on a desktop it is the window, and this changes nothing.)
+const _vhProbe = document.body.appendChild(document.createElement('div'));
+_vhProbe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:100vh;visibility:hidden;pointer-events:none';
+
 function _scrollPageModeToStart() {
   if (!readerPinned) _hideReaderNav();
   const navH = topbar?.offsetHeight || parseInt(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h'), 10) || 54;
   const inner = mode === 'double' ? doubleInner : mode === 'single' ? singleInner : null;
   if (!inner) { window.scrollTo(0, 0); return; }
   const innerTop = inner.getBoundingClientRect().top + window.scrollY;
-  window.scrollTo(0, Math.max(0, Math.round(innerTop - (_pinOffset() ? navH : 0))));
+  // (scrollHeight is a whole number, 100vh rarely is: down, so a fraction left over isn't scrolled into.)
+  const end = Math.max(0, Math.floor(document.documentElement.scrollHeight - Math.max(window.innerHeight, _vhProbe.getBoundingClientRect().height)));
+  window.scrollTo(0, Math.min(end, Math.max(0, Math.round(innerTop - (_pinOffset() ? navH : 0)))));
 }
 
 function _scrollPageModeToStartSoon(nav) {
@@ -2217,6 +2228,7 @@ function _easeScrubTo(p) {
 function _easeScrubFrame(now) {
   _scrubRaf = null;
   if (_scrubToP === null || mode !== 'strip') { _scrubToP = null; return; }
+  if (_reshapePending.size) _reshapeRows();   // pages loaded since the last frame take their shapes before it aims
   const maxY = document.documentElement.scrollHeight - window.innerHeight;
   const yAt = p => Math.max(0, Math.min(maxY, _proportionToScrollY(p) - _pinOffset()));
   const ran = now - _scrubRunAt >= _scrubRunMs;
@@ -3100,9 +3112,14 @@ const _stripCost = (i, c) => ((i - c) * _stripDir >= 0 ? Math.abs(i - c) : 2 * M
 const FLY_WINDOW_MS = 120;
 const FLY_SCREENS = 3;
 const FLY_STILL_MS = 70;   // no scroll for this long: it has stopped
+// A wheel is read, however fast: a free-spinning one runs past 45 screens a second, and its pages must
+// be there. The browser's smooth scroll carries on a while after the last wheel event.
+const FLY_WHEEL_MS = 500;
 const _scrollTrail = [];   // recent { t, y }
 let _lastScrollAt = 0;
+let _lastWheelAt = -Infinity;
 let _stripDir = 1;         // 1 moving down, -1 up; kept while at rest
+window.addEventListener('wheel', () => { _lastWheelAt = performance.now(); }, { capture: true, passive: true });
 
 function _noteScroll() {
   const t = _lastScrollAt = performance.now();
@@ -3117,6 +3134,7 @@ function _noteScroll() {
 
 function _stripFlying() {
   const t = performance.now();
+  if (t - _lastWheelAt < FLY_WHEEL_MS) return false;
   const recent = _scrollTrail.filter(s => t - s.t <= FLY_WINDOW_MS);
   if (recent.length < 3 || t - recent[recent.length - 1].t > FLY_STILL_MS) return false;
   return Math.abs(recent[recent.length - 1].y - recent[0].y) > window.innerHeight * FLY_SCREENS;
@@ -3393,15 +3411,40 @@ function _makeStripRow(gi) {
     // it (object-fit absorbs well under a pixel), keep the reservation rather than restyle the row
     // and lay out every row of the strip again.
     if (Math.abs(img.naturalWidth / img.naturalHeight / _ratioValue(img.style.aspectRatio) - 1) < 2e-4) return;
-    // The page takes its true shape (the ratio, and in fit-height its width too) without moving
-    // the page on the reading line.
-    _keepStripLine(() => {
-      img.style.aspectRatio = r;
-      _setPageRatioVars(img);
-    }, false);
+    _reshapePending.add(img);
+    if (!_reshapeRaf) _reshapeRaf = requestAnimationFrame(_reshapeRows);
   });
   wrap.appendChild(img);
   return wrap;
+}
+
+// Pages that loaded in a shape other than their row's take it (the ratio, and in fit-height their width
+// too) without moving the page on the reading line, all of a frame's at once, before the frame that
+// first paints them: a run of loads (a fast wheel) lays the strip out once, not twice for each page.
+// A row off by less than a device pixel keeps its shape — object-fit absorbs it — so a gallery
+// whose pages differ by a hair (4236×2880 among 2880×1959) never restyles its rows for them. A scrub's
+// ease and a glide take them first in their own frames (their frame can come before this one), so they
+// aim at the strip as it now is: an ease that settled on the end first missed the end moving.
+const _reshapePending = new Set();
+let _reshapeRaf = 0;
+function _reshapeRows() {
+  cancelAnimationFrame(_reshapeRaf);
+  _reshapeRaf = 0;
+  const imgs = [..._reshapePending].filter(img => img.isConnected && img.getAttribute('src') && img.naturalWidth > 1);
+  _reshapePending.clear();
+  if (!imgs.length) return;
+  _keepStripLine(() => {
+    const dpr = window.devicePixelRatio || 1;
+    // Measured before any row changes: the layout _keepStripLine just did serves them all.
+    const off = imgs.filter(img => {
+      const w = img.offsetWidth, h = img.offsetHeight;
+      return !w || !h || Math.abs(w / h / (img.naturalWidth / img.naturalHeight) - 1) * Math.max(w, h) * dpr >= 1;
+    });
+    for (const img of off) {
+      img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+      _setPageRatioVars(img);
+    }
+  }, false);
 }
 
 function buildStrip() {
@@ -3531,6 +3574,7 @@ function _applyReaderProgressPosition(next, persist = true) {
   if (!['top', 'bottom', 'left', 'right', 'off'].includes(next)) next = 'bottom';
   readerProgressPosition = next;
   bottombar.dataset.position = next;
+  document.body.dataset.bar = next;   // what the stylesheet places by (reader.css: never body:has())
   bottombar.classList.toggle('hidden', next === 'off');
   document.body.classList.toggle('bar-hidden', next !== 'bottom');
   _syncBarDensity();      // a side bar's length differs from a bottom one's
@@ -3758,6 +3802,7 @@ function _glideStripTo(el) {
 }
 
 function _stripGlideFrame(now) {
+  if (_reshapePending.size) _reshapeRows();   // pages loaded since the last frame take their shapes before it aims
   const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
   // A shorter loaded page can shrink the document and clamp the previous scroll offset.
   if (mode !== 'strip' || !_glideEl?.isConnected || Math.abs(window.scrollY - Math.min(_glideY, max)) > 2) { _stopStripGlide(); return; }
@@ -3881,12 +3926,12 @@ function _sideDir(side) {
 // toward the right (per the navigation direction). Only on the page: the screen beside it is left
 // alone, so a double-click there can hide the controls. With study bubbles on the page, its clicks
 // are theirs. A chapter's transition page fills the screen: a click anywhere but its card turns off it.
+// A click on the card is the card's alone, even once its button has taken the transition page away
+// (its next chapter button would otherwise land on that chapter's page 1, then turn on to page 2).
 function _pageFlipSideAt(e) {
   if (mode === 'strip' || document.body.classList.contains('study-bubbles-active')) return null;
-  if (_pageDivider !== null) {
-    if (e.target.closest?.('.chd')) return null;
-    return e.clientX < window.innerWidth / 2 ? 'left' : 'right';
-  }
+  if (e.target.closest?.('.chd')) return null;
+  if (_pageDivider !== null) return e.clientX < window.innerWidth / 2 ? 'left' : 'right';
   let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
   for (const img of mode === 'single' ? [mainImg] : [imgLeft, imgRight]) {
     const r = _fitItemForImg(img).getBoundingClientRect();
@@ -4015,7 +4060,7 @@ function _barStartThumbScrub(press) {
   _thumbDragging = true;
   _scrubSetY = null;
   thumbStrip.classList.add('dragging', 'scrubbing');
-  document.body.classList.add('thumb-dragging');
+  bottombar.classList.add('out');   // the grabbing hand: the bar holds the pointer, so its cursor is the drag's
 }
 
 // The middle of a page's segment is that page's thumb (and, in the strip, its top), so the pick
@@ -4042,7 +4087,7 @@ function _barEndThumbScrub(press) {
   _thumbDragging = false;
   _scrubSetY = null;
   thumbStrip.classList.remove('dragging', 'scrubbing');
-  document.body.classList.remove('thumb-dragging');
+  bottombar.classList.remove('out');
   // Land the virtualized window exactly where the scrub ended.
   if (mode === 'strip') { _lastSyncCenter = Infinity; _scheduleStripSync(); }
   if (!press.opened) return;
@@ -4100,6 +4145,10 @@ bottombar.addEventListener('pointerdown', (e) => {
   const ch = _chapters[_curChIdx];
   if (e.button !== 0 || !ch || !scrubSegments.children.length) return;
   e.preventDefault();
+  // The bar holds the pointer until it's let go, so the cursor is the bar's wherever the drag goes: the
+  // hand, then the grabbing hand once out in the thumbnails. Chrome picks a move's cursor before that
+  // move's handlers run, so the pages under a drag just leaving the bar showed their arrow for a moment.
+  try { bottombar.setPointerCapture(e.pointerId); } catch {}
   _cancelPreloadOnRest();
   const press = _barPress = { pointerId: e.pointerId, ch, idx: -1, out: false, opened: false, revealed: false };
   _syncBarGrown();
@@ -4121,6 +4170,8 @@ bottombar.addEventListener('pointerdown', (e) => {
     document.removeEventListener('pointercancel', up);
     if (press.out) _barEndThumbScrub(press);
     _barPress = null;
+    // Held, the bar heard no pointerleave while the drag was away: ask whether it's still over the bar.
+    _barHover = bottombar.contains(document.elementFromPoint(ev.clientX, ev.clientY));
     _setBarTip(_barHover ? _barIdxAt(ev) : -1);
     _syncBarGrown();
   };
@@ -4825,8 +4876,8 @@ for (const p of PICKERS) {
     if (e.button !== 0 || p.btn.matches(':disabled')) return;   // its row may be what's disabled
     const opening = _pick?.picker !== p;
     if (opening) _openPicker(p);
-    // Until the pointer leaves the button it's a click on it, even with a choice drawn over it (in a
-    // narrow window the choices shift to stay inside it).
+    // Until the pointer leaves the button it's a click on it, even with a choice drawn over it (near
+    // the window's top or bottom the choices shift to stay inside it).
     _pick.press = { id: e.pointerId, opening, left: false };
     p.btn.setPointerCapture(e.pointerId);
   });
@@ -4876,7 +4927,7 @@ rsPicker.addEventListener('click', (e) => {
 document.addEventListener('pointerdown', (e) => {
   if (_pick && !e.target.closest?.('#rsPicker') && !_pick.picker.btn.contains(e.target)) _closePicker();
 }, true);
-readerSettingsBox.addEventListener('scroll', () => _closePicker());
+readerSettingsBox.addEventListener('scroll', () => _closePicker(), true);   // the tab shown is what scrolls
 window.addEventListener('resize', () => _closePicker());
 
 readerSettingsBtn.addEventListener('click', () => setReaderSettingsOpen(!readerSettingsModal.classList.contains('show')));

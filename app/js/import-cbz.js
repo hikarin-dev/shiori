@@ -41,11 +41,18 @@ export async function unzip(source) {
   return out;
 }
 
-// A zip's entries, from its central directory (store + deflate entries) -> [{ filename, read }],
-// read() resolving to the entry's bytes. `source` is the zip as a Blob (a picked or dropped file),
-// read a piece at a time — the browser reads no more than 2 GiB of a file into one buffer — or its
-// bytes as an ArrayBuffer or a view of one (a Uint8Array, as zipCreate makes).
+// A zip's entries, from its central directory (store + deflate entries) -> [{ filename, size, read,
+// blob }]: read() resolves to the entry's bytes, blob(type) to a Blob of them — for an entry stored
+// as it is in a zip kept as a Blob, a slice of that Blob, so a page goes into the library without
+// ever being read into memory. `source` is the zip as a Blob (a picked or dropped file), read a
+// piece at a time — the browser reads no more than 2 GiB of a file into one buffer — or its bytes as
+// an ArrayBuffer or a view of one (a Uint8Array, as zipCreate makes), or a list of such entries
+// already (import-files.js importBytes: a dropped folder's files), taken as it is. The list's
+// `fingerprint` is a SHA-256 of the archive's central directory — every entry's name, size and CRC-32,
+// so the same archive always gives the same one and any changed picture another — or null where the
+// browser can't hash (a page not on a secure origin).
 export async function zipEntries(source) {
+  if (Array.isArray(source)) return source;
   const bytes = source instanceof Blob ? null
     : ArrayBuffer.isView(source) ? new Uint8Array(source.buffer, source.byteOffset, source.byteLength) : new Uint8Array(source);
   const part = (from, to) => (bytes || source).slice(from, to);
@@ -68,6 +75,7 @@ export async function zipEntries(source) {
     if (view.getUint32(pos, true) !== 0x02014b50) break;
     const method = view.getUint16(pos + 10, true);
     const compSize = view.getUint32(pos + 20, true);
+    const size = view.getUint32(pos + 24, true);
     const nameLen = view.getUint16(pos + 28, true);
     const extraLen = view.getUint16(pos + 30, true);
     const commentLen = view.getUint16(pos + 32, true);
@@ -75,16 +83,34 @@ export async function zipEntries(source) {
     const filename = new TextDecoder().decode(cd.slice(pos + 46, pos + 46 + nameLen));
     pos += 46 + nameLen + extraLen + commentLen;
     if (filename.endsWith('/') || (method !== 0 && method !== 8)) continue;
-    out.push({ filename, read: async () => {
+    // Where the entry's data starts: past its local header, whose name and extra field may differ
+    // in length from the central directory's.
+    const dataStart = async () => {
+      const head = await read(local, local + 30);
+      const hv = new DataView(head.buffer, head.byteOffset, head.byteLength);
+      return local + 30 + hv.getUint16(26, true) + hv.getUint16(28, true);
+    };
+    const failed = (e) => new CbzImportError('cbz_parse', `Failed to read ${filename}: ${e && e.message || e}`);
+    const entry = { filename, size, read: async () => {
       try {
-        const head = await read(local, local + 30);
-        const hv = new DataView(head.buffer, head.byteOffset, head.byteLength);
-        const dataStart = local + 30 + hv.getUint16(26, true) + hv.getUint16(28, true);
-        return method === 0 ? await read(dataStart, dataStart + compSize) : await inflateRaw(part(dataStart, dataStart + compSize));
-      } catch (e) { throw new CbzImportError('cbz_parse', `Failed to read ${filename}: ${e && e.message || e}`); }
-    } });
+        const at = await dataStart();
+        return method === 0 ? await read(at, at + compSize) : await inflateRaw(part(at, at + compSize));
+      } catch (e) { throw failed(e); }
+    }, blob: async (type = '') => {
+      if (method !== 0 || bytes) return new Blob([await entry.read()], { type });
+      try { const at = await dataStart(); return source.slice(at, at + compSize, type); }
+      catch (e) { throw failed(e); }
+    } };
+    out.push(entry);
   }
+  out.fingerprint = await sha256Hex(cd);
   return out;
+}
+
+// The SHA-256 of `data` in hex, or null where the browser offers no hashing.
+export async function sha256Hex(data) {
+  if (!globalThis.crypto?.subtle) return null;
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', data))].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 // A cover the archive holds as a picture of its own. One that is the gallery's first page (`first`,
@@ -112,16 +138,30 @@ async function restoreExportedCovers(gid, byName, first = null) {
     }
   }
 
-  const firstData = first && coverEntries.length ? await first.read() : null;
   for (const c of coverEntries) {
     const data = await byName.get(c.file)?.read();
-    if (!data || (firstData && _sameBytes(data, firstData))) continue;
+    if (!data || (first && data.length === first.size && _sameBytes(data, await first.read()))) continue;
     const ext = normExt(c.file.match(/\.(\w+)$/)?.[1]);
     await api.covers.put(gid, new Blob([data], { type: c.mime || MIME[ext] || 'image/jpeg' }), { role: c.role });
   }
 }
 
-const _sameBytes = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+function _sameBytes(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+// Whether two Blobs hold the same bytes, compared a piece at a time (neither is read whole).
+const COMPARE_CHUNK = 8 * 1024 * 1024;
+async function _sameBlob(a, b) {
+  if (a.size !== b.size) return false;
+  for (let at = 0; at < a.size; at += COMPARE_CHUNK) {
+    const [x, y] = await Promise.all([a, b].map(async (blob) => new Uint8Array(await blob.slice(at, at + COMPARE_CHUNK).arrayBuffer())));
+    if (!_sameBytes(x, y)) return false;
+  }
+  return true;
+}
 
 // An archive's pictures in natural order by path, folder by folder, the extension not counting
 // ("Ch 2/10.jpg" after "Ch 2/9.png", "Ch 10/" after "Ch 2/"). Hidden files and folders (".name",
@@ -258,12 +298,23 @@ export async function importCbzBuffer(galleryId, buffer, filename, skipExisting,
 
 const _extOf = (en) => normExt(en.filename.match(/\.(\w+)$/)?.[1]);
 const _putPage = async (gid, n, en, ext) =>
-  _storePage(gid, n, new Blob([await en.read()], { type: MIME[ext] || 'image/jpeg' }), `local://${gid}/${n}.${ext}`);
+  _storePage(gid, n, await en.blob(MIME[ext] || 'image/jpeg'), `local://${gid}/${n}.${ext}`);
 // A page stored, and said so to every page (PAGE_STORED, as a download's pages are): a reader open
 // on the gallery shows each page as it arrives.
 async function _storePage(gid, n, blob, key) {
   await api.pages.put(gid, n, blob, { key });
   platform.jobs.signal({ type: 'PAGE_STORED', galleryId: gid, pageNum: n, url: key });
+}
+
+// A page record holding the page and nothing more — no translation, study layers or pipeline data.
+const PLAIN_PAGE = new Set(['url', 'blob', 'mediaId', 'galleryId', 'cachedAt', 'size', 'pageNum']);
+// Whether page `n`, under `key`, is stored already as `blob` and holds nothing else: storing it
+// again would write the same bytes over themselves. An export imported again (a resumed import, the
+// same folder dropped twice) only reads what it finished before.
+async function _storedAsIs(gid, n, key, blob) {
+  const rec = await api.pages.get(gid, n, key).catch(() => null);
+  if (!(rec?.blob instanceof Blob) || Object.keys(rec).some(k => !PLAIN_PAGE.has(k))) return false;
+  return _sameBlob(rec.blob, blob);
 }
 const _title = (s) => ({ english: s, japanese: '', pretty: s });
 
@@ -337,7 +388,7 @@ async function _importSeriesZip(entries, manifest, onProgress) {
     const c = manifest.chapters[i];
     const folder = String(c.folder || `chapter-${String(i + 1).padStart(2, '0')}`).replace(/\/+$/, '') + '/';
     const sub = entries.filter(en => en.filename.startsWith(folder))
-      .map(en => ({ filename: en.filename.slice(folder.length), read: en.read }));
+      .map(en => ({ ...en, filename: en.filename.slice(folder.length) }));
     if (!sub.length) continue;
     const metaEntry = sub.find(en => en.filename === 'metadata.json');
     let cmeta = null;
@@ -396,7 +447,7 @@ async function _restorePipelines(gid, data, urlByNum, byName, studied) {
       const masks = {};
       for (const name of ['raw', 'text']) {
         const ext = ['webp', 'png'].find((e) => byName.has(`pipeline/${num}-${name}.${e}`));
-        if (ext) masks[name] = new Blob([await byName.get(`pipeline/${num}-${name}.${ext}`).read()], { type: MIME[ext] });
+        if (ext) masks[name] = await byName.get(`pipeline/${num}-${name}.${ext}`).blob(MIME[ext]);
       }
       patch.pipeline = { ...pipeline, masks };
       if (typeof e.own === 'string') patch.own = e.own;   // the translation whose settings it keeps
@@ -445,16 +496,19 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
 
   onProgress({ status: 'started', done: 0, total: pageEntries.length, skipped: 0 });
   const urlByNum = new Map();
-  let done = 0;
+  const stored = new Set((await api.pages.list(gid)).map(p => p.url));
+  let done = 0, skipped = 0;
   for (const en of pageEntries) {
     const m = en.filename.replace(/^.*\//, '').match(/(\d+)\.(\w+)$/);
     if (!m) continue;
     const num = parseInt(m[1]);
     const ext = normExt(m[2]);
     const url = `local://${gid}/${num}.${ext}`;
-    await _storePage(gid, num, new Blob([await en.read()], { type: MIME[ext] || 'image/jpeg' }), url);
+    const blob = await en.blob(MIME[ext] || 'image/jpeg');
+    if (stored.has(url) && await _storedAsIs(gid, num, url, blob)) skipped++;
+    else { await _storePage(gid, num, blob, url); done++; }
     urlByNum.set(num, url);
-    onProgress({ done: ++done, total: pageEntries.length, skipped: 0, status: 'progress' });
+    onProgress({ done, total: pageEntries.length, skipped, status: 'progress' });
   }
 
   // The whole new set is stored — now drop the old pages it didn't overwrite in place.
@@ -464,7 +518,7 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
   for (const en of entries) {
     const m = en.filename.match(/^translated\/(\d+)\.(\w+)$/i);
     const url = m && urlByNum.get(parseInt(m[1]));
-    if (url) await api.derived.putTranslatedImage(gid, parseInt(m[1]), new Blob([await en.read()], { type: MIME[normExt(m[2])] || 'image/png' }));
+    if (url) await api.derived.putTranslatedImage(gid, parseInt(m[1]), await en.blob(MIME[normExt(m[2])] || 'image/png'));
   }
 
   // Study layers → rec.studyBg + rec.bubbles, driven by study/bubbles.json. Files may be PNG
@@ -480,7 +534,7 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
       let bgName = null;
       for (const k of byName.keys()) { if (k.startsWith(`study/bg/${numStr}.`)) { bgName = k; break; } }
       if (!url) continue;
-      const bgData = bgName ? await byName.get(bgName).read() : null;
+      const bg = bgName ? await byName.get(bgName).blob(mimeOf(bgName)) : null;
       // Older bundles store a bare entry array; newer ones wrap it with the page dimensions.
       const raw = index[numStr] || [];
       const ents = Array.isArray(raw) ? raw : (Array.isArray(raw.bubbles) ? raw.bubbles : []);
@@ -488,15 +542,15 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
       const bubbles = [];
       for (const ent of ents) {
         if (!ent || !ent.box) continue;
-        const td = ent.textFile ? await byName.get(`study/text/${ent.textFile}`)?.read() : null;
-        const bubble = { box: ent.box, region: ent.region || ent.box, tr: ent.tr || '', src: ent.src || '', text: td ? new Blob([td], { type: mimeOf(ent.textFile) }) : null };
+        const text = ent.textFile ? await byName.get(`study/text/${ent.textFile}`)?.blob(mimeOf(ent.textFile)) : null;
+        const bubble = { box: ent.box, region: ent.region || ent.box, tr: ent.tr || '', src: ent.src || '', text: text || null };
         for (const key of BUBBLE_EXTRA_FIELDS) {
           if (ent[key] != null) bubble[key] = ent[key];
         }
         bubbles.push(bubble);
       }
       if (!bubbles.length) continue;
-      await api.derived.putStudy(gid, parseInt(numStr), { bg: bgData ? new Blob([bgData], { type: mimeOf(bgName) }) : null, bubbles, page });
+      await api.derived.putStudy(gid, parseInt(numStr), { bg, bubbles, page });
       studied.add(parseInt(numStr));
     }
   }
@@ -505,6 +559,6 @@ async function _importShioriEntries(gid, entries, embeddedMeta, onProgress) {
   if (recordsData) await _restorePipelines(gid, recordsData, urlByNum, byName, studied);
 
   await restoreExportedCovers(gid, byName, pageEntries[0]);
-  onProgress({ status: 'done', done, total: pageEntries.length, skipped: 0 });
+  onProgress({ status: 'done', done, total: pageEntries.length, skipped });
   api.events.announce(gid);
 }

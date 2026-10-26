@@ -1,6 +1,6 @@
 // tooltip.js — one cursor-following tooltip for any [data-tip] element.
 //
-// Positions instantly under the cursor every mousemove (no CSS transition, so it never lags or
+// Positions instantly under the cursor every pointer move (no CSS transition, so it never lags or
 // flies in from a previous spot), and clamps inside the viewport with a margin so it never sits
 // on the very edge. Width/height are measured only when the text changes, not on every move, so
 // following the cursor stays cheap. Self-contained — runs fully offline.
@@ -139,7 +139,10 @@ function _setTarget(el) {
   if (el) _watch.observe(el, { attributes: true, attributeFilter: ['data-tip', 'data-tip-shift', 'data-tip-alt', 'data-tip-badge', 'disabled'] });
 }
 
+// Only a pointer that hovers shows tips: a mouse, or a pen held over the screen. A finger has nothing to
+// rest on and never leaves, so a tip it raised would stay up after the tap; a touch puts any tip away.
 function _onMove(e) {
+  if (e.pointerType === 'touch') { _hide(); return; }
   _x = e.clientX; _y = e.clientY;
   _setTarget(_tipTarget(e.target));
   _setModifiers(e.shiftKey, e.altKey);
@@ -182,11 +185,16 @@ function _checkOpenList() {
   });
 }
 
+function _hide() { _setTarget(null); _place(''); }
+
 let _inited = false;
 export function initTooltips() {
   if (_inited) return;
   _inited = true;
-  document.addEventListener('mousemove', _onMove, { passive: true });
+  // Pointer events, not mouse events: a tap also fires mouse events (a mousemove to where the finger
+  // was), and only pointer events say which kind of pointer it was.
+  document.addEventListener('pointermove', _onMove, { passive: true });
+  document.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') _hide(); }, { capture: true, passive: true });
   document.addEventListener('mousedown', (e) => _setModifiers(e.shiftKey, e.altKey), { capture: true, passive: true });
   document.addEventListener('click', _onClick, { capture: true, passive: true });
   // Capture, so a handler that stops a key event can't hide a modifier change from the tip.
@@ -196,9 +204,8 @@ export function initTooltips() {
   document.addEventListener('scroll', _onScroll, { capture: true, passive: true });
   // With the cursor off the page or the window left, the tip also forgets its target, so a key
   // press (a modifier change calling refreshTooltip) can't bring it back until the cursor moves.
-  const hide = () => { _setTarget(null); _place(''); };
-  document.addEventListener('mouseleave', hide);
-  window.addEventListener('blur', () => { hide(); _setModifiers(false, false); });
+  document.addEventListener('mouseleave', _hide);
+  window.addEventListener('blur', () => { _hide(); _setModifiers(false, false); });
   if (_OPEN_LIST) for (const type of ['pointerdown', 'click', 'keydown']) document.addEventListener(type, _checkOpenList);
 }
 

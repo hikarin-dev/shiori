@@ -14,6 +14,7 @@
 
 import * as platform from './app/js/platform.js';
 import { RUNNERS, cancelJobRun, runPoll } from './app/js/jobs-runner.js';
+import { enqueue, busy as importsBusy } from './app/js/import-queue.js';
 
 // The scope root: http://localhost:5500/ locally, https://…/shiori/ on GitHub Pages.
 const ROOT = new URL('./', self.location.href);
@@ -24,7 +25,7 @@ const FILES_ONLY = new URL(self.location.href).searchParams.get('library') === '
 // user-facing app version: precached code can change outside a release, and changing this value
 // makes the browser install every BOOT asset into a fresh cache.
 const CACHE_PREFIX = `shiori${ROOT.pathname.replace(/\//g, '_')}`;
-const SHELL_CACHE_REVISION = 57;
+const SHELL_CACHE_REVISION = 59;
 const CACHE_NAME = `${CACHE_PREFIX}-shell-v${SHELL_CACHE_REVISION}`;
 function cacheName() {
   return CACHE_NAME;
@@ -47,11 +48,11 @@ const SHELL = [
   'app/fonts/LICENSE-Kiwi-Maru-OFL.txt', 'app/fonts/LICENSE-YasashisaAntique-IPA.txt',
   'app/fonts/LICENSE-YasashisaAntique-MPLUS.txt', 'app/fonts/LICENSE-JetBrainsMono-OFL.txt', 'app/fonts/README.md',
   'app/js/platform.js', 'app/js/disk-writes.js', 'app/js/notice.js', 'app/js/app-update.js', 'app/js/storage-upgrade.js', 'app/notice.css', 'app/js/db.js', 'app/js/backend-error.js', 'app/js/library-check.js', 'app/js/gallery-files.js', 'app/js/api.js', 'app/js/desktop-backend.js', 'app/js/desktop-wire.js', 'app/js/desktop-shell.js', 'app/js/desktop-settings.js', 'app/js/library-location.js', 'app/js/library-move.js', 'app/js/desktop-link.js', 'app/js/store.js', 'app/js/series.js', 'app/js/series-plan.js', 'app/js/gallery-model.js', 'app/js/sanitize.js', 'app/js/sites.js', 'app/js/image-util.js', 'app/js/page-size.js', 'app/js/migrations.js',
-  'app/js/import-cbz.js', 'app/js/import-files.js', 'app/js/translate.js', 'app/js/translate-config.js', 'app/js/capabilities.js', 'app/js/page-data.js', 'app/js/page-image.js', 'app/js/backup.js', 'app/js/backup-core.js', 'app/js/backup-ui.js',
+  'app/js/import-cbz.js', 'app/js/import-files.js', 'app/js/import-log.js', 'app/js/import-batch.js', 'app/js/import-queue.js', 'app/js/import-tracker.js', 'app/js/runner-tag.js', 'app/js/translate.js', 'app/js/translate-config.js', 'app/js/capabilities.js', 'app/js/page-data.js', 'app/js/page-image.js', 'app/js/backup.js', 'app/js/backup-core.js', 'app/js/backup-ui.js',
   'app/js/benchmark.js', 'app/js/benchmark-core.js', 'app/js/benchmark-ui.js', 'app/benchmark.css',
   'app/js/feedback.js', 'app/js/reader-feedback.js', 'app/js/reader-properties.js', 'app/js/reader-page-menu.js', 'app/js/zip.js',
   'app/js/jobs-runner.js', 'app/js/submit-job.js', 'app/js/services.js', 'app/js/ext-bridge.js', 'app/js/boot.js',
-  'app/js/i18n.js', 'app/js/locales.js', 'app/js/tooltip.js', 'app/js/scrollbar.js', 'app/js/dropdown.js', 'app/js/rerun-menu.js', 'app/js/titles.js', 'app/js/format.js', 'app/js/thumb-worker.js', 'app/js/tag-editor.js', 'app/js/search-field.js',
+  'app/js/i18n.js', 'app/js/locales.js', 'app/js/page-nav.js', 'app/js/tooltip.js', 'app/js/scrollbar.js', 'app/js/dropdown.js', 'app/js/rerun-menu.js', 'app/js/titles.js', 'app/js/format.js', 'app/js/thumb-worker.js', 'app/js/tag-editor.js', 'app/js/search-field.js',
   'app/js/library.js', 'app/js/reader.js', 'app/js/reader-study.js', 'app/js/settings.js', 'app/js/agent.js', 'app/js/overview.js', 'app/js/runner.js', 'app/js/tasks.js',
   ...FLAGS,
   'icons/icon16.png', 'icons/icon32.png', 'icons/icon48.png', 'icons/icon128.png',
@@ -77,7 +78,9 @@ self.addEventListener('install', (e) => {
     // All-or-nothing for code: a partial shell must never replace a healthy one, so a failed
     // fetch here fails the whole install and the old worker + cache stay in place.
     await Promise.all(BOOT.map((u) => cache.add(new URL(u, ROOT).href)));
-    self.skipWaiting();
+    // A batch of imports running in the worker this one replaces would end with it: then this one
+    // waits, and takes over once that worker's imports are done (__shioriTakeOver).
+    if (!await platform.jobs.workerImporting()) self.skipWaiting();
   })());
 });
 
@@ -275,8 +278,27 @@ async function pollLoop() {
   } finally { _pollLoopActive = false; }
 }
 
+// ── Imports handed over by a page (submit-job.js handBatchToWorker) ──
+// A batch of titles runs here (import-queue.js), its files read where they are (nothing copied), for
+// as long as any app page is open: each page's poll tick (boot.js) nudges this worker while an import
+// runs, and every nudge holds it awake up to HOLD_MS — longer than a background tab's throttled
+// minute between ticks — so it is never idle long enough to be stopped.
+const HOLD_MS = 4 * 60 * 1000;
+function holdWhileImporting() {
+  const until = Date.now() + HOLD_MS;
+  return new Promise((resolve) => {
+    const check = () => (!importsBusy() || Date.now() > until ? resolve() : setTimeout(check, 1000));
+    check();
+  });
+}
+// Once nothing is left to import, a newer worker kept waiting (see install) takes over.
+function handOverWhenIdle() {
+  if (!importsBusy()) self.registration.waiting?.postMessage({ __shioriTakeOver: true });
+}
+
 self.addEventListener('message', (e) => {
   const d = e.data;
+  if (d && d.__shioriTakeOver) { self.skipWaiting(); return; }
   if (d && d.__shioriWarmShell) { e.waitUntil(warmDeferredShell().catch(() => {})); return; }
   // Updating: every cached file brought up to date before the pages reload (answered on the port).
   if (d && d.__shioriRefreshShell) {
@@ -296,10 +318,16 @@ self.addEventListener('message', (e) => {
     e.waitUntil((async () => {
       // Resume uploads/imports alongside the heartbeat so a long import cannot starve an
       // already-running server job of polls. The second call catches a job whose resume record
-      // did not exist until resumePending started it.
-      await Promise.all([resumePending(), pollLoop()]);
+      // did not exist until resumePending started it. An import batch running here is held awake.
+      await Promise.all([resumePending(), pollLoop(), holdWhileImporting()]);
       await pollLoop();
     })());
+    return;
+  }
+  if (d && d.__shioriImportBatch && d.batch?.groups?.length) {
+    e.ports[0]?.postMessage({ taken: true });
+    const done = enqueue({ type: 'batch', id: String(d.batch.id), batch: d.batch }).then(handOverWhenIdle);
+    e.waitUntil(Promise.race([done, holdWhileImporting()]));
     return;
   }
   if (d && d.__shioriJob) e.waitUntil(runJob(d.kind, d.payload));   // waitUntil keeps the worker alive

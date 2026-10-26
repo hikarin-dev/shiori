@@ -123,7 +123,7 @@ export const services = {
 
       case 'IMPORT_CBZ': {                                                // upload → durable runner
         // started:true only after the durable enqueue acknowledgement inside submitJob.
-        const routed = await submitJob('upload', { galleryId: msg.galleryId, tempFile: msg.tempFile, filename: msg.filename, skipExisting: msg.skipExisting });
+        const routed = await submitJob('upload', { galleryId: msg.galleryId, tempFile: msg.tempFile, filename: msg.filename, skipExisting: msg.skipExisting, importHash: msg.importHash ?? null });
         return { ok: routed != null, started: routed != null };
       }
 
@@ -142,6 +142,7 @@ export const services = {
         if (busy) return { ok: false, busy: true };
         const { translateSettings } = await platform.kv.get(['translateSettings']);
         const routed = await submitJob('translate', { galleryId: gid, settings: translateSettings, pages: msg.urls });
+        if (routed === 'busy') return { ok: false, busy: true };   // the desktop app is translating it
         return { ok: routed != null, started: routed != null };
       }
 
@@ -149,6 +150,9 @@ export const services = {
 
       case 'CANCEL_TRANSLATE': {
         const gid = String(msg.galleryId);
+        // One the desktop app runs (submit-job.js) is stopped there; what follows clears one this
+        // context kept itself, as before.
+        if (platform.runner.kind !== 'desktop-background') await api.keeperJobs.stop('translate', { galleryId: gid });
         const rec = await platform.translateResume.get(gid);          // token/serverUrl so the cancel reaches the job from any context
         cancelJob('translate', { galleryId: gid, token: rec && rec.token, serverUrl: rec && rec.serverUrl, settings: rec && rec.settings });  // token-scoped server cancel (settings carry the access token)
         // Authoritative stop: clear the durable state too, so Stop also recovers an ORPHANED
@@ -174,6 +178,9 @@ export const services = {
         const gid = String(msg.galleryId);
         const kind = String(msg.kind || '');
         if (kind === 'translate') return services.handle({ type: 'CANCEL_TRANSLATE', galleryId: gid });
+        // A batch of imports (import-batch.js) stops where it runs, after the page it is storing,
+        // and says so itself.
+        if (kind === 'import') { platform.jobs.signal({ type: 'STOP_IMPORT_BATCH', batch: gid }); return { ok: true }; }
         if (kind === 'upload') {
           // Never replayed, and stopped where it runs (jobs-runner.js).
           await platform.jobsPending.remove(`${gid}:upload`);
@@ -195,7 +202,7 @@ export const services = {
 
       case 'CACHE_ALL_PAGES': {                                          // download → external helper
         const gid = String(msg.galleryId);
-        platform.jobs.publish({ gid, kind: 'download', status: 'started', labelKey: 'prog.contacting_helper' });
+        platform.jobs.publish({ gid, kind: 'download', status: 'started', labelKey: 'prog.contacting_helper', runner: { kind: 'helper', host: platform.helperHost } });
         // One forwarded intent. `series` means "this item and whatever belongs with it" — the
         // receiver expands that; the app neither enumerates chapters nor schedules the work.
         const resp = await extRequest({ type: 'EXT_DOWNLOAD', galleryId: gid, source: msg.source, overwrite: !!msg.overwrite, series: !!msg.series });

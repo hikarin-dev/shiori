@@ -121,12 +121,16 @@ function _typeset(ctx, b, W, H) {
   ctx.textBaseline = 'alphabetic';
   ctx.lineJoin = 'round';
   ctx.fillStyle = Array.isArray(st.fg) ? `rgb(${st.fg.join(',')})` : '#111';
+  // Every line's outline goes under every line's glyphs, and narrower strokes close the rings a much
+  // wider one leaves open around dots and curls, as the reader draws it (reader-study.js, _buildOutline).
   if (outline) {
-    ctx.lineWidth = outline.px ?? outline.em * fs;
+    const width = outline.px ?? outline.em * fs;
+    const steps = Math.max(1, Math.ceil(width / 2 / (0.1 * fs)));
     ctx.strokeStyle = `rgb(${outline.color.join(',')})`;
+    for (let k = steps; k > 0; k--) {
+      ctx.lineWidth = width * k / steps;
+      lines.forEach((line, i) => ctx.strokeText(line, x, first + i * lh));
+    }
   }
-  lines.forEach((line, i) => {
-    if (outline) ctx.strokeText(line, x, first + i * lh);
-    ctx.fillText(line, x, first + i * lh);
-  });
+  lines.forEach((line, i) => ctx.fillText(line, x, first + i * lh));
 }

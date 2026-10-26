@@ -977,22 +977,15 @@ textarea.field-input { min-height: 82px; }
   font-size: 9.5px;
 }
 
-.about-close {
-  width: 30px;
-  height: 30px;
+.about-actions {
   flex: 0 0 auto;
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-control);
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 13px;
+  gap: 4px;
 }
 
-.about-close:hover { background: var(--surface-raised); border-color: var(--border); color: var(--text); }
+/* The GitHub mark is a filled shape, not a line icon. */
+.about-repo > svg { fill: currentColor; stroke: none; }
 
 /* Translator dialog */
 .tcfg-grid {
@@ -1228,8 +1221,8 @@ textarea.field-input { min-height: 82px; }
 }
 
 @media (max-width: 380px) {
-  .brand-sep,
-  .brand-page { display: none; }
+  .brand-text,
+  .brand-sep { display: none; }
   .settings-page { padding-inline: 8px; }
   .content { grid-template-columns: 84px minmax(0, 1fr); gap: 8px; }
   .nav-item { padding-inline: 6px; font-size: 9.5px; }

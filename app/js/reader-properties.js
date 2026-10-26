@@ -108,6 +108,7 @@ const _dims = (i) => (i?.w ? `${i.w} × ${i.h}` : '');
 const _pct = (part, whole) => (whole ? new Intl.NumberFormat(getLang(), { style: 'percent', maximumFractionDigits: part / whole < 0.1 ? 1 : 0 }).format(part / whole) : '');
 const _date = (ms) => (ms ? new Intl.DateTimeFormat(getLang(), { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(ms)) : '');
 const _join = (...parts) => parts.filter(Boolean).join(' · ');
+const CLOSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
 const _image = (i) => (i ? _join(_dims(i), i.format, formatBytes(i.bytes)) : t('page.not_stored'));
 
 function _rows(pairs) {
@@ -168,7 +169,7 @@ export async function openPageProperties(page) {
   const title = node('h2', 'pp-title', t('page.properties')); title.id = titleId;
   heading.append(title, node('p', 'pp-sub', _join(page.chapter, t('page.of', { n: formatCount(page.number), total: formatCount(page.total) }))));
   const copy = node('button', 'pp-btn', t('page.copy')); copy.type = 'button'; copy.disabled = true;
-  const close = node('button', 'pp-close', '×'); close.type = 'button';
+  const close = node('button', 'icon-btn'); close.type = 'button'; close.innerHTML = CLOSE_ICON;
   close.setAttribute('aria-label', t('common.close')); close.title = t('common.close');
   const actions = node('div', 'pp-actions'); actions.append(copy, close);
   head.append(heading, actions);

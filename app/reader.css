@@ -19,6 +19,8 @@
 @media (pointer: coarse) {
   :root { --sn-size: 44px; }
   :root .sn-btn svg { width: 20px; height: 20px; }
+  /* No keyboard to use them with: the keyboard shortcuts button leaves both navigations. */
+  :is(#snKeys, #keybindBtn) { display: none; }
 }
 html { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; }
 /* The reader never set a base text size: text that doesn't size itself keeps the browser's 16px. */
@@ -84,6 +86,16 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
 }
 /* Extend the background through the body's compensation while keeping the controls aligned. */
 #topbar { padding-right: calc(20px + var(--page-scrollbar-gap)); }
+/* On a phone the bar gives way as the library's header does: the brand's word and its "/" go (the
+   logo still goes home), so the page menu stays; narrower still, the gallery's number and title,
+   which have no room left there, go with their "/". */
+@media (max-width: 600px) {
+  #topbar { padding: 0 calc(12px + var(--page-scrollbar-gap)) 0 12px; }
+  #topbar :is(.brand-text, .brand-wrap + .brand-sep) { display: none; }
+}
+@media (max-width: 420px) {
+  #topbar :is(.tb-meta, #pageNav + .brand-sep) { display: none; }
+}
 
 /* Number + title in one link: the link shrinks first (so the title ellipsizes), the number holds. */
 /* A <button>, not a link — so no default blue/purple link underline. Strip the native button chrome
@@ -137,11 +149,11 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
 body.bar-grown .auto-bar { --line: calc(var(--bar-zone) * var(--zoom-inv)); }
 body.thumbs-open .auto-bar { --thumbs: calc(var(--thumb-h) * var(--zoom-inv)); }
 body.thumbs-open.thumb-revealing .auto-bar { --thumbs: calc(var(--thumb-shown, 0px) * var(--zoom-inv)); }
-body:has(#bottombar[data-position="bottom"]) .auto-bar { bottom: calc(var(--thumbs) + var(--line)); }
-body:has(#bottombar[data-position="left"]) .auto-bar { left: var(--line); }
-body:has(#bottombar[data-position="right"]) .auto-bar { right: calc(var(--page-scrollbar-gap) + var(--line)); }
+body[data-bar="bottom"] .auto-bar { bottom: calc(var(--thumbs) + var(--line)); }
+body[data-bar="left"] .auto-bar { left: var(--line); }
+body[data-bar="right"] .auto-bar { right: calc(var(--page-scrollbar-gap) + var(--line)); }
 .auto-bar[data-at="top"] { top: 0; bottom: auto; }
-body:has(#bottombar[data-position="top"]) .auto-bar[data-at="top"] { top: var(--line); }
+body[data-bar="top"] .auto-bar[data-at="top"] { top: var(--line); }
 .auto-bar-fill { display: block; height: 100%; background: var(--accent); transform-origin: left; transform: scaleX(0); }
 .auto-bar.rtl .auto-bar-fill { transform-origin: right; }
 
@@ -406,15 +418,20 @@ body.reader-fit-height #stripView > .page-wrap {
   font-size: calc(var(--pgscale, 1) * var(--fs, 16px));
   line-height: 1.15;
   color: #111;
-  /* The outline is a real stroke painted under the fill, so half its width shows as an even ring
-     outside the glyph and the contour stays smooth at any font size. Width/colour are set per
-     bubble from the stored renderer hints; with neither set this collapses to no stroke. */
-  paint-order: stroke fill;
-  -webkit-text-stroke: var(--outline-w, 0) var(--outline-c, transparent);
   /* Balloon text balances its line lengths; balance mimics the renderer's centered layout.
      Words stay whole — a word never breaks mid-character onto the next line (DOM metrics can
      run a hair wider than the renderer's fit); an over-wide word overflows the box instead. */
   white-space: pre-wrap; overflow-wrap: normal; word-break: keep-all; text-wrap: balance;
+}
+/* The outline: the text again as SVG beneath it (reader-study.js, _buildOutline), a real stroke with
+   round joins, so half its width shows as an even ring outside every glyph and no line's ring covers
+   another line. Width and colour are set per bubble from the stored renderer hints; the width is a
+   registered length so the script reads it resolved. Its box is inert, out of find-in-page. */
+@property --outline-w { syntax: '<length>'; inherits: true; initial-value: 0px; }
+.study-outline { position: absolute; inset: 0; writing-mode: horizontal-tb; pointer-events: none; }
+.study-outline > svg {
+  display: block; width: 100%; height: 100%; overflow: visible;
+  fill: var(--outline-c); stroke: var(--outline-c); stroke-linejoin: round;
 }
 /* The fixed outer box is only a layout anchor. Selection and hover belong to this intrinsic
    content wrapper, so text that extends beyond its OCR layout box keeps the correct hit area. */
@@ -600,7 +617,9 @@ body.thumb-dragging * {
   zoom: var(--zoom-inv);
   touch-action: none;
   transition: opacity 0.25s;
+  cursor: pointer;   /* pressed, the bar holds the pointer: this is the drag's cursor wherever it goes */
 }
+#bottombar.out { cursor: grabbing; }   /* dragged out into the thumbnails */
 #bottombar.hidden { opacity: 0; pointer-events: none; }
 #scrubTrack {
   position: relative; flex: 1; min-width: 0;
@@ -753,16 +772,31 @@ body.thumb-dragging * {
    take the pointer: the room below a shorter tab is the backdrop's, and a click there closes the
    settings as one anywhere outside does. */
 #readerSettingsModal {
+  --rs-gutter: 20px;      /* the room around the box */
+  --rs-box-w: 480px;      /* the box's width, where the window has it */
+  --rs-pad-x: 18px;       /* the header's and the tabs' sides */
+  --rs-pick-size: 38px;   /* a place button, and each cell of its picker */
+  --rs-pick-room: 71px;   /* from a place button's centre to the window's edge, for its picker: a cell a step out, half a cell and a margin */
   display: none; position: fixed; inset: 0; z-index: 410;
   background: var(--backdrop); align-items: center; justify-content: center;
-  padding: 20px calc(20px + var(--page-scrollbar-gap)) 20px 20px;
+  padding: var(--rs-gutter) calc(var(--rs-gutter) + var(--page-scrollbar-gap)) var(--rs-gutter) var(--rs-gutter);
   overflow: hidden; overscroll-behavior: contain;
+  /* How far the window's right edge is from the box's left edge, for the place buttons (.rs-pick-wrap):
+     the box is centred in this fixed layer's content, the window less a native scrollbar (as --cb-w)
+     and the padding. Viewport units, not this layer's container units: those had the browser restyle
+     everything in it during layout, more than doubling a resize's layout while the box is open. */
+  --rs-room-w: calc(100vw - var(--page-scrollbar-width) - 2 * var(--rs-gutter));
+  --rs-reach: calc(var(--rs-gutter) + var(--page-scrollbar-gap) + (var(--rs-room-w) + min(var(--rs-box-w), var(--rs-room-w))) / 2);
 }
 #readerSettingsModal.show { display: flex; }
-#readerSettingsBox { width: min(480px, 100%); max-height: calc(100vh - 40px); overflow: auto; pointer-events: none; }
-/* The header and the tabs stay in view while the settings scroll under them. */
+#readerSettingsBox {
+  display: flex; flex-direction: column; width: min(var(--rs-box-w), 100%); max-height: calc(100vh - 2 * var(--rs-gutter));
+  pointer-events: none;
+}
+/* The header and the tabs stay put; the tab shown scrolls under them on its own, its scrollbar inside
+   its frame. */
 .reader-settings-top {
-  position: sticky; top: 0; z-index: 2; padding: 0 18px 16px; pointer-events: auto;
+  flex: none; padding: 0 var(--rs-pad-x) 16px; pointer-events: auto;
   background: var(--surface); border: 1px solid var(--border-strong); border-bottom: 0; border-radius: 12px 12px 0 0;
 }
 .reader-settings-head {
@@ -782,22 +816,21 @@ body.thumb-dragging * {
 }
 .rs-tabs button:hover { color: var(--text); }
 .rs-tabs button[aria-selected="true"] { background: var(--surface-raised); color: var(--text); }
-.rs-panels { display: grid; }
+/* The tabs' cell is as tall as the tallest tab, or the room left under the header; a tab taller than
+   that scrolls. */
+.rs-panels { display: grid; grid-template-rows: minmax(0, 1fr); min-height: 0; }
 .rs-panel {
-  grid-area: 1 / 1; align-self: start; min-width: 0; padding: 0 18px 18px;
+  grid-area: 1 / 1; align-self: start; min-width: 0; max-height: 100%; overflow: auto; padding: 0 var(--rs-pad-x) 18px;
   background: var(--surface); border: 1px solid var(--border-strong); border-top: 0; border-radius: 0 0 12px 12px;
   box-shadow: 0 18px 55px rgba(0,0,0,.45);
 }
+/* A section is as wide as its tab less a scrollbar, for what's in it (a scroller's own container
+   width would count its scrollbar too). */
+.rs-section { container-type: inline-size; }
 .rs-panel.active { pointer-events: auto; }
 .rs-panel:not(.active) { visibility: hidden; }
 .reader-settings-title { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 700; }
 .reader-settings-title .rs-ico { width: 17px; height: 17px; color: var(--muted); }
-.reader-settings-close {
-  display: grid; place-items: center; width: 28px; height: 28px; padding: 0;
-  border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer;
-}
-.reader-settings-close:hover { background: var(--surface-raised); color: var(--text); }
-.reader-settings-close .rs-ico { width: 15px; height: 15px; }
 
 /* One line-icon style for every glyph in the modal. */
 .rs-ico {
@@ -908,11 +941,18 @@ body.thumb-dragging * {
 .rs-font-yasashisa { font-family: 'Yasashisa Antique', sans-serif; }
 .rs-font-kiwi { font-family: 'Kiwi Maru', sans-serif; }
 
-/* A placement: what it is now, and a button showing it that opens the picker. */
-.rs-pick-wrap { display: flex; align-items: center; gap: 10px; flex: none; }
+/* A placement: what it is now, and a button showing it that opens the picker. Where the window leaves
+   its button less room on the right than the picker needs, it stands in from the right by just what's
+   missing, so the picker stays centred on it. The button's centre is half its width in from the tab's
+   content edge, which is the box's left edge, its 1px border, its padding and its content width
+   (100cqw, the section's) in from the window's right edge. */
+.rs-pick-wrap {
+  display: flex; align-items: center; gap: 10px; flex: none;
+  margin-right: max(0px, var(--rs-pick-room) - var(--rs-pick-size) / 2 - (var(--rs-reach) - 1px - var(--rs-pad-x) - 100cqw));
+}
 .rs-pick-value { color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; }
 .rs-pick, .rs-pick-cell {
-  display: grid; place-items: center; width: 38px; height: 38px; padding: 0;
+  display: grid; place-items: center; width: var(--rs-pick-size); height: var(--rs-pick-size); padding: 0;
   border: 1px solid var(--border); border-radius: 8px; background: var(--surface-subtle); color: var(--muted);
   cursor: pointer; transition: background-color .12s ease, border-color .12s ease, color .12s ease;
 }
@@ -921,14 +961,14 @@ body.thumb-dragging * {
 .rs-pick .rs-ico, .rs-pick-cell .rs-ico { width: 20px; height: 20px; }
 /* The picker: its choices around the button that opened it (anchored to it), a cross of edges, then
    the places along the edge picked, each in its cell of the 3×3 (--col, --row, 44px apart); as near
-   the button as the window allows: a cell a step out, half a cell and a margin inside it. Pressed and
-   dragged, it's picked where the drag lets go. */
+   the button as the window allows: a cell a step out, half a cell and a margin inside it (the button
+   makes that room on the right, .rs-pick-wrap). Pressed and dragged, it's picked where the drag lets go. */
 .rs-pick[aria-expanded="true"] { anchor-name: --rs-pick; }
 .rs-picker {
   position: fixed; z-index: 430; width: 0; height: 0; touch-action: none; pointer-events: auto;
   position-anchor: --rs-pick;
-  left: clamp(71px, anchor(center), calc(100% - 71px));
-  top: clamp(71px, anchor(center), calc(100% - 71px));
+  left: clamp(var(--rs-pick-room), anchor(center), calc(100% - var(--rs-pick-room)));
+  top: clamp(var(--rs-pick-room), anchor(center), calc(100% - var(--rs-pick-room)));
 }
 .rs-picker[hidden] { display: none; }
 .rs-pick-cell {
@@ -942,10 +982,8 @@ body.thumb-dragging * {
 @media (max-width: 540px) {
   /* A sheet at the bottom, as tall as its tallest tab, so its top stays put from tab to tab: the tab
      shown reaches down to its foot. */
-  #readerSettingsModal { padding: 10px calc(10px + var(--page-scrollbar-gap)) 10px 10px; align-items: flex-end; }
-  #readerSettingsBox { max-height: calc(100vh - 20px); }
-  .reader-settings-top { padding: 0 14px 16px; }
-  .rs-panel { align-self: stretch; padding: 0 14px 14px; border-radius: 0 0 6px 6px; }
+  #readerSettingsModal { --rs-gutter: 10px; --rs-pad-x: 14px; align-items: flex-end; }
+  .rs-panel { align-self: stretch; padding-bottom: 14px; border-radius: 0 0 6px 6px; }
   .rs-choices-stack button { font-size: 9.5px; }
 }
 
@@ -966,13 +1004,12 @@ body.thumb-dragging * {
 .pp-title { margin: 0; font-size: 14px; font-weight: 700; }
 .pp-sub { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
 .pp-actions { display: flex; align-items: center; gap: 8px; flex: none; }
-.pp-btn, .pp-close {
+.pp-btn {
   height: 28px; border: 1px solid var(--border); border-radius: 6px; background: transparent;
   color: var(--muted); font-family: inherit; font-size: 11px; line-height: 1; cursor: pointer; transition: border-color .12s, color .12s;
 }
 .pp-btn { padding: 0 10px; }
-.pp-close { width: 28px; font-size: 18px; }
-.pp-btn:hover:not(:disabled), .pp-close:hover { border-color: var(--accent); color: var(--text); }
+.pp-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
 .pp-btn:disabled { opacity: .4; cursor: default; }
 .pp-body { overflow: auto; overscroll-behavior: contain; padding: 0 20px 18px; }
 .pp-note { margin: 8px 0 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
@@ -1146,10 +1183,13 @@ body {
   --sn-left: 12px;
   --sn-right: calc(12px + var(--page-scrollbar-gap));   /* as far from the right as from the top: a fixed box's right edge is already the scrollbar's */
 }
-/* Clear of a progress bar on the same edge, however far it grows. */
-body:has(#bottombar[data-position="top"]) { --sn-top: calc(8px + var(--bar-zone) * var(--zoom-inv)); }
-body:has(#bottombar[data-position="left"]) { --sn-left: calc(8px + var(--bar-zone) * var(--zoom-inv)); }
-body:has(#bottombar[data-position="right"]) { --sn-right: calc(8px + var(--page-scrollbar-gap) + var(--bar-zone) * var(--zoom-inv)); }
+/* Clear of a progress bar on the same edge, however far it grows. The bar's edge is on <body>
+   (data-bar), never read with body:has(#bottombar…): a :has() on <body> that styles what's inside it
+   made every node added to the page (each page image, each translation's text) restyle the whole
+   document, several times a frame during a jump. */
+body[data-bar="top"] { --sn-top: calc(8px + var(--bar-zone) * var(--zoom-inv)); }
+body[data-bar="left"] { --sn-left: calc(8px + var(--bar-zone) * var(--zoom-inv)); }
+body[data-bar="right"] { --sn-right: calc(8px + var(--page-scrollbar-gap) + var(--bar-zone) * var(--zoom-inv)); }
 /* The classic go-to-top button stands on --sn-bottom: the bottom progress bar and an open (or opening)
    thumbnail strip. Zoom, a bottom rail and their hover zones work out their own from --sn-bar (below). */
 body { --sn-bottom: 0px; --sn-bar: 0px; }
@@ -1337,11 +1377,12 @@ body.reader-side-nav.reader-side-hidden .sn-zone { display: block; }
 /* Fit and zoom hide with the controls (html.reader-controls-hidden, set before the first paint by
    reader-init.js): the modern navigation hidden, or the classic header unpinned. They come back while
    the pointer is where they stand, or for as long as the navigation shows: the pointer on the modern
-   one, or the classic header out. */
+   one, or the classic header out. Each :has() asks about its own element or the siblings beside it,
+   never body:has() (see the bar's edge, data-bar). */
 html.reader-controls-hidden #sideZoom { opacity: 0; pointer-events: none; }
-html.reader-controls-hidden body:is(.sn-pop-open, .reader-nav-hover, .reader-nav-auto,
-  :has(#sideNav:hover, #sideNav :focus-visible, #topbar :focus-visible, #snZoneBottom:hover)) #sideZoom,
-html.reader-controls-hidden #sideZoom:is(:hover, :has(:focus-visible)) { opacity: 1; pointer-events: auto; }
+html.reader-controls-hidden body:is(.sn-pop-open, .reader-nav-hover, .reader-nav-auto) #sideZoom,
+html.reader-controls-hidden :is(#sideNav:hover, #sideNav:has(:focus-visible), #topbar:has(:focus-visible)) ~ #sideZoom,
+html.reader-controls-hidden #sideZoom:is(:hover, :has(:focus-visible), :has(~ #snZoneBottom:hover)) { opacity: 1; pointer-events: auto; }
 html.reader-controls-hidden #snZoneBottom { display: block; }
 /* The zones: the pill's corner, a band along the rail out to its edge, and zoom's corner. */
 .sn-zone { position: fixed; pointer-events: auto; }

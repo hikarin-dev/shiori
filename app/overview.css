@@ -216,6 +216,8 @@ body.ch-dragging, body.ch-dragging * { cursor: grabbing !important; user-select:
 .ch-title-open { grid-area: 1 / 1; z-index: 2; border-radius: 5px; cursor: pointer; }
 .ch-title-wrap:has(.ch-title-open:hover) .ch-title-input[readonly] { color: var(--accent); }
 .ch-meta { color: var(--muted); font-size: 10.5px; padding: 1px 5px 0; display: flex; gap: 10px; flex-wrap: wrap; }
+.ch-meta .ch-id { color: inherit; text-decoration: none; }
+.ch-meta .ch-id:hover { color: var(--accent); }
 .ch-meta .done { color: var(--success); }
 .ch-meta .missing, .ov-meta-item.missing { color: var(--danger); }
 .ch-progress { display: none; padding: 3px 5px 0; }
@@ -318,6 +320,9 @@ body.translator-offline .ch-ibtn.translate { display: none; }
 }
 .ov-page:hover { border-color: var(--accent); }
 .ov-page img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* A tile whose copy isn't made yet (or was let go far from view) shows its own ground, never the
+   browser's broken-image glyph: a sized <img> without a source draws one, even with alt="". */
+.ov-page img:not([src]) { visibility: hidden; }
 .ov-page-num {
   position: absolute; left: 4px; bottom: 4px; z-index: 1;
   font-size: 10px; line-height: 1; padding: 2px 5px; border-radius: 4px;

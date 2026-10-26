@@ -108,9 +108,8 @@ test('a folder in the format, dropped as it is, imports like its archive — eac
   ];
   const groups = groupImports([], [{ name: 'Library', entries }]);
   assert.deepEqual(groups.map(g => g.name), ['Dropped.zip', 'Saga.zip', 'Library.zip']);
-  // (The page stages what importBytes gives into a file, which the import engine reads back whole.)
-  const staged = async (group) => { const u = new Uint8Array(await importBytes(group)); return u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength); };
-  for (const [i, gid] of [[0, '1790500000030'], [1, o]]) await importCbzBuffer(gid, await staged(groups[i]), groups[i].name, true);
+  // (A folder's files reach the import engine as they are, as a zip's entries.)
+  for (const [i, gid] of [[0, '1790500000030'], [1, o]]) await importCbzBuffer(gid, await importBytes(groups[i]), groups[i].name, true);
 
   assert.deepEqual(await blobBytes((await api.pages.get('1790500000030', 2)).translated), [...bytes(8, 8)], 'translations come back too');
   assert.equal((await api.meta.get('1790500000030')).title.english, 'Dropped');
@@ -133,8 +132,30 @@ test('a dropped series folder whose member is kept as an archive imports that me
     { file: new File([archived], `${member}.zip`), path: `Shelf/${member}.zip` },
   ];
   const [group] = groupImports([], [{ name: 'Library', entries }]);
-  const u = new Uint8Array(await importBytes(group));
-  await importCbzBuffer(o, u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength), group.name, true);
+  await importCbzBuffer(o, await importBytes(group), group.name, true);
   assert.deepEqual((await api.meta.get(o)).chapters.map(c => c.id), [o, a]);
   assert.deepEqual(await blobBytes((await api.pages.get(a, 1)).blob), [...bytes(1)], 'the archived member\'s pages');
+});
+
+test('a gallery folder dropped again rewrites only what changed: an identical page is left as it is', async () => {
+  const gid = '1790500000050';
+  await gallery(gid, 'Again', [1, 2, 3]);
+  const { name, files } = await exported(gid);
+  await api.galleries.delete(gid);
+  const drop = (list) => groupImports([], [{ name: 'Library', entries: list.map(f => ({ file: new File([f.data], f.name.split('/').pop()), path: `${name}/${f.name}` })) }])[0];
+  await importCbzBuffer(gid, await importBytes(drop(files)), `${name}.zip`, true);
+  const storedAt = async (n) => (await api.pages.get(gid, n)).cachedAt;
+  const before = [await storedAt(1), await storedAt(2), await storedAt(3)];
+
+  // Since: page 2 was translated here, and page 3 was edited in the folder.
+  await api.derived.putTranslation(gid, 2, { image: png(8), pipeline: null });
+  const edited = files.map(f => (/^images\/0*3\.png$/.test(f.name) ? { ...f, data: bytes(33) } : f));
+  await new Promise(r => setTimeout(r, 5));
+  await importCbzBuffer(gid, await importBytes(drop(edited)), `${name}.zip`, true);
+
+  assert.equal(await storedAt(1), before[0], 'the unchanged page is not stored again');
+  assert.notEqual(await storedAt(2), before[1], 'a page holding more than the folder has is replaced, as any import replaces it');
+  assert.equal((await api.pages.get(gid, 2)).translated ?? null, null);
+  assert.deepEqual(await blobBytes((await api.pages.get(gid, 3)).blob), [...bytes(33)], 'the edited page comes in');
+  assert.deepEqual((await api.pages.list(gid)).map(p => p.pageNum), [1, 2, 3]);
 });

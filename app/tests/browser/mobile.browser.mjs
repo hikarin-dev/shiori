@@ -48,7 +48,7 @@ async function phone(t, path, viewport = PHONE) {
 const box = (page, sel) => page.$eval(sel, el => { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; });
 const fitsWidth = (page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
-test('on a phone the library fits its width: the search on a row of its own, two cards to a row, their actions under the number', { skip: !chromePath() }, async t => {
+test('on a phone the library fits its width: the search on a row of its own, two cards to a row', { skip: !chromePath() }, async t => {
   const page = await phone(t, '/library');
   await page.waitForSelector('.card');
   assert.equal(await page.evaluate(() => innerWidth), 390, 'laid out at the phone\'s width');
@@ -58,10 +58,31 @@ test('on a phone the library fits its width: the search on a row of its own, two
   assert.ok(Math.abs(settings.top - brand.top) < 20, 'the logo and the buttons share the first row');
   const cards = await page.$$eval('.card', cs => cs.slice(0, 2).map(c => { const r = c.getBoundingClientRect(); return [r.left, r.top, r.width]; }));
   assert.ok(cards[0][1] === cards[1][1] && cards[0][0] < cards[1][0], 'two cards side by side');
-  const card = await page.$('.card');
-  const [id, actions] = await card.evaluate(c => [c.querySelector('.card-id').getBoundingClientRect(), c.querySelector('.card-actions').getBoundingClientRect()].map(r => ({ top: r.top, bottom: r.bottom, opacity: 1 })));
-  assert.ok(actions.top >= id.bottom - 1, 'the quick actions under the gallery number');
-  assert.equal(await card.evaluate(c => getComputedStyle(c.querySelector('.card-actions')).opacity), '1', 'where nothing hovers, they show');
+});
+
+test('on a touch screen a library card is for opening: no quick actions, and a tap grows nothing; a mouse has both', { skip: !chromePath() }, async t => {
+  const page = await phone(t, '/library');
+  await page.waitForSelector('.card + .card');
+  const hidden = () => page.$$eval('.card', cs => cs.map(c => ['.card-actions', '.card-tag-add', '.card-fav']
+    .map(s => getComputedStyle(c.querySelector(s)).display).join()));
+  assert.ok((await hidden()).every(d => d === 'none,none,none'), `no quick actions, '+' tag or heart: ${await hidden()}`);
+  // A tap on a card's text (not its cover, which opens it) leaves it hovered, as a phone does: it grows nothing.
+  const card = await page.$('.card + .card');
+  const size = () => card.evaluate(c => [c.getBoundingClientRect().height, getComputedStyle(c).marginBottom, c.querySelector('.card-title').getBoundingClientRect().height].join());
+  const before = await size();
+  const meta = await box(page, '.card + .card .card-meta');
+  await page.touchscreen.tap(meta.left + 4, meta.top + meta.height / 2);
+  await new Promise(r => setTimeout(r, 450));
+  assert.equal(await card.evaluate(c => c.matches(':hover')), true, 'the tap left it hovered');
+  assert.equal(await size(), before, 'and it stayed as it was');
+
+  // With a mouse, a hovered card grows and shows its actions.
+  const desk = await phone(t, '/library', { width: 1280, height: 900 });
+  await desk.waitForSelector('.card + .card');
+  await desk.hover('.card + .card .card-meta');
+  await new Promise(r => setTimeout(r, 450));
+  assert.deepEqual(await desk.$eval('.card + .card', c => [getComputedStyle(c.querySelector('.card-actions')).display, getComputedStyle(c.querySelector('.card-actions')).opacity, getComputedStyle(c).marginBottom]),
+    ['flex', '1', '-10000px']);
 });
 
 test('a finger on a cover scrolls the library: it never starts merging galleries; a mouse still does', { skip: !chromePath() }, async t => {
@@ -103,7 +124,7 @@ test("on a phone a chapter's buttons take a line under it, so its title has the 
 test('on a touch screen the library\'s and the overview\'s buttons are big enough for a finger', { skip: !chromePath() }, async t => {
   const page = await phone(t, '/library');
   await page.waitForSelector('.card');
-  const sizes = await page.evaluate(() => ['#settingsBtn', '#safeBtn', '#uploadCbzBtn', '.card-actions .card-btn:not([hidden])'].map(s => {
+  const sizes = await page.evaluate(() => ['#settingsBtn', '#safeBtn', '#uploadCbzBtn'].map(s => {
     const r = document.querySelector(s).getBoundingClientRect();
     return [s, Math.round(r.width), Math.round(r.height)];
   }));
@@ -112,4 +133,26 @@ test('on a touch screen the library\'s and the overview\'s buttons are big enoug
   await ov.waitForSelector('.ch-row .ch-actions .ch-ibtn');
   const btn = await box(ov, '.ch-row .ch-actions .ch-ibtn');
   assert.deepEqual([btn.width, btn.height], [40, 40]);
+});
+
+test('a finger raises no tooltip, and a touch puts one away; a mouse still shows them', { skip: !chromePath() }, async t => {
+  const page = await phone(t, '/library', { width: 600, height: 800, hasTouch: true });
+  await page.waitForSelector('.card');
+  // Any control with a tip will do: the tooltip is one for the whole app.
+  await page.evaluate(() => {
+    const b = document.createElement('button');
+    b.id = 'tipProbe'; b.dataset.tip = 'A tip';
+    Object.assign(b.style, { position: 'fixed', left: '200px', top: '300px', width: '80px', height: '40px', zIndex: 999 });
+    document.body.append(b);
+  });
+  const tipShown = () => page.evaluate(() => { const tip = document.querySelector('.shiori-tip'); return !!tip && getComputedStyle(tip).display !== 'none' && tip.textContent; });
+  await page.touchscreen.tap(240, 320);
+  await new Promise(r => setTimeout(r, 300));
+  assert.equal(await tipShown(), false, 'no tip after a tap');
+  await page.mouse.move(230, 315);
+  await page.mouse.move(240, 320);
+  assert.equal(await tipShown(), 'A tip', 'a mouse over it shows it');
+  await page.touchscreen.tap(100, 600);
+  await new Promise(r => setTimeout(r, 100));
+  assert.equal(await tipShown(), false, 'a touch elsewhere puts it away');
 });

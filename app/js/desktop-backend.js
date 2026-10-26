@@ -30,7 +30,8 @@ const OPS = ['galleriesPage', 'galleriesCount', 'galleryIdsSorted', 'getGallery'
   'putTranslatedPage', 'putTranslatedImage', 'putPageStudy', 'setPagesOwn', 'clearGalleryTranslations',
   'listGalleryStudyRecords', 'putPageData', 'coverGet', 'coverThumbnailGet', 'coverPreviewGet', 'coverThumbnailPut', 'coverPut',
   'sourceIconGet', 'sourceIconsAll', 'sourceIconPut', 'transferIds', 'transferRead', 'transferWrite',
-  'changeRevision', 'changesSince', 'integritySnapshot', 'clearAll', 'archiveGallery', 'diskWrites', 'resetDiskWrites'];
+  'changeRevision', 'changesSince', 'integritySnapshot', 'clearAll', 'archiveGallery', 'diskWrites', 'resetDiskWrites',
+  'runJob', 'stopJob'];
 
 // A unique id. (A page at an address that isn't a secure one — another device reaching the desktop
 // app over its network — has no randomUUID.)
@@ -291,6 +292,9 @@ export const archiveGallery = ownCall('archiveGallery');
 export const diskWrites = ownCall('diskWrites');
 export const resetDiskWrites = ownCall('resetDiskWrites');
 export const getPageBlob = ownCall('getPageBlob');
+// A job handed to the desktop app itself (server.js runJob), which runs it whatever this page does next.
+export const runJob = ownCall('runJob');
+export const stopJob = ownCall('stopJob');
 export function publishFeed(galleryId) { own?.publishFeed(galleryId); }
 export function reading(galleryId) { own?.reading(galleryId); }
 export function onReconnect(cb) { return own ? own.onReconnect(cb) : () => {}; }

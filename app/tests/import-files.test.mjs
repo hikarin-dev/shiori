@@ -93,3 +93,24 @@ test('an archive is handed over as it is, the file itself (never read whole)', a
   const [group] = groupImports([file('a.zip', [7, 8, 9])]);
   assert.equal(await importBytes(group), group.files[0]);
 });
+
+test('a file or folder the browser can\'t open fails only the gallery holding it, before anything is read', async () => {
+  // As Chrome on Windows does for a path of 260 characters or more: listed, but not opened.
+  const cannotOpen = (name) => ({ name, isDirectory: false, file: (ok, no) => setTimeout(() => no(new DOMException('not found', 'NotFoundError'))) });
+  const cannotList = (name) => ({ name, isDirectory: true, createReader: () => ({ readEntries: (ok, no) => setTimeout(() => no(new DOMException('not found', 'NotFoundError'))) }) });
+  const dir = (name, children) => ({ name, isDirectory: true, createReader() { const rest = [...children]; return { readEntries: (ok) => setTimeout(() => ok(rest.splice(0, 2))) }; } });
+  const fileEntry = (f) => ({ name: f.name, isDirectory: false, file: (ok) => ok(f) });
+  const library = dir('Library', [
+    dir('Fine', [fileEntry(file('metadata.json', [123, 125])), dir('images', [fileEntry(file('0001.png'))])]),
+    dir('Too Long', [fileEntry(file('metadata.json', [123, 125])), dir('images', [fileEntry(file('0001.png')), cannotOpen('0002.png')])]),
+    dir('Unlisted', [fileEntry(file('metadata.json', [123, 125])), cannotList('images')]),
+    dir('Loose', [fileEntry(file('1.jpg')), cannotOpen('2.jpg')]),
+  ]);
+  const { files, folders } = await droppedImports({ items: [{ kind: 'file', webkitGetAsEntry: () => library, getAsFile: () => null }] });
+  const groups = groupImports(files, folders);
+  assert.deepEqual(groups.map((g) => [g.name, g.unreadable ?? null]), [
+    ['Fine.zip', null], ['Too Long.zip', ['Too Long/images/0002.png']], ['Unlisted.zip', ['Unlisted/images/']], ['Library.zip', ['Loose/2.jpg']],
+  ]);
+  assert.equal(sortImageEntries(await unzip(await importBytes(groups[0]))).length, 1);
+  for (const g of groups.slice(1)) await assert.rejects(importBytes(g), /could not be opened/);
+});

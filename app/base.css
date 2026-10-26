@@ -1,7 +1,7 @@
 /* base.css — what every page shares, loaded before the page's own stylesheet: the design tokens,
    the reset, UI font and reduced motion, the scrollbars, the study-mode typefaces, and the parts more
-   than one page shows (the header brand, the tooltip, the dialog button, the switch, the (i)
-   info icon, the small context menu).
+   than one page shows (the header brand, the tooltip, the dialog button, the icon button, the switch,
+   the (i) info icon, the small context menu).
    A page stylesheet adds its own parts, and where it overrides a token it says so. */
 
 @import url('../vendor/overlayscrollbars/overlayscrollbars.min.css');
@@ -185,6 +185,32 @@ html.overlay-scroll-target[data-overlayscrollbars-viewport] > body { scrollbar-w
 .brand-text { color: var(--accent); font-size: 15px; font-weight: 700; letter-spacing: -0.3px; white-space: nowrap; }
 .brand-sep { flex-shrink: 0; color: var(--border-strong); font-size: 13px; }
 .brand-page { flex-shrink: 0; color: var(--muted); font-size: 13px; white-space: nowrap; }
+/* The page's name is a menu of the app's pages (page-nav.js), as quiet as the name it replaces: its
+   text and a faint caret, no box until pointed at (dropdown.css then gives it the app's dropdown
+   hover). Open, its list is a small menu of its own under it, as wide as its longest page; where the
+   browser can't style the list (no base-select), its native one opens. */
+.page-nav {
+  height: 26px; margin-left: -5px; padding: 0 6px;
+  font: inherit; font-size: 13px; color: var(--muted); cursor: pointer;
+  background: transparent; border: 1px solid transparent; border-radius: 6px;
+  field-sizing: content;   /* as wide as this page's name (a native one fits its longest option) */
+  --dd-bg: var(--surface); --dd-inset: 10px;
+}
+.page-nav:hover { color: var(--text); }
+@supports (appearance: base-select) {
+  .page-nav { gap: 5px; }
+  .page-nav:open { border-radius: 6px; }
+  .page-nav::picker(select) {
+    width: max-content; min-width: anchor-size(width); margin-top: 4px;
+    border-top-color: var(--dd-line); border-radius: 6px;
+  }
+}
+@supports not (appearance: base-select) {
+  .page-nav {
+    appearance: none; padding-right: 22px;
+    background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237c7c8c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 6px center / 11px;
+  }
+}
 
 /* ── Tooltip (tooltip.js): one line, or a first line with dimmer lines under it; "label  value"
    rows, and a short badge that can open the tip or a row ── */
@@ -227,6 +253,33 @@ html.overlay-scroll-target[data-overlayscrollbars-viewport] > body { scrollbar-w
 .btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .btn:is(.primary, .danger):hover:not(:disabled) { filter: brightness(1.1); }
 .btn:disabled { opacity: .6; cursor: default; }
+
+/* ── Icon button in a dialog's or the toast's corner: the close X, or a link beside it ── */
+.icon-btn {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: none;
+}
+.icon-btn:hover { background: var(--surface-raised); color: var(--text); }
+.icon-btn[hidden] { display: none; }
+.icon-btn > svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 
 /* ── Switch: a hidden checkbox and its track (both class sets are retained for independently
    supplied cards) ── */

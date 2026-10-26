@@ -9,6 +9,7 @@ import { savedLocation, desktopHosted } from './library-location.js';
 import { services } from './services.js';
 import { pollActiveTranslations } from './submit-job.js';
 import { applyTranslations } from './i18n.js';
+import { initPageNav } from './page-nav.js';
 import './app-update.js';
 
 // We reached an app page, so it booted — clear the hard-reload recovery flag that index.html /
@@ -19,6 +20,8 @@ try { sessionStorage.removeItem('shiori-sw-retry'); } catch {}
 // Localize the page's static markup as early as possible (this module is imported first by
 // every page, and runs after the DOM is parsed), so non-English users don't see an English flash.
 applyTranslations(document);
+// The header's page name: a menu of the app's pages (page-nav.js).
+initPageNav();
 
 platform.registerServices(services);
 
@@ -37,6 +40,7 @@ else if (savedLocation() && !capabilities.desktopWindow) import('./desktop-link.
 // chunks (preferring the service worker) on every page load and on a short timer. Short polls keep
 // the worker warm without any single event hitting Chrome's ~5-min cap, so the job survives a
 // navigation, a tab close+reopen, and SW recycling — whichever page is open carries it to the end.
+// The same tick keeps the worker awake while it imports a batch (sw.js holdWhileImporting).
 // Idle backoff: consecutive no-work ticks stretch the interval (two durable getAlls per tick are
 // not free), and any live job signal snaps it back to the fast cadence.
 pollActiveTranslations();

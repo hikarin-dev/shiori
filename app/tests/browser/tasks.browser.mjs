@@ -95,7 +95,11 @@ test('the tasks page lists every running job, a row per job, live, and stops one
 
   // One Stop: the translation, and only it.
   await page.click(`.tk-row[data-key="${G.a}:translate"] .tk-stop`);
-  await until(page, (key) => document.querySelector(`.tk-row[data-key="${key}"]`)?.classList.contains('cancelled'), `${G.a}:translate`, { what: 'the translation cancelled' });
+  await until(page, (key) => document.querySelector(`.tk-row[data-key="${key}"]`)?.classList.contains('cancelled'), `${G.a}:translate`, { what: 'the translation cancelled' })
+    .catch(async (e) => {
+      const row = await page.$eval(`.tk-row[data-key="${G.a}:translate"]`, (r) => ({ cls: r.className, label: r.querySelector('.tk-label').textContent, stopDisabled: r.querySelector('.tk-stop').disabled }));
+      throw new Error(`${e.message} — the row: ${JSON.stringify(row)}`);
+    });
   assert.equal(await page.$eval('#tkCount', (el) => el.textContent), '3');
   assert.equal(await page.$eval(`.tk-row[data-key="${G.a}:download"]`, (el) => el.classList.contains('cancelled')), false);
 

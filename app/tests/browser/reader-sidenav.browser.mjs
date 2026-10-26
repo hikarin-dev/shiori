@@ -182,6 +182,42 @@ test('a single gallery shows its page in the pill, without chapter arrows', { sk
   await until(page, () => document.getElementById('snChLabel').textContent.trim() === '2 / 10', null, { what: 'the pill to follow the page' });
 });
 
+test("a page turn never scrolls into the room a phone's address bar leaves; a tall page still starts at its top", { skip: !chromePath() }, async t => {
+  // A page's view is 100vh tall, on a phone the window without its address bar: with the bar out, the
+  // page has the bar's height to spare. Scrolled into by script, Firefox on Android moved its layout
+  // without the screen and stopped painting the rail's icons and the progress bar. Headless browsers
+  // clamp such a scroll away, so this watches what the reader asks for.
+  const watch = page => page.evaluate(() => {
+    window.__asked = [];
+    const to = window.scrollTo.bind(window);
+    window.scrollTo = (x, y) => { window.__asked.push(typeof x === 'object' ? x.top : y); return to(x, y); };
+  });
+  const asked = page => page.evaluate(() => {
+    const probe = document.body.appendChild(document.createElement('div'));
+    probe.style.cssText = 'position:fixed;height:100vh';
+    const spare = document.documentElement.scrollHeight - probe.getBoundingClientRect().height;
+    probe.remove();
+    return { asked: window.__asked, spare: Math.max(0, Math.floor(spare)) };
+  });
+  for (const mode of ['single', 'double']) {
+    const page = await reader(t, { mode, fit: 'off' });
+    for (let k = 0; k < 7; k++) await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: '-', bubbles: true })));   // well under the window's height
+    await settle(300);
+    await watch(page);
+    for (let k = 0; k < 2; k++) { await page.keyboard.press('ArrowRight'); await settle(300); }
+    const { asked: ys, spare } = await asked(page);
+    assert.ok(ys.length > 0, `${mode}: the turns scrolled to their page`);
+    assert.ok(ys.every(y => y <= spare), `${mode}: asked for ${ys}, with ${spare}px to scroll`);
+  }
+  // A page taller than the window, read down a way: the next one starts at its top.
+  const page = await reader(t, { mode: 'single', fit: 'width' });
+  await page.evaluate(() => window.scrollTo(0, 500));
+  await settle(200);
+  await page.keyboard.press('ArrowRight');
+  await settle(400);
+  assert.equal(await page.evaluate(() => Math.round(document.getElementById('singleInner').getBoundingClientRect().top)), 0, 'the next page at the top of the window');
+});
+
 test('X and a double-click hide the side controls, and the right edge brings them back', { skip: !chromePath() }, async t => {
   const page = await reader(t);
   assert.equal(await page.$('#snPin'), null, 'no pin button: X, N or a double-click hide them');
@@ -235,6 +271,20 @@ test('in single page only a click on the page turns it, and a double-click besid
   await settle();
   assert.equal(await counter(page), 1);
   assert.equal(await page.$eval('body', b => b.classList.contains('reader-side-hidden')), true, 'the double-click beside the page hides the controls');
+});
+
+// The card stands over where the page goes: its click once also reached the page, as a turn.
+test("the transition page's next chapter card lands on that chapter's first page, in single and double page", { skip: !chromePath() }, async t => {
+  for (const mode of ['single', 'double']) {
+    const page = await reader(t, { gallery: SERIES[0], at: 12, mode });
+    await page.keyboard.press('ArrowRight');
+    await page.waitForSelector('body.page-divider #dividerPage .chd-adj.next');
+    const card = await page.$eval('#dividerPage .chd-adj.next', el => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+    await page.mouse.click(card.x, card.y);
+    await until(page, gid => new URLSearchParams(location.search).get('g') === gid, SERIES[1], { what: 'the next chapter' });
+    await settle(300);
+    assert.equal(await counter(page), 1, `${mode}: the card's click turns no page as well`);
+  }
 });
 
 test('double-clicking the pages or the ground beside them selects nothing', { skip: !chromePath() }, async t => {
@@ -1075,6 +1125,36 @@ test('in a narrow window the picker stays inside it, and a click on its button o
   assert.ok(cells.every(([left, right]) => left >= 0 && right <= width), `inside the window: ${JSON.stringify(cells)} of ${width}`);
 });
 
+// The picker once shifted left to stay in a narrow window, off the button it belongs to. Now the button
+// makes the room: it stands in from the right by just what the picker lacks, and only then.
+test('a place button stands in from the right only as far as its picker needs, and the picker opens centred on it', { skip: !chromePath() }, async t => {
+  const page = await reader(t);
+  await openSettings(page, 'display');
+  for (const [width, height, moves] of [[1400, 900, false], [560, 800, false], [540, 800, true], [520, 800, true], [420, 800, true], [360, 700, true], [420, 420, true]]) {
+    await page.setViewport({ width, height });
+    await page.$eval('#readerNavPlace', b => b.scrollIntoView({ block: 'center' }));
+    await settle(100);
+    const at = await page.evaluate(() => {
+      const btn = document.getElementById('readerNavPlace').getBoundingClientRect();
+      return { centre: (btn.left + btn.right) / 2, right: btn.right,
+        edge: document.getElementById('readerSettingsModal').getBoundingClientRect().right,
+        content: document.getElementById('readerNavPlace').closest('.rs-section').getBoundingClientRect().right,
+        all: [...document.querySelectorAll('[data-rs-panel="display"] .rs-pick')].map(b => b.getBoundingClientRect().right) };
+    });
+    const room = at.edge - at.centre, inset = at.content - at.right, size = `${width}×${height}`;
+    assert.equal(inset > 0.01, moves, `${size}: moved in by ${inset}px with ${room}px of room`);
+    if (moves) assert.ok(Math.abs(room - 71) < 0.02, `${size}: just the picker's room, ${room}px`);
+    else assert.ok(room > 71, `${size}: ${room}px of room`);
+    assert.ok(at.all.every(r => r === at.right), `${size}: the place buttons stand in together: ${at.all}`);
+    await page.click('#readerNavPlace');
+    const picker = await page.evaluate(() => ({ x: document.getElementById('rsPicker').getBoundingClientRect().left,
+      cells: [...document.querySelectorAll('#rsPicker .rs-pick-cell')].map(c => { const r = c.getBoundingClientRect(); return [r.left, r.right]; }) }));
+    assert.ok(Math.abs(picker.x - at.centre) < 0.02, `${size}: the picker centred on its button: ${picker.x} against ${at.centre}`);
+    assert.ok(picker.cells.every(([left, right]) => left >= 0 && right <= at.edge), `${size}: inside the window: ${JSON.stringify(picker.cells)}`);
+    await page.keyboard.press('Escape');
+  }
+});
+
 // Their labels' semibold face was only fetched once they showed, and the box grew by 10px when it
 // arrived: on a slow machine, after the first frames.
 test('the reader settings open at their size: nothing in them moves once they show', { skip: !chromePath() }, async t => {
@@ -1229,6 +1309,19 @@ test('on a touch screen the rail, the chapter pill and fit and zoom take the sta
   await page.waitForSelector('body.reader-side-nav');
   assert.equal(await page.evaluate(() => innerWidth), 400, 'laid out at the phone\'s width, not zoomed out from a desktop one');
   assert.deepEqual(await size(page), [44, 44, 44, 44, 44, 44]);
+});
+
+test('on a touch screen neither navigation shows the keyboard shortcuts button; with a mouse both do', { skip: !chromePath() }, async t => {
+  const shown = (page) => page.evaluate(() => ['snKeys', 'keybindBtn'].map(id => getComputedStyle(document.getElementById(id)).display !== 'none'));
+  const page = await reader(t);
+  assert.deepEqual(await shown(page), [true, true], 'with a mouse');
+  await page.setViewport({ width: 390, height: 844, hasTouch: true, isMobile: true });
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForSelector('body.reader-side-nav');
+  assert.deepEqual(await shown(page), [false, false], 'on a touch screen');
+  // The rail closes up: settings sits straight above go-to-top, one gap apart.
+  const settings = await rect(page, '#snSettings'), top = await rect(page, '#snTop');
+  assert.ok(Math.abs(top.top - settings.bottom - 2) < 0.5, `settings, then go-to-top: ${settings.bottom} → ${top.top}`);
 });
 
 test('Tab goes to every settings tab, and Enter shows it', { skip: !chromePath() }, async t => {

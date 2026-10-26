@@ -34,14 +34,15 @@ before(async () => {
 
 after(async () => { await browser?.close(); server?.close(); });
 
-async function reader(t, fit = 'off', { at = 1, pinned = false } = {}) {
+async function reader(t, fit = 'off', { at = 1, pinned = false, thumbs } = {}) {
   const page = await openPage(browser, origin);
   t.after(async () => { await page.close(); assert.deepEqual(page.problems, []); });
-  await page.evaluateOnNewDocument((fit, pinned) => {
+  await page.evaluateOnNewDocument((fit, pinned, thumbs) => {
     localStorage.setItem('shiori:readerFitMode', JSON.stringify(fit));
     localStorage.setItem('shiori:readerPageZoom', JSON.stringify(1));
     localStorage.setItem('shiori-reader-pin', pinned ? '1' : '0');
-  }, fit, pinned);
+    if (thumbs !== undefined) localStorage.setItem('shiori:readerThumbsOpen', JSON.stringify(thumbs));
+  }, fit, pinned, thumbs);
   await page.goto(`${origin}/reader?g=${GALLERY}&page=${at}`, { waitUntil: 'load' });
   await page.waitForFunction(() => document.querySelector('#stripView img[src]')?.naturalWidth > 0);
   return page;
@@ -236,6 +237,64 @@ test('a fast wheel scroll finds every page loaded', { skip: !chromePath() }, asy
   await settled(page);
   const blank = await blankWhileScrolling(page, 10, 2000);
   assert.ok(blank < 0.02, `10 screens a second should stay within loaded pages (${(blank * 100).toFixed(1)}% blank)`);
+});
+
+// A free-spinning wheel runs past 45 screens a second (60 000 px/s on a tall window), faster than the
+// flying cut-off for scrubs: a wheel is read however fast, so its pages are there.
+test('a wheel spun as fast as a free-spinning one finds every page loaded', { skip: !chromePath() }, async t => {
+  const page = await reader(t, 'height', { at: 10, thumbs: false });
+  await settled(page);
+  await page.mouse.move(640, 450);
+  const sampling = page.evaluate(() => new Promise(resolve => {
+    const rows = [...document.querySelectorAll('#stripView .page-wrap')];
+    const y0 = scrollY;
+    let blankPx = 0, allPx = 0;
+    const frame = () => {
+      if (window.__spinDone) { resolve({ blank: blankPx / Math.max(1, allPx), screens: (scrollY - y0) / innerHeight }); return; }
+      const top = scrollY, bottom = scrollY + innerHeight;
+      if (top !== y0) for (const row of rows) {
+        if (row.offsetTop >= bottom || row.offsetTop + row.offsetHeight <= top) continue;
+        const shown = Math.min(bottom, row.offsetTop + row.offsetHeight) - Math.max(top, row.offsetTop);
+        const img = row.querySelector('img');
+        allPx += shown;
+        if (!(img.getAttribute('src') && img.complete && img.naturalWidth)) blankPx += shown;
+      }
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  }));
+  const cdp = await page.createCDPSession();
+  const perSec = 45 * 900, t0 = Date.now();
+  let sent = 0;
+  while (Date.now() - t0 < 1500) {
+    const due = Math.floor((perSec * (Date.now() - t0) / 1000 - sent) / 100) * 100;
+    if (due > 0) { await cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 640, y: 450, deltaX: 0, deltaY: due }); sent += due; }
+    else await new Promise(resolve => setTimeout(resolve, 2));
+  }
+  await new Promise(resolve => setTimeout(resolve, 300));
+  await page.evaluate(() => { window.__spinDone = true; });
+  const { blank, screens } = await sampling;
+  assert.ok(screens > 40, `the wheel should have carried the strip some 60 screens, not ${screens.toFixed(0)}`);
+  assert.ok(blank < 0.05, `a fast wheel's pages should be loaded as they come (${(blank * 100).toFixed(1)}% blank)`);
+});
+
+// Each page that mounts adds nodes to the document (its image's own fallback content, a translation's
+// text). Nothing in the stylesheet may turn that into restyling the whole page: a body:has() styling
+// what's inside <body> did, some 40 times during one jump, each time every element of the page.
+test('a jump restyles only what changed, never the whole page', { skip: !chromePath() }, async t => {
+  // Closed thumbnails: saved open, they would open (and be built) partway through the jump.
+  const page = await reader(t, 'height', { thumbs: false });
+  await settled(page);
+  const elements = await page.evaluate(() => document.getElementsByTagName('*').length);
+  await page.tracing.start({ categories: ['devtools.timeline'] });
+  await shiftKey(page, 'D');
+  await expectPage(page, PAGE_COUNT);
+  await settled(page);
+  const { traceEvents } = JSON.parse(new TextDecoder().decode(await page.tracing.stop()));
+  const restyled = traceEvents.filter(e => e.name === 'UpdateLayoutTree' && e.args?.elementCount).map(e => e.args.elementCount);
+  assert.ok(restyled.length, 'the trace should record the style updates');
+  const most = Math.max(...restyled);
+  assert.ok(most < elements / 2, `one style update restyled ${most} of the page's ${elements} elements`);
 });
 
 // The strip rows holding a page: their page numbers, in order.

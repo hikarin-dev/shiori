@@ -10,6 +10,8 @@ const _el = (tag, cls, text) => {
   return el;
 };
 
+const CLOSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+
 // One toast at a time: a message, an action button and a close button. Returns { close, busy }.
 let _toast = null;
 export function showToast({ text, action, onAction, closeLabel = 'Close' }) {
@@ -18,8 +20,9 @@ export function showToast({ text, action, onAction, closeLabel = 'Close' }) {
   box.setAttribute('role', 'status');
   const button = _el('button', 'btn primary', action);
   button.type = 'button';
-  const close = _el('button', 'notice-close', '×');
+  const close = _el('button', 'icon-btn');
   close.type = 'button';
+  close.innerHTML = CLOSE_ICON;
   close.setAttribute('aria-label', closeLabel);
   box.append(_el('span', 'notice-toast-text', text), button, close);
   const handle = {

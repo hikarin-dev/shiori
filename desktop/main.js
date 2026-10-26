@@ -229,6 +229,12 @@ function openRunner() {
   return Promise.race([runnerReady, new Promise((resolve) => setTimeout(() => resolve(false), 15000))]);
 }
 const runnerContents = () => (runner && !runner.isDestroyed() ? runner.webContents : null);
+// A job a page of the library hands the app (server.js runJob/stopJob: a translation, its polling)
+// runs in the runner — so it goes on whatever that page does next, a site's browser tab included.
+const jobs = {
+  async run(kind, payload) { return (await openRunner()) ? callIn(runnerContents(), 'runner.js', 'runJob', [kind, payload]) : null; },
+  async stop(kind, payload) { return runnerContents() ? callIn(runnerContents(), 'runner.js', 'stopJob', [kind, payload]) : null; },
+};
 
 // ── The app's settings follow its address ──
 // The app keeps its settings in its address's browser storage, and the windows' address is the
@@ -500,9 +506,10 @@ function buildTray() {
 // ── Quitting ──
 // The work running in the app's window (app/js/desktop-shell.js) and in the runner (app/js/runner.js):
 // { count, titles } from each. A page that can't say (still loading, or gone) holds nothing up.
-async function callIn(contents, module, fn) {
+// `args` go as JSON.
+async function callIn(contents, module, fn, args = []) {
   if (!contents || contents.isDestroyed()) return null;
-  const call = contents.executeJavaScript(`import('/app/js/${module}').then((m) => m.${fn}())`, true).catch(() => null);
+  const call = contents.executeJavaScript(`import('/app/js/${module}').then((m) => m.${fn}(...${JSON.stringify(args)}))`, true).catch(() => null);
   return Promise.race([call, new Promise(r => setTimeout(() => r(null), 5000))]);
 }
 const pageCall = (fn) => callIn(mainWindow && windows.get(mainWindow)?.view.webContents, 'desktop-shell.js', fn);
@@ -649,7 +656,7 @@ async function start() {
   }
   token = crypto.randomBytes(24).toString('base64url');
   const ports = settings.port ? [settings.port, ...PORTS.filter(p => p !== settings.port), 0] : [...PORTS, 0];
-  server = await startServer({ library, token, ports, webRoot: UI_ROOT, version: app.getVersion(), origins: [APP_ORIGIN], clients, lan: !!settings.lan });
+  server = await startServer({ library, token, ports, webRoot: UI_ROOT, version: app.getVersion(), origins: [APP_ORIGIN], clients, lan: !!settings.lan, jobs });
   // The address used until 1.0.14, served by the local server (prepareAddress reads it once).
   protocol.handle(APP_SCHEME, async (request) => {
     const url = new URL(request.url);

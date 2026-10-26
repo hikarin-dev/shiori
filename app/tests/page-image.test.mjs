@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import 'fake-indexeddb/auto';
 
 globalThis.BroadcastChannel = class { postMessage() {} close() {} };
-// Canvas stand-ins: record what is drawn, in order (text as `fill <line> @x,y`).
+// Canvas stand-ins: record what is drawn, in order (text as `fill <line> @x,y`, `stroke <line> /width`).
 const drawn = [];
 let pen = null;
 globalThis.createImageBitmap = async (blob) => ({ width: 800, height: 600, blob, close() {} });
@@ -17,7 +17,7 @@ globalThis.OffscreenCanvas = class {
   getContext() {
     return pen = { drawImage: (bitmap) => drawn.push(bitmap.blob),
       measureText: (t) => ({ width: t.length * 10, fontBoundingBoxAscent: 16, fontBoundingBoxDescent: 4 }),
-      fillText: (t, x, y) => drawn.push(`fill ${t} @${x},${y}`), strokeText: (t) => drawn.push(`stroke ${t}`) };
+      fillText: (t, x, y) => drawn.push(`fill ${t} @${x},${y}`), strokeText: (t) => drawn.push(`stroke ${t} /${pen.lineWidth}`) };
   }
   async convertToBlob(opts) { return new Blob([`composed ${this.size}`], { type: opts.type }); }
 };
@@ -80,7 +80,8 @@ test('a page kept as text over its background is typeset as the reader shows it'
   const labels = await Promise.all(drawn.map(d => (typeof d === 'string' ? d : d.text())));
   // The renderer's two lines, kept as drawn though 'Hello there' (110 px) is wider than the 80 px
   // rect at x 200–280; two 23 px lines centred on y 360, each 20 px glyph box centred in its line.
-  assert.deepEqual(labels, ['bg', 'stroke Hello there', 'fill Hello there @240,354.5', 'stroke friend', 'fill friend @240,377.5']);
+  // Both outlines go first, so a line's ring never covers the line before it.
+  assert.deepEqual(labels, ['bg', 'stroke Hello there /4', 'stroke friend /4', 'fill Hello there @240,354.5', 'fill friend @240,377.5']);
   assert.equal(pen.lineWidth, 4, 'the outward ring doubled, as the reader strokes it');
   assert.equal(pen.strokeStyle, 'rgb(255,255,255)');
   assert.equal(pen.fillStyle, 'rgb(0,0,0)');
@@ -88,7 +89,17 @@ test('a page kept as text over its background is typeset as the reader shows it'
   drawn.length = 0;
   rec.bubbles[0].tr = 'Bye';
   await translatedImage(rec);
-  assert.ok(drawn.includes('stroke Bye'), 'a changed translation is composed again');
+  assert.ok(drawn.includes('stroke Bye /4'), 'a changed translation is composed again');
+});
+
+test('a thick outline is stroked again narrower, a tenth of an em apart, all before the text', async () => {
+  drawn.length = 0;
+  await translatedImage({ url: 'K', translatedLayers: true, studyBg: blob('bg'), pipeline: { job: 'j' }, bubbles: [
+    { tr: 'Oh\nno', tbox: { x: 0.25, y: 0.5, w: 0.1, h: 0.2 }, style: { fg: [255, 255, 255], bg: [0, 0, 0], strokeWidth: 5, fontSize: 20 } }] });
+  const labels = await Promise.all(drawn.map(d => (typeof d === 'string' ? d.replace(/ @.*/, '') : d.text())));
+  // A 10 px stroke reaches 5 px out, 2.5 tenths of the 20 px em: three strokes, 10, 6.67 and 3.33 px.
+  assert.deepEqual(labels, ['bg', 'stroke Oh /10', 'stroke no /10', `stroke Oh /${20 / 3}`, `stroke no /${20 / 3}`,
+    `stroke Oh /${10 / 3}`, `stroke no /${10 / 3}`, 'fill Oh', 'fill no']);
 });
 
 test('the page is served back as one image, like a stored translation', async () => {

@@ -2,6 +2,8 @@ import { zipCreate as _zipCreate } from './zip.js';
 import { groupImports, importBytes, isImportable, droppedImports } from './import-files.js';
 import { startImport } from './jobs-runner.js';
 import { handImport } from './submit-job.js';
+import { logImport } from './import-log.js';
+import { importDropped, mountImportTracker } from './import-tracker.js';
 // library.js — the library UI: windowed grid over the database, live job progress, uploads,
 // per-gallery actions. Imports boot.js first so services + the PWA worker are wired.
 
@@ -1269,7 +1271,7 @@ function _clearCardProgress(gid) {
 }
 
 function applyJob(job) {
-  if (!job || job.gid == null) return;
+  if (!job || job.gid == null || job.kind === 'import') return;   // a batch of imports: its tracker's
   const gid = String(job.gid);
   const { status, kind } = job;
   // The job layer publishes label/error keys (it can run in the SW, which has no i18n);
@@ -1422,6 +1424,7 @@ function _markJobInterrupted(job) {
 async function hydrateJobs() {
   const jobs = await platform.jobs.current();
   for (const job of jobs) {
+    if (job.kind === 'import') continue;   // a batch of imports: its tracker's
     // Terminal rows are retained by the registry so a failure with no live listener survives to
     // the next open — paint once, then acknowledge (clear) so it doesn't replay on every load.
     if (job.status === 'error' || job.status === 'cancelled') {
@@ -1815,53 +1818,26 @@ function triggerImport() {
 
 document.getElementById('uploadCbzBtn').addEventListener('click', triggerImport);
 
-async function importSingleFile(group, gid) {
-  // Placeholder card is reserved up front by _handleImportFiles, so just drive progress.
-  const progEl  = document.getElementById(`prog-${gid}`);
-  const labelEl = document.getElementById(`proglabel-${gid}`);
-  const setLabel = (txt) => { if (labelEl) labelEl.textContent = txt; };
-  if (progEl) progEl.closest('.card-body')?.classList.add('downloading');
-
-  // A file that couldn't be read or staged keeps its error on the card (shown only while the card
-  // shows progress) rather than leaving a placeholder that looks idle.
-  setLabel(t('prog.reading_file'));
-  // The desktop app's runner takes it when there is one, so it goes on whatever this window does.
-  if (await handImport({ galleryId: gid, group, skipExisting: true })) return;
-  let buffer;
-  try { buffer = await importBytes(group, (p) => setLabel(t('prog.rendering', p))); }
-  catch { setLabel(t('prog.err_read')); return; }
-
-  setLabel(t('prog.importing_file'));
-  // It reports via platform.jobs (jobs-runner.js startImport); applyJob() updates the card and drops
-  // the placeholder if it produced nothing.
-  if (!await startImport({ galleryId: gid, buffer, filename: group.name, skipExisting: true })) setLabel(t('prog.err_stage'));
-}
-
-async function _handleImportFiles(files, folders = []) {
+// A drop or pick: its backups restored, the rest imported (import-tracker.js importDropped — several
+// titles ask first, then go as one job its tracker shows). `leftOut`: the files that are neither.
+async function _handleImportFiles(files, folders = [], { leftOut = 0 } = {}) {
   // A backup is told by what is in it, whatever it is named (a download left as "… .crdownload"):
   // each one dropped or picked is restored in turn, behind its own progress window.
   const media = [], backups = [];
   for (const file of files) {
     if (isImportable(file)) media.push(file);
     else if (await probeBackup(file)) backups.push(file);
+    else leftOut++;
   }
   if (backups.length) {
     await importBackups(backups);
     await loadAll();
   }
   if (!media.length && !folders.length) return;
-  // Reserve a placeholder card for every gallery up front (drop 3 zips → 3 cards appear
-  // immediately; loose images share one), then upload them one at a time into their reserved ids.
-  const queued = groupImports(media, folders).map((group) => {
-    const gid = api.newGalleryId();   // the shared mint — per-context monotonic, never a raw Date.now()
-    return { group, gid, title: group.name.replace(/\.[^.]+$/, '') };
-  });
-  await Promise.all(queued.map(({ gid, title }) => api.galleries.create(gid, { title: { english: title, japanese: '', pretty: '' }, isLocalImport: true })));
-  await applyFilters();
-  for (const { group, gid } of queued) {
-    await importSingleFile(group, gid);
-  }
+  await importDropped(groupImports(media, folders), { files: media, folders, leftOut });
 }
+
+const _tracker = mountImportTracker(document.getElementById('importTracker'));
 
 // A backup the desktop app was making or restoring when this window was reloaded.
 attachNativeBackup().catch(() => {});
@@ -1887,8 +1863,18 @@ document.addEventListener('drop', async (e) => {
   e.preventDefault();
   _dragDepth = 0;
   document.body.classList.remove('drag-over');
-  const { files, folders } = await droppedImports(e.dataTransfer);
-  _handleImportFiles(files, folders);
+  // Reading a big folder's list takes a while: the tracker says how far it is.
+  const started = Date.now();
+  const name = [...e.dataTransfer.items].map((i) => i.kind === 'file' && i.webkitGetAsEntry?.()?.name).find(Boolean) || '';
+  let shownAt = 0;
+  const { files, folders, leftOut } = await droppedImports(e.dataTransfer, (found) => {
+    if (Date.now() - shownAt < 100) return;
+    shownAt = Date.now();
+    _tracker.listing(name, found);
+  });
+  _tracker.listing(null);
+  if (folders.length) logImport('listed', { folders: folders.length, files: folders.reduce((n, f) => n + f.entries.length, 0), leftOut, ms: Date.now() - started });
+  _handleImportFiles(files, folders, { leftOut });
 });
 
 // ── Per-gallery ZIP export ──

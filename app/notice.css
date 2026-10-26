@@ -21,19 +21,6 @@
   line-height: 1.4;
 }
 .notice-toast-text { min-width: 0; }
-.notice-close {
-  flex: none;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-}
-.notice-close:hover { color: var(--text); }
 
 .notice-overlay {
   position: fixed;
