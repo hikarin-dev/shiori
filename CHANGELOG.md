@@ -1,5 +1,40 @@
 # Changelog
 
+## v1.2.6 — 2026-10-26
+
+### Added
+
+- Dropping several titles at once (a folder of them, or many files) makes one import job. Before anything is written, Shiori says how many titles it found, how big they are and what it can't read or will leave out, and **Import** starts it. A panel under the library's toolbar, and on the tasks page, follows the job: titles done, skipped and failed, its pace and the time left, each title's state, and a note if it goes quiet. Each title's card appears as soon as that title is in.
+- Importing something your library already has skips it, matched by its contents, and a title whose import was cut short carries on from where it stopped. A file that changed since imports as a new title.
+- Imports carry on in the background. In a browser they keep going across pages and reloads, and after the tab that started them closes, as long as any Shiori tab stays open, even one in the background (a drop that includes a PDF still needs its tab). In Shiori Desktop they keep going whatever its windows do. A drop made while another is importing waits its turn and says so; importing a single title or replacing a gallery's images goes ahead between a long job's titles.
+- Every job on the tasks page and in the import panel says where it runs (this tab, another tab, a Shiori Desktop window or its background, the browser's background worker, and so on), and pointing at that tag says what would stop the job.
+- With your library in Shiori Desktop, translations run in Shiori Desktop, whether you start them in its window or in a browser tab using that library: closing the tab or the window doesn't stop them; quitting Shiori Desktop does.
+- The page name in the header is a menu of Shiori's pages: pick one to go there.
+- A chapter's number in the overview opens its source page in a new tab, as a library card's does.
+- The About dialog links to Shiori's GitHub repository.
+
+### Changed
+
+- Importing a very large folder (tens of gigabytes) no longer runs out of memory: pages are read straight from your files and written once.
+- A file Shiori can't read, such as one whose path is too long, fails on its own and is named in the summary, instead of stopping the whole drop.
+- A drop no longer puts placeholder cards in the library; each title's card appears once it's in.
+- Every dialog's close button, and the notice's, is the same X.
+- In study mode, a text's outline sits under the text with rounded corners: a thick outline no longer covers the line above or grows spikes at sharp corners, the inside of small dots and curls stays filled, and find-in-page finds each text once.
+- On a phone or tablet, tapping a library card opens it: the card no longer grows, and its quick buttons are left to the overview. A favourite still shows its heart.
+- The overview's page tiles are prepared ahead, so scrolling through a gallery finds them ready, and a tile not ready yet shows a plain background instead of a broken image.
+- In the reader settings, the header and the tabs stay put while a long tab scrolls.
+- On a phone, the reader's top bar makes room the way the library's does, and on touch screens the keyboard shortcuts button is gone.
+
+### Fixed
+
+- Restoring a backup no longer leaves out a gallery whose re-download was cut short.
+- A tap on a touch screen no longer leaves a tooltip showing.
+- In Firefox on Android, the reader's bottom controls and progress bar no longer disappear after turning a page.
+- Spinning the mouse wheel fast through the scroll strip keeps up: the pages are there as you reach them.
+- The next-chapter button at the end of a chapter opens the next chapter at its first page, not its second.
+- Dragging the progress bar out to the thumbnails no longer flashes an arrow cursor.
+- A download started from a browser tab whose library is in Shiori Desktop no longer shows as stuck on "Contacting download helper…" in pages opened afterwards.
+
 ## v1.2.5 — 2026-10-22
 
 ### Added
