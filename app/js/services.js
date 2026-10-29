@@ -181,6 +181,9 @@ export const services = {
         // A batch of imports (import-batch.js) stops where it runs, after the page it is storing,
         // and says so itself.
         if (kind === 'import') { platform.jobs.signal({ type: 'STOP_IMPORT_BATCH', batch: gid }); return { ok: true }; }
+        // A check of a library folder (folder-scan.js, or the desktop app's) stops where it runs, and
+        // says so.
+        if (kind === 'folder') { platform.jobs.signal({ type: 'STOP_FOLDER_SCAN', folder: gid.replace(/^folder-/, '') }); return { ok: true }; }
         if (kind === 'upload') {
           // Never replayed, and stopped where it runs (jobs-runner.js).
           await platform.jobsPending.remove(`${gid}:upload`);

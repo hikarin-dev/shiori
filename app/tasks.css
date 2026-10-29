@@ -30,6 +30,9 @@
 }
 .tk-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .tk-thumb img:not([src]) { visibility: hidden; }
+/* A library folder's check: the folder's mark in the cover's place, the same size. */
+.tk-thumb.folder { display: grid; place-items: center; color: var(--muted); }
+.tk-thumb.folder svg { width: 24px; height: 24px; }
 
 .tk-body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .tk-head { display: flex; align-items: center; gap: 8px; min-width: 0; }

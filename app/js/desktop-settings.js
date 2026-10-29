@@ -1,19 +1,15 @@
 // desktop-settings.js — Settings → System, shown only in the desktop app's window: closing to the
-// tray, the library folder (open, change, check again, when and how galleries left alone are
-// archived), the local
-// server's port, whether other devices on the network may open the library, and the sites allowed
-// to use it, browser extensions to run in the windows,
+// tray, the local server's port, whether other devices on the network may open the library, and the
+// sites allowed to use it, browser extensions to run in the windows,
 // updates (and developer mode, which takes them from builds made on this computer), and the app's
 // version and data folder. Each setting is
 // the desktop app's own, read and changed through the window's bridge to it (`shioriDesktop.shell`).
+// The library's folders (and archiving) are in Settings → Storage (library-folders.js).
 import { t, applyTranslations } from './i18n.js';
 import { confirmDialog } from './notice.js';
 
 const shell = (action, ...args) => globalThis.shioriDesktop.shell(action, ...args);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-
-// How long a gallery is left alone before it is archived (main.js ARCHIVE_AFTER).
-const ARCHIVE_AFTER = { never: 'set.desk_archive_never', day: 'set.desk_archive_day', week: 'set.desk_archive_week', month: 'set.desk_archive_month' };
 
 const SWITCH = (id, label) => `
   <label class="switch-control" for="${id}">
@@ -30,39 +26,6 @@ function markup() {
         <div class="field-label" data-i18n="set.desk_tray"></div>
         <div class="field-desc" data-i18n="set.desk_tray_desc"></div>
         ${SWITCH('deskTray', 'set.desk_tray')}
-      </div>
-    </div>
-  </div>
-  <div class="section">
-    <div class="section-header"><h2 class="section-title" data-i18n="set.desk_folder"></h2></div>
-    <div class="section-body">
-      <div class="toggle-row">
-        <div class="toggle-info">
-          <div class="toggle-name"><code id="deskFolderPath"></code></div>
-          <div class="toggle-desc" data-i18n="set.desk_folder_desc"></div>
-        </div>
-        <span class="desk-actions">
-          <button class="btn-mini" id="deskOpenFolder" type="button" data-i18n="set.desk_open"></button>
-          <button class="btn-mini" id="deskChangeFolder" type="button" data-i18n="set.desk_change"></button>
-        </span>
-      </div>
-      <div class="toggle-row">
-        <div class="toggle-info">
-          <div class="toggle-name" data-i18n="set.desk_rescan"></div>
-          <div class="toggle-desc" data-i18n="set.desk_rescan_desc"></div>
-        </div>
-        <button class="btn-mini" id="deskRescan" type="button" data-i18n="set.desk_rescan_btn"></button>
-      </div>
-      <div class="status-msg hidden" id="deskFolderStatus" role="status" aria-live="polite"></div>
-      <div class="field">
-        <label class="field-label" for="deskArchiveAfter" data-i18n="set.desk_archive"></label>
-        <div class="field-desc" data-i18n="set.desk_archive_desc"></div>
-        <select class="field-input" id="deskArchiveAfter"></select>
-      </div>
-      <div class="field">
-        <label class="field-label" for="deskArchiveFormat" data-i18n="set.desk_archive_format"></label>
-        <div class="field-desc" data-i18n="set.desk_archive_format_desc"></div>
-        <select class="field-input" id="deskArchiveFormat"></select>
       </div>
     </div>
   </div>
@@ -140,15 +103,6 @@ function markup() {
   </div>`;
 }
 
-function status(text, type = 'ok') {
-  const el = document.getElementById('deskFolderStatus');
-  el.textContent = text;
-  el.classList.remove('hidden', 'ok', 'err');
-  el.classList.add(type);
-  clearTimeout(el._t);
-  el._t = setTimeout(() => { el.classList.add('hidden'); el.textContent = ''; }, 6000);
-}
-
 // The tab and its panel, before Storage.
 export async function initDesktopSettings() {
   const nav = document.getElementById('settingsNav');
@@ -173,11 +127,6 @@ export async function initDesktopSettings() {
   let state = await shell('state');
   const render = () => {
     $('deskTray').checked = state.closeToTray;
-    $('deskFolderPath').textContent = state.libraryDir;
-    $('deskArchiveAfter').innerHTML = Object.entries(ARCHIVE_AFTER).map(([v, key]) =>
-      `<option value="${v}"${v === state.archiveAfter ? ' selected' : ''}>${esc(t(key))}</option>`).join('');
-    $('deskArchiveFormat').innerHTML = ['zip', 'cbz'].map(v =>
-      `<option value="${v}"${v === state.archiveFormat ? ' selected' : ''}>${esc(t(`set.lib_export_${v}`))}</option>`).join('');
     $('deskServerUrl').textContent = state.url;
     $('deskPortDesc').textContent = t('set.desk_port_desc', { port: state.ports[0] });
     $('deskPort').innerHTML = [0, ...state.ports].map(p =>
@@ -234,8 +183,6 @@ export async function initDesktopSettings() {
   const set = async (key, value) => { state = await shell('set', key, value); render(); };
 
   $('deskTray').addEventListener('change', (e) => set('closeToTray', e.target.checked));
-  $('deskArchiveAfter').addEventListener('change', (e) => set('archiveAfter', e.target.value));
-  $('deskArchiveFormat').addEventListener('change', (e) => set('archiveFormat', e.target.value));
   $('deskPort').addEventListener('change', async (e) => {
     await set('port', Number(e.target.value));
     restart(t('set.desk_restart_port'));
@@ -258,26 +205,5 @@ export async function initDesktopSettings() {
     const site = e.target.closest?.('[data-forget]')?.dataset.forget;
     if (site) { state = await shell('forgetSite', site); render(); }
   });
-  $('deskOpenFolder').addEventListener('click', () => shell('openLibraryFolder'));
   $('deskOpenData').addEventListener('click', () => shell('openDataFolder'));
-  $('deskChangeFolder').addEventListener('click', async () => {
-    const chosen = await shell('chooseLibraryFolder');
-    if (!chosen) return;
-    state = await shell('state');
-    render();
-    restart(t('set.desk_restart_folder', { path: chosen }));
-  });
-  $('deskRescan').addEventListener('click', async (e) => {
-    e.target.disabled = true;
-    try {
-      const r = await shell('rescan');
-      const lines = [['set.desk_scan_added', r.added], ['set.desk_scan_moved', r.moved], ['set.desk_scan_missing', r.missing], ['set.desk_scan_back', r.found]]
-        .filter(([, n]) => n).map(([key, n]) => t(key, { n }));
-      status(lines.length ? lines.join(' · ') : t('set.desk_scan_none'));
-    } catch (err) {
-      status(String(err?.message || err), 'err');
-    } finally {
-      e.target.disabled = false;
-    }
-  });
 }

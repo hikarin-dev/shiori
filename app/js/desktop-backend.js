@@ -31,7 +31,7 @@ const OPS = ['galleriesPage', 'galleriesCount', 'galleryIdsSorted', 'getGallery'
   'listGalleryStudyRecords', 'putPageData', 'coverGet', 'coverThumbnailGet', 'coverPreviewGet', 'coverThumbnailPut', 'coverPut',
   'sourceIconGet', 'sourceIconsAll', 'sourceIconPut', 'transferIds', 'transferRead', 'transferWrite',
   'changeRevision', 'changesSince', 'integritySnapshot', 'clearAll', 'archiveGallery', 'diskWrites', 'resetDiskWrites',
-  'runJob', 'stopJob'];
+  'runJob', 'stopJob', 'foldersList', 'folderAdd', 'folderRemove', 'folderSetDefault', 'folderHide', 'folderShow', 'folderClaim', 'folderScan', 'moveGallery', 'pdfsWaiting', 'pdfSource', 'addRendered'];
 
 // A unique id. (A page at an address that isn't a secure one — another device reaching the desktop
 // app over its network — has no randomUUID.)
@@ -155,7 +155,9 @@ export function createClient(config, { announce = false, partBytes = PART_BYTES 
     if (!p) return;
     pending.delete(msg.id);
     if (msg.ok) p.resolve(msg.result);
-    else p.reject(new BackendError(msg.error?.code || 'aborted', msg.error?.message || 'the desktop library refused'));
+    else p.reject(Object.assign(new BackendError(msg.error?.code || 'aborted', msg.error?.message || 'the desktop library refused'),
+      msg.error?.reason ? { reason: msg.error.reason } : {}, msg.error?.owner ? { owner: msg.error.owner } : {},
+      msg.error?.galleries != null ? { galleries: msg.error.galleries } : {}));
   }
 
   async function call(op, ...args) {
@@ -292,6 +294,21 @@ export const archiveGallery = ownCall('archiveGallery');
 export const diskWrites = ownCall('diskWrites');
 export const resetDiskWrites = ownCall('resetDiskWrites');
 export const getPageBlob = ownCall('getPageBlob');
+// The library's folders (the desktop app keeps it in one or several: server/library.js).
+export const foldersList = ownCall('foldersList');
+export const folderAdd = (dir, opts = {}) => ownCall('folderAdd')(dir, opts);
+export const folderClaim = ownCall('folderClaim');
+export const pdfsWaiting = ownCall('pdfsWaiting');
+export const pdfSource = ownCall('pdfSource');
+export const addRendered = ownCall('addRendered');
+export const folderRemove = (id, opts = {}) => ownCall('folderRemove')(id, opts);
+export const folderSetDefault = ownCall('folderSetDefault');
+export const folderHide = ownCall('folderHide');
+export const folderShow = ownCall('folderShow');
+// The app checks it as a job of its own (no progress handed back here).
+export const folderScan = (id) => ownCall('folderScan')(id);
+// The app moves it and answers once it has (no progress on the way).
+export const moveGallery = (gid, to, { series = true } = {}) => ownCall('moveGallery')(gid, to, { series });
 // A job handed to the desktop app itself (server.js runJob), which runs it whatever this page does next.
 export const runJob = ownCall('runJob');
 export const stopJob = ownCall('stopJob');

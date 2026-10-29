@@ -705,6 +705,93 @@ textarea.field-input { min-height: 82px; }
 .toggle-desc code { overflow-wrap: anywhere; }
 .toggle-name code { overflow-wrap: anywhere; font-weight: 600; }
 .desk-actions { display: inline-flex; gap: 8px; }
+/* Library storage: where the library is (a site's choice between this browser and Shiori Desktop,
+   a .field with a .choice-toggle), then its places, each a box of its own in a list, and "Add folder"
+   under them. A header's icon button sits at its right end, as a status pill does. */
+.section-header > .icon-btn { margin-left: auto; margin-block: -6px -5px; }
+.lf-loc-row {
+  padding: 0 20px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+#lfLocation:not(:empty) + .lf-folders { border-top: 1px solid var(--border); }
+.lf-folders { padding: 16px 20px 18px; display: grid; gap: 10px; }
+.lf-head { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
+.lf-head-title { color: var(--text); font-size: 12px; font-weight: 600; }
+.lf-head-hint { color: var(--muted); font-size: 11px; }
+.lf-list { display: grid; gap: 8px; }
+.lf-item {
+  min-width: 0;
+  padding: 11px 10px 11px 12px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.lf-icon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--muted);
+}
+.lf-icon > svg { width: 16px; height: 16px; }
+.lf-main { min-width: 0; display: grid; gap: 3px; }
+.lf-name { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--text); font-size: 12.5px; font-weight: 600; line-height: 1.4; }
+.lf-title { min-width: 0; overflow-wrap: anywhere; }
+.lf-meta { min-width: 0; color: var(--muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.lf-meta code { color: var(--text); font-size: 10.5px; }
+/* A hidden place reads as set aside: its name and location in the muted tone. */
+.lf-item.is-hidden :is(.lf-title, .lf-meta code) { color: var(--muted); }
+.lf-job { min-width: 0; margin-top: 3px; display: grid; grid-template-columns: minmax(60px, 180px) minmax(0, 1fr); align-items: center; gap: 10px; }
+.lf-job-text { min-width: 0; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-bar { height: 3px; overflow: hidden; background: var(--border); border-radius: 2px; }
+.lf-bar > span { display: block; width: 0; height: 100%; background: var(--accent2); border-radius: 2px; transition: width .25s; }
+.lf-bar.indeterminate > span {
+  width: 35%;
+  transition: none;
+  background: linear-gradient(90deg, transparent, var(--accent2), transparent);
+  animation: lf-sweep 1.2s linear infinite;
+}
+@keyframes lf-sweep { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+.lf-actions { display: flex; align-items: center; gap: 4px; }
+.lf-more[aria-expanded="true"] { background: var(--surface-raised); color: var(--text); }
+.lf-add {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+}
+.lf-add:hover { background: var(--surface-subtle); border-color: var(--accent); color: var(--text); }
+.lf-add > svg { width: 14px; height: 14px; }
+.lf-note { color: var(--muted); font-size: 11px; line-height: 1.5; }
+/* Its menu (base.css .ctx-menu): a line before what deletes, which is red. */
+.lf-menu { z-index: 900; min-width: 170px; }
+.lf-menu-sep { height: 1px; margin: 4px 2px; background: var(--border); }
+.lf-menu .ctx-menu-item.danger { color: var(--danger); }
+@media (prefers-reduced-motion: reduce) { .lf-bar.indeterminate > span { animation: none; } }
 
 .actions-row {
   width: 100%;
@@ -1186,6 +1273,10 @@ textarea.field-input { min-height: 82px; }
   }
 
   .toggle-row > :is(button, label.btn-save) { width: 100%; }
+  .lf-folders { padding: 14px 15px 16px; }
+  .lf-loc-row { padding: 0 15px 12px; }
+  .lf-job { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .lf-job-text { white-space: normal; }
   .writes-count { justify-self: start; }
 }
 

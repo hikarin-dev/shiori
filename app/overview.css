@@ -79,6 +79,7 @@
   font-family: inherit; font-size: 12px; padding: 8px 14px; border-radius: 6px; cursor: pointer;
   text-decoration: none; transition: border-color .12s, background .12s, filter .12s;
 }
+.ov-btn[hidden] { display: none; }
 .ov-btn:hover { border-color: var(--accent); }
 .ov-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 .ov-btn.primary:hover { filter: brightness(1.08); }

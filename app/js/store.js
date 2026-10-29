@@ -139,4 +139,7 @@ events.watch((changed, beacon) => {
     if (!_subs.has(gid) && !_subs.has('*') && !_cache.has(gid)) continue;
     load(gid).then(() => _emit(gid)).catch(() => _emit(gid));
   }
+  // Too much changed to list (a folder's galleries set aside or brought back, a resync): those
+  // watching every gallery hear '*', to read what they show again (galleries may have come or gone).
+  if (changed === '*') for (const cb of [...(_subs.get('*') || [])]) { try { cb('*'); } catch {} }
 });

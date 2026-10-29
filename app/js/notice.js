@@ -217,7 +217,7 @@ const _ICONS = {
 };
 let _dialogSeq = 0;
 
-function _dialog({ title, body, detail, cover, tone, input, form, ok, cancel }) {
+function _dialog({ title, body, detail, cover, tone, input, form, toggle, ok, cancel }) {
   return new Promise((resolve) => {
     const id = `notice-dlg-${++_dialogSeq}`;
     const overlay = _el('div', 'notice-overlay');
@@ -236,8 +236,9 @@ function _dialog({ title, body, detail, cover, tone, input, form, ok, cancel }) 
     heading.id = `${id}-t`;
     head.append(heading);
     modal.append(head);
+    let said = null;
     if (body) {
-      const text = _el('p', null, body);
+      const text = said = _el('p', null, body);
       text.id = `${id}-b`;
       modal.setAttribute('aria-describedby', text.id);
       modal.append(text);
@@ -316,6 +317,43 @@ function _dialog({ title, body, detail, cover, tone, input, form, ok, cancel }) 
       }
       syncChecks();
     }
+    // A switch (with a choice beside it, used while it is on). Turning it on, or changing the choice
+    // while it is on, asks `toggle.confirm(choice)` first; the dialog takes no keys meanwhile.
+    let toggled = false, option = toggle?.value, paused = false;
+    if (toggle) {
+      const row = _el('div', 'notice-toggle');
+      const sw = _el('label', 'switch-control');
+      const box = _el('input');
+      box.type = 'checkbox';
+      box.setAttribute('role', 'switch');
+      box.setAttribute('aria-label', toggle.label);
+      sw.append(box, _el('span', 'switch-track'));
+      const text = _el('span', 'notice-toggle-text', toggle.label);
+      text.addEventListener('click', () => box.click());
+      row.append(sw, text);
+      let select = null;
+      if (toggle.options?.length) {
+        select = _el('select', 'field-input notice-select');
+        for (const o of toggle.options) { const opt = _el('option', null, o.label); opt.value = o.value; select.append(opt); }
+        select.value = option;
+        select.disabled = true;
+        select.setAttribute('aria-label', toggle.label);
+        row.append(select);
+      }
+      const confirmed = async () => { paused = true; try { return (await toggle.confirm?.(option)) !== false; } finally { paused = false; } };
+      box.addEventListener('change', async () => {
+        if (box.checked && !(await confirmed())) box.checked = false;
+        toggled = box.checked;
+        if (select) select.disabled = !toggled;
+        if (said && toggle.bodyOn) said.textContent = toggled ? toggle.bodyOn : body;
+      });
+      select?.addEventListener('change', async () => {
+        const before = option;
+        option = select.value;
+        if (toggled && !(await confirmed())) { option = before; select.value = before; }
+      });
+      modal.append(row);
+    }
     const actions = _el('div', 'notice-actions');
     const no = cancel ? _el('button', 'btn', cancel) : null;
     const yes = _el('button', `btn ${tone === 'danger' ? 'danger' : 'primary'}`, ok || t('common.ok'));
@@ -332,13 +370,15 @@ function _dialog({ title, body, detail, cover, tone, input, form, ok, cancel }) 
       resolve(answer);
     };
     const accept = () => finish(field ? field.value.trim()
-      : form ? { value: picked, checks: Object.fromEntries(checks.map(c => [c.check.name, c.box.checked])) } : true);
-    const dismiss = () => finish(field || form ? null : (cancel ? false : undefined));
+      : form ? { value: picked, checks: Object.fromEntries(checks.map(c => [c.check.name, c.box.checked])) }
+      : toggle ? { toggle: toggled, option } : true);
+    const dismiss = () => finish(field || form || toggle ? null : (cancel ? false : undefined));
     const onKey = (e) => {
+      if (paused) return;   // a question asked from inside it is open
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); dismiss(); return; }
       if (e.key === 'Enter' && e.target === field) { e.preventDefault(); e.stopPropagation(); accept(); return; }
       if (e.key === 'Tab') {
-        const stops = [...modal.querySelectorAll('input, button')];
+        const stops = [...modal.querySelectorAll('input, button, select:not(:disabled)')];
         const i = stops.indexOf(document.activeElement);
         e.preventDefault();
         stops[(i + (e.shiftKey ? -1 : 1) + stops.length) % stops.length].focus();
@@ -347,7 +387,7 @@ function _dialog({ title, body, detail, cover, tone, input, form, ok, cancel }) 
     document.addEventListener('keydown', onKey, true);
     yes.addEventListener('click', accept);
     no?.addEventListener('click', dismiss);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(); });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay && !paused) dismiss(); });
 
     if (field) { field.focus(); field.select(); } else (tone === 'danger' && no ? no : yes).focus();
   });
@@ -367,3 +407,8 @@ export const promptDialog = ({ title, body, detail, cover, value = '', placehold
 // checked } }, or null when cancelled.
 export const choiceDialog = ({ title, body, detail, cover, choices, value, checks = [], ok, cancel }) =>
   _dialog({ title, body, detail, cover, form: { choices, value: value ?? choices[0]?.value, checks }, ok, cancel: cancel || t('common.cancel') });
+// A question with a switch: `toggle` { label, options ({ value, label }), value, confirm(option) —
+// asked when it is turned on, false keeps it off — and bodyOn: what the question says while it is
+// on }. Resolves { toggle, option }, or null when cancelled. `danger` paints OK red.
+export const toggleDialog = ({ title, body, toggle, ok, cancel, danger = false }) =>
+  _dialog({ title, body, toggle, tone: danger ? 'danger' : null, ok, cancel: cancel || t('common.cancel') });

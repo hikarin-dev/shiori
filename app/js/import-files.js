@@ -245,6 +245,12 @@ const DEFAULT_LONG = 2048, MIN_LONG = 1024, MAX_LONG = 5000;
 // Lossless (WebP at quality 1): a drawn page is stored exactly as drawn, never degraded further.
 const PAGE_FORMAT = { type: 'image/webp', quality: 1, ext: 'webp' };
 
+// A PDF's pages drawn as the import draws them (a page only): Blobs in order. `onProgress({ done,
+// total })` as they are drawn. A library folder's PDF is drawn this way once, into its overlay.
+export async function renderPdfPages(file, onProgress = () => {}) {
+  return (await _renderPdf(file, onProgress)).map(p => new Blob([p.data], { type: PAGE_FORMAT.type }));
+}
+
 async function _renderPdf(file, onProgress) {
   const pdfjs = await import(`${PDFJS}pdf.min.mjs`);
   pdfjs.GlobalWorkerOptions.workerSrc = `${PDFJS}pdf.worker.min.mjs`;

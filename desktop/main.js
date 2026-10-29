@@ -322,7 +322,7 @@ ipcMain.on('shiori:lang', (event, value) => {
   useLanguage(value);
 });
 
-// ── Settings → System ──
+// ── Settings → System (and the library folders' card in Settings → Storage) ──
 function shellState() {
   const settings = readSettings();
   return {
@@ -361,18 +361,14 @@ ipcMain.handle('shiori:shell', async (event, action, args = []) => {
       }
       else throw new Error(`no setting ${key}`);
       return shellState();
-    case 'openLibraryFolder': await shell.openPath(libraryDir); return true;
+    // One of the library's folders (its path; the first one when none is named).
+    case 'openLibraryFolder': await shell.openPath(typeof key === 'string' && [...library.roots.values()].includes(key) ? key : libraryDir); return true;
     case 'openDataFolder': await shell.openPath(dataDir); return true;
-    case 'chooseLibraryFolder': {
-      const current = libraryDirOf(readSettings());
-      const chosen = await pickFolder(current, windowOf(event.sender) || mainWindow);
-      if (!chosen || chosen === current) return null;
-      writeSettings({ libraryDir: chosen });
-      return chosen;
-    }
+    // A folder to add to the library (Settings → Storage hands it to the library: folderAdd), or null.
+    case 'pickLibraryFolder': return pickFolder(undefined, windowOf(event.sender) || mainWindow, t('add_folder'));
     case 'rescan': {
       const r = await library.rescan();
-      return { added: r.added.length, moved: r.moved.length, missing: r.missing.length, found: r.found.length };
+      return { added: r.added.length, moved: r.moved.length, missing: r.missing.length, found: r.found.length, updated: r.updated.length };
     }
     case 'forgetSite': {
       const sites = { ...sitesOf() };
@@ -634,7 +630,7 @@ async function start() {
     try {
       fs.mkdirSync(libraryDir, { recursive: true });
       dataDir = dataDirOf(libraryDir);
-      library = await new Library({ dataDir, libraryDir, remove: removeOutright,
+      library = await new Library({ dataDir, libraryDir, remove: removeOutright, hide,
         archiveAfter: ARCHIVE_AFTER[archiveAfterOf(settings)], archiveFormat: archiveFormatOf(settings) }).open();
       hide(path.join(libraryDir, '.shiori'));
       backups = new BackupJobs(library, { onPartial: (file) => writeSettings({ backupPartial: file || undefined }) });
@@ -676,7 +672,7 @@ async function start() {
   const first = process.argv.find(a => a.startsWith('shiori://'));
   if (first) openLink(first);
   // A library folder opened for the first time: the galleries already in it join the library. It is
-  // otherwise walked only when asked (Settings → System); files are opened when they are needed.
+  // otherwise walked only when asked (Settings → Storage); files are opened when they are needed.
   if (library.indexEmpty()) library.rescan().catch((e) => console.warn('[shiori] rescan failed:', e));
   checkForUpdates({ notify: true });
 }

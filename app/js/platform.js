@@ -173,6 +173,7 @@ const _jobsHub = makeChannelHub('shiori-jobs');
 // at most every few seconds; every other status is saved as it happens.
 const PROGRESS_SAVE_EVERY = 5000;
 const _progressSavedAt = new Map();   // job key → when its progress row was last saved
+const _receiving = new Map();         // job key → the status from elsewhere being saved and heard now
 // Keeps `job`'s registry row as the job now stands.
 async function _saveJob(job) {
   const key = _jobKey(job);
@@ -212,9 +213,15 @@ export const jobs = {
   // registry of its own origin; this one's is kept here, as a local status would be, or a row this
   // origin wrote (a download's hand-off to its helper) would outlast the job and show again on every
   // page opened next. Saved first, so it is heard after any status published here before it.
+  // One job's statuses are heard in the order they came: a progress that isn't saved (it is, at most
+  // every few seconds) waits for the status before it, whose save may take longer.
   async receive(event) {
-    if (event?.gid != null && event.status) await _saveJob(event);
-    _jobsHub.receive(event);
+    if (event?.gid == null || !event.status) { _jobsHub.receive(event); return; }
+    const key = _jobKey(event);
+    const run = (_receiving.get(key) || Promise.resolve()).then(() => _saveJob(event)).then(() => _jobsHub.receive(event));
+    _receiving.set(key, run);
+    run.finally(() => { if (_receiving.get(key) === run) _receiving.delete(key); });
+    return run;
   },
   // Drop a registry row without broadcasting — for clearing orphaned rows whose runner died.
   async clear(gid, kind) {
@@ -227,9 +234,10 @@ export const jobs = {
       });
     } catch {}
   },
-  // Whether this app's service worker is importing a batch now (import-batch.js says so every 5 s).
+  // Whether this app's service worker is importing a batch, or checking a library folder, now (each
+  // says so every 5 s: import-batch.js, folder-scan.js).
   async workerImporting() {
-    return (await jobs.current()).some((j) => j.kind === 'import' && j.status === 'progress'
+    return (await jobs.current()).some((j) => (j.kind === 'import' || j.kind === 'folder') && j.status === 'progress'
       && j.runner?.kind === 'service-worker' && Date.now() - (j.at || 0) < 20000);
   },
   async current() {

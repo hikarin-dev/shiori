@@ -575,9 +575,10 @@ function buildCard(g) {
       // A merged series card removes every chapter (its children never get their own card).
       if (showAsSeries) {
         const n = formatCount(g.chapterCount);
+        // A linked gallery (files Shiori didn't make) leaves the library; its files stay.
         if (!e.shiftKey && !(await confirmDialog({
-          title: t('dlg.del_series_title'), body: t('dlg.del_series_body', { n }),
-          detail: _seriesDetail(g), cover: _cardCover(card), ok: t('dlg.del_series_ok', { n }), danger: true,
+          title: t(g.linked ? 'dlg.del_linked_title' : 'dlg.del_series_title'), body: g.linked ? t('dlg.del_linked_body') : t('dlg.del_series_body', { n }),
+          detail: _seriesDetail(g), cover: _cardCover(card), ok: g.linked ? t('dlg.del_linked_ok') : t('dlg.del_series_ok', { n }), danger: true,
         }))) return;
         await sendMsg({ type: 'DELETE_SERIES', galleryId: g.id });
         applyFilters();
@@ -585,8 +586,8 @@ function buildCard(g) {
         return;
       }
       if (!e.shiftKey && !(await confirmDialog({
-        title: t('dlg.del_gallery_title'), body: t('dlg.del_gallery_body'),
-        detail: _galleryDetail(g), cover: _cardCover(card), ok: t('dlg.delete'), danger: true,
+        title: t(g.linked ? 'dlg.del_linked_title' : 'dlg.del_gallery_title'), body: t(g.linked ? 'dlg.del_linked_body' : 'dlg.del_gallery_body'),
+        detail: _galleryDetail(g), cover: _cardCover(card), ok: t(g.linked ? 'dlg.del_linked_ok' : 'dlg.delete'), danger: true,
       }))) return;
       // In the unmerged view a card may still belong to a series (an owner shown plainly, or a
       // chapter). Go through the series-aware path so removing it re-owns/detaches instead of
@@ -2261,6 +2262,8 @@ document.addEventListener('click', (e) => {
 // in place (or reload it when membership/order changes), so the view stays live and in lockstep
 // with the DB, across tabs and contexts, without ever loading the whole library.
 store.subscribe('*', (gid) => {
+  // Much changed at once (a folder's galleries set aside or brought back): the page read again, once.
+  if (gid === '*') { _scheduleHeaderStats(); _scheduleReloadPage(); return; }
   const entity = store.get(gid);
   _scheduleHeaderStats();
   const idx = _pageItems.findIndex(g => g.id === gid);

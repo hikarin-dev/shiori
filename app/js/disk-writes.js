@@ -133,13 +133,15 @@ if (typeof Cache !== 'undefined') {
 }
 
 // ── Files written through the File System Access API ──────────────────────────────────────────
-// An import's staging copy in OPFS.
+// An import's staging copy in OPFS, and the galleries kept in a library folder (folder-files.js
+// marks its writes).
 if (typeof FileSystemWritableFileStream !== 'undefined') {
   const write = FileSystemWritableFileStream.prototype.write;
   FileSystemWritableFileStream.prototype.write = function (data) {
     const params = data && typeof data === 'object' && 'type' in data && !(data instanceof Blob);
     const bytes = params ? (data.type === 'write' ? valueBytes(data.data) : 0) : valueBytes(data);
-    return write.apply(this, arguments).then((result) => { _add('staging', bytes); return result; });
+    const kind = this.__shioriKind || 'staging';
+    return write.apply(this, arguments).then((result) => { _add(kind, bytes); return result; });
   };
 }
 

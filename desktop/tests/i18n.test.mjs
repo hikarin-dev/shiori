@@ -35,7 +35,8 @@ test('the system\'s languages are matched as the app matches them', () => {
 test('every desktop string is still used somewhere', () => {
   const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
   const main = read('../main.js');
-  const settings = read('../../app/js/desktop-settings.js');
+  // Settings → System, and the library folders' card in Settings → Storage (archiving, checking them).
+  const settings = read('../../app/js/desktop-settings.js') + read('../../app/js/library-folders.js');
   const unused = Object.keys(LOCALES.en).filter(key => (key.startsWith('desk.') && !main.includes(`t('${key.slice(5)}'`))
     || ((key.startsWith('set.desk_') || key === 'set.nav_desktop') && !settings.includes(`'${key}'`) && !settings.includes(`"${key}"`)));
   assert.deepEqual(unused, []);

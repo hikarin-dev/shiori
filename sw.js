@@ -15,6 +15,7 @@
 import * as platform from './app/js/platform.js';
 import { RUNNERS, cancelJobRun, runPoll } from './app/js/jobs-runner.js';
 import { enqueue, busy as importsBusy } from './app/js/import-queue.js';
+import { runFolderJob, scanning } from './app/js/folder-scan.js';
 
 // The scope root: http://localhost:5500/ locally, https://…/shiori/ on GitHub Pages.
 const ROOT = new URL('./', self.location.href);
@@ -25,7 +26,7 @@ const FILES_ONLY = new URL(self.location.href).searchParams.get('library') === '
 // user-facing app version: precached code can change outside a release, and changing this value
 // makes the browser install every BOOT asset into a fresh cache.
 const CACHE_PREFIX = `shiori${ROOT.pathname.replace(/\//g, '_')}`;
-const SHELL_CACHE_REVISION = 59;
+const SHELL_CACHE_REVISION = 60;
 const CACHE_NAME = `${CACHE_PREFIX}-shell-v${SHELL_CACHE_REVISION}`;
 function cacheName() {
   return CACHE_NAME;
@@ -47,7 +48,7 @@ const SHELL = [
   'app/fonts/JetBrainsMono-Regular.woff2', 'app/fonts/JetBrainsMono-SemiBold.woff2', 'app/fonts/JetBrainsMono-Bold.woff2',
   'app/fonts/LICENSE-Kiwi-Maru-OFL.txt', 'app/fonts/LICENSE-YasashisaAntique-IPA.txt',
   'app/fonts/LICENSE-YasashisaAntique-MPLUS.txt', 'app/fonts/LICENSE-JetBrainsMono-OFL.txt', 'app/fonts/README.md',
-  'app/js/platform.js', 'app/js/disk-writes.js', 'app/js/notice.js', 'app/js/app-update.js', 'app/js/storage-upgrade.js', 'app/notice.css', 'app/js/db.js', 'app/js/backend-error.js', 'app/js/library-check.js', 'app/js/gallery-files.js', 'app/js/api.js', 'app/js/desktop-backend.js', 'app/js/desktop-wire.js', 'app/js/desktop-shell.js', 'app/js/desktop-settings.js', 'app/js/library-location.js', 'app/js/library-move.js', 'app/js/desktop-link.js', 'app/js/store.js', 'app/js/series.js', 'app/js/series-plan.js', 'app/js/gallery-model.js', 'app/js/sanitize.js', 'app/js/sites.js', 'app/js/image-util.js', 'app/js/page-size.js', 'app/js/migrations.js',
+  'app/js/platform.js', 'app/js/disk-writes.js', 'app/js/notice.js', 'app/js/app-update.js', 'app/js/storage-upgrade.js', 'app/notice.css', 'app/js/db.js', 'app/js/folder-files.js', 'app/js/folder-owner.js', 'app/js/zip-read.js', 'app/js/linked-source.js', 'app/js/hidden-writes.js', 'app/js/backend-error.js', 'app/js/library-check.js', 'app/js/gallery-files.js', 'app/js/api.js', 'app/js/desktop-backend.js', 'app/js/desktop-wire.js', 'app/js/desktop-shell.js', 'app/js/desktop-settings.js', 'app/js/library-location.js', 'app/js/library-folders.js', 'app/js/folder-scan.js', 'app/js/library-move.js', 'app/js/desktop-link.js', 'app/js/store.js', 'app/js/series.js', 'app/js/series-plan.js', 'app/js/gallery-model.js', 'app/js/sanitize.js', 'app/js/sites.js', 'app/js/image-util.js', 'app/js/page-size.js', 'app/js/migrations.js',
   'app/js/import-cbz.js', 'app/js/import-files.js', 'app/js/import-log.js', 'app/js/import-batch.js', 'app/js/import-queue.js', 'app/js/import-tracker.js', 'app/js/runner-tag.js', 'app/js/translate.js', 'app/js/translate-config.js', 'app/js/capabilities.js', 'app/js/page-data.js', 'app/js/page-image.js', 'app/js/backup.js', 'app/js/backup-core.js', 'app/js/backup-ui.js',
   'app/js/benchmark.js', 'app/js/benchmark-core.js', 'app/js/benchmark-ui.js', 'app/benchmark.css',
   'app/js/feedback.js', 'app/js/reader-feedback.js', 'app/js/reader-properties.js', 'app/js/reader-page-menu.js', 'app/js/zip.js',
@@ -278,7 +279,8 @@ async function pollLoop() {
   } finally { _pollLoopActive = false; }
 }
 
-// ── Imports handed over by a page (submit-job.js handBatchToWorker) ──
+// ── Imports handed over by a page (submit-job.js handBatchToWorker), and checks of a library
+// folder (folder-scan.js startFolderScan) ──
 // A batch of titles runs here (import-queue.js), its files read where they are (nothing copied), for
 // as long as any app page is open: each page's poll tick (boot.js) nudges this worker while an import
 // runs, and every nudge holds it awake up to HOLD_MS — longer than a background tab's throttled
@@ -287,13 +289,13 @@ const HOLD_MS = 4 * 60 * 1000;
 function holdWhileImporting() {
   const until = Date.now() + HOLD_MS;
   return new Promise((resolve) => {
-    const check = () => (!importsBusy() || Date.now() > until ? resolve() : setTimeout(check, 1000));
+    const check = () => ((!importsBusy() && !scanning()) || Date.now() > until ? resolve() : setTimeout(check, 1000));
     check();
   });
 }
 // Once nothing is left to import, a newer worker kept waiting (see install) takes over.
 function handOverWhenIdle() {
-  if (!importsBusy()) self.registration.waiting?.postMessage({ __shioriTakeOver: true });
+  if (!importsBusy() && !scanning()) self.registration.waiting?.postMessage({ __shioriTakeOver: true });
 }
 
 self.addEventListener('message', (e) => {
@@ -327,6 +329,13 @@ self.addEventListener('message', (e) => {
   if (d && d.__shioriImportBatch && d.batch?.groups?.length) {
     e.ports[0]?.postMessage({ taken: true });
     const done = enqueue({ type: 'batch', id: String(d.batch.id), batch: d.batch }).then(handOverWhenIdle);
+    e.waitUntil(Promise.race([done, holdWhileImporting()]));
+    return;
+  }
+  if (d && d.__shioriFolderJob && d.folder && ['scan', 'remove'].includes(d.kind)) {
+    e.ports[0]?.postMessage({ taken: true });
+    const opts = { name: String(d.opts?.name || ''), restored: Number(d.opts?.restored) || 0, moving: !!d.opts?.moving };
+    const done = runFolderJob(d.kind, String(d.folder), opts).catch(() => {}).then(handOverWhenIdle);
     e.waitUntil(Promise.race([done, holdWhileImporting()]));
     return;
   }

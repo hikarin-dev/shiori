@@ -36,6 +36,12 @@ platform.control.on((msg) => {
 if (desktopHosted() && !capabilities.desktopWindow) import('./desktop-link.js').then(m => m.initHostedGate()).catch(() => {});
 else if (savedLocation() && !capabilities.desktopWindow) import('./desktop-link.js').then(m => m.initDesktopGate()).catch(() => {});
 
+// A browser library keeping galleries in a folder: asking for it while the browser waits for the
+// person's permission (once a visit, unless they allowed it on every visit).
+if (capabilities.browserLibrary && capabilities.folders) import('./library-folders.js').then(m => m.promptFolderAccess()).catch(() => {});
+// The desktop app's window draws the PDFs its library folders hold whose pages wait (a page draws them).
+else if (capabilities.desktopWindow) import('./library-folders.js').then(m => m.drawWaitingPdfs()).catch(() => {});
+
 // Drive any in-flight translation: a translation is a server-owned job, and this polls it for new
 // chunks (preferring the service worker) on every page load and on a short timer. Short polls keep
 // the worker warm without any single event hitting Chrome's ~5-min cap, so the job survives a

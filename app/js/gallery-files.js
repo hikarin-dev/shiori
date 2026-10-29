@@ -77,8 +77,10 @@ const _typeOf = (src) => (_blobLike(src) ? src.type : (typeof src === 'string' ?
 const _imgExt = (src) => extOfType(_typeOf(src)) || 'png';
 const _hasBytes = (src) => _blobLike(src) || src instanceof Uint8Array || (typeof src === 'string' && !!src.split(',')[1]);
 // A stored cover that is one of the gallery's pages (db.js's `<key>|page` blob, the desktop
-// library's `$page`): implied by the folder, never written as a file.
-const _isPageCover = (src) => typeof src?.$page === 'number' || (typeof src?.$blob === 'string' && src.$blob.endsWith('|page'));
+// library's `$page`, a browser library folder's page file): implied by the folder, never written as
+// a file.
+const _isPageCover = (src) => typeof src?.$page === 'number' || (typeof src?.$blob === 'string' && src.$blob.endsWith('|page'))
+  || (typeof src?.$path === 'string' && !src.$path.startsWith('covers/'));
 
 // The byte length of a file's source, without reading it.
 export function sourceBytes(src) {
@@ -125,6 +127,25 @@ export function seriesManifest(meta, { metadataOnly = false, folders = [] } = {}
       folder: unique(folders[i] || memberName(meta, c, i)),
     })),
   };
+}
+
+// The files a gallery's folder describes it in, beside its pictures.
+export const DESCRIPTION_FILES = ['metadata.json', 'image_records.json', 'study/bubbles.json', 'covers/manifest.json'];
+
+// A short stamp of a gallery's descriptions as its folder holds them (`texts`: each of
+// DESCRIPTION_FILES' text, null or missing when the folder hasn't it). Equal stamps, the same
+// descriptions: how an app tells whether they changed since it last wrote or read them.
+export function descriptionStamp(texts) {
+  const s = DESCRIPTION_FILES.map(name => `${name}\u0000${texts?.[name] ?? '\u0001'}`).join('\u0000');
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
 }
 
 // [{ name, source, original? }] for the gallery's stored `meta`, image `records` and `covers`

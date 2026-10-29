@@ -21,7 +21,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
-import { wire, BackendError, UI_DIR } from './shared.js';
+import { wire, hiddenWrites, BackendError, UI_DIR } from './shared.js';
 
 export const PROTOCOL = 1;
 
@@ -39,7 +39,10 @@ export const OPS = new Set([
   'transferIds', 'transferRead', 'transferWrite',
   'publishFeed', 'changeRevision', 'changesSince', 'integritySnapshot', 'clearAll', 'archiveGallery',
   'diskWrites', 'resetDiskWrites',
+  'foldersList', 'folderAdd', 'folderRemove', 'folderSetDefault', 'folderHide', 'folderShow', 'folderClaim', 'folderScan', 'moveGallery', 'pdfsWaiting', 'pdfSource', 'addRendered',
 ]);
+// Of those, what only the app's own pages may do: change which folders the library is kept in.
+const OWN_OPS = new Set(['folderAdd', 'folderRemove', 'folderSetDefault', 'folderHide', 'folderShow', 'folderClaim']);
 const MAX_ARGS = 8;
 // What a window may hand the library's other windows: control signals and job status.
 const RELAY_CHANNELS = new Set(['control', 'jobs']);
@@ -68,7 +71,8 @@ const MIME = {
 // A failure as the window receives it: a BackendError's code, out of space as `quota`, anything
 // else `aborted`.
 function errorOf(e) {
-  if (e instanceof BackendError) return { code: e.code, message: e.message };
+  if (e instanceof BackendError) return { code: e.code, message: e.message, ...(e.reason ? { reason: e.reason } : {}), ...(e.owner ? { owner: e.owner } : {}),
+    ...(e.galleries != null ? { galleries: e.galleries } : {}) };
   const text = String(e?.message || e);
   const quota = e?.code === 'ENOSPC' || /SQLITE_FULL|disk is full/i.test(text);
   return { code: quota ? 'quota' : 'aborted', message: text };
@@ -211,6 +215,8 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
           if (!RELAY_CHANNELS.has(channel) || !payload || typeof payload !== 'object') throw new BackendError('invalid', 'nothing to relay');
           for (const other of wss.clients) if (other !== ws && other.scope !== ws.scope) send(other, { push: channel, msg: payload }).catch(() => {});
           if (channel === 'jobs' && payload.gid != null && JOB_ENDED.has(payload.status)) library.settle(String(payload.gid));
+          // The tasks page stopping a check of a library folder the app runs.
+          if (channel === 'jobs' && payload.type === 'STOP_FOLDER_SCAN') library.stopFolderScan?.(String(payload.folder));
           await send(ws, { id, ok: true, result: true });
           return;
         }
@@ -247,6 +253,9 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
           return;
         }
         if (!OPS.has(op) || !Array.isArray(args) || args.length > MAX_ARGS) throw new BackendError('invalid', `no operation ${op}`);
+        if (OWN_OPS.has(op) && ws.site) throw new BackendError('invalid', `${op} is for the app's own pages`);
+        // Never a write to a gallery whose folder is hidden or removed (out of the library meanwhile).
+        for (const gid of hiddenWrites.writeTargets(op, args)) if (gid != null && library.unmounted?.(String(gid))) throw hiddenWrites.hiddenError(gid);
         const transfer = op === 'transferWrite' && args[1]?.transfer?.id != null ? args[1].transfer : null;
         if (transfer) {
           const key = `${ws.transferKey}:${String(transfer.id)}`;

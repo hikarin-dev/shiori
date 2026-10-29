@@ -77,10 +77,11 @@ test('a window further behind than the log reaches resyncs', async () => {
 });
 
 test('a window that comes back hears what changed while it wasn\'t listening', async () => {
-  const heard = [];
-  const stop = api.events.watch((gid, beacon) => heard.push([gid, beacon ? 'live' : 'caught up']));
-  await settle();   // the watcher notes where the library stands
   const gid = api.newGalleryId();
+  const heard = [];
+  // Only this gallery: one an earlier test announced may still be on its way.
+  const stop = api.events.watch((g, beacon) => { if (g === gid) heard.push([g, beacon ? 'live' : 'caught up']); });
+  await settle();   // the watcher notes where the library stands
   await api.meta.put({ galleryId: gid, title: title('Silent') }, { silent: true });
   await api.galleries.mutate(gid, { favorite: true }, { silent: true });
   assert.deepEqual(heard, [], 'silent writes announce nothing');

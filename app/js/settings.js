@@ -73,7 +73,8 @@ window.addEventListener('storage', (e) => {
 
 // ── The desktop app's own settings, in its window only; elsewhere, where the library is kept ──
 if (globalThis.shioriDesktop?.shell) import('./desktop-settings.js').then(m => m.initDesktopSettings()).catch(() => {});
-else import('./desktop-link.js').then(m => m.initLocationSettings()).catch(() => {});
+// Where the library is kept (Storage), alike in a browser and in the desktop app.
+import('./library-folders.js').then(m => m.initLibraryFolders()).catch(() => {});
 
 // ── Companion download ────────────────────────────────────────────
 // The optional panel carries the download from the first paint, so the nav item is there without
@@ -266,7 +267,7 @@ async function performReset(factory) {
     }
   } catch {}
   await platform.clearJobsData();
-  await api.maintenance.clearAll();
+  await api.maintenance.clearAll(factory ? { folders: true } : undefined);
   try {
     const root = await navigator.storage.getDirectory();
     for await (const name of root.keys()) {
@@ -941,7 +942,7 @@ attachNativeBackup().catch(() => {});
 // ── Storage Writes ────────────────────────────────────────────────────────
 
 // Everything the app has written to this browser's storage; hovering the total splits it by kind.
-const WRITE_KINDS = ['pages', 'covers', 'library', 'jobs', 'settings', 'app', 'staging', 'exports', 'other'];
+const WRITE_KINDS = ['pages', 'covers', 'library', 'folder', 'jobs', 'settings', 'app', 'staging', 'exports', 'other'];
 function updateWritesDisplay(writes) {
   const el = document.getElementById('totalWritesCount');
   el.textContent = formatBytes(writes?.total || 0);

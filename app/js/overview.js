@@ -24,6 +24,7 @@ import { handImport } from './submit-job.js';
 import { importDropped, mountImportTracker } from './import-tracker.js';
 import { openRerunMenu } from './rerun-menu.js';
 import { confirmDialog, alertDialog } from './notice.js';
+import { moveGalleryTo } from './library-folders.js';
 import { openTagEditor, removeTag, tagKey, TAG_TYPE_LABEL } from './tag-editor.js';
 
 // ── Header details ──
@@ -166,6 +167,7 @@ const ICON = {
   edit:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.4 2.6a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>',
   done:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
   archive: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>',
+  move:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 13h6"/><path d="m12 10 3 3-3 3"/></svg>',
   heart:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>',
   download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>',
   upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>',
@@ -836,6 +838,7 @@ function buildShell(tagsHtml) {
           <button class="ov-btn fav" id="favToggle" type="button"></button>
           <button class="ov-btn" id="editToggle"></button>
           ${api.capabilities.archive ? `<button class="ov-btn" id="archiveNow" type="button" data-tip="${esc(t('ov.archive_tip'))}"></button>` : ''}
+          <button class="ov-btn" id="moveTo" type="button" hidden data-tip="${esc(t('ov.move_tip'))}">${ICON.move}<span>${esc(t('ov.move'))}</span></button>
           <a class="ov-btn" id="ovSource" target="_blank" rel="noopener noreferrer">${ICON.open}<span>${esc(t('page.source'))}</span></a>
         </div>
         <div class="ov-meta" id="ovMeta"></div>
@@ -868,6 +871,18 @@ function buildShell(tagsHtml) {
       if (kept.length) alertDialog({ title: t('ov.archive_kept_title'), body: t('ov.archive_kept') });
     } catch (err) {
       alertDialog({ title: t('ov.archive_kept_title'), body: String(err?.message || err), tone: 'error' });
+    }
+    render().catch(() => {});
+  });
+  // A library kept in more than one place can move the gallery (a series: every member) to another.
+  api.folders.list().then((places) => { if ($('moveTo')) $('moveTo').hidden = places.filter(p => !p.hidden).length < 2; }, () => {});
+  $('moveTo').addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true;
+    try {
+      const current = (await api.galleries.get(ownerId))?.folder;
+      await moveGalleryTo(ownerId, current);
+    } finally {
+      if ($('moveTo')) $('moveTo').disabled = false;
     }
     render().catch(() => {});
   });
@@ -1842,9 +1857,10 @@ function closeRemove() { $('removeModal').classList.remove('open'); _removeTarge
 // the prompt. The series helper removes/re-owns/dissolves series metadata around the deleted gallery.
 async function deleteChapter(ch, { prompt = true, entity = null, label = '' } = {}) {
   if (!ch) return;
+  const linked = !!(entity || ch.entity)?.linked;   // its files Shiori didn't make: they stay
   if (prompt && !(await confirmDialog({
-    title: t('dlg.del_gallery_title'), body: t('dlg.del_gallery_body'),
-    detail: chapterDetail(ch, entity, label), cover: coverUrl(ch.id), ok: t('dlg.delete'), danger: true,
+    title: t(linked ? 'dlg.del_linked_title' : 'dlg.del_gallery_title'), body: t(linked ? 'dlg.del_linked_body' : 'dlg.del_gallery_body'),
+    detail: chapterDetail(ch, entity, label), cover: coverUrl(ch.id), ok: t(linked ? 'dlg.del_linked_ok' : 'dlg.delete'), danger: true,
   }))) return;
   _removeTarget = ch;
   await doRemove(true);
@@ -2022,6 +2038,7 @@ store.subscribe('*', (gid) => {
   if (_refreshTimers.has(key)) return;
   _refreshTimers.set(key, setTimeout(() => {
     _refreshTimers.delete(key);
+    if (key === '*') { render().catch(() => {}); return; }   // much changed at once: drawn again
     refreshChangedChapter(key).catch(() => render().catch(() => {}));
   }, 150));
 });

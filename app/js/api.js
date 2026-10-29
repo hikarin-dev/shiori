@@ -16,20 +16,40 @@
 
 import * as browserLibrary from './db.js';
 import * as desktopLibrary from './desktop-backend.js';
+import { WRITES, writeTargets, hiddenError } from './hidden-writes.js';
 import * as platform from './platform.js';
 import { BackendError } from './backend-error.js';
 import { DERIVED_FIELDS } from './gallery-model.js';
 
 export { BackendError };
 
-const backend = desktopLibrary.active ? desktopLibrary : browserLibrary;
+const own = !desktopLibrary.active;
+// This browser's own library, its writes refused for a gallery whose folder is hidden or removed (out
+// of the library meanwhile; the desktop app's server does the same: hidden-writes.js).
+const backend = own ? _guardWrites(browserLibrary) : desktopLibrary;
+function _guardWrites(lib) {
+  const out = {};
+  for (const [op, fn] of Object.entries(lib)) {
+    out[op] = typeof fn !== 'function' || !WRITES.has(op) ? fn : async (...args) => {
+      for (const gid of writeTargets(op, args)) if (gid != null && await lib.galleryUnmounted(String(gid))) throw hiddenError(gid);
+      return fn(...args);
+    };
+  }
+  return out;
+}
 
 // What this library can do beyond the common interface; surfaces hide what it lacks.
 // `browserLibrary`: it is this browser's own (its one-time repairs and storage upgrades apply).
 // `desktopWindow`: this page is the desktop app's own window. `archive`: it keeps galleries as files
 // and can pack one into an archive (galleries.archive).
-export const capabilities = { storageLayout: backend === browserLibrary, browserLibrary: backend === browserLibrary,
-  desktopWindow: !!globalThis.shioriDesktop?.shell, archive: typeof backend.archiveGallery === 'function' };
+// `folders`: how folders are added to this library — 'pick' (a browser library: the person picks one
+// with the browser's folder picker), 'path' (the desktop app's window: its own folder picker hands
+// a path), or null (this browser can't keep a library in folders; a site using the desktop library
+// manages its folders in the desktop app).
+export const capabilities = { storageLayout: own, browserLibrary: own,
+  desktopWindow: !!globalThis.shioriDesktop?.shell, archive: typeof backend.archiveGallery === 'function',
+  folders: own ? (browserLibrary.foldersSupported() ? 'pick' : null)
+    : globalThis.shioriDesktop?.shell ? 'path' : null };
 
 // Whether this page's library can be reached now — always, for this browser's — and, for the
 // desktop app's, being told when the connection to it is lost.
@@ -133,6 +153,70 @@ export const galleries = _typed({
   // The gallery — a series owner: its whole series — packed into an archive now (capabilities.archive):
   // { archived, kept } (gallery ids; kept: one in use, or holding files of someone else's).
   archive: async (gid) => backend.archiveGallery?.(_gid(gid)) ?? { archived: [], kept: [String(gid)] },
+  // The gallery — a series owner: its whole series — moved to another of the library's places
+  // (folders.list ids): its files copied there, then switched over, then the old copies deleted.
+  // `onProgress(done, total)` follows its pictures where the library can say. Resolves { moved }.
+  move: (gid, to, opts) => backend.moveGallery(_gid(gid), String(to), opts),
+});
+
+// ── Where the library is kept ──
+// The places a library keeps galleries in, the same for both: this browser's own storage and the
+// folders the person added (a browser library), or the desktop app's library folders —
+// [{ id, kind: 'browser'|'folder', name, path?, isDefault, access, galleries, size, removable, hidden? }].
+// New galleries go to the default place; a gallery stays where it is kept unless moved. `access`:
+// 'granted', 'prompt' (the browser asks the person once a visit: allow), 'unavailable' (it can't
+// be reached now — a folder gone, a drive away) or 'taken' (another app took it over — `owner` says
+// which: { app, host | browser, site, active, at } — so this library only reads it; claim takes it
+// back; see folder-owner.js). Removing a place takes its galleries out of the
+// library and leaves their files where they are, their records set aside: adding it again brings
+// them back at once. Hiding one does the same but keeps it listed: showing it brings them back.
+export const folders = _typed({
+  list: async () => backend.foldersList?.() ?? [],
+  // capabilities.folders 'pick': a folder's handle; 'path': its full path. A folder removed before
+  // comes back with the galleries it held. Resolves { id, restored } (or `existed`); checking it for
+  // galleries put there meanwhile is scan's. One another app holds is refused (reason 'claimed',
+  // `owner` who) unless `force`: this library takes it over.
+  add: (target, { force = false } = {}) => backend.folderAdd(target, force ? { force: true } : {}),
+  // A folder another app took over held by this library again. Resolves its access.
+  claim: (id) => backend.folderClaim(String(id)),
+  // Off the list at once, its galleries out of the library — moved to place `moveTo` first, when
+  // given; what it still owes the folder is a task (setAside, or the desktop app's): everything the
+  // library has of them written there, then the folder and its galleries' records forgotten (their
+  // files stay; added again, it is checked from scratch). Refused (reason 'unsaved', `galleries` how
+  // many) while it can't be written to and galleries of it have what only this library has — unless
+  // `discard`: that is lost. Resolves { id, galleries } (how many leave).
+  remove: (id, { moveTo, discard = false } = {}) => backend.folderRemove(String(id), { ...(moveTo ? { moveTo: String(moveTo) } : {}), ...(discard ? { discard: true } : {}) }),
+  setDefault: (id) => backend.folderSetDefault(String(id)),
+  // Listed still, its galleries out of the library at once (not the default place's): nothing of
+  // theirs moves. Resolves { id, galleries } (how many left). Shown again: they come back at once
+  // ({ id, restored }).
+  hide: (id) => backend.folderHide(String(id)),
+  show: (id) => backend.folderShow(String(id)),
+  // Asks the person to let this page use the folder (from a click); resolves its access then.
+  allow: async (id) => backend.folderAllow?.(String(id)) ?? 'granted',
+  // Galleries put in it from outside the app join the library — those it kept are known already, and
+  // their folders aren't looked into. A browser library's: `onProgress(done, total, added)` and
+  // `stopped()` (folder-scan.js runs it as a job); the desktop app's runs it as a job of its own.
+  // Resolves { added, stopped }.
+  scan: (id, opts) => backend.folderScan(String(id), opts),
+  // What waits in this browser for a folder it couldn't reach is moved out to it: how many galleries.
+  settle: async () => backend.settleFolders?.() ?? 0,
+  // A browser library: what a folder removed still owes it — its galleries moved (when asked),
+  // everything the library has of them written there, the folder let go and forgotten (remove only
+  // marks it; folder-scan.js runs this as a task). `onProgress(done, total)`, `stopped()`. Resolves
+  // { removed, stopped }; throws (`errorKey` 'lf.task_kept', `unsaved`) when what it owes couldn't
+  // be written and it stays. (The desktop app does it as a task of its own.)
+  setAside: async (id, opts) => backend.folderSetAside?.(String(id), opts) ?? { removed: 0, stopped: false },
+  // The PDFs the library's folders hold, waiting for a page to draw their pages (linked-source.js):
+  // [{ folder, gid, path, name }]; one's file (a Blob); its pages drawn (Blobs, in order), kept with
+  // it as it joins the library (resolves its id).
+  pdfsWaiting: async () => backend.pdfsWaiting?.() ?? [],
+  pdfSource: (folder, gid) => backend.pdfSource(String(folder), String(gid)),
+  addRendered: (folder, gid, pages) => backend.addRendered(String(folder), String(gid), pages),
+  // What a page should carry on with (a removal cut short): { setAside: [{ id, name }] }.
+  pending: async () => backend.foldersPending?.() ?? { setAside: [] },
+  // The folders holding galleries that wait for this page's permission (allow): [{ id, name }].
+  waiting: async () => backend.foldersWaiting?.() ?? [],
 });
 
 // ── Jobs the library's keeper runs itself ──
@@ -281,7 +365,8 @@ function _watch(cb) {
 // ── Maintenance ──
 export const maintenance = _typed({
   integritySnapshot: () => backend.integritySnapshot(),
-  clearAll: () => backend.clearAll(),
+  // `folders`: forget the library's folders too (a factory reset of a browser library).
+  clearAll: (opts) => (opts ? backend.clearAll(opts) : backend.clearAll()),
   storageLayout: {
     status:  () => backend.storageLayoutStatus(),
     convert: (opts) => backend.convertStorage(opts),

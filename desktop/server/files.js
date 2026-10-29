@@ -47,7 +47,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { readDirectory, readEntry, writeZip, appendZip } from './zip.js';
-import { files as layout, BackendError } from './shared.js';
+import { files as layout, linked as linkedSource, BackendError } from './shared.js';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS files (
@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS staged_own (
   size INTEGER NOT NULL,
   PRIMARY KEY (gid, rel)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS homes (gid TEXT PRIMARY KEY, root TEXT NOT NULL) WITHOUT ROWID;
 `;
 // `files`: one row per gallery with a place in the library folder; `state` 'packed' when it is
 // there, 'missing' when it was found gone; `pending` when its descriptions are out of date;
@@ -84,15 +85,31 @@ CREATE TABLE IF NOT EXISTS staged_own (
 // gallery's folder no page refers to any more, deleted when it is next settled. `retired`: a folder
 // or archive no gallery has any more (an archived gallery's folder), to delete. `staged_own`: a
 // picture of its own (`rel`) waiting in staging (`file`) to be added to its gallery's archive.
+// `homes`: the library folder a gallery not placed yet goes to (library.js roots). `source`: for a
+// linked gallery (linked-source.js) — files Shiori didn't make, used as they are — where they are
+// ({ kind, path in its library folder, inner?, fingerprint }): its row's `path` is then its overlay
+// (.shiori/linked/<gid>), a folder in the gallery format for everything Shiori adds, and a page whose
+// original is in the source is at 'x' ({ at: 'x', entry: its name there }). A linked gallery's
+// source is read only: never written, moved, archived, unpacked or deleted.
+//
+// The library may be kept in several folders (library.js roots): the first one (the one it started
+// with) and any added. A gallery's `path` is relative to the first folder, or `@<id>/<path>` in
+// another one (its id: libraryId). A gallery stays in its folder: only moving it (moveTo) takes it to
+// another, and a series' members are kept together only within one folder.
+const ROOTED = /^@([0-9a-f]{16})\/(.*)$/;   // a path in another library folder than the first
 const UNUSED_AT_MOST = 0.25;   // the share of an archive left unused before it is written whole again
 const REGROUP_RETRY = 10_000;  // how soon a folder Windows wouldn't move is tried again
-const COLUMNS = { unpack: 'INTEGER NOT NULL DEFAULT 0', used_at: 'REAL', tail: 'REAL' };
+const COLUMNS = { unpack: 'INTEGER NOT NULL DEFAULT 0', used_at: 'REAL', tail: 'REAL', source: 'TEXT' };
 const HOUR = 60 * 60_000, DAY = 24 * HOUR;
 // Files Windows puts in a folder on its own: not the gallery's, and not worth keeping it a folder for.
 const WINDOWS_FILES = new Set(['desktop.ini', 'thumbs.db']);
 const TYPE_OF_EXT = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif' };
+// The stamp (gallery-files.js descriptionStamp) of descriptions `listed` ([{ name, data }]).
+export const descriptionStampOf = (listed) => layout.descriptionStamp(Object.fromEntries(DESCRIPTIONS.map(name =>
+  [name, listed.find(f => f.name === name)?.data.toString('utf8') ?? null])));
+
 // The descriptions a gallery's folder may hold (gallery-files.js writes them).
-const DESCRIPTIONS = ['metadata.json', 'image_records.json', 'study/bubbles.json', 'covers/manifest.json'];
+const DESCRIPTIONS = layout.DESCRIPTION_FILES;
 const parse = (s) => (s == null ? null : JSON.parse(s));
 const extOfName = (name) => String(name ?? '').match(/\.(\w+)$/)?.[1]?.toLowerCase();
 // The files of the gallery's own a value refers to ({ $own: 'translated/0001.png', size }): rel → size.
@@ -110,6 +127,15 @@ async function filesIn(dir, rel = '') {
     if (e.isDirectory()) out.push(...await filesIn(dir, name)); else out.push(name);
   }
   return out;
+}
+
+// The bytes of a file, or of every file in a folder.
+async function bytesIn(abs) {
+  const stat = await fsp.stat(abs);
+  if (!stat.isDirectory()) return stat.size;
+  let n = 0;
+  for (const rel of await filesIn(abs)) n += (await fsp.stat(path.join(abs, ...rel.split('/')))).size;
+  return n;
 }
 
 // The library folder's own id, kept in its .shiori/library.json and made the first time: this
@@ -190,6 +216,7 @@ export class FileLibrary {
     this._reading = new Map();         // archive path → reads in flight
     this._failures = new Map();        // gid → settles that failed in a row
     this._writing = new Map();         // gid → the write to its archive under way (_exclusive)
+    this.keep = new Set();             // galleries being forgotten: deleted from the index, their files kept
   }
 
   init() {
@@ -221,9 +248,11 @@ export class FileLibrary {
     for (const r of lib._s('SELECT DISTINCT gid FROM staged_own').all()) ids.add(r.gid);
     for (const r of lib._s('SELECT gid FROM files WHERE pending = 1').all()) this.scheduleDescribe(r.gid);
     for (const id of ids) this.schedule(id);
-    fsp.readdir(lib.stagingDir).then(async (names) => {
-      for (const name of names) if (!ids.has(name)) await this._unstage(name);
-    }).catch(() => {});
+    for (const dir of lib.stagingDirs()) {
+      fsp.readdir(dir).then(async (names) => {
+        for (const name of names) if (!ids.has(name)) await this._unstage(name);
+      }).catch(() => {});
+    }
   }
 
   close() {
@@ -235,7 +264,42 @@ export class FileLibrary {
   }
 
   _row(gid) { return this.library._s('SELECT * FROM files WHERE gid = ?').get(String(gid)); }
-  _abs(rel) { return path.join(this.library.libraryDir, ...String(rel).split('/')); }
+  _abs(rel) {
+    const { root, rest } = this._split(rel);
+    return path.join(this.library.rootDir(root), ...rest.split('/'));
+  }
+  // A path as { root (the folder's id), rest (the path in it) }, and back.
+  _split(rel) {
+    const m = ROOTED.exec(String(rel));
+    return m ? { root: m[1], rest: m[2] } : { root: this.library.primaryId, rest: String(rel) };
+  }
+  _join(root, rest) { return !root || root === this.library.primaryId ? rest : `@${root}/${rest}`; }
+
+  // The library folder gallery `gid` is kept in (where it goes, for one not placed yet): its row's,
+  // else the one noted for it when it was made (homes: noteHome) — never wherever new galleries go
+  // now, so a gallery with no files yet (a series not downloaded, metadata that came first) stays in
+  // its folder when the default changes, and is hidden or removed with it. One the library had
+  // before places were noted is in the first folder, where the library kept everything then. A
+  // gallery not in the library yet goes where new galleries go — noted now when `claim`ed.
+  rootFor(gid, { claim = false } = {}) {
+    const lib = this.library;
+    const id = String(gid);
+    const row = this._row(id);
+    if (row) return this._split(row.path).root;
+    const home = lib._s('SELECT root FROM homes WHERE gid = ?').get(id)?.root;
+    if (home && (lib.roots.has(home) || lib.dormantRoots.has(home))) return home;
+    const known = !!lib._s('SELECT 1 FROM stats WHERE gid = ?').get(id) || !!lib._s('SELECT 1 FROM meta WHERE gid = ?').get(id);
+    const root = known ? lib.primaryId : lib.defaultRoot();
+    if (claim && !known) lib._s('INSERT OR REPLACE INTO homes (gid, root) VALUES (?, ?)').run(id, root);
+    return root;
+  }
+  // Gallery `gid`, just made: its place noted — where new galleries go now — unless it has one.
+  noteHome(gid) {
+    const lib = this.library;
+    const id = String(gid);
+    if (this._row(id) || lib._s('SELECT 1 FROM homes WHERE gid = ?').get(id)) return;
+    lib._s('INSERT INTO homes (gid, root) VALUES (?, ?)').run(id, lib.defaultRoot());
+  }
 
   // Gallery `gid`'s folder, or null when it has none (not placed yet, or kept in an archive).
   folderOf(gid) {
@@ -268,6 +332,7 @@ export class FileLibrary {
   // two claims can't pick different places. Returns its row.
   _claim(gid, meta) {
     const rel = this._choosePath(gid, meta);
+    this.library._s('DELETE FROM homes WHERE gid = ?').run(gid);
     fs.mkdirSync(this._abs(rel), { recursive: true });
     this.library._s(`INSERT INTO files (gid, path, format, state, packed_at, pending, used_at) VALUES (?, ?, 'folder', 'packed', ?, 1, ?)`)
       .run(gid, rel, Date.now(), Date.now());
@@ -284,6 +349,7 @@ export class FileLibrary {
   pageRemoved(gid, orig) {
     const row = this._row(gid);
     if (!row) return;
+    if (orig?.at === 'x') { this._pend(row.gid); this._later(() => this.scheduleDescribe(row.gid)); return; }   // its source keeps it
     if (row.format !== 'folder') this._toUnpack(row.gid);
     else if (orig?.entry) this.library._s('INSERT OR IGNORE INTO leftovers (gid, entry) VALUES (?, ?)').run(row.gid, String(orig.entry));
     this._pend(row.gid);
@@ -299,7 +365,7 @@ export class FileLibrary {
     const staged = lib._s('SELECT file FROM staged_own WHERE gid = ? AND rel = ?').get(row.gid, rel);
     if (staged) {
       lib._s('DELETE FROM staged_own WHERE gid = ? AND rel = ?').run(row.gid, rel);
-      lib._drop(path.join(lib.stagingDir, staged.file));
+      lib._drop(lib._staged(staged.file));
     }
     this._toUnpack(row.gid);
     this._later(() => this.schedule(row.gid));
@@ -312,7 +378,7 @@ export class FileLibrary {
   async stageOwn(gid, rel, blob) {
     const row = this._row(gid);
     if (!row || row.format === 'folder' || !await this._inFormat(row)) return null;
-    const file = `${row.gid}/own-${crypto.randomBytes(5).toString('hex')}${path.posix.extname(rel)}`;
+    const file = this.library._stagedName(row.gid, `own-${crypto.randomBytes(5).toString('hex')}${path.posix.extname(rel)}`);
     await this.library._writeStaged(file, new Uint8Array(await blob.arrayBuffer()), 'pictures');
     return file;
   }
@@ -322,7 +388,7 @@ export class FileLibrary {
   ownStaged(gid, rel, file, size) {
     const lib = this.library;
     const old = lib._s('SELECT file FROM staged_own WHERE gid = ? AND rel = ?').get(String(gid), rel);
-    if (old && old.file !== file) lib._drop(path.join(lib.stagingDir, old.file));
+    if (old && old.file !== file) lib._drop(lib._staged(old.file));
     lib._s('INSERT OR REPLACE INTO staged_own (gid, rel, file, size) VALUES (?, ?, ?, ?)').run(String(gid), rel, file, size);
     this._pend(gid);
     this._later(() => this.schedule(gid));
@@ -378,12 +444,24 @@ export class FileLibrary {
   // Inside the library's transaction deleting `gid`: its files go once that commits.
   deleteIn(gid) {
     const row = this._row(gid);
+    this.library._s('DELETE FROM stamps WHERE gid = ?').run(String(gid));
     this.library._s('DELETE FROM leftovers WHERE gid = ?').run(String(gid));
-    for (const s of this._stagedOwn(gid)) this.library._drop(path.join(this.library.stagingDir, s.file));
+    for (const s of this._stagedOwn(gid)) this.library._drop(this.library._staged(s.file));
     this.library._s('DELETE FROM staged_own WHERE gid = ?').run(String(gid));
+    this.library._s('DELETE FROM homes WHERE gid = ?').run(String(gid));
     if (!row) return;
     this.library._s('DELETE FROM files WHERE gid = ?').run(String(gid));
-    this.library._afterCommit(() => { this._forget(row.path); this._remove(row.path); });
+    // A gallery forgotten (its library folder removed from the library) keeps its files. A linked
+    // gallery's are its overlay (its source is never deleted): noted as removed, so a check doesn't
+    // add it again.
+    const keep = this.keep.has(String(gid));
+    const src = this.sourceOf(row);
+    this.library._afterCommit(() => {
+      this._forget(row.path);
+      if (keep) return;
+      this._remove(row.path);
+      if (src) this._noteRemoved(this._split(row.path).root, src).catch(() => {});
+    });
   }
 
   clearIn() {
@@ -391,12 +469,14 @@ export class FileLibrary {
     this.library._s('DELETE FROM files').run();
     this.library._s('DELETE FROM leftovers').run();
     this.library._s('DELETE FROM staged_own').run();
+    this.library._s('DELETE FROM homes').run();
     this.library._afterCommit(() => { for (const r of rows) { this._forget(r.path); this._remove(r.path); } });
   }
 
   // A deleted gallery's folder or archive deleted, and its series' folder too once nothing but
   // series.json is left in it.
   async _remove(rel) {
+    if (!this.library.owns(this._split(rel).root)) return;   // another app's folder now: its files stay
     const file = this._abs(rel);
     await this._delete(file);
     await this._tidy(path.dirname(file));
@@ -411,7 +491,7 @@ export class FileLibrary {
   // A series' folder left with nothing but its series.json (its members moved out or deleted):
   // deleted too. The library folder itself never is.
   async _tidy(dir) {
-    if (path.resolve(dir) === path.resolve(this.library.libraryDir)) return;
+    if ([...this.library.roots.values()].some(root => path.resolve(dir) === path.resolve(root))) return;
     const left = await fsp.readdir(dir).catch(() => null);
     const spare = (name) => ['series.json', 'desktop.ini', 'thumbs.db'].includes(name.toLowerCase()) || name.endsWith('.shiori-tmp');
     if (!left || !left.every(spare)) return;
@@ -420,9 +500,25 @@ export class FileLibrary {
 
   _forget(rel) { this._dirs.delete(this._abs(rel)); }
 
+  // Source `src` of library folder `root` removed from the library (linked-source.js removed.json).
+  async _noteRemoved(root, src) {
+    if (!this.library.owns(root)) return;
+    const file = path.join(this.library.rootDir(root), ...linkedSource.REMOVED_FILE.split('/'));
+    const list = linkedSource.parseRemoved(await fsp.readFile(file, 'utf8').catch(() => null))
+      .filter(r => !(r.path === src.path && (r.inner || '') === (src.inner || '')));
+    list.push({ kind: src.kind, path: src.path, ...(src.inner ? { inner: src.inner } : {}), fingerprint: src.fingerprint || null, at: Date.now() });
+    await fsp.mkdir(path.dirname(file), { recursive: true });
+    await writeFlushed(file, Buffer.from(linkedSource.removedText(list)));
+  }
+
   // ── Reading originals ──
   async readOriginal(gid, orig) {
     const row = this._row(gid);
+    if (row && orig?.at === 'x') {
+      const bytes = await this._readSource(row, orig.entry).catch(() => null);
+      await this._seen(row, !!bytes);
+      return bytes ? new Blob([bytes], orig.type ? { type: orig.type } : {}) : null;
+    }
     if (!row || orig?.at !== 'p') return null;
     const bytes = await this._read(row, orig.entry).catch(() => null);
     await this._seen(row, !!bytes);
@@ -435,7 +531,7 @@ export class FileLibrary {
     const staged = this.library._s('SELECT file FROM staged_own WHERE gid = ? AND rel = ?').get(String(gid), rel);
     const row = this._row(gid);
     const kept = () => (row ? this._read(row, rel).catch(() => null) : null);
-    return staged ? fsp.readFile(path.join(this.library.stagingDir, staged.file)).catch(kept) : kept();
+    return staged ? fsp.readFile(this.library._staged(staged.file)).catch(kept) : kept();
   }
 
   // The pictures of its own gallery `gid`'s folder or archive holds (translated/, study/, pipeline/,
@@ -452,9 +548,37 @@ export class FileLibrary {
 
   async hasOriginal(gid, orig) {
     const row = this._row(gid);
+    if (row && orig?.at === 'x') {
+      const src = this.sourceOf(row);
+      if (src?.kind === 'dir') return fsp.access(path.join(this._sourceAbs(row), orig.entry)).then(() => true, () => false);
+      return !!(await this._directory(this._sourceAbs(row)).catch(() => null))?.has(orig.entry);
+    }
     if (!row || orig?.at !== 'p') return false;
     if (row.format === 'folder') return fsp.access(path.join(this._abs(row.path), orig.entry)).then(() => true, () => false);
     return !!(await this._directory(this._abs(row.path)).catch(() => null))?.has(orig.entry);
+  }
+
+  // A linked gallery's source ({ kind, path, inner?, fingerprint }), or null; where it is.
+  sourceOf(row) { try { return row?.source ? JSON.parse(row.source) : null; } catch { return null; } }
+  _sourceAbs(row) {
+    const src = this.sourceOf(row);
+    return path.join(this.library.rootDir(this._split(row.path).root), ...src.path.split('/').filter(Boolean));
+  }
+  // A page of a linked gallery's source (its name in the folder, or in the archive), as bytes.
+  async _readSource(row, entry) {
+    const src = this.sourceOf(row);
+    if (!src) return null;
+    const abs = this._sourceAbs(row);
+    if (src.kind === 'dir') return fsp.readFile(path.join(abs, entry));
+    const found = (await this._directory(abs)).get(entry);
+    return found ? readEntry(abs, found) : null;
+  }
+  // The file a linked gallery's page is, when it is one on its own (a folder of pictures), for a
+  // read that needn't load it.
+  sourceFile(gid, orig) {
+    const row = this._row(gid);
+    const src = this.sourceOf(row);
+    return src?.kind === 'dir' && orig?.at === 'x' ? path.join(this._sourceAbs(row), orig.entry) : null;
   }
 
   async _read(row, entry) {
@@ -475,7 +599,7 @@ export class FileLibrary {
   // change is written.
   async _seen(row, readable) {
     if (readable ? row.state !== 'missing' : row.state === 'missing') return;
-    if (!readable && await fsp.access(this._abs(row.path)).then(() => true, () => false)) return;
+    if (!readable && await fsp.access(row.source ? this._sourceAbs(row) : this._abs(row.path)).then(() => true, () => false)) return;
     const lib = this.library;
     const state = readable ? 'packed' : 'missing';
     const changed = lib._tx(() => {
@@ -534,8 +658,10 @@ export class FileLibrary {
     }
   }
 
-  async place(gid) {
+  // `any`: one out of the library too (its folder being removed: what waits settled in first).
+  async place(gid, { any = false } = {}) {
     const id = String(gid);
+    if (!any && this.library.unmounted(id)) return;   // its folder hidden or removed: nothing moves
     if (this._placing.has(id)) { this._again.add(id); return this._placing.get(id); }
     const run = this._place(id).then((done) => {
       this._failures.delete(id);
@@ -567,6 +693,7 @@ export class FileLibrary {
   // archive's pages changed while it was being unpacked.
   async _place(gid) {
     const lib = this.library;
+    if (!lib.owns(this.rootFor(gid))) return true;   // taken over by another app: its pages wait, staged
     let row = this._row(gid);
     if (row) {
       // A gallery whose folder or archive is gone (moved outside the app, or its drive away) waits,
@@ -620,7 +747,7 @@ export class FileLibrary {
   async _moveIn(gid, dir, r) {
     const lib = this.library;
     const orig = parse(r.orig);
-    const from = path.join(lib.stagingDir, orig.file);
+    const from = lib._staged(orig.file);
     const name = this._nameFor(gid, r, orig);
     const to = path.join(dir, ...name.split('/'));
     const there = await flushed(from);
@@ -642,7 +769,7 @@ export class FileLibrary {
   async _moveOwnIn(gid, dir) {
     const lib = this.library;
     for (const s of this._stagedOwn(gid)) {
-      const from = path.join(lib.stagingDir, s.file), to = path.join(dir, ...s.rel.split('/'));
+      const from = lib._staged(s.file), to = path.join(dir, ...s.rel.split('/'));
       const there = await flushed(from);
       fs.mkdirSync(path.dirname(to), { recursive: true });
       if (lib._s('SELECT file FROM staged_own WHERE gid = ? AND rel = ?').get(gid, s.rel)?.file !== s.file) continue;
@@ -674,11 +801,14 @@ export class FileLibrary {
     return Array.isArray(meta.chapters) && meta.chapters.length > 1 ? meta : null;
   }
 
-  // The folder a series' members are in (the first one placed in a folder of its own), or null.
-  _seriesFolder(owner) {
+  // The folder a series' members are in (the first one placed in a folder of its own) — in library
+  // folder `root` when given — or null.
+  _seriesFolder(owner, root = null) {
     for (const id of [owner.galleryId, ...(owner.chapters || []).map(c => c.id)]) {
       const rel = this._row(id)?.path;
-      if (rel && rel.includes('/')) return path.posix.dirname(rel);
+      if (!rel) continue;
+      const at = this._split(rel);
+      if (at.rest.includes('/') && (root == null || at.root === root)) return this._join(at.root, path.posix.dirname(at.rest));
     }
     return null;
   }
@@ -695,18 +825,21 @@ export class FileLibrary {
   async _regroup(gid) {
     const lib = this.library;
     const row = this._row(gid);
-    if (!row) return;
+    if (!row || row.source) return;   // a linked gallery's overlay stays where it is
     const ext = row.format === 'folder' ? '' : `.${row.format}`;
-    const parent = path.posix.dirname(row.path);
+    // Within the library folder it is in: a gallery is only ever moved to another one by moveTo.
+    const { root, rest } = this._split(row.path);
+    const parent = this._join(root, path.posix.dirname(rest));
+    const top = path.posix.dirname(rest) === '.';
     const owner = this._ownerOf(gid);
     let rel;
     if (owner) {
-      const folder = this._seriesFolder(owner);
+      const folder = this._seriesFolder(owner, root);
       if (folder && folder === parent) return;
-      rel = this._freePath(`${folder || this._freePath(layout.seriesName(owner))}/${this._memberName(owner, gid)}`, ext);
+      rel = this._freePath(`${folder || this._freePath(this._join(root, layout.seriesName(owner)))}/${this._memberName(owner, gid)}`, ext);
     } else {
-      if (parent === '.') return;
-      rel = this._freePath(layout.galleryName(lib._metaGet(gid) || { galleryId: gid }), ext);
+      if (top) return;
+      rel = this._freePath(this._join(root, layout.galleryName(lib._metaGet(gid) || { galleryId: gid })), ext);
     }
     const from = this._abs(row.path), to = this._abs(rel);
     // One synchronous step from here.
@@ -830,18 +963,22 @@ export class FileLibrary {
 
   // Gallery `gid`'s descriptions brought up to date — and, for a series' first gallery, its
   // series.json — when they are out of date and its folder is there.
-  async describe(gid) {
+  // `all`: written even when nothing is waiting to be (a folder about to be removed from the library:
+  // only the descriptions that differ from the index's are written).
+  async describe(gid, { all = false } = {}) {
     const id = String(gid);
-    if (this._describing.has(id)) { await this._describing.get(id); return this.describe(id); }
+    if (this._describing.has(id)) { await this._describing.get(id); return this.describe(id, { all }); }
     clearTimeout(this._describeTimers.get(id));
     this._describeTimers.delete(id);
     const run = (async () => {
       const row = this._row(id);
-      if (!row?.pending || row.unpack) return;
+      if (!row || row.unpack || (!row.pending && !all)) return;
+      if (!all && this.library.unmounted(id)) return;   // its folder hidden or removed: written once it is back (or as it goes)
+      if (!this.library.owns(this.rootFor(id))) return;   // taken over by another app: waits (still pending)
       const dir = this._abs(row.path);
       if (!fs.existsSync(dir)) return;
       this._touched.delete(id);
-      if (row.format === 'folder') await this._describe(id, dir); else await this._describeArchive(id, row);
+      if (row.format === 'folder') await this._describe(id, dir, { onlyChanged: all }); else await this._describeArchive(id, row);
       await this._describeSeries(id);
       if (!this._touched.has(id)) this.library._s('UPDATE files SET pending = 0, packed_at = ? WHERE gid = ?').run(Date.now(), id);
     })();
@@ -862,16 +999,18 @@ export class FileLibrary {
   // makes the folder again: library.js _stage).
   async _unstage(gid) {
     const lib = this.library;
-    const dir = path.join(lib.stagingDir, String(gid));
-    const empty = async () => !this._staged(gid).length && !this._stagedOwn(gid).length && (await fsp.readdir(dir).catch(() => null))?.length === 0;
-    try {
-      // Looked at twice: a page whose file was on its way in when it was first looked at has landed
-      // by the second.
-      if (!await empty()) return;
-      if (!await empty()) return;
-      lib._dirs.delete(dir);
-      await fsp.rmdir(dir);
-    } catch {}
+    for (const staging of lib.stagingDirs()) {
+      const dir = path.join(staging, String(gid));
+      const empty = async () => !this._staged(gid).length && !this._stagedOwn(gid).length && (await fsp.readdir(dir).catch(() => null))?.length === 0;
+      try {
+        // Looked at twice: a page whose file was on its way in when it was first looked at has landed
+        // by the second.
+        if (!await empty()) continue;
+        if (!await empty()) continue;
+        lib._dirs.delete(dir);
+        await fsp.rmdir(dir);
+      } catch {}
+    }
   }
 
   // Gallery `gid`'s descriptions as the index holds it (gallery-files.js; its pages in its folder or
@@ -880,7 +1019,7 @@ export class FileLibrary {
   _descriptions(gid, { comicInfo = false, placing = null } = {}) {
     const lib = this.library;
     const meta = lib._metaGet(gid);
-    const records = lib._pageRows(gid).filter(r => parse(r.orig).at === 'p' || placing?.has(r.n)).map(r => lib._rowRecord(r));
+    const records = lib._pageRows(gid).filter(r => ['p', 'x'].includes(parse(r.orig).at) || placing?.has(r.n)).map(r => lib._rowRecord(r));
     const cover = lib._coverGet(gid);
     const out = layout.galleryFiles({ meta, records, covers: { gallery: cover?.cover, series: cover?.seriesCover } })
       .filter(f => DESCRIPTIONS.includes(f.name)).map(f => ({ name: f.name, data: Buffer.from(f.source) }));
@@ -892,15 +1031,18 @@ export class FileLibrary {
   }
 
   // A folder's descriptions written; those the gallery no longer has, removed.
-  async _describe(gid, dir) {
+  async _describe(gid, dir, { onlyChanged = false } = {}) {
     const listed = this._descriptions(gid);
     for (const f of listed) {
       const file = path.join(dir, ...f.name.split('/'));
+      if (onlyChanged && Buffer.from(f.data).equals(await fsp.readFile(file).catch(() => Buffer.alloc(0)))) continue;
       await fsp.mkdir(path.dirname(file), { recursive: true });
       await replaceFile(file, f.data);
       this.library.writes.add('descriptions', f.data.length);
     }
     for (const name of DESCRIPTIONS) if (!listed.some(f => f.name === name)) await fsp.rm(path.join(dir, ...name.split('/')), { force: true });
+    // What the folder describes it with now, stamped: a check tells by it whether another app changed it.
+    this.library._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(String(gid), descriptionStampOf(listed));
   }
 
   // An archive's descriptions brought up to date: those that changed added to it (zip.js appendZip —
@@ -958,14 +1100,14 @@ export class FileLibrary {
         if (orig.at === 's') {
           const name = this._nameFor(gid, r, orig);
           placing.set(r.n, { name, row: r });
-          live.set(name, { size: orig.size, from: path.join(lib.stagingDir, orig.file) });
+          live.set(name, { size: orig.size, from: lib._staged(orig.file) });
         } else if (orig.at === 'p') live.set(orig.entry, { size: dir.get(orig.entry)?.size ?? orig.size });
       }
       const stagedOwn = this._stagedOwn(gid);
       const staged = new Map(stagedOwn.map(s => [s.rel, s]));
       for (const [rel, size] of ownFiles(lib._coverGet(gid), ownFiles(rows.map(r => parse(r.record))))) {
         const s = staged.get(rel);
-        live.set(rel, s ? { size: s.size, from: path.join(lib.stagingDir, s.file) } : { size: dir.get(rel)?.size ?? size ?? 0 });
+        live.set(rel, s ? { size: s.size, from: lib._staged(s.file) } : { size: dir.get(rel)?.size ?? size ?? 0 });
       }
       this._touched.delete(gid);
       for (const d of this._descriptions(gid, { comicInfo: row.format === 'cbz', placing: new Set(placing.keys()) })) {
@@ -985,12 +1127,12 @@ export class FileLibrary {
             if (now?.orig !== r.orig) continue;   // replaced meanwhile: its new page waits for the next settle
             const orig = parse(r.orig);
             lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify({ at: 'p', entry: name, size: orig.size, type: orig.type }), gid, n);
-            gone.push(path.join(lib.stagingDir, orig.file));
+            gone.push(lib._staged(orig.file));
           }
           for (const s of stagedOwn) {
             if (lib._s('SELECT file FROM staged_own WHERE gid = ? AND rel = ?').get(gid, s.rel)?.file !== s.file) continue;
             lib._s('DELETE FROM staged_own WHERE gid = ? AND rel = ?').run(gid, s.rel);
-            gone.push(path.join(lib.stagingDir, s.file));
+            gone.push(lib._staged(s.file));
           }
           lib._s('UPDATE files SET tail = NULL WHERE gid = ?').run(gid);
           if (!this._touched.has(gid)) lib._s('UPDATE files SET unpack = 0, pending = 0, packed_at = ? WHERE gid = ?').run(Date.now(), gid);
@@ -1057,6 +1199,84 @@ export class FileLibrary {
     this.library.writes.add('descriptions', data.length);
   }
 
+  // ── Moving a gallery to another library folder ──
+  // Gallery `gid` moved to library folder `root`: what waits in staging is settled into its folder
+  // first; its folder (or archive) is copied there under a free name — a series member into its
+  // series' folder there, when it has one — then its row is switched over in one synchronous step,
+  // and the old copy deleted. If the gallery changed while it was being copied, the copy goes and it
+  // is copied again. A gallery not placed yet only changes where it goes. Resolves whether it moved.
+  async moveTo(gid, root) {
+    const lib = this.library;
+    const id = String(gid);
+    lib.liveRoot(root);
+    if (this.rootFor(id) === root) return false;
+    lib._takenRefuse(root);
+    lib._takenRefuse(this.rootFor(id));
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await this.place(id);
+      await this._describing.get(id)?.catch(() => {});   // descriptions being written land first
+      const row = this._row(id);
+      if (!row) {
+        lib._tx(() => { lib._s('INSERT OR REPLACE INTO homes (gid, root) VALUES (?, ?)').run(id, root); lib._logIn(id); });
+        return true;
+      }
+      const from = this._abs(row.path);
+      if (row.state === 'missing' || !fs.existsSync(from)) throw new BackendError('unavailable', `the files of gallery ${id} can't be found`);
+      const ext = row.format === 'folder' ? '' : `.${row.format}`;
+      const owner = this._ownerOf(id);
+      const rel = row.source ? this._freePath(this._join(root, layout.galleryName(lib._metaGet(id) || { galleryId: id }))) : owner
+        ? this._freePath(`${this._seriesFolder(owner, root) || this._freePath(this._join(root, layout.seriesName(owner)))}/${this._memberName(owner, id)}`, ext)
+        : this._freePath(this._join(root, path.posix.basename(this._split(row.path).rest).replace(/\.(cbz|zip)$/i, '')), ext);
+      const to = this._abs(rel), temp = `${to}.shiori-tmp`;
+      const linkedPlaced = new Map();   // page → where a linked gallery's page from its source is now
+      const signature = () => JSON.stringify([this._row(id), lib._pageRows(id).map(r => [r.n, r.orig, r.record]),
+        lib._s('SELECT record FROM covers WHERE gid = ?').get(id)?.record ?? null, this._stagedOwn(id)]);
+      const before = signature();
+      this._reserved.add(rel);
+      try {
+        await fsp.mkdir(path.dirname(to), { recursive: true });
+        await fsp.rm(temp, { recursive: true, force: true });
+        // Not what a write under way holds aside (its descriptions are written again in its new place).
+        if (row.format === 'folder') await fsp.cp(from, temp, { recursive: true, errorOnExist: true, force: false, filter: (src) => !src.endsWith('.shiori-tmp') && !src.endsWith(linkedSource.SOURCE_FILE) });
+        else await fsp.copyFile(from, temp, fs.constants.COPYFILE_EXCL);
+        // A linked gallery's pages in its source: written into it as the gallery format puts them.
+        if (row.source) {
+          for (const r of lib._pageRows(id)) {
+            const orig = parse(r.orig);
+            if (orig.at !== 'x') continue;
+            const name = layout.layoutPath.original(r.n, layout.originalExt(orig.type, r.key));
+            await fsp.mkdir(path.join(temp, 'images'), { recursive: true });
+            await fsp.writeFile(path.join(temp, ...name.split('/')), await this._readSource(row, orig.entry));
+            linkedPlaced.set(r.n, { at: 'p', entry: name, size: orig.size, type: orig.type });
+          }
+        }
+        lib.writes.add(row.format === 'folder' ? 'pages' : 'archive', await bytesIn(temp));
+        if (signature() !== before) { await fsp.rm(temp, { recursive: true, force: true }); continue; }
+        await fsp.rename(temp, to);
+      } catch (e) {
+        await fsp.rm(temp, { recursive: true, force: true }).catch(() => {});
+        throw e;
+      } finally {
+        this._reserved.delete(rel);
+      }
+      // One synchronous step from here: switched over only when nothing changed while it was copied.
+      if (signature() !== before) { await fsp.rm(to, { recursive: true, force: true }).catch(() => {}); continue; }
+      lib._tx(() => {
+        lib._s('UPDATE files SET path = ?, source = NULL WHERE gid = ?').run(rel, id);
+        for (const [n, orig] of linkedPlaced) lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify(orig), id, n);
+        lib._s('DELETE FROM homes WHERE gid = ?').run(id);
+        this._pend(id);
+        this._pendOwner(id);
+        lib._logIn(id);
+      });
+      this._forget(row.path);
+      await this._remove(row.path);
+      this.scheduleDescribe(id, 0);
+      return true;
+    }
+    throw new BackendError('conflict', `gallery ${id} kept changing while it was being moved`);
+  }
+
   // ── Places ──
   // A folder (or, with `ext`, an archive) no gallery has, nothing is being written to and nothing on
   // disk holds: `base`, or `base (2)`, `base (3)`…
@@ -1074,11 +1294,11 @@ export class FileLibrary {
   // Where a gallery is first placed: a folder named after it at the top of the library folder, or —
   // a series member — "<Series> Ch. 001" in its series' folder (where its other members are, or a
   // new one named after the series). `given`: its metadata when it isn't stored yet.
-  _choosePath(gid, given) {
+  _choosePath(gid, given, root = this.rootFor(gid, { claim: true })) {
     const lib = this.library;
     const owner = this._ownerOf(gid) || (given?.parentId ? lib._metaGet(given.parentId) : null);
-    if (!owner) return this._freePath(layout.galleryName(lib._metaGet(gid) || given || { galleryId: gid }));
-    const folder = this._seriesFolder(owner) || this._freePath(layout.seriesName(owner));
+    if (!owner) return this._freePath(this._join(root, layout.galleryName(lib._metaGet(gid) || given || { galleryId: gid })));
+    const folder = this._seriesFolder(owner, root) || this._freePath(this._join(root, layout.seriesName(owner)));
     return this._freePath(`${folder}/${this._memberName(owner, gid)}`);
   }
 
@@ -1116,7 +1336,7 @@ export class FileLibrary {
   // descriptions written, nothing staged, left to delete, to move or under way, and not open in a
   // reader.
   _idle(gid, row) {
-    return row?.format === 'folder' && row.state === 'packed' && !row.pending && !row.unpack
+    return row?.format === 'folder' && !row.source && row.state === 'packed' && !row.pending && !row.unpack
       && !this._staged(gid).length && !this._leftovers(gid).length && !this._stagedOwn(gid).length && !this._regroupWanted.has(gid)
       && !this.library.reading.has(gid) && !this._placing.has(gid) && !this._describing.has(gid);
   }
@@ -1167,7 +1387,7 @@ export class FileLibrary {
     const id = String(gid);
     const lib = this.library;
     const row = this._row(id);
-    if (!this._idle(id, row)) return false;
+    if (!this._idle(id, row) || lib.unmounted(id) || !lib.owns(this.rootFor(id))) return false;
     const format = this.archiveFormat === 'cbz' ? 'cbz' : 'zip';
     const dir = this._abs(row.path);
     const signature = this._signature(id);
@@ -1216,6 +1436,7 @@ export class FileLibrary {
     const lib = this.library;
     const held = (rel) => !!lib._s('SELECT 1 FROM files WHERE path = ?').get(rel);
     for (const { path: rel } of lib._s('SELECT path FROM retired').all()) {
+      if (!lib.roots.has(this._split(rel).root) || !lib.owns(this._split(rel).root)) continue;
       const file = this._abs(rel);
       if (!held(rel) && fs.existsSync(file) && !this._reading.get(file)) await this._delete(file);
       if (held(rel) || !fs.existsSync(file)) lib._s('DELETE FROM retired WHERE path = ?').run(rel);

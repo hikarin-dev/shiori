@@ -3,7 +3,8 @@
 // library, a job that went quiet), each with its own Stop, and Stop all. Reached from the page menu in
 // every header (page-nav.js), or at /tasks. A gallery doing two jobs at once (downloading while
 // translating) has a row for each. A batch of imports is one job, shown by its tracker above the rows
-// (import-tracker.js); its titles have no rows of their own.
+// (import-tracker.js); its titles have no rows of their own. A check of a library folder (kind
+// 'folder': folder-scan.js, or the desktop app's) is a row too, named after the folder.
 
 import './boot.js';
 import * as api from './api.js';
@@ -22,7 +23,10 @@ const QUIET_MS = 2 * 60 * 1000;    // a running job silent this long says for ho
 const TERMINAL = new Set(['done', 'error', 'cancelled']);
 const isRunning = (job) => !TERMINAL.has(job.status);
 const keyOf = (job) => `${job.gid}:${job.kind || 'job'}`;
-const KIND_LABEL = { download: 'tasks.kind_download', translate: 'tasks.kind_translate', upload: 'tasks.kind_upload', sync: 'tasks.kind_sync' };
+const KIND_LABEL = { download: 'tasks.kind_download', translate: 'tasks.kind_translate', upload: 'tasks.kind_upload', sync: 'tasks.kind_sync',
+  folder: 'tasks.kind_folder' };
+const FOLDER_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+const isFolder = (job) => job.kind === 'folder';
 const STOP_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
 
 const $list = document.getElementById('tkList');
@@ -41,6 +45,16 @@ function view(job) {
   const label = job.labelKey ? t(job.labelKey, job.labelArgs) : job.label;
   const done = job.done || 0, total = job.total || 0;
   const tally = total ? `${formatCount(done)} / ${formatCount(total)}` : '';
+  // A library folder's job: its progress (the folders at its top gone through, or the galleries set
+  // aside), and the galleries found.
+  if (isFolder(job) && !TERMINAL.has(job.status)) {
+    const found = job.found && job.foundKey !== '' ? t(job.foundKey || 'lf.task_found', { n: formatCount(job.found) }) : '';
+    return { pct: total ? Math.round((done / total) * 100) : 0, indeterminate: !total, label: [label, tally, found].filter(Boolean).join(' · ') };
+  }
+  if (isFolder(job) && job.status === 'done') {
+    return { pct: 100, label: [t(job.doneKey || 'lf.task_done', { n: formatCount(job.found || 0) }),
+      job.updated ? t('lf.task_updated', { n: formatCount(job.updated) }) : ''].filter(Boolean).join(' · ') };
+  }
   const skipped = job.skipped > 0 ? ` (${t('prog.already_cached', { n: formatCount(job.skipped) })})` : '';
   switch (job.status) {
     case 'error': return { pct: 0, label: `${t('prog.error')}: ${(job.errorKey ? t(job.errorKey) : job.error) || 'unknown'}` };
@@ -103,7 +117,8 @@ function makeRow(job) {
   const el = document.createElement('div');
   el.className = 'tk-row';
   el.dataset.key = keyOf(job);
-  const href = escHtml(`../overview?g=${encodeURIComponent(job.gid)}`);
+  // A library folder's check opens Settings, where the folders are; a gallery's job its overview.
+  const href = escHtml(isFolder(job) ? '../settings' : `../overview?g=${encodeURIComponent(job.gid)}`);
   const stopTip = escHtml(t('tasks.stop'));
   el.innerHTML = `
     <a class="tk-thumb" href="${href}" tabindex="-1" aria-hidden="true"><img alt=""></a>
@@ -116,13 +131,18 @@ function makeRow(job) {
   const kind = el.querySelector('.tk-kind');
   kind.dataset.kind = job.kind || '';
   kind.textContent = KIND_LABEL[job.kind] ? t(KIND_LABEL[job.kind]) : (job.kind || '');
-  el.querySelector('.tk-title').textContent = `#${job.gid}`;   // until its gallery is read
+  el.querySelector('.tk-title').textContent = isFolder(job) ? (job.titleKey ? t(job.titleKey) : job.title || '') : `#${job.gid}`;   // until its gallery is read
+  if (isFolder(job)) {
+    el.querySelector('.tk-thumb').innerHTML = FOLDER_SVG;
+    el.querySelector('.tk-thumb').classList.add('folder');
+  }
   const row = { job, el, stopping: false, endedAt: 0, hasCover: false, fillTimer: null };
   el.querySelector('.tk-stop').addEventListener('click', () => stop(row));
   return row;
 }
 
 async function fillGallery(row) {
+  if (isFolder(row.job)) return;   // a library folder, not a gallery
   const gid = row.job.gid;
   const [g] = await api.galleries.byIds([gid]).catch(() => []);
   const owner = g?.parentId ? (await api.galleries.byIds([String(g.parentId)]).catch(() => []))[0] : null;

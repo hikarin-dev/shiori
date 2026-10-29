@@ -1,8 +1,8 @@
 // desktop-link.js — a site's use of the Shiori Desktop library, in a browser (never on a page the
 // desktop app serves — its window, or a browser tab at its address — whose library it always is):
-//   • Settings → Storage → Library location: switching between this browser's library and the
+//   • Settings → Storage, the library's card: switching between this browser's library and the
 //     desktop app's (finding the app, asking it to allow this site, offering to move what this
-//     browser holds), moving or deleting what this browser still holds;
+//     browser holds), moving or deleting what this browser still holds (mountLocation);
 //   • when the desktop app can't be reached: a prompt to open it or continue in this browser alone
 //     for now, a reminder while continuing, and — once the app is back — an offer to move what was
 //     saved meanwhile and switch back; when it runs but no longer lets this site in, a prompt to
@@ -90,59 +90,42 @@ async function useDesktop(status) {
   switchTo(config);
 }
 
-// Settings → Storage → Library location (not on a page the desktop app serves).
-export async function initLocationSettings() {
-  if (desktopHosted()) return;
-  const panel = document.getElementById('panelStorage');
-  if (!panel || document.getElementById('locationSection')) return;
-  const section = document.createElement('div');
-  section.className = 'section';
-  section.id = 'locationSection';
-  panel.prepend(section);
-
-  const status = (text) => {
-    const el = section.querySelector('#locStatus');
-    if (el) { el.textContent = text; el.classList.toggle('hidden', !text); el.classList.toggle('ok', !!text); }
-  };
+// Settings → Storage: where this site's library is, at the top of the library's card
+// (library-folders.js): this browser or Shiori Desktop, as a choice of the two, and — on the desktop
+// library — what this browser still holds, to move or delete. `el` is the card's place for it;
+// `status(text)` its status line. (Not on a page the desktop app serves.)
+export async function mountLocation(el, status = () => {}) {
+  if (desktopHosted() || !el) return;
   const render = async () => {
     const saved = savedLocation();
     const away = saved && fallback();
     const left = saved && !away ? (await browserGalleries().catch(() => [])).length : 0;
-    section.innerHTML = `
-      <div class="section-header"><h2 class="section-title" data-i18n="set.loc_title"></h2></div>
-      <div class="section-body">
-        <div class="toggle-row">
-          <div class="toggle-info">
-            <div class="toggle-name" data-i18n="${saved ? 'set.loc_desktop' : 'set.loc_browser'}"></div>
-            <div class="toggle-desc">${saved
-              ? `${esc(t(away ? 'set.loc_fallback_desc' : 'set.loc_desktop_desc'))}${away ? '' : ` <code>${esc(saved.url)}</code>`}`
-              : esc(t('set.loc_browser_desc'))}</div>
-          </div>
-          ${saved
-            ? `<span class="desk-actions">${away ? '<button class="btn-save" id="locRetry" type="button" data-i18n="set.loc_retry"></button>' : ''}
-                <button class="btn-mini" id="locBrowser" type="button" data-i18n="set.loc_use_browser"></button></span>`
-            : '<button class="btn-save" id="locDesktop" type="button" data-i18n="set.loc_use_desktop"></button>'}
+    const desc = !saved ? esc(t('lf.loc_browser_desc'))
+      : away ? esc(t('set.loc_fallback_desc')) : `${esc(t('set.loc_desktop_desc'))} <code>${esc(saved.url)}</code>`;
+    el.innerHTML = `
+      <div class="field">
+        <div class="field-label" data-i18n="lf.location"></div>
+        <div class="field-desc">${desc}</div>
+        <div class="choice-toggle lf-loc" role="group">
+          <button type="button" data-loc="browser" class="${saved ? '' : 'active'}" aria-pressed="${!saved}" data-i18n="set.loc_browser"></button>
+          <button type="button" data-loc="desktop" class="${saved ? 'active' : ''}" aria-pressed="${!!saved}" data-i18n="set.loc_desktop"></button>
         </div>
-        ${left ? `
-        <div class="toggle-row">
-          <div class="toggle-info"><div class="toggle-desc">${esc(t('set.loc_left', { n: formatCount(left) }))}</div></div>
-          <span class="desk-actions">
-            <button class="btn-mini" id="locMove" type="button" data-i18n="set.loc_move"></button>
-            <button class="btn-mini btn-clear-key" id="locDelete" type="button" data-i18n="set.loc_delete"></button>
-          </span>
-        </div>` : ''}
-        <div class="status-msg hidden" id="locStatus" role="status" aria-live="polite"></div>
-      </div>`;
-    applyTranslations(section);
-    section.querySelector('#locDesktop')?.addEventListener('click', () => useDesktop(status));
-    section.querySelector('#locRetry')?.addEventListener('click', () => offerReturn(saved, { asked: true }));
-    section.querySelector('#locBrowser')?.addEventListener('click', async () => {
+      </div>
+      ${away ? '<div class="lf-loc-row"><span></span><button class="btn-mini" id="locRetry" type="button" data-i18n="set.loc_retry"></button></div>' : ''}
+      ${left ? `<div class="lf-loc-row"><span>${esc(t('set.loc_left', { n: formatCount(left) }))}</span>
+        <span class="desk-actions"><button class="btn-mini" id="locMove" type="button" data-i18n="set.loc_move"></button>
+        <button class="btn-mini btn-clear-key" id="locDelete" type="button" data-i18n="set.loc_delete"></button></span></div>` : ''}`;
+    applyTranslations(el);
+    el.querySelector('[data-loc="desktop"]').addEventListener('click', () => { if (!savedLocation()) useDesktop(status); });
+    el.querySelector('[data-loc="browser"]').addEventListener('click', async () => {
+      if (!savedLocation()) return;
       if (await confirmDialog({ title: t('dlg.loc_browser_title'), body: t('dlg.loc_browser_body'), ok: t('set.loc_use_browser') })) switchTo(null);
     });
-    section.querySelector('#locMove')?.addEventListener('click', async () => {
+    el.querySelector('#locRetry')?.addEventListener('click', () => offerReturn(saved, { asked: true }));
+    el.querySelector('#locMove')?.addEventListener('click', async () => {
       if (await move(saved, await browserGalleries())) { status(t('set.loc_moved', { n: formatCount(left) })); render(); }
     });
-    section.querySelector('#locDelete')?.addEventListener('click', async () => {
+    el.querySelector('#locDelete')?.addEventListener('click', async () => {
       if (!(await confirmDialog({ title: t('dlg.loc_delete_title'), body: t('dlg.loc_delete_body', { n: formatCount(left) }), ok: t('dlg.delete'), danger: true }))) return;
       await clearBrowserLibrary();
       render();

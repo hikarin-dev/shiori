@@ -215,10 +215,10 @@ test('every job says where it runs, and its tooltip what would stop it', { skip:
   }, null, { what: 'eight tagged rows' });
   assert.deepEqual(tags.map(([text]) => text),
     ['Tab · Library', 'This tab', 'Background worker', 'Chrome extension', 'Desktop extension', 'Background worker', 'App background', 'Window · Overview']);
-  assert.match(tags[0][1], /Closing that tab, reloading it or leaving the page stops it/);
-  assert.match(tags[2][1], /about five minutes after the last one closes/);
-  assert.match(tags[3][1], /in the extension in Chrome, not in a Shiori tab\. Closing Chrome or turning the extension off/);
-  assert.match(tags[4][1], /in the extension inside Shiori Desktop, not in one of its windows\. Quitting Shiori Desktop or removing the extension/);
-  assert.match(tags[6][1], /quitting the app stops it/);
+  assert.equal(tags[0][1], 'Stops if the tab is closed or reloaded.');
+  assert.equal(tags[2][1], 'Keeps running while a Shiori tab is open.');
+  assert.equal(tags[3][1], 'Stops if Chrome closes or the extension is turned off.');
+  assert.equal(tags[4][1], 'Stops if Shiori Desktop quits or the extension is removed.');
+  assert.equal(tags[6][1], 'Runs until Shiori Desktop quits.');
   assert.equal(await page.$eval('#tkImports .ib[data-batch="import-7"] .run-tag', (el) => el.textContent), 'Tab · Library', 'the batch says so too');
 });
