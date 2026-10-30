@@ -431,6 +431,7 @@ async function removeOrphans(library) {
   }
   // Pictures in a gallery's folder made from its pages that no record refers to.
   for (const { gid } of library._s(`SELECT gid FROM files WHERE format = 'folder' AND gid NOT IN (SELECT gid FROM unmounted)`).all()) {
+    if (!library.folders.writable(library.files.rootFor(gid))) continue;   // another app's folder, or out of reach
     const dir = library.files.folderOf(gid);
     const keep = new Set();
     for (const r of library._s('SELECT record FROM pages WHERE gid = ?').all(gid)) collect(parse(r.record), keep, '$own');

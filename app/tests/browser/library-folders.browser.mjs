@@ -89,13 +89,14 @@ test('a new gallery goes to the default folder, its pictures laid out there as t
   assert.deepEqual(out.inBrowser, [], 'none of its pictures is kept in the browser as well');
   assert.ok(out.page1 > 0 && out.studyText > 0, 'its pictures read back from the folder');
   assert.deepEqual(out.places, [['browser', false, 0], ['folder', true, 1]]);
-  // A moment later the gallery describes itself beside its pictures.
-  const meta = await until(page, async () => {
-    try { return JSON.parse(await window.__t.text('Lib A', 'Folder Gallery/metadata.json')); } catch { return null; }
-  }, null, { what: 'metadata.json' });
-  assert.equal(meta.galleryId, out.gid);
-  const records = JSON.parse(await run(() => window.__t.text('Lib A', 'Folder Gallery/image_records.json')));
+  // Its folder names it from the start (its metadata.json binds the folder to it); a moment later
+  // the gallery describes itself in full beside its pictures.
+  const records = await until(page, async () => {
+    try { return JSON.parse(await window.__t.text('Lib A', 'Folder Gallery/image_records.json')); } catch { return null; }
+  }, null, { what: 'image_records.json' });
   assert.equal(records.length, 2);
+  const meta = JSON.parse(await run(() => window.__t.text('Lib A', 'Folder Gallery/metadata.json')));
+  assert.equal(meta.galleryId, out.gid);
   assert.ok(await run(() => window.__t.has('Lib A', 'Folder Gallery/study/bubbles.json')));
   page.__gid = out.gid;
   page.__folderA = out.id;

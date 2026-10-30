@@ -13,7 +13,10 @@
 //                        gallery-files.js): its original pages — staged as they arrive
 //                        (.shiori/staging/<gid>/), then moved into images/ — and what was made
 //                        from them under their layout names: translated/, study/, pipeline/, and a
-//                        cover that is a picture of its own in covers/.
+//                        cover that is a picture of its own in covers/. Which folders, and each
+//                        one's lifecycle: folders.js;
+//   staging/             what waits for a folder that can't be written to now (another app's, out
+//                        of reach), beside the index.
 // Where db.js keeps a Blob, a record here keeps a reference: { $file, size, type } for a cache file,
 // { $own: 'translated/0001.png', size, type } for a file in the gallery's folder, { $orig, size,
 // type } for the page's original, { $page: n, size, type } for a cover that is its gallery's page n.
@@ -23,14 +26,14 @@
 
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { DatabaseSync } from 'node:sqlite';
-import { plans, model, titles, pageSize, files as galleryFilesModule, owner, BackendError } from './shared.js';
+import { plans, model, titles, pageSize, files as galleryFilesModule, lifecycle, BackendError } from './shared.js';
 import { FileLibrary, writeFlushed, libraryId } from './files.js';
+import { Folders } from './folders.js';
 import { WriteMeter } from './writes.js';
-import { scanLibrary } from './scan.js';
 import * as linked from './linked.js';
 
 const { planAttach, planRemove, planReorder, planChapterTitle, planWrite, planDelete, planDeleteSeries, planRelink } = plans;
@@ -86,19 +89,14 @@ CREATE TABLE IF NOT EXISTS covers (gid TEXT PRIMARY KEY, record TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS icons (source TEXT PRIMARY KEY, record TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS changes (rev INTEGER PRIMARY KEY, gid TEXT NOT NULL, at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS dormant (gid TEXT PRIMARY KEY, root TEXT NOT NULL, bundle TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS stamps (gid TEXT PRIMARY KEY, stamp TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS unmounted (gid TEXT PRIMARY KEY, root TEXT NOT NULL) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS unmounted_root ON unmounted (root);
-CREATE INDEX IF NOT EXISTS dormant_root ON dormant (root);
 `;
 
-// A moment for everything else the app's process does (the windows' requests above all): long work
-// on the library — a folder's galleries set aside or brought back, a check — waits for it every so often.
-const breathe = () => new Promise((resolve) => setImmediate(resolve));
-
-// A gallery in the library (not one whose folder is hidden or removed: `unmounted`), in a query.
+// A gallery in the library (not one placed in a folder that is hidden or being removed: folders.js
+// `unmounted`), in a query.
 const MOUNTED = 'gid NOT IN (SELECT gid FROM unmounted)';
+// A file staged in the library's own staging (staging/ beside the index), not a folder's.
+const DATA_STAGED = '~data/';
 
 // A page's number is the one its key ends in ("…/12.webp"), as in db.js.
 const PAGE_URL = /\/(\d+)\.(webp|jpg|jpeg|png|gif|avif)$/i;
@@ -307,18 +305,13 @@ export class Library {
     this.dataDir = path.resolve(dataDir);
     this.libraryDir = path.resolve(libraryDir);
     this._hide = hide || (() => {});
-    // The library's folders (see "Library folders"): id → folder, the first one (libraryDir) first.
+    // The library's folders, each one's lifecycle and the work on it (folders.js); the first one's id.
     this.primaryId = null;
-    this.roots = new Map();
-    this.dormantRoots = new Map();   // id → folder: removed by an earlier version, its galleries' records kept (forgotten as it opens)
-    this._removing = new Set();      // folders being removed: no longer listed, what they are owed being written there
-    this._moveTo = new Map();        // a folder being removed → where its galleries are moved first
-    this._discard = new Set();       // a folder being removed whose changes not written there may be lost (the person chose so)
-    this._hidden = new Map();        // id → {}: hidden (listed, its galleries out of the library)
-    this._owns = new Map();          // id → { owned, claim, at }: whether this library holds its claim, as last read
-    this._scans = new Map();         // a folder check's job id → { stop }
+    this.folders = new Folders(this);
+    this._folderWork = new AsyncLocalStorage();
     this.cacheDir = path.join(this.dataDir, 'cache');
     this.stagingDir = path.join(this.libraryDir, '.shiori', 'staging');
+    this.dataStagingDir = path.join(this.dataDir, 'staging');
     this.remove = remove || ((p) => fsp.rm(p, { recursive: true, force: true }));
     this.context = crypto.randomUUID();
     this._subs = new Set();
@@ -345,17 +338,6 @@ export class Library {
     this._db = new DatabaseSync(path.join(this.dataDir, 'library.db'));
     this._db.exec(SCHEMA);
     this.primaryId = libraryId(this.libraryDir);
-    this.roots = new Map([[this.primaryId, this.libraryDir]]);
-    for (const r of this._kvGet('roots') || []) {
-      if (typeof r?.id !== 'string' || r.id === this.primaryId || typeof r.path !== 'string') continue;
-      if (r.dormant) { this.dormantRoots.set(r.id, path.resolve(r.path)); continue; }
-      this.roots.set(r.id, path.resolve(r.path));
-      if (r.removing) this._removing.add(r.id);
-      if (r.removing && r.moveTo) this._moveTo.set(r.id, r.moveTo);
-      if (r.removing && r.discard) this._discard.add(r.id);
-      await fsp.mkdir(this._stagingOf(r.id), { recursive: true }).catch(() => {});   // a drive away has none for now
-    }
-    for (const h of this._kvGet('hiddenRoots') || []) if (this.roots.has(h?.id)) this._hidden.set(h.id, {});
     // The change log numbered by the library itself (an index made before 2026-10-08 kept a counter
     // of its own, written with every change): taken over as it is.
     if (/AUTOINCREMENT/i.test(this._s(`SELECT sql FROM sqlite_schema WHERE name = 'changes'`).get()?.sql || '')) {
@@ -373,17 +355,11 @@ export class Library {
     this._meterTimer = setInterval(() => { try { this._meterDb(); } catch {} }, 5000);
     this._meterTimer.unref?.();
     this.files.init();
-    // Its folders claimed (folder-owner.js): those no app has claimed yet become this library's.
-    for (const id of this.roots.keys()) this.owns(id);
-    // Galleries an earlier version set aside (moved into `dormant`) back where they were, out of the
-    // library still while their folder is hidden or removed.
-    await this._unsetAside();
-    for (const id of [...this._hidden.keys(), ...[...this._removing].filter(r => !this._moveTo.has(r))]) this._unmount(id);
-    // A folder an earlier version removed kept its galleries' records: forgotten now, as a removal
-    // does (what it owed the folder was written there as it was removed).
-    for (const id of [...this.dormantRoots.keys()]) await this._forgetRoot(id).catch(() => {});
-    // A removal the app was closed in the middle of goes on.
-    for (const id of this._removing) this._removeJob(id).catch(() => {});
+    // Its folders, their claims and what earlier versions kept of them (folders.js); then what waited
+    // for them is settled, and removals cut short go on.
+    await this.folders.open();
+    this.files.start();
+    this.folders.resume();
     return this;
   }
 
@@ -420,7 +396,8 @@ export class Library {
   _kvSet(key, value) { this._s('INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, JSON.stringify(value)); }
 
   // One transaction: `fn` runs synchronously inside it. Files queued with _drop are deleted once it
-  // commits; on a failure the files in `fresh` (written for it beforehand) are deleted instead.
+  // commits; on a failure the files in `fresh` (written for it beforehand) are deleted instead. Before
+  // it commits, every gallery it changed has its place (_placesIn).
   _tx(fn, fresh = []) {
     if (this._inTx) return fn();
     this._db.exec('BEGIN IMMEDIATE');
@@ -428,6 +405,7 @@ export class Library {
     let out, drop, after;
     try {
       out = fn();
+      this._placesIn(this._inTx.logged);
       this._db.exec('COMMIT');
       ({ drop, after } = this._inTx);
     } catch (e) {
@@ -489,10 +467,11 @@ export class Library {
 
   // A picture of the gallery's own — made from its pages (a translation, a study layer, a mask) or
   // its custom cover — written into its folder (claimed now if it has none yet) under a temporary
-  // name beside `rel`, its place there: { ref, temp, file }. Once the index records it,
+  // name beside `rel`, its place there: { ref, temp, file, gid, rel }. Once the index records it,
   // _settleOwn renames it into place (_commitOwn). A gallery kept in an archive in the gallery
-  // format has it staged instead ({ ref, temp, staged, gid, rel }), to be added to its archive when
-  // it settles (files.js). `meta`: the gallery's metadata when it isn't stored yet.
+  // format, or whose folder can't be written to now, has it staged instead ({ ref, temp, staged, gid,
+  // rel }), to be added to its archive or moved into its folder when it settles (files.js). `meta`:
+  // the gallery's metadata when it isn't stored yet.
   async _writeOwn(gid, rel, blob, meta) {
     const ref = { $own: rel, size: blob.size, type: blob.type || '' };
     const staged = await this.files.stageOwn(gid, rel, blob);
@@ -502,16 +481,22 @@ export class Library {
     await fsp.mkdir(path.dirname(file), { recursive: true });
     await fsp.writeFile(temp, new Uint8Array(await blob.arrayBuffer()));
     this.writes.add('pictures', blob.size);
-    return { ref, temp, file };
+    return { ref, temp, file, gid: String(gid), rel };
   }
 
-  // Inside the transaction recording them, pictures _writeOwn wrote put where they belong once it
-  // commits: renamed into the gallery's folder (_settleOwn), or — staged for an archive — recorded
-  // to be added to it at its next settle.
+  // Inside the transaction recording them, pictures _writeOwn wrote noted where they belong
+  // (files.js ownStaged, ownPlaced) and, once it commits, renamed into the gallery's folder
+  // (_settleOwn) — staged ones wait for the gallery's next settle.
   _commitOwn(moves) {
-    for (const m of moves) if (m.staged) this.files.ownStaged(m.gid, m.rel, m.staged, m.ref.size);
+    this._recordOwn(moves);
     const folder = moves.filter(m => !m.staged);
     if (folder.length) this._afterCommit(() => this._settleOwn(folder));
+  }
+  _recordOwn(moves) {
+    for (const m of moves) {
+      if (m.staged) this.files.ownStaged(m.gid, m.rel, m.staged, m.ref.size);
+      else this.files.ownPlaced(m.gid, m.rel);
+    }
   }
 
   // Pictures written by _writeOwn renamed into place (the index has just recorded them). One that
@@ -677,18 +662,25 @@ export class Library {
     return { at: 's', file, size: bytes.length, type };
   }
 
-  // `bytes` written to staging as `file` (`<gid>/<name>`), counted as `kind` (writes.js).
+  // `bytes` written to staging as `file` (_stagedName), counted as `kind` (writes.js). A library
+  // folder's staging is made only inside the folder as it is there — never the folder made again
+  // where one was (a drive away, a folder moved).
   async _writeStaged(file, bytes, kind) {
     const abs = this._staged(file);
     const dir = path.dirname(abs);
-    await this._mkdir(dir);
+    const mkdir = async () => {
+      const root = String(file).startsWith(DATA_STAGED) ? this.dataDir : this.folders.dir(this.files._split(file).root);
+      if (!fs.existsSync(root)) throw new BackendError('unavailable', `${root} can't be reached`);
+      await this._mkdir(dir);
+    };
+    await mkdir();
     try {
       await fsp.writeFile(abs, bytes);
     } catch (e) {
       if (e.code !== 'ENOENT') throw e;
       // Its folder was cleared just now, emptied by the gallery's last settle (files.js _unstage).
       this._dirs.delete(dir);
-      await this._mkdir(dir);
+      await mkdir();
       await fsp.writeFile(abs, bytes);
     }
     this.writes.add(kind, bytes.length);
@@ -702,7 +694,6 @@ export class Library {
     const stored = this._s('SELECT record FROM meta WHERE gid = ?').get(gid)?.record;
     const text = JSON.stringify(record);
     if (stored === text) return;
-    if (stored == null && !this._s('SELECT 1 FROM stats WHERE gid = ?').get(gid)) this.files.noteHome(gid);   // a new gallery: where it goes
     const before = parse(stored);
     const grouping = (m) => JSON.stringify([m?.parentId ?? null, Array.isArray(m?.chapters) && m.chapters.length > 1 ? m.chapters.map(c => String(c?.id)) : null]);
     this._s(`INSERT INTO meta (gid, source_id, is_stub, record) VALUES (?, ?, ?, ?)
@@ -766,19 +757,13 @@ export class Library {
     const rec = parse(row.record);
     for (const ref of fileRefs(rec)) this._drop(path.join(this.cacheDir, ref));
     const orig = parse(row.orig);
-    if (orig?.at === 's' && !this.files.keep.has(row.gid)) this._drop(this._staged(orig.file));
+    if (orig?.at === 's' && !this.files.keep.has(row.gid)) this._dropStaged(orig.file);
     if (whole) return;
     for (const name of ownRefs(rec)) this._dropOwn(row.gid, name);
     if (orig?.at !== 's') this.files.pageRemoved(row.gid, orig);   // its file goes when the gallery is next settled
   }
-  // A picture of the gallery's own no record names any more, deleted once the transaction commits —
-  // at once then, so a picture written under the same name later can't be caught by it.
-  // One kept in an archive (or staged for it) leaves it at the archive's next settle.
-  _dropOwn(gid, rel) {
-    const file = this._ownPath(gid, rel);
-    if (file) this._afterCommit(() => fs.rmSync(file, { force: true }));
-    else this.files.ownDropped(gid, rel);
-  }
+  // A picture of the gallery's own no record names any more, deleted (files.js ownDropped).
+  _dropOwn(gid, rel) { if (ownName(rel)) this.files.ownDropped(gid, rel); }
   // The page `at` names: { galleryId, pageNum }, or its key.
   _pageAt(at) {
     if (typeof at === 'string') return this._pageRowByKey(at);
@@ -791,9 +776,16 @@ export class Library {
   }
 
   // ── The change log ──
+  // Gallery `gid` changed in this transaction ('*': which galleries are in the library changed — a
+  // window catching up reads everything again). A gallery placed in a folder that is hidden or being
+  // removed is out of the library: nothing changes it — not a series command reaching it, a move, a
+  // delete, nor a write that was under way as its folder was hidden — unless the change is the
+  // folder's own work (asFolderWork); the transaction is refused (_mountCheck). Checked here, its place
+  // as it was, and again as the transaction commits, its place as it will be (_placesIn).
   _logIn(gid) {
     const id = String(gid);
     if (this._inTx.logged.has(id)) return;
+    if (id !== '*' && !this._folderWork.getStore()) this._mountCheck(id);
     this._inTx.logged.add(id);
     const rev = ++this._lastRev;
     this._s('INSERT INTO changes (rev, gid, at) VALUES (?, ?, ?)').run(rev, id, Date.now());
@@ -802,6 +794,36 @@ export class Library {
       this._kvSet('compactedUpTo', rev - CHANGES_KEPT);
     }
   }
+
+  // Refused (BackendError 'invalid', reason 'hidden'): gallery `gid` is placed in a folder that isn't
+  // shown (folder-lifecycle.js mounted) — or no longer known.
+  _mountCheck(gid) {
+    const at = this._s('SELECT p.root, r.state FROM places p LEFT JOIN roots r ON r.id = p.root WHERE p.gid = ?').get(gid);
+    if (!at || lifecycle.mounted(at.state)) return;
+    throw Object.assign(new BackendError('invalid', `gallery ${gid} is in a hidden library folder`), { reason: 'hidden' });
+  }
+
+  // Inside a transaction about to commit: the galleries it changed (`logged`) placed. A gallery has a
+  // place while it has a stat record: the folder its files are in, else — a gallery just made, with no
+  // files yet — where new galleries go; a record with metadata only has none. Then none may be left in
+  // a folder out of the library (_mountCheck), unless this is the folder's own work.
+  _placesIn(logged) {
+    for (const gid of logged) {
+      if (gid === '*') continue;
+      const row = this.files._row(gid);
+      if (!this._s('SELECT 1 FROM stats WHERE gid = ?').get(gid)) this._s('DELETE FROM places WHERE gid = ?').run(gid);
+      else if (row) this._s('INSERT INTO places (gid, root) VALUES (?, ?) ON CONFLICT(gid) DO UPDATE SET root = excluded.root WHERE root <> excluded.root')
+        .run(gid, this.files._split(row.path).root);
+      else this._s('INSERT OR IGNORE INTO places (gid, root) VALUES (?, ?)').run(gid, this.folders.defaultRoot());
+      if (!this._folderWork.getStore()) this._mountCheck(gid);
+    }
+  }
+
+  // `fn`, and everything it awaits or starts, as the folders' own work (folders.js: a check adopting
+  // what a folder holds, a removal writing back and forgetting, what earlier versions kept taken over;
+  // files.js: recording where a gallery's files are): its transactions may change galleries out of the
+  // library. Scoped to that work alone — a window's request is never inside it.
+  asFolderWork(fn) { return this._folderWork.run(true, fn); }
 
   async changeRevision() { return Number(this._s('SELECT max(rev) AS rev FROM changes').get()?.rev || 0); }
 
@@ -820,8 +842,8 @@ export class Library {
   }
 
   // ── Announcements (db.js timings) ──
-  // A gallery announced while work on many galleries runs (`_bulk`: a folder's galleries set aside
-  // or brought back, a check) isn't announced on its own: the windows hear once, every half second or
+  // A gallery announced while work on many galleries runs (`_bulk`: a folder's check or removal,
+  // folders.js) isn't announced on its own: the windows hear once, every half second or
   // so, that much changed ('*': each reads what it shows again) — rather than each reading every
   // gallery that changed, a thousand times over.
   publishFeed(galleryId) {
@@ -900,483 +922,61 @@ export class Library {
     return true;
   }
 
-  // The library folder and the index brought into agreement (scan.js): only when asked, or for an
-  // index with no galleries yet (indexEmpty) — files are otherwise opened only when needed.
-  // Every library folder checked for changes made outside the app (Settings → Storage), as a task.
-  rescan() { return this._scanJob({ roots: this.activeRoots(), job: 'folder-all', titleKey: 'lf.title' }); }
+  // ── Library folders (folders.js) ──
+  // What the windows do with the library's folders (Settings → Storage), by db.js's names.
+  foldersList() { return this.folders.list(); }
+  folderAdd(dir, opts) { return this.folders.add(dir, opts); }
+  folderRemove(id, opts) { return this.folders.remove(id, opts); }
+  folderHide(id) { return this.folders.hide(id); }
+  folderShow(id) { return this.folders.show(id); }
+  folderSetDefault(id) { return this.folders.setDefault(id); }
+  folderClaim(id) { return this.folders.claim(id); }
+  // Galleries put in folder `id` outside the app join the library (the full check, for one folder), as
+  // a task. Resolves { added, updated, stopped }.
+  async folderScan(id) {
+    const found = await this.folders.scan(id);
+    return { added: found.added.length, updated: found.updated.length, stopped: found.stopped };
+  }
+  // The library's folders and the index brought into agreement (scan.js): only when asked (Settings →
+  // Storage), or for an index with no galleries yet (indexEmpty) — files are otherwise opened only when
+  // needed. Every folder checked, each as a task. Resolves what scan.js found.
+  rescan() { return this.folders.rescan(); }
+  // The work on library folder `id` (or 'all': the check of every one) stopped where it is.
+  stopFolderScan(id) { this.folders.stop(id); }
 
-  // ── Library folders ──
-  // The library is kept in one folder or several: the first one (libraryDir, which names the library
-  // — its index here is found by that folder's id) and any added, each known by its own id (its
-  // .shiori/library.json). New galleries go to the default one; a gallery stays in its folder until
-  // moved (files.js moveTo). A folder can't be added inside another one (or holding one): the same
-  // galleries would be found twice.
-  // Where folder `id` is — one of the library's, or one an earlier version removed (until it is
-  // forgotten, as the library opens) — and the same for one of the library's only (`liveRoot`).
-  rootDir(id) {
-    const dir = this.roots.get(id) ?? this.dormantRoots.get(id);
-    if (!dir) throw new BackendError('not-found', `no library folder ${id}`);
-    return dir;
-  }
-  liveRoot(id) {
-    if (!this.roots.has(id)) throw new BackendError('not-found', `no library folder ${id}`);
-    return this.roots.get(id);
-  }
-  _stagingOf(id) { return id === this.primaryId ? this.stagingDir : path.join(this.rootDir(id), '.shiori', 'staging'); }
-  stagingDirs() { return [...this.roots.keys()].map(id => this._stagingOf(id)); }
-  defaultRoot() { const id = this._kvGet('defaultRoot'); return id && this.roots.has(id) ? id : this.primaryId; }
-  // The folders whose galleries the library shows (not hidden ones) — and of those, the ones it may
-  // write to (not taken over by another app): what a check looks into.
-  shownRoots() { return [...this.roots.keys()].filter(id => !this._hidden.has(id)); }
-  activeRoots() { return this.shownRoots().filter(id => this.owns(id)); }
+  // What the rest of the library (and scan.js, linked.js) asks of its folders.
+  rootDir(id) { return this.folders.dir(id); }
+  defaultRoot() { return this.folders.defaultRoot(); }
+  activeRoots() { return this.folders.activeRoots(); }
+  _stagingOf(id) { return id === this.primaryId ? this.stagingDir : path.join(this.folders.dir(id), '.shiori', 'staging'); }
+  // Where pages wait as they arrive: the library's own staging, and that of each folder it may write to.
+  stagingDirs() { return [this.dataStagingDir, ...this.folders.ids().filter(id => this.folders.writable(id)).map(id => this._stagingOf(id))]; }
+  // Whether gallery `gid` is out of the library (placed in a folder hidden or being removed): nothing
+  // reads it meanwhile — pages, counts, search, tags, stats, series — nor writes to it (_logIn); it
+  // still counts as one the library has (a source it came from, an import of it).
+  unmounted(gid) { return !!this._s('SELECT 1 FROM unmounted WHERE gid = ?').get(String(gid)); }
 
-  // ── Which app keeps a library folder (folder-owner.js) ──
-  // One app writes to a folder at a time: the one holding its claim (.shiori/owner.json). This
-  // library claims the folders it adds (and, as it opens, those no app has claimed yet); one another
-  // app took over is read but never written to — what changes for it waits (staged, its descriptions
-  // pending) until it is taken back (folderClaim). Removing a folder lets it go (released).
-  // The desktop app is known by the computer and the person using it — not by its index, so an index
-  // made again (its data folder lost, the app installed again) still holds the folders it held.
-  _me() {
-    return this._instance ??= crypto.createHash('sha256').update(`shiori-desktop\0${os.hostname()}\0${os.userInfo().username}`).digest('hex').slice(0, 16);
+  // A staged file of gallery `gid` (`name` in its folder in staging): `<gid>/<name>` in the staging of
+  // the library folder it goes to — `@<id>/<gid>/<name>` in another than the first — or, while that
+  // folder can't be written to (another app's, out of reach), `~data/<gid>/<name>` in the library's own
+  // staging, moved into the folder once it can be.
+  _stagedName(gid, name) {
+    const root = this.files.rootFor(gid);
+    const rest = `${gid}/${name}`;
+    return this.folders.writable(root) ? this.files._join(root, rest) : `${DATA_STAGED}${rest}`;
   }
-  _myLabel() { return { app: 'desktop', host: os.hostname() }; }
-  _claimPath(dir) { return path.join(dir, ...owner.OWNER_FILE.split('/')); }
-  _readClaimIn(dir) {
-    try { return owner.parseClaim(fs.readFileSync(this._claimPath(dir), 'utf8')); } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
-  }
-  _writeClaimIn(dir, claim) {
-    const file = this._claimPath(dir);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, owner.claimText(claim));
-  }
-  // The claim's counter this library holds each folder at (to tell, once one is added back, whether
-  // another app had it meanwhile).
-  _epochs() { return this._kvGet('claimEpochs') || {}; }
-  _noteEpoch(id, epoch) { const all = this._epochs(); if (all[id] !== epoch) this._kvSet('claimEpochs', { ...all, [id]: epoch }); }
-  // Whether this library holds folder `id`'s claim: { owned, claim }. One no app has claimed yet
-  // becomes its own; one out of reach (a drive away) counts as its own — nothing is written there.
-  _holds(id) {
-    const dir = this.rootDir(id);
-    if (!fs.existsSync(dir)) return { owned: true, claim: null };
-    const me = this._me();
-    const cur = this._readClaimIn(dir);
-    const state = owner.claimState(cur, me);
-    if (state !== 'free') return { owned: state === 'mine', claim: cur };
-    const { claim } = owner.claimFor(cur, me, this._myLabel());
-    this._writeClaimIn(dir, claim);
-    this._noteEpoch(id, claim.epoch);
-    return { owned: true, claim };
-  }
-  // Whether this library may write to folder `id` now (its claim read at most every few seconds).
-  owns(id) {
-    const hit = this._owns.get(id);
-    if (hit && Date.now() - hit.at < 5000) return hit.owned;
-    let held;
-    try { held = this._holds(id); } catch { held = { owned: true, claim: null }; }
-    this._owns.set(id, { ...held, at: Date.now() });
-    return held.owned;
-  }
-  // Folder `id` let go (removed from the library): its claim released, when this library holds it.
-  _release(id) {
-    try {
-      const dir = this.rootDir(id);
-      const next = owner.releaseOf(this._readClaimIn(dir), this._me());
-      if (next) this._writeClaimIn(dir, next);
-    } catch {}
-    this._owns.delete(id);
-  }
-  _ownerOf(claim) { return claim ? { ...(claim.by || {}), active: !!claim.owner, at: claim.at } : null; }
-  _takenRefuse(id) {
-    if (this.owns(id)) return;
-    const e = new BackendError('unavailable', `library folder ${id} is in use by another app`);
-    e.reason = 'taken';
-    throw e;
-  }
-
-  // Folder `id`, taken over by another app, held by this library again (from a click — the person
-  // told what that risks): what waited for it meanwhile is settled into it. Resolves its access.
-  async folderClaim(id) {
-    const dir = this.liveRoot(id);
-    const { claim, changed } = owner.claimFor(this._readClaimIn(dir), this._me(), this._myLabel(), { force: true });
-    if (changed) this._writeClaimIn(dir, claim);
-    this._noteEpoch(id, claim.epoch);
-    this._owns.delete(id);
-    this._push('control', { type: 'FOLDERS_CHANGED' });
-    for (const gid of this._galleriesIn(id)) this.files.settle(gid).catch(() => {});
-    return 'granted';
-  }
-  _hiddenChanged() {
-    this._kvSet('hiddenRoots', [...this._hidden.keys()].map(id => ({ id })));
-    this._push('control', { type: 'FOLDERS_CHANGED' });
-  }
-  _hiddenRefuse(id, message) { if (this._hidden.has(id)) { const e = new BackendError('invalid', message); e.reason = 'hidden'; throw e; } }
-  // A staged file of gallery `gid` (`name` in its folder in staging): `<gid>/<name>`, in the staging of
-  // the library folder it goes to — `@<id>/<gid>/<name>` in another than the first.
-  _stagedName(gid, name) { return this.files._join(this.files.rootFor(gid, { claim: true }), `${gid}/${name}`); }
   // Where a staged file is. (One of a folder no longer in the library: a path that isn't there.)
   _staged(file) {
-    const { root, rest } = this.files._split(file);
-    const dir = this.roots.has(root) ? this._stagingOf(root) : path.join(this.dataDir, 'gone');
+    const data = String(file).startsWith(DATA_STAGED);
+    const { root, rest } = data ? { root: null, rest: String(file).slice(DATA_STAGED.length) } : this.files._split(file);
+    const dir = data ? this.dataStagingDir : this.folders.has(root) ? this._stagingOf(root) : path.join(this.dataDir, 'gone');
     const abs = path.resolve(dir, rest);
     return abs.startsWith(dir + path.sep) ? abs : path.join(this.dataDir, 'gone', 'outside');
   }
-  _rootsChanged() {
-    this._kvSet('roots', [...[...this.roots].filter(([id]) => id !== this.primaryId).map(([id, dir]) => ({ id, path: dir,
-      ...(this._removing.has(id) ? { removing: true, ...(this._moveTo.has(id) ? { moveTo: this._moveTo.get(id) } : {}),
-        ...(this._discard.has(id) ? { discard: true } : {}) } : {}) })),
-      ...[...this.dormantRoots].map(([id, dir]) => ({ id, path: dir, dormant: true }))]);
-    this._push('control', { type: 'FOLDERS_CHANGED' });
-  }
-
-  // The library's folders, the first one first: [{ id, kind, name, path, isDefault, access, galleries,
-  // size, removable, hidden? }] — `access` 'granted', or 'unavailable' while it can't be reached (a
-  // drive away). A hidden one counts the galleries it holds, out of the library meanwhile.
-  async foldersList() {
-    const tally = new Map([...this.roots.keys()].map(id => [id, { galleries: 0, size: 0 }]));
-    for (const r of this._s('SELECT gid, size FROM stats').all()) {
-      const t = tally.get(this.files.rootFor(r.gid)) || tally.get(this.primaryId);
-      t.galleries++;
-      t.size += Number(r.size) || 0;
-    }
-    const defaultId = this.defaultRoot();
-    return Promise.all([...this.roots].filter(([id]) => !this._removing.has(id)).map(async ([id, dir]) => {
-      const there = await fsp.stat(dir).then(st => st.isDirectory(), () => false);
-      this._owns.delete(id);
-      const taken = there && !this.owns(id);
-      return { id, kind: 'folder', name: path.basename(dir) || dir, path: dir, isDefault: id === defaultId,
-        access: !there ? 'unavailable' : taken ? 'taken' : 'granted',
-        removable: id !== this.primaryId, ...tally.get(id), ...(this._hidden.has(id) ? { hidden: true } : {}),
-        ...(taken ? { owner: this._ownerOf(this._owns.get(id)?.claim) } : {}) };
-    }));
-  }
-
-  // Folder `dir` (a full path) becomes one of the library's, claimed by it (folder-owner.js). Its
-  // galleries are found by checking it (folderScan, a task the caller starts next) — one removed
-  // before as well: the library kept nothing of it. Added back while it is being removed, the removal
-  // ends and its galleries are back as they were. Resolves { id, restored } — for one already among
-  // them, its id and `existed`. One another app holds is refused (reason 'claimed', `owner` who)
-  // unless `force`: this library takes it over.
-  async folderAdd(dir, { force = false } = {}) {
-    if (typeof dir !== 'string' || !path.isAbsolute(dir)) throw new BackendError('invalid', 'a library folder is a full path');
-    const abs = path.resolve(dir);
-    if (!(await fsp.stat(abs).then(st => st.isDirectory(), () => false))) throw new BackendError('invalid', `${abs} is not a folder`);
-    const same = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
-    const within = (a, b) => { const rel = path.relative(b, a); return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel)); };
-    const refuse = (reason, message) => { const e = new BackendError('invalid', message); e.reason = reason; throw e; };
-    for (const [id, root] of this.roots) {
-      if (!same(root, abs)) continue;
-      if (this._hidden.has(id)) return this.folderShow(id);   // a hidden one is shown
-      if (!this._removing.has(id)) return { id, restored: 0, existed: true };
-      // Added back while it was being removed: the removal ends, and its galleries are back.
-      this._removing.delete(id);
-      this._moveTo.delete(id);
-      this._discard.delete(id);
-      this._rootsChanged();
-      await this._scans.get(`folder-${id}`)?.run.catch(() => {});
-      return { id, restored: this._mount(id) };
-    }
-    for (const root of [...this.roots.values(), this.dataDir]) {
-      if (within(abs, root) || within(root, abs)) refuse('nested', `${abs} is inside a library folder, or holds one`);
-    }
-    const id = libraryId(abs);
-    if (this.roots.has(id)) refuse('copy', `${abs} is a copy of one of the library's folders`);
-    const me = this._me();
-    const cur = this._readClaimIn(abs);
-    const got = owner.claimFor(cur, me, this._myLabel(), { force });
-    if (got.refused) {
-      const e = new BackendError('invalid', `${abs} is in use by another app`);
-      e.reason = 'claimed';
-      e.owner = this._ownerOf(got.refused);
-      throw e;
-    }
-    if (got.changed) this._writeClaimIn(abs, got.claim);
-    if (this.dormantRoots.has(id)) await this._forgetRoot(id);   // an earlier version's, not forgotten yet
-    this._noteEpoch(id, got.claim.epoch);
-    this._owns.delete(id);
-    this.roots.set(id, abs);
-    this._rootsChanged();
-    await fsp.mkdir(this._stagingOf(id), { recursive: true });
-    try { this._hide(path.join(abs, '.shiori')); } catch {}
-    return { id, restored: 0 };
-  }
-
-  // Every gallery set aside by an earlier version brought back (out of the library still, in
-  // `unmounted`, while its folder is hidden or removed) — but not one whose folder or archive is no
-  // longer there, nor one the library has meanwhile (or whose pages' keys another gallery holds now).
-  async _unsetAside() {
-    const roots = this._s('SELECT DISTINCT root FROM dormant').all().map(r => r.root);
-    for (const root of roots) {
-      this._tx(() => { for (const { gid } of this._s('SELECT gid FROM dormant WHERE root = ?').all(root)) this._s('INSERT OR REPLACE INTO unmounted (gid, root) VALUES (?, ?)').run(gid, root); });
-      await this._restoreNow(root);
-      if (this.roots.has(root) && !this._hidden.has(root) && !this._removing.has(root)) this._mount(root);
-    }
-  }
-  async _restoreNow(root) {
-    const back = [];
-    let n = 0;
-    for (const { gid, bundle } of this._s('SELECT gid, bundle FROM dormant WHERE root = ?').all(root)) {
-      if (++n % 20 === 0) await breathe();
-      const b = parse(bundle);
-      const there = !b.files || fs.existsSync(this.files._abs(b.files.path));
-      const taken = this._s('SELECT 1 FROM stats WHERE gid = ?').get(gid) || this._s('SELECT 1 FROM meta WHERE gid = ?').get(gid)
-        || b.pages.some(p => this._pageRowByKey(p.key));
-      try {
-        this._tx(() => {
-          this._s('DELETE FROM dormant WHERE gid = ?').run(gid);
-          if (!there || taken) return;
-          if (b.meta) this._metaPutRaw(parse(b.meta));
-          this._statPut(parse(b.stat));
-          for (const p of b.pages) this._pagePutRow({ gid, n: p.n, key: p.key, w: p.w, h: p.h, orig: parse(p.orig), record: parse(p.record) });
-          if (b.cover) this._coverPut(b.cover);
-          const f = b.files;
-          if (f) this._s(`INSERT OR REPLACE INTO files (gid, path, format, state, packed_at, pending, unpack, used_at, tail, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-            .run(gid, f.path, f.format, f.state, f.packed_at ?? null, f.pending ?? 0, f.unpack ?? 0, f.used_at ?? null, f.tail ?? null, f.source ?? null);
-          if (b.home) this._s('INSERT OR REPLACE INTO homes (gid, root) VALUES (?, ?)').run(gid, b.home);
-          else if (!f) this._s('INSERT OR REPLACE INTO homes (gid, root) VALUES (?, ?)').run(gid, root);   // kept nowhere yet: still this folder's
-          this._logIn(gid);
-          back.push(gid);
-        });
-      } catch (e) { console.warn(`[shiori] gallery ${gid} couldn't come back:`, String(e?.message || e)); }
-    }
-    this._tidyLinks(back);
-    for (const gid of back) this.publishFeed(gid);
-    return back.length;
-  }
-
-  // Series links among galleries just brought back that point at galleries the library doesn't have,
-  // or that don't point back, dropped (db.js _tidySeriesLinks).
-  _tidyLinks(gids) {
-    const owners = new Set();
-    for (const gid of gids) {
-      const meta = this._metaGet(gid);
-      if (!meta) continue;
-      const next = { ...meta };
-      if (Array.isArray(meta.chapters)) {
-        const kept = meta.chapters.filter(c => String(c?.id) === gid || String(this._metaGet(c?.id)?.parentId || '') === gid);
-        if (kept.length !== meta.chapters.length) { if (kept.length > 1) next.chapters = kept; else delete next.chapters; }
-        if (kept.length > 1) owners.add(gid);
-      }
-      if (meta.parentId) {
-        const owner = this._metaGet(meta.parentId);
-        if (!owner?.chapters?.some(c => String(c?.id) === gid)) delete next.parentId;
-        else owners.add(String(meta.parentId));
-      }
-      if (JSON.stringify(next) === JSON.stringify(meta)) continue;
-      this._tx(() => {
-        this._metaPutRaw(next);
-        if (!next.parentId) { const stat = this._statGet(gid); if (stat?.parentId) { delete stat.parentId; this._statPut(stat); } }
-        this._logIn(gid);
-      });
-    }
-    for (const oid of owners) this.refreshSeriesAggregate(oid, { silent: true }).catch(() => {});
-  }
-
-  // Folder `id` leaves the library (the first one can't) — at once: it is no longer listed, new
-  // galleries no longer go to it, and its galleries leave the library (unmounted meanwhile). What it
-  // still owes the folder — its galleries moved to `moveTo` first (a folder's id), then everything the
-  // library has of the rest written there (what waits settled in, every description that differs, a
-  // folder of its own for one with no files yet), the folder let go — is a task (_removeJob) that
-  // goes on in the app, carried on at its next start should it be cut short; then the library forgets
-  // the folder and its galleries (their files stay): added again, it is checked as one never seen.
-  // A folder that can't be written to now (out of reach, or another app's) while galleries of it have
-  // what only this library has is refused (reason 'unsaved', `galleries` how many) — unless `discard`:
-  // that is lost. Resolves { id, galleries }: how many leave.
-  async folderRemove(id, { moveTo = null, discard = false } = {}) {
-    if (id === this.primaryId) throw new BackendError('invalid', 'the first library folder stays');
-    this.liveRoot(id);
-    if (moveTo != null && (moveTo === id || this._removing.has(moveTo))) throw new BackendError('invalid', 'not a place to move to');
-    if (moveTo != null) { this.liveRoot(moveTo); this._hiddenRefuse(moveTo, 'nothing is moved to a hidden folder'); }
-    // The default leaves with it: the first folder is the default again — or, while it is hidden, the
-    // first other one shown (with none, it stays: new galleries need somewhere shown to go).
-    let next = null;
-    if (this.defaultRoot() === id && this._hidden.has(this.primaryId)) {
-      next = this.shownRoots().find(r => r !== id && !this._removing.has(r));
-      if (!next) { const e = new BackendError('invalid', 'no other folder is shown to keep new galleries in'); e.reason = 'default'; throw e; }
-    }
-    const galleries = this._galleriesIn(id).length;
-    if (!this._removing.has(id)) {
-      if (!discard && !(await this._writable(id))) {
-        const n = this._unsavedIn(id).length;
-        if (n) {
-          const e = new BackendError('invalid', `${n} galleries have changes not saved to library folder ${id}`);
-          e.reason = 'unsaved';
-          e.galleries = n;
-          throw e;
-        }
-      }
-      if (this._hidden.delete(id)) this._hiddenChanged();
-      this._removing.add(id);
-      if (moveTo != null) this._moveTo.set(id, moveTo); else this._moveTo.delete(id);
-      if (discard) this._discard.add(id); else this._discard.delete(id);
-      if (this._kvGet('defaultRoot') === id) this._kvSet('defaultRoot', next);
-      // Moved elsewhere first: its galleries stay in the library until then.
-      if (moveTo == null) this._unmount(id);
-      this._rootsChanged();
-      this._removeJob(id).catch(() => {});
-    }
-    return { id, galleries };
-  }
-  _galleriesIn(id) { return this._s('SELECT gid FROM stats').all().map(r => r.gid).filter(gid => this.files.rootFor(gid) === id); }
-  // Whether this library may write to folder `id` now: it is there, and its claim is this library's.
-  async _writable(id) { return await fsp.stat(this.rootDir(id)).then(() => true, () => false) && this.owns(id); }
-  // The galleries of folder `id` with something only this library has — descriptions not written
-  // there yet, pages staged or to be taken out of an archive, or no files at all (a series' record, a
-  // chapter not downloaded: they are described only here) — which forgetting the folder would lose.
-  _unsavedIn(id) {
-    const f = this.files;
-    return this._galleriesIn(id).filter((gid) => {
-      const row = f._row(gid);
-      return !row || row.pending || row.unpack || f._staged(gid).length > 0 || f._stagedOwn(gid).length > 0;
-    });
-  }
-
-  // ── Galleries out of the library while their folder is hidden or being removed ──
-  // A folder hidden or being removed takes its galleries out of the library without touching them:
-  // they are listed in `unmounted`, and nothing reads them meanwhile (pages, counts, search, tags,
-  // stats, series) nor writes to them (server.js refuses it: hidden-writes.js) — but a gallery there
-  // still counts as one the library has (a source it came from, an import of it). Showing the folder
-  // (or adding it back while its removal runs) takes them off the list: they are back at once.
-  unmounted(gid) { return !!this._s('SELECT 1 FROM unmounted WHERE gid = ?').get(String(gid)); }
-  _unmount(root) {
-    const gids = this._galleriesIn(root);
-    this._tx(() => { for (const gid of gids) this._s('INSERT OR REPLACE INTO unmounted (gid, root) VALUES (?, ?)').run(gid, root); });
-    this._feedMuchLater();
-    return gids.length;
-  }
-  _mount(root) {
-    const n = Number(this._s('SELECT count(*) AS n FROM unmounted WHERE root = ?').get(root).n);
-    this._s('DELETE FROM unmounted WHERE root = ?').run(root);
-    // What waited to be written there while it was out of the library follows, in due course.
-    for (const { gid } of this._s('SELECT gid FROM files WHERE pending = 1').all()) if (this.files.rootFor(gid) === root) this.files.scheduleDescribe(gid);
-    this._feedMuchLater();
-    return n;
-  }
-  // Folder `id` forgotten: every record of its galleries gone (their files stay — the folder has what
-  // the library had of them), and the folder with them: added again, it is checked as one never seen.
-  async _forgetRoot(id) {
-    this._unmount(id);   // every gallery of it, those with no files too
-    await this._dropRoot(id);
-    this.roots.delete(id);
-    this.dormantRoots.delete(id);
-    this._removing.delete(id);
-    this._moveTo.delete(id);
-    this._discard.delete(id);
-    this._owns.delete(id);
-    const epochs = this._epochs();
-    if (id in epochs) { delete epochs[id]; this._kvSet('claimEpochs', epochs); }
-    this._rootsChanged();
-  }
-  // The galleries folder `root` held let go — their records deleted, their files kept.
-  async _dropRoot(root) {
-    const gids = this._s('SELECT gid FROM unmounted WHERE root = ?').all(root).map(r => r.gid);
-    for (let at = 0; at < gids.length; at += 50) {
-      if (at) await breathe();
-      const gone = [];
-      this._tx(() => {
-        for (const gid of gids.slice(at, at + 50)) {
-          this.files.keep.add(gid);
-          try { gone.push([gid, this._deleteIn(gid)]); } finally { this.files.keep.delete(gid); }
-          this._s('DELETE FROM unmounted WHERE gid = ?').run(gid);
-        }
-      });
-      for (const [gid, meta] of gone) this._afterDelete(gid, meta);
-    }
-  }
-
-  // Folder `id` hidden (not the default one) — at once: it stays listed, marked hidden, and its
-  // galleries leave the library (unmounted) until it is shown again (folderShow). Resolves { id,
-  // galleries }: how many left.
-  async folderHide(id) {
-    this.liveRoot(id);
-    if (this._removing.has(id)) throw new BackendError('not-found', `no library folder ${id}`);
-    if (this.defaultRoot() === id) { const e = new BackendError('invalid', 'the default folder stays shown'); e.reason = 'default'; throw e; }
-    if (this._hidden.has(id)) return { id, galleries: 0 };
-    this._hidden.set(id, {});
-    this._hiddenChanged();
-    return { id, galleries: this._unmount(id) };
-  }
-
-  // Hidden folder `id` shown again: its galleries are back in the library at once. Resolves { id,
-  // restored }.
-  async folderShow(id) {
-    this.liveRoot(id);
-    if (!this._hidden.delete(id)) return { id, restored: 0 };
-    this._hiddenChanged();
-    return { id, restored: this._mount(id) };
-  }
-
-  // What folder `id`, being removed, still owes it: its galleries moved to the folder chosen (each on
-  // its own — what can't be moved leaves with the rest), then for the rest, while it can be reached
-  // and is this library's, everything the library has of them written there: what waits settled in,
-  // every description that differs, and a folder of its own, described, for one with no files yet.
-  // Then it is let go (another app may take it without asking) and forgotten, its galleries' records
-  // with it. Should something only this library has still not be there (the folder went out of reach
-  // meanwhile), it isn't removed: back in the library as it was (unless the person chose to discard
-  // that). Ends at a stop (the rest goes at the app's next start), or when it is added back meanwhile
-  // (folderAdd).
-  _removeJob(id) {
-    const title = path.basename(this.roots.get(id) || '') || this.roots.get(id) || id;
-    const still = () => this._removing.has(id);
-    const moveTo = this._moveTo.get(id);
-    const discard = this._discard.has(id);
-    const [labelKey, doneKey] = moveTo ? ['lf.task_moving', 'lf.task_moved'] : ['lf.task_removing', 'lf.task_removed'];
-    return this._folderJob({ job: `folder-${id}`, title, labelKey, doneKey, foundKey: '', work: (state, progress) => this._bulkRun(async () => {
-      let done = 0;
-      if (moveTo && this.roots.has(moveTo)) {
-        const gids = this._galleriesIn(id);
-        progress(0, gids.length, 0);
-        for (const gid of gids) {
-          if (state.stop || !still()) break;
-          try { await this.moveGallery(gid, moveTo, { series: false }); } catch {}
-          progress(++done, gids.length, done);
-          if (done % 20 === 0) await breathe();
-        }
-        if (state.stop || !still()) return { found: done, stopped: true };
-        this._unmount(id);   // what couldn't be moved leaves with the folder
-      }
-      const gids = this._galleriesIn(id);
-      let written = 0;
-      // Gallery `gid` brought up to date there — `saved` once it is: its galleries take no writes
-      // meanwhile (out of the library), so what is written now is all it has, whatever marks it again
-      // after (a change it had just before, settling a moment later).
-      const saved = new Set();
-      const writeBack = async (gid) => {
-        await this.files.place(gid, { any: true }).catch(() => {});
-        await this.files.describe(gid, { all: true }).catch(() => {});
-        const row = this.files._row(gid);
-        if (row && !row.pending && !row.unpack && !this.files._staged(gid).length && !this.files._stagedOwn(gid).length) saved.add(gid);
-      };
-      const unsavedNow = () => this._unsavedIn(id).filter(gid => !saved.has(gid));
-      if (await this._writable(id)) {
-        // Their folders first (a series' description names its members' folders), then each written.
-        for (const gid of gids) if (!this.files._row(gid)) { try { this.files._claim(gid, this._metaGet(gid)); } catch {} }
-        progress(0, gids.length, 0);
-        for (const gid of gids) {
-          if (state.stop || !still()) break;
-          await writeBack(gid);
-          progress(++written, gids.length, written);
-          if (written % 20 === 0) await breathe();
-        }
-      }
-      if (state.stop || !still()) return { found: done + written, stopped: true };
-      // One not written (the folder out of reach for a moment) is tried once more.
-      if (!discard && await this._writable(id)) for (const gid of unsavedNow()) await writeBack(gid);
-      const unsaved = discard ? 0 : unsavedNow().length;
-      if (unsaved) {
-        this._removing.delete(id);
-        this._moveTo.delete(id);
-        this._rootsChanged();
-        this._mount(id);
-        const e = new BackendError('unavailable', `what library folder ${id} is owed couldn't be written there: it stays`);
-        e.errorKey = 'lf.task_kept';
-        e.unsaved = unsaved;
-        throw e;
-      }
-      this._release(id);
-      await this._forgetRoot(id);
-      return { found: done + gids.length, stopped: false };
-    }) });
+  // A staged file deleted once the transaction commits — but not one in the staging of a folder that
+  // can't be written to now (a check of it, once it can be, finds it left over: scan.js removeOrphans).
+  _dropStaged(file) {
+    if (String(file).startsWith(DATA_STAGED) || this.folders.writable(this.files._split(file).root)) this._drop(this._staged(file));
   }
 
   // The PDFs the library's folders hold waiting for a window to draw their pages (linked.js):
@@ -1385,87 +985,15 @@ export class Library {
   async pdfSource(folder, gid) { return linked.pdfSource(this, String(folder), String(gid)); }
   async addRendered(folder, gid, pages) { return linked.addRendered(this, String(folder), String(gid), pages); }
 
-  // Where new galleries go.
-  async folderSetDefault(id) {
-    this.liveRoot(id);
-    this._hiddenRefuse(id, 'a hidden folder is never the default');
-    this._kvSet('defaultRoot', id === this.primaryId ? null : id);
-    this._push('control', { type: 'FOLDERS_CHANGED' });
-  }
-
-  // Galleries put in folder `id` outside the app join the library (the full check, for one folder),
-  // as a task. Resolves { added, stopped }.
-  async folderScan(id) {
-    const dir = this.liveRoot(id);
-    this._hiddenRefuse(id, `library folder ${id} is hidden`);
-    this._takenRefuse(id);
-    const found = await this._scanJob({ roots: [id], job: `folder-${id}`, title: path.basename(dir) || dir });
-    return { added: found.added.length, updated: found.updated.length, stopped: found.stopped };
-  }
-
-  // A check of library folders `roots` (scan.js) as a task.
-  _scanJob({ roots, job, title = '', titleKey }) {
-    return this._folderJob({ job, title, titleKey, labelKey: 'lf.task_checking', doneKey: 'lf.task_done',
-      work: async (state, progress) => {
-        const found = await this._bulkRun(() => scanLibrary(this, { roots, stopped: () => state.stop, onProgress: progress }));
-        state.result = found;
-        return { found: found.added.length, updated: found.updated.length, stopped: found.stopped };
-      } }).then((r) => r.scan);
-  }
-
-  // Work on library folders as a job the windows' tasks pages list — kind 'folder', `job` its id,
-  // `title` (or `titleKey`) its name, the keys of its texts as folder-scan.js gives them, run in the
-  // app itself — and stop (stopFolderScan). `work(state, progress(done, total, found))` resolves
-  // { found, stopped }. One already running under the same id is joined. Resolves the work's result
-  // (and, for a check, `scan`: what scan.js found).
-  // `progress(done, total, found, step)`: `step` the label of the step under way, when the work goes
-  // in steps (each counted on its own).
-  _folderJob({ job, title = '', titleKey, labelKey, doneKey, foundKey, work }) {
-    const running = this._scans.get(job);
-    if (running) return running.run;
-    const state = { stop: false, run: null, result: null };
-    let last = { done: 0, total: 0, found: 0 }, shown = 0;
-    const say = (status, extra = {}) => this._push('jobs', { gid: job, kind: 'folder', status, title, titleKey, labelKey,
-      labelArgs: { name: title }, doneKey, foundKey, ...last, ...extra, runner: { kind: 'desktop-background' }, at: Date.now() });
-    // It says it is running every few seconds, so a window can tell one that ended unheard.
-    const beat = setInterval(() => say('progress'), 5000);
-    beat.unref?.();
-    state.run = (async () => {
-      say('started');
-      try {
-        const out = await work(state, (done, total, found, step) => {
-          const next = step && step !== last.labelKey;
-          last = { done, total, found, ...(step ? { labelKey: step } : {}) };
-          if (!next && Date.now() - shown < 300 && done < total) return;
-          shown = Date.now();
-          say('progress');
-        });
-        last.found = out.found;
-        if (out.updated) last.updated = out.updated;
-        say(out.stopped ? 'cancelled' : 'done');
-        return { ...out, scan: state.result };
-      } catch (e) {
-        say('error', { error: String(e?.message || e), ...(e?.errorKey ? { errorKey: e.errorKey } : {}), ...(e?.unsaved ? { unsaved: e.unsaved } : {}) });
-        throw e;
-      } finally { clearInterval(beat); this._scans.delete(job); }
-    })();
-    this._scans.set(job, state);
-    return state.run;
-  }
-  // The work on library folder `id` (or 'all': the check of every one) stopped where it is.
-  stopFolderScan(id) {
-    const state = this._scans.get(id === 'all' ? 'folder-all' : `folder-${id}`);
-    if (state) state.stop = true;
-  }
-
   // Gallery `gid` moved to library folder `to` — a series owner with every chapter of its series,
-  // unless `series` is false. Resolves { moved } (gallery ids).
+  // unless `series` is false (a series with a gallery out of the library — its folder hidden or being
+  // removed — is refused whole). Resolves { moved } (gallery ids).
   async moveGallery(galleryId, to, { series = true } = {}) {
     const gid = String(galleryId);
-    this.liveRoot(to);
-    this._hiddenRefuse(to, 'nothing is moved to a hidden folder');
+    this.folders.dir(to);
     const meta = series ? this._metaGet(gid) : null;
     const ids = [gid, ...(Array.isArray(meta?.chapters) ? meta.chapters.map(c => String(c?.id ?? '')).filter(id => id && id !== gid) : [])];
+    for (const id of ids) this._mountCheck(id);
     const moved = [];
     for (const id of ids) if (await this.files.moveTo(id, to)) { moved.push(id); this.publishFeed(id); }
     return { moved };
@@ -1773,6 +1301,35 @@ export class Library {
     return true;
   }
 
+  // Series links among galleries just joined or brought back (a folder's check, galleries an earlier
+  // version set aside) that point at galleries the library doesn't have, or that don't point back,
+  // dropped (db.js _tidySeriesLinks).
+  _tidyLinks(gids) {
+    const owners = new Set();
+    for (const gid of gids) {
+      const meta = this._metaGet(gid);
+      if (!meta) continue;
+      const next = { ...meta };
+      if (Array.isArray(meta.chapters)) {
+        const kept = meta.chapters.filter(c => String(c?.id) === gid || String(this._metaGet(c?.id)?.parentId || '') === gid);
+        if (kept.length !== meta.chapters.length) { if (kept.length > 1) next.chapters = kept; else delete next.chapters; }
+        if (kept.length > 1) owners.add(gid);
+      }
+      if (meta.parentId) {
+        const owner = this._metaGet(meta.parentId);
+        if (!owner?.chapters?.some(c => String(c?.id) === gid)) delete next.parentId;
+        else owners.add(String(meta.parentId));
+      }
+      if (JSON.stringify(next) === JSON.stringify(meta)) continue;
+      this._tx(() => {
+        this._metaPutRaw(next);
+        if (!next.parentId) { const stat = this._statGet(gid); if (stat?.parentId) { delete stat.parentId; this._statPut(stat); } }
+        this._logIn(gid);
+      });
+    }
+    for (const oid of owners) this.refreshSeriesAggregate(oid, { silent: true }).catch(() => {});
+  }
+
   async seriesResolve(galleryId) {
     const gid = String(galleryId);
     const meta = this._metaGet(gid);
@@ -1843,10 +1400,10 @@ export class Library {
 
   // Everything a gallery has, deleted inside the caller's transaction; returns the metadata it had.
   _deleteIn(gid) {
+    this._logIn(gid);
     const meta = this._metaGet(gid);
     this._metaDel(gid);
     this._statDel(gid);
-    this._logIn(gid);
     const cover = this._coverGet(gid);
     if (cover) {
       for (const ref of fileRefs(cover)) this._drop(path.join(this.cacheDir, ref));
@@ -2288,9 +1845,10 @@ export class Library {
     if (!state) {
       state = { gid, meta, stat, fresh: [], moves: [], staged: [], numbers, coverPatch: {}, first: null, dir: null, timer: null,
         writing: 0, aborted: false };
-      // A gallery with no pages yet, kept (or to be kept) as a folder, has its pages written there.
+      // A gallery with no pages yet, kept (or to be kept) as a folder that may be written to now, has
+      // its pages written there.
       const row = this.files._row(gid);
-      if (!this._pageCount(gid) && (!row || row.format === 'folder')) {
+      if (!this._pageCount(gid) && (!row || row.format === 'folder') && this.folders.writable(this.files.rootFor(gid))) {
         state.claimed = !row;
         state.dir = await this.files.home(gid, meta);
       }
@@ -2329,9 +1887,9 @@ export class Library {
           this._pagePutRow({ gid, n: p.n, key: p.key, w: p.dims?.w, h: p.dims?.h, orig: p.orig, record: p.record });
         }
         if (Object.keys(coverPatch).length) this._coverPatchIn(gid, coverPatch);
-        // After the replaced pages' pictures went: staged ones are recorded for the gallery's archive;
-        // the others are put in place below, before this resolves.
-        for (const m of moves) if (m.staged) this.files.ownStaged(m.gid, m.rel, m.staged, m.ref.size);
+        // After the replaced pages' pictures went: staged ones are recorded to settle in with the
+        // gallery; the others are put in place below, before this resolves.
+        this._recordOwn(moves);
       }, state.fresh);
     } catch (e) {
       if (id) { this._transfers.delete(id); clearTimeout(state.timer); }
@@ -2498,10 +2056,13 @@ export class Library {
     return out;
   }
 
-  // Everything in the library, cleared in one step (Settings → clear everything).
+  // Everything in the library, cleared in one step (Settings → clear everything). Its folders stay
+  // its own; what is in them is deleted only where the library may write (files.js clearIn,
+  // stagingDirs): not in a folder another app keeps, hidden, or out of reach.
   async clearAll() {
     this._tx(() => {
-      for (const table of ['meta', 'meta_tags', 'stats', 'pages', 'covers', 'icons', 'dormant', 'unmounted']) this._s(`DELETE FROM ${table}`).run();
+      for (const table of ['meta', 'meta_tags', 'stats', 'pages', 'covers', 'icons', 'places']) this._s(`DELETE FROM ${table}`).run();
+      this.folders.clearIn();
       this.files.clearIn();
       this._logIn('*');
     });

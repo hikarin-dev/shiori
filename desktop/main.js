@@ -362,7 +362,7 @@ ipcMain.handle('shiori:shell', async (event, action, args = []) => {
       else throw new Error(`no setting ${key}`);
       return shellState();
     // One of the library's folders (its path; the first one when none is named).
-    case 'openLibraryFolder': await shell.openPath(typeof key === 'string' && [...library.roots.values()].includes(key) ? key : libraryDir); return true;
+    case 'openLibraryFolder': await shell.openPath(typeof key === 'string' && library.folders.paths().includes(key) ? key : libraryDir); return true;
     case 'openDataFolder': await shell.openPath(dataDir); return true;
     // A folder to add to the library (Settings → Storage hands it to the library: folderAdd), or null.
     case 'pickLibraryFolder': return pickFolder(undefined, windowOf(event.sender) || mainWindow, t('add_folder'));

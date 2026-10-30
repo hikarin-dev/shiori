@@ -296,7 +296,7 @@ export async function pdfSource(library, root, gid) {
 // A waiting PDF's pages, drawn (Blobs in order), kept in its overlay and the gallery joined to the
 // library. Resolves its id.
 export async function addRendered(library, root, gid, pages) {
-  library._takenRefuse(root);
+  library.folders.assertWritable(root);
   const over = await waiting(library, root, gid);
   const dir = path.join(absIn(library, root, L.overlayDir(gid)), 'images');
   await fsp.mkdir(dir, { recursive: true });

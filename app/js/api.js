@@ -16,7 +16,6 @@
 
 import * as browserLibrary from './db.js';
 import * as desktopLibrary from './desktop-backend.js';
-import { WRITES, writeTargets, hiddenError } from './hidden-writes.js';
 import * as platform from './platform.js';
 import { BackendError } from './backend-error.js';
 import { DERIVED_FIELDS } from './gallery-model.js';
@@ -24,19 +23,9 @@ import { DERIVED_FIELDS } from './gallery-model.js';
 export { BackendError };
 
 const own = !desktopLibrary.active;
-// This browser's own library, its writes refused for a gallery whose folder is hidden or removed (out
-// of the library meanwhile; the desktop app's server does the same: hidden-writes.js).
-const backend = own ? _guardWrites(browserLibrary) : desktopLibrary;
-function _guardWrites(lib) {
-  const out = {};
-  for (const [op, fn] of Object.entries(lib)) {
-    out[op] = typeof fn !== 'function' || !WRITES.has(op) ? fn : async (...args) => {
-      for (const gid of writeTargets(op, args)) if (gid != null && await lib.galleryUnmounted(String(gid))) throw hiddenError(gid);
-      return fn(...args);
-    };
-  }
-  return out;
-}
+// A write to a gallery whose folder is hidden or being removed (out of the library meanwhile) is
+// refused by the library itself, as it commits (BackendError 'invalid', reason 'hidden').
+const backend = own ? browserLibrary : desktopLibrary;
 
 // What this library can do beyond the common interface; surfaces hide what it lacks.
 // `browserLibrary`: it is this browser's own (its one-time repairs and storage upgrades apply).
@@ -165,11 +154,12 @@ export const galleries = _typed({
 // [{ id, kind: 'browser'|'folder', name, path?, isDefault, access, galleries, size, removable, hidden? }].
 // New galleries go to the default place; a gallery stays where it is kept unless moved. `access`:
 // 'granted', 'prompt' (the browser asks the person once a visit: allow), 'unavailable' (it can't
-// be reached now — a folder gone, a drive away) or 'taken' (another app took it over — `owner` says
-// which: { app, host | browser, site, active, at } — so this library only reads it; claim takes it
-// back; see folder-owner.js). Removing a place takes its galleries out of the
-// library and leaves their files where they are, their records set aside: adding it again brings
-// them back at once. Hiding one does the same but keeps it listed: showing it brings them back.
+// be reached now — a folder gone, a drive away) or 'taken' (another app took it over, or its claim
+// can't be read — `owner` says which app, when it can: { app, host | browser, site, active, at } —
+// so this library only reads it; claim takes it back; see folder-owner.js). Removing a place takes
+// its galleries out of the library at once, writes back what only the library has of them, then
+// forgets them, leaving their files where they are: adding it again checks it from scratch. Hiding
+// one takes them out but keeps it listed, nothing written to it: showing it brings them back.
 export const folders = _typed({
   list: async () => backend.foldersList?.() ?? [],
   // capabilities.folders 'pick': a folder's handle; 'path': its full path. A folder removed before

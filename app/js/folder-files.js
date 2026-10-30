@@ -1,8 +1,10 @@
 // folder-files.js — the files of galleries a browser library keeps in folders the person picked
 // (the File System Access API): each gallery a folder of its own inside one of them, in the gallery
-// format (gallery-files.js). db.js keeps the records and decides what goes where; this module only
-// reads, writes and deletes files, given a folder's handle. Nothing here asks the person anything
-// unless asked to (`permission(handle, { ask: true })`, from a click).
+// format (gallery-files.js). db.js keeps the records and decides what goes where; this module reads,
+// writes and deletes files, given a folder's handle, and keeps writers in different tabs and the
+// service worker apart (withLock; reserveDir, a gallery's own folder; writeNew, a name no file has).
+// Nothing here asks the person anything unless asked to (`permission(handle, { ask: true })`, from a
+// click).
 //
 // A folder is reached through its handle; the folders inside it are looked up once and remembered
 // (by the folder's id and their path), and forgotten when one turns out to be gone.
@@ -141,11 +143,41 @@ async function _taken(id, root, path) {
   } catch (e) { if (e?.name === 'NotFoundError') return false; throw e; }
 }
 
-// A folder made for a new gallery at the top of the folder, named `base` — or "base (2)" and so on
-// when that is taken. Resolves its name.
-export async function claimDir(id, root, base) {
-  let name = base;
-  for (let i = 2; await _taken(id, root, name); i++) name = `${base} (${i})`;
-  await _dir(id, root, name, true);
-  return name;
+// ── Coordination between the site's tabs and its service worker ──
+
+// `fn` run while lock `name` is held: across every tab and the service worker of the site (Web
+// Locks), or — where they are missing (Node) — within this context. Resolves what `fn` does.
+const _queues = new Map();   // name → the end of its queue, for the in-context fallback
+export function withLock(name, fn) {
+  if (typeof globalThis.navigator?.locks?.request === 'function') return navigator.locks.request(name, { mode: 'exclusive' }, () => fn());
+  const run = (_queues.get(name) || Promise.resolve()).then(() => fn());
+  const end = run.then(() => {}, () => {});
+  _queues.set(name, end);
+  end.then(() => { if (_queues.get(name) === end) _queues.delete(name); });
+  return run;
+}
+
+// A folder of its own for a new gallery at the top of the folder, named `base` — or "base (2)" and so
+// on when that is taken — made and bound to the gallery at once: its metadata.json (`metadata`, the
+// gallery's description, naming its id) is written while lock shiori:dirs:<folder> is held, so no two
+// galleries, in any tab or the service worker, are given one folder, and the folder says whose it is.
+// Resolves its name.
+export function reserveDir(id, root, base, metadata) {
+  return withLock(`shiori:dirs:${id}`, async () => {
+    let name = base;
+    for (let i = 2; await _taken(id, root, name); i++) name = `${base} (${i})`;
+    await writeFile(id, root, `${name}/metadata.json`, metadata);
+    return name;
+  });
+}
+
+// `data` written to `path` in folder `dir` of the folder under a name no file has: `path` itself when
+// nothing is there, else `path` with a random part added before its extension (images/0001.webp →
+// images/0001-3fa2c9e1.webp: gallery-files.js pageNumberOf reads both), so a file something refers to
+// is never written over. Resolves { path, file }: where it went (in `dir`), and the file as written.
+const _randomPart = () => [...crypto.getRandomValues(new Uint8Array(4))].map(b => b.toString(16).padStart(2, '0')).join('');
+export async function writeNew(id, root, dir, path, data) {
+  let at = path;
+  while (await _taken(id, root, `${dir}/${at}`)) at = path.replace(/(\.[^./]*)?$/, (ext) => `-${_randomPart()}${ext}`);
+  return { path: at, file: await writeFile(id, root, `${dir}/${at}`, data) };
 }

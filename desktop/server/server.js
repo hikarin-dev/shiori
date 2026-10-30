@@ -21,7 +21,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
-import { wire, hiddenWrites, BackendError, UI_DIR } from './shared.js';
+import { wire, BackendError, UI_DIR } from './shared.js';
 
 export const PROTOCOL = 1;
 
@@ -254,8 +254,6 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
         }
         if (!OPS.has(op) || !Array.isArray(args) || args.length > MAX_ARGS) throw new BackendError('invalid', `no operation ${op}`);
         if (OWN_OPS.has(op) && ws.site) throw new BackendError('invalid', `${op} is for the app's own pages`);
-        // Never a write to a gallery whose folder is hidden or removed (out of the library meanwhile).
-        for (const gid of hiddenWrites.writeTargets(op, args)) if (gid != null && library.unmounted?.(String(gid))) throw hiddenWrites.hiddenError(gid);
         const transfer = op === 'transferWrite' && args[1]?.transfer?.id != null ? args[1].transfer : null;
         if (transfer) {
           const key = `${ws.transferKey}:${String(transfer.id)}`;
