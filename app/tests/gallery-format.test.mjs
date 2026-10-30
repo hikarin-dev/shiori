@@ -12,7 +12,7 @@ import 'fake-indexeddb/auto';
 globalThis.BroadcastChannel = class { postMessage() {} close() {} };
 
 const api = await import('../js/api.js');
-const { exportFiles } = await import('../js/gallery-files.js');
+const { exportFiles, pageNumberOf, coverRoles } = await import('../js/gallery-files.js');
 const { importCbzBuffer } = await import('../js/import-cbz.js');
 const { groupImports, importBytes } = await import('../js/import-files.js');
 const { zipCreate } = await import('../js/zip.js');
@@ -158,4 +158,18 @@ test('a gallery folder dropped again rewrites only what changed: an identical pa
   assert.equal((await api.pages.get(gid, 2)).translated ?? null, null);
   assert.deepEqual(await blobBytes((await api.pages.get(gid, 3)).blob), [...bytes(33)], 'the edited page comes in');
   assert.deepEqual((await api.pages.list(gid)).map(p => p.pageNum), [1, 2, 3]);
+});
+
+test('a page picture\'s number, under its layout name or the name a second file of it takes', () => {
+  assert.equal(pageNumberOf('images/0007.webp'), 7);
+  assert.equal(pageNumberOf('0012-ab12cd.png'), 12, 'not 12 read from the random part');
+  assert.equal(pageNumberOf('translated/0003-x.png'), 3);
+  for (const none of ['images/cover.png', 'images/0000.png', 'images/0001', 'a12.png.txt', null]) assert.equal(pageNumberOf(none), null, String(none));
+});
+
+test('both cover roles are read from covers/manifest.json, and only pictures directly in covers/ (R16)', () => {
+  assert.deepEqual(coverRoles({ covers: [{ role: 'gallery', file: 'covers/gallery.png' }, { role: 'series', file: 'covers/series.webp' }] }),
+    { gallery: 'covers/gallery.png', series: 'covers/series.webp' });
+  assert.deepEqual(coverRoles({ covers: [{ role: 'series', file: '../x.png' }, { role: 'gallery', file: 'covers/a/b.png' }, { role: 'other', file: 'covers/o.png' }] }), {});
+  assert.deepEqual(coverRoles(null), {});
 });

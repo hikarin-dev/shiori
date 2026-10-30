@@ -59,6 +59,14 @@ export const layoutPath = {
   cover: (role, ext) => `covers/${role}.${ext}`,
 };
 
+// The page number a page picture's file name carries, as both apps write it: images/0007.webp, or
+// 0007-<random part>.webp when another file already had the layout name (a folder named by hand, a
+// picture replaced while the old one was still in use). Null for a name that carries none (or 0).
+export function pageNumberOf(name) {
+  const n = Number(String(name ?? '').match(/(?:^|\/)(\d+)(?:-[0-9a-z]+)?\.[0-9a-z]+$/i)?.[1]);
+  return Number.isSafeInteger(n) && n >= 1 ? n : null;
+}
+
 // Study bubble fields beyond box/region/src/tr/text that round-trip through backups and exports.
 export const BUBBLE_EXTRA_FIELDS = ['rbox', 'style', 'tbox', 'furi', 'id', 'lineIds', 'rawTr', 'shape'];
 
@@ -133,8 +141,10 @@ export function seriesManifest(meta, { metadataOnly = false, folders = [] } = {}
 export const DESCRIPTION_FILES = ['metadata.json', 'image_records.json', 'study/bubbles.json', 'covers/manifest.json'];
 
 // A short stamp of a gallery's descriptions as its folder holds them (`texts`: each of
-// DESCRIPTION_FILES' text, null or missing when the folder hasn't it). Equal stamps, the same
-// descriptions: how an app tells whether they changed since it last wrote or read them.
+// DESCRIPTION_FILES' text, null or missing when the folder hasn't it): a 53-bit hash of the raw text.
+// How an app tells whether they changed since it last wrote or read them: a stamp that differs means
+// other text (even the same description written another way: spacing, key order); an equal one, the
+// same text, short of a hash collision.
 export function descriptionStamp(texts) {
   const s = DESCRIPTION_FILES.map(name => `${name}\u0000${texts?.[name] ?? '\u0001'}`).join('\u0000');
   let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
@@ -146,6 +156,18 @@ export function descriptionStamp(texts) {
   h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+
+// A gallery's own covers as its covers/manifest.json (parsed) names them: { gallery?, series? }, each
+// the file's path in the gallery's folder. Only a picture directly in covers/ counts (galleryFiles
+// writes covers/<role>.<ext>); the first entry of a role is taken.
+export function coverRoles(manifest) {
+  const out = {};
+  for (const c of Array.isArray(manifest?.covers) ? manifest.covers : []) {
+    if ((c?.role !== 'gallery' && c?.role !== 'series') || out[c.role]) continue;
+    if (typeof c.file === 'string' && /^covers\/[^/\\:\u0000]+$/.test(c.file) && !/^covers\/[. ]+$/.test(c.file)) out[c.role] = c.file;
+  }
+  return out;
 }
 
 // [{ name, source, original? }] for the gallery's stored `meta`, image `records` and `covers`
