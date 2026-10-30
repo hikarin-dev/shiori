@@ -351,8 +351,8 @@ test('a check of a folder reads again the galleries another app changed there, u
     await api.folders.setAside(id);
     return { quiet, changed, title: back.title.english, count: back.count, page3, again, waiting, mine, written };
   }, { a: page.__folderA });
-  assert.deepEqual(out.quiet, { added: 0, updated: 0, stopped: false }, 'nothing changed: nothing read again');
-  assert.deepEqual(out.changed, { added: 0, updated: 1, stopped: false });
+  assert.deepEqual(out.quiet, { added: 0, updated: 0, problems: [], stopped: false }, 'nothing changed: nothing read again');
+  assert.deepEqual(out.changed, { added: 0, updated: 1, problems: [], stopped: false });
   assert.equal(out.title, 'Shared, Renamed');
   assert.equal(out.count, 3);
   assert.ok(out.page3 > 0, 'the new page reads from the folder');
@@ -448,7 +448,7 @@ test('a big folder leaves the list and the library at once, what it still owes t
   });
   assert.equal(out.galleries, 120);
   assert.ok(!out.listed, 'off the list at once');
-  assert.deepEqual(out.first, { removed: 50, stopped: true });
+  assert.deepEqual(out.first, { removed: 0, moved: 0, left: 0, stopped: true }, 'nothing forgotten yet');
   assert.ok(out.pending, 'what is left is waiting to be carried on');
   assert.equal(out.leftAfterStop, 0, 'its galleries left the library at once');
   assert.deepEqual(out.heard, ['done', 120], 'the next page carried it on, as a task');
@@ -705,7 +705,7 @@ test('a folder of what Shiori didn\'t make is used as it is: galleries read in p
     await api.folders.setDefault(a);
     return result;
   }, { a: page.__folderA });
-  assert.deepEqual(out.scan, { added: 5, updated: 0, stopped: false }, 'two folders of pictures, an archive, an archive\'s two chapters (the PDF waits)');
+  assert.deepEqual(out.scan, { added: 5, updated: 0, problems: [], stopped: false }, 'two folders of pictures, an archive, an archive\'s two chapters (the PDF waits)');
   assert.deepEqual(out.read, { kind: 'zip', count: 2, pretty: 'Title One', tags: ['group:circle', 'artist:artist a', 'tag:pack'], page2: true, loose: 2 });
   assert.deepEqual(out.chapters, ['Ch 1', 'Ch 2'], 'an archive of folders is a series');
   assert.ok(out.translated && out.described, 'its translation and descriptions in its overlay');
@@ -714,7 +714,7 @@ test('a folder of what Shiori didn\'t make is used as it is: galleries read in p
   assert.deepEqual(out.book, [2, 'pdf'], 'its pages drawn into its overlay');
   assert.ok(out.pdfSame);
   assert.deepEqual(out.removed, { zip: true, overlay: false, noted: ['Pack/[Circle (Artist A)] Title One (Mag 2020).zip'], again: 0 });
-  assert.deepEqual(out.rescan, { added: 0, updated: 1, stopped: false });
+  assert.deepEqual(out.rescan, { added: 0, updated: 1, problems: [], stopped: false });
   assert.deepEqual(out.renamed, ['Loose Renamed', 2, true]);
   assert.deepEqual(out.moved, ['browser', null, true]);
   assert.ok(out.innerStays);

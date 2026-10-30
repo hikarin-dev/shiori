@@ -86,7 +86,7 @@ test('a folder of what Shiori didn\'t make is used as it is: galleries read in p
   // Renamed outside the app: found again by its fingerprint — the same gallery, its overlay kept.
   const loose = by['Loose Title'].id;
   fs.renameSync(path.join(pack, 'Loose Title'), path.join(pack, 'Loose Renamed'));
-  assert.deepEqual(await library.folderScan(id), { added: 0, updated: 1, stopped: false });
+  assert.deepEqual(await library.folderScan(id), { added: 0, updated: 1, problems: [], stopped: false });
   const renamed = await library.getGallery(loose);
   assert.deepEqual([renamed.linked.path, renamed.count, renamed.missing], ['Loose Renamed', 2, undefined]);
   assert.deepEqual(await bytesOf(await library.getPageBlob(loose, 2)), [...pngBytes(32)]);

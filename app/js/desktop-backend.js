@@ -31,7 +31,7 @@ const OPS = ['galleriesPage', 'galleriesCount', 'galleryIdsSorted', 'getGallery'
   'listGalleryStudyRecords', 'putPageData', 'coverGet', 'coverThumbnailGet', 'coverPreviewGet', 'coverThumbnailPut', 'coverPut',
   'sourceIconGet', 'sourceIconsAll', 'sourceIconPut', 'transferIds', 'transferRead', 'transferWrite',
   'changeRevision', 'changesSince', 'integritySnapshot', 'clearAll', 'archiveGallery', 'diskWrites', 'resetDiskWrites',
-  'runJob', 'stopJob', 'foldersList', 'folderAdd', 'folderRemove', 'folderSetDefault', 'folderHide', 'folderShow', 'folderClaim', 'folderScan', 'moveGallery', 'pdfsWaiting', 'pdfSource', 'addRendered'];
+  'runJob', 'stopJob', 'foldersList', 'folderAdd', 'folderRemove', 'folderSetDefault', 'folderHide', 'folderShow', 'folderClaim', 'folderScan', 'moveGallery', 'pdfsWaiting', 'pdfSource', 'addRendered', 'pdfFailed'];
 
 // A unique id. (A page at an address that isn't a secure one — another device reaching the desktop
 // app over its network — has no randomUUID.)
@@ -301,6 +301,7 @@ export const folderClaim = ownCall('folderClaim');
 export const pdfsWaiting = ownCall('pdfsWaiting');
 export const pdfSource = ownCall('pdfSource');
 export const addRendered = ownCall('addRendered');
+export const pdfFailed = ownCall('pdfFailed');
 export const folderRemove = (id, opts = {}) => ownCall('folderRemove')(id, opts);
 export const folderSetDefault = ownCall('folderSetDefault');
 export const folderHide = ownCall('folderHide');

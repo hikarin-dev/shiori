@@ -35,7 +35,9 @@ test('the app reaches its library only through the library interface', () => {
 });
 
 test('object stores are only reached through the data layer', () => {
-  const allowed = new Set(['db.js', 'platform.js']);
+  // folder-library.js is db.js's folder layer: it reaches the stores only in the transactions db.js
+  // opens for it (its kernel), never opening one itself (the test above).
+  const allowed = new Set(['db.js', 'folder-library.js', 'platform.js']);
   const offenders = modules.filter((f) => !allowed.has(f) && /objectStore\s*\(/.test(code(read(f))));
   assert.deepEqual(offenders, [], 'object-store access belongs to the data layer');
 });

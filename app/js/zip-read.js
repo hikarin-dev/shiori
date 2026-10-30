@@ -1,7 +1,11 @@
 // zip-read.js — reading a zip where it is: its central directory, then each entry as it is stored
 // (a slice of the file for one stored as it is, inflated for one compressed), never the whole file
 // at once. Used by the import (import-cbz.js) and by a library folder's archives read in place
-// (db.js, linked-source.js). Runs anywhere: a page, a worker, the service worker.
+// (db.js, folder-library.js). Runs anywhere: a page, a worker, the service worker. An entry's name is
+// decoded by folder-content.js zipName, the rule both apps share, so an archive's titles are named
+// alike in either.
+
+import { zipName } from './folder-content.js';
 
 // Typed import failure. Thrown (never swallowed) so the job runner publishes a real error —
 // an invalid archive must never look like success — and retains the staged input for a retry.
@@ -50,6 +54,7 @@ export async function zipEntries(source) {
   let pos = 0;
   for (let i = 0; i < count; i++) {
     if (view.getUint32(pos, true) !== 0x02014b50) break;
+    const flags = view.getUint16(pos + 8, true);
     const method = view.getUint16(pos + 10, true);
     const compSize = view.getUint32(pos + 20, true);
     const size = view.getUint32(pos + 24, true);
@@ -57,7 +62,7 @@ export async function zipEntries(source) {
     const extraLen = view.getUint16(pos + 30, true);
     const commentLen = view.getUint16(pos + 32, true);
     const local = view.getUint32(pos + 42, true);
-    const filename = new TextDecoder().decode(cd.slice(pos + 46, pos + 46 + nameLen));
+    const filename = zipName(cd.slice(pos + 46, pos + 46 + nameLen), (flags & 0x0800) !== 0);
     pos += 46 + nameLen + extraLen + commentLen;
     if (filename.endsWith('/') || (method !== 0 && method !== 8)) continue;
     // Where the entry's data starts: past its local header, whose name and extra field may differ

@@ -4,8 +4,14 @@
 // go; writes to one gallery never interleave, across tabs and the service worker; a gallery's folder
 // is reserved for it alone and says whose it is; a change marks its gallery as not written to its
 // folder in its own transaction; a folder this library doesn't hold is never written to or deleted
-// from; a restore keeps where a gallery is kept. The folders are in the browser's private file
-// system (OPFS), always permitted — as in library-folders.browser.mjs.
+// from; a restore keeps where a gallery is kept. And how it reads them back and manages them: what is
+// Shiori's own is told by its descriptions, never by names; an archive in the gallery format is a
+// gallery of its own; a linked source keeps its identity, its overlay's pages and its series through
+// renames, removals and re-adds; a re-read never overwrites changes not written yet; a PDF joins once
+// all its pages are drawn, and one that can't be is not tried again; one job runs on a folder at a
+// time; a removal reports what it couldn't move; visibility changes are logged. The folders are in
+// the browser's private file system (OPFS), always permitted — as in library-folders.browser.mjs (a
+// test needing a folder that asks for leave stubs the handles' permission).
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
@@ -78,8 +84,33 @@ async function tab(ctx) {
     };
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const T = (english) => ({ english, japanese: '', pretty: '' });
+    // `path` (a file or a folder, with all it holds) deleted; moved to `to`.
+    const remove = async (path) => { const parts = path.split('/'); await (await dirOf(parts.slice(0, -1).join('/'))).removeEntry(parts.at(-1), { recursive: true }); };
+    const move = async (from, to) => {
+      const copy = async (a, b) => {
+        for await (const [n, h] of (await dirOf(a)).entries()) {
+          if (h.kind === 'directory') await copy(`${a}/${n}`, `${b}/${n}`); else await write(`${b}/${n}`, await h.getFile());
+        }
+      };
+      await copy(from, to);
+      await remove(from);
+    };
+    // Another app's claim on folder `name`, a step past this library's.
+    const takeOver = async (name) => {
+      const cur = JSON.parse(await text(`${name}/.shiori/owner.json`));
+      await write(`${name}/.shiori/owner.json`, JSON.stringify({ format: 'shiori-owner', version: 1, owner: 'another-app', by: { app: 'desktop', host: 'PC' }, at: Date.now(), epoch: cur.epoch + 1 }));
+    };
+    const bytes = async (blob) => new Uint8Array(await blob.arrayBuffer());
+    const until = async (fn, ms = 15000) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) { const v = await fn().catch(() => null); if (v) return v; await sleep(150); }
+      return null;
+    };
+    const db = await import('/app/js/db.js');
+    const inFolder = async (id) => (await db.galleryGetAll()).filter(g => g.folder === id);
+    const { zipCreate } = await import('/app/js/zip.js');
     window.__api = await import('/app/js/api.js');
-    window.__t = { png, folder, ls, file, text, write, raw, holdWrites, sleep, T };
+    window.__t = { png, folder, ls, file, text, write, raw, holdWrites, sleep, T, remove, move, takeOver, bytes, until, db, inFolder, zipCreate };
   });
   return page;
 }
@@ -424,5 +455,502 @@ test('A11, R17: a linked gallery that leaves its folder — moved out, or delete
     assert.equal(out.again, 0, 'none added again');
     assert.equal(out.moved, true, 'the moved one is the library\'s own now');
     assert.deepEqual(out.source, ['1.png'], 'its source stays where it was');
+  });
+});
+
+// ── Reading a folder back (stage 2) ──
+
+// A one-page PDF.
+const PDF = '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 300]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n';
+// Until gallery `gid` has nothing waiting to be written to its folder (its descriptions written).
+const settled = (page, gid) => until(page, async (g) => !(await window.__t.raw('undescribed', g)) && !(await window.__t.raw('galleries', g))?.spilled, gid, { what: `gallery ${gid} written to its folder` });
+
+test('R01: pictures in an images/ folder, or beside another tool\'s metadata.json, are linked: read in place, and deleting them leaves every file', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const out = await page.evaluate(async () => {
+      const api = window.__api, t = window.__t;
+      await t.write('R01/Ordinary/images/1.png', await t.png(10));
+      await t.write('R01/Ordinary/notes.txt', 'my notes');
+      await t.write('R01/Photos/metadata.json', JSON.stringify({ title: 'some other tool', camera: 'X100' }));
+      await t.write('R01/Photos/a.png', await t.png(20));
+      const { id } = await api.folders.add(await t.folder('R01'));
+      const scan = await api.folders.scan(id);
+      const kept = await t.inFolder(id);
+      for (const g of kept) await api.galleries.delete(String(g.galleryId));
+      await t.sleep(800);
+      return { scan: scan.added, linked: kept.map(g => !!g.linked), ordinary: await t.ls('R01/Ordinary'), images: await t.ls('R01/Ordinary/images'),
+        photos: await t.ls('R01/Photos'), camera: JSON.parse(await t.text('R01/Photos/metadata.json')).camera };
+    });
+    assert.equal(out.scan, 2);
+    assert.deepEqual(out.linked, [true, true], 'neither is Shiori\'s');
+    assert.deepEqual([out.ordinary, out.images, out.photos], [['images/', 'notes.txt'], ['1.png'], ['a.png', 'metadata.json']], 'every file stays');
+    assert.equal(out.camera, 'X100', 'the other tool\'s description is never rewritten');
+  });
+});
+
+test('R11: a PDF joins once all its pages are drawn, never with the pages drawn so far', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const out = await page.evaluate(async (pdf) => {
+      const api = window.__api, t = window.__t;
+      await t.write('R11/Book.pdf', pdf);
+      const { id } = await api.folders.add(await t.folder('R11'));
+      const first = (await api.folders.scan(id)).added;
+      const [w] = await api.folders.pdfsWaiting();
+      // A window drawing it has written its first page so far.
+      await t.write(`R11/.shiori/linked/${w.gid}/images/0001.webp`, await t.png(5));
+      const partial = (await api.folders.scan(id)).added;
+      const still = (await api.folders.pdfsWaiting()).length;
+      const made = await api.folders.addRendered(id, w.gid, [await t.png(10), await t.png(20)]);
+      const source = JSON.parse(await t.text(`R11/.shiori/linked/${w.gid}/source.json`)).source;
+      return { first, partial, still, made: made === w.gid, count: (await api.galleries.get(w.gid))?.count, rendered: source.rendered, again: (await api.folders.scan(id)).added };
+    }, PDF);
+    assert.deepEqual(out, { first: 0, partial: 0, still: 1, made: true, count: 2, rendered: 2, again: 0 });
+  });
+});
+
+test('R13: a page replaced in a linked gallery stays replaced when its source is renamed, and when its folder is removed and added again', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const { id, gid, repl } = await page.evaluate(async () => {
+      const api = window.__api, t = window.__t;
+      await t.write('R13/Loose/1.png', await t.png(10));
+      await t.write('R13/Loose/2.png', await t.png(100));
+      const { id } = await api.folders.add(await t.folder('R13'));
+      await api.folders.scan(id);
+      const [g] = await t.inFolder(id);
+      const repl = await t.png(250, 50, 70);
+      await api.pages.put(String(g.galleryId), 1, repl);
+      return { id, gid: String(g.galleryId), repl: repl.size };
+    });
+    await settled(page, gid);
+    const out = await page.evaluate(async ({ id, gid }) => {
+      const api = window.__api, t = window.__t;
+      await t.move('R13/Loose', 'R13/Loose Renamed');
+      const renamed = await api.folders.scan(id);
+      const afterRename = [(await api.pages.blob(gid, 1))?.size, (await t.raw('galleries', gid)).linked.path];
+      await api.folders.setDefault('browser');
+      await api.folders.remove(id);
+      await api.folders.setAside(id);
+      await api.folders.add(await t.folder('R13'));
+      const readded = await api.folders.scan(id);
+      return { renamed: renamed.updated, afterRename, readded: readded.added, afterReadd: (await api.pages.blob(gid, 1))?.size, count: (await api.galleries.get(gid))?.count };
+    }, { id, gid });
+    assert.equal(out.renamed, 1);
+    assert.deepEqual(out.afterRename, [repl, 'Loose Renamed'], 'renamed: its own page 1 still stands in for the source\'s');
+    assert.equal(out.readded, 1);
+    assert.equal(out.afterReadd, repl, 'added again: the same');
+    assert.equal(out.count, 2);
+  });
+});
+
+// An archive in the gallery format: Native.zip with pages 1 and 3 (sparse), their records, a
+// translation of page 1 and both covers.
+async function nativeZip(page) {
+  return page.evaluate(async () => {
+    const api = window.__api, t = window.__t;
+    const gid = api.newGalleryId();
+    const [p1, p3, tr, cv, cs] = await Promise.all([t.png(10), t.png(30, 40, 60), t.png(200), t.png(120, 20, 20), t.png(140, 22, 22)]);
+    const json = (v) => new TextEncoder().encode(JSON.stringify(v));
+    await t.write('R14/Native.zip', t.zipCreate([
+      { name: 'metadata.json', data: json({ galleryId: gid, title: t.T('Native'), tags: [], numPages: 2 }) },
+      { name: 'image_records.json', data: json([{ url: `local://${gid}/1.png`, mediaId: 'm1' }, { url: `local://${gid}/3.png`, mediaId: 'm3' }]) },
+      { name: 'images/0001.png', data: await t.bytes(p1) }, { name: 'images/0003.png', data: await t.bytes(p3) },
+      { name: 'translated/0001.png', data: await t.bytes(tr) },
+      { name: 'covers/gallery.png', data: await t.bytes(cv) }, { name: 'covers/series.png', data: await t.bytes(cs) },
+      { name: 'covers/manifest.json', data: json({ covers: [{ role: 'gallery', file: 'covers/gallery.png' }, { role: 'series', file: 'covers/series.png' }] }) },
+    ]));
+    return { gid, sizes: { p1: p1.size, p3: p3.size, cv: cv.size, cs: cs.size } };
+  });
+}
+
+test('R14, A15: an archive in the gallery format is a gallery of its own, read in place — sparse page numbers, its records, both covers — and unpacked beside it on its first change', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const { gid, sizes } = await nativeZip(page);
+    const read = await page.evaluate(async (gid) => {
+      const api = window.__api, t = window.__t;
+      const { id } = await api.folders.add(await t.folder('R14'));
+      const scan = await api.folders.scan(id);
+      const stat = await t.raw('galleries', gid);
+      const cover = await t.raw('covers', gid);
+      return { id, scan: scan.added, dir: stat.dir, packed: stat.packed, linked: stat.linked ?? null, pages: (await api.pages.list(gid)).map(p => p.pageNum),
+        p1: (await api.pages.blob(gid, 1))?.size, p3: (await api.pages.blob(gid, 3))?.size, mediaId: (await api.pages.get(gid, 3))?.mediaId,
+        covers: [cover?.cover?.$path, cover?.seriesCover?.$path], overlays: (await t.ls('R14/.shiori')).includes('linked/') };
+    }, gid);
+    assert.deepEqual({ ...read, id: undefined }, { id: undefined, scan: 1, dir: 'Native.zip', packed: { inner: '' }, linked: null, pages: [1, 3], p1: sizes.p1, p3: sizes.p3,
+      mediaId: 'm3', covers: ['covers/gallery.png', 'covers/series.png'], overlays: false }, 'its own gallery, no overlay made');
+    const out = await page.evaluate(async (gid) => {
+      const api = window.__api, t = window.__t;
+      await api.meta.put({ ...(await api.meta.get(gid)), title: t.T('Native, edited') });
+      const written = await t.until(async () => JSON.parse(await t.text('R14/Native/metadata.json')).title.english === 'Native, edited');
+      const stat = await t.raw('galleries', gid);
+      return { written, dir: stat.dir, packed: stat.packed ?? null, top: await t.ls('R14'), images: await t.ls('R14/Native/images'), translated: await t.ls('R14/Native/translated'),
+        p3: (await api.pages.blob(gid, 3))?.size };
+    }, gid);
+    assert.ok(out.written, 'its change is written to the folder it was unpacked into');
+    assert.deepEqual([out.dir, out.packed], ['Native', null]);
+    assert.deepEqual(out.top, ['.shiori/', 'Native/'], 'the archive went once unpacked');
+    assert.deepEqual([out.images, out.translated], [['0001.png', '0003.png'], ['0001.png']]);
+    assert.equal(out.p3, sizes.p3);
+  });
+});
+
+test('R14: a series export archive is a series of galleries of their own, each read in place', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const out = await page.evaluate(async () => {
+      const api = window.__api, t = window.__t;
+      const a = api.newGalleryId(); await t.sleep(5); const b = api.newGalleryId();
+      const json = (v) => new TextEncoder().encode(JSON.stringify(v));
+      const chapters = [{ id: a, title: 'One', folder: 'One' }, { id: b, title: 'Two', folder: 'Two' }];
+      await t.write('S/Series.zip', t.zipCreate([
+        { name: 'series.json', data: json({ format: 'shiori-series', version: 1, seriesTitle: 'Series', chapters }) },
+        { name: 'One/metadata.json', data: json({ galleryId: a, title: t.T('One'), chapters: chapters.map(({ id, title }) => ({ id, title })), seriesTitle: 'Series' }) },
+        { name: 'One/images/0001.png', data: await t.bytes(await t.png(10)) },
+        { name: 'Two/metadata.json', data: json({ galleryId: b, title: t.T('Two'), parentId: a }) },
+        { name: 'Two/images/0001.png', data: await t.bytes(await t.png(90)) },
+      ]));
+      const { id } = await api.folders.add(await t.folder('S'));
+      const scan = await api.folders.scan(id);
+      return { scan: scan.added, chapters: (await api.series.resolve(b))?.chapters.map(c => String(c.id)), a, b,
+        packed: [(await t.raw('galleries', a)).packed, (await t.raw('galleries', b)).packed], read: (await api.pages.blob(b, 1))?.size > 0 };
+    });
+    assert.equal(out.scan, 2);
+    assert.deepEqual(out.chapters, [out.a, out.b]);
+    assert.deepEqual(out.packed, [{ inner: 'One/' }, { inner: 'Two/' }]);
+    assert.ok(out.read);
+  });
+});
+
+test('R15: a series kept across two folders comes back whole, whichever folder is added first', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const out = await page.evaluate(async () => {
+      const api = window.__api, t = window.__t;
+      const json = (v) => JSON.stringify(v);
+      const result = [];
+      for (const order of [['Child', 'Owner'], ['Owner', 'Child']]) {
+        const owner = api.newGalleryId(); await t.sleep(5); const child = api.newGalleryId();
+        const tag = order[0];
+        await t.write(`${tag}-Owner/Owner/metadata.json`, json({ galleryId: owner, title: t.T('Owner'), chapters: [{ id: owner, title: 'Owner' }, { id: child, title: 'Child' }], seriesTitle: 'Split' }));
+        await t.write(`${tag}-Owner/Owner/images/0001.png`, await t.png(10));
+        await t.write(`${tag}-Child/Child/metadata.json`, json({ galleryId: child, title: t.T('Child'), parentId: owner }));
+        await t.write(`${tag}-Child/Child/images/0001.png`, await t.png(50));
+        for (const which of order) {
+          const { id } = await api.folders.add(await t.folder(`${tag}-${which}`));
+          await api.folders.scan(id);
+        }
+        result.push({ chapters: (await api.series.resolve(child))?.chapters.map(c => String(c.id)), parent: String((await api.meta.get(child)).parentId), owner, child });
+      }
+      return result;
+    });
+    for (const r of out) {
+      assert.deepEqual(r.chapters, [r.owner, r.child], 'the owner lists its chapter');
+      assert.equal(r.parent, r.owner, 'the chapter names its series');
+    }
+  });
+});
+
+test('R18: an archive of chapters renamed outside the app keeps its galleries, their series and their ids', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const first = await page.evaluate(async () => {
+      const api = window.__api, t = window.__t;
+      const zip = t.zipCreate([{ name: 'Ch 1/1.png', data: await t.bytes(await t.png(20)) }, { name: 'Ch 2/1.png', data: await t.bytes(await t.png(40)) }]);
+      await t.write('R18/Before.zip', zip);
+      const { id } = await api.folders.add(await t.folder('R18'));
+      const scan = await api.folders.scan(id);
+      return { id, scan: scan.added, ids: (await t.inFolder(id)).sort((x, y) => x.linked.inner.localeCompare(y.linked.inner)).map(g => String(g.galleryId)) };
+    });
+    for (const gid of first.ids) await settled(page, gid);
+    const out = await page.evaluate(async ({ id }) => {
+      const api = window.__api, t = window.__t;
+      await t.write('R18/After.zip', await t.file('R18/Before.zip'));
+      await t.remove('R18/Before.zip');
+      const scan = await api.folders.scan(id);
+      const kept = (await t.inFolder(id)).sort((x, y) => x.linked.inner.localeCompare(y.linked.inner));
+      return { scan: [scan.added, scan.updated], ids: kept.map(g => String(g.galleryId)), paths: kept.map(g => g.linked.path),
+        series: (await api.series.resolve(String(kept[1].galleryId)))?.chapters.length };
+    }, first);
+    assert.equal(first.scan, 2);
+    assert.deepEqual(out.scan, [0, 2]);
+    assert.deepEqual(out.ids, first.ids, 'the same galleries');
+    assert.deepEqual(out.paths, ['After.zip', 'After.zip']);
+    assert.equal(out.series, 2, 'still a series');
+  });
+});
+
+test('R19: a linked folder whose pictures changed is read again; one removed and replaced by other pictures at its path joins again', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const out = await page.evaluate(async () => {
+      const api = window.__api, t = window.__t;
+      await t.write('R19/Loose/1.png', await t.png(30));
+      const { id } = await api.folders.add(await t.folder('R19'));
+      await api.folders.scan(id);
+      const [g] = await t.inFolder(id);
+      const gid = String(g.galleryId);
+      await t.write('R19/Loose/2.png', await t.png(31));
+      const grown = await api.folders.scan(id);
+      const count = (await api.galleries.get(gid)).count;
+      await api.galleries.delete(gid);
+      await t.sleep(600);
+      await t.remove('R19/Loose');
+      for (const [n, hue] of [['a', 200], ['b', 210], ['c', 220]]) await t.write(`R19/Loose/${n}.png`, await t.png(hue, 50 + hue % 7, 60));
+      const replaced = await api.folders.scan(id);
+      return { grown: grown.updated, count, replaced: replaced.added };
+    });
+    assert.deepEqual(out, { grown: 1, count: 2, replaced: 1 });
+  });
+});
+
+test('R20: a removal asked during a check stops the check, then runs; a check asked during a removal is refused', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const out = await page.evaluate(async () => {
+      const api = window.__api, t = window.__t;
+      const jobs = await import('/app/js/folder-scan.js');
+      for (let i = 0; i < 40; i++) await t.write(`R20/T${i}/1.png`, await t.png(i * 9));
+      const { id } = await api.folders.add(await t.folder('R20'));
+      const held = async (kind) => (await navigator.locks.query()).held.some(l => l.name === `shiori:folder-job:${id}:${kind}`);
+      const checking = jobs.runFolderScan(id, { name: 'R20' });
+      await t.until(() => held('scan'));
+      await api.folders.remove(id);
+      const removing = jobs.runFolderJob('remove', id, { name: 'R20' });
+      await t.until(() => held('removal'));
+      const refused = await jobs.runFolderScan(id, { name: 'R20' });
+      const [check, removal] = await Promise.all([checking, removing]);
+      return { check: check.stopped, removal: removal && !removal.stopped, refused, left: (await api.folders.pending()).setAside.length, listed: (await api.folders.list()).some(f => f.id === id) };
+    });
+    assert.deepEqual(out, { check: true, removal: true, refused: null, left: 0, listed: false });
+  });
+});
+
+test('R21: a folder added back once another app took it over while its removal was stopped is refused, unless taken over — then read fresh', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const { id } = await setup(page, 'Lib', 'Kept');
+    await described(page, 'Lib/Kept/image_records.json');
+    const out = await page.evaluate(async (id) => {
+      const api = window.__api, t = window.__t;
+      await api.folders.setDefault('browser');
+      await api.folders.remove(id);
+      const stopped = (await api.folders.setAside(id, { stopped: () => true })).stopped;
+      await t.takeOver('Lib');
+      const refused = await api.folders.add(await t.folder('Lib')).then(() => null, (e) => e.reason);
+      const forced = await api.folders.add(await t.folder('Lib'), { force: true });
+      const scan = await api.folders.scan(id);
+      return { stopped, refused, restored: forced.restored, added: scan.added, pending: (await api.folders.pending()).setAside.length };
+    }, id);
+    assert.deepEqual(out, { stopped: true, refused: 'claimed', restored: 0, added: 1, pending: 0 });
+  });
+});
+
+test('A10: a removal moving its galleries to a place that can\'t take them now is refused; galleries a move couldn\'t take are reported, written back, and the folder still goes', { skip }, async () => {
+  await fresh(async (ctx) => {
+    let page = await tab(ctx);
+    const { id: a, gid } = await setup(page, 'Lib A', 'Kept');
+    await described(page, 'Lib A/Kept/image_records.json');
+    const b = await page.evaluate(async () => {
+      const api = window.__api, t = window.__t;
+      const { id } = await api.folders.add(await t.folder('Lib B'));
+      await api.folders.setDefault('browser');
+      await t.takeOver('Lib B');
+      return id;
+    });
+    page = await tab(ctx);
+    const refused = await page.evaluate((a, b) => window.__api.folders.remove(a, { moveTo: b }).then(() => null, (e) => e.reason), a, b);
+    await page.evaluate(async (a, b) => {
+      const api = window.__api, t = window.__t;
+      await api.folders.claim(b);
+      await api.folders.remove(a, { moveTo: b });
+      await t.takeOver('Lib B');   // taken again before the move runs
+    }, a, b);
+    page = await tab(ctx);
+    const out = await page.evaluate(async (a, gid) => {
+      const api = window.__api, t = window.__t;
+      const r = await api.folders.setAside(a);
+      return { r, gone: !(await api.galleries.get(gid)), files: await t.ls('Lib A/Kept/images'), moved: await t.ls('Lib B') };
+    }, a, gid);
+    assert.equal(refused, 'move-to');
+    assert.deepEqual(out.r, { removed: 1, moved: 0, left: 1, stopped: false });
+    assert.ok(out.gone, 'forgotten with its folder');
+    assert.deepEqual(out.files, ['0001.png'], 'its files stay where they were');
+    assert.deepEqual(out.moved, ['.shiori/']);
+  });
+});
+
+test('A14: a linked folder renamed while the library has changes not written to it yet keeps those changes', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const { id, gid } = await page.evaluate(async () => {
+      const api = window.__api, t = window.__t;
+      await t.write('A14/Loose/1.png', await t.png(30));
+      const { id } = await api.folders.add(await t.folder('A14'));
+      await api.folders.scan(id);
+      const [g] = await t.inFolder(id);
+      const gid = String(g.galleryId);
+      await api.meta.put({ ...(await api.meta.get(gid)), title: t.T('Edited in library') });
+      await t.move('A14/Loose', 'A14/Loose Renamed');
+      const scan = await api.folders.scan(id);
+      return { id, gid, scan: scan.updated, title: (await api.galleries.get(gid)).title.english };
+    }).then(async (r) => { assert.deepEqual([r.scan, r.title], [0, 'Edited in library'], 'the edit waiting to be written wins'); return r; });
+    await settled(page, gid);
+    const out = await page.evaluate(async ({ id, gid }) => {
+      const api = window.__api, t = window.__t;
+      const scan = await api.folders.scan(id);
+      return { scan: scan.updated, title: (await api.galleries.get(gid)).title.english, path: (await t.raw('galleries', gid)).linked.path };
+    }, { id, gid });
+    assert.deepEqual(out, { scan: 1, title: 'Edited in library', path: 'Loose Renamed' }, 'once written, the rename is followed, the edit kept');
+  });
+});
+
+test('A16: two tabs checking one folder at once add each title once', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const id = await page.evaluate(async () => {
+      const api = window.__api, t = window.__t;
+      for (const name of ['One', 'Two', 'Three']) await t.write(`A16/${name}/1.png`, await t.png(name.length * 30));
+      return (await api.folders.add(await t.folder('A16'))).id;
+    });
+    const other = await tab(ctx);
+    const scans = await Promise.all([page, other].map(p => p.evaluate((id) => window.__api.folders.scan(id), id)));
+    const kept = await page.evaluate(async (id) => (await window.__t.inFolder(id)).length, id);
+    assert.equal(scans[0].added + scans[1].added, 3);
+    assert.equal(kept, 3, 'no title twice');
+  });
+});
+
+test('A22: Stop on a folder job nothing answers for ends its row', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const out = await page.evaluate(async () => {
+      const platform = await import('/app/js/platform.js');
+      const { services } = await import('/app/js/services.js');
+      // A check whose runner is gone: its last word, and nothing since.
+      await platform.jobs.publish({ gid: 'folder-gone', kind: 'folder', status: 'progress', title: 'Gone', labelKey: 'lf.task_checking', done: 1, total: 9 });
+      await services.handle({ type: 'STOP_JOB', galleryId: 'folder-gone', kind: 'folder' });
+      return window.__t.until(async () => (await platform.jobs.current()).find(j => j.gid === 'folder-gone' && j.status === 'cancelled') && 'cancelled', 20000);
+    });
+    assert.equal(out, 'cancelled');
+  });
+});
+
+test('A23: a PDF that can\'t be drawn is noted, and not tried again until its file changes', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const out = await page.evaluate(async () => {
+      const api = window.__api, t = window.__t;
+      await t.write('A23/Bad.pdf', 'not a PDF at all');
+      const { id } = await api.folders.add(await t.folder('A23'));
+      await api.folders.scan(id);
+      const before = (await api.folders.pdfsWaiting()).map(w => w.name);
+      const { drawWaitingPdfs } = await import('/app/js/library-folders.js');
+      await drawWaitingPdfs();
+      const after = (await api.folders.pdfsWaiting()).length;
+      await t.write('A23/Bad.pdf', 'still not a PDF, but another file');
+      return { before, after, changed: (await api.folders.pdfsWaiting()).length };
+    });
+    assert.deepEqual(out, { before: ['Bad.pdf'], after: 0, changed: 1 });
+  });
+});
+
+test('A24: a hidden folder never asks for leave, and what waits for the other folders is moved out all the same', { skip }, async () => {
+  await fresh(async (ctx) => {
+    let page = await tab(ctx);
+    const { x, gy } = await page.evaluate(async () => {
+      const api = window.__api, t = window.__t;
+      const x = (await api.folders.add(await t.folder('X'))).id;
+      await api.folders.setDefault(x);
+      const gx = api.newGalleryId();
+      await api.meta.put({ galleryId: gx, title: t.T('In X') });
+      await api.pages.put(gx, 1, await t.png(10));
+      const y = (await api.folders.add(await t.folder('Y'))).id;
+      await api.folders.setDefault(y);
+      const gy = api.newGalleryId();
+      await api.meta.put({ galleryId: gy, title: t.T('In Y') });
+      await api.pages.put(gy, 1, await t.png(40));
+      return { x, gy };
+    });
+    // This visit, both folders wait for leave: a new page of Y's gallery waits in the browser.
+    const asking = (names) => { const proto = FileSystemDirectoryHandle.prototype, q = proto.__q ||= proto.queryPermission;
+      proto.queryPermission = async function (o) { return names.includes(this.name) ? 'prompt' : q.call(this, o); }; };
+    page = await tab(ctx);
+    await page.evaluate(asking, ['X', 'Y']);
+    const spilled = await page.evaluate(async (gy) => { await window.__api.pages.put(gy, 2, await window.__t.png(80)); return (await window.__t.raw('galleries', gy)).spilled; }, gy);
+    // Next visit Y may be used, X still asks.
+    page = await tab(ctx);
+    await page.evaluate(asking, ['X']);
+    const out = await page.evaluate(async ({ x, gy }) => {
+      const api = window.__api, t = window.__t;
+      const waiting = (await api.folders.waiting()).map(f => f.id);
+      const { promptFolderAccess } = await import('/app/js/library-folders.js');
+      await promptFolderAccess();
+      const settled = await t.until(async () => !(await t.raw('galleries', gy)).spilled);
+      await api.folders.hide(x);
+      return { folders: api.capabilities.folders, waiting: waiting.includes(x), settled: !!settled, hidden: (await api.folders.waiting()).length };
+    }, { x, gy });
+    assert.equal(spilled, 1);
+    assert.deepEqual(out, { folders: 'pick', waiting: true, settled: true, hidden: 0 });
+  });
+});
+
+test('A26: hiding, showing and removing a folder leave a trace in the change log, so a window that missed the notice reads everything again', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const { id } = await setup(page, 'Lib', 'Kept');
+    const out = await page.evaluate(async (id) => {
+      const api = window.__api;
+      await api.folders.setDefault('browser');
+      const resync = async (step) => { const rev = await api.events.revision(); await step(); return (await api.events.since(rev)).resync; };
+      return [await resync(() => api.folders.hide(id)), await resync(() => api.folders.show(id)), await resync(() => api.folders.remove(id))];
+    }, id);
+    assert.deepEqual(out, [true, true, true]);
+  });
+});
+
+test('A27: a removal moving its galleries, carried on by the next page, still says it moves them', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const { id: a } = await setup(page, 'Lib A', 'Kept');
+    await described(page, 'Lib A/Kept/image_records.json');
+    const out = await page.evaluate(async (a) => {
+      const api = window.__api, t = window.__t;
+      const platform = await import('/app/js/platform.js');
+      const { resumeFolderWork } = await import('/app/js/folder-scan.js');
+      const { id: b } = await api.folders.add(await t.folder('Lib B'));
+      await api.folders.setDefault('browser');
+      await api.folders.remove(a, { moveTo: b });
+      const heard = [];
+      const ended = new Promise((resolve) => platform.jobs.subscribe((j) => {
+        if (j?.gid !== `folder-${a}`) return;
+        heard.push([j.status, j.labelKey, j.doneKey, j.found]);
+        if (['done', 'error', 'cancelled'].includes(j.status)) resolve();
+      }));
+      await resumeFolderWork();
+      await ended;
+      return { first: heard[0].slice(0, 3), last: heard.at(-1), there: await t.ls('Lib B/Kept/images') };
+    }, a);
+    assert.deepEqual(out.first, ['started', 'lf.task_moving', 'lf.task_moved']);
+    assert.deepEqual(out.last, ['done', 'lf.task_moving', 'lf.task_moved', 1]);
+    assert.deepEqual(out.there, ['0001.png']);
+  });
+});
+
+test('a gallery\'s folder moved by hand inside its library folder is read again where it is now, not added as a copy', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const { id, gid } = await setup(page, 'Lib', 'Moved');
+    await described(page, 'Lib/Moved/image_records.json');
+    await settled(page, gid);
+    const out = await page.evaluate(async ({ id, gid }) => {
+      const api = window.__api, t = window.__t;
+      await t.move('Lib/Moved', 'Lib/Sub/Moved');
+      const scan = await api.folders.scan(id);
+      return { scan: [scan.added, scan.updated], dir: (await t.raw('galleries', gid)).dir, read: (await api.pages.blob(gid, 1))?.size > 0, count: (await t.inFolder(id)).length };
+    }, { id, gid });
+    assert.deepEqual(out, { scan: [0, 1], dir: 'Sub/Moved', read: true, count: 1 });
   });
 });

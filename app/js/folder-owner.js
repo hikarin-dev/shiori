@@ -70,39 +70,3 @@ export function unchangedSince(read, me, epoch) {
   if (read.state === 'absent') return epoch == null;
   return read.state === 'claim' && (read.owner == null || read.owner === me) && read.epoch === epoch;
 }
-
-// ── Before claims failed closed ──
-// superseded by readClaim, access, nextClaim, releasedClaim and unchangedSince — removed once callers
-// switch (stage 1/2).
-
-// The claim a file's text holds — { owner (an app's id, or null once released), by, at, epoch } —
-// or null: no file (no app claimed the folder) or one that isn't a claim.
-export function parseClaim(text) {
-  if (text == null) return null;
-  let c;
-  try { c = JSON.parse(text); } catch { return null; }
-  if (c?.format !== 'shiori-owner') return null;
-  return { owner: typeof c.owner === 'string' && c.owner ? c.owner : null, by: c.by && typeof c.by === 'object' ? c.by : null,
-    at: Number(c.at) || 0, epoch: Number(c.epoch) || 0 };
-}
-
-// What app `me` may do with a folder claimed as `cur`: 'mine' (it holds it), 'free' (no app ever
-// claimed it: it may, as it is), or 'taken' (another app holds it, or let it go after taking it).
-export const claimState = (cur, me) => (!cur ? 'free' : cur.owner === me ? 'mine' : 'taken');
-
-// App `me` (described by `by`) claiming a folder claimed as `cur`: { claim, changed } — the claim to
-// write when `changed` — or { refused: cur } while another app holds it, unless `force`.
-export function claimFor(cur, me, by, { force = false, now = Date.now() } = {}) {
-  if (cur?.owner === me) return { claim: cur, changed: false };
-  if (cur?.owner && !force) return { refused: cur };
-  return { claim: { owner: me, by, at: now, epoch: (cur?.epoch || 0) + 1 }, changed: true };
-}
-
-// The claim app `me` leaves when it lets the folder go — null when it doesn't hold it (nothing to
-// write: the app holding it keeps it).
-export const releaseOf = (cur, me, now = Date.now()) => (cur?.owner === me ? { owner: null, by: cur.by, at: now, epoch: cur.epoch } : null);
-
-// Whether no other app has claimed a folder since app `me` held it at `epoch` (what it set aside
-// when it let the folder go is then still how the folder is). A folder set aside before claims
-// existed (`epoch` unknown) is taken as it was only when no app has claimed it yet.
-export const unclaimedSince = (cur, me, epoch) => (cur ? (cur.owner == null || cur.owner === me) && cur.epoch === epoch : epoch == null);

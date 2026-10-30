@@ -282,7 +282,7 @@ export async function initLibraryFolders() {
   const failed = (e) => {
     const reason = e?.reason;
     status(reason === 'nested' ? t('lf.nested') : reason === 'copy' ? t('lf.copy') : reason === 'default' ? t('lf.default_stays')
-      : reason === 'taken' ? t('lf.taken_msg') : String(e?.message || e), 'err');
+      : reason === 'taken' ? t('lf.taken_msg') : reason === 'move-to' ? t('lf.denied') : String(e?.message || e), 'err');
   };
 
   // What is under way for each folder: its task, as it says.
@@ -293,6 +293,10 @@ export async function initLibraryFolders() {
     if (TERMINAL.has(job.status)) {
       if (job.status === 'done') drawWaitingPdfs().catch(() => {});   // the PDFs a check found
       if (had) { jobs.delete(id); render(); }
+      // What it couldn't do, said once it ends: things in the folder it couldn't read, galleries a move
+      // couldn't take.
+      const counts = [['lf.task_problems', job.problems], ['lf.task_left', job.left]].filter(([, n]) => n > 0);
+      if (had && counts.length) status([job.title || '', ...counts.map(([key, n]) => t(key, { n: formatCount(n) }))].filter(Boolean).join(' · '), 'err');
       // A removal that couldn't write what it owed the folder left it in the library: asked whether to
       // remove it anyway.
       if (had && job.status === 'error' && job.errorKey === 'lf.task_kept') {
@@ -371,11 +375,13 @@ export async function initLibraryFolders() {
   });
 
   // Removing: asked first; its galleries can be moved elsewhere first (asked again: it can't easily be
-  // undone). Off the list at once; the rest is a task (its row shows it while it runs). Changes only
-  // this library has that can't be written to the folder are lost by removing it: asked again.
+  // undone) — to a place that can take them now: shown, this library's, and reachable (one this page
+  // needs leave for is asked for it, from the click). Off the list at once; the rest is a task (its
+  // row shows it while it runs). Changes only this library has that can't be written to the folder
+  // are lost by removing it: asked again.
   const removePlace = async (f) => {
     const name = placeName(f);
-    const others = places.filter(p => p.id !== f.id && p.access !== 'unavailable' && p.access !== 'taken' && !p.hidden);
+    const others = places.filter(p => p.id !== f.id && (p.access === 'granted' || p.access === 'prompt') && !p.hidden);
     let moveTo = null;
     if (f.galleries && others.length && f.access === 'granted' && !f.hidden) {
       const first = others.find(p => p.isDefault) || others[0];
@@ -392,6 +398,10 @@ export async function initLibraryFolders() {
       if (answer.toggle) moveTo = answer.option;
     } else if (!(await confirmDialog({ title: t('lf.remove_title', { name }),
       body: f.galleries ? t('lf.remove_body', { n: formatCount(f.galleries) }) : t('lf.remove_empty'), ok: t('lf.remove_ok'), danger: true }))) return;
+    // The galleries go where they are moved only once this page may write there: asked now, from the
+    // click that confirmed (the removal runs where nothing can ask). Not allowed, nothing is removed.
+    const dest = moveTo && others.find(p => p.id === moveTo);
+    if (dest?.access === 'prompt' && await api.folders.allow(dest.id).catch(() => null) !== 'granted') { status(t('lf.denied'), 'err'); return; }
     // What the library has of its galleries is written there first: this page may need leave to.
     if (f.access === 'prompt') await api.folders.allow(f.id).catch(() => {});
     await startRemoval(f, { moveTo });
@@ -486,7 +496,9 @@ async function initArchiving(after) {
 }
 
 // The PDFs the library's folders hold whose pages wait to be drawn (a page draws them, as the import
-// does; api.js folders.pdfsWaiting): drawn one at a time, each a task, and joined to the library.
+// does; api.js folders.pdfsWaiting): drawn one at a time, each a task the tasks page can stop, and
+// joined to the library. One that can't be drawn (damaged, or locked) is noted as such (pdfFailed):
+// not tried again until its file changes.
 let _drawing = null;
 export function drawWaitingPdfs() {
   return _drawing ??= (async () => {
@@ -497,25 +509,41 @@ export function drawWaitingPdfs() {
       for (const w of waiting) {
         const job = { gid: `pdf-${w.gid}`, kind: 'folder', title: w.name, labelKey: 'lf.task_pdf', doneKey: 'lf.task_pdf_done', foundKey: '' };
         const say = (extra) => platform.jobs.publish({ ...job, ...extra }).catch(() => {});
+        let stop = false;
+        const off = platform.jobs.subscribe((e) => { if (e?.type === 'STOP_FOLDER_SCAN' && e.job === job.gid) stop = true; });
         say({ status: 'started', done: 0, total: 0 });
         try {
-          const pages = await renderPdfPages(await api.folders.pdfSource(w.folder, w.gid), ({ done, total }) => say({ status: 'progress', done, total }));
+          // Stopped between two pages: the drawing ends there, and nothing is kept.
+          const pages = await renderPdfPages(await api.folders.pdfSource(w.folder, w.gid), ({ done, total }) => {
+            if (stop) throw Object.assign(new Error('stopped'), { stopped: true });
+            say({ status: 'progress', done, total });
+          });
+          if (stop) throw Object.assign(new Error('stopped'), { stopped: true });
           await api.folders.addRendered(w.folder, w.gid, pages);
           say({ status: 'done', done: pages.length, total: pages.length, found: pages.length });
-        } catch (e) { say({ status: 'error', error: String(e?.message || e) }); }
+        } catch (e) {
+          if (e?.stopped) { say({ status: 'cancelled' }); continue; }
+          // The PDF couldn't be drawn (the library refusing, or out of reach, is not the PDF's doing).
+          if (e?.name !== 'BackendError') await api.folders.pdfFailed(w.folder, w.gid).catch(() => {});
+          say({ status: 'error', error: String(e?.message || e) });
+        } finally { off(); }
       }
     } finally { _drawing = null; }
   })();
 }
 
-// Every page of a browser library: while a folder it keeps galleries in waits for this page's
-// permission (the browser asks once a visit, unless the person chose to allow it on every visit), a
-// prompt to allow it — and, once allowed, what waited in this browser for it moves out.
+// Every page of a browser library: what a removal cut short carried on, what waited in this browser
+// moved out to the folders this page may write to, and their PDFs drawn — and, while a folder shown
+// that it keeps galleries in waits for this page's permission (the browser asks once a visit, unless
+// the person chose to allow it on every visit), a prompt to allow it; once allowed, what waited for
+// that one moves out too.
 export async function promptFolderAccess() {
   if (!api.capabilities.browserLibrary || !api.capabilities.folders) return;
   resumeFolderWork().catch(() => {});
+  api.folders.settle().catch(() => {});
+  drawWaitingPdfs().catch(() => {});
   const waiting = await api.folders.waiting().catch(() => []);
-  if (!waiting.length) { api.folders.settle().catch(() => {}); drawWaitingPdfs().catch(() => {}); return; }
+  if (!waiting.length) return;
   const names = waiting.map(f => f.name).join(', ');
   showToast({ text: t('lf.prompt', { name: names }), action: t('lf.allow'), closeLabel: t('common.close'), onAction: async () => {
     let allowed = false;

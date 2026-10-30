@@ -116,15 +116,17 @@ test('leftovers of an interrupted write are cleared', async (t) => {
   const library = await open(t, folders());
   const gid = '1790000000104';
   const folder = await settled(library, gid, 'Tidy');
+  const old = new Date(Date.now() - 2 * 60 * 60 * 1000);   // long enough that no write under way made them
   fs.mkdirSync(`${folder}.shiori-tmp`);
   fs.writeFileSync(path.join(`${folder}.shiori-tmp`, '0001.png'), pngBytes(1));   // half an unpacked archive
+  fs.utimesSync(`${folder}.shiori-tmp`, old, old);
   fs.writeFileSync(path.join(folder, 'shiori.json.shiori-tmp'), 'half a description');
+  fs.utimesSync(path.join(folder, 'shiori.json.shiori-tmp'), old, old);
   const stray = path.join(library.stagingDir, gid, '9-stray.png');
   fs.mkdirSync(path.dirname(stray), { recursive: true });
   fs.writeFileSync(stray, pngBytes(9));
   const fresh = path.join(library.stagingDir, gid, '8-writing.png');
   fs.writeFileSync(fresh, pngBytes(8));
-  const old = new Date(Date.now() - 60 * 60 * 1000);
   fs.utimesSync(stray, old, old);
   await library.rescan();
   assert.equal(fs.existsSync(`${folder}.shiori-tmp`), false);

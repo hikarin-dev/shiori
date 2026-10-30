@@ -41,6 +41,10 @@ let _importsRunning = 0;
 const _imports = mountImportTracker($imports, { onChange: (running) => { _importsRunning = running; paintHeader(); } });
 
 // ── What a row says about its job (the progress mapping is a library card's) ──
+// A finished folder job's counts (folder-scan.js): galleries read again, things it couldn't read,
+// galleries a move couldn't take.
+const folderCounts = (job) => [['lf.task_updated', job.updated], ['lf.task_problems', job.problems], ['lf.task_left', job.left]]
+  .filter(([, n]) => n > 0).map(([key, n]) => t(key, { n: formatCount(n) })).join(' · ');
 function view(job) {
   const label = job.labelKey ? t(job.labelKey, job.labelArgs) : job.label;
   const done = job.done || 0, total = job.total || 0;
@@ -51,9 +55,12 @@ function view(job) {
     const found = job.found && job.foundKey !== '' ? t(job.foundKey || 'lf.task_found', { n: formatCount(job.found) }) : '';
     return { pct: total ? Math.round((done / total) * 100) : 0, indeterminate: !total, label: [label, tally, found].filter(Boolean).join(' · ') };
   }
-  if (isFolder(job) && job.status === 'done') {
-    return { pct: 100, label: [t(job.doneKey || 'lf.task_done', { n: formatCount(job.found || 0) }),
-      job.updated ? t('lf.task_updated', { n: formatCount(job.updated) }) : ''].filter(Boolean).join(' · ') };
+  // Its end: what it did, and what it couldn't — things in the folder it couldn't read, galleries a
+  // move couldn't take.
+  if (isFolder(job) && TERMINAL.has(job.status)) {
+    const said = job.status === 'done' ? t(job.doneKey || 'lf.task_done', { n: formatCount(job.found || 0) })
+      : job.status === 'cancelled' ? t('prog.cancelled') : `${t('prog.error')}: ${(job.errorKey ? t(job.errorKey) : job.error) || 'unknown'}`;
+    return { pct: job.status === 'done' ? 100 : 0, label: [said, folderCounts(job)].filter(Boolean).join(' · ') };
   }
   const skipped = job.skipped > 0 ? ` (${t('prog.already_cached', { n: formatCount(job.skipped) })})` : '';
   switch (job.status) {

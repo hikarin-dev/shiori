@@ -1087,11 +1087,14 @@ export class FileLibrary {
       if (!entry || entry.size !== f.data.length || !(await readEntry(file, entry)).equals(f.data)) changed.push(f);
     }
     const drop = DESCRIPTIONS.filter(name => dir.has(name) && !listed.some(f => f.name === name));
-    if (!changed.length && !drop.length) return true;
+    // What the archive describes it with now, stamped, as a folder's are (_describe).
+    const stamp = () => lib._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(String(gid), descriptionStampOf(listed));
+    if (!changed.length && !drop.length) { stamp(); return true; }
     lib._s('UPDATE files SET tail = ? WHERE gid = ?').run((await fsp.stat(file)).size, gid);
     lib.writes.addArchive(await appendZip(file, changed, { drop }));
     lib._s('UPDATE files SET tail = NULL WHERE gid = ?').run(gid);
     this._dirs.delete(file);
+    stamp();
     return true;
   }
 

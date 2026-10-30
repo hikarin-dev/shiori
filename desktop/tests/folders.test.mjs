@@ -251,10 +251,10 @@ test('checking a folder is a task the windows hear of: it finds what was put the
   const heard = heardJobs(library);
   const stopping = library.folderScan(id);
   library.stopFolderScan(id);
-  assert.deepEqual(await stopping, { added: 0, updated: 0, stopped: true });
+  assert.deepEqual(await stopping, { added: 0, updated: 0, problems: [], stopped: true });
   assert.equal(heard.at(-1).status, 'cancelled');
   heard.length = 0;
-  assert.deepEqual(await library.folderScan(id), { added: 2, updated: 0, stopped: false });
+  assert.deepEqual(await library.folderScan(id), { added: 2, updated: 0, problems: [], stopped: false });
   assert.deepEqual([heard[0].status, heard.at(-1).status], ['started', 'done']);
   assert.equal(heard.at(-1).gid, `folder-${id}`);
   assert.equal(heard.at(-1).title, 'second');
@@ -409,7 +409,7 @@ test('a check of a folder reads again the galleries another app changed there, u
   const gid = await gallery(library, 'Shared', 2);
   // Described, nothing waiting (its size, worked out a moment after, may mark it again: described then).
   for (let i = 0; i < 40 && (await library.files.describe(gid), library.files._row(gid).pending); i++) await new Promise(r => setTimeout(r, 50));
-  assert.deepEqual(await library.folderScan(id), { added: 0, updated: 0, stopped: false }, 'nothing changed: nothing read again');
+  assert.deepEqual(await library.folderScan(id), { added: 0, updated: 0, problems: [], stopped: false }, 'nothing changed: nothing read again');
   // Another app (its own index, its own id) takes the folder over and changes the gallery there.
   const second = new Library({ dataDir: path.join(dir, 'data2'), libraryDir: path.join(dir, 'first2'), placeDelay: 0, describeDelay: 600_000 });
   second.folders._instance = 'b0b0b0b0b0b0b0b0';
@@ -424,7 +424,7 @@ test('a check of a folder reads again the galleries another app changed there, u
     await second.files.describe(gid, { all: true });
     // Taken back here: a check reads it again as the folder has it now.
     await library.folderClaim(id);
-    assert.deepEqual(await library.folderScan(id), { added: 0, updated: 1, stopped: false });
+    assert.deepEqual(await library.folderScan(id), { added: 0, updated: 1, problems: [], stopped: false });
     const back = await library.getGallery(gid);
     assert.equal(back.title.english, 'Shared, Renamed');
     assert.equal(back.count, 3);

@@ -1,9 +1,11 @@
 // zip.js — the archives the library keeps: written store-only (pages are already compressed images),
 // added to without writing again what they hold, read whatever wrote them (stored or deflated
 // entries, ZIP64). A reader keeps an archive's central directory, not an open file, so an archive
-// can always be replaced or moved while it is read.
+// can always be replaced or moved while it is read. Entry names are read by the one rule both apps
+// share (folder-content.js zipName), so an archive's titles are named alike in either.
 import fsp from 'node:fs/promises';
 import zlib from 'node:zlib';
+import { content } from './shared.js';
 
 const MAX32 = 0xffffffff;
 const MAX16 = 0xffff;
@@ -195,7 +197,7 @@ export async function readDirectory(file) {
       const commentLength = dir.readUInt16LE(p + 32);
       let headerOffset = dir.readUInt32LE(p + 42);
       const nameBytes = dir.subarray(p + 46, p + 46 + nameLength);
-      const name = (flags & 0x0800) ? nameBytes.toString('utf8') : nameBytes.toString('latin1');
+      const name = content.zipName(nameBytes, (flags & 0x0800) !== 0);
       // ZIP64 sizes and offset, in that order, for the fields that overflowed.
       let e = p + 46 + nameLength;
       const extraEnd = e + extraLength;

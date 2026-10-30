@@ -7,14 +7,14 @@ import { normalizeTitle, migrateTitle } from './titles.js';
 import { imageToBlob, imageToDataUrl } from './image-util.js';
 import { isSeriesMeta, effectiveTagsOf, LANG_NAME_TO_CODE, DERIVED_FIELDS, uploadDateSeconds } from './gallery-model.js';
 import { translatedImage } from './page-image.js';
-import { galleryFiles, exportSize, layoutPath, extOfType, originalExt, galleryName, DESCRIPTION_FILES, descriptionStamp, pageNumberOf } from './gallery-files.js';
+import { galleryFiles, exportSize, layoutPath, extOfType, originalExt, galleryName, DESCRIPTION_FILES, descriptionStamp } from './gallery-files.js';
 import * as folderFiles from './folder-files.js';
-import { OWNER_FILE, readClaim, access, nextClaim, releasedClaim, unchangedSince, claimText } from './folder-owner.js';
+import { OWNER_FILE, readClaim, access, nextClaim, claimText } from './folder-owner.js';
 import { mounted, writeAllowed } from './folder-lifecycle.js';
-import { galleryIdOf } from './folder-content.js';
-import { LINKED_DIR, SOURCE_FILE, REMOVED_FILE, overlayDir, sourceText, parseSource, sourceKey, parseRemoved, removedText, isRemoved,
-  withRemoved, folderPrint, metaFromName, planTitles, zipTitles, sortPictures } from './linked-source.js';
-import { zipEntries, sha256Hex } from './zip-read.js';
+import { galleryIdOf, seriesOf } from './folder-content.js';
+import { REMOVED_FILE, overlayDir, parseRemoved, removedText, withRemoved } from './linked-source.js';
+import { createFolderLibrary } from './folder-library.js';
+import { zipEntries } from './zip-read.js';
 import { imageSize, medianPage, describePage } from './page-size.js';
 import { BackendError } from './backend-error.js';
 import { planAttach, planRemove, planReorder, planChapterTitle, planWrite, planDelete, planDeleteSeries, planRelink } from './series-plan.js';
@@ -607,7 +607,10 @@ const _loadCovers = (tx, recs) => _loadBlobs(tx, recs, COVER);
 // transaction and refers to them there; files no record refers to any more go once it has committed
 // (the commit protocol: _writing). A context that may not write to the folder (permission not granted
 // this visit, another app's claim, the folder hidden) keeps the pictures in BLOB_STORE meanwhile and
-// marks the gallery `spilled`; a window that may moves them out (settleFolders).
+// marks the gallery `spilled`; a window that may moves them out (settleFolders). A gallery read from
+// an archive in the gallery format is kept in it (`packed`), its records referring to its entries,
+// until its first change unpacks it (_unpackLocked). What the person does with the folders, and
+// reading one into the library, is folder-library.js's (see the end of this section).
 export const BROWSER = 'browser';
 const DEFAULT_FOLDER = '$default';
 let _foldersRead = null;
@@ -675,7 +678,7 @@ async function _access(id) {
 // reached, this library holds its claim, and its state allows it (folder-lifecycle.js writeAllowed:
 // shown; while it is being removed, that removal's own write-back alone: `work` 'removal') — else
 // null. Every change to the files of a library folder goes through here (its claim file aside:
-// _holds, _release); what may not be written waits in this browser (`spilled`), or keeps its mark.
+// _holds, and folder-library.js letting it go); what may not be written waits in this browser (`spilled`), or keeps its mark.
 async function _rootOf(id, { work = null } = {}) {
   const folder = await _folderById(id);
   if (!folder) return null;
@@ -735,21 +738,15 @@ async function _holds(folder) {
   }
   return { owned: access(read, me, held) === 'mine', claim: read };
 }
-// Folder `id` let go by this library (it removed it): its claim released, when it holds it.
-async function _release(id) {
-  const folder = await _folderById(id);
-  if (!folder || await folderFiles.permission(folder.handle) !== 'granted') return;
-  const next = releasedClaim(await _readClaim(id, folder.handle), await _me());
-  if (next) await _writeClaim(id, folder.handle, next);
-}
-// Another app's claim as the person is told of it: who (`by`), whether it still holds it, since when —
-// null for a claim that can't be read.
-const _ownerOf = (read) => (read?.state === 'claim' ? { ...(read.by || {}), active: !!read.owner, at: read.at } : null);
 
 // A stat record without its home (what travels with a gallery to another library doesn't), and its
-// home alone (what a gallery keeps through a restore of it: transferWrite).
-const _withoutHome = (stat) => { if (!stat) return stat; const { folder, dir, spilled, undescribed, stamp, linked, ...rest } = stat; return rest; };
-const _homeOf = (stat) => Object.fromEntries(['folder', 'dir', 'spilled', 'stamp', 'linked'].filter(k => stat?.[k] != null).map(k => [k, stat[k]]));
+// home alone (what a gallery keeps through a restore of it: transferWrite). `packed`: the gallery is
+// kept in an archive in the gallery format, `dir` (a native archive, read in place — { inner }: its
+// folder in a series export, '' for an archive of its own), until its first change unpacks it
+// (_unpackLocked).
+const HOME_FIELDS = ['folder', 'dir', 'spilled', 'stamp', 'linked', 'packed'];
+const _withoutHome = (stat) => { if (!stat) return stat; const { undescribed, ...rest } = stat; for (const k of HOME_FIELDS) delete rest[k]; return rest; };
+const _homeOf = (stat) => Object.fromEntries(HOME_FIELDS.filter(k => stat?.[k] != null).map(k => [k, stat[k]]));
 
 // Where gallery `gid`'s pictures go: null for one kept in this browser, else { folder, dir, root,
 // claimed } — `root` the folder's handle when this context may write there (the gate, _rootOf; null:
@@ -757,10 +754,15 @@ const _homeOf = (stat) => Object.fromEntries(['folder', 'dir', 'spilled', 'stamp
 // none yet, for write `w`). A gallery not stored yet goes where new galleries go; `meta` describes it.
 async function _home(gid, meta = null, w = null) {
   const { byId, removing, defaultId } = await _folders();
-  const stat = await galleryGet(gid);
+  let stat = await galleryGet(gid);
   const folder = stat ? stat.folder : defaultId;
   if (!folder || !(byId.has(folder) || removing.has(folder))) return null;
   const home = { folder, dir: stat?.dir || null, root: await _rootOf(folder), claimed: false };
+  // Kept in an archive: unpacked first (its first change), else what is written waits in this browser.
+  if (home.root && stat?.packed) {
+    stat = await _unpackLocked(gid).then(() => galleryGet(gid), () => stat);
+    if (stat?.packed) home.root = null; else home.dir = stat?.dir || null;
+  }
   if (home.root && !home.dir) {
     try { home.dir = await _reserveDir(gid, folder, home.root, meta, w); home.claimed = true; } catch { home.root = null; }
   } else if (home.root && !(await _mayWriteDir(folder, home.root, home.dir, gid).catch(() => false))) {
@@ -772,21 +774,35 @@ async function _home(gid, meta = null, w = null) {
 // this browser for now).
 const _homeFields = (home, left) => (!home ? {} : { folder: home.folder, ...(home.dir ? { dir: home.dir } : {}), ...(left ? { spilled: 1 } : {}) });
 
-// Gallery `gid`'s own folder in folder `folder`, named after it and bound to it by its metadata.json
-// (folderFiles.reserveDir) — noted for write `w`, which deletes it should it not commit. Resolves its
-// name.
-async function _reserveDir(gid, folder, root, meta, w) {
+// Gallery `gid`'s own folder in folder `folder`, named after it (or `base`, a path in the folder) and
+// bound to it by its metadata.json (folderFiles.reserveDir) — noted for write `w`, which deletes it
+// should it not commit. Resolves its name.
+async function _reserveDir(gid, folder, root, meta, w, base = null) {
   const m = migrateTitle({ ...(meta || await metaGet(gid) || {}), galleryId: String(gid) });
-  const dir = await folderFiles.reserveDir(folder, root, galleryName(m), JSON.stringify(m, null, 2));
+  const dir = await folderFiles.reserveDir(folder, root, base || galleryName(m), JSON.stringify(m, null, 2));
   w?.made.push({ folder, root, path: dir, dir: true });
   return dir;
 }
 // Whether `dir` in a folder is gallery `gid`'s own: its metadata.json names it (folder-content.js
-// galleryIdOf), or it is the gallery's overlay. Nothing is deleted from a folder another gallery's
-// description names, nor from one no description names.
+// galleryIdOf), or it is the gallery's overlay — or, for an archive in the gallery format, its
+// descriptions name it (its own metadata.json, or a series export's series.json) and no other gallery
+// is still read from it. Nothing is deleted from a folder another gallery's description names, nor
+// from one no description names.
 async function _ownsDir(folder, root, dir, gid) {
   if (dir === overlayDir(gid)) return true;
-  return galleryIdOf(await folderFiles.readText(folder, root, `${dir}/metadata.json`).catch(() => null)) === String(gid);
+  try { return galleryIdOf(await folderFiles.readText(folder, root, `${dir}/metadata.json`)) === String(gid); } catch (e) {
+    if (e?.name !== 'TypeMismatchError') return false;   // a file: an archive
+  }
+  if (!(await _archiveNames(folder, root, dir).catch(() => new Set())).has(String(gid))) return false;
+  return !(await galleryGetAll()).some(g => g.folder === folder && g.dir === dir && String(g.galleryId) !== String(gid));
+}
+// The galleries an archive in the gallery format describes: its own metadata.json's, or a series
+// export's chapters (folder-content.js).
+async function _archiveNames(folder, root, path) {
+  const archive = await _archiveOf(folder, root, path);
+  const text = async (name) => { const e = archive?.entries.get(name); return e ? new TextDecoder().decode(await e.read()) : null; };
+  const own = galleryIdOf(await text('metadata.json'));
+  return new Set(own ? [own] : (seriesOf(await text('series.json'))?.chapters || []).map(c => c.id));
 }
 // Whether gallery `gid` may write into its folder `dir`: no other gallery's description names it (one
 // reserved before folders were bound may not be described yet). Asked once per folder in a context.
@@ -942,6 +958,9 @@ async function _archiveOf(folder, root, path) {
   if (_archives.size > 64) _archives.delete(_archives.keys().next().value);
   return out;
 }
+// A picture's type, as its name's extension says.
+const TYPE_OF_EXT = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif' };
+const _typeOfName = (name) => TYPE_OF_EXT[String(name).match(/\.(\w+)$/)?.[1]?.toLowerCase()] || '';
 // Entry `name` of the archive at `path`, as a Blob (a slice of the file for one stored as it is).
 async function _readEntry(folder, root, path, name, type) {
   const entry = (await _archiveOf(folder, root, path))?.entries.get(name);
@@ -988,6 +1007,19 @@ async function _unlink({ files, dirs }, work) {
     await folderFiles.removeDir(folder, root, dir).catch(() => {});
   }
 }
+// A source of folder `id` that left the library (deleted, or moved to another place): noted in the
+// folder's removed.json so a check doesn't add it again — read, changed and written while lock
+// shiori:removed:<folder> is held, so notes made at once (two deletes, two tabs, the service worker)
+// all stay. Rejects when it can't be noted (the folder may not be written to now, or the list can't
+// be read).
+async function _noteRemoved(id, linked, work = null) {
+  const root = await _rootOf(id, { work });
+  if (!root) throw new BackendError('unavailable', `library folder ${id} can't be written to`);
+  await folderFiles.withLock(`shiori:removed:${id}`, async () => {
+    const list = withRemoved(parseRemoved(await folderFiles.readText(id, root, REMOVED_FILE)), linked);
+    await folderFiles.writeFile(id, root, REMOVED_FILE, removedText(list));
+  });
+}
 
 // ── A gallery's descriptions in its folder ──
 // What the gallery format describes a gallery with, beside its pictures, so its folder can be read
@@ -1004,6 +1036,11 @@ function _describeSoon(gid) {
   const id = String(gid);
   clearTimeout(_describeTimers.get(id));
   _describeTimers.set(id, setTimeout(() => { _describeTimers.delete(id); _describe(id).catch(() => {}); }, DESCRIBE_AFTER_MS));
+}
+// Gallery `gid`'s describe due in a moment let go of (its caller describes it now).
+function _cancelDescribe(gid) {
+  clearTimeout(_describeTimers.get(gid));
+  _describeTimers.delete(gid);
 }
 // Gallery `gid`'s descriptions as this library holds it, read in one transaction with its mark:
 // { stat, wanted: Map name → text (a description it has none of is missing), rev (its mark's: the
@@ -1036,11 +1073,18 @@ const _textsOf = (wanted) => Object.fromEntries(DESCRIPTIONS.map(name => [name, 
 // written by the next describe) and its stamp kept. Resolves { ok }: whether its folder now describes
 // it as the library had it — not when it is kept in no folder of its own, nor in one this context may
 // not write to (the gate; `work` 'removal' for a removal's write-back): its mark stays, for
-// settleFolders or the removal.
+// settleFolders or the removal. A gallery kept in an archive (`packed`) is described there as it was
+// read until it changes; changed, it is unpacked first (_unpackLocked), then described in its folder.
 async function _describe(gid, { work = null } = {}) {
   return folderFiles.withLock(`shiori:gallery:${gid}`, async () => {
-    const read = await _wantedDescriptions(gid);
+    let read = await _wantedDescriptions(gid);
+    if (read?.stat.packed && read.rev == null) return { ok: true };   // its archive describes it as read
     const root = read && await _rootOf(read.stat.folder, { work });
+    if (root && read.stat.packed) {
+      await _unpackLocked(gid, work);
+      read = await _wantedDescriptions(gid);
+      if (!read || read.stat.packed) return { ok: false };
+    }
     if (!root || !(await _mayWriteDir(read.stat.folder, root, read.stat.dir, gid))) return { ok: false };
     const { stat, wanted, rev } = read;
     const have = async (name) => folderFiles.readText(stat.folder, root, `${stat.dir}/${name}`);
@@ -1135,25 +1179,48 @@ function _withPicturesOf(rec, copy) {
 // the library (else refused: 'hidden') — then the old copies deleted. A linked gallery that leaves
 // its folder becomes the library's own, its source noted as removed there (so a check of the folder
 // doesn't add it again). A gallery already there has only what waits in this browser moved out
-// (settling it). `tick()` after each picture; `work` 'removal' for a removal's own moves and
-// write-back. Resolves whether it moved anything.
+// (settling it) — or, kept in an archive there (`packed`), is unpacked into a folder beside it. `tick()`
+// after each picture; `work` 'removal' for a removal's own moves and write-back. Resolves whether it
+// moved anything.
 async function _relocate(gid, to, tick = () => {}, { work = null } = {}) {
-  return _writing(gid, async (w) => {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const moved = await _relocateOnce(gid, to, tick, work, w);
-      if (moved !== 'changed') return moved;
-      await _discard(w.made);   // it changed meanwhile: copied again from what it is now
-    }
-    throw new BackendError('conflict', `gallery ${gid} kept changing while it was being moved`);
-  });
+  return _writing(gid, (w) => _relocateLocked(gid, to, tick, work, w));
 }
+async function _relocateLocked(gid, to, tick, work, w) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const moved = await _relocateOnce(gid, to, tick, work, w);
+    if (moved !== 'changed') return moved;
+    await _discard(w.made);   // it changed meanwhile: copied again from what it is now
+  }
+  throw new BackendError('conflict', `gallery ${gid} kept changing while it was being moved`);
+}
+// Gallery `gid`, kept in an archive in the gallery format (`packed`: read in place), unpacked on its
+// first change — under its lock, held by the caller (a write of it, or its describe): its pictures
+// copied out as they are (each entry's bytes, never encoded again) into a folder beside the archive
+// named after it, its records switched over, then the archive deleted once no gallery is read from it
+// (_ownsDir) — _relocateOnce to the folder it is in. Its descriptions are written there afresh (the
+// change marks it).
+async function _unpackLocked(gid, work = null) {
+  const w = { made: [], kept: true, committed: false };
+  try {
+    const stat = await galleryGet(gid);
+    if (stat?.packed) await _relocateLocked(gid, stat.folder, () => {}, work, w);
+  } finally { if (!w.committed) await _discard(w.made); }
+}
+// The folder an archive's gallery is unpacked into: beside the archive, named after it — a series
+// export's chapter in the series' folder, named as in the archive.
+const _unpackedName = (stat) => {
+  const base = stat.dir.replace(/\.(zip|cbz)$/i, '');
+  const inner = stat.packed?.inner ? stat.packed.inner.replace(/\/$/, '') : '';
+  return inner ? `${base}/${inner}` : base;
+};
 async function _relocateOnce(gid, to, tick, work, w) {
   const raw = await _rawGallery(gid);
   const stat = raw.stat;
   if (!stat) return false;
   const from = stat.folder || BROWSER;
   const same = from === to;
-  if (same && !stat.spilled) return false;
+  const packed = same && stat.packed;   // unpacked where it is
+  if (same && !stat.spilled && !packed) return false;
   if (from !== BROWSER && !(await _usable(from, { work }))) throw new BackendError('unavailable', `library folder ${from} can't be reached`);
   const before = _picturesOf(raw.pages, raw.cover);
   const pages = await getGalleryImageRecords(gid);
@@ -1166,8 +1233,9 @@ async function _relocateOnce(gid, to, tick, work, w) {
   if (to !== BROWSER) {
     const root = await _rootOf(to, { work });
     if (!root) throw new BackendError('unavailable', `library folder ${to} can't be reached`);
-    if (same && stat.dir && !(await _mayWriteDir(to, root, stat.dir, gid))) throw new BackendError('conflict', `the folder of gallery ${gid} names another gallery`);
-    home = { folder: to, dir: same && stat.dir ? stat.dir : await _reserveDir(gid, to, root, raw.meta, w), root };
+    const keepDir = same && stat.dir && !packed;
+    if (keepDir && !(await _mayWriteDir(to, root, stat.dir, gid))) throw new BackendError('conflict', `the folder of gallery ${gid} names another gallery`);
+    home = { folder: to, dir: keepDir ? stat.dir : await _reserveDir(gid, to, root, raw.meta, w, packed ? _unpackedName(stat) : null), root };
   }
   for (const rec of pages) {
     for (const slot of _pageFiles(rec, rec.pageNum)) { await _place(home, [slot], w); tick(); }
@@ -1212,11 +1280,13 @@ async function _relocateOnce(gid, to, tick, work, w) {
           for (const field of ['cover', 'seriesCover']) if (cover[field] != null) next[field] = cover[field];
           covers.put(_stash(tx, next, _refIds(c, COVER), COVER));
         }
-        const { spilled, ...kept } = _homeOf(cur);
+        const kept = _homeOf(cur);   // what it keeps where it stays: not what waited, nor its archive
+        delete kept.spilled;
+        delete kept.packed;
         stats.put(home ? { ..._withoutHome(cur), ...(same ? kept : {}), folder: home.folder, dir: home.dir } : _withoutHome(cur));
         if (!home) tx.objectStore(UNDESCRIBED_STORE).delete(gid);
         _logIn(tx, gid);   // the place it goes to, and the descriptions it owes there
-        if (!same) _goneLater(tx, from === BROWSER ? null : from, cur.dir, gid, cur.linked || null);
+        if (!same || packed) _goneLater(tx, from === BROWSER ? null : from, cur.dir, gid, cur.linked || null);
       });
     };
   });
@@ -1255,58 +1325,24 @@ export async function settleFolders() {
   return settled;
 }
 
-// ── The library's folders, as the person manages them ──
+// ── The library's places ──
 
 // Whether this browser can keep galleries in a folder at all.
 export const foldersSupported = () => folderFiles.supported();
 
-// The library folders holding galleries that this page may not use yet, but may with one click
-// (folderAllow): [{ id, name }]. Reads no gallery unless some folder waits.
-export async function foldersWaiting() {
-  const { byId } = await _folders();
-  const waiting = [];
-  // A hidden folder isn't asked for: nothing of it is read or written until it is shown.
-  for (const f of byId.values()) if (mounted(f.state) && await folderFiles.permission(f.handle) === 'prompt') waiting.push(f);
-  if (!waiting.length) return [];
-  const used = new Set((await galleryGetAll()).map(g => g.folder).filter(Boolean));
-  return waiting.filter(f => used.has(f.id)).map(f => ({ id: f.id, name: f.name }));
-}
-
+// `fn(store, tx)` over the folder records, in one read-write transaction (`tx`, to log in it what
+// changed); every context reads the folders again once it has committed.
 async function _folderWrite(fn) {
   const db = await openDB();
   await new Promise((resolve, reject) => {
     const tx = _tx(db, FOLDER_STORE, 'readwrite');
-    fn(tx.objectStore(FOLDER_STORE));
+    fn(tx.objectStore(FOLDER_STORE), tx);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(_txError(tx));
   });
   _foldersChanged();
 }
-
-// Where the library is kept: this browser, then each library folder in the order they were added —
-// [{ id, kind: 'browser'|'folder', name, isDefault, access, galleries, size, removable, hidden? }].
-// `access`: 'granted', 'prompt' (one click lets this page use it: folderAllow) or 'unavailable' (not
-// there). A hidden place counts the galleries it hid.
-export async function foldersList() {
-  const { byId, defaultId, browser } = await _folders();
-  const tally = new Map([[BROWSER, { galleries: 0, size: 0 }], ...[...byId.keys()].map(id => [id, { galleries: 0, size: 0 }])]);
-  for (const g of await galleryGetAll()) {
-    const t = tally.get(g.folder && byId.has(g.folder) ? g.folder : BROWSER);
-    t.galleries++;
-    t.size += Number(g.size) || 0;
-  }
-  const counts = (place) => ({ ...tally.get(place.id), ...(place.state === 'hidden' ? { hidden: true } : {}) });
-  const out = [{ id: BROWSER, kind: 'browser', name: '', isDefault: !defaultId, access: 'granted', removable: false, ...counts(browser) }];
-  for (const f of [...byId.values()].sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0))) {
-    _grants.delete(f.id);
-    const { state, owned, claim } = await _access(f.id);
-    const taken = state === 'granted' && !owned;
-    out.push({ id: f.id, kind: 'folder', name: f.name, isDefault: f.id === defaultId,
-      access: taken ? 'taken' : state === 'denied' ? 'prompt' : state, removable: true, ...counts(f),
-      ...(taken ? { owner: _ownerOf(claim) } : {}) });
-  }
-  return out;
-}
+const _refuse = (reason, message) => { const e = new BackendError('invalid', message); e.reason = reason; throw e; };
 
 // Place `id` (a folder of the library's, or BROWSER) shown or hidden: { place, hidden } (place null:
 // no such place).
@@ -1321,364 +1357,6 @@ async function _placeOf(id) {
 // check, _logIn).
 const _placeKey = (g, { byId, removing }) => (g?.folder && (byId.has(g.folder) || removing.has(g.folder)) ? g.folder : BROWSER);
 const _mounted = (g, f) => !f.unmounted.size || !f.unmounted.has(_placeKey(g, f));
-// Whether gallery `g` (its stat record) is kept in place `id` — for BROWSER, in no folder of the
-// library's (`f`: _folders()).
-const _keptIn = (id, g, f) => (id === BROWSER ? _placeKey(g, f) === BROWSER : g.folder === id);
-
-// A folder's own id, kept in its .shiori/library.json — the file a desktop library folder keeps its
-// id in, the same format — and written the first time: the folder is known by it wherever it is
-// reached from (another drive letter, a folder renamed or moved), and removing it from the library
-// and adding it again finds what it held. A file that can't be read is an error, never a reason to
-// start over under a new id.
-const LIBRARY_FILE = '.shiori/library.json';
-async function _folderIdOf(handle) {
-  const probe = `probe-${Date.now()}-${Math.random()}`;
-  try {
-    const file = await folderFiles.readFile(probe, handle, LIBRARY_FILE);
-    if (file) {
-      const id = JSON.parse(await file.text())?.id;
-      if (typeof id !== 'string' || !/^[0-9a-f]{16}$/.test(id)) throw new BackendError('invalid', `${LIBRARY_FILE} names no library id`);
-      return id;
-    }
-    const id = _randomId();
-    await folderFiles.writeFile(probe, handle, LIBRARY_FILE, JSON.stringify({ format: 'shiori-library', version: 1, id }, null, 2));
-    return id;
-  } finally { folderFiles.forgetFolder(probe); }
-}
-const _refuse = (reason, message) => { const e = new BackendError('invalid', message); e.reason = reason; throw e; };
-
-// A folder the person picked (its handle) joins the library's folders, claimed by this library
-// (folder-owner.js). Its galleries are found by checking it (folderScan, which the caller runs next —
-// a task of its own) — one removed before as well: the library kept nothing of it. Added back while
-// it is being removed, the removal ends and its galleries are back as they were — unless another app
-// claimed it meanwhile: what the library has of them is out of date then, and goes (checking the
-// folder finds them as they are). Resolves { id, restored } — for a folder already among them, its id and `existed`. Refused
-// (`invalid`): a folder inside another of them or holding one (reason 'nested'), a copy of one of
-// them (reason 'copy': it carries the same id), and one another app holds (reason 'claimed', `owner`
-// who) — unless `force`: this library takes it over.
-export async function folderAdd(handle, { force = false } = {}) {
-  if (handle?.kind !== 'directory') throw new BackendError('invalid', 'not a folder');
-  if (await folderFiles.permission(handle) !== 'granted') throw new BackendError('unavailable', 'the folder can\'t be used');
-  const id = await _folderIdOf(handle);
-  const { byId, removing } = await _folders();
-  const active = byId.get(id);
-  if (active) {
-    if (!(await active.handle.isSameEntry(handle).catch(() => false))) _refuse('copy', 'the folder is a copy of one of the library\'s folders');
-    return active.state === 'hidden' ? folderShow(id) : { id, restored: 0, existed: true };   // a hidden one is shown
-  }
-  for (const f of byId.values()) {
-    if (await f.handle.resolve(handle).catch(() => null) || await handle.resolve(f.handle).catch(() => null)) {
-      _refuse('nested', 'a library folder inside another would hold the same galleries twice');
-    }
-  }
-  const me = await _me();
-  const before = removing.get(id);
-  const read = await _readClaim(id, handle);
-  const got = nextClaim(read, me, _myLabel(), { held: before?.epoch ?? null, force });
-  if (got.refused) {
-    const e = new BackendError('invalid', 'the folder is in use by another app');
-    e.reason = 'claimed';
-    e.owner = _ownerOf(got.refused);
-    throw e;
-  }
-  if (got.changed) await _writeClaim(id, handle, got.claim);
-  const fresh = !!before && unchangedSince(read, me, before.epoch ?? null);
-  await _folderWrite((store) => store.put({ id, name: handle.name, handle, addedAt: before?.addedAt ?? Date.now(), epoch: got.claim.epoch, state: 'shown' }));
-  folderFiles.forgetFolder(id);
-  _grants.delete(id);
-  if (before && !fresh) await _dropFolderRecords(id);
-  _muchLater();
-  const restored = fresh ? (await galleryGetAll()).filter(g => g.folder === id).length : 0;
-  return { id, restored };
-}
-
-// Folder `id`, taken over by another app, held by this library again (from a click — the person told
-// what that risks): what waited in this browser for it moves out. Resolves its access.
-export async function folderClaim(id) {
-  const folder = (await _folders()).byId.get(id);
-  if (!folder) throw new BackendError('not-found', `no library folder ${id}`);
-  if (await folderFiles.permission(folder.handle) !== 'granted') throw new BackendError('unavailable', `library folder ${id} can't be reached`);
-  const { claim, changed } = nextClaim(await _readClaim(id, folder.handle), await _me(), _myLabel(), { held: folder.epoch ?? null, force: true });
-  if (changed) await _writeClaim(id, folder.handle, claim);
-  await _noteEpoch(id, claim.epoch);
-  const { owned } = await _access(id);   // read back: this library's only if the claim now says so
-  if (owned) settleFolders().catch(() => {});
-  return owned ? 'granted' : 'taken';
-}
-
-// Folder `id` leaves the library's folders — at once (its state 'removing', `removal` { moveTo,
-// discard, before }): it is no longer listed, new galleries no longer go to it, and its galleries
-// leave the library (out of it meanwhile: _folders `unmounted`; a write to one is refused as it
-// commits, _logIn). What it
-// still owes the folder — its galleries moved to place `moveTo` first, then everything the library
-// has of the rest written there (what waits in this browser moved out, every description that
-// differs, a folder of its own for one with no pictures yet), the folder let go — is setAside's work,
-// a task of its own (folder-scan.js runFolderRemoval), carried on by the next page opened should it
-// be cut short (foldersPending); then the library forgets the folder and its galleries (their files
-// stay): added again, it is checked as one never seen. A folder this context can't write to now
-// while galleries of it have what only this library has is refused (reason 'unsaved', `galleries`
-// how many) — unless `discard`: that is lost. Resolves { id, galleries }: how many leave it.
-export async function folderRemove(id, { moveTo = null, discard = false } = {}) {
-  const { byId, defaultId, browser } = await _folders();
-  if (!byId.has(id)) throw new BackendError('not-found', `no library folder ${id}`);
-  const folder = byId.get(id);
-  const to = moveTo == null ? null : String(moveTo);
-  if (to && !mounted((to === BROWSER ? browser : to !== id && byId.get(to))?.state)) throw new BackendError('not-found', `no place ${to} to move to`);
-  // The default leaves with it: this browser is the default again — or, while it is hidden, the first
-  // other folder shown (with none, it stays: new galleries need somewhere shown to go).
-  let next = null;
-  if (defaultId === id && !mounted(browser.state)) {
-    next = [...byId.values()].sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0)).find(f => f.id !== id && mounted(f.state))?.id;
-    if (!next) _refuse('default', 'no other place is shown to keep new galleries in');
-  }
-  const galleries = (await galleryGetAll()).filter(g => g.folder === id).length;
-  const now = await _access(id);
-  if (!discard && !(now.state === 'granted' && now.owned)) {   // its removal couldn't write back
-    const n = (await _unsavedIn(id)).length;
-    if (n) {
-      const e = new BackendError('invalid', `${n} galleries have changes not saved to library folder ${id}`);
-      e.reason = 'unsaved';
-      e.galleries = n;
-      throw e;
-    }
-  }
-  await _folderWrite((store) => {
-    store.put({ ...folder, state: 'removing', removal: { moveTo: to, discard: !!discard, before: folder.state } });
-    if (defaultId === id) store.put({ id: DEFAULT_FOLDER, folder: next });
-  });
-  _muchLater();
-  return { id, galleries };
-}
-
-// Place `id` (a folder of the library's, or this browser: BROWSER) hidden — at once: it stays listed,
-// state 'hidden', and its galleries leave the library (out of it while it is hidden: nothing of
-// theirs moves, and nothing is written to it — a write to one of them is refused as it commits,
-// _logIn; what they owe the folder is written once it is shown) until it is shown again
-// (folderShow). The default place can't be hidden. Resolves { id, galleries }: how many left.
-export async function folderHide(id) {
-  const key = String(id);
-  const { place, hidden } = await _placeOf(key);
-  if (!place) throw new BackendError('not-found', `no library folder ${key}`);
-  const f = await _folders();
-  if (key === (f.defaultId || BROWSER)) _refuse('default', 'the default place stays shown');
-  if (hidden) return { id: key, galleries: 0 };
-  const galleries = (await galleryGetAll()).filter(g => _keptIn(key, g, f)).length;
-  await _folderWrite((store) => store.put({ ...place, state: 'hidden' }));
-  _muchLater();
-  return { id: key, galleries };
-}
-
-// Hidden place `id` shown again: its galleries are back in the library at once. Resolves { id, restored }.
-export async function folderShow(id) {
-  const key = String(id);
-  const { place, hidden } = await _placeOf(key);
-  if (!place) throw new BackendError('not-found', `no library folder ${key}`);
-  if (!hidden) return { id: key, restored: 0 };
-  await _folderWrite((store) => store.put({ ...place, state: 'shown' }));
-  const f = await _folders();
-  _muchLater();
-  settleFolders().catch(() => {});   // what waited while it was hidden is written there now
-  return { id: key, restored: (await galleryGetAll()).filter(g => _keptIn(key, g, f)).length };
-}
-
-// What folder `id`, removed, still owes it: its galleries moved to the place chosen (each on its own —
-// what can't be moved leaves with the rest), then — while this library may write there (its own
-// write-back, `work` 'removal': all the write gate and the mount check let in now) — everything
-// it has of the rest written there: what waits in this browser moved out, every description that
-// differs, and a folder of its own, described, for one with no pictures yet. Then it is let go
-// (another app may take it without asking) and forgotten, its galleries' records with it. Should
-// something only this library has still not be there (the folder went out of reach meanwhile), it
-// isn't removed: back in the state it had before (unless the person chose to discard that) — an error
-// (`errorKey` 'lf.task_kept', `unsaved` how many). `onProgress(done, total)` as it goes; it ends there
-// once `stopped()`, or once the folder is added back. Resolves { removed, stopped }.
-export async function folderSetAside(id, opts = {}) { return _bulkRun(() => _folderSetAside(id, opts)); }
-async function _folderSetAside(id, { onProgress = () => {}, stopped = () => false } = {}) {
-  const still = async () => (await _folders()).removing.get(id) || null;
-  const work = 'removal';
-  let done = 0;
-  const moveTo = (await still())?.removal?.moveTo;
-  if (moveTo) {
-    const ids = (await galleryGetAll()).filter(g => g.folder === id).map(g => String(g.galleryId));
-    onProgress(0, ids.length);
-    for (const gid of ids) {
-      if (stopped() || !(await still())) break;
-      try { await _relocate(gid, moveTo, () => {}, { work }); } catch {}
-      onProgress(++done, ids.length);
-    }
-  }
-  // Gallery `g` (its stat record) brought up to date there — `saved` once it is: its galleries take
-  // no writes meanwhile (out of the library: the mount check), so what is written now is all it has.
-  const saved = new Set();
-  const writeBack = async (g) => {
-    const gid = String(g.galleryId);
-    if (g.spilled) await _relocate(gid, id, () => {}, { work }).catch(() => {});
-    if (!g.dir) await _writing(gid, async (w) => {
-      const root = await _rootOf(id, { work });
-      const dir = root && await _reserveDir(gid, id, root, null, w);
-      if (dir) await _patchStat(gid, (cur) => (cur.dir ? null : { ...cur, dir }));
-      w.committed = !!dir;
-    }).catch(() => {});
-    if (_describeTimers.has(gid)) { clearTimeout(_describeTimers.get(gid)); _describeTimers.delete(gid); }
-    const described = await _describe(gid, { work }).catch(() => ({ ok: false }));
-    const now = await galleryGet(gid);
-    if (described.ok && now && !now.spilled && now.dir) saved.add(gid);
-  };
-  const unsavedNow = async () => (await _unsavedIn(id)).filter(g => !saved.has(String(g.galleryId)));
-  if (!stopped() && await still() && await _usable(id, { work })) {
-    const stats = (await galleryGetAll()).filter(g => g.folder === id);
-    let written = 0;
-    onProgress(0, stats.length);
-    for (const g of stats) {
-      if (stopped() || !(await still())) break;
-      await writeBack(g);
-      onProgress(++written, stats.length);
-    }
-    done += written;
-  }
-  const place = await still();
-  if (!place || stopped()) return { removed: done, stopped: true };
-  // One not written (the folder out of reach for a moment) is tried once more.
-  const discard = !!place.removal?.discard;
-  if (!discard && await _usable(id, { work })) for (const g of await unsavedNow()) await writeBack(g);
-  const unsaved = discard ? 0 : (await unsavedNow()).length;
-  if (unsaved) {
-    // Kept: back as it was before its removal (a hidden one stays hidden).
-    const { removal, ...back } = place;
-    await _folderWrite((store) => store.put({ ...back, state: removal?.before || 'shown' }));
-    _muchLater();
-    const e = new BackendError('unavailable', `what library folder ${id} is owed couldn't be written there: it stays`);
-    e.errorKey = 'lf.task_kept';
-    e.unsaved = unsaved;
-    throw e;
-  }
-  await _release(id).catch(() => {});   // let go: another app may take it without asking
-  await _forgetFolder(id);
-  return { removed: done, stopped: false };
-}
-// The galleries of folder `id` with something only this library has — pictures waiting in this
-// browser, descriptions not written there yet, or no folder of their own there (one with no pictures
-// yet: described only here) — which forgetting the folder would lose.
-async function _unsavedIn(id) {
-  const marked = await _marked();
-  return (await galleryGetAll()).filter(g => g.folder === id && (g.spilled || marked.has(String(g.galleryId)) || !g.dir));
-}
-// Folder `id` forgotten: every record of its galleries gone (their files stay — the folder has what
-// the library had of them), and the folder with them: added again, it is checked as one never seen.
-async function _forgetFolder(id) {
-  await _dropFolderRecords(id);
-  await _folderWrite((store) => store.delete(id));
-  folderFiles.forgetFolder(id);
-  _muchLater();
-}
-
-// What a page should carry on with: folders being removed whose task hasn't ended (`setAside`, for
-// folderSetAside) — a folder an earlier version removed among them (IndexedDB 19 made it one being
-// removed, so its removal writes back what only the library has of it before forgetting it).
-// Galleries an earlier version set aside (DORMANT_STORE) are brought back first — out of the library
-// still while their folder is hidden or being removed.
-export async function foldersPending() {
-  await _unsetAside().catch(() => {});
-  const { removing } = await _folders();
-  return { setAside: [...removing.values()].map(f => ({ id: f.id, name: f.name || '' })) };
-}
-async function _unsetAside() {
-  const db = await openDB();
-  const folders = await new Promise((resolve, reject) => {
-    const tx = _tx(db, DORMANT_STORE, 'readonly');
-    const req = tx.objectStore(DORMANT_STORE).getAll();
-    tx.oncomplete = () => resolve(new Set((req.result || []).map(r => r.folder)));
-    tx.onerror = () => reject(_txError(tx));
-  });
-  for (const folder of folders) await _restoreDormant(folder);
-}
-
-// The galleries of folder `folder` let go — their records deleted, their files kept: checking the
-// folder finds them as they are there.
-async function _dropFolderRecords(folder) {
-  const gids = (await galleryGetAll()).filter(g => g.folder === folder).map(g => String(g.galleryId));
-  const db = await openDB();
-  for (let at = 0; at < gids.length; at += 50) {
-    const gone = [];
-    await new Promise((resolve, reject) => {
-      const tx = _tx(db, [STORE, META_STORE, GALLERY_STORE, COVER_STORE, BLOB_STORE], 'readwrite');
-      tx._keepFiles = true;
-      tx._work = 'forget';
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(_txError(tx));
-      for (const gid of gids.slice(at, at + 50)) _deleteIn(tx, gid, (meta) => gone.push([gid, meta]));
-    });
-    for (const [gid, meta] of gone) _afterDelete(gid, meta);
-  }
-}
-
-// The images in BLOB_STORE a gallery's records an earlier version set aside refer to: their ids.
-const _asideBlobIds = (rec) => [...rec.pages.flatMap(p => PAGE.slots(p)), ...(rec.cover ? COVER.slots(rec.cover) : [])]
-  .map(([obj, key]) => obj[key]?.[REF]).filter(id => typeof id === 'string');
-
-// The galleries place `folder` held when it was removed or hidden, back in the library as they were —
-// but not one whose own folder is no longer in it (its images in BLOB_STORE go with it), nor one the
-// library has meanwhile. Resolves how many.
-async function _restoreDormant(folder) { return _bulkRun(() => _restoreNow(folder)); }
-async function _restoreNow(folder) {
-  const db = await openDB();
-  const aside = await new Promise((resolve, reject) => {
-    const tx = _tx(db, DORMANT_STORE, 'readonly');
-    const req = tx.objectStore(DORMANT_STORE).index('folder').getAll(IDBKeyRange.only(folder));
-    tx.oncomplete = () => resolve(req.result || []);
-    tx.onerror = () => reject(_txError(tx));
-  });
-  if (!aside.length) return 0;
-  const root = await _readRootOf(folder);
-  const known = new Set(await transferIds());
-  const back = [];
-  for (const rec of aside) {
-    const there = !root || !rec.stat?.dir || (await folderFiles.list(folder, root, rec.stat.dir).catch(() => [])).length > 0;
-    const restore = there && !known.has(rec.gid);
-    await new Promise((resolve, reject) => {
-      const tx = _tx(db, [STORE, META_STORE, GALLERY_STORE, COVER_STORE, BLOB_STORE, DORMANT_STORE], 'readwrite');
-      tx._work = 'migration';
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(_txError(tx));
-      tx.objectStore(DORMANT_STORE).delete(rec.gid);
-      if (!there && !known.has(rec.gid)) for (const blob of _asideBlobIds(rec)) tx.objectStore(BLOB_STORE).delete(blob);
-      if (!restore) return;
-      if (rec.meta) tx.objectStore(META_STORE).put(canonicalMeta(rec.meta));
-      const { undescribed, ...stat } = rec.stat;   // its folder's removal or showing writes it there
-      tx.objectStore(GALLERY_STORE).put(stat);
-      const images = tx.objectStore(STORE);
-      for (const page of rec.pages) images.put(_stash(tx, page, [], PAGE));
-      if (rec.cover) tx.objectStore(COVER_STORE).put(_stash(tx, rec.cover, [], COVER));
-      _logIn(tx, rec.gid);
-    });
-    if (restore) { back.push(rec.gid); known.add(rec.gid); }
-  }
-  await _tidySeriesLinks(back);
-  for (const gid of back) publishFeed(gid);
-  return back.length;
-}
-
-// Where new galleries go: folder `id`, or this browser (BROWSER) — a place shown.
-export async function folderSetDefault(id) {
-  const folder = id == null || id === BROWSER ? null : String(id);
-  const { place, hidden } = await _placeOf(folder || BROWSER);
-  if (!place) throw new BackendError('not-found', `no library folder ${folder}`);
-  if (hidden) _refuse('hidden', 'a hidden place is never the default');
-  await _folderWrite((store) => store.put({ id: DEFAULT_FOLDER, folder }));
-}
-
-// This page asks the person to let it use folder `id` (from a click), and moves out what waited in
-// this browser for it once it may. Resolves the folder's access, as folderList gives it.
-export async function folderAllow(id) {
-  const folder = (await _folders()).byId.get(id);
-  if (!folder) throw new BackendError('not-found', `no library folder ${id}`);
-  const state = await folderFiles.permission(folder.handle, { ask: true });
-  _grants.delete(id);
-  if (state === 'granted') {
-    platform.control.send({ type: 'FOLDERS_CHANGED' });
-    settleFolders().catch(() => {});
-  }
-  return state === 'denied' ? 'prompt' : state;
-}
 
 // Gallery `gid` moved to `to` (a library folder's id, or BROWSER) — a series owner with every chapter
 // of its series, unless `series` is false. Its pictures are copied there, its records switched over
@@ -1707,547 +1385,32 @@ export async function moveGallery(galleryId, to, { onProgress = () => {}, series
   return { moved };
 }
 
-// ── Reading a folder back into the library ──
-const IMAGE_NAME = /\.(jpe?g|png|webp|gif|avif)$/i;
-const TYPE_OF_EXT = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif' };
-const _typeOfName = (name) => TYPE_OF_EXT[String(name).match(/\.(\w+)$/)?.[1]?.toLowerCase()] || '';
-const _natural = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-// The folders of the gallery format a gallery's pictures made from its pages live in.
-const DERIVED_DIRS = ['translated', 'study/bg', 'study/text', 'pipeline', 'covers'];
-
-// The galleries in folder `id` the library doesn't have, joined to it as they lie: a folder in the
-// gallery format (a library folder's gallery, or an unzipped export) with what its descriptions say
-// and what was made from its pages — and everything else it holds that Shiori didn't make, as linked
-// galleries (linked-source.js: every folder holding pictures, every archive, every PDF a title, its
-// files read where they are and what Shiori adds kept in its overlay — one removed from the library
-// before isn't added again; one whose overlay is there, as another app or this library left it, comes
-// back with it; one moved or renamed is found by its fingerprint). A gallery whose id the library
-// already has is a copy, left alone; the folders of the galleries it keeps there aren't looked into.
-// A PDF's pages are drawn by a page (pdfsWaiting, addRendered): until then it waits, its overlay made.
-// Then the galleries it keeps there are read again whose descriptions changed since this library
-// last wrote or read them (another app wrote to the folder) — not one with changes of its own still
-// to be written there: those win. `onProgress(done, total, added, step)` as it goes — each step
-// counted on its own: 'lf.task_checking' (what the folder holds), 'lf.task_adding' (the galleries
-// joining), 'lf.task_comparing' (those it keeps, checked for changes) — and it ends there once
-// `stopped()`. Resolves { added, updated, stopped }.
-export async function folderScan(id, opts = {}) { return _bulkRun(() => _folderScan(id, opts)); }
-async function _folderScan(id, { onProgress = () => {}, stopped = () => false } = {}) {
-  if ((await _placeOf(id)).hidden) _refuse('hidden', `library folder ${id} is hidden`);
-  const root = await _rootOf(id);
-  if (!root) throw new BackendError('unavailable', `library folder ${id} can't be reached`);
-  const known = new Set(await transferIds());
-  const kept = (await galleryGetAll()).filter(g => g.folder === id && g.dir);
-  const ours = new Set(kept.filter(g => !g.linked).map(g => g.dir.toLowerCase()));
-  const keptLinked = new Map(kept.filter(g => g.linked).map(g => [sourceKey(g.linked), g]));
-  const { layout, files } = await _walkFolder(id, root, ours, stopped);
-  const planned = planTitles(files.map(f => ({ path: f.path })), (await _folders()).byId.get(id)?.name || '');
-  const overlays = await _overlaysOf(id, root);
-  const removed = parseRemoved(await folderFiles.readText(id, root, REMOVED_FILE).catch(() => null));
-  const adopted = [], updated = [];
-  let step = 'lf.task_checking', total = layout.length + planned.length, done = 0;
-  const begin = (next, n) => { step = next; total = n; done = 0; onProgress(0, total, adopted.length, step); };
-  const tick = () => onProgress(Math.min(++done, total), total, adopted.length, step);
-  begin('lf.task_checking', total);
-  for (const dir of layout) {
-    if (stopped()) break;
-    try {
-      const gid = await _adopt(id, root, { dir, layout: true }, known);
-      if (gid) { known.add(gid); adopted.push(gid); }
-    } catch {}
-    tick();
-  }
-  // Everything else, a title at a time (an archive's titles read from it) — joining the library
-  // after, as a step of its own.
-  const seen = new Set(), fresh = [], series = [];
-  for (const t of planned) {
-    if (stopped()) break;
-    let titles = [t];
-    if (t.kind === 'zip') titles = await _zipTitlesOf(id, root, t).catch(() => []);
-    if (t.kind === 'dir') titles = [{ kind: 'dir', path: t.path, name: t.name }];
-    const chapters = [];
-    for (const title of titles) {
-      const key = sourceKey(title);
-      seen.add(key);
-      if (keptLinked.has(key)) continue;
-      const over = overlays.get(key);
-      if (over && known.has(over.galleryId)) continue;
-      if (!over && isRemoved(removed, title)) continue;
-      if (over) fresh.push({ title, gid: over.galleryId });   // its overlay keeps its series
-      else if (title.chapter) chapters.push(title);
-      else fresh.push({ title });
-    }
-    if (chapters.length) series.push({ path: t.path, chapters });
-    tick();
-  }
-  // New ones: an overlay whose files moved or were renamed takes them back (the same fingerprint) —
-  // as does a gallery the library keeps, its files gone from where it had them.
-  const orphans = new Map();
-  for (const [key, over] of overlays) if (!seen.has(key) && over.source.fingerprint) orphans.set(over.source.fingerprint, over);
-  for (const g of keptLinked.values()) if (!seen.has(sourceKey(g.linked)) && g.linked.fingerprint) orphans.set(g.linked.fingerprint, { galleryId: String(g.galleryId), kept: true });
-  begin('lf.task_adding', fresh.length + series.reduce((n, s) => n + s.chapters.length, 0));
-  for (const { title, gid } of fresh) {
-    if (stopped()) break;
-    const print = !gid && orphans.size ? await _fingerprintOf(id, root, title).catch(() => null) : null;
-    const was = print && orphans.get(print);
-    if (was) orphans.delete(print);
-    try {
-      if (was?.kept) { if (await _adoptLinked(id, root, title, known, { replace: was.galleryId })) updated.push(was.galleryId); }
-      else await _linkTitle(id, root, title, known, gid || was?.galleryId || null, adopted);
-    } catch {}
-    tick();
-  }
-  // An archive's chapters, new: joined as a series named after it (the import does the same).
-  for (const { path, chapters } of series) {
-    if (stopped()) break;
-    const made = [];
-    for (const title of chapters) {
-      const before = adopted.length;
-      await _linkTitle(id, root, title, known, null, adopted);
-      if (adopted.length > before) made.push({ id: adopted.at(-1), title: title.inner.replace(/\/$/, '').split('/').pop() });
-      tick();
-    }
-    if (made.length >= 2) await _seriesCommand('write', [made[0].id, made, { seriesTitle: metaFromName(path.split('/').pop()).title }]).catch(() => {});
-  }
-  begin('lf.task_comparing', kept.length);
-  const marked = await _marked();
-  for (const stat of kept) {
-    if (stopped()) break;
-    try { if (await _refreshFromFolder(id, root, stat, known, marked)) updated.push(String(stat.galleryId)); } catch {}
-    tick();
-  }
-  await _tidySeriesLinks([...adopted, ...updated]);
-  for (const gid of [...adopted, ...updated]) publishFeed(gid);
-  return { added: adopted.length, updated: updated.length, stopped: !!stopped() };
-}
-
-// Title `title` joined to the library as a linked gallery (`gid`: its overlay's) — a PDF only made
-// ready (its overlay; a page draws its pages: pdfsWaiting) unless they are drawn already.
-async function _linkTitle(id, root, title, known, gid, adopted) {
-  try {
-    if (title.kind === 'pdf' && !(await _hasRendered(id, root, gid))) { await _overlayFor(id, root, title, gid || nextGalleryId()); return; }
-    const made = await _adoptLinked(id, root, title, known, { gid });
-    if (made) { known.add(made); adopted.push(made); }
-  } catch {}
-}
-
-// Gallery `stat` (kept in folder `id`) read again from its folder when its descriptions there
-// changed since this library last wrote or read them — unless it has changes of its own waiting to
-// be written there (they win), or its folder no longer describes it. A gallery stamped before stamps
-// existed counts as changed only when its descriptions differ from this library's. `marked`: the
-// galleries with changes not written to their folders yet (_marked). Resolves whether it was read
-// again.
-async function _refreshFromFolder(id, root, stat, known, marked) {
-  const gid = String(stat.galleryId);
-  if (marked.has(gid) || stat.spilled || _feedTimers.has(gid) || _sizeTimers.has(gid) || _describeTimers.has(gid)) return false;
-  const texts = {};
-  for (const name of DESCRIPTIONS) texts[name] = await folderFiles.readText(id, root, `${stat.dir}/${name}`).catch(() => null);
-  if (texts['metadata.json'] == null) return false;
-  let described = null;
-  try { described = JSON.parse(texts['metadata.json'])?.galleryId; } catch {}
-  if (described == null || String(described) !== gid) return false;
-  const stamp = descriptionStamp(texts);
-  if (stamp === stat.stamp) return false;
-  if (!stat.stamp) {
-    const mine = await _wantedDescriptions(gid);
-    if (mine && descriptionStamp(_textsOf(mine.wanted)) === stamp) {
-      await _patchStat(gid, (cur) => ({ ...cur, stamp }));
-      return false;
-    }
-  }
-  if (stat.linked) return !!(await _adoptLinked(id, root, stat.linked, known, { replace: gid }));
-  return !!(await _adopt(id, root, { dir: stat.dir, layout: true }, known, { replace: gid }));
-}
-
-// What folder `id` holds: { layout: [folders in the gallery format the library doesn't keep yet],
-// files: [{ path, handle }] — every other file, hidden ones and the library's own .shiori left out,
-// nor looking into `skip` (paths, lower-cased: galleries the library keeps there) }.
-const WALK_DEPTH = 12;
-async function _walkFolder(id, root, skip, stopped) {
-  const layout = [], files = [];
-  const walk = async (path, depth) => {
-    if (stopped() || (path && skip.has(path.toLowerCase()))) return;
-    const entries = await folderFiles.list(id, root, path).catch(() => []);
-    const names = new Set(entries.map(e => e.name));
-    if (path && (names.has('metadata.json') || names.has('image_records.json') || entries.some(e => e.kind === 'directory' && e.name === 'images'))) {
-      layout.push(path);
-      return;
-    }
-    for (const e of entries) {
-      if (e.name.startsWith('.') || e.name === '__MACOSX') continue;
-      const p = path ? `${path}/${e.name}` : e.name;
-      if (e.kind === 'directory') { if (depth < WALK_DEPTH) await walk(p, depth + 1); }
-      else files.push({ path: p, handle: e.handle });
-    }
-  };
-  await walk('', 0);
-  return { layout, files };
-}
-
-// The overlays folder `id` holds (.shiori/linked/*/source.json): source key → { galleryId, source }.
-async function _overlaysOf(id, root) {
-  const out = new Map();
-  for (const e of await folderFiles.list(id, root, LINKED_DIR).catch(() => [])) {
-    if (e.kind !== 'directory') continue;
-    const read = parseSource(await folderFiles.readText(id, root, `${LINKED_DIR}/${e.name}/${SOURCE_FILE}`).catch(() => null));
-    if (read && read.galleryId === e.name) out.set(sourceKey(read.source), read);
-  }
-  return out;
-}
-
-// An archive's titles (linked-source.js zipTitles), as sources.
-async function _zipTitlesOf(id, root, t) {
-  const archive = await _archiveOf(id, root, t.path);
-  if (!archive) return [];
-  return zipTitles([...archive.entries.keys()]).map(z => ({ kind: 'zip', path: t.path, ...(z.inner ? { inner: z.inner } : {}), chapter: z.chapter }));
-}
-
-// A title's pictures where they are, in order: [{ name (in its folder, or the archive), size }] —
-// and its fingerprint and size. Null when they can't be read.
-async function _titlePictures(id, root, title) {
-  if (title.kind === 'zip') {
-    const archive = await _archiveOf(id, root, title.path);
-    if (!archive) return null;
-    const mine = zipTitles([...archive.entries.keys()]).find(z => z.inner === (title.inner || ''));
-    if (!mine) return null;
-    return { pictures: mine.pictures.map(name => ({ name, size: archive.entries.get(name).size })), fingerprint: archive.fingerprint, size: archive.size, archive };
-  }
-  if (title.kind === 'dir') {
-    const pictures = [];
-    for (const e of await folderFiles.list(id, root, title.path).catch(() => [])) {
-      if (e.kind !== 'file' || !IMAGE_NAME.test(e.name) || e.name.startsWith('.')) continue;
-      const file = await e.handle.getFile().catch(() => null);
-      if (file) pictures.push({ name: e.name, path: e.name, size: file.size });
-    }
-    const sorted = sortPictures(pictures);
-    return { pictures: sorted, fingerprint: await sha256Hex(new TextEncoder().encode(folderPrint(sorted))), size: sorted.reduce((n, p) => n + p.size, 0) };
-  }
-  const file = await folderFiles.readFile(id, root, title.path);
-  if (!file) return null;
-  const head = await file.slice(0, 1024 * 1024).arrayBuffer();
-  return { pictures: [], fingerprint: `${file.size}:${await sha256Hex(head)}`, size: file.size };
-}
-const _fingerprintOf = async (id, root, title) => (await _titlePictures(id, root, title))?.fingerprint || null;
-
-// Title `title`'s overlay, made as gallery `gid`'s (its source.json written). Resolves its folder.
-async function _overlayFor(id, root, title, gid, read = null) {
-  const at = read || await _titlePictures(id, root, title);
-  const dir = overlayDir(gid);
-  const want = sourceText(gid, { ...title, size: at?.size ?? null, fingerprint: at?.fingerprint ?? null });
-  if (await folderFiles.readText(id, root, `${dir}/${SOURCE_FILE}`).catch(() => null) !== want) {
-    await folderFiles.writeFile(id, root, `${dir}/${SOURCE_FILE}`, want);
-  }
-  return dir;
-}
-// Whether gallery `gid`'s overlay holds pages of its own (a PDF's, drawn).
-async function _hasRendered(id, root, gid) {
-  if (!gid) return false;
-  return (await folderFiles.list(id, root, `${overlayDir(gid)}/images`).catch(() => [])).some(e => e.kind === 'file' && IMAGE_NAME.test(e.name));
-}
-
-// A source of folder `id` that left the library (deleted, or moved to another place): noted in the
-// folder's removed.json so a check doesn't add it again — read, changed and written while lock
-// shiori:removed:<folder> is held, so notes made at once (two deletes, two tabs, the service worker)
-// all stay. Rejects when it can't be noted (the folder may not be written to now, or the list can't
-// be read).
-async function _noteRemoved(id, linked, work = null) {
-  const root = await _rootOf(id, { work });
-  if (!root) throw new BackendError('unavailable', `library folder ${id} can't be written to`);
-  await folderFiles.withLock(`shiori:removed:${id}`, async () => {
-    const list = withRemoved(parseRemoved(await folderFiles.readText(id, root, REMOVED_FILE)), linked);
-    await folderFiles.writeFile(id, root, REMOVED_FILE, removedText(list));
-  });
-}
-
-// What a folder in the gallery format holds: its descriptions (`texts`, and as read), and its
-// pictures ([path → { size, type }]: images/ and what was made from its pages).
-async function _readLayout(folder, root, dir) {
-  const texts = {};
-  const text = async (name) => (texts[name] = await (await folderFiles.readFile(folder, root, `${dir}/${name}`))?.text().catch(() => null) ?? null);
-  const json = async (name) => { try { const t = await text(name); return t == null ? null : JSON.parse(t); } catch { return null; } };
-  const files = new Map();
-  const meta = await json('metadata.json');
-  const records = await json('image_records.json');
-  const bubbles = (await json('study/bubbles.json')) || {};
-  const manifest = await json('covers/manifest.json');
-  for (const sub of ['images', ...DERIVED_DIRS]) {
-    for (const e of await folderFiles.list(folder, root, `${dir}/${sub}`).catch(() => [])) {
-      if (e.kind !== 'file' || !IMAGE_NAME.test(e.name)) continue;
-      const file = await e.handle.getFile().catch(() => null);
-      if (file) files.set(`${sub}/${e.name}`, { size: file.size, type: _typeOfName(e.name) });
-    }
-  }
-  return { texts, meta, records, bubbles, manifest, files };
-}
-
-// One found folder in the gallery format joined to the library, its records referring to its files
-// where they lie. Resolves its id, or null when there is nothing to add (no pages, or a copy of one
-// the library has). `replace`: a gallery the library keeps there, read again — its records replaced
-// by what its folder holds now (its files stay).
-async function _adopt(folder, root, found, known, { replace = null } = {}) {
-  const { dir } = found;
-  const { texts, meta, records, bubbles, manifest, files } = await _readLayout(folder, root, dir);
-  const pictures = _pagePictures(files);
-  // One with no pages joins when its folder describes it (a series' record, a chapter not downloaded:
-  // written there as its folder left a library).
-  if (!pictures.size && !meta) return null;
-  const described = meta?.galleryId != null ? String(meta.galleryId) : null;
-  if (replace ? described !== replace : described && known.has(described)) return null;
-  const gid = replace || (described && /^\d{13,}$/.test(described) ? described : nextGalleryId());
-  const now = Date.now();
-  const ref = (path) => { const at = _fileAt(files, path); return at ? { $path: at, folder, dir, ...files.get(at) } : null; };
-  const entryOf = new Map((Array.isArray(records) ? records : []).map(r => [_keyPage(r?.url), r]).filter(([n]) => n != null));
-  const pages = [...pictures].sort((a, b) => a[0] - b[0]).map(([n, path]) => {
-    const entry = entryOf.get(n);
-    const ext = path.match(/\.(\w+)$/)[1].toLowerCase();
-    const url = entry?.url && _keyPage(entry.url) === n ? entry.url : `local://${gid}/${n}.${ext}`;
-    return { url, n, record: { url, blob: ref(path), mediaId: String(entry?.mediaId ?? gid), galleryId: gid,
-      cachedAt: entry?.cachedAt || now, size: files.get(path).size, ..._derivedRecord(files, bubbles, n, entry, ref) } };
-  });
-  const record = meta ? { ...meta, galleryId: gid }
-    : { galleryId: gid, title: { english: dir.split('/').pop(), japanese: '', pretty: dir.split('/').pop() }, tags: [], numPages: pages.length, isLocalImport: true };
-  return _storeAdopted({ folder, dir, gid, record, pages, ownCover: _ownCoverOf(manifest, ref), stamp: descriptionStamp(texts), replace });
-}
-
-// The file of a folder in the gallery format (`files`: path → { size, type }, _readLayout) at place
-// `path` of the format: that very path, or that path with the random part a write adds while the
-// layout name is in use (folderFiles.writeNew) — null when it has neither.
-const _fileAt = (files, path) => (files.has(path) ? path : [...files.keys()].find(p => _layoutOf(p) === path) || null);
-// Its original pages: page number (gallery-files.js pageNumberOf; a name with none counts by its
-// place among them) → path — the layout-named one, when a page has two (one not deleted yet).
-function _pagePictures(files) {
-  const byN = new Map();
-  [...files.keys()].filter(p => /^images\/[^/]+$/.test(p)).sort(_natural.compare).forEach((path, i) => {
-    const n = pageNumberOf(path) ?? i + 1;
-    if (!byN.has(n) || _layoutOf(path) === path) byN.set(n, path);
-  });
-  return byN;
-}
-
-// A cover of its own, as a folder's covers/manifest.json names it: { cover?, seriesCover? }.
-function _ownCoverOf(manifest, ref) {
-  const out = {};
-  for (const c of manifest?.covers || []) {
-    const r = (c?.role === 'gallery' || c?.role === 'series') && typeof c.file === 'string' ? ref(c.file) : null;
-    if (r) out[c.role === 'series' ? 'seriesCover' : 'cover'] = r;
-  }
-  return out;
-}
-
-// Title `title` of folder `folder` (linked-source.js: an archive, a folder of pictures, a PDF) joined
-// to the library as a linked gallery: its pages referring to its files where they are (read-only),
-// in its overlay what Shiori keeps of it — as gallery `gid` (its overlay's, when it has one) or a new
-// one. Its metadata is its overlay's when there is one, else an archive's own (metadata.json in it),
-// else what its name and folders say. `replace`: a gallery the library keeps, read again (from its
-// overlay, its files where `title` says now). Resolves its id, or null when it has no pages.
-async function _adoptLinked(folder, root, title, known, { gid: given = null, replace = null } = {}) {
-  const at = await _titlePictures(folder, root, title);
-  if (!at) return null;
-  let embedded = null;
-  if (title.kind === 'zip' && !title.inner && at.archive?.entries.has('metadata.json')) {
-    try { embedded = JSON.parse(new TextDecoder().decode(await at.archive.entries.get('metadata.json').read())); } catch {}
-  }
-  const embeddedId = embedded?.galleryId != null && /^\d{13,}$/.test(String(embedded.galleryId)) && !known.has(String(embedded.galleryId)) ? String(embedded.galleryId) : null;
-  const gid = replace || given || embeddedId || nextGalleryId();
-  if (!replace && known.has(gid)) return null;
-  const dir = await _overlayFor(folder, root, title, gid, at);
-  const read = await _readLayout(folder, root, dir);
-  const now = Date.now();
-  const own = (path) => { const p = _fileAt(read.files, path); return p ? { $path: p, folder, dir, ...read.files.get(p) } : null; };
-  const source = (p) => ({ $path: p.name, folder, dir: title.path, ro: 1, ...(title.kind === 'zip' ? { zip: 1 } : {}), size: p.size, type: _typeOfName(p.name) });
-  const entryOf = new Map((Array.isArray(read.records) ? read.records : []).map(r => [_keyPage(r?.url), r]).filter(([n]) => n != null));
-  // Its pages: its files' in order, then pages of its own its overlay holds (a PDF's, drawn).
-  const byN = new Map(at.pictures.map((p, i) => [i + 1, { blob: source(p), size: p.size, ext: p.name.match(/\.(\w+)$/)?.[1]?.toLowerCase() || 'jpg' }]));
-  for (const [n, path] of _pagePictures(read.files)) {
-    if (!byN.has(n)) byN.set(n, { blob: own(path), size: read.files.get(path).size, ext: path.match(/\.(\w+)$/)[1].toLowerCase() });
-  }
-  if (!byN.size) return null;
-  const pages = [...byN].sort((a, b) => a[0] - b[0]).map(([n, p]) => {
-    const entry = entryOf.get(n);
-    const url = entry?.url && _keyPage(entry.url) === n ? entry.url : `local://${gid}/${n}.${p.ext}`;
-    return { url, n, record: { url, blob: p.blob, mediaId: String(entry?.mediaId ?? gid), galleryId: gid, cachedAt: entry?.cachedAt || now,
-      size: p.size, ..._derivedRecord(read.files, read.bubbles, n, entry, own) } };
-  });
-  // What its name and folders say: an archive's chapter is named after its folder in it, its tags the
-  // archive's.
-  const parts = title.path.split('/');
-  const file = parts.pop();
-  let named;
-  if (title.kind === 'zip' && title.inner) {
-    const chapter = title.inner.replace(/\/$/, '').split('/').pop();
-    named = { title: { english: chapter, japanese: '', pretty: chapter }, tags: metaFromName(file, parts).tags };
-  } else {
-    named = metaFromName(title.kind === 'dir' ? (title.name || file || (await _folders()).byId.get(folder)?.name || gid) : file, parts);
-  }
-  const record = read.meta && String(read.meta.galleryId) === gid ? { ...read.meta, galleryId: gid }
-    : embedded ? { ...embedded, galleryId: gid }
-    : { galleryId: gid, ...named, numPages: pages.length, isLocalImport: true, source: '' };
-  const linked = { kind: title.kind, path: title.path, ...(title.inner ? { inner: title.inner } : {}), ...(at.fingerprint ? { fingerprint: at.fingerprint } : {}) };
-  return _storeAdopted({ folder, dir, gid, record, pages, ownCover: _ownCoverOf(read.manifest, own),
-    stamp: read.texts['metadata.json'] != null ? descriptionStamp(read.texts) : null, replace, extra: { linked } });
-}
-
-// A gallery read from its folder stored: its metadata, stat record (`extra` on it) and pages in one
-// transaction (`replace`: its records as they were going first, its files staying), then its stat
-// rebuilt and a cover of its own put. Resolves its id.
-async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, stamp = null, replace = null, extra = {} }) {
-  const now = Date.now();
-  const db = await openDB();
-  await new Promise((resolve, reject) => {
-    const tx = _tx(db, [STORE, META_STORE, GALLERY_STORE, COVER_STORE, BLOB_STORE], 'readwrite');
-    tx._work = 'adopt';
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(_txError(tx));
-    const put = () => {
-      tx.objectStore(META_STORE).put(canonicalMeta(record));
-      tx.objectStore(GALLERY_STORE).put({ galleryId: gid, count: 0, size: 0, latestAt: now, addedAt: Number(gid) || now,
-        uploadDate: uploadDateSeconds(record.uploadDate ?? 0) || 0, folder, dir, ...(record.parentId ? { parentId: String(record.parentId) } : {}),
-        ...(stamp ? { stamp } : {}), ...extra });
-      const images = tx.objectStore(STORE);
-      for (const p of pages) {
-        // A key another gallery's page is stored under stays that gallery's: this page takes its own.
-        const prev = images.get(p.url);
-        prev.onsuccess = () => {
-          const rec = prev.result ? { ...p.record, url: `local://${gid}/${p.n}.${p.url.match(/\.(\w+)$/)?.[1] || 'jpg'}` } : p.record;
-          images.put(_stash(tx, rec, [], PAGE));
-        };
-      }
-      _logIn(tx, gid, { mark: false });   // its folder describes it as read
-    };
-    // Read again: its records as they were go first (its files stay), then it is put as its folder has it.
-    if (replace) { tx._keepFiles = true; _deleteIn(tx, gid, put); } else put();
-  });
-  if (replace) platform.control.send({ type: 'COVER_INVALIDATED', galleryId: gid });
-  await rebuildGalleryEntry(gid, { silent: true });
-  // A cover of its own, where its folder keeps one (rebuilding pointed the cover at the first page).
-  if (Object.keys(ownCover).length) {
-    await new Promise((resolve, reject) => {
-      const tx = _tx(db, [COVER_STORE, BLOB_STORE], 'readwrite');
-      putCoverPatch(tx, gid, ownCover);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(_txError(tx));
-    });
-  }
-  return gid;
-}
-
-// ── PDFs a library folder holds, drawn by a page ──
-// The PDFs found in the library's folders (folderScan made each an overlay) waiting for their pages
-// to be drawn: [{ folder, gid, path, name }]. Only folders this context may write to.
-export async function pdfsWaiting() {
-  const { byId } = await _folders();
-  const known = new Set(await transferIds());
-  const out = [];
-  for (const f of byId.values()) {
-    if (!(await _usable(f.id))) continue;
-    const root = await _rootOf(f.id);
-    const removed = parseRemoved(await folderFiles.readText(f.id, root, REMOVED_FILE).catch(() => null));
-    for (const over of (await _overlaysOf(f.id, root)).values()) {
-      if (over.source.kind !== 'pdf' || known.has(over.galleryId) || isRemoved(removed, over.source)) continue;
-      if (!(await folderFiles.readFile(f.id, root, over.source.path))) continue;
-      out.push({ folder: f.id, gid: over.galleryId, path: over.source.path, name: over.source.path.split('/').pop() });
-    }
-  }
-  return out;
-}
-// The PDF a waiting gallery is drawn from, as a File.
-export async function pdfSource(folder, gid) {
-  const root = await _rootOf(folder);
-  const over = root && [...(await _overlaysOf(folder, root)).values()].find(o => o.galleryId === String(gid));
-  if (!over || over.source.kind !== 'pdf') throw new BackendError('not-found', `no PDF waiting as gallery ${gid}`);
-  return folderFiles.readFile(folder, root, over.source.path);
-}
-// A waiting PDF's pages, drawn (`pages`: Blobs in order), kept in its overlay and the gallery joined
-// to the library. Resolves its id.
-export async function addRendered(folder, gid, pages) {
-  const root = await _rootOf(folder);
-  if (!root) throw new BackendError('unavailable', `library folder ${folder} can't be reached`);
-  const over = [...(await _overlaysOf(folder, root)).values()].find(o => o.galleryId === String(gid));
-  if (!over) throw new BackendError('not-found', `no PDF waiting as gallery ${gid}`);
-  const dir = overlayDir(gid);
-  for (const [i, blob] of pages.entries()) {
-    await folderFiles.writeFile(folder, root, `${dir}/${layoutPath.original(i + 1, extOfType(blob.type) || 'webp')}`, blob);
-  }
-  const known = new Set(await transferIds());
-  const made = await _adoptLinked(folder, root, over.source, known, { gid: String(gid) });
-  if (made) { await _tidySeriesLinks([made]); publishFeed(made); }
-  return made;
-}
-
-// A page's record fields made from it, as a gallery's folder holds them (desktop scan.js
-// derivedRecord, the same): its translated picture, study layers and pipeline data, referred to
-// where they lie.
-function _derivedRecord(files, bubbles, n, entry, ref) {
-  const out = {};
-  const num = String(n).padStart(4, '0');
-  const find = (prefix) => [...files.keys()].find(p => p.startsWith(prefix) && /^(-[0-9a-f]{8})?\.\w+$/.test(p.slice(prefix.length)));
-  const translated = find(`translated/${num}`);
-  if (translated) out.translated = ref(translated);
-  const study = bubbles[num];
-  const list = Array.isArray(study) ? study : study?.bubbles;
-  if (Array.isArray(list) && list.length) {
-    out.bubbles = list.filter(b => b?.box).map((b) => {
-      const { textFile, ...rest } = b;
-      return { ...rest, region: b.region || b.box, tr: b.tr || '', src: b.src || '', text: textFile ? ref(`study/text/${textFile}`) : null };
-    });
-    const bg = find(`study/bg/${num}`);
-    out.studyBg = bg ? ref(bg) : null;
-    out.studyPage = Array.isArray(study) ? null : (study.page || null);
-  }
-  if (entry?.pipeline && typeof entry.pipeline === 'object' && typeof entry.pipeline.job === 'string') {
-    const masks = {};
-    for (const name of ['raw', 'text']) { const p = find(`pipeline/${num}-${name}`); if (p) masks[name] = ref(p); }
-    out.pipeline = { ...entry.pipeline, masks };
-    if (typeof entry.own === 'string') out.own = entry.own;
-  }
-  if (entry?.translatedLayers === true && out.bubbles) out.translatedLayers = true;
-  return out;
-}
-
-// Series links among galleries just read back that point at galleries the library doesn't have (or
-// that don't point back) are dropped; the series that remain have their totals worked out.
-async function _tidySeriesLinks(gids) {
-  if (!gids.length) return;
-  const owners = new Set();
-  for (const gid of gids) {
-    const meta = await metaGet(gid);
-    if (!meta) continue;
-    const patch = {};
-    if (Array.isArray(meta.chapters)) {
-      const kept = [];
-      for (const c of meta.chapters) {
-        const id = String(c?.id ?? '');
-        const member = id === gid ? meta : await metaGet(id);
-        if (member && (id === gid || String(member.parentId || '') === gid)) kept.push(c);
-      }
-      if (kept.length !== meta.chapters.length) patch.chapters = kept.length > 1 ? kept : undefined;
-      if (kept.length > 1) owners.add(gid);
-    }
-    if (meta.parentId) {
-      const owner = await metaGet(String(meta.parentId));
-      const listed = Array.isArray(owner?.chapters) && owner.chapters.some(c => String(c?.id) === gid);
-      if (!listed) patch.parentId = undefined;
-      else owners.add(String(meta.parentId));
-    }
-    if (!Object.keys(patch).length) continue;
-    const db = await openDB();
-    await new Promise((resolve, reject) => {
-      const tx = _tx(db, [META_STORE, GALLERY_STORE], 'readwrite');
-      tx._work = 'adopt';   // galleries just read back, or brought back still out of the library
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(_txError(tx));
-      const next = { ...meta };
-      for (const [k, v] of Object.entries(patch)) { if (v === undefined) delete next[k]; else next[k] = v; }
-      tx.objectStore(META_STORE).put(canonicalMeta(next));
-      if ('parentId' in patch) {
-        const stats = tx.objectStore(GALLERY_STORE);
-        const req = stats.get(gid);
-        req.onsuccess = () => { if (req.result) { const { parentId, ...rest } = req.result; stats.put(rest); } };
-      }
-      _logIn(tx, gid);
-    });
-  }
-  for (const oid of owners) await refreshSeriesAggregate(oid, { silent: true }).catch(() => {});
-}
+// ── The folder layer (folder-library.js) ──
+// The folders as the person manages them — adding, taking back, the default, hiding, showing,
+// removing — a removal's work, checking a folder, and its PDFs: folder-library.js, built over what
+// this kernel hands it (every record it writes goes through these transactions and their mount check,
+// every folder file through the write gate), and exported here under the names api.js uses.
+const _folderLibrary = createFolderLibrary({
+  BROWSER, DEFAULT_FOLDER, REF, PAGE, COVER,
+  stores: { STORE, META: META_STORE, GALLERY: GALLERY_STORE, COVER: COVER_STORE, BLOB: BLOB_STORE, UNDESCRIBED: UNDESCRIBED_STORE, DORMANT: DORMANT_STORE },
+  // IndexedDB, the change log and the change feed
+  openDB, tx: _tx, txError: _txError, logIn: _logIn, deleteIn: _deleteIn, afterDelete: _afterDelete, stash: _stash, keyPage: _keyPage,
+  canonicalMeta, publishFeed, muchLater: _muchLater, bulkRun: _bulkRun,
+  busy: (gid) => _feedTimers.has(gid) || _sizeTimers.has(gid) || _describeTimers.has(gid),
+  // the records
+  galleryGet, galleryGetAll, metaGet, transferIds, nextGalleryId, rebuildGalleryEntry, refreshSeriesAggregate, putCoverPatch,
+  seriesWrite: (...args) => _seriesCommand('write', args),
+  // the places, the write gate, the claims
+  folders: _folders, folderById: _folderById, folderWrite: _folderWrite, forgetGrant: (id) => _grants.delete(id),
+  placeOf: _placeOf, placeKey: _placeKey, access: _access, rootOf: _rootOf, usable: _usable, readRootOf: _readRootOf,
+  me: _me, myLabel: _myLabel, readClaim: _readClaim, writeClaim: _writeClaim, noteEpoch: _noteEpoch, randomId: _randomId,
+  // the pictures' storage in folders
+  writing: _writing, relocate: _relocate, reserveDir: _reserveDir, describe: _describe, cancelDescribe: _cancelDescribe,
+  marked: _marked, patchStat: _patchStat, wantedDescriptions: _wantedDescriptions, textsOf: _textsOf,
+  archiveOf: _archiveOf, layoutOf: _layoutOf, typeOfName: _typeOfName, settleFolders,
+});
+export const { foldersList, foldersWaiting, folderAdd, folderClaim, folderSetDefault, folderAllow, folderHide, folderShow,
+  folderRemove, folderSetAside, foldersPending, folderScan, pdfsWaiting, pdfSource, addRendered, pdfFailed } = _folderLibrary;
 
 export async function dbGet(url) {
   const db = await openDB();
@@ -2522,7 +1685,8 @@ const _hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 const _nextCoverRevision = () => globalThis.crypto?.randomUUID?.()
   || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-function putCoverPatch(tx, galleryId, patch) {
+// `mark` false: the gallery's folder describes it as it is (a gallery read from there).
+function putCoverPatch(tx, galleryId, patch, { mark = true } = {}) {
   const gid = String(galleryId);
   const store = tx.objectStore(COVER_STORE);
   const req = store.get(gid);
@@ -2539,7 +1703,7 @@ function putCoverPatch(tx, galleryId, patch) {
     if (Object.keys(coverThumbs).length) next.coverThumbs = coverThumbs;
     else delete next.coverThumbs;
     store.put(_stash(tx, next, _refIds(req.result, COVER), COVER));
-    _logIn(tx, gid);
+    _logIn(tx, gid, { mark });
   };
 }
 
@@ -2807,10 +1971,12 @@ function _entityFrom(id, gal, meta) {
 // the repair path that makes stats truthful again after any historical drift. The pages are read
 // and the result written in ONE transaction: a page stored meanwhile can never be lost under a
 // stale recount. The record keeps its other fields (series link and totals, measurements); a
-// gallery left with no pages keeps a zero entry, unless it is only a placeholder.
+// gallery left with no pages keeps a zero entry, unless it is only a placeholder. `mark` false: its
+// folder describes it as it is (a gallery just read from there).
 export async function rebuildGalleryEntry(galleryId, opts = {}) {
   const gid = String(galleryId);
   const silent = !!opts.silent;
+  const mark = opts.mark !== false;
   const db = await openDB();
   let prev = null, gone = false, inlineCover = null;
   await new Promise((resolve, reject) => {
@@ -2825,7 +1991,7 @@ export async function rebuildGalleryEntry(galleryId, opts = {}) {
       const records = recsReq.result || [];
       const meta = metaReq.result || null;
       prev = prevReq.result || null;
-      _logIn(tx, gid);
+      _logIn(tx, gid, { mark });
       if (!records.length) {
         _coverDeleteIn(tx, gid, 'gallery');
         gone = !prev || !meta || !!meta.isStub;
@@ -2845,7 +2011,7 @@ export async function rebuildGalleryEntry(galleryId, opts = {}) {
       gals.put({ ...prev, galleryId: gid, count, size, latestAt, addedAt: prev?.addedAt ?? (Number(gid) || latestAt), coverPage, uploadDate });
       // The cover points at the first page's stored image rather than copying it. Silent: this
       // repair path publishes its own feed beacon below.
-      if (_isRef(first?.blob) && (first.blob[REF] === `${first.url}|page` || _isPath(first.blob))) putCoverPatch(tx, gid, { cover: first.blob });
+      if (_isRef(first?.blob) && (first.blob[REF] === `${first.url}|page` || _isPath(first.blob))) putCoverPatch(tx, gid, { cover: first.blob }, { mark });
       else if (first) inlineCover = first.blob ?? first.dataUrl ?? null;   // stored before images moved out
     };
   });

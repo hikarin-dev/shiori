@@ -14,7 +14,7 @@ test('every folder holding pictures, every archive and every PDF is a title; Shi
     { path: 'Book.pdf' }, { path: 'top.png' },
     { path: 'Mine/metadata.json' }, { path: 'Mine/images/0001.png' }, { path: 'Mine/translated/0001.png' },
     { path: '.shiori/library.json' }, { path: 'x/.hidden/1.png' }, { path: '__MACOSX/a.png' },
-  ], 'Library');
+  ], 'Library', ['Mine']);
   assert.deepEqual(titles.map(t => [t.kind, t.path, t.name || '']), [
     ['dir', '', 'Library'], ['pdf', 'Book.pdf', ''], ['dir', 'Loose', 'Loose'], ['dir', 'Pack', 'Pack'],
     ['zip', 'Pack/[A] One.zip', ''], ['dir', 'Pack/Title X', 'Title X'], ['dir', 'Pack/Title Y', 'Title Y'],

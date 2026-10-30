@@ -86,6 +86,18 @@ async function buildCover(msg) {
   return null;
 }
 
+// A job asked to stop at `since` that nothing answers for — its runner gone (a service worker stopped,
+// a tab or the desktop app closed) — ended here, so its row doesn't sit there for good: once longer
+// than a running job takes to say it is alive (a folder job does every 5 s, saved at most as often)
+// has passed with no word from it since.
+const SILENT_MS = 12000;
+function endIfSilent(gid, kind, since) {
+  setTimeout(async () => {
+    const row = (await platform.jobs.current()).find(j => String(j.gid) === gid && j.kind === kind);
+    if (row && !['done', 'error', 'cancelled'].includes(row.status) && (row.at || 0) < since) platform.jobs.publish({ gid, kind, status: 'cancelled' });
+  }, SILENT_MS);
+}
+
 function getCover(msg) {
   const key = coverWorkKey(msg);
   const requesterKey = coverRequesterKey(msg);
@@ -181,9 +193,14 @@ export const services = {
         // A batch of imports (import-batch.js) stops where it runs, after the page it is storing,
         // and says so itself.
         if (kind === 'import') { platform.jobs.signal({ type: 'STOP_IMPORT_BATCH', batch: gid }); return { ok: true }; }
-        // A check of a library folder (folder-scan.js, or the desktop app's) stops where it runs, and
-        // says so.
-        if (kind === 'folder') { platform.jobs.signal({ type: 'STOP_FOLDER_SCAN', folder: gid.replace(/^folder-/, '') }); return { ok: true }; }
+        // A library folder's job (folder-scan.js, a PDF's pages being drawn — library-folders.js — or
+        // the desktop app's) stops where it runs, and says so; one whose runner is gone is ended here.
+        if (kind === 'folder') {
+          const asked = Date.now();
+          platform.jobs.signal({ type: 'STOP_FOLDER_SCAN', folder: gid.replace(/^folder-/, ''), job: gid });
+          endIfSilent(gid, kind, asked);
+          return { ok: true };
+        }
         if (kind === 'upload') {
           // Never replayed, and stopped where it runs (jobs-runner.js).
           await platform.jobsPending.remove(`${gid}:upload`);

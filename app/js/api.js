@@ -185,25 +185,30 @@ export const folders = _typed({
   // Asks the person to let this page use the folder (from a click); resolves its access then.
   allow: async (id) => backend.folderAllow?.(String(id)) ?? 'granted',
   // Galleries put in it from outside the app join the library — those it kept are known already, and
-  // their folders aren't looked into. A browser library's: `onProgress(done, total, added)` and
-  // `stopped()` (folder-scan.js runs it as a job); the desktop app's runs it as a job of its own.
-  // Resolves { added, stopped }.
+  // their folders aren't looked into; those another app changed there are read again. A browser
+  // library's: `onProgress(done, total, added, step)` and `stopped()` (folder-scan.js runs it as a
+  // job); the desktop app's runs it as a job of its own. Resolves { added, updated, problems, stopped }
+  // — `problems`: what couldn't be read, [{ path, reason }] (reason a short word: 'unreadable',
+  // 'corrupt', 'unsupported', 'adopt-failed').
   scan: (id, opts) => backend.folderScan(String(id), opts),
   // What waits in this browser for a folder it couldn't reach is moved out to it: how many galleries.
   settle: async () => backend.settleFolders?.() ?? 0,
   // A browser library: what a folder removed still owes it — its galleries moved (when asked),
   // everything the library has of them written there, the folder let go and forgotten (remove only
   // marks it; folder-scan.js runs this as a task). `onProgress(done, total)`, `stopped()`. Resolves
-  // { removed, stopped }; throws (`errorKey` 'lf.task_kept', `unsaved`) when what it owes couldn't
-  // be written and it stays. (The desktop app does it as a task of its own.)
-  setAside: async (id, opts) => backend.folderSetAside?.(String(id), opts) ?? { removed: 0, stopped: false },
+  // { removed, moved, left, stopped } (`left`: galleries a move couldn't take, written back with the
+  // rest); throws (`errorKey` 'lf.task_kept', `unsaved`) when what it owes couldn't be written and it
+  // stays. (The desktop app does it as a task of its own.)
+  setAside: async (id, opts) => backend.folderSetAside?.(String(id), opts) ?? { removed: 0, moved: 0, left: 0, stopped: false },
   // The PDFs the library's folders hold, waiting for a page to draw their pages (linked-source.js):
   // [{ folder, gid, path, name }]; one's file (a Blob); its pages drawn (Blobs, in order), kept with
-  // it as it joins the library (resolves its id).
+  // it as it joins the library (resolves its id); or, when they can't be drawn, noted so that it isn't
+  // tried again until its file changes (pdfFailed).
   pdfsWaiting: async () => backend.pdfsWaiting?.() ?? [],
   pdfSource: (folder, gid) => backend.pdfSource(String(folder), String(gid)),
   addRendered: (folder, gid, pages) => backend.addRendered(String(folder), String(gid), pages),
-  // What a page should carry on with (a removal cut short): { setAside: [{ id, name }] }.
+  pdfFailed: (folder, gid) => backend.pdfFailed(String(folder), String(gid)),
+  // What a page should carry on with (a removal cut short): { setAside: [{ id, name, moving }] }.
   pending: async () => backend.foldersPending?.() ?? { setAside: [] },
   // The folders holding galleries that wait for this page's permission (allow): [{ id, name }].
   waiting: async () => backend.foldersWaiting?.() ?? [],

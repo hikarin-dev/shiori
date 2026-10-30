@@ -87,9 +87,6 @@ export const withRemoved = (removed, source, now = Date.now()) => [
 export const folderPrint = (pictures) => [...pictures].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
   .map(p => `${p.name}\t${p.size}`).join('\n');
 
-// The files that said a folder is in the Shiori gallery format, before folder-content.js read them.
-// superseded by folder-content.js classifyFolder — removed once callers switch (stage 1/2)
-export const LAYOUT_FILES = new Set(['metadata.json', 'image_records.json', 'series.json']);
 const _hidden = (path) => path.split('/').some(s => s.startsWith('.') || s === '__MACOSX');
 const _stem = (name) => name.replace(/\.[^./]+$/, '');
 
@@ -120,7 +117,7 @@ export function sortPictures(list, key = (p) => p.path) {
 export function planTitles(files, rootName, own) {
   const list = files.filter(f => safeRelPath(f?.path) && !_hidden(f.path));
   const dirOf = (p) => p.slice(0, p.lastIndexOf('/') + 1);
-  const mine = own ? [...own] : _ownByName(list);   // superseded fallback — removed once callers pass `own` (stage 1/2)
+  const mine = [...own];
   const isOwn = (p) => mine.some(o => p === o || p.startsWith(`${o}/`));
   const titles = [];
   const folders = new Map();   // a folder ('' for the top) → its own pictures
@@ -137,20 +134,6 @@ export function planTitles(files, rootName, own) {
   for (const [dir, pictures] of folders) titles.push({ kind: 'dir', path: dir, name: dir ? dir.split('/').pop() : rootName, pictures: sortPictures(pictures) });
   return titles.sort((a, b) => naturalCompare(a.path, b.path));
 }
-// The folders holding one of LAYOUT_FILES (the outermost), as planTitles took Shiori's own before it
-// was told them.
-// superseded by planTitles' `own` (folder-content.js) — removed once callers switch (stage 1/2)
-function _ownByName(list) {
-  const own = [];
-  const depth = (p) => p.split('/').length;
-  for (const f of [...list].sort((a, b) => depth(a.path) - depth(b.path))) {
-    const at = f.path.lastIndexOf('/');
-    const dir = at < 0 ? '' : f.path.slice(0, at);
-    if (LAYOUT_FILES.has(f.path.slice(at + 1)) && dir && !own.some(o => dir === o || dir.startsWith(`${o}/`))) own.push(dir);
-  }
-  return own;
-}
-
 // An archive's galleries (`names`: its entries' names, decoded by folder-content.js zipName), as the
 // import makes them: its pictures in order — or, when they sit in more than one folder, a series (the
 // archive) of chapters: each folder holding pictures one, named after it (folders holding only

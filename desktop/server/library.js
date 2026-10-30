@@ -932,10 +932,11 @@ export class Library {
   folderSetDefault(id) { return this.folders.setDefault(id); }
   folderClaim(id) { return this.folders.claim(id); }
   // Galleries put in folder `id` outside the app join the library (the full check, for one folder), as
-  // a task. Resolves { added, updated, stopped }.
+  // a task. Resolves { added, updated, problems, stopped } — `problems`, what couldn't be read or
+  // joined: [{ path (in the folder), reason }].
   async folderScan(id) {
     const found = await this.folders.scan(id);
-    return { added: found.added.length, updated: found.updated.length, stopped: found.stopped };
+    return { added: found.added.length, updated: found.updated.length, problems: found.problems, stopped: found.stopped };
   }
   // The library's folders and the index brought into agreement (scan.js): only when asked (Settings →
   // Storage), or for an index with no galleries yet (indexEmpty) — files are otherwise opened only when
@@ -980,10 +981,12 @@ export class Library {
   }
 
   // The PDFs the library's folders hold waiting for a window to draw their pages (linked.js):
-  // [{ folder, gid, path, name }]; one's file; its pages drawn, kept with it as it joins the library.
+  // [{ folder, gid, path, name }]; one's file; its pages drawn, kept with it as it joins the library;
+  // or that they couldn't be drawn (not tried again until its file changes).
   async pdfsWaiting() { return linked.pdfsWaiting(this); }
   async pdfSource(folder, gid) { return linked.pdfSource(this, String(folder), String(gid)); }
   async addRendered(folder, gid, pages) { return linked.addRendered(this, String(folder), String(gid), pages); }
+  async pdfFailed(folder, gid) { return linked.pdfFailed(this, String(folder), String(gid)); }
 
   // Gallery `gid` moved to library folder `to` — a series owner with every chapter of its series,
   // unless `series` is false (a series with a gallery out of the library — its folder hidden or being
@@ -1301,9 +1304,10 @@ export class Library {
     return true;
   }
 
-  // Series links among galleries just joined or brought back (a folder's check, galleries an earlier
-  // version set aside) that point at galleries the library doesn't have, or that don't point back,
-  // dropped (db.js _tidySeriesLinks).
+  // Series links among galleries just joined, read again or brought back (a folder's check, galleries
+  // an earlier version set aside) that a gallery the library has contradicts — a chapter that names
+  // another series, an owner that doesn't list its chapter — dropped (db.js _tidySeriesLinks). A link
+  // to a gallery the library doesn't have is kept (R15): it may be in a folder not added back yet.
   _tidyLinks(gids) {
     const owners = new Set();
     for (const gid of gids) {
@@ -1311,14 +1315,17 @@ export class Library {
       if (!meta) continue;
       const next = { ...meta };
       if (Array.isArray(meta.chapters)) {
-        const kept = meta.chapters.filter(c => String(c?.id) === gid || String(this._metaGet(c?.id)?.parentId || '') === gid);
+        const kept = meta.chapters.filter(c => {
+          const chapter = String(c?.id) === gid ? null : this._metaGet(c?.id);
+          return !chapter || String(chapter.parentId || '') === gid;
+        });
         if (kept.length !== meta.chapters.length) { if (kept.length > 1) next.chapters = kept; else delete next.chapters; }
         if (kept.length > 1) owners.add(gid);
       }
       if (meta.parentId) {
         const owner = this._metaGet(meta.parentId);
-        if (!owner?.chapters?.some(c => String(c?.id) === gid)) delete next.parentId;
-        else owners.add(String(meta.parentId));
+        if (owner && !owner.chapters?.some(c => String(c?.id) === gid)) delete next.parentId;
+        else if (owner) owners.add(String(meta.parentId));
       }
       if (JSON.stringify(next) === JSON.stringify(meta)) continue;
       this._tx(() => {

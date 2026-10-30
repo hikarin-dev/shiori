@@ -40,6 +40,7 @@ export const OPS = new Set([
   'publishFeed', 'changeRevision', 'changesSince', 'integritySnapshot', 'clearAll', 'archiveGallery',
   'diskWrites', 'resetDiskWrites',
   'foldersList', 'folderAdd', 'folderRemove', 'folderSetDefault', 'folderHide', 'folderShow', 'folderClaim', 'folderScan', 'moveGallery', 'pdfsWaiting', 'pdfSource', 'addRendered',
+  'pdfFailed',
 ]);
 // Of those, what only the app's own pages may do: change which folders the library is kept in.
 const OWN_OPS = new Set(['folderAdd', 'folderRemove', 'folderSetDefault', 'folderHide', 'folderShow', 'folderClaim']);

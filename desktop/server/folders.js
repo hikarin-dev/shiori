@@ -31,6 +31,7 @@ import crypto from 'node:crypto';
 import { owner as claims, lifecycle, linked as linkedSource, BackendError } from './shared.js';
 import { libraryId, replaceFile } from './files.js';
 import { scanLibrary } from './scan.js';
+import { fingerprintNow } from './linked.js';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS roots (
@@ -509,7 +510,9 @@ export class Folders {
   // app itself — heard as it starts, every few seconds while it runs (so a window can tell one that
   // ended unheard), as it goes and as it ends. `progress(done, total, found, step)`: `step` the label
   // of the step under way, when the work goes in steps (each counted on its own). `work` resolves
-  // { found, updated?, left?, stopped, result? }; this resolves `result` (what a check found), else that.
+  // { found, updated?, problems?, left?, stopped, result? } — `problems`, how many things it couldn't
+  // read or join; `left`, galleries a move couldn't take — and the job's last message carries each of
+  // them that isn't 0. This resolves `result` (what a check found), else that.
   async _announce(id, { labelKey, doneKey, foundKey }, work) {
     const dir = this._row(id)?.path || '';
     const title = path.basename(dir) || dir || id;
@@ -530,6 +533,7 @@ export class Folders {
       });
       last.found = out.found;
       if (out.updated) last.updated = out.updated;
+      if (out.problems) last.problems = out.problems;
       if (out.left) last.left = out.left;
       say(out.stopped ? 'cancelled' : 'done');
       return out.result ?? out;
@@ -550,25 +554,27 @@ export class Folders {
     if (reachable && access !== 'mine') throw this._refusal(id);
     return this._queue(id, 'scan', (job) => this._announce(id, { labelKey: 'lf.task_checking', doneKey: 'lf.task_done' }, async (progress) => {
       const found = await this.library._bulkRun(() => scanLibrary(this.library, { roots: [id], stopped: () => job.stop, onProgress: progress }));
-      return { found: found.added.length, updated: found.updated.length, stopped: found.stopped, result: found };
+      return { found: found.added.length, updated: found.updated.length, problems: found.problems.length, stopped: found.stopped, result: found };
     }));
   }
 
   // Every folder shown that this library may write to checked, each through its own queue, one after
   // another (a check of one already under way is joined). Resolves what they found, together.
   async rescan() {
-    const all = { moved: [], missing: [], found: [], added: [], updated: [], removed: 0, stopped: false };
+    const all = { moved: [], missing: [], found: [], added: [], updated: [], removed: 0, problems: [], stopped: false };
     const run = this._rescanning = { stop: false };
     try {
       for (const id of this.activeRoots()) {
         if (run.stop) { all.stopped = true; break; }
         const found = await this.scan(id).catch(() => null);   // hidden or being removed meanwhile: left out
         if (!found) continue;
-        for (const k of ['moved', 'missing', 'found', 'added', 'updated']) all[k].push(...found[k]);
+        for (const k of ['moved', 'missing', 'found', 'added', 'updated', 'problems']) all[k].push(...found[k]);
         all.removed += found.removed;
         all.stopped ||= found.stopped;
       }
     } finally { if (this._rescanning === run) this._rescanning = null; }
+    // One a folder's check found gone that a later one found moved there by hand isn't missing.
+    all.missing = all.missing.filter(gid => !all.moved.includes(gid));
     return all;
   }
 
@@ -723,8 +729,9 @@ export class Folders {
   // ── removed.json ──
   // Source `source` of folder `root` noted as removed from the library (linked-source.js removed.json),
   // so a check doesn't add it again: read, changed and written whole, one write at a time per folder,
-  // through the gate (`work` as writable). Resolves once it is written — before what it stands for is
-  // deleted — and rejects when it can't be.
+  // through the gate (`work` as writable). The note carries the source's fingerprint as its files are
+  // now (as a check reads it), not as the index last had it. Resolves once it is written — before what
+  // it stands for is deleted — and rejects when it can't be.
   noteRemoved(root, source, { work = null } = {}) {
     const run = (this._removed.get(root) || Promise.resolve()).then(() => this._writeRemoved(root, source, work));
     this._removed.set(root, run.catch(() => {}));
@@ -734,7 +741,8 @@ export class Folders {
     this.assertWritable(root, work);
     const file = path.join(this.dir(root), ...linkedSource.REMOVED_FILE.split('/'));
     const text = await fsp.readFile(file, 'utf8').catch((e) => { if (e.code === 'ENOENT') return null; throw e; });
-    const list = linkedSource.withRemoved(linkedSource.parseRemoved(text), source);
+    const fingerprint = await fingerprintNow(this.library, root, source) ?? source.fingerprint;
+    const list = linkedSource.withRemoved(linkedSource.parseRemoved(text), { ...source, fingerprint });
     await fsp.mkdir(path.dirname(file), { recursive: true });
     await replaceFile(file, Buffer.from(linkedSource.removedText(list)));
   }
