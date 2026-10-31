@@ -280,7 +280,7 @@ test('R17: deleting several linked galleries at once notes every source as remov
   await Promise.all(gids.map(g => library.deleteGallery(g)));
   const file = path.join(other, '.shiori', 'linked', 'removed.json');
   const noted = () => (fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).removed.map(r => r.path).sort() : []);
-  for (let i = 0; i < 100 && noted().length < 3; i++) await sleep(20);
+  await library.folders.publishRemoved(id);   // once the folder's notes written before it are
   assert.deepEqual(noted(), ['One', 'Three', 'Two']);
   assert.equal((await library.folderScan(id)).added, 0, 'none is added again');
   assert.ok(fs.existsSync(path.join(other, 'One', '001.png')), 'their pictures stay');
@@ -551,4 +551,120 @@ test('P7: a removal that moves its galleries elsewhere reports each one moved or
   for (const g of gids.slice(2)) assert.equal(placeOf(library, g), to);
   for (const g of gids.slice(0, 2)) assert.equal(library._metaGet(g), null, 'left with the folder, forgotten');
   assert.ok(fs.existsSync(path.join(other, 'Mv 0', 'metadata.json')));
+});
+
+// ── The second review's findings (plans/library-storage-refactor-review-2.md), reproduced as it did ──
+
+test('R17: a note whose file something holds for a moment as it is replaced (a reader, an antivirus scan) is written all the same', async (t) => {
+  const { library, other } = await open(t);
+  pictures(other, { One: [1], Two: [2] });
+  const { id } = await library.folderAdd(other);
+  assert.equal((await library.folderScan(id)).added, 2);
+  let held = 2;
+  inject(t, 'rename', (from, to) => to.endsWith('removed.json') && held-- > 0, 'EPERM', { promises: true });
+  for (const { gid } of library._s('SELECT gid FROM files WHERE source IS NOT NULL').all()) await library.deleteGallery(gid);
+  await library.folders.publishRemoved(id);
+  const file = path.join(other, '.shiori', 'linked', 'removed.json');
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).removed.map(r => r.path).sort(), ['One', 'Two']);
+});
+
+test('F01: another folder at a library folder\'s path is not it, and a gallery\'s old place holding another folder is not the gallery\'s: nothing there is claimed, written or deleted', async (t) => {
+  const { library, dir, other } = await open(t);
+  const { id } = await library.folderAdd(other);
+  await library.folderSetDefault(id);
+  const [kept, gone] = [await gallery(library, 'Same Name'), await gallery(library, 'Replaced')];
+  await library.folderSetDefault(library.primaryId);
+  // A folder put by hand where a gallery's was (that one moved aside): the gallery's delete leaves it.
+  fs.renameSync(path.join(other, 'Replaced'), path.join(dir, 'Replaced aside'));
+  fs.mkdirSync(path.join(other, 'Replaced'));
+  fs.writeFileSync(path.join(other, 'Replaced', 'notes.txt'), 'mine');
+  await library.deleteGallery(gone);
+  await sleep(100);   // what it left deleted, once that commits
+  // The library folder's drive away, another disk given its letter: another library's folder there.
+  fs.renameSync(other, path.join(dir, 'away'));
+  fs.mkdirSync(path.join(other, '.shiori'), { recursive: true });
+  fs.writeFileSync(path.join(other, '.shiori', 'library.json'), JSON.stringify({ format: 'shiori-library', version: 1, id: 'f0f0f0f0f0f0f0f0' }));
+  fs.mkdirSync(path.join(other, 'Same Name'));
+  fs.writeFileSync(path.join(other, 'Same Name', 'personal-notes.txt'), 'mine');
+  library.folders._probes.clear();   // its claim as last read, gone stale
+  const listed = (await library.foldersList()).find(f => f.id === id);
+  await library.deleteGallery(kept);
+  await sleep(100);
+  assert.equal(listed.access, 'unavailable');
+  assert.ok(fs.existsSync(path.join(dir, 'away', 'Replaced', 'notes.txt')), 'the folder put in the gallery\'s place stays');
+  assert.ok(fs.existsSync(path.join(other, 'Same Name', 'personal-notes.txt')), 'the other library\'s folder stays');
+  assert.ok(!fs.existsSync(path.join(other, '.shiori', 'owner.json')), 'and is never claimed');
+  assert.equal(await reason(library.folderClaim(id)), 'unavailable');
+});
+
+test('F02: a removal\'s move into a folder hidden or removed while it is copied is refused — the gallery stays where it was, left — and the copy goes', async (t) => {
+  for (const how of ['remove', 'hide']) {
+    const { library, other, third } = await open(t);
+    const { id } = await library.folderAdd(other);
+    const { id: to } = await library.folderAdd(third);
+    await library.folderSetDefault(id);
+    const gid = await gallery(library, `Moving ${how}`);
+    await library.folderSetDefault(library.primaryId);
+    const cp = fs.promises.cp;
+    let release, reached;
+    const held = new Promise(r => { release = r; });
+    const copying = new Promise(r => { reached = r; });
+    fs.promises.cp = async (...args) => { reached(); await held; return cp.apply(fs.promises, args); };
+    t.after(() => { fs.promises.cp = cp; });
+    const heard = heardJobs(library);
+    await library.folderRemove(id, { moveTo: to });
+    await copying;
+    if (how === 'remove') { await library.folderRemove(to); await settled(library, to); } else await library.folderHide(to);
+    release();
+    await settled(library, id);
+    fs.promises.cp = cp;
+    const last = heard.filter(m => m.gid === `folder-${id}`).at(-1);
+    assert.deepEqual([how, last.status, last.found, last.left], [how, 'done', 0, 1]);
+    assert.equal(placeOf(library, gid), null, 'forgotten with its folder — not kept as the other one\'s');
+    assert.ok(fs.existsSync(path.join(other, `Moving ${how}`, 'images', '0001.png')), 'its files stay where they were');
+    assert.deepEqual(fs.readdirSync(third).filter(n => n !== '.shiori'), [], 'no copy left there');
+  }
+});
+
+test('F03: a picture that can\'t take its place as it commits is read from where it was written, placed later, and a removal keeps the folder until it is', async (t) => {
+  const { library, other } = await open(t);
+  const { id } = await library.folderAdd(other);
+  await library.folderSetDefault(id);
+  const gid = await gallery(library, 'Translated');
+  const at = { galleryId: gid, pageNum: 1 };
+  await library.putTranslatedPage(at, png(9), null);
+  await library.folderSetDefault(library.primaryId);
+  const final = path.join(other, 'Translated', 'translated', '0001.png');
+  const restore = inject(t, 'renameSync', (from, to) => from.endsWith('.shiori-new') && to === final, 'EACCES');
+  await library.putTranslatedPage(at, png(10), null);
+  assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1, 'translated')), [...pngBytes(10)], 'read from where it was written');
+  const heard = heardJobs(library);
+  await library.folderRemove(id);
+  await settled(library, id);
+  assert.deepEqual([heard.at(-1).errorKey, heard.at(-1).unsaved, rootRow(library, id)?.state], ['lf.task_kept', 1, 'shown'], 'kept: its folder lacks the picture');
+  restore();
+  await library.folderRemove(id);
+  await settled(library, id);
+  assert.equal(rootRow(library, id), undefined, 'forgotten once it is in its place');
+  assert.deepEqual([...fs.readFileSync(final)], [...pngBytes(10)]);
+});
+
+test('F12: a linked gallery deleted while its note can\'t be written stays removed: no check adds its source again, and the note is written later', async (t) => {
+  const { library, other } = await open(t);
+  pictures(other, { Linked: [1, 2] });
+  const { id } = await library.folderAdd(other);
+  assert.equal((await library.folderScan(id)).added, 1);
+  const { gid } = library._s('SELECT gid FROM files WHERE source IS NOT NULL').get();
+  const file = path.join(other, '.shiori', 'linked', 'removed.json');
+  const overlay = path.join(other, '.shiori', 'linked', gid);
+  const restore = inject(t, 'rename', (from, to) => to.endsWith('removed.json'), 'ENOSPC', { promises: true });
+  await library.deleteGallery(gid);
+  await library.folders.publishRemoved(id);
+  assert.deepEqual([fs.existsSync(file), fs.existsSync(overlay)], [false, true], 'not written yet: its overlay stays till it is');
+  assert.equal((await library.folderScan(id)).added, 0, 'not added again meanwhile');
+  restore();
+  assert.equal((await library.folderScan(id)).added, 0, 'nor once the note is written, at the next check');
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).removed.map(r => r.path), ['Linked']);
+  assert.ok(!fs.existsSync(overlay), 'its overlay goes then');
+  assert.ok(fs.existsSync(path.join(other, 'Linked', '001.png')), 'its source stays');
 });

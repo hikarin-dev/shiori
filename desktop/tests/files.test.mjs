@@ -101,9 +101,9 @@ test('adding a page or changing metadata never writes the other pages again; the
   for (const n of [1, 2]) await library.pagePut(gid, n, png(n));
   await library.files.place(gid);
   const dir = dirOf(library, gid);
-  assert.deepEqual(tree(dir), ['images/0001.png', 'images/0002.png'], 'pages moved in at once; descriptions not yet');
+  assert.deepEqual(tree(dir), ['images/0001.png', 'images/0002.png', 'metadata.json'], 'pages moved in at once; descriptions not yet (its metadata.json binds the folder to it from the start)');
   await library.files.flush();
-  assert.ok(fs.existsSync(path.join(dir, 'metadata.json')), 'written when the app closes (or after a quiet while)');
+  assert.ok(fs.existsSync(path.join(dir, 'image_records.json')), 'written when the app closes (or after a quiet while)');
   const before = ['0001.png', '0002.png'].map(f => identity(path.join(dir, 'images', f)));
 
   await library.pagePut(gid, 3, png(3));

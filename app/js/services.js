@@ -86,16 +86,23 @@ async function buildCover(msg) {
   return null;
 }
 
-// A job asked to stop at `since` that nothing answers for — its runner gone (a service worker stopped,
+// A job asked to stop at `asked` that nothing answers for — its runner gone (a service worker stopped,
 // a tab or the desktop app closed) — ended here, so its row doesn't sit there for good: once longer
 // than a running job takes to say it is alive (a folder job does every 5 s, saved at most as often)
-// has passed with no word from it since.
+// has passed with no word from it. Quiet is counted from the later of the Stop and the job's last
+// word, so a last update in Stop's own millisecond doesn't keep the row, and a runner that answers
+// after the Stop and then dies is watched on until it has been quiet that long; a live one is heard
+// sooner and never ended here. Each Stop watches on its own: once the row ends, the others let go.
 const SILENT_MS = 12000;
-function endIfSilent(gid, kind, since) {
-  setTimeout(async () => {
+function endIfSilent(gid, kind, asked) {
+  const watch = (wait) => setTimeout(async () => {
     const row = (await platform.jobs.current()).find(j => String(j.gid) === gid && j.kind === kind);
-    if (row && !['done', 'error', 'cancelled'].includes(row.status) && (row.at || 0) < since) platform.jobs.publish({ gid, kind, status: 'cancelled' });
-  }, SILENT_MS);
+    if (!row || ['done', 'error', 'cancelled'].includes(row.status)) return;
+    const quiet = Date.now() - Math.max(asked, row.at || 0);
+    if (quiet >= SILENT_MS) platform.jobs.publish({ gid, kind, status: 'cancelled' });
+    else watch(SILENT_MS - quiet);
+  }, wait);
+  watch(SILENT_MS);
 }
 
 function getCover(msg) {

@@ -139,3 +139,10 @@ test('a check skips what was removed — unless its files changed — and an ove
     found: [{ kind: 'dir', path: 'Back', fingerprint: 'B' }] });
   assert.deepEqual(restored.new, [{ title: { kind: 'dir', path: 'Back', fingerprint: 'B' }, gid: '1700000000001' }], 'its overlay keeps its identity');
 });
+
+test('F12: a removed source whose overlay is still there (its removal couldn\'t delete it yet) stays removed', () => {
+  const overlays = [{ galleryId: '1700000000002', source: { kind: 'dir', path: 'Gone', fingerprint: 'G' } }];
+  const found = [{ kind: 'dir', path: 'Gone', fingerprint: 'G' }];
+  const out = matchSources({ overlays, found, removed: [{ kind: 'dir', path: 'Gone' }] });   // a note still owed: no fingerprint
+  assert.deepEqual([out.new, out.skipped.map(s => [s.title.path, s.reason])], [[], [['Gone', 'removed']]]);
+});

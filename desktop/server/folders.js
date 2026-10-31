@@ -29,7 +29,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { owner as claims, lifecycle, linked as linkedSource, BackendError } from './shared.js';
-import { libraryId, replaceFile } from './files.js';
+import { libraryId, libraryIdAt, replaceFile } from './files.js';
 import { scanLibrary } from './scan.js';
 import { fingerprintNow } from './linked.js';
 
@@ -45,13 +45,17 @@ CREATE TABLE IF NOT EXISTS roots (
 );
 CREATE TABLE IF NOT EXISTS places (gid TEXT PRIMARY KEY, root TEXT NOT NULL) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS places_root ON places (root);
+CREATE TABLE IF NOT EXISTS removed_notes (gid TEXT PRIMARY KEY, root TEXT NOT NULL, overlay TEXT NOT NULL, source TEXT NOT NULL) WITHOUT ROWID;
 `;
 // `roots`: `first` for the library's own folder; `epoch` the claim's counter this library last held it
 // at (folder-owner.js: to tell, once it is added back, whether another app had it meanwhile);
 // `removal` while it is being removed: { moveTo, discard, before } — where its galleries go first, whether
 // the person chose to lose what can't be written there, and the state it goes back to should the
-// removal be kept. The galleries out of the library: those placed in a folder that isn't shown (one no
-// longer known among them).
+// removal be kept. `removed_notes`: a linked gallery let go (deleted, or moved out as the library's
+// own) whose source's note in its folder's removed.json is still owed (publishRemoved) — written by the
+// transaction that let it go, so the note is never lost, and its overlay (`overlay`, its path as
+// files.js keeps it) deleted once the note is there. The galleries out of the library: those placed in
+// a folder that isn't shown (one no longer known among them).
 const UNMOUNTED = `CREATE VIEW IF NOT EXISTS unmounted AS
   SELECT gid, root FROM places WHERE root NOT IN (SELECT id FROM roots WHERE state = 'shown')`;
 const CLAIM_TTL = 5000;   // how long a folder's claim, as read, is taken as it is
@@ -69,7 +73,7 @@ export class Folders {
     this.library = library;
     this._probes = new Map();    // id → { read, access, at }: its claim as last read (for CLAIM_TTL)
     this._jobs = new Map();      // id → the job in its queue: { kind, stop, cancel, phase, run }
-    this._removed = new Map();   // id → its removed.json's last write (noteRemoved: one at a time)
+    this._removed = new Map();   // id → its removed.json's last write (publishRemoved: one at a time)
     this._rescanning = null;     // the check of every folder under way: { stop }
     this._dormant = false;       // whether galleries an earlier version set aside are still kept (`dormant`)
   }
@@ -84,12 +88,14 @@ export class Folders {
     lib._tx(() => this._migrateIn());
     lib._db.exec(UNMOUNTED);
     lib._stmts.clear();
-    await lib.asFolderWork(() => this._restoreSetAside());
+    await this._restoreSetAside();
     for (const id of this.ids()) this.probe(id);
   }
-  // Removals the app was closed in the middle of go on.
+  // Removals the app was closed in the middle of go on, and notes of removed sources still owed are
+  // written.
   resume() {
     for (const r of this._rows()) if (r.state === 'removing') this._remove(r.id).catch(() => {});
+    for (const { root } of this.library._s('SELECT DISTINCT root FROM removed_notes').all()) this.publishRemoved(root).catch(() => {});
   }
 
   // The folders and places earlier versions kept, inside one transaction: the folders listed in the
@@ -163,7 +169,8 @@ export class Folders {
         const there = !b.files || fs.existsSync(lib.files._abs(b.files.path));
         const taken = lib._s('SELECT 1 FROM stats WHERE gid = ?').get(gid) || lib._s('SELECT 1 FROM meta WHERE gid = ?').get(gid)
           || (b.pages || []).some(p => lib._pageRowByKey(p.key));
-        lib._tx(() => {
+        const home = b.files ? lib.files._split(b.files.path).root : this.has(b.home) ? b.home : root;
+        lib.asFolderWork(home, () => lib._tx(() => {
           lib._s('DELETE FROM dormant WHERE gid = ?').run(gid);
           if (!there || taken) return;
           if (b.meta) lib._metaPutRaw(parse(b.meta));
@@ -174,10 +181,10 @@ export class Folders {
           if (f) {
             lib._s(`INSERT OR REPLACE INTO files (gid, path, format, state, packed_at, pending, unpack, used_at, tail, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
               .run(gid, f.path, f.format, f.state, f.packed_at ?? null, f.pending ?? 0, f.unpack ?? 0, f.used_at ?? null, f.tail ?? null, f.source ?? null);
-          } else lib._s('INSERT OR REPLACE INTO places (gid, root) VALUES (?, ?)').run(gid, this.has(b.home) ? b.home : root);   // kept nowhere yet: still that folder's
+          } else lib._s('INSERT OR REPLACE INTO places (gid, root) VALUES (?, ?)').run(gid, home);   // kept nowhere yet: still that folder's
           lib._logIn(gid);
           back.push(gid);
-        });
+        }));
       } catch (e) { console.warn(`[shiori] gallery ${gid} couldn't come back:`, String(e?.message || e)); }
     }
     lib._tidyLinks(back);
@@ -250,10 +257,12 @@ export class Folders {
   // it can, which app keeps it: `access` (folder-owner.js — 'mine', 'taken' or 'unknown') and the claim
   // as read (`read`), read again at most every few seconds. One no app holds (or this library let go
   // itself, untouched since) is claimed now — written, then read back; one that can't be is not this
-  // library's.
+  // library's. A folder is reached only where its path holds it (_here): another folder there — a
+  // drive letter or mount point given to another disk, the folder replaced — is not it, and is
+  // neither claimed, read as it, nor written to (F01).
   probe(id, { fresh = false } = {}) {
     const row = this._row(id);
-    if (!row || !isDir(row.path)) return { reachable: false, access: null, read: null };
+    if (!row || !this._here(row)) return { reachable: false, access: null, read: null };
     let hit = this._probes.get(row.id);
     if (fresh || !hit || Date.now() - hit.at >= CLAIM_TTL) {
       hit = { ...this._access(row), at: Date.now() };
@@ -261,6 +270,9 @@ export class Folders {
     }
     return { reachable: true, access: hit.access, read: hit.read };
   }
+  // Whether folder `row`'s path holds that folder now: its .shiori/library.json names its id — the
+  // file is written once, when the folder first joins a library (libraryId), never again.
+  _here(row) { return libraryIdAt(row.path) === row.id; }
   _access(row) {
     const me = this._me();
     const read = this._readClaim(row.path);
@@ -367,12 +379,13 @@ export class Folders {
   // kept, as it is now).
   async _addBack(row, { force }) {
     const me = this._me();
-    const read = this._readClaim(row.path);
-    if (['taken', 'unknown'].includes(claims.access(read, me, row.epoch)) && !force) {
+    const here = this._here(row);   // else another folder is at its path: that one is added, once this removal ends
+    const read = here ? this._readClaim(row.path) : null;
+    if (here && ['taken', 'unknown'].includes(claims.access(read, me, row.epoch)) && !force) {
       throw Object.assign(refusal('invalid', 'claimed', `${row.path} is in use by another app`), { owner: this._ownerOf(read) });
     }
     const job = this._jobs.get(row.id);
-    if (claims.unchangedSince(read, me, row.epoch) && job?.phase !== 'forget') {
+    if (here && claims.unchangedSince(read, me, row.epoch) && job?.phase !== 'forget') {
       if (job) {
         job.cancel = job.stop = true;
         await job.run.catch(() => {});
@@ -461,6 +474,7 @@ export class Folders {
   async claim(id) {
     const row = this._row(id);
     if (!row) throw new BackendError('not-found', `no library folder ${id}`);
+    if (!this._here(row)) throw this._refusal(id);   // out of reach, or another folder at its path
     const claim = this._claimFor(row.path, { force: true, held: row.epoch });
     this._setEpoch(id, claim.epoch);
     this._probes.delete(id);
@@ -487,7 +501,8 @@ export class Folders {
   // Job `kind` ('scan' or 'removal') on folder `id`, through its queue (folder-lifecycle.js jobPlan):
   // started when nothing runs there; joined when the same work runs; a removal asked for during a check
   // stops the check, then runs; a check asked for during a removal is refused. `start(job)` runs it, as
-  // folder work (library.js asFolderWork) — `job.stop` asks it to stop where it is.
+  // that folder's work (library.js asFolderWork: what it changes of galleries placed there, out of the
+  // library, is let through; nothing else is) — `job.stop` asks it to stop where it is.
   _queue(id, kind, start) {
     const running = this._jobs.get(id);
     const plan = lifecycle.jobPlan(running?.kind ?? null, kind);
@@ -497,7 +512,7 @@ export class Folders {
     const before = plan === 'after' ? (running.stop = true, running.run.catch(() => {})) : null;
     job.run = (async () => {
       await before;
-      return this.library.asFolderWork(() => start(job));
+      return this.library.asFolderWork(id, () => start(job));
     })().finally(() => { if (this._jobs.get(id) === job) this._jobs.delete(id); });
     this._jobs.set(id, job);
     return job.run;
@@ -603,11 +618,13 @@ export class Folders {
 
   // What folder `id`, being removed, still owes it, then the folder forgotten:
   // 1. its galleries moved to the folder chosen, when one was — each on its own, and each either moved
-  //    or left with the folder (it can't be: reported as `left`);
+  //    or left with the folder (it can't be — that folder hidden, removed or taken over before the
+  //    move commits: reported as `left`);
   // 2. every gallery placed in it, while the folder can be written to, written back there — what waits
-  //    settled in, a folder of its own for one with none, every description that differs — and counted
-  //    saved only when that succeeded; while it can't be written to, a gallery counts as saved only
-  //    when nothing waits for it (its folder has everything);
+  //    settled in (pictures not yet in their place among it), a folder of its own for one with none,
+  //    every description that differs — and counted saved only when that succeeded; while it can't be
+  //    written to, a gallery counts as saved only when nothing waits for it (its folder has
+  //    everything); the notes of linked sources let go from it written too;
   // 3. how it ends (folder-lifecycle.js removalOutcome): with something not saved — unless the person
   //    chose to lose it — the removal is kept, the folder back as it was before (lf.task_kept);
   // 4. its claim let go (one out of reach keeps it: the next app to add it asks first), and the folder
@@ -649,7 +666,11 @@ export class Folders {
       for (const gid of required) if (!saved.has(gid) && !discard && !job.stop && await this._writeBack(gid)) saved.add(gid);
     } else for (const gid of required) if (this._nothingWaits(gid)) saved.add(gid);
     if (job.stop) return stopped();
-    const { forget, unsaved } = lifecycle.removalOutcome({ required, saved, discard });
+    // The notes of linked sources let go from it (deleted before, or moved out above) written there:
+    // one still owed is as unsaved as a gallery (forgotten, the folder would add its source again).
+    await this.publishRemoved(id, { work: 'removal' });
+    const owed = lib._s('SELECT gid FROM removed_notes WHERE root = ?').all(id).map(r => r.gid);
+    const { forget, unsaved } = lifecycle.removalOutcome({ required: [...required, ...owed], saved, discard });
     if (!forget) {
       this._setState(id, before);
       files.resume();
@@ -675,11 +696,12 @@ export class Folders {
     } catch { return false; }
   }
   // Whether gallery `gid` has nothing only the library has: a folder of its own, its descriptions
-  // written, nothing staged for it, nothing to take out of its archive.
+  // written, nothing staged for it, no picture of its own still to take its place there (F03), nothing
+  // to take out of its archive.
   _nothingWaits(gid) {
     const files = this.library.files;
     const row = files._row(gid);
-    return !!row && !row.pending && !row.unpack && !files._staged(gid).length && !files._stagedOwn(gid).length;
+    return !!row && !row.pending && !row.unpack && !files._staged(gid).length && !files._stagedOwn(gid).length && !files._unplaced(gid).length;
   }
   // The galleries of folder `id` with something only this library has (forgetting the folder would lose
   // it) — a record with no folder of its own among them (a series' record, a chapter not downloaded:
@@ -693,10 +715,10 @@ export class Folders {
   // Folder `id` let go: its claim released, when this library holds it. One out of reach can't be: its
   // claim stays (decision 9), and the next app to add it asks first.
   _release(id) {
-    const dir = this.dir(id);
-    if (!isDir(dir)) return;
-    const next = claims.releasedClaim(this._readClaim(dir), this._me());
-    if (next) try { this._writeClaim(dir, next); } catch {}
+    const row = this._row(id);
+    if (!row || !this._here(row)) return;
+    const next = claims.releasedClaim(this._readClaim(row.path), this._me());
+    if (next) try { this._writeClaim(row.path, next); } catch {}
     this._probes.delete(id);
   }
 
@@ -718,6 +740,7 @@ export class Folders {
     }
     lib._tx(() => {
       lib._s('DELETE FROM roots WHERE id = ?').run(id);
+      lib._s('DELETE FROM removed_notes WHERE root = ?').run(id);   // written, or lost by the person's choice
       if (this._dormant) lib._s('DELETE FROM dormant WHERE root = ?').run(id);
       if (lib._kvGet('defaultRoot') === id) lib._kvSet('defaultRoot', null);
       lib._logIn('*');
@@ -727,23 +750,51 @@ export class Folders {
   }
 
   // ── removed.json ──
-  // Source `source` of folder `root` noted as removed from the library (linked-source.js removed.json),
-  // so a check doesn't add it again: read, changed and written whole, one write at a time per folder,
-  // through the gate (`work` as writable). The note carries the source's fingerprint as its files are
-  // now (as a check reads it), not as the index last had it. Resolves once it is written — before what
-  // it stands for is deleted — and rejects when it can't be.
-  noteRemoved(root, source, { work = null } = {}) {
-    const run = (this._removed.get(root) || Promise.resolve()).then(() => this._writeRemoved(root, source, work));
+  // Inside the transaction letting linked gallery `gid` of folder `root` go (deleted, or moved out as
+  // the library's own): its source `source` is noted as removed (`removed_notes`), so a check of the
+  // folder never adds it again — published to removed.json once that commits (publishRemoved), and
+  // till then counted as removed by every check (removedWaiting). `overlay`: its overlay's path,
+  // deleted once the note is there.
+  removedIn(root, gid, overlay, source) {
+    this.library._s('INSERT OR REPLACE INTO removed_notes (gid, root, overlay, source) VALUES (?, ?, ?, ?)').run(String(gid), root, overlay, JSON.stringify(source));
+  }
+  // The sources of folder `root` noted as removed but not yet in its removed.json, as a check weighs
+  // them (linked-source.js isRemoved): where they were, whatever their files are now.
+  removedWaiting(root) {
+    return this.library._s('SELECT source FROM removed_notes WHERE root = ?').all(root)
+      .map(({ source }) => { const { fingerprint, ...where } = parse(source); return where; });
+  }
+  // The notes folder `root` is owed written to its removed.json (linked-source.js), then the overlays
+  // they stand for deleted: read, changed and written whole, one write at a time per folder, through
+  // the gate (`work` as writable). Each note carries its source's fingerprint as its files are now (as
+  // a check reads it), not as the index last had it. A note is cleared only once it is written; one
+  // that can't be now waits — tried again at the app's next start, the folder's next check, and by its
+  // removal, which doesn't forget a folder still owed one. Resolves whether none waits.
+  publishRemoved(root, { work = null } = {}) {
+    const run = (this._removed.get(root) || Promise.resolve()).then(() => this._publishRemoved(root, work));
     this._removed.set(root, run.catch(() => {}));
     return run;
   }
-  async _writeRemoved(root, source, work) {
-    this.assertWritable(root, work);
-    const file = path.join(this.dir(root), ...linkedSource.REMOVED_FILE.split('/'));
-    const text = await fsp.readFile(file, 'utf8').catch((e) => { if (e.code === 'ENOENT') return null; throw e; });
-    const fingerprint = await fingerprintNow(this.library, root, source) ?? source.fingerprint;
-    const list = linkedSource.withRemoved(linkedSource.parseRemoved(text), { ...source, fingerprint });
-    await fsp.mkdir(path.dirname(file), { recursive: true });
-    await replaceFile(file, Buffer.from(linkedSource.removedText(list)));
+  async _publishRemoved(root, work) {
+    const lib = this.library;
+    const notes = lib._s('SELECT gid, overlay, source FROM removed_notes WHERE root = ?').all(root);
+    if (!notes.length) return true;
+    try {
+      this.assertWritable(root, work);
+      const file = path.join(this.dir(root), ...linkedSource.REMOVED_FILE.split('/'));
+      let list = linkedSource.parseRemoved(await fsp.readFile(file, 'utf8').catch((e) => { if (e.code === 'ENOENT') return null; throw e; }));
+      for (const n of notes) {
+        const source = parse(n.source);
+        list = linkedSource.withRemoved(list, { ...source, fingerprint: await fingerprintNow(lib, root, source) ?? source.fingerprint });
+      }
+      await fsp.mkdir(path.dirname(file), { recursive: true });
+      await replaceFile(file, Buffer.from(linkedSource.removedText(list)));
+    } catch (e) {
+      console.warn(`[shiori] removed sources couldn't be noted in library folder ${root} yet:`, String(e?.message || e));
+      return false;
+    }
+    lib._tx(() => { for (const n of notes) lib._s('DELETE FROM removed_notes WHERE gid = ? AND source = ?').run(n.gid, n.source); });
+    for (const n of notes) await lib.files._removeOwn(n.overlay, n.gid, true, work);
+    return !lib._s('SELECT 1 FROM removed_notes WHERE root = ? LIMIT 1').get(root);
   }
 }

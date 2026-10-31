@@ -111,8 +111,8 @@ test('pages that arrive with no job and no reader are described once the gallery
   const gid = '1790500000031';
   await arrived(library, gid, 'Quiet');
   await until(() => folderOf(library, gid) && fs.existsSync(path.join(folderOf(library, gid), 'images', '0002.png')), 'pages moved in');
-  assert.equal(described(library, gid), false, 'not described yet');
-  await until(() => described(library, gid), 'described after a quiet while');
+  assert.equal(described(library, gid, 'image_records.json'), false, 'not described yet');
+  await until(() => described(library, gid, 'image_records.json'), 'described after a quiet while');
 });
 
 test('an edit made by hand is written at once: metadata and tags, a cover, a series', async (t) => {

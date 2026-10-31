@@ -377,8 +377,10 @@ const _txError = (tx) => tx._refused || tx.error || new BackendError('aborted', 
 // (forgotten while the write was under way) is refused: the transaction is aborted and rejects with
 // BackendError 'invalid', reason 'hidden' — so a hide or a removal and a write in flight are
 // serialized by IndexedDB, whatever the write names (a series expanded, an id inferred). Folder work
-// (`tx._work`: a removal's write-back, a folder read back, a migration) writes such galleries by
-// design and isn't checked. A record with no stat (metadata alone) is in no folder.
+// (`tx._work`, _workOn: a removal's write-back, a folder read back, a migration) writes such galleries
+// by design — those placed in the folder it is about, as the transaction has them, alone: a removal
+// moving a gallery out is checked where it goes (F02). A record with no stat (metadata alone) is in
+// no folder.
 // A gallery kept in a folder is marked as having changes its folder lacks (UNDESCRIBED_STORE: { gid,
 // rev }, the revision of this change) until _describe has written them there — `mark: false` for a
 // change no description shows (its size, a series' totals).
@@ -406,12 +408,19 @@ function _logIn(tx, gid, { mark = true } = {}) {
   if (id === '*') return;
   const stat = tx.objectStore(GALLERY_STORE).get(id);
   stat.onsuccess = () => _placeStateIn(tx, stat.result, (state) => {
-    if (!tx._work && !mounted(state)) { _refuseIn(tx, id); return; }
+    if (!mounted(state) && !_workOn(tx._work, stat.result?.folder || BROWSER)) { _refuseIn(tx, id); return; }
     entry.folder = stat.result?.folder || null;
     if (entry.folder && entry.mark) _markIn(tx, id, entry.rev);
   });
 }
 const _markIn = (tx, gid, rev) => tx.objectStore(UNDESCRIBED_STORE).put({ gid, rev });
+// Folder work: { kind, folder } — folder `folder`'s own work of kind 'removal' (its removal's moves and
+// write-back), 'adopt' (a check reading it back), 'forget' (its removal forgetting it) or 'migration'
+// (what an earlier version kept of it brought back; `folder` '*': a field derived from what each
+// gallery holds, filled in for every one). The kind it is for folder `folder` — null for any other: the
+// write gate lets a removal write to its own folder alone (_rootOf), the mount check lets the work
+// change galleries placed there alone (_logIn), never where a removal moves them to (F02).
+const _workOn = (work, folder) => (work && (work.folder === folder || work.folder === '*') ? work.kind : null);
 // The state of the place of the gallery whose stat record is `stat`, read in `tx` and passed to
 // `found`: its folder's, or this browser's — 'shown' for one with no stat, null for a folder the
 // library doesn't know.
@@ -676,14 +685,14 @@ async function _access(id) {
 }
 // The write gate: folder `id`'s handle when this context may change its files now — it can be
 // reached, this library holds its claim, and its state allows it (folder-lifecycle.js writeAllowed:
-// shown; while it is being removed, that removal's own write-back alone: `work` 'removal') — else
+// shown; while it is being removed, that removal's own write-back alone: `work` its work, _workOn) — else
 // null. Every change to the files of a library folder goes through here (its claim file aside:
 // _holds, and folder-library.js letting it go); what may not be written waits in this browser (`spilled`), or keeps its mark.
 async function _rootOf(id, { work = null } = {}) {
   const folder = await _folderById(id);
   if (!folder) return null;
   const a = await _access(id);
-  return writeAllowed({ state: folder.state, owned: a.owned, reachable: a.state === 'granted', work }) ? folder.handle : null;
+  return writeAllowed({ state: folder.state, owned: a.owned, reachable: a.state === 'granted', work: _workOn(work, id) }) ? folder.handle : null;
 }
 const _usable = async (id, opts) => !!(await _rootOf(id, opts));
 // Folder `id`'s handle when this context may read it (its permission granted), whatever its state.
@@ -968,14 +977,17 @@ const _completed = (tx, value) => _withFiles(tx).then(() => value);
 // Files let go in `tx`, deleted once it has committed — unless it only forgets them (`_keepFiles`:
 // a folder removed from the library keeps its files) — through the write gate (as `tx._work` may
 // write): a folder this context may not write to keeps them. A gallery that leaves its folder takes
-// its own folder there too (`_goneLater`, `gid` the gallery's: _ownsDir) — a linked one noting its
-// source as removed there first (`linked`), so a check of the folder doesn't add it again; should
-// that note not be written, its overlay stays.
+// its own folder there too (`_goneLater`, `gid` the gallery's: _ownsDir). A linked one (`linked`, its
+// source) leaves a note that its source was removed, written by the same transaction (REMOVED_NOTE),
+// so no check of the folder adds it again — its overlay goes once the note is in removed.json
+// (_publishRemoved).
 function _unlinkLater(tx, key) {
   _afterFiles(tx).files.push(key);
 }
 function _goneLater(tx, folder, dir, gid, linked = null) {
-  if (folder && dir) _afterFiles(tx).dirs.push({ folder, dir, gid: String(gid), linked });
+  if (!folder || !dir) return;
+  if (linked && !tx._keepFiles) tx.objectStore(FOLDER_STORE).put({ id: `${REMOVED_NOTE}${gid}`, folder, dir, gid: String(gid), linked });
+  _afterFiles(tx).dirs.push({ folder, dir, gid: String(gid), linked });
 }
 // `tx._unlinked` settles once they are gone (at once for a transaction that didn't commit).
 function _afterFiles(tx) {
@@ -997,24 +1009,57 @@ async function _unlink({ files, dirs }, work) {
     if (root) await folderFiles.removeFile(folder, root, `${dir}/${path}`).catch(() => {});
   }
   for (const { folder, dir, gid, linked } of dirs) {
+    if (linked) continue;   // its overlay: once its note is written (below)
     const root = await _rootOf(folder, { work }).catch(() => null);
-    if (!root || !(await _ownsDir(folder, root, dir, gid))) continue;
-    if (linked && !(await _noteRemoved(folder, linked, work).then(() => true, () => false))) continue;
-    await folderFiles.removeDir(folder, root, dir).catch(() => {});
+    if (root && await _ownsDir(folder, root, dir, gid)) await folderFiles.removeDir(folder, root, dir).catch(() => {});
   }
+  for (const folder of new Set(dirs.filter(d => d.linked).map(d => d.folder))) await _publishRemoved(folder, work);
 }
-// A source of folder `id` that left the library (deleted, or moved to another place): noted in the
-// folder's removed.json so a check doesn't add it again — read, changed and written while lock
-// shiori:removed:<folder> is held, so notes made at once (two deletes, two tabs, the service worker)
-// all stay. Rejects when it can't be noted (the folder may not be written to now, or the list can't
-// be read).
-async function _noteRemoved(id, linked, work = null) {
-  const root = await _rootOf(id, { work });
-  if (!root) throw new BackendError('unavailable', `library folder ${id} can't be written to`);
-  await folderFiles.withLock(`shiori:removed:${id}`, async () => {
-    const list = withRemoved(parseRemoved(await folderFiles.readText(id, root, REMOVED_FILE)), linked);
-    await folderFiles.writeFile(id, root, REMOVED_FILE, removedText(list));
+
+// ── Notes of removed sources (linked-source.js removed.json) ──
+// A linked gallery's source that left its folder (the gallery deleted, or moved to another place as
+// the library's own) is noted by the transaction letting it go, in the folders store — which every
+// write transaction holds — as { id: REMOVED_NOTE + gid, folder, dir (its overlay), gid, linked (the
+// source) }, and counted as removed by every check of the folder (folder-library.js) until it is in
+// the folder's removed.json (F12).
+const REMOVED_NOTE = '$removed:';
+// The notes still owed to folder `id` (to every folder: no `id`).
+async function _removedNotes(id = null) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const req = _tx(db, FOLDER_STORE, 'readonly').objectStore(FOLDER_STORE).getAll(IDBKeyRange.bound(REMOVED_NOTE, `${REMOVED_NOTE}~`));   // a gallery's id sorts below '~'
+    req.onsuccess = () => resolve((req.result || []).filter(n => id == null || n.folder === id));
+    req.onerror = () => reject(req.error);
   });
+}
+// The notes owed to folder `id` written to its removed.json, then cleared and the overlays they stand
+// for deleted — read, changed and written while lock shiori:removed:<folder> is held, so notes made at
+// once (two deletes, two tabs, the service worker) all stay — through the write gate (`work` as
+// _rootOf). A note is cleared only once it is written; one that can't be now (the folder may not be
+// written to, its list can't be read) waits: tried again as a page opens (foldersPending), at the
+// folder's next check, and by its removal, which doesn't forget a folder still owed one. Resolves
+// whether it wrote every note it found.
+async function _publishRemoved(id, work = null) {
+  return folderFiles.withLock(`shiori:removed:${id}`, async () => {
+    const notes = await _removedNotes(id);
+    if (!notes.length) return true;
+    const root = await _rootOf(id, { work }).catch(() => null);
+    if (!root) return false;
+    try {
+      let list = parseRemoved(await folderFiles.readText(id, root, REMOVED_FILE));
+      for (const n of notes) list = withRemoved(list, n.linked);
+      await folderFiles.writeFile(id, root, REMOVED_FILE, removedText(list));
+    } catch { return false; }
+    const db = await openDB();
+    await new Promise((resolve, reject) => {
+      const tx = _tx(db, FOLDER_STORE, 'readwrite');
+      for (const n of notes) tx.objectStore(FOLDER_STORE).delete(n.id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(_txError(tx));
+    });
+    for (const n of notes) if (await _ownsDir(id, root, n.dir, n.gid)) await folderFiles.removeDir(id, root, n.dir).catch(() => {});
+    return true;
+  }).catch(() => false);
 }
 
 // ── A gallery's descriptions in its folder ──
@@ -1072,7 +1117,7 @@ const _textsOf = (wanted) => Object.fromEntries(DESCRIPTIONS.map(name => [name, 
 // transaction — its mark cleared if no change came since the descriptions were read (a later one is
 // written by the next describe) and its stamp kept. Resolves { ok }: whether its folder now describes
 // it as the library had it — not when it is kept in no folder of its own, nor in one this context may
-// not write to (the gate; `work` 'removal' for a removal's write-back): its mark stays, for
+// not write to (the gate; `work` a removal's own, for its write-back): its mark stays, for
 // settleFolders or the removal. A gallery kept in an archive (`packed`) is described there as it was
 // read until it changes; changed, it is unpacked first (_unpackLocked), then described in its folder.
 async function _describe(gid, { work = null } = {}) {
@@ -1180,7 +1225,7 @@ function _withPicturesOf(rec, copy) {
 // its folder becomes the library's own, its source noted as removed there (so a check of the folder
 // doesn't add it again). A gallery already there has only what waits in this browser moved out
 // (settling it) — or, kept in an archive there (`packed`), is unpacked into a folder beside it. `tick()`
-// after each picture; `work` 'removal' for a removal's own moves and write-back. Resolves whether it
+// after each picture; `work` a removal's own (_workOn), for its moves and write-back. Resolves whether it
 // moved anything.
 async function _relocate(gid, to, tick = () => {}, { work = null } = {}) {
   return _writing(gid, (w) => _relocateLocked(gid, to, tick, work, w));
@@ -1251,7 +1296,9 @@ async function _relocateOnce(gid, to, tick, work, w) {
     }
     await _place(home, _coverFiles(cover), w);
   }
-  if (home && !home.root) throw new BackendError('unavailable', `library folder ${to} went out of reach`);
+  // The place it goes to must still take it as it commits: a folder hidden, removed or taken over while
+  // the copy was made is refused here or, in between, by the transaction's mount check (F02).
+  if (home && !(home.root && await _usable(to, { work }))) throw new BackendError('unavailable', `library folder ${to} can't take it now`);
   const db = await openDB();
   let changed = false, tx;
   await new Promise((resolve, reject) => {
@@ -1268,9 +1315,10 @@ async function _relocateOnce(gid, to, tick, work, w) {
     curStat.onsuccess = () => {
       const cur = curStat.result;
       if (!cur || (cur.folder || BROWSER) !== from || _picturesOf(now.result || [], curCover.result || null) !== before) { changed = true; tx.abort(); return; }
-      // The place it leaves hidden or removed meanwhile: out of the library, nothing of it moves.
+      // The place it leaves hidden or removed meanwhile: out of the library, nothing of it moves —
+      // unless this is that place's own removal moving it out.
       _placeStateIn(tx, cur, (state) => {
-        if (!work && !mounted(state)) { _refuseIn(tx, gid); return; }
+        if (!mounted(state) && !_workOn(work, from)) { _refuseIn(tx, gid); return; }
         const copies = new Map(pages.map(r => [r.url, r]));
         for (const rec of now.result || []) images.put(_stash(tx, _withPicturesOf(rec, copies.get(rec.url)), _refIds(rec, PAGE), PAGE));
         // The cover record as it is now (thumbnails made meanwhile kept), with its images moved.
@@ -1403,6 +1451,7 @@ const _folderLibrary = createFolderLibrary({
   // the places, the write gate, the claims
   folders: _folders, folderById: _folderById, folderWrite: _folderWrite, forgetGrant: (id) => _grants.delete(id),
   placeOf: _placeOf, placeKey: _placeKey, access: _access, rootOf: _rootOf, usable: _usable, readRootOf: _readRootOf,
+  removedNotes: _removedNotes, publishRemoved: _publishRemoved,
   me: _me, myLabel: _myLabel, readClaim: _readClaim, writeClaim: _writeClaim, noteEpoch: _noteEpoch, randomId: _randomId,
   // the pictures' storage in folders
   writing: _writing, relocate: _relocate, reserveDir: _reserveDir, describe: _describe, cancelDescribe: _cancelDescribe,
@@ -2116,7 +2165,7 @@ export async function backfillUploadDates() {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = _tx(db, [META_STORE, GALLERY_STORE], 'readwrite');
-    tx._work = 'migration';   // a field derived from what each holds: galleries out of the library too
+    tx._work = { kind: 'migration', folder: '*' };   // a field derived from what each holds: galleries out of the library too
     const metas = tx.objectStore(META_STORE);
     const galleries = tx.objectStore(GALLERY_STORE);
     for (const entry of missing) {

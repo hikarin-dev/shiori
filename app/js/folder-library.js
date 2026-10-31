@@ -129,9 +129,10 @@ async function _folderIdOf(handle) {
 // A folder the person picked (its handle) joins the library's folders, claimed by this library
 // (folder-owner.js). Its galleries are found by checking it (folderScan, which the caller runs next —
 // a task of its own). Added back while it is being removed, with its claim untouched since this
-// library let it go (unchangedSince), the removal ends and its galleries are back as they were;
-// otherwise once that removal has ended, as a folder never seen (another app had it meanwhile: what
-// the library has of it is out of date and goes, the check reading it as it is). Resolves { id,
+// library let it go (unchangedSince) and its removal short of forgetting it (_callOffRemoval), the
+// removal ends and its galleries are back as they were; otherwise once that removal has ended, as a
+// folder never seen (another app had it meanwhile: what the library has of it is out of date and
+// goes, the check reading it as it is). Resolves { id,
 // restored } — for a folder already among them, its id and `existed`. Refused (`invalid`): a folder
 // inside another of them or holding one (reason 'nested'), a copy of one of them (reason 'copy': it
 // carries the same id), and one another app holds (reason 'claimed', `owner` who) — unless `force`:
@@ -149,8 +150,8 @@ async function folderAdd(handle, { force = false } = {}) {
   if (got.refused) _refuse('claimed', 'the folder is in use by another app', { owner: _ownerOf(got.refused) });
   if (leaving && unchangedSince(read, me, leaving.epoch ?? null)) {
     if (got.changed) await K.writeClaim(id, handle, got.claim);
-    await _putPlace({ ...leaving, name: handle.name, handle, epoch: got.claim.epoch }, 'shown');
-    return { id, restored: (await _placedIn(id)).length };
+    if (await _callOffRemoval({ ...leaving, name: handle.name, handle, epoch: got.claim.epoch })) return { id, restored: (await _placedIn(id)).length };
+    // Its removal is past its point of no return (F11): once it has ended, the folder is added afresh.
   }
   return folderFiles.withLock(FOLDER_LOCK(id), async () => {
     const f = await K.folders();
@@ -161,6 +162,41 @@ async function folderAdd(handle, { force = false } = {}) {
     return { id, restored: 0 };
   });
 }
+// Folder `record.id`'s removal called off, the folder shown again as `record` has it — in a
+// transaction that finds it still being removed and short of its point of no return (`removal.phase`
+// 'forget', set by _enterForget in a transaction of its own: IndexedDB puts one after the other).
+// Resolves whether it was.
+async function _callOffRemoval(record) {
+  let done = false;
+  await K.folderWrite((store, tx) => {
+    const req = store.get(record.id);
+    req.onsuccess = () => {
+      if (req.result?.state !== 'removing' || req.result.removal?.phase === 'forget') return;
+      const { removal, ...rest } = record;
+      store.put({ ...rest, state: 'shown' });
+      K.logIn(tx, '*');
+      done = true;
+    };
+  });
+  if (done) { folderFiles.forgetFolder(record.id); K.forgetGrant(record.id); K.muchLater(); }
+  return done;
+}
+// Removing folder `id`, its point of no return: from here it forgets the folder, and adding it back
+// waits for that (_callOffRemoval) — in a transaction that finds it still being removed (not added
+// back meanwhile). Resolves whether it was.
+async function _enterForget(id) {
+  let done = false;
+  await K.folderWrite((store) => {
+    const req = store.get(id);
+    req.onsuccess = () => {
+      if (req.result?.state !== 'removing') return;
+      store.put({ ...req.result, removal: { ...req.result.removal, phase: 'forget' } });
+      done = true;
+    };
+  });
+  return done;
+}
+
 // Folder `id` (read through `handle`) as the library lists it already — { id, restored, existed }, a
 // hidden one shown — or null when it doesn't. Refused when `handle` is a copy of one of them, or
 // nests in one or holds one.
@@ -309,23 +345,25 @@ async function _places(f) {
 
 // What folder `id`, removed, still owes it — while lock shiori:folder:<id> is held:
 // 1. its galleries moved to the place chosen, each on its own: `moved`, or `left` (one that couldn't
-//    be: it stays among the rest);
+//    be — that place hidden, removed or taken over before the move commits: it stays among the rest);
 // 2. every gallery still placed there (the required set) written back while the write gate lets its
-//    removal write there (`work` 'removal'): what waits in this browser moved out, a folder of its own
+//    removal write there (`work`: its own, _workOn): what waits in this browser moved out, a folder of its own
 //    for one with none, every description that differs — each confirmed positively (_writeBack).
-//    While it may not write there, a gallery with nothing waiting counts as saved;
+//    While it may not write there, a gallery with nothing waiting counts as saved. The notes of
+//    linked sources let go from it are written there too;
 // 3. folder-lifecycle.js removalOutcome: with something unsaved and the person not having chosen to
 //    lose it, the removal is kept — the folder back in the state it had before (a hidden one stays
 //    hidden), an error (`errorKey` 'lf.task_kept', `unsaved` and `left` how many);
-// 4. else the folder is let go (another app may take it without asking — one out of reach keeps its
-//    claim, and the next app to add it asks) and forgotten, its galleries' records with it.
+// 4. else its point of no return (_enterForget: from here adding it back waits), then the folder is
+//    let go (another app may take it without asking — one out of reach keeps its claim, and the next
+//    app to add it asks) and forgotten, its galleries' records with it.
 // `onProgress(done, total)` as it goes; it ends there once `stopped()`, or once the folder is added
 // back. Resolves { removed (galleries forgotten with it), moved, left, stopped }.
 async function folderSetAside(id, opts = {}) {
   return K.bulkRun(() => folderFiles.withLock(FOLDER_LOCK(id), () => _setAside(String(id), opts)));
 }
 async function _setAside(id, { onProgress = () => {}, stopped = () => false } = {}) {
-  const work = 'removal';
+  const work = { kind: 'removal', folder: id };   // folder work (db.js _workOn): this folder's removal
   const still = async () => (await K.folders()).removing.get(id) || null;
   const out = { removed: 0, moved: 0, left: 0, stopped: false };
   const halt = async () => (stopped() || !(await still()) ? { ...out, stopped: true } : null);
@@ -356,13 +394,18 @@ async function _setAside(id, { onProgress = () => {}, stopped = () => false } = 
   if (await K.usable(id, { work })) for (const g of required) if (!saved.has(String(g.galleryId)) && await _writeBack(id, g)) saved.add(String(g.galleryId));
   const end = await halt();
   if (end) return end;
+  // The notes of linked sources let go from it (deleted before, or moved out above) written there: one
+  // still owed is as unsaved as a gallery (forgotten, the folder would add its source again).
+  await K.publishRemoved(id, work);
+  const owed = (await K.removedNotes(id)).map(n => n.gid);
   const place = await still();
-  const { forget, unsaved } = removalOutcome({ required: required.map(g => String(g.galleryId)), saved, discard: !!place.removal?.discard });
+  const { forget, unsaved } = removalOutcome({ required: [...required.map(g => String(g.galleryId)), ...owed], saved, discard: !!place.removal?.discard });
   if (!forget) {
     await _putPlace(place, place.removal?.before || 'shown');
     throw Object.assign(new BackendError('unavailable', `what library folder ${id} is owed couldn't be written there: it stays`),
       { errorKey: 'lf.task_kept', unsaved: unsaved.length, ...(out.left ? { left: out.left } : {}) });
   }
+  if (!(await _enterForget(id))) return { ...out, stopped: true };   // added back meanwhile
   await _release(id).catch(() => {});
   await _forget(id);
   return { ...out, removed: required.length };
@@ -372,7 +415,7 @@ async function _setAside(id, { onProgress = () => {}, stopped = () => false } = 
 // Resolves whether it is confirmed saved: described there, nothing left in this browser, a folder of
 // its own.
 async function _writeBack(id, g) {
-  const gid = String(g.galleryId), work = 'removal';
+  const gid = String(g.galleryId), work = { kind: 'removal', folder: id };
   if (g.spilled) await K.relocate(gid, id, () => {}, { work }).catch(() => {});
   if (!g.dir) {
     await K.writing(gid, async (w) => {
@@ -407,7 +450,8 @@ async function _release(id) {
 // checked as one never seen.
 async function _forget(id) {
   await _dropRecords(id);
-  await K.folderWrite((store, tx) => { store.delete(id); K.logIn(tx, '*'); });
+  const owed = await K.removedNotes(id);   // written, or lost by the person's choice
+  await K.folderWrite((store, tx) => { store.delete(id); for (const n of owed) store.delete(n.id); K.logIn(tx, '*'); });
   folderFiles.forgetFolder(id);
   K.muchLater();
 }
@@ -421,7 +465,7 @@ async function _dropRecords(folder) {
     await new Promise((resolve, reject) => {
       const tx = K.tx(db, [S.STORE, S.META, S.GALLERY, S.COVER, S.BLOB], 'readwrite');
       tx._keepFiles = true;
-      tx._work = 'forget';
+      tx._work = { kind: 'forget', folder };
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(K.txError(tx));
       for (const gid of gids.slice(at, at + 50)) K.deleteIn(tx, gid, (meta) => gone.push([gid, meta]));
@@ -434,9 +478,11 @@ async function _dropRecords(folder) {
 // name, moving }] } (`moving`: its galleries are moved elsewhere first) — a folder an earlier version
 // removed among them (IndexedDB 19 made it one being removed, so its removal writes back what only the
 // library has of it before forgetting it). Galleries an earlier version set aside (the dormant store)
-// are brought back first — out of the library still while their folder is hidden or being removed.
+// are brought back first — out of the library still while their folder is hidden or being removed —
+// and notes of removed sources still owed to a folder are written there (db.js publishRemoved).
 async function foldersPending() {
   await _unsetAside().catch(() => {});
+  for (const id of new Set((await K.removedNotes().catch(() => [])).map(n => n.folder))) K.publishRemoved(id);
   const { removing } = await K.folders();
   return { setAside: [...removing.values()].map(f => ({ id: f.id, name: f.name || '', moving: !!f.removal?.moveTo })) };
 }
@@ -474,7 +520,7 @@ async function _restoreDormant(folder) {
     const restore = there && !known.has(rec.gid);
     await new Promise((resolve, reject) => {
       const tx = K.tx(db, [S.STORE, S.META, S.GALLERY, S.COVER, S.BLOB, S.DORMANT], 'readwrite');
-      tx._work = 'migration';
+      tx._work = { kind: 'migration', folder };
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(K.txError(tx));
       tx.objectStore(S.DORMANT).delete(rec.gid);
@@ -490,7 +536,7 @@ async function _restoreDormant(folder) {
     });
     if (restore) { back.push(rec.gid); known.add(rec.gid); }
   }
-  await _tidySeriesLinks(back);
+  await _tidySeriesLinks(back, folder);
   for (const gid of back) K.publishFeed(gid);
   return back.length;
 }
@@ -557,7 +603,7 @@ async function _check(id, { onProgress = () => {}, stopped = () => false } = {})
     step.tick();
   }
   const changed = [...run.added, ...run.updated];
-  await _tidySeriesLinks(changed);
+  await _tidySeriesLinks(changed, run.id);
   for (const gid of changed) K.publishFeed(gid);
   return { added: run.added.length, updated: run.updated.size, problems: run.problems, stopped: !!stopped() };
 }
@@ -743,7 +789,7 @@ async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, s
   const S = K.stores;
   const stored = await new Promise((resolve, reject) => {
     const tx = K.tx(db, [S.STORE, S.META, S.GALLERY, S.COVER, S.BLOB], 'readwrite');
-    tx._work = 'adopt';
+    tx._work = { kind: 'adopt', folder };
     let waits = false;
     tx.oncomplete = () => resolve(true);
     tx.onerror = () => (waits ? resolve(false) : reject(K.txError(tx)));
@@ -898,12 +944,15 @@ async function _overlayOf(id, root, gid) {
   const images = (await folderFiles.list(id, root, `${overlayDir(gid)}/images`).catch(() => [])).filter(e => e.kind === 'file').map(e => ({ name: e.name }));
   return { source: read.source, images };
 }
-// The sources removed from the library the folder notes (removed.json): [] when it has none — or
-// can't be read (reported).
+// The sources removed from the library the folder notes (removed.json: none when it can't be read,
+// reported), and those noted but not written there yet (db.js removedNotes, written first when they
+// can be): removed as well, where they were whatever their files are now (F12).
 async function _removedOf(run) {
-  try { return parseRemoved(await folderFiles.readText(run.id, run.root, REMOVED_FILE)); } catch {
+  await K.publishRemoved(run.id);
+  const owed = (await K.removedNotes(run.id)).map(({ linked: { fingerprint, ...where } }) => where);
+  try { return [...parseRemoved(await folderFiles.readText(run.id, run.root, REMOVED_FILE)), ...owed]; } catch {
     run.problems.push({ path: REMOVED_FILE, reason: 'unreadable' });
-    return [];
+    return owed;
   }
 }
 
@@ -1086,7 +1135,7 @@ async function addRendered(folder, gid, pages) {
     if (run.known.has(String(gid))) return String(gid);
     const made = await _adoptLinked(run, { ...source, rendered: pages.length }, { gid: String(gid) });
     if (!made) throw new BackendError('aborted', `the pages drawn for gallery ${gid} couldn't join the library`);
-    await _tidySeriesLinks([made]);
+    await _tidySeriesLinks([made], folder);
     K.publishFeed(made);
     return made;
   });
@@ -1102,11 +1151,11 @@ async function pdfFailed(folder, gid) {
 }
 
 // ── Series links among galleries read back ──
-// A series' links among galleries just read back: a link to a gallery the library doesn't have (yet —
-// its folder may be checked later, or hidden) is kept; one a present gallery contradicts is dropped —
-// a chapter listed whose record names another series, a chapter naming a series whose list leaves it
-// out. The series that remain have their totals worked out.
-async function _tidySeriesLinks(gids) {
+// A series' links among galleries just read back from folder `folder`: a link to a gallery the library
+// doesn't have (yet — its folder may be checked later, or hidden) is kept; one a present gallery
+// contradicts is dropped — a chapter listed whose record names another series, a chapter naming a
+// series whose list leaves it out. The series that remain have their totals worked out.
+async function _tidySeriesLinks(gids, folder) {
   if (!gids.length) return;
   const owners = new Set();
   for (const gid of gids) {
@@ -1134,7 +1183,7 @@ async function _tidySeriesLinks(gids) {
     const db = await K.openDB();
     await new Promise((resolve, reject) => {
       const tx = K.tx(db, [S.META, S.GALLERY], 'readwrite');
-      tx._work = 'adopt';   // galleries just read back, or brought back still out of the library
+      tx._work = { kind: 'adopt', folder };   // galleries just read back there, or brought back still out of the library
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(K.txError(tx));
       const next = { ...meta };

@@ -838,6 +838,122 @@ test('A22: Stop on a folder job nothing answers for ends its row', { skip }, asy
   });
 });
 
+test('F13: a dead folder job is ended though its last word shares Stop\'s millisecond, answers late, or is stopped twice', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const out = await page.evaluate(async () => {
+      const platform = await import('/app/js/platform.js');
+      const { services } = await import('/app/js/services.js');
+      const job = (gid) => ({ gid, kind: 'folder', status: 'progress', title: gid, labelKey: 'lf.task_checking', done: 1, total: 9 });
+      const stop = (gid) => services.handle({ type: 'STOP_JOB', galleryId: gid, kind: 'folder' });
+      const status = async (gid) => (await platform.jobs.current()).find(j => j.gid === gid)?.status;
+      // Its last word and the Stop in one millisecond.
+      const now = Date.now, at = now();
+      Date.now = () => at;
+      try { await platform.jobs.publish(job('folder-same')); await stop('folder-same'); } finally { Date.now = now; }
+      // Stopped twice.
+      await platform.jobs.publish(job('folder-twice'));
+      await stop('folder-twice'); await stop('folder-twice');
+      // A last word after the Stop (saved: progress is saved at most every 5 s), then nothing.
+      await platform.jobs.publish(job('folder-late'));
+      await stop('folder-late');
+      await new Promise(r => setTimeout(r, 6000));
+      await platform.jobs.publish(job('folder-late'));
+      await new Promise(r => setTimeout(r, 7000));
+      const lateAt13 = await status('folder-late');
+      await window.__t.until(async () => await status('folder-late') === 'cancelled', 12000);
+      return { same: await status('folder-same'), twice: await status('folder-twice'), lateAt13, late: await status('folder-late') };
+    });
+    assert.deepEqual(out, { same: 'cancelled', twice: 'cancelled', lateAt13: 'progress', late: 'cancelled' });
+  });
+});
+
+test('F02: a removal\'s move into a folder removed or hidden while it is copied is refused — the gallery stays where it was, left, readable', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const out = {};
+    for (const how of ['remove', 'hide']) {
+      const { id: a, gid } = await setup(page, `F02 A ${how}`, 'Moving');
+      await described(page, `F02 A ${how}/Moving/image_records.json`);
+      out[how] = await page.evaluate(async (a, gid, how) => {
+        const api = window.__api, t = window.__t;
+        const { id: b } = await api.folders.add(await t.folder(`F02 B ${how}`));
+        await api.folders.setDefault('browser');
+        const open = t.holdWrites((await t.png(30)).size);   // its page, as it is copied
+        await api.folders.remove(a, { moveTo: b });
+        const aside = api.folders.setAside(a);
+        await t.sleep(300);
+        if (how === 'remove') { await api.folders.remove(b); await api.folders.setAside(b); } else await api.folders.hide(b);
+        open();
+        const r = await aside;
+        return { r, kept: await t.ls(`F02 A ${how}/Moving/images`), copy: (await t.ls(`F02 B ${how}`)).filter(n => n !== '.shiori/'), gone: !(await api.galleries.get(gid)) };
+      }, a, gid, how);
+    }
+    const left = { r: { removed: 1, moved: 0, left: 1, stopped: false }, kept: ['0001.png'], copy: [], gone: true };
+    assert.deepEqual(out, { remove: left, hide: left });
+  });
+});
+
+test('F11: a folder added back just as its removal lets it go is added afresh once the removal has ended — never restored, then forgotten', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const { id, gid } = await setup(page, 'F11', 'Saved');
+    await described(page, 'F11/Saved/image_records.json');
+    const out = await page.evaluate(async (id, gid) => {
+      const api = window.__api, t = window.__t;
+      await api.folders.setDefault('browser');
+      // The removal's last writes held: its claim let go.
+      const proto = FileSystemWritableFileStream.prototype, write = proto.write, close = proto.close;
+      let open, reached;
+      const gate = new Promise((r) => { open = r; }), releasing = new Promise((r) => { reached = r; });
+      proto.write = async function (data) { this.__release = typeof data === 'string' && data.includes('"shiori-owner"') && data.includes('"owner": null'); return write.call(this, data); };
+      proto.close = async function () { if (this.__release) { reached(); await gate; } return close.call(this); };
+      try {
+        await api.folders.remove(id);
+        const aside = api.folders.setAside(id);
+        await releasing;
+        const added = api.folders.add(await t.folder('F11'));
+        await t.sleep(300);
+        open();
+        const removal = await aside;
+        const readd = await added;
+        const listed = (await api.folders.list()).some(f => f.id === id);
+        const scan = await api.folders.scan(id);
+        return { stopped: removal.stopped, readd, listed, added: scan.added, back: (await api.meta.get(gid))?.title?.english };
+      } finally { proto.write = write; proto.close = close; }
+    }, id, gid);
+    assert.deepEqual(out, { stopped: false, readd: { id, restored: 0 }, listed: true, added: 1, back: 'Saved' });
+  });
+});
+
+test('F12: a linked gallery deleted while its note can\'t be written stays removed: no check adds its source again, and the note is written later', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const out = await page.evaluate(async () => {
+      const api = window.__api, t = window.__t;
+      await t.write('F12/Linked/1.png', await t.png(40));
+      const { id } = await api.folders.add(await t.folder('F12'));
+      const added = (await api.folders.scan(id)).added;
+      const [gid] = await api.transfer.ids();
+      const proto = FileSystemWritableFileStream.prototype, write = proto.write;
+      proto.write = async function (data) {
+        if (typeof data === 'string' && data.includes('"shiori-linked-removed"')) throw new DOMException('injected', 'QuotaExceededError');
+        return write.call(this, data);
+      };
+      let meanwhile;
+      try {
+        await api.galleries.delete(gid);
+        await t.sleep(300);
+        meanwhile = { noted: !!(await t.text('F12/.shiori/linked/removed.json'))?.includes('Linked'), overlay: (await t.ls(`F12/.shiori/linked/${gid}`)).length > 0, again: (await api.folders.scan(id)).added };
+      } finally { proto.write = write; }
+      const again = (await api.folders.scan(id)).added;
+      return { added, meanwhile, again, noted: JSON.parse(await t.text('F12/.shiori/linked/removed.json')).removed.map(r => r.path),
+        overlay: (await t.ls(`F12/.shiori/linked/${gid}`)).length > 0, source: await t.ls('F12/Linked') };
+    });
+    assert.deepEqual(out, { added: 1, meanwhile: { noted: false, overlay: true, again: 0 }, again: 0, noted: ['Linked'], overlay: false, source: ['1.png'] });
+  });
+});
+
 test('A23: a PDF that can\'t be drawn is noted, and not tried again until its file changes', { skip }, async () => {
   await fresh(async (ctx) => {
     const page = await tab(ctx);

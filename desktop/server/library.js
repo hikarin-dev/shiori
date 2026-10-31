@@ -485,38 +485,38 @@ export class Library {
   }
 
   // Inside the transaction recording them, pictures _writeOwn wrote noted where they belong
-  // (files.js ownStaged, ownPlaced) and, once it commits, renamed into the gallery's folder
-  // (_settleOwn) — staged ones wait for the gallery's next settle.
+  // (files.js ownStaged; ownPlaced, the rename into place still owed recorded with them) and, once it
+  // commits, renamed into the gallery's folder (_settleOwn) — staged ones wait for the gallery's next
+  // settle.
   _commitOwn(moves) {
     this._recordOwn(moves);
-    const folder = moves.filter(m => !m.staged);
-    if (folder.length) this._afterCommit(() => this._settleOwn(folder));
+    const gids = new Set(moves.filter(m => !m.staged).map(m => m.gid));
+    if (gids.size) this._afterCommit(() => this._settleOwn(gids));
   }
   _recordOwn(moves) {
     for (const m of moves) {
       if (m.staged) this.files.ownStaged(m.gid, m.rel, m.staged, m.ref.size);
-      else this.files.ownPlaced(m.gid, m.rel);
+      else this.files.ownPlaced(m.gid, m.rel, `${m.rel}${m.temp.slice(m.file.length)}`);   // `<rel>.<hex>.shiori-new`
     }
   }
 
-  // Pictures written by _writeOwn renamed into place (the index has just recorded them). One that
-  // can't be yet (a reader holding the old one) is tried again shortly.
-  _settleOwn(moves) {
-    for (const { temp, file } of moves) {
-      const attempt = (left) => {
-        try { fs.renameSync(temp, file); } catch (e) {
-          if (left) setTimeout(() => attempt(left - 1), 200).unref?.();
-          else console.warn('[shiori] a picture could not take its place:', file, String(e?.message || e));
-        }
-      };
+  // The galleries' pictures written by _writeOwn renamed into place (files.js placeOwn: the index has
+  // just recorded them), each time through the write gate. One that can't be yet (a reader holding the
+  // old one) is tried again shortly; still not, it waits for the gallery's next settle (the app's next
+  // start, its folder shown or taken back, its removal's write-back), read from where it was written
+  // meanwhile.
+  _settleOwn(gids) {
+    for (const gid of gids) {
+      const attempt = (left) => { if (this.files.placeOwn(gid) && left) this._later(200, () => attempt(left - 1)); };
       attempt(5);
     }
   }
 
-  // Where gallery `gid`'s own file `rel` is, or null when the gallery has no folder.
+  // Where gallery `gid`'s own file `rel` is — the name it was written under while it waits to take its
+  // place (files.js unplaced) — or null when the gallery has no folder.
   _ownPath(gid, rel) {
     const dir = this.files.folderOf(gid);
-    return dir && ownName(rel) ? path.join(dir, ...rel.split('/')) : null;
+    return dir && ownName(rel) ? path.join(dir, ...this.files._ownName(gid, rel).split('/')) : null;
   }
 
   // `value` with every Blob in it written to the cache and referenced: { value, fresh, moves }
@@ -779,13 +779,15 @@ export class Library {
   // Gallery `gid` changed in this transaction ('*': which galleries are in the library changed — a
   // window catching up reads everything again). A gallery placed in a folder that is hidden or being
   // removed is out of the library: nothing changes it — not a series command reaching it, a move, a
-  // delete, nor a write that was under way as its folder was hidden — unless the change is the
+  // delete, nor a write that was under way as its folder was hidden — unless the change is that
   // folder's own work (asFolderWork); the transaction is refused (_mountCheck). Checked here, its place
-  // as it was, and again as the transaction commits, its place as it will be (_placesIn).
+  // as it was, and again as the transaction commits, its place as it will be (_placesIn): a removal's
+  // move out of its folder is let through as it leaves, and refused should the folder it goes to be
+  // out of the library by then (F02).
   _logIn(gid) {
     const id = String(gid);
     if (this._inTx.logged.has(id)) return;
-    if (id !== '*' && !this._folderWork.getStore()) this._mountCheck(id);
+    if (id !== '*') this._mountCheck(id);
     this._inTx.logged.add(id);
     const rev = ++this._lastRev;
     this._s('INSERT INTO changes (rev, gid, at) VALUES (?, ?, ?)').run(rev, id, Date.now());
@@ -796,17 +798,17 @@ export class Library {
   }
 
   // Refused (BackendError 'invalid', reason 'hidden'): gallery `gid` is placed in a folder that isn't
-  // shown (folder-lifecycle.js mounted) — or no longer known.
+  // shown (folder-lifecycle.js mounted) — or no longer known — and this isn't that folder's own work.
   _mountCheck(gid) {
     const at = this._s('SELECT p.root, r.state FROM places p LEFT JOIN roots r ON r.id = p.root WHERE p.gid = ?').get(gid);
-    if (!at || lifecycle.mounted(at.state)) return;
+    if (!at || lifecycle.mounted(at.state) || at.root === this._folderWork.getStore()) return;
     throw Object.assign(new BackendError('invalid', `gallery ${gid} is in a hidden library folder`), { reason: 'hidden' });
   }
 
   // Inside a transaction about to commit: the galleries it changed (`logged`) placed. A gallery has a
   // place while it has a stat record: the folder its files are in, else — a gallery just made, with no
   // files yet — where new galleries go; a record with metadata only has none. Then none may be left in
-  // a folder out of the library (_mountCheck), unless this is the folder's own work.
+  // a folder out of the library (_mountCheck), unless this is that folder's own work.
   _placesIn(logged) {
     for (const gid of logged) {
       if (gid === '*') continue;
@@ -815,15 +817,17 @@ export class Library {
       else if (row) this._s('INSERT INTO places (gid, root) VALUES (?, ?) ON CONFLICT(gid) DO UPDATE SET root = excluded.root WHERE root <> excluded.root')
         .run(gid, this.files._split(row.path).root);
       else this._s('INSERT OR IGNORE INTO places (gid, root) VALUES (?, ?)').run(gid, this.folders.defaultRoot());
-      if (!this._folderWork.getStore()) this._mountCheck(gid);
+      this._mountCheck(gid);
     }
   }
 
-  // `fn`, and everything it awaits or starts, as the folders' own work (folders.js: a check adopting
-  // what a folder holds, a removal writing back and forgetting, what earlier versions kept taken over;
-  // files.js: recording where a gallery's files are): its transactions may change galleries out of the
-  // library. Scoped to that work alone — a window's request is never inside it.
-  asFolderWork(fn) { return this._folderWork.run(true, fn); }
+  // `fn`, and everything it awaits or starts, as folder `root`'s own work (folders.js: a check adopting
+  // what it holds, its removal writing back, moving out and forgetting, what earlier versions kept of
+  // it taken over; files.js: recording where a gallery's files are in it): its transactions may change
+  // galleries placed there while it is out of the library — those alone, never one placed elsewhere
+  // (where a removal moves a gallery must be in the library as the move commits: F02). Scoped to that
+  // work alone — a window's request is never inside it.
+  asFolderWork(root, fn) { return this._folderWork.run(String(root), fn); }
 
   async changeRevision() { return Number(this._s('SELECT max(rev) AS rev FROM changes').get()?.rev || 0); }
 
@@ -1909,7 +1913,7 @@ export class Library {
     if (state.staged.length) this.files.pageStored(gid);
     if (!silent) this.publishFeed(gid);
     else this.scheduleGallerySize(gid);
-    await this._placeOwn(state.moves.filter(m => !m.staged));
+    if (state.moves.some(m => !m.staged)) await this._placeOwn(gid);
     return { pages: state.staged.length };
   }
 
@@ -1965,21 +1969,17 @@ export class Library {
     try { this._tx(() => this.files.deleteIn(gid)); } catch {}
   }
 
-  // Pictures _writeOwn wrote, renamed into place now (their records have just been committed); one
-  // that can't be (a reader holding the file it replaces) is tried again for a few seconds, then
-  // reported — the write isn't done until every picture it recorded can be read.
-  async _placeOwn(moves) {
-    const failed = [];
-    for (const { temp, file } of moves) {
-      let placed = false;
-      for (let attempt = 0; attempt < 7 && !placed; attempt++) {
-        try { fs.renameSync(temp, file); placed = true; } catch {
-          await new Promise(r => setTimeout(r, 50 * 2 ** attempt));
-        }
-      }
-      if (!placed) failed.push(file);
+  // Gallery `gid`'s pictures _writeOwn wrote, renamed into place now (files.js placeOwn: their records
+  // have just been committed); one that can't be (a reader holding the file it replaces) is tried again
+  // for a few seconds, then reported — it waits for the gallery's next settle, read from where it was
+  // written meanwhile.
+  async _placeOwn(gid) {
+    let left = this.files.placeOwn(gid);
+    for (let attempt = 0; attempt < 7 && left; attempt++) {
+      await new Promise(r => setTimeout(r, 50 * 2 ** attempt));
+      left = this.files.placeOwn(gid);
     }
-    if (failed.length) throw new BackendError('aborted', `${failed.length} picture(s) could not take their place: ${failed[0]}`);
+    if (left) throw new BackendError('aborted', `${left} picture(s) of gallery ${gid} could not take their place yet`);
   }
 
   // ── Maintenance ──

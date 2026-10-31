@@ -24,7 +24,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { readDirectory, readEntry } from './zip.js';
 import { files as layout, linked as linkedSource, content } from './shared.js';
-import { descriptionStampOf, writeFlushed } from './files.js';
+import { descriptionStampOf, writeFlushed, classifyAt, ownedBy } from './files.js';
 import { linkRoot, adoptLinked } from './linked.js';
 
 const IMAGE = /\.(jpe?g|png|webp|gif|avif)$/i;
@@ -57,25 +57,16 @@ const stale = async (file, age) => {
 const unreadable = (e) => (e?.syscall ? 'unreadable' : 'corrupt');
 
 // Whether gallery `gid` has changes of its own not yet written to its folder or overlay — pages or
-// pictures staged, descriptions pending, an archive to unpack or being written, a settle or a
-// description under way — or no files at all: reading it again from its files would lose them, so it
-// isn't (the rule every re-read keeps, re-checked as it commits: "local changes win").
+// pictures staged or not yet in their place, descriptions pending, an archive to unpack or being
+// written, a settle or a description under way — or no files at all: reading it again from its files
+// would lose them, so it isn't (the rule every re-read keeps, re-checked as it commits: "local changes
+// win").
 export function localChanges(library, gid) {
   const files = library.files;
   const id = String(gid);
   const row = files._row(id);
   return !row || !!row.pending || !!row.unpack || row.tail != null || files._staged(id).length > 0 || files._stagedOwn(id).length > 0
-    || files._placing.has(id) || files._describing.has(id) || files._writing.has(id);
-}
-
-// What a folder of a library folder is (folder-content.js classifyFolder), from the descriptions it
-// holds (`items`: its entries).
-async function classifyAt(dir, items) {
-  const texts = {};
-  for (const name of content.OWN_FILES) {
-    if (items.some(i => i.isFile() && i.name === name)) texts[name] = await fsp.readFile(path.join(dir, name), 'utf8').catch(() => null);
-  }
-  return content.classifyFolder(texts);
+    || files._unplaced(id).length > 0 || files._placing.has(id) || files._describing.has(id) || files._writing.has(id);
 }
 
 // Every gallery of Shiori's own in library folder `root`, and what else it holds: { found: [{ rel,
@@ -526,10 +517,13 @@ export function startEntry(library, gid, meta, now = Date.now()) {
 
 // Temporary files and folders an interrupted write left in library folder `id` (TEMP, its own
 // .shiori/ included): gone once they are old enough that no write under way can be making them, and
-// not reserved by a move, unpack or archive still running (files.js _reserved) — A19. Resolves how many
-// went.
+// not reserved by a move, unpack or archive still running (files.js _reserved) — A19 — nor a picture
+// still to take its place (files.js unplaced: F03). Resolves how many went.
 async function sweepLeftovers(library, id) {
   const root = library.rootDir(id);
+  const files = library.files;
+  const waiting = new Set(library._s('SELECT gid, temp FROM unplaced').all()
+    .map(r => files.folderOf(r.gid) && path.join(files.folderOf(r.gid), ...r.temp.split('/'))).filter(Boolean));
   let removed = 0;
   const walk = async (dir, depth) => {
     for (const item of await fsp.readdir(dir, { withFileTypes: true }).catch(() => [])) {
@@ -540,23 +534,13 @@ async function sweepLeftovers(library, id) {
         continue;
       }
       const target = path.relative(root, abs.replace(/(\.[0-9a-f]{8,10})?\.shiori-(tmp|old|new)$/, '')).split(path.sep).join('/');
-      if (library.files._reserved.has(library.files._join(id, target)) || !await stale(abs, LEFTOVER_AGE_MS)) continue;
+      if (files._reserved.has(files._join(id, target)) || waiting.has(abs) || !await stale(abs, LEFTOVER_AGE_MS)) continue;
       await fsp.rm(abs, { recursive: true, force: true }).catch(() => {});
       removed++;
     }
   };
   await walk(root, 0);
   return removed;
-}
-
-// Whether folder `dir` is gallery `gid`'s own by what it holds — the overlay naming it (source.json),
-// for a linked gallery; else its description (folder-content.js) — so that a folder the index took for
-// a gallery's on another rule is never tidied (R01).
-async function ownedBy(dir, gid, linked) {
-  if (linked) return linkedSource.parseSource(await fsp.readFile(path.join(dir, linkedSource.SOURCE_FILE), 'utf8').catch(() => null))?.galleryId === gid;
-  const items = await fsp.readdir(dir, { withFileTypes: true }).catch(() => []);
-  const what = await classifyAt(dir, items);
-  return what.kind === 'gallery' && what.id === gid;
 }
 
 // Staged pages, cache files and a gallery folder's pictures no record refers to (a write that failed

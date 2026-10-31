@@ -47,7 +47,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { readDirectory, readEntry, writeZip, appendZip } from './zip.js';
-import { files as layout, linked as linkedSource, BackendError } from './shared.js';
+import { files as layout, linked as linkedSource, content, titles, BackendError } from './shared.js';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS files (
@@ -74,6 +74,12 @@ CREATE TABLE IF NOT EXISTS staged_own (
   size INTEGER NOT NULL,
   PRIMARY KEY (gid, rel)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS unplaced (
+  gid TEXT NOT NULL,
+  rel TEXT NOT NULL,
+  temp TEXT NOT NULL,
+  PRIMARY KEY (gid, rel)
+) WITHOUT ROWID;
 `;
 // `files`: one row per gallery with a place in the library folder; `state` 'packed' when it is
 // there, 'missing' when it was found gone; `pending` when its descriptions are out of date;
@@ -84,7 +90,11 @@ CREATE TABLE IF NOT EXISTS staged_own (
 // gallery's folder no page refers to any more, deleted when it is next settled. `retired`: a folder
 // or archive no gallery has any more (an archived gallery's folder), to delete. `staged_own`: a
 // picture of its own (`rel`) waiting in staging (`file`) to be added to its gallery's archive — or
-// moved into its folder, written while that couldn't be (folders.js writable). `source`: for a
+// moved into its folder, written while that couldn't be (folders.js writable). `unplaced`: a picture
+// of its own written into its gallery's folder beside its place `rel` (`temp`, its name there, relative
+// to the folder too), recorded by the transaction that commits it and cleared only once it is renamed
+// into place (placeOwn): until then it is read from `temp`, and the gallery has something its folder
+// lacks (F03). `source`: for a
 // linked gallery (linked-source.js) — files Shiori didn't make, used as they are — where they are
 // ({ kind, path in its library folder, inner?, fingerprint }): its row's `path` is then its overlay
 // (.shiori/linked/<gid>), a folder in the gallery format for everything Shiori adds, and a page whose
@@ -140,6 +150,25 @@ async function bytesIn(abs) {
   return n;
 }
 
+// What a folder of a library folder is (folder-content.js classifyFolder), from the descriptions it
+// holds (`items`: its entries).
+export async function classifyAt(dir, items) {
+  const texts = {};
+  for (const name of content.OWN_FILES) {
+    if (items.some(i => i.isFile() && i.name === name)) texts[name] = await fsp.readFile(path.join(dir, name), 'utf8').catch(() => null);
+  }
+  return content.classifyFolder(texts);
+}
+// Whether folder `dir` is gallery `gid`'s own by what it holds — the overlay naming it (source.json),
+// for a linked gallery; else its description (folder-content.js) — so that a folder the index took for
+// a gallery's on another rule is never tidied (R01) nor deleted with it (F01).
+export async function ownedBy(dir, gid, linked) {
+  if (linked) return linkedSource.parseSource(await fsp.readFile(path.join(dir, linkedSource.SOURCE_FILE), 'utf8').catch(() => null))?.galleryId === gid;
+  const items = await fsp.readdir(dir, { withFileTypes: true }).catch(() => []);
+  const what = await classifyAt(dir, items);
+  return what.kind === 'gallery' && what.id === gid;
+}
+
 // The library folder's own id, kept in its .shiori/library.json and made the first time: this
 // computer's data for the library (its index and thumbnails) is found by it, so the folder keeps
 // them whatever drive letter or path it is reached by. A file that can't be read is an error, never
@@ -158,6 +187,15 @@ export function libraryId(libraryDir) {
   fs.writeFileSync(file, JSON.stringify({ format: 'shiori-library', version: 1, id }, null, 2));
   return id;
 }
+// The id folder `dir`'s .shiori/library.json names now — null when it names none (no folder there, no
+// such file, one that can't be read or names no id): which library folder a path holds at this moment.
+// Read only, never written: a folder's id is made once, when it first joins a library (libraryId).
+export function libraryIdAt(dir) {
+  try {
+    const id = JSON.parse(fs.readFileSync(path.join(dir, '.shiori', 'library.json'), 'utf8'))?.id;
+    return typeof id === 'string' && /^[0-9a-f]{16}$/.test(id) ? id : null;
+  } catch { return null; }
+}
 
 // Whether `file` is there, flushed to the disk first, so a page moved into its folder is never an
 // empty file after a power cut.
@@ -174,11 +212,18 @@ export async function writeFlushed(file, data) {
   try { await handle.writeFile(data); await handle.sync(); } finally { await handle.close(); }
 }
 
-// A small file replaced whole: written beside it, then renamed over it.
+// A small file replaced whole: written beside it, then renamed over it — tried again a few times
+// while Windows refuses because something holds the file for a moment (a reader of it, an antivirus
+// scan of the one just written), rather than losing the change (R17).
 export async function replaceFile(file, data) {
   const temp = `${file}.shiori-tmp`;
   await writeFlushed(temp, data);
-  await fsp.rename(temp, file);
+  for (let attempt = 0; ; attempt++) {
+    try { return await fsp.rename(temp, file); } catch (e) {
+      if (attempt >= 5 || !['EPERM', 'EBUSY', 'EACCES'].includes(e?.code)) { await fsp.rm(temp, { force: true }).catch(() => {}); throw e; }
+      await new Promise(r => setTimeout(r, 50 * 2 ** attempt));
+    }
+  }
 }
 
 // A file moved where it belongs, synchronously; across drives (a junction inside the library
@@ -254,6 +299,7 @@ export class FileLibrary {
     for (const r of lib._s('SELECT DISTINCT gid FROM leftovers').all()) ids.add(r.gid);
     for (const r of lib._s('SELECT gid FROM files WHERE unpack = 1').all()) ids.add(r.gid);
     for (const r of lib._s('SELECT DISTINCT gid FROM staged_own').all()) ids.add(r.gid);
+    for (const r of lib._s('SELECT DISTINCT gid FROM unplaced').all()) ids.add(r.gid);
     for (const r of lib._s('SELECT gid FROM files WHERE pending = 1').all()) this.scheduleDescribe(r.gid);
     for (const id of ids) this.schedule(id);
     for (const dir of lib.stagingDirs()) {
@@ -327,11 +373,17 @@ export class FileLibrary {
   // Gallery `gid`'s folder chosen in the library folder it is placed in, made, and recorded — in one
   // synchronous step, so two claims can't pick different places — when that library folder may be
   // written to (`work` as folders.js writable). A folder that can't be made leaves the gallery as it
-  // was: placed where it was, with no folder yet. Returns its row.
+  // was: placed where it was, with no folder yet. The folder is bound to the gallery from its first
+  // moment: its metadata.json (as much of it as is known) is written there at once, as the website's
+  // reserveDir does — nothing is deleted for a gallery from a folder no description of it names
+  // (_owns), and its full descriptions follow in due course. Returns its row.
   _claim(gid, meta, work = null) {
     this.library.folders.assertWritable(this.rootFor(gid), work);
     const rel = this._choosePath(gid, meta);
-    fs.mkdirSync(this._abs(rel), { recursive: true });
+    const abs = this._abs(rel);
+    fs.mkdirSync(abs, { recursive: true });
+    const named = titles.migrateTitle({ ...(meta || this.library._metaGet(gid) || {}), galleryId: String(gid) });
+    fs.writeFileSync(path.join(abs, 'metadata.json'), JSON.stringify(named, null, 2));
     this.library._s(`INSERT INTO files (gid, path, format, state, packed_at, pending, used_at) VALUES (?, ?, 'folder', 'packed', ?, 1, ?)`)
       .run(gid, rel, Date.now(), Date.now());
     this._pendOwner(gid);
@@ -403,9 +455,39 @@ export class FileLibrary {
     this._pend(gid);
     this._later(() => this.schedule(gid));
   }
-  // Inside the library's transaction recording a picture written into the gallery's folder (renamed
-  // into place once it commits): no longer one to delete there.
-  ownPlaced(gid, rel) { this.library._s('DELETE FROM leftovers WHERE gid = ? AND entry = ?').run(String(gid), rel); }
+  // Inside the library's transaction recording a picture written into the gallery's folder under
+  // `temp` (its name there, beside `rel`): no longer one to delete there, and — part of what commits —
+  // waiting to be renamed into place (`unplaced`, placeOwn). One that waited for the same place before
+  // is passed over: left beside it, a temporary file the folder's sweep takes in time.
+  ownPlaced(gid, rel, temp) {
+    const lib = this.library;
+    lib._s('DELETE FROM leftovers WHERE gid = ? AND entry = ?').run(String(gid), rel);
+    lib._s('INSERT OR REPLACE INTO unplaced (gid, rel, temp) VALUES (?, ?, ?)').run(String(gid), rel, temp);
+  }
+
+  // Gallery `gid`'s pictures of its own waiting in its folder to take their place (ownPlaced) renamed
+  // into it, while the folder may be written to (`work` as folders.js writable) — each one's row
+  // cleared only once it is there (or its file is gone: renamed before its row could be cleared).
+  // Returns how many still wait.
+  placeOwn(gid, work = null) {
+    const lib = this.library, id = String(gid);
+    const waiting = this._unplaced(id);
+    const row = this._row(id);
+    if (!waiting.length || row?.format !== 'folder' || !lib.folders.writable(this.rootFor(id), work)) return waiting.length;
+    const dir = this._abs(row.path);
+    let left = 0;
+    for (const { rel, temp } of waiting) {
+      try { fs.renameSync(path.join(dir, ...temp.split('/')), path.join(dir, ...rel.split('/'))); } catch (e) {
+        if (e?.code !== 'ENOENT') { left++; continue; }
+      }
+      lib._s('DELETE FROM unplaced WHERE gid = ? AND rel = ? AND temp = ?').run(id, rel, temp);
+    }
+    return left;
+  }
+  _unplaced(gid) { return this.library._s('SELECT rel, temp FROM unplaced WHERE gid = ?').all(String(gid)); }
+  // The name gallery `gid`'s own file `rel` has in its folder now: the one it was written under while it
+  // waits to take its place, else `rel`.
+  _ownName(gid, rel) { return this.library._s('SELECT temp FROM unplaced WHERE gid = ? AND rel = ?').get(String(gid), rel)?.temp ?? rel; }
 
   _stagedOwn(gid) { return this.library._s('SELECT rel, file, size FROM staged_own WHERE gid = ?').all(String(gid)); }
 
@@ -462,32 +544,55 @@ export class FileLibrary {
     lib._s('DELETE FROM leftovers WHERE gid = ?').run(String(gid));
     for (const s of this._stagedOwn(gid)) lib._dropStaged(s.file);
     lib._s('DELETE FROM staged_own WHERE gid = ?').run(String(gid));
+    lib._s('DELETE FROM unplaced WHERE gid = ?').run(String(gid));
     if (!row) return;
     lib._s('DELETE FROM files WHERE gid = ?').run(String(gid));
     // A gallery forgotten (its library folder removed from the library) keeps its files.
     const keep = this.keep.has(String(gid));
-    const src = this.sourceOf(row);
+    const linked = !keep && !!row.source;
+    if (linked) lib.folders.removedIn(this._split(row.path).root, gid, row.path, this.sourceOf(row));
     lib._afterCommit(() => {
       this._forget(row.path);
-      if (!keep) this._removeLeft(row.path, src).catch(() => {});
+      if (!keep) this._removeLeft(row.path, gid, linked).catch(() => {});
     });
   }
 
-  // What a gallery deleted from the library, or moved out of a library folder, left there (`rel`)
-  // deleted (_remove) — a linked gallery's overlay (its source, `src`, is never deleted) only once its
-  // source is noted as removed (folders.js noteRemoved), so a check doesn't add it again: should that
-  // fail, the overlay stays. `work` as folders.js writable.
-  async _removeLeft(rel, src, work = null) {
-    if (src) await this.library.folders.noteRemoved(this._split(rel).root, src, { work });
-    await this._remove(rel, work);
+  // What gallery `gid`, deleted from the library or moved out of a library folder, left there (`rel`)
+  // deleted, as far as it is the gallery's own by what it holds (_removeOwn). A linked gallery's source
+  // is never deleted, and its overlay only once the note that its source was removed — recorded by the
+  // transaction that let the gallery go (folders.js removedIn) — is in removed.json: publishing the
+  // notes deletes the overlays they stand for (folders.js publishRemoved), and one that can't be
+  // published now is tried again. `work` as folders.js writable.
+  async _removeLeft(rel, gid, linked, work = null) {
+    if (linked) await this.library.folders.publishRemoved(this._split(rel).root, { work });
+    else await this._removeOwn(rel, gid, false, work);
+  }
+  // Folder or archive `rel` deleted for gallery `gid` (_remove) only when it is the gallery's own by
+  // what it holds (_owns): never one another gallery's description names, or none does — a folder put
+  // at the gallery's old place by hand, or another library's on a drive given the same letter (F01).
+  async _removeOwn(rel, gid, linked, work = null) {
+    if (await this._owns(rel, gid, linked)) await this._remove(rel, work);
+  }
+  // Whether `rel` is gallery `gid`'s own by what it holds: a folder as ownedBy says (its overlay's
+  // source.json, `linked`, or its description), an archive by its descriptions (folder-content.js
+  // classifyArchive).
+  async _owns(rel, gid, linked) {
+    const abs = this._abs(rel);
+    const stat = await fsp.stat(abs).catch(() => null);
+    if (!stat) return false;
+    if (stat.isDirectory()) return ownedBy(abs, String(gid), linked);
+    const dir = await this._directory(abs).catch(() => null);
+    if (!dir) return false;
+    const texts = {};
+    for (const name of content.OWN_FILES) if (dir.has(name)) texts[name] = (await readEntry(abs, dir.get(name)).catch(() => null))?.toString('utf8') ?? null;
+    const what = content.classifyArchive([...dir.keys()], texts);
+    return what.kind === 'gallery' && what.id === String(gid);
   }
 
   clearIn() {
-    const rows = this.library._s('SELECT path FROM files').all();
-    this.library._s('DELETE FROM files').run();
-    this.library._s('DELETE FROM leftovers').run();
-    this.library._s('DELETE FROM staged_own').run();
-    this.library._afterCommit(() => { for (const r of rows) { this._forget(r.path); this._remove(r.path); } });
+    const rows = this.library._s('SELECT gid, path, source FROM files').all();
+    for (const table of ['files', 'leftovers', 'staged_own', 'unplaced']) this.library._s(`DELETE FROM ${table}`).run();
+    this.library._afterCommit(() => { for (const r of rows) { this._forget(r.path); this._removeOwn(r.path, r.gid, r.source != null).catch(() => {}); } });
   }
 
   // A deleted gallery's folder or archive deleted, and its series' folder too once nothing but
@@ -533,11 +638,14 @@ export class FileLibrary {
   }
 
   // A file of the gallery's own (`rel`: translated/0001.png…), from staging while it waits there,
-  // else from its folder or archive; null when it can't be read.
+  // else from its folder (under the name it was written as, while it waits to take its place) or
+  // archive; null when it can't be read.
   async readOwn(gid, rel) {
     const staged = this.library._s('SELECT file FROM staged_own WHERE gid = ? AND rel = ?').get(String(gid), rel);
     const row = this._row(gid);
-    const kept = () => (row ? this._read(row, rel).catch(() => null) : null);
+    const name = this._ownName(gid, rel);
+    const placed = () => (row ? this._read(row, rel).catch(() => null) : null);
+    const kept = () => (row && name !== rel ? this._read(row, name).catch(placed) : placed());   // renamed meanwhile
     return staged ? fsp.readFile(this.library._staged(staged.file)).catch(kept) : kept();
   }
 
@@ -614,7 +722,7 @@ export class FileLibrary {
     if (!readable && await fsp.access(row.source ? this._sourceAbs(row) : this._abs(row.path)).then(() => true, () => false)) return;
     const lib = this.library;
     const state = readable ? 'packed' : 'missing';
-    const changed = lib.asFolderWork(() => lib._tx(() => {
+    const changed = lib.asFolderWork(this.rootFor(row.gid), () => lib._tx(() => {
       const now = this._row(row.gid);
       if (!now || now.path !== row.path || now.state === state) return false;   // moved or unpacked meanwhile
       lib._s('UPDATE files SET state = ? WHERE gid = ?').run(state, row.gid);
@@ -719,6 +827,7 @@ export class FileLibrary {
       if (!there) return true;
       row = this._row(gid);
       if (!row) return true;   // deleted meanwhile
+      this.placeOwn(gid, work);   // pictures that couldn't take their place as they committed
       if (row.format !== 'folder' && (row.unpack || this._staged(gid).length || this._stagedOwn(gid).length)) {
         const how = await this._inFormat(row) ? await this._settleArchive(gid, row) : 'unpack';
         if (how === 'unpack' && !await this._unpack(gid, row)) return false;
@@ -929,7 +1038,7 @@ export class FileLibrary {
       }
       fs.renameSync(temp, target);
       // Recorded as it now is on disk, whether or not the gallery is still in the library.
-      lib.asFolderWork(() => lib._tx(() => {
+      lib.asFolderWork(this.rootFor(gid), () => lib._tx(() => {
         for (const p of out) lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify(p.orig), gid, p.n);
         lib._s(`UPDATE files SET path = ?, format = 'folder', pending = 1, unpack = 0, used_at = ? WHERE gid = ?`).run(rel, Date.now(), gid);
         lib._s('DELETE FROM leftovers WHERE gid = ?').run(gid);
@@ -1153,7 +1262,7 @@ export class FileLibrary {
       // (so the gallery's folder in staging can go when it is next described).
       const finish = () => {
         const gone = [];
-        lib.asFolderWork(() => lib._tx(() => {
+        lib.asFolderWork(this.rootFor(gid), () => lib._tx(() => {
           for (const [n, { name, row: r }] of placing) {
             const now = lib._pageRow(gid, n);
             if (now?.orig !== r.orig) continue;   // replaced meanwhile: its new page waits for the next settle
@@ -1297,15 +1406,20 @@ export class FileLibrary {
       } finally {
         this._reserved.delete(rel);
       }
-      // One synchronous step from here: switched over only when nothing changed while it was copied
-      // (and its place with it: library.js _placesIn) — the copy deleted again should that be refused
-      // (a folder hidden meanwhile).
+      // One synchronous step from here: switched over only when nothing changed while it was copied,
+      // and only into a folder that can still take it (shown, held and reachable — not one hidden,
+      // removed or taken over while the copy was made: F02) — its place with it (library.js
+      // _placesIn); the copy deleted again should that be refused, the gallery left where it was. A
+      // linked gallery's source is noted as removed where it was, by the same step (folders.js
+      // removedIn).
       if (signature() !== before) { await fsp.rm(to, { recursive: true, force: true }).catch(() => {}); continue; }
       try {
         lib._tx(() => {
+          lib.folders.assertMoveTo(root);
           lib._logIn(id);
           lib._s('UPDATE files SET path = ?, source = NULL WHERE gid = ?').run(rel, id);
           for (const [n, orig] of linkedPlaced) lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify(orig), id, n);
+          if (row.source) lib.folders.removedIn(leaving, id, row.path, this.sourceOf(row));
           this._pend(id);
           this._pendOwner(id);
         });
@@ -1314,7 +1428,7 @@ export class FileLibrary {
         throw e;
       }
       this._forget(row.path);
-      await this._removeLeft(row.path, this.sourceOf(row), work).catch(() => {});
+      await this._removeLeft(row.path, id, !!row.source, work).catch(() => {});
       this.scheduleDescribe(id, 0);
       return true;
     }

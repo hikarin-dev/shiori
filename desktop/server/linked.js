@@ -108,7 +108,7 @@ async function titleAt(library, root, title, directory = null) {
   } finally { await fh.close(); }
 }
 // Source `source`'s fingerprint as its files are now in library folder `root` (null when they can't
-// be read) — what a note that it was removed must carry (folders.js noteRemoved).
+// be read) — what a note that it was removed must carry (folders.js publishRemoved).
 export async function fingerprintNow(library, root, source) {
   return (await titleAt(library, root, source).catch(() => null))?.fingerprint ?? null;
 }
@@ -129,7 +129,12 @@ export async function overlaysOf(library, root) {
   }
   return out;
 }
-const removedOf = async (library, root) => L.parseRemoved(await fsp.readFile(absIn(library, root, L.REMOVED_FILE), 'utf8').catch(() => null));
+// The sources removed from library folder `root`: its removed.json's list, and the notes still owed
+// to it (folders.js removedWaiting) — removed all the same (F12).
+const removedOf = async (library, root) => [
+  ...L.parseRemoved(await fsp.readFile(absIn(library, root, L.REMOVED_FILE), 'utf8').catch(() => null)),
+  ...library.folders.removedWaiting(root),
+];
 // The pages of its own gallery `gid`'s overlay holds (its images/: pages replaced, a PDF's drawn):
 // [{ name, size }].
 async function overlayPages(library, root, gid) {
@@ -340,6 +345,7 @@ export async function linkRoot(library, root, { files = [], own = [], archives =
   }
 
   const known = new Set(library._s('SELECT gid FROM files UNION SELECT gid FROM meta').all().map(r => r.gid));
+  await library.folders.publishRemoved(root);   // notes still owed to the folder, tried again
   const plan = L.matchSources({ found, kept, overlays: [...(await overlaysOf(library, root)).values()], known, removed: await removedOf(library, root) });
   const atOf = (title) => read.get(L.sourceKey(title)) || null;
   const failed = (title, e) => problems.push({ path: title.path, reason: e?.syscall ? 'unreadable' : 'adopt-failed' });

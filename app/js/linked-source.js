@@ -216,7 +216,8 @@ export const drawFailed = (source, fingerprint) => !!source?.failed && fingerpri
 //   their folder in it (`inner`). A gallery the library keeps takes its files back before an overlay
 //   does. { title, gid, kept, was (the source as it was) }.
 // - new: a title nothing knows, joining the library — as gallery `gid` when the folder holds an
-//   overlay made for it where it is (that overlay keeps its identity: its series, its edits).
+//   overlay made for it where it is (that overlay keeps its identity: its series, its edits), unless
+//   it was removed (an overlay its removal hasn't deleted yet: the note is written first).
 // - missing: a kept gallery whose source is nowhere: { gid, source }.
 // - skipped: a title not to join: 'removed' (removed from the library before: isRemoved) or 'copy'
 //   (its overlay's gallery the library has elsewhere). { title, reason }.
@@ -236,7 +237,7 @@ export function matchSources({ found, kept = [], overlays = [], known = new Set(
     if (k) {
       const changed = title.fingerprint != null && title.fingerprint !== (k.source.fingerprint ?? null);
       if (changed) out.changed.push({ title, gid: k.gid, was: k.source }); else out.same.push({ title, gid: k.gid });
-    } else if (over) {
+    } else if (over && !isRemoved(removed, title)) {   // a removed one's overlay its removal couldn't delete yet: removed
       if (known.has(over.galleryId)) out.skipped.push({ title, reason: 'copy' }); else out.new.push({ title, gid: over.galleryId });
     } else loose.push(title);
   }
