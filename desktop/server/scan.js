@@ -24,7 +24,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { readDirectory, readEntry } from './zip.js';
 import { files as layout, linked as linkedSource, content } from './shared.js';
-import { descriptionStampOf, writeFlushed, classifyAt, ownedBy } from './files.js';
+import { descriptionStampOf, writeFlushed, classifyAt, ownedBy, ifMissing } from './files.js';
 import { linkRoot, adoptLinked } from './linked.js';
 
 const IMAGE = /\.(jpe?g|png|webp|gif|avif)$/i;
@@ -52,9 +52,9 @@ const stale = async (file, age) => {
   const stat = await fsp.stat(file).catch(() => null);
   return !!stat && Date.now() - stat.mtimeMs >= age;
 };
-// Why a file couldn't be read, for `problems`: the disk wouldn't ('unreadable'), or what it holds isn't
-// what it should be ('corrupt').
-const unreadable = (e) => (e?.syscall ? 'unreadable' : 'corrupt');
+// Why a file couldn't be read, for `problems`: it leads out of its library folder ('outside': files.js
+// physicallyIn), the disk wouldn't ('unreadable'), or what it holds isn't what it should be ('corrupt').
+const unreadable = (e) => (e?.reason === 'outside' ? 'outside' : e?.syscall ? 'unreadable' : 'corrupt');
 
 // Whether gallery `gid` has changes of its own not yet written to its folder or overlay — pages or
 // pictures staged or not yet in their place, descriptions pending, an archive to unpack or being
@@ -76,7 +76,8 @@ export function localChanges(library, gid) {
 // and any other folder are walked, their pictures and PDFs listed in `files` ([{ path }] in the folder:
 // linked galleries), `own` the paths of the galleries found. `skip`: the folders of galleries the index
 // knows are there (paths in the folder), not looked into; `onTop(found)` after each thing at the
-// folder's top; the walk ends once `stopped()`. A folder that can't be listed is added to `problems`.
+// folder's top; the walk ends once `stopped()`. A folder that can't be listed, or whose descriptions
+// can't be read, is added to `problems` and left as it is (in `own`: never read for a linked gallery).
 async function findGalleries(root, { skip = new Set(), onTop = () => {}, stopped = () => false, problems = [] } = {}) {
   const found = [], files = [], own = [];
   const walk = async (dir, depth) => {
@@ -86,7 +87,8 @@ async function findGalleries(root, { skip = new Set(), onTop = () => {}, stopped
     try { items = await fsp.readdir(dir, { withFileTypes: true }); } catch { problems.push({ path: here, reason: 'unreadable' }); return; }
     const rel = (name) => (here ? `${here}/${name}` : name);
     if (dir !== root) {
-      const what = await classifyAt(dir, items);
+      let what;
+      try { what = await classifyAt(dir, items); } catch { problems.push({ path: here, reason: 'unreadable' }); own.push(here); return; }
       if (what.kind === 'gallery') {
         own.push(here);
         found.push(what.legacy
@@ -110,22 +112,22 @@ async function findGalleries(root, { skip = new Set(), onTop = () => {}, stopped
 // A found gallery read: { kind, described, pages, derived?, series?, entries? }. `kind` 'gallery' — its
 // description ({ id, meta, pages: [{ n, file, key, mediaId, cachedAt, record }] }, from its
 // metadata.json and image_records.json, or an earlier version's shiori.json), its page files ([{ name,
-// size }], in reading order) and, for an archive in the gallery format, what it holds beside its pages
-// (`derived`, as readDerived reads a folder's); 'series' — a series export (`series`: its series.json,
-// folder-content.js seriesOf); 'linked' — an archive that isn't Shiori's (linked.js). An archive's
-// `entries`: its directory.
+// size }], in reading order) and, in the gallery format, what it holds beside its pages (`derived`:
+// readDerived); 'series' — a series export (`series`: its series.json, folder-content.js seriesOf);
+// 'linked' — an archive that isn't Shiori's (linked.js). An archive's `entries`: its directory. Rejects
+// when any of it can't be read (F06): a gallery read in part would lose what it couldn't see.
 async function readGallery(g) {
   const abs = g.abs;
   if (g.format === 'folder' && g.layout) {
-    const text = (name) => fsp.readFile(path.join(abs, name), 'utf8').catch(() => null);
+    const text = (name) => fsp.readFile(path.join(abs, name), 'utf8').catch(ifMissing(null));
     const records = parse(await text('image_records.json'));
-    const names = (await fsp.readdir(path.join(abs, 'images')).catch(() => [])).filter(n => IMAGE.test(n)).map(n => `images/${n}`);
+    const names = (await fsp.readdir(path.join(abs, 'images')).catch(ifMissing([]))).filter(n => IMAGE.test(n)).map(n => `images/${n}`);
     const pages = await Promise.all([...layout.folderPictures(names, { records }).pages].map(async ([n, name]) =>
       ({ n, name, size: (await fsp.stat(path.join(abs, ...name.split('/')))).size })));
-    return { kind: 'gallery', described: describedBy(parse(await text('metadata.json')), records, pages), pages };
+    return { kind: 'gallery', described: describedBy(parse(await text('metadata.json')), records, pages), pages, derived: await readDerived(abs) };
   }
   if (g.format === 'folder') {
-    const described = parse(await fsp.readFile(path.join(abs, 'shiori.json'), 'utf8').catch(() => null));
+    const described = parse(await fsp.readFile(path.join(abs, 'shiori.json'), 'utf8').catch(ifMissing(null)));
     const pages = await Promise.all(g.entries.map(async (name) => ({ name, size: (await fsp.stat(path.join(abs, name))).size })));
     return { kind: 'gallery', described, pages };
   }
@@ -280,10 +282,6 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
     if (!row || row.source || row.format !== g.format || checked.has(root) || !library.folders.has(root)) continue;
     if (await isDir(library.rootDir(root)) && !await exists(row.path)) handMoved.set(id, g);
   }
-  // What a folder or archive in the gallery format holds beside its pages, read before the index changes.
-  for (const g of unknown) {
-    if (g.read?.kind === 'gallery') g.derived = g.read.derived ?? (g.layout ? await readDerived(g.abs) : undefined);
-  }
 
   const changed = new Set();
   const moveTo = (gid, g) => {
@@ -336,7 +334,7 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
     }
     for (const [gid, g] of made) {
       await library.rebuildGalleryEntry(gid, { silent: true });
-      const covers = coverPatch(g.derived);
+      const covers = coverPatch(g.read.derived);
       if (Object.keys(covers).length) library._tx(() => library._coverPatchIn(gid, covers));
       out.added.push(gid);
       changed.add(gid);
@@ -380,11 +378,11 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
 }
 
 // The descriptions gallery files `abs` hold (a folder, or an archive in the gallery format): name →
-// text (null for one it hasn't), for gallery-files.js descriptionStamp.
+// text (null for one it hasn't), for gallery-files.js descriptionStamp. Rejects when one can't be read.
 async function descriptionsAt(library, abs, format) {
   const texts = {};
   if (format === 'folder') {
-    for (const name of layout.DESCRIPTION_FILES) texts[name] = await fsp.readFile(path.join(abs, ...name.split('/')), 'utf8').catch(() => null);
+    for (const name of layout.DESCRIPTION_FILES) texts[name] = await fsp.readFile(path.join(abs, ...name.split('/')), 'utf8').catch(ifMissing(null));
     return texts;
   }
   const dir = await library.files._directory(abs);
@@ -396,7 +394,8 @@ async function descriptionsAt(library, abs, format) {
 // there changed since the library last wrote or read them — another app wrote to them — unless it has
 // changes of its own still to be written there (they win: localChanges, checked again as the change
 // commits), or its files no longer describe it. One stamped before stamps existed counts as changed only
-// when its descriptions differ from the index's. Resolves whether it was read again.
+// when its descriptions differ from the index's. Resolves whether it was read again; rejects, its
+// records and stamp as they were, when any of its files can't be read (F06).
 async function refreshGallery(library, row) {
   const files = library.files;
   const gid = row.gid;
@@ -416,7 +415,6 @@ async function refreshGallery(library, row) {
   const g = { abs, rel: row.path, format: row.format, layout: row.format === 'folder' };
   g.read = await readGallery(g);
   if (g.read.kind !== 'gallery' || (!g.read.pages.length && !g.read.described?.meta)) return false;
-  g.derived = g.read.derived ?? await readDerived(abs);
   let read = false;
   library._tx(() => {
     if (localChanges(library, gid)) return;   // changed here meanwhile: its own changes win
@@ -428,7 +426,7 @@ async function refreshGallery(library, row) {
   });
   if (!read) return false;
   await library.rebuildGalleryEntry(gid, { silent: true });
-  const covers = coverPatch(g.derived);
+  const covers = coverPatch(g.read.derived);
   if (Object.keys(covers).length) library._tx(() => library._coverPatchIn(gid, covers));
   library._push('control', { type: 'COVER_INVALIDATED', galleryId: gid });
   return true;
@@ -440,17 +438,18 @@ function setState(library, gid, state) {
 }
 
 // The pictures a folder in the gallery format holds beside its pages, and its study index:
-// { files: Map rel → { size, type }, bubbles, pictures, covers }.
+// { files: Map rel → { size, type }, bubbles, pictures, covers }. Rejects when one of its folders or
+// files can't be read (one that isn't there holds nothing).
 export async function readDerived(abs) {
   const files = new Map();
   for (const sub of DERIVED) {
-    for (const name of await fsp.readdir(path.join(abs, ...sub.split('/'))).catch(() => [])) {
+    for (const name of await fsp.readdir(path.join(abs, ...sub.split('/'))).catch(ifMissing([]))) {
       if (!IMAGE.test(name)) continue;
-      const size = (await fsp.stat(path.join(abs, ...sub.split('/'), name)).catch(() => null))?.size;
+      const size = (await fsp.stat(path.join(abs, ...sub.split('/'), name)).catch(ifMissing(null)))?.size;
       if (size != null) files.set(`${sub}/${name}`, { size, type: typeOf(name) });
     }
   }
-  const json = async (...at) => parse(await fsp.readFile(path.join(abs, ...at), 'utf8').catch(() => null));
+  const json = async (...at) => parse(await fsp.readFile(path.join(abs, ...at), 'utf8').catch(ifMissing(null)));
   return derivedOf(files, await json('study', 'bubbles.json'), await json('covers', 'manifest.json'), await json('image_records.json'));
 }
 // `pictures`: which file holds each picture, as its descriptions name them (gallery-files.js
@@ -498,7 +497,7 @@ function addGallery(library, gid, g) {
     const key = p?.key && /\/(\d+)\.\w+$/.test(p.key) ? p.key : `local://${gid}/${n}.${ext}`;
     if (library._pageRowByKey(key) || library._pageRow(gid, n)) return;
     const type = typeOf(name);
-    const made = g.derived ? derivedRecord(g.derived, n, p?.record) : {};
+    const made = g.read.derived ? derivedRecord(g.read.derived, n, p?.record) : {};
     library._pagePutRow({ gid, n, key, w: null, h: null, orig: { at: 'p', entry: name, size, type },
       record: { url: key, blob: { $orig: 1, size, type }, mediaId: String(p?.mediaId ?? gid), galleryId: gid, cachedAt: p?.cachedAt || now, size, ...made } });
   });
@@ -515,19 +514,27 @@ export function startEntry(library, gid, meta, now = Date.now()) {
     uploadDate: Number(meta.uploadDate) || 0, ...(meta.parentId ? { parentId: String(meta.parentId) } : {}) });
 }
 
-// Temporary files and folders an interrupted write left in library folder `id` (TEMP, its own
-// .shiori/ included): gone once they are old enough that no write under way can be making them, and
-// not reserved by a move, unpack or archive still running (files.js _reserved) — A19 — nor a picture
-// still to take its place (files.js unplaced: F03). Resolves how many went.
+// Temporary files and folders an interrupted write left in library folder `id` (TEMP): gone once they
+// are old enough that no write under way can be making them, and not reserved by a move, unpack or
+// archive still running (files.js _reserved) — A19 — nor a picture still to take its place (files.js
+// unplaced: F03). Looked for only where everything is Shiori's (F08): the folder's own .shiori/ (its
+// staging and overlays), and the folders of the galleries the index keeps there whose description names
+// them (ownedBy). A name alone proves nothing: a file or folder named so in a linked folder, at the
+// folder's top or anywhere else, is someone's own, and stays — as does a whole gallery's interrupted copy
+// beside its place, which the walk never reads and the next such write clears. Resolves how many went.
 async function sweepLeftovers(library, id) {
   const root = library.rootDir(id);
   const files = library.files;
   const waiting = new Set(library._s('SELECT gid, temp FROM unplaced').all()
     .map(r => files.folderOf(r.gid) && path.join(files.folderOf(r.gid), ...r.temp.split('/'))).filter(Boolean));
+  const own = [path.join(root, '.shiori')];
+  for (const { gid, path: rel } of library._s(`SELECT gid, path FROM files WHERE format = 'folder' AND source IS NULL`).all()) {
+    if (files._split(rel).root === id && await ownedBy(files._abs(rel), gid, false)) own.push(files._abs(rel));
+  }
   let removed = 0;
   const walk = async (dir, depth) => {
     for (const item of await fsp.readdir(dir, { withFileTypes: true }).catch(() => [])) {
-      if (item.name.startsWith('.') && item.name !== '.shiori') continue;
+      if (item.name.startsWith('.')) continue;
       const abs = path.join(dir, item.name);
       if (!TEMP.test(item.name)) {
         if (item.isDirectory() && depth < MAX_DEPTH) await walk(abs, depth + 1);
@@ -539,7 +546,7 @@ async function sweepLeftovers(library, id) {
       removed++;
     }
   };
-  await walk(root, 0);
+  for (const dir of own) await walk(dir, 0);
   return removed;
 }
 

@@ -150,23 +150,59 @@ async function bytesIn(abs) {
   return n;
 }
 
+// A read of a gallery's files that finds nothing there resolves `value`; any other failure (the disk, or
+// its permissions, wouldn't) is thrown: a file that can't be read is never taken for one that isn't
+// there, so nothing is concluded from it (F06). `fsp.readFile(…).catch(ifMissing(null))`.
+export const ifMissing = (value) => (e) => {
+  if (e?.code === 'ENOENT' || e?.code === 'ENOTDIR') return value;
+  throw e;
+};
+
+// Path `abs` in library folder `dir`, as long as it is inside the folder physically. The policy (F09):
+// a linked source is read, and an overlay written, only inside the library folder itself — a junction
+// or link in it that leads elsewhere is never followed, whatever source.json or the index says. Paths
+// are first checked as written (linked-source.js safeRelPath, linked.js absIn: R12), then here as the
+// disk resolves them: the real path of `abs` (for one not made yet, of its nearest folder that is
+// there) must be inside the folder's own real path. It is checked each time a source is read or an
+// overlay written, so a link made after a check leads nowhere either; one swapped in between this
+// check and the read or write itself is not caught. Rejects with BackendError 'invalid' and
+// `reason: 'outside'`.
+export async function physicallyIn(dir, abs) {
+  const rest = [];
+  let at = abs, real;
+  for (;;) {
+    try { real = await fsp.realpath(at); break; } catch (e) {
+      if ((e?.code !== 'ENOENT' && e?.code !== 'ENOTDIR') || path.dirname(at) === at) throw e;
+      rest.unshift(path.basename(at));
+      at = path.dirname(at);
+    }
+  }
+  const inside = path.relative(await fsp.realpath(dir), path.join(real, ...rest));
+  if (inside === '..' || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) {
+    throw Object.assign(new BackendError('invalid', `${abs} leads out of its library folder`), { reason: 'outside' });
+  }
+  return abs;
+}
+
 // What a folder of a library folder is (folder-content.js classifyFolder), from the descriptions it
-// holds (`items`: its entries).
+// holds (`items`: its entries). Rejects when one can't be read.
 export async function classifyAt(dir, items) {
   const texts = {};
   for (const name of content.OWN_FILES) {
-    if (items.some(i => i.isFile() && i.name === name)) texts[name] = await fsp.readFile(path.join(dir, name), 'utf8').catch(() => null);
+    if (items.some(i => i.isFile() && i.name === name)) texts[name] = await fsp.readFile(path.join(dir, name), 'utf8').catch(ifMissing(null));
   }
   return content.classifyFolder(texts);
 }
 // Whether folder `dir` is gallery `gid`'s own by what it holds — the overlay naming it (source.json),
 // for a linked gallery; else its description (folder-content.js) — so that a folder the index took for
-// a gallery's on another rule is never tidied (R01) nor deleted with it (F01).
+// a gallery's on another rule is never tidied (R01) nor deleted with it (F01). One that can't be read
+// isn't known to be.
 export async function ownedBy(dir, gid, linked) {
-  if (linked) return linkedSource.parseSource(await fsp.readFile(path.join(dir, linkedSource.SOURCE_FILE), 'utf8').catch(() => null))?.galleryId === gid;
-  const items = await fsp.readdir(dir, { withFileTypes: true }).catch(() => []);
-  const what = await classifyAt(dir, items);
-  return what.kind === 'gallery' && what.id === gid;
+  try {
+    if (linked) return linkedSource.parseSource(await fsp.readFile(path.join(dir, linkedSource.SOURCE_FILE), 'utf8'))?.galleryId === gid;
+    const what = await classifyAt(dir, await fsp.readdir(dir, { withFileTypes: true }));
+    return what.kind === 'gallery' && what.id === gid;
+  } catch { return false; }
 }
 
 // The library folder's own id, kept in its .shiori/library.json and made the first time: this
@@ -363,11 +399,20 @@ export class FileLibrary {
         continue;
       }
       const dir = this._abs(row.path);
+      if (!await this._writesIn(row)) throw Object.assign(new BackendError('invalid', `the overlay of gallery ${id} leads out of its library folder`), { reason: 'outside' });
       if (fs.existsSync(dir)) return dir;
       await this._seen(row, false);
       throw new BackendError('aborted', `the folder of gallery ${id} is missing`);
     }
     throw new BackendError('aborted', `gallery ${id} couldn't be unpacked into a folder`);
+  }
+
+  // Whether gallery `row`'s folder may be written to as it is on disk: a linked gallery's overlay only
+  // while it is physically inside its library folder (physicallyIn, F09) — otherwise nothing is written
+  // there, and what waits for it stays staged.
+  async _writesIn(row) {
+    if (!row?.source) return true;
+    return physicallyIn(this.library.rootDir(this._split(row.path).root), this._abs(row.path)).then(() => true, () => false);
   }
 
   // Gallery `gid`'s folder chosen in the library folder it is placed in, made, and recorded — in one
@@ -684,21 +729,26 @@ export class FileLibrary {
     const out = rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
     return out ? path.join(this.library.dataDir, 'gone', 'outside') : abs;
   }
+  // The file linked gallery `row`'s source is (`entry`: a picture of a folder of pictures), as long as
+  // it is physically inside its library folder (physicallyIn: F09).
+  _sourceIn(row, entry = null) {
+    const abs = this._sourceAbs(row);
+    return physicallyIn(this.library.rootDir(this._split(row.path).root), entry == null ? abs : path.join(abs, entry));
+  }
   // A page of a linked gallery's source (its name in the folder, or in the archive), as bytes.
   async _readSource(row, entry) {
     const src = this.sourceOf(row);
     if (!src) return null;
-    const abs = this._sourceAbs(row);
-    if (src.kind === 'dir') return fsp.readFile(path.join(abs, entry));
+    if (src.kind === 'dir') return fsp.readFile(await this._sourceIn(row, entry));
+    const abs = await this._sourceIn(row);
     const found = (await this._directory(abs)).get(entry);
     return found ? readEntry(abs, found) : null;
   }
   // The file a linked gallery's page is, when it is one on its own (a folder of pictures), for a
-  // read that needn't load it.
-  sourceFile(gid, orig) {
+  // read that needn't load it; null for one that leads out of its folder (its read is refused).
+  async sourceFile(gid, orig) {
     const row = this._row(gid);
-    const src = this.sourceOf(row);
-    return src?.kind === 'dir' && orig?.at === 'x' ? path.join(this._sourceAbs(row), orig.entry) : null;
+    return this.sourceOf(row)?.kind === 'dir' && orig?.at === 'x' ? this._sourceIn(row, orig.entry).catch(() => null) : null;
   }
 
   async _read(row, entry) {
@@ -827,6 +877,7 @@ export class FileLibrary {
       if (!there) return true;
       row = this._row(gid);
       if (!row) return true;   // deleted meanwhile
+      if (!await this._writesIn(row)) return true;
       this.placeOwn(gid, work);   // pictures that couldn't take their place as they committed
       if (row.format !== 'folder' && (row.unpack || this._staged(gid).length || this._stagedOwn(gid).length)) {
         const how = await this._inFormat(row) ? await this._settleArchive(gid, row) : 'unpack';
@@ -1102,7 +1153,7 @@ export class FileLibrary {
       const row = this._row(id);
       if (!row || row.unpack) return false;
       if (!row.pending && !all) return true;
-      if (!this.library.folders.writable(this.rootFor(id), work)) return false;
+      if (!this.library.folders.writable(this.rootFor(id), work) || !await this._writesIn(row)) return false;
       const dir = this._abs(row.path);
       if (!fs.existsSync(dir)) return false;
       this._touched.delete(id);

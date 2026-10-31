@@ -27,7 +27,7 @@ import { nextClaim, releasedClaim, unchangedSince } from './folder-owner.js';
 import { mounted, canHide, nextDefault, removalOutcome } from './folder-lifecycle.js';
 import { OWN_FILES, galleryIdOf, classifyFolder, classifyArchive } from './folder-content.js';
 import { LINKED_DIR, SOURCE_FILE, REMOVED_FILE, IMAGE_NAME, ARCHIVE_NAME, overlayDir, sourceText, parseSource, parseRemoved, isRemoved,
-  folderPrint, metaFromName, planTitles, zipTitles, sortPictures, linkedPages, keepsDerived, pdfReady, drawFailed, matchSources } from './linked-source.js';
+  folderPrint, metaFromName, planTitles, zipTitles, sortPictures, linkedPages, keepsDerived, pdfReady, pdfWaits, matchSources } from './linked-source.js';
 import { DESCRIPTION_FILES, descriptionStamp, layoutPath, extOfType, folderPictures, describedFiles, derivedRecord } from './gallery-files.js';
 import { sha256Hex } from './zip-read.js';
 import { uploadDateSeconds } from './gallery-model.js';
@@ -630,6 +630,7 @@ async function _walk(run, skip) {
     let entries;
     try { entries = await folderFiles.list(run.id, run.root, path); } catch { run.problems.push({ path: path || '.', reason: 'unreadable' }); return; }
     const what = path ? await _classifyDir(run, path, entries) : { kind: 'other' };
+    if (!what) { out.ownPaths.push(path); return; }   // its description unreadable: left as it is
     if (what.kind === 'gallery') { out.own.push({ kind: 'dir', path, id: what.id, legacy: !!what.legacy }); out.ownPaths.push(path); return; }
     for (const e of entries) {
       if (e.name.startsWith('.') || e.name === '__MACOSX') continue;
@@ -646,14 +647,17 @@ async function _walk(run, skip) {
   return out;
 }
 // What folder `path` (its `entries`) is: folder-content.js classifyFolder, from those of its own files
-// it has. One whose description can't be read is reported, and taken as not Shiori's (read, never
-// written).
+// it has. One whose description can't be read is reported and null: nothing is concluded from it —
+// read neither as Shiori's nor as linked (F06).
 async function _classifyDir(run, path, entries) {
   const names = new Set(entries.filter(e => e.kind === 'file').map(e => e.name));
   const texts = {};
   for (const name of OWN_FILES) {
     if (!names.has(name)) continue;
-    try { texts[name] = await folderFiles.readText(run.id, run.root, `${path}/${name}`); } catch { run.problems.push({ path: `${path}/${name}`, reason: 'unreadable' }); }
+    try { texts[name] = await folderFiles.readText(run.id, run.root, `${path}/${name}`); } catch {
+      run.problems.push({ path: `${path}/${name}`, reason: 'unreadable' });
+      return null;
+    }
   }
   return classifyFolder(texts);
 }
@@ -693,8 +697,11 @@ async function _joinOwn(run, found, kept) {
     }
     const was = kept.find(g => String(g.galleryId) === found.id && !g.linked);
     if (was && !_samePlace(was, found) && !(await _there(run, was)) && await _adopt(run, found, { replace: found.id })) run.updated.add(found.id);
-  } catch { run.problems.push({ path: `${found.path}${found.inner ? `/${found.inner}` : ''}`, reason: 'adopt-failed' }); }
+  } catch (e) { run.problems.push({ path: `${found.path}${found.inner ? `/${found.inner}` : ''}`, reason: _failure(e) }); }
 }
+// Why a gallery couldn't be read or joined, for `problems`: its files couldn't be read (_readFormat's
+// 'unreadable'), or it couldn't be stored ('adopt-failed').
+const _failure = (e) => (e?.reason === 'unreadable' ? 'unreadable' : 'adopt-failed');
 const _samePlace = (stat, found) => stat.dir === found.path && (stat.packed?.inner || '') === (found.inner || '');
 // Whether a kept gallery's place is still there: its archive, or its folder.
 async function _there(run, stat) {
@@ -707,17 +714,25 @@ async function _there(run, stat) {
 // { size, type }: images/ and what was made from its pages), pictures (which file holds each picture:
 // gallery-files.js folderPictures), ref(path) (a reference to that file where it lies; null when it
 // isn't there) }. `found`: { kind: 'dir', path } a folder, or { kind: 'zip', path, inner } an archive —
-// `inner` the gallery's folder in a series export ('' for an archive of its own).
+// `inner` the gallery's folder in a series export ('' for an archive of its own). What isn't there
+// holds nothing; anything else that can't be read fails the read whole, with `reason: 'unreadable'`
+// (F06): a gallery read in part would lose what it couldn't see.
 const FORMAT_DIRS = ['images', 'translated', 'study/bg', 'study/text', 'pipeline', 'covers'];
-const _readFormat = (folder, root, found) => (found.kind === 'zip' ? _readArchive(folder, root, found.path, found.inner || '') : _readDir(folder, root, found.path));
+async function _readFormat(folder, root, found) {
+  try {
+    return await (found.kind === 'zip' ? _readArchive(folder, root, found.path, found.inner || '') : _readDir(folder, root, found.path));
+  } catch (e) {
+    throw e instanceof BackendError ? e : Object.assign(new BackendError('unavailable', `${found.path} couldn't be read: ${e?.message || e}`), { reason: 'unreadable' });
+  }
+}
 async function _readDir(folder, root, dir) {
   const texts = {};
-  for (const name of DESCRIPTION_FILES) texts[name] = await folderFiles.readText(folder, root, `${dir}/${name}`).catch(() => null);
+  for (const name of DESCRIPTION_FILES) texts[name] = await folderFiles.readText(folder, root, `${dir}/${name}`);
   const files = new Map();
   for (const sub of FORMAT_DIRS) {
-    for (const e of await folderFiles.list(folder, root, `${dir}/${sub}`).catch(() => [])) {
+    for (const e of await folderFiles.list(folder, root, `${dir}/${sub}`)) {
       if (e.kind !== 'file' || !IMAGE_NAME.test(e.name)) continue;
-      const file = await e.handle.getFile().catch(() => null);
+      const file = await e.handle.getFile().catch((err) => { if (err?.name === 'NotFoundError') return null; throw err; });   // gone meanwhile
       if (file) files.set(`${sub}/${e.name}`, { size: file.size, type: K.typeOfName(e.name) });
     }
   }
@@ -729,7 +744,7 @@ async function _readArchive(folder, root, path, inner) {
   const texts = {};
   for (const name of DESCRIPTION_FILES) {
     const e = archive.entries.get(`${inner}${name}`);
-    texts[name] = e ? await _entryText(e).catch(() => null) : null;
+    texts[name] = e ? await _entryText(e) : null;
   }
   const files = new Map();
   for (const [name, e] of archive.entries) {
@@ -854,7 +869,7 @@ async function _catchUp(run, stat) {
   try {
     const again = stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid }) : await _adopt(run, where, { replace: gid });
     if (again) run.updated.add(gid);
-  } catch { run.problems.push({ path: stat.dir, reason: 'adopt-failed' }); }
+  } catch (e) { run.problems.push({ path: stat.dir, reason: _failure(e) }); }
 }
 // The descriptions a gallery's place holds (`where`: _readFormat's): DESCRIPTION_FILES' texts.
 async function _descriptionsAt(run, where) {
@@ -997,36 +1012,39 @@ async function _link(run, title, gid) {
     const made = await _adoptLinked(run, title, { gid });
     if (made) { run.known.add(made); run.added.push(made); }
     return made;
-  } catch {
-    run.problems.push({ path: title.path, reason: 'adopt-failed' });
+  } catch (e) {
+    run.problems.push({ path: title.path, reason: _failure(e) });
     return null;
   }
 }
 // Gallery `gid`, a linked gallery the library keeps here, read again from `title` — its source where
 // it is now (moved or renamed), or its files changed. A PDF's pages are its overlay's, drawn from the
-// file as it was: it follows its file when moved, and waits for them to be drawn again when changed.
+// file as it was: it follows its file when moved, and when changed, its overlay notes the file as it is
+// now, so its pages are drawn again (pdfsWaiting) — the gallery keeping the old ones meanwhile (F10).
 async function _relink(run, title, gid) {
   try {
     if (title.kind === 'pdf') {
       const over = await _overlayOf(run.id, run.root, gid);
+      if (over && over.source.fingerprint !== title.fingerprint) await _overlayFor(run, title, gid);
       if (!over || over.source.fingerprint !== title.fingerprint || !pdfReady(over.source, over.images)) return;
     }
     if (await _adoptLinked(run, title, { replace: gid })) run.updated.add(gid);
-  } catch { run.problems.push({ path: title.path, reason: 'adopt-failed' }); }
+  } catch (e) { run.problems.push({ path: title.path, reason: _failure(e) }); }
 }
 
 // Title `title`'s overlay, made as gallery `gid`'s: its source.json written as `title` is now (`at`:
-// its pictures read, else `title`'s own) — a PDF's markers kept while the file is the one they were
-// written for (its pages drawn, or drawing them failed). Resolves the overlay's folder.
+// its pictures read, else `title`'s own) — a PDF's markers kept, each saying the version of the file it
+// is for (its pages drawn from, or drawing them failed: pdfWaits). One that can't be read is never
+// written over: the error is thrown (F06). Resolves the overlay's folder.
 async function _overlayFor(run, title, gid, at = null) {
   const dir = overlayDir(gid);
   const path = `${dir}/${SOURCE_FILE}`;
-  const text = await folderFiles.readText(run.id, run.root, path).catch(() => null);
+  const text = await folderFiles.readText(run.id, run.root, path);
   const had = parseSource(text);
   const fingerprint = at?.fingerprint ?? title.fingerprint ?? null;
-  const same = had?.galleryId === String(gid) && had.source.fingerprint === fingerprint;
+  const mine = had?.galleryId === String(gid);
   const want = sourceText(gid, { kind: title.kind, path: title.path, ...(title.inner ? { inner: title.inner } : {}), size: at?.size ?? title.size ?? null,
-    fingerprint, ...(same ? { rendered: had.source.rendered, failed: had.source.failed } : {}) });
+    fingerprint, ...(mine ? { rendered: had.source.rendered, failed: had.source.failed } : {}) });
   if (text !== want) await folderFiles.writeFile(run.id, run.root, path, want);
   return dir;
 }
@@ -1046,7 +1064,7 @@ async function _adoptLinked(run, title, { gid: given = null, replace = null } = 
   const gid = replace || given || K.nextGalleryId();
   if (!replace && run.known.has(gid)) return null;
   const dir = await _overlayFor(run, title, gid, at);
-  const read = await _readDir(run.id, run.root, dir);
+  const read = await _readFormat(run.id, run.root, { kind: 'dir', path: dir });
   const entries = _entriesOf(read.records);
   const now = Date.now();
   const overlay = [...read.files].filter(([p]) => /^images\/[^/]+$/.test(p)).map(([p, f]) => ({ name: p.slice('images/'.length), size: f.size }));
@@ -1079,10 +1097,12 @@ async function _namedMeta(run, title, gid) {
 
 // ── PDFs a library folder holds, drawn by a page ──
 
-// The PDFs found in the library's folders (a check made each an overlay) waiting for their pages to be
-// drawn: [{ folder, gid, path, name }] — only in folders shown that this context may write to, and
-// not one removed from the library, drawn already (pdfReady: joining at the next check), or whose
-// drawing failed for the file as it is now (drawFailed: tried again once it changes).
+// The PDFs found in the library's folders (a check made each an overlay) whose pages wait to be drawn
+// (linked-source.js pdfWaits): [{ folder, gid, path, name }] — only in folders shown that this context
+// may write to — not drawn yet, or drawn from another version of the file than the one there now (F10:
+// for a gallery the library has, the one its last check found, so that a page doesn't read every PDF
+// of the library) — and not one removed from the library, or whose drawing failed for the file as it is
+// (drawFailed: tried again once it changes).
 async function pdfsWaiting() {
   const { byId } = await K.folders();
   const known = new Set(await K.transferIds());
@@ -1092,12 +1112,13 @@ async function pdfsWaiting() {
     if (!root) continue;
     const removed = parseRemoved(await folderFiles.readText(f.id, root, REMOVED_FILE).catch(() => null));
     for (const over of await _overlaysOf(f.id, root)) {
-      if (over.source.kind !== 'pdf' || known.has(over.galleryId)) continue;
+      if (over.source.kind !== 'pdf') continue;
       const file = await folderFiles.readFile(f.id, root, over.source.path);
       if (!file) continue;
-      const print = await _pdfPrint(file);
-      if (isRemoved(removed, { ...over.source, fingerprint: print }) || drawFailed(over.source, print)) continue;
-      if (pdfReady(over.source, (await _overlayOf(f.id, root, over.galleryId))?.images)) continue;
+      const joined = known.has(over.galleryId);
+      const print = joined ? over.source.fingerprint : await _pdfPrint(file);
+      if (!joined && isRemoved(removed, { ...over.source, fingerprint: print })) continue;
+      if (!pdfWaits(over.source, (await _overlayOf(f.id, root, over.galleryId))?.images, print)) continue;
       out.push({ folder: f.id, gid: over.galleryId, path: over.source.path, name: over.source.path.split('/').pop() });
     }
   }
@@ -1118,22 +1139,34 @@ async function pdfSource(folder, gid) {
   return folderFiles.readFile(folder, root, source.path);
 }
 // A waiting PDF's pages, drawn (`pages`: Blobs in order), kept in its overlay — each page written, then
-// its source.json told how many (`rendered`, last: until then a check doesn't take the pages drawn so
-// far for a gallery) — and the gallery joined to the library, while the folder's lock is held (one at
-// a time with its check). Resolves its id; rejects when it couldn't join.
+// its source.json told how many and the file they were drawn from (`rendered`, last: until then a check
+// doesn't take the pages drawn so far for a gallery) — and the gallery joined to the library, while the
+// folder's lock is held (one at a time with its check). One the library has, drawn again, has its pages
+// replaced in one commit (db.js replacePages), then its marker. Resolves its id; rejects when it
+// couldn't join.
 async function addRendered(folder, gid, pages) {
   return folderFiles.withLock(FOLDER_LOCK(folder), async () => {
     const { root, source } = await _waitingPdf(folder, gid);
     const dir = overlayDir(gid);
+    const file = await folderFiles.readFile(folder, root, source.path);
+    const fingerprint = file ? await _pdfPrint(file) : source.fingerprint;
+    const marker = () => folderFiles.writeFile(folder, root, `${dir}/${SOURCE_FILE}`,
+      sourceText(gid, { ...source, fingerprint, rendered: { pages: pages.length, fingerprint }, failed: null }));
+    if (await K.galleryGet(gid)) {
+      await K.replacePages(String(gid), pages);
+      await marker();
+      await K.patchStat(String(gid), (cur) => (cur.linked ? { ...cur, linked: { ...cur.linked, fingerprint } } : cur));
+      return String(gid);
+    }
     for (const [i, blob] of pages.entries()) {
       await folderFiles.writeFile(folder, root, `${dir}/${layoutPath.original(i + 1, extOfType(blob.type) || 'webp')}`, blob);
     }
     if (!(await K.rootOf(folder))) throw new BackendError('unavailable', `library folder ${folder} can't be written to`);
-    await folderFiles.writeFile(folder, root, `${dir}/${SOURCE_FILE}`, sourceText(gid, { ...source, rendered: pages.length, failed: null }));
+    await marker();
     const run = { id: folder, root, name: (await K.folderById(folder))?.name || '', stopped: () => false,
       known: new Set(await K.transferIds()), added: [], updated: new Set(), problems: [] };
     if (run.known.has(String(gid))) return String(gid);
-    const made = await _adoptLinked(run, { ...source, rendered: pages.length }, { gid: String(gid) });
+    const made = await _adoptLinked(run, source, { gid: String(gid) });
     if (!made) throw new BackendError('aborted', `the pages drawn for gallery ${gid} couldn't join the library`);
     await _tidySeriesLinks([made], folder);
     K.publishFeed(made);

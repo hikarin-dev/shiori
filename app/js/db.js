@@ -1454,7 +1454,7 @@ const _folderLibrary = createFolderLibrary({
   removedNotes: _removedNotes, publishRemoved: _publishRemoved,
   me: _me, myLabel: _myLabel, readClaim: _readClaim, writeClaim: _writeClaim, noteEpoch: _noteEpoch, randomId: _randomId,
   // the pictures' storage in folders
-  writing: _writing, relocate: _relocate, reserveDir: _reserveDir, describe: _describe, cancelDescribe: _cancelDescribe,
+  writing: _writing, replacePages: _replacePages, relocate: _relocate, reserveDir: _reserveDir, describe: _describe, cancelDescribe: _cancelDescribe,
   marked: _marked, patchStat: _patchStat, wantedDescriptions: _wantedDescriptions, textsOf: _textsOf,
   archiveOf: _archiveOf, typeOfName: _typeOfName, settleFolders,
 });
@@ -1590,6 +1590,39 @@ export async function dbPut(url, src, mediaId, galleryId, opts = {}) {
     if (_aggMovedParent) scheduleSeriesAggregate(_aggMovedParent);
     publishFeed(_movedFromGid);
   }
+  publishFeed(gid);
+}
+
+// Every page of gallery `gid` replaced by `blobs` (in order) in one commit (_writing's protocol) — a
+// PDF's pages drawn again (folder-library.js addRendered, F10): the new pictures written beside the old
+// ones, then one transaction replacing every page record — what was made from the old pages
+// (translations, study layers) going with them, since each page shows another picture now — and the old
+// files deleted once it has committed. Until then the old pages are read.
+async function _replacePages(gid, blobs) {
+  const db = await openDB();
+  await _writing(gid, async (w) => {
+    const home = await _home(gid, null, w);
+    const now = Date.now();
+    const pages = blobs.map((blob, i) => ({ url: `local://${gid}/${i + 1}.${extOfType(blob.type) || 'webp'}`, blob, mediaId: gid, galleryId: gid, cachedAt: now, size: blob.size }));
+    let left = false;
+    for (const [i, page] of pages.entries()) if (await _place(home, _pageFiles(page, i + 1), w)) left = true;
+    await new Promise((resolve, reject) => {
+      const tx = _tx(db, [STORE, GALLERY_STORE, BLOB_STORE], 'readwrite');
+      tx.oncomplete = () => { w.committed = true; resolve(); };
+      tx.onerror = () => reject(_txError(tx));
+      const images = tx.objectStore(STORE);
+      const req = images.index('galleryId').openCursor(IDBKeyRange.only(gid));
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (cursor) { _dropBlobs(tx, _refIds(cursor.value, PAGE)); cursor.delete(); cursor.continue(); return; }
+        for (const page of pages) images.put(_stash(tx, page, [], PAGE));
+        _noteHomeIn(tx, gid, home, left);
+        _logIn(tx, gid);
+      };
+    });
+  });
+  await rebuildGalleryEntry(gid, { silent: true });
+  platform.control.send({ type: 'COVER_INVALIDATED', galleryId: gid });
   publishFeed(gid);
 }
 

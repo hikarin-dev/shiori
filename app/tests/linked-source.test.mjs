@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { planTitles, zipTitles, metaFromName, sourceText, parseSource, sourceKey, isRemoved, safeRelPath, withRemoved, linkedPages,
-  keepsDerived, pdfReady, drawFailed, matchSources, parseRemoved, removedText } from '../js/linked-source.js';
+  keepsDerived, pdfReady, drawFailed, pdfWaits, matchSources, parseRemoved, removedText } from '../js/linked-source.js';
 
 test('every folder holding pictures, every archive and every PDF is a title; Shiori\'s own folders and other files are left out', () => {
   const titles = planTitles([
@@ -101,18 +101,32 @@ test('F07: what was made from a linked page stays only while the page shows the 
   assert.equal(keepsDerived(page('0001.png', 4, 'overlay'), null), true, 'a page of the overlay\'s own');
 });
 
+const drawn = (n) => Array.from({ length: n }, (_, i) => ({ name: `${String(i + 1).padStart(4, '0')}.png` }));
 test('a PDF joins only once all its pages are drawn, and one that failed waits for its file to change (R11, A23)', () => {
-  const pdf = (rendered) => ({ kind: 'pdf', path: 'B.pdf', ...(rendered ? { rendered } : {}) });
-  const drawn = (n) => Array.from({ length: n }, (_, i) => ({ name: `${String(i + 1).padStart(4, '0')}.png` }));
+  const pdf = (pages) => ({ kind: 'pdf', path: 'B.pdf', ...(pages ? { rendered: { pages, fingerprint: null } } : {}) });
   assert.equal(pdfReady(pdf(null), drawn(3)), false, 'pages drawn so far, no marker: still drawing, or stopped half way');
   assert.equal(pdfReady(pdf(3), drawn(2)), false);
   assert.equal(pdfReady(pdf(3), drawn(3)), true);
-  assert.equal(pdfReady({ kind: 'zip', path: 'x.zip', rendered: 1 }, drawn(1)), false);
+  assert.equal(pdfReady({ kind: 'zip', path: 'x.zip', rendered: { pages: 1 } }, drawn(1)), false);
   const failed = { kind: 'pdf', path: 'B.pdf', failed: { fingerprint: 'f1', at: 1 } };
   assert.equal(drawFailed(failed, 'f1'), true);
   assert.equal(drawFailed(failed, 'f2'), false, 'the file changed: tried again');
-  const text = sourceText('1700000000000', { kind: 'pdf', path: 'B.pdf', rendered: 3, failed: { fingerprint: 'f1', at: 5 } });
-  assert.deepEqual(parseSource(text).source, { kind: 'pdf', path: 'B.pdf', size: null, fingerprint: null, rendered: 3, failed: { fingerprint: 'f1', at: 5 } });
+  const text = sourceText('1700000000000', { kind: 'pdf', path: 'B.pdf', rendered: { pages: 3, fingerprint: 'f0' }, failed: { fingerprint: 'f1', at: 5 } });
+  assert.deepEqual(parseSource(text).source, { kind: 'pdf', path: 'B.pdf', size: null, fingerprint: null, rendered: { pages: 3, fingerprint: 'f0' }, failed: { fingerprint: 'f1', at: 5 } });
+});
+
+test('F10: a drawn PDF is drawn again once its file changed — unless drawing that version failed — and the marker\'s first form still reads', () => {
+  const pdf = (fingerprint, rendered, failed) => ({ kind: 'pdf', path: 'B.pdf', fingerprint, rendered, ...(failed ? { failed: { fingerprint: failed, at: 1 } } : {}) });
+  assert.equal(pdfWaits(pdf('v1', null), drawn(0)), true, 'not drawn yet');
+  assert.equal(pdfWaits(pdf('v1', { pages: 2, fingerprint: 'v1' }), drawn(2)), false, 'drawn from the file as it is');
+  assert.equal(pdfWaits(pdf('v2', { pages: 2, fingerprint: 'v1' }), drawn(2)), true, 'drawn from an earlier version');
+  assert.equal(pdfWaits(pdf('v1', { pages: 2, fingerprint: 'v1' }), drawn(2), 'v3'), true, 'the file as read just now');
+  assert.equal(pdfWaits(pdf('v2', { pages: 2, fingerprint: 'v1' }, 'v2'), drawn(2)), false, 'drawing this version failed');
+  assert.equal(pdfWaits({ kind: 'dir', path: 'D', fingerprint: 'v2', rendered: { pages: 1, fingerprint: 'v1' } }, drawn(1)), false);
+  const old = JSON.stringify({ format: 'shiori-linked', version: 1, galleryId: '1700000000000', source: { kind: 'pdf', path: 'B.pdf', fingerprint: 'v2', rendered: 2 } });
+  const read = parseSource(old).source;
+  assert.deepEqual(read.rendered, { pages: 2, fingerprint: null }, 'a bare count');
+  assert.equal(pdfWaits(read, drawn(2)), false, 'not known to be of another version: kept');
 });
 
 test('a check finds each source again: where it was, changed there, moved — an archive with all its chapters — or new (R18, R19)', () => {

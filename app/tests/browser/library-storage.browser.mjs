@@ -504,7 +504,7 @@ test('R11: a PDF joins once all its pages are drawn, never with the pages drawn 
       const still = (await api.folders.pdfsWaiting()).length;
       const made = await api.folders.addRendered(id, w.gid, [await t.png(10), await t.png(20)]);
       const source = JSON.parse(await t.text(`R11/.shiori/linked/${w.gid}/source.json`)).source;
-      return { first, partial, still, made: made === w.gid, count: (await api.galleries.get(w.gid))?.count, rendered: source.rendered, again: (await api.folders.scan(id)).added };
+      return { first, partial, still, made: made === w.gid, count: (await api.galleries.get(w.gid))?.count, rendered: source.rendered?.pages, again: (await api.folders.scan(id)).added };
     }, PDF);
     assert.deepEqual(out, { first: 0, partial: 0, still: 1, made: true, count: 2, rendered: 2, again: 0 });
   });
@@ -1113,5 +1113,80 @@ test('F04: a gallery\'s descriptions name the file each picture is in where a re
     assert.equal(out.named, 5, 'the page\'s five pictures named in its record');
     assert.ok(out.renamed, 'each second picture took another name');
     assert.deepEqual(out.sizes, out.want, 'each read from the file holding its latest picture');
+  });
+});
+
+test('F10: a drawn PDF whose file changed is drawn again: its old pages read until the new ones are all in, what was made from them dropped', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const out = await page.evaluate(async (pdf) => {
+      const api = window.__api, t = window.__t;
+      await t.write('F10/Book.pdf', pdf);
+      const { id } = await api.folders.add(await t.folder('F10'));
+      await api.folders.scan(id);
+      const [w] = await api.folders.pdfsWaiting();
+      const first = await t.png(10), second = await t.png(200, 50, 60), third = await t.png(300, 20, 20);
+      await api.folders.addRendered(id, w.gid, [first]);
+      await api.derived.putTranslatedImage(w.gid, 1, await t.png(90));
+      const translatedOf = async () => !!(await t.raw('images', `local://${w.gid}/1.png`))?.translated;
+      const had = await translatedOf();
+      const drawn = (await api.folders.pdfsWaiting()).length;
+      await t.write('F10/Book.pdf', `${pdf}% and a line more\n`);
+      await api.folders.scan(id);
+      const changed = (await api.folders.pdfsWaiting()).map(p => p.gid);
+      const meanwhile = (await api.pages.blob(w.gid, 1))?.size;
+      await api.folders.addRendered(id, w.gid, [second, third]);
+      const source = JSON.parse(await t.text(`F10/.shiori/linked/${w.gid}/source.json`)).source;
+      const after = { count: (await api.galleries.get(w.gid))?.count, sizes: [(await api.pages.blob(w.gid, 1))?.size, (await api.pages.blob(w.gid, 2))?.size],
+        translated: await translatedOf(), waiting: (await api.folders.pdfsWaiting()).length,
+        marker: source.rendered.pages === 2 && source.rendered.fingerprint === source.fingerprint };
+      await t.sleep(300);
+      return { had, drawn, changed, meanwhile, sizes: [first.size, second.size, third.size], after, again: await api.folders.scan(id),
+        reread: (await api.pages.blob(w.gid, 1))?.size, images: (await t.ls(`F10/.shiori/linked/${w.gid}/images`)).length };
+    }, PDF);
+    assert.deepEqual([out.had, out.drawn], [true, 0], 'translated, and drawn from the file as it is');
+    assert.equal(out.changed.length, 1, 'drawn again once its file changed');
+    assert.equal(out.meanwhile, out.sizes[0], 'its old page read meanwhile');
+    assert.deepEqual(out.after, { count: 2, sizes: [out.sizes[1], out.sizes[2]], translated: false, waiting: 0, marker: true });
+    assert.deepEqual([out.again.problems, out.reread, out.images], [[], out.sizes[1], 2], 'read back as drawn again, the old page\'s file gone');
+  });
+});
+
+test('F06: a description or picture that can\'t be read fails its gallery\'s read, reported: never joined in part, nor taken for a linked folder', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const out = await page.evaluate(async () => {
+      const api = window.__api, t = window.__t;
+      const { galleryFiles, DESCRIPTION_FILES } = await import('/app/js/gallery-files.js');
+      const gid = '1700000000066', dir = 'Studied';
+      const ref = (p) => ({ $path: p, folder: 'web', dir, size: 5, type: 'image/png' });
+      const records = [{ pageNum: 1, url: `local://${gid}/1.png`, mediaId: gid, galleryId: gid, cachedAt: 1, size: 5, blob: ref('images/0001.png'),
+        studyBg: ref('study/bg/0001.png'), studyPage: { w: 10, h: 10 }, bubbles: [{ box: [0, 0, 5, 5], region: [0, 0, 5, 5], tr: 'Hello', src: 'x', text: ref('study/text/0001-0.png') }] }];
+      for (const f of galleryFiles({ meta: { galleryId: gid, title: t.T('Studied') }, records }, '', { fileOf: (src) => src.$path })) {
+        if (DESCRIPTION_FILES.includes(f.name)) await t.write(`F06/${dir}/${f.name}`, f.source);
+      }
+      for (const p of ['images/0001.png', 'study/bg/0001.png', 'study/text/0001-0.png']) await t.write(`F06/${dir}/${p}`, await t.png(40));
+      await t.write('F06/Unsure/series.json', JSON.stringify({ format: 'shiori-series', version: 1 }));
+      await t.write('F06/Unsure/01.png', await t.png(50));
+      // Its study index, and the other folder's description, unreadable for a while (not gone).
+      const getFile = FileSystemFileHandle.prototype.getFile;
+      let denied = true;
+      FileSystemFileHandle.prototype.getFile = function () {
+        return denied && ['bubbles.json', 'series.json'].includes(this.name) ? Promise.reject(new DOMException('denied', 'NotReadableError')) : getFile.call(this);
+      };
+      try {
+        const { id } = await api.folders.add(await t.folder('F06'));
+        const first = await api.folders.scan(id);
+        const after = { has: !!(await api.galleries.get(gid)), linked: (await t.inFolder(id)).length };
+        denied = false;
+        const again = await api.folders.scan(id);
+        const rec = await t.raw('images', `local://${gid}/1.png`);
+        return { first, after, added: again.added, linked: (await t.inFolder(id)).filter(g => g.linked).length, bubbles: rec?.bubbles?.length ?? 0 };
+      } finally { FileSystemFileHandle.prototype.getFile = getFile; }
+    });
+    assert.deepEqual(out.first.added, 0);
+    assert.deepEqual(out.first.problems.map(p => p.reason), ['unreadable', 'unreadable'], JSON.stringify(out.first.problems));
+    assert.deepEqual(out.after, { has: false, linked: 0 }, 'neither joined without its study layers, nor the other read as linked');
+    assert.deepEqual([out.added, out.linked, out.bubbles], [2, 1, 1], 'both read whole once they can be');
   });
 });

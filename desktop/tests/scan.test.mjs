@@ -118,7 +118,7 @@ test('leftovers of an interrupted write are cleared', async (t) => {
   const folder = await settled(library, gid, 'Tidy');
   const old = new Date(Date.now() - 2 * 60 * 60 * 1000);   // long enough that no write under way made them
   fs.mkdirSync(`${folder}.shiori-tmp`);
-  fs.writeFileSync(path.join(`${folder}.shiori-tmp`, '0001.png'), pngBytes(1));   // half an unpacked archive
+  fs.writeFileSync(path.join(`${folder}.shiori-tmp`, '0001.png'), pngBytes(1));   // half an unpacked archive, or the person's own
   fs.utimesSync(`${folder}.shiori-tmp`, old, old);
   fs.writeFileSync(path.join(folder, 'shiori.json.shiori-tmp'), 'half a description');
   fs.utimesSync(path.join(folder, 'shiori.json.shiori-tmp'), old, old);
@@ -129,7 +129,7 @@ test('leftovers of an interrupted write are cleared', async (t) => {
   fs.writeFileSync(fresh, pngBytes(8));
   fs.utimesSync(stray, old, old);
   await library.rescan();
-  assert.equal(fs.existsSync(`${folder}.shiori-tmp`), false);
+  assert.equal(fs.existsSync(`${folder}.shiori-tmp`), true, 'beside the gallery, not in it: nothing proves it Shiori\'s (F08)');
   assert.equal(fs.existsSync(path.join(folder, 'shiori.json.shiori-tmp')), false);
   assert.equal(fs.existsSync(stray), false, 'a staged page nothing refers to');
   assert.equal(fs.existsSync(fresh), true, 'one just written may still be on its way');

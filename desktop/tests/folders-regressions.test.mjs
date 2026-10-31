@@ -267,7 +267,7 @@ test('R12: a linked source whose path leads out of its folder reads nothing outs
       library._logIn(gid);
     });
     assert.equal(await library.getPageBlob(gid, 1), null, `${bad}: nothing read outside the folder`);
-    assert.ok(!String(library.files.sourceFile(gid, { at: 'x', entry: 'secret.png' })).startsWith(path.join(dir, 'outside')));
+    assert.ok(!String(await library.files.sourceFile(gid, { at: 'x', entry: 'secret.png' })).startsWith(path.join(dir, 'outside')));
   }
 });
 

@@ -128,7 +128,7 @@ test('R11: a PDF joins only once every page is drawn (its marker written last): 
   release();
   assert.equal(await drawing, w.gid);
   assert.equal(pages(w.gid), 3);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(overlayOf(other, w.gid), 'source.json'), 'utf8')).source.rendered, 3);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(overlayOf(other, w.gid), 'source.json'), 'utf8')).source.rendered.pages, 3);
   assert.deepEqual(await bytesOf(await library.getPageBlob(w.gid, 3)), [...pngBytes(3)]);
 });
 
@@ -397,10 +397,11 @@ test('A14: a linked source renamed, or changed, never overwrites the library\'s 
 test('A19: a check sweeps temporary files only once no write can be making them; staging under the data folder too', async (t) => {
   const { library, other } = await open(t);
   const id = (await library.folderAdd(other)).id;
-  const fresh = mk(other, 'Moving.shiori-tmp/0001.png', pngBytes(1));                 // a move copying now
-  const old = aged(mk(other, 'Gone.shiori-tmp', 'half a write'));
-  const reserved = aged(mk(other, 'Big.shiori-tmp', 'a long copy still under way'));
-  library.files._reserved.add(library.files._join(id, 'Big'));
+  // (In the folder's own .shiori/, where everything is Shiori's: F08.)
+  const fresh = mk(other, '.shiori/Moving.shiori-tmp/0001.png', pngBytes(1));                 // a write under way
+  const old = aged(mk(other, '.shiori/Gone.shiori-tmp', 'half a write'));
+  const reserved = aged(mk(other, '.shiori/Big.shiori-tmp', 'a long copy still under way'));
+  library.files._reserved.add(library.files._join(id, '.shiori/Big'));
   const stray = aged(mk(library.dataStagingDir, '1790000000999/1-stray.png', pngBytes(9)));   // its gallery never committed
   await library.folderScan(id);
   assert.ok(fs.existsSync(fresh), 'one just written');
@@ -542,4 +543,119 @@ test('F07: what was made from a linked page is dropped once the page shows anoth
   mk(other, 'Loose/000.png', pngBytes(0));
   await library.folderScan(back);
   assert.deepEqual(await Promise.all([1, 2, 3].map(translatedOf)), [null, null, null]);
+});
+
+test('F10: a drawn PDF whose file changed is drawn again: its old pages read until the new ones are all in, what was made from them dropped', async (t) => {
+  const { library, other } = await open(t);
+  const pdf = path.join(other, 'Book.pdf');
+  fs.writeFileSync(pdf, '%PDF-1.4 first');
+  const { id } = await library.folderAdd(other);
+  await library.folderScan(id);
+  const [w] = await library.pdfsWaiting();
+  assert.equal(await library.addRendered(id, w.gid, [png(1)]), w.gid);
+  await library.putTranslatedImage({ galleryId: w.gid, pageNum: 1 }, png(0x71));
+  await library.files.settle(w.gid);
+  await described(library, w.gid);
+  assert.deepEqual(await library.pdfsWaiting(), [], 'drawn from the file as it is');
+  fs.writeFileSync(pdf, '%PDF-1.4 second, and longer');
+  await library.folderScan(id);
+  assert.deepEqual((await library.pdfsWaiting()).map(p => p.gid), [w.gid], 'drawn again once its file changed');
+  assert.deepEqual(await bytesOf(await library.getPageBlob(w.gid, 1)), [...pngBytes(1)], 'its old page read meanwhile');
+  assert.equal(Buffer.from(await (await library.pdfSource(id, w.gid)).arrayBuffer()).toString(), '%PDF-1.4 second, and longer');
+  assert.equal(await library.addRendered(id, w.gid, [png(2), png(3)]), w.gid);
+  const record = (n) => JSON.parse(library._pageRow(w.gid, n).record);
+  assert.deepEqual([(await library.getGallery(w.gid)).count, await bytesOf(await library.getPageBlob(w.gid, 1)), await bytesOf(await library.getPageBlob(w.gid, 2))],
+    [2, [...pngBytes(2)], [...pngBytes(3)]]);
+  assert.equal(record(1).translated, undefined, 'made from the page it replaced');
+  assert.deepEqual(await library.pdfsWaiting(), [], 'drawn from the file as it is now');
+  const marker = JSON.parse(fs.readFileSync(path.join(overlayOf(other, w.gid), 'source.json'), 'utf8')).source;
+  assert.deepEqual(marker.rendered, { pages: 2, fingerprint: marker.fingerprint });
+  await library.files.settle(w.gid);
+  await described(library, w.gid);
+  await library.folderScan(id);
+  assert.deepEqual([await bytesOf(await library.getPageBlob(w.gid, 1)), record(1).translated], [[...pngBytes(2)], undefined], 'read back as drawn again');
+  await whole(library);
+});
+
+test('F06: a description or picture that can\'t be read fails its gallery\'s read, reported: never joined in part, nor its saved study layers dropped', async (t) => {
+  const { library, other } = await open(t);
+  const { galleryFiles, DESCRIPTION_FILES } = await import('../../app/js/gallery-files.js');
+  const gid = '1700000000066', dir = 'Studied';
+  const ref = (p) => ({ $path: p, folder: 'web', dir, size: 5, type: 'image/png' });
+  const records = [{ pageNum: 1, url: `local://${gid}/1.png`, mediaId: gid, galleryId: gid, cachedAt: 1, size: 5, blob: ref('images/0001.png'),
+    studyBg: ref('study/bg/0001.png'), studyPage: { w: 10, h: 10 }, bubbles: [{ box: [0, 0, 5, 5], region: [0, 0, 5, 5], tr: 'Hello', src: 'x', text: ref('study/text/0001-0.png') }] }];
+  for (const f of galleryFiles({ meta: { galleryId: gid, title: title('Studied') }, records }, '', { fileOf: (src) => src.$path })) {
+    if (DESCRIPTION_FILES.includes(f.name)) mk(other, `${dir}/${f.name}`, f.source);
+  }
+  for (const p of ['images/0001.png', 'study/bg/0001.png', 'study/text/0001-0.png']) mk(other, `${dir}/${p}`, pngBytes(1));
+  // Its study index unreadable for a while (its permissions, a drive's error), not gone.
+  const fsp = (await import('node:fs/promises')).default;
+  const readFile = fsp.readFile;
+  let denied = true;
+  fsp.readFile = function (file, ...rest) {
+    if (denied && String(file).endsWith(path.join('study', 'bubbles.json'))) return Promise.reject(Object.assign(new Error(`EACCES: permission denied, open '${file}'`), { code: 'EACCES', syscall: 'open' }));
+    return readFile.call(this, file, ...rest);
+  };
+  t.after(() => { fsp.readFile = readFile; });
+  const id = (await library.folderAdd(other)).id;
+  const unread = { added: 0, updated: 0, problems: [{ path: dir, reason: 'unreadable' }], stopped: false };
+  assert.deepEqual(await library.folderScan(id), unread, 'not joined without its study layers');
+  assert.equal(library.files._row(gid), undefined);
+  denied = false;
+  assert.equal((await library.folderScan(id)).added, 1);
+  const bubbles = () => JSON.parse(library._pageRow(gid, 1).record).bubbles?.length ?? 0;
+  assert.equal(bubbles(), 1);
+  await described(library, gid);
+  const stamp = () => library._s('SELECT stamp FROM stamps WHERE gid = ?').get(gid)?.stamp;
+  const had = stamp();
+  denied = true;
+  assert.deepEqual(await library.folderScan(id), unread, 'a catch-up that can\'t read it concludes nothing');
+  assert.deepEqual([bubbles(), stamp()], [1, had], 'its records and stamp as they were');
+  denied = false;
+  await library.metaPut({ ...(await library.metaGet(gid)), title: title('Studied, renamed') });
+  await described(library, gid);
+  assert.ok(fs.existsSync(path.join(other, dir, 'study', 'bubbles.json')), 'its study index written on, not deleted');
+  assert.equal(bubbles(), 1);
+});
+
+test('F08: the sweep deletes only where everything is Shiori\'s: old names like its temporary files in a linked folder or at the folder\'s top stay', async (t) => {
+  const { library, other } = await open(t);
+  mk(other, 'Pictures/001.png', pngBytes(1));
+  const note = aged(mk(other, 'Pictures/notes.shiori-old', 'my notes'), 3);
+  const theirs = aged(mk(other, 'Pictures/Stuff.shiori-tmp/keep.txt', 'theirs'), 3);
+  aged(path.dirname(theirs), 3);
+  const top = aged(mk(other, 'Top.shiori-new', 'theirs too'), 3);
+  const gid = '1700000000088';
+  mk(other, 'Mine/metadata.json', metaText(gid, 'Mine'));
+  mk(other, 'Mine/images/0001.png', pngBytes(2));
+  const id = (await library.folderAdd(other)).id;
+  assert.equal((await library.folderScan(id)).added, 2);
+  const half = aged(mk(other, 'Mine/metadata.json.shiori-tmp', 'half a description'), 3);
+  await library.folderScan(id);
+  assert.deepEqual([note, theirs, top].map(f => fs.existsSync(f)), [true, true, true], 'none of them proven Shiori\'s');
+  assert.equal(fs.existsSync(half), false, 'one in a gallery whose description names it');
+});
+
+test('F09: a linked source is read only inside its library folder: a junction in it leading elsewhere is never followed, and is reported', async (t) => {
+  const { dir, library, other } = await open(t);
+  const outside = path.join(dir, 'outside');
+  mk(outside, 'private.pdf', '%PDF-1.4 private');
+  mk(outside, 'Elsewhere/001.png', pngBytes(0x66));
+  mk(other, 'Pics/001.png', pngBytes(1));
+  const id = (await library.folderAdd(other)).id;
+  await library.folderScan(id);
+  const [{ gid }] = linkedRows(library);
+  // (a) An overlay naming a PDF through a junction (a valid path, lexically inside the folder).
+  fs.symlinkSync(outside, path.join(other, 'alias'), 'junction');
+  const pdfGid = '1700000000099';
+  mk(other, `.shiori/linked/${pdfGid}/source.json`, JSON.stringify({ format: 'shiori-linked', version: 1, galleryId: pdfGid,
+    source: { kind: 'pdf', path: 'alias/private.pdf', size: null, fingerprint: null } }));
+  assert.deepEqual(await library.pdfsWaiting(), [], 'not offered');
+  await assert.rejects(library.pdfSource(id, pdfGid), (e) => e.reason === 'outside');
+  // (b) A kept source's folder replaced by a junction to another.
+  fs.rmSync(path.join(other, 'Pics'), { recursive: true });
+  fs.symlinkSync(path.join(outside, 'Elsewhere'), path.join(other, 'Pics'), 'junction');
+  assert.equal(await library.getPageBlob(gid, 1).then(bytesOf, () => null), null, 'its page never read from elsewhere');
+  assert.deepEqual((await library.folderScan(id)).problems.filter(p => p.reason === 'outside'), [{ path: 'Pics', reason: 'outside' }]);
+  assert.ok(fs.existsSync(path.join(outside, 'Elsewhere', '001.png')));
 });

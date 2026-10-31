@@ -651,7 +651,7 @@ export class Library {
   }
   async _lazyOrig(gid, n, orig) {
     const dir = orig?.at === 'p' ? this.files.folderOf(gid) : null;
-    const file = dir ? path.join(dir, ...String(orig.entry).split('/')) : this.files.sourceFile(gid, orig);
+    const file = dir ? path.join(dir, ...String(orig.entry).split('/')) : await this.files.sourceFile(gid, orig);
     return (file && await fileBlob(file, orig.type)) || this._readOrig(gid, n, orig);
   }
 

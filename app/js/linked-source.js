@@ -38,14 +38,18 @@ const _safeInner = (inner) => typeof inner === 'string' && inner.endsWith('/') &
 
 // A source as source.json keeps it: { kind: 'zip' | 'dir' | 'pdf', path (in the library folder,
 // '/'-separated), inner (for an archive whose folders are titles each: the folder in it, "Name/"),
-// size, fingerprint } — and for a PDF, once its pages are drawn into the overlay, `rendered` (how many:
-// the overlay holds them all, pdfReady), or, when drawing them failed, `failed` ({ fingerprint (the
-// file's, as it was then), at }: not tried again until the file changes, drawFailed).
+// size, fingerprint (the file's as a check last found it) } — and for a PDF, once its pages are drawn
+// into the overlay, `rendered` ({ pages: how many — the overlay holds them all, pdfReady — fingerprint:
+// the file's they were drawn from, pdfWaits }; an earlier marker was the bare count, read as drawn from
+// a version not known), or, when drawing them failed, `failed` ({ fingerprint (the file's, as it was
+// then), at }: not tried again until the file changes, drawFailed).
 const KINDS = new Set(['zip', 'dir', 'pdf']);
 export const sourceText = (galleryId, source) => JSON.stringify({ format: 'shiori-linked', version: 1, galleryId: String(galleryId),
   source: { kind: source.kind, path: source.path, ...(source.inner ? { inner: source.inner } : {}), size: source.size ?? null,
-    fingerprint: source.fingerprint ?? null, ...(source.rendered ? { rendered: source.rendered } : {}),
+    fingerprint: source.fingerprint ?? null,
+    ...(source.rendered ? { rendered: { pages: source.rendered.pages, fingerprint: source.rendered.fingerprint ?? null } } : {}),
     ...(source.failed ? { failed: { fingerprint: source.failed.fingerprint ?? null, at: source.failed.at } } : {}) } }, null, 2);
+const _count = (n) => Number.isSafeInteger(n) && n > 0;
 // source.json's { galleryId, source }, or null when it isn't one — or names a path that doesn't stay
 // inside the library folder, or a gallery id that isn't one.
 export function parseSource(text) {
@@ -56,12 +60,13 @@ export function parseSource(text) {
   const inner = s.inner === '' || s.inner == null ? null : s.inner;
   if (inner != null && (s.kind !== 'zip' || !_safeInner(inner))) return null;
   const pdf = s.kind === 'pdf';
-  const rendered = pdf && Number.isSafeInteger(s.rendered) && s.rendered > 0 ? s.rendered : null;
+  const drawn = !pdf ? null : _count(s.rendered) ? { pages: s.rendered, fingerprint: null }
+    : _count(s.rendered?.pages) ? { pages: s.rendered.pages, fingerprint: typeof s.rendered.fingerprint === 'string' ? s.rendered.fingerprint : null } : null;
   const failed = pdf && s.failed && typeof s.failed === 'object' && Number.isFinite(s.failed.at)
     ? { fingerprint: typeof s.failed.fingerprint === 'string' ? s.failed.fingerprint : null, at: s.failed.at } : null;
   return { galleryId: String(v.galleryId), source: { kind: s.kind, path: s.path, ...(inner ? { inner } : {}),
     size: Number.isFinite(s.size) ? s.size : null, fingerprint: typeof s.fingerprint === 'string' ? s.fingerprint : null,
-    ...(rendered ? { rendered } : {}), ...(failed ? { failed } : {}) } };
+    ...(drawn ? { rendered: drawn } : {}), ...(failed ? { failed } : {}) } };
 }
 // A source's key: what it is and where (two titles of one archive differ by their folder in it).
 export const sourceKey = (s) => `${s.kind}\u0000${s.path}\u0000${s.inner || ''}`;
@@ -192,7 +197,7 @@ export function keepsDerived(page, recorded) {
 // kept) and its overlay's images/ (`overlay`: [{ name }]) holds each of them. Until then it waits —
 // pages a window is still drawing, or one that stopped half way, don't make a gallery.
 export function pdfReady(source, overlay = []) {
-  const count = source?.kind === 'pdf' ? source.rendered : null;
+  const count = source?.kind === 'pdf' ? source.rendered?.pages : null;
   if (!Number.isSafeInteger(count) || count < 1) return false;
   const have = new Set(overlay.filter(f => IMAGE_NAME.test(f.name)).map(f => pageNumberOf(f.name)));
   for (let n = 1; n <= count; n++) if (!have.has(n)) return false;
@@ -201,6 +206,17 @@ export function pdfReady(source, overlay = []) {
 // Whether drawing a PDF's pages failed for the file as it is now (`fingerprint`, its current one): it
 // isn't tried again until the file changes.
 export const drawFailed = (source, fingerprint) => !!source?.failed && fingerprint != null && source.failed.fingerprint === fingerprint;
+// Whether a PDF's pages are to be drawn (both apps' pdfsWaiting): not drawn yet (pdfReady), or drawn
+// from another version of its file than the one there now (`fingerprint`; by default its source's, as
+// its last check found it) — a gallery the library has keeps the pages it has until the new ones are
+// all in (F10) — and in either case not one whose drawing failed for that version (drawFailed). Pages
+// whose marker doesn't say what they were drawn from (its first form) are taken as of the file as it is.
+export function pdfWaits(source, overlay = [], fingerprint = source?.fingerprint ?? null) {
+  if (source?.kind !== 'pdf' || drawFailed(source, fingerprint)) return false;
+  if (!pdfReady(source, overlay)) return true;
+  const from = source.rendered.fingerprint;
+  return from != null && fingerprint != null && from !== fingerprint;
+}
 
 // What a check of a library folder makes of the linked titles it found (`found`: planTitles' and
 // zipTitles' titles, [{ kind, path, inner?, fingerprint, … }], each with its fingerprint as it is now,
