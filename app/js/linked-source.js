@@ -13,7 +13,7 @@
 // scan.js, linked.js) read and write the files.
 
 import { isValidGalleryId } from './sanitize.js';
-import { pageNumberOf } from './gallery-files.js';
+import { pageNumberOf, pickFile } from './gallery-files.js';
 
 export const LINKED_DIR = '.shiori/linked';
 export const SOURCE_FILE = 'source.json';
@@ -157,21 +157,35 @@ export function zipTitles(names) {
 // A linked gallery's pages: its source's pictures in order (`source`: [{ name, size }], page n the
 // n-th), each one its overlay holds a page of its own for (`overlay`: the files in its overlay's
 // images/, [{ name, size }] — named by page number, gallery-files.js pageNumberOf) replaced by that one,
-// and the overlay's pages past the source's added (a PDF's, drawn). Two overlay files for one page are
-// an interrupted write's: the one under the layout name (0003.png) is taken. Resolves [{ n, from:
-// 'source' | 'overlay', name, size }] in page order.
-export function linkedPages(source, overlay = []) {
+// and the overlay's pages past the source's added (a PDF's, drawn). Of two overlay files for one page
+// (a write's, not tidied yet), the one gallery-files.js pickFile takes — `described`: the files the
+// overlay's descriptions name (describedFiles). Resolves [{ n, from: 'source' | 'overlay', name, size }]
+// in page order.
+export function linkedPages(source, overlay = [], described = null) {
   const pages = new Map(source.map((p, i) => [i + 1, { n: i + 1, from: 'source', name: p.name, size: p.size ?? null }]));
-  const plainFirst = [...overlay].filter(f => IMAGE_NAME.test(f.name))
-    .sort((a, b) => Number(/^\d+\.\w+$/.test(b.name)) - Number(/^\d+\.\w+$/.test(a.name)) || naturalCompare(a.name, b.name));
-  const taken = new Set();
-  for (const f of plainFirst) {
-    const n = pageNumberOf(f.name);
-    if (n == null || taken.has(n)) continue;
-    taken.add(n);
-    pages.set(n, { n, from: 'overlay', name: f.name, size: f.size ?? null });
+  const byNumber = new Map();   // page number → its overlay files, by their path in the overlay
+  for (const f of overlay) {
+    const n = IMAGE_NAME.test(f.name) ? pageNumberOf(f.name) : null;
+    if (n == null) continue;
+    if (!byNumber.has(n)) byNumber.set(n, new Map());
+    byNumber.get(n).set(`images/${f.name}`, f);
+  }
+  for (const [n, files] of byNumber) {
+    const f = files.get(pickFile([...files.keys()], described));
+    if (f) pages.set(n, { n, from: 'overlay', name: f.name, size: f.size ?? null });
   }
   return [...pages.values()].sort((a, b) => a.n - b.n);
+}
+
+// Whether what was made from a linked gallery's page (its translation, study layers, pipeline data) is
+// still the page's: always for a page of its overlay's own; for one of its source, only while the
+// source picture it shows (`page`, linkedPages') is the one its overlay's description says it was made
+// from (`recorded`: the page's image_records.json `source`, { name, size } — gallery-files.js
+// galleryFiles `sourceOf`). A page whose picture changed, or that shows another now (one added before
+// it), has it dropped: it is never shown over another picture.
+export function keepsDerived(page, recorded) {
+  if (page.from === 'overlay') return true;
+  return Number.isSafeInteger(page.size) && recorded?.name === page.name && recorded.size === page.size;
 }
 
 // Whether a PDF's pages are drawn: its source says how many (`rendered`, written once the last was

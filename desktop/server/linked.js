@@ -182,13 +182,12 @@ async function embeddedMeta(library, root, title, at) {
 // (linkedPages: R13); a PDF's are all its overlay's, and it joins only once they are all drawn
 // (pdfReady: R11). Its metadata: its overlay's, else an archive's own when Shiori wrote it, else what
 // its name and folders say. What was made from a page (translations, study layers, pipeline data)
-// stays with it only while the page shows the picture it was made from — on a re-read, the source
-// entry the index had at its number; else, when the source changed since its overlay last said, the
-// size its overlay recorded — and is otherwise dropped, its files too, never attached to another
-// picture (R19). `guard()`: whether the gallery has changes of its own not yet written to its overlay
-// — checked again as the rows are replaced; they win, and it isn't read again (A14). `at`: the title as
-// titleAt read it, when the caller has. Resolves its id; null when it has no pages yet (a PDF waiting)
-// or `guard` held it back.
+// stays with it only while the page shows the source picture its overlay's description says it was
+// made from, by name and size (linked-source.js keepsDerived), and is otherwise dropped, its files too,
+// never attached to another picture (R19, F07). `guard()`: whether the gallery has changes of its own
+// not yet written to its overlay — checked again as the rows are replaced; they win, and it isn't read
+// again (A14). `at`: the title as titleAt read it, when the caller has. Resolves its id; null when it
+// has no pages yet (a PDF waiting) or `guard` held it back.
 export async function adoptLinked(library, root, title, { gid: given = null, replace = null, guard = null, at = null } = {}) {
   at = at || await titleAt(library, root, title);
   if (!at) return null;
@@ -203,12 +202,12 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
   const overlay = library.files._abs(rel);
   const own = await overlayPages(library, root, gid);
   if (title.kind === 'pdf' && !L.pdfReady({ ...title, rendered: was?.rendered }, own)) return null;
-  const pages = L.linkedPages(at.pictures, own);
-  if (!pages.length) return null;
   const text = (name) => fsp.readFile(path.join(overlay, ...name.split('/')), 'utf8').catch(() => null);
   const texts = Object.fromEntries(await Promise.all(layout.DESCRIPTION_FILES.map(async (n) => [n, await text(n)])));
   const meta = parse(texts['metadata.json']);
   const records = parse(texts['image_records.json']);
+  const pages = L.linkedPages(at.pictures, own, layout.describedFiles(records, parse(texts['covers/manifest.json'])));
+  if (!pages.length) return null;
   const derived = await readDerived(overlay);
   const entryOf = new Map((Array.isArray(records) ? records : []).map(r => [keyPage(r?.url), r]).filter(([n]) => n != null));
   // What its name and folders say: an archive's chapter is named after its folder in it, its tags the
@@ -226,22 +225,13 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
   const record = meta && String(meta.galleryId) === gid ? { ...meta, galleryId: gid }
     : embedded ? { ...embedded, galleryId: gid }
     : { galleryId: gid, ...named, numPages: pages.length, isLocalImport: true, source: '' };
-  const sourceChanged = !!(was?.fingerprint && at.fingerprint && was.fingerprint !== at.fingerprint);
   const files = library.files;
   let held = false;
   library._tx(() => {
     if (guard?.()) { held = true; return; }
-    // What each page number showed when what was made from it was: the index's rows, read again;
-    // else what its overlay recorded, when the source changed since; else (unchanged) what it shows.
-    const before = replace ? new Map(library._pageRows(gid).map(r => [r.n, r])) : null;
-    const same = (p) => {
-      if (p.from === 'overlay') return true;
-      if (before) { const o = parse(before.get(p.n)?.orig); return o?.at === 'x' && o.entry === p.name; }
-      return !sourceChanged || (entryOf.get(p.n)?.size != null && entryOf.get(p.n).size === p.size);
-    };
-    const had = new Set();
-    for (const r of before?.values() || []) ownRefs(parse(r.record), had);
+    const had = new Set();   // the pictures of its own its records referred to, and those it read
     if (replace) {
+      for (const r of library._pageRows(gid)) ownRefs(parse(r.record), had);
       files.keep.add(gid);
       try { library._deleteIn(gid); } finally { files.keep.delete(gid); }
     }
@@ -252,7 +242,7 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
       const entry = entryOf.get(p.n);
       const made = derivedRecord(derived, p.n, entry);
       ownRefs(made, had);
-      if (!same(p)) for (const k of Object.keys(made)) delete made[k];
+      if (!L.keepsDerived(p, entry?.source)) for (const k of Object.keys(made)) delete made[k];
       ownRefs(made, kept);
       const ext = extOf(p.name);
       let key = entry?.url && keyPage(entry.url) === p.n ? entry.url : `local://${gid}/${p.n}.${ext}`;

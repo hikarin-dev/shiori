@@ -27,8 +27,8 @@ import { nextClaim, releasedClaim, unchangedSince } from './folder-owner.js';
 import { mounted, canHide, nextDefault, removalOutcome } from './folder-lifecycle.js';
 import { OWN_FILES, galleryIdOf, classifyFolder, classifyArchive } from './folder-content.js';
 import { LINKED_DIR, SOURCE_FILE, REMOVED_FILE, IMAGE_NAME, ARCHIVE_NAME, overlayDir, sourceText, parseSource, parseRemoved, isRemoved,
-  folderPrint, metaFromName, planTitles, zipTitles, sortPictures, linkedPages, pdfReady, drawFailed, matchSources } from './linked-source.js';
-import { DESCRIPTION_FILES, descriptionStamp, layoutPath, extOfType, pageNumberOf, coverRoles } from './gallery-files.js';
+  folderPrint, metaFromName, planTitles, zipTitles, sortPictures, linkedPages, keepsDerived, pdfReady, drawFailed, matchSources } from './linked-source.js';
+import { DESCRIPTION_FILES, descriptionStamp, layoutPath, extOfType, folderPictures, describedFiles, derivedRecord } from './gallery-files.js';
 import { sha256Hex } from './zip-read.js';
 import { uploadDateSeconds } from './gallery-model.js';
 
@@ -658,10 +658,10 @@ async function _there(run, stat) {
 
 // What a gallery in the gallery format holds, read where it lies: { texts (its descriptions,
 // DESCRIPTION_FILES, as read), meta, records, bubbles, manifest (parsed), files (path in the gallery →
-// { size, type }: images/ and what was made from its pages), ref(path) (a reference to that file where
-// it lies — the layout name, or that name with the random part a write adds while it is in use; null
-// when it has neither) }. `found`: { kind: 'dir', path } a folder, or { kind: 'zip', path, inner } an
-// archive — `inner` the gallery's folder in a series export ('' for an archive of its own).
+// { size, type }: images/ and what was made from its pages), pictures (which file holds each picture:
+// gallery-files.js folderPictures), ref(path) (a reference to that file where it lies; null when it
+// isn't there) }. `found`: { kind: 'dir', path } a folder, or { kind: 'zip', path, inner } an archive —
+// `inner` the gallery's folder in a series export ('' for an archive of its own).
 const FORMAT_DIRS = ['images', 'translated', 'study/bg', 'study/text', 'pipeline', 'covers'];
 const _readFormat = (folder, root, found) => (found.kind === 'zip' ? _readArchive(folder, root, found.path, found.inner || '') : _readDir(folder, root, found.path));
 async function _readDir(folder, root, dir) {
@@ -695,32 +695,16 @@ async function _readArchive(folder, root, path, inner) {
 }
 function _format(texts, files, at) {
   const json = (name) => { try { return texts[name] == null ? null : JSON.parse(texts[name]); } catch { return null; } };
-  const ref = (path) => { const p = _fileAt(files, path); return p ? { ...at(p), ...files.get(p) } : null; };
-  return { texts, meta: json('metadata.json'), records: json('image_records.json'), bubbles: json('study/bubbles.json') || {},
-    manifest: json('covers/manifest.json'), files, ref };
+  const records = json('image_records.json'), manifest = json('covers/manifest.json');
+  return { texts, meta: json('metadata.json'), records, bubbles: json('study/bubbles.json') || {}, manifest, files,
+    pictures: folderPictures(files.keys(), { records, manifest }), ref: (path) => (files.has(path) ? { ...at(path), ...files.get(path) } : null) };
 }
-// The file at place `path` of the gallery format (`files`: path → …): that very path, or that path
-// with the random part a write adds while the layout name is in use (folder-files.js writeNew) — null
-// when it has neither.
-const _fileAt = (files, path) => (files.has(path) ? path : [...files.keys()].find(p => K.layoutOf(p) === path) || null);
-// Its original pages: page number (gallery-files.js pageNumberOf; a name with none counts by its place
-// among them) → path — the layout-named one, when a page has two (one not deleted yet).
-const _natural = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-function _pagePictures(files) {
-  const byN = new Map();
-  [...files.keys()].filter(p => /^images\/[^/]+$/.test(p)).sort(_natural.compare).forEach((path, i) => {
-    const n = pageNumberOf(path) ?? i + 1;
-    if (!byN.has(n) || K.layoutOf(path) === path) byN.set(n, path);
-  });
-  return byN;
-}
-// Its covers of its own, both roles, as covers/manifest.json names them (gallery-files.js coverRoles):
-// { cover?, seriesCover? }.
-function _ownCovers({ manifest, ref }) {
-  const roles = coverRoles(manifest), out = {};
-  const gallery = roles.gallery && ref(roles.gallery), series = roles.series && ref(roles.series);
-  if (gallery) out.cover = gallery;
-  if (series) out.seriesCover = series;
+// Its covers of its own, both roles, as covers/manifest.json names them (gallery-files.js
+// folderPictures): { cover?, seriesCover? }.
+function _ownCovers({ pictures, ref }) {
+  const out = {};
+  if (pictures.covers.gallery) out.cover = ref(pictures.covers.gallery);
+  if (pictures.covers.series) out.seriesCover = ref(pictures.covers.series);
   return out;
 }
 // The image_records.json entries of a gallery's description, by page number.
@@ -735,47 +719,16 @@ async function _adopt(run, found, { replace = null } = {}) {
   const read = await _readFormat(run.id, run.root, found);
   const gid = replace || found.id;
   if (galleryIdOf(read.texts['metadata.json']) !== gid) return null;   // described as another gallery now
-  const pictures = _pagePictures(read.files);
   const entries = _entriesOf(read.records);
   const now = Date.now();
-  const pages = [...pictures].sort((a, b) => a[0] - b[0]).map(([n, path]) => {
+  const pages = [...read.pictures.pages].map(([n, path]) => {
     const entry = entries.get(n);
     const url = entry?.url && K.keyPage(entry.url) === n ? entry.url : `local://${gid}/${n}.${path.match(/\.(\w+)$/)[1].toLowerCase()}`;
     return { url, n, record: { url, blob: read.ref(path), mediaId: String(entry?.mediaId ?? gid), galleryId: gid,
-      cachedAt: entry?.cachedAt || now, size: read.files.get(path).size, ..._derivedRecord(read.files, read.bubbles, n, entry, read.ref) } };
+      cachedAt: entry?.cachedAt || now, size: read.files.get(path).size, ...derivedRecord(read.pictures, read.bubbles, n, entry, read.ref) } };
   });
   return _storeAdopted({ folder: run.id, dir: found.path, gid, record: { ...read.meta, galleryId: gid }, pages, ownCover: _ownCovers(read),
     stamp: descriptionStamp(read.texts), replace, extra: found.kind === 'zip' ? { packed: { inner: found.inner || '' } } : {} });
-}
-
-// A page's record fields made from it, as a gallery's folder holds them (desktop scan.js
-// derivedRecord, the same): its translated picture, study layers and pipeline data, referred to
-// where they lie.
-function _derivedRecord(files, bubbles, n, entry, ref) {
-  const out = {};
-  const num = String(n).padStart(4, '0');
-  const find = (prefix) => [...files.keys()].find(p => p.startsWith(prefix) && /^(-[0-9a-f]{8})?\.\w+$/.test(p.slice(prefix.length)));
-  const translated = find(`translated/${num}`);
-  if (translated) out.translated = ref(translated);
-  const study = bubbles[num];
-  const list = Array.isArray(study) ? study : study?.bubbles;
-  if (Array.isArray(list) && list.length) {
-    out.bubbles = list.filter(b => b?.box).map((b) => {
-      const { textFile, ...rest } = b;
-      return { ...rest, region: b.region || b.box, tr: b.tr || '', src: b.src || '', text: textFile ? ref(`study/text/${textFile}`) : null };
-    });
-    const bg = find(`study/bg/${num}`);
-    out.studyBg = bg ? ref(bg) : null;
-    out.studyPage = Array.isArray(study) ? null : (study.page || null);
-  }
-  if (entry?.pipeline && typeof entry.pipeline === 'object' && typeof entry.pipeline.job === 'string') {
-    const masks = {};
-    for (const name of ['raw', 'text']) { const p = find(`pipeline/${num}-${name}`); if (p) masks[name] = ref(p); }
-    out.pipeline = { ...entry.pipeline, masks };
-    if (typeof entry.own === 'string') out.own = entry.own;
-  }
-  if (entry?.translatedLayers === true && out.bubbles) out.translatedLayers = true;
-  return out;
 }
 
 // A gallery read from its folder stored: its metadata, stat record (`extra` on it) and pages in one
@@ -1033,9 +986,11 @@ async function _overlayFor(run, title, gid, at = null) {
 // library as a linked gallery: its pages referring to its files where they are (read-only), and what
 // Shiori keeps of it in its overlay — whose own page NNNN stands in for the source's (linkedPages) —
 // as gallery `gid` (its overlay's, when it has one) or a new one. Its metadata is its overlay's when
-// there is one, else what its name and folders say. `replace`: a gallery the library keeps, read again
-// (from its overlay, its files where `title` says now). Resolves its id, or null when it has no pages
-// (or wasn't read again: _storeAdopted).
+// there is one, else what its name and folders say. What was made from a page stays with it only while
+// the page shows the source picture it was made from (keepsDerived); the files of what is dropped stay
+// in the overlay, never read back: its description ties them to that picture.
+// `replace`: a gallery the library keeps, read again (from its overlay, its files where `title` says
+// now). Resolves its id, or null when it has no pages (or wasn't read again: _storeAdopted).
 async function _adoptLinked(run, title, { gid: given = null, replace = null } = {}) {
   const at = title.pictures ? title : await _titlePictures(run, title);
   if (!at) return null;
@@ -1047,11 +1002,12 @@ async function _adoptLinked(run, title, { gid: given = null, replace = null } = 
   const now = Date.now();
   const overlay = [...read.files].filter(([p]) => /^images\/[^/]+$/.test(p)).map(([p, f]) => ({ name: p.slice('images/'.length), size: f.size }));
   const source = (p) => ({ $path: p.name, folder: run.id, dir: title.path, ro: 1, ...(title.kind === 'zip' ? { zip: 1 } : {}), size: p.size, type: K.typeOfName(p.name) });
-  const pages = linkedPages(at.pictures, overlay).map((p) => {
+  const pages = linkedPages(at.pictures, overlay, describedFiles(read.records, read.manifest)).map((p) => {
     const entry = entries.get(p.n);
     const url = entry?.url && K.keyPage(entry.url) === p.n ? entry.url : `local://${gid}/${p.n}.${p.name.match(/\.(\w+)$/)?.[1]?.toLowerCase() || 'jpg'}`;
+    const made = keepsDerived(p, entry?.source) ? derivedRecord(read.pictures, read.bubbles, p.n, entry, read.ref) : {};
     return { url, n: p.n, record: { url, blob: p.from === 'overlay' ? read.ref(`images/${p.name}`) : source(p), mediaId: String(entry?.mediaId ?? gid),
-      galleryId: gid, cachedAt: entry?.cachedAt || now, size: p.size, ..._derivedRecord(read.files, read.bubbles, p.n, entry, read.ref) } };
+      galleryId: gid, cachedAt: entry?.cachedAt || now, size: p.size, ...made } };
   });
   if (!pages.length) return null;
   const record = galleryIdOf(read.texts['metadata.json']) === gid ? { ...read.meta, galleryId: gid }

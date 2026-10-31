@@ -1038,13 +1038,18 @@ export class FileLibrary {
 
   // Gallery `gid`'s descriptions as the index holds it (gallery-files.js; its pages in its folder or
   // archive, and those about to be: `placing`, page numbers): [{ name, data }] — and ComicInfo.xml,
-  // for a CBZ, as its export has.
+  // for a CBZ, as its export has. They name the file each picture is in where it isn't the layout name
+  // (a page whose layout name another page has: _nameFor), and a linked gallery's page the source
+  // picture it shows (galleryFiles `fileOf`, `sourceOf`): each record's original is its `orig` here.
   _descriptions(gid, { comicInfo = false, placing = null } = {}) {
     const lib = this.library;
     const meta = lib._metaGet(gid);
-    const records = lib._pageRows(gid).filter(r => ['p', 'x'].includes(parse(r.orig).at) || placing?.has(r.n)).map(r => lib._rowRecord(r));
+    const records = lib._pageRows(gid).map(r => ({ ...lib._rowRecord(r), blob: parse(r.orig) }))
+      .filter(r => ['p', 'x'].includes(r.blob.at) || placing?.has(r.pageNum));
     const cover = lib._coverGet(gid);
-    const out = layout.galleryFiles({ meta, records, covers: { gallery: cover?.cover, series: cover?.seriesCover } })
+    const fileOf = (src) => src?.$own ?? (src?.at === 'p' ? src.entry : null);
+    const sourceOf = (rec) => (rec.blob.at === 'x' ? { name: rec.blob.entry, size: rec.blob.size } : null);
+    const out = layout.galleryFiles({ meta, records, covers: { gallery: cover?.cover, series: cover?.seriesCover } }, '', { fileOf, sourceOf })
       .filter(f => DESCRIPTIONS.includes(f.name)).map(f => ({ name: f.name, data: Buffer.from(f.source) }));
     if (comicInfo) {
       const owner = meta?.parentId ? lib._metaGet(meta.parentId) : null;

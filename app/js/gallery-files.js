@@ -160,7 +160,8 @@ export function descriptionStamp(texts) {
 
 // A gallery's own covers as its covers/manifest.json (parsed) names them: { gallery?, series? }, each
 // the file's path in the gallery's folder. Only a picture directly in covers/ counts (galleryFiles
-// writes covers/<role>.<ext>); the first entry of a role is taken.
+// writes covers/<role>.<ext>, or the file a gallery's folder keeps it in); the first entry of a role
+// is taken.
 export function coverRoles(manifest) {
   const out = {};
   for (const c of Array.isArray(manifest?.covers) ? manifest.covers : []) {
@@ -170,10 +171,128 @@ export function coverRoles(manifest) {
   return out;
 }
 
+// ── A gallery's folder read back ──
+// A gallery's folder can hold more than one file for a picture. One written while a file had its
+// layout name goes beside it, under that name with a random part (the website's 8 hex digits:
+// folder-files.js writeNew; the desktop's 10, for a page whose layout name another page has: files.js
+// _nameFor), and the old file is deleted only once the change is saved — a delete refused, or the app
+// closed in between, leaves both. So a folder's descriptions name each picture's file where it isn't
+// the layout name (galleryFiles `fileOf`), and both apps read a picture's file as pickFile says.
+
+// A file's layout name: its path without that random part (study/text/0001-0-3fa2c9e1.webp →
+// study/text/0001-0.webp).
+export const layoutOf = (path) => String(path).replace(/-[0-9a-f]{8,10}(\.[^./]*)$/, '$1');
+// The picture a file of a gallery's folder stands for: its layout name without its extension
+// (translated/0001, study/text/0001-0, covers/gallery).
+const _slotOf = (path) => layoutOf(path).replace(/\.[^./]*$/, '');
+
+// Which of the files standing for one picture (`candidates`) holds it: the one the folder's
+// descriptions name (`described`, a Set: describedFiles) — so a picture saved under a new name wins over
+// the old file left behind, and a file left by a write that was never saved loses —; else the one under
+// the layout name; else, in a folder described before descriptions named files, the only one. Null when
+// none can be told the current one.
+export function pickFile(candidates, described = null) {
+  const sorted = [...candidates].sort();
+  return sorted.find(p => described?.has(p)) ?? sorted.find(p => layoutOf(p) === p) ?? (sorted.length === 1 ? sorted[0] : null);
+}
+
+// The files a gallery folder's descriptions name for its pictures: each page's `files` in its
+// image_records.json and each cover's in its covers/manifest.json (both parsed).
+export function describedFiles(records, manifest) {
+  const out = new Set(Object.values(coverRoles(manifest)));
+  for (const r of Array.isArray(records) ? records : []) {
+    for (const f of Array.isArray(r?.files) ? r.files : []) if (typeof f === 'string') out.add(f);
+  }
+  return out;
+}
+
+// A gallery's folder read back picture by picture, the same on both apps: `paths`, the picture files it
+// holds (paths in it: images/, translated/, study/, pipeline/, covers/), with its image_records.json and
+// covers/manifest.json as parsed. { file(slot): the file holding the picture at `slot` (its layout name
+// without extension: translated/0001), or null — pickFile; pages: Map page number → its original's
+// file, in page order, each counted by the number its name carries (pageNumberOf), one with none by
+// its place among them; covers: { gallery?, series? }, the file of each role its manifest names }.
+const _natural = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+export function folderPictures(paths, { records = null, manifest = null } = {}) {
+  const described = describedFiles(records, manifest);
+  const slots = new Map(), numbered = new Map();
+  const add = (map, key, path) => { if (!map.has(key)) map.set(key, []); map.get(key).push(path); };
+  const list = [...paths];
+  for (const p of list) add(slots, _slotOf(p), p);
+  list.filter(p => /^images\/[^/]+$/.test(p)).sort(_natural.compare).forEach((p, i) => add(numbered, pageNumberOf(p) ?? i + 1, p));
+  const file = (slot) => pickFile(slots.get(slot) || [], described);
+  const pages = new Map([...numbered].sort((a, b) => a[0] - b[0]).map(([n, list]) => [n, pickFile(list, described)]).filter(([, p]) => p));
+  const covers = {};
+  for (const [role, named] of Object.entries(coverRoles(manifest))) {
+    const p = file(_slotOf(named));
+    if (p) covers[role] = p;
+  }
+  return { file, pages, covers };
+}
+
+// A page's record fields made from it, as its gallery's folder holds them (`pictures`: folderPictures';
+// `bubbles`: its study/bubbles.json, parsed; `entry`: the page's image_records.json entry): its
+// translated picture, study layers and pipeline data, each file referred to as `ref(path)` makes it.
+// A translation the entry says the page hasn't is never read: such a file was left by a write that
+// was never saved, or made from a picture the page no longer shows.
+export function derivedRecord(pictures, bubbles, n, entry, ref) {
+  const out = {};
+  const num = _num(n);
+  const at = (slot) => { const p = pictures.file(slot); return p ? ref(p) : null; };
+  const translated = entry?.translated === false ? null : at(`translated/${num}`);
+  if (translated) out.translated = translated;
+  const study = bubbles?.[num];
+  const list = Array.isArray(study) ? study : study?.bubbles;
+  if (Array.isArray(list) && list.length) {
+    out.bubbles = list.filter(b => b?.box).map((b) => {
+      const { textFile, ...rest } = b;
+      return { ...rest, region: b.region || b.box, tr: b.tr || '', src: b.src || '', text: typeof textFile === 'string' ? at(_slotOf(`study/text/${textFile}`)) : null };
+    });
+    out.studyBg = at(`study/bg/${num}`);
+    out.studyPage = Array.isArray(study) ? null : (study.page || null);
+  }
+  if (entry?.pipeline && typeof entry.pipeline === 'object' && typeof entry.pipeline.job === 'string') {
+    const masks = {};
+    for (const name of ['raw', 'text']) {
+      const mask = at(`pipeline/${num}-${name}`);
+      if (mask) masks[name] = mask;
+    }
+    out.pipeline = { ...entry.pipeline, masks };
+    if (typeof entry.own === 'string') out.own = entry.own;
+  }
+  if (entry?.translatedLayers === true && out.bubbles) out.translatedLayers = true;
+  return out;
+}
+
+// A page record's pictures, each where the gallery format puts it: [{ kind, src, name }], `kind`
+// 'original', 'mask' (raw, then text), 'translated' or 'study' (its background, then each bubble's text
+// layer — only for a page with bubbles).
+function _pictures(rec) {
+  const n = rec.pageNum, out = [];
+  const add = (kind, src, name) => out.push({ kind, src, name });
+  const original = rec.blob ?? rec.dataUrl;
+  if (_hasBytes(original)) add('original', original, layoutPath.original(n, originalExt(_typeOf(original), rec.url)));
+  for (const name of ['raw', 'text']) {
+    const mask = rec.pipeline?.masks?.[name];
+    if (_hasBytes(mask)) add('mask', mask, layoutPath.mask(n, name, _imgExt(mask)));
+  }
+  if (rec.translated && _hasBytes(rec.translated)) add('translated', rec.translated, layoutPath.translated(n, _imgExt(rec.translated)));
+  if (Array.isArray(rec.bubbles) && rec.bubbles.length) {
+    if (rec.studyBg && _hasBytes(rec.studyBg)) add('study', rec.studyBg, layoutPath.studyBg(n, _imgExt(rec.studyBg)));
+    rec.bubbles.forEach((b, k) => { if (_hasBytes(b.text)) add('study', b.text, layoutPath.studyText(n, k, _imgExt(b.text))); });
+  }
+  return out;
+}
+
 // [{ name, source, original? }] for the gallery's stored `meta`, image `records` and `covers`
 // ({ gallery, series } — a cover that is one of its pages, or none, is left out), every name under
-// `prefix` (the member's folder in a series).
-export function galleryFiles({ meta, records, covers = {} }, prefix = '', { stripSeriesFields = false } = {}) {
+// `prefix` (the member's folder in a series). For the descriptions of a gallery's copy in a library
+// folder (never an export, whose names are the layout's): `fileOf(src)`, the file the folder keeps a
+// picture in (null: none of its own), so each page's image_records.json entry lists its pictures' files
+// that aren't the layout name (`files`) and covers/manifest.json names each cover's; `sourceOf(rec)`,
+// for a linked gallery, the source picture a page shows ({ name, size } — linked-source.js
+// keepsDerived), kept as its entry's `source`.
+export function galleryFiles({ meta, records, covers = {} }, prefix = '', { stripSeriesFields = false, fileOf = null, sourceOf = null } = {}) {
   const enc = new TextEncoder();
   let m = migrateTitle(meta);
   if (stripSeriesFields) {
@@ -181,6 +300,7 @@ export function galleryFiles({ meta, records, covers = {} }, prefix = '', { stri
     m = plainMeta;
   }
   const pages = [...(records || [])].sort((a, b) => _pageNum(a) - _pageNum(b));
+  const pictures = new Map(pages.filter(r => r.pageNum != null).map(r => [r, _pictures(r)]));
   const files = [];
   const text = (name, value) => files.push({ name: prefix + name, source: enc.encode(value) });
 
@@ -205,6 +325,12 @@ export function galleryFiles({ meta, records, covers = {} }, prefix = '', { stri
     }
     if (r.own) entry.own = r.own;   // the translation whose settings the page keeps
     if (r.translatedLayers) entry.translatedLayers = true;   // the translated page is its study layers
+    if (fileOf) {
+      const moved = (pictures.get(r) || []).map(p => [fileOf(p.src), p.name]).filter(([file, name]) => file && file !== name).map(([file]) => file);
+      if (moved.length) entry.files = moved;
+    }
+    const source = sourceOf?.(r);
+    if (source) entry.source = { name: source.name, size: source.size };
     return entry;
   })));
 
@@ -215,47 +341,33 @@ export function galleryFiles({ meta, records, covers = {} }, prefix = '', { stri
     files.push({ name: prefix + file, source: src });
     coverEntries.push({
       role,
-      file,
+      file: fileOf?.(src) || file,
       mime: _blobLike(src) ? (src.type || '') : (String(src).match(/^data:([^;,]+)/)?.[1] || ''),
       size: sourceBytes(src),
     });
   }
   if (coverEntries.length) text('covers/manifest.json', JSON.stringify({ version: 1, covers: coverEntries }, null, 2));
 
-  for (const rec of pages) {
-    const src = rec.blob ?? rec.dataUrl;
-    if (rec.pageNum == null || !_hasBytes(src)) continue;
-    files.push({ name: prefix + layoutPath.original(rec.pageNum, originalExt(_typeOf(src), rec.url)), source: src, original: true });
-  }
-
-  for (const rec of pages) {
-    if (rec.pageNum == null || !rec.pipeline?.masks) continue;
-    for (const name of ['raw', 'text']) {
-      const mask = rec.pipeline.masks[name];
-      if (_hasBytes(mask)) files.push({ name: prefix + layoutPath.mask(rec.pageNum, name, _imgExt(mask)), source: mask });
+  // The pages' pictures: the originals, the pipeline masks, the translated variants in a parallel
+  // folder, then the study layers — each page's shared inpaint background (study/bg) and each bubble's
+  // transparent text layer (study/text).
+  for (const kind of ['original', 'mask', 'translated', 'study']) {
+    for (const rec of pages) {
+      for (const p of pictures.get(rec) || []) {
+        if (p.kind === kind) files.push({ name: prefix + p.name, source: p.src, ...(kind === 'original' ? { original: true } : {}) });
+      }
     }
   }
 
-  // Translated variants in a parallel folder (only pages that have one).
-  for (const rec of pages) {
-    if (rec.pageNum == null || !rec.translated || !_hasBytes(rec.translated)) continue;
-    files.push({ name: prefix + layoutPath.translated(rec.pageNum, _imgExt(rec.translated)), source: rec.translated });
-  }
-
-  // Study-mode layers: the shared inpaint bg (study/bg) + each bubble's transparent text layer
-  // (study/text), and bubbles.json mapping page → boxes/regions/text-file. Mirrors the DB shape
-  // so the import can restore it losslessly.
+  // bubbles.json mapping page → boxes/regions/text-file. Mirrors the DB shape so the import can
+  // restore it losslessly.
   const studyIndex = {};
   for (const rec of pages) {
     if (rec.pageNum == null || !Array.isArray(rec.bubbles) || !rec.bubbles.length) continue;
     const n = _num(rec.pageNum);
-    if (rec.studyBg && _hasBytes(rec.studyBg)) files.push({ name: prefix + layoutPath.studyBg(rec.pageNum, _imgExt(rec.studyBg)), source: rec.studyBg });
     const entries = rec.bubbles.map((b, k) => {
-      const path = layoutPath.studyText(rec.pageNum, k, _imgExt(b.text));
-      const textFile = path.slice('study/text/'.length);
-      const has = _hasBytes(b.text);
-      if (has) files.push({ name: prefix + path, source: b.text });
-      const entry = { box: b.box, region: b.region, tr: b.tr || '', src: b.src || '', textFile: has ? textFile : null };
+      const textFile = layoutPath.studyText(rec.pageNum, k, _imgExt(b.text)).slice('study/text/'.length);
+      const entry = { box: b.box, region: b.region, tr: b.tr || '', src: b.src || '', textFile: _hasBytes(b.text) ? textFile : null };
       // DOM-text layout metadata rides along verbatim (style hints, line breaks, furigana, region ids).
       for (const key of BUBBLE_EXTRA_FIELDS) {
         if (b[key] != null) entry[key] = b[key];

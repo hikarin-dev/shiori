@@ -731,6 +731,97 @@ test('a folder of what Shiori didn\'t make is used as it is: galleries read in p
   await library.close();
 });
 
+// The findings of the second external review (plans/library-storage-refactor-review-2.md).
+
+test('F05: a translation replaced while its old file couldn\'t be deleted reads back replaced once its folder is removed and added again — and a file left by a write never saved never wins', { skip: !chromePath() }, async () => {
+  const out = await run(async ({ a }) => {
+    const api = window.__api, t = window.__t;
+    const lib = await t.folder('Lib F05');
+    const { id } = await api.folders.add(lib);
+    await api.folders.setDefault(id);
+    const gid = api.newGalleryId();
+    await api.galleries.create(gid, { title: { english: 'Replaced', japanese: '', pretty: '' }, numPages: 1 });
+    await api.pages.put(gid, 1, await t.png(10));
+    const [A, B, C] = await Promise.all([t.png(100, 31, 41), t.png(200, 32, 42), t.png(300, 33, 43)]);
+    const bytes = async (blob) => (blob ? [...new Uint8Array(await blob.arrayBuffer())].join() : null);
+    const which = async (blob) => ({ [await bytes(A)]: 'A', [await bytes(B)]: 'B', [await bytes(C)]: 'C' })[await bytes(blob)] ?? null;
+    await api.derived.putTranslation(gid, 1, { image: A, pipeline: null });
+    // B replaces A, and A's file can't be deleted.
+    const remove = FileSystemDirectoryHandle.prototype.removeEntry;
+    FileSystemDirectoryHandle.prototype.removeEntry = function (name, opts) {
+      return this.name === 'translated' && name === '0001.png' ? Promise.reject(new DOMException('refused', 'NoModificationAllowedError')) : remove.call(this, name, opts);
+    };
+    try {
+      await api.derived.putTranslation(gid, 1, { image: B, pipeline: null });
+      await new Promise(r => setTimeout(r, 500));   // its old file let go (tried) once its record committed
+    } finally { FileSystemDirectoryHandle.prototype.removeEntry = remove; }
+    const translated = await (await lib.getDirectoryHandle('Replaced')).getDirectoryHandle('translated');
+    const files = [];
+    for await (const [name] of translated.entries()) files.push(name);
+    // And a file a write left beside them, its record never committed (the app closed in between).
+    const w = await (await translated.getFileHandle('0001-0badc0de.png', { create: true })).createWritable();
+    await w.write(C); await w.close();
+    const before = await which((await api.pages.get(gid, 1)).translated);
+    await api.folders.setDefault(a);
+    await api.folders.remove(id);
+    await api.folders.setAside(id);
+    await api.folders.add(lib);
+    const scan = await api.folders.scan(id);
+    return { files: files.length, before, scan, after: await which((await api.pages.get(gid, 1))?.translated) };
+  }, { a: page.__folderA });
+  assert.equal(out.files, 2, 'the old translation stayed beside the new one');
+  assert.equal(out.before, 'B');
+  assert.deepEqual(out.scan, { added: 1, updated: 0, problems: [], stopped: false });
+  assert.equal(out.after, 'B', 'the replacement, not the file left behind nor the one never saved');
+});
+
+test('F07: what was made from a linked page is dropped once the page shows another picture: one inserted before it, or its bytes replaced', { skip: !chromePath() }, async () => {
+  const out = await run(async () => {
+    const api = window.__api, t = window.__t;
+    const lib = await t.folder('Lib F07');
+    const put = async (name, blob) => {
+      const w = await (await (await lib.getDirectoryHandle('Loose', { create: true })).getFileHandle(name, { create: true })).createWritable();
+      await w.write(blob); await w.close();
+    };
+    await put('001.png', await t.png(10, 30, 40));
+    await put('002.png', await t.png(20, 30, 40));
+    const { id } = await api.folders.add(lib);
+    await api.folders.scan(id);
+    const gid = (await api.galleries.byIds((await api.meta.all()).map(m => m.galleryId))).find(e => e?.folder === id).id;
+    const [T1, T2, T3] = await Promise.all([t.png(300, 50, 60), t.png(310, 51, 61), t.png(320, 52, 62)]);
+    const translated = async () => {
+      const out = [];
+      for (const { pageNum } of await api.pages.list(gid)) {
+        const blob = (await api.pages.get(gid, pageNum)).translated;
+        out.push(blob ? ({ [T1.size]: 'T1', [T2.size]: 'T2', [T3.size]: 'T3' })[blob.size] : null);
+      }
+      return out;
+    };
+    // Its translations written to its overlay's descriptions, which say what each was made from.
+    const describedAs = async (want) => {
+      const end = Date.now() + 15000;
+      const now = async () => JSON.parse(await t.text('Lib F07', `.shiori/linked/${gid}/image_records.json`).catch(() => '[]')).map(r => r.translated);
+      while (JSON.stringify(await now()) !== JSON.stringify(want) && Date.now() < end) await new Promise(r => setTimeout(r, 200));
+      return now();
+    };
+    await api.derived.putTranslation(gid, 1, { image: T1, pipeline: null });
+    await api.derived.putTranslation(gid, 2, { image: T2, pipeline: null });
+    await describedAs([true, true]);
+    // (a) A picture inserted before them: none of their translations moves to another picture.
+    await put('000.png', await t.png(0, 30, 40));
+    const inserted = { scan: (await api.folders.scan(id)).updated, translated: await translated() };
+    // (b) Translated again, then page 2's bytes replaced (another size, the same name): its translation goes.
+    await api.derived.putTranslation(gid, 2, { image: T3, pipeline: null });
+    await api.derived.putTranslation(gid, 3, { image: T2, pipeline: null });
+    await describedAs([false, true, true]);
+    await put('001.png', await t.png(40, 60, 80));
+    const replaced = { scan: (await api.folders.scan(id)).updated, translated: await translated() };
+    return { inserted, replaced };
+  });
+  assert.deepEqual(out.inserted, { scan: 1, translated: [null, null, null] });
+  assert.deepEqual(out.replaced, { scan: 1, translated: [null, null, 'T2'] }, 'the page whose picture stayed keeps its translation');
+});
+
 test('with the service worker in charge, a folder is checked there, so it goes on whatever page is open next', { skip: !chromePath() }, async () => {
   const worker = await browser.newPage();
   const errors = [];

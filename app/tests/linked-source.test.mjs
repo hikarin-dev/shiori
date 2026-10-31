@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { planTitles, zipTitles, metaFromName, sourceText, parseSource, sourceKey, isRemoved, safeRelPath, withRemoved, linkedPages,
-  pdfReady, drawFailed, matchSources, parseRemoved, removedText } from '../js/linked-source.js';
+  keepsDerived, pdfReady, drawFailed, matchSources, parseRemoved, removedText } from '../js/linked-source.js';
 
 test('every folder holding pictures, every archive and every PDF is a title; Shiori\'s own folders and other files are left out', () => {
   const titles = planTitles([
@@ -81,8 +81,24 @@ test('a linked gallery\'s own page stands in for its source\'s page of the same 
     { n: 1, from: 'source', name: 'a.png', size: 1 }, { n: 2, from: 'overlay', name: '0002.webp', size: 9 },
     { n: 3, from: 'source', name: 'c.png', size: 3 }, { n: 5, from: 'overlay', name: '0005.png', size: 5 },
   ]);
-  assert.equal(linkedPages(source, [{ name: '0001-ab12.png', size: 7 }, { name: '0001.png', size: 8 }])[0].name, '0001.png',
+  assert.equal(linkedPages(source, [{ name: '0001-ab12cd34.png', size: 7 }, { name: '0001.png', size: 8 }])[0].name, '0001.png',
     'two files for one page: the one under the layout name');
+});
+
+test('F05: of two overlay files for one page, the one its description names wins — an unnamed one never does', () => {
+  const source = [{ name: 'a.png', size: 1 }];
+  const overlay = [{ name: '0001.png', size: 8 }, { name: '0001-ab12cd34.png', size: 7 }, { name: '0001-0badc0de.png', size: 6 }];
+  assert.equal(linkedPages(source, overlay, new Set(['images/0001-ab12cd34.png']))[0].name, '0001-ab12cd34.png', 'the saved replacement');
+  assert.equal(linkedPages(source, overlay, new Set())[0].name, '0001.png', 'nothing named: the layout name, never a leftover');
+});
+
+test('F07: what was made from a linked page stays only while the page shows the source picture it was made from', () => {
+  const page = (name, size, from = 'source') => ({ n: 1, from, name, size });
+  assert.equal(keepsDerived(page('001.png', 10), { name: '001.png', size: 10 }), true);
+  assert.equal(keepsDerived(page('000.png', 10), { name: '001.png', size: 10 }), false, 'another picture inserted before it');
+  assert.equal(keepsDerived(page('001.png', 11), { name: '001.png', size: 10 }), false, 'its bytes replaced');
+  assert.equal(keepsDerived(page('001.png', 10), null), false, 'nothing recorded: not known to be the same');
+  assert.equal(keepsDerived(page('0001.png', 4, 'overlay'), null), true, 'a page of the overlay\'s own');
 });
 
 test('a PDF joins only once all its pages are drawn, and one that failed waits for its file to change (R11, A23)', () => {

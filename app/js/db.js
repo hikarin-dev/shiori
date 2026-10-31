@@ -7,7 +7,7 @@ import { normalizeTitle, migrateTitle } from './titles.js';
 import { imageToBlob, imageToDataUrl } from './image-util.js';
 import { isSeriesMeta, effectiveTagsOf, LANG_NAME_TO_CODE, DERIVED_FIELDS, uploadDateSeconds } from './gallery-model.js';
 import { translatedImage } from './page-image.js';
-import { galleryFiles, exportSize, layoutPath, extOfType, originalExt, galleryName, DESCRIPTION_FILES, descriptionStamp } from './gallery-files.js';
+import { galleryFiles, exportSize, layoutPath, layoutOf, extOfType, originalExt, galleryName, DESCRIPTION_FILES, descriptionStamp } from './gallery-files.js';
 import * as folderFiles from './folder-files.js';
 import { OWNER_FILE, readClaim, access, nextClaim, claimText } from './folder-owner.js';
 import { mounted, writeAllowed } from './folder-lifecycle.js';
@@ -844,10 +844,6 @@ function _pageCopy(rec) {
   if (rec.pipeline && typeof rec.pipeline === 'object') out.pipeline = { ...rec.pipeline, ...(rec.pipeline.masks ? { masks: { ...rec.pipeline.masks } } : {}) };
   return out;
 }
-// The place in the gallery format a picture's file stands for: its path without the random part
-// folderFiles.writeNew adds to a name in use (study/text/0001-0-3fa2c9e1.webp → study/text/0001-0.webp).
-const _layoutOf = (path) => String(path).replace(/-[0-9a-f]{8}(\.[^./]*)$/, '$1');
-
 // The pictures `slots` holds ([obj, key, path, anyPath]: a picture and where the gallery format puts
 // it) written to the gallery's folder at `home` and referred to there — each under a name no file has
 // (folderFiles.writeNew), noted for write `w` — one already there (read from a file at that place in
@@ -864,7 +860,7 @@ async function _place(home, slots, w) {
     // A linked gallery's own picture, in its source in this folder: referred to there, never copied.
     if (known?.ro && known.folder === home.folder) { obj[key] = known; continue; }
     if (!home.root) { left = true; continue; }
-    if (known && known.folder === home.folder && known.dir === home.dir && (anyPath || _layoutOf(known.$path) === path)) { obj[key] = known; continue; }
+    if (known && known.folder === home.folder && known.dir === home.dir && (anyPath || layoutOf(known.$path) === path)) { obj[key] = known; continue; }
     let written;
     try { written = await folderFiles.writeNew(home.folder, home.root, home.dir, path, blob); } catch (e) {
       // The folder went out of reach (taken away, or its permission withdrawn): kept here for now.
@@ -1045,7 +1041,10 @@ function _cancelDescribe(gid) {
 // Gallery `gid`'s descriptions as this library holds it, read in one transaction with its mark:
 // { stat, wanted: Map name → text (a description it has none of is missing), rev (its mark's: the
 // revision of its last change not written to its folder yet; null: none) }, or null for a gallery
-// kept in no folder of its own.
+// kept in no folder of its own. They name the file each picture is in where it isn't the layout name
+// (a picture written while a file had that name), and a linked gallery's page the source picture it
+// shows (gallery-files.js galleryFiles `fileOf`, `sourceOf`).
+const _sourcePicture = (rec) => (_isPath(rec.blob) && rec.blob.ro ? { name: rec.blob.$path, size: rec.blob.size } : null);
 async function _wantedDescriptions(gid) {
   const db = await openDB();
   const read = await new Promise((resolve, reject) => {
@@ -1061,8 +1060,9 @@ async function _wantedDescriptions(gid) {
   const { stat } = read;
   if (!stat?.folder || !stat.dir || !read.meta) return null;
   const decode = new TextDecoder();
+  const fileOf = (src) => (_isPath(src) && !src.ro && src.folder === stat.folder && src.dir === stat.dir ? src.$path : null);
   const wanted = new Map(galleryFiles({ meta: read.meta, records: _numbered(read.pages),
-    covers: { gallery: read.cover?.cover, series: read.cover?.seriesCover } })
+    covers: { gallery: read.cover?.cover, series: read.cover?.seriesCover } }, '', { fileOf, sourceOf: _sourcePicture })
     .filter(f => DESCRIPTIONS.includes(f.name)).map(f => [f.name, decode.decode(f.source)]));
   return { stat, wanted, rev: read.rev };
 }
@@ -1407,7 +1407,7 @@ const _folderLibrary = createFolderLibrary({
   // the pictures' storage in folders
   writing: _writing, relocate: _relocate, reserveDir: _reserveDir, describe: _describe, cancelDescribe: _cancelDescribe,
   marked: _marked, patchStat: _patchStat, wantedDescriptions: _wantedDescriptions, textsOf: _textsOf,
-  archiveOf: _archiveOf, layoutOf: _layoutOf, typeOfName: _typeOfName, settleFolders,
+  archiveOf: _archiveOf, typeOfName: _typeOfName, settleFolders,
 });
 export const { foldersList, foldersWaiting, folderAdd, folderClaim, folderSetDefault, folderAllow, folderHide, folderShow,
   folderRemove, folderSetAside, foldersPending, folderScan, pdfsWaiting, pdfSource, addRendered, pdfFailed } = _folderLibrary;

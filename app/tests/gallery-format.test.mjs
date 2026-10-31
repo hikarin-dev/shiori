@@ -12,7 +12,7 @@ import 'fake-indexeddb/auto';
 globalThis.BroadcastChannel = class { postMessage() {} close() {} };
 
 const api = await import('../js/api.js');
-const { exportFiles, pageNumberOf, coverRoles } = await import('../js/gallery-files.js');
+const { exportFiles, pageNumberOf, coverRoles, galleryFiles, folderPictures, derivedRecord } = await import('../js/gallery-files.js');
 const { importCbzBuffer } = await import('../js/import-cbz.js');
 const { groupImports, importBytes } = await import('../js/import-files.js');
 const { zipCreate } = await import('../js/zip.js');
@@ -172,4 +172,55 @@ test('both cover roles are read from covers/manifest.json, and only pictures dir
     { gallery: 'covers/gallery.png', series: 'covers/series.webp' });
   assert.deepEqual(coverRoles({ covers: [{ role: 'series', file: '../x.png' }, { role: 'gallery', file: 'covers/a/b.png' }, { role: 'other', file: 'covers/o.png' }] }), {});
   assert.deepEqual(coverRoles(null), {});
+});
+
+// The pictures of page 1 as a library folder keeps them: each referred to by its file there, some under
+// a name with a random part (a write while the layout name was in use).
+const at = (path) => ({ $path: path, size: 4, type: 'image/png' });
+const folderRecords = () => [{ pageNum: 1, url: 'local://9/1.png', size: 4, blob: at('images/0001.png'), translated: at('translated/0001-af21d3f4.png'),
+  studyBg: at('study/bg/0001-0b1c2d3e.png'), bubbles: [{ box: [0, 0, 1, 1], text: at('study/text/0001-0-1a2b3c4d.png') }],
+  pipeline: { job: 'j', masks: { raw: at('pipeline/0001-raw-2b3c4d5e.png'), text: at('pipeline/0001-text.png') } } }];
+const folderCovers = () => ({ gallery: at('covers/gallery-3c4d5e6f.png'), series: at('covers/series.png') });
+const described = (files, name) => JSON.parse(new TextDecoder().decode(files.find(f => f.name === name).source));
+
+test('F04: a folder copy\'s descriptions name each picture\'s file where it isn\'t the layout name; an export\'s are as they were', () => {
+  const meta = { galleryId: '9', title: title('G') };
+  const copy = galleryFiles({ meta, records: folderRecords(), covers: folderCovers() }, '', { fileOf: (src) => src.$path });
+  assert.deepEqual(described(copy, 'image_records.json')[0].files,
+    ['pipeline/0001-raw-2b3c4d5e.png', 'translated/0001-af21d3f4.png', 'study/bg/0001-0b1c2d3e.png', 'study/text/0001-0-1a2b3c4d.png']);
+  assert.deepEqual(described(copy, 'covers/manifest.json').covers.map(c => c.file), ['covers/gallery-3c4d5e6f.png', 'covers/series.png']);
+  const exported = galleryFiles({ meta, records: folderRecords(), covers: folderCovers() });
+  assert.equal(described(exported, 'image_records.json')[0].files, undefined);
+  assert.deepEqual(described(exported, 'covers/manifest.json').covers.map(c => c.file), ['covers/gallery.png', 'covers/series.png']);
+  assert.deepEqual(exported.map(f => f.name), ['metadata.json', 'image_records.json', 'covers/gallery.png', 'covers/series.png', 'covers/manifest.json',
+    'images/0001.png', 'pipeline/0001-raw.png', 'pipeline/0001-text.png', 'translated/0001.png', 'study/bg/0001.png', 'study/text/0001-0.png', 'study/bubbles.json']);
+  assert.deepEqual(exported.map(f => f.original ?? false), [false, false, false, false, false, true, false, false, false, false, false, false]);
+});
+
+test('F05: of two files for one picture, the one the descriptions name wins, and a file they don\'t name never beats the layout name', () => {
+  const paths = ['images/0001.png', 'images/0001-af21d3f4.png', 'images/0002.png', 'images/0002-0badc0de.png', 'images/0003-1a2b3c4d.png',
+    'translated/0001.png', 'translated/0001-af21d3f4.png', 'covers/gallery.png', 'covers/gallery-3c4d5e6f.png'];
+  const records = [{ url: 'local://9/1.png', files: ['images/0001-af21d3f4.png', 'translated/0001-af21d3f4.png'] }];
+  const read = folderPictures(paths, { records, manifest: { covers: [{ role: 'gallery', file: 'covers/gallery-3c4d5e6f.png' }] } });
+  assert.deepEqual([...read.pages], [[1, 'images/0001-af21d3f4.png'], [2, 'images/0002.png'], [3, 'images/0003-1a2b3c4d.png']]);
+  assert.equal(read.file('translated/0001'), 'translated/0001-af21d3f4.png', 'the saved replacement, not the old file left behind');
+  assert.deepEqual(read.covers, { gallery: 'covers/gallery-3c4d5e6f.png' });
+  // A folder described before descriptions named files: the layout name, else its only other file.
+  const old = folderPictures(paths, { manifest: { covers: [{ role: 'gallery', file: 'covers/gallery.png' }] } });
+  assert.equal(old.pages.get(1), 'images/0001.png');
+  assert.equal(folderPictures(['translated/0004-af21d3f4.png']).file('translated/0004'), 'translated/0004-af21d3f4.png');
+  assert.equal(folderPictures(['translated/0004-af21d3f4.png', 'translated/0004-0badc0de.png']).file('translated/0004'), null, 'two, neither named');
+});
+
+test('F04, F05: what was made from a page is read from the files its descriptions name, and a translation it hasn\'t is never read', () => {
+  const copy = galleryFiles({ meta: { galleryId: '9', title: title('G') }, records: folderRecords() }, '', { fileOf: (src) => src.$path });
+  const records = [...described(copy, 'image_records.json'), { url: 'local://9/2.png', translated: false }];
+  const paths = ['translated/0001.png', 'translated/0001-af21d3f4.png', 'study/bg/0001-0b1c2d3e.png', 'study/text/0001-0-1a2b3c4d.png',
+    'pipeline/0001-raw.png', 'pipeline/0001-raw-2b3c4d5e.png', 'pipeline/0001-text.png', 'translated/0002.png'];
+  const pictures = folderPictures(paths, { records });
+  const ref = (path) => ({ path });
+  const page = derivedRecord(pictures, described(copy, 'study/bubbles.json'), 1, records[0], ref);
+  assert.deepEqual([page.translated, page.studyBg, page.bubbles[0].text, page.pipeline.masks.raw, page.pipeline.masks.text].map(r => r.path),
+    ['translated/0001-af21d3f4.png', 'study/bg/0001-0b1c2d3e.png', 'study/text/0001-0-1a2b3c4d.png', 'pipeline/0001-raw-2b3c4d5e.png', 'pipeline/0001-text.png']);
+  assert.equal(derivedRecord(pictures, {}, 2, records[1], ref).translated, undefined, 'a file a write left that was never saved');
 });

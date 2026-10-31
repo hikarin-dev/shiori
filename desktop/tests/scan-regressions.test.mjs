@@ -479,3 +479,67 @@ test('a check reports what it couldn\'t read, and its task says how many', async
   const last = heard.filter(m => m.gid === `folder-${id}` && m.status === 'done').at(-1);
   assert.deepEqual([last.found, last.problems], [1, 1]);
 });
+
+// ── Findings of the second external review (plans/library-storage-refactor-review-2.md) ──
+
+test('F04: a gallery folder the website wrote reads whole on the desktop: every picture from the file its descriptions name, both custom covers', async (t) => {
+  const { library, other } = await open(t);
+  const { galleryFiles, DESCRIPTION_FILES } = await import('../../app/js/gallery-files.js');
+  const gid = '1700000000042', dir = 'Written by the website';
+  // Its pictures as the website keeps them: each replaced while its layout name was in use, so under
+  // that name with a random part — and the old file beside it, its delete refused (F05).
+  const pictures = {
+    'images/0001.png': pngBytes(1), 'translated/0001-af21d3f4.png': pngBytes(2), 'study/bg/0001-0b1c2d3e.png': pngBytes(3),
+    'study/text/0001-0-1a2b3c4d.png': pngBytes(4), 'pipeline/0001-raw-2b3c4d5e.png': pngBytes(5), 'pipeline/0001-text-3c4d5e6f.png': pngBytes(6),
+    'covers/gallery-4d5e6f70.png': pngBytes(7), 'covers/series-5e6f7081.png': pngBytes(8),
+  };
+  const left = ['translated/0001.png', 'study/bg/0001.png', 'study/text/0001-0.png', 'pipeline/0001-raw.png', 'pipeline/0001-text.png', 'covers/gallery.png', 'covers/series.png'];
+  const ref = (p) => ({ $path: p, folder: 'web', dir, size: pictures[p].length, type: 'image/png' });
+  const records = [{ pageNum: 1, url: `local://${gid}/1.png`, mediaId: gid, galleryId: gid, cachedAt: 1, size: 5, blob: ref('images/0001.png'),
+    translated: ref('translated/0001-af21d3f4.png'), studyBg: ref('study/bg/0001-0b1c2d3e.png'), studyPage: { w: 10, h: 10 },
+    bubbles: [{ box: [0, 0, 5, 5], region: [0, 0, 5, 5], tr: 'Hello', src: 'こんにちは', text: ref('study/text/0001-0-1a2b3c4d.png') }],
+    pipeline: { job: 'j1', masks: { raw: ref('pipeline/0001-raw-2b3c4d5e.png'), text: ref('pipeline/0001-text-3c4d5e6f.png') } } }];
+  const covers = { gallery: ref('covers/gallery-4d5e6f70.png'), series: ref('covers/series-5e6f7081.png') };
+  // Its descriptions as the website writes them (db.js _wantedDescriptions: the file each picture is in).
+  for (const f of galleryFiles({ meta: { galleryId: gid, title: title('From the website') }, records, covers }, '', { fileOf: (src) => src.$path })) {
+    if (DESCRIPTION_FILES.includes(f.name)) mk(other, `${dir}/${f.name}`, f.source);
+  }
+  for (const [p, data] of Object.entries(pictures)) mk(other, `${dir}/${p}`, data);
+  for (const p of left) mk(other, `${dir}/${p}`, pngBytes(0xee));
+  const id = (await library.folderAdd(other)).id;
+  assert.deepEqual(await library.folderScan(id), { added: 1, updated: 0, problems: [], stopped: false });
+  const rec = JSON.parse(library._pageRow(gid, 1).record);
+  const read = async (r) => (r ? bytesOf(await library._readFile(gid, r)) : null);
+  const cover = library._coverGet(gid);
+  assert.deepEqual(await Promise.all([rec.translated, rec.studyBg, rec.bubbles?.[0]?.text, rec.pipeline?.masks?.raw, rec.pipeline?.masks?.text,
+    cover?.cover, cover?.seriesCover].map(read)), [2, 3, 4, 5, 6, 7, 8].map(b => [...pngBytes(b)]));
+  assert.equal(rec.bubbles[0].tr, 'Hello');
+});
+
+test('F07: what was made from a linked page is dropped once the page shows another picture: its bytes replaced, or one inserted before it', async (t) => {
+  const { library, other } = await open(t);
+  mk(other, 'Loose/001.png', pngBytes(1));
+  mk(other, 'Loose/002.png', pngBytes(2));
+  const id = (await library.folderAdd(other)).id;
+  await library.folderScan(id);
+  const [{ gid }] = linkedRows(library);
+  const translatedOf = async (n) => (library._pageRow(gid, n) && JSON.parse(library._pageRow(gid, n).record).translated ? bytesOf(await library.getPageBlob(gid, n, 'translated')) : null);
+  for (const n of [1, 2]) await library.putTranslatedImage({ galleryId: gid, pageNum: n }, png(0x70 + n));
+  await library.files.settle(gid);
+  await described(library, gid);
+  // (a) Page 1's picture replaced by other bytes of another size, under the same name.
+  mk(other, 'Loose/001.png', pngBytes(9, 9, 9));
+  assert.equal((await library.folderScan(id)).updated, 1);
+  assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1)), [...pngBytes(9, 9, 9)]);
+  assert.equal(await translatedOf(1), null, 'not over the picture that replaced it');
+  assert.deepEqual(await translatedOf(2), [...pngBytes(0x72)], 'the page whose picture stayed keeps it');
+  await described(library, gid);
+  const back = await removeAndAddBack(library, id, other);
+  await library.folderScan(back);
+  assert.deepEqual([await translatedOf(1), await translatedOf(2)], [null, [...pngBytes(0x72)]], 'read back from its overlay');
+  // (b) A picture inserted before the translated one: it moves to page 3, its translation doesn't follow.
+  await described(library, gid);
+  mk(other, 'Loose/000.png', pngBytes(0));
+  await library.folderScan(back);
+  assert.deepEqual(await Promise.all([1, 2, 3].map(translatedOf)), [null, null, null]);
+});

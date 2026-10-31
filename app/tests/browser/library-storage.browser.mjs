@@ -954,3 +954,48 @@ test('a gallery\'s folder moved by hand inside its library folder is read again 
     assert.deepEqual(out, { scan: [0, 1], dir: 'Sub/Moved', read: true, count: 1 });
   });
 });
+
+test('F04: a gallery\'s descriptions name the file each picture is in where a replacement took another name, so another app reads it whole', { skip }, async () => {
+  await fresh(async (ctx) => {
+    const page = await tab(ctx);
+    const { gid } = await setup(page, 'Lib', 'Twice');
+    const out = await page.evaluate(async (g) => {
+      const api = window.__api, t = window.__t;
+      const { folderPictures, derivedRecord } = await import('/app/js/gallery-files.js');
+      const bubbles = [{ box: { x: 1, y: 1, w: 9, h: 9 }, region: { x: 1, y: 1, w: 9, h: 9 }, tr: 'Hi', src: 'やあ' }];
+      // Every picture made from the page, and both covers, written twice: the second of each under
+      // another name, its layout name in use by the first while it is replaced (a translation drops
+      // the page's study layers, so they are written twice after it).
+      const made = {};
+      for (const round of [1, 2]) {
+        const [tr, raw, text, cover, series] = await Promise.all([1, 2, 3, 4, 5].map(k => t.png(k * 40 + round, 20 + k, 30 + round)));
+        Object.assign(made, { tr, raw, text, cover, series });
+        await api.derived.putTranslation(g, 1, { image: tr, pipeline: { job: `j${round}`, lines: [], read: [], regions: [], masks: { raw, text } } });
+        await api.covers.put(g, cover, { role: 'gallery' });
+        await api.covers.put(g, series, 'series');
+      }
+      for (const round of [1, 2]) {
+        const [bg, layer] = await Promise.all([6, 7].map(k => t.png(k * 40 + round, 20 + k, 30 + round)));
+        Object.assign(made, { bg, layer });
+        await api.derived.putStudy(g, 1, { bg, page: { w: 30, h: 40 }, bubbles: bubbles.map(b => ({ ...b, text: layer })) }, 'j2');
+      }
+      // Its folder as another app finds it: its descriptions, once written, and its pictures there.
+      const records = await t.until(async () => { const r = JSON.parse(await t.text('Lib/Twice/image_records.json')); return r[0]?.files?.length === 5 && r; });
+      const paths = [];
+      for (const dir of ['images', 'translated', 'study/bg', 'study/text', 'pipeline', 'covers']) {
+        for (const name of await t.ls(`Lib/Twice/${dir}`)) if (/\.png$/.test(name)) paths.push(`${dir}/${name}`);
+      }
+      const pictures = folderPictures(paths, { records, manifest: JSON.parse(await t.text('Lib/Twice/covers/manifest.json')) });
+      const read = derivedRecord(pictures, JSON.parse(await t.text('Lib/Twice/study/bubbles.json')), 1, records[0], (p) => p);
+      const sizeOf = async (p) => (p ? (await t.file(`Lib/Twice/${p}`))?.size : null);
+      const at = { tr: read.translated, raw: read.pipeline?.masks?.raw, text: read.pipeline?.masks?.text, bg: read.studyBg, layer: read.bubbles?.[0]?.text,
+        cover: pictures.covers.gallery, series: pictures.covers.series };
+      const sizes = {}, want = {};
+      for (const k of Object.keys(at)) { sizes[k] = await sizeOf(at[k]); want[k] = made[k].size; }
+      return { named: records?.[0]?.files?.length ?? 0, renamed: Object.values(at).every(p => /-[0-9a-f]{8}\.png$/.test(p || '')), sizes, want };
+    }, gid);
+    assert.equal(out.named, 5, 'the page\'s five pictures named in its record');
+    assert.ok(out.renamed, 'each second picture took another name');
+    assert.deepEqual(out.sizes, out.want, 'each read from the file holding its latest picture');
+  });
+});

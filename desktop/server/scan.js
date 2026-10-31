@@ -127,9 +127,11 @@ async function readGallery(g) {
   const abs = g.abs;
   if (g.format === 'folder' && g.layout) {
     const text = (name) => fsp.readFile(path.join(abs, name), 'utf8').catch(() => null);
-    const names = (await fsp.readdir(path.join(abs, 'images')).catch(() => [])).filter(n => IMAGE.test(n)).sort(natural.compare);
-    const pages = await Promise.all(names.map(async (name) => ({ name: `images/${name}`, size: (await fsp.stat(path.join(abs, 'images', name))).size })));
-    return { kind: 'gallery', described: describedBy(parse(await text('metadata.json')), parse(await text('image_records.json')), pages), pages };
+    const records = parse(await text('image_records.json'));
+    const names = (await fsp.readdir(path.join(abs, 'images')).catch(() => [])).filter(n => IMAGE.test(n)).map(n => `images/${n}`);
+    const pages = await Promise.all([...layout.folderPictures(names, { records }).pages].map(async ([n, name]) =>
+      ({ n, name, size: (await fsp.stat(path.join(abs, ...name.split('/')))).size })));
+    return { kind: 'gallery', described: describedBy(parse(await text('metadata.json')), records, pages), pages };
   }
   if (g.format === 'folder') {
     const described = parse(await fsp.readFile(path.join(abs, 'shiori.json'), 'utf8').catch(() => null));
@@ -147,26 +149,27 @@ async function readGallery(g) {
     return { kind: 'gallery', described: parse(texts['shiori.json']), pages, entries: dir };
   }
   const json = async (name) => (dir.get(name) ? parse(String(await readEntry(abs, dir.get(name)))) : null);
-  const pages = [...dir].filter(([n]) => /^images\//.test(n) && IMAGE.test(n)).sort(([a], [b]) => natural.compare(a, b))
-    .map(([name, e]) => ({ name, size: e.size }));
+  const records = await json('image_records.json');
+  const names = [...dir.keys()].filter(n => /^images\/[^/]+$/.test(n) && IMAGE.test(n));
+  const pages = [...layout.folderPictures(names, { records }).pages].map(([n, name]) => ({ n, name, size: dir.get(name).size }));
   const files = new Map();
   for (const [name, e] of dir) {
     if (IMAGE.test(name) && DERIVED.includes(name.slice(0, name.lastIndexOf('/')))) files.set(name, { size: e.size, type: typeOf(name) });
   }
-  return { kind: 'gallery', described: describedBy(parse(texts['metadata.json']), await json('image_records.json'), pages), pages,
-    derived: derivedOf(files, await json('study/bubbles.json'), await json('covers/manifest.json')), entries: dir };
+  return { kind: 'gallery', described: describedBy(parse(texts['metadata.json']), records, pages), pages,
+    derived: derivedOf(files, await json('study/bubbles.json'), await json('covers/manifest.json'), records), entries: dir };
 }
 
 // A description from the gallery format's metadata.json and image_records.json: each page's record
-// joined to its file by page number (gallery-files.js pageNumberOf).
+// joined to its file by page number (`pages`: its originals' files, each with its number —
+// gallery-files.js folderPictures).
 function describedBy(meta, records, pages) {
   if (!meta && !Array.isArray(records)) return null;
   const byNumber = new Map((Array.isArray(records) ? records : []).map(r => [layout.pageNumberOf(r?.url), r]).filter(([n]) => n != null));
   return {
     id: meta?.galleryId != null ? String(meta.galleryId) : null,
     meta,
-    pages: pages.map(({ name }) => {
-      const n = layout.pageNumberOf(name);
+    pages: pages.map(({ n, name }) => {
       const r = byNumber.get(n);
       return { n, file: name, key: r?.url, mediaId: r?.mediaId, cachedAt: r?.cachedAt, record: r };
     }),
@@ -446,7 +449,7 @@ function setState(library, gid, state) {
 }
 
 // The pictures a folder in the gallery format holds beside its pages, and its study index:
-// { files: Map rel → { size, type }, bubbles, covers }.
+// { files: Map rel → { size, type }, bubbles, pictures, covers }.
 export async function readDerived(abs) {
   const files = new Map();
   for (const sub of DERIVED) {
@@ -456,16 +459,17 @@ export async function readDerived(abs) {
       if (size != null) files.set(`${sub}/${name}`, { size, type: typeOf(name) });
     }
   }
-  const bubbles = parse(await fsp.readFile(path.join(abs, 'study', 'bubbles.json'), 'utf8').catch(() => null));
-  const manifest = parse(await fsp.readFile(path.join(abs, 'covers', 'manifest.json'), 'utf8').catch(() => null));
-  return derivedOf(files, bubbles, manifest);
+  const json = async (...at) => parse(await fsp.readFile(path.join(abs, ...at), 'utf8').catch(() => null));
+  return derivedOf(files, await json('study', 'bubbles.json'), await json('covers', 'manifest.json'), await json('image_records.json'));
 }
-// `covers`: each role its covers/manifest.json names a picture for that is there (gallery-files.js
-// coverRoles: the gallery's and the series' — R16), as a reference to it.
-function derivedOf(files, bubbles, manifest) {
+// `pictures`: which file holds each picture, as its descriptions name them (gallery-files.js
+// folderPictures); `covers`: each role its covers/manifest.json names a picture for that is there (the
+// gallery's and the series' — R16), as a reference to it.
+function derivedOf(files, bubbles, manifest, records) {
+  const pictures = layout.folderPictures(files.keys(), { records, manifest });
   const covers = {};
-  for (const [role, file] of Object.entries(layout.coverRoles(manifest))) if (files.has(file)) covers[role] = { $own: file, ...files.get(file) };
-  return { files, bubbles: bubbles || {}, covers };
+  for (const [role, file] of Object.entries(pictures.covers)) covers[role] = { $own: file, ...files.get(file) };
+  return { files, bubbles: bubbles || {}, pictures, covers };
 }
 // The cover record's fields for the covers `derived` holds — for _coverPatchIn, which gives each role
 // it sets a new revision.
@@ -476,35 +480,11 @@ export function coverPatch(derived) {
   return patch;
 }
 
-// A page's record fields made from it, as a folder in the gallery format holds them: its translated
-// picture, study layers and pipeline data, referenced where they lie.
-export function derivedRecord(derived, n, entry) {
-  const out = {};
-  const num = String(n).padStart(4, '0');
-  const own = (rel) => (derived.files.has(rel) ? { $own: rel, ...derived.files.get(rel) } : null);
-  const find = (prefix) => [...derived.files.keys()].find(rel => rel.startsWith(prefix) && /^\.\w+$/.test(rel.slice(prefix.length)));
-  const translated = find(`translated/${num}`);
-  if (translated) out.translated = own(translated);
-  const study = derived.bubbles[num];
-  const bubbles = Array.isArray(study) ? study : study?.bubbles;
-  if (Array.isArray(bubbles) && bubbles.length) {
-    out.bubbles = bubbles.filter(b => b?.box).map((b) => {
-      const { textFile, ...rest } = b;
-      return { ...rest, region: b.region || b.box, tr: b.tr || '', src: b.src || '', text: textFile ? own(`study/text/${textFile}`) : null };
-    });
-    const bg = find(`study/bg/${num}`);
-    out.studyBg = bg ? own(bg) : null;
-    out.studyPage = Array.isArray(study) ? null : (study.page || null);
-  }
-  if (entry?.pipeline && typeof entry.pipeline === 'object' && typeof entry.pipeline.job === 'string') {
-    const masks = {};
-    for (const name of ['raw', 'text']) { const rel = find(`pipeline/${num}-${name}`); if (rel) masks[name] = own(rel); }
-    out.pipeline = { ...entry.pipeline, masks };
-    if (typeof entry.own === 'string') out.own = entry.own;
-  }
-  if (entry?.translatedLayers === true && out.bubbles) out.translatedLayers = true;
-  return out;
-}
+// A page's record fields made from it, as a folder in the gallery format holds them (`derived`:
+// readDerived's): its translated picture, study layers and pipeline data, referenced where they lie
+// (gallery-files.js derivedRecord, the website's too).
+export const derivedRecord = (derived, n, entry) => layout.derivedRecord(derived.pictures, derived.bubbles, n, entry,
+  (rel) => ({ $own: rel, ...derived.files.get(rel) }));
 
 // A gallery the index didn't have, from its files: its own metadata and page keys when it describes
 // itself (and, for a folder in the gallery format, what was made from its pages), else a new
@@ -520,9 +500,9 @@ function addGallery(library, gid, g) {
   library._metaPutRaw(meta);
   const now = Date.now();
   if (!pages.length || meta.parentId) startEntry(library, gid, meta, now);
-  pages.forEach(({ name, size }, i) => {
+  pages.forEach(({ n: number, name, size }, i) => {
     const p = listed.get(name);
-    const n = p?.n ?? i + 1;
+    const n = p?.n ?? number ?? i + 1;
     const ext = name.match(/\.(\w+)$/)[1].toLowerCase();
     const key = p?.key && /\/(\d+)\.\w+$/.test(p.key) ? p.key : `local://${gid}/${n}.${ext}`;
     if (library._pageRowByKey(key) || library._pageRow(gid, n)) return;
