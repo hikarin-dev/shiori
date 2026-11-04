@@ -11,6 +11,9 @@ import { fileURLToPath } from 'node:url';
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (rel) => readFileSync(join(repo, rel), 'utf8');
 const present = (rel) => existsSync(join(repo, rel));
+// Every app/js module, its subfolders' too, as its path from the repo ('app/js/storage/contract.js').
+const appModules = () => readdirSync(join(repo, 'app', 'js'), { recursive: true })
+  .map((f) => `app/js/${f.replace(/\\/g, '/')}`).filter((f) => f.endsWith('.js'));
 
 function shellFiles() {
   const sw = read('sw.js');
@@ -36,10 +39,7 @@ test('every precached SHELL file exists', () => {
 
 test('every app/js module is precached in SHELL', () => {
   const shell = new Set(shellFiles());
-  const missing = readdirSync(join(repo, 'app', 'js'))
-    .filter((f) => f.endsWith('.js'))
-    .map((f) => `app/js/${f}`)
-    .filter((f) => !shell.has(f));
+  const missing = appModules().filter((f) => !shell.has(f));
   assert.deepEqual(missing, [], 'app/js modules not listed in the SHELL cache');
 });
 
@@ -49,7 +49,7 @@ test('the UI font is served locally — no hosted-font URLs anywhere in the app'
     if (/fonts\.googleapis|fonts\.gstatic/.test(read(rel))) offenders.push(rel);
   };
   scan('sw.js'); scan('index.html'); scan('404.html'); scan('app/font-init.js');
-  for (const f of readdirSync(join(repo, 'app', 'js')).filter((f) => f.endsWith('.js'))) scan(`app/js/${f}`);
+  for (const f of appModules()) scan(f);
   for (const f of readdirSync(join(repo, 'app')).filter((f) => f.endsWith('.html') || f.endsWith('.css'))) scan(`app/${f}`);
   assert.deepEqual(offenders, []);
 });

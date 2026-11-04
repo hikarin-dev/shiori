@@ -7,9 +7,9 @@
 // archive entry names, so both apps name an archive's chapters alike (A08).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { OWN_FILES, galleryIdOf, seriesOf, classifyFolder, classifyArchive, zipName } from '../js/folder-content.js';
-import { galleryFiles, seriesManifest } from '../js/gallery-files.js';
-import { zipTitles, sourceKey } from '../js/linked-source.js';
+import { OWN_FILES, galleryIdOf, seriesOf, classifyFolder, classifyArchive, zipName } from '../js/storage/folder-content.js';
+import { galleryFiles, seriesManifest } from '../js/storage/gallery-files.js';
+import { zipTitles, sourceKey } from '../js/storage/linked-source.js';
 
 const png = (n) => new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, n])], { type: 'image/png' });
 const meta = (galleryId, english = 'A Title') => ({ galleryId, title: { english, japanese: '', pretty: english }, tags: [], numPages: 2 });

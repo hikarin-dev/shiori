@@ -1,0 +1,396 @@
+{
+ "name": "indexeddb-19",
+ "commit": "7d774f0",
+ "about": "IndexedDB 19: the undescribed store",
+ "version": 19,
+ "stores": [
+  {
+   "name": "blobs",
+   "keyPath": "id",
+   "autoIncrement": false,
+   "indexes": [],
+   "records": [
+    {
+     "value": {
+      "id": "cover|1790000000001|gallery",
+      "blob": {
+       "$fixtureBlob": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJgggk=",
+       "type": "image/png"
+      }
+     }
+    },
+    {
+     "value": {
+      "id": "local://1790000000001/1.webp|page",
+      "blob": {
+       "$fixtureBlob": "UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoBAAEAAwA0JaQAA3AA/vuUAAAB",
+       "type": "image/webp"
+      }
+     }
+    },
+    {
+     "value": {
+      "id": "local://1790000000001/1.webp|tr",
+      "blob": {
+       "$fixtureBlob": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJgggE=",
+       "type": "image/png"
+      }
+     }
+    },
+    {
+     "value": {
+      "id": "local://1790000000001/2.webp|page",
+      "blob": {
+       "$fixtureBlob": "UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoBAAEAAwA0JaQAA3AA/vuUAAAC",
+       "type": "image/webp"
+      }
+     }
+    },
+    {
+     "value": {
+      "id": "local://1790000000002/1.webp|page",
+      "blob": {
+       "$fixtureBlob": "UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoBAAEAAwA0JaQAA3AA/vuUAAAD",
+       "type": "image/webp"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "changes",
+   "keyPath": "rev",
+   "autoIncrement": true,
+   "indexes": [],
+   "records": [
+    {
+     "value": {
+      "gid": "1790000000001",
+      "at": 1793825795878,
+      "rev": 1
+     }
+    },
+    {
+     "value": {
+      "gid": "1790000000001",
+      "at": 1793825795881,
+      "rev": 2
+     }
+    },
+    {
+     "value": {
+      "gid": "1790000000001",
+      "at": 1793825795882,
+      "rev": 3
+     }
+    },
+    {
+     "value": {
+      "gid": "1790000000001",
+      "at": 1793825795884,
+      "rev": 4
+     }
+    },
+    {
+     "value": {
+      "gid": "1790000000001",
+      "at": 1793825795885,
+      "rev": 5
+     }
+    },
+    {
+     "value": {
+      "gid": "1790000000002",
+      "at": 1793825795885,
+      "rev": 6
+     }
+    },
+    {
+     "value": {
+      "gid": "1790000000002",
+      "at": 1793825795885,
+      "rev": 7
+     }
+    },
+    {
+     "value": {
+      "gid": "1790000000001",
+      "at": 1793825796135,
+      "rev": 8
+     }
+    },
+    {
+     "value": {
+      "gid": "1790000000002",
+      "at": 1793825796136,
+      "rev": 9
+     }
+    }
+   ]
+  },
+  {
+   "name": "covers",
+   "keyPath": "galleryId",
+   "autoIncrement": false,
+   "indexes": [],
+   "records": [
+    {
+     "value": {
+      "galleryId": "1790000000001",
+      "cover": {
+       "$blob": "cover|1790000000001|gallery",
+       "size": 71,
+       "type": "image/png"
+      },
+      "coverRevisions": {
+       "gallery": "8f53bcae-8f54-4f23-9ee6-ef7eae36db3f"
+      }
+     }
+    },
+    {
+     "value": {
+      "galleryId": "1790000000002",
+      "cover": {
+       "$blob": "local://1790000000002/1.webp|page",
+       "size": 45,
+       "type": "image/webp"
+      },
+      "coverRevisions": {
+       "gallery": "779645fb-f88f-4c52-9a0a-3e635e3b2bc8"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "dormant",
+   "keyPath": "gid",
+   "autoIncrement": false,
+   "indexes": [
+    {
+     "name": "folder",
+     "keyPath": "folder",
+     "unique": false,
+     "multiEntry": false
+    }
+   ],
+   "records": []
+  },
+  {
+   "name": "folders",
+   "keyPath": "id",
+   "autoIncrement": false,
+   "indexes": [],
+   "records": []
+  },
+  {
+   "name": "galleries",
+   "keyPath": "galleryId",
+   "autoIncrement": false,
+   "indexes": [
+    {
+     "name": "addedAt",
+     "keyPath": "addedAt",
+     "unique": false,
+     "multiEntry": false
+    },
+    {
+     "name": "count",
+     "keyPath": "count",
+     "unique": false,
+     "multiEntry": false
+    },
+    {
+     "name": "latestAt",
+     "keyPath": "latestAt",
+     "unique": false,
+     "multiEntry": false
+    },
+    {
+     "name": "parentId",
+     "keyPath": "parentId",
+     "unique": false,
+     "multiEntry": false
+    },
+    {
+     "name": "size",
+     "keyPath": "size",
+     "unique": false,
+     "multiEntry": false
+    },
+    {
+     "name": "spilled",
+     "keyPath": "spilled",
+     "unique": false,
+     "multiEntry": false
+    },
+    {
+     "name": "uploadDate",
+     "keyPath": "uploadDate",
+     "unique": false,
+     "multiEntry": false
+    }
+   ],
+   "records": [
+    {
+     "value": {
+      "galleryId": "1790000000001",
+      "count": 2,
+      "size": 1870,
+      "latestAt": 1793825795882,
+      "addedAt": 1790000000001,
+      "coverPage": 1,
+      "uploadDate": 0,
+      "origSize": 90
+     }
+    },
+    {
+     "value": {
+      "galleryId": "1790000000002",
+      "count": 1,
+      "size": 771,
+      "latestAt": 1793825795885,
+      "addedAt": 1790000000002,
+      "coverPage": 1,
+      "uploadDate": 0,
+      "origSize": 45
+     }
+    }
+   ]
+  },
+  {
+   "name": "images",
+   "keyPath": "url",
+   "autoIncrement": false,
+   "indexes": [
+    {
+     "name": "galleryId",
+     "keyPath": "galleryId",
+     "unique": false,
+     "multiEntry": false
+    },
+    {
+     "name": "mediaId",
+     "keyPath": "mediaId",
+     "unique": false,
+     "multiEntry": false
+    }
+   ],
+   "records": [
+    {
+     "value": {
+      "url": "local://1790000000001/1.webp",
+      "blob": {
+       "$blob": "local://1790000000001/1.webp|page",
+       "size": 45,
+       "type": "image/webp"
+      },
+      "mediaId": "1790000000001",
+      "galleryId": "1790000000001",
+      "cachedAt": 1793825795879,
+      "size": 45,
+      "translated": {
+       "$blob": "local://1790000000001/1.webp|tr",
+       "size": 71,
+       "type": "image/png"
+      }
+     }
+    },
+    {
+     "value": {
+      "url": "local://1790000000001/2.webp",
+      "blob": {
+       "$blob": "local://1790000000001/2.webp|page",
+       "size": 45,
+       "type": "image/webp"
+      },
+      "mediaId": "1790000000001",
+      "galleryId": "1790000000001",
+      "cachedAt": 1793825795882,
+      "size": 45
+     }
+    },
+    {
+     "value": {
+      "url": "local://1790000000002/1.webp",
+      "blob": {
+       "$blob": "local://1790000000002/1.webp|page",
+       "size": 45,
+       "type": "image/webp"
+      },
+      "mediaId": "1790000000002",
+      "galleryId": "1790000000002",
+      "cachedAt": 1793825795885,
+      "size": 45
+     }
+    }
+   ]
+  },
+  {
+   "name": "metadata",
+   "keyPath": "galleryId",
+   "autoIncrement": false,
+   "indexes": [
+    {
+     "name": "sourceId",
+     "keyPath": "sourceId",
+     "unique": false,
+     "multiEntry": false
+    },
+    {
+     "name": "tagNames",
+     "keyPath": "tagNames",
+     "unique": false,
+     "multiEntry": true
+    }
+   ],
+   "records": [
+    {
+     "value": {
+      "galleryId": "1790000000001",
+      "title": {
+       "english": "Fixture A",
+       "japanese": "",
+       "pretty": "Fixture A"
+      },
+      "tags": [
+       {
+        "type": "artist",
+        "name": "fixture"
+       }
+      ],
+      "tagNames": [
+       "artist:fixture"
+      ]
+     }
+    },
+    {
+     "value": {
+      "galleryId": "1790000000002",
+      "title": {
+       "english": "Fixture B",
+       "japanese": "",
+       "pretty": "Fixture B"
+      },
+      "tags": [],
+      "tagNames": []
+     }
+    }
+   ]
+  },
+  {
+   "name": "sourceIcons",
+   "keyPath": "source",
+   "autoIncrement": false,
+   "indexes": [],
+   "records": []
+  },
+  {
+   "name": "undescribed",
+   "keyPath": "gid",
+   "autoIncrement": false,
+   "indexes": [],
+   "records": []
+  }
+ ]
+}

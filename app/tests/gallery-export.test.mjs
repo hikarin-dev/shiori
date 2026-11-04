@@ -8,7 +8,7 @@ import 'fake-indexeddb/auto';
 globalThis.BroadcastChannel = class { postMessage() {} close() {} };
 
 const api = await import('../js/api.js');
-const { BUBBLE_EXTRA_FIELDS } = await import('../js/gallery-files.js');
+const { BUBBLE_EXTRA_FIELDS } = await import('../js/storage/gallery-files.js');
 const { importCbzBuffer } = await import('../js/import-cbz.js');
 const { zipCreate } = await import('../js/zip.js');
 const { planPage } = await import('../js/page-data.js');
@@ -113,7 +113,8 @@ test('malformed pipeline data is not restored', async () => {
 
 // ── What the real exporter (gallery-files.js) writes, restored into a library that lost it ──
 
-const { galleryFiles, fileBytes, seriesManifest } = await import('../js/gallery-files.js');
+const { galleryFiles, seriesManifest } = await import('../js/storage/gallery-files.js');
+const { fileBytes } = await import('../js/gallery-export.js');
 const { mergeIntoSeries, setChapterTitle } = await import('../js/series.js');
 
 const TAGS = [{ type: 'category', name: 'manga', url: '' }, { type: 'rating', name: 'safe', url: '' },

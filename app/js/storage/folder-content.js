@@ -8,22 +8,37 @@
 // titles alike. Pure: the browser library (db.js) and the desktop app's (server/scan.js, linked.js)
 // read the files and hand them here.
 
-import { isValidGalleryId } from './sanitize.js';
+import { isValidGalleryId } from '../sanitize.js';
 import { safeRelPath } from './linked-source.js';
 
 // The files whose text classifyFolder and classifyArchive read (those a folder or archive has).
 export const OWN_FILES = ['metadata.json', 'series.json', 'shiori.json'];
 
+/** A file's text as parsed JSON, of any shape (each reader checks what it uses), or null.
+ * @param {unknown} text @returns {any} */
 const _json = (text) => { if (typeof text !== 'string') return null; try { return JSON.parse(text); } catch { return null; } };
+/** @param {unknown} v @returns {boolean} */
 const _object = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
 // A gallery id as Shiori writes it (a string of digits, or the number an early version wrote), as a
 // string; null for anything else.
+/** @param {unknown} v @returns {string | null} */
 const _id = (v) => ((typeof v === 'string' || Number.isSafeInteger(v)) && isValidGalleryId(v) ? String(v) : null);
 // The title fields an early version wrote in place of the title object (titles.js normalizeTitle).
 const FLAT_TITLES = ['titleEnglish', 'titleJapanese', 'titlePretty'];
 
+/** A series' series.json as seriesOf reads it: its chapters each with a gallery id and a folder.
+ * @typedef {{ [field: string]: unknown, id: string, folder: string }} SeriesChapter
+ * @typedef {{ [field: string]: unknown, chapters: SeriesChapter[] }} Series */
+/** What a folder or archive is (classifyFolder, classifyArchive).
+ * @typedef {{ kind: 'series', series: Series } | { kind: 'gallery', id: string, legacy?: boolean } | { kind: 'other' }} FolderKind
+ * @typedef {{ kind: 'series', series: { [field: string]: unknown, chapters: (SeriesChapter & { present: boolean })[] } }
+ *   | { kind: 'gallery', id: string, legacy?: boolean } | { kind: 'linked' }} ArchiveKind */
+/** The texts of a folder's (or archive's) OWN_FILES: name → text, missing or null when it hasn't it.
+ * @typedef {Record<string, string | null | undefined>} OwnTexts */
+
 // The gallery a metadata.json's text describes: its id, when it is Shiori's — an object with a gallery
 // id and a title (the title object, or an early version's flat title fields) — else null.
+/** @param {unknown} text @returns {string | null} */
 export function galleryIdOf(text) {
   const m = _json(text);
   if (!_object(m)) return null;
@@ -34,9 +49,11 @@ export function galleryIdOf(text) {
 // the manifest, its chapters each { id, folder, … } — `folder` the member's folder in the series'
 // folder or archive (chapter-NN when an early export left it out) — else null. A chapter without a
 // gallery id, or whose folder isn't a plain name, makes it not Shiori's.
+/** @param {unknown} text @returns {Series | null} */
 export function seriesOf(text) {
   const s = _json(text);
   if (!_object(s) || s.format !== 'shiori-series' || !Array.isArray(s.chapters) || !s.chapters.length) return null;
+  /** @type {SeriesChapter[]} */
   const chapters = [];
   for (const [i, c] of s.chapters.entries()) {
     const id = _object(c) ? _id(c.id) : null;
@@ -49,6 +66,7 @@ export function seriesOf(text) {
 
 // The gallery an earlier desktop version's shiori.json describes ({ format: 'shiori-gallery', id,
 // meta, pages }): its id, or null.
+/** @param {unknown} text @returns {string | null} */
 function _legacyIdOf(text) {
   const d = _json(text);
   return _object(d) && d.format === 'shiori-gallery' ? _id(d.id) : null;
@@ -62,6 +80,7 @@ function _legacyIdOf(text) {
 //   described by an earlier desktop version's shiori.json (its pictures beside it, not in images/).
 // - { kind: 'other' }: not Shiori's. What it holds is linked (linked-source.js planTitles), its
 //   subfolders classified on their own.
+/** @param {OwnTexts} [texts] @returns {FolderKind} */
 export function classifyFolder(texts = {}) {
   const series = seriesOf(texts['series.json']);
   if (series) return { kind: 'series', series };
@@ -79,6 +98,7 @@ export function classifyFolder(texts = {}) {
 //   folder (`present`).
 // - { kind: 'linked' }: anything else — or one with an entry whose name isn't a safe path (an archive
 //   Shiori's own are unpacked from must never write outside the folder it unpacks to): linked.
+/** @param {Iterable<string>} names @param {OwnTexts} [texts] @returns {ArchiveKind} */
 export function classifyArchive(names, texts = {}) {
   const list = [...names];
   if (!list.every(n => safeRelPath(String(n).replace(/\/$/, '')))) return { kind: 'linked' };
@@ -96,6 +116,7 @@ export function classifyArchive(names, texts = {}) {
 const CP437_HIGH = 'ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐'
   + '└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ';
 const _strictUtf8 = new TextDecoder('utf-8', { fatal: true });
+/** @param {Uint8Array} bytes @param {boolean | number} utf8Flag @returns {string} */
 export function zipName(bytes, utf8Flag) {
   if (utf8Flag) return new TextDecoder().decode(bytes);
   try { return _strictUtf8.decode(bytes); } catch {}

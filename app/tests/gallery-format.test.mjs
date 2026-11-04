@@ -12,7 +12,8 @@ import 'fake-indexeddb/auto';
 globalThis.BroadcastChannel = class { postMessage() {} close() {} };
 
 const api = await import('../js/api.js');
-const { exportFiles, pageNumberOf, coverRoles, galleryFiles, folderPictures, derivedRecord } = await import('../js/gallery-files.js');
+const { pageNumberOf, coverRoles, galleryFiles, folderPictures, derivedRecord } = await import('../js/storage/gallery-files.js');
+const { exportFiles } = await import('../js/gallery-export.js');
 const { importCbzBuffer } = await import('../js/import-cbz.js');
 const { groupImports, importBytes } = await import('../js/import-files.js');
 const { zipCreate } = await import('../js/zip.js');

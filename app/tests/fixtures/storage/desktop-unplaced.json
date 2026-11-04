@@ -1,0 +1,580 @@
+{
+ "name": "desktop-unplaced",
+ "commit": "7d774f0",
+ "about": "as desktop-roots, plus tables unplaced and removed_notes",
+ "schema": [
+  {
+   "type": "table",
+   "name": "meta",
+   "sql": "CREATE TABLE meta (\n  gid TEXT PRIMARY KEY,\n  source_id TEXT,\n  is_stub INTEGER NOT NULL DEFAULT 0,\n  record TEXT NOT NULL\n)"
+  },
+  {
+   "type": "index",
+   "name": "meta_source",
+   "sql": "CREATE INDEX meta_source ON meta (source_id, gid) WHERE source_id IS NOT NULL"
+  },
+  {
+   "type": "table",
+   "name": "meta_tags",
+   "sql": "CREATE TABLE meta_tags (\n  tag TEXT NOT NULL,\n  gid TEXT NOT NULL,\n  PRIMARY KEY (tag, gid)\n) WITHOUT ROWID"
+  },
+  {
+   "type": "index",
+   "name": "meta_tags_gid",
+   "sql": "CREATE INDEX meta_tags_gid ON meta_tags (gid)"
+  },
+  {
+   "type": "table",
+   "name": "stats",
+   "sql": "CREATE TABLE stats (\n  gid TEXT PRIMARY KEY,\n  latest_at REAL,\n  added_at REAL,\n  size REAL,\n  count REAL,\n  upload_date REAL,\n  parent_key TEXT,\n  child INTEGER NOT NULL DEFAULT 0,\n  record TEXT NOT NULL\n)"
+  },
+  {
+   "type": "index",
+   "name": "stats_latest",
+   "sql": "CREATE INDEX stats_latest ON stats (latest_at, gid) WHERE latest_at IS NOT NULL"
+  },
+  {
+   "type": "index",
+   "name": "stats_added",
+   "sql": "CREATE INDEX stats_added ON stats (added_at, gid) WHERE added_at IS NOT NULL"
+  },
+  {
+   "type": "index",
+   "name": "stats_size",
+   "sql": "CREATE INDEX stats_size ON stats (size, gid) WHERE size IS NOT NULL"
+  },
+  {
+   "type": "index",
+   "name": "stats_count",
+   "sql": "CREATE INDEX stats_count ON stats (count, gid) WHERE count IS NOT NULL"
+  },
+  {
+   "type": "index",
+   "name": "stats_upload",
+   "sql": "CREATE INDEX stats_upload ON stats (upload_date, gid) WHERE upload_date IS NOT NULL"
+  },
+  {
+   "type": "index",
+   "name": "stats_parent",
+   "sql": "CREATE INDEX stats_parent ON stats (parent_key) WHERE parent_key IS NOT NULL"
+  },
+  {
+   "type": "table",
+   "name": "pages",
+   "sql": "CREATE TABLE pages (\n  gid TEXT NOT NULL,\n  n INTEGER NOT NULL CHECK (n >= 1),\n  key TEXT NOT NULL UNIQUE,\n  w INTEGER,\n  h INTEGER,\n  orig TEXT NOT NULL,\n  record TEXT NOT NULL,\n  PRIMARY KEY (gid, n)\n)"
+  },
+  {
+   "type": "table",
+   "name": "covers",
+   "sql": "CREATE TABLE covers (gid TEXT PRIMARY KEY, record TEXT NOT NULL)"
+  },
+  {
+   "type": "table",
+   "name": "icons",
+   "sql": "CREATE TABLE icons (source TEXT PRIMARY KEY, record TEXT NOT NULL)"
+  },
+  {
+   "type": "table",
+   "name": "changes",
+   "sql": "CREATE TABLE changes (rev INTEGER PRIMARY KEY, gid TEXT NOT NULL, at REAL NOT NULL)"
+  },
+  {
+   "type": "table",
+   "name": "kv",
+   "sql": "CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+  },
+  {
+   "type": "table",
+   "name": "stamps",
+   "sql": "CREATE TABLE stamps (gid TEXT PRIMARY KEY, stamp TEXT NOT NULL)"
+  },
+  {
+   "type": "table",
+   "name": "files",
+   "sql": "CREATE TABLE files (\n  gid TEXT PRIMARY KEY,\n  path TEXT NOT NULL UNIQUE,\n  format TEXT NOT NULL CHECK (format IN ('cbz', 'zip', 'folder')),\n  state TEXT NOT NULL CHECK (state IN ('packed', 'missing')),\n  packed_at REAL,\n  pending INTEGER NOT NULL DEFAULT 0,\n  unpack INTEGER NOT NULL DEFAULT 0,\n  used_at REAL,\n  tail REAL\n, source TEXT)"
+  },
+  {
+   "type": "table",
+   "name": "leftovers",
+   "sql": "CREATE TABLE leftovers (\n  gid TEXT NOT NULL,\n  entry TEXT NOT NULL,\n  PRIMARY KEY (gid, entry)\n) WITHOUT ROWID"
+  },
+  {
+   "type": "table",
+   "name": "retired",
+   "sql": "CREATE TABLE retired (path TEXT PRIMARY KEY) WITHOUT ROWID"
+  },
+  {
+   "type": "table",
+   "name": "staged_own",
+   "sql": "CREATE TABLE staged_own (\n  gid TEXT NOT NULL,\n  rel TEXT NOT NULL,\n  file TEXT NOT NULL,\n  size INTEGER NOT NULL,\n  PRIMARY KEY (gid, rel)\n) WITHOUT ROWID"
+  },
+  {
+   "type": "table",
+   "name": "unplaced",
+   "sql": "CREATE TABLE unplaced (\n  gid TEXT NOT NULL,\n  rel TEXT NOT NULL,\n  temp TEXT NOT NULL,\n  PRIMARY KEY (gid, rel)\n) WITHOUT ROWID"
+  },
+  {
+   "type": "index",
+   "name": "files_used",
+   "sql": "CREATE INDEX files_used ON files (used_at, gid) WHERE format = 'folder'"
+  },
+  {
+   "type": "table",
+   "name": "roots",
+   "sql": "CREATE TABLE roots (\n  id TEXT PRIMARY KEY,\n  path TEXT NOT NULL,\n  state TEXT NOT NULL CHECK (state IN ('shown', 'hidden', 'removing')),\n  first INTEGER NOT NULL DEFAULT 0,\n  added_at REAL NOT NULL,\n  epoch INTEGER,\n  removal TEXT\n)"
+  },
+  {
+   "type": "table",
+   "name": "places",
+   "sql": "CREATE TABLE places (gid TEXT PRIMARY KEY, root TEXT NOT NULL) WITHOUT ROWID"
+  },
+  {
+   "type": "index",
+   "name": "places_root",
+   "sql": "CREATE INDEX places_root ON places (root)"
+  },
+  {
+   "type": "table",
+   "name": "removed_notes",
+   "sql": "CREATE TABLE removed_notes (gid TEXT PRIMARY KEY, root TEXT NOT NULL, overlay TEXT NOT NULL, source TEXT NOT NULL) WITHOUT ROWID"
+  },
+  {
+   "type": "view",
+   "name": "unmounted",
+   "sql": "CREATE VIEW unmounted AS\n  SELECT gid, root FROM places WHERE root NOT IN (SELECT id FROM roots WHERE state = 'shown')"
+  }
+ ],
+ "rows": {
+  "meta": [
+   {
+    "gid": "1790000000001",
+    "source_id": null,
+    "is_stub": 0,
+    "record": "{\"galleryId\":\"1790000000001\",\"title\":{\"english\":\"Fixture A\",\"japanese\":\"\",\"pretty\":\"Fixture A\"},\"tags\":[{\"type\":\"artist\",\"name\":\"fixture\"}],\"tagNames\":[\"artist:fixture\"]}"
+   },
+   {
+    "gid": "1793825783032",
+    "source_id": null,
+    "is_stub": 0,
+    "record": "{\"galleryId\":\"1793825783032\",\"title\":{\"english\":\"Loose Pictures\",\"japanese\":\"\",\"pretty\":\"Loose Pictures\"},\"tags\":[],\"numPages\":2,\"isLocalImport\":true,\"source\":\"\"}"
+   },
+   {
+    "gid": "1790000000002",
+    "source_id": null,
+    "is_stub": 0,
+    "record": "{\"galleryId\":\"1790000000002\",\"title\":{\"english\":\"Fixture B\",\"japanese\":\"\",\"pretty\":\"Fixture B\"},\"tags\":[{\"type\":\"artist\",\"name\":\"fixture\"}],\"tagNames\":[\"artist:fixture\"]}"
+   },
+   {
+    "gid": "1790000000003",
+    "source_id": null,
+    "is_stub": 0,
+    "record": "{\"galleryId\":\"1790000000003\",\"title\":{\"english\":\"Fixture C\",\"japanese\":\"\",\"pretty\":\"Fixture C\"},\"tags\":[{\"type\":\"artist\",\"name\":\"fixture\"}],\"tagNames\":[\"artist:fixture\"]}"
+   }
+  ],
+  "meta_tags": [
+   {
+    "tag": "artist:fixture",
+    "gid": "1790000000001"
+   },
+   {
+    "tag": "artist:fixture",
+    "gid": "1790000000002"
+   },
+   {
+    "tag": "artist:fixture",
+    "gid": "1790000000003"
+   }
+  ],
+  "stats": [
+   {
+    "gid": "1790000000001",
+    "latest_at": 1793825782938,
+    "added_at": 1790000000001,
+    "size": 1870,
+    "count": 2,
+    "upload_date": 0,
+    "parent_key": null,
+    "child": 0,
+    "record": "{\"galleryId\":\"1790000000001\",\"count\":2,\"size\":1870,\"latestAt\":1793825782938,\"addedAt\":1790000000001,\"coverPage\":1,\"uploadDate\":0,\"origSize\":90,\"medianPage\":{\"w\":1,\"h\":1,\"n\":2,\"bytes\":90},\"pageSizes\":[[1,1,2]]}"
+   },
+   {
+    "gid": "1793825783032",
+    "latest_at": 1793825783040,
+    "added_at": 1793825783032,
+    "size": 1240,
+    "count": 2,
+    "upload_date": 0,
+    "parent_key": null,
+    "child": 0,
+    "record": "{\"galleryId\":\"1793825783032\",\"count\":2,\"size\":1240,\"latestAt\":1793825783040,\"addedAt\":1793825783032,\"coverPage\":1,\"uploadDate\":0,\"origSize\":140,\"medianPage\":{\"w\":0,\"h\":0,\"n\":2,\"bytes\":140},\"pageSizes\":[]}"
+   },
+   {
+    "gid": "1790000000002",
+    "latest_at": 1793825783053,
+    "added_at": 1790000000002,
+    "size": 1417,
+    "count": 2,
+    "upload_date": 0,
+    "parent_key": null,
+    "child": 0,
+    "record": "{\"galleryId\":\"1790000000002\",\"count\":2,\"size\":1417,\"latestAt\":1793825783053,\"addedAt\":1790000000002,\"coverPage\":1,\"uploadDate\":0,\"origSize\":90,\"medianPage\":{\"w\":1,\"h\":1,\"n\":2,\"bytes\":90},\"pageSizes\":[[1,1,2]]}"
+   },
+   {
+    "gid": "1790000000003",
+    "latest_at": 1793825783102,
+    "added_at": 1790000000003,
+    "size": 90,
+    "count": 2,
+    "upload_date": 0,
+    "parent_key": null,
+    "child": 0,
+    "record": "{\"galleryId\":\"1790000000003\",\"count\":2,\"size\":90,\"latestAt\":1793825783102,\"addedAt\":1790000000003,\"coverPage\":1,\"uploadDate\":0}"
+   }
+  ],
+  "pages": [
+   {
+    "gid": "1790000000001",
+    "n": 1,
+    "key": "local://1790000000001/1.webp",
+    "w": 1,
+    "h": 1,
+    "orig": "{\"at\":\"p\",\"entry\":\"images/0001.webp\",\"size\":45,\"type\":\"image/webp\"}",
+    "record": "{\"url\":\"local://1790000000001/1.webp\",\"blob\":{\"$orig\":1,\"size\":45,\"type\":\"image/webp\"},\"mediaId\":\"1790000000001\",\"galleryId\":\"1790000000001\",\"cachedAt\":1793825782933,\"size\":45,\"translated\":{\"$own\":\"translated/0001.png\",\"size\":71,\"type\":\"image/png\"}}"
+   },
+   {
+    "gid": "1790000000001",
+    "n": 2,
+    "key": "local://1790000000001/2.webp",
+    "w": 1,
+    "h": 1,
+    "orig": "{\"at\":\"p\",\"entry\":\"images/0002.webp\",\"size\":45,\"type\":\"image/webp\"}",
+    "record": "{\"url\":\"local://1790000000001/2.webp\",\"blob\":{\"$orig\":1,\"size\":45,\"type\":\"image/webp\"},\"mediaId\":\"1790000000001\",\"galleryId\":\"1790000000001\",\"cachedAt\":1793825782938,\"size\":45}"
+   },
+   {
+    "gid": "1793825783032",
+    "n": 1,
+    "key": "local://1793825783032/1.png",
+    "w": null,
+    "h": null,
+    "orig": "{\"at\":\"x\",\"entry\":\"001.png\",\"size\":70,\"type\":\"image/png\"}",
+    "record": "{\"url\":\"local://1793825783032/1.png\",\"blob\":{\"$orig\":1,\"size\":70,\"type\":\"image/png\"},\"mediaId\":\"1793825783032\",\"galleryId\":\"1793825783032\",\"cachedAt\":1793825783040,\"size\":70}"
+   },
+   {
+    "gid": "1793825783032",
+    "n": 2,
+    "key": "local://1793825783032/2.png",
+    "w": null,
+    "h": null,
+    "orig": "{\"at\":\"x\",\"entry\":\"002.png\",\"size\":70,\"type\":\"image/png\"}",
+    "record": "{\"url\":\"local://1793825783032/2.png\",\"blob\":{\"$orig\":1,\"size\":70,\"type\":\"image/png\"},\"mediaId\":\"1793825783032\",\"galleryId\":\"1793825783032\",\"cachedAt\":1793825783040,\"size\":70}"
+   },
+   {
+    "gid": "1790000000002",
+    "n": 1,
+    "key": "local://1790000000002/1.webp",
+    "w": 1,
+    "h": 1,
+    "orig": "{\"at\":\"p\",\"entry\":\"images/0001.webp\",\"size\":45,\"type\":\"image/webp\"}",
+    "record": "{\"url\":\"local://1790000000002/1.webp\",\"blob\":{\"$orig\":1,\"size\":45,\"type\":\"image/webp\"},\"mediaId\":\"1790000000002\",\"galleryId\":\"1790000000002\",\"cachedAt\":1793825783050,\"size\":45,\"translated\":{\"$own\":\"translated/0001.png\",\"size\":71,\"type\":\"image/png\"}}"
+   },
+   {
+    "gid": "1790000000002",
+    "n": 2,
+    "key": "local://1790000000002/2.webp",
+    "w": 1,
+    "h": 1,
+    "orig": "{\"at\":\"p\",\"entry\":\"images/0002.webp\",\"size\":45,\"type\":\"image/webp\"}",
+    "record": "{\"url\":\"local://1790000000002/2.webp\",\"blob\":{\"$orig\":1,\"size\":45,\"type\":\"image/webp\"},\"mediaId\":\"1790000000002\",\"galleryId\":\"1790000000002\",\"cachedAt\":1793825783053,\"size\":45}"
+   },
+   {
+    "gid": "1790000000003",
+    "n": 1,
+    "key": "local://1790000000003/1.webp",
+    "w": 1,
+    "h": 1,
+    "orig": "{\"at\":\"p\",\"entry\":\"images/0001.webp\",\"size\":45,\"type\":\"image/webp\"}",
+    "record": "{\"url\":\"local://1790000000003/1.webp\",\"blob\":{\"$orig\":1,\"size\":45,\"type\":\"image/webp\"},\"mediaId\":\"1790000000003\",\"galleryId\":\"1790000000003\",\"cachedAt\":1793825783098,\"size\":45,\"translated\":{\"$own\":\"translated/0001.png\",\"size\":71,\"type\":\"image/png\"}}"
+   },
+   {
+    "gid": "1790000000003",
+    "n": 2,
+    "key": "local://1790000000003/2.webp",
+    "w": 1,
+    "h": 1,
+    "orig": "{\"at\":\"p\",\"entry\":\"images/0002.webp\",\"size\":45,\"type\":\"image/webp\"}",
+    "record": "{\"url\":\"local://1790000000003/2.webp\",\"blob\":{\"$orig\":1,\"size\":45,\"type\":\"image/webp\"},\"mediaId\":\"1790000000003\",\"galleryId\":\"1790000000003\",\"cachedAt\":1793825783102,\"size\":45}"
+   }
+  ],
+  "covers": [
+   {
+    "gid": "1790000000001",
+    "record": "{\"galleryId\":\"1790000000001\",\"cover\":{\"$own\":\"covers/gallery.png\",\"size\":71,\"type\":\"image/png\"},\"coverRevisions\":{\"gallery\":\"39df4583-f71e-4c7b-922c-dd374b24d364\"}}"
+   },
+   {
+    "gid": "1793825783032",
+    "record": "{\"galleryId\":\"1793825783032\",\"cover\":{\"$page\":1,\"size\":70,\"type\":\"image/png\"},\"coverRevisions\":{\"gallery\":\"a36a2a47-6f36-4225-9feb-8a60cbd8d7dc\"}}"
+   },
+   {
+    "gid": "1790000000002",
+    "record": "{\"galleryId\":\"1790000000002\",\"cover\":{\"$page\":1,\"size\":45,\"type\":\"image/webp\"},\"coverRevisions\":{\"gallery\":\"286a71be-f3d4-41da-ae54-c5609a4d1c05\"}}"
+   },
+   {
+    "gid": "1790000000003",
+    "record": "{\"galleryId\":\"1790000000003\",\"cover\":{\"$page\":1,\"size\":45,\"type\":\"image/webp\"},\"coverRevisions\":{\"gallery\":\"f7fa4975-fa57-4f48-bdee-dd42967a00b5\"}}"
+   }
+  ],
+  "icons": [],
+  "changes": [
+   {
+    "rev": 1,
+    "gid": "1790000000001",
+    "at": 1793825782931
+   },
+   {
+    "rev": 2,
+    "gid": "1790000000001",
+    "at": 1793825782937
+   },
+   {
+    "rev": 3,
+    "gid": "1790000000001",
+    "at": 1793825782942
+   },
+   {
+    "rev": 4,
+    "gid": "1790000000001",
+    "at": 1793825782946
+   },
+   {
+    "rev": 5,
+    "gid": "1790000000001",
+    "at": 1793825782983
+   },
+   {
+    "rev": 6,
+    "gid": "1790000000001",
+    "at": 1793825783019
+   },
+   {
+    "rev": 7,
+    "gid": "1793825783032",
+    "at": 1793825783041
+   },
+   {
+    "rev": 8,
+    "gid": "1793825783032",
+    "at": 1793825783041
+   },
+   {
+    "rev": 9,
+    "gid": "1790000000002",
+    "at": 1793825783049
+   },
+   {
+    "rev": 10,
+    "gid": "1790000000002",
+    "at": 1793825783053
+   },
+   {
+    "rev": 11,
+    "gid": "1790000000002",
+    "at": 1793825783060
+   },
+   {
+    "rev": 12,
+    "gid": "1790000000002",
+    "at": 1793825783065
+   },
+   {
+    "rev": 13,
+    "gid": "1790000000003",
+    "at": 1793825783097
+   },
+   {
+    "rev": 14,
+    "gid": "1790000000003",
+    "at": 1793825783102
+   },
+   {
+    "rev": 15,
+    "gid": "1790000000003",
+    "at": 1793825783105
+   },
+   {
+    "rev": 16,
+    "gid": "1790000000003",
+    "at": 1793825783108
+   },
+   {
+    "rev": 17,
+    "gid": "*",
+    "at": 1793825783139
+   },
+   {
+    "rev": 18,
+    "gid": "1790000000001",
+    "at": 1793825783186
+   },
+   {
+    "rev": 19,
+    "gid": "1793825783032",
+    "at": 1793825783294
+   },
+   {
+    "rev": 20,
+    "gid": "1790000000002",
+    "at": 1793825783310
+   }
+  ],
+  "kv": [
+   {
+    "key": "defaultRoot",
+    "value": "null"
+   }
+  ],
+  "stamps": [
+   {
+    "gid": "1790000000001",
+    "stamp": "1d33j1t1trf"
+   },
+   {
+    "gid": "1793825783032",
+    "stamp": "tisrwa3nlf"
+   },
+   {
+    "gid": "1790000000002",
+    "stamp": "xio24cv9gt"
+   },
+   {
+    "gid": "1790000000003",
+    "stamp": "gjye8orapl"
+   }
+  ],
+  "files": [
+   {
+    "gid": "1790000000001",
+    "path": "Fixture A.zip",
+    "format": "zip",
+    "state": "packed",
+    "packed_at": 1793825783002,
+    "pending": 0,
+    "unpack": 0,
+    "used_at": 1793825782942,
+    "tail": null,
+    "source": null
+   },
+   {
+    "gid": "1793825783032",
+    "path": "@d7a2e3b6237f6597/.shiori/linked/1793825783032",
+    "format": "folder",
+    "state": "packed",
+    "packed_at": 1793825783066,
+    "pending": 0,
+    "unpack": 0,
+    "used_at": 1793825783040,
+    "tail": null,
+    "source": "{\"kind\":\"dir\",\"path\":\"Loose Pictures\",\"fingerprint\":\"9c822b1132ca136323c8fb9ad8575a45409ea4fca4d3ed5fe989f646dfcbc674\"}"
+   },
+   {
+    "gid": "1790000000002",
+    "path": "@d7a2e3b6237f6597/Fixture B",
+    "format": "folder",
+    "state": "packed",
+    "packed_at": 1793825783089,
+    "pending": 0,
+    "unpack": 0,
+    "used_at": 1793825783055,
+    "tail": null,
+    "source": null
+   },
+   {
+    "gid": "1790000000003",
+    "path": "@cbc273c1eb1e9cf1/Fixture C",
+    "format": "folder",
+    "state": "packed",
+    "packed_at": 1793825783135,
+    "pending": 0,
+    "unpack": 0,
+    "used_at": 1793825783105,
+    "tail": null,
+    "source": null
+   }
+  ],
+  "leftovers": [],
+  "retired": [],
+  "staged_own": [],
+  "unplaced": [],
+  "roots": [
+   {
+    "id": "86f0f581a1cd2682",
+    "path": "$BASE\\library",
+    "state": "shown",
+    "first": 1,
+    "added_at": 1793825782923,
+    "epoch": 1793825782928,
+    "removal": null
+   },
+   {
+    "id": "d7a2e3b6237f6597",
+    "path": "$BASE\\second",
+    "state": "shown",
+    "first": 0,
+    "added_at": 1793825783025,
+    "epoch": 1793825783023,
+    "removal": null
+   },
+   {
+    "id": "cbc273c1eb1e9cf1",
+    "path": "$BASE\\third",
+    "state": "hidden",
+    "first": 0,
+    "added_at": 1793825783096,
+    "epoch": 1793825783095,
+    "removal": null
+   }
+  ],
+  "places": [
+   {
+    "gid": "1790000000001",
+    "root": "86f0f581a1cd2682"
+   },
+   {
+    "gid": "1790000000003",
+    "root": "cbc273c1eb1e9cf1"
+   },
+   {
+    "gid": "1790000000002",
+    "root": "d7a2e3b6237f6597"
+   },
+   {
+    "gid": "1793825783032",
+    "root": "d7a2e3b6237f6597"
+   }
+  ],
+  "removed_notes": []
+ },
+ "files": {
+  "library/Fixture A.zip": "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",
+  "library/.shiori/library.json": "ewogICJmb3JtYXQiOiAic2hpb3JpLWxpYnJhcnkiLAogICJ2ZXJzaW9uIjogMSwKICAiaWQiOiAiODZmMGY1ODFhMWNkMjY4MiIKfQ==",
+  "library/.shiori/owner.json": "ewogICJmb3JtYXQiOiAic2hpb3JpLW93bmVyIiwKICAidmVyc2lvbiI6IDEsCiAgIm93bmVyIjogIjgwNTNhYjM0ZGE2ODIxNTIiLAogICJieSI6IHsKICAgICJhcHAiOiAiZGVza3RvcCIsCiAgICAiaG9zdCI6ICJERVNLVE9QLUFQVU4xMEQiCiAgfSwKICAiYXQiOiAxNzkzODI1NzgyOTI4LAogICJlcG9jaCI6IDE3OTM4MjU3ODI5MjgKfQ==",
+  "second/.shiori/library.json": "ewogICJmb3JtYXQiOiAic2hpb3JpLWxpYnJhcnkiLAogICJ2ZXJzaW9uIjogMSwKICAiaWQiOiAiZDdhMmUzYjYyMzdmNjU5NyIKfQ==",
+  "second/.shiori/owner.json": "ewogICJmb3JtYXQiOiAic2hpb3JpLW93bmVyIiwKICAidmVyc2lvbiI6IDEsCiAgIm93bmVyIjogIjgwNTNhYjM0ZGE2ODIxNTIiLAogICJieSI6IHsKICAgICJhcHAiOiAiZGVza3RvcCIsCiAgICAiaG9zdCI6ICJERVNLVE9QLUFQVU4xMEQiCiAgfSwKICAiYXQiOiAxNzkzODI1NzgzMDIzLAogICJlcG9jaCI6IDE3OTM4MjU3ODMwMjMKfQ==",
+  "second/Fixture B/image_records.json": "Wwp7InVybCI6ImxvY2FsOi8vMTc5MDAwMDAwMDAwMi8xLndlYnAiLCJtZWRpYUlkIjoiMTc5MDAwMDAwMDAwMiIsImdhbGxlcnlJZCI6IjE3OTAwMDAwMDAwMDIiLCJjYWNoZWRBdCI6MTc5MzgyNTc4MzA1MCwiY2FjaGVkQXRJU08iOiIyMDI2LTExLTA0VDIwOjU2OjIzLjA1MFoiLCJzaXplIjo0NSwidHJhbnNsYXRlZCI6dHJ1ZSwiaGFzU3R1ZHkiOmZhbHNlLCJidWJibGVDb3VudCI6MH0sCnsidXJsIjoibG9jYWw6Ly8xNzkwMDAwMDAwMDAyLzIud2VicCIsIm1lZGlhSWQiOiIxNzkwMDAwMDAwMDAyIiwiZ2FsbGVyeUlkIjoiMTc5MDAwMDAwMDAwMiIsImNhY2hlZEF0IjoxNzkzODI1NzgzMDUzLCJjYWNoZWRBdElTTyI6IjIwMjYtMTEtMDRUMjA6NTY6MjMuMDUzWiIsInNpemUiOjQ1LCJ0cmFuc2xhdGVkIjpmYWxzZSwiaGFzU3R1ZHkiOmZhbHNlLCJidWJibGVDb3VudCI6MH0KXQ==",
+  "second/Fixture B/metadata.json": "ewogICJnYWxsZXJ5SWQiOiAiMTc5MDAwMDAwMDAwMiIsCiAgInRpdGxlIjogewogICAgImVuZ2xpc2giOiAiRml4dHVyZSBCIiwKICAgICJqYXBhbmVzZSI6ICIiLAogICAgInByZXR0eSI6ICJGaXh0dXJlIEIiCiAgfSwKICAidGFncyI6IFsKICAgIHsKICAgICAgInR5cGUiOiAiYXJ0aXN0IiwKICAgICAgIm5hbWUiOiAiZml4dHVyZSIKICAgIH0KICBdLAogICJ0YWdOYW1lcyI6IFsKICAgICJhcnRpc3Q6Zml4dHVyZSIKICBdCn0=",
+  "second/Loose Pictures/001.png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+  "second/Loose Pictures/002.png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+  "third/.shiori/library.json": "ewogICJmb3JtYXQiOiAic2hpb3JpLWxpYnJhcnkiLAogICJ2ZXJzaW9uIjogMSwKICAiaWQiOiAiY2JjMjczYzFlYjFlOWNmMSIKfQ==",
+  "third/.shiori/owner.json": "ewogICJmb3JtYXQiOiAic2hpb3JpLW93bmVyIiwKICAidmVyc2lvbiI6IDEsCiAgIm93bmVyIjogIjgwNTNhYjM0ZGE2ODIxNTIiLAogICJieSI6IHsKICAgICJhcHAiOiAiZGVza3RvcCIsCiAgICAiaG9zdCI6ICJERVNLVE9QLUFQVU4xMEQiCiAgfSwKICAiYXQiOiAxNzkzODI1NzgzMDk1LAogICJlcG9jaCI6IDE3OTM4MjU3ODMwOTUKfQ==",
+  "third/Fixture C/image_records.json": "Wwp7InVybCI6ImxvY2FsOi8vMTc5MDAwMDAwMDAwMy8xLndlYnAiLCJtZWRpYUlkIjoiMTc5MDAwMDAwMDAwMyIsImdhbGxlcnlJZCI6IjE3OTAwMDAwMDAwMDMiLCJjYWNoZWRBdCI6MTc5MzgyNTc4MzA5OCwiY2FjaGVkQXRJU08iOiIyMDI2LTExLTA0VDIwOjU2OjIzLjA5OFoiLCJzaXplIjo0NSwidHJhbnNsYXRlZCI6dHJ1ZSwiaGFzU3R1ZHkiOmZhbHNlLCJidWJibGVDb3VudCI6MH0sCnsidXJsIjoibG9jYWw6Ly8xNzkwMDAwMDAwMDAzLzIud2VicCIsIm1lZGlhSWQiOiIxNzkwMDAwMDAwMDAzIiwiZ2FsbGVyeUlkIjoiMTc5MDAwMDAwMDAwMyIsImNhY2hlZEF0IjoxNzkzODI1NzgzMTAyLCJjYWNoZWRBdElTTyI6IjIwMjYtMTEtMDRUMjA6NTY6MjMuMTAyWiIsInNpemUiOjQ1LCJ0cmFuc2xhdGVkIjpmYWxzZSwiaGFzU3R1ZHkiOmZhbHNlLCJidWJibGVDb3VudCI6MH0KXQ==",
+  "third/Fixture C/metadata.json": "ewogICJnYWxsZXJ5SWQiOiAiMTc5MDAwMDAwMDAwMyIsCiAgInRpdGxlIjogewogICAgImVuZ2xpc2giOiAiRml4dHVyZSBDIiwKICAgICJqYXBhbmVzZSI6ICIiLAogICAgInByZXR0eSI6ICJGaXh0dXJlIEMiCiAgfSwKICAidGFncyI6IFsKICAgIHsKICAgICAgInR5cGUiOiAiYXJ0aXN0IiwKICAgICAgIm5hbWUiOiAiZml4dHVyZSIKICAgIH0KICBdLAogICJ0YWdOYW1lcyI6IFsKICAgICJhcnRpc3Q6Zml4dHVyZSIKICBdCn0=",
+  "second/Fixture B/images/0001.webp": "UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoBAAEAAwA0JaQAA3AA/vuUAAAB",
+  "second/Fixture B/images/0002.webp": "UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoBAAEAAwA0JaQAA3AA/vuUAAAC",
+  "second/Fixture B/translated/0001.png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJgggE=",
+  "third/Fixture C/images/0001.webp": "UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoBAAEAAwA0JaQAA3AA/vuUAAAB",
+  "third/Fixture C/images/0002.webp": "UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoBAAEAAwA0JaQAA3AA/vuUAAAC",
+  "third/Fixture C/translated/0001.png": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJgggE=",
+  "second/.shiori/linked/1793825783032/image_records.json": "Wwp7InVybCI6ImxvY2FsOi8vMTc5MzgyNTc4MzAzMi8xLnBuZyIsIm1lZGlhSWQiOiIxNzkzODI1NzgzMDMyIiwiZ2FsbGVyeUlkIjoiMTc5MzgyNTc4MzAzMiIsImNhY2hlZEF0IjoxNzkzODI1NzgzMDQwLCJjYWNoZWRBdElTTyI6IjIwMjYtMTEtMDRUMjA6NTY6MjMuMDQwWiIsInNpemUiOjcwLCJ0cmFuc2xhdGVkIjpmYWxzZSwiaGFzU3R1ZHkiOmZhbHNlLCJidWJibGVDb3VudCI6MCwic291cmNlIjp7Im5hbWUiOiIwMDEucG5nIiwic2l6ZSI6NzB9fSwKeyJ1cmwiOiJsb2NhbDovLzE3OTM4MjU3ODMwMzIvMi5wbmciLCJtZWRpYUlkIjoiMTc5MzgyNTc4MzAzMiIsImdhbGxlcnlJZCI6IjE3OTM4MjU3ODMwMzIiLCJjYWNoZWRBdCI6MTc5MzgyNTc4MzA0MCwiY2FjaGVkQXRJU08iOiIyMDI2LTExLTA0VDIwOjU2OjIzLjA0MFoiLCJzaXplIjo3MCwidHJhbnNsYXRlZCI6ZmFsc2UsImhhc1N0dWR5IjpmYWxzZSwiYnViYmxlQ291bnQiOjAsInNvdXJjZSI6eyJuYW1lIjoiMDAyLnBuZyIsInNpemUiOjcwfX0KXQ==",
+  "second/.shiori/linked/1793825783032/metadata.json": "ewogICJnYWxsZXJ5SWQiOiAiMTc5MzgyNTc4MzAzMiIsCiAgInRpdGxlIjogewogICAgImVuZ2xpc2giOiAiTG9vc2UgUGljdHVyZXMiLAogICAgImphcGFuZXNlIjogIiIsCiAgICAicHJldHR5IjogIkxvb3NlIFBpY3R1cmVzIgogIH0sCiAgInRhZ3MiOiBbXSwKICAibnVtUGFnZXMiOiAyLAogICJpc0xvY2FsSW1wb3J0IjogdHJ1ZSwKICAic291cmNlIjogIiIKfQ==",
+  "second/.shiori/linked/1793825783032/source.json": "ewogICJmb3JtYXQiOiAic2hpb3JpLWxpbmtlZCIsCiAgInZlcnNpb24iOiAxLAogICJnYWxsZXJ5SWQiOiAiMTc5MzgyNTc4MzAzMiIsCiAgInNvdXJjZSI6IHsKICAgICJraW5kIjogImRpciIsCiAgICAicGF0aCI6ICJMb29zZSBQaWN0dXJlcyIsCiAgICAic2l6ZSI6IDE0MCwKICAgICJmaW5nZXJwcmludCI6ICI5YzgyMmIxMTMyY2ExMzYzMjNjOGZiOWFkODU3NWE0NTQwOWVhNGZjYTRkM2VkNWZlOTg5ZjY0NmRmY2JjNjc0IgogIH0KfQ=="
+ }
+}

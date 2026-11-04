@@ -14,7 +14,7 @@ const platform = await import('../js/platform.js');
 const { runImportBatch } = await import('../js/import-batch.js');
 const { groupImports, droppedImports } = await import('../js/import-files.js');
 const { zipCreate } = await import('../js/zip.js');
-const { exportFiles } = await import('../js/gallery-files.js');
+const { exportFiles } = await import('../js/gallery-export.js');
 
 const picture = (n) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, n]);
 const zip = (name, pages) => new File([zipCreate(pages.map((n, i) => ({ name: `${i + 1}.png`, data: picture(n) })))], name);

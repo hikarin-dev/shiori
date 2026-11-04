@@ -30,7 +30,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { DatabaseSync } from 'node:sqlite';
-import { plans, model, titles, pageSize, files as galleryFilesModule, lifecycle, BackendError } from './shared.js';
+import { plans, model, titles, pageSize, files as galleryFilesModule, galleryExport, lifecycle, BackendError } from './shared.js';
 import { FileLibrary, writeFlushed, libraryId } from './files.js';
 import { Folders } from './folders.js';
 import { WriteMeter } from './writes.js';
@@ -40,7 +40,8 @@ const { planAttach, planRemove, planReorder, planChapterTitle, planWrite, planDe
 const { isSeriesMeta, effectiveTagsOf, LANG_NAME_TO_CODE, uploadDateSeconds } = model;
 const { normalizeTitle, migrateTitle } = titles;
 const { medianPage, describePage, headerSize } = pageSize;
-const { galleryFiles, exportSize, layoutPath, extOfType, originalExt } = galleryFilesModule;
+const { galleryFiles, layoutPath, extOfType, originalExt } = galleryFilesModule;
+const { exportSize } = galleryExport;
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -892,9 +893,9 @@ export class Library {
     }));
   }
 
-  // A gallery's size is its export archive's (gallery-files.js), recomputed from what is stored —
-  // and, when its pages changed since they were last measured, its typical page and page-size tally
-  // (from the sizes measured as each page was stored), in the same save.
+  // A gallery's size is its export archive's (gallery-export.js exportSize), recomputed from what is
+  // stored — and, when its pages changed since they were last measured, its typical page and
+  // page-size tally (from the sizes measured as each page was stored), in the same save.
   async refreshGallerySize(galleryId) {
     const gid = String(galleryId);
     let changed = null;
@@ -2021,7 +2022,7 @@ export class Library {
         pagesBy.get(row.gid).push(rec);
         const refs = [`orig:${row.gid}/${row.n}`, ...fileRefs(rec), ...[...ownRefs(rec)].map(name => `own:${row.gid}/${name}`)];
         out.pages.push({ url: row.key, gid: row.gid, pageNum: row.n, refs });
-        if (away.has(row.gid)) trusted.push(...refs.filter(ref => !fileRefs(rec).includes(ref)));
+        if (away.has(row.gid)) trusted.push(...refs.filter(ref => !fileRefs(rec).has(ref)));
         else origIds.push([row.gid, row.n, parse(row.orig)]);
       }
     });

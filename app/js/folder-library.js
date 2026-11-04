@@ -23,12 +23,12 @@
 import * as platform from './platform.js';
 import * as folderFiles from './folder-files.js';
 import { BackendError } from './backend-error.js';
-import { nextClaim, releasedClaim, unchangedSince } from './folder-owner.js';
-import { mounted, canHide, nextDefault, removalOutcome } from './folder-lifecycle.js';
-import { OWN_FILES, galleryIdOf, classifyFolder, classifyArchive } from './folder-content.js';
+import { nextClaim, releasedClaim, unchangedSince } from './storage/folder-owner.js';
+import { mounted, canHide, nextDefault, removalOutcome } from './storage/folder-lifecycle.js';
+import { OWN_FILES, galleryIdOf, classifyFolder, classifyArchive } from './storage/folder-content.js';
 import { LINKED_DIR, SOURCE_FILE, REMOVED_FILE, IMAGE_NAME, ARCHIVE_NAME, overlayDir, sourceText, parseSource, parseRemoved, isRemoved,
-  folderPrint, metaFromName, planTitles, zipTitles, sortPictures, linkedPages, keepsDerived, pdfReady, pdfWaits, matchSources } from './linked-source.js';
-import { DESCRIPTION_FILES, descriptionStamp, layoutPath, extOfType, folderPictures, describedFiles, derivedRecord } from './gallery-files.js';
+  folderPrint, metaFromName, planTitles, zipTitles, sortPictures, linkedPages, keepsDerived, pdfReady, pdfWaits, matchSources } from './storage/linked-source.js';
+import { DESCRIPTION_FILES, descriptionStamp, layoutPath, extOfType, folderPictures, describedFiles, derivedRecord } from './storage/gallery-files.js';
 import { sha256Hex } from './zip-read.js';
 import { uploadDateSeconds } from './gallery-model.js';
 

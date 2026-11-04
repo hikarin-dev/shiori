@@ -6,12 +6,18 @@
 // migrates them (the source metadata is the authority for the raw strings) and picks the
 // variant to display for the app's current language.
 
+/** @typedef {{ english: string, japanese: string, pretty: string }} Title */
+/** A metadata record, from any version or an import: its fields are read loosely.
+ * @typedef {Record<string, any>} Meta */
+
 // App language code → the title key to prefer. Sources only ever supply english/japanese, so
 // any other UI language falls back to english.
+/** @type {Record<string, 'english' | 'japanese'>} */
 const _LANG_TITLE_KEY = { en: 'english', ja: 'japanese' };
 
 // Build the canonical { english, japanese, pretty } object from any metadata record, whether it
 // already carries the new `title` object or the legacy flat fields.
+/** @param {Meta | null | undefined} meta @returns {Title} */
 export function normalizeTitle(meta) {
   const m = meta || {};
   const t = m.title;
@@ -29,6 +35,7 @@ export function normalizeTitle(meta) {
 // A copy of the record in canonical form: `title` object set, legacy flat fields removed, and
 // `galleryId` + `title` re-emitted as the leading keys so the record (and its JSON export) reads
 // top-down. Idempotent — a record that is already canonical is returned essentially unchanged.
+/** @param {Meta | null | undefined} meta @returns {Meta | null | undefined} */
 export function migrateTitle(meta) {
   if (!meta || typeof meta !== 'object') return meta;
   const title = normalizeTitle(meta);
@@ -38,16 +45,18 @@ export function migrateTitle(meta) {
 
 // The display title for a language code: the language-specific variant if present, else english,
 // else the simplified `pretty` title. `pretty` is never auto-selected by language.
+/** @param {Meta | null | undefined} meta @param {string | null | undefined} langCode @returns {string} */
 export function pickTitle(meta, langCode) {
   const tt = normalizeTitle(meta);
   const base = String(langCode || '').split('-')[0];
-  const key = _LANG_TITLE_KEY[base] || _LANG_TITLE_KEY[langCode] || 'english';
+  const key = _LANG_TITLE_KEY[base] || _LANG_TITLE_KEY[langCode ?? ''] || 'english';
   return tt[key] || tt.english || tt.pretty || '';
 }
 
 // A series title is stored as the same { english, japanese, pretty } object as a gallery title so
 // it carries every source language. Coerce whatever is stored (object, legacy string, or empty)
 // into that object shape; returns null when there's nothing set.
+/** @param {Partial<Title> | string | null | undefined} st @returns {Title | null} */
 export function seriesTitleObject(st) {
   if (st && typeof st === 'object') return { english: st.english || '', japanese: st.japanese || '', pretty: st.pretty || '' };
   if (typeof st === 'string' && st) return { english: st, japanese: '', pretty: st };
@@ -56,6 +65,10 @@ export function seriesTitleObject(st) {
 
 // The display title for a series: its own multi-language seriesTitle picked for the app language
 // (fallback English → pretty), or the owner gallery's title when no series title is set.
+/**
+ * @param {Partial<Title> | string | null | undefined} seriesTitle @param {Meta | null | undefined} fallbackMeta
+ * @param {string | null | undefined} langCode @returns {string}
+ */
 export function pickSeriesTitle(seriesTitle, fallbackMeta, langCode) {
   const st = seriesTitleObject(seriesTitle);
   if (st) { const v = pickTitle({ title: st }, langCode); if (v) return v; }
@@ -64,6 +77,7 @@ export function pickSeriesTitle(seriesTitle, fallbackMeta, langCode) {
 
 // Which title key the given app language edits: Japanese UI edits `japanese`, everything else
 // edits `english` (the default fallback). Mirrors pickTitle's language→key mapping.
+/** @param {string | null | undefined} langCode @returns {'japanese' | 'english'} */
 export function editKeyForLang(langCode) {
   return String(langCode || '').split('-')[0] === 'ja' ? 'japanese' : 'english';
 }

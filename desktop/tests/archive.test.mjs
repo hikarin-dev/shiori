@@ -19,7 +19,7 @@ globalThis.BroadcastChannel = class { postMessage() {} close() {} };
 const { Library } = await import('../server/library.js');
 const { readDirectory, readEntry } = await import('../server/zip.js');
 const { checkInvariants } = await import('../../app/js/library-check.js');
-const { exportFiles } = await import('../../app/js/gallery-files.js');
+const { exportFiles } = await import('../../app/js/gallery-export.js');
 
 const pngBytes = (...b) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, ...b]);
 const png = (...b) => new Blob([pngBytes(...b)], { type: 'image/png' });

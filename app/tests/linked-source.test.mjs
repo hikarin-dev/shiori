@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { planTitles, zipTitles, metaFromName, sourceText, parseSource, sourceKey, isRemoved, safeRelPath, withRemoved, linkedPages,
-  keepsDerived, pdfReady, drawFailed, pdfWaits, matchSources, parseRemoved, removedText } from '../js/linked-source.js';
+  keepsDerived, pdfReady, drawFailed, pdfWaits, matchSources, parseRemoved, removedText } from '../js/storage/linked-source.js';
 
 test('every folder holding pictures, every archive and every PDF is a title; Shiori\'s own folders and other files are left out', () => {
   const titles = planTitles([

@@ -9,7 +9,7 @@ import 'fake-indexeddb/auto';
 globalThis.BroadcastChannel = class { postMessage() {} close() {} };
 
 const db = await import('../js/db.js');
-const { exportFiles } = await import('../js/gallery-files.js');
+const { exportFiles } = await import('../js/gallery-export.js');
 const { zipCreate } = await import('../js/zip.js');
 
 const png = (n, fill = 1) => new Blob([new Uint8Array(n).fill(fill)], { type: 'image/png' });

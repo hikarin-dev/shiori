@@ -1,6 +1,7 @@
 // architecture-fitness.test.mjs — boundaries that are easy to breach silently and expensive to
-// re-establish: schema knowledge confined to the data layer, no source-site or helper naming in
-// the public app, and no third-party acquisition URLs in app code.
+// re-establish: schema knowledge confined to the data layer, the storage module standing on its
+// own, no source-site or helper naming in the public app, and no third-party acquisition URLs in
+// app code.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -9,11 +10,14 @@ import { fileURLToPath } from 'node:url';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const appJs = join(repo, 'app', 'js');
-const modules = readdirSync(appJs).filter((f) => f.endsWith('.js'));
+// Every module of the app, as its path in app/js ('db.js', 'storage/folder-owner.js').
+const modules = readdirSync(appJs, { recursive: true }).map((f) => f.replace(/\\/g, '/')).filter((f) => f.endsWith('.js'));
 const read = (f) => readFileSync(join(appJs, f), 'utf8');
 
 // Strip comments so prose about a rule never trips the rule itself.
 const code = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+// The modules a module's code imports (static, re-exported or dynamic), as written.
+const importsOf = (src) => [...code(src).matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)['"]([^'"]+)['"]/g)].map((m) => m[1]);
 
 test('only the data layer opens IndexedDB transactions', () => {
   // db.js owns the library schema; platform.js owns the separate durable job database.
@@ -40,6 +44,21 @@ test('object stores are only reached through the data layer', () => {
   const allowed = new Set(['db.js', 'folder-library.js', 'platform.js']);
   const offenders = modules.filter((f) => !allowed.has(f) && /objectStore\s*\(/.test(code(read(f))));
   assert.deepEqual(offenders, [], 'object-store access belongs to the data layer');
+});
+
+test('the storage module imports nothing app-specific', () => {
+  // app/js/storage/ is the library folders' format, rules and folder store contract, shared by both
+  // apps and extractable as a package: it imports its own modules, and of the app's only these
+  // dependency-free rules (the gallery id gate, the title choice) — no UI, strings, translation,
+  // platform or extension code, no packages and no node: modules (the adapters do the I/O).
+  const shared = new Set(['../sanitize.js', '../titles.js']);
+  const storage = modules.filter((f) => f.startsWith('storage/'));
+  assert.ok(storage.length >= 6, `found ${storage.join(', ')}`);
+  const offenders = storage.flatMap((f) => importsOf(read(f))
+    .filter((spec) => !(spec.startsWith('./') && !spec.includes('/../')) && !shared.has(spec))
+    .map((spec) => `${f} imports ${spec}`));
+  assert.deepEqual(offenders, [], 'storage/ imports only storage/ and the listed dependency-free rules');
+  for (const spec of shared) assert.deepEqual(importsOf(read(spec.slice(3))), [], `${spec.slice(3)} must stay dependency-free`);
 });
 
 test('the app never names a source site or the companion helper', () => {

@@ -7,12 +7,13 @@ import { normalizeTitle, migrateTitle } from './titles.js';
 import { imageToBlob, imageToDataUrl } from './image-util.js';
 import { isSeriesMeta, effectiveTagsOf, LANG_NAME_TO_CODE, DERIVED_FIELDS, uploadDateSeconds } from './gallery-model.js';
 import { translatedImage } from './page-image.js';
-import { galleryFiles, exportSize, layoutPath, layoutOf, extOfType, originalExt, galleryName, DESCRIPTION_FILES, descriptionStamp } from './gallery-files.js';
+import { galleryFiles, layoutPath, layoutOf, extOfType, originalExt, galleryName, DESCRIPTION_FILES, descriptionStamp } from './storage/gallery-files.js';
+import { exportSize } from './gallery-export.js';
 import * as folderFiles from './folder-files.js';
-import { OWNER_FILE, readClaim, access, nextClaim, claimText } from './folder-owner.js';
-import { mounted, writeAllowed } from './folder-lifecycle.js';
-import { galleryIdOf, seriesOf } from './folder-content.js';
-import { REMOVED_FILE, overlayDir, parseRemoved, removedText, withRemoved } from './linked-source.js';
+import { OWNER_FILE, readClaim, access, nextClaim, claimText } from './storage/folder-owner.js';
+import { mounted, writeAllowed } from './storage/folder-lifecycle.js';
+import { galleryIdOf, seriesOf } from './storage/folder-content.js';
+import { REMOVED_FILE, overlayDir, parseRemoved, removedText, withRemoved } from './storage/linked-source.js';
 import { createFolderLibrary } from './folder-library.js';
 import { zipEntries } from './zip-read.js';
 import { imageSize, medianPage, describePage } from './page-size.js';
@@ -90,7 +91,7 @@ function scheduleGallerySize(galleryId) {
   }, 1000));
 }
 
-// A gallery's size is its export archive's (gallery-files.js): the original pages plus
+// A gallery's size is its export archive's (gallery-export.js exportSize): the original pages plus
 // translations, study data, snapshots, covers and metadata — `size` the whole, `origSize` the
 // original pages. Always recomputed from what is stored, never adjusted by deltas, so it cannot
 // drift. Returns whether it changed. Every change to a gallery comes here (publishFeed,
@@ -3521,7 +3522,7 @@ async function _pageWrite(at, fields, apply, ready = () => true) {
 // needs no DB version bump.
 
 // Study bubble fields beyond box/region/src/tr/text that round-trip through backups and exports.
-export { BUBBLE_EXTRA_FIELDS } from './gallery-files.js';
+export { BUBBLE_EXTRA_FIELDS } from './storage/gallery-files.js';
 // Per-page fields an earlier storage format wrote; dropped whenever a page is translated again.
 const RETIRED_FIELDS = ['translatedLang', 'translatedConfig', 'translatedOutputHash', 'translatedJob', 'snapshot',
   'pendingSnapshot', 'studySnapshot', 'priorSnapshot', 'sourceSha256'];

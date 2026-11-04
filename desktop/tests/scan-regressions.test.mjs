@@ -485,7 +485,7 @@ test('a check reports what it couldn\'t read, and its task says how many', async
 
 test('F04: a gallery folder the website wrote reads whole on the desktop: every picture from the file its descriptions name, both custom covers', async (t) => {
   const { library, other } = await open(t);
-  const { galleryFiles, DESCRIPTION_FILES } = await import('../../app/js/gallery-files.js');
+  const { galleryFiles, DESCRIPTION_FILES } = await import('../../app/js/storage/gallery-files.js');
   const gid = '1700000000042', dir = 'Written by the website';
   // Its pictures as the website keeps them: each replaced while its layout name was in use, so under
   // that name with a random part — and the old file beside it, its delete refused (F05).
@@ -579,7 +579,7 @@ test('F10: a drawn PDF whose file changed is drawn again: its old pages read unt
 
 test('F06: a description or picture that can\'t be read fails its gallery\'s read, reported: never joined in part, nor its saved study layers dropped', async (t) => {
   const { library, other } = await open(t);
-  const { galleryFiles, DESCRIPTION_FILES } = await import('../../app/js/gallery-files.js');
+  const { galleryFiles, DESCRIPTION_FILES } = await import('../../app/js/storage/gallery-files.js');
   const gid = '1700000000066', dir = 'Studied';
   const ref = (p) => ({ $path: p, folder: 'web', dir, size: 5, type: 'image/png' });
   const records = [{ pageNum: 1, url: `local://${gid}/1.png`, mediaId: gid, galleryId: gid, cachedAt: 1, size: 5, blob: ref('images/0001.png'),

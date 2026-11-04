@@ -22,7 +22,7 @@ const { Library } = await import('../server/library.js');
 const { libraryId } = await import('../server/files.js');
 const { readDirectory, readEntry, writeZip } = await import('../server/zip.js');
 const { checkInvariants } = await import('../../app/js/library-check.js');
-const { exportFiles } = await import('../../app/js/gallery-files.js');
+const { exportFiles } = await import('../../app/js/gallery-export.js');
 
 const pngBytes = (...bytes) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, ...bytes]);
 const png = (...bytes) => new Blob([pngBytes(...bytes)], { type: 'image/png' });

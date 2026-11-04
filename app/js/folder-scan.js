@@ -18,7 +18,7 @@
 // decides. (The library's own work on a folder holds the folder's lock as well: folder-library.js.)
 import * as platform from './platform.js';
 import { folders } from './api.js';
-import { jobPlan } from './folder-lifecycle.js';
+import { jobPlan } from './storage/folder-lifecycle.js';
 
 export const folderJobId = (id) => `folder-${id}`;
 const HEARTBEAT_MS = 5000;       // a running job says so this often, so a page keeps the worker awake

@@ -1077,7 +1077,7 @@ test('F04: a gallery\'s descriptions name the file each picture is in where a re
     const { gid } = await setup(page, 'Lib', 'Twice');
     const out = await page.evaluate(async (g) => {
       const api = window.__api, t = window.__t;
-      const { folderPictures, derivedRecord } = await import('/app/js/gallery-files.js');
+      const { folderPictures, derivedRecord } = await import('/app/js/storage/gallery-files.js');
       const bubbles = [{ box: { x: 1, y: 1, w: 9, h: 9 }, region: { x: 1, y: 1, w: 9, h: 9 }, tr: 'Hi', src: 'やあ' }];
       // Every picture made from the page, and both covers, written twice: the second of each under
       // another name, its layout name in use by the first while it is replaced (a translation drops
@@ -1157,7 +1157,7 @@ test('F06: a description or picture that can\'t be read fails its gallery\'s rea
     const page = await tab(ctx);
     const out = await page.evaluate(async () => {
       const api = window.__api, t = window.__t;
-      const { galleryFiles, DESCRIPTION_FILES } = await import('/app/js/gallery-files.js');
+      const { galleryFiles, DESCRIPTION_FILES } = await import('/app/js/storage/gallery-files.js');
       const gid = '1700000000066', dir = 'Studied';
       const ref = (p) => ({ $path: p, folder: 'web', dir, size: 5, type: 'image/png' });
       const records = [{ pageNum: 1, url: `local://${gid}/1.png`, mediaId: gid, galleryId: gid, cachedAt: 1, size: 5, blob: ref('images/0001.png'),

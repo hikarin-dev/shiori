@@ -12,18 +12,20 @@
 // folder (safeRelPath). Pure: the browser library (db.js) and the desktop app's (server/library.js,
 // scan.js, linked.js) read and write the files.
 
-import { isValidGalleryId } from './sanitize.js';
+import { isValidGalleryId } from '../sanitize.js';
 import { pageNumberOf, pickFile } from './gallery-files.js';
 
 export const LINKED_DIR = '.shiori/linked';
 export const SOURCE_FILE = 'source.json';
 export const REMOVED_FILE = `${LINKED_DIR}/removed.json`;
+/** @param {string | number} gid @returns {string} */
 export const overlayDir = (gid) => `${LINKED_DIR}/${gid}`;
 
 export const IMAGE_NAME = /\.(jpe?g|png|webp|gif|avif)$/i;
 export const ARCHIVE_NAME = /\.(zip|cbz)$/i;
 export const PDF_NAME = /\.pdf$/i;
 const natural = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+/** @param {string} a @param {string} b @returns {number} */
 export const naturalCompare = (a, b) => natural.compare(a, b);
 
 // Whether `p` is a path that stays inside the folder it is read against: relative, '/'-separated,
@@ -31,9 +33,11 @@ export const naturalCompare = (a, b) => natural.compare(a, b);
 // Windows may read as '..'), without '\', ':' (a drive, or another file's stream on Windows) or NUL,
 // and not a Windows device name (CON, NUL, COM1…). So no absolute, drive (C:/) or UNC (//host) path.
 const DEVICE = /^(con|prn|aux|nul|com\d|lpt\d)$/i;
+/** @param {unknown} p @returns {p is string} */
 export const safeRelPath = (p) => typeof p === 'string' && p !== '' && p.split('/').every(s =>
   s !== '' && !/^[. ]+$/.test(s) && !/[\\:\u0000]/.test(s) && !DEVICE.test(s.split('.')[0].trimEnd()));
 // An archive's chapter folder as a source names it ("Name/" or "A/B/"): a safe path, ending in '/'.
+/** @param {unknown} inner @returns {boolean} */
 const _safeInner = (inner) => typeof inner === 'string' && inner.endsWith('/') && safeRelPath(inner.slice(0, -1));
 
 // A source as source.json keeps it: { kind: 'zip' | 'dir' | 'pdf', path (in the library folder,
@@ -43,16 +47,23 @@ const _safeInner = (inner) => typeof inner === 'string' && inner.endsWith('/') &
 // the file's they were drawn from, pdfWaits }; an earlier marker was the bare count, read as drawn from
 // a version not known), or, when drawing them failed, `failed` ({ fingerprint (the file's, as it was
 // then), at }: not tried again until the file changes, drawFailed).
+/** @typedef {'zip' | 'dir' | 'pdf'} SourceKind */
+/** @typedef {{ kind: SourceKind, path: string, inner?: string, size?: number | null, fingerprint?: string | null,
+ *   rendered?: { pages: number, fingerprint: string | null }, failed?: { fingerprint: string | null, at: number } }} Source */
 const KINDS = new Set(['zip', 'dir', 'pdf']);
+/** @param {string | number} galleryId @param {Source} source @returns {string} */
 export const sourceText = (galleryId, source) => JSON.stringify({ format: 'shiori-linked', version: 1, galleryId: String(galleryId),
   source: { kind: source.kind, path: source.path, ...(source.inner ? { inner: source.inner } : {}), size: source.size ?? null,
     fingerprint: source.fingerprint ?? null,
     ...(source.rendered ? { rendered: { pages: source.rendered.pages, fingerprint: source.rendered.fingerprint ?? null } } : {}),
     ...(source.failed ? { failed: { fingerprint: source.failed.fingerprint ?? null, at: source.failed.at } } : {}) } }, null, 2);
-const _count = (n) => Number.isSafeInteger(n) && n > 0;
+/** @param {unknown} n @returns {n is number} */
+const _count = (n) => Number.isSafeInteger(n) && /** @type {number} */ (n) > 0;
 // source.json's { galleryId, source }, or null when it isn't one — or names a path that doesn't stay
 // inside the library folder, or a gallery id that isn't one.
+/** @param {string} text @returns {{ galleryId: string, source: Source } | null} */
 export function parseSource(text) {
+  /** @type {any} JSON of any shape, checked field by field below */
   let v;
   try { v = JSON.parse(text); } catch { return null; }
   const s = v?.source;
@@ -69,19 +80,27 @@ export function parseSource(text) {
     ...(drawn ? { rendered: drawn } : {}), ...(failed ? { failed } : {}) } };
 }
 // A source's key: what it is and where (two titles of one archive differ by their folder in it).
+/** A source, or a title found, as far as where it is: what it is, its path, its folder in an archive.
+ * @typedef {{ kind: string, path: string, inner?: string | null, fingerprint?: string | null }} SourceAt */
+/** @param {SourceAt} s @returns {string} */
 export const sourceKey = (s) => `${s.kind}\u0000${s.path}\u0000${s.inner || ''}`;
 
 // The sources removed from the library: [{ kind, path, inner?, fingerprint, at }].
+/** @typedef {SourceAt & { at?: number }} Removed */
+/** @param {string} text @returns {Removed[]} */
 export function parseRemoved(text) {
-  try { const v = JSON.parse(text); return Array.isArray(v?.removed) ? v.removed.filter(r => safeRelPath(r?.path)) : []; } catch { return []; }
+  try { const v = JSON.parse(text); return Array.isArray(v?.removed) ? v.removed.filter(/** @param {{ path?: unknown } | null} r */ r => safeRelPath(r?.path)) : []; } catch { return []; }
 }
+/** @param {Removed[]} list @returns {string} */
 export const removedText = (list) => JSON.stringify({ format: 'shiori-linked-removed', version: 1, removed: list }, null, 2);
 // Whether `source` (as found: { path, inner?, fingerprint } — its fingerprint as it is now) is one of
 // `removed`: the same files where they were — one changed since (another fingerprint) counts as new.
+/** @param {Removed[]} removed @param {SourceAt} source @returns {boolean} */
 export const isRemoved = (removed, source) => removed.some(r => r.path === source.path && (r.inner || '') === (source.inner || '')
   && (!r.fingerprint || !source.fingerprint || r.fingerprint === source.fingerprint));
 // `removed` with `source` noted as removed (its fingerprint as it is now), in place of an earlier note
 // of the same files.
+/** @param {Removed[]} removed @param {SourceAt} source @param {number} [now] @returns {Removed[]} */
 export const withRemoved = (removed, source, now = Date.now()) => [
   ...removed.filter(r => !(r.path === source.path && (r.inner || '') === (source.inner || ''))),
   { kind: source.kind, path: source.path, ...(source.inner ? { inner: source.inner } : {}), fingerprint: source.fingerprint || null, at: now },
@@ -89,16 +108,25 @@ export const withRemoved = (removed, source, now = Date.now()) => [
 
 // What a folder of pictures' fingerprint is made from (hashed by the caller, SHA-256 in hex): its
 // pictures' names and sizes. An archive's is its central directory's bytes (import-cbz.js zipEntries).
+/** @param {Iterable<{ name: string, size?: number | null }>} pictures @returns {string} */
 export const folderPrint = (pictures) => [...pictures].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
   .map(p => `${p.name}\t${p.size}`).join('\n');
 
+/** @param {string} path @returns {boolean} */
 const _hidden = (path) => path.split('/').some(s => s.startsWith('.') || s === '__MACOSX');
+/** @param {string} name @returns {string} */
 const _stem = (name) => name.replace(/\.[^./]+$/, '');
 
 // Pictures in the order the import takes them (import-cbz.js sortImageEntries): natural order by
 // path, folder by folder, the extension not counting. `key` gives each one's path.
-export function sortPictures(list, key = (p) => p.path) {
-  const parts = (p) => _stem(key(p)).split('/');
+/**
+ * @template {object} T
+ * @param {T[]} list
+ * @param {(p: T) => string} [key] by default its `path`
+ * @returns {T[]}
+ */
+export function sortPictures(list, key = (p) => /** @type {{ path: string }} */ (p).path) {
+  const parts = /** @param {T} p */ (p) => _stem(key(p)).split('/');
   return [...list].sort((a, b) => {
     const pa = parts(a), pb = parts(b);
     for (let i = 0; i < Math.min(pa.length, pb.length); i++) {
@@ -119,12 +147,23 @@ export function sortPictures(list, key = (p) => p.path) {
 // paths of Shiori's own galleries there (folder-content.js: its folders, all they hold left out, and
 // its archives). Resolves [{ kind: 'zip' | 'pdf', path, size } | { kind: 'dir', path ('' for the top),
 // name, pictures: [{ path, size }] }].
+/** @typedef {{ path: string, size: number | null }} Picture */
+/** @typedef {{ kind: 'zip' | 'pdf', path: string, size: number | null }
+ *   | { kind: 'dir', path: string, name: string, pictures: Picture[] }} PlannedTitle */
+/**
+ * @param {{ path: string, size?: number | null }[]} files @param {string} rootName @param {Iterable<string>} own
+ * @returns {PlannedTitle[]}
+ */
 export function planTitles(files, rootName, own) {
   const list = files.filter(f => safeRelPath(f?.path) && !_hidden(f.path));
+  /** @param {string} p */
   const dirOf = (p) => p.slice(0, p.lastIndexOf('/') + 1);
   const mine = [...own];
+  /** @param {string} p */
   const isOwn = (p) => mine.some(o => p === o || p.startsWith(`${o}/`));
+  /** @type {PlannedTitle[]} */
   const titles = [];
+  /** @type {Map<string, Picture[]>} */
   const folders = new Map();   // a folder ('' for the top) → its own pictures
   for (const f of list) {
     if (isOwn(f.path)) continue;
@@ -133,10 +172,10 @@ export function planTitles(files, rootName, own) {
     else if (IMAGE_NAME.test(f.path)) {
       const dir = dirOf(f.path).replace(/\/$/, '');
       if (!folders.has(dir)) folders.set(dir, []);
-      folders.get(dir).push({ path: f.path, size: f.size ?? null });
+      /** @type {Picture[]} */ (folders.get(dir)).push({ path: f.path, size: f.size ?? null });
     }
   }
-  for (const [dir, pictures] of folders) titles.push({ kind: 'dir', path: dir, name: dir ? dir.split('/').pop() : rootName, pictures: sortPictures(pictures) });
+  for (const [dir, pictures] of folders) titles.push({ kind: 'dir', path: dir, name: dir ? dir.slice(dir.lastIndexOf('/') + 1) : rootName, pictures: sortPictures(pictures) });
   return titles.sort((a, b) => naturalCompare(a.path, b.path));
 }
 // An archive's galleries (`names`: its entries' names, decoded by folder-content.js zipName), as the
@@ -145,13 +184,15 @@ export function planTitles(files, rootName, own) {
 // folders don't count), the pictures beside the folders opening the first. A picture whose name isn't
 // a safe path is left out, so every chapter's folder can be kept in its source. Resolves [{ inner (''
 // or "Folder/": the chapter's folder in the archive), pictures: [names], chapter (in a series) }].
+/** @param {string[]} names @returns {{ inner: string, pictures: string[], chapter: boolean }[]} */
 export function zipTitles(names) {
   const pictures = sortPictures(names.filter(n => IMAGE_NAME.test(n) && safeRelPath(n) && !_hidden(n)).map(path => ({ path }))).map(p => p.path);
+  /** @type {Map<string, string[]>} */
   const byFolder = new Map();
   for (const n of pictures) {
     const dir = n.slice(0, n.lastIndexOf('/') + 1);
     if (!byFolder.has(dir)) byFolder.set(dir, []);
-    byFolder.get(dir).push(n);
+    /** @type {string[]} */ (byFolder.get(dir)).push(n);
   }
   const folders = [...byFolder].filter(([dir]) => dir);
   if (folders.length < 2) return pictures.length ? [{ inner: '', pictures, chapter: false }] : [];
@@ -166,17 +207,25 @@ export function zipTitles(names) {
 // (a write's, not tidied yet), the one gallery-files.js pickFile takes — `described`: the files the
 // overlay's descriptions name (describedFiles). Resolves [{ n, from: 'source' | 'overlay', name, size }]
 // in page order.
+/** @typedef {{ n: number, from: 'source' | 'overlay', name: string, size: number | null }} LinkedPage */
+/**
+ * @param {{ name: string, size?: number | null }[]} source @param {{ name: string, size?: number | null }[]} [overlay]
+ * @param {Set<string> | null} [described]
+ * @returns {LinkedPage[]}
+ */
 export function linkedPages(source, overlay = [], described = null) {
+  /** @type {Map<number, LinkedPage>} */
   const pages = new Map(source.map((p, i) => [i + 1, { n: i + 1, from: 'source', name: p.name, size: p.size ?? null }]));
+  /** @type {Map<number, Map<string, { name: string, size?: number | null }>>} */
   const byNumber = new Map();   // page number → its overlay files, by their path in the overlay
   for (const f of overlay) {
     const n = IMAGE_NAME.test(f.name) ? pageNumberOf(f.name) : null;
     if (n == null) continue;
     if (!byNumber.has(n)) byNumber.set(n, new Map());
-    byNumber.get(n).set(`images/${f.name}`, f);
+    /** @type {Map<string, { name: string, size?: number | null }>} */ (byNumber.get(n)).set(`images/${f.name}`, f);
   }
   for (const [n, files] of byNumber) {
-    const f = files.get(pickFile([...files.keys()], described));
+    const f = files.get(pickFile([...files.keys()], described) ?? '');
     if (f) pages.set(n, { n, from: 'overlay', name: f.name, size: f.size ?? null });
   }
   return [...pages.values()].sort((a, b) => a.n - b.n);
@@ -188,6 +237,7 @@ export function linkedPages(source, overlay = [], described = null) {
 // from (`recorded`: the page's image_records.json `source`, { name, size } — gallery-files.js
 // galleryFiles `sourceOf`). A page whose picture changed, or that shows another now (one added before
 // it), has it dropped: it is never shown over another picture.
+/** @param {LinkedPage} page @param {{ name?: string, size?: number } | null | undefined} recorded @returns {boolean} */
 export function keepsDerived(page, recorded) {
   if (page.from === 'overlay') return true;
   return Number.isSafeInteger(page.size) && recorded?.name === page.name && recorded.size === page.size;
@@ -196,25 +246,31 @@ export function keepsDerived(page, recorded) {
 // Whether a PDF's pages are drawn: its source says how many (`rendered`, written once the last was
 // kept) and its overlay's images/ (`overlay`: [{ name }]) holds each of them. Until then it waits —
 // pages a window is still drawing, or one that stopped half way, don't make a gallery.
+/** @param {Source | null | undefined} source @param {{ name: string }[]} [overlay] @returns {boolean} */
 export function pdfReady(source, overlay = []) {
   const count = source?.kind === 'pdf' ? source.rendered?.pages : null;
-  if (!Number.isSafeInteger(count) || count < 1) return false;
+  if (!_count(count)) return false;
   const have = new Set(overlay.filter(f => IMAGE_NAME.test(f.name)).map(f => pageNumberOf(f.name)));
   for (let n = 1; n <= count; n++) if (!have.has(n)) return false;
   return true;
 }
 // Whether drawing a PDF's pages failed for the file as it is now (`fingerprint`, its current one): it
 // isn't tried again until the file changes.
+/** @param {Source | null | undefined} source @param {string | null | undefined} fingerprint @returns {boolean} */
 export const drawFailed = (source, fingerprint) => !!source?.failed && fingerprint != null && source.failed.fingerprint === fingerprint;
 // Whether a PDF's pages are to be drawn (both apps' pdfsWaiting): not drawn yet (pdfReady), or drawn
 // from another version of its file than the one there now (`fingerprint`; by default its source's, as
 // its last check found it) — a gallery the library has keeps the pages it has until the new ones are
 // all in (F10) — and in either case not one whose drawing failed for that version (drawFailed). Pages
 // whose marker doesn't say what they were drawn from (its first form) are taken as of the file as it is.
+/**
+ * @param {Source | null | undefined} source @param {{ name: string }[]} [overlay]
+ * @param {string | null} [fingerprint] @returns {boolean}
+ */
 export function pdfWaits(source, overlay = [], fingerprint = source?.fingerprint ?? null) {
   if (source?.kind !== 'pdf' || drawFailed(source, fingerprint)) return false;
   if (!pdfReady(source, overlay)) return true;
-  const from = source.rendered.fingerprint;
+  const from = source.rendered?.fingerprint;
   return from != null && fingerprint != null && from !== fingerprint;
 }
 
@@ -237,7 +293,20 @@ export function pdfWaits(source, overlay = [], fingerprint = source?.fingerprint
 // - missing: a kept gallery whose source is nowhere: { gid, source }.
 // - skipped: a title not to join: 'removed' (removed from the library before: isRemoved) or 'copy'
 //   (its overlay's gallery the library has elsewhere). { title, reason }.
+/** @typedef {SourceAt & { [field: string]: unknown }} FoundTitle */
+/** @typedef {{ gid: string, source: SourceAt }} KeptSource */
+/** @typedef {{
+ *   same: { title: FoundTitle, gid: string }[], changed: { title: FoundTitle, gid: string, was: SourceAt }[],
+ *   moved: { title: FoundTitle, gid: string, kept: boolean, was: SourceAt }[], new: { title: FoundTitle, gid?: string }[],
+ *   missing: KeptSource[], skipped: { title: FoundTitle, reason: 'removed' | 'copy' }[],
+ * }} SourceMatch */
+/**
+ * @param {{ found: FoundTitle[], kept?: { gid: string | number, source: SourceAt }[], overlays?: { galleryId: string, source: SourceAt }[],
+ *   known?: Set<string>, removed?: Removed[] }} check
+ * @returns {SourceMatch}
+ */
 export function matchSources({ found, kept = [], overlays = [], known = new Set(), removed = [] }) {
+  /** @type {SourceMatch} */
   const out = { same: [], changed: [], moved: [], new: [], missing: [], skipped: [] };
   const keptAt = new Map(kept.map(k => [sourceKey(k.source), { ...k, gid: String(k.gid) }]));
   const keptIds = new Set([...keptAt.values()].map(k => k.gid));
@@ -260,7 +329,10 @@ export function matchSources({ found, kept = [], overlays = [], known = new Set(
 
   // Gone from where they were, grouped by what they were in (an archive's chapters together) and its
   // fingerprint: kept galleries first, then overlays whose gallery the library hasn't.
+  /** @typedef {{ gid: string, kept: boolean, source: SourceAt }} GoneMember */
+  /** @type {{ at: string, kind: string, fingerprint: string | null | undefined, members: Map<string, GoneMember>, kept: boolean, taken?: boolean }[]} */
   const gone = [];
+  /** @param {SourceAt} source */
   const goneGroup = (source) => {
     const at = `${source.kind}\u0000${source.path}\u0000${source.fingerprint}`;
     let g = gone.find(x => x.at === at);
@@ -281,11 +353,12 @@ export function matchSources({ found, kept = [], overlays = [], known = new Set(
   gone.sort((a, b) => Number(b.kept) - Number(a.kept));
 
   // The rest found, by what they are in: a group whose fingerprint a gone one has takes its galleries.
+  /** @type {Map<string, FoundTitle[]>} */
   const groups = new Map();
   for (const title of loose) {
     const at = `${title.kind}\u0000${title.path}`;
     if (!groups.has(at)) groups.set(at, []);
-    groups.get(at).push(title);
+    /** @type {FoundTitle[]} */ (groups.get(at)).push(title);
   }
   for (const titles of groups.values()) {
     const print = titles[0].fingerprint;
@@ -310,8 +383,13 @@ export function matchSources({ found, kept = [], overlays = [], known = new Set(
 // A gallery's metadata as its file or folder name tells it, the way such names are usually written —
 // "[Circle (Artist)] Title (Collection)", "[Artist] Title" — and the folders it is in (`folders`,
 // outermost first) as tags. Resolves { title, tags }.
+/**
+ * @param {string} name @param {string[]} [folders]
+ * @returns {{ title: { english: string, japanese: string, pretty: string }, tags: { type: string, name: string }[] }}
+ */
 export function metaFromName(name, folders = []) {
   const stem = String(name).replace(ARCHIVE_NAME, '').replace(PDF_NAME, '').trim();
+  /** @type {{ type: string, name: string }[]} */
   const tags = [];
   let rest = stem;
   const lead = rest.match(/^\[([^\]]+)\]\s*/);
@@ -319,6 +397,7 @@ export function metaFromName(name, folders = []) {
     rest = rest.slice(lead[0].length);
     const who = lead[1].trim();
     const pair = who.match(/^(.+?)\s*\((.+)\)$/);
+    /** @param {string} type @param {string} list */
     const add = (type, list) => { for (const n of list.split(/\s*[,&、]\s*/)) if (n) tags.push({ type, name: n.toLowerCase() }); };
     if (pair) { add('group', pair[1]); add('artist', pair[2]); } else add('artist', who);
   }

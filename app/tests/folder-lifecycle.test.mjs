@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { STATES, mounted, canHide, canShow, canSetDefault, canMoveTo, nextDefault, writeAllowed, JOBS, jobPlan, removalOutcome }
-  from '../js/folder-lifecycle.js';
+  from '../js/storage/folder-lifecycle.js';
 
 const place = (over = {}) => ({ state: 'shown', isDefault: false, owned: true, reachable: true, ...over });
 

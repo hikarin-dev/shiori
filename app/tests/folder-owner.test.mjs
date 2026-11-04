@@ -4,7 +4,7 @@
 // back, so an app adding a folder back can tell whether another had it meanwhile.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readClaim, claimText, access, nextClaim, releasedClaim, unchangedSince } from '../js/folder-owner.js';
+import { readClaim, claimText, access, nextClaim, releasedClaim, unchangedSince } from '../js/storage/folder-owner.js';
 
 const ME = 'aaaaaaaaaaaaaaaa', OTHER = 'bbbbbbbbbbbbbbbb';
 const by = { app: 'desktop', host: 'pc' };

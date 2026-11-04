@@ -47,7 +47,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { readDirectory, readEntry, writeZip, appendZip } from './zip.js';
-import { files as layout, linked as linkedSource, content, titles, BackendError } from './shared.js';
+import { files as layout, galleryExport, linked as linkedSource, content, titles, BackendError } from './shared.js';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS files (
@@ -1213,7 +1213,7 @@ export class FileLibrary {
       .filter(f => DESCRIPTIONS.includes(f.name)).map(f => ({ name: f.name, data: Buffer.from(f.source) }));
     if (comicInfo) {
       const owner = meta?.parentId ? lib._metaGet(meta.parentId) : null;
-      out.push({ name: 'ComicInfo.xml', data: Buffer.from(layout.comicInfoXml(meta, { owner, pageCount: records.length })) });
+      out.push({ name: 'ComicInfo.xml', data: Buffer.from(galleryExport.comicInfoXml(meta, { owner, pageCount: records.length })) });
     }
     return out;
   }

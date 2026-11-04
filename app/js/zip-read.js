@@ -5,7 +5,7 @@
 // decoded by folder-content.js zipName, the rule both apps share, so an archive's titles are named
 // alike in either.
 
-import { zipName } from './folder-content.js';
+import { zipName } from './storage/folder-content.js';
 
 // Typed import failure. Thrown (never swallowed) so the job runner publishes a real error —
 // an invalid archive must never look like success — and retains the staged input for a retry.

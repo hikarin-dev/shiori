@@ -17,7 +17,7 @@
 // signatures, not certified against the bytes that were saved.
 
 import { isValidGalleryId } from './sanitize.js';
-import { BUBBLE_EXTRA_FIELDS } from './gallery-files.js';
+import { BUBBLE_EXTRA_FIELDS } from './storage/gallery-files.js';
 
 export const FORMAT = 'shiori-db';
 export const VERSION = 9;

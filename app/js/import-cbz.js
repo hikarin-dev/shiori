@@ -3,7 +3,7 @@
 
 import * as platform from './platform.js';
 import * as api from './api.js';
-import { BUBBLE_EXTRA_FIELDS } from './gallery-files.js';
+import { BUBBLE_EXTRA_FIELDS } from './storage/gallery-files.js';
 import { isValidGalleryId } from './sanitize.js';
 import { unionTags } from './series-plan.js';
 import { CbzImportError, zipEntries, sha256Hex, sortImageEntries } from './zip-read.js';
