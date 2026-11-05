@@ -9,16 +9,20 @@
 //   purpose by the storage tests (failNext). The library's own data folder (its index, thumbnails,
 //   write meter) is no library folder: library.js reaches it directly.
 // - physicallyIn: the containment rule for links (F09), checked against the disk.
+// - A gallery's folder in format v2 (the app's js/storage/gallery-manifest.js has the rules): writeNewIn
+//   (a new file never written over one), publishIn (a generation committed by one atomic manifest
+//   write), deleteNamedIn (only files still as Shiori recorded writing them), loadGallery (a folder read
+//   back by its manifest, or by v1's rules).
 // - folderStore(library): the contract over `disk`. open(ref, { purpose }) weighs the folder by the
 //   library's gate (folders.js) and the shared rule (folder-lifecycle.js refusalFor) and hands out a
 //   Root; a Root's galleries, reservations, sources and .shiori/ area work by the library's own index
-//   and naming (files.js), as the library does today. Format v2's manifest and publish come with S4;
-//   identity-verified roots, positive gallery identity and containment in every operation with S5.
+//   and naming (files.js), with the gallery functions above. Identity-verified roots, positive gallery
+//   identity and containment in every operation come with S5.
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { lifecycle, contract, BackendError } from './shared.js';
+import { lifecycle, contract, manifest as format, BackendError } from './shared.js';
 
 // ── Faults, for the storage tests ──
 // failNext(when, code, { times }): the next `times` calls `when(call)` matches throw (or reject, for a
@@ -146,10 +150,170 @@ export async function physicallyIn(dir, abs) {
   return abs;
 }
 
+// ── Writing a file whole ──
+// `data` written to `file` and flushed to the disk.
+export async function writeFlushed(file, data) {
+  const handle = await disk.open(file, 'w');
+  try { await handle.writeFile(data); await handle.sync(); } finally { await handle.close(); }
+}
+
+// A small file replaced whole: written beside it, then renamed over it — tried again a few times
+// while Windows refuses because something holds the file for a moment (a reader of it, an antivirus
+// scan of the one just written), rather than losing the change (R17).
+export async function replaceFile(file, data) {
+  const temp = `${file}.shiori-tmp`;
+  await writeFlushed(temp, data);
+  for (let attempt = 0; ; attempt++) {
+    try { return await disk.rename(temp, file); } catch (e) {
+      if (attempt >= 5 || !['EPERM', 'EBUSY', 'EACCES'].includes(e?.code)) { await disk.rm(temp, { force: true }).catch(() => {}); throw e; }
+      await new Promise(r => setTimeout(r, 50 * 2 ** attempt));
+    }
+  }
+}
+
+// ── A gallery's folder (format v2: js/storage/gallery-manifest.js) ──
+const lost = (e) => e?.code === 'ENOENT' || e?.code === 'ENOTDIR';
+const within = (dir, rel) => path.join(dir, ...String(rel).split('/').filter(Boolean));
+const textOr = (file) => disk.readFile(file, 'utf8').catch((e) => { if (lost(e)) return null; throw e; });
+
+// A new file for picture `slot` (its layout name without extension: translated/0001) of the gallery
+// whose folder is `dir`: its layout name when nothing is there, else that name with a random part
+// (translated/0001-3fa2c9e10b.png, which gallery-files.js layoutOf and pageNumberOf read) — created
+// exclusively, so it is never written over a file (principle 3), and flushed to the disk. Resolves
+// { name, size, mtime } as written: what the library records, and deletion checks it against.
+export async function writeNewIn(dir, slot, ext, bytes) {
+  await disk.mkdir(path.dirname(within(dir, slot)), { recursive: true });
+  for (let attempt = 0; ; attempt++) {
+    const name = attempt ? `${slot}-${crypto.randomBytes(5).toString('hex')}.${ext}` : `${slot}.${ext}`;
+    const file = within(dir, name);
+    let handle;
+    try { handle = await disk.open(file, 'wx'); } catch (e) {
+      if (e?.code === 'EEXIST' && attempt < 20) continue;
+      throw e;
+    }
+    try { await handle.writeFile(bytes); await handle.sync(); } catch (e) {
+      await handle.close().catch(() => {});
+      await disk.rm(file, { force: true }).catch(() => {});
+      throw e;
+    }
+    await handle.close();
+    const st = await disk.stat(file);
+    return { name, size: st.size, mtime: st.mtimeMs };
+  }
+}
+
+// The manifest of the gallery whose folder is `dir`, typed (contract ParseResult): missing (format
+// v1), ok, corrupt (gallery-manifest.js parseManifest, `gid` the gallery it must name), unreadable.
+export async function manifestIn(dir, gid = null) {
+  try {
+    const text = await textOr(within(dir, format.manifestPath(format.areaOf(dir.split(path.sep).join('/')))));
+    return text == null ? contract.MISSING : format.parseManifest(text, { galleryId: gid });
+  } catch (e) { return contract.unreadable(e); }
+}
+
+// Generation `next` (a manifest without its descriptions, gallery-manifest.js) published in the gallery
+// folder `dir`, with its descriptions `texts` (name → text): the descriptions the folder's current
+// manifest doesn't store written as new files named by their content, then the manifest replaced in
+// one atomic write — the commit point — then, as a best effort, the stable-named copies brought up to
+// date and the stored descriptions neither generation names collected (publication). The sizes it
+// records come from `next.sizes` where the library knew them. `hide(abs)`: called on the .shiori/
+// folder made for it (the app marks it hidden, D7). Resolves { manifest: the one published, bytes: how
+// many it wrote }. Rejects when the
+// current manifest can't be read (nothing is written then: tried again later) or a write fails before
+// the commit (the previous generation stays whole).
+export async function publishIn(dir, next, texts, { hide = () => {} } = {}) {
+  const area = format.areaOf(dir.split(path.sep).join('/'));
+  const now = await manifestIn(dir, next.galleryId);
+  if (now.kind === 'unreadable') throw new Error(`the manifest in ${dir} can't be read: ${now.error}`);
+  const prev = now.kind === 'ok' ? now.value : null;
+  const sizes = await format.sizesOf(next.files, new Map(Object.entries(next.sizes || {})), prev, async (f) => {
+    const st = await disk.stat(within(dir, f)).catch(() => null);
+    return st?.isFile() ? [st.size, st.mtimeMs] : null;
+  });
+  const plan = await format.publication({ area, prev, next: { ...next, sizes }, texts });
+  if (area) {
+    const made = await disk.mkdir(within(dir, area), { recursive: true });
+    if (made) try { hide(within(dir, area)); } catch {}
+  }
+  if (plan.writes.length) await disk.mkdir(within(dir, format.storedDir(area)), { recursive: true });
+  let bytes = 0;
+  for (const w of plan.writes) { await replaceFile(within(dir, w.path), w.text); bytes += Buffer.byteLength(w.text); }
+  await replaceFile(within(dir, format.manifestPath(area)), plan.text);
+  bytes += Buffer.byteLength(plan.text);
+  for (const s of plan.stable) {
+    try {
+      const file = within(dir, s.path);
+      const had = await textOr(file);
+      if (s.text != null && had !== s.text) { await disk.mkdir(path.dirname(file), { recursive: true }); await replaceFile(file, s.text); bytes += Buffer.byteLength(s.text); }
+      else if (s.text == null && had != null && s.was && await format.matches(s.was, had)) await disk.rm(file, { force: true });
+    } catch {}
+  }
+  try {
+    for (const name of await disk.readdir(within(dir, format.storedDir(area))).catch(() => [])) {
+      const at = `${format.storedDir(area)}/${name}`;
+      if (plan.keep.has(at) || !format.storedHash(at)) continue;
+      const had = await textOr(within(dir, at)).catch(() => null);
+      if (had != null && await format.matches(at, had)) await disk.rm(within(dir, at), { force: true });
+    }
+  } catch {}
+  return { manifest: plan.manifest, bytes };
+}
+
+// The files `list` ([{ name, size, mtime }]: paths in the folder `dir`, as Shiori recorded writing
+// them) deleted — each only while its size and modification time are still those (gallery-manifest.js
+// unchanged); one that differs was changed outside Shiori and is left, as is one that isn't there or
+// can't be checked, each reported in `kept` with why. A folder the deletions left empty goes too, up to
+// `dir` itself (principle 4) — unless `emptied` is false (`dir` holds more than the files named: an
+// archive's folder). Resolves { deleted, kept }.
+export async function deleteNamedIn(dir, list, { emptied: tidy = true } = {}) {
+  const deleted = [], kept = [], emptied = new Set();
+  for (const f of list) {
+    const file = within(dir, f.name);
+    let st;
+    try { st = await disk.stat(file); } catch (e) { kept.push({ name: f.name, why: lost(e) ? 'missing' : 'unreadable' }); continue; }
+    if (!st.isFile() || !format.unchanged(f, { size: st.size, mtime: st.mtimeMs })) { kept.push({ name: f.name, why: 'changed' }); continue; }
+    try { await disk.rm(file); deleted.push(f.name); emptied.add(path.dirname(file)); } catch (e) { kept.push({ name: f.name, why: lost(e) ? 'missing' : 'unreadable' }); }
+  }
+  const top = path.resolve(dir);
+  if (tidy) for (const d of [...emptied].sort((a, b) => b.length - a.length)) {
+    for (let at = path.resolve(d); at === top || at.startsWith(top + path.sep); at = path.dirname(at)) {
+      if ((await disk.readdir(at).catch(() => [null])).length) break;
+      try { await disk.rmdir(at); } catch { break; }
+      if (at === top) break;
+    }
+  }
+  return { deleted, kept };
+}
+
+// The picture files gallery folder `dir` holds where the gallery format puts them (gallery-manifest.js
+// PICTURE_DIRS), by their names a picture's: path → { size, mtime }. Rejects when a folder of them can't be listed (one that isn't
+// there holds nothing).
+export async function picturesIn(dir) {
+  const out = new Map();
+  for (const sub of format.PICTURE_DIRS) {
+    let names;
+    try { names = await disk.readdir(within(dir, sub), { withFileTypes: true }); } catch (e) { if (lost(e)) continue; throw e; }
+    for (const e of names) {
+      if (!e.isFile() || !format.isPictureName(e.name)) continue;
+      const st = await disk.stat(within(dir, `${sub}/${e.name}`)).catch((err) => { if (lost(err)) return null; throw err; });
+      if (st) out.set(`${sub}/${e.name}`, { size: st.size, mtime: st.mtimeMs });
+    }
+  }
+  return out;
+}
+
+// Gallery folder `dir` read back (gallery-manifest.js readGallery): by its manifest when it has one,
+// else by format v1's rules — with the picture files it holds (`files`, picturesIn). Rejects when
+// something in it can't be read.
+export async function loadGallery(dir) {
+  const files = await picturesIn(dir);
+  const read = await format.readGallery({ area: format.areaOf(dir.split(path.sep).join('/')), text: (rel) => textOr(within(dir, rel)), files });
+  return { read, files };
+}
+
 // ── The contract ──
 const { refused, MISSING, unreadable } = contract;
 const join = (...parts) => parts.filter(Boolean).join('/');
-const lost = (e) => e?.code === 'ENOENT' || e?.code === 'ENOTDIR';
 // A file read whole, typed (principle 6): missing, or unreadable for any other failure.
 async function readTyped(abs) {
   try {
@@ -167,8 +331,6 @@ async function listTyped(abs) {
     return { kind: /** @type {const} */ ('ok'), entries };
   } catch (e) { return lost(e) ? MISSING : unreadable(e); }
 }
-const notYet = (what) => () => Promise.reject(new Error(`no ${what} before format v2 (S4)`));
-
 // The adapter of `library` (library.js Library): what open() hands out reads and writes its folders as
 // the library does.
 export function folderStore(library) {
@@ -176,31 +338,18 @@ export function folderStore(library) {
   // Library folder `id` at `at`, opened for `purpose`.
   function root(id, at, purpose) {
     const abs = (rel) => path.join(at, ...rel.split('/').filter(Boolean));
-    // Gallery `gid`'s directory `name`: its files as the library writes them — a picture of its own
-    // written beside its place, then renamed into it (library.js _writeOwn, files.js placeOwn); a file
-    // deleted through the gate (files.js _remove); the folder check's tidy-up as its sweep (scan.js).
+    // Gallery `gid`'s directory `name`, in format v2 (the functions above); the folder check's tidy-up
+    // as its sweep (scan.js).
     const galleryDir = (name, gid) => ({
       name, gid,
-      manifest: notYet('manifest'),
+      manifest: () => manifestIn(abs(name), gid),
       read: (rel) => readTyped(abs(join(name, rel))),
-      async writeNew(slot, ext, bytes) {
-        const file = abs(join(name, `${slot}.${ext}`));
-        const temp = `${file}.${crypto.randomBytes(5).toString('hex')}.shiori-new`;
-        await disk.mkdir(path.dirname(file), { recursive: true });
-        await disk.writeFile(temp, bytes);
-        disk.renameSync(temp, file);
-        const st = disk.statSync(file);
-        return { name: `${slot}.${ext}`, size: st.size, mtime: st.mtimeMs };
+      writeNew: (slot, ext, bytes) => writeNewIn(abs(name), slot, ext, bytes),
+      async publish({ manifest, descriptions }) {
+        const done = await publishIn(abs(name), manifest, descriptions, { hide: (dir) => library._hide(dir) });
+        return { generation: done.manifest.generation, ...done };
       },
-      publish: notYet('publish'),
-      async deleteNamed(list) {
-        const deleted = [];
-        for (const f of list) {
-          await files._remove(files._join(id, join(name, f.name)));
-          if (!disk.existsSync(abs(join(name, f.name)))) deleted.push(f.name);
-        }
-        return { deleted, kept: [] };
-      },
+      deleteNamed: (list) => deleteNamedIn(abs(name), list),
       async sweep() { await library.folderScan(id); return { removed: [] }; },
     });
     return {

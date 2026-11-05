@@ -15,14 +15,18 @@
 // are counted by what they hold (written(): the conformance suite checks them against the write
 // budget, plan D23).
 //
+// A gallery's folder in format v2 (gallery-manifest.js has the rules): writeNew (a name no file has),
+// publishIn (a generation committed by one manifest written whole), deleteNamedIn (only files still as
+// Shiori recorded writing them), loadGallery (a folder read back by its manifest, or by v1's rules).
+//
 // folderStore(gate) is the contract over these: open(ref, { purpose }) weighs the folder as the
 // library's gate has it (its handle, its state, this page's permission, whether this library holds
-// its claim) and hands out a Root, whose galleries and reservations work as the library does today.
-// Format v2's manifest and publish come with S4; identity-verified roots and positive gallery
-// identity with S5.
+// its claim) and hands out a Root, whose galleries and reservations work as the library does.
+// Identity-verified roots and positive gallery identity come with S5.
 import { refused, MISSING, unreadable } from './contract.js';
 import { galleryIdOf } from './folder-content.js';
 import { refusalFor } from './folder-lifecycle.js';
+import { PICTURE_DIRS, isPictureName, areaOf, manifestPath, storedDir, storedHash, parseManifest, publication, sizesOf, matches, unchanged, readGallery } from './gallery-manifest.js';
 
 /** @typedef {import('./contract.js').ReadResult<Uint8Array>} ReadBytes */
 /** @typedef {import('./contract.js').ListResult} ListResult */
@@ -272,9 +276,123 @@ export async function writeNew(id, root, dir, path, data) {
 }
 const _randomPart = () => [...crypto.getRandomValues(new Uint8Array(4))].map(b => b.toString(16).padStart(2, '0')).join('');
 
-// ── The contract ──
+// ── A gallery's folder (format v2: gallery-manifest.js) ──
 /** @param {...string} parts @returns {string} */
 const _join = (...parts) => parts.filter(Boolean).join('/');
+
+/** The manifest of gallery folder `dir`, typed: missing (format v1), ok, corrupt (`gid`: the gallery
+ * it must name), unreadable.
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @param {string | null} [gid]
+ * @returns {Promise<import('./contract.js').ParseResult<import('./contract.js').Manifest>>} */
+export async function manifestIn(id, root, dir, gid = null) {
+  try {
+    const text = await readText(id, root, _join(dir, manifestPath(areaOf(dir))));
+    return text == null ? MISSING : parseManifest(text, { galleryId: gid });
+  } catch (e) { return unreadable(e); }
+}
+
+/** Generation `next` (a manifest without its descriptions) published in gallery folder `dir` with its
+ * descriptions `texts`: the descriptions the current manifest doesn't store written as new files named
+ * by their content, then the manifest written whole (createWritable replaces the file only once it is
+ * complete: the commit point), then, as a best effort, the stable-named copies brought up to date and
+ * the stored descriptions neither generation names collected (gallery-manifest.js publication).
+ * Resolves the manifest published; rejects when the current one can't be read, or a write before the
+ * commit fails (the previous generation stays whole).
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir
+ * @param {Omit<import('./contract.js').Manifest, 'descriptions'>} next @param {Record<string, string | null | undefined>} texts
+ * @returns {Promise<import('./contract.js').Manifest>} */
+export async function publishIn(id, root, dir, next, texts) {
+  const area = areaOf(dir);
+  const now = await manifestIn(id, root, dir, next.galleryId);
+  if (now.kind === 'unreadable') throw new Error(`the manifest in ${dir} can't be read: ${now.error}`);
+  const prev = now.kind === 'ok' ? now.value : null;
+  const sizes = await sizesOf(next.files, new Map(Object.entries(next.sizes || {})), prev, async (f) => {
+    const file = await _fileAt(id, root, _join(dir, f)).catch(() => null);
+    return file ? [file.size, file.lastModified] : null;
+  });
+  const plan = await publication({ area, prev, next: { ...next, sizes }, texts });
+  for (const w of plan.writes) await writeFile(id, root, _join(dir, w.path), w.text);
+  await writeFile(id, root, _join(dir, manifestPath(area)), plan.text);
+  for (const s of plan.stable) {
+    try {
+      const had = await readText(id, root, _join(dir, s.path));
+      if (s.text != null && had !== s.text) await writeFile(id, root, _join(dir, s.path), s.text);
+      else if (s.text == null && had != null && s.was && await matches(s.was, had)) await removeFile(id, root, _join(dir, s.path));
+    } catch {}
+  }
+  try {
+    for (const e of await list(id, root, _join(dir, storedDir(area)))) {
+      const at = `${storedDir(area)}/${e.name}`;
+      if (e.kind !== 'file' || plan.keep.has(at) || !storedHash(at)) continue;
+      const had = await readText(id, root, _join(dir, at)).catch(() => null);
+      if (had != null && await matches(at, had)) await removeFile(id, root, _join(dir, at));
+    }
+  } catch {}
+  return plan.manifest;
+}
+
+/** The files `files` (paths in gallery folder `dir`, as Shiori recorded writing them: name, size,
+ * modification time) deleted — each only while it is still as recorded (gallery-manifest.js
+ * unchanged); one that differs was changed outside Shiori and is left, as is one that isn't there or
+ * can't be checked, each reported in `kept` with why. A folder the deletions left empty goes too, up to
+ * `dir` itself (principle 4).
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir
+ * @param {import('./contract.js').WrittenFile[]} files
+ * @returns {Promise<{ deleted: string[], kept: { name: string, why: 'changed' | 'missing' | 'unreadable' }[] }>} */
+export async function deleteNamedIn(id, root, dir, files) {
+  /** @type {string[]} */
+  const deleted = [];
+  /** @type {{ name: string, why: 'changed' | 'missing' | 'unreadable' }[]} */
+  const kept = [];
+  /** @type {Set<string>} */
+  const emptied = new Set();
+  for (const f of files) {
+    const at = _join(dir, f.name);
+    let file;
+    try { file = await _fileAt(id, root, at); } catch { kept.push({ name: f.name, why: 'unreadable' }); continue; }
+    if (!file) { kept.push({ name: f.name, why: 'missing' }); continue; }
+    if (!unchanged(f, { size: file.size, mtime: file.lastModified })) { kept.push({ name: f.name, why: 'changed' }); continue; }
+    try { await removeFile(id, root, at); deleted.push(f.name); emptied.add(_split(at)[0]); } catch { kept.push({ name: f.name, why: 'unreadable' }); }
+  }
+  const top = _parts(dir).join('/');
+  for (const d of [...emptied].sort((a, b) => b.length - a.length)) {
+    for (let at = d; at === top || at.startsWith(`${top}/`); at = _split(at)[0]) {
+      if ((await list(id, root, at).catch(() => [null])).length) break;
+      try { await removeDir(id, root, at); } catch { break; }
+      if (at === top) break;
+    }
+  }
+  return { deleted, kept };
+}
+
+/** The picture files gallery folder `dir` holds where the gallery format puts them (PICTURE_DIRS):
+ * path → { size, mtime }. One gone meanwhile is left out; one that can't be read is thrown.
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir
+ * @returns {Promise<Map<string, { size: number, mtime: number }>>} */
+export async function picturesIn(id, root, dir) {
+  /** @type {Map<string, { size: number, mtime: number }>} */
+  const out = new Map();
+  for (const sub of PICTURE_DIRS) {
+    for (const e of await list(id, root, _join(dir, sub))) {
+      if (e.kind !== 'file' || !isPictureName(e.name)) continue;
+      const file = await e.file().catch((err) => { if (_nameOf(err) === 'NotFoundError') return null; throw err; });
+      if (file) out.set(`${sub}/${e.name}`, { size: file.size, mtime: file.lastModified });
+    }
+  }
+  return out;
+}
+
+/** Gallery folder `dir` read back (gallery-manifest.js readGallery): by its manifest when it has one,
+ * else by format v1's rules, with the picture files it holds (`files`, picturesIn). Rejects when
+ * something in it can't be read.
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir */
+export async function loadGallery(id, root, dir) {
+  const files = await picturesIn(id, root, dir);
+  const read = await readGallery({ area: areaOf(dir), text: (rel) => readText(id, root, _join(dir, rel)), files });
+  return { read, files };
+}
+
+// ── The contract ──
 /** A file read whole, typed (principle 6).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @returns {Promise<ReadBytes>} */
 async function _read(id, root, path) {
@@ -295,35 +413,22 @@ async function _list(id, root, path) {
     return { kind: 'ok', entries };
   } catch (e) { return unreadable(e); }
 }
-/** @param {string} what @returns {() => Promise<never>} */
-const _notYet = (what) => () => Promise.reject(new Error(`no ${what} before format v2 (S4)`));
-
 /** Library folder `id` (its handle `root`), opened for `purpose`.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {Purpose} purpose @returns {WriteRoot} */
 function _root(id, root, purpose) {
-  // Gallery `gid`'s directory `name`: written by writeNew, its files deleted one by one by name (as
-  // db.js lets go of them). The website writes no temporary files of its own (createWritable writes a
-  // file whole), so there is nothing to sweep.
+  // Gallery `gid`'s directory `name`, in format v2 (the functions above). The website writes no
+  // temporary files of its own (createWritable writes a file whole), so there is nothing to sweep.
   /** @param {string} name @param {string} gid @returns {GalleryDir} */
   const galleryDir = (name, gid) => ({
     name, gid,
-    manifest: _notYet('manifest'),
+    manifest: () => manifestIn(id, root, name, gid),
     read: (rel) => _read(id, root, _join(name, rel)),
     async writeNew(slot, ext, bytes) {
       const { path, file } = await writeNew(id, root, name, `${slot}.${ext}`, new Blob([/** @type {BlobPart} */ (bytes)]));
       return { name: path, size: file.size, mtime: file.lastModified };
     },
-    publish: _notYet('publish'),
-    async deleteNamed(files) {
-      /** @type {string[]} */
-      const deleted = [];
-      /** @type {{ name: string, why: 'unreadable' }[]} */
-      const kept = [];
-      for (const f of files) {
-        try { await removeFile(id, root, _join(name, f.name)); deleted.push(f.name); } catch { kept.push({ name: f.name, why: 'unreadable' }); }
-      }
-      return { deleted, kept };
-    },
+    async publish({ manifest, descriptions }) { const done = await publishIn(id, root, name, manifest, descriptions); return { generation: done.generation }; },
+    deleteNamed: (files) => deleteNamedIn(id, root, name, files),
     sweep: async () => ({ removed: [] }),
   });
   return {

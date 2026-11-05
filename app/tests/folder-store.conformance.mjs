@@ -7,10 +7,8 @@
 // (plan D23), to work through.
 //
 // A case the adapters fail today is marked todo with the step that fixes it, and the finding (plan
-// §5) it rediscovers where it is one. Still to come with S4's format: publish interrupted after each
-// of its writes, then reopened and read by both apps' adapters (the whole previous generation or the
-// whole new one, never a mix, never neither), and description files whose content doesn't match
-// their name read as corrupt.
+// §5) it rediscovers where it is one. A gallery's folder in format v2 (gallery-manifest.js) is read
+// back by both apps' readers (readBoth: each adapter's loadGallery), whichever adapter wrote it.
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -19,6 +17,8 @@ import path from 'node:path';
 import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
 import { desktopLibrary, webLibrary } from './library-drivers.mjs';
+import { loadGallery as desktopLoad } from '../../desktop/server/folder-store.js';
+import { loadGallery as websiteLoad, forgetFolder } from '../js/storage/folder-store-web.js';
 
 /** @typedef {import('../js/storage/contract.js').FolderStore<any>} FolderStore */
 /** @typedef {import('../js/storage/contract.js').FolderRef<any>} FolderRef */
@@ -192,7 +192,6 @@ export const CASES = [
   // ── Files: writeNew, typed reads, deleteNamed ──
   {
     name: 'writeNew never writes over a file',
-    todo: { desktop: 'S4: principle 3, the rename into place behind T06' },
     async run({ store, fx }) {
       const root = await opened(store, await fx.register('A'));
       const g = await root.reserve('Pictures', '1700000000001', null);
@@ -218,7 +217,6 @@ export const CASES = [
   },
   {
     name: 'deleteNamed deletes only the files named, and leaves and reports one changed since it was written',
-    todo: { desktop: 'S4: principle 4', website: 'S4: principle 4' },
     async run({ dir, store, fx }) {
       const root = await opened(store, await fx.register('A'));
       const g = await root.reserve('Named', '1700000000001', null);
@@ -231,6 +229,113 @@ export const CASES = [
       assert.deepEqual(done.deleted, [a.name]);
       assert.deepEqual(done.kept, [{ name: b.name, why: 'changed' }]);
       assert.ok(fs.existsSync(file), 'the changed file is left');
+    },
+  },
+  // ── Publication (format v2: gallery-manifest.js) ──
+  {
+    name: 'a publication cut short after any of its writes leaves, to both apps, the whole previous generation or the whole new one',
+    async run({ dir, store, fx, platform }) {
+      const root = await opened(store, await fx.register('A'));
+      // How many writes one publication of the second generation makes, counted on a run of its own.
+      const count = await twoGenerations(root, '1700000000100', { platform });
+      assert.ok(count.writes >= 4, `its stored descriptions, its manifest and its copies (${count.writes})`);
+      for (let k = 1; k <= count.writes; k++) {
+        const gid = String(1700000000100 + k);
+        const got = await twoGenerations(root, gid, { platform, failAt: k });
+        for (const [app, read] of Object.entries(await readBoth(path.join(dir, 'A'), got.name))) {
+          assert.equal(read.kind, 'ok', `cut at write ${k}, read by the ${app}`);
+          const title = read.meta.title.english;
+          assert.ok(['First', 'Second'].includes(title), `a whole generation (${title})`);
+          const want = title === 'First' ? got.first : got.second;
+          assert.equal(read.pictures.file('translated/0001'), want, `cut at write ${k}, read by the ${app}: the translation its generation names`);
+          assert.equal(read.records.length, title === 'First' ? 1 : 2, 'its records of the same generation');
+        }
+      }
+    },
+  },
+  {
+    name: 'a stored description whose content doesn\'t match its name, or a damaged manifest, reads as corrupt',
+    async run({ dir, store, fx, platform }) {
+      const root = await opened(store, await fx.register('A'));
+      const got = await twoGenerations(root, '1700000000200', { platform });
+      const at = path.join(dir, 'A', ...got.name.split('/'));
+      const manifest = JSON.parse(fs.readFileSync(path.join(at, '.shiori', 'gallery.json'), 'utf8'));
+      const stored = path.join(at, ...manifest.descriptions['metadata.json'].split('/'));
+      fs.writeFileSync(stored, fs.readFileSync(stored, 'utf8').replace('Second', 'Forged'));
+      for (const read of Object.values(await readBoth(path.join(dir, 'A'), got.name))) assert.equal(read.kind, 'corrupt');
+      fs.writeFileSync(path.join(at, '.shiori', 'gallery.json'), '{');
+      for (const read of Object.values(await readBoth(path.join(dir, 'A'), got.name))) assert.equal(read.kind, 'corrupt');
+    },
+  },
+  {
+    // T09: a file a description named that wasn't there gave way to an older one.
+    name: 'a file the manifest names that isn\'t there reads as missing, never as another file of its slot',
+    async run({ dir, store, fx, platform }) {
+      const root = await opened(store, await fx.register('A'));
+      const got = await twoGenerations(root, '1700000000300', { platform });
+      const at = path.join(dir, 'A', ...got.name.split('/'));
+      assert.ok(fs.existsSync(path.join(at, ...got.first.split('/'))), 'the older translation is still there');
+      fs.rmSync(path.join(at, ...got.second.split('/')));
+      for (const read of Object.values(await readBoth(path.join(dir, 'A'), got.name))) assert.deepEqual(read, { kind: 'missing-file', files: [got.second] });
+    },
+  },
+  {
+    // T08: a damaged description was taken for an empty one, and the loss was saved.
+    name: 'T08: a gallery whose folder was damaged keeps what the library has of it, is reported, and a later change publishes it whole',
+    async run({ fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Damaged');
+      await fx.lib.putPage(gid, 1, png(1));
+      await fx.lib.putTranslation(gid, 1, png(2));
+      await fx.lib.flush();
+      const at = await fx.lib.dirOf(gid);
+      const file = path.join(at, '.shiori', 'gallery.json');
+      const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+      // Another app's generation, arrived damaged: a stored description that isn't what it is named.
+      fs.writeFileSync(path.join(at, ...manifest.descriptions['image_records.json'].split('/')), '{');
+      fs.writeFileSync(file, JSON.stringify({ ...manifest, generation: manifest.generation + 1, writer: 'a1b2c3d4e5f60708' }));
+      await new Promise(r => setTimeout(r, 1200));   // its announcements made (a check leaves a gallery alone while they wait)
+      const found = await fx.lib.scan(ref.id);
+      assert.deepEqual(found.problems.map(p => p.reason), ['corrupt']);
+      assert.deepEqual(await fx.lib.read(gid, 1, 'translated'), png(2), 'its translation kept');
+      await fx.lib.setTitle(gid, 'Damaged, renamed');
+      await fx.lib.flush();
+      assert.deepEqual((await fx.lib.scan(ref.id)).problems, [], 'published whole again');
+      assert.deepEqual(await fx.lib.read(gid, 1, 'translated'), png(2));
+    },
+  },
+  {
+    name: 'T09: a folder whose descriptions name a file that isn\'t there is reported, never read with the older file in its place',
+    async run({ dir, fx }) {
+      const gid = '1700000000400';
+      const at = path.join(dir, 'A', 'Incomplete');
+      const put = (rel, data) => { fs.mkdirSync(path.dirname(path.join(at, rel)), { recursive: true }); fs.writeFileSync(path.join(at, rel), data); };
+      put('metadata.json', JSON.stringify({ galleryId: gid, title: { english: 'Incomplete', japanese: '', pretty: '' } }));
+      put('image_records.json', JSON.stringify([{ url: `local://${gid}/1.png`, translated: true, files: ['translated/0001-1234abcd.png'] }]));
+      put('images/0001.png', png(1));
+      put('translated/0001.png', png(66));   // obsolete: its description names another
+      const ref = await fx.register('A');
+      const found = await fx.lib.scan(ref.id);
+      assert.deepEqual(found.problems.map(p => p.reason), ['missing-file']);
+      assert.notDeepEqual(await fx.lib.read(gid, 1, 'translated'), png(66), 'never the obsolete translation');
+    },
+  },
+  {
+    name: 'a folder hidden before its changes were published has them published there in the background, and hiding waits for none',
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Hidden soon');
+      await fx.lib.putPage(gid, 1, png(1));
+      await fx.lib.flush();
+      await fx.lib.setTitle(gid, 'Hidden, retitled');
+      const at = await fx.lib.dirOf(gid);
+      await fx.hide(ref);
+      const title = () => { try { return JSON.parse(fs.readFileSync(path.join(at, 'metadata.json'), 'utf8')).title.english; } catch { return null; } };
+      for (let i = 0; i < 100 && title() !== 'Hidden, retitled'; i++) await new Promise(r => setTimeout(r, 100));
+      assert.equal(title(), 'Hidden, retitled', 'published while hidden');
+      for (const read of Object.values(await readBoth(path.join(dir, 'A'), path.relative(path.join(dir, 'A'), at).split(path.sep).join('/')))) {
+        assert.equal(read.meta.title.english, 'Hidden, retitled');
+      }
     },
   },
   {
@@ -297,6 +402,10 @@ export const CASES = [
       const retitled = await stored(fx, () => fx.lib.setTitle(gid, 'Budget, retitled'));
       assert.equal(retitled.picture, 0);
       assert.ok(retitled.description > 0, 'its descriptions written');
+      const at = await fx.lib.dirOf(gid);
+      const size = (rel) => fs.statSync(path.join(at, ...rel.split('/'))).size;
+      assert.equal(retitled.description, size('.shiori/gallery.json') + 2 * size('metadata.json'),
+        'its manifest and its metadata (stored by its content, and its copy): no other description written');
     },
   },
   {
@@ -338,6 +447,43 @@ export const CASES = [
     },
   },
 ];
+
+// Gallery `gid` reserved in `root` and published twice through the adapter: the first generation
+// (titled First, one page, its translation `first`), then the second (titled Second, a second page and
+// a new translation `second` beside the first) — the second's `failAt`-th write failed, when given (the
+// publication cut short there: every write after it not made). Resolves { name: its directory, first,
+// second, writes: how many writes the second publication made }.
+async function twoGenerations(root, gid, { platform, failAt = 0 }) {
+  const g = await root.reserve(`G ${gid}`, gid, null);
+  const meta = (english) => JSON.stringify({ galleryId: gid, title: { english, japanese: '', pretty: '' } });
+  const records = (n) => JSON.stringify(Array.from({ length: n }, (_, i) => ({ url: `local://${gid}/${i + 1}.png`, translated: i === 0 })));
+  const sized = (...files) => Object.fromEntries(files.map(f => [f.name, [f.size, f.mtime]]));
+  const manifest = (pages, sizes) => ({ format: 'shiori-gallery', version: 2, galleryId: gid, generation: 1, writer: 'conformance', files: { pages, covers: {} }, sizes });
+  const o = await g.writeNew('images/0001', 'png', png(1));
+  const t1 = await g.writeNew('translated/0001', 'png', png(2));
+  await g.publish({ manifest: manifest({ 1: { original: o.name, translated: t1.name } }, sized(o, t1)), descriptions: { 'metadata.json': meta('First'), 'image_records.json': records(1) } });
+  const o2 = await g.writeNew('images/0002', 'png', png(3));
+  const t2 = await g.writeNew('translated/0001', 'png', png(4));
+  let writes = 0;
+  const nth = () => ++writes === failAt;
+  const undo = platform === 'website'
+    ? fsa.failNext((c) => c.op === 'close' && c.path.startsWith(`${g.name}/`) && nth(), 'InvalidStateError', { times: 1e6 })
+    : faults.failNext((c) => c.op === 'rename' && String(c.to).toLowerCase().includes(`/${g.name.toLowerCase()}/`) && nth(), 'EIO', { times: 1e6 });
+  try {
+    await g.publish({ manifest: manifest({ 1: { original: o.name, translated: t2.name }, 2: { original: o2.name } }, sized(o, t2, o2)),
+      descriptions: { 'metadata.json': meta('Second'), 'image_records.json': records(2) } }).catch(() => {});
+  } finally { undo(); }
+  return { name: g.name, first: t1.name, second: t2.name, writes };
+}
+// Gallery folder `name` of the library folder at `folder` read back by both apps' readers (each
+// adapter's loadGallery, over gallery-manifest.js readGallery): { desktop, website }.
+let reads = 0;
+async function readBoth(folder, name) {
+  const id = `conformance-read-${++reads}`;
+  const website = (await websiteLoad(id, fsa.directory(folder), name)).read;
+  forgetFolder(id);
+  return { desktop: (await desktopLoad(path.join(folder, ...name.split('/')))).read, website };
+}
 
 // What `work` wrote, by kind, once the library has settled it into its folders.
 async function stored(/** @type {Fixture} */ fx, /** @type {() => Promise<unknown>} */ work) {

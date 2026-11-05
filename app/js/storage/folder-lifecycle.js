@@ -44,25 +44,28 @@ export const nextDefault = (places, leaving) => places.find(p => p.id !== leavin
 // Whether a write to a library folder may go ahead now — the one gate in front of every change to its
 // files: it can be reached, and this library holds its claim, and its state allows it ('shown'; while
 // 'removing', the removal's own write-back alone). `work`: what writes — 'removal' (the removal's
-// write-back), 'claim' (the claim file itself, .shiori/owner.json: needs the folder reachable, nothing
+// write-back), 'publish' (the publication of changes committed to the library before: the one write a
+// hidden folder takes too, so a folder hidden with changes not yet saved to it still becomes current —
+// plan §3.4), 'claim' (the claim file itself, .shiori/owner.json: needs the folder reachable, nothing
 // more), or nothing (anything else).
-/** @param {Place & { work?: 'removal' | 'claim' | null }} place @returns {boolean} */
+/** @param {Place & { work?: 'removal' | 'publish' | 'claim' | null }} place @returns {boolean} */
 export function writeAllowed({ state, owned, reachable, work = null }) {
   if (!reachable) return false;
   if (work === 'claim') return true;
-  return !!owned && (state === 'shown' || (state === 'removing' && work === 'removal'));
+  return !!owned && (state === 'shown' || (state === 'removing' && work === 'removal') || (state === 'hidden' && work === 'publish'));
 }
 
 // Why a folder store's open() refuses `purpose` (contract.js Purpose) at a place, or null when it
-// doesn't: 'unavailable' (it can't be reached), 'hidden' (its state allows no change: hidden, or being
-// removed, where only its removal's write-back may write) or 'not-owned' (another app holds its claim,
-// or it can't be checked). Reading needs it reachable alone; every other purpose is weighed as a
-// write (writeAllowed), the claim file's own too.
+// doesn't: 'unavailable' (it can't be reached), 'hidden' (its state allows no change: hidden — but for
+// a publication — or being removed, where only its removal's write-back may write) or 'not-owned'
+// (another app holds its claim, or it can't be checked). Reading needs it reachable alone; every other
+// purpose is weighed as a write (writeAllowed), the claim file's own too.
 /** @param {Place} place @param {string} purpose @returns {'unavailable' | 'hidden' | 'not-owned' | null} */
 export function refusalFor({ state, owned, reachable }, purpose) {
   if (!reachable) return 'unavailable';
   if (purpose === 'read') return null;
-  if (state !== 'shown' && !(state === 'removing' && purpose === 'removal')) return 'hidden';
+  const allowed = state === 'shown' || (state === 'removing' && purpose === 'removal') || (state === 'hidden' && purpose === 'publish');
+  if (!allowed) return 'hidden';
   return owned ? null : 'not-owned';
 }
 

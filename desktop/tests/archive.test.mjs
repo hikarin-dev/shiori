@@ -80,7 +80,10 @@ test('a gallery left alone is archived into one uncompressed ZIP — its export 
   assert.equal(rowOf(library, other).format, 'folder', 'one used lately stays a folder');
   const file = absOf(library, gid);
   const dir = await readDirectory(file);
-  assert.deepEqual([...dir.keys()].sort(), exported, 'the archive is its export');
+  assert.deepEqual(entriesOf(dir), exported, 'the archive is its export');
+  const manifest = JSON.parse(String(await readEntry(file, dir.get('.shiori/gallery.json'))));
+  assert.deepEqual([manifest.galleryId, manifest.descriptions['metadata.json'], manifest.files.pages['1'].translated], [gid, 'metadata.json', 'translated/0001.png'],
+    'and its manifest, naming the entries it was appended with');
   assert.ok([...dir.values()].every(e => e.method === 0), 'stored, not compressed');
 
   assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 2)), [...pngBytes(2)], 'a page, from the archive');
@@ -101,7 +104,7 @@ test('a CBZ holds the same plus ComicInfo.xml', async (t) => {
   await library.files.sweep();
   assert.equal(rowOf(library, gid).path, 'Comic Book.cbz');
   const dir = await readDirectory(absOf(library, gid));
-  assert.deepEqual([...dir.keys()].sort(), await exportNames(library, gid, true));
+  assert.deepEqual(entriesOf(dir), await exportNames(library, gid, true));
   assert.match(String(await readEntry(absOf(library, gid), dir.get('ComicInfo.xml'))), /<Title>Comic Book<\/Title>/);
 });
 
@@ -143,11 +146,14 @@ async function archivedGallery(library, gid, name, { pages = 10, translated = fa
   assert.deepEqual((await library.archiveGallery(gid)).archived, [gid]);
   return absOf(library, gid);
 }
+// An archive's entries, but its manifest (format v2: .shiori/gallery.json, appended with what it names).
+const entriesOf = (dir) => [...dir.keys()].filter(n => !n.startsWith('.shiori/')).sort();
+// Every file under `dir`, but those of a gallery's own .shiori/ (its manifest and stored descriptions).
 function treeOf(dir) {
   const out = [];
   const walk = (d, rel) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const r = rel ? `${rel}/${e.name}` : e.name; if (e.isDirectory()) walk(path.join(d, e.name), r); else out.push(r); } };
   walk(dir, '');
-  return out.sort();
+  return out.filter(n => !/(^|\/)\.shiori\//.test(n)).sort();
 }
 
 test('a page and a translation added are added to the archive — nothing it held written again — read from staging until then', async (t) => {
@@ -168,7 +174,7 @@ test('a page and a translation added are added to the archive — nothing it hel
   assert.ok(after.length > before.length && after.subarray(0, before.length).equals(before), 'only added to');
   const dir = await readDirectory(file);
   for (const [name, at] of pages) assert.equal(dir.get(name).headerOffset, at, `${name} where it was`);
-  assert.deepEqual([...dir.keys()].sort(), await exportNames(library, gid), 'still its export');
+  assert.deepEqual(entriesOf(dir), await exportNames(library, gid), 'still its export');
   assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 11)), await bytesOf(page), 'the new page, from the archive');
   assert.deepEqual(await bytesOf((await library.pageGet(gid, 1)).translated), await bytesOf(translation), 'the translation, from the archive');
   assert.deepEqual(library._s('SELECT * FROM staged_own').all(), []);
@@ -186,7 +192,7 @@ test('a page removed leaves its bytes unused while that stays under a quarter of
   assert.equal(rowOf(library, gid).format, 'zip');
   const dir = await readDirectory(file);
   assert.equal(dir.has('images/0010.png'), false, 'no longer listed');
-  assert.deepEqual([...dir.keys()].sort(), await exportNames(library, gid));
+  assert.deepEqual(entriesOf(dir), await exportNames(library, gid));
   await whole(library);
 });
 
@@ -216,7 +222,7 @@ test('clearing its translations rewrites it as a fresh archive — nothing waits
   assert.equal(rowOf(library, gid).format, 'zip');
   const dir = await readDirectory(file);
   assert.equal([...dir.keys()].some(n => n.startsWith('translated/')), false);
-  assert.deepEqual([...dir.keys()].sort(), await exportNames(library, gid));
+  assert.deepEqual(entriesOf(dir), await exportNames(library, gid));
   assert.ok(fs.statSync(file).size < size * 0.6, 'what the translations took is given back');
   await whole(library);
 });
@@ -313,8 +319,9 @@ test('an archiving the app didn\'t finish leaves nothing behind', async (t) => {
   const kept = await gallery(first, halfway, 'Halfway', { translated: false });
   const old = await gallery(first, done, 'Done', { translated: false });
   // Stopped after its archive took its name, before the index knew: the archive is left over.
-  first._s('INSERT INTO retired (path) VALUES (?)').run('Halfway.zip');
   fs.writeFileSync(path.join(first.libraryDir, 'Halfway.zip'), 'an archive no gallery has');
+  const halfwaySt = fs.statSync(path.join(first.libraryDir, 'Halfway.zip'));
+  first._s(`INSERT INTO retiring (dir, name, size, mtime) VALUES ('Halfway.zip', '', ?, ?)`).run(halfwaySt.size, halfwaySt.mtimeMs);
   // Stopped after the index switched to the archive, before the folder went.
   leftAlone(first, done);
   const remove = first.remove;
@@ -330,7 +337,7 @@ test('an archiving the app didn\'t finish leaves nothing behind', async (t) => {
   assert.equal(fs.existsSync(path.join(library.libraryDir, 'Halfway.zip')), false, 'the archive no gallery has, gone');
   assert.ok(fs.existsSync(kept), 'the gallery still in its folder');
   assert.equal(fs.existsSync(old), false, 'the archived gallery\'s folder, gone');
-  assert.deepEqual(library._s('SELECT path FROM retired').all(), []);
+  assert.deepEqual(library._s('SELECT dir FROM retiring').all(), []);
   await whole(library);
 });
 
@@ -377,4 +384,28 @@ test('archiving by hand packs a gallery now — a series member by member, one o
   await library.files.settle(a);
   assert.deepEqual(await library.archiveGallery(o), { archived: [a], kept: [] }, 'what is archived already is left as it is');
   await whole(library);
+});
+
+// T03: what an archiving let go retires by name (each file of the old folder as it was then), never
+// whatever holds the path later. The old folder's deletion refused at first (EBUSY), a folder of
+// someone's put at its path meanwhile, then the retirement tried again: that folder is left as it is.
+test('T03: an archived gallery\'s old folder retires by name, and a folder put at its path meanwhile is left as it is', async (t) => {
+  const { failNext } = await import('./fs-faults.mjs');
+  const library = await open(t);
+  const gid = '1790700000091';
+  const folder = await gallery(library, gid, 'Retired', { translated: false });
+  leftAlone(library, gid);
+  const inside = folder.split(path.sep).join('/').toLowerCase() + '/';
+  const undo = failNext((c) => c.op === 'rm' && c.path.toLowerCase().startsWith(inside), 'EBUSY', { times: 1e6 });
+  await library.files.sweep();
+  undo();
+  assert.equal(rowOf(library, gid).format, 'zip', 'archived');
+  assert.ok(library._s('SELECT 1 FROM retiring WHERE dir = ?').get('Retired'), 'its old folder waits to retire, its files named');
+  fs.renameSync(folder, `${folder} moved aside`);
+  fs.mkdirSync(folder);
+  fs.writeFileSync(path.join(folder, 'personal-notes.txt'), 'mine');
+  await library.files.sweep();
+  assert.deepEqual(fs.readdirSync(folder), ['personal-notes.txt'], 'the folder there now is left as it is');
+  assert.deepEqual(library._s('SELECT dir FROM retiring').all(), [], 'and nothing more waits');
+  assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1)), [...pngBytes(1)], 'the gallery read from its archive');
 });

@@ -549,13 +549,15 @@ function waitForJobs() {
   activeJobs().then((jobs) => { if (!closingAfterJobs) return; if (jobs.count) setTimeout(waitForJobs, 3000); else reallyQuit(); });
 }
 
-// Every gallery waiting to be settled into its folder is, then the app ends.
+// Every gallery waiting to be settled into its folder is, then the app ends — within FLUSH_AT_MOST: what
+// is still to publish then stays marked, and is published at the next start (plan §3.4).
+const FLUSH_AT_MOST = 20_000;
 async function reallyQuit() {
   if (quitting) return;
   quitting = true;
   if (relaunchAfter && !installAfter) app.relaunch();
   await backups?.stop();   // a backup under way stops first, between galleries, its partial file deleted
-  await library?.files.flush().catch(() => {});
+  await Promise.race([library?.files.flush().catch(() => {}), new Promise((resolve) => setTimeout(resolve, FLUSH_AT_MOST).unref?.())]);
   await server?.close().catch(() => {});
   library?.close();
   tray?.destroy();

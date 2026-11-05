@@ -117,8 +117,9 @@ export function parsed(read, parse, what = 'file') {
 
 // ── A gallery's manifest (format v2: the plan's §4; gallery-manifest.js parses and writes it) ──
 
-/** The files of one page: each slot's file, canonical names included.
- * @typedef {{ original?: string, translated?: string, studyBg?: string, studyText?: string[],
+/** The files of one page: each slot's file, canonical names included (`studyText`: each bubble's text
+ * layer, null for a bubble without one).
+ * @typedef {{ original?: string, translated?: string, studyBg?: string, studyText?: (string | null)[],
  *   masks?: { raw?: string, text?: string } }} PageFiles */
 /** For a linked gallery's page, the source picture it shows: name and size, plus the archive entry's
  * CRC-32 or the file's modification time.

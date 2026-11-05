@@ -23,12 +23,12 @@
 // can be reached, this library holds its claim, and its state allows it.
 // Work on a folder — its check, its removal — runs through its queue, one job at a time (jobPlan), as a
 // task the windows' tasks pages list.
-import { disk } from './folder-store.js';
+import { disk, replaceFile } from './folder-store.js';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { owner as claims, lifecycle, linked as linkedSource, BackendError } from './shared.js';
-import { libraryId, libraryIdAt, replaceFile } from './files.js';
+import { libraryId, libraryIdAt } from './files.js';
 import { scanLibrary } from './scan.js';
 import { fingerprintNow } from './linked.js';
 
@@ -301,8 +301,9 @@ export class Folders {
 
   // ── The gate ──
   // Whether folder `id`'s files may be changed now (folder-lifecycle.js writeAllowed): it can be
-  // reached, this library holds its claim, and its state allows it — 'shown', or 'removing' for `work`
-  // 'removal' (its removal's own write-back). In front of every change to a folder's files.
+  // reached, this library holds its claim, and its state allows it — 'shown', 'removing' for `work`
+  // 'removal' (its removal's own write-back), or 'hidden' for `work` 'publish' (the publication of
+  // what was committed before it was hidden). In front of every change to a folder's files.
   writable(id, work = null) {
     const state = this.state(id);
     if (!state) return false;
@@ -436,8 +437,9 @@ export class Folders {
   }
 
   // Folder `id` hidden (not the default one) — at once: it stays listed, and its galleries leave the
-  // library until it is shown again. A check of it under way stops. Resolves { id, galleries }: how
-  // many left.
+  // library until it is shown again. A check of it under way stops. What its galleries had changed
+  // before is published there in the background (plan §3.4: the one write a hidden folder takes).
+  // Resolves { id, galleries }: how many left.
   async hide(id) {
     const row = this._row(id);
     if (!row || row.state === 'removing') throw new BackendError('not-found', `no library folder ${id}`);
@@ -446,6 +448,7 @@ export class Folders {
     const job = this._jobs.get(id);
     if (job?.kind === 'scan') job.stop = true;
     this._setState(id, 'hidden');
+    for (const gid of this.galleriesIn(id)) if (!this._nothingWaits(gid) && this.library.files._row(gid)) this.library.files.settle(gid).catch(() => {});
     return { id, galleries: this.galleriesIn(id).length };
   }
 
@@ -575,14 +578,14 @@ export class Folders {
   // Every folder shown that this library may write to checked, each through its own queue, one after
   // another (a check of one already under way is joined). Resolves what they found, together.
   async rescan() {
-    const all = { moved: [], missing: [], found: [], added: [], updated: [], removed: 0, problems: [], stopped: false };
+    const all = { moved: [], missing: [], found: [], added: [], updated: [], removed: 0, problems: [], unreferenced: [], stopped: false };
     const run = this._rescanning = { stop: false };
     try {
       for (const id of this.activeRoots()) {
         if (run.stop) { all.stopped = true; break; }
         const found = await this.scan(id).catch(() => null);   // hidden or being removed meanwhile: left out
         if (!found) continue;
-        for (const k of ['moved', 'missing', 'found', 'added', 'updated', 'problems']) all[k].push(...found[k]);
+        for (const k of ['moved', 'missing', 'found', 'added', 'updated', 'problems', 'unreferenced']) all[k].push(...found[k]);
         all.removed += found.removed;
         all.stopped ||= found.stopped;
       }
@@ -694,13 +697,12 @@ export class Folders {
       return ok && this._nothingWaits(gid);
     } catch { return false; }
   }
-  // Whether gallery `gid` has nothing only the library has: a folder of its own, its descriptions
-  // written, nothing staged for it, no picture of its own still to take its place there (F03), nothing
-  // to take out of its archive.
+  // Whether gallery `gid` has nothing only the library has: a folder of its own, its changes
+  // published, nothing staged for it, nothing to take out of its archive.
   _nothingWaits(gid) {
     const files = this.library.files;
     const row = files._row(gid);
-    return !!row && !row.pending && !row.unpack && !files._staged(gid).length && !files._stagedOwn(gid).length && !files._unplaced(gid).length;
+    return !!row && !row.pending && !row.unpack && !files._staged(gid).length && !files._stagedOwn(gid).length;
   }
   // The galleries of folder `id` with something only this library has (forgetting the folder would lose
   // it) — a record with no folder of its own among them (a series' record, a chapter not downloaded:

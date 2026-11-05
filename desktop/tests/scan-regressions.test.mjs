@@ -13,6 +13,7 @@ globalThis.BroadcastChannel = class { postMessage() {} close() {} };
 const { Library } = await import('../server/library.js');
 const { writeZip, readDirectory, readEntry } = await import('../server/zip.js');
 const { checkInvariants } = await import('../../app/js/library-check.js');
+const { publishElsewhere, patched, OTHER_WRITER } = await import('./elsewhere.mjs');
 
 const pngBytes = (...b) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, ...b]);
 const png = (...b) => new Blob([pngBytes(...b)], { type: 'image/png' });
@@ -173,10 +174,9 @@ test('R13: a page replaced in a linked gallery\'s overlay stays replaced: throug
   fs.renameSync(path.join(other, 'Loose'), path.join(other, 'Loose Renamed'));
   assert.equal((await library.folderScan(id)).updated, 1);
   assert.deepEqual(await pagesNow(), want, 'a rename');
-  // (c) Another app changes its overlay's descriptions: read again.
+  // (c) Another app publishes its overlay anew: read again.
   await described(library, gid);
-  const metaFile = path.join(overlayOf(other, gid), 'metadata.json');
-  fs.writeFileSync(metaFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(metaFile, 'utf8')), title: title('Changed elsewhere') }));
+  await publishElsewhere(overlayOf(other, gid), (texts) => ({ ...texts, 'metadata.json': patched(texts['metadata.json'], { title: title('Changed elsewhere') }) }));
   assert.equal((await library.folderScan(id)).updated, 1);
   assert.equal((await library.metaGet(gid)).title.english, 'Changed elsewhere');
   assert.deepEqual(await pagesNow(), want, 'a catch-up');
@@ -230,8 +230,7 @@ test('R15: a series spanning two folders keeps its links while one half is away,
   await library.folderScan(first);
   await described(library, owner);
   // Another app edits the owner meanwhile: it is read again, its chapter still away.
-  const file = path.join(other, 'Owner', 'metadata.json');
-  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), title: title('Owner (edited)') }));
+  await publishElsewhere(path.join(other, 'Owner'), (texts) => ({ ...texts, 'metadata.json': patched(texts['metadata.json'], { title: title('Owner (edited)') }) }));
   assert.equal((await library.folderScan(first)).updated, 1);
   assert.deepEqual((await library.metaGet(owner)).chapters.map(c => String(c.id)), [owner, chapter], 'the link to the chapter away is kept');
   const second = (await library.folderAdd(third)).id;
@@ -254,8 +253,7 @@ test('R16: both cover roles survive a catch-up and remove and add back', async (
   const roles = () => { const c = library._coverGet(gid); return [!!c?.cover, !!c?.seriesCover]; };
   assert.deepEqual(roles(), [true, true]);
   const dir = library.files.folderOf(gid);
-  const metaFile = path.join(dir, 'metadata.json');
-  fs.writeFileSync(metaFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(metaFile, 'utf8')), title: title('Covered (edited)') }));
+  await publishElsewhere(dir, (texts) => ({ ...texts, 'metadata.json': patched(texts['metadata.json'], { title: title('Covered (edited)') }) }));
   assert.equal((await library.folderScan(id)).updated, 1);
   assert.deepEqual(roles(), [true, true], 'a catch-up');
   await library.files.describe(gid, { all: true });
@@ -351,6 +349,7 @@ test('R23: an archived gallery another app changed is read again', async (t) => 
   for (const [name, e] of await readDirectory(zip)) {
     let data = await readEntry(zip, e);
     if (name === 'metadata.json') data = Buffer.from(JSON.stringify({ ...JSON.parse(String(data)), title: title('EXTERNAL NEW') }));
+    if (name === '.shiori/gallery.json') { const m = JSON.parse(String(data)); data = Buffer.from(JSON.stringify({ ...m, generation: m.generation + 1, writer: OTHER_WRITER })); }   // another app's generation
     entries.push({ name, data });
   }
   await writeZip(zip, entries);
@@ -591,9 +590,9 @@ test('F06: a description or picture that can\'t be read fails its gallery\'s rea
   // Its study index unreadable for a while (its permissions, a drive's error), not gone.
   const fsp = (await import('node:fs/promises')).default;
   const readFile = fsp.readFile;
-  let denied = true;
+  let denied = true, deniedFile = path.join('study', 'bubbles.json');
   fsp.readFile = function (file, ...rest) {
-    if (denied && String(file).endsWith(path.join('study', 'bubbles.json'))) return Promise.reject(Object.assign(new Error(`EACCES: permission denied, open '${file}'`), { code: 'EACCES', syscall: 'open' }));
+    if (denied && String(file).endsWith(deniedFile)) return Promise.reject(Object.assign(new Error(`EACCES: permission denied, open '${file}'`), { code: 'EACCES', syscall: 'open' }));
     return readFile.call(this, file, ...rest);
   };
   t.after(() => { fsp.readFile = readFile; });
@@ -608,7 +607,9 @@ test('F06: a description or picture that can\'t be read fails its gallery\'s rea
   await described(library, gid);
   const stamp = () => library._s('SELECT stamp FROM stamps WHERE gid = ?').get(gid)?.stamp;
   const had = stamp();
+  // Published (format v2) since, the folder's manifest is what a catch-up reads first.
   denied = true;
+  deniedFile = path.join('.shiori', 'gallery.json');
   assert.deepEqual(await library.folderScan(id), unread, 'a catch-up that can\'t read it concludes nothing');
   assert.deepEqual([bubbles(), stamp()], [1, had], 'its records and stamp as they were');
   denied = false;

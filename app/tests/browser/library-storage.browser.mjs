@@ -225,6 +225,7 @@ test('R03: a study layer for a translation replaced meanwhile never lands over t
       open();
       await Promise.all([j1, j2]);
       await t.sleep(500);
+      await api.folders.settle();   // a file let go is deleted once the change is published
       return { job: (await api.pages.all(g))[0]?.pipeline?.job, bg: (await api.derived.studyList(g))[0]?.bg?.size, bg2: bg2.size,
         layers: await t.ls('Lib/Study race/study/bg') };
     }, gid);
@@ -584,7 +585,9 @@ test('R14, A15: an archive in the gallery format is a gallery of its own, read i
     const out = await page.evaluate(async (gid) => {
       const api = window.__api, t = window.__t;
       await api.meta.put({ ...(await api.meta.get(gid)), title: t.T('Native, edited') });
-      const written = await t.until(async () => JSON.parse(await t.text('R14/Native/metadata.json')).title.english === 'Native, edited');
+      // Published there: its manifest (format v2) is written only once the unpack has committed.
+      const written = await t.until(async () => JSON.parse(await t.text('R14/Native/metadata.json')).title.english === 'Native, edited'
+        && !!JSON.parse(await t.text('R14/Native/.shiori/gallery.json')).generation);
       const stat = await t.raw('galleries', gid);
       return { written, dir: stat.dir, packed: stat.packed ?? null, top: await t.ls('R14'), images: await t.ls('R14/Native/images'), translated: await t.ls('R14/Native/translated'),
         p3: (await api.pages.blob(gid, 3))?.size };
@@ -1141,6 +1144,7 @@ test('F10: a drawn PDF whose file changed is drawn again: its old pages read unt
         translated: await translatedOf(), waiting: (await api.folders.pdfsWaiting()).length,
         marker: source.rendered.pages === 2 && source.rendered.fingerprint === source.fingerprint };
       await t.sleep(300);
+      await api.folders.settle();   // the old page's file is deleted once its replacement is published
       return { had, drawn, changed, meanwhile, sizes: [first.size, second.size, third.size], after, again: await api.folders.scan(id),
         reread: (await api.pages.blob(w.gid, 1))?.size, images: (await t.ls(`F10/.shiori/linked/${w.gid}/images`)).length };
     }, PDF);

@@ -124,15 +124,16 @@ test('R06: a removal counts a gallery saved only once its descriptions were writ
   await library.metaPut({ ...(await library.metaGet(gid)), title: title('Index Title') });
   await library.files.describe(gid);
   assert.equal(library.files._row(gid).pending, 0, 'nothing waiting by its flags');
-  // The folder's description drifted from the index, and rewriting it fails.
+  // The folder lost what it was published with (its manifest, format v2), and publishing it again fails.
   const meta = path.join(folderOf(library, gid), 'metadata.json');
+  fs.rmSync(path.join(folderOf(library, gid), '.shiori', 'gallery.json'));
   fs.writeFileSync(meta, JSON.stringify({ ...JSON.parse(fs.readFileSync(meta, 'utf8')), title: title('OUTDATED ON DISK') }));
   // A series whose series.json can't be written.
   const a = await gallery(library, 'Saga One'), b = await gallery(library, 'Saga Two');
   await library.seriesCommand('write', a, [{ id: a, title: 'Ch 1' }, { id: b, title: 'Ch 2' }], { seriesTitle: title('Saga') });
   for (const g of [a, b]) await library.files.settle(g);
   await library.folderSetDefault(library.primaryId);
-  const restore = inject(t, 'rename', (from, to) => to.endsWith('metadata.json') && to.includes('Saved Already') || to.endsWith('series.json'), 'EBUSY', { promises: true });
+  const restore = inject(t, 'rename', (from, to) => to.endsWith('gallery.json') && to.includes('Saved Already') || to.endsWith('series.json'), 'EBUSY', { promises: true });
   const heard = heardJobs(library);
   await library.folderRemove(id);
   await settled(library, id);
@@ -630,27 +631,33 @@ test('F02: a removal\'s move into a folder hidden or removed while it is copied 
   }
 });
 
-test('F03: a picture that can\'t take its place as it commits is read from where it was written, placed later, and a removal keeps the folder until it is', async (t) => {
+// F03 and T06, format v2: a picture of the gallery's own is written under the name it keeps (a new one
+// beside the file the folder's generation names), and no rename into place follows its commit — so
+// nothing can fail or be lost there, and nothing records a picture still owed to its place. With every
+// rename in its folder refused, the new translation is in the folder, the removal finds the folder
+// holding everything, and the folder read back gives the new translation.
+test('F03, T06: a picture is written under the name it keeps, with no rename after its commit: a removal finds it in its folder', async (t) => {
   const { library, other } = await open(t);
   const { id } = await library.folderAdd(other);
   await library.folderSetDefault(id);
   const gid = await gallery(library, 'Translated');
   const at = { galleryId: gid, pageNum: 1 };
   await library.putTranslatedPage(at, png(9), null);
+  await library.files.flush();
   await library.folderSetDefault(library.primaryId);
-  const final = path.join(other, 'Translated', 'translated', '0001.png');
-  const restore = inject(t, 'renameSync', (from, to) => from.endsWith('.shiori-new') && to === final, 'EACCES');
+  const restore = inject(t, 'renameSync', (from, to) => to.includes(path.join(other, 'Translated', 'translated')), 'EACCES');
   await library.putTranslatedPage(at, png(10), null);
-  assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1, 'translated')), [...pngBytes(10)], 'read from where it was written');
-  const heard = heardJobs(library);
+  const name = JSON.parse(library._pageRow(gid, 1).record).translated.$own;
+  assert.match(name, /^translated\/0001-[0-9a-f]{10}\.png$/, 'beside the one its folder\'s generation names');
+  assert.deepEqual([...fs.readFileSync(path.join(other, 'Translated', ...name.split('/')))], [...pngBytes(10)], 'in its folder at once');
+  assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1, 'translated')), [...pngBytes(10)]);
   await library.folderRemove(id);
   await settled(library, id);
-  assert.deepEqual([heard.at(-1).errorKey, heard.at(-1).unsaved, rootRow(library, id)?.state], ['lf.task_kept', 1, 'shown'], 'kept: its folder lacks the picture');
   restore();
-  await library.folderRemove(id);
-  await settled(library, id);
-  assert.equal(rootRow(library, id), undefined, 'forgotten once it is in its place');
-  assert.deepEqual([...fs.readFileSync(final)], [...pngBytes(10)]);
+  assert.equal(rootRow(library, id), undefined, 'forgotten: its folder has everything');
+  const back = (await library.folderAdd(other)).id;
+  await library.folderScan(back);
+  assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1, 'translated')), [...pngBytes(10)], 'read back: the new translation');
 });
 
 test('F12: a linked gallery deleted while its note can\'t be written stays removed: no check adds its source again, and the note is written later', async (t) => {

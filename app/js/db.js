@@ -7,7 +7,8 @@ import { normalizeTitle, migrateTitle } from './titles.js';
 import { imageToBlob, imageToDataUrl } from './image-util.js';
 import { isSeriesMeta, effectiveTagsOf, LANG_NAME_TO_CODE, DERIVED_FIELDS, uploadDateSeconds } from './gallery-model.js';
 import { translatedImage } from './page-image.js';
-import { galleryFiles, layoutPath, layoutOf, extOfType, originalExt, galleryName, DESCRIPTION_FILES, descriptionStamp } from './storage/gallery-files.js';
+import { galleryFiles, layoutPath, layoutOf, extOfType, originalExt, galleryName, DESCRIPTION_FILES } from './storage/gallery-files.js';
+import { slotFiles, tokenOf, generationOf } from './storage/gallery-manifest.js';
 import { exportSize } from './gallery-export.js';
 import * as folderFiles from './storage/folder-store-web.js';
 import { OWNER_FILE, readClaim, access, nextClaim, claimText } from './storage/folder-owner.js';
@@ -95,17 +96,18 @@ function scheduleGallerySize(galleryId) {
 // translations, study data, snapshots, covers and metadata — `size` the whole, `origSize` the
 // original pages. Always recomputed from what is stored, never adjusted by deltas, so it cannot
 // drift. Returns whether it changed. Every change to a gallery comes here (publishFeed,
-// scheduleGallerySize), so one kept in a folder has its descriptions written there soon after
-// (_describeSoon) — the change itself marked it as not written there yet (_logIn).
+// scheduleGallerySize), so one kept in a folder has what it changed published there soon after
+// (_describeSoon) — the change itself marked it as not published there yet (_logIn).
 export async function refreshGallerySize(galleryId) {
   const gid = String(galleryId);
   const db = await openDB();
   const stored = await new Promise((resolve, reject) => {
-    const tx = _tx(db, [STORE, META_STORE, COVER_STORE], 'readonly');
+    const tx = _tx(db, [STORE, META_STORE, COVER_STORE, UNDESCRIBED_STORE], 'readonly');
     const records = tx.objectStore(STORE).index('galleryId').getAll(IDBKeyRange.only(gid));
     const meta = tx.objectStore(META_STORE).get(gid);
     const cover = tx.objectStore(COVER_STORE).get(gid);
-    tx.oncomplete = () => resolve({ records: records.result || [], meta: meta.result || null, cover: cover.result || null });
+    const mark = tx.objectStore(UNDESCRIBED_STORE).get(gid);
+    tx.oncomplete = () => resolve({ records: records.result || [], meta: meta.result || null, cover: cover.result || null, marked: !!mark.result });
     tx.onerror = () => reject(_txError(tx));
   });
   const { total, original } = exportSize(galleryFiles({ meta: stored.meta, records: _numbered(stored.records),
@@ -126,7 +128,7 @@ export async function refreshGallerySize(galleryId) {
     tx.onerror = () => reject(_txError(tx));
   });
   if (stat && _medianPageStale(stat, stored.records)) scheduleMedianPage(gid);
-  if (stat?.folder) _describeSoon(gid);   // its folder's descriptions follow
+  if (stat?.folder && stored.marked) _describeSoon(gid);   // what its folder lacks is published there soon
   if (!changed) return false;
   if (changed.parentId) scheduleSeriesAggregate(changed.parentId);
   if (changed.chapterCount != null) scheduleSeriesAggregate(gid);
@@ -489,7 +491,9 @@ const REF = '$blob';
 // and never written or deleted — `zip` when `$path` is an entry of the archive `dir`).
 const _isPath = (v) => v != null && typeof v === 'object' && typeof v.$path === 'string';
 const _isRef = (v) => v != null && typeof v === 'object' && (typeof v[REF] === 'string' || typeof v.$path === 'string');
-const _pathKey = (ref) => `file:${JSON.stringify([ref.folder, ref.dir, ref.$path])}`;
+// A file's id: where it is, and the size and modification time it was recorded with (a reference is
+// never changed once made, so a file keeps its id; deleting it later checks them: principle 4).
+const _pathKey = (ref) => `file:${JSON.stringify([ref.folder, ref.dir, ref.$path, ref.size ?? null, ref.mtime ?? null])}`;
 const _refId = (v) => (typeof v[REF] === 'string' ? v[REF] : _pathKey(v));
 const _stored = new WeakMap();   // a Blob read back from BLOB_STORE → its id
 
@@ -609,14 +613,14 @@ const _loadCovers = (tx, recs) => _loadBlobs(tx, recs, COVER);
 // `epoch` the claim's counter this library last held the folder at (folder-owner.js). A gallery kept
 // in a folder says so on its stat record: `folder` (the folder's id) and `dir` (its own folder in it,
 // reserved and bound to it when its first picture arrives: _reserveDir). Its records refer to a
-// picture there by { $path, folder, dir, size, type } where an image in BLOB_STORE has { $blob }:
+// picture there by { $path, folder, dir, size, type, mtime } where an image in BLOB_STORE has { $blob }:
 // `$path` is where the gallery format puts it (gallery-files.js layoutPath — or that name with a
 // random part, while a file had the layout name: no write goes over a file a record refers to), so a
 // gallery's folder reads like an unzipped export of it — and the gallery's descriptions
-// (metadata.json, image_records.json…) are kept beside its pictures a moment after it changes. Cover
-// thumbnails stay in BLOB_STORE, being a cache. A write brings its pictures to the folder before its
-// transaction and refers to them there; files no record refers to any more go once it has committed
-// (the commit protocol: _writing). A context that may not write to the folder (permission not granted
+// (metadata.json, image_records.json…) and its manifest are published beside its pictures a moment
+// after it changes (_describe). Cover thumbnails stay in BLOB_STORE, being a cache. A write brings its
+// pictures to the folder before its transaction and refers to them there; files no record refers to
+// any more go once a publication no longer naming them has committed (the commit protocol: _writing). A context that may not write to the folder (permission not granted
 // this visit, another app's claim, the folder hidden) keeps the pictures in BLOB_STORE meanwhile and
 // marks the gallery `spilled`; a window that may moves them out (settleFolders). A gallery read from
 // an archive in the gallery format is kept in it (`packed`), its records referring to its entries,
@@ -890,7 +894,7 @@ async function _place(home, slots, w) {
       left = true;
       continue;
     }
-    const ref = { $path: written.path, folder: home.folder, dir: home.dir, size: blob.size, type: blob.type };
+    const ref = { $path: written.path, folder: home.folder, dir: home.dir, size: blob.size, type: blob.type, mtime: written.file.lastModified };
     w.made.push({ folder: home.folder, root: home.root, path: `${home.dir}/${written.path}`, blob, file: written.file });
     _fileOf.set(written.file, ref);
     _fileOf.set(blob, ref);
@@ -918,8 +922,8 @@ function _noteHomeIn(tx, gid, home, left) {
 // (folderFiles.withLock shiori:gallery:<gid> — across every tab and the service worker). Its pictures
 // are written to the gallery's folder first, each under a name no file has (_place; a folder of its
 // own reserved first when it has none: _home); then its records commit, referring to them — `fn` sets
-// `w.committed` once its transaction has — and the files they referred to before are deleted
-// (_unlinkLater). What it wrote (`w.made`) is deleted should its records not commit, or commit without
+// `w.committed` once its transaction has — and the files they referred to before retire, deleted after
+// the gallery's next publication (_unlinkLater). What it wrote (`w.made`) is deleted should its records not commit, or commit without
 // them (`w.kept` false: the page went meanwhile, its translation was replaced). So a record never
 // refers to bytes another write put there, and no two writes to one gallery interleave (a page stored
 // while the gallery moves, two tabs, a page and the service worker).
@@ -985,15 +989,28 @@ async function _readEntry(folder, root, path, name, type) {
 // `tx`'s completion, its records' files read.
 const _completed = (tx, value) => _withFiles(tx).then(() => value);
 
-// Files let go in `tx`, deleted once it has committed — unless it only forgets them (`_keepFiles`:
-// a folder removed from the library keeps its files) — through the write gate (as `tx._work` may
-// write): a folder this context may not write to keeps them. A gallery that leaves its folder takes
-// its own folder there too (`_goneLater`, `gid` the gallery's: _ownsDir). A linked one (`linked`, its
-// source) leaves a note that its source was removed, written by the same transaction (REMOVED_NOTE),
-// so no check of the folder adds it again — its overlay goes once the note is in removed.json
-// (_publishRemoved).
+// Files let go in `tx` — unless it only forgets them (`_keepFiles`: a folder removed from the library
+// keeps its files) — retire: noted by the same transaction (RETIRING, with the size and modification
+// time each was recorded with), and deleted once a publication of their gallery no longer naming them
+// has committed (_describe), only while each is still as written (principle 4). A gallery that leaves
+// its folder takes its own folder there too, once `tx` has committed, through the write gate (as
+// `tx._work` may write: a folder this context may not write to keeps it) (`_goneLater`, `gid` the
+// gallery's: _ownsDir). A linked one (`linked`, its source) leaves a note that its source was
+// removed, written by the same transaction (REMOVED_NOTE), so no check of the folder adds it again — its
+// overlay goes once the note is in removed.json (_publishRemoved).
+const RETIRING = '$retiring:';
+const _retiringPrefix = (folder, dir) => `${RETIRING}${folder}\u0000${dir}\u0000`;
 function _unlinkLater(tx, key) {
-  _afterFiles(tx).files.push(key);
+  if (tx._keepFiles) return;
+  const [folder, dir, path, size, mtime] = JSON.parse(key.slice('file:'.length));
+  tx.objectStore(FOLDER_STORE).put({ id: `${_retiringPrefix(folder, dir)}${path}`, folder, dir, path, size, mtime });
+}
+// The files of gallery folder `dir` in folder `folder` waiting to retire (_unlinkLater), as `tx` (which
+// holds FOLDER_STORE) has them, passed to `found`.
+function _retiringIn(tx, folder, dir, found) {
+  const prefix = _retiringPrefix(folder, dir);
+  const req = tx.objectStore(FOLDER_STORE).getAll(IDBKeyRange.bound(prefix, `${prefix}￿`));
+  req.onsuccess = () => found(req.result || []);
 }
 function _goneLater(tx, folder, dir, gid, linked = null) {
   if (!folder || !dir) return;
@@ -1003,7 +1020,7 @@ function _goneLater(tx, folder, dir, gid, linked = null) {
 // `tx._unlinked` settles once they are gone (at once for a transaction that didn't commit).
 function _afterFiles(tx) {
   if (!tx._afterFiles) {
-    const after = tx._afterFiles = { files: [], dirs: [] };
+    const after = tx._afterFiles = { dirs: [] };
     let done;
     tx._unlinked = new Promise((resolve) => { done = resolve; });
     tx.addEventListener('complete', () => { (tx._keepFiles ? Promise.resolve() : _unlink(after, tx._work)).catch(() => {}).then(done); });
@@ -1011,20 +1028,27 @@ function _afterFiles(tx) {
   }
   return tx._afterFiles;
 }
-async function _unlink({ files, dirs }, work) {
-  const gone = new Set(dirs.map(({ folder, dir }) => `${folder}\0${dir}`));
-  for (const key of files) {
-    const [folder, dir, path] = JSON.parse(key.slice('file:'.length));
-    if (gone.has(`${folder}\0${dir}`)) continue;
-    const root = await _rootOf(folder, { work }).catch(() => null);
-    if (root) await folderFiles.removeFile(folder, root, `${dir}/${path}`).catch(() => {});
-  }
+async function _unlink({ dirs }, work) {
   for (const { folder, dir, gid, linked } of dirs) {
+    await _forgetRetiring(folder, dir).catch(() => {});   // they go with it, or stay with what is left of it
     if (linked) continue;   // its overlay: once its note is written (below)
     const root = await _rootOf(folder, { work }).catch(() => null);
     if (root && await _ownsDir(folder, root, dir, gid)) await folderFiles.removeDir(folder, root, dir).catch(() => {});
   }
   for (const folder of new Set(dirs.filter(d => d.linked).map(d => d.folder))) await _publishRemoved(folder, work);
+}
+// The notes of files of gallery folder `dir` (in folder `folder`; every gallery folder's there, with no
+// `dir`: the folder forgotten) waiting to retire, forgotten (only those of `paths`, when given).
+async function _forgetRetiring(folder, dir = null, paths = null) {
+  const db = await openDB();
+  await new Promise((resolve, reject) => {
+    const tx = _tx(db, FOLDER_STORE, 'readwrite');
+    const prefix = dir == null ? `${RETIRING}${folder}\u0000` : _retiringPrefix(folder, dir);
+    if (paths) for (const p of paths) tx.objectStore(FOLDER_STORE).delete(`${prefix}${p}`);
+    else tx.objectStore(FOLDER_STORE).delete(IDBKeyRange.bound(prefix, `${prefix}￿`));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(_txError(tx));
+  });
 }
 
 // ── Notes of removed sources (linked-source.js removed.json) ──
@@ -1073,85 +1097,120 @@ async function _publishRemoved(id, work = null) {
   }).catch(() => false);
 }
 
-// ── A gallery's descriptions in its folder ──
-// What the gallery format describes a gallery with, beside its pictures, so its folder can be read
-// back (adding the folder to a library again): written a moment after the gallery last changed, and
-// only what changed. A change to a gallery kept in a folder marks it in its own transaction
-// (UNDESCRIBED_STORE, _logIn); describing it clears the mark only when no change came since. The
-// stat record keeps a stamp of the descriptions as last written or read here (`stamp`,
-// gallery-files.js descriptionStamp): a check of the folder tells by it whether another app changed
-// them since (folderScan reads such a gallery again).
+// ── A gallery's publication in its folder ──
+// What a gallery's folder holds of it (format v2, storage/gallery-manifest.js): its saved state, one
+// generation, committed by one atomic write of its manifest, which names every picture's file and its
+// descriptions (stored by their content), and the descriptions under their usual names (metadata.json,
+// image_records.json…) for people, other tools and older versions. A change to a gallery kept in a
+// folder marks it in its own transaction (UNDESCRIBED_STORE, _logIn) — committed — and is published a
+// moment after the gallery last changed (D12: about 5 s; at once every PUBLISH_EVERY changes) —
+// published; publishing it clears the mark only when no change came since. The stat record keeps the
+// token of the generation last published or read here (`stamp`, gallery-manifest.js tokenOf; a v1
+// folder's, its descriptions' stamp): a check of the folder tells by it whether another app published
+// one since (folderScan reads such a gallery again, D4).
 const DESCRIPTIONS = DESCRIPTION_FILES;
-const DESCRIBE_AFTER_MS = 4000;
+const DESCRIBE_AFTER_MS = 5000;
+const PUBLISH_EVERY = 20;
+// The publication of changes committed before a folder was hidden carries on there (folder-lifecycle.js
+// writeAllowed 'publish', plan §3.4): the folder work a publication runs as, any folder's.
+const PUBLISHING = { kind: 'publish', folder: '*' };
 const _describeTimers = new Map();
+const _changesSince = new Map();   // gid → changes since its last publication
 function _describeSoon(gid) {
   const id = String(gid);
   clearTimeout(_describeTimers.get(id));
-  _describeTimers.set(id, setTimeout(() => { _describeTimers.delete(id); _describe(id).catch(() => {}); }, DESCRIBE_AFTER_MS));
+  const n = (_changesSince.get(id) || 0) + 1;
+  _changesSince.set(id, n);
+  _describeTimers.set(id, setTimeout(() => { _describeTimers.delete(id); _describe(id).catch(() => {}); }, n >= PUBLISH_EVERY ? 0 : DESCRIBE_AFTER_MS));
 }
-// Gallery `gid`'s describe due in a moment let go of (its caller describes it now).
+// Gallery `gid`'s publication due in a moment let go of (its caller publishes it now).
 function _cancelDescribe(gid) {
   clearTimeout(_describeTimers.get(gid));
   _describeTimers.delete(gid);
 }
-// Gallery `gid`'s descriptions as this library holds it, read in one transaction with its mark:
-// { stat, wanted: Map name → text (a description it has none of is missing), rev (its mark's: the
-// revision of its last change not written to its folder yet; null: none) }, or null for a gallery
-// kept in no folder of its own. They name the file each picture is in where it isn't the layout name
-// (a picture written while a file had that name), and a linked gallery's page the source picture it
+// Gallery `gid` as this library holds it, read in one transaction with its mark, for its publication:
+// { stat, wanted: Map name → its descriptions' text (a description it has none of is missing), next
+// (its next generation's manifest but the descriptions, gallery-manifest.js: every slot's file, the
+// size and time each was recorded written with, a linked page's source picture), rev (its mark's: the
+// revision of its last change not published yet; null: none), retiring (its files waiting to retire,
+// _unlinkLater) }, or null for a gallery kept in no folder of its own. The descriptions name the file
+// each picture is in where it isn't the layout name, and a linked gallery's page the source picture it
 // shows (gallery-files.js galleryFiles `fileOf`, `sourceOf`).
 const _sourcePicture = (rec) => (_isPath(rec.blob) && rec.blob.ro ? { name: rec.blob.$path, size: rec.blob.size } : null);
 async function _wantedDescriptions(gid) {
   const db = await openDB();
   const read = await new Promise((resolve, reject) => {
-    const tx = _tx(db, [STORE, META_STORE, GALLERY_STORE, COVER_STORE, UNDESCRIBED_STORE], 'readonly');
+    const tx = _tx(db, [STORE, META_STORE, GALLERY_STORE, COVER_STORE, UNDESCRIBED_STORE, FOLDER_STORE], 'readonly');
     const stat = tx.objectStore(GALLERY_STORE).get(gid);
     const meta = tx.objectStore(META_STORE).get(gid);
     const pages = tx.objectStore(STORE).index('galleryId').getAll(IDBKeyRange.only(gid));
     const cover = tx.objectStore(COVER_STORE).get(gid);
     const mark = tx.objectStore(UNDESCRIBED_STORE).get(gid);
-    tx.oncomplete = () => resolve({ stat: stat.result, meta: meta.result, pages: pages.result || [], cover: cover.result, rev: mark.result?.rev ?? null });
+    let retiring = [];
+    stat.onsuccess = () => { if (stat.result?.folder && stat.result.dir) _retiringIn(tx, stat.result.folder, stat.result.dir, (found) => { retiring = found; }); };
+    tx.oncomplete = () => resolve({ stat: stat.result, meta: meta.result, pages: pages.result || [], cover: cover.result, rev: mark.result?.rev ?? null, retiring });
     tx.onerror = () => reject(_txError(tx));
   });
   const { stat } = read;
   if (!stat?.folder || !stat.dir || !read.meta) return null;
   const decode = new TextDecoder();
   const fileOf = (src) => (_isPath(src) && !src.ro && src.folder === stat.folder && src.dir === stat.dir ? src.$path : null);
-  const wanted = new Map(galleryFiles({ meta: read.meta, records: _numbered(read.pages),
-    covers: { gallery: read.cover?.cover, series: read.cover?.seriesCover } }, '', { fileOf, sourceOf: _sourcePicture })
+  const records = _numbered(read.pages);
+  const covers = { gallery: read.cover?.cover, series: read.cover?.seriesCover };
+  const wanted = new Map(galleryFiles({ meta: read.meta, records, covers }, '', { fileOf, sourceOf: _sourcePicture })
     .filter(f => DESCRIPTIONS.includes(f.name)).map(f => [f.name, decode.decode(f.source)]));
-  return { stat, wanted, rev: read.rev };
+  const sizes = {}, sources = {};
+  for (const rec of records) {
+    for (const [obj, key] of PAGE.slots(rec)) { const v = obj[key]; if (fileOf(v)) sizes[v.$path] = [v.size ?? 0, v.mtime ?? 0]; }
+    const source = _sourcePicture(rec);
+    if (source && rec.pageNum != null) sources[rec.pageNum] = source;
+  }
+  for (const v of [covers.gallery, covers.series]) if (fileOf(v)) sizes[v.$path] = [v.size ?? 0, v.mtime ?? 0];
+  const next = { format: 'shiori-gallery', version: 2, galleryId: String(gid), generation: generationOf(stat.stamp) + 1, writer: await _me(),
+    files: slotFiles({ records, covers }, fileOf), sizes, ...(Object.keys(sources).length ? { sources } : {}) };
+  return { stat, wanted, next, rev: read.rev, retiring: read.retiring };
 }
 const _textsOf = (wanted) => Object.fromEntries(DESCRIPTIONS.map(name => [name, wanted.get(name) ?? null]));
-// Gallery `gid`'s descriptions written to its folder, under the gallery's lock (no write of its
-// pictures interleaves): each that differs written, all of them read back to check, then — in one
-// transaction — its mark cleared if no change came since the descriptions were read (a later one is
-// written by the next describe) and its stamp kept. Resolves { ok }: whether its folder now describes
-// it as the library had it — not when it is kept in no folder of its own, nor in one this context may
-// not write to (the gate; `work` a removal's own, for its write-back): its mark stays, for
-// settleFolders or the removal. A gallery kept in an archive (`packed`) is described there as it was
-// read until it changes; changed, it is unpacked first (_unpackLocked), then described in its folder.
+// Gallery `gid` published in its folder, under the gallery's lock (no write of its pictures
+// interleaves), through the folder store (storage/folder-store-web.js: the folder opened to publish —
+// or for `work`, a removal's own write-back — and the gallery's directory there): its generation
+// committed by one manifest written whole, then — in one transaction — its mark cleared if no change
+// came since it was read (a later one is published next time) and the token it was published at kept;
+// then the files that waited for this publication retire, each deleted only while still as written
+// (a note stays only for one that couldn't be deleted now). Resolves { ok }: whether its folder now has
+// what the library has of it — not when it is kept in no folder of its own, nor in one this context may
+// not write to (the gate): its mark stays, for settleFolders or the removal. A gallery with nothing
+// waiting (a removal's write-back) whose folder has a generation already writes nothing (another app's
+// since is read by a check, D4). A gallery kept in an archive (`packed`) is described there as it was
+// read until it changes; changed, it is unpacked first (_unpackLocked), then published in its folder.
 async function _describe(gid, { work = null } = {}) {
+  const as = work ?? PUBLISHING;
   return folderFiles.withLock(`shiori:gallery:${gid}`, async () => {
+    _cancelDescribe(String(gid));   // this publication is that one: a change from now on asks for the next
     let read = await _wantedDescriptions(gid);
     if (read?.stat.packed && read.rev == null) return { ok: true };   // its archive describes it as read
-    const root = read && await _rootOf(read.stat.folder, { work });
+    const root = read && await _rootOf(read.stat.folder, { work: as });
     if (root && read.stat.packed) {
-      await _unpackLocked(gid, work);
+      await _unpackLocked(gid, as);
       read = await _wantedDescriptions(gid);
       if (!read || read.stat.packed) return { ok: false };
     }
     if (!root || !(await _mayWriteDir(read.stat.folder, root, read.stat.dir, gid))) return { ok: false };
-    const { stat, wanted, rev } = read;
-    const have = async (name) => folderFiles.readText(stat.folder, root, `${stat.dir}/${name}`);
-    for (const name of DESCRIPTIONS) {
-      const want = wanted.get(name) ?? null;
-      if (want === await have(name).catch(() => undefined)) continue;
-      if (want == null) await folderFiles.removeFile(stat.folder, root, `${stat.dir}/${name}`);
-      else await folderFiles.writeFile(stat.folder, root, `${stat.dir}/${name}`, want);
+    const { stat, wanted, next, rev, retiring } = read;
+    const opened = await folderStore.open({ id: stat.folder, location: root }, { purpose: as.kind === 'removal' ? 'removal' : 'publish' });
+    if (opened.status !== 'ok') return { ok: false };
+    const found = await opened.root.gallery(stat.dir, gid);
+    if (found.kind !== 'ok') return { ok: false };
+    if (rev == null && stat.stamp && (await found.dir.manifest()).kind === 'ok') return { ok: true };
+    const { generation } = await found.dir.publish({ manifest: next, descriptions: _textsOf(wanted) });
+    await _described(gid, rev, tokenOf({ ...next, generation, descriptions: {} }));
+    _changesSince.delete(String(gid));
+    if (retiring.length) {
+      const { kept } = await found.dir.deleteNamed(retiring.map(n => ({ name: n.path, size: n.size, mtime: n.mtime })));
+      const again = new Set(kept.filter(k => k.why === 'unreadable').map(k => k.name));
+      for (const k of kept) if (k.why === 'changed') console.warn(`[shiori] ${stat.dir}/${k.name} changed since Shiori wrote it: left as it is`);
+      await _forgetRetiring(stat.folder, stat.dir, retiring.map(n => n.path).filter(p => !again.has(p))).catch(() => {});
     }
-    for (const name of DESCRIPTIONS) if (await have(name) !== (wanted.get(name) ?? null)) return { ok: false };
-    await _described(gid, rev, descriptionStamp(_textsOf(wanted)));
     return { ok: true };
   });
 }
@@ -1357,10 +1416,11 @@ async function _relocateOnce(gid, to, tick, work, w) {
   return true;
 }
 
-// What waits in this browser for the library's folders moved out to them, and the descriptions their
-// folders lack written there — for every folder this context may write to now (the write gate: a
-// hidden folder waits until it is shown, one another app holds until it is taken back). Resolves how
-// many galleries had pictures moved out.
+// What waits in this browser for the library's folders moved out to them, and the changes their folders
+// lack published there — for every folder this context may write to now (the write gate: pictures for a
+// hidden folder wait until it is shown, but what was committed before it was hidden is published there
+// too, plan §3.4; one another app holds waits until it is taken back). Resolves how many galleries had
+// pictures moved out.
 export async function settleFolders() {
   const { byId } = await _folders();
   if (!byId.size) return 0;
@@ -1378,7 +1438,7 @@ export async function settleFolders() {
   }
   for (const gid of await _marked()) {
     const stat = await galleryGet(gid);
-    if (!byId.has(stat?.folder) || !(await _usable(stat.folder))) continue;
+    if (!byId.has(stat?.folder) || !(await _usable(stat.folder, { work: PUBLISHING }))) continue;
     await _describe(gid).catch(() => {});
   }
   return settled;
@@ -1460,7 +1520,7 @@ const _folderLibrary = createFolderLibrary({
   galleryGet, galleryGetAll, metaGet, transferIds, nextGalleryId, rebuildGalleryEntry, refreshSeriesAggregate, putCoverPatch,
   seriesWrite: (...args) => _seriesCommand('write', args),
   // the places, the write gate, the claims
-  folders: _folders, folderById: _folderById, folderWrite: _folderWrite, forgetGrant: (id) => _grants.delete(id),
+  folders: _folders, folderById: _folderById, folderWrite: _folderWrite, forgetGrant: (id) => _grants.delete(id), forgetRetiring: _forgetRetiring,
   placeOf: _placeOf, placeKey: _placeKey, access: _access, rootOf: _rootOf, usable: _usable, readRootOf: _readRootOf,
   removedNotes: _removedNotes, publishRemoved: _publishRemoved,
   me: _me, myLabel: _myLabel, readClaim: _readClaim, writeClaim: _writeClaim, noteEpoch: _noteEpoch, randomId: _randomId,

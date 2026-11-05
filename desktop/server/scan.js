@@ -11,20 +11,20 @@
 // index rebuilt from its files, its translations and study layers picked up where they lie), an
 // earlier version's described folder of pictures, a native archive, a series export — or not, and
 // then linked (linked.js): read where it lies, never written. Shiori writes, tidies and deletes only
-// in its own. Galleries it keeps whose descriptions another app changed since are read again (their
-// own changes not yet written win: localChanges). Leftovers of an interrupted write (temporary files,
-// staged pages, cache files and pictures nothing refers to) go, once old enough that no write under
-// way can be making them. What can't be read or joined is reported (`problems`), never passed over
-// in silence.
+// in its own. Galleries it keeps that another app published anew since are read again (their own
+// changes not yet published win: localChanges, and the case is reported). Leftovers of an interrupted
+// write (temporary files, staged pages, cache files) go, once old enough that no write under way can
+// be making them; pictures nothing refers to in a gallery's folder are reported, never deleted (D16).
+// What can't be read or joined is reported (`problems`), never passed over in silence.
 //
 // A known path costs one existence check (and its descriptions, to catch up); only files the index
 // doesn't know are opened.
 
-import { disk } from './folder-store.js';
+import { disk, writeFlushed, loadGallery, manifestIn } from './folder-store.js';
 import path from 'node:path';
 import { readDirectory, readEntry } from './zip.js';
-import { files as layout, linked as linkedSource, content } from './shared.js';
-import { descriptionStampOf, writeFlushed, classifyAt, ownedBy, ifMissing } from './files.js';
+import { files as layout, linked as linkedSource, content, contract, manifest as format } from './shared.js';
+import { descriptionStampOf, classifyAt, ownedBy, ifMissing } from './files.js';
 import { linkRoot, adoptLinked } from './linked.js';
 
 const IMAGE = /\.(jpe?g|png|webp|gif|avif)$/i;
@@ -36,8 +36,6 @@ const MAX_DEPTH = 6;
 // A moment for the app's process to answer its windows, every so many galleries.
 const breathe = () => new Promise((resolve) => setImmediate(resolve));
 const CHUNK = 20;
-// The folders of the gallery format a gallery's pictures made from its pages live in.
-const DERIVED = ['translated', 'study/bg', 'study/text', 'pipeline', 'covers'];
 // The temporary files and folders the app writes beside what they become: `<name>.shiori-tmp` (a
 // file replaced whole, a gallery moved, unpacked or archived), `<name>.<hex>.shiori-new` (a picture
 // written beside its folder's), and -old.
@@ -54,19 +52,25 @@ const stale = async (file, age) => {
 };
 // Why a file couldn't be read, for `problems`: it leads out of its library folder ('outside': files.js
 // physicallyIn), the disk wouldn't ('unreadable'), or what it holds isn't what it should be ('corrupt').
-const unreadable = (e) => (e?.reason === 'outside' ? 'outside' : e?.syscall ? 'unreadable' : 'corrupt');
+const unreadable = (e) => (e?.reason ?? (e?.syscall ? 'unreadable' : 'corrupt'));
+// A gallery's files read back (gallery-manifest.js readGallery) that can't be taken as they are: its
+// manifest or a description damaged ('corrupt', T08), or a file they name not there ('missing-file',
+// T09) — thrown with that reason, so the gallery is reported and what the index had of it kept.
+function readable(read, at) {
+  if (read.kind === 'ok') return read;
+  throw Object.assign(new Error(`${at}: ${read.kind === 'corrupt' ? read.detail : `${read.files.join(', ')} not there`}`), { reason: read.kind });
+}
 
-// Whether gallery `gid` has changes of its own not yet written to its folder or overlay — pages or
-// pictures staged or not yet in their place, descriptions pending, an archive to unpack or being
-// written, a settle or a description under way — or no files at all: reading it again from its files
-// would lose them, so it isn't (the rule every re-read keeps, re-checked as it commits: "local changes
-// win").
+// Whether gallery `gid` has changes of its own not yet published in its folder or overlay — pages or
+// pictures staged, changes pending, an archive to unpack or being written, a settle or a publication
+// under way — or no files at all: reading it again from its files would lose them, so it isn't (the
+// rule every re-read keeps, re-checked as it commits: "local changes win").
 export function localChanges(library, gid) {
   const files = library.files;
   const id = String(gid);
   const row = files._row(id);
   return !row || !!row.pending || !!row.unpack || row.tail != null || files._staged(id).length > 0 || files._stagedOwn(id).length > 0
-    || files._unplaced(id).length > 0 || files._placing.has(id) || files._describing.has(id) || files._writing.has(id);
+    || files._placing.has(id) || files._describing.has(id) || files._writing.has(id);
 }
 
 // Every gallery of Shiori's own in library folder `root`, and what else it holds: { found: [{ rel,
@@ -109,22 +113,20 @@ async function findGalleries(root, { skip = new Set(), onTop = () => {}, stopped
   return { found, files, own };
 }
 
-// A found gallery read: { kind, described, pages, derived?, series?, entries? }. `kind` 'gallery' — its
-// description ({ id, meta, pages: [{ n, file, key, mediaId, cachedAt, record }] }, from its
+// A found gallery read: { kind, described, pages, derived?, series?, entries?, token? }. `kind` 'gallery'
+// — its description ({ id, meta, pages: [{ n, file, key, mediaId, cachedAt, record }] }, from its
 // metadata.json and image_records.json, or an earlier version's shiori.json), its page files ([{ name,
-// size }], in reading order) and, in the gallery format, what it holds beside its pages (`derived`:
-// readDerived); 'series' — a series export (`series`: its series.json, folder-content.js seriesOf);
+// size }], in reading order), in the gallery format what it holds beside its pages (`derived`:
+// derivedOf) and the token it was read at (gallery-manifest.js: its manifest's generation, or format
+// v1's stamp); 'series' — a series export (`series`: its series.json, folder-content.js seriesOf);
 // 'linked' — an archive that isn't Shiori's (linked.js). An archive's `entries`: its directory. Rejects
-// when any of it can't be read (F06): a gallery read in part would lose what it couldn't see.
+// when any of it can't be read (F06): a gallery read in part would lose what it couldn't see — or is
+// damaged, or misses a file it names (`reason` 'corrupt', 'missing-file': readable).
 async function readGallery(g) {
   const abs = g.abs;
   if (g.format === 'folder' && g.layout) {
-    const text = (name) => disk.readFile(path.join(abs, name), 'utf8').catch(ifMissing(null));
-    const records = parse(await text('image_records.json'));
-    const names = (await disk.readdir(path.join(abs, 'images')).catch(ifMissing([]))).filter(n => IMAGE.test(n)).map(n => `images/${n}`);
-    const pages = await Promise.all([...layout.folderPictures(names, { records }).pages].map(async ([n, name]) =>
-      ({ n, name, size: (await disk.stat(path.join(abs, ...name.split('/')))).size })));
-    return { kind: 'gallery', described: describedBy(parse(await text('metadata.json')), records, pages), pages, derived: await readDerived(abs) };
+    const { read, files } = await loadGallery(abs);
+    return formatRead(readable(read, g.rel), files);
   }
   if (g.format === 'folder') {
     const described = parse(await disk.readFile(path.join(abs, 'shiori.json'), 'utf8').catch(ifMissing(null)));
@@ -141,16 +143,23 @@ async function readGallery(g) {
       .map(([name, e]) => ({ name, size: e.size }));
     return { kind: 'gallery', described: parse(texts['shiori.json']), pages, entries: dir };
   }
-  const json = async (name) => (dir.get(name) ? parse(String(await readEntry(abs, dir.get(name)))) : null);
-  const records = await json('image_records.json');
-  const names = [...dir.keys()].filter(n => /^images\/[^/]+$/.test(n) && IMAGE.test(n));
-  const pages = [...layout.folderPictures(names, { records }).pages].map(([n, name]) => ({ n, name, size: dir.get(name).size }));
-  const files = new Map();
-  for (const [name, e] of dir) {
-    if (IMAGE.test(name) && DERIVED.includes(name.slice(0, name.lastIndexOf('/')))) files.set(name, { size: e.size, type: typeOf(name) });
-  }
-  return { kind: 'gallery', described: describedBy(parse(texts['metadata.json']), records, pages), pages,
-    derived: derivedOf(files, await json('study/bubbles.json'), await json('covers/manifest.json'), records), entries: dir };
+  return { ...formatRead(readable(await readArchive(abs, dir), g.rel), archivePictures(dir)), entries: dir };
+}
+// An archive in the gallery format read back (gallery-manifest.js readGallery over its entries: `dir`,
+// its directory).
+export const readArchive = (abs, dir) => format.readGallery({ area: '.shiori/', archive: true, files: archivePictures(dir),
+  text: async (name) => (dir.has(name) ? String(await readEntry(abs, dir.get(name))) : null) });
+// The pictures an archive's directory holds where the gallery format puts them: path → { size }.
+function archivePictures(dir) {
+  const out = new Map();
+  for (const [name, e] of dir) if (IMAGE.test(name) && format.PICTURE_DIRS.includes(name.slice(0, name.lastIndexOf('/')))) out.set(name, { size: e.size });
+  return out;
+}
+// A gallery in the gallery format as readGallery gives it, from its read (`read`, gallery-manifest.js
+// readGallery's 'ok') and the picture files it holds (`files`: path → { size, mtime? }).
+function formatRead(read, files) {
+  const pages = [...read.pictures.pages].map(([n, name]) => ({ n, name, size: files.get(name).size, mtime: files.get(name).mtime }));
+  return { kind: 'gallery', described: describedBy(read.meta, read.records, pages), pages, derived: derivedOf(files, read), token: read.token };
 }
 
 // A description from the gallery format's metadata.json and image_records.json: each page's record
@@ -207,7 +216,7 @@ async function unpackSeries(library, g) {
 // the walk ends once `stopped()`: what it found so far joins the library, and nothing is marked missing
 // (the rest wasn't looked at).
 export async function scanLibrary(library, { roots = library.activeRoots(), onProgress = () => {}, stopped = () => false } = {}) {
-  const out = { moved: [], missing: [], found: [], added: [], updated: [], removed: 0, problems: [], stopped: false };
+  const out = { moved: [], missing: [], found: [], added: [], updated: [], removed: 0, problems: [], unreferenced: [], stopped: false };
   const files = library.files;
   const isDir = (abs) => disk.stat(abs).then(st => st.isDirectory(), () => false);
   const reachable = [];
@@ -333,6 +342,7 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
       for (const g of chunk) { try { made.push(...join([g])); } catch { out.problems.push({ path: g.inRoot, reason: 'adopt-failed' }); } }
     }
     for (const [gid, g] of made) {
+      if (g.format === 'folder' && !g.layout) await files.toFormat(gid).catch(() => out.problems.push({ path: g.inRoot, reason: 'unreadable' }));
       await library.rebuildGalleryEntry(gid, { silent: true });
       const covers = coverPatch(g.read.derived);
       if (Object.keys(covers).length) library._tx(() => library._coverPatchIn(gid, covers));
@@ -365,49 +375,64 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   for (const row of kept) {
     if (stopped()) { out.stopped = true; break; }
     try {
-      if (await refreshGallery(library, row)) { out.updated.push(row.gid); changed.add(row.gid); }
+      if (files._legacy(row.gid)) await files.toFormat(row.gid);
+      if (await refreshGallery(library, row, out.problems)) { out.updated.push(row.gid); changed.add(row.gid); }
     } catch (e) { out.problems.push({ path: files._split(row.path).rest, reason: unreadable(e) }); }
     tick();
     if (done % CHUNK === 0) await breathe();
   }
   library._tidyLinks([...out.added, ...out.updated]);
   for (const gid of changed) library.publishFeed(gid);
-  out.removed += await removeOrphans(library);
+  out.removed += await removeOrphans(library, out.unreferenced);
   library.files.resume();   // galleries found again settle what waited for them
   return out;
 }
 
-// The descriptions gallery files `abs` hold (a folder, or an archive in the gallery format): name →
-// text (null for one it hasn't), for gallery-files.js descriptionStamp. Rejects when one can't be read.
-async function descriptionsAt(library, abs, format) {
-  const texts = {};
-  if (format === 'folder') {
-    for (const name of layout.DESCRIPTION_FILES) texts[name] = await disk.readFile(path.join(abs, ...name.split('/')), 'utf8').catch(ifMissing(null));
-    return texts;
+// The token gallery files `abs` were last published at (a folder, or an archive in the gallery format:
+// gallery-manifest.js tokenOf its manifest) and the gallery it names — or, format v1, its descriptions'
+// stamp and the gallery its metadata.json names: { token, id }. Rejects when one can't be read, or the
+// manifest is damaged (`reason` 'corrupt').
+async function tokenAt(library, abs, rowFormat, gid) {
+  let manifest, texts = {};
+  if (rowFormat === 'folder') {
+    manifest = await manifestIn(abs, gid);
+    if (manifest.kind === 'unreadable') throw Object.assign(new Error(manifest.error), { reason: 'unreadable' });
+    if (manifest.kind === 'missing') for (const name of layout.DESCRIPTION_FILES) texts[name] = await disk.readFile(path.join(abs, ...name.split('/')), 'utf8').catch(ifMissing(null));
+  } else {
+    const dir = await library.files._directory(abs);
+    const at = dir.get(content.MANIFEST_FILE);
+    manifest = at ? format.parseManifest(String(await readEntry(abs, at)), { galleryId: gid, archive: true }) : contract.MISSING;
+    if (!at) for (const name of layout.DESCRIPTION_FILES) texts[name] = dir.has(name) ? String(await readEntry(abs, dir.get(name))) : null;
   }
-  const dir = await library.files._directory(abs);
-  for (const name of layout.DESCRIPTION_FILES) texts[name] = dir.has(name) ? String(await readEntry(abs, dir.get(name))) : null;
-  return texts;
+  if (manifest.kind === 'corrupt') throw Object.assign(new Error(manifest.detail), { reason: 'corrupt' });
+  if (manifest.kind === 'ok') return { token: format.tokenOf(manifest.value), id: manifest.value.galleryId, texts: null };
+  return { token: layout.descriptionStamp(texts), id: content.galleryIdOf(texts['metadata.json']), texts };
 }
 
-// Gallery `row` (a folder or archive the index keeps) read again from its files when its descriptions
-// there changed since the library last wrote or read them — another app wrote to them — unless it has
-// changes of its own still to be written there (they win: localChanges, checked again as the change
-// commits), or its files no longer describe it. One stamped before stamps existed counts as changed only
-// when its descriptions differ from the index's. Resolves whether it was read again; rejects, its
-// records and stamp as they were, when any of its files can't be read (F06).
-async function refreshGallery(library, row) {
+// Gallery `row` (a folder or archive the index keeps) read again from its files when what they were
+// published at there changed since the library last published or read them (D4: another app
+// published a generation of it) — unless it has changes of its own still to be published there: they
+// win (localChanges, checked again as the change commits), and the case is reported (`changed-both`:
+// pushed to `problems`). One whose files no longer name it is left. A v1 folder stamped before stamps
+// existed counts as changed only when its descriptions differ from the index's. Resolves whether it was
+// read again; rejects, its records and token as they were, when any of its files can't be read (F06),
+// is damaged (T08) or misses a file it names (T09).
+async function refreshGallery(library, row, problems = []) {
   const files = library.files;
   const gid = row.gid;
-  if (localChanges(library, gid)) return false;
+  const busy = () => files._placing.has(gid) || files._describing.has(gid) || files._writing.has(gid);
+  if (busy()) return false;
   const abs = files._abs(row.path);
-  const texts = await descriptionsAt(library, abs, row.format);
-  if (content.galleryIdOf(texts['metadata.json']) !== gid) return false;
-  const stamp = layout.descriptionStamp(texts);
+  const at = await tokenAt(library, abs, row.format, gid);
+  if (at.id !== gid) return false;
   const had = library._s('SELECT stamp FROM stamps WHERE gid = ?').get(gid)?.stamp;
-  if (stamp === had) return false;
-  if (!had && descriptionStampOf(files._descriptions(gid)) === stamp) {
-    library._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(gid, stamp);
+  if (at.token === had) return false;
+  if (!had && at.texts && descriptionStampOf(files._descriptions(gid)) === at.token) {
+    library._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(gid, at.token);
+    return false;
+  }
+  if (localChanges(library, gid)) {
+    if (had && !busy()) problems.push({ path: files._split(row.path).rest, reason: 'changed-both' });
     return false;
   }
   const src = files.sourceOf(row);
@@ -421,7 +446,6 @@ async function refreshGallery(library, row) {
     files.keep.add(gid);
     try { library._deleteIn(gid); } finally { files.keep.delete(gid); }
     addGallery(library, gid, g);
-    library._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(gid, stamp);
     read = true;
   });
   if (!read) return false;
@@ -437,29 +461,16 @@ function setState(library, gid, state) {
   library._logIn(gid);
 }
 
-// The pictures a folder in the gallery format holds beside its pages, and its study index:
-// { files: Map rel → { size, type }, bubbles, pictures, covers }. Rejects when one of its folders or
-// files can't be read (one that isn't there holds nothing).
-export async function readDerived(abs) {
-  const files = new Map();
-  for (const sub of DERIVED) {
-    for (const name of await disk.readdir(path.join(abs, ...sub.split('/'))).catch(ifMissing([]))) {
-      if (!IMAGE.test(name)) continue;
-      const size = (await disk.stat(path.join(abs, ...sub.split('/'), name)).catch(ifMissing(null)))?.size;
-      if (size != null) files.set(`${sub}/${name}`, { size, type: typeOf(name) });
-    }
-  }
-  const json = async (...at) => parse(await disk.readFile(path.join(abs, ...at), 'utf8').catch(ifMissing(null)));
-  return derivedOf(files, await json('study', 'bubbles.json'), await json('covers', 'manifest.json'), await json('image_records.json'));
-}
-// `pictures`: which file holds each picture, as its descriptions name them (gallery-files.js
-// folderPictures); `covers`: each role its covers/manifest.json names a picture for that is there (the
-// gallery's and the series' — R16), as a reference to it.
-function derivedOf(files, bubbles, manifest, records) {
-  const pictures = layout.folderPictures(files.keys(), { records, manifest });
+// What a gallery in the gallery format holds beside its pages, from its read (`read`, gallery-manifest.js
+// readGallery's 'ok') and the picture files it holds (`files`: path → { size, mtime? }): { files: Map
+// rel → { size, type, mtime? }, bubbles, pictures — which file holds each picture, as its manifest (or,
+// v1, its descriptions) names them — covers: each role named that is there (the gallery's and the
+// series' — R16), as a reference to it }.
+export function derivedOf(files, read) {
+  const typed = new Map([...files].map(([rel, f]) => [rel, { size: f.size, type: typeOf(rel), ...(f.mtime ? { mtime: f.mtime } : {}) }]));
   const covers = {};
-  for (const [role, file] of Object.entries(pictures.covers)) covers[role] = { $own: file, ...files.get(file) };
-  return { files, bubbles: bubbles || {}, pictures, covers };
+  for (const [role, file] of Object.entries(read.pictures.covers)) if (typed.has(file)) covers[role] = { $own: file, ...typed.get(file) };
+  return { files: typed, bubbles: read.bubbles || {}, pictures: read.pictures, covers };
 }
 // The cover record's fields for the covers `derived` holds — for _coverPatchIn, which gives each role
 // it sets a new revision.
@@ -471,7 +482,7 @@ export function coverPatch(derived) {
 }
 
 // A page's record fields made from it, as a folder in the gallery format holds them (`derived`:
-// readDerived's): its translated picture, study layers and pipeline data, referenced where they lie
+// derivedOf's): its translated picture, study layers and pipeline data, referenced where they lie
 // (gallery-files.js derivedRecord, the website's too).
 export const derivedRecord = (derived, n, entry) => layout.derivedRecord(derived.pictures, derived.bubbles, n, entry,
   (rel) => ({ $own: rel, ...derived.files.get(rel) }));
@@ -498,10 +509,12 @@ function addGallery(library, gid, g) {
     if (library._pageRowByKey(key) || library._pageRow(gid, n)) return;
     const type = typeOf(name);
     const made = g.read.derived ? derivedRecord(g.read.derived, n, p?.record) : {};
-    library._pagePutRow({ gid, n, key, w: null, h: null, orig: { at: 'p', entry: name, size, type },
+    const mtime = g.read.derived?.files.get(name)?.mtime;
+    library._pagePutRow({ gid, n, key, w: null, h: null, orig: { at: 'p', entry: name, size, type, ...(mtime ? { mtime } : {}) },
       record: { url: key, blob: { $orig: 1, size, type }, mediaId: String(p?.mediaId ?? gid), galleryId: gid, cachedAt: p?.cachedAt || now, size, ...made } });
   });
   library._s(`INSERT INTO files (gid, path, format, state, packed_at, used_at) VALUES (?, ?, ?, 'packed', ?, ?)`).run(gid, g.rel, g.format, now, now);
+  if (g.read.token) library._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(gid, g.read.token);   // what it was read at (D4)
   library._logIn(gid);
 }
 
@@ -525,8 +538,6 @@ export function startEntry(library, gid, meta, now = Date.now()) {
 async function sweepLeftovers(library, id) {
   const root = library.rootDir(id);
   const files = library.files;
-  const waiting = new Set(library._s('SELECT gid, temp FROM unplaced').all()
-    .map(r => files.folderOf(r.gid) && path.join(files.folderOf(r.gid), ...r.temp.split('/'))).filter(Boolean));
   const own = [path.join(root, '.shiori')];
   for (const { gid, path: rel } of library._s(`SELECT gid, path FROM files WHERE format = 'folder' AND source IS NULL`).all()) {
     if (files._split(rel).root === id && await ownedBy(files._abs(rel), gid, false)) own.push(files._abs(rel));
@@ -541,7 +552,7 @@ async function sweepLeftovers(library, id) {
         continue;
       }
       const target = path.relative(root, abs.replace(/(\.[0-9a-f]{8,10})?\.shiori-(tmp|old|new)$/, '')).split(path.sep).join('/');
-      if (files._reserved.has(files._join(id, target)) || waiting.has(abs) || !await stale(abs, LEFTOVER_AGE_MS)) continue;
+      if (files._reserved.has(files._join(id, target)) || !await stale(abs, LEFTOVER_AGE_MS)) continue;
       await disk.rm(abs, { recursive: true, force: true }).catch(() => {});
       removed++;
     }
@@ -550,12 +561,13 @@ async function sweepLeftovers(library, id) {
   return removed;
 }
 
-// Staged pages, cache files and a gallery folder's pictures no record refers to (a write that failed
-// half way, or the app closed in the middle of one): gone once ORPHAN_AGE_MS old. Staging is looked
-// through in the library's own (under its data folder) and in each library folder it may write to
-// (another's, a hidden one's and one out of reach are left alone: what its galleries set aside may wait
-// there); a gallery's pictures only in a folder that is its own by what it holds (ownedBy).
-async function removeOrphans(library) {
+// Staged pages and cache files no record refers to (a write that failed half way, or the app closed in
+// the middle of one): gone once ORPHAN_AGE_MS old — staging is looked through in the library's own
+// (under its data folder) and in each library folder it may write to (another's, a hidden one's and one
+// out of reach are left alone: what its galleries set aside may wait there). A gallery's pictures no
+// record refers to, in a folder that is its own by what it holds (ownedBy), are added to
+// `unreferenced`. Resolves how many went.
+async function removeOrphans(library, unreferenced = []) {
   const keep = new Set();   // the files records refer to, where they are
   for (const r of library._s('SELECT orig, record FROM pages').all()) {
     const orig = parse(r.orig);
@@ -580,20 +592,25 @@ async function removeOrphans(library) {
       disk.rmdir(path.join(dir, gid)).catch(() => {});
     }
   }
-  // Pictures in a gallery's folder made from its pages that no record refers to.
+  // Pictures in a gallery's folder that no record refers to and that aren't waiting to retire: reported
+  // (`unreferenced`: what a write cut short left, or a file put there by hand), never deleted — Shiori
+  // deletes only what its index recorded writing (D16, principle 4).
   for (const { gid, path: rel, source } of library._s(`SELECT gid, path, source FROM files WHERE format = 'folder' AND gid NOT IN (SELECT gid FROM unmounted)`).all()) {
     if (!library.folders.writable(library.files.rootFor(gid))) continue;   // another app's folder, or out of reach
     const dir = library.files._abs(rel);
     if (!await ownedBy(dir, gid, !!source)) continue;
-    const refs = new Set();
-    for (const r of library._s('SELECT record FROM pages WHERE gid = ?').all(gid)) collect(parse(r.record), (ref) => refs.add(ref), '$own');
+    const refs = new Set(library._s('SELECT name FROM retiring WHERE dir = ?').all(rel).map(r => r.name));
+    for (const r of library._pageRows(gid)) {
+      collect(parse(r.record), (ref) => refs.add(ref), '$own');
+      const orig = parse(r.orig);
+      if (orig?.at === 'p') refs.add(orig.entry);
+    }
     collect(library._coverGet(gid), (ref) => refs.add(ref), '$own');
-    for (const sub of DERIVED) {
+    for (const sub of format.PICTURE_DIRS) {
       for (const name of await disk.readdir(path.join(dir, ...sub.split('/'))).catch(() => [])) {
         const file = path.join(dir, ...sub.split('/'), name);
         if (!IMAGE.test(name) || refs.has(`${sub}/${name}`) || !await stale(file, ORPHAN_AGE_MS)) continue;
-        await disk.rm(file, { force: true }).catch(() => {});
-        removed++;
+        unreferenced.push({ path: `${library.files._split(rel).rest}/${sub}/${name}` });
       }
     }
   }

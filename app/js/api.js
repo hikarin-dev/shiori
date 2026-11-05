@@ -185,11 +185,14 @@ export const folders = _typed({
   // Asks the person to let this page use the folder (from a click); resolves its access then.
   allow: async (id) => backend.folderAllow?.(String(id)) ?? 'granted',
   // Galleries put in it from outside the app join the library — those it kept are known already, and
-  // their folders aren't looked into; those another app changed there are read again. A browser
+  // their folders aren't looked into; those another app published anew there are read again. A browser
   // library's: `onProgress(done, total, added, step)` and `stopped()` (folder-scan.js runs it as a
   // job); the desktop app's runs it as a job of its own. Resolves { added, updated, problems, stopped }
   // — `problems`: what couldn't be read, [{ path, reason }] (reason a short word: 'unreadable',
-  // 'corrupt', 'unsupported', 'adopt-failed').
+  // 'corrupt', 'missing-file' (a file its manifest names isn't there), 'unsupported', 'adopt-failed',
+  // 'changed-both' (another app published it while this library's own changes wait: they win)); the
+  // desktop app's also lists `unreferenced`: [{ path }], pictures in its galleries' folders nothing
+  // refers to, left as they are.
   scan: (id, opts) => backend.folderScan(String(id), opts),
   // What waits in this browser for a folder it couldn't reach is moved out to it: how many galleries.
   settle: async () => backend.settleFolders?.() ?? 0,

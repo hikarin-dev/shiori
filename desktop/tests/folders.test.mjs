@@ -55,7 +55,7 @@ const heardJobs = (library) => {
 };
 
 // Every record the library keeps of gallery `gid`, table by table (none: forgotten).
-const GALLERY_TABLES = ['meta', 'meta_tags', 'stats', 'pages', 'covers', 'files', 'places', 'stamps', 'staged_own', 'leftovers'];
+const GALLERY_TABLES = ['meta', 'meta_tags', 'stats', 'pages', 'covers', 'files', 'places', 'stamps', 'staged_own', 'retiring'];
 const recordsOf = (library, gid) => GALLERY_TABLES.filter(table => library._s(`SELECT 1 FROM ${table} WHERE gid = ?`).get(gid));
 const rootRow = (library, id) => library._s('SELECT * FROM roots WHERE id = ?').get(id);
 
@@ -426,15 +426,19 @@ test('a folder is claimed by the app that adds it: another app asks first, the a
   assert.equal(claimOf().epoch, 4, 'past every claim known');
   await library.files.place(gid);
   assert.ok(fs.existsSync(path.join(other, 'Shared', 'images', '0003.png')));
-  // Removing it: a description out of date in the folder is written again, then the folder is let go.
+  // Removing it: a folder that lost what it was published with (its manifest, format v2; its
+  // description damaged) is published again, then the folder is let go.
   const metaFile = path.join(other, 'Shared', 'metadata.json');
+  const manifestFile = path.join(other, 'Shared', '.shiori', 'gallery.json');
   await library.files.describe(gid);
   const current = fs.readFileSync(metaFile, 'utf8');
   fs.writeFileSync(metaFile, '{}');
+  fs.rmSync(manifestFile);
   await library.folderSetDefault(library.primaryId);
   await library.folderRemove(id);
   await settled(library, id);
   assert.equal(fs.readFileSync(metaFile, 'utf8'), current, 'the folder has the library\'s description again');
+  assert.equal(JSON.parse(fs.readFileSync(manifestFile, 'utf8')).galleryId, gid, 'and its manifest');
   assert.equal(claimOf().owner, null, 'let go');
   // Added back, by this app or another: checking the folder finds the gallery as it is there.
   const epoch = claimOf().epoch;

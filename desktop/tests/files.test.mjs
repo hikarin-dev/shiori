@@ -42,16 +42,19 @@ async function open(t, opts = {}, where = folders()) {
 }
 const fileOf = (library, gid) => library._s('SELECT * FROM files WHERE gid = ?').get(gid);
 const dirOf = (library, gid) => path.join(library.libraryDir, ...fileOf(library, gid).path.split('/'));
-// Every file under `dir`, as relative paths.
+// Every file under `dir`, as relative paths — but those of a gallery's own .shiori/ (its manifest and
+// stored descriptions, format v2), which a gallery's folder holds beside its export's files.
 function tree(dir) {
   const out = [];
   const walk = (d, rel) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const r = rel ? `${rel}/${e.name}` : e.name; if (e.isDirectory()) walk(path.join(d, e.name), r); else out.push(r); } };
   walk(dir, '');
-  return out.sort();
+  return out.filter(n => !/(^|\/)\.shiori\//.test(n)).sort();
 }
+// Gallery `gid`'s manifest (format v2), as its folder has it.
+const manifestOf = (library, gid) => JSON.parse(fs.readFileSync(path.join(dirOf(library, gid), '.shiori', 'gallery.json'), 'utf8'));
 const pagesIn = (library, gid) => fs.readdirSync(path.join(dirOf(library, gid), 'images')).sort();
 const staged = (library, gid) => (fs.existsSync(path.join(library.stagingDir, gid)) ? fs.readdirSync(path.join(library.stagingDir, gid)).length : 0);
-const leftovers = (library) => library._s('SELECT gid, entry FROM leftovers').all();
+const retiring = (library) => library._s('SELECT dir, name FROM retiring').all();
 const json = (library, gid, name) => JSON.parse(fs.readFileSync(path.join(dirOf(library, gid), ...name.split('/')), 'utf8'));
 const derived = (dir) => tree(dir).filter(n => !n.startsWith('images/') && !n.endsWith('.json'));
 // What identifies a file's bytes on disk: unchanged unless the file was written again.
@@ -91,6 +94,9 @@ test('a gallery is settled into a folder of its own in the gallery format, and i
   assert.deepEqual(await bytesOf((await library.pageGet(gid, 2)).blob), [...pngBytes(2)]);
   assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 3)), [...pngBytes(3)]);
   assert.deepEqual(tree(dirOf(library, gid)), await exportNames(library, gid), 'the folder is its export, unzipped');
+  const m = manifestOf(library, gid);
+  assert.deepEqual([m.galleryId, m.generation, Object.values(m.files.pages).map(p => p.original)], [gid, 1, ['images/0001.png', 'images/0002.png', 'images/0003.png']],
+    'and its manifest names each page\'s file, its generation committed');
   await whole(library);
 });
 
@@ -120,7 +126,7 @@ test('adding a page or changing metadata never writes the other pages again; the
   await whole(library);
 });
 
-test('a replaced or removed page’s file goes at the next settle', async (t) => {
+test('a replaced or removed page’s file goes once the change is published', async (t) => {
   const library = await open(t);
   const gid = '1790000000002';
   await library.metaPut({ galleryId: gid, title: title('Replace'), numPages: 3 });
@@ -131,18 +137,22 @@ test('a replaced or removed page’s file goes at the next settle', async (t) =>
   await library.pagePut(gid, 2, png(22, 22));
   assert.deepEqual(await bytesOf((await library.pageGet(gid, 2)).blob), [...pngBytes(22, 22)], 'the new page reads at once');
   await library.files.flush();
-  assert.deepEqual([...fs.readFileSync(path.join(dir, 'images', '0002.png'))], [...pngBytes(22, 22)]);
+  const two = JSON.parse(library._pageRow(gid, 2).orig).entry;
+  assert.match(two, /^images\/0002-[0-9a-f]{10}\.png$/,'the new page under a name of its own, never written over the old one (principle 3)');
+  assert.deepEqual([...fs.readFileSync(path.join(dir, ...two.split('/')))], [...pngBytes(22, 22)]);
+  assert.deepEqual(pagesIn(library, gid), ['0001.png', two.slice('images/'.length), '0003.png'], 'the old file gone once that was published');
+  assert.equal(manifestOf(library, gid).files.pages['2'].original, two);
 
   await library.pagePut(gid, 1, jpeg(1));   // another type: another name
   await library.files.flush();
-  assert.deepEqual(pagesIn(library, gid), ['0001.jpg', '0002.png', '0003.png'], 'the old file of page 1 is gone');
+  assert.deepEqual(pagesIn(library, gid), ['0001.jpg', two.slice('images/'.length), '0003.png'], 'the old file of page 1 is gone');
 
   await library.deleteStaleGalleryImages(gid, [`local://${gid}/1.jpg`, `local://${gid}/2.png`]);
-  assert.ok(fs.existsSync(path.join(dir, 'images', '0003.png')), 'kept until the gallery settles');
+  assert.ok(fs.existsSync(path.join(dir, 'images', '0003.png')), 'kept until the change is published');
   await library.files.flush();
-  assert.deepEqual(pagesIn(library, gid), ['0001.jpg', '0002.png']);
+  assert.deepEqual(pagesIn(library, gid), ['0001.jpg', two.slice('images/'.length)]);
   assert.equal((await library.getGallery(gid)).count, 2);
-  assert.deepEqual(leftovers(library), []);
+  assert.deepEqual(retiring(library), []);
   await whole(library);
 });
 
@@ -159,7 +169,7 @@ test('a removed page’s file goes even when the app closed before settling', as
   const library = await open(t, {}, where);
   await library.files.flush();
   assert.deepEqual(pagesIn(library, gid), ['0001.png']);
-  assert.deepEqual(leftovers(library), []);
+  assert.deepEqual(retiring(library), []);
   assert.equal(json(library, gid, 'image_records.json').length, 1, 'its description caught up too');
   await whole(library);
 });
@@ -174,7 +184,9 @@ test('a page moved into its folder just before an interruption is found there', 
   const orig = JSON.parse(library._pageRow(gid, 2).orig);
   fs.renameSync(path.join(library.stagingDir, orig.file), path.join(dirOf(library, gid), 'images', '0002.png'));   // moved; its row not yet
   await library.files.flush();
-  assert.deepEqual(JSON.parse(library._pageRow(gid, 2).orig), { at: 'p', entry: 'images/0002.png', size: orig.size, type: 'image/png' });
+  const { mtime, ...found } = JSON.parse(library._pageRow(gid, 2).orig);
+  assert.deepEqual(found, { at: 'p', entry: 'images/0002.png', size: orig.size, type: 'image/png' });
+  assert.ok(mtime > 0, 'with the time it has there');
   assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 2)), [...pngBytes(2)]);
   await whole(library);
 });
@@ -378,12 +390,18 @@ test('translations, study layers and masks are written under their layout names,
   assert.deepEqual(tree(dir), await exportNames(library, gid), 'the folder is its export, unzipped');
   await whole(library);
 
-  await library.putTranslatedPage(at, png(10), null);   // translated again: the same name, its new picture; the study layers and masks go
-  await settle();
-  assert.deepEqual(derived(dir), ['translated/0001.png']);
+  // Translated again: its new picture under a name of its own, never over the one its folder's
+  // published generation names (principle 3); that one, the study layers and the masks go once the
+  // change is published.
+  await library.putTranslatedPage(at, png(10), null);
+  const again = JSON.parse(library._pageRow(gid, 1).record).translated.$own;
+  assert.match(again, /^translated\/0001-[0-9a-f]{10}\.png$/);
+  assert.ok(fs.existsSync(path.join(dir, 'translated', '0001.png')), 'the old one kept until then');
+  await library.files.flush();
+  assert.deepEqual(derived(dir), [again]);
   assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1, 'translated')), [...pngBytes(10)]);
   await library.clearGalleryTranslations(gid);
-  await settle();
+  await library.files.flush();
   assert.deepEqual(derived(dir), []);
 
   await library.putTranslatedPage(at, png(11), null);

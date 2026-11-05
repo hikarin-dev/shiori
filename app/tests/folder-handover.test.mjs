@@ -7,7 +7,8 @@
 // a format change) with the old files left behind — every delete refused — read by the other with every
 // slot's bytes matching; a linked ZIP's overlay, its translation on the page it was made for; claims
 // moving between the apps; and a gallery the desktop archived, read in place by the website, changed
-// there (unpacked) and read back by the desktop. Still to come: a series spread over two folders.
+// there (unpacked) and read back by the desktop; and a gallery in the desktop's oldest format, converted
+// by the desktop's check (D18), read by the website. Still to come: a series spread over two folders.
 //
 // A case that fails on today's code because of a finding a later step fixes is marked todo with that
 // step (plans/library-storage-plan.md §5).
@@ -20,6 +21,7 @@ import { desktopLibrary, webLibrary } from './library-drivers.mjs';
 import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
 import { zipCreate } from '../js/zip.js';
+import { legacyGallery } from './fixtures/storage-fixtures.mjs';
 
 const png = (...tag) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, ...tag]);
 const webp = (...tag) => new Uint8Array([0x52, 0x49, 0x46, 0x46, ...tag]);
@@ -59,8 +61,9 @@ async function deletesRefused(app, dir, fn) {
 /** @type {Handover[]} */
 const CASES = [
   {
+    // T05: a replacement in another format left two layout names, and the other app read the old one;
+    // the manifest names every slot's file (format v2).
     name: 'a gallery whose every slot was replaced, old files left behind, reads whole',
-    todo: 'S4: T05',   // a replacement in another format leaves two layout names, and the old one is read
     async run({ dir, from, to }) {
       const shared = path.join(dir, 'shared');
       const id = await from.add(shared);
@@ -157,6 +160,29 @@ const ARCHIVED = {
   },
 };
 
+// D18, the desktop's alone: a gallery in its oldest format (shiori.json beside its pictures, which the
+// website doesn't read) converted to the gallery format at the desktop's check — its pictures renamed
+// into images/, its generation published — and read whole by the website then.
+const OLDEST = {
+  name: 'a gallery in the desktop\'s oldest format is converted by its check, and read whole by the website then (D18)',
+  async run({ dir, desktop, website }) {
+    const shared = path.join(dir, 'shared');
+    const made = legacyGallery(path.join(shared, 'Oldest'));
+    const id = await desktop.add(shared);
+    assert.deepEqual((await desktop.scan(id)).problems, []);
+    assert.deepEqual(await desktop.galleries(), [made.gid]);
+    assert.ok(fs.existsSync(path.join(shared, 'Oldest', '.shiori', 'gallery.json')), 'published in format v2');
+    assert.deepEqual(fs.readdirSync(path.join(shared, 'Oldest', 'images')).sort(), ['0001.webp', '0002.webp'], 'its pictures in images/, renamed');
+    const pages = [await desktop.read(made.gid, 1), await desktop.read(made.gid, 2)];
+    await desktop.remove(id);
+    const back = await website.add(shared);
+    assert.deepEqual((await website.scan(back)).problems, []);
+    assert.deepEqual(await website.galleries(), [made.gid]);
+    assert.deepEqual([await website.read(made.gid, 1), await website.read(made.gid, 2)], pages);
+    assert.equal(await website.titleOf(made.gid), 'The oldest format');
+  },
+};
+
 // These drive both libraries themselves: run against the desktop library (npm run test:desktop),
 // there is nothing more to run.
 const skip = !!globalThis.__desktopLibrary && 'run by npm test';
@@ -173,13 +199,15 @@ for (const [direction, apps] of [['website to desktop', ['website', 'desktop']],
       });
     }
     if (apps[0] === 'desktop') {
-      test(ARCHIVED.name, { skip }, async (t) => {
-        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-handover-'));
-        const desktop = await desktopLibrary(path.join(dir, 'desktop'));
-        const website = await webLibrary();
-        t.after(async () => { await desktop.close(); fs.rmSync(dir, { recursive: true, force: true }); });
-        await ARCHIVED.run({ dir, desktop, website });
-      });
+      for (const h of [ARCHIVED, OLDEST]) {
+        test(h.name, { skip }, async (t) => {
+          const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-handover-'));
+          const desktop = await desktopLibrary(path.join(dir, 'desktop'));
+          const website = await webLibrary();
+          t.after(async () => { await desktop.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+          await h.run({ dir, desktop, website });
+        });
+      }
     }
   });
 }

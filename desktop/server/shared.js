@@ -5,9 +5,9 @@
 // (gallery-files.js), which app keeps a library folder (folder-owner.js), a library folder's
 // lifecycle — its states, what each allows, its jobs, how a removal ends (folder-lifecycle.js) — what
 // a library folder holds (folder-content.js), what it holds that Shiori didn't make
-// (linked-source.js), and the folder store contract's typed results (contract.js, which
-// folder-store.js answers by). They are read from the app's folder (the repository's app/ in development; the
-// packaged copy when SHIORI_UI_DIR names it).
+// (linked-source.js), a gallery's manifest — format v2 (gallery-manifest.js) — and the folder store
+// contract's typed results (contract.js, which folder-store.js answers by). They are read from the
+// app's folder (the repository's app/ in development; the packaged copy when SHIORI_UI_DIR names it).
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -17,11 +17,12 @@ export const UI_DIR = process.env.SHIORI_UI_DIR
 
 const load = (name) => import(pathToFileURL(path.join(UI_DIR, 'js', name)).href);
 
-const [plans, model, titles, pageSize, galleryExport, errors, wire, backupCore, files, owner, lifecycle, content, linked, contract] = await Promise.all([
+const [plans, model, titles, pageSize, galleryExport, errors, wire, backupCore, files, owner, lifecycle, content, linked, contract, manifest] = await Promise.all([
   load('series-plan.js'), load('gallery-model.js'), load('titles.js'), load('page-size.js'), load('gallery-export.js'),
   load('backend-error.js'), load('desktop-wire.js'), load('backup-core.js'), load('storage/gallery-files.js'), load('storage/folder-owner.js'),
   load('storage/folder-lifecycle.js'), load('storage/folder-content.js'), load('storage/linked-source.js'), load('storage/contract.js'),
+  load('storage/gallery-manifest.js'),
 ]);
 
-export { plans, model, titles, pageSize, galleryExport, files, wire, backupCore, owner, lifecycle, content, linked, contract };
+export { plans, model, titles, pageSize, galleryExport, files, wire, backupCore, owner, lifecycle, content, linked, contract, manifest };
 export const { BackendError } = errors;

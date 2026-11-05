@@ -136,7 +136,9 @@ test('leftovers of an interrupted write are cleared', async (t) => {
   assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1)), [...pngBytes(1)]);
 });
 
-test('a translation file no page refers to is cleared from the gallery’s folder', async (t) => {
+// D16: a file in a gallery's folder nothing refers to, that the index has no record of writing, is
+// reported — never deleted (it may be someone's): the check lists it as unreferenced.
+test('a translation file no page refers to is reported, and left in the gallery’s folder', async (t) => {
   const library = await open(t, folders());
   const gid = '1790000000105';
   const folder = await settled(library, gid, 'Layers');
@@ -148,8 +150,9 @@ test('a translation file no page refers to is cleared from the gallery’s folde
   const old = new Date(Date.now() - 60 * 60 * 1000);
   fs.utimesSync(stray, old, old);
   fs.utimesSync(path.join(folder, 'translated', '0001.png'), old, old);
-  await library.rescan();
-  assert.deepEqual(fs.readdirSync(path.join(folder, 'translated')), ['0001.png']);
+  const found = await library.rescan();
+  assert.deepEqual(fs.readdirSync(path.join(folder, 'translated')).sort(), ['0001.png', '0002.png']);
+  assert.deepEqual(found.unreferenced, [{ path: 'Layers/translated/0002.png' }]);
   assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1, 'translated')), [...pngBytes(9)]);
 });
 

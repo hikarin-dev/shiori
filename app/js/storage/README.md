@@ -12,7 +12,8 @@ format).
 | Module | What it holds |
 |---|---|
 | `contract.js` | The folder store contract as JSDoc types, and the helpers that build and judge its typed results. |
-| `gallery-files.js` | The gallery format: file names and layout, the descriptions, which file holds each picture. |
+| `gallery-files.js` | The gallery format: file names and layout, the descriptions, which file holds each picture in a folder of format v1. |
+| `gallery-manifest.js` | Format v2: a gallery's manifest (the only writer and parser), what a publication writes and may collect, how a gallery's folder is read back (by its manifest, else by v1's rules), deletion's check of a file against what Shiori recorded. |
 | `folder-content.js` | What a folder or archive in a library folder is: a gallery of Shiori's, a series, or neither. |
 | `folder-owner.js` | Which app keeps a library folder: its claim file and how to read it. |
 | `folder-lifecycle.js` | A library folder's states, what each allows (the write gate), its jobs, how a removal ends. |
@@ -35,8 +36,15 @@ The desktop's adapter is `desktop/server/folder-store.js`, over node fs.
   library has stored (`mayChangeState`).
 - **A gallery's directory** is touched only through `Root.gallery(dir, gid)`; only `reserve()`
   makes a directory a gallery's. New bytes go to a new name (`writeNew`), never over a file.
-- **A generation** is committed by one atomic manifest write (`publish`). Deletion takes the exact
-  files Shiori recorded writing, by name, size and modification time (`deleteNamed`).
+- **A generation** is committed by one atomic manifest write (`publish`): `<gallery>/.shiori/gallery.json`,
+  or `gallery.json` in a linked gallery's overlay. It names every picture's file, with the size and
+  modification time Shiori wrote it with, and the descriptions, stored by their content
+  (`.shiori/d/<sha-256>.json`: one that doesn't match its name is corrupt). The usual description
+  files (`metadata.json` and the others) are copies written after the commit, never read by a v2
+  reader. A folder without a manifest is format v1, read by today's rules; a file its descriptions
+  name that isn't there is a problem (`missing-file`), never a cue to fall back. Deletion takes the
+  exact files Shiori recorded writing, by name, size and modification time (`deleteNamed`): a file
+  changed since is left and reported.
 - **Committed and published.** A write's promise resolves once the library's own index has
   committed it; the folder holds it once a manifest naming it is published.
 
@@ -65,6 +73,6 @@ The desktop's adapter is `desktop/server/folder-store.js`, over node fs.
 
 ## Where it stands
 
-The adapters carry every library-folder call of both apps, with the libraries' own checks. Still to
-come, by the plan's steps: format v2's manifest and `publish` (S4: today they reject), identity-
+The adapters carry every library-folder call of both apps, with the libraries' own checks, and both
+libraries publish and read format v2 through them. Still to come, by the plan's steps: identity-
 verified roots, positive gallery identity and the desktop's containment in every operation (S5).

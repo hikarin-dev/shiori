@@ -11,8 +11,15 @@
 import { isValidGalleryId } from '../sanitize.js';
 import { safeRelPath } from './linked-source.js';
 
-// The files whose text classifyFolder and classifyArchive read (those a folder or archive has).
-export const OWN_FILES = ['metadata.json', 'series.json', 'shiori.json'];
+// The files whose text classifyFolder and classifyArchive read (those a folder or archive has): a
+// gallery's manifest (format v2, gallery-manifest.js: in its .shiori/ subfolder) first, the strongest
+// mark that it is one, then the descriptions at its top.
+export const MANIFEST_FILE = '.shiori/gallery.json';
+export const OWN_FILES = [MANIFEST_FILE, 'metadata.json', 'series.json', 'shiori.json'];
+// The gallery a manifest's text names, when it is one: { format: 'shiori-gallery', version: 2,
+// galleryId } (gallery-manifest.js parseManifest checks the rest when it is read).
+/** @param {unknown} text @returns {string | null} */
+const _manifestIdOf = (text) => { const m = _json(text); return _object(m) && m.format === 'shiori-gallery' && m.version === 2 ? _id(m.galleryId) : null; };
 
 /** A file's text as parsed JSON, of any shape (each reader checks what it uses), or null.
  * @param {unknown} text @returns {any} */
@@ -76,15 +83,16 @@ function _legacyIdOf(text) {
 // hasn't, missing or null):
 // - { kind: 'series', series }: a series' folder (seriesOf). Its members are folders (or archives) of
 //   their own in it, each classified on its own.
-// - { kind: 'gallery', id, legacy? }: a gallery's folder — all it holds is the gallery's. `legacy`:
-//   described by an earlier desktop version's shiori.json (its pictures beside it, not in images/).
+// - { kind: 'gallery', id, legacy? }: a gallery's folder — all it holds is the gallery's — by its
+//   manifest (MANIFEST_FILE), else its metadata.json. `legacy`: described by an earlier desktop
+//   version's shiori.json (its pictures beside it, not in images/).
 // - { kind: 'other' }: not Shiori's. What it holds is linked (linked-source.js planTitles), its
 //   subfolders classified on their own.
 /** @param {OwnTexts} [texts] @returns {FolderKind} */
 export function classifyFolder(texts = {}) {
   const series = seriesOf(texts['series.json']);
   if (series) return { kind: 'series', series };
-  const id = galleryIdOf(texts['metadata.json']);
+  const id = _manifestIdOf(texts[MANIFEST_FILE]) ?? galleryIdOf(texts['metadata.json']);
   if (id) return { kind: 'gallery', id };
   const legacy = _legacyIdOf(texts['shiori.json']);
   return legacy ? { kind: 'gallery', id: legacy, legacy: true } : { kind: 'other' };

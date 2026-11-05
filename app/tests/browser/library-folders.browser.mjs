@@ -271,15 +271,17 @@ test('a folder is claimed by the library that adds it: another app asks first, a
     const deadline = Date.now() + 10000;
     while (!(await t.has('Lib X', 'Shared/images/0002.png')) && Date.now() < deadline) await new Promise(r => setTimeout(r, 100));
     const back = { owner: (await claimOf()).owner, page2: await t.has('Lib X', 'Shared/images/0002.png') };
-    // Removing it: a description out of date in the folder is written again, then it is let go.
+    // Removing it: a folder that lost what it was published with (its manifest, format v2; its description
+    // damaged) is published again, then it is let go.
     await api.folders.setDefault(a);
     let current = null;
-    while (current == null && Date.now() < deadline + 10000) {   // its description, a moment after the last change
-      try { current = await t.text('Lib X', 'Shared/metadata.json'); } catch { await new Promise(r => setTimeout(r, 200)); }
+    while (current == null && Date.now() < deadline + 10000) {   // its manifest, a moment after the last change
+      try { current = await t.text('Lib X', 'Shared/.shiori/gallery.json'); } catch { await new Promise(r => setTimeout(r, 200)); }
     }
     const w = await (await (await x.getDirectoryHandle('Shared')).getFileHandle('metadata.json')).createWritable();
     await w.write('{}');
     await w.close();
+    await (await (await x.getDirectoryHandle('Shared')).getDirectoryHandle('.shiori')).removeEntry('gallery.json');
     await api.folders.remove(id);
     await api.folders.setAside(id);
     const removed = { meta: JSON.parse(await t.text('Lib X', 'Shared/metadata.json')).galleryId, claim: await claimOf() };
@@ -330,19 +332,32 @@ test('a check of a folder reads again the galleries another app changed there, u
       await w.write(data);
       await w.close();
     };
-    const meta = JSON.parse(await t.text('Lib S', 'Shared/metadata.json'));
-    await write('Shared/metadata.json', JSON.stringify({ ...meta, title: { english: 'Shared, Renamed', japanese: '', pretty: '' }, numPages: 3 }, null, 2));
-    const records = JSON.parse(await t.text('Lib S', 'Shared/image_records.json'));
-    await write('Shared/image_records.json', JSON.stringify([...records, { ...records[1], url: records[1].url.replace(/\/2\.(\w+)$/, '/3.$1') }], null, 2));
+    // Another app's publication of the gallery (format v2): `change(texts, files)` — its descriptions by
+    // name, its manifest's files — makes the new generation's descriptions.
+    const publishElsewhere = async (change) => {
+      const store = await import('/app/js/storage/folder-store-web.js');
+      const { descriptions, ...next } = (await store.manifestIn('elsewhere', r, 'Shared')).value;
+      const texts = {};
+      for (const [name, at] of Object.entries(descriptions)) texts[name] = await t.text('Lib S', `Shared/${at}`);
+      const files = structuredClone(next.files);
+      const made = change(texts, files);
+      await store.publishIn('elsewhere', r, 'Shared', { ...next, files, sizes: {}, generation: next.generation + 1, writer: 'a1b2c3d4e5f60708' }, made);
+      store.forgetFolder('elsewhere');
+    };
     await write('Shared/images/0003.png', await t.png(30));
+    await publishElsewhere((texts, files) => {
+      const records = JSON.parse(texts['image_records.json']);
+      files.pages['3'] = { original: 'images/0003.png' };
+      return { ...texts, 'metadata.json': JSON.stringify({ ...JSON.parse(texts['metadata.json']), title: { english: 'Shared, Renamed', japanese: '', pretty: '' }, numPages: 3 }),
+        'image_records.json': JSON.stringify([...records, { ...records[1], url: records[1].url.replace(/\/2\.(\w+)$/, '/3.$1') }]) };
+    });
     const changed = await api.folders.scan(id);
     const back = await api.galleries.get(gid);
     const page3 = (await api.pages.blob(gid, 3))?.size || 0;
     const again = await api.folders.scan(id);
     // Changed there again while a change of this library's waits to be written: this library's wins.
     await api.meta.put({ ...(await api.meta.get(gid)), title: { english: 'My Title', japanese: '', pretty: '' } });
-    const meta2 = JSON.parse(await t.text('Lib S', 'Shared/metadata.json'));
-    await write('Shared/metadata.json', JSON.stringify({ ...meta2, title: { english: 'Their Title', japanese: '', pretty: '' } }, null, 2));
+    await publishElsewhere((texts) => ({ ...texts, 'metadata.json': JSON.stringify({ ...JSON.parse(texts['metadata.json']), title: { english: 'Their Title', japanese: '', pretty: '' } }) }));
     const waiting = await api.folders.scan(id);
     const mine = (await api.galleries.get(gid)).title.english;
     const written = await until(async () => JSON.parse(await t.text('Lib S', 'Shared/metadata.json')).title.english === 'My Title');

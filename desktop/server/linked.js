@@ -15,13 +15,13 @@
 // written (absIn), and as the disk resolves it (folder-store.js physicallyIn: no link out of it is
 // followed).
 
-import { disk, physicallyIn } from './folder-store.js';
+import { disk, physicallyIn, replaceFile, loadGallery } from './folder-store.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { readDirectory, readEntry } from './zip.js';
 import { linked as L, files as layout, content, BackendError } from './shared.js';
-import { replaceFile, ifMissing } from './files.js';
-import { readDerived, derivedRecord, coverPatch, localChanges, startEntry } from './scan.js';
+import { ifMissing } from './files.js';
+import { derivedOf, derivedRecord, coverPatch, localChanges, startEntry } from './scan.js';
 
 const TYPE_OF_EXT = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif' };
 const typeOf = (name) => TYPE_OF_EXT[String(name).match(/\.(\w+)$/)?.[1]?.toLowerCase()] || '';
@@ -30,10 +30,10 @@ const parse = (s) => { try { return s == null ? null : JSON.parse(s); } catch { 
 const sha256 = (data) => crypto.createHash('sha256').update(data).digest('hex');
 const PAGE_URL = /\/(\d+)\.\w+$/;
 const keyPage = (key) => { const m = String(key ?? '').match(PAGE_URL); return m ? parseInt(m[1], 10) : null; };
-// The files of its own a page record refers to ({ $own: 'translated/0001.png' }…).
-const ownRefs = (value, into = new Set()) => {
+// The files of its own a page record refers to ({ $own: 'translated/0001.png' }…): name → its reference.
+const ownRefs = (value, into = new Map()) => {
   if (value == null || typeof value !== 'object') return into;
-  if (typeof value.$own === 'string') into.add(value.$own);
+  if (typeof value.$own === 'string') into.set(value.$own, value);
   else for (const v of Object.values(value)) ownRefs(v, into);
   return into;
 };
@@ -214,13 +214,15 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
   const overlay = library.files._abs(rel);
   const own = await overlayPages(library, root, gid);
   if (title.kind === 'pdf' && !L.pdfReady({ ...title, rendered: was?.rendered }, own)) return null;
-  const text = (name) => disk.readFile(path.join(overlay, ...name.split('/')), 'utf8').catch(ifMissing(null));
-  const texts = Object.fromEntries(await Promise.all(layout.DESCRIPTION_FILES.map(async (n) => [n, await text(n)])));
-  const meta = parse(texts['metadata.json']);
-  const records = parse(texts['image_records.json']);
-  const pages = L.linkedPages(at.pictures, own, layout.describedFiles(records, parse(texts['covers/manifest.json'])));
+  // Its overlay read back (gallery-manifest.js readGallery): by its manifest — whose pages of its own
+  // alone are its own — else by format v1's rules; damaged, or missing a file it names, it isn't read.
+  const { read, files: listed } = await loadGallery(overlay);
+  if (read.kind !== 'ok') throw Object.assign(new Error(`the overlay of gallery ${gid} ${read.kind === 'corrupt' ? read.detail : 'misses files it names'}`), { reason: read.kind });
+  const { meta, records } = read;
+  const listedAs = read.manifest ? new Set(read.pictures.pages.values()) : layout.describedFiles(records, read.covers);
+  const pages = L.linkedPages(at.pictures, read.manifest ? own.filter(f => listedAs.has(`images/${f.name}`)) : own, listedAs);
   if (!pages.length) return null;
-  const derived = await readDerived(overlay);
+  const derived = derivedOf(listed, read);
   const entryOf = new Map((Array.isArray(records) ? records : []).map(r => [keyPage(r?.url), r]).filter(([n]) => n != null));
   // What its name and folders say: an archive's chapter is named after its folder in it, its tags the
   // archive's.
@@ -241,7 +243,7 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
   let held = false;
   library._tx(() => {
     if (guard?.()) { held = true; return; }
-    const had = new Set();   // the pictures of its own its records referred to, and those it read
+    const had = new Map();   // the pictures of its own its records referred to, and those it read
     if (replace) {
       for (const r of library._pageRows(gid)) ownRefs(parse(r.record), had);
       files.keep.add(gid);
@@ -249,7 +251,7 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
     }
     library._metaPutRaw(record);
     if (record.parentId) startEntry(library, gid, record, now);
-    const kept = new Set();
+    const kept = new Map();
     for (const p of pages) {
       const entry = entryOf.get(p.n);
       const made = derivedRecord(derived, p.n, entry);
@@ -267,8 +269,8 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
     }
     library._s(`INSERT OR REPLACE INTO files (gid, path, format, state, packed_at, used_at, source) VALUES (?, ?, 'folder', 'packed', ?, ?, ?)`)
       .run(gid, rel, now, now, JSON.stringify(sourceOf(title, at)));
-    if (texts['metadata.json'] != null) library._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(gid, layout.descriptionStamp(texts));
-    for (const name of had) if (!kept.has(name)) library._dropOwn(gid, name);   // made from a picture it no longer shows
+    if (meta) library._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(gid, read.token);
+    for (const [name, ref] of had) if (!kept.has(name)) library._dropOwn(gid, name, ref);   // made from a picture it no longer shows
     library._logIn(gid);
   });
   if (held) return null;
@@ -276,7 +278,7 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
   await library.rebuildGalleryEntry(gid, { silent: true });
   const covers = coverPatch(derived);
   if (Object.keys(covers).length) library._tx(() => library._coverPatchIn(gid, covers));
-  if (texts['metadata.json'] == null) files.describeLater(gid);   // its overlay describes it, in due course
+  if (!meta) files.describeLater(gid);   // its overlay describes it, in due course
   if (replace) library._push('control', { type: 'COVER_INVALIDATED', galleryId: gid });
   return gid;
 }

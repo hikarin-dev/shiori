@@ -34,8 +34,8 @@ import crypto from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { plans, model, titles, pageSize, files as galleryFilesModule, galleryExport, lifecycle, BackendError } from './shared.js';
-import { disk, folderStore } from './folder-store.js';
-import { FileLibrary, writeFlushed, libraryId } from './files.js';
+import { disk, folderStore, writeNewIn } from './folder-store.js';
+import { FileLibrary, libraryId } from './files.js';
 import { Folders } from './folders.js';
 import { WriteMeter } from './writes.js';
 import * as linked from './linked.js';
@@ -239,10 +239,11 @@ function fileRefs(value, out = new Set()) {
   return out;
 }
 
-// Every file of the gallery's own (its folder's .shiori/) a value refers to, by name.
+// Every file of the gallery's own a value refers to, by name (into a Map: name → its reference, with
+// the size and modification time it was recorded with).
 function ownRefs(value, out = new Set()) {
   if (value == null || typeof value !== 'object') return out;
-  if (isRef(value)) { if (typeof value.$own === 'string') out.add(value.$own); return out; }
+  if (isRef(value)) { if (typeof value.$own === 'string') { if (out instanceof Map) out.set(value.$own, value); else out.add(value.$own); } return out; }
   for (const v of Array.isArray(value) ? value : Object.values(value)) ownRefs(v, out);
   return out;
 }
@@ -473,63 +474,44 @@ export class Library {
   }
 
   // A picture of the gallery's own — made from its pages (a translation, a study layer, a mask) or
-  // its custom cover — written into its folder (claimed now if it has none yet) under a temporary
-  // name beside `rel`, its place there: { ref, temp, file, gid, rel }. Once the index records it,
-  // _settleOwn renames it into place (_commitOwn). A gallery kept in an archive in the gallery
-  // format, or whose folder can't be written to now, has it staged instead ({ ref, temp, staged, gid,
-  // rel }), to be added to its archive or moved into its folder when it settles (files.js). `meta`:
-  // the gallery's metadata when it isn't stored yet.
+  // its custom cover — written into its folder (claimed now if it has none yet) for `rel`, its layout
+  // name, under a name no file has (folder-store.js writeNewIn: `rel` itself when it is free) and never
+  // renamed after (T06): { ref, temp, gid, rel } — `ref` naming the file it is (`rel` then its name),
+  // with the size and modification time it was written with; `temp`, its full path, deleted should the
+  // write it is for not commit. A gallery kept in an archive in the gallery format, or whose folder
+  // can't be written to now, has it staged instead ({ ref, temp, staged, gid, rel }), to be added to its
+  // archive or moved into its folder when it settles (files.js). `meta`: the gallery's metadata when it
+  // isn't stored yet.
   async _writeOwn(gid, rel, blob, meta) {
-    const ref = { $own: rel, size: blob.size, type: blob.type || '' };
     const staged = await this.files.stageOwn(gid, rel, blob);
-    if (staged) return { ref, temp: this._staged(staged), staged, gid: String(gid), rel };
-    const file = path.join(await this.files.home(gid, meta), ...rel.split('/'));
-    const temp = `${file}.${crypto.randomBytes(5).toString('hex')}.shiori-new`;
-    await disk.mkdir(path.dirname(file), { recursive: true });
-    await disk.writeFile(temp, new Uint8Array(await blob.arrayBuffer()));
-    this.writes.add('pictures', blob.size);
-    return { ref, temp, file, gid: String(gid), rel };
+    if (staged) {
+      const name = this.files.stagedName(gid, rel);
+      return { ref: { $own: name, size: blob.size, type: blob.type || '' }, temp: this._staged(staged), staged, gid: String(gid), rel: name };
+    }
+    const dir = await this.files.home(gid, meta);
+    const [, slot, ext] = /^(.*)\.([^./]+)$/.exec(rel);
+    const made = await writeNewIn(dir, slot, ext, new Uint8Array(await blob.arrayBuffer()));
+    this.writes.add('pictures', made.size);
+    return { ref: { $own: made.name, size: made.size, type: blob.type || '', mtime: made.mtime }, temp: path.join(dir, ...made.name.split('/')), gid: String(gid), rel: made.name };
   }
 
-  // Inside the transaction recording them, pictures _writeOwn wrote noted where they belong
-  // (files.js ownStaged; ownPlaced, the rename into place still owed recorded with them) and, once it
-  // commits, renamed into the gallery's folder (_settleOwn) — staged ones wait for the gallery's next
-  // settle.
+  // Inside the transaction recording them, the pictures _writeOwn staged noted where they belong
+  // (files.js ownStaged), to settle in with their galleries; those written into a folder are where
+  // their references say already.
   _commitOwn(moves) {
-    this._recordOwn(moves);
-    const gids = new Set(moves.filter(m => !m.staged).map(m => m.gid));
-    if (gids.size) this._afterCommit(() => this._settleOwn(gids));
-  }
-  _recordOwn(moves) {
-    for (const m of moves) {
-      if (m.staged) this.files.ownStaged(m.gid, m.rel, m.staged, m.ref.size);
-      else this.files.ownPlaced(m.gid, m.rel, `${m.rel}${m.temp.slice(m.file.length)}`);   // `<rel>.<hex>.shiori-new`
-    }
+    for (const m of moves) if (m.staged) this.files.ownStaged(m.gid, m.rel, m.staged, m.ref.size);
   }
 
-  // The galleries' pictures written by _writeOwn renamed into place (files.js placeOwn: the index has
-  // just recorded them), each time through the write gate. One that can't be yet (a reader holding the
-  // old one) is tried again shortly; still not, it waits for the gallery's next settle (the app's next
-  // start, its folder shown or taken back, its removal's write-back), read from where it was written
-  // meanwhile.
-  _settleOwn(gids) {
-    for (const gid of gids) {
-      const attempt = (left) => { if (this.files.placeOwn(gid) && left) this._later(200, () => attempt(left - 1)); };
-      attempt(5);
-    }
-  }
-
-  // Where gallery `gid`'s own file `rel` is — the name it was written under while it waits to take its
-  // place (files.js unplaced) — or null when the gallery has no folder.
+  // Where gallery `gid`'s own file `rel` is, or null when the gallery has no folder.
   _ownPath(gid, rel) {
     const dir = this.files.folderOf(gid);
-    return dir && ownName(rel) ? path.join(dir, ...this.files._ownName(gid, rel).split('/')) : null;
+    return dir && ownName(rel) ? path.join(dir, ...rel.split('/')) : null;
   }
 
   // `value` with every Blob in it written to the cache and referenced: { value, fresh, moves }
   // (`fresh` the files written, deleted again should the write they were for fail). With `own`, the
   // Blobs are the gallery's own and go into its folder instead, each where `place(keys, blob)` says
-  // (keys: its path in `value`), to be renamed into place (`moves`, _settleOwn) once recorded.
+  // (keys: its path in `value`), noted with the gallery as it is recorded (`moves`, _commitOwn).
   async _externalize(value, gid, label, { own = false, meta, place } = {}) {
     const fresh = [], moves = [];
     const walk = async (v, keys) => {
@@ -753,7 +735,7 @@ export class Library {
     const old = parse(row.record);
     const after = fileRefs(stored), afterOwn = ownRefs(stored);
     for (const ref of fileRefs(old)) if (!after.has(ref)) this._drop(path.join(this.cacheDir, ref));
-    for (const name of ownRefs(old)) if (!afterOwn.has(name)) this._dropOwn(row.gid, name);
+    for (const [name, ref] of ownRefs(old, new Map())) if (!afterOwn.has(name)) this._dropOwn(row.gid, name, ref);
     this._s('UPDATE pages SET record = ? WHERE gid = ? AND n = ?').run(JSON.stringify(stored), row.gid, row.n);
     this.files.describeLater(row.gid);
   }
@@ -766,11 +748,12 @@ export class Library {
     const orig = parse(row.orig);
     if (orig?.at === 's' && !this.files.keep.has(row.gid)) this._dropStaged(orig.file);
     if (whole) return;
-    for (const name of ownRefs(rec)) this._dropOwn(row.gid, name);
+    for (const [name, ref] of ownRefs(rec, new Map())) this._dropOwn(row.gid, name, ref);
     if (orig?.at !== 's') this.files.pageRemoved(row.gid, orig);   // its file goes when the gallery is next settled
   }
-  // A picture of the gallery's own no record names any more, deleted (files.js ownDropped).
-  _dropOwn(gid, rel) { if (ownName(rel)) this.files.ownDropped(gid, rel); }
+  // A picture of the gallery's own no record names any more (`ref`: its reference, as recorded), let go
+  // (files.js ownDropped).
+  _dropOwn(gid, rel, ref = null) { if (ownName(rel)) this.files.ownDropped(gid, rel, ref && { size: ref.size, mtime: ref.mtime }); }
   // The page `at` names: { galleryId, pageNum }, or its key.
   _pageAt(at) {
     if (typeof at === 'string') return this._pageRowByKey(at);
@@ -1681,7 +1664,7 @@ export class Library {
     else delete next.coverThumbs;
     const kept = fileRefs(next), keptOwn = ownRefs(next);
     for (const ref of fileRefs(current)) if (!kept.has(ref)) this._drop(path.join(this.cacheDir, ref));
-    for (const rel of ownRefs(current)) if (!keptOwn.has(rel)) this._dropOwn(gid, rel);
+    for (const [rel, ref] of ownRefs(current, new Map())) if (!keptOwn.has(rel)) this._dropOwn(gid, rel, ref);
     this._coverPut(next);
     this._logIn(gid);
     this.files.describeLater(gid);
@@ -1692,7 +1675,7 @@ export class Library {
     const rec = this._coverGet(gid);
     if (!rec) return;
     this._logIn(gid);
-    const before = fileRefs(rec), beforeOwn = ownRefs(rec);
+    const before = fileRefs(rec), beforeOwn = ownRefs(rec, new Map());
     const coverRole = role === 'series' ? 'series' : 'gallery';
     if (coverRole === 'series') delete rec.seriesCover;
     else delete rec.cover;
@@ -1707,7 +1690,7 @@ export class Library {
     const keep = rec.cover || rec.seriesCover;
     const after = keep ? fileRefs(rec) : new Set(), afterOwn = keep ? ownRefs(rec) : new Set();
     for (const ref of before) if (!after.has(ref)) this._drop(path.join(this.cacheDir, ref));
-    for (const rel of beforeOwn) if (!afterOwn.has(rel)) this._dropOwn(gid, rel);
+    for (const [rel, ref] of beforeOwn) if (!afterOwn.has(rel)) this._dropOwn(gid, rel, ref);
     if (keep) this._coverPut(rec);
     else this._s('DELETE FROM covers WHERE gid = ?').run(gid);
     this.files.describeLater(gid);
@@ -1906,8 +1889,8 @@ export class Library {
         }
         if (Object.keys(coverPatch).length) this._coverPatchIn(gid, coverPatch);
         // After the replaced pages' pictures went: staged ones are recorded to settle in with the
-        // gallery; the others are put in place below, before this resolves.
-        this._recordOwn(moves);
+        // gallery.
+        this._commitOwn(moves);
       }, state.fresh);
     } catch (e) {
       if (id) { this._transfers.delete(id); clearTimeout(state.timer); }
@@ -1920,7 +1903,6 @@ export class Library {
     if (state.staged.length) this.files.pageStored(gid);
     if (!silent) this.publishFeed(gid);
     else this.scheduleGallerySize(gid);
-    if (state.moves.some(m => !m.staged)) await this._placeOwn(gid);
     return { pages: state.staged.length };
   }
 
@@ -1936,12 +1918,10 @@ export class Library {
     const type = original.type || '';
     let orig;
     if (state.dir) {
-      const entry = layoutPath.original(n, originalExt(type, rec.url));
-      const file = path.join(state.dir, ...entry.split('/'));
-      state.fresh.push(file);
-      await writeFlushed(file, bytes);
+      const made = await writeNewIn(state.dir, `images/${String(n).padStart(4, '0')}`, originalExt(type, rec.url), bytes);
+      state.fresh.push(path.join(state.dir, ...made.name.split('/')));
       this.writes.add('pages', bytes.length);
-      orig = { at: 'p', entry, size: bytes.length, type };
+      orig = { at: 'p', entry: made.name, size: made.size, type, mtime: made.mtime };
     } else {
       orig = await this._stage(gid, n, bytes, type);
       state.fresh.push(this._staged(orig.file));
@@ -1974,19 +1954,6 @@ export class Library {
     const gid = state.gid;
     if (!state.claimed || this._metaGet(gid) || this._statGet(gid) || this._pageCount(gid)) return;
     try { this._tx(() => this.files.deleteIn(gid)); } catch {}
-  }
-
-  // Gallery `gid`'s pictures _writeOwn wrote, renamed into place now (files.js placeOwn: their records
-  // have just been committed); one that can't be (a reader holding the file it replaces) is tried again
-  // for a few seconds, then reported — it waits for the gallery's next settle, read from where it was
-  // written meanwhile.
-  async _placeOwn(gid) {
-    let left = this.files.placeOwn(gid);
-    for (let attempt = 0; attempt < 7 && left; attempt++) {
-      await new Promise(r => setTimeout(r, 50 * 2 ** attempt));
-      left = this.files.placeOwn(gid);
-    }
-    if (left) throw new BackendError('aborted', `${left} picture(s) of gallery ${gid} could not take their place yet`);
   }
 
   // ── Maintenance ──

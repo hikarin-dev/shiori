@@ -65,8 +65,12 @@ test('every series.json Shiori has written is a series; one that isn\'t, or name
 });
 
 test('a folder is Shiori\'s by what its descriptions say, never by its file or folder names (R01)', () => {
-  assert.deepEqual(OWN_FILES, ['metadata.json', 'series.json', 'shiori.json']);
+  assert.deepEqual(OWN_FILES, ['.shiori/gallery.json', 'metadata.json', 'series.json', 'shiori.json']);
   assert.deepEqual(classifyFolder({}), { kind: 'other' }, 'images/ alone (no description): not Shiori\'s');
+  const manifest = JSON.stringify({ format: 'shiori-gallery', version: 2, galleryId: '1790000000003', generation: 4, writer: 'w' });
+  assert.deepEqual(classifyFolder({ '.shiori/gallery.json': manifest }), { kind: 'gallery', id: '1790000000003' }, 'its manifest (format v2), metadata.json or not');
+  assert.deepEqual(classifyFolder({ '.shiori/gallery.json': manifest, 'metadata.json': written(meta('1790000000001')).text }), { kind: 'gallery', id: '1790000000003' },
+    'the manifest first');
   assert.deepEqual(classifyFolder({ 'metadata.json': JSON.stringify({ title: 'Downloaded', creator: 'someone' }) }), { kind: 'other' },
     'another tool\'s metadata.json');
   assert.deepEqual(classifyFolder({ 'metadata.json': written(meta('1790000000001')).text }), { kind: 'gallery', id: '1790000000001' });
