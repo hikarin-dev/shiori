@@ -39,11 +39,11 @@ export const OPS = new Set([
   'transferIds', 'transferRead', 'transferWrite',
   'publishFeed', 'changeRevision', 'changesSince', 'integritySnapshot', 'clearAll', 'archiveGallery',
   'diskWrites', 'resetDiskWrites',
-  'foldersList', 'folderAdd', 'folderRemove', 'folderSetDefault', 'folderHide', 'folderShow', 'folderClaim', 'folderScan', 'moveGallery', 'pdfsWaiting', 'pdfSource', 'addRendered',
+  'foldersList', 'folderAdd', 'folderRemove', 'folderSetDefault', 'folderHide', 'folderShow', 'folderClaim', 'folderScan', 'folderDismiss', 'moveGallery', 'pdfsWaiting', 'pdfSource', 'addRendered',
   'pdfFailed',
 ]);
 // Of those, what only the app's own pages may do: change which folders the library is kept in.
-const OWN_OPS = new Set(['folderAdd', 'folderRemove', 'folderSetDefault', 'folderHide', 'folderShow', 'folderClaim']);
+const OWN_OPS = new Set(['folderAdd', 'folderRemove', 'folderSetDefault', 'folderHide', 'folderShow', 'folderClaim', 'folderDismiss']);
 const MAX_ARGS = 8;
 // What a window may hand the library's other windows: control signals and job status.
 const RELAY_CHANNELS = new Set(['control', 'jobs']);

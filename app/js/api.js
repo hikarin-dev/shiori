@@ -151,12 +151,16 @@ export const galleries = _typed({
 // ── Where the library is kept ──
 // The places a library keeps galleries in, the same for both: this browser's own storage and the
 // folders the person added (a browser library), or the desktop app's library folders —
-// [{ id, kind: 'browser'|'folder', name, path?, isDefault, access, galleries, size, removable, hidden? }].
-// New galleries go to the default place; a gallery stays where it is kept unless moved. `access`:
-// 'granted', 'prompt' (the browser asks the person once a visit: allow), 'unavailable' (it can't
-// be reached now — a folder gone, a drive away) or 'taken' (another app took it over, or its claim
-// can't be read — `owner` says which app, when it can: { app, host | browser, site, active, at } —
-// so this library only reads it; claim takes it back; see folder-owner.js). Removing a place takes
+// [{ id, kind: 'browser'|'folder', name, path?, isDefault, access, galleries, size, removable, hidden?,
+// attention? }]. New galleries go to the default place; a gallery stays where it is kept unless moved.
+// `access`: 'granted', 'prompt' (the browser asks the person once a visit: allow), 'unavailable' (it
+// can't be reached now — a folder gone, a drive away), 'other-library' (another library folder is at
+// its place: never read or written as it) or 'taken' (another app took it over, or its claim can't be
+// read — `owner` says which app, when it can: { app, host | browser, site, active, at } — so this
+// library only reads it; claim takes it back; see folder-owner.js). `attention`: a folder's Needs
+// attention list, [{ reason, path, gid? }] — what its last check found (scan's `problems`, and
+// 'conflict': a gallery's folder holding something else now; 'unreferenced': a picture nothing refers
+// to) and what happened since ('changed-both' at a publication); dismiss puts one away. Removing a place takes
 // its galleries out of the library at once, writes back what only the library has of them, then
 // forgets them, leaving their files where they are: adding it again checks it from scratch. Hiding
 // one takes them out but keeps it listed, nothing written to it: showing it brings them back.
@@ -184,6 +188,9 @@ export const folders = _typed({
   show: (id) => backend.folderShow(String(id)),
   // Asks the person to let this page use the folder (from a click); resolves its access then.
   allow: async (id) => backend.folderAllow?.(String(id)) ?? 'granted',
+  // An item of a folder's Needs attention list ({ reason, path }) put away; a check that finds it
+  // again lists it again.
+  dismiss: async (id, item) => backend.folderDismiss?.(String(id), { reason: String(item?.reason ?? ''), path: String(item?.path ?? '') }),
   // Galleries put in it from outside the app join the library — those it kept are known already, and
   // their folders aren't looked into; those another app published anew there are read again. A browser
   // library's: `onProgress(done, total, added, step)` and `stopped()` (folder-scan.js runs it as a

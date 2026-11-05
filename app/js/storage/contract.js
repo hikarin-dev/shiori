@@ -146,26 +146,32 @@ export function parsed(read, parse, what = 'file') {
  *   read(rel: string, range?: Range): Promise<ReadResult<Uint8Array>>,
  * }} GalleryView */
 
-/** A gallery's directory, opened to write.
+/** A gallery's directory, opened to write. Each change is made only while the directory still names
+ * the gallery (principle 2): one gone meanwhile, or put there since by hand, is refused — and never
+ * made again.
  * - writeNew: a new file for `slot` (its layout name without extension, as gallery-files.js
  *   layoutPath gives it): the layout name if free, else NNNN-<hex>.<ext>; never over an existing file.
  * - publish: the generation's descriptions written as new files named by their content, then the
  *   manifest in one atomic write (the commit point), then the stable-named copies as a best effort.
+ *   `known`: the token the library last published or read there (gallery-manifest.js tokenOf);
+ *   `changedBoth`: the generation it replaced was another app's, published since (D4: this app's
+ *   change wins, and the library reports it).
  * - deleteNamed: removes the listed files whose size and modification time still match; one that
  *   differs, or can't be checked, is left and reported. The directory goes once it is empty.
  * - sweep: removes this gallery's own temporary files (*.shiori-tmp, -new, -old) older than
  *   `olderThan` (ms), none of `reserved`.
  * @typedef {GalleryView & {
  *   writeNew(slot: string, ext: string, bytes: Uint8Array): Promise<WrittenFile>,
- *   publish(next: { manifest: Manifest, descriptions: Record<string, string> }): Promise<{ generation: number }>,
+ *   publish(next: { manifest: Manifest, descriptions: Record<string, string>, known?: string | null }): Promise<{ generation: number, changedBoth: boolean }>,
  *   deleteNamed(files: WrittenFile[]): Promise<{ deleted: string[], kept: { name: string, why: 'changed' | 'missing' | 'unreadable' }[] }>,
  *   sweep(options: { olderThan: number, reserved: string[] }): Promise<{ removed: string[] }>,
  * }} GalleryDir */
 
-/** What Root.gallery() found at a directory: the gallery, nothing, or a directory that names another
- * gallery (`found`: its id) or none (`found`: null).
+/** What Root.gallery() found at a directory: the gallery (it names it: its manifest, else its v1
+ * metadata.json, folder-content.js galleryAt), nothing, a directory that names another gallery
+ * (`found`: its id) or none (`found`: null), or one whose descriptions can't be read now.
  * @template D
- * @typedef {{ kind: 'ok', dir: D } | Missing | { kind: 'conflict', found: string | null }} GalleryResult */
+ * @typedef {{ kind: 'ok', dir: D } | Missing | { kind: 'conflict', found: string | null } | Unreadable} GalleryResult */
 
 /** A source Shiori didn't make (a linked gallery's archive, folder of pictures or PDF), read-only.
  * @typedef {{
@@ -196,10 +202,11 @@ export function parsed(read, parse, what = 'file') {
  * }} ReadRoot */
 
 /** A library folder opened to write: its galleries opened to write, reserve() (the only operation
- * that makes a directory a gallery's: an exclusive reservation that writes its first manifest) and
- * writes to its .shiori/ area. A write rejects with the I/O error that failed it.
+ * that makes a directory a gallery's: an exclusive reservation of a free name that publishes the
+ * gallery's first generation there — gallery-manifest.js firstGeneration, its metadata.json naming
+ * it) and writes to its .shiori/ area. A write rejects with the I/O error that failed it.
  * @typedef {Omit<ReadRoot, 'gallery' | 'private'> & {
  *   gallery(dir: string, gid: string): Promise<GalleryResult<GalleryDir>>,
- *   reserve(nameHint: string, gid: string, manifest: Manifest): Promise<GalleryDir>,
+ *   reserve(nameHint: string, gid: string): Promise<GalleryDir>,
  *   private: PrivateArea,
  * }} WriteRoot */

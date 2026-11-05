@@ -34,8 +34,17 @@ The desktop's adapter is `desktop/server/folder-store.js`, over node fs.
 - **Reads are typed** and never throw for a file that is missing or can't be read: `ok`,
   `missing`, `unreadable`, and for a parse `corrupt`. Only `ok` and `missing` may change what a
   library has stored (`mayChangeState`).
-- **A gallery's directory** is touched only through `Root.gallery(dir, gid)`; only `reserve()`
-  makes a directory a gallery's. New bytes go to a new name (`writeNew`), never over a file.
+- **Identity.** Which library folder a path (or handle) holds is told by its `.shiori/library.json`
+  alone: another library folder there is `other-library`, never read, checked, adopted or written as
+  it (principle 1). Each library resolves every folder path it uses through one resolver that asks
+  (the desktop's `folders.js` `reach`, the website's `db.js` `_access`); `open()` is its face.
+- **A gallery's directory** is touched only while it names the gallery (`Root.gallery(dir, gid)`,
+  `folder-content.js` `galleryAt`: its manifest, else its v1 `metadata.json`); only `reserve()` makes a
+  directory a gallery's, publishing its first generation there. A directory gone meanwhile is never
+  made again by a write into it. New bytes go to a new name (`writeNew`), never over a file.
+- **Containment (desktop).** Every call inside a library folder is refused when its path goes through
+  a link (symbolic link or junction) below the folder, and a folder deleted or copied whole must hold
+  none (principle 5). The website can't see links (File System Access): it relies on the browser.
 - **A generation** is committed by one atomic manifest write (`publish`): `<gallery>/.shiori/gallery.json`,
   or `gallery.json` in a linked gallery's overlay. It names every picture's file, with the size and
   modification time Shiori wrote it with, and the descriptions, stored by their content
@@ -73,6 +82,9 @@ The desktop's adapter is `desktop/server/folder-store.js`, over node fs.
 
 ## Where it stands
 
-The adapters carry every library-folder call of both apps, with the libraries' own checks, and both
-libraries publish and read format v2 through them. Still to come, by the plan's steps: identity-
-verified roots, positive gallery identity and the desktop's containment in every operation (S5).
+The adapters carry every library-folder call of both apps, both libraries publish and read format v2
+through them, every read and check goes through an identity-verified folder, every change to an
+existing gallery folder needs the folder to name the gallery, and the desktop refuses links in every
+call. What a check finds, and a publication over another app's newer one, are kept per folder for its
+"Needs attention" list (D15). Still to come, by the plan's steps: provenance and render tokens (S6),
+refusals while a folder can't be written (S7).

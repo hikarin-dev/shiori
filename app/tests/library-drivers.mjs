@@ -30,7 +30,7 @@ const typed = (type) => (bytes) => new Blob([bytes], { type });
  *   setDefault(id: string): Promise<void>, hide(id: string): Promise<void>, show(id: string): Promise<void>,
  *   remove(id: string, options?: { discard?: boolean }): Promise<void>,
  *   scan(id: string): Promise<{ added: number, updated: number, problems: { path: string, reason: string }[] }>,
- *   list(): Promise<any[]>,
+ *   list(): Promise<any[]>, dismiss(id: string, item: { reason: string, path: string }): Promise<void>,
  *   newGallery(name: string): Promise<string>,
  *   putPage(gid: string, n: number, bytes: Uint8Array, type?: string): Promise<void>,
  *   putTranslation(gid: string, n: number, bytes: Uint8Array, type?: string): Promise<void>,
@@ -80,6 +80,7 @@ export async function desktopLibrary(base) {
     async remove(id, opts) { await lib.folderRemove(id, opts); await lib.folders.job(id)?.catch(() => {}); },
     scan: (id) => lib.folderScan(id),
     list: () => lib.foldersList(),
+    dismiss: (id, item) => lib.folderDismiss(id, item),
     async newGallery(name) { const gid = String(lib.nextGalleryId()); await lib.metaPut({ galleryId: gid, title: title(name) }); return gid; },
     async putPage(gid, n, bytes, type = 'image/png') { await lib.pagePut(gid, n, typed(type)(bytes)); },
     async putTranslation(gid, n, bytes, type = 'image/png') { await lib.putTranslatedPage({ galleryId: gid, pageNum: n }, typed(type)(bytes), null); },
@@ -129,6 +130,7 @@ export async function webLibrary() {
     async remove(id, opts) { await db.folderRemove(id, opts); await db.folderSetAside(id); },
     scan: (id) => db.folderScan(id),
     list: () => db.foldersList(),
+    dismiss: (id, item) => db.folderDismiss(id, item),
     async newGallery(name) { const gid = String(db.nextGalleryId()); await db.metaPut({ galleryId: gid, title: title(name) }); return gid; },
     // A page replaced keeps the key its record is stored under, as a page downloaded again does: a new
     // key (pagePut names one after the picture's type) would be a second record of that page.

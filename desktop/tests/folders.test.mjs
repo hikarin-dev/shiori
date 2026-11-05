@@ -427,12 +427,13 @@ test('a folder is claimed by the app that adds it: another app asks first, the a
   await library.files.place(gid);
   assert.ok(fs.existsSync(path.join(other, 'Shared', 'images', '0003.png')));
   // Removing it: a folder that lost what it was published with (its manifest, format v2; its
-  // description damaged) is published again, then the folder is let go.
+  // description an older one, still naming the gallery — one naming none is no longer known to be its:
+  // principle 2) is published again, then the folder is let go.
   const metaFile = path.join(other, 'Shared', 'metadata.json');
   const manifestFile = path.join(other, 'Shared', '.shiori', 'gallery.json');
   await library.files.describe(gid);
   const current = fs.readFileSync(metaFile, 'utf8');
-  fs.writeFileSync(metaFile, '{}');
+  fs.writeFileSync(metaFile, JSON.stringify({ galleryId: gid, title: { english: 'Older', japanese: '', pretty: '' } }));
   fs.rmSync(manifestFile);
   await library.folderSetDefault(library.primaryId);
   await library.folderRemove(id);

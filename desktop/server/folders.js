@@ -23,12 +23,12 @@
 // can be reached, this library holds its claim, and its state allows it.
 // Work on a folder — its check, its removal — runs through its queue, one job at a time (jobPlan), as a
 // task the windows' tasks pages list.
-import { disk, replaceFile } from './folder-store.js';
+import { disk, replaceFile, ioFailures, containIn } from './folder-store.js';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { owner as claims, lifecycle, linked as linkedSource, BackendError } from './shared.js';
-import { libraryId, libraryIdAt } from './files.js';
+import { owner as claims, lifecycle, linked as linkedSource, contract, BackendError } from './shared.js';
+import { libraryId, identityAt } from './files.js';
 import { scanLibrary } from './scan.js';
 import { fingerprintNow } from './linked.js';
 
@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS roots (
 CREATE TABLE IF NOT EXISTS places (gid TEXT PRIMARY KEY, root TEXT NOT NULL) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS places_root ON places (root);
 CREATE TABLE IF NOT EXISTS removed_notes (gid TEXT PRIMARY KEY, root TEXT NOT NULL, overlay TEXT NOT NULL, source TEXT NOT NULL) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS attention (root TEXT NOT NULL, reason TEXT NOT NULL, path TEXT NOT NULL, gid TEXT, event INTEGER NOT NULL DEFAULT 0,
+  at REAL NOT NULL, PRIMARY KEY (root, reason, path)) WITHOUT ROWID;
 `;
 // `roots`: `first` for the library's own folder; `epoch` the claim's counter this library last held it
 // at (folder-owner.js: to tell, once it is added back, whether another app had it meanwhile);
@@ -53,11 +55,15 @@ CREATE TABLE IF NOT EXISTS removed_notes (gid TEXT PRIMARY KEY, root TEXT NOT NU
 // removal be kept. `removed_notes`: a linked gallery let go (deleted, or moved out as the library's
 // own) whose source's note in its folder's removed.json is still owed (publishRemoved) — written by the
 // transaction that let it go, so the note is never lost, and its overlay (`overlay`, its path as
-// files.js keeps it) deleted once the note is there. The galleries out of the library: those placed in
-// a folder that isn't shown (one no longer known among them).
+// files.js keeps it) deleted once the note is there. `attention`: what a folder's "Needs attention"
+// list shows (D15: noteChecked, note) — `path` in the folder, `gid` the gallery it is about, `event`
+// for what happened once (a publication over another app's newer one) rather than what a check finds.
+// The galleries out of the library: those placed in a folder that isn't shown (one no longer known
+// among them).
 const UNMOUNTED = `CREATE VIEW IF NOT EXISTS unmounted AS
   SELECT gid, root FROM places WHERE root NOT IN (SELECT id FROM roots WHERE state = 'shown')`;
 const CLAIM_TTL = 5000;   // how long a folder's claim, as read, is taken as it is
+const IDENTITY_TTL = 2000;   // how long which folder a path holds, as read for reading, is taken as it is
 
 // A moment for the windows' requests: long work on a folder waits for it every so often.
 const breathe = () => new Promise((resolve) => setImmediate(resolve));
@@ -71,6 +77,7 @@ export class Folders {
   constructor(library) {
     this.library = library;
     this._probes = new Map();    // id → { read, access, at }: its claim as last read (for CLAIM_TTL)
+    this._ids = new Map();       // id → { status, path, failures, at }: which folder its path held, as last read (_identity)
     this._jobs = new Map();      // id → the job in its queue: { kind, stop, cancel, phase, run }
     this._removed = new Map();   // id → its removed.json's last write (publishRemoved: one at a time)
     this._rescanning = null;     // the check of every folder under way: { stop }
@@ -87,9 +94,14 @@ export class Folders {
     lib._tx(() => this._migrateIn());
     lib._db.exec(UNMOUNTED);
     lib._stmts.clear();
+    // Every disk call inside one of its folders is checked for links from now on (folder-store.js
+    // containIn): their paths as the index has them, read again once one is added or forgotten.
+    this._paths = null;
+    this._uncontain = containIn(() => (this._paths ??= this.paths()));
     await this._restoreSetAside();
     for (const id of this.ids()) this.probe(id);
   }
+  close() { this._uncontain?.(); }
   // Removals the app was closed in the middle of go on, and notes of removed sources still owed are
   // written.
   resume() {
@@ -150,7 +162,7 @@ export class Folders {
     if (!this._dormant) return;
     const lib = this.library;
     for (const { root } of lib._db.prepare('SELECT DISTINCT root FROM dormant').all()) {
-      if (this.has(root) && isDir(this.dir(root))) await this._restoreFrom(root);
+      if (this.has(root) && this.reach(root).status === 'ok') await this._restoreFrom(root);
     }
     if (lib._db.prepare('SELECT 1 FROM dormant LIMIT 1').get()) return;
     lib._db.exec('DROP TABLE dormant');
@@ -198,10 +210,51 @@ export class Folders {
   paths() { return this._rows().map(r => r.path); }
   has(id) { return id != null && !!this._row(id); }
   state(id) { return this._row(id)?.state ?? null; }
-  dir(id) {
+  // Where folder `id` is registered: its path as the index has it, whatever is there now — for showing
+  // it and telling folders apart, never for I/O (dir).
+  path(id) {
     const row = this._row(id);
     if (!row) throw new BackendError('not-found', `no library folder ${id}`);
     return row.path;
+  }
+  // Folder `id`'s path for I/O (principle 1): only while it holds that folder (reach: its library.json
+  // names it). Otherwise refused, as 'unavailable' — `reason` 'other-library' when another library
+  // folder (or a folder naming none) is at its path, 'unavailable' when nothing can be reached there.
+  // Every path the library reads or writes in a library folder starts here (library.js rootDir).
+  dir(id) {
+    const opened = this.reach(id);
+    if (opened.status === 'ok') return opened.at;
+    throw refusal('unavailable', opened.status, `library folder ${id} is ${opened.status === 'other-library' ? 'not at its path' : 'out of reach'}`);
+  }
+  // Folder `id` opened for `purpose` (the folder store contract's open, contract.js: folder-store.js
+  // folderStore is its face): { status: 'ok', at } — its path — or a refusal (contract.js refused):
+  // 'unavailable' (no such folder, nothing there), 'other-library' (its path holds another library
+  // folder: never read, scanned, adopted or written as it), and for a purpose other than 'read', as
+  // the shared rule weighs its state and claim (folder-lifecycle.js refusalFor). Its identity, as read
+  // for a read, is taken as it is for IDENTITY_TTL, or until an I/O call in a library folder fails;
+  // `fresh`, and every other purpose, read it again.
+  reach(id, purpose = 'read', { fresh = false } = {}) {
+    const row = this._row(id);
+    if (!row) return contract.refused('unavailable');
+    if (purpose === 'read') {
+      const here = this._identity(row, { fresh });
+      return here === 'ok' ? { status: 'ok', at: row.path } : contract.refused(here);
+    }
+    const { identity, access } = this.probe(id, { fresh });
+    const why = identity !== 'ok' ? identity : lifecycle.refusalFor({ state: row.state, owned: access === 'mine', reachable: true }, purpose);
+    return why ? contract.refused(why) : { status: 'ok', at: row.path };
+  }
+  // Which folder folder `row`'s path holds now: 'ok' (its .shiori/library.json names it — written once,
+  // when the folder first joined a library: files.js libraryId), 'other-library' (a folder there whose
+  // library.json names another, or none), or 'unavailable' (no folder there, or its library.json can't
+  // be read). Read again once IDENTITY_TTL has passed, after an I/O call in a library folder failed
+  // (folder-store.js ioFailures), or when `fresh`.
+  _identity(row, { fresh = false } = {}) {
+    const hit = this._ids.get(row.id);
+    if (!fresh && hit && hit.path === row.path && hit.failures === ioFailures() && Date.now() - hit.at < IDENTITY_TTL) return hit.status;
+    const status = identityAt(row.path, row.id);
+    this._ids.set(row.id, { status, path: row.path, failures: ioFailures(), at: Date.now() });
+    return status;
   }
   // The galleries placed in folder `id`.
   galleriesIn(id) { return this.library._s('SELECT gid FROM places WHERE root = ?').all(String(id)).map(r => r.gid); }
@@ -256,22 +309,23 @@ export class Folders {
   // it can, which app keeps it: `access` (folder-owner.js — 'mine', 'taken' or 'unknown') and the claim
   // as read (`read`), read again at most every few seconds. One no app holds (or this library let go
   // itself, untouched since) is claimed now — written, then read back; one that can't be is not this
-  // library's. A folder is reached only where its path holds it (_here): another folder there — a
-  // drive letter or mount point given to another disk, the folder replaced — is not it, and is
-  // neither claimed, read as it, nor written to (F01).
+  // library's. A folder is reached only where its path holds it (_identity, read afresh for every
+  // probe: each change to a folder's files is weighed by one): another folder there — a drive letter or
+  // mount point given to another disk, the folder replaced — is not it (`identity` 'other-library'),
+  // and is neither claimed, read as it, nor written to (F01, T01).
   probe(id, { fresh = false } = {}) {
     const row = this._row(id);
-    if (!row || !this._here(row)) return { reachable: false, access: null, read: null };
+    const identity = row ? this._identity(row, { fresh: true }) : 'unavailable';
+    if (identity !== 'ok') return { reachable: false, access: null, read: null, identity };
     let hit = this._probes.get(row.id);
     if (fresh || !hit || Date.now() - hit.at >= CLAIM_TTL) {
       hit = { ...this._access(row), at: Date.now() };
       this._probes.set(row.id, hit);
     }
-    return { reachable: true, access: hit.access, read: hit.read };
+    return { reachable: true, access: hit.access, read: hit.read, identity };
   }
-  // Whether folder `row`'s path holds that folder now: its .shiori/library.json names its id — the
-  // file is written once, when the folder first joins a library (libraryId), never again.
-  _here(row) { return libraryIdAt(row.path) === row.id; }
+  // Whether folder `row`'s path holds that folder now (_identity, read afresh).
+  _here(row) { return this._identity(row, { fresh: true }) === 'ok'; }
   _access(row) {
     const me = this._me();
     const read = this._readClaim(row.path);
@@ -315,31 +369,34 @@ export class Folders {
   // Folder `id` can take galleries moved there (shown, held, reachable), or the reason it can't.
   assertMoveTo(id) { if (!lifecycle.canMoveTo(this._facts(id))) throw this._refusal(id); }
   // Why folder `id` can't be written to: not-found (not one of the library's), 'hidden' (hidden, or
-  // being removed), 'unavailable' (out of reach) or 'taken' (another app keeps it, or its claim can't be
-  // checked).
+  // being removed), 'unavailable' (out of reach), 'other-library' (another library folder at its path)
+  // or 'taken' (another app keeps it, or its claim can't be checked).
   _refusal(id) {
     const state = this.state(id);
     if (!state) return new BackendError('not-found', `no library folder ${id}`);
     if (state !== 'shown') return refusal('invalid', 'hidden', `library folder ${id} is hidden or being removed`);
-    return this.probe(id).reachable ? refusal('unavailable', 'taken', `library folder ${id} is in use by another app`)
+    const { reachable, identity } = this.probe(id);
+    if (reachable) return refusal('unavailable', 'taken', `library folder ${id} is in use by another app`);
+    return identity === 'other-library' ? refusal('unavailable', 'other-library', `another library folder is at library folder ${id}'s path`)
       : refusal('unavailable', 'unavailable', `library folder ${id} can't be reached`);
   }
 
   // ── What the windows do with folders (Settings → Storage) ──
   // The library's folders, the first one first, those being removed left out: [{ id, kind, name, path,
   // isDefault, access, galleries, size, removable, hidden?, owner? }] — `access` 'granted', 'taken'
-  // (another app keeps it: `owner` who, null when its claim can't be read) or 'unavailable' (out of
-  // reach). A hidden one counts the galleries it holds, out of the library meanwhile.
+  // (another app keeps it: `owner` who, null when its claim can't be read), 'other-library' (another
+  // library folder is at its path) or 'unavailable' (out of reach). A hidden one counts the galleries it
+  // holds, out of the library meanwhile.
   async list() {
     const lib = this.library;
     const tally = new Map(lib._s('SELECT p.root, count(*) AS n, total(s.size) AS size FROM places p JOIN stats s ON s.gid = p.gid GROUP BY p.root')
       .all().map(r => [r.root, { galleries: Number(r.n), size: Number(r.size) }]));
     const defaultId = this.defaultRoot();
     return this._rows().filter(r => r.state !== 'removing').map((r) => {
-      const { reachable, access, read } = this.probe(r.id, { fresh: true });
+      const { reachable, access, read, identity } = this.probe(r.id, { fresh: true });
       const taken = reachable && access !== 'mine';
       return { id: r.id, kind: 'folder', name: path.basename(r.path) || r.path, path: r.path, isDefault: r.id === defaultId,
-        access: !reachable ? 'unavailable' : taken ? 'taken' : 'granted', removable: !r.first,
+        access: !reachable ? identity : taken ? 'taken' : 'granted', removable: !r.first, attention: this.attention(r.id),
         ...(tally.get(r.id) || { galleries: 0, size: 0 }), ...(r.state === 'hidden' ? { hidden: true } : {}),
         ...(taken ? { owner: this._ownerOf(read) } : {}) };
     });
@@ -366,6 +423,7 @@ export class Folders {
     if (this.has(id)) throw refusal('invalid', 'copy', `${abs} is a copy of one of the library's folders`);
     const claim = this._claimFor(abs, { force });
     lib._s(`INSERT INTO roots (id, path, state, first, added_at, epoch) VALUES (?, ?, 'shown', 0, ?, ?)`).run(id, abs, Date.now(), claim.epoch);
+    this._paths = null;
     this._probes.delete(id);
     try { lib._hide(path.join(abs, '.shiori')); } catch {}
     lib._push('control', { type: 'FOLDERS_CHANGED' });
@@ -415,7 +473,7 @@ export class Folders {
     if (row.state !== 'removing') {
       if (moveTo != null) {
         if (moveTo === id) throw new BackendError('invalid', 'not a place to move to');
-        this.dir(moveTo);
+        this.path(moveTo);
         this.assertMoveTo(moveTo);
       }
       // The default leaves with it: the first folder that can be the default is, from now on.
@@ -465,7 +523,7 @@ export class Folders {
 
   // Where new galleries go: a folder shown, held and reachable (else refused, as _refusal says).
   async setDefault(id) {
-    this.dir(id);
+    this.path(id);
     if (!lifecycle.canSetDefault(this._facts(id))) throw this._refusal(id);
     this.library._kvSet('defaultRoot', id === this.primaryId ? null : id);
     this.library._push('control', { type: 'FOLDERS_CHANGED' });
@@ -561,16 +619,20 @@ export class Folders {
   }
 
   // Galleries put in folder `id` outside the app join the library (scan.js), as a task in its queue.
-  // A hidden folder, or one another app keeps, isn't checked; one being removed isn't the library's any
-  // more. Resolves what scan.js found.
+  // A hidden folder, one another app keeps, or one whose path holds another library folder (T01: never
+  // read as it) isn't checked; one being removed isn't the library's any more. Resolves what scan.js
+  // found.
   async scan(id) {
     const row = this._row(id);
     if (!row || row.state === 'removing') throw new BackendError('not-found', `no library folder ${id}`);
     if (row.state === 'hidden') throw refusal('invalid', 'hidden', `library folder ${id} is hidden`);
-    const { reachable, access } = this.probe(id);
-    if (reachable && access !== 'mine') throw this._refusal(id);
+    const { reachable, access, identity } = this.probe(id);
+    if ((reachable && access !== 'mine') || identity === 'other-library') throw this._refusal(id);
     return this._queue(id, 'scan', (job) => this._announce(id, { labelKey: 'lf.task_checking', doneKey: 'lf.task_done' }, async (progress) => {
       const found = await this.library._bulkRun(() => scanLibrary(this.library, { roots: [id], stopped: () => job.stop, onProgress: progress }));
+      // What it found for the folder's Needs attention list — not when it couldn't look at it, or stopped.
+      const unchecked = found.problems.some(p => p.reason === 'unreachable' || p.reason === 'other-library');
+      if (!found.stopped && !unchecked) this.noteChecked(id, [...found.problems, ...found.unreferenced.map(u => ({ path: u.path, reason: 'unreferenced', gid: u.gid }))]);
       return { found: found.added.length, updated: found.updated.length, problems: found.problems.length, stopped: found.stopped, result: found };
     }));
   }
@@ -742,12 +804,46 @@ export class Folders {
     lib._tx(() => {
       lib._s('DELETE FROM roots WHERE id = ?').run(id);
       lib._s('DELETE FROM removed_notes WHERE root = ?').run(id);   // written, or lost by the person's choice
+      lib._s('DELETE FROM attention WHERE root = ?').run(id);
       if (this._dormant) lib._s('DELETE FROM dormant WHERE root = ?').run(id);
       if (lib._kvGet('defaultRoot') === id) lib._kvSet('defaultRoot', null);
       lib._logIn('*');
     });
+    this._paths = null;
     this._probes.delete(id);
+    this._ids.delete(id);
     lib._push('control', { type: 'FOLDERS_CHANGED' });
+  }
+
+  // ── Needs attention (D15) ──
+  // What folder `root`'s check found that the person may want to act on — `problems` ([{ path, reason,
+  // gid? }]: what it couldn't read or join, a gallery's folder holding something else now, files
+  // nothing refers to) — in place of what its last check found; what happened once (`event`) stays
+  // until dismissed. A check that couldn't look at the folder, or was stopped, changes nothing.
+  noteChecked(root, problems) {
+    const lib = this.library;
+    lib._tx(() => {
+      lib._s('DELETE FROM attention WHERE root = ? AND event = 0').run(root);
+      for (const p of problems) this._put(root, p, false);
+    });
+  }
+  // Something about folder `root` to show there ({ reason, path, gid? }); `event`: kept by later checks.
+  note(root, problem, { event = false } = {}) {
+    try { this._put(root, problem, event); } catch {}
+  }
+  _put(root, { reason, path: at = '', gid = null }, event) {
+    this.library._s('INSERT OR REPLACE INTO attention (root, reason, path, gid, event, at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(root, String(reason), String(at), gid == null ? null : String(gid), event ? 1 : 0, Date.now());
+  }
+  // Folder `root`'s list: [{ reason, path, gid? }], oldest first.
+  attention(root) {
+    return this.library._s('SELECT reason, path, gid FROM attention WHERE root = ? ORDER BY at, reason, path').all(root)
+      .map(r => ({ reason: r.reason, path: r.path, ...(r.gid ? { gid: r.gid } : {}) }));
+  }
+  // An item of folder `root`'s list put away (a check that finds it again shows it again).
+  dismiss(root, { reason, path: at = '' }) {
+    this.library._s('DELETE FROM attention WHERE root = ? AND reason = ? AND path = ?').run(String(root), String(reason), String(at));
+    this.library._push('control', { type: 'FOLDERS_CHANGED' });
   }
 
   // ── removed.json ──
@@ -795,7 +891,7 @@ export class Folders {
       return false;
     }
     lib._tx(() => { for (const n of notes) lib._s('DELETE FROM removed_notes WHERE gid = ? AND source = ?').run(n.gid, n.source); });
-    for (const n of notes) await lib.files._removeOwn(n.overlay, n.gid, true, work);
+    for (const n of notes) await lib.files._removeOwn(n.overlay, n.gid, work);
     return !lib._s('SELECT 1 FROM removed_notes WHERE root = ? LIMIT 1').get(root);
   }
 }

@@ -592,11 +592,11 @@ test('F01: another folder at a library folder\'s path is not it, and a gallery\'
   const listed = (await library.foldersList()).find(f => f.id === id);
   await library.deleteGallery(kept);
   await sleep(100);
-  assert.equal(listed.access, 'unavailable');
+  assert.equal(listed.access, 'other-library');   // S5: told apart from a folder out of reach (principle 1)
   assert.ok(fs.existsSync(path.join(dir, 'away', 'Replaced', 'notes.txt')), 'the folder put in the gallery\'s place stays');
   assert.ok(fs.existsSync(path.join(other, 'Same Name', 'personal-notes.txt')), 'the other library\'s folder stays');
   assert.ok(!fs.existsSync(path.join(other, '.shiori', 'owner.json')), 'and is never claimed');
-  assert.equal(await reason(library.folderClaim(id)), 'unavailable');
+  assert.equal(await reason(library.folderClaim(id)), 'other-library');
 });
 
 test('F02: a removal\'s move into a folder hidden or removed while it is copied is refused — the gallery stays where it was, left — and the copy goes', async (t) => {

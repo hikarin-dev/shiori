@@ -95,7 +95,8 @@ test('a gallery is settled into a folder of its own in the gallery format, and i
   assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 3)), [...pngBytes(3)]);
   assert.deepEqual(tree(dirOf(library, gid)), await exportNames(library, gid), 'the folder is its export, unzipped');
   const m = manifestOf(library, gid);
-  assert.deepEqual([m.galleryId, m.generation, Object.values(m.files.pages).map(p => p.original)], [gid, 1, ['images/0001.png', 'images/0002.png', 'images/0003.png']],
+  // Generation 1 is its reservation's (the folder bound to it, no pages yet); its pages are in the next.
+  assert.deepEqual([m.galleryId, m.generation, Object.values(m.files.pages).map(p => p.original)], [gid, 2, ['images/0001.png', 'images/0002.png', 'images/0003.png']],
     'and its manifest names each page\'s file, its generation committed');
   await whole(library);
 });

@@ -161,20 +161,23 @@ async function overlayPages(library, root, gid) {
 // changes it. Resolves the overlay's path in the library (files.js: `@<root>/…` beyond the first
 // folder) and the source as source.json had it (null: a new overlay).
 async function overlayFor(library, root, title, gid, at, marks = {}) {
-  const { file, text, was } = await sourceJson(library, root, gid);
+  const { file, text, was, other } = await sourceJson(library, root, gid);
+  // An overlay naming another gallery is never made this one's (principle 2): left, and refused.
+  if (other) throw Object.assign(new BackendError('conflict', `the overlay at ${L.overlayDir(gid)} names another gallery`), { reason: 'conflict' });
   const want = L.sourceText(gid, { kind: title.kind, path: title.path, inner: title.inner,
     size: at?.size ?? was?.size ?? null, fingerprint: at?.fingerprint ?? was?.fingerprint ?? null,
     rendered: 'rendered' in marks ? marks.rendered : was?.rendered, failed: 'failed' in marks ? marks.failed : was?.failed });
   if (text !== want) await writeIn(library, root, file, want);
   return { rel: library.files._join(root, L.overlayDir(gid)), was };
 }
-// Gallery `gid`'s overlay's source.json: where it is, its text, and the source it names (`was`, null
-// when there is none, or it names another gallery). Rejects when it can't be read: never written over.
+// Gallery `gid`'s overlay's source.json: where it is, its text, the source it names (`was`, null when
+// there is none, or it names another gallery: `other`). Rejects when it can't be read: never written
+// over.
 async function sourceJson(library, root, gid) {
   const file = path.join(absIn(library, root, L.overlayDir(gid)), L.SOURCE_FILE);
   const text = await disk.readFile(file, 'utf8').catch(ifMissing(null));
   const read = L.parseSource(text);
-  return { file, text, was: read?.galleryId === String(gid) ? read.source : null };
+  return { file, text, was: read?.galleryId === String(gid) ? read.source : null, other: !!read && read.galleryId !== String(gid) };
 }
 
 // An archive's own metadata, when it is a description Shiori wrote (folder-content.js galleryIdOf) —

@@ -345,9 +345,21 @@ export async function readGallery({ area, archive = false, text, files }) {
  * folder. The generation is the next after both `prev`'s and `next`'s own (the one the library last
  * published or read).
  * @param {{ area: string, prev: Manifest | null, next: Omit<Manifest, 'descriptions'>, texts: Record<string, string | null | undefined> }} publication
- * @returns {Promise<{ manifest: Manifest, text: string, writes: { path: string, text: string }[],
- *   stable: { path: string, text: string | null, was: string | null }[], keep: Set<string> }>} */
+ * @returns {Promise<Publication>} */
 export async function publication({ area, prev, next, texts }) {
+  /** @type {Map<string, string>} */
+  const hashes = new Map();
+  for (const name of DESCRIPTION_FILES) { const t = texts[name]; if (t != null) hashes.set(t, await sha256Hex(t)); }
+  return publicationWith({ area, prev, next, texts, hashOf: (t) => /** @type {string} */ (hashes.get(t)) });
+}
+/** @typedef {{ manifest: Manifest, text: string, writes: { path: string, text: string }[],
+ *   stable: { path: string, text: string | null, was: string | null }[], keep: Set<string> }} Publication */
+/** The same, planned in one synchronous step, given `hashOf(text)` (its hex sha-256): for a caller that
+ * must make a gallery's folder and its first generation at once (the desktop's reservation).
+ * @param {{ area: string, prev: Manifest | null, next: Omit<Manifest, 'descriptions'>, texts: Record<string, string | null | undefined>,
+ *   hashOf: (text: string) => string }} publication
+ * @returns {Publication} */
+export function publicationWith({ area, prev, next, texts, hashOf }) {
   /** @type {Record<string, string>} */
   const descriptions = {};
   /** @type {{ path: string, text: string }[]} */
@@ -356,7 +368,7 @@ export async function publication({ area, prev, next, texts }) {
   for (const name of DESCRIPTION_FILES) {
     const t = texts[name];
     if (t == null) continue;
-    const at = `${storedDir(area)}/${await sha256Hex(t)}.json`;
+    const at = `${storedDir(area)}/${hashOf(t)}.json`;
     descriptions[name] = at;
     if (!before.has(at)) writes.push({ path: at, text: t });
   }
@@ -368,6 +380,13 @@ export async function publication({ area, prev, next, texts }) {
     : prev?.descriptions[name] ? [{ path: name, text: /** @type {string | null} */ (null), was: /** @type {string | null} */ (prev.descriptions[name]) }] : []));
   return { manifest, text: manifestText(manifest), writes, stable, keep: new Set([...before, ...Object.values(descriptions)]) };
 }
+
+/** The first generation of gallery `galleryId`, which a reservation publishes as it makes the gallery's
+ * folder (contract.js reserve: the only operation that makes a directory a gallery's): no pictures yet,
+ * written by `writer`. Its descriptions (the gallery's metadata.json) go with it.
+ * @param {string} galleryId @param {string} writer @returns {Omit<Manifest, 'descriptions'>} */
+export const firstGeneration = (galleryId, writer) => ({ format: 'shiori-gallery', version: 2, galleryId: String(galleryId), generation: 1,
+  writer, files: { pages: {}, covers: {} }, sizes: {} });
 
 /** A manifest for an archive (the desktop's archive mode): its descriptions are the entries appended
  * with it, under their own names — the archive's new directory commits them all at once.

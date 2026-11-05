@@ -673,17 +673,20 @@ function _foldersChanged() {
 function _forgetFolders() { _foldersRead = null; _grants.clear(); _ours.clear(); }
 platform.control.on((msg) => { if (msg?.type === 'FOLDERS_CHANGED') _forgetFolders(); });
 
-// What this context may do with folder `id` now: { state (its permission), owned, claim (as read) }.
-// It reads a folder it may use; it writes to it only while this library holds its claim
-// (folder-owner.js access 'mine'). A folder no app holds — never claimed, or let go by this library
-// and untouched since — is claimed here first, and read back: of two apps claiming it at once only
-// one goes on. One another app holds, or whose claim can't be read, is read, never written.
+// What this context may do with folder `id` now: { state (its permission — or 'other-library': the
+// folder its handle reaches is another library folder, or names none: principle 1), owned, claim (as
+// read) }. It reads a folder it may use, and that is it; it writes to it only while this library holds
+// its claim (folder-owner.js access 'mine'). A folder no app holds — never claimed, or let go by this
+// library and untouched since — is claimed here first, and read back: of two apps claiming it at once
+// only one goes on. One another app holds, or whose claim can't be read, is read, never written.
+// Another library folder at its handle's path is neither read, claimed, scanned nor written (T01).
 async function _access(id) {
   if (!id) return { state: 'unavailable', owned: false, claim: null };
   const hit = _grants.get(id);
   if (hit && Date.now() - hit.at < GRANT_TTL_MS) return hit;
   const folder = await _folderById(id);
-  const state = folder ? await folderFiles.permission(folder.handle) : 'unavailable';
+  let state = folder ? await folderFiles.permission(folder.handle) : 'unavailable';
+  if (state === 'granted') { const here = await folderFiles.identityOf(id, folder.handle); if (here !== 'ok') state = here; }
   const held = state === 'granted' ? await _holds(folder).catch(() => ({ owned: false, claim: { state: 'damaged' } })) : { owned: false, claim: null };
   const out = { state, ...held, at: Date.now() };
   _grants.set(id, out);
@@ -707,13 +710,15 @@ async function _readRootOf(id) { return (await _access(id)).state === 'granted' 
 // forgotten).
 async function _folderById(id) { const { byId, removing } = await _folders(); return byId.get(id) || removing.get(id) || null; }
 // The library's folders as the folder store contract has them (storage/folder-store-web.js): each
-// weighed as its record, this page's permission and the library's claim say now (asked afresh).
+// weighed as its record, this page's permission, the folder its handle reaches and the library's claim
+// say now (asked afresh).
 export const folderStore = folderFiles.folderStore(async (id) => {
   const folder = await _folderById(id);
   if (!folder) return null;
   _grants.delete(id);
   const a = await _access(id);
-  return { handle: folder.handle, state: folder.state, owned: a.owned, permission: a.state };
+  const here = a.state !== 'other-library';
+  return { handle: folder.handle, state: folder.state, owned: a.owned, permission: here ? a.state : 'granted', here, writer: await _me() };
 });
 
 // ── Which app keeps a folder (folder-owner.js) ──
@@ -799,24 +804,25 @@ async function _home(gid, meta = null, w = null) {
 const _homeFields = (home, left) => (!home ? {} : { folder: home.folder, ...(home.dir ? { dir: home.dir } : {}), ...(left ? { spilled: 1 } : {}) });
 
 // Gallery `gid`'s own folder in folder `folder`, named after it (or `base`, a path in the folder) and
-// bound to it by its metadata.json (folderFiles.reserveDir) — noted for write `w`, which deletes it
-// should it not commit. Resolves its name.
+// bound to it by its first generation (folderFiles.reserveDir: the only way a folder becomes a
+// gallery's) — noted for write `w`, which deletes it should it not commit. Resolves its name.
 async function _reserveDir(gid, folder, root, meta, w, base = null) {
   const m = migrateTitle({ ...(meta || await metaGet(gid) || {}), galleryId: String(gid) });
-  const dir = await folderFiles.reserveDir(folder, root, base || galleryName(m), JSON.stringify(m, null, 2));
+  const dir = await folderFiles.reserveDir(folder, root, base || galleryName(m), JSON.stringify(m, null, 2), { gid: String(gid), writer: await _me() });
   w?.made.push({ folder, root, path: dir, dir: true });
   return dir;
 }
-// Whether `dir` in a folder is gallery `gid`'s own: its metadata.json names it (folder-content.js
-// galleryIdOf), or it is the gallery's overlay — or, for an archive in the gallery format, its
+// Whether `dir` in a folder is gallery `gid`'s own: it names it (folderFiles.galleryIn: its manifest,
+// else its metadata.json; an overlay, its source.json) — or, for an archive in the gallery format, its
 // descriptions name it (its own metadata.json, or a series export's series.json) and no other gallery
 // is still read from it. Nothing is deleted from a folder another gallery's description names, nor
 // from one no description names.
 async function _ownsDir(folder, root, dir, gid) {
-  if (dir === overlayDir(gid)) return true;
-  try { return galleryIdOf(await folderFiles.readText(folder, root, `${dir}/metadata.json`)) === String(gid); } catch (e) {
-    if (e?.name !== 'TypeMismatchError') return false;   // a file: an archive
-  }
+  const found = await folderFiles.galleryIn(folder, root, dir, String(gid));
+  if (found.kind === 'ok') return true;
+  if (found.kind !== 'conflict' || found.found != null) return false;
+  if (dir === overlayDir(gid)) return true;   // its overlay, named by its id in the folder's .shiori/, naming no other
+  if (await folderFiles.readFile(folder, root, dir).then(f => !f, () => true)) return false;   // a folder naming none, not an archive
   if (!(await _archiveNames(folder, root, dir).catch(() => new Set())).has(String(gid))) return false;
   return !(await galleryGetAll()).some(g => g.folder === folder && g.dir === dir && String(g.galleryId) !== String(gid));
 }
@@ -828,15 +834,19 @@ async function _archiveNames(folder, root, path) {
   const own = galleryIdOf(await text('metadata.json'));
   return new Set(own ? [own] : (seriesOf(await text('series.json'))?.chapters || []).map(c => c.id));
 }
-// Whether gallery `gid` may write into its folder `dir`: no other gallery's description names it (one
-// reserved before folders were bound may not be described yet). Asked once per folder in a context.
-const _ours = new Set();   // `${folder}\0${dir}\0${gid}` found to be the gallery's
+// Whether gallery `gid` may write into its folder `dir`: the folder names it (folderFiles.galleryIn,
+// principle 2) — one naming another gallery, or none (put there by hand), or gone, is written to
+// never, its pictures kept in this browser meanwhile; a folder naming none is noted on its library
+// folder's Needs attention list. Found so, taken as it is for GRANT_TTL_MS (each write asks; a
+// deletion asks afresh: _ownsDir), and forgotten with the folders' grants.
+const _ours = new Map();   // `${folder}\0${dir}\0${gid}` → when it was found to be the gallery's
 async function _mayWriteDir(folder, root, dir, gid) {
   const key = `${folder}\0${dir}\0${gid}`;
-  if (_ours.has(key)) return true;
-  const named = galleryIdOf(await folderFiles.readText(folder, root, `${dir}/metadata.json`));
-  if (named != null && named !== String(gid)) return false;
-  _ours.add(key);
+  if (Date.now() - (_ours.get(key) ?? -Infinity) < GRANT_TTL_MS) return true;
+  const found = await folderFiles.galleryIn(folder, root, dir, String(gid));
+  if (found.kind === 'conflict') await _note(folder, { reason: 'conflict', path: dir, gid: String(gid) });
+  if (found.kind !== 'ok') { _ours.delete(key); return false; }
+  _ours.set(key, Date.now());
   return true;
 }
 
@@ -1051,6 +1061,55 @@ async function _forgetRetiring(folder, dir = null, paths = null) {
   });
 }
 
+// ── Needs attention (D15) ──
+// What a folder's "Needs attention" list shows, in the folders store as { id: ATTENTION + folder \0
+// reason \0 path, folder, reason, path (in the folder), gid?, event?, at }: what its last check found
+// (_noteChecked: in place of what the one before found) and what happened once (`event`: a publication
+// over another app's newer one), which stays until it is dismissed.
+const ATTENTION = '$attention:';
+const _attentionPrefix = (folder) => `${ATTENTION}${folder}\u0000`;
+async function _attentionWrite(fn) {
+  const db = await openDB();
+  await new Promise((resolve, reject) => {
+    const tx = _tx(db, FOLDER_STORE, 'readwrite');
+    fn(tx.objectStore(FOLDER_STORE));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(_txError(tx));
+  });
+}
+const _attentionRecord = (folder, { reason, path = '', gid = null }, event) => ({ id: `${_attentionPrefix(folder)}${reason}\u0000${path}`, folder,
+  reason: String(reason), path: String(path), ...(gid != null ? { gid: String(gid) } : {}), ...(event ? { event: true } : {}), at: Date.now() });
+// Something about folder `folder` to show there ({ reason, path, gid? }; `event`: kept by later checks).
+async function _note(folder, problem, { event = false } = {}) {
+  await _attentionWrite((store) => store.put(_attentionRecord(folder, problem, event))).catch(() => {});
+}
+// What folder `folder`'s check found (`problems`), in place of what its last one found.
+async function _noteChecked(folder, problems) {
+  const all = await _attentionOf(folder, { records: true });
+  await _attentionWrite((store) => {
+    for (const r of all) if (!r.event) store.delete(r.id);
+    for (const p of problems) store.put(_attentionRecord(folder, p, false));
+  });
+}
+// Folder `folder`'s list: [{ reason, path, gid? }], oldest first (`records`: as stored).
+async function _attentionOf(folder, { records = false } = {}) {
+  const db = await openDB();
+  const found = await new Promise((resolve, reject) => {
+    const prefix = _attentionPrefix(folder);
+    const req = _tx(db, FOLDER_STORE, 'readonly').objectStore(FOLDER_STORE).getAll(IDBKeyRange.bound(prefix, `${prefix}￿`));
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+  found.sort((a, b) => a.at - b.at);
+  return records ? found : found.map(r => ({ reason: r.reason, path: r.path, ...(r.gid ? { gid: r.gid } : {}) }));
+}
+// An item of folder `folder`'s list put away (a check that finds it again shows it again).
+async function _dismiss(folder, { reason, path = '' }) {
+  await _attentionWrite((store) => store.delete(`${_attentionPrefix(folder)}${reason}\u0000${path}`));
+}
+// Every item of folder `folder`'s, gone with it (the folder forgotten).
+const _forgetAttention = (folder) => _attentionWrite((store) => store.delete(IDBKeyRange.bound(_attentionPrefix(folder), `${_attentionPrefix(folder)}￿`)));
+
 // ── Notes of removed sources (linked-source.js removed.json) ──
 // A linked gallery's source that left its folder (the gallery deleted, or moved to another place as
 // the library's own) is noted by the transaction letting it go, in the folders store — which every
@@ -1200,9 +1259,12 @@ async function _describe(gid, { work = null } = {}) {
     const opened = await folderStore.open({ id: stat.folder, location: root }, { purpose: as.kind === 'removal' ? 'removal' : 'publish' });
     if (opened.status !== 'ok') return { ok: false };
     const found = await opened.root.gallery(stat.dir, gid);
+    if (found.kind === 'conflict') await _note(stat.folder, { reason: 'conflict', path: stat.dir, gid: String(gid) });
     if (found.kind !== 'ok') return { ok: false };
     if (rev == null && stat.stamp && (await found.dir.manifest()).kind === 'ok') return { ok: true };
-    const { generation } = await found.dir.publish({ manifest: next, descriptions: _textsOf(wanted) });
+    const { generation, changedBoth } = await found.dir.publish({ manifest: next, descriptions: _textsOf(wanted), known: stat.stamp ?? null });
+    // Another app published it since this library last did or read it: this app's change won (D4).
+    if (changedBoth) await _note(stat.folder, { reason: 'changed-both', path: stat.dir, gid: String(gid) }, { event: true });
     await _described(gid, rev, tokenOf({ ...next, generation, descriptions: {} }));
     _changesSince.delete(String(gid));
     if (retiring.length) {
@@ -1521,6 +1583,7 @@ const _folderLibrary = createFolderLibrary({
   seriesWrite: (...args) => _seriesCommand('write', args),
   // the places, the write gate, the claims
   folders: _folders, folderById: _folderById, folderWrite: _folderWrite, forgetGrant: (id) => _grants.delete(id), forgetRetiring: _forgetRetiring,
+  note: _note, noteChecked: _noteChecked, attentionOf: _attentionOf, dismiss: _dismiss, forgetAttention: _forgetAttention,
   placeOf: _placeOf, placeKey: _placeKey, access: _access, rootOf: _rootOf, usable: _usable, readRootOf: _readRootOf,
   removedNotes: _removedNotes, publishRemoved: _publishRemoved,
   me: _me, myLabel: _myLabel, readClaim: _readClaim, writeClaim: _writeClaim, noteEpoch: _noteEpoch, randomId: _randomId,
@@ -1530,7 +1593,7 @@ const _folderLibrary = createFolderLibrary({
   archiveOf: _archiveOf, typeOfName: _typeOfName, settleFolders,
 });
 export const { foldersList, foldersWaiting, folderAdd, folderClaim, folderSetDefault, folderAllow, folderHide, folderShow,
-  folderRemove, folderSetAside, foldersPending, folderScan, pdfsWaiting, pdfSource, addRendered, pdfFailed } = _folderLibrary;
+  folderRemove, folderSetAside, foldersPending, folderScan, folderDismiss, pdfsWaiting, pdfSource, addRendered, pdfFailed } = _folderLibrary;
 
 export async function dbGet(url) {
   const db = await openDB();

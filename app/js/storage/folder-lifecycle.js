@@ -56,13 +56,16 @@ export function writeAllowed({ state, owned, reachable, work = null }) {
 }
 
 // Why a folder store's open() refuses `purpose` (contract.js Purpose) at a place, or null when it
-// doesn't: 'unavailable' (it can't be reached), 'hidden' (its state allows no change: hidden — but for
-// a publication — or being removed, where only its removal's write-back may write) or 'not-owned'
-// (another app holds its claim, or it can't be checked). Reading needs it reachable alone; every other
-// purpose is weighed as a write (writeAllowed), the claim file's own too.
-/** @param {Place} place @param {string} purpose @returns {'unavailable' | 'hidden' | 'not-owned' | null} */
-export function refusalFor({ state, owned, reachable }, purpose) {
+// doesn't: 'unavailable' (it can't be reached), 'other-library' (its path holds another library folder,
+// or a folder naming none: `here` false — principle 1: never read, scanned, adopted or written as it),
+// 'hidden' (its state allows no change: hidden — but for a publication — or being removed, where only
+// its removal's write-back may write) or 'not-owned' (another app holds its claim, or it can't be
+// checked). Reading needs it reachable and here alone; every other purpose is weighed as a write
+// (writeAllowed), the claim file's own too.
+/** @param {Place & { here?: boolean }} place @param {string} purpose @returns {'unavailable' | 'other-library' | 'hidden' | 'not-owned' | null} */
+export function refusalFor({ state, owned, reachable, here = true }, purpose) {
   if (!reachable) return 'unavailable';
+  if (!here) return 'other-library';
   if (purpose === 'read') return null;
   const allowed = state === 'shown' || (state === 'removing' && purpose === 'removal') || (state === 'hidden' && purpose === 'publish');
   if (!allowed) return 'hidden';

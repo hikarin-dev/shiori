@@ -278,8 +278,10 @@ test('a folder is claimed by the library that adds it: another app asks first, a
     while (current == null && Date.now() < deadline + 10000) {   // its manifest, a moment after the last change
       try { current = await t.text('Lib X', 'Shared/.shiori/gallery.json'); } catch { await new Promise(r => setTimeout(r, 200)); }
     }
+    // (An older description, still naming the gallery: one naming none is no longer known to be its
+    // folder, principle 2, and is never written to as it.)
     const w = await (await (await x.getDirectoryHandle('Shared')).getFileHandle('metadata.json')).createWritable();
-    await w.write('{}');
+    await w.write(JSON.stringify({ galleryId: gid, title: { english: 'Older', japanese: '', pretty: '' } }));
     await w.close();
     await (await (await x.getDirectoryHandle('Shared')).getDirectoryHandle('.shiori')).removeEntry('gallery.json');
     await api.folders.remove(id);
@@ -479,6 +481,7 @@ test('a folder out of reach keeps new pictures in the browser, and they move out
     const api = window.__api, t = window.__t;
     const { id } = await api.folders.add(await t.folder('Lib C'));
     await api.folders.setDefault(id);
+    const own = await t.text('Lib C', '.shiori/library.json');   // what names the folder, on its drive
     await t.root.removeEntry('Lib C', { recursive: true });   // the drive taken away
     const gid = api.newGalleryId();
     await api.meta.put({ galleryId: gid, title: { english: 'Waiting', japanese: '', pretty: '' } });
@@ -489,7 +492,11 @@ test('a folder out of reach keeps new pictures in the browser, and they move out
       // Removing it now would lose that page: asked first.
       remove: await api.folders.remove(id).then(() => 'resolved', (e) => [e.reason, e.galleries]),
       listed: (await api.folders.list()).some(f => f.id === id) };
-    await t.folder('Lib C');   // back
+    // Back: the same folder, its library.json with it (an empty folder made at its path is another
+    // library's, never used as it: principle 1).
+    const w = await (await (await (await t.folder('Lib C')).getDirectoryHandle('.shiori', { create: true })).getFileHandle('library.json', { create: true })).createWritable();
+    await w.write(own);
+    await w.close();
     await new Promise(r => setTimeout(r, 5500));
     const settled = await api.folders.settle();
     return { meanwhile, settled, file: await t.has('Lib C', 'Waiting/images/0001.png'),

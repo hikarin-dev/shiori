@@ -376,6 +376,7 @@ export class Library {
     try { this._meterDb({ checkpoint: true }); } catch {}
     this.writes.save();
     this.files.close();
+    this.folders?.close();
     for (const t of this._timers) clearTimeout(t);
     this._timers.clear();
     for (const m of [this._feedTimers, this._sizeTimers, this._aggTimers]) m.clear();
@@ -925,6 +926,8 @@ export class Library {
   folderShow(id) { return this.folders.show(id); }
   folderSetDefault(id) { return this.folders.setDefault(id); }
   folderClaim(id) { return this.folders.claim(id); }
+  // An item of folder `id`'s Needs attention list ({ reason, path }) put away (folders.js dismiss).
+  async folderDismiss(id, item) { this.folders.path(id); this.folders.dismiss(id, { reason: String(item?.reason ?? ''), path: String(item?.path ?? '') }); }
   // Galleries put in folder `id` outside the app join the library (the full check, for one folder), as
   // a task. Resolves { added, updated, problems, stopped } — `problems`, what couldn't be read or
   // joined: [{ path (in the folder), reason }].
@@ -960,11 +963,12 @@ export class Library {
     const rest = `${gid}/${name}`;
     return this.folders.writable(root) ? this.files._join(root, rest) : `${DATA_STAGED}${rest}`;
   }
-  // Where a staged file is. (One of a folder no longer in the library: a path that isn't there.)
+  // Where a staged file is. (One of a folder no longer in the library, or that can't be reached as
+  // itself now — folders.js reach — a path that isn't there.)
   _staged(file) {
     const data = String(file).startsWith(DATA_STAGED);
     const { root, rest } = data ? { root: null, rest: String(file).slice(DATA_STAGED.length) } : this.files._split(file);
-    const dir = data ? this.dataStagingDir : this.folders.has(root) ? this._stagingOf(root) : path.join(this.dataDir, 'gone');
+    const dir = data ? this.dataStagingDir : this.folders.reach(root).status === 'ok' ? this._stagingOf(root) : path.join(this.dataDir, 'gone');
     const abs = path.resolve(dir, rest);
     return abs.startsWith(dir + path.sep) ? abs : path.join(this.dataDir, 'gone', 'outside');
   }
@@ -987,7 +991,7 @@ export class Library {
   // removed — is refused whole). Resolves { moved } (gallery ids).
   async moveGallery(galleryId, to, { series = true } = {}) {
     const gid = String(galleryId);
-    this.folders.dir(to);
+    this.folders.path(to);
     const meta = series ? this._metaGet(gid) : null;
     const ids = [gid, ...(Array.isArray(meta?.chapters) ? meta.chapters.map(c => String(c?.id ?? '')).filter(id => id && id !== gid) : [])];
     for (const id of ids) this._mountCheck(id);

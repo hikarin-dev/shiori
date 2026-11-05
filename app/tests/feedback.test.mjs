@@ -25,7 +25,8 @@ async function example(mode = 'text', gallery = 'feedback-example') {
 }
 
 for (const mode of ['text', 'image']) test(`${mode} feedback freezes all cached page data and survives library deletion`, async () => {
-  const gallery = `feedback-${mode}`, url = `page://${gallery}/1.png`;
+  // A gallery id as the library gives one (digits): a library folder names its galleries by such ids alone.
+  const gallery = mode === 'text' ? '1790000000801' : '1790000000802', url = `page://${gallery}/1.png`;
   const { record, displayed, display } = await example(mode, gallery);
   await api.pages.put(gallery, 1, record.blob, { key: url });
   await api.transfer.write({ galleryId: gallery, pages: [{ ...await api.pages.get(gallery, 1), ...record }] });   // the page as stored

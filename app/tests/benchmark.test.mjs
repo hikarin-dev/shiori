@@ -69,7 +69,7 @@ async function scenario(t, { rejectStart = false, abortAfterStart = false, pageC
   t.mock.method(AbortSignal, 'timeout', () => new AbortController().signal);
   Object.defineProperty(navigator, 'locks', { configurable: true, value: { request: (_n, _o, fn) => fn({}) } });
   globalThis.createImageBitmap = async () => ({ width: 720, height: 1400, close() {} });
-  const id = String(Math.random()), urls = [];
+  const id = String(1790000000000 + Math.floor(Math.random() * 1e9)), urls = [];   // a gallery id as the library gives one (digits)
   for (let i = 1; i <= pageCount; i++) { const url = `/${id}/${i}.png`; urls.push(url); await api.pages.put(id, i, new Blob(['original']), { key: url }); }
   await api.derived.putTranslatedImage(id, 1, new Blob(['saved translation']));
   await kv.set({ translateSettings: { schema: 2, params: {}, serverToken: 'secret-test-token' } });

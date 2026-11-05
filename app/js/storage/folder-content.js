@@ -98,6 +98,31 @@ export function classifyFolder(texts = {}) {
   return legacy ? { kind: 'gallery', id: legacy, legacy: true } : { kind: 'other' };
 }
 
+// Whether a gallery's directory, there, is gallery `gid`'s (principle 2: an existing directory is
+// touched only once it names the gallery), from the texts of its OWN_FILES — its manifest, else its
+// metadata.json, else an earlier desktop version's shiori.json (classifyFolder) — and, for a linked
+// gallery's overlay (`linked`), its source.json (`source`: the gallery id it names, linked-source.js
+// parseSource). { kind: 'ok' }, or a conflict: `found` the gallery it names instead, or null for a
+// directory naming none (put there by hand, or a series' folder). Nothing but a reservation makes a
+// directory name a gallery: a description written into one that doesn't would make it look like one.
+/** @param {OwnTexts} texts @param {string} gid @param {{ source?: string | null }} [linked]
+ * @returns {{ kind: 'ok' } | { kind: 'conflict', found: string | null }} */
+export function galleryAt(texts, gid, linked) {
+  const what = classifyFolder(texts);
+  const found = linked ? (_manifestIdOf(texts[MANIFEST_FILE]) ?? linked.source ?? null) : what.kind === 'gallery' ? what.id : null;
+  return found === String(gid) ? { kind: 'ok' } : { kind: 'conflict', found };
+}
+
+// The id a library folder's .shiori/library.json names — the file written once, when the folder first
+// joins a library ({ format: 'shiori-library', version: 1, id }: sixteen hex digits) — or null for
+// text that names none. Which library folder a path holds is told by it alone (principle 1).
+export const LIBRARY_FILE = '.shiori/library.json';
+/** @param {unknown} text @returns {string | null} */
+export function libraryIdOf(text) {
+  const id = _json(text)?.id;
+  return typeof id === 'string' && /^[0-9a-f]{16}$/.test(id) ? id : null;
+}
+
 // What an archive in a library folder is, from its entries' names (`names`, zipName's) and the texts
 // of the OWN_FILES at its top (`texts`, as for classifyFolder):
 // - { kind: 'gallery', id, legacy? }: a gallery in the gallery format (an export, or one the desktop

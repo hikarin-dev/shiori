@@ -8,21 +8,22 @@
 //   conformance suite checks against the write budget, plan D23), and any call can be failed on
 //   purpose by the storage tests (failNext). The library's own data folder (its index, thumbnails,
 //   write meter) is no library folder: library.js reaches it directly.
-// - physicallyIn: the containment rule for links (F09), checked against the disk.
-// - A gallery's folder in format v2 (the app's js/storage/gallery-manifest.js has the rules): writeNewIn
-//   (a new file never written over one), publishIn (a generation committed by one atomic manifest
-//   write), deleteNamedIn (only files still as Shiori recorded writing them), loadGallery (a folder read
-//   back by its manifest, or by v1's rules).
-// - folderStore(library): the contract over `disk`. open(ref, { purpose }) weighs the folder by the
-//   library's gate (folders.js) and the shared rule (folder-lifecycle.js refusalFor) and hands out a
-//   Root; a Root's galleries, reservations, sources and .shiori/ area work by the library's own index
-//   and naming (files.js), with the gallery functions above. Identity-verified roots, positive gallery
-//   identity and containment in every operation come with S5.
+// - Containment (principle 5): every `disk` call inside a library folder is refused when its path
+//   goes through a link there (containIn; physicallyIn for a linked source's path, ahead of its reads).
+// - A gallery's folder in format v2 (the app's js/storage/gallery-manifest.js has the rules): galleryIn
+//   (whose it is: principle 2), reserveIn (the only way a folder becomes a gallery's), writeNewIn (a new
+//   file never written over one), publishIn (a generation committed by one atomic manifest write),
+//   deleteNamedIn (only files still as Shiori recorded writing them), loadGallery (a folder read back
+//   by its manifest, or by v1's rules).
+// - folderStore(library): the contract over `disk`. open(ref, { purpose }) is the library's own root
+//   resolver (folders.js reach: the folder's path holds it — principle 1 — and its state and claim
+//   allow the purpose) and hands out a Root; a Root's galleries, reservations, sources and .shiori/
+//   area work by the library's own index and naming (files.js), with the gallery functions above.
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { lifecycle, contract, manifest as format, BackendError } from './shared.js';
+import { contract, content, linked as linkedSource, manifest as format, BackendError } from './shared.js';
 
 // ── Faults, for the storage tests ──
 // failNext(when, code, { times }): the next `times` calls `when(call)` matches throw (or reject, for a
@@ -77,18 +78,129 @@ function counted(handle, file) {
   return handle;
 }
 
+// ── Containment (principle 5) ──
+// Every disk call on a path inside a library folder — each library tells the adapter its folders'
+// paths (containIn) — is refused when a part of that path below the folder is a link (a symbolic link
+// or a junction, as lstat reports one), wherever it leads and whoever calls: a gallery's pictures read
+// or written, a linked source read, a check's tidy-up, a removal's notes. Nothing in a library folder is
+// ever reached through a link (T04, F09): Shiori makes none there, and a check never walks into one,
+// so no source joins through one either. The library folder itself may be reached through a link (a
+// drive mounted in a folder). A call that deletes or copies a folder whole is refused for a link
+// anywhere inside it too. Checked at each call, from the folder down to the first part not there yet; a
+// link swapped in between the check and the call is outside the fault model (plan §2). Throws (or
+// rejects with) a BackendError 'invalid', `reason: 'outside'`.
+/** @type {Set<() => string[]>} */
+const folderSets = new Set();
+// `paths()`: a library's folders' paths, now. Returns a function that takes them back (it closed).
+export function containIn(paths) { folderSets.add(paths); return () => { folderSets.delete(paths); }; }
+const caseOf = process.platform === 'win32' ? (p) => p.toLowerCase() : (p) => p;
+// The library folder `abs` is in (the innermost, should one hold another), or null.
+function folderAround(abs) {
+  const key = caseOf(abs);
+  let best = null;
+  for (const paths of folderSets) {
+    for (const p of paths()) {
+      const root = path.resolve(p), k = caseOf(root);
+      if ((key === k || key.startsWith(k.endsWith(path.sep) ? k : k + path.sep)) && (!best || root.length > best.length)) best = root;
+    }
+  }
+  return best;
+}
+const outside = (op, file) => Object.assign(new BackendError('invalid', `${file} is reached through a link in its library folder`),
+  { reason: 'outside', syscall: op, path: file });
+// The first part of `abs` below folder `root` that is a link, or null. A read (`reading`) takes a folder
+// on the way found no link within the last CLEAR_TTL as it was (the identity of a library folder is
+// taken as read for as long: folders.js IDENTITY_TTL), so reading a page costs one lstat; every change
+// looks at each part afresh.
+const CLEAR_TTL = 2000;
+/** @type {Map<string, number>} folder → when it was found to be no link */
+const clear = new Map();
+function linkOnWay(root, abs, reading = false) {
+  let at = root;
+  const parts = path.relative(root, abs).split(path.sep).filter(Boolean);
+  for (const [i, part] of parts.entries()) {
+    at = path.join(at, part);
+    const folder = i < parts.length - 1;
+    if (reading && folder && Date.now() - (clear.get(at) ?? -Infinity) < CLEAR_TTL) continue;
+    let st;
+    try { st = fs.lstatSync(at); } catch { return null; }   // not there (yet): nothing below it is reached through a link
+    if (st.isSymbolicLink()) { clear.delete(at); return at; }
+    if (folder) {
+      clear.set(at, Date.now());
+      if (clear.size > 4096) clear.delete(clear.keys().next().value);
+    }
+  }
+  return null;
+}
+// A link anywhere inside folder `dir`, or null (one that can't be listed holds none it would be told of).
+function linkInside(dir) {
+  let items;
+  try { items = fs.readdirSync(dir, { withFileTypes: true }); } catch { return null; }
+  for (const e of items) {
+    const at = path.join(dir, e.name);
+    if (e.isSymbolicLink()) return at;
+    const deeper = e.isDirectory() ? linkInside(at) : null;
+    if (deeper) return deeper;
+  }
+  return null;
+}
+// Call `op` on `file` checked (`whole`: the call takes a folder with everything in it; `reading`: it
+// changes nothing).
+function contained(op, file, whole = false, reading = false) {
+  if (!folderSets.size || !(typeof file === 'string' || file instanceof URL || Buffer.isBuffer(file))) return;
+  const abs = path.resolve(String(file));
+  const root = folderAround(abs);
+  if (!root) return;
+  const link = linkOnWay(root, abs, reading) || (whole ? linkInside(abs) : null);
+  if (link) throw outside(op, abs);
+}
+// Path `abs` in library folder `dir` as long as no part of it below the folder is a link (linkOnWay):
+// what a linked source is read through, and an overlay written in (F09), before the call itself is
+// checked again (contained). Paths are first checked as written (linked-source.js safeRelPath, linked.js
+// absIn: R12). Rejects with BackendError 'invalid' and `reason: 'outside'`.
+export async function physicallyIn(dir, abs) {
+  const rel = path.relative(dir, abs);
+  if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel) || linkOnWay(path.resolve(dir), path.resolve(abs))) throw outside('open', abs);
+  return abs;
+}
+// A folder `file` about to be deleted whole by other means than `disk` (remove.js: Windows' own file
+// operation) checked as disk.rm would check it.
+export const containedWhole = (file) => contained('rm', file, true);
+
+// ── Failures, for the identity of a library folder ──
+// How many disk calls have failed for another reason than a name not being there (or taken): a folder's
+// identity, as read, is read again after one (folders.js _identity).
+let failures = 0;
+const ROUTINE = new Set(['ENOENT', 'ENOTDIR', 'EEXIST', 'ENOTEMPTY']);
+export const ioFailures = () => failures;
+const failed = (e) => { if (typeof e?.code === 'string' && e.code.startsWith('E') && !ROUTINE.has(e.code)) failures++; };
+
 // ── The calls ──
+// Which of a call's arguments are paths in a library folder, whether it takes a folder whole, and
+// whether it only reads.
+const TARGETS = { rename: [0, 1], copyFile: [0, 1], cp: [0, 1] };
+const READS = new Set(['readFile', 'stat', 'readdir', 'access', 'openAsBlob', 'exists']);
+function checked(op, args) {
+  const reading = READS.has(op) || (op === 'open' && !WRITES.test(String(args[1] ?? 'r')));
+  for (const i of TARGETS[op] || [0]) contained(op, args[i], (op === 'rm' && !!args[1]?.recursive) || (op === 'cp' && i === 0), reading);
+}
 const promised = (op, after = null) => async (...args) => {
-  fault(op, args);
-  const out = await fsp[op](...args);
-  if (after) await after(args, out);
-  return out;
+  try {
+    fault(op, args);
+    checked(op, args);
+    const out = await fsp[op](...args);
+    if (after) await after(args, out);
+    return out;
+  } catch (e) { failed(e); throw e; }
 };
 const sync = (op, after = null) => (...args) => {
-  fault(op, args);
-  const out = fs[`${op}Sync`](...args);
-  if (after) after(args, out);
-  return out;
+  try {
+    fault(op, args);
+    checked(op, args);
+    const out = fs[`${op}Sync`](...args);
+    if (after) after(args, out);
+    return out;
+  } catch (e) { failed(e); throw e; }
 };
 const WRITES = /[wa+]/;
 export const disk = {
@@ -102,16 +214,13 @@ export const disk = {
   rmdir: promised('rmdir'),
   rename: promised('rename'),
   access: promised('access'),
-  realpath: promised('realpath'),
   copyFile: promised('copyFile', async ([, to]) => count(to, (await fsp.stat(to)).size)),
   cp: promised('cp', async ([, to]) => { const st = await fsp.stat(to); if (st.isDirectory()) await countTree(to); else count(to, st.size); }),
-  async open(file, flags = 'r', ...rest) {
-    fault('open', [file]);
-    const handle = await fsp.open(file, flags, ...rest);
-    return WRITES.test(String(flags)) ? counted(handle, file) : handle;
+  open: promised('open', ([file, flags = 'r'], handle) => { if (WRITES.test(String(flags))) counted(handle, file); }),
+  openAsBlob: async (file, options) => {
+    try { fault('openAsBlob', [file]); checked('openAsBlob', [file]); return await fs.openAsBlob(file, options); } catch (e) { failed(e); throw e; }
   },
-  async openAsBlob(file, options) { fault('openAsBlob', [file]); return fs.openAsBlob(file, options); },
-  existsSync: (file) => fs.existsSync(file),
+  existsSync: (file) => { try { checked('exists', [file]); } catch { return false; } return fs.existsSync(file); },
   statSync: sync('stat'),
   readFileSync: sync('readFile'),
   writeFileSync: sync('writeFile', ([file, data]) => count(file, sizeOf(data))),
@@ -123,36 +232,9 @@ export const disk = {
   truncateSync: sync('truncate'),
 };
 
-// ── Containment ──
-// Path `abs` in library folder `dir`, as long as it is inside the folder physically. The policy (F09):
-// a linked source is read, and an overlay written, only inside the library folder itself — a junction
-// or link in it that leads elsewhere is never followed, whatever source.json or the index says. Paths
-// are first checked as written (linked-source.js safeRelPath, linked.js absIn: R12), then here as the
-// disk resolves them: the real path of `abs` (for one not made yet, of its nearest folder that is
-// there) must be inside the folder's own real path. It is checked each time a source is read or an
-// overlay written, so a link made after a check leads nowhere either; one swapped in between this
-// check and the read or write itself is not caught. Rejects with BackendError 'invalid' and
-// `reason: 'outside'`.
-export async function physicallyIn(dir, abs) {
-  const rest = [];
-  let at = abs, real;
-  for (;;) {
-    try { real = await disk.realpath(at); break; } catch (e) {
-      if ((e?.code !== 'ENOENT' && e?.code !== 'ENOTDIR') || path.dirname(at) === at) throw e;
-      rest.unshift(path.basename(at));
-      at = path.dirname(at);
-    }
-  }
-  const inside = path.relative(await disk.realpath(dir), path.join(real, ...rest));
-  if (inside === '..' || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) {
-    throw Object.assign(new BackendError('invalid', `${abs} leads out of its library folder`), { reason: 'outside' });
-  }
-  return abs;
-}
-
 // ── Writing a file whole ──
 // `data` written to `file` and flushed to the disk.
-export async function writeFlushed(file, data) {
+async function writeFlushed(file, data) {
   const handle = await disk.open(file, 'w');
   try { await handle.writeFile(data); await handle.sync(); } finally { await handle.close(); }
 }
@@ -179,9 +261,14 @@ const textOr = (file) => disk.readFile(file, 'utf8').catch((e) => { if (lost(e))
 // A new file for picture `slot` (its layout name without extension: translated/0001) of the gallery
 // whose folder is `dir`: its layout name when nothing is there, else that name with a random part
 // (translated/0001-3fa2c9e10b.png, which gallery-files.js layoutOf and pageNumberOf read) — created
-// exclusively, so it is never written over a file (principle 3), and flushed to the disk. Resolves
-// { name, size, mtime } as written: what the library records, and deletion checks it against.
+// exclusively, so it is never written over a file (principle 3). Never flushed on its own: only the
+// small manifest and descriptions are (power loss is outside the fault model; a crash or kill doesn't
+// need it, and a flush per picture costs a bulk import minutes). The gallery's folder must be there: a
+// folder gone meanwhile is never made again by a write into it (ENOENT). Resolves { name, size, mtime }
+// as written: what the library records, and deletion checks it against.
 export async function writeNewIn(dir, slot, ext, bytes) {
+  const st = await disk.stat(dir);
+  if (!st.isDirectory()) throw Object.assign(new Error(`${dir} is not a gallery's folder`), { code: 'ENOTDIR' });
   await disk.mkdir(path.dirname(within(dir, slot)), { recursive: true });
   for (let attempt = 0; ; attempt++) {
     const name = attempt ? `${slot}-${crypto.randomBytes(5).toString('hex')}.${ext}` : `${slot}.${ext}`;
@@ -191,7 +278,7 @@ export async function writeNewIn(dir, slot, ext, bytes) {
       if (e?.code === 'EEXIST' && attempt < 20) continue;
       throw e;
     }
-    try { await handle.writeFile(bytes); await handle.sync(); } catch (e) {
+    try { await handle.writeFile(bytes); } catch (e) {
       await handle.close().catch(() => {});
       await disk.rm(file, { force: true }).catch(() => {});
       throw e;
@@ -199,6 +286,55 @@ export async function writeNewIn(dir, slot, ext, bytes) {
     await handle.close();
     const st = await disk.stat(file);
     return { name, size: st.size, mtime: st.mtimeMs };
+  }
+}
+
+// Whose gallery folder `dir` is now (principle 2: folder-content.js galleryAt — its manifest, else its
+// metadata.json, else an earlier version's shiori.json; a linked gallery's overlay, its source.json):
+// { kind: 'ok' } when it names gallery `gid`; MISSING when nothing is there; { kind: 'conflict', found }
+// when something is that names another gallery (`found`), or none (null); unreadable when what it holds
+// can't be read (nothing is concluded from it). What a change to an existing gallery folder needs
+// first: nothing else makes a folder a gallery's but its reservation (reserveIn).
+export async function galleryIn(dir, gid) {
+  let st;
+  try { st = await disk.stat(dir); } catch (e) { return lost(e) ? MISSING : unreadable(e); }
+  if (!st.isDirectory()) return { kind: 'conflict', found: null };
+  try {
+    const own = await textOr(within(dir, content.MANIFEST_FILE));
+    if (content.galleryAt({ [content.MANIFEST_FILE]: own }, gid).kind === 'ok') return { kind: 'ok' };
+    const texts = { [content.MANIFEST_FILE]: own };
+    for (const name of content.OWN_FILES.slice(1)) texts[name] = await textOr(within(dir, name));
+    if (format.areaOf(dir.split(path.sep).join('/')) !== '') return content.galleryAt(texts, gid);
+    const source = linkedSource.parseSource(await textOr(within(dir, linkedSource.SOURCE_FILE)))?.galleryId ?? null;
+    return content.galleryAt(texts, gid, { source });
+  } catch (e) { return unreadable(e); }
+}
+
+// Gallery `gid`'s folder `dir` (an absolute path in a library folder, or in a series' folder there)
+// reserved — made exclusively (EEXIST when something is there by now) — and bound to the gallery at
+// once, in the same synchronous step: its first generation published there (gallery-manifest.js
+// firstGeneration, by `writer`), its metadata.json (`metadata`, the gallery's description) stored by its
+// content and copied under its own name, then the manifest, renamed into place last. A reservation cut
+// short takes the folder it made with it. The only way a folder becomes a gallery's (contract.js
+// reserve). `hide(abs)`: called on the .shiori/ folder made for it (D7). Returns the token published
+// (gallery-manifest.js tokenOf).
+export function reserveIn(dir, gid, writer, metadata, { hide = () => {} } = {}) {
+  disk.mkdirSync(path.dirname(dir), { recursive: true });
+  disk.mkdirSync(dir);
+  try {
+    const plan = format.publicationWith({ area: '.shiori/', prev: null, next: format.firstGeneration(gid, writer),
+      texts: { 'metadata.json': metadata }, hashOf: (t) => crypto.createHash('sha256').update(t).digest('hex') });
+    disk.mkdirSync(within(dir, format.storedDir('.shiori/')), { recursive: true });
+    try { hide(within(dir, '.shiori')); } catch {}
+    for (const w of plan.writes) disk.writeFileSync(within(dir, w.path), w.text);
+    for (const s of plan.stable) if (s.text != null) disk.writeFileSync(within(dir, s.path), s.text);
+    const file = within(dir, format.manifestPath('.shiori/'));
+    disk.writeFileSync(`${file}.shiori-tmp`, plan.text);
+    disk.renameSync(`${file}.shiori-tmp`, file);
+    return format.tokenOf(plan.manifest);
+  } catch (e) {
+    try { disk.rmSync(dir, { recursive: true, force: true }); } catch {}
+    throw e;
   }
 }
 
@@ -217,15 +353,23 @@ export async function manifestIn(dir, gid = null) {
 // one atomic write — the commit point — then, as a best effort, the stable-named copies brought up to
 // date and the stored descriptions neither generation names collected (publication). The sizes it
 // records come from `next.sizes` where the library knew them. `hide(abs)`: called on the .shiori/
-// folder made for it (the app marks it hidden, D7). Resolves { manifest: the one published, bytes: how
-// many it wrote }. Rejects when the
-// current manifest can't be read (nothing is written then: tried again later) or a write fails before
-// the commit (the previous generation stays whole).
-export async function publishIn(dir, next, texts, { hide = () => {} } = {}) {
+// folder made for it (the app marks it hidden, D7). `known`: the token the library last published or
+// read there (gallery-manifest.js tokenOf; undefined: not to be weighed). Resolves { manifest: the one
+// published, bytes: how many it wrote, changedBoth: whether it replaced a generation another app
+// published since `known` — this app's change wins, and the case is the caller's to report (D4) }.
+// Rejects when the folder no longer names the gallery (galleryIn: principle 2 — nothing is written,
+// reason 'conflict' or 'missing'), when the current manifest can't be read (nothing is written then:
+// tried again later), or when a write fails before the commit (the previous generation stays whole).
+export async function publishIn(dir, next, texts, { hide = () => {}, known } = {}) {
   const area = format.areaOf(dir.split(path.sep).join('/'));
+  const whose = await galleryIn(dir, next.galleryId);
+  if (whose.kind !== 'ok') {
+    throw Object.assign(new BackendError('conflict', `${dir} is not gallery ${next.galleryId}'s folder now`), { reason: whose.kind === 'missing' ? 'missing' : 'conflict' });
+  }
   const now = await manifestIn(dir, next.galleryId);
   if (now.kind === 'unreadable') throw new Error(`the manifest in ${dir} can't be read: ${now.error}`);
   const prev = now.kind === 'ok' ? now.value : null;
+  const changedBoth = known !== undefined && !!prev && format.tokenOf(prev) !== known && prev.writer !== next.writer;
   const sizes = await format.sizesOf(next.files, new Map(Object.entries(next.sizes || {})), prev, async (f) => {
     const st = await disk.stat(within(dir, f)).catch(() => null);
     return st?.isFile() ? [st.size, st.mtimeMs] : null;
@@ -256,7 +400,7 @@ export async function publishIn(dir, next, texts, { hide = () => {} } = {}) {
       if (had != null && await format.matches(at, had)) await disk.rm(within(dir, at), { force: true });
     }
   } catch {}
-  return { manifest: plan.manifest, bytes };
+  return { manifest: plan.manifest, bytes, changedBoth };
 }
 
 // The files `list` ([{ name, size, mtime }]: paths in the folder `dir`, as Shiori recorded writing
@@ -312,7 +456,7 @@ export async function loadGallery(dir) {
 }
 
 // ── The contract ──
-const { refused, MISSING, unreadable } = contract;
+const { MISSING, unreadable } = contract;
 const join = (...parts) => parts.filter(Boolean).join('/');
 // A file read whole, typed (principle 6): missing, or unreadable for any other failure.
 async function readTyped(abs) {
@@ -339,30 +483,37 @@ export function folderStore(library) {
   function root(id, at, purpose) {
     const abs = (rel) => path.join(at, ...rel.split('/').filter(Boolean));
     // Gallery `gid`'s directory `name`, in format v2 (the functions above); the folder check's tidy-up
-    // as its sweep (scan.js).
-    const galleryDir = (name, gid) => ({
-      name, gid,
-      manifest: () => manifestIn(abs(name), gid),
-      read: (rel) => readTyped(abs(join(name, rel))),
-      writeNew: (slot, ext, bytes) => writeNewIn(abs(name), slot, ext, bytes),
-      async publish({ manifest, descriptions }) {
-        const done = await publishIn(abs(name), manifest, descriptions, { hide: (dir) => library._hide(dir) });
-        return { generation: done.manifest.generation, ...done };
-      },
-      deleteNamed: (list) => deleteNamedIn(abs(name), list),
-      async sweep() { await library.folderScan(id); return { removed: [] }; },
-    });
+    // as its sweep (scan.js). Each change is made only while the directory still names the gallery
+    // (galleryIn, principle 2) — one gone meanwhile, or put there since by hand, is refused.
+    const galleryDir = (name, gid) => {
+      const ours = async () => {
+        const found = await galleryIn(abs(name), gid);
+        if (found.kind !== 'ok') throw Object.assign(new BackendError('conflict', `${name} is not gallery ${gid}'s folder now`), { reason: found.kind === 'missing' ? 'missing' : 'conflict' });
+      };
+      return {
+        name, gid,
+        manifest: () => manifestIn(abs(name), gid),
+        read: (rel) => readTyped(abs(join(name, rel))),
+        async writeNew(slot, ext, bytes) { await ours(); return writeNewIn(abs(name), slot, ext, bytes); },
+        async publish({ manifest, descriptions, known }) {
+          const done = await publishIn(abs(name), manifest, descriptions, { hide: (dir) => library._hide(dir), known });
+          return { generation: done.manifest.generation, ...done };
+        },
+        async deleteNamed(list) { await ours(); return deleteNamedIn(abs(name), list); },
+        async sweep() { await library.folderScan(id); return { removed: [] }; },
+      };
+    };
     return {
       id, purpose,
       read: (rel) => readTyped(abs(rel)),
       list: (rel) => listTyped(abs(rel)),
-      // The directory the index names for the gallery (files.js), while it is there.
+      // The directory, while it names the gallery (galleryIn).
       async gallery(name, gid) {
-        const row = files._row(gid);
-        if (!row || row.format !== 'folder' || row.path !== files._join(id, name) || !disk.existsSync(abs(name))) return MISSING;
-        return { kind: 'ok', dir: galleryDir(name, gid) };
+        const found = await galleryIn(abs(name), String(gid));
+        return found.kind === 'ok' ? { kind: 'ok', dir: galleryDir(name, String(gid)) } : found;
       },
-      // A free directory chosen, made and bound to the gallery by its metadata.json (files.js _claim).
+      // A free directory chosen, made and bound to the gallery by its first generation (files.js _claim:
+      // reserveIn).
       async reserve(hint, gid) {
         const row = files._claim(gid, { galleryId: gid, title: { english: hint, japanese: '', pretty: '' } }, null, id);
         return galleryDir(files._split(row.path).rest, gid);
@@ -387,15 +538,11 @@ export function folderStore(library) {
     };
   }
   return {
-    // A folder is read where the index has it while it is there (folders.js dir); written while the
-    // gate lets it (folders.js probe: its path holds it, and which app holds its claim).
+    // The library's own resolver, asked afresh (folders.js reach: the folder's path holds it, and its
+    // state and claim allow the purpose).
     async open(ref, { purpose }) {
-      if (!folders.has(ref.id)) return refused('unavailable');
-      const at = folders.dir(ref.id);
-      if (purpose === 'read') return disk.existsSync(at) ? { status: 'ok', root: root(ref.id, at, purpose) } : refused('unavailable');
-      const { reachable, access } = folders.probe(ref.id, { fresh: true });
-      const why = lifecycle.refusalFor({ state: folders.state(ref.id), owned: access === 'mine', reachable }, purpose);
-      return why ? refused(why) : { status: 'ok', root: root(ref.id, at, purpose) };
+      const opened = folders.reach(ref.id, purpose, { fresh: true });
+      return opened.status === 'ok' ? { status: 'ok', root: root(ref.id, opened.at, purpose) } : opened;
     },
   };
 }

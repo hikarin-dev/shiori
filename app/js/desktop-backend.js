@@ -31,7 +31,7 @@ const OPS = ['galleriesPage', 'galleriesCount', 'galleryIdsSorted', 'getGallery'
   'listGalleryStudyRecords', 'putPageData', 'coverGet', 'coverThumbnailGet', 'coverPreviewGet', 'coverThumbnailPut', 'coverPut',
   'sourceIconGet', 'sourceIconsAll', 'sourceIconPut', 'transferIds', 'transferRead', 'transferWrite',
   'changeRevision', 'changesSince', 'integritySnapshot', 'clearAll', 'archiveGallery', 'diskWrites', 'resetDiskWrites',
-  'runJob', 'stopJob', 'foldersList', 'folderAdd', 'folderRemove', 'folderSetDefault', 'folderHide', 'folderShow', 'folderClaim', 'folderScan', 'moveGallery', 'pdfsWaiting', 'pdfSource', 'addRendered', 'pdfFailed'];
+  'runJob', 'stopJob', 'foldersList', 'folderAdd', 'folderRemove', 'folderSetDefault', 'folderHide', 'folderShow', 'folderClaim', 'folderScan', 'folderDismiss', 'moveGallery', 'pdfsWaiting', 'pdfSource', 'addRendered', 'pdfFailed'];
 
 // A unique id. (A page at an address that isn't a secure one — another device reaching the desktop
 // app over its network — has no randomUUID.)
@@ -306,6 +306,7 @@ export const folderRemove = (id, opts = {}) => ownCall('folderRemove')(id, opts)
 export const folderSetDefault = ownCall('folderSetDefault');
 export const folderHide = ownCall('folderHide');
 export const folderShow = ownCall('folderShow');
+export const folderDismiss = ownCall('folderDismiss');
 // The app checks it as a job of its own (no progress handed back here).
 export const folderScan = (id) => ownCall('folderScan')(id);
 // The app moves it and answers once it has (no progress on the way).

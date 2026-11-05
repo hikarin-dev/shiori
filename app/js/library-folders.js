@@ -53,6 +53,13 @@ function checkFolder(id, opts) {
 
 // A place as the person knows it: this browser, or a folder by its name.
 export const placeName = (f) => (f.kind === 'browser' ? t('set.loc_browser') : f.name || f.path || '');
+// Whether a place can be used now (or with one click): not out of reach, another library's, or another
+// app's.
+const usable = (f) => f.access === 'granted' || f.access === 'prompt';
+// What each kind of Needs attention item says (api.js folders.list `attention`).
+const ATTENTION = { conflict: 'lf.att_conflict', unreadable: 'lf.att_unreadable', corrupt: 'lf.att_corrupt', 'missing-file': 'lf.att_missing_file',
+  unsupported: 'lf.att_unsupported', 'adopt-failed': 'lf.att_adopt_failed', 'changed-both': 'lf.att_changed_both', unreferenced: 'lf.att_unreferenced',
+  outside: 'lf.att_outside' };
 // The app a folder's claim names (api.js `owner`), as the person knows it.
 const ownerName = (o) => (o?.app === 'desktop' && o.host ? t('lf.owner_desktop', { host: o.host })
   : o?.app === 'web' && o.browser ? t('lf.owner_web', { browser: o.browser, site: o.site || '' }) : t('lf.owner_unknown'));
@@ -82,7 +89,7 @@ async function moveAll(ids, to, { series = true } = {}) {
 // Gallery `gid` (a series owner: its series) moved to another of the library's places, asking where.
 export async function moveGalleryTo(gid, current) {
   const all = await api.folders.list();
-  const places = all.filter(f => f.id !== current && f.access !== 'unavailable' && f.access !== 'taken' && !f.hidden);
+  const places = all.filter(f => f.id !== current && usable(f) && !f.hidden);
   if (!places.length) return false;
   const here = all.find(f => f.id === current);
   const choice = await ask({ title: t('lf.move_title'), body: here ? t('lf.move_body', { name: placeName(here) }) : '', choices: [
@@ -221,7 +228,7 @@ export async function initLibraryFolders() {
     if (f.ghost || showing.has(f.id)) return [];
     const out = [];
     if (f.hidden) out.push({ label: t('lf.show'), run: () => showPlace(f) });
-    if (!f.hidden && !f.isDefault && f.access !== 'unavailable' && f.access !== 'taken') out.push({ label: t('lf.make_default'), run: () => api.folders.setDefault(f.id).then(render, failed) });
+    if (!f.hidden && !f.isDefault && usable(f)) out.push({ label: t('lf.make_default'), run: () => api.folders.setDefault(f.id).then(render, failed) });
     if (!f.hidden && f.kind === 'folder' && f.access === 'granted' && manage) out.push({ label: t('lf.rescan_one'), run: () => { checkFolder(f.id, { name: f.name }); render(); } });
     if (desktop() && f.path) out.push({ label: t('lf.open'), run: () => shell('openLibraryFolder', f.path) });
     if (!f.hidden && !f.isDefault && manage) out.push({ label: t('lf.hide'), run: () => hidePlace(f).catch(failed) });
@@ -229,12 +236,33 @@ export async function initLibraryFolders() {
     return out[0] === '-' ? out.slice(1) : out;
   };
   const badge = (text, warn, tip = '') => `<span class="key-status-badge${warn ? ' unset' : ''}"${tip ? ` data-tip="${esc(tip)}"` : ''}>${esc(text)}</span>`;
+  // A folder's Needs attention list (D15): its items grouped by what they are, one line each — what,
+  // where (the first one, the rest counted), and what can be done: put it away, or for a gallery whose
+  // folder holds something else now, delete its entry (nothing in the folder is deleted).
+  const attentionHtml = (f) => {
+    const groups = new Map();
+    for (const item of f.attention || []) {
+      if (!groups.has(item.reason)) groups.set(item.reason, []);
+      groups.get(item.reason).push(item);
+    }
+    if (!groups.size) return '';
+    const lines = [...groups].map(([reason, items]) => {
+      const what = t(ATTENTION[reason] || 'lf.att_other');
+      const where = items[0].path ? ` · <code>${esc(items[0].path)}</code>${items.length > 1 ? ` (+${formatCount(items.length - 1)})` : ''}` : '';
+      const remove = reason === 'conflict' && items.length === 1 && items[0].gid
+        ? `<button class="btn-mini" type="button" data-act="att-delete" data-reason="${esc(reason)}">${esc(t('lf.att_delete'))}</button>` : '';
+      return `<li class="lf-att-item"><span class="lf-att-text">${esc(what)}${where}</span><span class="lf-att-acts">${remove}`
+        + `<button class="btn-mini" type="button" data-act="att-dismiss" data-reason="${esc(reason)}">${esc(t('lf.att_dismiss'))}</button></span></li>`;
+    });
+    return `<div class="lf-att"><span class="lf-att-title">${esc(t('lf.attention'))}</span><ul class="lf-att-list">${lines.join('')}</ul></div>`;
+  };
   const rowHtml = (f) => {
     const job = jobs.get(f.id);
     const where = f.kind === 'browser' ? '<code>IndexedDB</code>' : f.path ? `<code>${esc(f.path)}</code>` : '';
     const meta = f.ghost ? '' : [where, esc(t('lf.counts', { n: formatCount(f.galleries), size: formatBytes(f.size) }))].filter(Boolean).join(' · ');
     const badges = [f.isDefault && badge(t('lf.default')), f.hidden && badge(t('lf.hidden')),
       f.access === 'prompt' && !f.hidden && badge(t('lf.needs_access'), true), f.access === 'unavailable' && badge(t('lf.unavailable'), true),
+      f.access === 'other-library' && badge(t('lf.other_library'), true, t('lf.other_library_tip')),
       f.access === 'taken' && badge(t('lf.taken'), true, t(f.owner?.active === false ? 'lf.released_tip' : 'lf.taken_tip', { owner: ownerName(f.owner) }))].filter(Boolean).join('');
     const button = f.hidden ? null : f.access === 'prompt' ? ['allow', t('lf.allow')] : f.access === 'taken' && manage ? ['claim', t('lf.take_back')] : null;
     const busy = job || f.ghost || showing.has(f.id);
@@ -245,6 +273,7 @@ export async function initLibraryFolders() {
         <div class="lf-name"><span class="lf-title">${esc(f.ghost ? f.name : placeName(f))}</span>${badges}</div>
         ${meta ? `<div class="lf-meta">${meta}</div>` : ''}
         ${busy ? '<div class="lf-job"><div class="lf-bar"><span></span></div><span class="lf-job-text"></span></div>' : ''}
+        ${f.ghost ? '' : attentionHtml(f)}
       </div>
       ${button || actions ? `<div class="lf-actions">
         ${button ? `<button class="btn-mini" type="button" data-act="${button[0]}">${esc(button[1])}</button>` : ''}
@@ -282,7 +311,8 @@ export async function initLibraryFolders() {
   const failed = (e) => {
     const reason = e?.reason;
     status(reason === 'nested' ? t('lf.nested') : reason === 'copy' ? t('lf.copy') : reason === 'default' ? t('lf.default_stays')
-      : reason === 'taken' ? t('lf.taken_msg') : reason === 'move-to' ? t('lf.denied') : String(e?.message || e), 'err');
+      : reason === 'taken' ? t('lf.taken_msg') : reason === 'move-to' ? t('lf.denied') : reason === 'other-library' ? t('lf.other_library_tip')
+      : String(e?.message || e), 'err');
   };
 
   // What is under way for each folder: its task, as it says.
@@ -370,6 +400,18 @@ export async function initLibraryFolders() {
       if (f.owner?.active !== false && !(await useAnyway(f.owner, { take: true, name: placeName(f) }))) return;
       // Then checked: what the other app changed there meanwhile is read again (not what changed here).
       try { await api.folders.claim(f.id); checkFolder(f.id, { name: f.name }); } catch (err) { failed(err); }
+      render();
+    }
+    // A Needs attention line: put away (each of its items), or a gallery whose folder holds something
+    // else now taken out of the library (asked first; nothing in the folder is deleted).
+    const items = (f.attention || []).filter(i => i.reason === button.dataset.reason);
+    if (button.dataset.act === 'att-dismiss') {
+      try { for (const item of items) await api.folders.dismiss(f.id, item); } catch (err) { failed(err); }
+      render();
+    }
+    if (button.dataset.act === 'att-delete' && items[0]?.gid) {
+      if (!(await confirmDialog({ danger: true, title: t('lf.att_delete_title'), body: t('lf.att_delete_body'), ok: t('lf.att_delete') }))) return;
+      try { await api.galleries.delete(items[0].gid); await api.folders.dismiss(f.id, items[0]); } catch (err) { failed(err); }
       render();
     }
   });

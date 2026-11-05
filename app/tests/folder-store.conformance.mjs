@@ -104,7 +104,6 @@ export const CASES = [
   // ── Identity: open() ──
   {
     name: 'a folder put where a library folder was, with another library\'s id, is refused for every purpose (other-library)',
-    todo: { desktop: 'S5: T01', website: 'S5: T01' },
     async run({ dir, store, fx }) {
       const ref = await fx.register('A');
       fs.renameSync(path.join(dir, 'A'), path.join(dir, 'A moved'));
@@ -115,7 +114,6 @@ export const CASES = [
   },
   {
     name: 'a library folder whose library.json is gone is refused for every purpose (other-library)',
-    todo: { desktop: 'S5: T01', website: 'S5: T01' },
     async run({ dir, store, fx }) {
       const ref = await fx.register('A');
       fs.rmSync(path.join(dir, 'A', '.shiori', 'library.json'));
@@ -178,7 +176,6 @@ export const CASES = [
   },
   {
     name: 'a directory put in place of a gallery\'s, naming no gallery, is a conflict, and never written to',
-    todo: { desktop: 'S5: T02', website: 'S5: T02' },
     async run({ dir, store, fx }) {
       const root = await opened(store, await fx.register('A'));
       const g = await root.reserve('Replaced', '1700000000001', null);
@@ -339,21 +336,185 @@ export const CASES = [
     },
   },
   {
-    // N1: the website retried a folder it remembered, gone meanwhile, for ever.
-    name: 'a write to a gallery whose directory was taken away settles',
+    // N1: the website retried a folder it remembered, gone meanwhile, for ever. Principle 2: a write
+    // made the folder again where the gallery's was.
+    name: 'a write to a gallery whose directory was taken away settles, refused, and never makes the directory again',
     async run({ dir, store, fx }) {
       const root = await opened(store, await fx.register('A'));
       const g = await root.reserve('Taken away', '1700000000001', null);
       await g.writeNew('images/0001', 'png', png(1));
-      fs.rmSync(path.join(dir, 'A', ...g.name.split('/')), { recursive: true });
-      assert.notEqual(await settles(g.writeNew('translated/0001', 'png', png(2))), 'never settled');
+      const at = path.join(dir, 'A', ...g.name.split('/'));
+      fs.rmSync(at, { recursive: true });
+      const refusedAs = (got) => got !== 'resolved' && got !== 'never settled';
+      assert.ok(refusedAs(await settles(g.writeNew('translated/0001', 'png', png(2)))), 'refused (its directory is not there)');
+      assert.ok(!fs.existsSync(at), 'not made again');
+      assert.ok(refusedAs(await settles(g.publish({ manifest: { format: 'shiori-gallery', version: 2, galleryId: '1700000000001', generation: 2,
+        writer: 'conformance', files: { pages: {}, covers: {} }, sizes: {} }, descriptions: {} }))), 'nor published there');
+      assert.ok(!fs.existsSync(at), 'still not made again');
+    },
+  },
+  {
+    // Principle 2: only a reservation makes a directory a gallery's — with its first generation.
+    name: 'a reservation publishes the gallery\'s first generation: its directory names it from its first moment',
+    async run({ dir, store, fx }) {
+      const root = await opened(store, await fx.register('A'));
+      const g = await root.reserve('Reserved', '1700000000001', null);
+      const m = await g.manifest();
+      assert.equal(m.kind, 'ok');
+      assert.deepEqual([m.value.galleryId, m.value.generation, Object.keys(m.value.files.pages)], ['1700000000001', 1, []]);
+      const meta = JSON.parse(fs.readFileSync(path.join(dir, 'A', ...g.name.split('/'), 'metadata.json'), 'utf8'));
+      assert.equal(meta.galleryId, '1700000000001', 'and its metadata.json names it, for older readers');
+      for (const read of Object.values(await readBoth(path.join(dir, 'A'), g.name))) assert.equal(read.kind, 'ok');
+    },
+  },
+  // ── Identity through the libraries (plan §5: T01, T02; D15, D16) ──
+  {
+    // T01: a library folder whose path came to hold another library's was read, scanned and adopted as
+    // it, and what it adopted was written back into the original later.
+    name: 'T01: another library folder at a library folder\'s path is never read, checked or adopted as it, and the original is found as it was',
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Original');
+      await fx.lib.putPage(gid, 1, png(1));
+      await fx.lib.flush();
+      const rel = path.relative(path.join(dir, 'A'), await fx.lib.dirOf(gid));
+      fs.renameSync(path.join(dir, 'A'), path.join(dir, 'A aside'));
+      // Another library's folder at its path, holding a copy of the gallery (its id kept) with other
+      // bytes and another title, in format v1.
+      fs.cpSync(path.join(dir, 'A aside'), path.join(dir, 'A'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'A', '.shiori', 'library.json'), JSON.stringify({ format: 'shiori-library', version: 1, id: otherId() }));
+      const copy = path.join(dir, 'A', rel);
+      fs.rmSync(path.join(copy, '.shiori'), { recursive: true });
+      fs.writeFileSync(path.join(copy, 'metadata.json'), JSON.stringify({ galleryId: gid, title: { english: 'OTHER LIBRARY TITLE', japanese: '', pretty: '' } }));
+      fs.writeFileSync(path.join(copy, 'images', '0001.png'), png(66));
+      assert.equal((await fx.lib.list()).find(f => f.id === ref.id).access, 'other-library', 'listed so');
+      assert.notDeepEqual(await fx.lib.read(gid, 1), png(66), 'its page is never read from there');
+      await assert.rejects(fx.lib.scan(ref.id), (e) => e.reason === 'other-library', 'nor the folder checked');
+      assert.equal(await fx.lib.titleOf(gid), 'Original', 'nor anything adopted');
+      // The original back: an ordinary change is published there, from what the library had.
+      fs.rmSync(path.join(dir, 'A'), { recursive: true });
+      fs.renameSync(path.join(dir, 'A aside'), path.join(dir, 'A'));
+      assert.equal((await fx.lib.list()).find(f => f.id === ref.id).access, 'granted');
+      await fx.lib.setTitle(gid, 'Original, edited');
+      await fx.lib.flush();
+      assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'A', rel, 'metadata.json'), 'utf8')).title.english, 'Original, edited');
+      assert.deepEqual(await fx.lib.read(gid, 1), png(1));
+    },
+  },
+  {
+    // T02: a description written into a folder put where a gallery's was made it the gallery's, and
+    // the gallery's deletion then deleted it.
+    name: 'T02: a folder put where a gallery\'s was is never written to as the gallery\'s, is reported, and is never deleted with it',
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Replaced');
+      await fx.lib.putPage(gid, 1, png(1));
+      await fx.lib.flush();
+      const at = /** @type {string} */ (await fx.lib.dirOf(gid));
+      fs.renameSync(at, path.join(dir, 'moved aside'));
+      fs.mkdirSync(at);
+      fs.writeFileSync(path.join(at, 'personal-notes.txt'), 'mine');
+      await fx.lib.setTitle(gid, 'Replaced, retitled');
+      await fx.lib.flush();
+      assert.deepEqual(fs.readdirSync(at), ['personal-notes.txt'], 'no description written there');
+      const found = await fx.lib.scan(ref.id);
+      assert.ok(found.problems.some(p => p.reason === 'conflict'), 'reported by the check');
+      const listed = (await fx.lib.list()).find(f => f.id === ref.id);
+      assert.ok(listed.attention.some(i => i.reason === 'conflict' && i.gid === gid), 'on its folder\'s Needs attention list');
+      await fx.lib.deleteGallery(gid);
+      await new Promise(r => setTimeout(r, 300));   // what a deletion leaves to do, once it commits
+      assert.deepEqual(fs.readdirSync(at), ['personal-notes.txt'], 'nor deleted with the gallery');
+      assert.ok(fs.existsSync(path.join(dir, 'moved aside', 'images', '0001.png')), 'and the gallery\'s own folder, moved aside, is left');
+    },
+  },
+  {
+    // D4 at publication: another app published a newer generation while this app had a change waiting.
+    name: 'a publication over another app\'s newer generation keeps this app\'s change and is reported on the folder\'s Needs attention list (changed-both)',
+    async run({ fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Both');
+      await fx.lib.putPage(gid, 1, png(1));
+      await fx.lib.flush();
+      const at = /** @type {string} */ (await fx.lib.dirOf(gid));
+      const file = path.join(at, '.shiori', 'gallery.json');
+      const m = JSON.parse(fs.readFileSync(file, 'utf8'));
+      fs.writeFileSync(file, JSON.stringify({ ...m, generation: m.generation + 1, writer: 'a1b2c3d4e5f60708' }));   // the other app's
+      await fx.lib.setTitle(gid, 'Kept here');
+      await fx.lib.flush();
+      const items = () => fx.lib.list().then(l => l.find(f => f.id === ref.id).attention.filter(i => i.reason === 'changed-both'));
+      assert.deepEqual((await items()).map(i => i.gid), [gid]);
+      assert.equal(JSON.parse(fs.readFileSync(path.join(at, 'metadata.json'), 'utf8')).title.english, 'Kept here');
+      await fx.lib.scan(ref.id);
+      assert.equal((await items()).length, 1, 'a check keeps what happened once');
+      const [item] = await items();
+      await fx.lib.dismiss(ref.id, item);
+      assert.deepEqual(await items(), [], 'until it is dismissed');
+    },
+  },
+  {
+    // D16: leftovers nothing refers to are reported, never deleted (Shiori deletes only what it recorded).
+    name: 'D16: a picture in a gallery\'s folder that nothing refers to is reported on its folder\'s Needs attention list, and left',
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Leftover');
+      await fx.lib.putPage(gid, 1, png(1));
+      await fx.lib.flush();
+      const at = /** @type {string} */ (await fx.lib.dirOf(gid));
+      const stray = path.join(at, 'translated', '0007.png');
+      fs.mkdirSync(path.dirname(stray), { recursive: true });
+      fs.writeFileSync(stray, png(9));
+      const old = new Date(Date.now() - 3600_000);
+      fs.utimesSync(stray, old, old);
+      await fx.lib.scan(ref.id);
+      const where = `${path.relative(path.join(dir, 'A'), at).split(path.sep).join('/')}/translated/0007.png`;
+      const items = () => fx.lib.list().then(l => l.find(f => f.id === ref.id).attention.filter(i => i.reason === 'unreferenced'));
+      assert.deepEqual((await items()).map(i => [i.path, i.gid]), [[where, gid]]);
+      assert.ok(fs.existsSync(stray), 'left as it is');
+      fs.rmSync(stray);
+      await fx.lib.scan(ref.id);
+      assert.deepEqual(await items(), [], 'a check that no longer finds it takes it off');
     },
   },
   // ── Containment (the desktop: links are visible to it) ──
   {
+    // T04: a check's tidy-up and a linked gallery's deletion reached outside the folder through junctions.
+    name: 'T04: a check never tidies through a junction in a gallery\'s folder, and a deletion never writes or deletes through a junction at .shiori/linked',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const A = path.join(dir, 'A');
+      const outside = path.join(dir, 'outside');
+      // (a) An unrelated picture outside, two hours old, reached through a junction at a gallery's translated/.
+      const gid = await fx.lib.newGallery('Native');
+      await fx.lib.putPage(gid, 1, png(1));
+      await fx.lib.flush();
+      fs.mkdirSync(outside);
+      fs.writeFileSync(path.join(outside, 'unrelated.png'), png(7));
+      const old = new Date(Date.now() - 2 * 3600_000);
+      fs.utimesSync(path.join(outside, 'unrelated.png'), old, old);
+      faults.junction(outside, path.join(/** @type {string} */ (await fx.lib.dirOf(gid)), 'translated'));
+      // (b) A linked gallery, its overlay copied outside with notes in it, and .shiori/linked a junction there.
+      fs.mkdirSync(path.join(A, 'Pics'));
+      fs.writeFileSync(path.join(A, 'Pics', '001.png'), png(2));
+      await fx.lib.scan(ref.id);
+      const linkedGid = (await fx.lib.galleries()).find(g => g !== gid);
+      assert.ok(linkedGid, 'the folder of pictures joined');
+      const linked = path.join(outside, 'linked');
+      fs.cpSync(path.join(A, '.shiori', 'linked'), linked, { recursive: true });
+      fs.writeFileSync(path.join(linked, String(linkedGid), 'notes.txt'), 'mine');
+      fs.renameSync(path.join(A, '.shiori', 'linked'), path.join(dir, 'linked aside'));
+      faults.junction(linked, path.join(A, '.shiori', 'linked'));
+      await fx.lib.scan(ref.id);
+      assert.ok(fs.existsSync(path.join(outside, 'unrelated.png')), '(a) nothing outside is tidied');
+      await fx.lib.deleteGallery(String(linkedGid));
+      await new Promise(r => setTimeout(r, 300));
+      assert.ok(!fs.existsSync(path.join(linked, 'removed.json')), '(b) no note written outside');
+      assert.ok(fs.existsSync(path.join(linked, String(linkedGid), 'notes.txt')), '(b) nothing deleted outside');
+    },
+  },
+  {
     name: 'a junction in a gallery\'s own subfolder is never followed: nothing outside is written or swept',
     platforms: ['desktop'],
-    todo: { desktop: 'S5: T04' },
     async run({ dir, store, fx }) {
       const root = await opened(store, await fx.register('A'));
       const g = await root.reserve('Linked out', '1700000000001', null);

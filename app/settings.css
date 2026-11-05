@@ -766,6 +766,14 @@ textarea.field-input { min-height: 82px; }
   animation: lf-sweep 1.2s linear infinite;
 }
 @keyframes lf-sweep { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+/* A folder's Needs attention list: a line per kind of item, its actions at the line's end. */
+.lf-att { min-width: 0; margin-top: 4px; display: grid; gap: 3px; }
+.lf-att-title { color: var(--text); font-size: 11px; font-weight: 600; }
+.lf-att-list { min-width: 0; margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.lf-att-item { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; }
+.lf-att-text { min-width: 0; color: var(--muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.lf-att-text code { color: var(--text); font-size: 10.5px; }
+.lf-att-acts { display: flex; flex-wrap: wrap; gap: 4px; }
 .lf-actions { display: flex; align-items: center; gap: 4px; }
 .lf-more[aria-expanded="true"] { background: var(--surface-raised); color: var(--text); }
 .lf-add {

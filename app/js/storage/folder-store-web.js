@@ -15,18 +15,23 @@
 // are counted by what they hold (written(): the conformance suite checks them against the write
 // budget, plan D23).
 //
-// A gallery's folder in format v2 (gallery-manifest.js has the rules): writeNew (a name no file has),
+// Which folder a handle reaches is told by its library.json alone (identityOf, principle 1): the
+// library asks before it reads, checks or writes one (db.js _access). A gallery's folder in format v2
+// (gallery-manifest.js has the rules): galleryIn (whose it is: principle 2), reserveDir (the only way a
+// folder becomes a gallery's), writeNew (a name no file has, never making the gallery's folder again),
 // publishIn (a generation committed by one manifest written whole), deleteNamedIn (only files still as
 // Shiori recorded writing them), loadGallery (a folder read back by its manifest, or by v1's rules).
 //
 // folderStore(gate) is the contract over these: open(ref, { purpose }) weighs the folder as the
-// library's gate has it (its handle, its state, this page's permission, whether this library holds
-// its claim) and hands out a Root, whose galleries and reservations work as the library does.
-// Identity-verified roots and positive gallery identity come with S5.
+// library's gate has it (its handle, its state, this page's permission, whether the handle reaches it,
+// whether this library holds its claim) and hands out a Root, whose galleries and reservations work as
+// the library does.
 import { refused, MISSING, unreadable } from './contract.js';
-import { galleryIdOf } from './folder-content.js';
+import { MANIFEST_FILE, OWN_FILES, LIBRARY_FILE, galleryAt, libraryIdOf } from './folder-content.js';
 import { refusalFor } from './folder-lifecycle.js';
-import { PICTURE_DIRS, isPictureName, areaOf, manifestPath, storedDir, storedHash, parseManifest, publication, sizesOf, matches, unchanged, readGallery } from './gallery-manifest.js';
+import { SOURCE_FILE, parseSource } from './linked-source.js';
+import { PICTURE_DIRS, isPictureName, areaOf, manifestPath, storedDir, storedHash, parseManifest, publication, firstGeneration, tokenOf, sizesOf,
+  matches, unchanged, readGallery } from './gallery-manifest.js';
 
 /** @typedef {import('./contract.js').ReadResult<Uint8Array>} ReadBytes */
 /** @typedef {import('./contract.js').ListResult} ListResult */
@@ -77,21 +82,22 @@ export const sameFolder = (a, b) => a.isSameEntry(b).catch(() => false);
 /** @param {string} path @returns {string[]} */
 const _parts = (path) => String(path ?? '').split('/').filter(Boolean);
 
-/** The folder at `path` inside folder `root` (made when `create`). Throws NotFoundError when it isn't
- * there. A folder remembered here that was deleted meanwhile (its handle answers NotFoundError) is
- * forgotten with every folder on the way to it, and looked up (and made) once more — once: a folder
- * that can't be reached even then is thrown, never tried for ever (N1).
+/** The folder at `path` inside folder `root` (made when `create` — but for its first `keep` folders,
+ * which must be there already: a gallery's own folder, never made again by a write into it). Throws
+ * NotFoundError when it isn't there. A folder remembered here that was deleted meanwhile (its handle
+ * answers NotFoundError) is forgotten with every folder on the way to it, and looked up (and made)
+ * once more — once: a folder that can't be reached even then is thrown, never tried for ever (N1).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @param {boolean} create
- * @param {boolean} [retried] @returns {Promise<FileSystemDirectoryHandle>} */
-async function _dir(id, root, path, create, retried = false) {
+ * @param {boolean} [retried] @param {number} [keep] @returns {Promise<FileSystemDirectoryHandle>} */
+async function _dir(id, root, path, create, retried = false, keep = 0) {
   const parts = _parts(path);
   if (!parts.length) return root;
   const key = `${id}\0${parts.join('/')}`;
   let hit = _dirs.get(key);
   if (!hit) {
     const made = (async () => {
-      const parent = await _dir(id, root, parts.slice(0, -1).join('/'), create);
-      return parent.getDirectoryHandle(parts[parts.length - 1], { create });
+      const parent = await _dir(id, root, parts.slice(0, -1).join('/'), create, false, keep);
+      return parent.getDirectoryHandle(parts[parts.length - 1], { create: create && parts.length > keep });
     })();
     _dirs.set(key, made);
     made.catch(() => { if (_dirs.get(key) === made) _dirs.delete(key); });
@@ -101,7 +107,7 @@ async function _dir(id, root, path, create, retried = false) {
     if (_nameOf(e) !== 'NotFoundError' || !create || retried) throw e;
     for (let i = 1; i < parts.length; i++) _dirs.delete(`${id}\0${parts.slice(0, i).join('/')}`);
     _forget(id, parts.join('/'));
-    return _dir(id, root, path, create, true);
+    return _dir(id, root, path, create, true, keep);
   }
 }
 
@@ -131,17 +137,19 @@ const _count = (name, bytes) => { _totals[KINDS.find(([, re]) => re.test(name))?
 export const written = () => ({ ..._totals });
 
 /** `data` written whole to `path` inside the folder — the file it replaces stays as it was until the
- * new one is complete. Resolves the file as written.
+ * new one is complete. `within`: a folder on the way that must be there already (a gallery's own:
+ * one gone meanwhile is never made again by a write into it — NotFoundError). Resolves the file as
+ * written.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @param {Blob | string} data
- * @param {boolean} [retried] @returns {Promise<File>} */
-export async function writeFile(id, root, path, data, retried = false) {
+ * @param {{ within?: string }} [options] @param {boolean} [retried] @returns {Promise<File>} */
+export async function writeFile(id, root, path, data, { within = '' } = {}, retried = false) {
   const [dir, name] = _split(path);
   let handle;
-  try { handle = await (await _dir(id, root, dir, true)).getFileHandle(name, { create: true }); } catch (e) {
-    // A folder remembered here was deleted meanwhile: looked up (and made) again.
+  try { handle = await (await _dir(id, root, dir, true, false, _parts(within).length)).getFileHandle(name, { create: true }); } catch (e) {
+    // A folder remembered here was deleted meanwhile: looked up (and made, but for `within`) again.
     if (_nameOf(e) !== 'NotFoundError' || retried) throw e;
     _forget(id, dir);
-    return writeFile(id, root, path, data, true);
+    return writeFile(id, root, path, data, { within }, true);
   }
   const stream = await handle.createWritable();
   /** @type {any} */ (stream).__shioriKind = 'folder';   // disk-writes.js counts it as the folder's
@@ -247,18 +255,23 @@ export function withLock(name, fn) {
   return run;
 }
 
-/** A folder of its own for a new gallery at the top of the folder, named `base` — or "base (2)" and so
- * on when that is taken — made and bound to the gallery at once: its metadata.json (`metadata`, the
- * gallery's description, naming its id) is written while lock shiori:dirs:<folder> is held, so no two
- * galleries, in any tab or the service worker, are given one folder, and the folder says whose it is.
- * Resolves its name.
+/** A folder of its own for new gallery `gid` at `base` in the folder (a path: its top, or a series'
+ * folder) — or "base (2)" and so on when that is taken — made and bound to the gallery at once, while
+ * lock shiori:dirs:<folder> is held, so no two galleries, in any tab or the service worker, are given
+ * one folder: its first generation published there (gallery-manifest.js firstGeneration, by `writer`)
+ * — its metadata.json (`metadata`, the gallery's description) first, so the folder names the gallery
+ * from its first write, then stored by its content, then the manifest. The only way a folder becomes
+ * a gallery's (contract.js reserve; principle 2). Resolves its name.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} base @param {string} metadata
- * @returns {Promise<string>} */
-export function reserveDir(id, root, base, metadata) {
+ * @param {{ gid: string, writer: string }} gallery @returns {Promise<string>} */
+export function reserveDir(id, root, base, metadata, { gid, writer }) {
   return withLock(`shiori:dirs:${id}`, async () => {
     let name = base;
     for (let i = 2; await _taken(id, root, name); i++) name = `${base} (${i})`;
-    await writeFile(id, root, `${name}/metadata.json`, metadata);
+    const plan = await publication({ area: '.shiori/', prev: null, next: firstGeneration(gid, writer), texts: { 'metadata.json': metadata } });
+    for (const s of plan.stable) if (s.text != null) await writeFile(id, root, _join(name, s.path), s.text);
+    for (const w of plan.writes) await writeFile(id, root, _join(name, w.path), w.text, { within: name });
+    await writeFile(id, root, _join(name, manifestPath('.shiori/')), plan.text, { within: name });
     return name;
   });
 }
@@ -266,13 +279,15 @@ export function reserveDir(id, root, base, metadata) {
 /** `data` written to `path` in folder `dir` of the folder under a name no file has: `path` itself when
  * nothing is there, else `path` with a random part added before its extension (images/0001.webp →
  * images/0001-3fa2c9e1.webp: gallery-files.js pageNumberOf reads both), so a file something refers to
- * is never written over. Resolves { path, file }: where it went (in `dir`), and the file as written.
+ * is never written over. `dir` (a gallery's own folder) must be there: one gone meanwhile is never
+ * made again (NotFoundError). Resolves { path, file }: where it went (in `dir`), and the file as
+ * written.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @param {string} path
  * @param {Blob | string} data @returns {Promise<{ path: string, file: File }>} */
 export async function writeNew(id, root, dir, path, data) {
   let at = path;
   while (await _taken(id, root, `${dir}/${at}`)) at = path.replace(/(\.[^./]*)?$/, (ext) => `-${_randomPart()}${ext}`);
-  return { path: at, file: await writeFile(id, root, `${dir}/${at}`, data) };
+  return { path: at, file: await writeFile(id, root, `${dir}/${at}`, data, { within: dir }) };
 }
 const _randomPart = () => [...crypto.getRandomValues(new Uint8Array(4))].map(b => b.toString(16).padStart(2, '0')).join('');
 
@@ -291,32 +306,67 @@ export async function manifestIn(id, root, dir, gid = null) {
   } catch (e) { return unreadable(e); }
 }
 
+/** Whose gallery folder `dir` is now (principle 2: folder-content.js galleryAt — its manifest, else its
+ * metadata.json, else an earlier version's shiori.json; a linked gallery's overlay, its source.json):
+ * { kind: 'ok' } when it names gallery `gid`; MISSING when nothing is there; { kind: 'conflict', found }
+ * when something is that names another gallery (`found`), or none (null); unreadable when what it holds
+ * can't be read (nothing is concluded from it). What a change to an existing gallery folder needs
+ * first: nothing else makes a folder a gallery's but its reservation (reserveDir).
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @param {string} gid
+ * @returns {Promise<import('./contract.js').GalleryResult<never> | { kind: 'ok' }>} */
+export async function galleryIn(id, root, dir, gid) {
+  const [parent, base] = _split(dir);
+  try { await (await _dir(id, root, parent, false)).getDirectoryHandle(base); } catch (e) {
+    if (_nameOf(e) === 'NotFoundError') { _forget(id, _parts(dir).join('/')); return MISSING; }
+    return _nameOf(e) === 'TypeMismatchError' ? { kind: 'conflict', found: null } : unreadable(e);
+  }
+  try {
+    const own = await readText(id, root, _join(dir, MANIFEST_FILE));
+    if (galleryAt({ [MANIFEST_FILE]: own }, gid).kind === 'ok') return { kind: 'ok' };
+    /** @type {Record<string, string | null>} */
+    const texts = { [MANIFEST_FILE]: own };
+    for (const name of OWN_FILES.slice(1)) texts[name] = await readText(id, root, _join(dir, name));
+    if (areaOf(dir) !== '') return galleryAt(texts, gid);
+    const source = parseSource(await readText(id, root, _join(dir, SOURCE_FILE)) ?? '')?.galleryId ?? null;
+    return galleryAt(texts, gid, { source });
+  } catch (e) { return unreadable(e); }
+}
+
 /** Generation `next` (a manifest without its descriptions) published in gallery folder `dir` with its
  * descriptions `texts`: the descriptions the current manifest doesn't store written as new files named
  * by their content, then the manifest written whole (createWritable replaces the file only once it is
  * complete: the commit point), then, as a best effort, the stable-named copies brought up to date and
  * the stored descriptions neither generation names collected (gallery-manifest.js publication).
- * Resolves the manifest published; rejects when the current one can't be read, or a write before the
- * commit fails (the previous generation stays whole).
+ * `known`: the token the library last published or read there (undefined: not weighed). Resolves {
+ * manifest: the one published, changedBoth: whether it replaced a generation another app published
+ * since `known` — this app's change wins; the case is the caller's to report (D4) }. Rejects when the
+ * folder no longer names the gallery (galleryIn: nothing is written, `reason` 'conflict' or
+ * 'missing'), when the current manifest can't be read, or a write before the commit fails (the
+ * previous generation stays whole).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir
  * @param {Omit<import('./contract.js').Manifest, 'descriptions'>} next @param {Record<string, string | null | undefined>} texts
- * @returns {Promise<import('./contract.js').Manifest>} */
-export async function publishIn(id, root, dir, next, texts) {
+ * @param {{ known?: string | null }} [options]
+ * @returns {Promise<{ manifest: import('./contract.js').Manifest, changedBoth: boolean }>} */
+export async function publishIn(id, root, dir, next, texts, { known } = {}) {
   const area = areaOf(dir);
+  const whose = await galleryIn(id, root, dir, next.galleryId);
+  if (whose.kind !== 'ok') throw Object.assign(new Error(`${dir} is not gallery ${next.galleryId}'s folder now`), { reason: whose.kind === 'missing' ? 'missing' : 'conflict' });
   const now = await manifestIn(id, root, dir, next.galleryId);
   if (now.kind === 'unreadable') throw new Error(`the manifest in ${dir} can't be read: ${now.error}`);
   const prev = now.kind === 'ok' ? now.value : null;
+  const changedBoth = known !== undefined && !!prev && tokenOf(prev) !== known && prev.writer !== next.writer;
   const sizes = await sizesOf(next.files, new Map(Object.entries(next.sizes || {})), prev, async (f) => {
     const file = await _fileAt(id, root, _join(dir, f)).catch(() => null);
     return file ? [file.size, file.lastModified] : null;
   });
   const plan = await publication({ area, prev, next: { ...next, sizes }, texts });
-  for (const w of plan.writes) await writeFile(id, root, _join(dir, w.path), w.text);
-  await writeFile(id, root, _join(dir, manifestPath(area)), plan.text);
+  const within = { within: dir };
+  for (const w of plan.writes) await writeFile(id, root, _join(dir, w.path), w.text, within);
+  await writeFile(id, root, _join(dir, manifestPath(area)), plan.text, within);
   for (const s of plan.stable) {
     try {
       const had = await readText(id, root, _join(dir, s.path));
-      if (s.text != null && had !== s.text) await writeFile(id, root, _join(dir, s.path), s.text);
+      if (s.text != null && had !== s.text) await writeFile(id, root, _join(dir, s.path), s.text, within);
       else if (s.text == null && had != null && s.was && await matches(s.was, had)) await removeFile(id, root, _join(dir, s.path));
     } catch {}
   }
@@ -328,7 +378,7 @@ export async function publishIn(id, root, dir, next, texts) {
       if (had != null && await matches(at, had)) await removeFile(id, root, _join(dir, at));
     }
   } catch {}
-  return plan.manifest;
+  return { manifest: plan.manifest, changedBoth };
 }
 
 /** The files `files` (paths in gallery folder `dir`, as Shiori recorded writing them: name, size,
@@ -413,40 +463,50 @@ async function _list(id, root, path) {
     return { kind: 'ok', entries };
   } catch (e) { return unreadable(e); }
 }
-/** Library folder `id` (its handle `root`), opened for `purpose`.
- * @param {string} id @param {FileSystemDirectoryHandle} root @param {Purpose} purpose @returns {WriteRoot} */
-function _root(id, root, purpose) {
-  // Gallery `gid`'s directory `name`, in format v2 (the functions above). The website writes no
-  // temporary files of its own (createWritable writes a file whole), so there is nothing to sweep.
+/** Library folder `id` (its handle `root`), opened for `purpose` by this library (`writer`, its id
+ * among the apps: what its publications are signed with).
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {Purpose} purpose @param {string} writer @returns {WriteRoot} */
+function _root(id, root, purpose, writer) {
+  // Gallery `gid`'s directory `name`, in format v2 (the functions above). Each change is made only while
+  // the directory still names the gallery (galleryIn, principle 2) — one gone meanwhile, or put there
+  // since by hand, is refused. The website writes no temporary files of its own (createWritable
+  // writes a file whole), so there is nothing to sweep.
   /** @param {string} name @param {string} gid @returns {GalleryDir} */
-  const galleryDir = (name, gid) => ({
-    name, gid,
-    manifest: () => manifestIn(id, root, name, gid),
-    read: (rel) => _read(id, root, _join(name, rel)),
-    async writeNew(slot, ext, bytes) {
-      const { path, file } = await writeNew(id, root, name, `${slot}.${ext}`, new Blob([/** @type {BlobPart} */ (bytes)]));
-      return { name: path, size: file.size, mtime: file.lastModified };
-    },
-    async publish({ manifest, descriptions }) { const done = await publishIn(id, root, name, manifest, descriptions); return { generation: done.generation }; },
-    deleteNamed: (files) => deleteNamedIn(id, root, name, files),
-    sweep: async () => ({ removed: [] }),
-  });
+  const galleryDir = (name, gid) => {
+    const ours = async () => {
+      const found = await galleryIn(id, root, name, gid);
+      if (found.kind !== 'ok') throw Object.assign(new Error(`${name} is not gallery ${gid}'s folder now`), { reason: found.kind === 'missing' ? 'missing' : 'conflict' });
+    };
+    return {
+      name, gid,
+      manifest: () => manifestIn(id, root, name, gid),
+      read: (rel) => _read(id, root, _join(name, rel)),
+      async writeNew(slot, ext, bytes) {
+        await ours();
+        const { path, file } = await writeNew(id, root, name, `${slot}.${ext}`, new Blob([/** @type {BlobPart} */ (bytes)]));
+        return { name: path, size: file.size, mtime: file.lastModified };
+      },
+      async publish({ manifest, descriptions, known }) {
+        const done = await publishIn(id, root, name, manifest, descriptions, { known });
+        return { generation: done.manifest.generation, changedBoth: done.changedBoth };
+      },
+      async deleteNamed(files) { await ours(); return deleteNamedIn(id, root, name, files); },
+      sweep: async () => ({ removed: [] }),
+    };
+  };
   return {
     id, purpose,
     read: (rel) => _read(id, root, rel),
     list: (rel) => _list(id, root, rel),
-    // The directory is the gallery's unless its metadata.json names another (db.js _mayWriteDir).
+    // The directory, while it names the gallery (galleryIn).
     async gallery(name, gid) {
-      const [parent, base] = _split(name);
-      const there = (await list(id, root, parent).catch(() => [])).some(e => e.name === base && e.kind === 'directory');
-      if (!there) return MISSING;
-      const named = galleryIdOf(await readText(id, root, `${name}/metadata.json`).catch(() => null));
-      return named != null && named !== String(gid) ? { kind: 'conflict', found: named } : { kind: 'ok', dir: galleryDir(name, String(gid)) };
+      const found = await galleryIn(id, root, name, String(gid));
+      return found.kind === 'ok' ? { kind: 'ok', dir: galleryDir(name, String(gid)) } : found;
     },
-    // A free directory named after the hint, bound to the gallery by its metadata.json (reserveDir).
+    // A free directory named after the hint, bound to the gallery by its first generation (reserveDir).
     async reserve(hint, gid) {
       const metadata = JSON.stringify({ galleryId: String(gid), title: { english: hint, japanese: '', pretty: '' } });
-      return galleryDir(await reserveDir(id, root, hint, metadata), String(gid));
+      return galleryDir(await reserveDir(id, root, hint, metadata, { gid: String(gid), writer }), String(gid));
     },
     // File System Access walks the folder one name at a time and never sees a link: a source is read
     // where it is named (the browser's own handling of links, plan §2).
@@ -468,9 +528,11 @@ function _root(id, root, purpose) {
 }
 
 /** Folder `id` as the library has it: its handle, its state (folder-lifecycle.js), whether this library
- * holds its claim, and this page's permission for it (permission()) — null for one it doesn't have.
+ * holds its claim, this page's permission for it (permission()), whether the folder its handle reaches
+ * is it (`here`: its library.json names `id`, principle 1), and the library's own id (`writer`) — null
+ * for one it doesn't have.
  * @typedef {(id: string) => Promise<{ handle: FileSystemDirectoryHandle, state: string, owned: boolean,
- *   permission: string } | null>} Gate */
+ *   permission: string, here: boolean, writer: string } | null>} Gate */
 /** The adapter over the library's gate.
  * @param {Gate} gate @returns {import('./contract.js').FolderStore<FileSystemDirectoryHandle>} */
 export function folderStore(gate) {
@@ -480,8 +542,18 @@ export function folderStore(gate) {
       const f = await gate(ref.id);
       if (!f || f.permission === 'unavailable') return refused('unavailable');
       if (f.permission !== 'granted') return refused('no-permission');
-      const why = refusalFor({ state: f.state, owned: f.owned, reachable: true }, purpose);
-      return why ? refused(why) : { status: 'ok', root: _root(ref.id, f.handle, purpose) };
+      const why = refusalFor({ state: f.state, owned: f.owned, reachable: true, here: f.here }, purpose);
+      return why ? refused(why) : { status: 'ok', root: _root(ref.id, f.handle, purpose, f.writer) };
     },
   };
+}
+
+/** Whether the folder `handle` reaches is library folder `id` now (principle 1): 'ok' when its
+ * .shiori/library.json names it (folder-content.js libraryIdOf), 'other-library' when it names
+ * another, or none, or isn't there; 'unavailable' when it can't be read now. Read only.
+ * @param {string} id @param {FileSystemDirectoryHandle} handle @returns {Promise<'ok' | 'other-library' | 'unavailable'>} */
+export async function identityOf(id, handle) {
+  try { return libraryIdOf(await readText(id, handle, LIBRARY_FILE)) === id ? 'ok' : 'other-library'; } catch (e) {
+    return _nameOf(e) === 'TypeMismatchError' ? 'other-library' : 'unavailable';
+  }
 }

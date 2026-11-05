@@ -30,7 +30,7 @@ import { OWN_FILES, MANIFEST_FILE, galleryIdOf, classifyFolder, classifyArchive 
 import { LINKED_DIR, SOURCE_FILE, REMOVED_FILE, IMAGE_NAME, ARCHIVE_NAME, overlayDir, sourceText, parseSource, parseRemoved, isRemoved,
   folderPrint, metaFromName, planTitles, zipTitles, sortPictures, linkedPages, keepsDerived, pdfReady, pdfWaits, matchSources } from './storage/linked-source.js';
 import { DESCRIPTION_FILES, descriptionStamp, layoutPath, extOfType, describedFiles, derivedRecord } from './storage/gallery-files.js';
-import { PICTURE_DIRS, readGallery, parseManifest, tokenOf } from './storage/gallery-manifest.js';
+import { PICTURE_DIRS, readGallery, parseManifest, tokenOf, namedPictures } from './storage/gallery-manifest.js';
 import { sha256Hex } from './zip-read.js';
 import { uploadDateSeconds } from './gallery-model.js';
 
@@ -42,7 +42,14 @@ let K = null;   // the kernel db.js hands over (createFolderLibrary)
 export function createFolderLibrary(kernel) {
   K = kernel;
   return { foldersList, foldersWaiting, folderAdd, folderClaim, folderSetDefault, folderAllow, folderHide, folderShow,
-    folderRemove, folderSetAside, foldersPending, folderScan, pdfsWaiting, pdfSource, addRendered, pdfFailed };
+    folderRemove, folderSetAside, foldersPending, folderScan, folderDismiss, pdfsWaiting, pdfSource, addRendered, pdfFailed };
+}
+
+// An item of folder `id`'s Needs attention list ({ reason, path }) put away: a check that finds it
+// again lists it again.
+async function folderDismiss(id, item) {
+  await K.dismiss(String(id), { reason: String(item?.reason ?? ''), path: String(item?.path ?? '') });
+  platform.control.send({ type: 'FOLDERS_CHANGED' });
 }
 
 const FOLDER_LOCK = (id) => `shiori:folder:${id}`;
@@ -71,9 +78,12 @@ async function _putPlace(record, state) {
 // ── The library's folders ──
 
 // Where the library is kept: this browser, then each library folder in the order they were added —
-// [{ id, kind: 'browser'|'folder', name, isDefault, access, galleries, size, removable, hidden? }].
-// `access`: 'granted', 'prompt' (one click lets this page use it: folderAllow), 'unavailable' (not
-// there) or 'taken' (another app holds it, `owner` which). A hidden place counts the galleries it hid.
+// [{ id, kind: 'browser'|'folder', name, isDefault, access, galleries, size, removable, hidden?,
+// attention? }]. `access`: 'granted', 'prompt' (one click lets this page use it: folderAllow),
+// 'unavailable' (not there), 'other-library' (another library folder is at its place) or 'taken'
+// (another app holds it, `owner` which). A hidden place counts the galleries it hid. `attention`: its
+// Needs attention list (D15: what its last check found, and what happened since), [{ reason, path,
+// gid? }].
 async function foldersList() {
   const { byId, defaultId, browser } = await K.folders();
   const tally = new Map([[K.BROWSER, { galleries: 0, size: 0 }], ...[...byId.keys()].map(id => [id, { galleries: 0, size: 0 }])]);
@@ -90,7 +100,7 @@ async function foldersList() {
     const taken = state === 'granted' && !owned;
     out.push({ id: f.id, kind: 'folder', name: f.name, isDefault: f.id === defaultId,
       access: taken ? 'taken' : state === 'denied' ? 'prompt' : state, removable: true, ...counts(f),
-      ...(taken ? { owner: _ownerOf(claim) } : {}) });
+      attention: await K.attentionOf(f.id).catch(() => []), ...(taken ? { owner: _ownerOf(claim) } : {}) });
   }
   return out;
 }
@@ -224,7 +234,10 @@ async function _listedAs(id, handle) {
 async function folderClaim(id) {
   const folder = (await K.folders()).byId.get(id);
   if (!folder) throw _notFound(id);
-  if (await folderFiles.permission(folder.handle) !== 'granted') throw new BackendError('unavailable', `library folder ${id} can't be reached`);
+  K.forgetGrant(id);
+  const { state } = await K.access(id);   // never another library folder at its path (principle 1)
+  if (state === 'other-library') throw Object.assign(new BackendError('unavailable', `another library folder is at library folder ${id}'s path`), { reason: 'other-library' });
+  if (state !== 'granted') throw new BackendError('unavailable', `library folder ${id} can't be reached`);
   const { claim, changed } = nextClaim(await K.readClaim(id, folder.handle), await K.me(), K.myLabel(), { held: folder.epoch ?? null, force: true });
   if (changed) await K.writeClaim(id, folder.handle, claim);
   await K.noteEpoch(id, claim.epoch);
@@ -444,10 +457,11 @@ async function _unsavedIn(id) {
   const marked = await K.marked();
   return (await _placedIn(id)).filter(g => _waiting(g, marked));
 }
-// Folder `id` let go by this library: its claim released, when it holds it and can reach it.
+// Folder `id` let go by this library: its claim released, when it holds it and can reach it as itself.
 async function _release(id) {
   const folder = await K.folderById(id);
-  if (!folder || await folderFiles.permission(folder.handle) !== 'granted') return;
+  K.forgetGrant(id);
+  if (!folder || (await K.access(id)).state !== 'granted') return;
   const next = releasedClaim(await K.readClaim(id, folder.handle), await K.me());
   if (next) await K.writeClaim(id, folder.handle, next);
 }
@@ -459,6 +473,7 @@ async function _forget(id) {
   const owed = await K.removedNotes(id);   // written, or lost by the person's choice
   await K.folderWrite((store, tx) => { store.delete(id); for (const n of owed) store.delete(n.id); K.logIn(tx, '*'); });
   await K.forgetRetiring(id).catch(() => {});   // files it would have deleted there stay with the folder
+  await K.forgetAttention(id).catch(() => {});
   folderFiles.forgetFolder(id);
   K.muchLater();
 }
@@ -579,8 +594,13 @@ async function _check(id, { onProgress = () => {}, stopped = () => false } = {})
   if (!folder) throw _notFound(id);
   if (folder.state !== 'shown') _refuse(folder.state === 'hidden' ? 'hidden' : 'removing', `library folder ${id} is ${folder.state}`);
   const root = await K.rootOf(id);
-  if (!root) throw new BackendError('unavailable', `library folder ${id} can't be reached`);
-  const run = { id, root, name: folder.name || '', stopped, known: new Set(await K.transferIds()), marked: await K.marked(), added: [], updated: new Set(), problems: [] };
+  if (!root) {
+    // Another library folder at its place is never read as it, nor its galleries adopted (T01).
+    if ((await K.access(id)).state === 'other-library') throw Object.assign(new BackendError('unavailable', `another library folder is at library folder ${id}'s place`), { reason: 'other-library' });
+    throw new BackendError('unavailable', `library folder ${id} can't be reached`);
+  }
+  const run = { id, root, name: folder.name || '', stopped, known: new Set(await K.transferIds()), marked: await K.marked(), added: [], updated: new Set(),
+    problems: [], unreferenced: [] };
   const kept = (await _placedIn(id)).filter(g => g.dir);
   const step = _steps(run, onProgress);
 
@@ -606,13 +626,32 @@ async function _check(id, { onProgress = () => {}, stopped = () => false } = {})
   step.begin('lf.task_comparing', kept.length);
   for (const stat of kept) {
     if (stopped()) break;
-    await _catchUp(run, stat);
+    if (await _catchUp(run, stat)) await _leftovers(run, stat);
     step.tick();
   }
   const changed = [...run.added, ...run.updated];
   await _tidySeriesLinks(changed, run.id);
   for (const gid of changed) K.publishFeed(gid);
+  // What it found, for the folder's Needs attention list (D15) — not when it was stopped part way.
+  if (!stopped()) await K.noteChecked(id, [...run.problems, ...run.unreferenced]).catch(() => {});
   return { added: run.added.length, updated: run.updated.size, problems: run.problems, stopped: !!stopped() };
+}
+// Pictures in kept gallery `stat`'s folder (it names the gallery: _catchUp) that nothing refers to —
+// not its records, not a file waiting to retire — and old enough that no write under way is making
+// them (a write cut short before its records committed): reported in `run.unreferenced` ({ path,
+// reason: 'unreferenced', gid }), never deleted (D16: Shiori deletes only what it recorded writing).
+const LEFTOVER_AGE_MS = 10 * 60 * 1000;
+async function _leftovers(run, stat) {
+  if (stat.packed || stat.linked) return;
+  const gid = String(stat.galleryId);
+  try {
+    const mine = await K.wantedDescriptions(gid);
+    if (!mine || mine.stat.dir !== stat.dir) return;
+    const named = new Set([...namedPictures(mine.next.files), ...mine.retiring.map(n => n.path)]);
+    for (const [path, f] of await folderFiles.picturesIn(run.id, run.root, stat.dir)) {
+      if (!named.has(path) && Date.now() - f.mtime >= LEFTOVER_AGE_MS) run.unreferenced.push({ path: `${stat.dir}/${path}`, reason: 'unreferenced', gid });
+    }
+  } catch { /* what can't be listed now is looked at again by the next check */ }
 }
 // A check's progress, step by step (each counted on its own).
 function _steps(run, onProgress) {
@@ -716,10 +755,12 @@ async function _joinOwn(run, found, kept) {
 // stored ('adopt-failed').
 const _failure = (e) => (['unreadable', 'corrupt', 'missing-file'].includes(e?.reason) ? e.reason : 'adopt-failed');
 const _samePlace = (stat, found) => stat.dir === found.path && (stat.packed?.inner || '') === (found.inner || '');
-// Whether a kept gallery's place is still there: its archive, or its folder.
+// Whether a kept gallery's place is still there: its archive, or its folder naming it (galleryIn) — one
+// that can't be read is.
 async function _there(run, stat) {
-  if (stat.packed) return folderFiles.readFile(run.id, run.root, stat.dir).then(Boolean, () => true);   // one that can't be read is there
-  return (await folderFiles.list(run.id, run.root, stat.dir).catch(() => [null])).length > 0;
+  if (stat.packed) return folderFiles.readFile(run.id, run.root, stat.dir).then(Boolean, () => true);
+  const whose = await folderFiles.galleryIn(run.id, run.root, stat.dir, String(stat.galleryId));
+  return whose.kind === 'ok' || whose.kind === 'unreadable';
 }
 
 // What a gallery in the gallery format holds, read where it lies (storage/gallery-manifest.js
@@ -859,26 +900,35 @@ async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, s
 // library last published or read it (D4: another app published a generation of it) — unless it has
 // changes of its own waiting to be published there: they win (a hint here, checked again as it is
 // stored), and the case is reported ('changed-both'). A v1 folder stamped before stamps existed counts
-// as changed only when its descriptions differ from this library's.
+// as changed only when its descriptions differ from this library's. Its folder must name it (principle
+// 2): one put at its place by hand is reported ('conflict') and never read as it. Resolves whether its
+// folder is its own now.
 async function _catchUp(run, stat) {
   const gid = String(stat.galleryId);
-  if (run.updated.has(gid) || K.busy(gid)) return;
+  if (!stat.packed) {
+    const whose = await folderFiles.galleryIn(run.id, run.root, stat.dir, gid);
+    if (whose.kind === 'conflict') run.problems.push({ path: stat.dir, reason: 'conflict', gid });
+    if (whose.kind === 'unreadable') run.problems.push({ path: stat.dir, reason: 'unreadable' });
+    if (whose.kind !== 'ok') return false;
+  }
+  if (run.updated.has(gid) || K.busy(gid)) return true;
   const where = stat.packed ? { kind: 'zip', path: stat.dir, inner: stat.packed.inner || '', id: gid } : { kind: 'dir', path: stat.dir, id: gid };
   let at;
-  try { at = await _tokenAt(run, where, gid); } catch (e) { run.problems.push({ path: stat.dir, reason: e?.reason === 'corrupt' ? 'corrupt' : 'unreadable' }); return; }
-  if (at.id !== gid || at.token === stat.stamp) return;
+  try { at = await _tokenAt(run, where, gid); } catch (e) { run.problems.push({ path: stat.dir, reason: e?.reason === 'corrupt' ? 'corrupt' : 'unreadable' }); return true; }
+  if (at.id !== gid || at.token === stat.stamp) return true;
   if (!stat.stamp && at.texts) {
     const mine = await K.wantedDescriptions(gid);
-    if (mine && descriptionStamp(K.textsOf(mine.wanted)) === at.token) { await K.patchStat(gid, (cur) => ({ ...cur, stamp: at.token })); return; }
+    if (mine && descriptionStamp(K.textsOf(mine.wanted)) === at.token) { await K.patchStat(gid, (cur) => ({ ...cur, stamp: at.token })); return true; }
   }
   if (stat.spilled || run.marked.has(gid)) {
-    if (stat.stamp) run.problems.push({ path: stat.dir, reason: 'changed-both' });
-    return;
+    if (stat.stamp) run.problems.push({ path: stat.dir, reason: 'changed-both', gid });
+    return true;
   }
   try {
     const again = stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid }) : await _adopt(run, where, { replace: gid });
     if (again) run.updated.add(gid);
   } catch (e) { run.problems.push({ path: stat.dir, reason: _failure(e) }); }
+  return true;
 }
 // What a gallery's place (`where`: _readFormat's) was last published at, and the gallery it names:
 // { token, id, texts } — by its manifest (gallery-manifest.js tokenOf; `texts` null), else, format v1,
@@ -1062,14 +1112,16 @@ async function _relink(run, title, gid) {
 // Title `title`'s overlay, made as gallery `gid`'s: its source.json written as `title` is now (`at`:
 // its pictures read, else `title`'s own) — a PDF's markers kept, each saying the version of the file it
 // is for (its pages drawn from, or drawing them failed: pdfWaits). One that can't be read is never
-// written over: the error is thrown (F06). Resolves the overlay's folder.
+// written over: the error is thrown (F06); nor is one naming another gallery (principle 2: reason
+// 'conflict'). Resolves the overlay's folder.
 async function _overlayFor(run, title, gid, at = null) {
   const dir = overlayDir(gid);
   const path = `${dir}/${SOURCE_FILE}`;
   const text = await folderFiles.readText(run.id, run.root, path);
-  const had = parseSource(text);
+  const had = parseSource(text ?? '');
   const fingerprint = at?.fingerprint ?? title.fingerprint ?? null;
   const mine = had?.galleryId === String(gid);
+  if (had && !mine) throw Object.assign(new BackendError('conflict', `the overlay at ${dir} names another gallery`), { reason: 'conflict' });
   const want = sourceText(gid, { kind: title.kind, path: title.path, ...(title.inner ? { inner: title.inner } : {}), size: at?.size ?? title.size ?? null,
     fingerprint, ...(mine ? { rendered: had.source.rendered, failed: had.source.failed } : {}) });
   if (text !== want) await folderFiles.writeFile(run.id, run.root, path, want);

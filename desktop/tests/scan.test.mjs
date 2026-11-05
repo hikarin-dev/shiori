@@ -152,8 +152,10 @@ test('a translation file no page refers to is reported, and left in the galleryâ
   fs.utimesSync(path.join(folder, 'translated', '0001.png'), old, old);
   const found = await library.rescan();
   assert.deepEqual(fs.readdirSync(path.join(folder, 'translated')).sort(), ['0001.png', '0002.png']);
-  assert.deepEqual(found.unreferenced, [{ path: 'Layers/translated/0002.png' }]);
+  assert.deepEqual(found.unreferenced, [{ path: 'Layers/translated/0002.png', gid }]);
   assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1, 'translated')), [...pngBytes(9)]);
+  // On its folder's Needs attention list (D15, D16), until a check no longer finds it.
+  assert.deepEqual((await library.foldersList())[0].attention, [{ reason: 'unreferenced', path: 'Layers/translated/0002.png', gid }]);
 });
 
 test('the index rebuilt from a folder in the gallery format has its translations and study layers, where they lie', async (t) => {

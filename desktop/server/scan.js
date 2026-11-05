@@ -20,7 +20,7 @@
 // A known path costs one existence check (and its descriptions, to catch up); only files the index
 // doesn't know are opened.
 
-import { disk, writeFlushed, loadGallery, manifestIn } from './folder-store.js';
+import { disk, loadGallery, manifestIn } from './folder-store.js';
 import path from 'node:path';
 import { readDirectory, readEntry } from './zip.js';
 import { files as layout, linked as linkedSource, content, contract, manifest as format } from './shared.js';
@@ -196,7 +196,7 @@ async function unpackSeries(library, g) {
     for (const [name, entry] of g.read.entries) {
       const file = path.join(temp, ...name.split('/'));
       await disk.mkdir(path.dirname(file), { recursive: true });
-      await writeFlushed(file, await readEntry(g.abs, entry));
+      await disk.writeFile(file, await readEntry(g.abs, entry));
       library.writes.add('pages', entry.size);
     }
     library.folders.assertWritable(g.root);
@@ -218,11 +218,14 @@ async function unpackSeries(library, g) {
 export async function scanLibrary(library, { roots = library.activeRoots(), onProgress = () => {}, stopped = () => false } = {}) {
   const out = { moved: [], missing: [], found: [], added: [], updated: [], removed: 0, problems: [], unreferenced: [], stopped: false };
   const files = library.files;
-  const isDir = (abs) => disk.stat(abs).then(st => st.isDirectory(), () => false);
+  // A folder is checked only where its path holds it (folders.js reach, principle 1): another library
+  // folder at its path is never read, nor its galleries adopted (T01) — and, like one out of reach,
+  // nothing of the folder's is marked missing meanwhile.
   const reachable = [];
   for (const id of roots) {
-    if (await isDir(library.rootDir(id))) reachable.push(id);
-    else out.problems.push({ path: '', reason: 'unreachable' });
+    const opened = library.folders.reach(id, 'read', { fresh: true });
+    if (opened.status === 'ok') reachable.push(id);
+    else out.problems.push({ path: '', reason: opened.status === 'other-library' ? 'other-library' : 'unreachable' });
   }
   const checked = new Set(reachable);
   const known = library._s('SELECT * FROM files').all().filter(r => checked.has(files._split(r.path).root));
@@ -233,9 +236,16 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   for (const id of reachable) if (library.folders.writable(id)) out.removed += await sweepLeftovers(library, id);
 
   const present = new Set();
-  // A linked gallery is there while its source is (its overlay alone doesn't make it so).
+  // A gallery is there while its folder or archive names it (files.js _whose, principle 2: one that
+  // can't be read now isn't concluded gone) — a folder put at its place by hand is not it: reported, the
+  // gallery looked for elsewhere, else missing (T02) — and, a linked one, while its source is (its
+  // overlay alone doesn't make it so).
   const sourceThere = (row) => !row.source || disk.access(files._sourceAbs(row)).then(() => true, () => false);
-  for (const row of known) if (await exists(row.path) && await sourceThere(row)) present.add(row.gid);
+  for (const row of known) {
+    const whose = await files._whose(row.path, row.gid);
+    if (whose.kind === 'conflict') out.problems.push({ path: files._split(row.path).rest, reason: 'conflict', gid: row.gid });
+    if ((whose.kind === 'ok' || whose.kind === 'unreadable') && await sourceThere(row)) present.add(row.gid);
+  }
   const tops = await Promise.all(reachable.map(async (id) => (await disk.readdir(library.rootDir(id)).catch(() => []))
     .filter(n => !n.startsWith('.') && !TEMP.test(n)).length));
   // Its steps, each counted on its own: what the folders hold, the galleries joining, and those it
@@ -289,7 +299,7 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
     const row = files._row(id);
     const root = row && files._split(row.path).root;
     if (!row || row.source || row.format !== g.format || checked.has(root) || !library.folders.has(root)) continue;
-    if (await isDir(library.rootDir(root)) && !await exists(row.path)) handMoved.set(id, g);
+    if (library.folders.reach(root).status === 'ok' && !await exists(row.path)) handMoved.set(id, g);
   }
 
   const changed = new Set();
@@ -383,7 +393,7 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   }
   library._tidyLinks([...out.added, ...out.updated]);
   for (const gid of changed) library.publishFeed(gid);
-  out.removed += await removeOrphans(library, out.unreferenced);
+  out.removed += await removeOrphans(library, out.unreferenced, checked);
   library.files.resume();   // galleries found again settle what waited for them
   return out;
 }
@@ -540,7 +550,7 @@ async function sweepLeftovers(library, id) {
   const files = library.files;
   const own = [path.join(root, '.shiori')];
   for (const { gid, path: rel } of library._s(`SELECT gid, path FROM files WHERE format = 'folder' AND source IS NULL`).all()) {
-    if (files._split(rel).root === id && await ownedBy(files._abs(rel), gid, false)) own.push(files._abs(rel));
+    if (files._split(rel).root === id && await ownedBy(files._abs(rel), gid)) own.push(files._abs(rel));
   }
   let removed = 0;
   const walk = async (dir, depth) => {
@@ -565,9 +575,10 @@ async function sweepLeftovers(library, id) {
 // the middle of one): gone once ORPHAN_AGE_MS old — staging is looked through in the library's own
 // (under its data folder) and in each library folder it may write to (another's, a hidden one's and one
 // out of reach are left alone: what its galleries set aside may wait there). A gallery's pictures no
-// record refers to, in a folder that is its own by what it holds (ownedBy), are added to
-// `unreferenced`. Resolves how many went.
-async function removeOrphans(library, unreferenced = []) {
+// record refers to, in a folder that is its own by what it holds (ownedBy) in one of the library
+// folders checked (`checked`, their ids), are added to `unreferenced` ({ path, gid }). Resolves how
+// many went.
+async function removeOrphans(library, unreferenced = [], checked = new Set()) {
   const keep = new Set();   // the files records refer to, where they are
   for (const r of library._s('SELECT orig, record FROM pages').all()) {
     const orig = parse(r.orig);
@@ -595,10 +606,10 @@ async function removeOrphans(library, unreferenced = []) {
   // Pictures in a gallery's folder that no record refers to and that aren't waiting to retire: reported
   // (`unreferenced`: what a write cut short left, or a file put there by hand), never deleted — Shiori
   // deletes only what its index recorded writing (D16, principle 4).
-  for (const { gid, path: rel, source } of library._s(`SELECT gid, path, source FROM files WHERE format = 'folder' AND gid NOT IN (SELECT gid FROM unmounted)`).all()) {
-    if (!library.folders.writable(library.files.rootFor(gid))) continue;   // another app's folder, or out of reach
+  for (const { gid, path: rel } of library._s(`SELECT gid, path FROM files WHERE format = 'folder' AND gid NOT IN (SELECT gid FROM unmounted)`).all()) {
+    if (!checked.has(library.files._split(rel).root) || !library.folders.writable(library.files.rootFor(gid))) continue;   // another app's folder, or out of reach
     const dir = library.files._abs(rel);
-    if (!await ownedBy(dir, gid, !!source)) continue;
+    if (!await ownedBy(dir, gid)) continue;
     const refs = new Set(library._s('SELECT name FROM retiring WHERE dir = ?').all(rel).map(r => r.name));
     for (const r of library._pageRows(gid)) {
       collect(parse(r.record), (ref) => refs.add(ref), '$own');
@@ -610,7 +621,7 @@ async function removeOrphans(library, unreferenced = []) {
       for (const name of await disk.readdir(path.join(dir, ...sub.split('/'))).catch(() => [])) {
         const file = path.join(dir, ...sub.split('/'), name);
         if (!IMAGE.test(name) || refs.has(`${sub}/${name}`) || !await stale(file, ORPHAN_AGE_MS)) continue;
-        unreferenced.push({ path: `${library.files._split(rel).rest}/${sub}/${name}` });
+        unreferenced.push({ path: `${library.files._split(rel).rest}/${sub}/${name}`, gid });
       }
     }
   }
