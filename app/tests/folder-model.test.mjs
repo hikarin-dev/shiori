@@ -266,9 +266,9 @@ const OPEN = {
   })] },
   // The drive taken away and brought back (the junction the folder is reached through removed and
   // made again: setup). Aimed at T12 (a gallery deleted while its drive is away comes back with it),
-  // which the fixed seeds don't reach yet on the desktop. N1 (the website): a write meeting a folder
-  // that went away loops for ever.
-  away: { todo: { website: 'S3: N1' }, commands: [
+  // which the fixed seeds don't reach yet on the desktop. It found N1 on the website (a write meeting
+  // a folder that went away looped for ever; seed 2 reaches it), fixed in S3.
+  away: { todo: {}, commands: [
     command('unplug', fc.constant(null), {
       check: (m) => m.state === 'shown',
       async run(m, r) { fs.rmdirSync(r.A); m.state = 'away'; },

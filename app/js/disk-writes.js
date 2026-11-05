@@ -133,7 +133,7 @@ if (typeof Cache !== 'undefined') {
 }
 
 // ── Files written through the File System Access API ──────────────────────────────────────────
-// An import's staging copy in OPFS, and the galleries kept in a library folder (folder-files.js
+// An import's staging copy in OPFS, and the galleries kept in a library folder (folder-store-web.js
 // marks its writes).
 if (typeof FileSystemWritableFileStream !== 'undefined') {
   const write = FileSystemWritableFileStream.prototype.write;

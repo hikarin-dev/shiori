@@ -53,6 +53,19 @@ export function writeAllowed({ state, owned, reachable, work = null }) {
   return !!owned && (state === 'shown' || (state === 'removing' && work === 'removal'));
 }
 
+// Why a folder store's open() refuses `purpose` (contract.js Purpose) at a place, or null when it
+// doesn't: 'unavailable' (it can't be reached), 'hidden' (its state allows no change: hidden, or being
+// removed, where only its removal's write-back may write) or 'not-owned' (another app holds its claim,
+// or it can't be checked). Reading needs it reachable alone; every other purpose is weighed as a
+// write (writeAllowed), the claim file's own too.
+/** @param {Place} place @param {string} purpose @returns {'unavailable' | 'hidden' | 'not-owned' | null} */
+export function refusalFor({ state, owned, reachable }, purpose) {
+  if (!reachable) return 'unavailable';
+  if (purpose === 'read') return null;
+  if (state !== 'shown' && !(state === 'removing' && purpose === 'removal')) return 'hidden';
+  return owned ? null : 'not-owned';
+}
+
 // What a folder's queue does with a job asked for (`requested`: 'scan' or 'removal') while another
 // runs (`running`: its kind, or null when none does):
 // - 'start': nothing runs — start it;

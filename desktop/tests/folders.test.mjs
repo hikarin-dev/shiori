@@ -16,6 +16,7 @@ import path from 'node:path';
 globalThis.BroadcastChannel = class { postMessage() {} close() {} };
 const { Library } = await import('../server/library.js');
 const { checkInvariants } = await import('../../app/js/library-check.js');
+const { failNext } = await import('./fs-faults.mjs');
 
 const png = (...bytes) => new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, ...bytes])], { type: 'image/png' });
 const title = (english) => ({ english, japanese: '', pretty: '' });
@@ -105,6 +106,48 @@ test('a gallery moves to another folder whole, and back', async (t) => {
   assert.ok(!fs.existsSync(path.join(other, 'Travelling')));
   assert.equal((await library.moveGallery(gid, library.primaryId)).moved.length, 0, 'already there: nothing moves');
   await whole(library);
+});
+
+// The file a page is in, as the disk knows it (its file id stays through a rename, not a copy).
+const fileId = (file) => fs.statSync(file, { bigint: true }).ino;
+const slash = (p) => p.split(path.sep).join('/');
+
+test('D25: a gallery moved to a folder on the same drive is renamed there, no picture written again; across drives it is copied', async (t) => {
+  const { library, other } = await open(t);
+  const { id } = await library.folderAdd(other);
+  const gid = await gallery(library, 'Renamed');
+  await library.files.place(gid);
+  const before = fileId(path.join(library.libraryDir, 'Renamed', 'images', '0001.png'));
+  await library.moveGallery(gid, id);
+  assert.equal(fileId(path.join(other, 'Renamed', 'images', '0001.png')), before, 'the same file, renamed');
+  assert.ok(!fs.existsSync(path.join(library.libraryDir, 'Renamed')));
+  // Another drive: the rename refused as the disk refuses it there.
+  t.after(failNext((c) => c.op === 'rename' && c.path === slash(path.join(other, 'Renamed')), 'EXDEV', { times: Infinity }));
+  await library.moveGallery(gid, library.primaryId);
+  assert.notEqual(fileId(path.join(library.libraryDir, 'Renamed', 'images', '0001.png')), before, 'copied');
+  assert.ok(!fs.existsSync(path.join(other, 'Renamed')), 'the old folder is gone');
+  assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1)), [0x89, 0x50, 0x4e, 0x47, 1, 7]);
+  await whole(library);
+});
+
+test('D25: a same-drive move whose switch is refused renames the folder back, the gallery left where it was', async (t) => {
+  const { library, other } = await open(t);
+  const { id } = await library.folderAdd(other);
+  const gid = await gallery(library, 'Refused');
+  await library.files.place(gid);
+  // Another app takes the folder over as the gallery's folder is about to be renamed there.
+  t.after(failNext((c) => {
+    if (c.op !== 'mkdir' || c.path !== slash(other)) return false;
+    fs.writeFileSync(path.join(other, '.shiori', 'owner.json'), JSON.stringify({ format: 'shiori-owner', version: 1, owner: 'a1b2c3d4e5f60708',
+      by: { app: 'web', browser: 'Chrome', site: 'example.test' }, at: Date.now(), epoch: 99 }));
+    library.folders._probes.clear();
+    return false;
+  }, 'EIO', { times: Infinity }));
+  await assert.rejects(library.moveGallery(gid, id));
+  assert.equal(row(library, gid).path, 'Refused');
+  assert.ok(fs.existsSync(path.join(library.libraryDir, 'Refused', 'images', '0001.png')), 'renamed back');
+  assert.deepEqual(fs.readdirSync(other).filter(n => n !== '.shiori'), [], 'nothing left there');
+  assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1)), [0x89, 0x50, 0x4e, 0x47, 1, 7]);
 });
 
 test('removing a folder writes everything the library has of its galleries there, then forgets the folder and every record of them; added again, it is checked from scratch', async (t) => {

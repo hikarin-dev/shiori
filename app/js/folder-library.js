@@ -16,12 +16,13 @@
 //
 // Work on one folder — its check, its removal's write-back, a PDF's pages joining it, adding it back
 // while it is being removed — runs while lock shiori:folder:<id> is held, across every tab and the
-// service worker (folder-files.js withLock): two checks never adopt one title twice, and a check
-// never reads a folder its removal is forgetting. Which job runs, and which waits or is refused, is
-// folder-scan.js's to decide (folder-lifecycle.js jobPlan).
+// service worker (storage/folder-store-web.js withLock): two checks never adopt one title twice, and
+// a check never reads a folder its removal is forgetting. Which job runs, and which waits or is
+// refused, is folder-scan.js's to decide (folder-lifecycle.js jobPlan). Every file it reads or writes
+// in a folder goes through that module, the website's folder store adapter.
 
 import * as platform from './platform.js';
-import * as folderFiles from './folder-files.js';
+import * as folderFiles from './storage/folder-store-web.js';
 import { BackendError } from './backend-error.js';
 import { nextClaim, releasedClaim, unchangedSince } from './storage/folder-owner.js';
 import { mounted, canHide, nextDefault, removalOutcome } from './storage/folder-lifecycle.js';
@@ -114,7 +115,9 @@ const LIBRARY_FILE = '.shiori/library.json';
 async function _folderIdOf(handle) {
   const probe = `probe-${Date.now()}-${Math.random()}`;
   try {
-    const file = await folderFiles.readFile(probe, handle, LIBRARY_FILE);
+    const file = await folderFiles.readFile(probe, handle, LIBRARY_FILE).catch((e) => {
+      throw new BackendError('unavailable', `${LIBRARY_FILE} can't be read: ${e?.message || e}`);
+    });
     if (file) {
       const id = JSON.parse(await file.text())?.id;
       if (typeof id !== 'string' || !/^[0-9a-f]{16}$/.test(id)) throw new BackendError('invalid', `${LIBRARY_FILE} names no library id`);
@@ -204,7 +207,7 @@ async function _listedAs(id, handle) {
   const { byId } = await K.folders();
   const active = byId.get(id);
   if (active) {
-    if (!(await active.handle.isSameEntry(handle).catch(() => false))) _refuse('copy', 'the folder is a copy of one of the library\'s folders');
+    if (!(await folderFiles.sameFolder(active.handle, handle))) _refuse('copy', 'the folder is a copy of one of the library\'s folders');
     return active.state === 'hidden' ? folderShow(id) : { id, restored: 0, existed: true };
   }
   for (const f of byId.values()) {
@@ -666,7 +669,10 @@ async function _classifyDir(run, path, entries) {
 // can't be read is reported and left out: { corrupt: true }.
 async function _classifyZip(run, path) {
   let archive;
-  try { archive = await K.archiveOf(run.id, run.root, path); } catch { run.problems.push({ path, reason: 'corrupt' }); return { corrupt: true }; }
+  try { archive = await K.archiveOf(run.id, run.root, path); } catch (e) {
+    run.problems.push({ path, reason: e instanceof DOMException ? 'unreadable' : 'corrupt' });   // its file, or what it holds
+    return { corrupt: true };
+  }
   if (!archive) return { corrupt: true };   // gone meanwhile
   const texts = {};
   for (const name of OWN_FILES) { const e = archive.entries.get(name); if (e) texts[name] = await _entryText(e).catch(() => null); }
@@ -705,7 +711,7 @@ const _failure = (e) => (e?.reason === 'unreadable' ? 'unreadable' : 'adopt-fail
 const _samePlace = (stat, found) => stat.dir === found.path && (stat.packed?.inner || '') === (found.inner || '');
 // Whether a kept gallery's place is still there: its archive, or its folder.
 async function _there(run, stat) {
-  if (stat.packed) return !!(await folderFiles.readFile(run.id, run.root, stat.dir));
+  if (stat.packed) return folderFiles.readFile(run.id, run.root, stat.dir).then(Boolean, () => true);   // one that can't be read is there
   return (await folderFiles.list(run.id, run.root, stat.dir).catch(() => [null])).length > 0;
 }
 
@@ -732,7 +738,7 @@ async function _readDir(folder, root, dir) {
   for (const sub of FORMAT_DIRS) {
     for (const e of await folderFiles.list(folder, root, `${dir}/${sub}`)) {
       if (e.kind !== 'file' || !IMAGE_NAME.test(e.name)) continue;
-      const file = await e.handle.getFile().catch((err) => { if (err?.name === 'NotFoundError') return null; throw err; });   // gone meanwhile
+      const file = await e.file().catch((err) => { if (err?.name === 'NotFoundError') return null; throw err; });   // gone meanwhile
       if (file) files.set(`${sub}/${e.name}`, { size: file.size, type: K.typeOfName(e.name) });
     }
   }
@@ -926,7 +932,7 @@ async function _titlePictures(run, title) {
       const pictures = [];
       for (const e of await folderFiles.list(run.id, run.root, title.path)) {
         if (e.kind !== 'file' || !IMAGE_NAME.test(e.name) || e.name.startsWith('.')) continue;
-        const file = await e.handle.getFile();
+        const file = await e.file();
         pictures.push({ name: e.name, path: e.name, size: file.size });
       }
       const sorted = sortPictures(pictures);
@@ -1113,7 +1119,7 @@ async function pdfsWaiting() {
     const removed = parseRemoved(await folderFiles.readText(f.id, root, REMOVED_FILE).catch(() => null));
     for (const over of await _overlaysOf(f.id, root)) {
       if (over.source.kind !== 'pdf') continue;
-      const file = await folderFiles.readFile(f.id, root, over.source.path);
+      const file = await folderFiles.readFile(f.id, root, over.source.path).catch(() => null);   // can't be read now: not offered
       if (!file) continue;
       const joined = known.has(over.galleryId);
       const print = joined ? over.source.fingerprint : await _pdfPrint(file);
@@ -1148,7 +1154,7 @@ async function addRendered(folder, gid, pages) {
   return folderFiles.withLock(FOLDER_LOCK(folder), async () => {
     const { root, source } = await _waitingPdf(folder, gid);
     const dir = overlayDir(gid);
-    const file = await folderFiles.readFile(folder, root, source.path);
+    const file = await folderFiles.readFile(folder, root, source.path).catch(() => null);   // can't be read now: the fingerprint it had
     const fingerprint = file ? await _pdfPrint(file) : source.fingerprint;
     const marker = () => folderFiles.writeFile(folder, root, `${dir}/${SOURCE_FILE}`,
       sourceText(gid, { ...source, fingerprint, rendered: { pages: pages.length, fingerprint }, failed: null }));
@@ -1178,7 +1184,7 @@ async function addRendered(folder, gid, pages) {
 // the file changes (linked-source.js drawFailed).
 async function pdfFailed(folder, gid) {
   const { root, source } = await _waitingPdf(folder, gid);
-  const file = await folderFiles.readFile(folder, root, source.path);
+  const file = await folderFiles.readFile(folder, root, source.path).catch(() => null);   // can't be read: the fingerprint it had
   const fingerprint = file ? await _pdfPrint(file) : source.fingerprint;
   await folderFiles.writeFile(folder, root, `${overlayDir(gid)}/${SOURCE_FILE}`, sourceText(gid, { ...source, failed: { fingerprint, at: Date.now() } }));
 }

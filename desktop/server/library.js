@@ -24,6 +24,9 @@
 // index has recorded it, so the file a record names is always the one it describes. Records go back
 // to the app with their Blobs in place.
 
+// Every file call in a library folder goes through the folder store adapter (folder-store.js `disk`;
+// `store`, the contract over it); fs here reaches the data folder alone: the index's write-ahead log,
+// the thumbnail cache.
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -31,6 +34,7 @@ import crypto from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { plans, model, titles, pageSize, files as galleryFilesModule, galleryExport, lifecycle, BackendError } from './shared.js';
+import { disk, folderStore } from './folder-store.js';
 import { FileLibrary, writeFlushed, libraryId } from './files.js';
 import { Folders } from './folders.js';
 import { WriteMeter } from './writes.js';
@@ -282,7 +286,7 @@ async function sameBytes(a, b) {
 // A file as a Blob that reads it only when its bytes are read; null when it isn't there.
 async function fileBlob(file, type) {
   try {
-    const blob = await fs.openAsBlob(file, type ? { type } : {});
+    const blob = await disk.openAsBlob(file, type ? { type } : {});
     return blob instanceof Blob ? blob : null;
   } catch { return null; }
 }
@@ -313,7 +317,7 @@ export class Library {
     this.cacheDir = path.join(this.dataDir, 'cache');
     this.stagingDir = path.join(this.libraryDir, '.shiori', 'staging');
     this.dataStagingDir = path.join(this.dataDir, 'staging');
-    this.remove = remove || ((p) => fsp.rm(p, { recursive: true, force: true }));
+    this.remove = remove || ((p) => disk.rm(p, { recursive: true, force: true }));
     this.context = crypto.randomUUID();
     this._subs = new Set();
     this._timers = new Set();
@@ -331,11 +335,13 @@ export class Library {
     this.writes = new WriteMeter(path.join(this.dataDir, 'writes.json'));
     this.files = new FileLibrary(this, Object.fromEntries(Object.entries({ placeDelay, describeDelay, archiveAfter, archiveFormat })
       .filter(([, v]) => v != null)));
+    // The library folders as the folder store contract has them (folder-store.js).
+    this.store = folderStore(this);
   }
 
   async open() {
     await fsp.mkdir(this.cacheDir, { recursive: true });
-    await fsp.mkdir(this.stagingDir, { recursive: true });
+    await disk.mkdir(this.stagingDir, { recursive: true });
     this._db = new DatabaseSync(path.join(this.dataDir, 'library.db'));
     this._db.exec(SCHEMA);
     this.primaryId = libraryId(this.libraryDir);
@@ -412,12 +418,12 @@ export class Library {
     } catch (e) {
       try { this._db.exec('ROLLBACK'); } catch {}
       this._inTx = null;
-      for (const file of fresh) fsp.rm(file, { force: true }).catch(() => {});
+      for (const file of fresh) disk.rm(file, { force: true }).catch(() => {});
       throw e;
     }
     this._inTx = null;
     try { this._meterDb(); } catch {}
-    for (const file of drop) fsp.rm(file, { force: true }).catch(() => {});
+    for (const file of drop) disk.rm(file, { force: true }).catch(() => {});
     for (const fn of after) { try { fn(); } catch {} }
     return out;
   }
@@ -452,7 +458,7 @@ export class Library {
   _afterCommit(fn) { this._inTx.after.push(fn); }
   async _mkdir(dir) {
     if (this._dirs.has(dir)) return;
-    await fsp.mkdir(dir, { recursive: true });
+    await disk.mkdir(dir, { recursive: true });
     this._dirs.add(dir);
   }
 
@@ -479,8 +485,8 @@ export class Library {
     if (staged) return { ref, temp: this._staged(staged), staged, gid: String(gid), rel };
     const file = path.join(await this.files.home(gid, meta), ...rel.split('/'));
     const temp = `${file}.${crypto.randomBytes(5).toString('hex')}.shiori-new`;
-    await fsp.mkdir(path.dirname(file), { recursive: true });
-    await fsp.writeFile(temp, new Uint8Array(await blob.arrayBuffer()));
+    await disk.mkdir(path.dirname(file), { recursive: true });
+    await disk.writeFile(temp, new Uint8Array(await blob.arrayBuffer()));
     this.writes.add('pictures', blob.size);
     return { ref, temp, file, gid: String(gid), rel };
   }
@@ -546,7 +552,7 @@ export class Library {
       return out;
     };
     try { return { value: await walk(value, []), fresh, moves }; } catch (e) {
-      for (const file of fresh) fsp.rm(file, { force: true }).catch(() => {});
+      for (const file of fresh) disk.rm(file, { force: true }).catch(() => {});
       throw e;
     }
   }
@@ -590,7 +596,7 @@ export class Library {
     if (orig?.at === 's') {
       const file = this._staged(orig.file);
       if (!file) return null;
-      try { return new Blob([await fsp.readFile(file)], orig.type ? { type: orig.type } : {}); } catch { return null; }
+      try { return new Blob([await disk.readFile(file)], orig.type ? { type: orig.type } : {}); } catch { return null; }
     }
     return this.files.readOriginal(gid, orig);
   }
@@ -671,18 +677,18 @@ export class Library {
     const dir = path.dirname(abs);
     const mkdir = async () => {
       const root = String(file).startsWith(DATA_STAGED) ? this.dataDir : this.folders.dir(this.files._split(file).root);
-      if (!fs.existsSync(root)) throw new BackendError('unavailable', `${root} can't be reached`);
+      if (!disk.existsSync(root)) throw new BackendError('unavailable', `${root} can't be reached`);
       await this._mkdir(dir);
     };
     await mkdir();
     try {
-      await fsp.writeFile(abs, bytes);
+      await disk.writeFile(abs, bytes);
     } catch (e) {
       if (e.code !== 'ENOENT') throw e;
       // Its folder was cleared just now, emptied by the gallery's last settle (files.js _unstage).
       this._dirs.delete(dir);
       await mkdir();
-      await fsp.writeFile(abs, bytes);
+      await disk.writeFile(abs, bytes);
     }
     this.writes.add(kind, bytes.length);
   }
@@ -1580,7 +1586,7 @@ export class Library {
       this._commitOwn(moves);
       changed = row.gid;
     }, fresh);
-    if (!changed) { for (const file of fresh) fsp.rm(file, { force: true }).catch(() => {}); return false; }
+    if (!changed) { for (const file of fresh) disk.rm(file, { force: true }).catch(() => {}); return false; }
     if (size) this.scheduleGallerySize(changed);
     return true;
   }
@@ -1750,7 +1756,7 @@ export class Library {
       this._coverPut({ ...rec, coverThumbs: { ...(rec.coverThumbs || {}), [role]: roleThumbs } });
       return true;
     }, fresh);
-    if (!stored) for (const file of fresh) fsp.rm(file, { force: true }).catch(() => {});
+    if (!stored) for (const file of fresh) disk.rm(file, { force: true }).catch(() => {});
     return stored;
   }
 
@@ -1964,7 +1970,7 @@ export class Library {
   // What a transfer that came to nothing wrote, deleted — and the folder it claimed for a gallery
   // that has nothing recorded, let go again.
   async _transferDiscard(state) {
-    await Promise.all(state.fresh.map(file => fsp.rm(file, { force: true }).catch(() => {})));
+    await Promise.all(state.fresh.map(file => disk.rm(file, { force: true }).catch(() => {})));
     const gid = state.gid;
     if (!state.claimed || this._metaGet(gid) || this._statGet(gid) || this._pageCount(gid)) return;
     try { this._tx(() => this.files.deleteIn(gid)); } catch {}
@@ -2040,7 +2046,7 @@ export class Library {
 
   // Whether page `n`'s original can be read (where its row said, or where it has moved since).
   async _origExists(gid, n, orig) {
-    const at = (o) => (o?.at === 's' ? fsp.access(this._staged(o.file)).then(() => true, () => false) : this.files.hasOriginal(gid, o));
+    const at = (o) => (o?.at === 's' ? disk.access(this._staged(o.file)).then(() => true, () => false) : this.files.hasOriginal(gid, o));
     if (await at(orig)) return true;
     const now = parse(this._pageRow(gid, n)?.orig);
     return !!now && !sameOrig(now, orig) && at(now);
@@ -2075,8 +2081,12 @@ export class Library {
       this._logIn('*');
     });
     this._dirs.clear();
-    for (const dir of [this.cacheDir, ...this.stagingDirs()]) {
-      for (const name of await fsp.readdir(dir).catch(() => [])) await fsp.rm(path.join(dir, name), { recursive: true, force: true }).catch(() => {});
+    await this._clearCache();
+    for (const dir of this.stagingDirs()) {
+      for (const name of await disk.readdir(dir).catch(() => [])) await disk.rm(path.join(dir, name), { recursive: true, force: true }).catch(() => {});
     }
+  }
+  async _clearCache() {
+    for (const name of await fsp.readdir(this.cacheDir).catch(() => [])) await fsp.rm(path.join(this.cacheDir, name), { recursive: true, force: true }).catch(() => {});
   }
 }

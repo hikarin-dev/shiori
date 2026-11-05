@@ -9,7 +9,7 @@ import { isSeriesMeta, effectiveTagsOf, LANG_NAME_TO_CODE, DERIVED_FIELDS, uploa
 import { translatedImage } from './page-image.js';
 import { galleryFiles, layoutPath, layoutOf, extOfType, originalExt, galleryName, DESCRIPTION_FILES, descriptionStamp } from './storage/gallery-files.js';
 import { exportSize } from './gallery-export.js';
-import * as folderFiles from './folder-files.js';
+import * as folderFiles from './storage/folder-store-web.js';
 import { OWNER_FILE, readClaim, access, nextClaim, claimText } from './storage/folder-owner.js';
 import { mounted, writeAllowed } from './storage/folder-lifecycle.js';
 import { galleryIdOf, seriesOf } from './storage/folder-content.js';
@@ -598,8 +598,9 @@ const _loadPages = (tx, recs) => _loadBlobs(tx, _numbered(recs), PAGE);
 const _loadCovers = (tx, recs) => _loadBlobs(tx, recs, COVER);
 
 // ── Library folders ──
-// A gallery's pictures may be kept in a folder the person picked (folder-files.js reads and writes
-// them) rather than in this browser's own storage, "this browser" (BROWSER), which is always there.
+// A gallery's pictures may be kept in a folder the person picked (storage/folder-store-web.js, the
+// folder store adapter, reads and writes them) rather than in this browser's own storage, "this
+// browser" (BROWSER), which is always there.
 // FOLDER_STORE holds each folder — { id, name, handle, addedAt, epoch, state, removal? } — and
 // { id: '$default', folder } (where new galleries go; none: this browser), { id: BROWSER, state }
 // (this browser's own place, once it has been hidden) and { id: '$instance', instance } (this
@@ -701,6 +702,15 @@ async function _readRootOf(id) { return (await _access(id)).state === 'granted' 
 // A folder of the library's, or one being removed (its galleries read and written back until it is
 // forgotten).
 async function _folderById(id) { const { byId, removing } = await _folders(); return byId.get(id) || removing.get(id) || null; }
+// The library's folders as the folder store contract has them (storage/folder-store-web.js): each
+// weighed as its record, this page's permission and the library's claim say now (asked afresh).
+export const folderStore = folderFiles.folderStore(async (id) => {
+  const folder = await _folderById(id);
+  if (!folder) return null;
+  _grants.delete(id);
+  const a = await _access(id);
+  return { handle: folder.handle, state: folder.state, owned: a.owned, permission: a.state };
+});
 
 // ── Which app keeps a folder (folder-owner.js) ──
 // This library's own id among the apps that may keep a folder, made once and kept in FOLDER_STORE
@@ -943,7 +953,7 @@ async function _readPath(ref) {
   const root = await _readRootOf(ref.folder).catch(() => null);
   if (!root) return null;
   const file = ref.zip ? await _readEntry(ref.folder, root, ref.dir, ref.$path, ref.type).catch(() => null)
-    : await folderFiles.readFile(ref.folder, root, _joinPath(ref.dir, ref.$path), ref.type || undefined);
+    : await folderFiles.readFile(ref.folder, root, _joinPath(ref.dir, ref.$path), ref.type || undefined).catch(() => null);
   if (file) _fileOf.set(file, ref);
   return file;
 }

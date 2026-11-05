@@ -2,15 +2,15 @@
 // adapter (plan §6.1). One suite, run by an entry file per app — folder-store-web.test.mjs for the
 // website's adapter (under Node, over real temporary folders: fsa-node.mjs), desktop/tests/
 // folder-store.test.mjs for the desktop's — so both answer every operation alike. Each case gets a
-// temporary folder of its own and a fixture made over it: the adapter (`store`) and the library it
-// belongs to, to set the case up with (folder-store-today.mjs says what a fixture offers).
+// temporary folder of its own and a fixture made over it (websiteFixture, desktopFixture): the
+// adapter (`store`) and the library it belongs to, to set the case up with and, for the write budget
+// (plan D23), to work through.
 //
-// Until S3 the adapters are today's code behind the contract (folder-store-today.mjs), and a case
-// that today's code fails is marked todo with the step that fixes it, and the finding (plan §5) it
-// rediscovers where it is one. Still to come with S4's format: publish interrupted after each of its
-// writes, then reopened and read by both apps' adapters (the whole previous generation or the whole
-// new one, never a mix, never neither), and description files whose content doesn't match their name
-// read as corrupt.
+// A case the adapters fail today is marked todo with the step that fixes it, and the finding (plan
+// §5) it rediscovers where it is one. Still to come with S4's format: publish interrupted after each
+// of its writes, then reopened and read by both apps' adapters (the whole previous generation or the
+// whole new one, never a mix, never neither), and description files whose content doesn't match
+// their name read as corrupt.
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -18,8 +18,56 @@ import os from 'node:os';
 import path from 'node:path';
 import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
+import { desktopLibrary, webLibrary } from './library-drivers.mjs';
 
-/** @typedef {import('./folder-store-today.mjs').Fixture} Fixture */
+/** @typedef {import('../js/storage/contract.js').FolderStore<any>} FolderStore */
+/** @typedef {import('../js/storage/contract.js').FolderRef<any>} FolderRef */
+/** A fixture: one app's library over folders in a test's temporary folder — `store`, its folder store
+ * adapter; `lib`, the library (library-drivers.mjs) — and what a case sets up through it:
+ * register(name) (a library folder at <dir>/<name>, added and made the default), hide(ref),
+ * takeOver(ref) (another app's claim written on it) and, on the website, deny(ref) (the person's
+ * permission withdrawn).
+ * @typedef {{ store: FolderStore, lib: import('./library-drivers.mjs').Driver, register(name: string): Promise<FolderRef>,
+ *   hide(ref: FolderRef): Promise<void>, takeOver(ref: FolderRef): Promise<void>, deny?(ref: FolderRef): void,
+ *   close(): Promise<void> }} Fixture */
+
+/** The website's library (db.js under Node, its folders through fsa-node.mjs) and its adapter.
+ * @param {string} dir @returns {Promise<Fixture>} */
+export async function websiteFixture(dir) {
+  const lib = await webLibrary();
+  const paths = new Map();   // folder id → its path
+  return {
+    store: lib.raw.folderStore, lib,
+    async register(name) {
+      const at = path.join(dir, name);
+      const id = await lib.add(at);
+      await lib.setDefault(id);
+      paths.set(id, at);
+      return { id, location: fsa.directory(at) };
+    },
+    async hide(ref) { await lib.setDefault(lib.home); await lib.hide(ref.id); },
+    takeOver: (ref) => lib.takeOver(ref.id),
+    deny(ref) { fsa.setPermission(paths.get(ref.id), 'prompt'); },
+    async close() { fsa.reset(); },
+  };
+}
+/** The desktop's library (its data and first folder in <dir>/desktop) and its adapter.
+ * @param {string} dir @returns {Promise<Fixture>} */
+export async function desktopFixture(dir) {
+  const lib = await desktopLibrary(path.join(dir, 'desktop'));
+  return {
+    get store() { return lib.raw.store; }, lib,
+    async register(name) {
+      const at = path.join(dir, name);
+      const id = await lib.add(at);
+      await lib.setDefault(id);
+      return { id, location: path.resolve(at) };
+    },
+    async hide(ref) { await lib.setDefault(lib.home); await lib.hide(ref.id); },
+    takeOver: (ref) => lib.takeOver(ref.id),
+    close: () => lib.close(),
+  };
+}
 /** A case: what it checks, the platforms it applies to (both when not said), what today's code gets
  * wrong (per platform: the step that fixes it and the finding), and the check itself.
  * @typedef {{ name: string, platforms?: ('website' | 'desktop')[], todo?: Partial<Record<'website' | 'desktop', string>>,
@@ -157,7 +205,6 @@ export const CASES = [
   },
   {
     name: 'a file that isn\'t there reads as missing, one that can\'t be read as unreadable',
-    todo: { website: 'S3: principle 6' },
     async run({ store, fx, platform }) {
       const ref = await fx.register('A');
       const g = await (await opened(store, ref)).reserve('Unreadable', '1700000000001', null);
@@ -187,8 +234,8 @@ export const CASES = [
     },
   },
   {
-    name: 'a write to a gallery whose directory was taken away settles, refused',
-    todo: { website: 'S3: N1' },
+    // N1: the website retried a folder it remembered, gone meanwhile, for ever.
+    name: 'a write to a gallery whose directory was taken away settles',
     async run({ dir, store, fx }) {
       const root = await opened(store, await fx.register('A'));
       const g = await root.reserve('Taken away', '1700000000001', null);
@@ -228,7 +275,79 @@ export const CASES = [
       assert.deepEqual(await root.source('Pictures'), { kind: 'outside' });
     },
   },
+  // ── The write budget (plan D23): what each operation writes, as the adapter counts it ──
+  {
+    name: 'a page stored writes its picture once, and a page replaced its new picture once',
+    async run({ fx }) {
+      await fx.register('A');
+      const gid = await fx.lib.newGallery('Budget');
+      const page = await stored(fx, () => fx.lib.putPage(gid, 1, png(1, 2, 3)));
+      assert.equal(page.picture, 7, 'the page, once');
+      const again = await stored(fx, () => fx.lib.putPage(gid, 1, png(4, 5, 6, 7)));
+      assert.equal(again.picture, 8, 'the new page, once');
+      assert.deepEqual(await fx.lib.read(gid, 1), png(4, 5, 6, 7));
+    },
+  },
+  {
+    name: 'a change to a gallery\'s description writes no picture',
+    async run({ fx }) {
+      await fx.register('A');
+      const gid = await fx.lib.newGallery('Budget');
+      await stored(fx, () => fx.lib.putPage(gid, 1, png(1, 2, 3)));
+      const retitled = await stored(fx, () => fx.lib.setTitle(gid, 'Budget, retitled'));
+      assert.equal(retitled.picture, 0);
+      assert.ok(retitled.description > 0, 'its descriptions written');
+    },
+  },
+  {
+    name: 'hiding and showing a library folder write no picture',
+    async run({ fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Budget');
+      await stored(fx, () => fx.lib.putPage(gid, 1, png(1, 2, 3)));
+      const both = await stored(fx, async () => { await fx.hide(ref); await fx.lib.show(ref.id); });
+      assert.equal(both.picture, 0);
+      assert.deepEqual(await fx.lib.read(gid, 1), png(1, 2, 3));
+    },
+  },
+  {
+    name: 'a gallery moved to another library folder on the same drive writes no picture (D25)',
+    platforms: ['desktop'],
+    async run({ fx }) {
+      await fx.register('A');
+      const gid = await fx.lib.newGallery('Moving');
+      await stored(fx, () => fx.lib.putPage(gid, 1, png(1, 2, 3)));
+      const to = await fx.register('B');
+      const moved = await stored(fx, () => fx.lib.move(gid, to.id));
+      assert.equal(moved.picture, 0);
+      assert.ok((await fx.lib.dirOf(gid))?.startsWith(to.location), 'it is in the folder it moved to');
+      assert.deepEqual(await fx.lib.read(gid, 1), png(1, 2, 3));
+    },
+  },
+  {
+    name: 'a gallery moved to another library folder has each picture copied once',
+    platforms: ['website'],
+    async run({ fx }) {
+      await fx.register('A');
+      const gid = await fx.lib.newGallery('Moving');
+      await stored(fx, () => fx.lib.putPage(gid, 1, png(1, 2, 3)));
+      const to = await fx.register('B');
+      const moved = await stored(fx, () => fx.lib.move(gid, to.id));
+      assert.equal(moved.picture, 7);
+      assert.deepEqual(await fx.lib.read(gid, 1), png(1, 2, 3));
+    },
+  },
 ];
+
+// What `work` wrote, by kind, once the library has settled it into its folders.
+async function stored(/** @type {Fixture} */ fx, /** @type {() => Promise<unknown>} */ work) {
+  await fx.lib.flush();
+  const before = fx.lib.written();
+  await work();
+  await fx.lib.flush();
+  const after = fx.lib.written();
+  return Object.fromEntries(Object.keys(after).map(k => [k, after[k] - before[k]]));
+}
 
 /**
  * Registers the suite for one platform's adapter.

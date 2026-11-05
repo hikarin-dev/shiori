@@ -222,10 +222,11 @@ export function coverRoles(manifest) {
 // ── A gallery's folder read back ──
 // A gallery's folder can hold more than one file for a picture. One written while a file had its
 // layout name goes beside it, under that name with a random part (the website's 8 hex digits:
-// folder-files.js writeNew; the desktop's 10, for a page whose layout name another page has: files.js
-// _nameFor), and the old file is deleted only once the change is saved — a delete refused, or the app
-// closed in between, leaves both. So a folder's descriptions name each picture's file where it isn't
-// the layout name (galleryFiles `fileOf`), and both apps read a picture's file as pickFile says.
+// folder-store-web.js writeNew; the desktop's 10, for a page whose layout name another page has:
+// files.js _nameFor), and the old file is deleted only once the change is saved — a delete refused,
+// or the app closed in between, leaves both. So a folder's descriptions name each picture's file
+// where it isn't the layout name (galleryFiles `fileOf`), and both apps read a picture's file as
+// pickFile says.
 
 // A file's layout name: its path without that random part (study/text/0001-0-3fa2c9e1.webp →
 // study/text/0001-0.webp).

@@ -5,8 +5,7 @@
 // finding it gone (which makes it complain, and can bring it down). Run in a short PowerShell; the
 // plain delete takes whatever that leaves (it couldn't run, or couldn't delete it all), and is the
 // only one off Windows.
-import fs from 'node:fs';
-import fsp from 'node:fs/promises';
+import { disk } from './folder-store.js';
 import { spawn } from 'node:child_process';
 
 // FOF_SILENT | FOF_NOCONFIRMATION | FOF_NOCONFIRMMKDIR | FOF_NOERRORUI (FOF_NO_UI), and neither
@@ -66,5 +65,5 @@ function shellDelete(file) {
 // Delete `file` (an absolute path: a folder with everything in it, or a file) outright.
 export async function removeOutright(file) {
   if (process.platform === 'win32') await shellDelete(file);
-  if (fs.existsSync(file)) await fsp.rm(file, { recursive: true, force: true });
+  if (disk.existsSync(file)) await disk.rm(file, { recursive: true, force: true });
 }

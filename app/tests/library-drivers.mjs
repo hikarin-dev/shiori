@@ -12,6 +12,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import * as fsa from './fsa-node.mjs';
+import { written as desktopWritten } from '../../desktop/server/folder-store.js';
+import { written as websiteWritten } from '../js/storage/folder-store-web.js';
 
 // The windows' channel, heard by nobody here (Node's own would keep the process alive, and tell other
 // test files' libraries nothing they should hear).
@@ -34,6 +36,9 @@ const typed = (type) => (bytes) => new Blob([bytes], { type });
  *   putTranslation(gid: string, n: number, bytes: Uint8Array, type?: string): Promise<void>,
  *   setTitle(gid: string, name: string): Promise<void>,
  *   deleteGallery(gid: string): Promise<void>,
+ *   move(gid: string, to: string): Promise<void>,
+ *   takeOver(id: string): Promise<void>,
+ *   written(): Record<string, number>,
  *   read(gid: string, n: number, variant?: 'translated'): Promise<Uint8Array | null>,
  *   titleOf(gid: string): Promise<string | null>,
  *   galleries(): Promise<string[]>,
@@ -42,7 +47,19 @@ const typed = (type) => (bytes) => new Blob([bytes], { type });
  *   restart: (() => Promise<void>) | null,
  *   close(): Promise<void>,
  *   raw: any,
- * }} Driver */
+ * }} Driver
+ * `move`: the gallery moved to folder `to`; `takeOver`: another app's claim written on folder `id`
+ * (as "Use anyway" there does); `written`: the bytes the library's folder store adapter has written,
+ * by kind (pictures, descriptions, archives, the rest). */
+
+// Another app's claim on the folder at `dir`, a step past whatever claim is there (folder-owner.js).
+function claimElsewhere(dir) {
+  const file = path.join(dir, '.shiori', 'owner.json');
+  let epoch = 0;
+  try { epoch = JSON.parse(fs.readFileSync(file, 'utf8')).epoch || 0; } catch {}
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ format: 'shiori-owner', version: 1, owner: 'a1b2c3d4e5f60708', by: { app: 'web', browser: 'Chrome', site: 'example.test' }, at: Date.now(), epoch: epoch + 1 }));
+}
 
 /** The desktop library, its data and first folder in `base` (data/, own/), as the tests open it:
  * pictures put in their folders at once, descriptions written when flushed.
@@ -68,6 +85,9 @@ export async function desktopLibrary(base) {
     async putTranslation(gid, n, bytes, type = 'image/png') { await lib.putTranslatedPage({ galleryId: gid, pageNum: n }, typed(type)(bytes), null); },
     async setTitle(gid, name) { await lib.metaPut({ ...(await lib.metaGet(gid)), title: title(name) }); },
     async deleteGallery(gid) { await lib.deleteGallery(gid); },
+    async move(gid, to) { await lib.moveGallery(gid, to); },
+    async takeOver(id) { claimElsewhere(lib.folders.dir(id)); lib.folders._probes.clear(); },
+    written: desktopWritten,
     read: async (gid, n, variant) => bytesOf(await lib.getPageBlob(gid, n, variant).catch(() => null)),
     titleOf: async (gid) => (await lib.metaGet(gid))?.title?.english ?? null,
     galleries: () => lib.galleryIdsSorted({ sort: 'id' }),
@@ -119,6 +139,9 @@ export async function webLibrary() {
     async putTranslation(gid, n, bytes, type = 'image/png') { await db.putTranslatedPage({ galleryId: gid, pageNum: n }, typed(type)(bytes), null); },
     async setTitle(gid, name) { await db.metaPut({ ...(await db.metaGet(gid)), title: title(name) }); },
     async deleteGallery(gid) { await db.deleteGallery(gid); },
+    async move(gid, to) { await db.moveGallery(gid, to); },
+    async takeOver(id) { claimElsewhere(/** @type {string} */ (webFolders.get(id))); },
+    written: websiteWritten,
     read: async (gid, n, variant) => bytesOf(await db.getPageBlob(gid, n, variant).catch(() => null)),
     titleOf: async (gid) => (await db.metaGet(gid))?.title?.english ?? null,
     galleries: () => db.galleryIdsSorted({ sort: 'id' }),

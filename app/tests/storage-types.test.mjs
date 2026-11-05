@@ -13,7 +13,7 @@ const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const storage = join(repo, 'app', 'js', 'storage');
 const tsc = join(dirname(createRequire(import.meta.url).resolve('typescript/package.json')), 'bin', 'tsc');
 const OPTIONS = ['--allowJs', '--checkJs', '--noEmit', '--strict', '--target', 'es2023', '--module', 'esnext',
-  '--moduleResolution', 'bundler', '--lib', 'es2023,dom'];
+  '--moduleResolution', 'bundler', '--lib', 'es2023,dom,dom.asynciterable'];
 
 test('the storage module type-checks', () => {
   const files = readdirSync(storage, { recursive: true }).filter((f) => f.endsWith('.js')).map((f) => join(storage, f));

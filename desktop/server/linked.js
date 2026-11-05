@@ -12,15 +12,15 @@
 // what the library hasn't written to the overlay yet (scan.js localChanges), and what was made from a
 // page (a translation, study layers) stays with the picture it was made from or goes — it is never
 // attached to another. Every path read from the folder's files is used only inside the folder: as
-// written (absIn), and as the disk resolves it (files.js physicallyIn: no link out of it is followed).
+// written (absIn), and as the disk resolves it (folder-store.js physicallyIn: no link out of it is
+// followed).
 
-import fs from 'node:fs';
-import fsp from 'node:fs/promises';
+import { disk, physicallyIn } from './folder-store.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { readDirectory, readEntry } from './zip.js';
 import { linked as L, files as layout, content, BackendError } from './shared.js';
-import { replaceFile, ifMissing, physicallyIn } from './files.js';
+import { replaceFile, ifMissing } from './files.js';
 import { readDerived, derivedRecord, coverPatch, localChanges, startEntry } from './scan.js';
 
 const TYPE_OF_EXT = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif' };
@@ -59,13 +59,13 @@ const sourceIn = (library, root, rel) => physicallyIn(library.rootDir(root), abs
 async function writeIn(library, root, file, text) {
   library.folders.assertWritable(root);
   await physicallyIn(library.rootDir(root), path.dirname(file));
-  await fsp.mkdir(path.dirname(file), { recursive: true });
+  await disk.mkdir(path.dirname(file), { recursive: true });
   await replaceFile(file, Buffer.from(text));
 }
 
 // An archive's fingerprint, as the app's (zip-read.js zipEntries): the SHA-256 of its central directory.
 async function zipFingerprint(abs) {
-  const fh = await fsp.open(abs, 'r');
+  const fh = await disk.open(abs, 'r');
   try {
     const { size } = await fh.stat();
     const tailAt = Math.max(0, size - 22 - 0xffff);
@@ -93,21 +93,21 @@ async function titleAt(library, root, title, directory = null) {
     const mine = L.zipTitles([...dir.keys()]).find(z => z.inner === (title.inner || ''));
     if (!mine) return null;
     return { pictures: mine.pictures.map(name => ({ name, size: dir.get(name).size })), fingerprint: await zipFingerprint(abs).catch(() => null),
-      size: (await fsp.stat(abs)).size, directory: dir };
+      size: (await disk.stat(abs)).size, directory: dir };
   }
   if (title.kind === 'dir') {
     const pictures = [];
-    for (const item of await fsp.readdir(abs, { withFileTypes: true })) {
+    for (const item of await disk.readdir(abs, { withFileTypes: true })) {
       if (!item.isFile() || !L.IMAGE_NAME.test(item.name) || item.name.startsWith('.')) continue;
-      const st = await fsp.stat(path.join(abs, item.name)).catch(ifMissing(null));
+      const st = await disk.stat(path.join(abs, item.name)).catch(ifMissing(null));
       if (st) pictures.push({ name: item.name, path: item.name, size: st.size });
     }
     const sorted = L.sortPictures(pictures);
     return { pictures: sorted, fingerprint: sha256(L.folderPrint(sorted)), size: sorted.reduce((n, p) => n + p.size, 0) };
   }
-  const st = await fsp.stat(abs).catch(() => null);
+  const st = await disk.stat(abs).catch(() => null);
   if (!st) return null;
-  const fh = await fsp.open(abs, 'r');
+  const fh = await disk.open(abs, 'r');
   try {
     const head = Buffer.alloc(Math.min(st.size, 1024 * 1024));
     await fh.read(head, 0, head.length, 0);
@@ -129,9 +129,9 @@ export async function overlaysOf(library, root) {
   const out = new Map();
   const dir = absIn(library, root, L.LINKED_DIR);
   const inside = (rel) => { try { return !!absIn(library, root, rel); } catch { return false; } };
-  for (const item of await fsp.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+  for (const item of await disk.readdir(dir, { withFileTypes: true }).catch(() => [])) {
     if (!item.isDirectory()) continue;
-    const read = L.parseSource(await fsp.readFile(path.join(dir, item.name, L.SOURCE_FILE), 'utf8').catch(() => null));
+    const read = L.parseSource(await disk.readFile(path.join(dir, item.name, L.SOURCE_FILE), 'utf8').catch(() => null));
     if (read && read.galleryId === item.name && inside(read.source.path)) out.set(L.sourceKey(read.source), read);
   }
   return out;
@@ -139,7 +139,7 @@ export async function overlaysOf(library, root) {
 // The sources removed from library folder `root`: its removed.json's list, and the notes still owed
 // to it (folders.js removedWaiting) — removed all the same (F12).
 const removedOf = async (library, root) => [
-  ...L.parseRemoved(await fsp.readFile(absIn(library, root, L.REMOVED_FILE), 'utf8').catch(() => null)),
+  ...L.parseRemoved(await disk.readFile(absIn(library, root, L.REMOVED_FILE), 'utf8').catch(() => null)),
   ...library.folders.removedWaiting(root),
 ];
 // The pages of its own gallery `gid`'s overlay holds (its images/: pages replaced, a PDF's drawn):
@@ -147,9 +147,9 @@ const removedOf = async (library, root) => [
 async function overlayPages(library, root, gid) {
   const dir = path.join(absIn(library, root, L.overlayDir(gid)), 'images');
   const out = [];
-  for (const item of await fsp.readdir(dir, { withFileTypes: true }).catch(ifMissing([]))) {
+  for (const item of await disk.readdir(dir, { withFileTypes: true }).catch(ifMissing([]))) {
     if (!item.isFile() || !L.IMAGE_NAME.test(item.name)) continue;
-    const st = await fsp.stat(path.join(dir, item.name)).catch(ifMissing(null));
+    const st = await disk.stat(path.join(dir, item.name)).catch(ifMissing(null));
     if (st) out.push({ name: item.name, size: st.size });
   }
   return out;
@@ -172,7 +172,7 @@ async function overlayFor(library, root, title, gid, at, marks = {}) {
 // when there is none, or it names another gallery). Rejects when it can't be read: never written over.
 async function sourceJson(library, root, gid) {
   const file = path.join(absIn(library, root, L.overlayDir(gid)), L.SOURCE_FILE);
-  const text = await fsp.readFile(file, 'utf8').catch(ifMissing(null));
+  const text = await disk.readFile(file, 'utf8').catch(ifMissing(null));
   const read = L.parseSource(text);
   return { file, text, was: read?.galleryId === String(gid) ? read.source : null };
 }
@@ -214,7 +214,7 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
   const overlay = library.files._abs(rel);
   const own = await overlayPages(library, root, gid);
   if (title.kind === 'pdf' && !L.pdfReady({ ...title, rendered: was?.rendered }, own)) return null;
-  const text = (name) => fsp.readFile(path.join(overlay, ...name.split('/')), 'utf8').catch(ifMissing(null));
+  const text = (name) => disk.readFile(path.join(overlay, ...name.split('/')), 'utf8').catch(ifMissing(null));
   const texts = Object.fromEntries(await Promise.all(layout.DESCRIPTION_FILES.map(async (n) => [n, await text(n)])));
   const meta = parse(texts['metadata.json']);
   const records = parse(texts['image_records.json']);
@@ -341,7 +341,7 @@ export async function linkRoot(library, root, { files = [], own = [], archives =
     } else {
       const abs = absIn(library, root, zip);
       const fingerprint = await zipFingerprint(abs).catch(() => null);
-      const size = (await fsp.stat(abs).catch(() => null))?.size ?? null;
+      const size = (await disk.stat(abs).catch(() => null))?.size ?? null;
       for (const z of L.zipTitles([...entries.keys()])) {
         const title = { kind: 'zip', path: zip, ...(z.inner ? { inner: z.inner } : {}), chapter: z.chapter };
         read.set(L.sourceKey(title), { pictures: z.pictures.map(name => ({ name, size: entries.get(name).size })), fingerprint, size, directory: entries });
@@ -427,13 +427,13 @@ export async function linkRoot(library, root, { files = [], own = [], archives =
 export async function pdfsWaiting(library) {
   const out = [];
   for (const root of library.activeRoots()) {
-    if (!fs.existsSync(library.rootDir(root))) continue;
+    if (!disk.existsSync(library.rootDir(root))) continue;
     const removed = await removedOf(library, root);
     for (const over of (await overlaysOf(library, root)).values()) {
       const src = over.source;
       if (src.kind !== 'pdf') continue;
       try {
-        if (!fs.existsSync(await sourceIn(library, root, src.path))) continue;
+        if (!disk.existsSync(await sourceIn(library, root, src.path))) continue;
         // Its fingerprint as it is now, read only when something is noted against a version of it.
         const noted = !!src.failed || removed.some(r => r.path === src.path);
         const print = noted ? await fingerprintNow(library, root, src) : src.fingerprint;
@@ -457,7 +457,7 @@ async function waiting(library, root, gid) {
 // The PDF a waiting gallery is drawn from.
 export async function pdfSource(library, root, gid) {
   const over = await waiting(library, root, gid);
-  return new Blob([await fsp.readFile(await sourceIn(library, root, over.source.path))], { type: 'application/pdf' });
+  return new Blob([await disk.readFile(await sourceIn(library, root, over.source.path))], { type: 'application/pdf' });
 }
 // A waiting PDF's pages, drawn (Blobs in order), kept in its overlay and the gallery joined to the
 // library: what an earlier draw left there first cleared, every page written, then — last — its
@@ -477,13 +477,13 @@ export async function addRendered(library, root, gid, pages) {
     return String(gid);
   }
   const dir = await physicallyIn(library.rootDir(root), path.join(absIn(library, root, L.overlayDir(gid)), 'images'));
-  await fsp.rm(dir, { recursive: true, force: true });
-  await fsp.mkdir(dir, { recursive: true });
+  await disk.rm(dir, { recursive: true, force: true });
+  await disk.mkdir(dir, { recursive: true });
   for (const [i, blob] of pages.entries()) {
     const name = layout.layoutPath.original(i + 1, layout.extOfType(blob.type) || 'webp').split('/').pop();
     const bytes = Buffer.from(await blob.arrayBuffer());
     library.folders.assertWritable(root);
-    await fsp.writeFile(path.join(dir, name), bytes);
+    await disk.writeFile(path.join(dir, name), bytes);
     library.writes.add('pages', bytes.length);
   }
   const at = await titleAt(library, root, over.source).catch(() => null);

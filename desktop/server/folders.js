@@ -23,8 +23,7 @@
 // can be reached, this library holds its claim, and its state allows it.
 // Work on a folder — its check, its removal — runs through its queue, one job at a time (jobPlan), as a
 // task the windows' tasks pages list.
-import fs from 'node:fs';
-import fsp from 'node:fs/promises';
+import { disk } from './folder-store.js';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -64,7 +63,7 @@ const CLAIM_TTL = 5000;   // how long a folder's claim, as read, is taken as it 
 const breathe = () => new Promise((resolve) => setImmediate(resolve));
 const parse = (s) => (s == null ? null : JSON.parse(s));
 const refusal = (code, reason, message) => Object.assign(new BackendError(code, message), { reason });
-const isDir = (dir) => { try { return fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory() === true; } catch { return false; } };
+const isDir = (dir) => { try { return disk.statSync(dir, { throwIfNoEntry: false })?.isDirectory() === true; } catch { return false; } };
 const samePath = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
 const within = (a, b) => { const rel = path.relative(b, a); return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel)); };
 
@@ -166,7 +165,7 @@ export class Folders {
       if (++n % 20 === 0) await breathe();
       try {
         const b = parse(bundle);
-        const there = !b.files || fs.existsSync(lib.files._abs(b.files.path));
+        const there = !b.files || disk.existsSync(lib.files._abs(b.files.path));
         const taken = lib._s('SELECT 1 FROM stats WHERE gid = ?').get(gid) || lib._s('SELECT 1 FROM meta WHERE gid = ?').get(gid)
           || (b.pages || []).some(p => lib._pageRowByKey(p.key));
         const home = b.files ? lib.files._split(b.files.path).root : this.has(b.home) ? b.home : root;
@@ -232,7 +231,7 @@ export class Folders {
   // What folder `dir`'s claim file says (folder-owner.js readClaim); one that can't be read is damaged.
   _readClaim(dir) {
     let text;
-    try { text = fs.readFileSync(this._claimFile(dir), 'utf8'); } catch (e) { text = e?.code === 'ENOENT' ? null : e; }
+    try { text = disk.readFileSync(this._claimFile(dir), 'utf8'); } catch (e) { text = e?.code === 'ENOENT' ? null : e; }
     return claims.readClaim(text);
   }
   // A claim written whole — beside the file, then renamed over it — in a folder that is there: never one
@@ -241,12 +240,12 @@ export class Folders {
     if (!isDir(dir)) throw refusal('unavailable', 'unavailable', `${dir} can't be reached`);
     const file = this._claimFile(dir);
     const temp = `${file}.${crypto.randomBytes(4).toString('hex')}.shiori-tmp`;
-    fs.mkdirSync(path.dirname(file), { recursive: true });
+    disk.mkdirSync(path.dirname(file), { recursive: true });
     try {
-      fs.writeFileSync(temp, claims.claimText(claim));
-      fs.renameSync(temp, file);
+      disk.writeFileSync(temp, claims.claimText(claim));
+      disk.renameSync(temp, file);
     } catch (e) {
-      fs.rmSync(temp, { force: true });
+      disk.rmSync(temp, { force: true });
       throw e;
     }
   }
@@ -354,7 +353,7 @@ export class Folders {
     const lib = this.library;
     if (typeof dir !== 'string' || !path.isAbsolute(dir)) throw new BackendError('invalid', 'a library folder is a full path');
     const abs = path.resolve(dir);
-    if (!(await fsp.stat(abs).then(st => st.isDirectory(), () => false))) throw new BackendError('invalid', `${abs} is not a folder`);
+    if (!(await disk.stat(abs).then(st => st.isDirectory(), () => false))) throw new BackendError('invalid', `${abs} is not a folder`);
     const known = this._rows().find(r => samePath(r.path, abs));
     if (known?.state === 'hidden') return this.show(known.id);
     if (known?.state === 'shown') return { id: known.id, restored: 0, existed: true };
@@ -782,12 +781,12 @@ export class Folders {
     try {
       this.assertWritable(root, work);
       const file = path.join(this.dir(root), ...linkedSource.REMOVED_FILE.split('/'));
-      let list = linkedSource.parseRemoved(await fsp.readFile(file, 'utf8').catch((e) => { if (e.code === 'ENOENT') return null; throw e; }));
+      let list = linkedSource.parseRemoved(await disk.readFile(file, 'utf8').catch((e) => { if (e.code === 'ENOENT') return null; throw e; }));
       for (const n of notes) {
         const source = parse(n.source);
         list = linkedSource.withRemoved(list, { ...source, fingerprint: await fingerprintNow(lib, root, source) ?? source.fingerprint });
       }
-      await fsp.mkdir(path.dirname(file), { recursive: true });
+      await disk.mkdir(path.dirname(file), { recursive: true });
       await replaceFile(file, Buffer.from(linkedSource.removedText(list)));
     } catch (e) {
       console.warn(`[shiori] removed sources couldn't be noted in library folder ${root} yet:`, String(e?.message || e));

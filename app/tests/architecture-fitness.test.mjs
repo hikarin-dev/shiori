@@ -1,7 +1,8 @@
 // architecture-fitness.test.mjs — boundaries that are easy to breach silently and expensive to
 // re-establish: schema knowledge confined to the data layer, the storage module standing on its
-// own, no source-site or helper naming in the public app, and no third-party acquisition URLs in
-// app code.
+// own, a library folder's files reached only through its folder store adapter, no source-site or
+// helper naming in the public app, and no third-party acquisition URLs in app code. (The desktop's
+// own adapter rule: desktop/tests/architecture-fitness.test.mjs.)
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -59,6 +60,20 @@ test('the storage module imports nothing app-specific', () => {
     .map((spec) => `${f} imports ${spec}`));
   assert.deepEqual(offenders, [], 'storage/ imports only storage/ and the listed dependency-free rules');
   for (const spec of shared) assert.deepEqual(importsOf(read(spec.slice(3))), [], `${spec.slice(3)} must stay dependency-free`);
+});
+
+test('only the folder store adapter touches the files of a library folder', () => {
+  // Every byte the browser library reads or writes in a folder the person picked goes through
+  // storage/folder-store-web.js (plan §3.1): no other module calls a file or folder handle's methods.
+  // These reach the browser's own storage (OPFS: an import's staging copy) and nothing else; picking a
+  // folder (showDirectoryPicker) hands its handle to the library, touching nothing in it.
+  const adapter = 'storage/folder-store-web.js';
+  const opfs = new Set(['jobs-runner.js', 'migrations.js', 'settings.js']);
+  const handleCall = /\.(?:getDirectoryHandle|getFileHandle|removeEntry|createWritable|createSyncAccessHandle|queryPermission|requestPermission|isSameEntry|getFile)\s*\(|for\s+await\s*\([^)]*\bof\b[^)]*\.(?:entries|keys|values)\(\)/;
+  const offenders = modules.filter((f) => f !== adapter && !opfs.has(f) && handleCall.test(code(read(f))));
+  assert.deepEqual(offenders, [], 'go through storage/folder-store-web.js');
+  for (const f of opfs) assert.match(code(read(f)), /navigator\.storage\.getDirectory\(\)/, `${f} reaches OPFS`);
+  assert.ok(handleCall.test(code(read(adapter))), 'the adapter is where they are');
 });
 
 test('the app never names a source site or the companion helper', () => {

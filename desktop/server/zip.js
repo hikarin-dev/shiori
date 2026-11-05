@@ -3,7 +3,7 @@
 // entries, ZIP64). A reader keeps an archive's central directory, not an open file, so an archive
 // can always be replaced or moved while it is read. Entry names are read by the one rule both apps
 // share (folder-content.js zipName), so an archive's titles are named alike in either.
-import fsp from 'node:fs/promises';
+import { disk } from './folder-store.js';
 import zlib from 'node:zlib';
 import { content } from './shared.js';
 
@@ -24,7 +24,7 @@ async function writeEntries(write, offset, entries) {
   const { time, day } = dosTime(new Date());
   const central = [];
   for (const { name, data: given, from, read } of entries) {
-    const data = given ?? (read ? await read() : await fsp.readFile(from));
+    const data = given ?? (read ? await read() : await disk.readFile(from));
     const nameBytes = Buffer.from(name, 'utf8');
     const crc = zlib.crc32(data);
     const header = Buffer.alloc(30);
@@ -116,7 +116,7 @@ function writerAt(handle, offset) {
 // Write `entries` ([{ name, data: Uint8Array }, { name, from: path } or { name, read }]) to the file at `file` as
 // one store-only archive, flushed to the disk. Names are UTF-8. Resolves what it wrote (`written`).
 export async function writeZip(file, entries) {
-  const handle = await fsp.open(file, 'w');
+  const handle = await disk.open(file, 'w');
   try {
     let end = 0;
     const write = writerAt(handle, 0);
@@ -137,7 +137,7 @@ export async function writeZip(file, entries) {
 // Resolves what it wrote (`written`).
 export async function appendZip(file, entries, { drop = [] } = {}) {
   const old = await readDirectory(file);
-  const handle = await fsp.open(file, 'r+');
+  const handle = await disk.open(file, 'r+');
   try {
     const { size } = await handle.stat();
     let end = size;
@@ -163,7 +163,7 @@ async function readAt(handle, position, length) {
 
 // An archive's entries: Map name → { method, compressedSize, size, headerOffset, crc }.
 export async function readDirectory(file) {
-  const handle = await fsp.open(file, 'r');
+  const handle = await disk.open(file, 'r');
   try {
     const { size: fileSize } = await handle.stat();
     const tailLength = Math.min(fileSize, 22 + MAX16);
@@ -222,7 +222,7 @@ export async function readDirectory(file) {
 
 // One entry's bytes, from an entry of readDirectory's.
 export async function readEntry(file, entry) {
-  const handle = await fsp.open(file, 'r');
+  const handle = await disk.open(file, 'r');
   try {
     const local = await readAt(handle, entry.headerOffset, 30);
     if (local.readUInt32LE(0) !== 0x04034b50) throw new Error('damaged zip entry');

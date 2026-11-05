@@ -10,6 +10,7 @@ import path from 'node:path';
 globalThis.BroadcastChannel = class { postMessage() {} close() {} };
 const { Library } = await import('../server/library.js');
 const { checkInvariants } = await import('../../app/js/library-check.js');
+const { failNext } = await import('./fs-faults.mjs');
 
 const pngBytes = (...b) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, ...b]);
 const png = (...b) => new Blob([pngBytes(...b)], { type: 'image/png' });
@@ -611,6 +612,9 @@ test('F02: a removal\'s move into a folder hidden or removed while it is copied 
     const copying = new Promise(r => { reached = r; });
     fs.promises.cp = async (...args) => { reached(); await held; return cp.apply(fs.promises, args); };
     t.after(() => { fs.promises.cp = cp; });
+    // On another drive (the rename into it refused as EXDEV): copied, so there is a copy to hold.
+    const into = third.split(path.sep).join('/');
+    t.after(failNext((c) => c.op === 'rename' && !c.path.endsWith('.shiori-tmp') && c.to.startsWith(into), 'EXDEV', { times: Infinity }));
     const heard = heardJobs(library);
     await library.folderRemove(id, { moveTo: to });
     await copying;

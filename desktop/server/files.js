@@ -40,10 +40,9 @@
 // archive from before, or added by hand, is read alike, but unpacked on its first change: it is
 // never added to. Nothing here walks the library folder: a gallery is reached by
 // its known path, and one whose folder or archive is found gone when read is marked missing until
-// it reads again.
+// it reads again. Every file call goes through the folder store adapter (folder-store.js `disk`).
 
-import fs from 'node:fs';
-import fsp from 'node:fs/promises';
+import { disk, physicallyIn } from './folder-store.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { readDirectory, readEntry, writeZip, appendZip } from './zip.js';
@@ -134,7 +133,7 @@ function ownFiles(value, into = new Map()) {
 // Every file under `dir`, as paths relative to it.
 async function filesIn(dir, rel = '') {
   const out = [];
-  for (const e of await fsp.readdir(path.join(dir, ...rel.split('/').filter(Boolean)), { withFileTypes: true })) {
+  for (const e of await disk.readdir(path.join(dir, ...rel.split('/').filter(Boolean)), { withFileTypes: true })) {
     const name = rel ? `${rel}/${e.name}` : e.name;
     if (e.isDirectory()) out.push(...await filesIn(dir, name)); else out.push(name);
   }
@@ -143,53 +142,27 @@ async function filesIn(dir, rel = '') {
 
 // The bytes of a file, or of every file in a folder.
 async function bytesIn(abs) {
-  const stat = await fsp.stat(abs);
+  const stat = await disk.stat(abs);
   if (!stat.isDirectory()) return stat.size;
   let n = 0;
-  for (const rel of await filesIn(abs)) n += (await fsp.stat(path.join(abs, ...rel.split('/')))).size;
+  for (const rel of await filesIn(abs)) n += (await disk.stat(path.join(abs, ...rel.split('/')))).size;
   return n;
 }
 
 // A read of a gallery's files that finds nothing there resolves `value`; any other failure (the disk, or
 // its permissions, wouldn't) is thrown: a file that can't be read is never taken for one that isn't
-// there, so nothing is concluded from it (F06). `fsp.readFile(…).catch(ifMissing(null))`.
+// there, so nothing is concluded from it (F06). `disk.readFile(…).catch(ifMissing(null))`.
 export const ifMissing = (value) => (e) => {
   if (e?.code === 'ENOENT' || e?.code === 'ENOTDIR') return value;
   throw e;
 };
-
-// Path `abs` in library folder `dir`, as long as it is inside the folder physically. The policy (F09):
-// a linked source is read, and an overlay written, only inside the library folder itself — a junction
-// or link in it that leads elsewhere is never followed, whatever source.json or the index says. Paths
-// are first checked as written (linked-source.js safeRelPath, linked.js absIn: R12), then here as the
-// disk resolves them: the real path of `abs` (for one not made yet, of its nearest folder that is
-// there) must be inside the folder's own real path. It is checked each time a source is read or an
-// overlay written, so a link made after a check leads nowhere either; one swapped in between this
-// check and the read or write itself is not caught. Rejects with BackendError 'invalid' and
-// `reason: 'outside'`.
-export async function physicallyIn(dir, abs) {
-  const rest = [];
-  let at = abs, real;
-  for (;;) {
-    try { real = await fsp.realpath(at); break; } catch (e) {
-      if ((e?.code !== 'ENOENT' && e?.code !== 'ENOTDIR') || path.dirname(at) === at) throw e;
-      rest.unshift(path.basename(at));
-      at = path.dirname(at);
-    }
-  }
-  const inside = path.relative(await fsp.realpath(dir), path.join(real, ...rest));
-  if (inside === '..' || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) {
-    throw Object.assign(new BackendError('invalid', `${abs} leads out of its library folder`), { reason: 'outside' });
-  }
-  return abs;
-}
 
 // What a folder of a library folder is (folder-content.js classifyFolder), from the descriptions it
 // holds (`items`: its entries). Rejects when one can't be read.
 export async function classifyAt(dir, items) {
   const texts = {};
   for (const name of content.OWN_FILES) {
-    if (items.some(i => i.isFile() && i.name === name)) texts[name] = await fsp.readFile(path.join(dir, name), 'utf8').catch(ifMissing(null));
+    if (items.some(i => i.isFile() && i.name === name)) texts[name] = await disk.readFile(path.join(dir, name), 'utf8').catch(ifMissing(null));
   }
   return content.classifyFolder(texts);
 }
@@ -199,8 +172,8 @@ export async function classifyAt(dir, items) {
 // isn't known to be.
 export async function ownedBy(dir, gid, linked) {
   try {
-    if (linked) return linkedSource.parseSource(await fsp.readFile(path.join(dir, linkedSource.SOURCE_FILE), 'utf8'))?.galleryId === gid;
-    const what = await classifyAt(dir, await fsp.readdir(dir, { withFileTypes: true }));
+    if (linked) return linkedSource.parseSource(await disk.readFile(path.join(dir, linkedSource.SOURCE_FILE), 'utf8'))?.galleryId === gid;
+    const what = await classifyAt(dir, await disk.readdir(dir, { withFileTypes: true }));
     return what.kind === 'gallery' && what.id === gid;
   } catch { return false; }
 }
@@ -212,15 +185,15 @@ export async function ownedBy(dir, gid, linked) {
 export function libraryId(libraryDir) {
   const file = path.join(libraryDir, '.shiori', 'library.json');
   let text = null;
-  try { text = fs.readFileSync(file, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  try { text = disk.readFileSync(file, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
   if (text != null) {
     const id = JSON.parse(text)?.id;
     if (typeof id !== 'string' || !/^[0-9a-f]{16}$/.test(id)) throw new Error(`${file} names no library id`);
     return id;
   }
   const id = crypto.randomBytes(8).toString('hex');
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ format: 'shiori-library', version: 1, id }, null, 2));
+  disk.mkdirSync(path.dirname(file), { recursive: true });
+  disk.writeFileSync(file, JSON.stringify({ format: 'shiori-library', version: 1, id }, null, 2));
   return id;
 }
 // The id folder `dir`'s .shiori/library.json names now — null when it names none (no folder there, no
@@ -228,7 +201,7 @@ export function libraryId(libraryDir) {
 // Read only, never written: a folder's id is made once, when it first joins a library (libraryId).
 export function libraryIdAt(dir) {
   try {
-    const id = JSON.parse(fs.readFileSync(path.join(dir, '.shiori', 'library.json'), 'utf8'))?.id;
+    const id = JSON.parse(disk.readFileSync(path.join(dir, '.shiori', 'library.json'), 'utf8'))?.id;
     return typeof id === 'string' && /^[0-9a-f]{16}$/.test(id) ? id : null;
   } catch { return null; }
 }
@@ -237,14 +210,14 @@ export function libraryIdAt(dir) {
 // empty file after a power cut.
 async function flushed(file) {
   let handle;
-  try { handle = await fsp.open(file, 'r+'); } catch (e) { if (e.code === 'ENOENT') return false; throw e; }
+  try { handle = await disk.open(file, 'r+'); } catch (e) { if (e.code === 'ENOENT') return false; throw e; }
   try { await handle.sync(); } finally { await handle.close(); }
   return true;
 }
 
 // `data` written to `file` and flushed to the disk.
 export async function writeFlushed(file, data) {
-  const handle = await fsp.open(file, 'w');
+  const handle = await disk.open(file, 'w');
   try { await handle.writeFile(data); await handle.sync(); } finally { await handle.close(); }
 }
 
@@ -255,8 +228,8 @@ export async function replaceFile(file, data) {
   const temp = `${file}.shiori-tmp`;
   await writeFlushed(temp, data);
   for (let attempt = 0; ; attempt++) {
-    try { return await fsp.rename(temp, file); } catch (e) {
-      if (attempt >= 5 || !['EPERM', 'EBUSY', 'EACCES'].includes(e?.code)) { await fsp.rm(temp, { force: true }).catch(() => {}); throw e; }
+    try { return await disk.rename(temp, file); } catch (e) {
+      if (attempt >= 5 || !['EPERM', 'EBUSY', 'EACCES'].includes(e?.code)) { await disk.rm(temp, { force: true }).catch(() => {}); throw e; }
       await new Promise(r => setTimeout(r, 50 * 2 ** attempt));
     }
   }
@@ -265,10 +238,10 @@ export async function replaceFile(file, data) {
 // A file moved where it belongs, synchronously; across drives (a junction inside the library
 // folder), copied and the original deleted. Returns whether it was copied (written again).
 function moveSync(from, to) {
-  try { fs.renameSync(from, to); return false; } catch (e) {
+  try { disk.renameSync(from, to); return false; } catch (e) {
     if (e.code !== 'EXDEV') throw e;
-    fs.copyFileSync(from, to);
-    fs.rmSync(from, { force: true });
+    disk.copyFileSync(from, to);
+    disk.rmSync(from, { force: true });
     return true;
   }
 }
@@ -327,7 +300,7 @@ export class FileLibrary {
     // folder may be written to).
     for (const r of lib._s('SELECT gid, path, tail FROM files WHERE tail IS NOT NULL').all()) {
       if (!lib.folders.writable(this._split(r.path).root)) continue;
-      try { if (fs.statSync(this._abs(r.path)).size > r.tail) fs.truncateSync(this._abs(r.path), r.tail); } catch {}
+      try { if (disk.statSync(this._abs(r.path)).size > r.tail) disk.truncateSync(this._abs(r.path), r.tail); } catch {}
       lib._s('UPDATE files SET tail = NULL, pending = 1 WHERE gid = ?').run(r.gid);
     }
     const ids = new Set();
@@ -339,7 +312,7 @@ export class FileLibrary {
     for (const r of lib._s('SELECT gid FROM files WHERE pending = 1').all()) this.scheduleDescribe(r.gid);
     for (const id of ids) this.schedule(id);
     for (const dir of lib.stagingDirs()) {
-      fsp.readdir(dir).then(async (names) => {
+      disk.readdir(dir).then(async (names) => {
         for (const name of names) if (!ids.has(name)) await this._unstage(name);
       }).catch(() => {});
     }
@@ -400,7 +373,7 @@ export class FileLibrary {
       }
       const dir = this._abs(row.path);
       if (!await this._writesIn(row)) throw Object.assign(new BackendError('invalid', `the overlay of gallery ${id} leads out of its library folder`), { reason: 'outside' });
-      if (fs.existsSync(dir)) return dir;
+      if (disk.existsSync(dir)) return dir;
       await this._seen(row, false);
       throw new BackendError('aborted', `the folder of gallery ${id} is missing`);
     }
@@ -421,14 +394,15 @@ export class FileLibrary {
   // was: placed where it was, with no folder yet. The folder is bound to the gallery from its first
   // moment: its metadata.json (as much of it as is known) is written there at once, as the website's
   // reserveDir does — nothing is deleted for a gallery from a folder no description of it names
-  // (_owns), and its full descriptions follow in due course. Returns its row.
-  _claim(gid, meta, work = null) {
-    this.library.folders.assertWritable(this.rootFor(gid), work);
-    const rel = this._choosePath(gid, meta);
+  // (_owns), and its full descriptions follow in due course. `root`: the library folder, when it is
+  // given (a reservation through the folder store: folder-store.js). Returns its row.
+  _claim(gid, meta, work = null, root = this.rootFor(gid)) {
+    this.library.folders.assertWritable(root, work);
+    const rel = this._choosePath(gid, meta, root);
     const abs = this._abs(rel);
-    fs.mkdirSync(abs, { recursive: true });
+    disk.mkdirSync(abs, { recursive: true });
     const named = titles.migrateTitle({ ...(meta || this.library._metaGet(gid) || {}), galleryId: String(gid) });
-    fs.writeFileSync(path.join(abs, 'metadata.json'), JSON.stringify(named, null, 2));
+    disk.writeFileSync(path.join(abs, 'metadata.json'), JSON.stringify(named, null, 2));
     this.library._s(`INSERT INTO files (gid, path, format, state, packed_at, pending, used_at) VALUES (?, ?, 'folder', 'packed', ?, 1, ?)`)
       .run(gid, rel, Date.now(), Date.now());
     this._pendOwner(gid);
@@ -469,7 +443,7 @@ export class FileLibrary {
       this._later(() => this.schedule(id));
     } else if (lib.folders.writable(this.rootFor(id))) {
       const file = path.join(this._abs(row.path), ...rel.split('/'));
-      lib._afterCommit(() => fs.rmSync(file, { force: true }));
+      lib._afterCommit(() => disk.rmSync(file, { force: true }));
     } else lib._s('INSERT OR IGNORE INTO leftovers (gid, entry) VALUES (?, ?)').run(id, rel);
   }
 
@@ -522,7 +496,7 @@ export class FileLibrary {
     const dir = this._abs(row.path);
     let left = 0;
     for (const { rel, temp } of waiting) {
-      try { fs.renameSync(path.join(dir, ...temp.split('/')), path.join(dir, ...rel.split('/'))); } catch (e) {
+      try { disk.renameSync(path.join(dir, ...temp.split('/')), path.join(dir, ...rel.split('/'))); } catch (e) {
         if (e?.code !== 'ENOENT') { left++; continue; }
       }
       lib._s('DELETE FROM unplaced WHERE gid = ? AND rel = ? AND temp = ?').run(id, rel, temp);
@@ -623,7 +597,7 @@ export class FileLibrary {
   // classifyArchive).
   async _owns(rel, gid, linked) {
     const abs = this._abs(rel);
-    const stat = await fsp.stat(abs).catch(() => null);
+    const stat = await disk.stat(abs).catch(() => null);
     if (!stat) return false;
     if (stat.isDirectory()) return ownedBy(abs, String(gid), linked);
     const dir = await this._directory(abs).catch(() => null);
@@ -653,14 +627,14 @@ export class FileLibrary {
   // A folder or file deleted outright. Resolves whether it is gone.
   async _delete(file) {
     try { await this.library.remove(file); } catch {}
-    return !fs.existsSync(file);
+    return !disk.existsSync(file);
   }
 
   // A series' folder left with nothing but its series.json (its members moved out or deleted):
   // deleted too. The library folder itself never is.
   async _tidy(dir) {
     if (this.library.folders.paths().some(root => path.resolve(dir) === path.resolve(root))) return;
-    const left = await fsp.readdir(dir).catch(() => null);
+    const left = await disk.readdir(dir).catch(() => null);
     const spare = (name) => ['series.json', 'desktop.ini', 'thumbs.db'].includes(name.toLowerCase()) || name.endsWith('.shiori-tmp');
     if (!left || !left.every(spare)) return;
     await this._delete(dir);
@@ -691,7 +665,7 @@ export class FileLibrary {
     const name = this._ownName(gid, rel);
     const placed = () => (row ? this._read(row, rel).catch(() => null) : null);
     const kept = () => (row && name !== rel ? this._read(row, name).catch(placed) : placed());   // renamed meanwhile
-    return staged ? fsp.readFile(this.library._staged(staged.file)).catch(kept) : kept();
+    return staged ? disk.readFile(this.library._staged(staged.file)).catch(kept) : kept();
   }
 
   // The pictures of its own gallery `gid`'s folder or archive holds (translated/, study/, pipeline/,
@@ -710,11 +684,11 @@ export class FileLibrary {
     const row = this._row(gid);
     if (row && orig?.at === 'x') {
       const src = this.sourceOf(row);
-      if (src?.kind === 'dir') return fsp.access(path.join(this._sourceAbs(row), orig.entry)).then(() => true, () => false);
+      if (src?.kind === 'dir') return disk.access(path.join(this._sourceAbs(row), orig.entry)).then(() => true, () => false);
       return !!(await this._directory(this._sourceAbs(row)).catch(() => null))?.has(orig.entry);
     }
     if (!row || orig?.at !== 'p') return false;
-    if (row.format === 'folder') return fsp.access(path.join(this._abs(row.path), orig.entry)).then(() => true, () => false);
+    if (row.format === 'folder') return disk.access(path.join(this._abs(row.path), orig.entry)).then(() => true, () => false);
     return !!(await this._directory(this._abs(row.path)).catch(() => null))?.has(orig.entry);
   }
 
@@ -739,7 +713,7 @@ export class FileLibrary {
   async _readSource(row, entry) {
     const src = this.sourceOf(row);
     if (!src) return null;
-    if (src.kind === 'dir') return fsp.readFile(await this._sourceIn(row, entry));
+    if (src.kind === 'dir') return disk.readFile(await this._sourceIn(row, entry));
     const abs = await this._sourceIn(row);
     const found = (await this._directory(abs)).get(entry);
     return found ? readEntry(abs, found) : null;
@@ -755,7 +729,7 @@ export class FileLibrary {
     const file = this._abs(row.path);
     this._reading.set(file, (this._reading.get(file) || 0) + 1);
     try {
-      if (row.format === 'folder') return await fsp.readFile(path.join(file, entry));
+      if (row.format === 'folder') return await disk.readFile(path.join(file, entry));
       const found = (await this._directory(file)).get(entry);
       return found ? await readEntry(file, found) : null;
     } finally {
@@ -769,7 +743,7 @@ export class FileLibrary {
   // change is written.
   async _seen(row, readable) {
     if (readable ? row.state !== 'missing' : row.state === 'missing') return;
-    if (!readable && await fsp.access(row.source ? this._sourceAbs(row) : this._abs(row.path)).then(() => true, () => false)) return;
+    if (!readable && await disk.access(row.source ? this._sourceAbs(row) : this._abs(row.path)).then(() => true, () => false)) return;
     const lib = this.library;
     const state = readable ? 'packed' : 'missing';
     const changed = lib.asFolderWork(this.rootFor(row.gid), () => lib._tx(() => {
@@ -784,7 +758,7 @@ export class FileLibrary {
 
   // An archive's directory, read once per version of the file.
   async _directory(file) {
-    const stat = await fsp.stat(file);
+    const stat = await disk.stat(file);
     const cached = this._dirs.get(file);
     if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.entries;
     const entries = await readDirectory(file);
@@ -872,7 +846,7 @@ export class FileLibrary {
       // A gallery whose folder or archive is gone (moved outside the app, or its drive away) waits,
       // its new pages staged, until it reads again or the full check finds it — rather than starting
       // a new folder in its old place.
-      const there = await fsp.access(this._abs(row.path)).then(() => true, () => false);
+      const there = await disk.access(this._abs(row.path)).then(() => true, () => false);
       await this._seen(row, there);
       if (!there) return true;
       row = this._row(gid);
@@ -897,14 +871,14 @@ export class FileLibrary {
       row = this._claim(gid, null, work);   // its folder, kept from now on, recorded before any file moves there
     }
     const dir = this._abs(row.path);
-    await fsp.mkdir(path.join(dir, 'images'), { recursive: true });
+    await disk.mkdir(path.join(dir, 'images'), { recursive: true });
     for (const r of this._staged(gid)) await this._moveIn(gid, dir, r);
     await this._moveOwnIn(gid, dir);
 
     // The files of pages the gallery no longer has.
     const live = new Set(lib._pageRows(gid).map(r => parse(r.orig)).filter(o => o.at === 'p').map(o => o.entry));
     for (const entry of this._leftovers(gid)) {
-      if (!live.has(entry)) await fsp.rm(path.join(dir, ...entry.split('/')), { force: true });
+      if (!live.has(entry)) await disk.rm(path.join(dir, ...entry.split('/')), { force: true });
       lib._s('DELETE FROM leftovers WHERE gid = ? AND entry = ?').run(gid, entry);
     }
 
@@ -929,7 +903,7 @@ export class FileLibrary {
     const now = lib._pageRow(gid, r.n);
     if (!now || now.orig !== r.orig) return;
     if (there && moveSync(from, to)) lib.writes.add('pages', orig.size);
-    else if (fs.statSync(to, { throwIfNoEntry: false })?.size !== orig.size) {
+    else if (disk.statSync(to, { throwIfNoEntry: false })?.size !== orig.size) {
       console.warn(`[shiori] page ${r.n} of gallery ${gid} is gone from staging`);
       return;
     }
@@ -946,7 +920,7 @@ export class FileLibrary {
     for (const s of this._stagedOwn(gid)) {
       const from = lib._staged(s.file), to = path.join(dir, ...s.rel.split('/'));
       const there = await flushed(from);
-      fs.mkdirSync(path.dirname(to), { recursive: true });
+      disk.mkdirSync(path.dirname(to), { recursive: true });
       if (lib._s('SELECT file FROM staged_own WHERE gid = ? AND rel = ?').get(gid, s.rel)?.file !== s.file) continue;
       if (there && moveSync(from, to)) lib.writes.add('pictures', s.size);
       lib._s('DELETE FROM staged_own WHERE gid = ? AND rel = ?').run(gid, s.rel);
@@ -1019,12 +993,12 @@ export class FileLibrary {
     const from = this._abs(row.path), to = this._abs(rel);
     // One synchronous step from here.
     if (this._row(gid)?.path !== row.path) return;
-    const made = fs.mkdirSync(path.dirname(to), { recursive: true });
-    try { fs.renameSync(from, to); } catch (e) {
+    const made = disk.mkdirSync(path.dirname(to), { recursive: true });
+    try { disk.renameSync(from, to); } catch (e) {
       // Windows won't move a folder while something shows or uses a folder inside it (an Explorer
       // window): it stays where it is until then, tried again a little later — and a series' folder
       // made for it goes again at once, so no other member takes it for one already there.
-      if (made) try { fs.rmdirSync(made); } catch {}
+      if (made) try { disk.rmdirSync(made); } catch {}
       if (!['EPERM', 'EBUSY', 'EACCES'].includes(e?.code)) throw e;
       this._regroupWanted.add(gid);
       this._retryRegroup(gid);
@@ -1059,8 +1033,8 @@ export class FileLibrary {
     const temp = `${target}.shiori-tmp`;
     this._reserved.add(rel);
     try {
-      await fsp.rm(temp, { recursive: true, force: true });
-      await fsp.mkdir(path.join(temp, 'images'), { recursive: true });
+      await disk.rm(temp, { recursive: true, force: true });
+      await disk.mkdir(path.join(temp, 'images'), { recursive: true });
       const out = [];
       for (const r of before) {
         const orig = parse(r.orig);
@@ -1078,16 +1052,16 @@ export class FileLibrary {
         if (staged.has(rel)) continue;
         const data = await this._read(row, rel).catch(() => null);
         if (!data) continue;
-        await fsp.mkdir(path.dirname(path.join(temp, ...rel.split('/'))), { recursive: true });
+        await disk.mkdir(path.dirname(path.join(temp, ...rel.split('/'))), { recursive: true });
         await writeFlushed(path.join(temp, ...rel.split('/')), data);
         lib.writes.add('pictures', data.length);
       }
       // One synchronous step from here.
       if (JSON.stringify(archived().map(r => [r.n, r.orig])) !== signature || this._row(gid)?.path !== row.path) {
-        await fsp.rm(temp, { recursive: true, force: true });
+        await disk.rm(temp, { recursive: true, force: true });
         return false;
       }
-      fs.renameSync(temp, target);
+      disk.renameSync(temp, target);
       // Recorded as it now is on disk, whether or not the gallery is still in the library.
       lib.asFolderWork(this.rootFor(gid), () => lib._tx(() => {
         for (const p of out) lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify(p.orig), gid, p.n);
@@ -1100,7 +1074,7 @@ export class FileLibrary {
       this._discard(this._abs(row.path));
       return true;
     } catch (e) {
-      await fsp.rm(temp, { recursive: true, force: true }).catch(() => {});
+      await disk.rm(temp, { recursive: true, force: true }).catch(() => {});
       throw e;
     } finally {
       this._reserved.delete(rel);
@@ -1155,7 +1129,7 @@ export class FileLibrary {
       if (!row.pending && !all) return true;
       if (!this.library.folders.writable(this.rootFor(id), work) || !await this._writesIn(row)) return false;
       const dir = this._abs(row.path);
-      if (!fs.existsSync(dir)) return false;
+      if (!disk.existsSync(dir)) return false;
       this._touched.delete(id);
       if (row.format === 'folder') await this._describe(id, dir, { onlyChanged: all });
       else if (!await this._describeArchive(id, row)) return false;
@@ -1184,14 +1158,14 @@ export class FileLibrary {
     const lib = this.library;
     for (const staging of lib.stagingDirs()) {
       const dir = path.join(staging, String(gid));
-      const empty = async () => !this._staged(gid).length && !this._stagedOwn(gid).length && (await fsp.readdir(dir).catch(() => null))?.length === 0;
+      const empty = async () => !this._staged(gid).length && !this._stagedOwn(gid).length && (await disk.readdir(dir).catch(() => null))?.length === 0;
       try {
         // Looked at twice: a page whose file was on its way in when it was first looked at has landed
         // by the second.
         if (!await empty()) continue;
         if (!await empty()) continue;
         lib._dirs.delete(dir);
-        await fsp.rmdir(dir);
+        await disk.rmdir(dir);
       } catch {}
     }
   }
@@ -1223,12 +1197,12 @@ export class FileLibrary {
     const listed = this._descriptions(gid);
     for (const f of listed) {
       const file = path.join(dir, ...f.name.split('/'));
-      if (onlyChanged && Buffer.from(f.data).equals(await fsp.readFile(file).catch(() => Buffer.alloc(0)))) continue;
-      await fsp.mkdir(path.dirname(file), { recursive: true });
+      if (onlyChanged && Buffer.from(f.data).equals(await disk.readFile(file).catch(() => Buffer.alloc(0)))) continue;
+      await disk.mkdir(path.dirname(file), { recursive: true });
       await replaceFile(file, f.data);
       this.library.writes.add('descriptions', f.data.length);
     }
-    for (const name of DESCRIPTIONS) if (!listed.some(f => f.name === name)) await fsp.rm(path.join(dir, ...name.split('/')), { force: true });
+    for (const name of DESCRIPTIONS) if (!listed.some(f => f.name === name)) await disk.rm(path.join(dir, ...name.split('/')), { force: true });
     // What the folder describes it with now, stamped: a check tells by it whether another app changed it.
     this.library._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(String(gid), descriptionStampOf(listed));
   }
@@ -1255,7 +1229,7 @@ export class FileLibrary {
     // What the archive describes it with now, stamped, as a folder's are (_describe).
     const stamp = () => lib._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(String(gid), descriptionStampOf(listed));
     if (!changed.length && !drop.length) { stamp(); return true; }
-    lib._s('UPDATE files SET tail = ? WHERE gid = ?').run((await fsp.stat(file)).size, gid);
+    lib._s('UPDATE files SET tail = ? WHERE gid = ?').run((await disk.stat(file)).size, gid);
     lib.writes.addArchive(await appendZip(file, changed, { drop }));
     lib._s('UPDATE files SET tail = NULL WHERE gid = ?').run(gid);
     this._dirs.delete(file);
@@ -1330,11 +1304,11 @@ export class FileLibrary {
           if (!this._touched.has(gid)) lib._s('UPDATE files SET unpack = 0, pending = 0, packed_at = ? WHERE gid = ?').run(Date.now(), gid);
           lib._logIn(gid);
         }));
-        for (const f of gone) fs.rmSync(f, { force: true });
+        for (const f of gone) disk.rmSync(f, { force: true });
       };
       if (!add.length && !drop.length) { finish(); return 'done'; }
       // How much of it would be unused once added to: all it would hold, but what it then lists.
-      const { size } = await fsp.stat(file);
+      const { size } = await disk.stat(file);
       const head = (name) => 30 + Buffer.byteLength(name);
       const directory = [...live.keys()].reduce((sum, name) => sum + 46 + Buffer.byteLength(name), 22);
       const after = size + add.reduce((sum, e) => sum + head(e.name) + live.get(e.name).size, 0) + directory;
@@ -1366,10 +1340,10 @@ export class FileLibrary {
       for (let i = 0; i < 3 && this._reading.get(file); i++) await new Promise(r => setTimeout(r, 1000));
       // One synchronous step from here.
       if (this._row(gid)?.path !== row.path) throw new Error('moved meanwhile');
-      fs.renameSync(temp, file);
+      disk.renameSync(temp, file);
       this._dirs.delete(file);
     } catch (e) {
-      await fsp.rm(temp, { force: true }).catch(() => {});
+      await disk.rm(temp, { force: true }).catch(() => {});
       throw e;
     }
   }
@@ -1393,10 +1367,12 @@ export class FileLibrary {
 
   // ── Moving a gallery to another library folder ──
   // Gallery `gid` moved to library folder `root`: what waits in staging is settled into its folder
-  // first; its folder (or archive) is copied there under a free name — a series member into its
-  // series' folder there, when it has one — then its row is switched over in one synchronous step,
-  // and the old copy deleted. If the gallery changed while it was being copied, the copy goes and it
-  // is copied again. A gallery with no files yet only changes where it goes; a record with metadata
+  // first; its folder (or archive) is renamed there under a free name — a series member into its
+  // series' folder there, when it has one — and its row switched over in the same synchronous step
+  // (D25). Where it can't be renamed (another drive), and for a linked gallery, it is copied there,
+  // its row switched over in one synchronous step, and the old copy deleted. If the gallery changed
+  // while it was being copied, the copy goes and it is copied again. A gallery with no files yet only
+  // changes where it goes; a record with metadata
   // only belongs to no folder (nothing moves). A linked gallery becomes the library's own in its new
   // place, its source noted as removed in the folder it left (A11). Both folders must take the change
   // (folders.js: `root` shown, held and reachable; the one it leaves writable — `work` 'removal' for
@@ -1419,7 +1395,7 @@ export class FileLibrary {
         return true;
       }
       const from = this._abs(row.path);
-      if (row.state === 'missing' || !fs.existsSync(from)) throw new BackendError('unavailable', `the files of gallery ${id} can't be found`);
+      if (row.state === 'missing' || !disk.existsSync(from)) throw new BackendError('unavailable', `the files of gallery ${id} can't be found`);
       const ext = row.format === 'folder' ? '' : `.${row.format}`;
       const owner = this._ownerOf(id);
       const rel = row.source ? this._freePath(this._join(root, layout.galleryName(lib._metaGet(id) || { galleryId: id }))) : owner
@@ -1430,52 +1406,81 @@ export class FileLibrary {
       const signature = () => JSON.stringify([this._row(id), lib._pageRows(id).map(r => [r.n, r.orig, r.record]),
         lib._s('SELECT record FROM covers WHERE gid = ?').get(id)?.record ?? null, this._stagedOwn(id)]);
       const before = signature();
+      // Its row switched over to `rel` in the library's transaction, and only into a folder that can
+      // still take it (shown, held and reachable — not one hidden, removed or taken over meanwhile:
+      // F02) — its place with it (library.js _placesIn). A linked gallery's source is noted as removed
+      // where it was, by the same step (folders.js removedIn). Throws when it is refused.
+      const switchOver = () => lib._tx(() => {
+        lib.folders.assertMoveTo(root);
+        lib._logIn(id);
+        lib._s('UPDATE files SET path = ?, source = NULL WHERE gid = ?').run(rel, id);
+        for (const [n, orig] of linkedPlaced) lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify(orig), id, n);
+        if (row.source) lib.folders.removedIn(leaving, id, row.path, this.sourceOf(row));
+        this._pend(id);
+        this._pendOwner(id);
+      });
       this._reserved.add(rel);
+      // The library's own gallery is moved by renaming its folder or archive there (D25): no picture
+      // written again. Renamed and switched over in one synchronous step — while nothing else writes
+      // to its archive (_exclusive), and only when nothing changed, is being settled or described
+      // since it was looked at — then renamed back should the switch be refused. A rename the disk
+      // won't do (another drive; Windows holding a file in it for a moment) leaves it to the copy.
+      let renamed = 'copy';
+      if (!row.source) {
+        try {
+          await disk.mkdir(path.dirname(to), { recursive: true });
+          renamed = await this._exclusive(id, () => {
+            if (signature() !== before || this._placing.has(id) || this._describing.has(id)) return 'changed';
+            try { disk.renameSync(from, to); } catch (e) {
+              if (['EXDEV', 'EPERM', 'EBUSY', 'EACCES'].includes(e?.code)) return 'copy';
+              throw e;
+            }
+            try { switchOver(); } catch (e) { disk.renameSync(to, from); throw e; }
+            return 'moved';
+          });
+        } catch (e) { this._reserved.delete(rel); throw e; }
+      }
+      if (renamed !== 'copy') this._reserved.delete(rel);
+      if (renamed === 'changed') continue;
+      if (renamed === 'moved') {
+        this._forget(row.path);
+        if (lib.folders.writable(leaving, work)) await this._tidy(path.dirname(from)).catch(() => {});
+        this.scheduleDescribe(id, 0);
+        return true;
+      }
       try {
-        await fsp.mkdir(path.dirname(to), { recursive: true });
-        await fsp.rm(temp, { recursive: true, force: true });
+        await disk.mkdir(path.dirname(to), { recursive: true });
+        await disk.rm(temp, { recursive: true, force: true });
         // Not what a write under way holds aside (its descriptions are written again in its new place).
-        if (row.format === 'folder') await fsp.cp(from, temp, { recursive: true, errorOnExist: true, force: false, filter: (src) => !src.endsWith('.shiori-tmp') && !src.endsWith(linkedSource.SOURCE_FILE) });
-        else await fsp.copyFile(from, temp, fs.constants.COPYFILE_EXCL);
+        if (row.format === 'folder') await disk.cp(from, temp, { recursive: true, errorOnExist: true, force: false, filter: (src) => !src.endsWith('.shiori-tmp') && !src.endsWith(linkedSource.SOURCE_FILE) });
+        else await disk.copyFile(from, temp, disk.constants.COPYFILE_EXCL);
         // A linked gallery's pages in its source: written into it as the gallery format puts them.
         if (row.source) {
           for (const r of lib._pageRows(id)) {
             const orig = parse(r.orig);
             if (orig.at !== 'x') continue;
             const name = layout.layoutPath.original(r.n, layout.originalExt(orig.type, r.key));
-            await fsp.mkdir(path.join(temp, 'images'), { recursive: true });
-            await fsp.writeFile(path.join(temp, ...name.split('/')), await this._readSource(row, orig.entry));
+            await disk.mkdir(path.join(temp, 'images'), { recursive: true });
+            await disk.writeFile(path.join(temp, ...name.split('/')), await this._readSource(row, orig.entry));
             linkedPlaced.set(r.n, { at: 'p', entry: name, size: orig.size, type: orig.type });
           }
         }
         lib.writes.add(row.format === 'folder' ? 'pages' : 'archive', await bytesIn(temp));
-        if (signature() !== before) { await fsp.rm(temp, { recursive: true, force: true }); continue; }
-        await fsp.rename(temp, to);
+        if (signature() !== before) { await disk.rm(temp, { recursive: true, force: true }); continue; }
+        await disk.rename(temp, to);
       } catch (e) {
-        await fsp.rm(temp, { recursive: true, force: true }).catch(() => {});
+        await disk.rm(temp, { recursive: true, force: true }).catch(() => {});
         throw e;
       } finally {
         this._reserved.delete(rel);
       }
-      // One synchronous step from here: switched over only when nothing changed while it was copied,
-      // and only into a folder that can still take it (shown, held and reachable — not one hidden,
-      // removed or taken over while the copy was made: F02) — its place with it (library.js
-      // _placesIn); the copy deleted again should that be refused, the gallery left where it was. A
-      // linked gallery's source is noted as removed where it was, by the same step (folders.js
-      // removedIn).
-      if (signature() !== before) { await fsp.rm(to, { recursive: true, force: true }).catch(() => {}); continue; }
+      // One synchronous step from here: switched over only when nothing changed while it was copied;
+      // the copy deleted again should that be refused, the gallery left where it was.
+      if (signature() !== before) { await disk.rm(to, { recursive: true, force: true }).catch(() => {}); continue; }
       try {
-        lib._tx(() => {
-          lib.folders.assertMoveTo(root);
-          lib._logIn(id);
-          lib._s('UPDATE files SET path = ?, source = NULL WHERE gid = ?').run(rel, id);
-          for (const [n, orig] of linkedPlaced) lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify(orig), id, n);
-          if (row.source) lib.folders.removedIn(leaving, id, row.path, this.sourceOf(row));
-          this._pend(id);
-          this._pendOwner(id);
-        });
+        switchOver();
       } catch (e) {
-        await fsp.rm(to, { recursive: true, force: true }).catch(() => {});
+        await disk.rm(to, { recursive: true, force: true }).catch(() => {});
         throw e;
       }
       this._forget(row.path);
@@ -1495,7 +1500,7 @@ export class FileLibrary {
       const rel = `${base}${i > 1 ? ` (${i})` : ''}${ext}`;
       const taken = this._reserved.has(rel) || lib._s('SELECT 1 FROM files WHERE path = ?').get(rel)
         || lib._s('SELECT 1 FROM retired WHERE path = ?').get(rel)
-        || fs.existsSync(this._abs(rel)) || fs.existsSync(`${this._abs(rel)}.shiori-tmp`);
+        || disk.existsSync(this._abs(rel)) || disk.existsSync(`${this._abs(rel)}.shiori-tmp`);
       if (!taken) return rel;
     }
   }
@@ -1578,7 +1583,7 @@ export class FileLibrary {
       if (!named.has(name) && !WINDOWS_FILES.has(name.toLowerCase())) return null;
     }
     for (const [name, size] of pictures) {
-      const stat = fs.statSync(path.join(dir, ...name.split('/')), { throwIfNoEntry: false });
+      const stat = disk.statSync(path.join(dir, ...name.split('/')), { throwIfNoEntry: false });
       if (!stat?.isFile() || (size != null && stat.size !== size)) return null;
     }
     return [
@@ -1611,16 +1616,16 @@ export class FileLibrary {
     try {
       lib.writes.addArchive(await writeZip(temp, entries));
       const written = await readDirectory(temp);
-      const sizeOf = (e) => e.data?.length ?? fs.statSync(e.from).size;
+      const sizeOf = (e) => e.data?.length ?? disk.statSync(e.from).size;
       if (written.size !== entries.length || entries.some(e => written.get(e.name)?.size !== sizeOf(e))) throw new Error('the archive did not read back');
       // One synchronous step from here.
       const now = this._row(id);
       if (now?.path !== row.path || !this._idle(id, now) || this._signature(id) !== signature) {
-        await fsp.rm(temp, { force: true });
+        await disk.rm(temp, { force: true });
         return false;
       }
       lib._s('INSERT OR IGNORE INTO retired (path) VALUES (?)').run(rel);
-      fs.renameSync(temp, file);
+      disk.renameSync(temp, file);
       lib._tx(() => {
         lib._s('UPDATE files SET path = ?, format = ? WHERE gid = ?').run(rel, format, id);
         lib._s('DELETE FROM retired WHERE path = ?').run(rel);
@@ -1629,7 +1634,7 @@ export class FileLibrary {
       });
       lib.publishFeed(id);
     } catch (e) {
-      await fsp.rm(temp, { force: true }).catch(() => {});
+      await disk.rm(temp, { force: true }).catch(() => {});
       throw e;
     } finally {
       this._reserved.delete(rel);
@@ -1647,8 +1652,8 @@ export class FileLibrary {
     for (const { path: rel } of lib._s('SELECT path FROM retired').all()) {
       if (!lib.folders.writable(this._split(rel).root)) continue;
       const file = this._abs(rel);
-      if (!held(rel) && fs.existsSync(file) && !this._reading.get(file)) await this._delete(file);
-      if (held(rel) || !fs.existsSync(file)) lib._s('DELETE FROM retired WHERE path = ?').run(rel);
+      if (!held(rel) && disk.existsSync(file) && !this._reading.get(file)) await this._delete(file);
+      if (held(rel) || !disk.existsSync(file)) lib._s('DELETE FROM retired WHERE path = ?').run(rel);
     }
   }
 }

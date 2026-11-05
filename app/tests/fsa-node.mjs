@@ -247,7 +247,7 @@ function revive(v) {
   return v;
 }
 let installed = false;
-/** Puts File System Access where the website's code looks for it: showDirectoryPicker (folder-files.js
+/** Puts File System Access where the website's code looks for it: showDirectoryPicker (folder-store-web.js
  * supported() asks for it; the tests hand folders over with directory()) and a structuredClone that
  * keeps handles. */
 export function install() {

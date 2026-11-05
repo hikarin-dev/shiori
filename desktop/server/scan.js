@@ -20,7 +20,7 @@
 // A known path costs one existence check (and its descriptions, to catch up); only files the index
 // doesn't know are opened.
 
-import fsp from 'node:fs/promises';
+import { disk } from './folder-store.js';
 import path from 'node:path';
 import { readDirectory, readEntry } from './zip.js';
 import { files as layout, linked as linkedSource, content } from './shared.js';
@@ -49,7 +49,7 @@ const LEFTOVER_AGE_MS = 60 * 60 * 1000;
 // still be on its way to committing.
 const ORPHAN_AGE_MS = 10 * 60 * 1000;
 const stale = async (file, age) => {
-  const stat = await fsp.stat(file).catch(() => null);
+  const stat = await disk.stat(file).catch(() => null);
   return !!stat && Date.now() - stat.mtimeMs >= age;
 };
 // Why a file couldn't be read, for `problems`: it leads out of its library folder ('outside': files.js
@@ -84,7 +84,7 @@ async function findGalleries(root, { skip = new Set(), onTop = () => {}, stopped
     const here = path.relative(root, dir).split(path.sep).join('/');
     if (stopped() || (dir !== root && skip.has(here))) return;
     let items;
-    try { items = await fsp.readdir(dir, { withFileTypes: true }); } catch { problems.push({ path: here, reason: 'unreadable' }); return; }
+    try { items = await disk.readdir(dir, { withFileTypes: true }); } catch { problems.push({ path: here, reason: 'unreadable' }); return; }
     const rel = (name) => (here ? `${here}/${name}` : name);
     if (dir !== root) {
       let what;
@@ -119,16 +119,16 @@ async function findGalleries(root, { skip = new Set(), onTop = () => {}, stopped
 async function readGallery(g) {
   const abs = g.abs;
   if (g.format === 'folder' && g.layout) {
-    const text = (name) => fsp.readFile(path.join(abs, name), 'utf8').catch(ifMissing(null));
+    const text = (name) => disk.readFile(path.join(abs, name), 'utf8').catch(ifMissing(null));
     const records = parse(await text('image_records.json'));
-    const names = (await fsp.readdir(path.join(abs, 'images')).catch(ifMissing([]))).filter(n => IMAGE.test(n)).map(n => `images/${n}`);
+    const names = (await disk.readdir(path.join(abs, 'images')).catch(ifMissing([]))).filter(n => IMAGE.test(n)).map(n => `images/${n}`);
     const pages = await Promise.all([...layout.folderPictures(names, { records }).pages].map(async ([n, name]) =>
-      ({ n, name, size: (await fsp.stat(path.join(abs, ...name.split('/')))).size })));
+      ({ n, name, size: (await disk.stat(path.join(abs, ...name.split('/')))).size })));
     return { kind: 'gallery', described: describedBy(parse(await text('metadata.json')), records, pages), pages, derived: await readDerived(abs) };
   }
   if (g.format === 'folder') {
-    const described = parse(await fsp.readFile(path.join(abs, 'shiori.json'), 'utf8').catch(ifMissing(null)));
-    const pages = await Promise.all(g.entries.map(async (name) => ({ name, size: (await fsp.stat(path.join(abs, name))).size })));
+    const described = parse(await disk.readFile(path.join(abs, 'shiori.json'), 'utf8').catch(ifMissing(null)));
+    const pages = await Promise.all(g.entries.map(async (name) => ({ name, size: (await disk.stat(path.join(abs, name))).size })));
     return { kind: 'gallery', described, pages };
   }
   const dir = await readDirectory(abs);
@@ -183,18 +183,18 @@ async function unpackSeries(library, g) {
   const target = files._abs(rel), temp = `${target}.shiori-tmp`;
   files._reserved.add(rel);
   try {
-    await fsp.rm(temp, { recursive: true, force: true });
+    await disk.rm(temp, { recursive: true, force: true });
     for (const [name, entry] of g.read.entries) {
       const file = path.join(temp, ...name.split('/'));
-      await fsp.mkdir(path.dirname(file), { recursive: true });
+      await disk.mkdir(path.dirname(file), { recursive: true });
       await writeFlushed(file, await readEntry(g.abs, entry));
       library.writes.add('pages', entry.size);
     }
     library.folders.assertWritable(g.root);
-    await fsp.rename(temp, target);
+    await disk.rename(temp, target);
     return files._split(rel).rest;
   } catch (e) {
-    await fsp.rm(temp, { recursive: true, force: true }).catch(() => {});
+    await disk.rm(temp, { recursive: true, force: true }).catch(() => {});
     throw e;
   } finally { files._reserved.delete(rel); }
 }
@@ -209,7 +209,7 @@ async function unpackSeries(library, g) {
 export async function scanLibrary(library, { roots = library.activeRoots(), onProgress = () => {}, stopped = () => false } = {}) {
   const out = { moved: [], missing: [], found: [], added: [], updated: [], removed: 0, problems: [], stopped: false };
   const files = library.files;
-  const isDir = (abs) => fsp.stat(abs).then(st => st.isDirectory(), () => false);
+  const isDir = (abs) => disk.stat(abs).then(st => st.isDirectory(), () => false);
   const reachable = [];
   for (const id of roots) {
     if (await isDir(library.rootDir(id))) reachable.push(id);
@@ -218,16 +218,16 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   const checked = new Set(reachable);
   const known = library._s('SELECT * FROM files').all().filter(r => checked.has(files._split(r.path).root));
   const byPath = new Map(known.map(r => [r.path, r]));
-  const exists = (rel) => fsp.access(files._abs(rel)).then(() => true, () => false);
+  const exists = (rel) => disk.access(files._abs(rel)).then(() => true, () => false);
 
   // Leftovers of interrupted writes, in the folders the library may write to.
   for (const id of reachable) if (library.folders.writable(id)) out.removed += await sweepLeftovers(library, id);
 
   const present = new Set();
   // A linked gallery is there while its source is (its overlay alone doesn't make it so).
-  const sourceThere = (row) => !row.source || fsp.access(files._sourceAbs(row)).then(() => true, () => false);
+  const sourceThere = (row) => !row.source || disk.access(files._sourceAbs(row)).then(() => true, () => false);
   for (const row of known) if (await exists(row.path) && await sourceThere(row)) present.add(row.gid);
-  const tops = await Promise.all(reachable.map(async (id) => (await fsp.readdir(library.rootDir(id)).catch(() => []))
+  const tops = await Promise.all(reachable.map(async (id) => (await disk.readdir(library.rootDir(id)).catch(() => []))
     .filter(n => !n.startsWith('.') && !TEMP.test(n)).length));
   // Its steps, each counted on its own: what the folders hold, the galleries joining, and those it
   // keeps checked for changes.
@@ -382,7 +382,7 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
 async function descriptionsAt(library, abs, format) {
   const texts = {};
   if (format === 'folder') {
-    for (const name of layout.DESCRIPTION_FILES) texts[name] = await fsp.readFile(path.join(abs, ...name.split('/')), 'utf8').catch(ifMissing(null));
+    for (const name of layout.DESCRIPTION_FILES) texts[name] = await disk.readFile(path.join(abs, ...name.split('/')), 'utf8').catch(ifMissing(null));
     return texts;
   }
   const dir = await library.files._directory(abs);
@@ -443,13 +443,13 @@ function setState(library, gid, state) {
 export async function readDerived(abs) {
   const files = new Map();
   for (const sub of DERIVED) {
-    for (const name of await fsp.readdir(path.join(abs, ...sub.split('/'))).catch(ifMissing([]))) {
+    for (const name of await disk.readdir(path.join(abs, ...sub.split('/'))).catch(ifMissing([]))) {
       if (!IMAGE.test(name)) continue;
-      const size = (await fsp.stat(path.join(abs, ...sub.split('/'), name)).catch(ifMissing(null)))?.size;
+      const size = (await disk.stat(path.join(abs, ...sub.split('/'), name)).catch(ifMissing(null)))?.size;
       if (size != null) files.set(`${sub}/${name}`, { size, type: typeOf(name) });
     }
   }
-  const json = async (...at) => parse(await fsp.readFile(path.join(abs, ...at), 'utf8').catch(ifMissing(null)));
+  const json = async (...at) => parse(await disk.readFile(path.join(abs, ...at), 'utf8').catch(ifMissing(null)));
   return derivedOf(files, await json('study', 'bubbles.json'), await json('covers', 'manifest.json'), await json('image_records.json'));
 }
 // `pictures`: which file holds each picture, as its descriptions name them (gallery-files.js
@@ -533,7 +533,7 @@ async function sweepLeftovers(library, id) {
   }
   let removed = 0;
   const walk = async (dir, depth) => {
-    for (const item of await fsp.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    for (const item of await disk.readdir(dir, { withFileTypes: true }).catch(() => [])) {
       if (item.name.startsWith('.')) continue;
       const abs = path.join(dir, item.name);
       if (!TEMP.test(item.name)) {
@@ -542,7 +542,7 @@ async function sweepLeftovers(library, id) {
       }
       const target = path.relative(root, abs.replace(/(\.[0-9a-f]{8,10})?\.shiori-(tmp|old|new)$/, '')).split(path.sep).join('/');
       if (files._reserved.has(files._join(id, target)) || waiting.has(abs) || !await stale(abs, LEFTOVER_AGE_MS)) continue;
-      await fsp.rm(abs, { recursive: true, force: true }).catch(() => {});
+      await disk.rm(abs, { recursive: true, force: true }).catch(() => {});
       removed++;
     }
   };
@@ -569,15 +569,15 @@ async function removeOrphans(library) {
   // app's: left alone.
   const places = [[library.dataStagingDir, false], [library.cacheDir, false], ...library.activeRoots().map(id => [library._stagingOf(id), true])];
   for (const [dir, shared] of places) {
-    for (const gid of await fsp.readdir(dir).catch(() => [])) {
+    for (const gid of await disk.readdir(dir).catch(() => [])) {
       if (shared && !library._s('SELECT 1 FROM stats WHERE gid = ?').get(gid)) continue;
-      for (const name of await fsp.readdir(path.join(dir, gid)).catch(() => [])) {
+      for (const name of await disk.readdir(path.join(dir, gid)).catch(() => [])) {
         const file = path.join(dir, gid, name);
         if (keep.has(file) || !await stale(file, ORPHAN_AGE_MS)) continue;
-        await fsp.rm(file, { force: true }).catch(() => {});
+        await disk.rm(file, { force: true }).catch(() => {});
         removed++;
       }
-      fsp.rmdir(path.join(dir, gid)).catch(() => {});
+      disk.rmdir(path.join(dir, gid)).catch(() => {});
     }
   }
   // Pictures in a gallery's folder made from its pages that no record refers to.
@@ -589,10 +589,10 @@ async function removeOrphans(library) {
     for (const r of library._s('SELECT record FROM pages WHERE gid = ?').all(gid)) collect(parse(r.record), (ref) => refs.add(ref), '$own');
     collect(library._coverGet(gid), (ref) => refs.add(ref), '$own');
     for (const sub of DERIVED) {
-      for (const name of await fsp.readdir(path.join(dir, ...sub.split('/'))).catch(() => [])) {
+      for (const name of await disk.readdir(path.join(dir, ...sub.split('/'))).catch(() => [])) {
         const file = path.join(dir, ...sub.split('/'), name);
         if (!IMAGE.test(name) || refs.has(`${sub}/${name}`) || !await stale(file, ORPHAN_AGE_MS)) continue;
-        await fsp.rm(file, { force: true }).catch(() => {});
+        await disk.rm(file, { force: true }).catch(() => {});
         removed++;
       }
     }
