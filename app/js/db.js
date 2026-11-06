@@ -1030,11 +1030,12 @@ const _completed = (tx, value) => _withFiles(tx).then(() => value);
 // keeps its files) — retire: noted by the same transaction (RETIRING, with the size and modification
 // time each was recorded with), and deleted once a publication of their gallery no longer naming them
 // has committed (_describe), only while each is still as written (principle 4). A gallery that leaves
-// its folder takes its own folder there too, once `tx` has committed, through the write gate (as
-// `tx._work` may write: a folder this context may not write to keeps it) (`_goneLater`, `gid` the
-// gallery's: _ownsDir). A linked one (`linked`, its source) leaves a note that its source was
-// removed, written by the same transaction (REMOVED_NOTE), so no check of the folder adds it again — its
-// overlay goes once the note is in removed.json (_publishRemoved).
+// its folder (deleted, or moved out) takes its own folder there too: recorded for deletion by the same
+// transaction (DELETING, beside those files of it) and deleted by name once that has committed, through
+// the write gate (as `tx._work` may write) — `_goneLater`, `gid` the gallery's (_applyDeletions). A
+// linked one (`linked`, its source) leaves a note that its source was removed, written by the same
+// transaction (REMOVED_NOTE), so no check of the folder adds it again — its overlay goes once the note
+// is in removed.json (_publishRemoved).
 const RETIRING = '$retiring:';
 const _retiringPrefix = (folder, dir) => `${RETIRING}${folder}\u0000${dir}\u0000`;
 function _unlinkLater(tx, key) {
@@ -1051,7 +1052,10 @@ function _retiringIn(tx, folder, dir, found) {
 }
 function _goneLater(tx, folder, dir, gid, linked = null) {
   if (!folder || !dir) return;
-  if (linked && !tx._keepFiles) tx.objectStore(FOLDER_STORE).put({ id: `${REMOVED_NOTE}${gid}`, folder, dir, gid: String(gid), linked });
+  if (!tx._keepFiles) {
+    tx.objectStore(FOLDER_STORE).put(linked ? { id: `${REMOVED_NOTE}${gid}`, folder, dir, gid: String(gid), linked }
+      : { id: _deletingKey(folder, dir), folder, dir, gid: String(gid) });
+  }
   _afterFiles(tx).dirs.push({ folder, dir, gid: String(gid), linked });
 }
 // `tx._unlinked` settles once they are gone (at once for a transaction that didn't commit).
@@ -1066,14 +1070,76 @@ function _afterFiles(tx) {
   return tx._afterFiles;
 }
 async function _unlink({ dirs }, work) {
-  for (const { folder, dir, gid, linked } of dirs) {
-    await _forgetRetiring(folder, dir).catch(() => {});   // they go with it, or stay with what is left of it
-    if (linked) continue;   // its overlay: once its note is written (below)
-    const root = await _rootOf(folder, { work }).catch(() => null);
-    if (root && await _ownsDir(folder, root, dir, gid)) await folderFiles.removeDir(folder, root, dir).catch(() => {});
-  }
+  // A linked gallery's overlay goes once its note is written; what of it waited to retire goes with it.
+  for (const { folder, dir, linked } of dirs) if (linked) await _forgetRetiring(folder, dir).catch(() => {});
+  for (const folder of new Set(dirs.filter(d => !d.linked).map(d => d.folder))) await _applyDeletions(folder, work).catch(() => {});
   for (const folder of new Set(dirs.filter(d => d.linked).map(d => d.folder))) await _publishRemoved(folder, work);
 }
+
+// ── Galleries' folders to delete ──
+// A gallery's own folder (or archive) that its deletion, or a move out of it, let go: recorded in the
+// folders store by the transaction that let it go (_goneLater) as { id: DELETING + folder \0 dir,
+// folder, dir, gid }, beside the files of it waiting to retire there (RETIRING: those the library
+// recorded writing), so the intent outlives a page closed or a crash (N2). It is deleted once that
+// commits (_applyDeletions), or else as a page opens (foldersPending), at its folder's next check —
+// which meanwhile never reads it, nor adds what is left of it as new (N4) — and by its removal, which
+// doesn't forget a folder still owed one.
+const DELETING = '$deleting:';
+const _deletingKey = (folder, dir) => `${DELETING}${folder}\u0000${dir}`;
+// The folders waiting to be deleted (of folder `folder` alone, when given): [{ id, folder, dir, gid }].
+async function _deletions(folder = null) {
+  const db = await openDB();
+  const prefix = folder == null ? DELETING : `${DELETING}${folder}\u0000`;
+  return new Promise((resolve, reject) => {
+    const req = _tx(db, FOLDER_STORE, 'readonly').objectStore(FOLDER_STORE).getAll(IDBKeyRange.bound(prefix, `${prefix}￿`));
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+// What waits to be deleted (of folder `folder` alone, when given) deleted, each while the write gate
+// lets this context change its folder (`work` as _rootOf), one context at a time (lock
+// shiori:deleting:<folder>): a gallery's folder by name (folderFiles.deleteGalleryIn: the files it
+// recorded writing, its descriptions, what names it last, then the folders left empty); an archive, or
+// one of its own another library describes it by, whole while it is the gallery's (_ownsDir). A record
+// goes, with its files' notes, once that is done, or once the folder is found gone, or another's or no
+// one's (nothing deleted then); one that can't be done now stays. Resolves whether none of `folder`'s
+// waits.
+async function _applyDeletions(folder = null, work = null) {
+  for (const d of await _deletions(folder)) {
+    await folderFiles.withLock(`shiori:deleting:${d.folder}`, async () => {
+      if (!(await _deletions(d.folder)).some(x => x.id === d.id)) return;   // done meanwhile, in another context
+      const root = await _rootOf(d.folder, { work }).catch(() => null);
+      const named = async () => (await _retiringOf(d.folder, d.dir)).map(r => ({ name: r.path, size: r.size, mtime: r.mtime }));
+      if (!root || !await _deleteDir(d.folder, root, d.dir, d.gid, named)) return;
+      await _forgetRetiring(d.folder, d.dir);
+      await _recordsWrite((store) => store.delete(d.id));
+    }).catch(() => {});
+  }
+  return !(await _deletions(folder)).length;
+}
+// Gallery `gid`'s own folder `dir` (in folder `folder`, its handle `root`) deleted: an archive whole
+// while it is the gallery's (_ownsDir); a folder by name (folderFiles.deleteGalleryIn, `named()` the
+// files the library recorded writing there: all of it while it names the gallery, those files alone
+// while it names none). Resolves whether that is done (false: something there couldn't be read or
+// deleted now).
+async function _deleteDir(folder, root, dir, gid, named) {
+  const file = await folderFiles.readFile(folder, root, dir).catch(() => undefined);
+  if (file === undefined) return false;
+  if (!file) return folderFiles.deleteGalleryIn(folder, root, dir, gid, await named());
+  if (await _ownsDir(folder, root, dir, gid)) await folderFiles.removeDir(folder, root, dir);
+  return true;
+}
+// The files of gallery folder `dir` in folder `folder` waiting to retire (_unlinkLater), as stored.
+async function _retiringOf(folder, dir) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = _tx(db, FOLDER_STORE, 'readonly');
+    _retiringIn(tx, folder, dir, resolve);
+    tx.onerror = () => reject(_txError(tx));
+  });
+}
+// Folder `folder` forgotten: what waited to be deleted there stays.
+const _forgetDeletions = (folder) => _recordsWrite((store) => store.delete(IDBKeyRange.bound(`${DELETING}${folder}\u0000`, `${DELETING}${folder}\u0000￿`)));
 // The notes of files of gallery folder `dir` (in folder `folder`; every gallery folder's there, with no
 // `dir`: the folder forgotten) waiting to retire, forgotten (only those of `paths`, when given).
 async function _forgetRetiring(folder, dir = null, paths = null) {
@@ -1095,7 +1161,9 @@ async function _forgetRetiring(folder, dir = null, paths = null) {
 // over another app's newer one), which stays until it is dismissed.
 const ATTENTION = '$attention:';
 const _attentionPrefix = (folder) => `${ATTENTION}${folder}\u0000`;
-async function _attentionWrite(fn) {
+// `fn(store)` on the folders store in a transaction of its own, telling the windows nothing (unlike
+// _folderWrite): for the records kept beside the folders (these, the deletions waiting).
+async function _recordsWrite(fn) {
   const db = await openDB();
   await new Promise((resolve, reject) => {
     const tx = _tx(db, FOLDER_STORE, 'readwrite');
@@ -1108,12 +1176,12 @@ const _attentionRecord = (folder, { reason, path = '', gid = null }, event) => (
   reason: String(reason), path: String(path), ...(gid != null ? { gid: String(gid) } : {}), ...(event ? { event: true } : {}), at: Date.now() });
 // Something about folder `folder` to show there ({ reason, path, gid? }; `event`: kept by later checks).
 async function _note(folder, problem, { event = false } = {}) {
-  await _attentionWrite((store) => store.put(_attentionRecord(folder, problem, event))).catch(() => {});
+  await _recordsWrite((store) => store.put(_attentionRecord(folder, problem, event))).catch(() => {});
 }
 // What folder `folder`'s check found (`problems`), in place of what its last one found.
 async function _noteChecked(folder, problems) {
   const all = await _attentionOf(folder, { records: true });
-  await _attentionWrite((store) => {
+  await _recordsWrite((store) => {
     for (const r of all) if (!r.event) store.delete(r.id);
     for (const p of problems) store.put(_attentionRecord(folder, p, false));
   });
@@ -1132,10 +1200,10 @@ async function _attentionOf(folder, { records = false } = {}) {
 }
 // An item of folder `folder`'s list put away (a check that finds it again shows it again).
 async function _dismiss(folder, { reason, path = '' }) {
-  await _attentionWrite((store) => store.delete(`${_attentionPrefix(folder)}${reason}\u0000${path}`));
+  await _recordsWrite((store) => store.delete(`${_attentionPrefix(folder)}${reason}\u0000${path}`));
 }
 // Every item of folder `folder`'s, gone with it (the folder forgotten).
-const _forgetAttention = (folder) => _attentionWrite((store) => store.delete(IDBKeyRange.bound(_attentionPrefix(folder), `${_attentionPrefix(folder)}￿`)));
+const _forgetAttention = (folder) => _recordsWrite((store) => store.delete(IDBKeyRange.bound(_attentionPrefix(folder), `${_attentionPrefix(folder)}￿`)));
 
 // ── Notes of removed sources (linked-source.js removed.json) ──
 // A linked gallery's source that left its folder (the gallery deleted, or moved to another place as
@@ -1614,6 +1682,7 @@ const _folderLibrary = createFolderLibrary({
   note: _note, noteChecked: _noteChecked, attentionOf: _attentionOf, dismiss: _dismiss, forgetAttention: _forgetAttention,
   placeOf: _placeOf, placeKey: _placeKey, access: _access, rootOf: _rootOf, usable: _usable, readRootOf: _readRootOf,
   removedNotes: _removedNotes, publishRemoved: _publishRemoved,
+  deletions: _deletions, applyDeletions: _applyDeletions, forgetDeletions: _forgetDeletions,
   me: _me, myLabel: _myLabel, readClaim: _readClaim, writeClaim: _writeClaim, noteEpoch: _noteEpoch, randomId: _randomId,
   // the pictures' storage in folders
   writing: _writing, replacePages: _replacePages, relocate: _relocate, reserveDir: _reserveDir, describe: _describe, cancelDescribe: _cancelDescribe,
@@ -3261,7 +3330,11 @@ export async function deleteGallery(galleryId) {
 }
 
 // deleteGallery's work inside `tx` (every store a gallery lives in); `done(meta)` with the metadata
-// it had, once its pages are gone.
+// it had, once its pages are gone. A gallery with a folder of its own in a library folder shown that
+// `tx._deletable` (_writeGates) says can't be changed now is refused, the transaction with it (plan D3,
+// principle 8: BackendError 'unavailable', `reason` the folder store's refusal — 'unavailable',
+// 'other-library', 'no-permission', 'not-owned' — `folder` its id), so a deletion is never left for a
+// folder that comes back (T12); a gallery only forgotten (`tx._keepFiles`) never is.
 function _deleteIn(tx, gid, done = () => {}) {
   const metas = tx.objectStore(META_STORE);
   const metaReq = metas.get(gid);
@@ -3271,6 +3344,13 @@ function _deleteIn(tx, gid, done = () => {}) {
     const stats = tx.objectStore(GALLERY_STORE);
     const stat = stats.get(gid);
     stat.onsuccess = () => {
+      const folder = stat.result?.dir ? stat.result.folder : null;
+      const why = folder && tx._deletable && !tx._keepFiles ? tx._deletable.get(folder) : null;
+      if (why) {
+        if (!tx._refused) tx._refused = Object.assign(new BackendError('unavailable', `the library folder of gallery ${gid} can't be written to now`), { reason: why, folder });
+        try { tx.abort(); } catch {}
+        return;
+      }
       _goneLater(tx, stat.result?.folder, stat.result?.dir, gid, stat.result?.linked || null);
       stats.delete(gid);
       tx.objectStore(UNDESCRIBED_STORE).delete(gid);
@@ -3333,6 +3413,20 @@ const _SERIES_PLANS = {
 export async function seriesCommand(name, ...args) {
   return _seriesCommand(name, args);
 }
+// The series commands that may delete galleries (series-plan.js `deletes`).
+const DELETING_PLANS = new Set(['delete', 'deleteSeries', 'remove', 'write']);
+// What each of the library's folders shown refuses a change to its files with now — the folder store's
+// open() for 'write' (asked afresh), null where it takes one: Map folder id → refusal | null. (A gallery
+// in a folder that isn't shown is refused by the mount check: reason 'hidden'.)
+async function _writeGates() {
+  const out = new Map();
+  for (const [id, f] of (await _folders()).byId) {
+    if (!mounted(f.state)) continue;
+    const opened = await folderStore.open({ id, location: null }, { purpose: 'write' }).catch(() => ({ status: 'unavailable' }));
+    out.set(id, opened.status === 'ok' ? null : opened.status);
+  }
+  return out;
+}
 // `keepFiles`: galleries it deletes keep their files in their library folder (forgotten, not deleted).
 async function _seriesCommand(name, args, { keepFiles = false } = {}) {
   const planOf = _SERIES_PLANS[name];
@@ -3345,11 +3439,15 @@ async function _seriesCommand(name, args, { keepFiles = false } = {}) {
     need: (ids = [], childrenOf = []) => ({ need: { ids: ids.map(String), childrenOf: childrenOf.map(String) } }),
   };
   const db = await openDB();
+  // A command that may delete galleries weighs the folders they are in first: a deletion is refused
+  // where its gallery's folder can't take it now (_deleteIn).
+  const deletable = !keepFiles && DELETING_PLANS.has(name) ? await _writeGates() : null;
   let plan = null, refused = null;
   const written = new Set(), deleted = [], mutated = [];
   await new Promise((resolve, reject) => {
     const tx = _tx(db, [STORE, META_STORE, GALLERY_STORE, COVER_STORE, BLOB_STORE], 'readwrite');
     if (keepFiles) tx._keepFiles = true;
+    if (deletable) tx._deletable = deletable;
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(refused || _txError(tx));
     tx.onabort = () => reject(refused || _txError(tx));
@@ -3434,13 +3532,38 @@ export async function clearAll({ folders = false } = {}) {
   // Every store in one transaction — "clear everything" must mean everything, including the
   // source icons that earlier versions left behind.
   const stores = [STORE, META_STORE, GALLERY_STORE, COVER_STORE, SOURCE_ICON_STORE, BLOB_STORE, DORMANT_STORE, UNDESCRIBED_STORE, ...(folders ? [FOLDER_STORE] : [])];
+  // Each gallery kept in a folder of its own, with the files it recorded writing there (read before the
+  // stores are cleared): { folder, dir, gid, linked, named }. Its folder is deleted by name, as a
+  // deletion's is — recorded by this transaction while the folders are kept (DELETING, and its files'
+  // notes); deleted at once, where it can be, as the folders are forgotten too.
   const gone = [];
   await new Promise((resolve, reject) => {
     const tx = _tx(db, [...stores, FOLDER_STORE], 'readwrite');
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(_txError(tx));
     const kept = tx.objectStore(GALLERY_STORE).getAll();
-    kept.onsuccess = () => { for (const g of kept.result || []) if (roots.get(g.folder) && g.dir) gone.push(g); };
+    const pages = tx.objectStore(STORE).getAll();
+    const covers = tx.objectStore(COVER_STORE).getAll();
+    covers.onsuccess = () => {
+      const byGid = new Map();
+      for (const g of kept.result || []) {
+        if (g.folder && g.dir && (byId.has(g.folder) || removing.has(g.folder))) byGid.set(String(g.galleryId), { folder: g.folder, dir: g.dir, gid: String(g.galleryId), linked: g.linked || null, named: [] });
+      }
+      for (const [recs, kind] of [[pages.result, PAGE], [covers.result, COVER]]) {
+        for (const rec of recs || []) {
+          const g = byGid.get(String(rec.galleryId));
+          for (const key of g ? _refIds(rec, kind) : []) {
+            if (!key.startsWith('file:')) continue;
+            const [folder, dir, path, size, mtime] = JSON.parse(key.slice('file:'.length));
+            if (folder !== g.folder || dir !== g.dir) continue;
+            g.named.push({ name: path, size, mtime });
+            if (!folders && !g.linked) _unlinkLater(tx, key);
+          }
+        }
+      }
+      gone.push(...byGid.values());
+      if (!folders) for (const g of gone) if (!g.linked) tx.objectStore(FOLDER_STORE).put({ id: _deletingKey(g.folder, g.dir), folder: g.folder, dir: g.dir, gid: g.gid });
+    };
     for (const storeName of stores) tx.objectStore(storeName).clear();
     if (me) tx.objectStore(FOLDER_STORE).put({ id: INSTANCE, instance: me });   // still this library, to the folders it claimed
     // Places kept: none hides anything any more (what they hid went with the rest).
@@ -3453,9 +3576,12 @@ export async function clearAll({ folders = false } = {}) {
   });
   for (const g of gone) {
     const root = roots.get(g.folder);
-    if (await _ownsDir(g.folder, root, g.dir, g.galleryId)) await folderFiles.removeDir(g.folder, root, g.dir).catch(() => {});
+    if (!root) continue;
+    if (g.linked) { if (await _ownsDir(g.folder, root, g.dir, g.gid).catch(() => false)) await folderFiles.removeDir(g.folder, root, g.dir).catch(() => {}); }
+    else if (folders) await _deleteDir(g.folder, root, g.dir, g.gid, async () => g.named).catch(() => {});
   }
   _foldersChanged();
+  if (!folders) await _applyDeletions().catch(() => {});
 }
 
 export async function getGalleryImageRecords(galleryId) {

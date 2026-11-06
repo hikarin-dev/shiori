@@ -219,8 +219,9 @@ const BASE = {
  * that fixes it and the finding (plan §5; N1–N3: found by this harness, §10 S2). An app not named
  * finds nothing with them on the fixed seeds; the long runs (S8) look further. */
 const OPEN = {
-  // N2: a gallery deleted just before the app closes comes back, its folder never deleted.
-  restart: { todo: { desktop: 'S7: N2' }, commands: [command('restart', fc.constant(null), {
+  // N2 (fixed in S7: a deletion's durable record): a gallery deleted just before the app closes came
+  // back, its folder never deleted.
+  restart: { todo: {}, commands: [command('restart', fc.constant(null), {
     check: (m) => m.restartable,
     async run(m, r) { await /** @type {() => Promise<void>} */ (r.lib.restart)(); },
   })] },
@@ -266,8 +267,8 @@ const OPEN = {
     },
   })] },
   // The drive taken away and brought back (the junction the folder is reached through removed and
-  // made again: setup). Aimed at T12 (a gallery deleted while its drive is away comes back with it),
-  // which the fixed seeds don't reach yet on the desktop. It found N1 on the website (a write meeting
+  // made again: setup). Aimed at T12 (a gallery deleted while its drive is away came back with it; since
+  // S7 the deletion is refused, which the model allows while it is away). It found N1 on the website (a write meeting
   // a folder that went away looped for ever; seed 2 reaches it), fixed in S3.
   away: { todo: {}, commands: [
     command('unplug', fc.constant(null), {
@@ -302,8 +303,8 @@ const OPEN = {
   // waiting drawn as a window draws it — its file changed while it is drawn, or not; the drawing empty,
   // or not. A drawing of another version than the file's now, or with no pages, is refused and changes
   // nothing: the gallery keeps the pages it has (none, before it joins) until a drawing of the file as
-  // it is. Longer runs (30) find N4 here on the desktop, outside the drawing: a gallery deleted just
-  // before a check is taken, its folder half deleted, for a folder of pictures (S7, with N2).
+  // it is. Longer runs (30) found N4 here on the desktop, outside the drawing: a gallery deleted just
+  // before a check was taken, its folder half deleted, for a folder of pictures (fixed in S7, with N2).
   drawing: { todo: {}, commands: [
     command('drawPdf', fc.tuple(fc.nat(3).map(k => k === 0), fc.nat(9), fc.constantFrom('drawn', 'changed while drawn', 'drawn empty')), {
       check: (m) => m.state === 'shown',

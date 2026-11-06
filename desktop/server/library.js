@@ -1405,9 +1405,12 @@ export class Library {
 
   async deleteGallery(galleryId) { await this.seriesCommand('delete', String(galleryId)); }
 
-  // Everything a gallery has, deleted inside the caller's transaction; returns the metadata it had.
+  // Everything a gallery has, deleted inside the caller's transaction — refused, with it, while its
+  // library folder can't be written to now (files.js deleteIn, which reads what it recorded writing
+  // there before its pages go); returns the metadata it had.
   _deleteIn(gid) {
     this._logIn(gid);
+    this.files.deleteIn(gid);
     const meta = this._metaGet(gid);
     this._metaDel(gid);
     this._statDel(gid);
@@ -1417,7 +1420,6 @@ export class Library {
       this._s('DELETE FROM covers WHERE gid = ?').run(gid);
     }
     for (const row of this._pageRows(gid)) this._pageDrop(row, { whole: true });
-    this.files.deleteIn(gid);
     return meta;
   }
 
@@ -1959,7 +1961,7 @@ export class Library {
     await Promise.all(state.fresh.map(file => disk.rm(file, { force: true }).catch(() => {})));
     const gid = state.gid;
     if (!state.claimed || this._metaGet(gid) || this._statGet(gid) || this._pageCount(gid)) return;
-    try { this._tx(() => this.files.deleteIn(gid)); } catch {}
+    try { this._tx(() => this.files.deleteIn(gid, { refuse: false })); } catch {}
   }
 
   // ── Maintenance ──
@@ -2048,9 +2050,9 @@ export class Library {
   // stagingDirs): not in a folder another app keeps, hidden, or out of reach.
   async clearAll() {
     this._tx(() => {
+      this.files.clearIn();   // first: what each gallery recorded writing is read from its pages
       for (const table of ['meta', 'meta_tags', 'stats', 'pages', 'covers', 'icons', 'places']) this._s(`DELETE FROM ${table}`).run();
       this.folders.clearIn();
-      this.files.clearIn();
       this._logIn('*');
     });
     this._dirs.clear();

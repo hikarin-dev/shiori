@@ -24,7 +24,7 @@ import { handImport } from './submit-job.js';
 import { importDropped, mountImportTracker } from './import-tracker.js';
 import { openRerunMenu } from './rerun-menu.js';
 import { confirmDialog, alertDialog } from './notice.js';
-import { moveGalleryTo } from './library-folders.js';
+import { moveGalleryTo, deleteRefused } from './library-folders.js';
 import { openTagEditor, removeTag, tagKey, TAG_TYPE_LABEL } from './tag-editor.js';
 
 // ── Header details ──
@@ -1876,7 +1876,8 @@ async function doRemove(deleteImages) {
   const prevOwnerId = ownerId;
   const remaining = (await currentOrder()).filter(gid => gid !== String(id));
   closeRemove();
-  const removed = await removeChapter(prevOwnerId, id, { deleteImages });
+  // A deletion its gallery's folder can't take now is refused, and said so.
+  const removed = await removeChapter(prevOwnerId, id, { deleteImages }).catch(async (err) => { if (await deleteRefused(err)) return false; throw err; });
   if (removed === false) return;
 
   if (String(id) === String(prevOwnerId)) {

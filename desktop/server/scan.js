@@ -78,9 +78,9 @@ export function localChanges(library, gid) {
 // (`layout`: in the gallery format; else an earlier version's folder of pictures, `entries` its
 // pictures), and is not looked into; every archive is found, to be read (readGallery); a series' folder
 // and any other folder are walked, their pictures and PDFs listed in `files` ([{ path }] in the folder:
-// linked galleries), `own` the paths of the galleries found. `skip`: the folders of galleries the index
-// knows are there (paths in the folder), not looked into; `onTop(found)` after each thing at the
-// folder's top; the walk ends once `stopped()`. A folder that can't be listed, or whose descriptions
+// linked galleries), `own` the paths of the galleries found. `skip`: the folders and archives of
+// galleries the index knows are there, or that wait to be deleted (paths in the folder), not looked
+// into; `onTop(found)` after each thing at the folder's top; the walk ends once `stopped()`. A folder that can't be listed, or whose descriptions
 // can't be read, is added to `problems` and left as it is (in `own`: never read for a linked gallery).
 async function findGalleries(root, { skip = new Set(), onTop = () => {}, stopped = () => false, problems = [] } = {}) {
   const found = [], files = [], own = [];
@@ -103,6 +103,7 @@ async function findGalleries(root, { skip = new Set(), onTop = () => {}, stopped
     }
     for (const item of items) {
       if (item.name.startsWith('.') || item.name === '__MACOSX' || TEMP.test(item.name)) continue;
+      if (item.isFile() && skip.has(rel(item.name))) { own.push(rel(item.name)); continue; }
       if (item.isFile() && linkedSource.ARCHIVE_NAME.test(item.name)) found.push({ rel: rel(item.name), format: /\.cbz$/i.test(item.name) ? 'cbz' : 'zip' });
       else if (item.isFile() && (IMAGE.test(item.name) || linkedSource.PDF_NAME.test(item.name))) files.push({ path: rel(item.name) });
       else if (item.isDirectory() && depth < MAX_DEPTH) await walk(path.join(dir, item.name), depth + 1);
@@ -232,8 +233,14 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   const byPath = new Map(known.map(r => [r.path, r]));
   const exists = (rel) => disk.access(files._abs(rel)).then(() => true, () => false);
 
-  // Leftovers of interrupted writes, in the folders the library may write to.
-  for (const id of reachable) if (library.folders.writable(id)) out.removed += await sweepLeftovers(library, id);
+  // Leftovers of interrupted writes, and galleries' folders a deletion let go, in the folders the
+  // library may write to. Those still waiting to be deleted aren't looked into (`skip`): never adopted
+  // again, whole or half deleted (N2, N4).
+  for (const id of reachable) {
+    if (!library.folders.writable(id)) continue;
+    out.removed += await sweepLeftovers(library, id);
+    await files.applyDeletions({ root: id }).catch(() => {});
+  }
 
   const present = new Set();
   // A gallery is there while its folder or archive names it (files.js _whose, principle 2: one that
@@ -258,7 +265,8 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   const loose = new Map();   // a library folder → what it holds outside Shiori's own galleries (linked.js)
   const place = (id, g) => ({ ...g, abs: path.join(library.rootDir(id), ...g.rel.split('/')), rel: files._join(id, g.rel), root: id, inRoot: g.rel });
   for (const id of reachable) {
-    const skip = new Set(known.filter(r => present.has(r.gid) && files._split(r.path).root === id).map(r => files._split(r.path).rest));
+    const skip = new Set([...known.filter(r => present.has(r.gid) && files._split(r.path).root === id), ...files.deletingIn(id)]
+      .map(r => files._split(r.path ?? r.dir).rest));
     const base = galleries.length;
     const onTop = (n) => onProgress(Math.min(++done, total), total, base + n, step);
     const walked = await findGalleries(library.rootDir(id), { skip, onTop, stopped, problems: out.problems });

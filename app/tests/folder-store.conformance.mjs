@@ -99,6 +99,12 @@ async function settles(/** @type {Promise<unknown>} */ work, ms = 3000) {
   if (got === 'never settled') { fsa.failNext(() => true, 'InvalidStateError', { times: Infinity }); await new Promise(r => setTimeout(r, 200)); }
   return got;
 }
+// Resolves once `ready()` holds — what a library does after its write commits — failed after `ms`.
+async function until(/** @type {() => boolean} */ ready, ms = 5000) {
+  for (const end = Date.now() + ms; !ready(); await new Promise(r => setTimeout(r, 25))) {
+    if (Date.now() > end) throw new Error('it never happened');
+  }
+}
 
 /** @type {Case[]} */
 export const CASES = [
@@ -426,6 +432,101 @@ export const CASES = [
       await new Promise(r => setTimeout(r, 300));   // what a deletion leaves to do, once it commits
       assert.deepEqual(fs.readdirSync(at), ['personal-notes.txt'], 'nor deleted with the gallery');
       assert.ok(fs.existsSync(path.join(dir, 'moved aside', 'images', '0001.png')), 'and the gallery\'s own folder, moved aside, is left');
+    },
+  },
+  // ── Deleting (plan §5: T12; principles 4 and 8, D3; N2, N4: §10 S2, S6) ──
+  {
+    // T12: a gallery deleted while its folder's drive was away was forgotten by the index, and came back
+    // with the drive.
+    name: 'T12: deleting a gallery whose library folder can\'t be reached is refused (unavailable) and changes nothing; with the folder back, deleted, it is gone for good',
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Away');
+      await fx.lib.putPage(gid, 1, png(1));
+      await fx.lib.flush();
+      const at = /** @type {string} */ (await fx.lib.dirOf(gid));
+      fs.renameSync(path.join(dir, 'A'), path.join(dir, 'A away'));
+      await fx.lib.list();
+      await assert.rejects(fx.lib.deleteGallery(gid), (e) => e.code === 'unavailable' && e.reason === 'unavailable');
+      assert.ok((await fx.lib.galleries()).includes(gid), 'the gallery stays');
+      fs.renameSync(path.join(dir, 'A away'), path.join(dir, 'A'));
+      await fx.lib.list();
+      await fx.lib.scan(ref.id);
+      assert.deepEqual(await fx.lib.read(gid, 1), png(1), 'and reads as it was once its folder is back');
+      await fx.lib.deleteGallery(gid);
+      await until(() => !fs.existsSync(at));
+      await fx.lib.scan(ref.id);
+      assert.deepEqual(await fx.lib.galleries(), [], 'gone for good');
+    },
+  },
+  {
+    name: 'a library folder that can\'t be reached is removed when nothing waits to be saved there, and refused (unsaved) while something does',
+    async run({ dir, fx }) {
+      const [a, b] = [await fx.register('A'), await fx.register('B')];
+      const made = [];
+      for (const [ref, name] of [[a, 'In A'], [b, 'In B']]) {
+        await fx.lib.setDefault(ref.id);
+        made.push(await fx.lib.newGallery(name));
+        await fx.lib.putPage(made[made.length - 1], 1, png(1));
+      }
+      const [inA] = made;
+      await fx.lib.setDefault(fx.lib.home);
+      await fx.lib.flush();
+      fs.renameSync(path.join(dir, 'A'), path.join(dir, 'A away'));
+      fs.renameSync(path.join(dir, 'B'), path.join(dir, 'B away'));
+      await fx.lib.list();
+      await fx.lib.setTitle(inA, 'Changed while away');   // committed here, not saved to its folder
+      await assert.rejects(fx.lib.remove(a.id), (e) => e.reason === 'unsaved');
+      assert.ok((await fx.lib.list()).some(f => f.id === a.id), 'kept');
+      await fx.lib.remove(b.id);
+      assert.ok(!(await fx.lib.list()).some(f => f.id === b.id), 'removed');
+    },
+  },
+  {
+    // N2: a gallery deleted just before the app closed came back, its folder deleted after the commit
+    // and never; N4: one deleted just before a check was adopted again from its half-deleted folder.
+    name: 'N2, N4: a deletion cut short is finished from its record — a check meanwhile never adopts what is left of the folder — and the rest goes by name at the next start',
+    async run({ dir, fx, platform }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Cut short');
+      await fx.lib.putPage(gid, 1, png(1));
+      await fx.lib.putPage(gid, 2, png(2));
+      await fx.lib.flush();
+      const at = /** @type {string} */ (await fx.lib.dirOf(gid));
+      const second = `${path.relative(path.join(dir, 'A'), at).split(path.sep).join('/')}/images/0002.png`;
+      const undo = platform === 'website'
+        ? fsa.failNext((c) => c.op === 'removeEntry' && c.path === second, 'NoModificationAllowedError', { times: Infinity })
+        : faults.failNext((c) => c.op === 'rm' && c.path.toLowerCase().endsWith(`/${second.toLowerCase()}`), 'EBUSY', { times: Infinity });
+      try {
+        await fx.lib.deleteGallery(gid);
+        await until(() => !fs.existsSync(path.join(at, 'images', '0001.png')));
+        // What named it gone too, as a deletion cut short by a crash could leave it: a folder of pictures.
+        for (const f of ['.shiori', 'metadata.json', 'image_records.json']) fs.rmSync(path.join(at, f), { recursive: true, force: true });
+        assert.equal((await fx.lib.scan(ref.id)).added, 0, 'nothing of it joins');
+        assert.deepEqual(await fx.lib.galleries(), []);
+      } finally { undo(); }
+      if (fx.lib.restart) await fx.lib.restart(); else await fx.lib.raw.foldersPending();   // the next start
+      await until(() => !fs.existsSync(at));
+      assert.equal((await fx.lib.scan(ref.id)).added, 0);
+      assert.deepEqual(await fx.lib.galleries(), []);
+    },
+  },
+  {
+    name: 'a gallery\'s deletion takes only what Shiori recorded writing: a person\'s own file in its folder, and a picture changed since, stay, and the folder with them',
+    async run({ fx }) {
+      await fx.register('A');
+      const gid = await fx.lib.newGallery('Mine too');
+      await fx.lib.putPage(gid, 1, png(1));
+      await fx.lib.putPage(gid, 2, png(2));
+      await fx.lib.flush();
+      const at = /** @type {string} */ (await fx.lib.dirOf(gid));
+      fs.writeFileSync(path.join(at, 'notes.txt'), 'mine');
+      fs.writeFileSync(path.join(at, 'images', '0002.png'), png(2, 2));   // changed outside Shiori
+      await fx.lib.deleteGallery(gid);
+      await until(() => !fs.existsSync(path.join(at, '.shiori', 'gallery.json')));
+      assert.ok(!fs.existsSync(path.join(at, 'images', '0001.png')) && !fs.existsSync(path.join(at, 'metadata.json')), 'its own files go');
+      assert.equal(fs.readFileSync(path.join(at, 'notes.txt'), 'utf8'), 'mine');
+      assert.deepEqual(new Uint8Array(fs.readFileSync(path.join(at, 'images', '0002.png'))), png(2, 2));
     },
   },
   {

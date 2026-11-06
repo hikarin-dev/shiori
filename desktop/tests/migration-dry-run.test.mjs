@@ -68,3 +68,52 @@ test('the dry run reports what the carry-over to format v2 would do, changes not
   assert.equal(fs.existsSync(path.join(base, 'second', 'Old Folder')), false, 'and the old folder');
   assert.ok(fs.existsSync(path.join(gallery, '.shiori', 'gallery.json')), 'the gallery published in format v2');
 });
+
+// A gallery's folder as an earlier version could leave one it never described: pictures only, never
+// published (no stamp), the index's flag for this step not yet set.
+function undescribed(library, gid) {
+  const dir = path.join(library.libraryDir, ...library.files._row(gid).path.split('/'));
+  for (const f of ['.shiori', 'metadata.json', 'image_records.json', 'study', 'covers/manifest.json']) fs.rmSync(path.join(dir, ...f.split('/')), { recursive: true, force: true });
+  library._s('DELETE FROM stamps WHERE gid = ?').run(gid);
+  library._s(`DELETE FROM kv WHERE key = 'undescribedBound'`).run();
+  return dir;
+}
+const until = async (ready) => { for (let i = 0; i < 200 && !ready(); i++) await new Promise(r => setTimeout(r, 25)); };
+
+test('a gallery\'s folder an earlier version never described gets its identity at the first start only when it holds exactly the pictures its index recorded, and the dry run says how many', async (t) => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-dry-run-test-'));
+  const where = { dataDir: path.join(base, 'data'), libraryDir: path.join(base, 'library'), placeDelay: 0, describeDelay: 600_000 };
+  let library = await new Library(where).open();
+  t.after(() => { library?.close(); fs.rmSync(base, { recursive: true, force: true }); });
+  const png = (n) => new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, n])], { type: 'image/png' });
+  const gallery = async (name, pages) => {
+    const gid = String(library.nextGalleryId());
+    await library.metaPut({ galleryId: gid, title: { english: name, japanese: '', pretty: '' } });
+    for (let n = 1; n <= pages; n++) await library.pagePut(gid, n, png(n));
+    await library.files.flush();
+    return gid;
+  };
+  const [matching, extra] = [await gallery('Matching', 2), await gallery('Extra', 1)];
+  const dirs = { matching: undescribed(library, matching), extra: undescribed(library, extra) };
+  fs.writeFileSync(path.join(dirs.extra, 'images', '0009.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 9]));   // a picture the index never recorded
+  library.close();
+  library = null;
+
+  const report = await dryRun(where.dataDir);
+  assert.deepEqual(report.galleries.undescribed, { bound: 1, conflicts: 1, unreachable: 0 });
+  assert.ok(!fs.existsSync(path.join(dirs.matching, '.shiori')), 'the dry run changes nothing');
+
+  library = await new Library(where).open();
+  const manifest = path.join(dirs.matching, '.shiori', 'gallery.json');
+  await until(() => fs.existsSync(manifest));
+  assert.equal(JSON.parse(fs.readFileSync(manifest, 'utf8')).galleryId, matching, 'the folder names its gallery');
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(manifest, 'utf8')).files.pages), ['1', '2'], 'its whole generation');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dirs.matching, 'metadata.json'), 'utf8')).title.english, 'Matching');
+  await library.metaPut({ ...(await library.metaGet(matching)), title: { english: 'Matching, edited', japanese: '', pretty: '' } });
+  await library.files.flush();
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dirs.matching, 'metadata.json'), 'utf8')).title.english, 'Matching, edited', 'and takes changes again');
+  assert.ok(!fs.existsSync(path.join(dirs.extra, '.shiori', 'gallery.json')), 'one holding a picture the index never recorded stays as it is');
+  assert.ok(!fs.existsSync(path.join(dirs.extra, 'metadata.json')));
+  const found = await library.folderScan(library.primaryId);
+  assert.ok(found.problems.some(p => p.reason === 'conflict' && p.gid === extra), 'a conflict, reported');
+});

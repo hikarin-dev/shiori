@@ -28,6 +28,7 @@ import { TIERS, describePage } from './page-size.js';
 import { escHtml, safeExternalUrl } from './sanitize.js';
 import { openRerunMenu } from './rerun-menu.js';
 import { confirmDialog, alertDialog, promptDialog, choiceDialog } from './notice.js';
+import { deleteRefused } from './library-folders.js';
 import { openTagEditor, TAG_TYPE_LABEL, TAG_VALUES, LANG_TAG_NAME, langDisplayName, tagPatchFor } from './tag-editor.js';
 import { initSearchField, searchQuery, setSearchQuery, appendSearchToken, SEARCH_TYPES } from './search-field.js';
 
@@ -581,7 +582,7 @@ function buildCard(g) {
           title: t(g.linked ? 'dlg.del_linked_title' : 'dlg.del_series_title'), body: g.linked ? t('dlg.del_linked_body') : t('dlg.del_series_body', { n }),
           detail: _seriesDetail(g), cover: _cardCover(card), ok: g.linked ? t('dlg.del_linked_ok') : t('dlg.del_series_ok', { n }), danger: true,
         }))) return;
-        await sendMsg({ type: 'DELETE_SERIES', galleryId: g.id });
+        try { await sendMsg({ type: 'DELETE_SERIES', galleryId: g.id }); } catch (err) { if (await deleteRefused(err)) return; throw err; }
         applyFilters();
         updateHeaderStats();
         return;
@@ -593,11 +594,11 @@ function buildCard(g) {
       // In the unmerged view a card may still belong to a series (an owner shown plainly, or a
       // chapter). Go through the series-aware path so removing it re-owns/detaches instead of
       // orphaning its siblings; a true standalone falls through to a plain delete.
-      if (g.isSeries || g.parentId) {
-        await removeChapter(String(g.parentId || g.id), g.id, { deleteImages: true });
-      } else {
-        await sendMsg({ type: 'DELETE_GALLERY', galleryId: g.id });
-      }
+      // One whose folder can't be changed now is refused, and said so.
+      try {
+        if (g.isSeries || g.parentId) await removeChapter(String(g.parentId || g.id), g.id, { deleteImages: true });
+        else await sendMsg({ type: 'DELETE_GALLERY', galleryId: g.id });
+      } catch (err) { if (await deleteRefused(err)) return; throw err; }
       applyFilters();
       updateHeaderStats();
     });

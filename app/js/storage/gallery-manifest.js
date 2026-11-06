@@ -3,7 +3,8 @@
 // or parses one, for both apps (the website's db.js and folder-library.js; the desktop's files.js,
 // scan.js and linked.js, through desktop/server/shared.js) and both adapters. Pure: no I/O, only the
 // rules — what a manifest is, which files a generation names, what a publication writes and may
-// collect, and how a gallery's folder is read back (readGallery, given the reads to make).
+// collect, how a gallery's folder is read back (readGallery, given the reads to make), and what its
+// deletion takes (galleryDeletion).
 //
 // - Where: in the gallery's own folder, in its `.shiori/` area — `<gallery>/.shiori/gallery.json` —
 //   or, for a linked gallery, in its overlay (already inside the library folder's hidden .shiori):
@@ -26,6 +27,7 @@
 
 import { DESCRIPTION_FILES, descriptionStamp, describedFiles, folderPictures, layoutPath } from './gallery-files.js';
 import { corrupt } from './contract.js';
+import { classifyFolder } from './folder-content.js';
 import { isValidGalleryId } from '../sanitize.js';
 
 /** @typedef {import('./contract.js').Manifest} Manifest */
@@ -421,3 +423,64 @@ export async function sizesOf(files, known, prev, stat) {
  * @param {{ size: number, mtime?: number | null }} recorded @param {{ size: number, mtime: number }} now @returns {boolean} */
 export const unchanged = (recorded, now) => recorded.size === now.size
   && (!recorded.mtime || Math.floor(recorded.mtime) === Math.floor(now.mtime));
+
+// ── Deleting a gallery's folder (principle 4) ──
+
+/** What deleting gallery `galleryId`'s own folder takes — a deletion its library committed, or the
+ * folder a move left — in the order taken, so that the folder names the gallery until the last step: one
+ * cut short is finished from the library's record of it, and never leaves a folder of pictures naming
+ * no gallery for a check to add as new (N2, N4).
+ * 1. `pictures`: the files the library recorded writing there (`named`: name, size, modification time)
+ *    and those the folder's manifest records (`manifest`, as it is now; null for format v1) — each only
+ *    while it is still as recorded (unchanged);
+ * 2. `descriptions`: its descriptions under their usual names, but the one naming it, then those stored
+ *    by content (the folder `stored`) — each only while it is one of the gallery's (isOwnDescription);
+ * 3. `identity`: what names it — its metadata.json, an earlier version's shiori.json, then its manifest —
+ *    likewise.
+ * Then the folders left empty, up to the gallery's own. Anything else — a person's own file, a picture
+ * changed since Shiori wrote it — is left, and the gallery's folder with it.
+ * @param {{ area: string, manifest: Manifest | null, named: { name: string, size: number, mtime?: number | null }[] }} folder
+ * @returns {{ pictures: { name: string, size: number, mtime?: number | null }[], descriptions: string[], stored: string, identity: string[] }} */
+export function galleryDeletion({ area, manifest, named }) {
+  const pictures = new Map(named.map(f => [f.name, f]));
+  for (const [name, [size, mtime]] of Object.entries(manifest?.sizes ?? {})) if (!pictures.has(name)) pictures.set(name, { name, size, mtime });
+  return { pictures: [...pictures.values()], descriptions: DESCRIPTION_FILES.filter(n => n !== 'metadata.json'), stored: storedDir(area),
+    identity: ['metadata.json', LEGACY_FILE, manifestPath(area)] };
+}
+const LEGACY_FILE = 'shiori.json';
+
+/** Whether `text`, the file at `path` in gallery `galleryId`'s folder (`area`: areaOf it), is one of
+ * the gallery's descriptions as Shiori writes them, which its deletion takes: one stored by content
+ * whose content matches its name; its manifest, naming it; a metadata.json, or an earlier version's
+ * shiori.json, naming it; another description under its usual name, of its shape. Anything else at
+ * those names isn't known to be Shiori's, and is left.
+ * @param {string} path @param {string} text @param {string} galleryId @param {string} area @returns {Promise<boolean>} */
+export async function isOwnDescription(path, text, galleryId, area) {
+  if (storedHash(path) != null) return matches(path, text);
+  if (path === manifestPath(area)) return parseManifest(text, { galleryId }).kind === 'ok';
+  if (path === 'metadata.json' || path === LEGACY_FILE) {
+    const what = classifyFolder({ [path]: text });
+    return what.kind === 'gallery' && what.id === String(galleryId);
+  }
+  return DESCRIPTION_FILES.includes(path) && _description(path, text) !== undefined;
+}
+
+/** Whether a gallery's own folder that names no gallery — pictures only, as an earlier desktop version
+ * could leave one it never described — may be given its identity (the desktop's first start, plan §10):
+ * 'match' when it holds no description at all (`texts`: folder-content.js OWN_FILES → text, null or
+ * missing for one it hasn't) and its pictures are exactly those its library recorded writing there
+ * (`named`: path → size and modification time; `found`: what it holds, path → size and time) — each as
+ * recorded, and none other. Else 'described' (it holds a description, of no gallery: never written
+ * over) or 'mismatch' (its pictures aren't the library's): it stays a conflict, reported.
+ * @param {{ texts: Record<string, string | null | undefined>, named: Map<string, { size: number, mtime?: number | null }>,
+ *   found: Map<string, { size: number, mtime: number }> }} folder
+ * @returns {'match' | 'described' | 'mismatch'} */
+export function undescribedMatch({ texts, named, found }) {
+  if (Object.values(texts).some(t => t != null)) return 'described';
+  if (named.size !== found.size) return 'mismatch';
+  for (const [name, now] of found) {
+    const recorded = named.get(name);
+    if (!recorded || !unchanged(recorded, now)) return 'mismatch';
+  }
+  return 'match';
+}

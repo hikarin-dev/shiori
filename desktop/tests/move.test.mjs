@@ -168,7 +168,8 @@ test('a gallery whose connection goes while its last part is written records not
   desktop.transferWrite = (part, opts) => { if (opts?.transfer?.last) setTimeout(() => client.close(), 5); return original(part, opts); };
   try {
     await assert.rejects(client.transferWrite({ galleryId: gid, ...bundle }, { silent: true }));
-    for (let i = 0; i < 100 && (desktop._transfers.size || pictures().length !== before); i++) await new Promise(r => setTimeout(r, 20));
+    // Until its clean-up has run to the end: the files gone, then the folder claimed for it let go.
+    for (let i = 0; i < 100 && (desktop._transfers.size || pictures().length !== before || desktop.files._row(gid)); i++) await new Promise(r => setTimeout(r, 20));
   } finally {
     desktop._transferPage = page;
     desktop.transferWrite = original;

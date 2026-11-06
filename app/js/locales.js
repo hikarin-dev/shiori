@@ -9460,3 +9460,57 @@ const attentionCopy = {
   },
 };
 for (const [lang, strings] of Object.entries(attentionCopy)) Object.assign(LOCALES[lang], strings);
+
+// A gallery's deletion refused while its library folder can't be changed (library-folders.js
+// deleteRefused).
+const deleteRefusedCopy = {
+  en: {
+    'dlg.del_refused_title': 'Couldn’t delete', 'dlg.del_refused_unavailable': 'Its library folder can’t be reached. Connect it and try again.',
+    'dlg.del_refused_taken': 'Another app is using its library folder.', 'dlg.del_refused_permission': 'Allow access to its library folder, then try again.',
+  },
+  ja: {
+    'dlg.del_refused_title': '削除できませんでした', 'dlg.del_refused_unavailable': 'ライブラリフォルダーにアクセスできません。接続してからもう一度お試しください。',
+    'dlg.del_refused_taken': 'ライブラリフォルダーは別のアプリが使用中です。', 'dlg.del_refused_permission': 'ライブラリフォルダーへのアクセスを許可してから、もう一度お試しください。',
+  },
+  de: {
+    'dlg.del_refused_title': 'Konnte nicht gelöscht werden', 'dlg.del_refused_unavailable': 'Der Bibliotheksordner ist nicht erreichbar. Verbinde ihn und versuche es erneut.',
+    'dlg.del_refused_taken': 'Der Bibliotheksordner wird von einer anderen App verwendet.', 'dlg.del_refused_permission': 'Erlaube den Zugriff auf den Bibliotheksordner und versuche es erneut.',
+  },
+  fr: {
+    'dlg.del_refused_title': 'Suppression impossible', 'dlg.del_refused_unavailable': 'Son dossier de bibliothèque est inaccessible. Connectez-le, puis réessayez.',
+    'dlg.del_refused_taken': 'Son dossier de bibliothèque est utilisé par une autre application.', 'dlg.del_refused_permission': 'Autorisez l’accès à son dossier de bibliothèque, puis réessayez.',
+  },
+  'zh-CN': {
+    'dlg.del_refused_title': '无法删除', 'dlg.del_refused_unavailable': '无法访问其库文件夹。请连接后重试。',
+    'dlg.del_refused_taken': '其库文件夹正被其他应用使用。', 'dlg.del_refused_permission': '请允许访问其库文件夹，然后重试。',
+  },
+  ko: {
+    'dlg.del_refused_title': '삭제할 수 없음', 'dlg.del_refused_unavailable': '라이브러리 폴더에 접근할 수 없습니다. 연결한 뒤 다시 시도하세요.',
+    'dlg.del_refused_taken': '라이브러리 폴더를 다른 앱에서 사용 중입니다.', 'dlg.del_refused_permission': '라이브러리 폴더에 대한 접근을 허용한 뒤 다시 시도하세요.',
+  },
+  'zh-TW': {
+    'dlg.del_refused_title': '無法刪除', 'dlg.del_refused_unavailable': '無法存取其資料庫資料夾。請連接後再試一次。',
+    'dlg.del_refused_taken': '其資料庫資料夾正由其他應用程式使用。', 'dlg.del_refused_permission': '請允許存取其資料庫資料夾，然後再試一次。',
+  },
+  es: {
+    'dlg.del_refused_title': 'No se pudo eliminar', 'dlg.del_refused_unavailable': 'No se puede acceder a su carpeta de biblioteca. Conéctala y vuelve a intentarlo.',
+    'dlg.del_refused_taken': 'Otra aplicación está usando su carpeta de biblioteca.', 'dlg.del_refused_permission': 'Permite el acceso a su carpeta de biblioteca y vuelve a intentarlo.',
+  },
+  'pt-BR': {
+    'dlg.del_refused_title': 'Não foi possível excluir', 'dlg.del_refused_unavailable': 'Não é possível acessar a pasta da biblioteca. Conecte-a e tente de novo.',
+    'dlg.del_refused_taken': 'Outro app está usando a pasta da biblioteca.', 'dlg.del_refused_permission': 'Permita o acesso à pasta da biblioteca e tente de novo.',
+  },
+  ru: {
+    'dlg.del_refused_title': 'Не удалось удалить', 'dlg.del_refused_unavailable': 'Папка библиотеки недоступна. Подключите её и повторите попытку.',
+    'dlg.del_refused_taken': 'Папку библиотеки использует другое приложение.', 'dlg.del_refused_permission': 'Разрешите доступ к папке библиотеки и повторите попытку.',
+  },
+  vi: {
+    'dlg.del_refused_title': 'Không xóa được', 'dlg.del_refused_unavailable': 'Không truy cập được thư mục thư viện. Hãy kết nối rồi thử lại.',
+    'dlg.del_refused_taken': 'Thư mục thư viện đang được ứng dụng khác dùng.', 'dlg.del_refused_permission': 'Hãy cho phép truy cập thư mục thư viện rồi thử lại.',
+  },
+  id: {
+    'dlg.del_refused_title': 'Tidak dapat dihapus', 'dlg.del_refused_unavailable': 'Folder pustakanya tidak dapat dijangkau. Hubungkan, lalu coba lagi.',
+    'dlg.del_refused_taken': 'Folder pustakanya sedang digunakan oleh aplikasi lain.', 'dlg.del_refused_permission': 'Izinkan akses ke folder pustakanya, lalu coba lagi.',
+  },
+};
+for (const [lang, strings] of Object.entries(deleteRefusedCopy)) Object.assign(LOCALES[lang], strings);

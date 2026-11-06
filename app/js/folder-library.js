@@ -340,8 +340,8 @@ async function folderRemove(id, { moveTo = null, discard = false } = {}) {
   }
   const galleries = (await _placedIn(id)).length;
   const now = await K.access(id);
-  if (!discard && !(now.state === 'granted' && now.owned)) {   // its removal couldn't write back
-    const n = (await _unsavedIn(id)).length;
+  if (!discard && !(now.state === 'granted' && now.owned)) {   // its removal couldn't write back, nor delete what it owes
+    const n = (await _unsavedIn(id)).length + (await K.deletions(id)).length;
     if (n) _refuse('unsaved', `${n} galleries have changes not saved to library folder ${id}`, { galleries: n });
   }
   await K.folderWrite((store, tx) => {
@@ -414,10 +414,12 @@ async function _setAside(id, { onProgress = () => {}, stopped = () => false } = 
   if (await K.usable(id, { work })) for (const g of required) if (!saved.has(String(g.galleryId)) && await _writeBack(id, g)) saved.add(String(g.galleryId));
   const end = await halt();
   if (end) return end;
-  // The notes of linked sources let go from it (deleted before, or moved out above) written there: one
-  // still owed is as unsaved as a gallery (forgotten, the folder would add its source again).
+  // The notes of linked sources let go from it (deleted before, or moved out above) written there, and
+  // the folders of galleries deleted from it (or moved out) deleted: one still owed is as unsaved as a
+  // gallery (forgotten, the folder would add its source, or the gallery, again).
   await K.publishRemoved(id, work);
-  const owed = (await K.removedNotes(id)).map(n => n.gid);
+  await K.applyDeletions(id, work).catch(() => {});
+  const owed = [...await K.removedNotes(id), ...await K.deletions(id)].map(n => n.gid);
   const place = await still();
   const { forget, unsaved } = removalOutcome({ required: [...required.map(g => String(g.galleryId)), ...owed], saved, discard: !!place.removal?.discard });
   if (!forget) {
@@ -474,6 +476,7 @@ async function _forget(id) {
   const owed = await K.removedNotes(id);   // written, or lost by the person's choice
   await K.folderWrite((store, tx) => { store.delete(id); for (const n of owed) store.delete(n.id); K.logIn(tx, '*'); });
   await K.forgetRetiring(id).catch(() => {});   // files it would have deleted there stay with the folder
+  await K.forgetDeletions(id).catch(() => {});  // and galleries' folders likewise
   await K.forgetAttention(id).catch(() => {});
   folderFiles.forgetFolder(id);
   K.muchLater();
@@ -502,10 +505,12 @@ async function _dropRecords(folder) {
 // removed among them (IndexedDB 19 made it one being removed, so its removal writes back what only the
 // library has of it before forgetting it). Galleries an earlier version set aside (the dormant store)
 // are brought back first — out of the library still while their folder is hidden or being removed —
-// and notes of removed sources still owed to a folder are written there (db.js publishRemoved).
+// notes of removed sources still owed to a folder are written there (db.js publishRemoved), and
+// galleries' folders a deletion let go are deleted (db.js applyDeletions).
 async function foldersPending() {
   await _unsetAside().catch(() => {});
   for (const id of new Set((await K.removedNotes().catch(() => [])).map(n => n.folder))) K.publishRemoved(id);
+  K.applyDeletions().catch(() => {});
   const { removing } = await K.folders();
   return { setAside: [...removing.values()].map(f => ({ id: f.id, name: f.name || '', moving: !!f.removal?.moveTo })) };
 }
@@ -606,7 +611,11 @@ async function _check(id, { onProgress = () => {}, stopped = () => false } = {})
   const step = _steps(run, onProgress);
 
   step.begin('lf.task_checking', 0);
-  const found = await _walk(run, new Set(kept.filter(g => !g.linked).map(g => g.dir.toLowerCase())));
+  // Galleries' folders a deletion let go are deleted first; one still waiting isn't looked into: never
+  // adopted again, whole or half deleted (N2, N4).
+  await K.applyDeletions(id).catch(() => {});
+  const deleting = (await K.deletions(id).catch(() => [])).map(d => d.dir);
+  const found = await _walk(run, new Set([...kept.filter(g => !g.linked).map(g => g.dir), ...deleting].map(d => d.toLowerCase())));
   const titles = await _linkedTitles(run, found, step);
   const plan = matchSources({ found: titles, kept: kept.filter(g => g.linked).map(g => ({ gid: String(g.galleryId), source: g.linked })),
     overlays: await _overlaysOf(id, root), known: run.known, removed: await _removedOf(run) });

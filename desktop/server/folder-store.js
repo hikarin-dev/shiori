@@ -13,8 +13,9 @@
 // - A gallery's folder in format v2 (the app's js/storage/gallery-manifest.js has the rules): galleryIn
 //   (whose it is: principle 2), reserveIn (the only way a folder becomes a gallery's), writeNewIn (a new
 //   file never written over one), publishIn (a generation committed by one atomic manifest write),
-//   deleteNamedIn (only files still as Shiori recorded writing them), loadGallery (a folder read back
-//   by its manifest, or by v1's rules).
+//   deleteNamedIn (only files still as Shiori recorded writing them), deleteGalleryIn (a gallery's
+//   folder deleted by name), undescribedAt / bindIn (a folder an earlier version never described, given
+//   its gallery's identity), loadGallery (a folder read back by its manifest, or by v1's rules).
 // - folderStore(library): the contract over `disk`. open(ref, { purpose }) is the library's own root
 //   resolver (folders.js reach: the folder's path holds it — principle 1 — and its state and claim
 //   allow the purpose) and hands out a Root; a Root's galleries, reservations, sources and .shiori/
@@ -427,6 +428,79 @@ export async function deleteNamedIn(dir, list, { emptied: tidy = true } = {}) {
     }
   }
   return { deleted, kept };
+}
+
+// Gallery `gid`'s own folder `dir` emptied by name (gallery-manifest.js galleryDeletion, principle 4):
+// the pictures the library recorded writing there (`named`: [{ name, size, mtime }]) and those its
+// manifest records, each while it is as recorded; then its descriptions, each while it is the
+// gallery's; then what names it, its manifest last. The folder itself, once it holds no file, is the
+// library's to delete (with Windows' own delete: files.js _delete). A folder that names the gallery
+// (galleryIn) is emptied so; one that names no gallery — what named it gone already (a deletion cut
+// short), or put there by hand — loses only the files the library recorded writing, each while it is
+// as recorded; one gone, or another gallery's, is left as it is. Resolves whether the deletion is done
+// — whatever it had to leave: a person's file, one changed since Shiori wrote it — or is to be tried
+// again (false: something there couldn't be read or deleted now).
+export async function deleteGalleryIn(dir, gid, named) {
+  const whose = await galleryIn(dir, String(gid));
+  if (whose.kind === 'unreadable') return false;
+  if (whose.kind === 'missing' || (whose.kind === 'conflict' && whose.found != null)) return true;
+  const now = whose.kind === 'ok' ? await manifestIn(dir, String(gid)) : contract.MISSING;
+  if (now.kind === 'unreadable') return false;
+  const area = format.areaOf(dir.split(path.sep).join('/'));
+  const plan = format.galleryDeletion({ area, manifest: now.kind === 'ok' ? now.value : null, named });
+  const { kept } = await deleteNamedIn(dir, plan.pictures, { emptied: false });
+  if (kept.some(k => k.why === 'unreadable')) return false;
+  if (whose.kind !== 'ok') return true;
+  try {
+    const drop = async (rel) => {
+      const text = await textOr(within(dir, rel));
+      if (text != null && await format.isOwnDescription(rel, text, String(gid), area)) await disk.rm(within(dir, rel));
+    };
+    for (const rel of plan.descriptions) await drop(rel);
+    for (const name of await disk.readdir(within(dir, plan.stored)).catch((e) => { if (lost(e)) return []; throw e; })) await drop(`${plan.stored}/${name}`);
+    for (const rel of plan.identity) await drop(rel);
+  } catch { return false; }
+  return true;
+}
+
+// What gallery folder `dir`, as the index has it for gallery `gid`, is to its first start in this
+// build (plan §10, the orchestrator after S6): 'match' — it names no gallery, holds no description, and
+// its pictures are exactly those the library recorded writing there (`named`: path → { size, mtime };
+// gallery-manifest.js undescribedMatch), as an earlier desktop version could leave a folder it never
+// described — 'described' or 'mismatch' (it stays a conflict), or what galleryIn says otherwise ('ok':
+// it names the gallery; 'conflict': another; 'missing'; 'unreadable'). Read only: the owner's dry run
+// asks it too.
+export async function undescribedAt(dir, gid, named) {
+  const whose = await galleryIn(dir, String(gid));
+  if (whose.kind !== 'conflict' || whose.found != null) return whose.kind;
+  try {
+    const texts = {};
+    for (const name of content.OWN_FILES) texts[name] = await textOr(within(dir, name));
+    return format.undescribedMatch({ texts, named, found: await picturesIn(dir) });
+  } catch { return 'unreadable'; }
+}
+// Gallery folder `dir` ('match' to undescribedAt) bound to its gallery: generation `next` (a manifest
+// without its descriptions) published there with its descriptions `texts` — each file made exclusively,
+// never over one, the manifest last — so the folder names the gallery from now on. The one way besides
+// a reservation (reserveIn) that a folder becomes a gallery's, for those an earlier version made and
+// never described. Cut short, what it made goes again. `hide(abs)` as for publishIn. Resolves the token.
+export async function bindIn(dir, next, texts, { hide = () => {} } = {}) {
+  const plan = await format.publication({ area: '.shiori/', prev: null, next, texts });
+  const made = [];
+  try {
+    await disk.mkdir(within(dir, format.storedDir('.shiori/')), { recursive: true });
+    try { hide(within(dir, '.shiori')); } catch {}
+    for (const f of [...plan.writes, ...plan.stable.filter(s => s.text != null)]) {
+      await disk.mkdir(path.dirname(within(dir, f.path)), { recursive: true });
+      await disk.writeFile(within(dir, f.path), f.text, { flag: 'wx' });
+      made.push(f.path);
+    }
+    await replaceFile(within(dir, format.manifestPath('.shiori/')), plan.text);
+  } catch (e) {
+    for (const f of made) await disk.rm(within(dir, f), { force: true }).catch(() => {});
+    throw e;
+  }
+  return format.tokenOf(plan.manifest);
 }
 
 // The picture files gallery folder `dir` holds where the gallery format puts them (gallery-manifest.js

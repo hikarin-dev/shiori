@@ -221,7 +221,7 @@ test('a series keeps its members in "<Series> Ch. 001" folders with series.json;
   await whole(library);
 });
 
-test('deleting a gallery deletes its folder outright, with the library\'s own delete', async (t) => {
+test('deleting a gallery deletes its folder, emptied by name, with the library\'s own delete', async (t) => {
   const removed = [];
   const library = await open(t, { remove: async (p) => { removed.push(p); fs.rmSync(p, { recursive: true, force: true }); } });
   const gid = '1790000000030';
@@ -405,10 +405,13 @@ test('translations, study layers and masks are written under their layout names,
   await library.files.flush();
   assert.deepEqual(derived(dir), []);
 
+  // A deletion takes each file the gallery recorded writing by name (principle 4) — the translation not
+  // published yet among them — then the folder, left with no file, whole.
   await library.putTranslatedPage(at, png(11), null);
   await library.deleteGallery(gid);
   await settle(); await settle();
-  assert.deepEqual(removed, [[dir, ['translated/0001.png']]], 'the folder is deleted with its translation in it');
+  assert.deepEqual(removed, [[dir, []]], 'the folder goes once its translation has, by name');
+  assert.equal(fs.existsSync(dir), false);
 });
 
 test('a translation written before its gallery settles gives the gallery its folder', async (t) => {

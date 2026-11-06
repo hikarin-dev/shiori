@@ -13,7 +13,7 @@ format).
 |---|---|
 | `contract.js` | The folder store contract as JSDoc types, and the helpers that build and judge its typed results. |
 | `gallery-files.js` | The gallery format: file names and layout, the descriptions, which file holds each picture in a folder of format v1. |
-| `gallery-manifest.js` | Format v2: a gallery's manifest (the only writer and parser), what a publication writes and may collect, how a gallery's folder is read back (by its manifest, else by v1's rules), deletion's check of a file against what Shiori recorded. |
+| `gallery-manifest.js` | Format v2: a gallery's manifest (the only writer and parser), what a publication writes and may collect, how a gallery's folder is read back (by its manifest, else by v1's rules), deletion's check of a file against what Shiori recorded, what a gallery's deletion takes, when a folder an earlier version never described may take its gallery's identity. |
 | `folder-content.js` | What a folder or archive in a library folder is: a gallery of Shiori's, a series, or neither. |
 | `folder-owner.js` | Which app keeps a library folder: its claim file and how to read it. |
 | `folder-lifecycle.js` | A library folder's states, what each allows (the write gate), its jobs, how a removal ends. |
@@ -53,7 +53,11 @@ The desktop's adapter is `desktop/server/folder-store.js`, over node fs.
   reader. A folder without a manifest is format v1, read by today's rules; a file its descriptions
   name that isn't there is a problem (`missing-file`), never a cue to fall back. Deletion takes the
   exact files Shiori recorded writing, by name, size and modification time (`deleteNamed`): a file
-  changed since is left and reported.
+  changed since is left and reported. A whole gallery's folder goes the same way
+  (`galleryDeletion`): its recorded pictures, its descriptions, what names it last; a person's own
+  file keeps the folder. Its deletion is recorded by the transaction that deletes the gallery, so a
+  close or crash only delays it, and a check never adopts a folder waiting for it. A deletion whose
+  folder can't be written to now is refused (`unavailable`).
 - **Committed and published.** A write's promise resolves once the library's own index has
   committed it; the folder holds it once a manifest naming it is published.
 

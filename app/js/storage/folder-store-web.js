@@ -20,7 +20,8 @@
 // (gallery-manifest.js has the rules): galleryIn (whose it is: principle 2), reserveDir (the only way a
 // folder becomes a gallery's), writeNew (a name no file has, never making the gallery's folder again),
 // publishIn (a generation committed by one manifest written whole), deleteNamedIn (only files still as
-// Shiori recorded writing them), loadGallery (a folder read back by its manifest, or by v1's rules).
+// Shiori recorded writing them), deleteGalleryIn (a gallery's folder deleted by name), loadGallery (a
+// folder read back by its manifest, or by v1's rules).
 //
 // folderStore(gate) is the contract over these: open(ref, { purpose }) weighs the folder as the
 // library's gate has it (its handle, its state, this page's permission, whether the handle reaches it,
@@ -31,7 +32,7 @@ import { MANIFEST_FILE, OWN_FILES, LIBRARY_FILE, galleryAt, libraryIdOf } from '
 import { refusalFor } from './folder-lifecycle.js';
 import { SOURCE_FILE, parseSource } from './linked-source.js';
 import { PICTURE_DIRS, isPictureName, areaOf, manifestPath, storedDir, storedHash, parseManifest, publication, firstGeneration, tokenOf, sizesOf,
-  matches, unchanged, readGallery } from './gallery-manifest.js';
+  matches, unchanged, readGallery, galleryDeletion, isOwnDescription } from './gallery-manifest.js';
 
 /** @typedef {import('./contract.js').ReadResult<Uint8Array>} ReadBytes */
 /** @typedef {import('./contract.js').ListResult} ListResult */
@@ -413,6 +414,51 @@ export async function deleteNamedIn(id, root, dir, files) {
     }
   }
   return { deleted, kept };
+}
+
+/** Gallery `gid`'s own folder `dir` deleted by name (gallery-manifest.js galleryDeletion, principle 4):
+ * the pictures the library recorded writing there (`named`) and those its manifest records, each while
+ * it is as recorded; then its descriptions, each while it is the gallery's; then what names it, its
+ * manifest last; then the folders left empty, the gallery's own among them. A folder that names the
+ * gallery (galleryIn) is deleted so; one that names no gallery — what named it gone already (a deletion
+ * cut short), or put there by hand — loses only the files the library recorded writing, each while it
+ * is as recorded; one gone, or another gallery's, is left as it is. `dir` is a folder (an archive is the
+ * caller's). Resolves whether the deletion is done — whatever it had to leave: a person's file, one
+ * changed since Shiori wrote it — or is to be tried again (false: something there couldn't be read or
+ * deleted now).
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @param {string} gid
+ * @param {{ name: string, size: number, mtime?: number | null }[]} named @returns {Promise<boolean>} */
+export async function deleteGalleryIn(id, root, dir, gid, named) {
+  const whose = await galleryIn(id, root, dir, gid);
+  if (whose.kind === 'unreadable') return false;
+  if (whose.kind === 'missing' || (whose.kind === 'conflict' && whose.found != null)) return true;
+  const now = whose.kind === 'ok' ? await manifestIn(id, root, dir, gid) : MISSING;
+  if (now.kind === 'unreadable') return false;
+  const area = areaOf(dir);
+  const plan = galleryDeletion({ area, manifest: now.kind === 'ok' ? now.value : null, named });
+  const { kept } = await deleteNamedIn(id, root, dir, /** @type {import('./contract.js').WrittenFile[]} */ (plan.pictures));
+  if (kept.some(k => k.why === 'unreadable')) return false;
+  if (whose.kind !== 'ok') { await _prune(id, root, dir); return true; }
+  try {
+    /** @param {string} rel */
+    const drop = async (rel) => {
+      const text = await readText(id, root, _join(dir, rel));
+      if (text != null && await isOwnDescription(rel, text, gid, area)) await removeFile(id, root, _join(dir, rel));
+    };
+    for (const rel of plan.descriptions) await drop(rel);
+    for (const e of await list(id, root, _join(dir, plan.stored))) if (e.kind === 'file') await drop(`${plan.stored}/${e.name}`);
+    for (const rel of plan.identity) await drop(rel);
+  } catch { return false; }
+  await _prune(id, root, dir);
+  return true;
+}
+/** The folders under `dir` left empty, then `dir` itself once it is, removed — as far as they can be.
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @returns {Promise<void>} */
+async function _prune(id, root, dir) {
+  let entries;
+  try { entries = await list(id, root, dir); } catch { return; }
+  for (const e of entries) if (e.kind === 'directory') await _prune(id, root, _join(dir, e.name));
+  if (!(await list(id, root, dir).catch(() => [null])).length) await removeDir(id, root, dir).catch(() => {});
 }
 
 /** The picture files gallery folder `dir` holds where the gallery format puts them (PICTURE_DIRS):

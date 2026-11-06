@@ -10,7 +10,10 @@
 //   it (T06), or are reported when their file is gone;
 // - galleries kept as folders, archives and linked overlays: each becomes format v2 at its next
 //   publication; those with changes waiting are published soon after the first start;
-// - galleries in the desktop's oldest format (shiori.json), converted at the next check (D18).
+// - galleries in the desktop's oldest format (shiori.json), converted at the next check (D18);
+// - galleries' folders an earlier version made but never described (pictures only): how many get their
+//   identity at the first start (files.js _bindUndescribed: holding no description and exactly the
+//   pictures the index recorded) and how many stay conflicts, listed under Needs attention.
 //
 // Usage (the app closed or not — the index is copied, never opened in place):
 //   node desktop/scripts/migration-dry-run.mjs "<data folder>" [--library "<first library folder>"]
@@ -29,6 +32,8 @@ const ROOTED = /^@([0-9a-f]{16})\/(.*)$/;
 // galleries }. `libraryDir`: its first library folder, when the index doesn't say.
 export async function dryRun(dataDir, { libraryDir = null } = {}) {
   const { content } = await import('../server/shared.js');
+  const { recordedFiles } = await import('../server/files.js');
+  const { undescribedAt } = await import('../server/folder-store.js');
   const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-dry-run-'));
   try {
     for (const name of ['library.db', 'library.db-wal', 'library.db-shm']) {
@@ -92,7 +97,21 @@ export async function dryRun(dataDir, { libraryDir = null } = {}) {
           pending: count('pending = 1'),
           oldestFormat: has('pages') ? rows(`SELECT count(DISTINCT p.gid) AS n FROM pages p JOIN files f ON f.gid = p.gid WHERE f.format = 'folder'
             AND json_extract(p.orig, '$.at') = 'p' AND instr(json_extract(p.orig, '$.entry'), '/') = 0`)[0].n : 0,
+          undescribed: { bound: 0, conflicts: 0, unreachable: 0 },
         };
+        // The folders never published (no stamp) that name no gallery, as the first start weighs them.
+        const unstamped = has('stamps') ? `AND gid NOT IN (SELECT gid FROM stamps)` : '';
+        for (const row of rows(`SELECT gid, path FROM files WHERE format = 'folder' AND source IS NULL ${unstamped}`)) {
+          const at = abs(row.path);
+          const pages = has('pages') ? rows('SELECT orig, record FROM pages WHERE gid = ?', row.gid) : [];
+          const cover = has('covers') ? db.prepare('SELECT record FROM covers WHERE gid = ?').get(row.gid)?.record : null;
+          const named = new Map([...recordedFiles(pages, cover ? JSON.parse(cover) : null)].map(([name, [size, mtime]]) => [name, { size, mtime }]));
+          const found = at ? await undescribedAt(at, row.gid, named) : 'unreadable';
+          const u = out.galleries.undescribed;
+          if (found === 'match') u.bound++;
+          else if (found === 'described' || found === 'mismatch' || found === 'conflict') u.conflicts++;
+          else if (found === 'unreadable') u.unreachable++;
+        }
       }
       return out;
     } finally { db.close(); }
@@ -111,6 +130,9 @@ function print(r) {
     say(`Galleries: ${g.folders} kept as folders, ${g.archives} as archives, ${g.linked} linked — each becomes format v2 at its next publication.`);
     say(`  ${g.pending} with changes waiting: published soon after the first start.`);
     say(`  ${g.oldestFormat} in the oldest format (shiori.json): converted at the next check of their folder.`);
+    const u = g.undescribed;
+    say(`  Folders never described (pictures only): ${u.bound} get their identity at the first start, ${u.conflicts} stay conflicts (Needs attention)`
+      + `${u.unreachable ? `, ${u.unreachable} couldn't be looked at (their folder out of reach)` : ''}.`);
   }
   say('Nothing was changed.');
 }

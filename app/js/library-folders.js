@@ -86,6 +86,16 @@ async function moveAll(ids, to, { series = true } = {}) {
   return { failed, error };
 }
 
+// A deletion the library refused because its gallery's folder can't be changed now (BackendError
+// 'unavailable' with the folder's refusal as its `reason`: out of reach, another library's folder at
+// its place, another app's, or this page without leave), said in a dialog. Resolves whether it was one.
+const DELETE_REFUSED = { 'not-owned': 'dlg.del_refused_taken', 'no-permission': 'dlg.del_refused_permission' };
+export async function deleteRefused(err) {
+  if (err?.code !== 'unavailable' || !err.reason) return false;
+  await alertDialog({ title: t('dlg.del_refused_title'), body: t(DELETE_REFUSED[err.reason] || 'dlg.del_refused_unavailable'), tone: 'error' });
+  return true;
+}
+
 // Gallery `gid` (a series owner: its series) moved to another of the library's places, asking where.
 export async function moveGalleryTo(gid, current) {
   const all = await api.folders.list();
@@ -411,7 +421,7 @@ export async function initLibraryFolders() {
     }
     if (button.dataset.act === 'att-delete' && items[0]?.gid) {
       if (!(await confirmDialog({ danger: true, title: t('lf.att_delete_title'), body: t('lf.att_delete_body'), ok: t('lf.att_delete') }))) return;
-      try { await api.galleries.delete(items[0].gid); await api.folders.dismiss(f.id, items[0]); } catch (err) { failed(err); }
+      try { await api.galleries.delete(items[0].gid); await api.folders.dismiss(f.id, items[0]); } catch (err) { if (!(await deleteRefused(err))) failed(err); }
       render();
     }
   });

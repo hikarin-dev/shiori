@@ -135,6 +135,8 @@ export const galleries = _typed({
   create: (gid, meta = {}) => { _metadataOnly(meta); return backend.galleryCreate(_gid(gid), meta); },
   mutate: (gid, patch, opts) => { _metadataOnly(patch); return backend.mutateGallery(_gid(gid), patch, opts); },
   recount: (gid, opts) => backend.rebuildGalleryEntry(_gid(gid), opts),
+  // Refused (BackendError 'unavailable', `reason` its folder's refusal) while the library folder the
+  // gallery is kept in can't be changed now; a series command that deletes galleries likewise.
   delete:  (gid) => backend.deleteGallery(_gid(gid)),
   // The gallery this page's reader shows (null: none). A library that writes a gallery's files in
   // the background writes them once the reader leaves it — for another, or by closing.

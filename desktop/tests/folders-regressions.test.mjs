@@ -590,7 +590,9 @@ test('F01: another folder at a library folder\'s path is not it, and a gallery\'
   fs.writeFileSync(path.join(other, 'Same Name', 'personal-notes.txt'), 'mine');
   library.folders._probes.clear();   // its claim as last read, gone stale
   const listed = (await library.foldersList()).find(f => f.id === id);
-  await library.deleteGallery(kept);
+  // S7 (D3): a deletion its folder can't take now is refused, and the gallery stays.
+  assert.equal(await reason(library.deleteGallery(kept)), 'other-library');
+  assert.ok(library._metaGet(kept), 'the gallery stays');
   await sleep(100);
   assert.equal(listed.access, 'other-library');   // S5: told apart from a folder out of reach (principle 1)
   assert.ok(fs.existsSync(path.join(dir, 'away', 'Replaced', 'notes.txt')), 'the folder put in the gallery\'s place stays');
