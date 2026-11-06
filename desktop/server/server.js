@@ -31,7 +31,7 @@ export const OPS = new Set([
   'metaGetAllMap', 'resolveGalleryId', 'galleryCreate', 'mutateGallery', 'rebuildGalleryEntry', 'deleteGallery',
   'metaGet', 'metaGetAll', 'metaPut',
   'seriesResolve', 'seriesChapters', 'seriesCommand', 'refreshSeriesAggregate',
-  'pageList', 'pageHas', 'pageGet', 'getGalleryImageRecords', 'getPageBlob', 'pagePut', 'deleteStaleGalleryImages',
+  'pageList', 'pageSources', 'pageHas', 'pageGet', 'getGalleryImageRecords', 'getPageBlob', 'pagePut', 'deleteStaleGalleryImages',
   'putTranslatedPage', 'putTranslatedImage', 'putPageStudy', 'setPagesOwn', 'clearGalleryTranslations',
   'listGalleryStudyRecords', 'putPageData',
   'coverGet', 'coverThumbnailGet', 'coverPreviewGet', 'coverThumbnailPut', 'coverPut',

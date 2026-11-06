@@ -14,7 +14,7 @@ import * as folderFiles from './storage/folder-store-web.js';
 import { OWNER_FILE, readClaim, access, nextClaim, claimText } from './storage/folder-owner.js';
 import { mounted, writeAllowed } from './storage/folder-lifecycle.js';
 import { galleryIdOf, seriesOf } from './storage/folder-content.js';
-import { REMOVED_FILE, overlayDir, parseRemoved, removedText, withRemoved, provenanceOf } from './storage/linked-source.js';
+import { REMOVED_FILE, overlayDir, parseRemoved, removedText, withRemoved, provenanceOf, pageToken, madeFromPage } from './storage/linked-source.js';
 import { createFolderLibrary } from './folder-library.js';
 import { zipEntries } from './zip-read.js';
 import { imageSize, medianPage, describePage } from './page-size.js';
@@ -680,6 +680,9 @@ platform.control.on((msg) => { if (msg?.type === 'FOLDERS_CHANGED') _forgetFolde
 // library and untouched since — is claimed here first, and read back: of two apps claiming it at once
 // only one goes on. One another app holds, or whose claim can't be read, is read, never written.
 // Another library folder at its handle's path is neither read, claimed, scanned nor written (T01).
+// What a folder reached allows is taken as it is for GRANT_TTL_MS; one out of reach, another library's
+// at its place or without leave is asked again the next time, so one back is used at once (S8: a
+// folder whose drive came back couldn't be checked for five seconds).
 async function _access(id) {
   if (!id) return { state: 'unavailable', owned: false, claim: null };
   const hit = _grants.get(id);
@@ -689,7 +692,7 @@ async function _access(id) {
   if (state === 'granted') { const here = await folderFiles.identityOf(id, folder.handle); if (here !== 'ok') state = here; }
   const held = state === 'granted' ? await _holds(folder).catch(() => ({ owned: false, claim: { state: 'damaged' } })) : { owned: false, claim: null };
   const out = { state, ...held, at: Date.now() };
-  _grants.set(id, out);
+  if (state === 'granted') _grants.set(id, out); else _grants.delete(id);
   return out;
 }
 // The write gate: folder `id`'s handle when this context may change its files now — it can be
@@ -1102,15 +1105,32 @@ async function _deletions(folder = null) {
 // recorded writing, its descriptions, what names it last, then the folders left empty); an archive, or
 // one of its own another library describes it by, whole while it is the gallery's (_ownsDir). A record
 // goes, with its files' notes, once that is done, or once the folder is found gone, or another's or no
-// one's (nothing deleted then); one that can't be done now stays. Resolves whether none of `folder`'s
-// waits.
+// one's (nothing deleted then); one that can't be done now stays. What a deletion leaves in a gallery's
+// folder — files Shiori didn't make, or changed since it wrote them — stays the person's, never joining
+// the library as a gallery of its own: every title a check would find there is noted as removed in the
+// folder's removed.json, as it is now (folder-library.js leftBehind), and the folder is reported once on
+// its Needs attention list ('left', kept until dismissed) before its record goes. Resolves whether none
+// of `folder`'s waits.
 async function _applyDeletions(folder = null, work = null) {
   for (const d of await _deletions(folder)) {
     await folderFiles.withLock(`shiori:deleting:${d.folder}`, async () => {
       if (!(await _deletions(d.folder)).some(x => x.id === d.id)) return;   // done meanwhile, in another context
       const root = await _rootOf(d.folder, { work }).catch(() => null);
       const named = async () => (await _retiringOf(d.folder, d.dir)).map(r => ({ name: r.path, size: r.size, mtime: r.mtime }));
-      if (!root || !await _deleteDir(d.folder, root, d.dir, d.gid, named)) return;
+      // A deleted gallery's folder is deleted under the gallery's lock, so a publication of it begun
+      // before the deletion lands first (none starts for a gallery that is gone: _describe) and its
+      // folder isn't written again once deleted (S8). A gallery still there (one moved away: the folder it
+      // left) is no longer published there, and its mover may hold the lock, awaiting this.
+      const gone = !(await galleryGet(d.gid));
+      const deleteDir = () => _deleteDir(d.folder, root, d.dir, d.gid, named);
+      const done = root && await (gone ? folderFiles.withLock(`shiori:gallery:${d.gid}`, deleteDir) : deleteDir());
+      if (!done) return;
+      if (done === 'left') {
+        const titles = await _folderLibrary.leftBehind(d.folder, root, d.dir);
+        if (titles.length && !await _publishRemoved(d.folder, work, titles)) return;
+        await _note(d.folder, { reason: 'left', path: d.dir, gid: d.gid }, { event: true });
+        platform.control.send({ type: 'FOLDERS_CHANGED' });
+      }
       await _forgetRetiring(d.folder, d.dir);
       await _recordsWrite((store) => store.delete(d.id));
     }).catch(() => {});
@@ -1120,8 +1140,8 @@ async function _applyDeletions(folder = null, work = null) {
 // Gallery `gid`'s own folder `dir` (in folder `folder`, its handle `root`) deleted: an archive whole
 // while it is the gallery's (_ownsDir); a folder by name (folderFiles.deleteGalleryIn, `named()` the
 // files the library recorded writing there: all of it while it names the gallery, those files alone
-// while it names none). Resolves whether that is done (false: something there couldn't be read or
-// deleted now).
+// while it names none). Resolves whether that is done ('left': something was left there; false:
+// something there couldn't be read or deleted now).
 async function _deleteDir(folder, root, dir, gid, named) {
   const file = await folderFiles.readFile(folder, root, dir).catch(() => undefined);
   if (file === undefined) return false;
@@ -1226,17 +1246,21 @@ async function _removedNotes(id = null) {
 // once (two deletes, two tabs, the service worker) all stay — through the write gate (`work` as
 // _rootOf). A note is cleared only once it is written; one that can't be now (the folder may not be
 // written to, its list can't be read) waits: tried again as a page opens (foldersPending), at the
-// folder's next check, and by its removal, which doesn't forget a folder still owed one. Resolves
-// whether it wrote every note it found.
-async function _publishRemoved(id, work = null) {
+// folder's next check, and by its removal, which doesn't forget a folder still owed one. Each note
+// carries its source's fingerprint as its files are now (folder-library.js fingerprintNow), not as the
+// index last had it: a source changed in place and removed before a check noticed is removed all the
+// same (N3). `also`: sources noted with them, as they are (what a deletion left: _applyDeletions).
+// Resolves whether it wrote every note it found.
+async function _publishRemoved(id, work = null, also = []) {
   return folderFiles.withLock(`shiori:removed:${id}`, async () => {
     const notes = await _removedNotes(id);
-    if (!notes.length) return true;
+    if (!notes.length && !also.length) return true;
     const root = await _rootOf(id, { work }).catch(() => null);
     if (!root) return false;
     try {
       let list = parseRemoved(await folderFiles.readText(id, root, REMOVED_FILE));
-      for (const n of notes) list = withRemoved(list, n.linked);
+      const now = async (s) => ({ ...s, fingerprint: await _folderLibrary.fingerprintNow(id, root, s) ?? s.fingerprint ?? null });
+      for (const source of [...await Promise.all(notes.map(n => now(n.linked))), ...also]) list = withRemoved(list, source);
       await folderFiles.writeFile(id, root, REMOVED_FILE, removedText(list));
     } catch { return false; }
     const db = await openDB();
@@ -3819,11 +3843,16 @@ const RETIRED_FIELDS = ['translatedLang', 'translatedConfig', 'translatedOutputH
 // A page's translation: its output image and the pipeline data that produced it (page-data.js).
 // Study layers belong to one translation, so a new one drops the page's previous layers. A null
 // `image` means the page is its study layers, stored next (page-image.js). `own` names the
-// translation whose settings the page keeps from now on; undefined leaves that as is.
+// translation whose settings the page keeps from now on; undefined leaves that as is. `source`: the
+// page's source token the translation was made from (pageSources); one the page no longer shows is
+// refused, checked before any picture is written and again as the record commits (linked-source.js
+// madeFromPage).
 // `at` is the page's { galleryId, pageNum } (or, until every caller moves, its key) — as for every
 // write below.
-export async function putTranslatedPage(at, image, pipeline, own) {
+export async function putTranslatedPage(at, image, pipeline, own, source) {
+  const shows = (rec) => !rec || madeFromPage(source, pageToken(_sourcePicture(rec)));
   await _pageWrite(at, { translated: image ?? undefined, pipeline: pipeline ?? undefined }, (rec, made) => {
+    if (!shows(rec)) return false;
     delete rec.studyBg;
     delete rec.studyPage;
     delete rec.bubbles;
@@ -3834,6 +3863,19 @@ export async function putTranslatedPage(at, image, pipeline, own) {
     else delete rec.pipeline;
     if (own) rec.own = own;
     else if (own !== undefined) delete rec.own;
+  }, shows);
+}
+// Gallery `galleryId`'s pages' source tokens, { [pageNum]: token } (linked-source.js pageToken), read
+// before their pictures are for work done away from the library (a translation), which gives each back
+// with its result (putTranslatedPage `source`).
+export async function pageSources(galleryId) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = _tx(db, STORE, 'readonly');
+    const req = tx.objectStore(STORE).index('galleryId').getAll(IDBKeyRange.only(String(galleryId)));
+    tx.oncomplete = () => resolve(Object.fromEntries(_numbered(req.result || []).filter(r => r.pageNum != null)
+      .map(r => [r.pageNum, pageToken(_sourcePicture(r))])));
+    tx.onerror = () => reject(_txError(tx));
   });
 }
 

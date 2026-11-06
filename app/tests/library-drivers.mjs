@@ -7,13 +7,61 @@
 //
 // The website's library is one per process (db.js is a module): webLibrary() hands out the one, its
 // earlier folders and galleries forgotten first (clearAll, once their folders are gone from the disk,
-// so nothing is deleted there). Its restart (a page loaded again) isn't offered yet: a fresh copy of
-// every module over the same IndexedDB is left for when a model run needs it.
+// so nothing is deleted there). Its restart is a page loaded again: every timer the page's modules set
+// cleared (what it had scheduled never runs), then a fresh copy of every app module (app/js, each
+// imported as `?gen=<n>`: generation) over the same IndexedDB and folders, which does what a page does
+// as it opens (foldersPending, settleFolders). Work the old page had under way, awaiting a read or a
+// write, still ends (a page closed a moment later). Each copy stays loaded (Node unloads no module:
+// about 1.5 MB each), so a process offers RESTARTS_AT_MOST of them. The one module that changes the
+// globals it runs in (disk-writes.js: IndexedDB's prototypes, to count writes) is loaded once — a
+// copy per page would count every write once per page, each counting the others' counts for ever.
 import fs from 'node:fs';
 import path from 'node:path';
+import { registerHooks } from 'node:module';
 import * as fsa from './fsa-node.mjs';
 import { written as desktopWritten } from '../../desktop/server/folder-store.js';
-import { written as websiteWritten } from '../js/storage/folder-store-web.js';
+
+// ── Page generations (the website's restart) ──
+const APP_JS = new URL('../js/', import.meta.url).href;
+const ONCE = new Set([`${APP_JS}disk-writes.js`]);
+const RESTARTS_AT_MOST = 400;
+let generation = 0;
+let hooked = false;
+// The generation of the app module that called (the first frame of `stack` past this file's), or null
+// for a caller outside app/js.
+const callerGeneration = (stack) => {
+  const frame = String(stack).split('\n').slice(2).find(l => !l.includes(import.meta.url));
+  const at = frame?.match(/(file:\/\/\/[^\s)]+?)(\?gen=(\d+))?:\d+:\d+\)?$/);
+  return at && at[1].startsWith(APP_JS) ? Number(at[3] ?? 0) : null;
+};
+const timers = new Map();   // a timer an app module set → its generation
+function hookGenerations() {
+  if (hooked) return;
+  hooked = true;
+  // An app module imported by one of generation n is of generation n.
+  registerHooks({
+    resolve(specifier, context, nextResolve) {
+      const r = nextResolve(specifier, context);
+      const gen = context.parentURL && /[?&]gen=(\d+)/.exec(context.parentURL)?.[1];
+      return gen && r.url.startsWith(APP_JS) && !r.url.includes('?') && !ONCE.has(r.url) ? { ...r, url: `${r.url}?gen=${gen}` } : r;
+    },
+  });
+  for (const [set, clear] of [['setTimeout', 'clearTimeout'], ['setInterval', 'clearInterval']]) {
+    const original = globalThis[set], cleared = globalThis[clear];
+    globalThis[set] = function (fn, ms, ...args) {
+      const gen = callerGeneration(new Error().stack);
+      if (gen == null || typeof fn !== 'function') return original(fn, ms, ...args);
+      const handle = original((...a) => { if (set === 'setTimeout') timers.delete(handle); fn(...a); }, ms, ...args);
+      timers.set(handle, gen);
+      return handle;
+    };
+    globalThis[clear] = function (handle) { timers.delete(handle); return cleared(handle); };
+  }
+}
+// Every timer generation `gen`'s modules set, cleared: the page is closed.
+function closePage(gen) {
+  for (const [handle, g] of timers) if (g === gen) { clearTimeout(handle); clearInterval(handle); timers.delete(handle); }
+}
 
 // The windows' channel, heard by nobody here (Node's own would keep the process alive, and tell other
 // test files' libraries nothing they should hear).
@@ -33,7 +81,8 @@ const typed = (type) => (bytes) => new Blob([bytes], { type });
  *   list(): Promise<any[]>, dismiss(id: string, item: { reason: string, path: string }): Promise<void>,
  *   newGallery(name: string): Promise<string>,
  *   putPage(gid: string, n: number, bytes: Uint8Array, type?: string): Promise<void>,
- *   putTranslation(gid: string, n: number, bytes: Uint8Array, type?: string): Promise<void>,
+ *   putTranslation(gid: string, n: number, bytes: Uint8Array, type?: string, source?: string): Promise<void>,
+ *   sources(gid: string): Promise<Record<number, string>>,
  *   setTitle(gid: string, name: string): Promise<void>,
  *   deleteGallery(gid: string): Promise<void>,
  *   move(gid: string, to: string): Promise<void>,
@@ -82,13 +131,15 @@ export async function desktopLibrary(base) {
     async setDefault(id) { await lib.folderSetDefault(id); },
     async hide(id) { await lib.folderHide(id); },
     async show(id) { await lib.folderShow(id); },
-    async remove(id, opts) { await lib.folderRemove(id, opts); await lib.folders.job(id)?.catch(() => {}); },
+    // The removal's write-back runs as a job; one that can't finish rejects (the folder stays).
+    async remove(id, opts) { await lib.folderRemove(id, opts); await lib.folders.job(id); },
     scan: (id) => lib.folderScan(id),
     list: () => lib.foldersList(),
     dismiss: (id, item) => lib.folderDismiss(id, item),
     async newGallery(name) { const gid = String(lib.nextGalleryId()); await lib.metaPut({ galleryId: gid, title: title(name) }); return gid; },
     async putPage(gid, n, bytes, type = 'image/png') { await lib.pagePut(gid, n, typed(type)(bytes)); },
-    async putTranslation(gid, n, bytes, type = 'image/png') { await lib.putTranslatedPage({ galleryId: gid, pageNum: n }, typed(type)(bytes), null); },
+    async putTranslation(gid, n, bytes, type = 'image/png', source) { await lib.putTranslatedPage({ galleryId: gid, pageNum: n }, typed(type)(bytes), null, undefined, source); },
+    sources: (gid) => lib.pageSources(gid),
     async setTitle(gid, name) { await lib.metaPut({ ...(await lib.metaGet(gid)), title: title(name) }); },
     async deleteGallery(gid) { await lib.deleteGallery(gid); },
     async move(gid, to) { await lib.moveGallery(gid, to); },
@@ -108,8 +159,15 @@ export async function desktopLibrary(base) {
   };
 }
 
-let web = null;          // db.js, once imported
+let web = null;          // db.js, once imported (the page's generation's)
+let webWritten = null;   // its folder store adapter's write counts
 const webFolders = new Map();   // folder id → its path, for the folders the website's library was handed
+// The page's app modules, of generation `generation`.
+async function loadPage() {
+  const q = generation ? `?gen=${generation}` : '';
+  web = await import(`${APP_JS}db.js${q}`);
+  webWritten = (await import(`${APP_JS}storage/folder-store-web.js${q}`)).written;
+}
 /** The website's library, with no folders or galleries but those added from now on.
  * @returns {Promise<Driver>} */
 export async function webLibrary() {
@@ -117,17 +175,18 @@ export async function webLibrary() {
     await import('fake-indexeddb/auto');
     globalThis.BroadcastChannel = Quiet;
     fsa.install();
-    web = await import('../js/db.js');
+    hookGenerations();
+    await loadPage();
   } else {
     fsa.reset();
     await web.clearAll({ folders: true });
     webFolders.clear();
   }
-  const db = web;
+  let db = web;
   return {
     app: 'website',
     home: db.BROWSER,
-    raw: db,
+    get raw() { return db; },
     async add(dir, opts) {
       const { id } = await db.folderAdd(fsa.directory(dir), opts);
       webFolders.set(id, path.resolve(dir));
@@ -147,12 +206,13 @@ export async function webLibrary() {
       const old = (await db.pageList(gid)).find(p => p.pageNum === n);
       await db.pagePut(gid, n, typed(type)(bytes), old ? { key: old.url } : {});
     },
-    async putTranslation(gid, n, bytes, type = 'image/png') { await db.putTranslatedPage({ galleryId: gid, pageNum: n }, typed(type)(bytes), null); },
+    async putTranslation(gid, n, bytes, type = 'image/png', source) { await db.putTranslatedPage({ galleryId: gid, pageNum: n }, typed(type)(bytes), null, undefined, source); },
+    sources: (gid) => db.pageSources(gid),
     async setTitle(gid, name) { await db.metaPut({ ...(await db.metaGet(gid)), title: title(name) }); },
     async deleteGallery(gid) { await db.deleteGallery(gid); },
     async move(gid, to) { await db.moveGallery(gid, to); },
     async takeOver(id) { claimElsewhere(/** @type {string} */ (webFolders.get(id))); },
-    written: websiteWritten,
+    written: () => webWritten(),
     pdfsWaiting: () => db.pdfsWaiting(),
     pdfSource: (folder, gid) => db.pdfSource(folder, gid),
     addRendered: (folder, gid, pages, token) => db.addRendered(folder, gid, pages.map(typed('image/png')), token),
@@ -166,7 +226,15 @@ export async function webLibrary() {
       return root && stat.dir && !stat.packed ? path.join(root, ...stat.dir.split('/')) : null;
     },
     async flush() { await db.settleFolders(); },
-    restart: null,
+    // The page loaded again (above): what it had scheduled never runs; what it had under way ends.
+    restart: generation < RESTARTS_AT_MOST ? async () => {
+      closePage(generation);
+      generation++;
+      await loadPage();
+      db = web;
+      await db.foldersPending();
+      await db.settleFolders();
+    } : null,
     async close() {},
   };
 }

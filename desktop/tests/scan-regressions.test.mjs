@@ -385,13 +385,11 @@ test('A14: a linked source renamed, or changed, never overwrites the library\'s 
   fs.renameSync(path.join(other, 'Loose'), path.join(other, 'Renamed'));
   assert.equal((await library.folderScan(id)).updated, 1, 'found where it is now');
   assert.equal((await library.metaGet(gid)).title.english, 'Edited in library', 'a rename');
+  // Changed while its edits wait: they are written to its overlay first, then it is read again (S8).
   mk(other, 'Renamed/2.png', pngBytes(2));
   assert.equal(rowOf(library, gid).pending, 1);
-  assert.equal((await library.folderScan(id)).updated, 0, 'changed, but its edits wait to be written: not read again');
-  assert.equal((await library.metaGet(gid)).title.english, 'Edited in library', 'a change');
-  await library.files.describe(gid, { all: true });
-  assert.equal((await library.folderScan(id)).updated, 1, 'read once they are written');
-  assert.deepEqual([(await library.metaGet(gid)).title.english, (await library.getGallery(gid)).count], ['Edited in library', 2]);
+  assert.equal((await library.folderScan(id)).updated, 1, 'changed: its edits written first, then read again');
+  assert.deepEqual([(await library.metaGet(gid)).title.english, (await library.getGallery(gid)).count], ['Edited in library', 2], 'a change');
 });
 
 test('A19: a check sweeps temporary files only once no write can be making them; staging under the data folder too', async (t) => {

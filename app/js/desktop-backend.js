@@ -26,7 +26,7 @@ import { activeDesktop, findDesktop, savedLocation, setLocation } from './librar
 const OPS = ['galleriesPage', 'galleriesCount', 'galleryIdsSorted', 'getGallery', 'getGalleriesByIds', 'getStats', 'tagCounts',
   'metaGetAllMap', 'resolveGalleryId', 'galleryCreate', 'mutateGallery', 'rebuildGalleryEntry', 'deleteGallery',
   'metaGet', 'metaGetAll', 'metaPut', 'seriesResolve', 'seriesChapters', 'seriesCommand', 'refreshSeriesAggregate',
-  'pageList', 'pageHas', 'pageGet', 'getGalleryImageRecords', 'pagePut', 'deleteStaleGalleryImages',
+  'pageList', 'pageSources', 'pageHas', 'pageGet', 'getGalleryImageRecords', 'pagePut', 'deleteStaleGalleryImages',
   'putTranslatedPage', 'putTranslatedImage', 'putPageStudy', 'setPagesOwn', 'clearGalleryTranslations',
   'listGalleryStudyRecords', 'putPageData', 'coverGet', 'coverThumbnailGet', 'coverPreviewGet', 'coverThumbnailPut', 'coverPut',
   'sourceIconGet', 'sourceIconsAll', 'sourceIconPut', 'transferIds', 'transferRead', 'transferWrite',
@@ -263,6 +263,7 @@ export const seriesChapters = ownCall('seriesChapters');
 export const seriesCommand = ownCall('seriesCommand');
 export const refreshSeriesAggregate = ownCall('refreshSeriesAggregate');
 export const pageList = ownCall('pageList');
+export const pageSources = ownCall('pageSources');
 export const pageHas = ownCall('pageHas');
 export const pageGet = ownCall('pageGet');
 export const getGalleryImageRecords = ownCall('getGalleryImageRecords');

@@ -423,11 +423,11 @@ export async function deleteNamedIn(id, root, dir, files) {
  * gallery (galleryIn) is deleted so; one that names no gallery — what named it gone already (a deletion
  * cut short), or put there by hand — loses only the files the library recorded writing, each while it
  * is as recorded; one gone, or another gallery's, is left as it is. `dir` is a folder (an archive is the
- * caller's). Resolves whether the deletion is done — whatever it had to leave: a person's file, one
- * changed since Shiori wrote it — or is to be tried again (false: something there couldn't be read or
- * deleted now).
+ * caller's). Resolves whether the deletion is done — true, or 'left' when what it emptied still holds
+ * files: a person's, or one changed since Shiori wrote it — or is to be tried again (false: something
+ * there couldn't be read or deleted now).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @param {string} gid
- * @param {{ name: string, size: number, mtime?: number | null }[]} named @returns {Promise<boolean>} */
+ * @param {{ name: string, size: number, mtime?: number | null }[]} named @returns {Promise<boolean | 'left'>} */
 export async function deleteGalleryIn(id, root, dir, gid, named) {
   const whose = await galleryIn(id, root, dir, gid);
   if (whose.kind === 'unreadable') return false;
@@ -438,19 +438,21 @@ export async function deleteGalleryIn(id, root, dir, gid, named) {
   const plan = galleryDeletion({ area, manifest: now.kind === 'ok' ? now.value : null, named });
   const { kept } = await deleteNamedIn(id, root, dir, /** @type {import('./contract.js').WrittenFile[]} */ (plan.pictures));
   if (kept.some(k => k.why === 'unreadable')) return false;
-  if (whose.kind !== 'ok') { await _prune(id, root, dir); return true; }
-  try {
-    /** @param {string} rel */
-    const drop = async (rel) => {
-      const text = await readText(id, root, _join(dir, rel));
-      if (text != null && await isOwnDescription(rel, text, gid, area)) await removeFile(id, root, _join(dir, rel));
-    };
-    for (const rel of plan.descriptions) await drop(rel);
-    for (const e of await list(id, root, _join(dir, plan.stored))) if (e.kind === 'file') await drop(`${plan.stored}/${e.name}`);
-    for (const rel of plan.identity) await drop(rel);
-  } catch { return false; }
+  if (whose.kind === 'ok') {
+    try {
+      /** @param {string} rel */
+      const drop = async (rel) => {
+        const text = await readText(id, root, _join(dir, rel));
+        if (text != null && await isOwnDescription(rel, text, gid, area)) await removeFile(id, root, _join(dir, rel));
+      };
+      for (const rel of plan.descriptions) await drop(rel);
+      for (const e of await list(id, root, _join(dir, plan.stored))) if (e.kind === 'file') await drop(`${plan.stored}/${e.name}`);
+      for (const rel of plan.identity) await drop(rel);
+    } catch { return false; }
+  }
   await _prune(id, root, dir);
-  return true;
+  // Pruned, it is gone unless something is left in it.
+  return (await list(id, root, dir).catch(() => [])).length ? 'left' : true;
 }
 /** The folders under `dir` left empty, then `dir` itself once it is, removed — as far as they can be.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @returns {Promise<void>} */

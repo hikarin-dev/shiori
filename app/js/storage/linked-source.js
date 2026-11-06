@@ -140,6 +140,19 @@ export const provenanceOf = (p) => ({ name: p.name, size: p.size ?? 0, ...(typeo
  * @param {{ name: string, size: number, crc?: string, mtime?: number }} recorded @param {{ name: string, size: number | null, crc?: string, mtime?: number }} page
  * @returns {boolean} */
 export const sameProvenance = (recorded, page) => JSON.stringify(provenanceOf(recorded)) === JSON.stringify(provenanceOf(page));
+// A page's source token (principle 7, a translation in flight): what work made from a page's picture
+// away from the library — a translation — is bound to. Both apps hand it out before the picture is read
+// (pageSources), the work gives it back with its result, and the result is kept only while the page
+// still shows that picture (madeFromPage): one made from a source picture a check has since read anew
+// (changed in place, or another now) is refused and changes nothing. A linked page's token is its
+// source picture's provenance, content signal included; a page of the library's own has '' — its
+// picture changes only by the library's own writes.
+/** @param {{ name: string, size: number | null, crc?: string | null, mtime?: number | null } | null | undefined} provenance @returns {string} */
+export const pageToken = (provenance) => (provenance ? JSON.stringify(provenanceOf(provenance)) : '');
+/** Whether a result made from a page's picture read as `token` may be kept now that the page's token is
+ * `now`. No token (work handed out before tokens were): kept, as before.
+ * @param {unknown} token @param {string} now @returns {boolean} */
+export const madeFromPage = (token, now) => token == null || token === now;
 
 /** @param {string} path @returns {boolean} */
 const _hidden = (path) => path.split('/').some(s => s.startsWith('.') || s === '__MACOSX');

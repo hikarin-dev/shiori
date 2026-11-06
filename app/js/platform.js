@@ -291,7 +291,8 @@ export const jobsPending = {
 };
 
 // Token-reattach records for in-flight translations: { gid, token, serverUrl, settings,
-// pendingUrls, total, cursor, phase }. One per active gallery translation, claimed before upload
+// pendingUrls, pendingSources (each page's source token, api.js pages.sources), total, cursor, phase }.
+// One per active gallery translation, claimed before upload
 // and removed when it finishes. The
 // server owns the job (keyed by token); this lets ANY page — after a navigation, or a service
 // worker Chrome killed at its ~5-min cap — re-attach to the exact same job by token and resume

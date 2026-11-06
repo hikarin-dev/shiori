@@ -329,6 +329,9 @@ async function startTranslationUnlocked(galleryId, ts, send, { forceFrom, pages,
       send({ status: 'error', error: 'the translation server could not describe its pipeline' });
     };
 
+    // What each page shows, read before its picture is: a translation made from a picture the page no
+    // longer shows when it comes back is refused (api.js pages.sources).
+    const sources = resume ? null : await api.pages.sources(gid);
     const records = (await api.pages.all(gid)).filter(r => r.blob ?? r.dataUrl);
     const byUrl = new Map(records.map(r => [r.url, r]));
     const total = Number(resume && resume.total) || records.length;
@@ -405,7 +408,8 @@ async function startTranslationUnlocked(galleryId, ts, send, { forceFrom, pages,
       resume = {
         gid, token: jobToken, job, serverUrl, settings: ts, langCode, translator: tlName, cap,
         sourceUrl, forceFrom, resolved, config, context, group: group.own, pin: group.pin, more: group.more,
-        after, pages, pendingUrls: pending.map(p => p.url), total, cursor: 0, phase: 'uploading',
+        after, pages, pendingUrls: pending.map(p => p.url), pendingSources: pending.map(p => sources?.[p.pageNum] ?? ''),
+        total, cursor: 0, phase: 'uploading',
       };
       const claimed = await translateResume.claim(resume);
       if (claimed === 'exists') return;
@@ -544,7 +548,7 @@ export async function pollTranslation(galleryId, send = () => {}) {
   const poll = { token: rec.token };
   _polling.set(gid, poll);
   try {
-    const { token, job, serverUrl, pendingUrls, settings, langCode, translator, cap, total } = rec;
+    const { token, job, serverUrl, pendingUrls, pendingSources, settings, langCode, translator, cap, total } = rec;
     if (!_staged.has(token)) _staged.set(token, new Map());
     const staged = _staged.get(token);
     const cursor = rec.cursor || 0;
@@ -601,10 +605,11 @@ export async function pollTranslation(galleryId, send = () => {}) {
           // Stored as a Blob (data URLs cost ~33% more), together with the data that produced it —
           // or, when none came back (snapshots are off, or a worker with other builds), only
           // which translation made it; a page that keeps its own settings keeps this translation's.
-          // No image: the page is its study data, in the frame that follows.
+          // No image: the page is its study data, in the frame that follows. Kept only while the page
+          // still shows the picture it was made from (`source`; a record from before tokens has none).
           const n = await at(url);
           if (n != null) await api.derived.putTranslation(gid, n, { image: payload.length ? new Blob([payload], { type: _imgMime(payload) }) : null,
-            pipeline: page ? { job, ...page.record, masks: page.masks } : { job }, own: rec.pin ? job : undefined });
+            pipeline: page ? { job, ...page.record, masks: page.masks } : { job }, own: rec.pin ? job : undefined, source: pendingSources?.[idx] });
         } else {
           let study = null; try { study = JSON.parse(dec.decode(payload)); } catch {}
           if (study && Array.isArray(study.bubbles) && study.bubbles.length) {

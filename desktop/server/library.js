@@ -33,9 +33,9 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { DatabaseSync } from 'node:sqlite';
-import { plans, model, titles, pageSize, files as galleryFilesModule, galleryExport, lifecycle, BackendError } from './shared.js';
+import { plans, model, titles, pageSize, files as galleryFilesModule, galleryExport, lifecycle, linked as linkedSource, BackendError } from './shared.js';
 import { disk, folderStore, writeNewIn } from './folder-store.js';
-import { FileLibrary, libraryId } from './files.js';
+import { FileLibrary, libraryId, sourceToken } from './files.js';
 import { Folders } from './folders.js';
 import { WriteMeter } from './writes.js';
 import * as linked from './linked.js';
@@ -46,6 +46,7 @@ const { normalizeTitle, migrateTitle } = titles;
 const { medianPage, describePage, headerSize } = pageSize;
 const { galleryFiles, layoutPath, extOfType, originalExt } = galleryFilesModule;
 const { exportSize } = galleryExport;
+const { madeFromPage } = linkedSource;
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -1445,6 +1446,11 @@ export class Library {
       .map(r => ({ pageNum: r.n, url: r.key }));
   }
 
+  // Each page's source token, { [pageNum]: token } (db.js pageSources).
+  async pageSources(galleryId) {
+    return Object.fromEntries(this._s('SELECT n, orig FROM pages WHERE gid = ?').all(String(galleryId)).map(r => [r.n, sourceToken(parse(r.orig))]));
+  }
+
   async getGalleryImageRecords(galleryId) {
     return Promise.all(this._pageRows(galleryId).map(r => this._readRecord(r)));
   }
@@ -1559,11 +1565,12 @@ export class Library {
   }
 
   // ── Page-derived data ──
-  // A page record changed by `change(rec)` (true when it changed it), with `value`'s Blobs written to
-  // the gallery's folder first. Resolves whether the page was there and changed.
-  async _derive(at, value, change, { size = true } = {}) {
+  // A page record changed by `change(rec, stored, row)` (true when it changed it), with `value`'s Blobs
+  // written to the gallery's folder first — once `ready(row)` (its row as it is) says to write at all.
+  // Resolves whether the page was there and changed.
+  async _derive(at, value, change, { size = true, ready = () => true } = {}) {
     const found = this._pageAt(at);
-    if (!found) return false;
+    if (!found || !ready(found)) return false;
     const { value: stored, fresh, moves } = await this._externalize(value, found.gid, `p${found.n}`,
       { own: true, place: (keys, blob) => pageFileFor(keys, found.n, blob.type) });
     let changed = false;
@@ -1571,7 +1578,7 @@ export class Library {
       const row = this._pageAt(at);
       if (!row || row.gid !== found.gid || row.n !== found.n) return;   // gone, or moved meanwhile
       const rec = this._rowRecord(row);
-      if (change(rec, stored) === false) return;
+      if (change(rec, stored, row) === false) return;
       this._pageRewrite(row, rec);
       this._logIn(row.gid);
       this._commitOwn(moves);
@@ -1582,8 +1589,12 @@ export class Library {
     return true;
   }
 
-  async putTranslatedPage(at, image, pipeline, own) {
-    await this._derive(at, { image, pipeline }, (rec, { image: img, pipeline: pipe }) => {
+  // `source`: the page's source token the translation was made from (pageSources); one the page no
+  // longer shows is refused (db.js putTranslatedPage).
+  async putTranslatedPage(at, image, pipeline, own, source) {
+    const shows = (row) => madeFromPage(source, sourceToken(parse(row.orig)));
+    await this._derive(at, { image, pipeline }, (rec, { image: img, pipeline: pipe }, row) => {
+      if (!shows(row)) return false;
       delete rec.studyBg;
       delete rec.studyPage;
       delete rec.bubbles;
@@ -1594,7 +1605,7 @@ export class Library {
       else delete rec.pipeline;
       if (own) rec.own = own;
       else if (own !== undefined) delete rec.own;
-    });
+    }, { ready: shows });
   }
 
   async putPageData(at, data) {

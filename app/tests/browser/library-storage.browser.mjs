@@ -791,7 +791,7 @@ test('A10: a removal moving its galleries to a place that can\'t take them now i
 test('A14: a linked folder renamed while the library has changes not written to it yet keeps those changes', { skip }, async () => {
   await fresh(async (ctx) => {
     const page = await tab(ctx);
-    const { id, gid } = await page.evaluate(async () => {
+    const out = await page.evaluate(async () => {
       const api = window.__api, t = window.__t;
       await t.write('A14/Loose/1.png', await t.png(30));
       const { id } = await api.folders.add(await t.folder('A14'));
@@ -800,16 +800,11 @@ test('A14: a linked folder renamed while the library has changes not written to 
       const gid = String(g.galleryId);
       await api.meta.put({ ...(await api.meta.get(gid)), title: t.T('Edited in library') });
       await t.move('A14/Loose', 'A14/Loose Renamed');
-      const scan = await api.folders.scan(id);
-      return { id, gid, scan: scan.updated, title: (await api.galleries.get(gid)).title.english };
-    }).then(async (r) => { assert.deepEqual([r.scan, r.title], [0, 'Edited in library'], 'the edit waiting to be written wins'); return r; });
-    await settled(page, gid);
-    const out = await page.evaluate(async ({ id, gid }) => {
-      const api = window.__api, t = window.__t;
+      // The edit waiting is written to its overlay first, then the rename followed (S8).
       const scan = await api.folders.scan(id);
       return { scan: scan.updated, title: (await api.galleries.get(gid)).title.english, path: (await t.raw('galleries', gid)).linked.path };
-    }, { id, gid });
-    assert.deepEqual(out, { scan: 1, title: 'Edited in library', path: 'Loose Renamed' }, 'once written, the rename is followed, the edit kept');
+    });
+    assert.deepEqual(out, { scan: 1, title: 'Edited in library', path: 'Loose Renamed' }, 'the rename is followed, the edit kept');
   });
 });
 

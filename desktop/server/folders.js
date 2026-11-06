@@ -30,7 +30,7 @@ import crypto from 'node:crypto';
 import { owner as claims, lifecycle, linked as linkedSource, contract, BackendError } from './shared.js';
 import { libraryId, identityAt } from './files.js';
 import { scanLibrary } from './scan.js';
-import { fingerprintNow } from './linked.js';
+import { fingerprintNow, titlesIn } from './linked.js';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS roots (
@@ -248,10 +248,12 @@ export class Folders {
   // when the folder first joined a library: files.js libraryId), 'other-library' (a folder there whose
   // library.json names another, or none), or 'unavailable' (no folder there, or its library.json can't
   // be read). Read again once IDENTITY_TTL has passed, after an I/O call in a library folder failed
-  // (folder-store.js ioFailures), or when `fresh`.
+  // (folder-store.js ioFailures), or when `fresh`. Only 'ok' is taken as it is meanwhile: a folder out
+  // of reach, or another at its path, is looked at again by the next read, so one brought back is read
+  // at once (S8: a drive plugged back in read nothing for two seconds).
   _identity(row, { fresh = false } = {}) {
     const hit = this._ids.get(row.id);
-    if (!fresh && hit && hit.path === row.path && hit.failures === ioFailures() && Date.now() - hit.at < IDENTITY_TTL) return hit.status;
+    if (!fresh && hit?.status === 'ok' && hit.path === row.path && hit.failures === ioFailures() && Date.now() - hit.at < IDENTITY_TTL) return hit.status;
     const status = identityAt(row.path, row.id);
     this._ids.set(row.id, { status, path: row.path, failures: ioFailures(), at: Date.now() });
     return status;
@@ -871,25 +873,43 @@ export class Folders {
   // a check reads it), not as the index last had it. A note is cleared only once it is written; one
   // that can't be now waits — tried again at the app's next start, the folder's next check, and by its
   // removal, which doesn't forget a folder still owed one. Resolves whether none waits.
-  publishRemoved(root, { work = null } = {}) {
-    const run = (this._removed.get(root) || Promise.resolve()).then(() => this._publishRemoved(root, work));
+  publishRemoved(root, { work = null } = {}) { return this._inRemoved(root, () => this._publishRemoved(root, work)); }
+  // `fn` once the writes to folder `root`'s removed.json before it have ended: one at a time per folder.
+  _inRemoved(root, fn) {
+    const run = (this._removed.get(root) || Promise.resolve()).then(fn);
     this._removed.set(root, run.catch(() => {}));
     return run;
+  }
+  // Folder `root`'s removed.json read, `sources` noted in it (linked-source.js withRemoved, each with its
+  // fingerprint as given) and written whole, through the gate (`work` as writable). Rejects when it can't be.
+  async _writeRemoved(root, sources, work) {
+    this.assertWritable(root, work);
+    const file = path.join(this.dir(root), ...linkedSource.REMOVED_FILE.split('/'));
+    let list = linkedSource.parseRemoved(await disk.readFile(file, 'utf8').catch((e) => { if (e.code === 'ENOENT') return null; throw e; }));
+    for (const s of sources) list = linkedSource.withRemoved(list, s);
+    await disk.mkdir(path.dirname(file), { recursive: true });
+    await replaceFile(file, Buffer.from(linkedSource.removedText(list)));
+  }
+  // What folder `rel` of folder `root` holds (what a gallery's deletion left there: files.js _leftBehind),
+  // noted as removed now — every title a check would find in it, as its files are now (linked.js
+  // titlesIn) — so no check adds it as a gallery. Rejects when it can't be.
+  noteRemovedIn(root, rel, { work = null } = {}) {
+    return this._inRemoved(root, async () => {
+      const titles = await titlesIn(this.library, root, rel);
+      if (titles.length) await this._writeRemoved(root, titles, work);
+    });
   }
   async _publishRemoved(root, work) {
     const lib = this.library;
     const notes = lib._s('SELECT gid, overlay, source FROM removed_notes WHERE root = ?').all(root);
     if (!notes.length) return true;
     try {
-      this.assertWritable(root, work);
-      const file = path.join(this.dir(root), ...linkedSource.REMOVED_FILE.split('/'));
-      let list = linkedSource.parseRemoved(await disk.readFile(file, 'utf8').catch((e) => { if (e.code === 'ENOENT') return null; throw e; }));
+      const sources = [];
       for (const n of notes) {
         const source = parse(n.source);
-        list = linkedSource.withRemoved(list, { ...source, fingerprint: await fingerprintNow(lib, root, source) ?? source.fingerprint });
+        sources.push({ ...source, fingerprint: await fingerprintNow(lib, root, source) ?? source.fingerprint });
       }
-      await disk.mkdir(path.dirname(file), { recursive: true });
-      await replaceFile(file, Buffer.from(linkedSource.removedText(list)));
+      await this._writeRemoved(root, sources, work);
     } catch (e) {
       console.warn(`[shiori] removed sources couldn't be noted in library folder ${root} yet:`, String(e?.message || e));
       return false;

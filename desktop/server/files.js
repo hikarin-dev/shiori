@@ -140,6 +140,8 @@ const parse = (s) => (s == null ? null : JSON.parse(s));
 // The source picture a linked gallery's page shows (`orig` at 'x'), as its descriptions record it:
 // name, size and content signal (linked-source.js provenanceOf, principle 7).
 const provenance = (orig) => linkedSource.provenanceOf({ name: orig.entry, size: orig.size ?? 0, crc: orig.crc, mtime: orig.mtime });
+// A page's source token (linked-source.js pageToken) from where its original is (`orig`).
+export const sourceToken = (orig) => linkedSource.pageToken(orig?.at === 'x' ? provenance(orig) : null);
 const extOfName = (name) => String(name ?? '').match(/\.(\w+)$/)?.[1]?.toLowerCase();
 // The files of a gallery's own that its records name in its folder, as the index recorded writing
 // them: path → [size, mtime] (mtime 0 where none was recorded) — each page there (`orig` at 'p') and
@@ -822,6 +824,11 @@ export class FileLibrary {
       if ((root != null && at !== root) || !lib.folders.writable(at, work)) continue;
       const abs = this._at(d.dir);
       if (!abs) continue;
+      // A publication or settle of the gallery begun before its deletion lands first: none starts for
+      // a gallery that is gone, so its folder isn't written again once it is deleted (S8: a deleted
+      // gallery came back from a manifest its publication under way wrote after the deletion).
+      await this._describing.get(d.gid)?.catch(() => {});
+      await this._placing.get(d.gid)?.catch(() => {});
       let done;
       if (d.files == null) {
         const whose = await this._whose(d.dir, d.gid);
@@ -829,14 +836,31 @@ export class FileLibrary {
       } else {
         done = await deleteGalleryIn(abs, d.gid, JSON.parse(d.files)).catch(() => false);
         // Left with nothing but empty folders, it goes whole, as Explorer deletes (remove.js); one still
-        // holding files Shiori didn't name keeps them, and is left.
-        if (done && !(await filesIn(abs).catch((e) => (e?.code === 'ENOENT' ? [] : [null]))).length && disk.existsSync(abs)) done = await this._delete(abs);
+        // holding files Shiori didn't name keeps them, and is left — theirs (_leftBehind).
+        if (done === 'left') done = await this._leftBehind(at, d, work);
+        else if (done && !(await filesIn(abs).catch((e) => (e?.code === 'ENOENT' ? [] : [null]))).length && disk.existsSync(abs)) done = await this._delete(abs);
       }
       if (!done) continue;
       lib._s('DELETE FROM deleting WHERE dir = ?').run(d.dir);
       await this._tidy(path.dirname(abs)).catch(() => {});
     }
     return !this.deletingIn(root).length;
+  }
+  // What a deletion left in its gallery's folder (`d`, its `deleting` row, in library folder `root`) —
+  // files Shiori didn't make, or changed since it wrote them — stays the person's, never joining the
+  // library as a gallery of its own: every title a check would find there is noted as removed in the
+  // folder's removed.json, as it is now (folders.js noteRemovedIn), and the folder is reported once on
+  // its Needs attention list ('left', an item kept until dismissed). Resolves whether that is done
+  // (false: tried again with the deletion, which a check meanwhile leaves alone).
+  async _leftBehind(root, d, work) {
+    const lib = this.library;
+    const { rest } = this._split(d.dir);
+    try {
+      await lib.folders.noteRemovedIn(root, rest, { work });
+    } catch { return false; }
+    lib.folders.note(root, { reason: 'left', path: rest, gid: d.gid }, { event: true });
+    lib._push('control', { type: 'FOLDERS_CHANGED' });
+    return true;
   }
   // Inside the transaction forgetting library folder `root`: what waited to be deleted there stays.
   forgetDeletionsIn(root) {
@@ -1106,11 +1130,12 @@ export class FileLibrary {
     for (const timers of [this._timers, this._regroupRetries]) {
       for (const id of ids) { clearTimeout(timers.get(id)); timers.delete(id); }
     }
-    await Promise.all([...this._placing.values()]);
+    // What is under way ends first, a failure (tried again later) as well as a success.
+    await Promise.all([...this._placing.values()].map(p => p.catch(() => {})));
     for (const id of ids) await this.place(id).catch(() => {});
     for (const t of this._describeTimers.values()) clearTimeout(t);
     this._describeTimers.clear();
-    await Promise.all([...this._describing.values()]);
+    await Promise.all([...this._describing.values()].map(p => p.catch(() => {})));
     for (const { gid } of this.library._s('SELECT gid FROM files WHERE pending = 1').all()) {
       await this.describe(gid).catch(() => {});
     }
@@ -1606,6 +1631,7 @@ export class FileLibrary {
     if (found.kind !== 'ok') return null;
     const had = lib._s('SELECT stamp FROM stamps WHERE gid = ?').get(String(gid))?.stamp;
     if (!row.pending && had && (await found.dir.manifest()).kind === 'ok') return had;
+    if (!this._row(gid)) return null;   // deleted meanwhile: its deletion, waiting for this, takes the folder
     const { next, texts } = this._generation(gid);
     const { manifest, bytes, changedBoth } = await found.dir.publish({ manifest: next, descriptions: texts, known: had ?? null });
     lib.writes.add('descriptions', bytes);
@@ -1894,16 +1920,19 @@ export class FileLibrary {
         // A linked gallery's copy is a folder of the library's own: reserved — so it names the gallery
         // from its first moment (principle 2) — then given its overlay's pictures alone (its
         // descriptions are published afresh, from the index, in the copy's own .shiori/: D7).
+        // Each file keeps its modification time (Windows' copy does so itself), so the size and time the
+        // gallery's records keep of it still name it there (principle 4): a file let go later is deleted.
         const taken = (src) => !src.endsWith('.shiori-tmp') && !retiring.has(src);
+        const copy = { recursive: true, errorOnExist: true, force: false, preserveTimestamps: true };
         if (row.source) {
           token = this._reserveAt(temp, id);
           for (const d of format.PICTURE_DIRS) {
             const at = path.join(from, ...d.split('/')), into = path.join(temp, ...d.split('/'));
             if (!disk.existsSync(at)) continue;
             await disk.mkdir(path.dirname(into), { recursive: true });
-            await disk.cp(at, into, { recursive: true, errorOnExist: true, force: false, filter: (src) => src === at || (taken(src) && format.isPictureName(src)) });
+            await disk.cp(at, into, { ...copy, filter: (src) => src === at || (taken(src) && format.isPictureName(src)) });
           }
-        } else if (row.format === 'folder') await disk.cp(from, temp, { recursive: true, errorOnExist: true, force: false, filter: taken });
+        } else if (row.format === 'folder') await disk.cp(from, temp, { ...copy, filter: taken });
         else await disk.copyFile(from, temp, disk.constants.COPYFILE_EXCL);
         // A linked gallery's pages in its source: written into it as the gallery format puts them.
         if (row.source) {

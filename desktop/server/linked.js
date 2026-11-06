@@ -126,6 +126,29 @@ async function titleAt(library, root, title, directory = null) {
 export async function fingerprintNow(library, root, source) {
   return (await titleAt(library, root, source).catch(() => null))?.fingerprint ?? null;
 }
+// The titles a check of library folder `root` would find in its folder `rel` ('/'-separated) — every
+// folder of pictures, archive (each of its titles: zipTitles) and PDF there (linked-source.js
+// planTitles) — as [{ kind, path, inner?, fingerprint }], each fingerprint as its files are now (null
+// when they can't be read). Rejects when the folder can't be listed.
+export async function titlesIn(library, root, rel) {
+  const files = [];
+  const walk = async (abs, at) => {
+    for (const item of await disk.readdir(abs, { withFileTypes: true }).catch(ifMissing([]))) {
+      if (item.isDirectory()) await walk(path.join(abs, item.name), `${at}/${item.name}`);
+      else if (item.isFile()) files.push({ path: `${at}/${item.name}` });
+    }
+  };
+  await walk(absIn(library, root, rel), rel);
+  const out = [];
+  for (const t of L.planTitles(files, '', [])) {
+    if (t.kind !== 'zip') { out.push({ kind: t.kind, path: t.path, fingerprint: await fingerprintNow(library, root, t) }); continue; }
+    const abs = await sourceIn(library, root, t.path);
+    const dir = await readDirectory(abs).catch(() => null);
+    const fingerprint = await zipFingerprint(abs).catch(() => null);
+    for (const z of dir ? L.zipTitles([...dir.keys()]) : [{ inner: '' }]) out.push({ kind: 'zip', path: t.path, ...(z.inner ? { inner: z.inner } : {}), fingerprint });
+  }
+  return out;
+}
 // A source as the index keeps it: what it is, where, its fingerprint and (a folder's) its content.
 const sourceOf = (title, at) => ({ kind: title.kind, path: title.path, ...(title.inner ? { inner: title.inner } : {}),
   ...(at?.fingerprint ? { fingerprint: at.fingerprint } : {}), ...(at?.content ? { content: at.content } : {}) });
@@ -414,6 +437,10 @@ export async function linkRoot(library, root, { files = [], own = [], archives =
   for (const c of plan.changed) {
     if (stopped()) return out;
     try {
+      // What the library changed of it and hasn't written yet is published first: read again, it keeps
+      // those changes, and only what was made from a picture that changed goes (S8: a source changed in
+      // place while a change waited kept a translation of its old picture over the new one).
+      if (localChanges(library, c.gid)) await library.files.place(c.gid).then(() => library.files.describe(c.gid)).catch(() => {});
       if (await adoptLinked(library, root, c.title, { replace: c.gid, guard: () => localChanges(library, c.gid), at: atOf(c.title) })) out.updated.push(c.gid);
     } catch (e) { failed(c.title, e); }
     done++;

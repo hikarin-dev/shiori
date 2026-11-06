@@ -204,13 +204,31 @@ const sync = (op, after = null) => (...args) => {
   } catch (e) { failed(e); throw e; }
 };
 const WRITES = /[wa+]/;
+// A folder made inside a library folder, with `recursive`, made one part at a time below the library
+// folder, which is never made itself: a drive taken away (its folder gone) while a write is under way
+// fails the call (ENOENT) instead of making the folder again where it was, with a gallery's folder in it
+// (S8: the model found a write begun just before a drive went making its path again).
+const belowFolder = (file, options) => {
+  if (!options?.recursive || !(typeof file === 'string' || file instanceof URL || Buffer.isBuffer(file))) return null;
+  const abs = path.resolve(String(file)), root = folderAround(abs);
+  return root && root !== abs ? { root, parts: path.relative(root, abs).split(path.sep) } : null;
+};
+const madeOrThere = (e) => { if (e?.code !== 'EEXIST') throw e; };
+const mkdirAsync = promised('mkdir'), mkdirNow = sync('mkdir');
+// Resolves, as fs's recursive mkdir does, the first folder it made (undefined: none).
 export const disk = {
   constants: fs.constants,
   readFile: promised('readFile'),
   writeFile: promised('writeFile', ([file, data]) => count(file, sizeOf(data))),
   stat: promised('stat'),
   readdir: promised('readdir'),
-  mkdir: promised('mkdir'),
+  async mkdir(file, options) {
+    const below = belowFolder(file, options);
+    if (!below) return mkdirAsync(file, options);
+    let at = below.root, first;
+    for (const part of below.parts) { at = path.join(at, part); if (await mkdirAsync(at).then(() => true, madeOrThere)) first ??= at; }
+    return first;
+  },
   rm: promised('rm'),
   rmdir: promised('rmdir'),
   rename: promised('rename'),
@@ -225,7 +243,13 @@ export const disk = {
   statSync: sync('stat'),
   readFileSync: sync('readFile'),
   writeFileSync: sync('writeFile', ([file, data]) => count(file, sizeOf(data))),
-  mkdirSync: sync('mkdir'),
+  mkdirSync(file, options) {
+    const below = belowFolder(file, options);
+    if (!below) return mkdirNow(file, options);
+    let at = below.root, first;
+    for (const part of below.parts) { at = path.join(at, part); try { mkdirNow(at); first ??= at; } catch (e) { madeOrThere(e); } }
+    return first;
+  },
   renameSync: sync('rename'),
   rmSync: sync('rm'),
   rmdirSync: sync('rmdir'),
@@ -438,8 +462,8 @@ export async function deleteNamedIn(dir, list, { emptied: tidy = true } = {}) {
 // (galleryIn) is emptied so; one that names no gallery — what named it gone already (a deletion cut
 // short), or put there by hand — loses only the files the library recorded writing, each while it is
 // as recorded; one gone, or another gallery's, is left as it is. Resolves whether the deletion is done
-// — whatever it had to leave: a person's file, one changed since Shiori wrote it — or is to be tried
-// again (false: something there couldn't be read or deleted now).
+// — true, or 'left' when what it emptied still holds files: a person's, or one changed since Shiori wrote
+// it — or is to be tried again (false: something there couldn't be read or deleted now).
 export async function deleteGalleryIn(dir, gid, named) {
   const whose = await galleryIn(dir, String(gid));
   if (whose.kind === 'unreadable') return false;
@@ -450,17 +474,25 @@ export async function deleteGalleryIn(dir, gid, named) {
   const plan = format.galleryDeletion({ area, manifest: now.kind === 'ok' ? now.value : null, named });
   const { kept } = await deleteNamedIn(dir, plan.pictures, { emptied: false });
   if (kept.some(k => k.why === 'unreadable')) return false;
-  if (whose.kind !== 'ok') return true;
   try {
-    const drop = async (rel) => {
-      const text = await textOr(within(dir, rel));
-      if (text != null && await format.isOwnDescription(rel, text, String(gid), area)) await disk.rm(within(dir, rel));
-    };
-    for (const rel of plan.descriptions) await drop(rel);
-    for (const name of await disk.readdir(within(dir, plan.stored)).catch((e) => { if (lost(e)) return []; throw e; })) await drop(`${plan.stored}/${name}`);
-    for (const rel of plan.identity) await drop(rel);
+    if (whose.kind === 'ok') {
+      const drop = async (rel) => {
+        const text = await textOr(within(dir, rel));
+        if (text != null && await format.isOwnDescription(rel, text, String(gid), area)) await disk.rm(within(dir, rel));
+      };
+      for (const rel of plan.descriptions) await drop(rel);
+      for (const name of await disk.readdir(within(dir, plan.stored)).catch((e) => { if (lost(e)) return []; throw e; })) await drop(`${plan.stored}/${name}`);
+      for (const rel of plan.identity) await drop(rel);
+    }
+    return await holdsFile(dir) ? 'left' : true;
   } catch { return false; }
-  return true;
+}
+// Whether folder `dir` holds a file, in it or in a folder of it (none: it isn't there).
+async function holdsFile(dir) {
+  let items;
+  try { items = await disk.readdir(dir, { withFileTypes: true }); } catch (e) { if (lost(e)) return false; throw e; }
+  for (const e of items) if (!e.isDirectory() || await holdsFile(path.join(dir, e.name))) return true;
+  return false;
 }
 
 // What gallery folder `dir`, as the index has it for gallery `gid`, is to its first start in this

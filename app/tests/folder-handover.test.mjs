@@ -8,7 +8,8 @@
 // slot's bytes matching; a linked ZIP's overlay, its translation on the page it was made for; claims
 // moving between the apps; and a gallery the desktop archived, read in place by the website, changed
 // there (unpacked) and read back by the desktop; and a gallery in the desktop's oldest format, converted
-// by the desktop's check (D18), read by the website. Still to come: a series spread over two folders.
+// by the desktop's check (D18), read by the website; and a series whose chapters one app kept in two
+// library folders, whole again once the other app has both.
 //
 // A case that fails on today's code because of a finding a later step fixes is marked todo with that
 // step (plans/library-storage-plan.md §5).
@@ -131,6 +132,34 @@ const CASES = [
       assert.equal(await from.add(shared, { force: true }), id);
       const seen = (await to.list()).find(f => f.id === id);
       assert.equal(seen?.access, 'taken', 'the other app sees it taken over');
+    },
+  },
+  {
+    // A series whose chapters one app keeps in two library folders: each folder handed over says what
+    // its chapters are of, and the other app puts the series together again from both.
+    name: 'a series kept in two library folders is whole again once the other app has both',
+    async run({ dir, from, to }) {
+      const [A, B] = [path.join(dir, 'A'), path.join(dir, 'B')];
+      const a = await from.add(A), b = await from.add(B);
+      await from.setDefault(a);
+      const owner = await from.newGallery('Saga'), second = await from.newGallery('Saga 2');
+      await from.putPage(owner, 1, png(1, 1));
+      await from.putPage(second, 1, png(2, 1));
+      await from.raw.seriesCommand('write', owner, [{ id: owner, title: 'Ch 1' }, { id: second, title: 'Ch 2' }],
+        { seriesTitle: { english: 'Saga', japanese: '', pretty: '' } });
+      await from.raw.moveGallery(second, b, { series: false });
+      await from.flush();
+      const chapters = async (lib) => (await lib.raw.seriesChapters(owner)).map(c => [c.id, c.title, !!c.entity]);
+      const before = await chapters(from);
+      assert.deepEqual(before, [[owner, 'Ch 1', true], [second, 'Ch 2', true]]);
+      assert.equal(await from.dirOf(second).then(d => d && d.startsWith(B)), true, 'its second chapter in the other folder');
+      await from.remove(a);
+      await from.remove(b);
+      for (const folder of [B, A]) assert.deepEqual((await to.scan(await to.add(folder))).problems, []);
+      assert.deepEqual((await to.galleries()).sort(), [owner, second].sort());
+      assert.deepEqual(await chapters(to), before, 'its chapters, in order, with their titles');
+      assert.deepEqual(await to.read(owner, 1), png(1, 1));
+      assert.deepEqual(await to.read(second, 1), png(2, 1));
     },
   },
 ];

@@ -130,6 +130,33 @@ test('D25: a gallery moved to a folder on the same drive is renamed there, no pi
   await whole(library);
 });
 
+// S8: the copy didn't keep the files' modification times, while the gallery's records keep those they
+// were written with: in the new folder a page replaced later had its old file left as changed outside
+// Shiori, and reported as unused.
+test('a gallery copied to another drive keeps its files as recorded: a page replaced there afterwards has its old file deleted', async (t) => {
+  const { library, other } = await open(t);
+  const { id } = await library.folderAdd(other);
+  const gid = await gallery(library, 'Copied');
+  await library.files.flush();
+  // An hour since they were written, so a copy made now would have another time.
+  const hourAgo = new Date(Date.now() - 3600_000);
+  for (const name of ['0001.png', '0002.png']) fs.utimesSync(path.join(library.libraryDir, 'Copied', 'images', name), hourAgo, hourAgo);
+  for (const r of library._pageRows(gid)) {
+    const orig = JSON.parse(r.orig);
+    library._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify({ ...orig, mtime: hourAgo.getTime() }), gid, r.n);
+  }
+  t.after(failNext((c) => c.op === 'rename' && c.path === slash(path.join(library.libraryDir, 'Copied')), 'EXDEV', { times: Infinity }));
+  await library.moveGallery(gid, id);
+  assert.equal(fs.statSync(path.join(other, 'Copied', 'images', '0001.png')).mtimeMs | 0, hourAgo.getTime() | 0, 'the copy keeps its time');
+  await library.pagePut(gid, 1, new Blob([new Uint8Array([0x52, 0x49, 0x46, 0x46, 3])], { type: 'image/webp' }));
+  await library.files.place(gid);
+  await library.files.flush();
+  assert.ok(!fs.existsSync(path.join(other, 'Copied', 'images', '0001.png')), 'the old file is deleted');
+  await library.folderScan(id);
+  assert.deepEqual((await library.foldersList()).find(f => f.id === id).attention, [], 'nothing left to report');
+  await whole(library);
+});
+
 test('D25: a same-drive move whose switch is refused renames the folder back, the gallery left where it was', async (t) => {
   const { library, other } = await open(t);
   const { id } = await library.folderAdd(other);

@@ -43,7 +43,7 @@ let K = null;   // the kernel db.js hands over (createFolderLibrary)
 export function createFolderLibrary(kernel) {
   K = kernel;
   return { foldersList, foldersWaiting, folderAdd, folderClaim, folderSetDefault, folderAllow, folderHide, folderShow,
-    folderRemove, folderSetAside, foldersPending, folderScan, folderDismiss, pdfsWaiting, pdfSource, addRendered, pdfFailed };
+    folderRemove, folderSetAside, foldersPending, folderScan, folderDismiss, pdfsWaiting, pdfSource, addRendered, pdfFailed, leftBehind, fingerprintNow };
 }
 
 // An item of folder `id`'s Needs attention list ({ reason, path }) put away: a check that finds it
@@ -684,7 +684,7 @@ function _steps(run, onProgress) {
 // galleries the library keeps there are (not looked into: `skip`, lower-cased), files: [{ path }]
 // everything else }. A folder that can't be listed, an archive that can't be read, are reported.
 const WALK_DEPTH = 12;
-async function _walk(run, skip) {
+async function _walk(run, skip, from = '') {
   const out = { own: [], ownPaths: [], files: [] };
   const walk = async (path, depth) => {
     if (run.stopped()) return;
@@ -705,8 +705,16 @@ async function _walk(run, skip) {
       if (what.kind !== 'series') out.files.push({ path: p });   // beside a series' members: its own files
     }
   };
-  await walk('', 0);
+  await walk(from, from ? from.split('/').length : 0);
   return out;
+}
+// The titles a check of folder `id` (its handle `root`) would find in its folder `dir` (what a gallery's
+// deletion left there: db.js _applyDeletions): [{ kind, path, inner?, fingerprint }], each fingerprint as
+// its files are now (null when they can't be read).
+async function leftBehind(id, root, dir) {
+  const run = { id, root, name: '', stopped: () => false, problems: [] };
+  const titles = await _linkedTitles(run, await _walk(run, new Set(), dir), { begin() {}, tick() {} });
+  return titles.map(t => ({ kind: t.kind, path: t.path, ...(t.inner ? { inner: t.inner } : {}), fingerprint: t.fingerprint }));
 }
 // What folder `path` (its `entries`) is: folder-content.js classifyFolder, from those of its own files
 // it has. One whose description can't be read is reported and null: nothing is concluded from it —
@@ -1039,6 +1047,12 @@ async function _titlePictures(run, title) {
   }
 }
 const _pdfPrint = async (file) => pdfPrint(file.size, await sha256Hex(await file.slice(0, PDF_HEAD).arrayBuffer()));
+// Source `source`'s fingerprint as its files are now in folder `id` (its handle `root`; null when they
+// can't be read): what a note that it was removed carries (db.js publishRemoved), so a source changed
+// since the library last checked it isn't taken for a new one (N3; the desktop's folders.js does alike).
+async function fingerprintNow(id, root, source) {
+  return (await _titlePictures({ id, root, problems: [] }, source))?.fingerprint ?? null;
+}
 
 // The overlays folder `id` holds (.shiori/linked/*/source.json): [{ galleryId, source }].
 async function _overlaysOf(id, root) {
@@ -1121,6 +1135,10 @@ async function _link(run, title, gid) {
 // now, so its pages are drawn again (pdfsWaiting) — the gallery keeping the old ones meanwhile (F10).
 async function _relink(run, title, gid) {
   try {
+    // What the library changed of it and hasn't published yet is published first: read again, it keeps
+    // those changes, and only what was made from a picture that changed goes (S8: a source changed in
+    // place while a change waited kept a translation of its old picture over the new one).
+    if (run.marked.has(gid)) await K.describe(gid).catch(() => {});
     if (title.kind === 'pdf') {
       const over = await _overlayOf(run.id, run.root, gid);
       if (over && over.source.fingerprint !== title.fingerprint) await _overlayFor(run, title, gid);

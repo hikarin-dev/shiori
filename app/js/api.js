@@ -162,7 +162,8 @@ export const galleries = _typed({
 // library only reads it; claim takes it back; see folder-owner.js). `attention`: a folder's Needs
 // attention list, [{ reason, path, gid? }] — what its last check found (scan's `problems`, and
 // 'conflict': a gallery's folder holding something else now; 'unreferenced': a picture nothing refers
-// to) and what happened since ('changed-both' at a publication); dismiss puts one away. Removing a place takes
+// to) and what happened since ('changed-both' at a publication; 'left': files a gallery's deletion left
+// in its folder, not Shiori's, which never join the library); dismiss puts one away. Removing a place takes
 // its galleries out of the library at once, writes back what only the library has of them, then
 // forgets them, leaving their files where they are: adding it again checks it from scratch. Hiding
 // one takes them out but keeps it listed, nothing written to it: showing it brings them back.
@@ -263,6 +264,9 @@ export const pages = _typed({
   has:  (gid, n) => backend.pageHas(gid, n),
   get:  (gid, n, key) => backend.pageGet(gid, n, key),            // key: its url from list, read directly
   all:  (gid) => backend.getGalleryImageRecords(gid),           // every page with its data
+  // { [pageNum]: token } of what each page shows, read before the pictures for work done away from
+  // the library (a translation), which hands each back with its result (derived.putTranslation `source`).
+  sources: (gid) => backend.pageSources(gid),
   blob: (gid, n, variant) => backend.getPageBlob(gid, n, variant),
   // What an <img> loads; the caller releases it with releaseUrl when done.
   async url(gid, n, variant) {
@@ -279,7 +283,9 @@ export const pages = _typed({
 // ── Page-derived data: translations and study layers, by (gallery, page number) ──
 const _at = (gid, n) => ({ galleryId: _gid(gid), pageNum: Number(n) });
 export const derived = _typed({
-  putTranslation:     (gid, n, { image, pipeline, own } = {}) => backend.putTranslatedPage(_at(gid, n), image, pipeline, own),
+  // `source`: the page's token (pages.sources) the translation was made from; kept only while the page
+  // still shows that picture.
+  putTranslation:     (gid, n, { image, pipeline, own, source } = {}) => backend.putTranslatedPage(_at(gid, n), image, pipeline, own, source),
   putTranslatedImage: (gid, n, image) => backend.putTranslatedImage(_at(gid, n), image),
   putStudy:           (gid, n, study, job) => backend.putPageStudy(_at(gid, n), study, job),
   setOwn:             (list, own) => backend.setPagesOwn(list.map(p => _at(p.galleryId, p.pageNum)), own),

@@ -93,6 +93,8 @@ doesn't name another gallery (checked again within a few seconds), and the deskt
 every call. What a check finds, and a publication over another app's newer one, are kept per folder
 for its "Needs attention" list (D15). A linked page's provenance carries its picture's content signal
 (a ZIP entry's CRC-32, a folder file's modification time), and a PDF's drawing — or its failure — is
-kept only for the version of the file it read, and only as pages with bytes (principle 7:
-`linked-source.js` keepsDerived, drawnFrom, isDrawing). Still to come, by the plan's steps: refusals
-while a folder can't be written (S7).
+kept only for the version of the file it read, and only as pages with bytes, and a translation only for
+the source picture its page showed when it was read (principle 7: `linked-source.js` keepsDerived,
+drawnFrom, isDrawing, pageToken, madeFromPage). A deletion whose folder can't be written is refused
+(principle 8), and one cut short is finished from its record by name; what it leaves of a person's
+files is noted as removed and reported, never joined as a gallery.
