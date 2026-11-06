@@ -50,7 +50,7 @@
 // are still as written (`retiring`, principle 4). An archive holds its manifest too, appended with the
 // descriptions it names.
 
-import { disk, physicallyIn, containedWhole, replaceFile, writeNewIn, deleteNamedIn, galleryIn, reserveIn } from './folder-store.js';
+import { disk, physicallyIn, containedWhole, replaceFile, writeNewIn, deleteNamedIn, galleryIn, reserveIn, ioFailures } from './folder-store.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { readDirectory, readEntry, writeZip, appendZip } from './zip.js';
@@ -115,6 +115,7 @@ const ROOTED = /^@([0-9a-f]{16})\/(.*)$/;   // a path in another library folder 
 const UNUSED_AT_MOST = 0.25;   // the share of an archive left unused before it is written whole again
 const REGROUP_RETRY = 10_000;  // how soon a folder Windows wouldn't move is tried again
 const PUBLISH_EVERY = 20;      // pages stored before a gallery being downloaded is published (D12)
+const NAMED_TTL = 2000;        // how long a gallery's folder found to name it is taken to, for reads (_namesIt)
 const COLUMNS = { unpack: 'INTEGER NOT NULL DEFAULT 0', used_at: 'REAL', tail: 'REAL', source: 'TEXT' };
 const HOUR = 60 * 60_000, DAY = 24 * HOUR;
 // Files Windows puts in a folder on its own: not the gallery's, and not worth keeping it a folder for.
@@ -127,6 +128,9 @@ export const descriptionStampOf = (listed) => layout.descriptionStamp(Object.fro
 // The descriptions a gallery's folder may hold (gallery-files.js writes them).
 const DESCRIPTIONS = layout.DESCRIPTION_FILES;
 const parse = (s) => (s == null ? null : JSON.parse(s));
+// The source picture a linked gallery's page shows (`orig` at 'x'), as its descriptions record it:
+// name, size and content signal (linked-source.js provenanceOf, principle 7).
+const provenance = (orig) => linkedSource.provenanceOf({ name: orig.entry, size: orig.size ?? 0, crc: orig.crc, mtime: orig.mtime });
 const extOfName = (name) => String(name ?? '').match(/\.(\w+)$/)?.[1]?.toLowerCase();
 // The files of the gallery's own a value refers to ({ $own: 'translated/0001.png', size }): rel → size.
 function ownFiles(value, into = new Map()) {
@@ -259,6 +263,7 @@ export class FileLibrary {
     this._reserved = new Set();        // folders chosen by unpacks still running
     this._dirs = new Map();            // archive path → { mtimeMs, size, entries }
     this._reading = new Map();         // archive path → reads in flight
+    this._named = new Map();           // `${path}\0${gid}` → { at, failures }: when its folder was found to name it (_namesIt)
     this._failures = new Map();        // gid → settles that failed in a row
     this._writing = new Map();         // gid → the write to its archive under way (_exclusive)
     this._changes = new Map();         // gid → changes since its last publication (D12)
@@ -459,6 +464,12 @@ export class FileLibrary {
   folderOf(gid) {
     const row = this._row(gid);
     return row?.format === 'folder' ? this._at(row.path) : null;
+  }
+  // The same, for a read of its pictures that needn't load them (a backup's): only while the folder
+  // names the gallery (_namesIt).
+  async folderToRead(gid) {
+    const row = this._row(gid);
+    return row?.format === 'folder' && await this._namesIt(row) ? this._at(row.path) : null;
   }
 
   // Gallery `gid`'s folder, for a file of its own about to be written there: claimed now if the
@@ -851,10 +862,36 @@ export class FileLibrary {
     return this.sourceOf(row)?.kind === 'dir' && orig?.at === 'x' ? this._sourceIn(row, orig.entry).catch(() => null) : null;
   }
 
+  // Whether gallery `row`'s pictures may be read from its folder or archive now (_whose, principle 2):
+  // not while it names another gallery — a folder swapped by hand for another gallery's never serves that
+  // gallery's pictures as this one's, which the library folder's identity alone (folders.js reach) doesn't
+  // tell — nor while what it holds can't be read. One naming no gallery (an earlier version's, not
+  // described yet) is read as the index says. Found so, taken as it is for NAMED_TTL (a page read costs a
+  // Map lookup; the first read after, one small file read) and until a disk call in a library folder
+  // fails (folder-store.js ioFailures), as a library folder's identity is for reads.
+  async _namesIt(row) {
+    const key = `${row.path}\0${row.gid}`;
+    const hit = this._named.get(key);
+    if (hit && hit.failures === ioFailures() && Date.now() - hit.at < NAMED_TTL) return true;
+    const whose = await this._whose(row.path, row.gid);
+    if (whose.kind === 'unreadable' || (whose.kind === 'conflict' && whose.found != null)) { this._named.delete(key); return false; }
+    if (whose.kind === 'missing') return true;   // the read finds nothing there itself (files.js _seen)
+    this._named.set(key, { at: Date.now(), failures: ioFailures() });
+    if (this._named.size > 4096) this._named.delete(this._named.keys().next().value);
+    return true;
+  }
+
+  // Entry `entry` of gallery `row`'s folder or archive, as bytes — only while it names the gallery
+  // (_namesIt, asked once the read counts as under way: nothing deletes what it reads meanwhile): else
+  // null, as for a file that isn't there. A gallery moved while its folder was asked (a rename takes
+  // what the folder holds along) is read where it is now.
   async _read(row, entry) {
     const file = this._abs(row.path);
     this._reading.set(file, (this._reading.get(file) || 0) + 1);
     try {
+      if (!(await this._namesIt(row))) return null;
+      const now = this._row(row.gid);
+      if (now && now.path !== row.path) return await this._read(now, entry);
       if (row.format === 'folder') return await disk.readFile(path.join(file, entry));
       const found = (await this._directory(file)).get(entry);
       return found ? await readEntry(file, found) : null;
@@ -1375,7 +1412,7 @@ export class FileLibrary {
       .filter(r => ['p', 'x'].includes(r.blob.at) || placing?.has(r.pageNum));
     const cover = lib._coverGet(gid);
     const fileOf = (src) => src?.$own ?? (src?.at === 'p' ? src.entry : null);
-    const sourceOf = (rec) => (rec.blob.at === 'x' ? { name: rec.blob.entry, size: rec.blob.size } : null);
+    const sourceOf = (rec) => (rec.blob.at === 'x' ? provenance(rec.blob) : null);
     const out = layout.galleryFiles({ meta, records, covers: { gallery: cover?.cover, series: cover?.seriesCover } }, '', { fileOf, sourceOf })
       .filter(f => DESCRIPTIONS.includes(f.name)).map(f => ({ name: f.name, data: Buffer.from(f.source) }));
     if (comicInfo) {
@@ -1408,7 +1445,7 @@ export class FileLibrary {
     note(cover);
     const files = format.slotFiles({ records, covers: { gallery: cover?.cover, series: cover?.seriesCover } },
       (src) => src.$own ?? (src.at === 'p' ? src.entry : null));
-    const sources = Object.fromEntries(records.filter(r => r.blob.at === 'x').map(r => [String(r.pageNum), { name: r.blob.entry, size: r.blob.size ?? 0 }]));
+    const sources = Object.fromEntries(records.filter(r => r.blob.at === 'x').map(r => [String(r.pageNum), provenance(r.blob)]));
     const texts = Object.fromEntries(this._descriptions(gid, { placing: placing && new Set(placing.keys()) }).map(f => [f.name, f.data.toString('utf8')]));
     const sizes = Object.fromEntries([...known].filter(([f]) => format.isPicturePath(f)));
     const generation = format.generationOf(lib._s('SELECT stamp FROM stamps WHERE gid = ?').get(String(gid))?.stamp) + 1;
@@ -1658,6 +1695,7 @@ export class FileLibrary {
         : this._freePath(this._join(root, path.posix.basename(this._split(row.path).rest).replace(/\.(cbz|zip)$/i, '')), ext);
       const to = this._abs(rel), temp = `${to}.shiori-tmp`;
       const linkedPlaced = new Map();   // page → where a linked gallery's page from its source is now
+      let token = null;                 // a linked gallery's copy: the generation its reservation published
       const signature = () => JSON.stringify([this._row(id), lib._pageRows(id).map(r => [r.n, r.orig, r.record]),
         lib._s('SELECT record FROM covers WHERE gid = ?').get(id)?.record ?? null, this._stagedOwn(id)]);
       const before = signature();
@@ -1669,6 +1707,7 @@ export class FileLibrary {
         lib.folders.assertMoveTo(root);
         lib._logIn(id);
         lib._s('UPDATE files SET path = ?, source = NULL WHERE gid = ?').run(rel, id);
+        if (token) lib._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(id, token);
         if (renamed) lib._s('UPDATE retiring SET dir = ? WHERE dir = ?').run(rel, row.path);   // its files to delete went with it
         for (const [n, orig] of linkedPlaced) lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify(orig), id, n);
         if (row.source) lib.folders.removedIn(leaving, id, row.path, this.sourceOf(row));
@@ -1710,7 +1749,19 @@ export class FileLibrary {
         // Not what a write under way holds aside, nor its files waiting to retire (its descriptions are
         // published again in its new place).
         const retiring = new Set(lib._s('SELECT name FROM retiring WHERE dir = ?').all(row.path).map(r => path.join(from, ...r.name.split('/'))));
-        if (row.format === 'folder') await disk.cp(from, temp, { recursive: true, errorOnExist: true, force: false, filter: (src) => !src.endsWith('.shiori-tmp') && !src.endsWith(linkedSource.SOURCE_FILE) && !retiring.has(src) });
+        // A linked gallery's copy is a folder of the library's own: reserved — so it names the gallery
+        // from its first moment (principle 2) — then given its overlay's pictures alone (its
+        // descriptions are published afresh, from the index, in the copy's own .shiori/: D7).
+        const taken = (src) => !src.endsWith('.shiori-tmp') && !retiring.has(src);
+        if (row.source) {
+          token = this._reserveAt(temp, id);
+          for (const d of format.PICTURE_DIRS) {
+            const at = path.join(from, ...d.split('/')), into = path.join(temp, ...d.split('/'));
+            if (!disk.existsSync(at)) continue;
+            await disk.mkdir(path.dirname(into), { recursive: true });
+            await disk.cp(at, into, { recursive: true, errorOnExist: true, force: false, filter: (src) => src === at || (taken(src) && format.isPictureName(src)) });
+          }
+        } else if (row.format === 'folder') await disk.cp(from, temp, { recursive: true, errorOnExist: true, force: false, filter: taken });
         else await disk.copyFile(from, temp, disk.constants.COPYFILE_EXCL);
         // A linked gallery's pages in its source: written into it as the gallery format puts them.
         if (row.source) {

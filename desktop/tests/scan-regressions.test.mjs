@@ -115,7 +115,8 @@ test('R11: a PDF joins only once every page is drawn (its marker written last): 
   const pages = (gid) => library._s('SELECT COUNT(*) AS n FROM pages WHERE gid = ?').get(gid).n;
   // Cut short at page 2.
   const bad = { type: 'image/webp', arrayBuffer: async () => { throw new Error('injected'); } };
-  await assert.rejects(library.addRendered(id, w.gid, [new Blob([pngBytes(1)], { type: 'image/webp' }), bad, new Blob([pngBytes(3)], { type: 'image/webp' })]));
+  const { token } = await library.pdfSource(id, w.gid);
+  await assert.rejects(library.addRendered(id, w.gid, [new Blob([pngBytes(1)], { type: 'image/webp' }), bad, new Blob([pngBytes(3)], { type: 'image/webp' })], token));
   assert.equal((await library.folderScan(id)).added, 0, 'a check doesn\'t take the pages drawn so far');
   assert.equal(pages(w.gid), 0);
   assert.deepEqual((await library.pdfsWaiting()).map(p => p.gid), [w.gid], 'still waiting');
@@ -123,7 +124,7 @@ test('R11: a PDF joins only once every page is drawn (its marker written last): 
   let release;
   const gate = new Promise(r => { release = r; });
   const slow = { type: 'image/webp', arrayBuffer: async () => { await gate; return pngBytes(2).buffer; } };
-  const drawing = library.addRendered(id, w.gid, [new Blob([pngBytes(1)], { type: 'image/webp' }), slow, new Blob([pngBytes(3)], { type: 'image/webp' })]);
+  const drawing = library.addRendered(id, w.gid, [new Blob([pngBytes(1)], { type: 'image/webp' }), slow, new Blob([pngBytes(3)], { type: 'image/webp' })], token);
   await sleep(50);
   assert.equal((await library.folderScan(id)).added, 0, 'nor the pages of a draw under way');
   release();
@@ -430,14 +431,14 @@ test('A23: a PDF that can\'t be drawn isn\'t offered again until its file change
   const { id } = await library.folderAdd(other);
   await library.folderScan(id);
   const [w] = await library.pdfsWaiting();
-  await library.pdfFailed(id, w.gid);
+  await library.pdfFailed(id, w.gid, (await library.pdfSource(id, w.gid)).token);
   assert.deepEqual(await library.pdfsWaiting(), [], 'not offered again');
   assert.ok(JSON.parse(fs.readFileSync(path.join(overlayOf(other, w.gid), 'source.json'), 'utf8')).source.failed);
   await library.folderScan(id);
   assert.deepEqual(await library.pdfsWaiting(), [], 'a check doesn\'t forget it');
   fs.writeFileSync(pdf, '%PDF-1.4 replaced with a good copy');
   assert.deepEqual((await library.pdfsWaiting()).map(p => p.gid), [w.gid], 'offered again once the file changed');
-  assert.equal(await library.addRendered(id, w.gid, [png(1)]), w.gid);
+  assert.equal(await library.addRendered(id, w.gid, [png(1)], (await library.pdfSource(id, w.gid)).token), w.gid);
   assert.equal(JSON.parse(fs.readFileSync(path.join(overlayOf(other, w.gid), 'source.json'), 'utf8')).source.failed, undefined);
 });
 
@@ -551,7 +552,7 @@ test('F10: a drawn PDF whose file changed is drawn again: its old pages read unt
   const { id } = await library.folderAdd(other);
   await library.folderScan(id);
   const [w] = await library.pdfsWaiting();
-  assert.equal(await library.addRendered(id, w.gid, [png(1)]), w.gid);
+  assert.equal(await library.addRendered(id, w.gid, [png(1)], (await library.pdfSource(id, w.gid)).token), w.gid);
   await library.putTranslatedImage({ galleryId: w.gid, pageNum: 1 }, png(0x71));
   await library.files.settle(w.gid);
   await described(library, w.gid);
@@ -560,8 +561,9 @@ test('F10: a drawn PDF whose file changed is drawn again: its old pages read unt
   await library.folderScan(id);
   assert.deepEqual((await library.pdfsWaiting()).map(p => p.gid), [w.gid], 'drawn again once its file changed');
   assert.deepEqual(await bytesOf(await library.getPageBlob(w.gid, 1)), [...pngBytes(1)], 'its old page read meanwhile');
-  assert.equal(Buffer.from(await (await library.pdfSource(id, w.gid)).arrayBuffer()).toString(), '%PDF-1.4 second, and longer');
-  assert.equal(await library.addRendered(id, w.gid, [png(2), png(3)]), w.gid);
+  const second = await library.pdfSource(id, w.gid);
+  assert.equal(Buffer.from(await second.file.arrayBuffer()).toString(), '%PDF-1.4 second, and longer');
+  assert.equal(await library.addRendered(id, w.gid, [png(2), png(3)], second.token), w.gid);
   const record = (n) => JSON.parse(library._pageRow(w.gid, n).record);
   assert.deepEqual([(await library.getGallery(w.gid)).count, await bytesOf(await library.getPageBlob(w.gid, 1)), await bytesOf(await library.getPageBlob(w.gid, 2))],
     [2, [...pngBytes(2)], [...pngBytes(3)]]);

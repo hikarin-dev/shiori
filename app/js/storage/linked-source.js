@@ -81,7 +81,8 @@ export function parseSource(text) {
 }
 // A source's key: what it is and where (two titles of one archive differ by their folder in it).
 /** A source, or a title found, as far as where it is: what it is, its path, its folder in an archive.
- * @typedef {{ kind: string, path: string, inner?: string | null, fingerprint?: string | null }} SourceAt */
+ * `content`: a folder of pictures' folderContent, hashed, beside its fingerprint.
+ * @typedef {{ kind: string, path: string, inner?: string | null, fingerprint?: string | null, content?: string | null }} SourceAt */
 /** @param {SourceAt} s @returns {string} */
 export const sourceKey = (s) => `${s.kind}\u0000${s.path}\u0000${s.inner || ''}`;
 
@@ -107,10 +108,38 @@ export const withRemoved = (removed, source, now = Date.now()) => [
 ];
 
 // What a folder of pictures' fingerprint is made from (hashed by the caller, SHA-256 in hex): its
-// pictures' names and sizes. An archive's is its central directory's bytes (import-cbz.js zipEntries).
-/** @param {Iterable<{ name: string, size?: number | null }>} pictures @returns {string} */
-export const folderPrint = (pictures) => [...pictures].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-  .map(p => `${p.name}\t${p.size}`).join('\n');
+// pictures' names and sizes. An archive's is its central directory's bytes (import-cbz.js zipEntries:
+// every entry's name, size and CRC-32). A folder's `content` (folderContent, hashed alike) adds each
+// picture's modification time, so a picture replaced in place by one of the same size is told too
+// (matchSources) — its fingerprint, which finds a moved source again and is what a removal note keeps,
+// stays as it was.
+/** @typedef {{ name: string, size?: number | null, mtime?: number | null }} Pictured */
+/** @param {Iterable<Pictured>} pictures */
+const _byName = (pictures) => [...pictures].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+/** @param {Iterable<Pictured>} pictures @returns {string} */
+export const folderPrint = (pictures) => _byName(pictures).map(p => `${p.name}\t${p.size}`).join('\n');
+/** @param {Iterable<Pictured>} pictures @returns {string} */
+export const folderContent = (pictures) => _byName(pictures).map(p => `${p.name}\t${p.size}\t${wholeMs(p.mtime)}`).join('\n');
+
+// A source picture's content signal (principle 7, T07): what tells its bytes from other bytes under
+// the same name and size — a ZIP entry's CRC-32, as its archive's directory has it (8 hex digits:
+// crcHex), or a folder file's modification time (in whole milliseconds, as both apps read it: wholeMs).
+/** @param {number} crc @returns {string} */
+export const crcHex = (crc) => (crc >>> 0).toString(16).padStart(8, '0');
+/** @param {number | null | undefined} ms @returns {number | null} */
+export const wholeMs = (ms) => (Number.isFinite(ms) ? Math.floor(/** @type {number} */ (ms)) : null);
+/** A source picture as a page records it (gallery-files.js galleryFiles `sourceOf`, a manifest's
+ * `sources`): its name and size, and its content signal when it has one.
+ * @typedef {{ name: string, size: number, crc?: string, mtime?: number }} Provenance */
+/** @param {{ name: string, size: number | null, crc?: string | null, mtime?: number | null }} p @returns {Provenance} */
+export const provenanceOf = (p) => ({ name: p.name, size: p.size ?? 0, ...(typeof p.crc === 'string' ? { crc: p.crc } : {}),
+  ...(wholeMs(p.mtime) != null ? { mtime: /** @type {number} */ (wholeMs(p.mtime)) } : {}) });
+/** Whether a page's recorded provenance is the source picture it shows now (`page`), its content signal
+ * included: one that isn't (what was made from it dropped, or recorded before content signals were) is
+ * recorded anew at its gallery's next publication.
+ * @param {{ name: string, size: number, crc?: string, mtime?: number }} recorded @param {{ name: string, size: number | null, crc?: string, mtime?: number }} page
+ * @returns {boolean} */
+export const sameProvenance = (recorded, page) => JSON.stringify(provenanceOf(recorded)) === JSON.stringify(provenanceOf(page));
 
 /** @param {string} path @returns {boolean} */
 const _hidden = (path) => path.split('/').some(s => s.startsWith('.') || s === '__MACOSX');
@@ -200,22 +229,25 @@ export function zipTitles(names) {
   return folders.map(([inner, list], i) => ({ inner, pictures: i === 0 ? [...loose, ...list] : list, chapter: true }));
 }
 
-// A linked gallery's pages: its source's pictures in order (`source`: [{ name, size }], page n the
-// n-th), each one its overlay holds a page of its own for (`overlay`: the files in its overlay's
-// images/, [{ name, size }] — named by page number, gallery-files.js pageNumberOf) replaced by that one,
-// and the overlay's pages past the source's added (a PDF's, drawn). Of two overlay files for one page
-// (a write's, not tidied yet), the one gallery-files.js pickFile takes — `described`: the files the
-// overlay's descriptions name (describedFiles). Resolves [{ n, from: 'source' | 'overlay', name, size }]
-// in page order.
-/** @typedef {{ n: number, from: 'source' | 'overlay', name: string, size: number | null }} LinkedPage */
+// A linked gallery's pages: its source's pictures in order (`source`: [{ name, size, crc? | mtime? }]
+// — each one's content signal, when read — page n the n-th), each one its overlay holds a page of its
+// own for (`overlay`: the files in its overlay's images/, [{ name, size }] — named by page number,
+// gallery-files.js pageNumberOf) replaced by that one, and the overlay's pages past the source's added
+// (a PDF's, drawn). Of two overlay files for one page (a write's, not tidied yet), the one
+// gallery-files.js pickFile takes — `described`: the files the overlay's descriptions name
+// (describedFiles). Resolves [{ n, from: 'source' | 'overlay', name, size, crc?, mtime? }] in page
+// order.
+/** @typedef {{ n: number, from: 'source' | 'overlay', name: string, size: number | null, crc?: string, mtime?: number }} LinkedPage */
 /**
- * @param {{ name: string, size?: number | null }[]} source @param {{ name: string, size?: number | null }[]} [overlay]
+ * @param {{ name: string, size?: number | null, crc?: string | null, mtime?: number | null }[]} source
+ * @param {{ name: string, size?: number | null }[]} [overlay]
  * @param {Set<string> | null} [described]
  * @returns {LinkedPage[]}
  */
 export function linkedPages(source, overlay = [], described = null) {
   /** @type {Map<number, LinkedPage>} */
-  const pages = new Map(source.map((p, i) => [i + 1, { n: i + 1, from: 'source', name: p.name, size: p.size ?? null }]));
+  const pages = new Map(source.map((p, i) => [i + 1, { n: i + 1, from: 'source', name: p.name, size: p.size ?? null,
+    ...(typeof p.crc === 'string' ? { crc: p.crc } : {}), ...(wholeMs(p.mtime) != null ? { mtime: /** @type {number} */ (wholeMs(p.mtime)) } : {}) }]));
   /** @type {Map<number, Map<string, { name: string, size?: number | null }>>} */
   const byNumber = new Map();   // page number → its overlay files, by their path in the overlay
   for (const f of overlay) {
@@ -234,14 +266,31 @@ export function linkedPages(source, overlay = [], described = null) {
 // Whether what was made from a linked gallery's page (its translation, study layers, pipeline data) is
 // still the page's: always for a page of its overlay's own; for one of its source, only while the
 // source picture it shows (`page`, linkedPages') is the one its overlay's description says it was made
-// from (`recorded`: the page's image_records.json `source`, { name, size } — gallery-files.js
-// galleryFiles `sourceOf`). A page whose picture changed, or that shows another now (one added before
-// it), has it dropped: it is never shown over another picture.
-/** @param {LinkedPage} page @param {{ name?: string, size?: number } | null | undefined} recorded @returns {boolean} */
-export function keepsDerived(page, recorded) {
+// from (`recorded`: the page's Provenance — image_records.json `source`, gallery-files.js galleryFiles
+// `sourceOf`): the same name and size, and the same content signal (T07: a ZIP entry's CRC-32, a
+// folder file's modification time). A page whose picture changed, or that shows another now (one added
+// before it), has it dropped: it is never shown over another picture. A page recorded before content
+// signals were (its provenance has none) can't be told apart from a picture of the same name and size:
+// it keeps what was made from it only while the source as a whole is the one the library was last told
+// of (`unchanged`: sameSource).
+/**
+ * @param {LinkedPage} page @param {{ name?: string, size?: number, crc?: string, mtime?: number } | null | undefined} recorded
+ * @param {boolean} [unchanged]
+ * @returns {boolean}
+ */
+export function keepsDerived(page, recorded, unchanged = false) {
   if (page.from === 'overlay') return true;
-  return Number.isSafeInteger(page.size) && recorded?.name === page.name && recorded.size === page.size;
+  if (!Number.isSafeInteger(page.size) || recorded?.name !== page.name || recorded.size !== page.size) return false;
+  if (page.crc != null) return recorded.crc == null ? unchanged : recorded.crc === page.crc;
+  if (page.mtime != null) return recorded.mtime == null ? unchanged : wholeMs(recorded.mtime) === page.mtime;
+  return true;
 }
+// Whether a source is as the library was last told of it (`before`: the source its index keeps, or
+// its overlay's source.json; `now`: as a check reads it): the same fingerprint, and, where both are
+// known, the same content (keepsDerived's `unchanged`).
+/** @param {SourceAt | null | undefined} before @param {SourceAt | null | undefined} now @returns {boolean} */
+export const sameSource = (before, now) => before?.fingerprint != null && before.fingerprint === now?.fingerprint
+  && (before.content == null || now.content == null || before.content === now.content);
 
 // Whether a PDF's pages are drawn: its source says how many (`rendered`, written once the last was
 // kept) and its overlay's images/ (`overlay`: [{ name }]) holds each of them. Until then it waits —
@@ -274,6 +323,25 @@ export function pdfWaits(source, overlay = [], fingerprint = source?.fingerprint
   return from != null && fingerprint != null && from !== fingerprint;
 }
 
+// A PDF's fingerprint: its size and the SHA-256 (hex, the caller's) of its first PDF_HEAD bytes.
+export const PDF_HEAD = 1024 * 1024;
+/** @param {number} size @param {string | null} headHash @returns {string} */
+export const pdfPrint = (size, headHash) => `${size}:${headHash}`;
+// Whether a PDF's drawing — its pages, or that it couldn't be drawn — is for the file as it is now
+// (principle 7, T10): a drawing names the version it read (`token`: the fingerprint of the bytes
+// pdfSource handed out), and it is kept only while the file is still that version (`now`: its
+// fingerprint read again just before anything is written; null when it can't be read). One of another
+// version, or of a file that can't be read now, is refused and changes nothing — the PDF waits to be
+// drawn from the file as it is.
+/** @param {unknown} token @param {string | null | undefined} now @returns {boolean} */
+export const drawnFrom = (token, now) => typeof token === 'string' && token !== '' && token === now;
+// Whether a PDF's drawing is pages to keep (principle 7, T11): one at least, each a picture with bytes
+// (a Blob, or what reads like one). Checked before anything is written or replaced, so an empty or
+// broken result never takes the place of the pages a gallery has.
+/** @param {unknown} pages @returns {boolean} */
+export const isDrawing = (pages) => Array.isArray(pages) && pages.length > 0
+  && pages.every(p => p != null && typeof p.arrayBuffer === 'function' && p.size !== 0);
+
 // What a check of a library folder makes of the linked titles it found (`found`: planTitles' and
 // zipTitles' titles, [{ kind, path, inner?, fingerprint, … }], each with its fingerprint as it is now,
 // null when it couldn't be read), against the linked galleries the library keeps there (`kept`:
@@ -281,7 +349,8 @@ export function pdfWaits(source, overlay = [], fingerprint = source?.fingerprint
 // parseSource's), the galleries the library has anywhere (`known`: a Set of ids) and removed.json's
 // list (`removed`). Each title found lands in one list, each kept gallery in one:
 // - same: a kept gallery's source where it was, its fingerprint the same (or unreadable now).
-// - changed: where it was, its files changed (another fingerprint): its pages are read again.
+// - changed: where it was, its files changed (another fingerprint, or, both known, another content: a
+//   picture replaced in place by one of the same size): its pages are read again.
 // - moved: a source gone from where it was (a kept gallery's, or an overlay's whose gallery the
 //   library hasn't), found elsewhere by its fingerprint. An archive moves as a group — its fingerprint
 //   is its central directory's, the same for all its chapters — and its chapters are then paired by
@@ -320,7 +389,8 @@ export function matchSources({ found, kept = [], overlays = [], known = new Set(
     const k = keptAt.get(sourceKey(title));
     const over = !k && overAt.get(sourceKey(title));
     if (k) {
-      const changed = title.fingerprint != null && title.fingerprint !== (k.source.fingerprint ?? null);
+      const changed = (title.fingerprint != null && title.fingerprint !== (k.source.fingerprint ?? null))
+        || (title.content != null && k.source.content != null && title.content !== k.source.content);
       if (changed) out.changed.push({ title, gid: k.gid, was: k.source }); else out.same.push({ title, gid: k.gid });
     } else if (over && !isRemoved(removed, title)) {   // a removed one's overlay its removal couldn't delete yet: removed
       if (known.has(over.galleryId)) out.skipped.push({ title, reason: 'copy' }); else out.new.push({ title, gid: over.galleryId });

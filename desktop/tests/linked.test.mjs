@@ -70,8 +70,9 @@ test('a folder of what Shiori didn\'t make is used as it is: galleries read in p
   // A PDF waits for a window to draw its pages, then joins the library with them.
   const pdfs = await library.pdfsWaiting();
   assert.deepEqual(pdfs.map(p => p.name), ['Book.pdf']);
-  assert.equal((await library.pdfSource(id, pdfs[0].gid)).size, fs.statSync(path.join(pack, 'Book.pdf')).size);
-  const book = await library.addRendered(id, pdfs[0].gid, [new Blob([pngBytes(51)], { type: 'image/webp' }), new Blob([pngBytes(52)], { type: 'image/webp' })]);
+  const source = await library.pdfSource(id, pdfs[0].gid);
+  assert.equal(source.file.size, fs.statSync(path.join(pack, 'Book.pdf')).size);
+  const book = await library.addRendered(id, pdfs[0].gid, [new Blob([pngBytes(51)], { type: 'image/webp' }), new Blob([pngBytes(52)], { type: 'image/webp' })], source.token);
   const bookEntity = await library.getGallery(book);
   assert.deepEqual([bookEntity.title.english, bookEntity.count, bookEntity.linked.kind], ['Book', 2, 'pdf']);
   assert.deepEqual(await bytesOf(await library.getPageBlob(book, 2)), [...pngBytes(52)]);

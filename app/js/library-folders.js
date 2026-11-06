@@ -554,19 +554,22 @@ export function drawWaitingPdfs() {
         let stop = false;
         const off = platform.jobs.subscribe((e) => { if (e?.type === 'STOP_FOLDER_SCAN' && e.job === job.gid) stop = true; });
         say({ status: 'started', done: 0, total: 0 });
+        let token = null;   // the version of the file drawn: what is kept, or noted, is for it alone
         try {
           // Stopped between two pages: the drawing ends there, and nothing is kept.
-          const pages = await renderPdfPages(await api.folders.pdfSource(w.folder, w.gid), ({ done, total }) => {
+          const source = await api.folders.pdfSource(w.folder, w.gid);
+          token = source.token;
+          const pages = await renderPdfPages(source.file, ({ done, total }) => {
             if (stop) throw Object.assign(new Error('stopped'), { stopped: true });
             say({ status: 'progress', done, total });
           });
           if (stop) throw Object.assign(new Error('stopped'), { stopped: true });
-          await api.folders.addRendered(w.folder, w.gid, pages);
+          await api.folders.addRendered(w.folder, w.gid, pages, token);
           say({ status: 'done', done: pages.length, total: pages.length, found: pages.length });
         } catch (e) {
           if (e?.stopped) { say({ status: 'cancelled' }); continue; }
           // The PDF couldn't be drawn (the library refusing, or out of reach, is not the PDF's doing).
-          if (e?.name !== 'BackendError') await api.folders.pdfFailed(w.folder, w.gid).catch(() => {});
+          if (e?.name !== 'BackendError' && token) await api.folders.pdfFailed(w.folder, w.gid, token).catch(() => {});
           say({ status: 'error', error: String(e?.message || e) });
         } finally { off(); }
       }

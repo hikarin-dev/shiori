@@ -84,7 +84,11 @@ The desktop's adapter is `desktop/server/folder-store.js`, over node fs.
 
 The adapters carry every library-folder call of both apps, both libraries publish and read format v2
 through them, every read and check goes through an identity-verified folder, every change to an
-existing gallery folder needs the folder to name the gallery, and the desktop refuses links in every
-call. What a check finds, and a publication over another app's newer one, are kept per folder for its
-"Needs attention" list (D15). Still to come, by the plan's steps: provenance and render tokens (S6),
-refusals while a folder can't be written (S7).
+existing gallery folder needs the folder to name the gallery, a page is read only while its folder
+doesn't name another gallery (checked again within a few seconds), and the desktop refuses links in
+every call. What a check finds, and a publication over another app's newer one, are kept per folder
+for its "Needs attention" list (D15). A linked page's provenance carries its picture's content signal
+(a ZIP entry's CRC-32, a folder file's modification time), and a PDF's drawing — or its failure — is
+kept only for the version of the file it read, and only as pages with bytes (principle 7:
+`linked-source.js` keepsDerived, drawnFrom, isDrawing). Still to come, by the plan's steps: refusals
+while a folder can't be written (S7).

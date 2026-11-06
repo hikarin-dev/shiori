@@ -14,7 +14,7 @@ import * as folderFiles from './storage/folder-store-web.js';
 import { OWNER_FILE, readClaim, access, nextClaim, claimText } from './storage/folder-owner.js';
 import { mounted, writeAllowed } from './storage/folder-lifecycle.js';
 import { galleryIdOf, seriesOf } from './storage/folder-content.js';
-import { REMOVED_FILE, overlayDir, parseRemoved, removedText, withRemoved } from './storage/linked-source.js';
+import { REMOVED_FILE, overlayDir, parseRemoved, removedText, withRemoved, provenanceOf } from './storage/linked-source.js';
 import { createFolderLibrary } from './folder-library.js';
 import { zipEntries } from './zip-read.js';
 import { imageSize, medianPage, describePage } from './page-size.js';
@@ -182,7 +182,7 @@ export async function refreshMedianPage(galleryId) {
       for (const rec of req.result || []) {
         const page = { size: rec.size || 0, src: _isRef(rec.blob) ? null : (rec.blob ?? rec.dataUrl ?? null) };
         out.push(page);
-        if (_isPath(rec.blob)) { page.src = rec.blob; (tx._paths ||= []).push([page, 'src']); continue; }
+        if (_isPath(rec.blob)) { page.src = rec.blob; (tx._paths ||= []).push([page, 'src', gid]); continue; }
         if (!_isRef(rec.blob)) continue;
         const read = tx.objectStore(BLOB_STORE).get(rec.blob[REF]);
         read.onsuccess = () => { page.src = read.result?.blob || null; };
@@ -577,7 +577,7 @@ function _loadBlobs(tx, recs, kind) {
   for (const rec of recs) {
     if (!rec) continue;
     const slots = kind.slots(rec).filter(([obj, key]) => _isRef(obj[key]));
-    for (const slot of slots) if (_isPath(slot[0][slot[1]])) (tx._paths ||= []).push(slot);
+    for (const [obj, key] of slots) if (_isPath(obj[key])) (tx._paths ||= []).push([obj, key, String(rec.galleryId)]);
     const refs = slots.filter(([obj, key]) => !_isPath(obj[key]));
     if (!refs.length) continue;
     const own = kind.prefix(rec);
@@ -670,7 +670,7 @@ function _foldersChanged() {
   _forgetFolders();
   platform.control.send({ type: 'FOLDERS_CHANGED' });
 }
-function _forgetFolders() { _foldersRead = null; _grants.clear(); _ours.clear(); }
+function _forgetFolders() { _foldersRead = null; _grants.clear(); _ours.clear(); _readable.clear(); }
 platform.control.on((msg) => { if (msg?.type === 'FOLDERS_CHANGED') _forgetFolders(); });
 
 // What this context may do with folder `id` now: { state (its permission — or 'other-library': the
@@ -849,6 +849,31 @@ async function _mayWriteDir(folder, root, dir, gid) {
   _ours.set(key, Date.now());
   return true;
 }
+// Whether file reference `ref` (not a linked source's: those are the source's, read as it is) may be
+// read as gallery `gid`'s: not while its folder names another gallery — a folder swapped by hand for
+// another gallery's never serves that gallery's pictures as this one's, which the library folder's
+// identity alone (_readRootOf) doesn't tell — nor an archive whose descriptions name others only, nor
+// while what it holds can't be read. One naming no gallery is read as the records say. Found so, taken
+// as it is for GRANT_TTL_MS (a page read then costs a Map lookup), and forgotten with the folders' grants.
+const _readable = new Map();   // `${folder}\0${dir}\0${gid}` → when it was found readable as the gallery's
+async function _mayReadDir(ref, root, gid) {
+  if (ref.ro || gid == null) return true;
+  const key = `${ref.folder}\0${ref.dir}\0${gid}`;
+  if (Date.now() - (_readable.get(key) ?? -Infinity) < GRANT_TTL_MS) return true;
+  let ok;
+  if (ref.zip) {
+    const names = await _archiveNames(ref.folder, root, ref.dir).catch(() => null);
+    ok = !!names && (!names.size || names.has(String(gid)));
+  } else {
+    const found = await folderFiles.galleryIn(ref.folder, root, ref.dir, String(gid));
+    if (found.kind === 'missing') return true;   // the read finds nothing there itself
+    ok = found.kind === 'ok' || (found.kind === 'conflict' && found.found == null);
+  }
+  if (!ok) { _readable.delete(key); return false; }
+  _readable.set(key, Date.now());
+  if (_readable.size > 4096) _readable.delete(_readable.keys().next().value);
+  return true;
+}
 
 // Where the gallery format puts each picture of page `n`'s record `rec`: [obj, key, path] for each.
 const _pictureExt = (blob) => extOfType(blob.type) || 'png';
@@ -960,12 +985,14 @@ async function _withFiles(tx) {
   tx._paths = null;
   let at = 0;
   await Promise.all(Array.from({ length: Math.min(16, list.length) }, async () => {
-    while (at < list.length) { const [obj, key] = list[at++]; obj[key] = await _readPath(obj[key]); }
+    while (at < list.length) { const [obj, key, gid] = list[at++]; obj[key] = await _readPath(obj[key], gid); }
   }));
 }
-async function _readPath(ref) {
+// File reference `ref` of gallery `gid`'s records read: null when it can't be read, or when the
+// gallery's folder doesn't let it be read as the gallery's (_mayReadDir).
+async function _readPath(ref, gid) {
   const root = await _readRootOf(ref.folder).catch(() => null);
-  if (!root) return null;
+  if (!root || !(await _mayReadDir(ref, root, gid))) return null;
   const file = ref.zip ? await _readEntry(ref.folder, root, ref.dir, ref.$path, ref.type).catch(() => null)
     : await folderFiles.readFile(ref.folder, root, _joinPath(ref.dir, ref.$path), ref.type || undefined).catch(() => null);
   if (file) _fileOf.set(file, ref);
@@ -1195,7 +1222,8 @@ function _cancelDescribe(gid) {
 // _unlinkLater) }, or null for a gallery kept in no folder of its own. The descriptions name the file
 // each picture is in where it isn't the layout name, and a linked gallery's page the source picture it
 // shows (gallery-files.js galleryFiles `fileOf`, `sourceOf`).
-const _sourcePicture = (rec) => (_isPath(rec.blob) && rec.blob.ro ? { name: rec.blob.$path, size: rec.blob.size } : null);
+const _sourcePicture = (rec) => (_isPath(rec.blob) && rec.blob.ro
+  ? provenanceOf({ name: rec.blob.$path, size: rec.blob.size, crc: rec.blob.crc, mtime: rec.blob.mtime }) : null);
 async function _wantedDescriptions(gid) {
   const db = await openDB();
   const read = await new Promise((resolve, reject) => {
@@ -1731,8 +1759,9 @@ export async function dbPut(url, src, mediaId, galleryId, opts = {}) {
 // PDF's pages drawn again (folder-library.js addRendered, F10): the new pictures written beside the old
 // ones, then one transaction replacing every page record — what was made from the old pages
 // (translations, study layers) going with them, since each page shows another picture now — and the old
-// files deleted once it has committed. Until then the old pages are read.
-async function _replacePages(gid, blobs) {
+// files deleted once it has committed. Until then the old pages are read. `before()`: asked once the new
+// pictures are written, just before the commit; when it rejects, nothing is replaced and they go again.
+async function _replacePages(gid, blobs, { before = async () => {} } = {}) {
   const db = await openDB();
   await _writing(gid, async (w) => {
     const home = await _home(gid, null, w);
@@ -1740,6 +1769,7 @@ async function _replacePages(gid, blobs) {
     const pages = blobs.map((blob, i) => ({ url: `local://${gid}/${i + 1}.${extOfType(blob.type) || 'webp'}`, blob, mediaId: gid, galleryId: gid, cachedAt: now, size: blob.size }));
     let left = false;
     for (const [i, page] of pages.entries()) if (await _place(home, _pageFiles(page, i + 1), w)) left = true;
+    await before();
     await new Promise((resolve, reject) => {
       const tx = _tx(db, [STORE, GALLERY_STORE, BLOB_STORE], 'readwrite');
       tx.oncomplete = () => { w.committed = true; resolve(); };

@@ -22,8 +22,9 @@ export async function inflateRaw(part) {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-// A zip's entries, from its central directory (store + deflate entries) -> [{ filename, size, read,
-// blob }]: read() resolves to the entry's bytes, blob(type) to a Blob of them — for an entry stored
+// A zip's entries, from its central directory (store + deflate entries) -> [{ filename, size, crc (its
+// CRC-32, as the directory says), read, blob }]: read() resolves to the entry's bytes, blob(type) to a
+// Blob of them — for an entry stored
 // as it is in a zip kept as a Blob, a slice of that Blob, so a page goes into the library without
 // ever being read into memory. `source` is the zip as a Blob (a picked or dropped file), read a
 // piece at a time — the browser reads no more than 2 GiB of a file into one buffer — or its bytes as
@@ -56,6 +57,7 @@ export async function zipEntries(source) {
     if (view.getUint32(pos, true) !== 0x02014b50) break;
     const flags = view.getUint16(pos + 8, true);
     const method = view.getUint16(pos + 10, true);
+    const crc = view.getUint32(pos + 16, true);
     const compSize = view.getUint32(pos + 20, true);
     const size = view.getUint32(pos + 24, true);
     const nameLen = view.getUint16(pos + 28, true);
@@ -73,7 +75,7 @@ export async function zipEntries(source) {
       return local + 30 + hv.getUint16(26, true) + hv.getUint16(28, true);
     };
     const failed = (e) => new CbzImportError('cbz_parse', `Failed to read ${filename}: ${e && e.message || e}`);
-    const entry = { filename, size, read: async () => {
+    const entry = { filename, size, crc, read: async () => {
       try {
         const at = await dataStart();
         return method === 0 ? await read(at, at + compSize) : await inflateRaw(part(at, at + compSize));

@@ -39,6 +39,10 @@ const typed = (type) => (bytes) => new Blob([bytes], { type });
  *   move(gid: string, to: string): Promise<void>,
  *   takeOver(id: string): Promise<void>,
  *   written(): Record<string, number>,
+ *   pdfsWaiting(): Promise<{ folder: string, gid: string, path: string, name: string }[]>,
+ *   pdfSource(folder: string, gid: string): Promise<{ file: Blob, token: string }>,
+ *   addRendered(folder: string, gid: string, pages: Uint8Array[], token: unknown): Promise<string>,
+ *   pdfFailed(folder: string, gid: string, token: unknown): Promise<void>,
  *   read(gid: string, n: number, variant?: 'translated'): Promise<Uint8Array | null>,
  *   titleOf(gid: string): Promise<string | null>,
  *   galleries(): Promise<string[]>,
@@ -50,7 +54,8 @@ const typed = (type) => (bytes) => new Blob([bytes], { type });
  * }} Driver
  * `move`: the gallery moved to folder `to`; `takeOver`: another app's claim written on folder `id`
  * (as "Use anyway" there does); `written`: the bytes the library's folder store adapter has written,
- * by kind (pictures, descriptions, archives, the rest). */
+ * by kind (pictures, descriptions, archives, the rest); the PDFs a folder holds, drawn as a window draws
+ * them (api.js folders.pdfsWaiting…: `addRendered`'s pages as PNG pictures' bytes). */
 
 // Another app's claim on the folder at `dir`, a step past whatever claim is there (folder-owner.js).
 function claimElsewhere(dir) {
@@ -89,6 +94,10 @@ export async function desktopLibrary(base) {
     async move(gid, to) { await lib.moveGallery(gid, to); },
     async takeOver(id) { claimElsewhere(lib.folders.dir(id)); lib.folders._probes.clear(); },
     written: desktopWritten,
+    pdfsWaiting: () => lib.pdfsWaiting(),
+    pdfSource: (folder, gid) => lib.pdfSource(folder, gid),
+    addRendered: (folder, gid, pages, token) => lib.addRendered(folder, gid, pages.map(typed('image/png')), token),
+    pdfFailed: (folder, gid, token) => lib.pdfFailed(folder, gid, token),
     read: async (gid, n, variant) => bytesOf(await lib.getPageBlob(gid, n, variant).catch(() => null)),
     titleOf: async (gid) => (await lib.metaGet(gid))?.title?.english ?? null,
     galleries: () => lib.galleryIdsSorted({ sort: 'id' }),
@@ -144,6 +153,10 @@ export async function webLibrary() {
     async move(gid, to) { await db.moveGallery(gid, to); },
     async takeOver(id) { claimElsewhere(/** @type {string} */ (webFolders.get(id))); },
     written: websiteWritten,
+    pdfsWaiting: () => db.pdfsWaiting(),
+    pdfSource: (folder, gid) => db.pdfSource(folder, gid),
+    addRendered: (folder, gid, pages, token) => db.addRendered(folder, gid, pages.map(typed('image/png')), token),
+    pdfFailed: (folder, gid, token) => db.pdfFailed(folder, gid, token),
     read: async (gid, n, variant) => bytesOf(await db.getPageBlob(gid, n, variant).catch(() => null)),
     titleOf: async (gid) => (await db.metaGet(gid))?.title?.english ?? null,
     galleries: () => db.galleryIdsSorted({ sort: 'id' }),

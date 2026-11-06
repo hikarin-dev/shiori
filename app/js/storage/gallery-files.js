@@ -376,13 +376,13 @@ function _pictures(rec) {
 // folder (never an export, whose names are the layout's): `fileOf(src)`, the file the folder keeps a
 // picture in (null: none of its own), so each page's image_records.json entry lists its pictures' files
 // that aren't the layout name (`files`) and covers/manifest.json names each cover's; `sourceOf(rec)`,
-// for a linked gallery, the source picture a page shows ({ name, size } — linked-source.js
-// keepsDerived), kept as its entry's `source`.
+// for a linked gallery, the source picture a page shows ({ name, size, crc? | mtime? } — linked-source.js
+// provenanceOf, keepsDerived), kept as its entry's `source`.
 /**
  * @param {{ meta: Meta | null | undefined, records: PageRecord[] | null | undefined, covers?: { gallery?: unknown, series?: unknown } }} gallery
  * @param {string} [prefix]
  * @param {{ stripSeriesFields?: boolean, fileOf?: ((src: Picture) => string | null | undefined) | null,
- *   sourceOf?: ((rec: PageRecord) => { name: string, size: number } | null | undefined) | null }} [options]
+ *   sourceOf?: ((rec: PageRecord) => { name: string, size: number, crc?: string, mtime?: number } | null | undefined) | null }} [options]
  * @returns {LaidOutFile[]}
  */
 export function galleryFiles({ meta, records, covers = {} }, prefix = '', { stripSeriesFields = false, fileOf = null, sourceOf = null } = {}) {
@@ -428,7 +428,7 @@ export function galleryFiles({ meta, records, covers = {} }, prefix = '', { stri
       if (moved.length) entry.files = moved;
     }
     const source = sourceOf?.(r);
-    if (source) entry.source = { name: source.name, size: source.size };
+    if (source) entry.source = { name: source.name, size: source.size, ...(source.crc != null ? { crc: source.crc } : {}), ...(source.mtime != null ? { mtime: source.mtime } : {}) };
     return entry;
   })));
 

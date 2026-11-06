@@ -146,7 +146,8 @@ test('R02: two galleries with one title get folders of their own, and deleting o
       const dirs = [(await t.raw('galleries', a)).dir, (await t.raw('galleries', b)).dir];
       const reads = [(await api.pages.blob(a, 1))?.size, (await api.pages.blob(b, 1))?.size];
       await api.galleries.delete(a);
-      await t.sleep(500);
+      // Its folder goes once the deletion has committed.
+      await t.until(async () => !(await t.ls('Lib')).includes(`${dirs[0]}/`));
       return { dirs, sizes: [first.size, second.size], reads, readB: (await api.pages.blob(b, 1))?.size ?? null, top: await t.ls('Lib') };
     });
     assert.deepEqual([...out.dirs].sort(), ['Same title', 'Same title (2)'], 'a folder each');
@@ -503,7 +504,7 @@ test('R11: a PDF joins once all its pages are drawn, never with the pages drawn 
       await t.write(`R11/.shiori/linked/${w.gid}/images/0001.webp`, await t.png(5));
       const partial = (await api.folders.scan(id)).added;
       const still = (await api.folders.pdfsWaiting()).length;
-      const made = await api.folders.addRendered(id, w.gid, [await t.png(10), await t.png(20)]);
+      const made = await api.folders.addRendered(id, w.gid, [await t.png(10), await t.png(20)], (await api.folders.pdfSource(id, w.gid)).token);
       const source = JSON.parse(await t.text(`R11/.shiori/linked/${w.gid}/source.json`)).source;
       return { first, partial, still, made: made === w.gid, count: (await api.galleries.get(w.gid))?.count, rendered: source.rendered?.pages, again: (await api.folders.scan(id)).added };
     }, PDF);
@@ -588,6 +589,8 @@ test('R14, A15: an archive in the gallery format is a gallery of its own, read i
       // Published there: its manifest (format v2) is written only once the unpack has committed.
       const written = await t.until(async () => JSON.parse(await t.text('R14/Native/metadata.json')).title.english === 'Native, edited'
         && !!JSON.parse(await t.text('R14/Native/.shiori/gallery.json')).generation);
+      // The archive goes once the unpack has committed.
+      await t.until(async () => !(await t.ls('R14')).includes('Native.zip'));
       const stat = await t.raw('galleries', gid);
       return { written, dir: stat.dir, packed: stat.packed ?? null, top: await t.ls('R14'), images: await t.ls('R14/Native/images'), translated: await t.ls('R14/Native/translated'),
         p3: (await api.pages.blob(gid, 3))?.size };
@@ -1129,7 +1132,7 @@ test('F10: a drawn PDF whose file changed is drawn again: its old pages read unt
       await api.folders.scan(id);
       const [w] = await api.folders.pdfsWaiting();
       const first = await t.png(10), second = await t.png(200, 50, 60), third = await t.png(300, 20, 20);
-      await api.folders.addRendered(id, w.gid, [first]);
+      await api.folders.addRendered(id, w.gid, [first], (await api.folders.pdfSource(id, w.gid)).token);
       await api.derived.putTranslatedImage(w.gid, 1, await t.png(90));
       const translatedOf = async () => !!(await t.raw('images', `local://${w.gid}/1.png`))?.translated;
       const had = await translatedOf();
@@ -1138,7 +1141,7 @@ test('F10: a drawn PDF whose file changed is drawn again: its old pages read unt
       await api.folders.scan(id);
       const changed = (await api.folders.pdfsWaiting()).map(p => p.gid);
       const meanwhile = (await api.pages.blob(w.gid, 1))?.size;
-      await api.folders.addRendered(id, w.gid, [second, third]);
+      await api.folders.addRendered(id, w.gid, [second, third], (await api.folders.pdfSource(id, w.gid)).token);
       const source = JSON.parse(await t.text(`F10/.shiori/linked/${w.gid}/source.json`)).source;
       const after = { count: (await api.galleries.get(w.gid))?.count, sizes: [(await api.pages.blob(w.gid, 1))?.size, (await api.pages.blob(w.gid, 2))?.size],
         translated: await translatedOf(), waiting: (await api.folders.pdfsWaiting()).length,

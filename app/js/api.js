@@ -211,13 +211,14 @@ export const folders = _typed({
   // stays. (The desktop app does it as a task of its own.)
   setAside: async (id, opts) => backend.folderSetAside?.(String(id), opts) ?? { removed: 0, moved: 0, left: 0, stopped: false },
   // The PDFs the library's folders hold, waiting for a page to draw their pages (linked-source.js):
-  // [{ folder, gid, path, name }]; one's file (a Blob); its pages drawn (Blobs, in order), kept with
-  // it as it joins the library (resolves its id); or, when they can't be drawn, noted so that it isn't
-  // tried again until its file changes (pdfFailed).
+  // [{ folder, gid, path, name }]; one's file and the token of the version read ({ file, token }); its
+  // pages drawn from it (Blobs, in order), kept with it as it joins the library (resolves its id); or,
+  // when they can't be drawn, noted so that it isn't tried again until its file changes (pdfFailed).
+  // Both take the token back, and are refused (BackendError 'conflict') once the file is another version.
   pdfsWaiting: async () => backend.pdfsWaiting?.() ?? [],
   pdfSource: (folder, gid) => backend.pdfSource(String(folder), String(gid)),
-  addRendered: (folder, gid, pages) => backend.addRendered(String(folder), String(gid), pages),
-  pdfFailed: (folder, gid) => backend.pdfFailed(String(folder), String(gid)),
+  addRendered: (folder, gid, pages, token) => backend.addRendered(String(folder), String(gid), pages, token),
+  pdfFailed: (folder, gid, token) => backend.pdfFailed(String(folder), String(gid), token),
   // What a page should carry on with (a removal cut short): { setAside: [{ id, name, moving }] }.
   pending: async () => backend.foldersPending?.() ?? { setAside: [] },
   // The folders holding galleries that wait for this page's permission (allow): [{ id, name }].

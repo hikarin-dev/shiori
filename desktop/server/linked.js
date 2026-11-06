@@ -81,8 +81,15 @@ async function zipFingerprint(abs) {
   } finally { await fh.close(); }
 }
 
-// A title's pictures where they are, in order — [{ name (in its folder, or the archive), size }] —
-// with its fingerprint and size (an archive's: its `directory` too); null when they can't be read.
+// An archive's pictures (`names`, in order) as its directory (`dir`, readDirectory's) has them: [{ name,
+// size, crc }] — each with its CRC-32, the content signal its page records (principle 7, T07).
+const zipPictures = (names, dir) => names.map(name => ({ name, size: dir.get(name).size, crc: L.crcHex(dir.get(name).crc) }));
+// A PDF's fingerprint from its bytes (`bytes`, a Buffer): its size and its first PDF_HEAD bytes' hash.
+const pdfPrintOf = (size, head) => L.pdfPrint(size, sha256(head));
+
+// A title's pictures where they are, in order — [{ name (in its folder, or the archive), size, crc (an
+// archive's) | mtime (a folder's) }] — with its fingerprint and size (an archive's: its `directory`
+// too; a folder's: its `content`, linked-source.js folderContent hashed); null when they can't be read.
 // `directory`: the archive's, when the caller has read it. Rejects for one that leads out of the
 // folder (F09).
 async function titleAt(library, root, title, directory = null) {
@@ -92,7 +99,7 @@ async function titleAt(library, root, title, directory = null) {
     if (!dir) return null;
     const mine = L.zipTitles([...dir.keys()]).find(z => z.inner === (title.inner || ''));
     if (!mine) return null;
-    return { pictures: mine.pictures.map(name => ({ name, size: dir.get(name).size })), fingerprint: await zipFingerprint(abs).catch(() => null),
+    return { pictures: zipPictures(mine.pictures, dir), fingerprint: await zipFingerprint(abs).catch(() => null),
       size: (await disk.stat(abs)).size, directory: dir };
   }
   if (title.kind === 'dir') {
@@ -100,18 +107,18 @@ async function titleAt(library, root, title, directory = null) {
     for (const item of await disk.readdir(abs, { withFileTypes: true })) {
       if (!item.isFile() || !L.IMAGE_NAME.test(item.name) || item.name.startsWith('.')) continue;
       const st = await disk.stat(path.join(abs, item.name)).catch(ifMissing(null));
-      if (st) pictures.push({ name: item.name, path: item.name, size: st.size });
+      if (st) pictures.push({ name: item.name, path: item.name, size: st.size, mtime: L.wholeMs(st.mtimeMs) });
     }
     const sorted = L.sortPictures(pictures);
-    return { pictures: sorted, fingerprint: sha256(L.folderPrint(sorted)), size: sorted.reduce((n, p) => n + p.size, 0) };
+    return { pictures: sorted, fingerprint: sha256(L.folderPrint(sorted)), content: sha256(L.folderContent(sorted)), size: sorted.reduce((n, p) => n + p.size, 0) };
   }
   const st = await disk.stat(abs).catch(() => null);
   if (!st) return null;
   const fh = await disk.open(abs, 'r');
   try {
-    const head = Buffer.alloc(Math.min(st.size, 1024 * 1024));
+    const head = Buffer.alloc(Math.min(st.size, L.PDF_HEAD));
     await fh.read(head, 0, head.length, 0);
-    return { pictures: [], fingerprint: `${st.size}:${sha256(head)}`, size: st.size };
+    return { pictures: [], fingerprint: pdfPrintOf(st.size, head), size: st.size };
   } finally { await fh.close(); }
 }
 // Source `source`'s fingerprint as its files are now in library folder `root` (null when they can't
@@ -119,9 +126,9 @@ async function titleAt(library, root, title, directory = null) {
 export async function fingerprintNow(library, root, source) {
   return (await titleAt(library, root, source).catch(() => null))?.fingerprint ?? null;
 }
-// A source as the index and source.json keep it: what it is, where, and its fingerprint.
+// A source as the index keeps it: what it is, where, its fingerprint and (a folder's) its content.
 const sourceOf = (title, at) => ({ kind: title.kind, path: title.path, ...(title.inner ? { inner: title.inner } : {}),
-  ...(at?.fingerprint ? { fingerprint: at.fingerprint } : {}) });
+  ...(at?.fingerprint ? { fingerprint: at.fingerprint } : {}), ...(at?.content ? { content: at.content } : {}) });
 
 // The overlays library folder `root` holds: source key → { galleryId, source } — one whose source
 // would lead out of the folder left out.
@@ -214,6 +221,9 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
   // source.json says what its overlay's pages and pictures were made from).
   const { rel, was } = replace ? { rel: library.files._join(root, L.overlayDir(gid)), was: (await sourceJson(library, root, gid)).was }
     : await overlayFor(library, root, title, gid, at);
+  // Whether its source is as the library was last told of it (the index's, for one read again; else
+  // its overlay's source.json): what a page recorded before content signals were may keep (keepsDerived).
+  const unchanged = L.sameSource(replace ? library.files.sourceOf(library.files._row(gid)) : was, at);
   const overlay = library.files._abs(rel);
   const own = await overlayPages(library, root, gid);
   if (title.kind === 'pdf' && !L.pdfReady({ ...title, rendered: was?.rendered }, own)) return null;
@@ -243,7 +253,7 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
     : embedded ? { ...embedded, galleryId: gid }
     : { galleryId: gid, ...named, numPages: pages.length, isLocalImport: true, source: '' };
   const files = library.files;
-  let held = false;
+  let held = false, stale = false;   // stale: a page's source picture isn't the one its overlay recorded
   library._tx(() => {
     if (guard?.()) { held = true; return; }
     const had = new Map();   // the pictures of its own its records referred to, and those it read
@@ -259,14 +269,16 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
       const entry = entryOf.get(p.n);
       const made = derivedRecord(derived, p.n, entry);
       ownRefs(made, had);
-      if (!L.keepsDerived(p, entry?.source)) for (const k of Object.keys(made)) delete made[k];
+      if (!L.keepsDerived(p, entry?.source, unchanged)) for (const k of Object.keys(made)) delete made[k];
       ownRefs(made, kept);
       const ext = extOf(p.name);
       let key = entry?.url && keyPage(entry.url) === p.n ? entry.url : `local://${gid}/${p.n}.${ext}`;
       if (library._pageRowByKey(key)) key = `local://${gid}/${p.n}.${ext}`;
       if (library._pageRowByKey(key) || library._pageRow(gid, p.n)) continue;
+      // A page of its source records the picture's content signal with it (principle 7: its provenance).
       const orig = p.from === 'overlay' ? { at: 'p', entry: `images/${p.name}`, size: p.size, type: typeOf(p.name) }
-        : { at: 'x', entry: p.name, size: p.size, type: typeOf(p.name) };
+        : { at: 'x', entry: p.name, size: p.size, type: typeOf(p.name), ...(p.crc ? { crc: p.crc } : {}), ...(p.mtime != null ? { mtime: p.mtime } : {}) };
+      if (p.from === 'source' && entry?.source && !L.sameProvenance(entry.source, p)) stale = true;
       library._pagePutRow({ gid, n: p.n, key, w: null, h: null, orig, record: { url: key, blob: { $orig: 1, size: p.size, type: orig.type },
         mediaId: String(entry?.mediaId ?? gid), galleryId: gid, cachedAt: entry?.cachedAt || now, size: p.size, ...made } });
     }
@@ -281,7 +293,9 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
   await library.rebuildGalleryEntry(gid, { silent: true });
   const covers = coverPatch(derived);
   if (Object.keys(covers).length) library._tx(() => library._coverPatchIn(gid, covers));
-  if (!meta) files.describeLater(gid);   // its overlay describes it, in due course
+  // Its overlay describes it, in due course — again when a page's source picture isn't the one it
+  // recorded (what was made from it dropped, or recorded before content signals were).
+  if (!meta || stale) files.describeLater(gid);
   if (replace) library._push('control', { type: 'COVER_INVALIDATED', galleryId: gid });
   return gid;
 }
@@ -335,7 +349,7 @@ export async function linkRoot(library, root, { files = [], own = [], archives =
     const at = await titleAt(library, root, title).catch((e) => { if (e?.reason === 'outside') why = 'outside'; return null; });
     if (at) read.set(L.sourceKey(title), at);
     else problems.push({ path: t.path, reason: why });
-    if (at || keptAt.has(L.sourceKey(title))) found.push({ ...title, fingerprint: at?.fingerprint ?? null });
+    if (at || keptAt.has(L.sourceKey(title))) found.push({ ...title, fingerprint: at?.fingerprint ?? null, content: at?.content ?? null });
     done++;
     say();
   }
@@ -349,7 +363,7 @@ export async function linkRoot(library, root, { files = [], own = [], archives =
       const size = (await disk.stat(abs).catch(() => null))?.size ?? null;
       for (const z of L.zipTitles([...entries.keys()])) {
         const title = { kind: 'zip', path: zip, ...(z.inner ? { inner: z.inner } : {}), chapter: z.chapter };
-        read.set(L.sourceKey(title), { pictures: z.pictures.map(name => ({ name, size: entries.get(name).size })), fingerprint, size, directory: entries });
+        read.set(L.sourceKey(title), { pictures: zipPictures(z.pictures, entries), fingerprint, size, directory: entries });
         found.push({ ...title, fingerprint });
       }
     }
@@ -368,6 +382,13 @@ export async function linkRoot(library, root, { files = [], own = [], archives =
   await library.folders.publishRemoved(root);   // notes still owed to the folder, tried again
   const plan = L.matchSources({ found, kept, overlays: [...(await overlaysOf(library, root)).values()], known, removed: await removedOf(library, root) });
   const atOf = (title) => read.get(L.sourceKey(title)) || null;
+  // A folder of pictures the index keeps without its content (kept before it was recorded) has it
+  // recorded as it is now, so a picture replaced in place by one of the same size is told from now on.
+  const keptSource = new Map(kept.map(k => [k.gid, k.source]));
+  for (const s of plan.same) {
+    const was = keptSource.get(s.gid);
+    if (was && was.content == null && s.title.content) library._s('UPDATE files SET source = ? WHERE gid = ?').run(JSON.stringify({ ...was, content: s.title.content }), s.gid);
+  }
   const failed = (title, e) => problems.push({ path: title.path, reason: e?.reason === 'outside' ? 'outside' : e?.syscall ? 'unreadable' : 'adopt-failed' });
   const link = async (title, gid) => {
     try {
@@ -459,25 +480,39 @@ async function waiting(library, root, gid) {
   }
   return over;
 }
-// The PDF a waiting gallery is drawn from.
+// The PDF a waiting gallery is drawn from: { file (a Blob of its bytes), token (their fingerprint: the
+// version a drawing of them is for — addRendered and pdfFailed take it back, T10) }.
 export async function pdfSource(library, root, gid) {
   const over = await waiting(library, root, gid);
-  return new Blob([await disk.readFile(await sourceIn(library, root, over.source.path))], { type: 'application/pdf' });
+  const bytes = await disk.readFile(await sourceIn(library, root, over.source.path));
+  return { file: new Blob([bytes], { type: 'application/pdf' }), token: pdfPrintOf(bytes.length, bytes.subarray(0, L.PDF_HEAD)) };
 }
-// A waiting PDF's pages, drawn (Blobs in order), kept in its overlay and the gallery joined to the
-// library: what an earlier draw left there first cleared, every page written, then — last — its
-// source.json saying how many there are and the file they were drawn from (`rendered`), so a check
-// never takes a draw cut short for a gallery (R11). One the library has, drawn again, has its pages
+// The PDF waiting as gallery `gid` read again, for a drawing of the version `token` names (pdfSource's):
+// { over, at } while the file is still that version (linked-source.js drawnFrom); else rejects with
+// BackendError 'conflict' (`reason` 'stale'), nothing written — it waits to be drawn as it is now.
+async function drawnAt(library, root, gid, token) {
+  const over = await waiting(library, root, gid);
+  const at = await titleAt(library, root, over.source).catch(() => null);
+  if (!L.drawnFrom(token, at?.fingerprint)) throw Object.assign(new BackendError('conflict', `the PDF waiting as gallery ${gid} isn't the version drawn`), { reason: 'stale' });
+  return { over, at };
+}
+// A waiting PDF's pages, drawn (Blobs in order) from the version of its file `token` names (pdfSource's),
+// kept in its overlay and the gallery joined to the library — only a drawing (linked-source.js
+// isDrawing: one page at least, each with bytes) of the file as it still is (drawnAt, read again just
+// before the commit too): what an earlier draw left there first cleared, every page written, then — last
+// — its source.json saying how many there are and the version they were drawn from (`rendered`), so a
+// check never takes a draw cut short for a gallery (R11). One the library has, drawn again, has its pages
 // replaced (redrawn), then its marker. Each write goes through the gate. Resolves its id; rejects when
 // it didn't join.
-export async function addRendered(library, root, gid, pages) {
-  if (!pages?.length) throw new BackendError('invalid', 'no pages drawn');
+export async function addRendered(library, root, gid, pages, token) {
+  if (!L.isDrawing(pages)) throw new BackendError('invalid', 'no pages drawn');
   library.folders.assertWritable(root);
-  const over = await waiting(library, root, gid);
+  const { over } = await drawnAt(library, root, gid, token);
+  const rendered = { pages: pages.length, fingerprint: token };
   if (library.files._row(gid)) {
-    const at = await titleAt(library, root, over.source).catch(() => null);
-    await redrawn(library, String(gid), pages);
-    await overlayFor(library, root, over.source, gid, at, { rendered: { pages: pages.length, fingerprint: at?.fingerprint ?? null }, failed: null });
+    let at = null;
+    await redrawn(library, String(gid), pages, async () => { ({ at } = await drawnAt(library, root, gid, token)); });
+    await overlayFor(library, root, over.source, gid, at, { rendered, failed: null });
     library.publishFeed(String(gid));
     return String(gid);
   }
@@ -491,8 +526,7 @@ export async function addRendered(library, root, gid, pages) {
     await disk.writeFile(path.join(dir, name), bytes);
     library.writes.add('pages', bytes.length);
   }
-  const at = await titleAt(library, root, over.source).catch(() => null);
-  const rendered = { pages: pages.length, fingerprint: at?.fingerprint ?? null };
+  const { at } = await drawnAt(library, root, gid, token);
   await overlayFor(library, root, over.source, gid, at, { rendered, failed: null });
   // (A check that ran meanwhile may have joined it already.)
   const made = await adoptLinked(library, root, { ...over.source, rendered }, { gid: String(gid), at })
@@ -505,12 +539,20 @@ export async function addRendered(library, root, gid, pages) {
 // stored: each staged first, then every page row replaced in one transaction — the old pages read until
 // it commits, what was made from them dropped with them (each page shows another picture now: library.js
 // _pageDrop) — and the new ones put in its overlay as it settles (files.js), the old files going then.
-async function redrawn(library, gid, pages) {
+// `still()`: rejects when the drawing is no longer for the file as it is (drawnAt), asked once they are
+// staged, before the commit: the staged pages are then let go, and nothing is replaced.
+async function redrawn(library, gid, pages, still) {
   const staged = [];
-  for (const [i, blob] of pages.entries()) {
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    const type = blob.type || 'image/webp';
-    staged.push({ n: i + 1, type, size: bytes.length, orig: await library._stage(gid, i + 1, bytes, type) });
+  try {
+    for (const [i, blob] of pages.entries()) {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const type = blob.type || 'image/webp';
+      staged.push({ n: i + 1, type, size: bytes.length, orig: await library._stage(gid, i + 1, bytes, type) });
+    }
+    await still();
+  } catch (e) {
+    for (const p of staged) await disk.rm(library._staged(p.orig.file), { force: true }).catch(() => {});
+    throw e;
   }
   const now = Date.now();
   library._tx(() => {
@@ -528,10 +570,11 @@ async function redrawn(library, gid, pages) {
   library.files.describeLater(gid);
   await library.files.settle(gid);
 }
-// A waiting PDF a window couldn't draw: noted in its overlay's source.json (`failed`, with its file's
-// fingerprint as it is now), so it isn't listed as waiting again until the file changes (A23).
-export async function pdfFailed(library, root, gid) {
-  const over = await waiting(library, root, gid);
-  const at = await titleAt(library, root, over.source).catch(() => null);
-  await overlayFor(library, root, over.source, gid, at, { failed: { fingerprint: at?.fingerprint ?? null, at: Date.now() } });
+// A waiting PDF a window couldn't draw from the version `token` names (pdfSource's): noted in its
+// overlay's source.json (`failed`, with that version's fingerprint), so it isn't listed as waiting again
+// until the file changes (A23) — only while the file is still that version (drawnAt): a failure to draw
+// an earlier one notes nothing.
+export async function pdfFailed(library, root, gid, token) {
+  const { over, at } = await drawnAt(library, root, gid, token);
+  await overlayFor(library, root, over.source, gid, at, { failed: { fingerprint: token, at: Date.now() } });
 }

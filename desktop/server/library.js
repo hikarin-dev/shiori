@@ -621,7 +621,8 @@ export class Library {
   // in the cache or in the gallery's folder as a Blob that reads it only then (so they are never all
   // in memory at once). A picture inside an archive, or staged — moved into the folder when its
   // gallery settles, maybe before it would be read — is read now, as is one not where its record
-  // said (moved meanwhile); null when it can't be read.
+  // said (moved meanwhile); null when it can't be read, or its folder doesn't name the gallery now
+  // (files.js folderToRead).
   async _lazyRef(ref, gid, orig, n) {
     if (typeof ref.$file === 'string') {
       const file = path.resolve(this.cacheDir, ref.$file);
@@ -629,7 +630,7 @@ export class Library {
     }
     if (typeof ref.$own === 'string') {
       const staged = this._s('SELECT 1 FROM staged_own WHERE gid = ? AND rel = ?').get(String(gid), ref.$own);
-      const file = !staged && this._ownPath(gid, ref.$own);
+      const file = !staged && await this.files.folderToRead(gid) && this._ownPath(gid, ref.$own);
       return (file && await fileBlob(file, ref.type)) || this._readOwn(gid, ref);
     }
     if (ref.$orig) return this._lazyOrig(gid, n, orig);
@@ -640,7 +641,7 @@ export class Library {
     return null;
   }
   async _lazyOrig(gid, n, orig) {
-    const dir = orig?.at === 'p' ? this.files.folderOf(gid) : null;
+    const dir = orig?.at === 'p' ? await this.files.folderToRead(gid) : null;
     const file = dir ? path.join(dir, ...String(orig.entry).split('/')) : await this.files.sourceFile(gid, orig);
     return (file && await fileBlob(file, orig.type)) || this._readOrig(gid, n, orig);
   }
@@ -979,12 +980,13 @@ export class Library {
   }
 
   // The PDFs the library's folders hold waiting for a window to draw their pages (linked.js):
-  // [{ folder, gid, path, name }]; one's file; its pages drawn, kept with it as it joins the library;
-  // or that they couldn't be drawn (not tried again until its file changes).
+  // [{ folder, gid, path, name }]; one's file and the token of its version ({ file, token }); its pages
+  // drawn from that version, kept with it as it joins the library; or that they couldn't be drawn (not
+  // tried again until its file changes) — each refused once the file is another version (T10).
   async pdfsWaiting() { return linked.pdfsWaiting(this); }
   async pdfSource(folder, gid) { return linked.pdfSource(this, String(folder), String(gid)); }
-  async addRendered(folder, gid, pages) { return linked.addRendered(this, String(folder), String(gid), pages); }
-  async pdfFailed(folder, gid) { return linked.pdfFailed(this, String(folder), String(gid)); }
+  async addRendered(folder, gid, pages, token) { return linked.addRendered(this, String(folder), String(gid), pages, token); }
+  async pdfFailed(folder, gid, token) { return linked.pdfFailed(this, String(folder), String(gid), token); }
 
   // Gallery `gid` moved to library folder `to` — a series owner with every chapter of its series,
   // unless `series` is false (a series with a gallery out of the library — its folder hidden or being

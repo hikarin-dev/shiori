@@ -4,7 +4,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { planTitles, zipTitles, metaFromName, sourceText, parseSource, sourceKey, isRemoved, safeRelPath, withRemoved, linkedPages,
-  keepsDerived, pdfReady, drawFailed, pdfWaits, matchSources, parseRemoved, removedText } from '../js/storage/linked-source.js';
+  keepsDerived, pdfReady, drawFailed, pdfWaits, matchSources, parseRemoved, removedText, provenanceOf, sameSource, sameProvenance, crcHex,
+  folderPrint, folderContent, drawnFrom, pdfPrint, isDrawing } from '../js/storage/linked-source.js';
 
 test('every folder holding pictures, every archive and every PDF is a title; Shiori\'s own folders and other files are left out', () => {
   const titles = planTitles([
@@ -99,6 +100,54 @@ test('F07: what was made from a linked page stays only while the page shows the 
   assert.equal(keepsDerived(page('001.png', 11), { name: '001.png', size: 10 }), false, 'its bytes replaced');
   assert.equal(keepsDerived(page('001.png', 10), null), false, 'nothing recorded: not known to be the same');
   assert.equal(keepsDerived(page('0001.png', 4, 'overlay'), null), true, 'a page of the overlay\'s own');
+});
+
+test('T07: a linked page keeps what was made from it only while its picture\'s content signal is the one recorded — a ZIP entry\'s CRC-32, a folder file\'s time', () => {
+  const [zipPage] = linkedPages([{ name: '001.png', size: 10, crc: 'aaaa0001' }]);
+  assert.equal(zipPage.crc, 'aaaa0001', 'a page carries its picture\'s signal');
+  assert.equal(keepsDerived(zipPage, provenanceOf({ name: '001.png', size: 10, crc: 'aaaa0001' })), true);
+  assert.equal(keepsDerived(zipPage, { name: '001.png', size: 10, crc: 'bbbb0002' }), false, 'the same name and size, other bytes');
+  const [dirPage] = linkedPages([{ name: '001.png', size: 10, mtime: 1700000000123.4 }]);
+  assert.equal(dirPage.mtime, 1700000000123, 'whole milliseconds, as both apps read them');
+  assert.equal(keepsDerived(dirPage, { name: '001.png', size: 10, mtime: 1700000000123 }), true);
+  assert.equal(keepsDerived(dirPage, { name: '001.png', size: 10, mtime: 1700000999000 }), false, 'replaced in place by a file of the same size');
+  // Recorded before content signals were: kept only while the source is as the library was told of it.
+  assert.equal(keepsDerived(zipPage, { name: '001.png', size: 10 }, true), true, 'the source unchanged');
+  assert.equal(keepsDerived(zipPage, { name: '001.png', size: 10 }, false), false, 'the source changed: not known to be the same picture');
+  assert.equal(sameSource({ kind: 'zip', path: 'A.zip', fingerprint: 'f1' }, { kind: 'zip', path: 'A.zip', fingerprint: 'f1' }), true);
+  assert.equal(sameSource({ kind: 'zip', path: 'A.zip', fingerprint: 'f1' }, { kind: 'zip', path: 'A.zip', fingerprint: 'f2' }), false);
+  assert.equal(sameSource({ kind: 'dir', path: 'D', fingerprint: 'f1', content: 'c1' }, { kind: 'dir', path: 'D', fingerprint: 'f1', content: 'c2' }), false, 'a folder\'s content');
+  assert.equal(sameSource(null, { kind: 'dir', path: 'D', fingerprint: 'f1' }), false, 'nothing recorded');
+  assert.equal(sameProvenance({ name: '001.png', size: 10 }, zipPage), false, 'recorded without its signal: recorded anew');
+  assert.equal(sameProvenance({ name: '001.png', size: 10, crc: 'aaaa0001' }, zipPage), true);
+  assert.equal(crcHex(0xdeadbeef), 'deadbeef');
+  assert.equal(crcHex(5), '00000005');
+});
+
+test('T07: a folder of pictures with a picture replaced in place by one of the same size is changed — its fingerprint, which finds it moved and is what a removal keeps, the same', () => {
+  const before = [{ name: '001.png', size: 4, mtime: 1 }, { name: '002.png', size: 5, mtime: 2 }];
+  const after = [{ name: '001.png', size: 4, mtime: 9 }, { name: '002.png', size: 5, mtime: 2 }];
+  assert.equal(folderPrint(before), folderPrint(after));
+  assert.notEqual(folderContent(before), folderContent(after));
+  const kept = [{ gid: '1', source: { kind: 'dir', path: 'D', fingerprint: 'F', content: 'c1' } }];
+  const found = (content) => [{ kind: 'dir', path: 'D', fingerprint: 'F', content }];
+  assert.deepEqual(matchSources({ found: found('c2'), kept }).changed.map(c => c.gid), ['1']);
+  assert.deepEqual(matchSources({ found: found('c1'), kept }).same.map(c => c.gid), ['1']);
+  assert.deepEqual(matchSources({ found: found('c2'), kept: [{ gid: '1', source: { kind: 'dir', path: 'D', fingerprint: 'F' } }] }).same.map(c => c.gid), ['1'],
+    'kept before its content was recorded: the same (it is recorded then)');
+});
+
+test('T10, T11: a PDF\'s drawing is kept only for the version it read, and only when it is pages with bytes', () => {
+  assert.equal(drawnFrom('5:abc', '5:abc'), true);
+  assert.equal(drawnFrom('5:abc', '6:def'), false, 'the file changed since');
+  assert.equal(drawnFrom('5:abc', null), false, 'the file can\'t be read now');
+  assert.equal(drawnFrom(undefined, '5:abc'), false, 'a drawing naming no version');
+  assert.equal(pdfPrint(5, 'abc'), '5:abc');
+  assert.equal(isDrawing([new Blob([new Uint8Array([1])])]), true);
+  assert.equal(isDrawing([]), false, 'no pages');
+  assert.equal(isDrawing([new Blob([new Uint8Array([1])]), new Blob([])]), false, 'a page with no bytes');
+  assert.equal(isDrawing([new Blob([new Uint8Array([1])]), 'not a picture']), false);
+  assert.equal(isDrawing(null), false);
 });
 
 const drawn = (n) => Array.from({ length: n }, (_, i) => ({ name: `${String(i + 1).padStart(4, '0')}.png` }));

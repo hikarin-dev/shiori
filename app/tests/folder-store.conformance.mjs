@@ -19,6 +19,7 @@ import * as faults from '../../desktop/tests/fs-faults.mjs';
 import { desktopLibrary, webLibrary } from './library-drivers.mjs';
 import { loadGallery as desktopLoad } from '../../desktop/server/folder-store.js';
 import { loadGallery as websiteLoad, forgetFolder } from '../js/storage/folder-store-web.js';
+import { zipCreate } from '../js/zip.js';
 
 /** @typedef {import('../js/storage/contract.js').FolderStore<any>} FolderStore */
 /** @typedef {import('../js/storage/contract.js').FolderRef<any>} FolderRef */
@@ -539,6 +540,148 @@ export const CASES = [
       fs.writeFileSync(path.join(dir, 'elsewhere', '001.png'), png(1));
       faults.junction(path.join(dir, 'elsewhere'), path.join(dir, 'A', 'Pictures'));
       assert.deepEqual(await root.source('Pictures'), { kind: 'outside' });
+    },
+  },
+  // ── Reading a gallery's pictures ──
+  {
+    // S5 checked a read against the library folder's identity only: a gallery's folder swapped by hand,
+    // inside a library folder still its own, served whatever the folder put there held.
+    name: 'a gallery\'s folder swapped by hand for another gallery\'s stops serving pictures within a few seconds, and never serves that gallery\'s as its own after',
+    async run({ dir, fx }) {
+      await fx.register('A');
+      const one = await fx.lib.newGallery('One'), two = await fx.lib.newGallery('Two');
+      await fx.lib.putPage(one, 1, png(1));
+      await fx.lib.putPage(two, 1, png(2));
+      await fx.lib.flush();
+      const at = /** @type {string} */ (await fx.lib.dirOf(one));
+      fs.renameSync(at, path.join(dir, 'One aside'));
+      fs.cpSync(/** @type {string} */ (await fx.lib.dirOf(two)), at, { recursive: true });
+      const swapped = Date.now();
+      // A gallery's folder found to name it is taken to for a few seconds (desktop 2 s, website 5 s).
+      while (await fx.lib.read(one, 1) != null) {
+        assert.ok(Date.now() - swapped < 8000, 'still read after 8 s');
+        await new Promise(r => setTimeout(r, 200));
+      }
+      assert.equal(await fx.lib.read(one, 1, 'translated'), null);
+      assert.deepEqual(await fx.lib.read(two, 1), png(2), 'the other gallery reads its own');
+      fs.rmSync(at, { recursive: true });
+      fs.renameSync(path.join(dir, 'One aside'), at);
+      assert.deepEqual(await fx.lib.read(one, 1), png(1), 'its own folder back: read at once');
+    },
+  },
+  // ── Generations travel with the work (principle 7) ──
+  {
+    // T07: a ZIP's picture changed in place (same name and size, another CRC-32) kept the translation of
+    // the picture it replaced.
+    name: 'T07: a linked ZIP\'s picture changed in place (same name and size) loses what was made from the old one; the others keep theirs',
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const pack = (first) => fs.writeFileSync(path.join(dir, 'A', 'Pack.zip'), zipCreate([{ name: '001.png', data: first }, { name: '002.png', data: png(2) }]));
+      pack(png(1));
+      await fx.lib.scan(ref.id);
+      const [gid] = await fx.lib.galleries();
+      await fx.lib.putTranslation(gid, 1, png(11));
+      await fx.lib.putTranslation(gid, 2, png(12));
+      await fx.lib.flush();
+      pack(png(9));
+      await fx.lib.scan(ref.id);
+      assert.deepEqual(await fx.lib.read(gid, 1), png(9), 'the new picture is read');
+      assert.deepEqual(await fx.lib.read(gid, 1, 'translated'), png(9), 'with no translation over it');
+      assert.deepEqual(await fx.lib.read(gid, 2, 'translated'), png(12), 'the page unchanged keeps its own');
+      await fx.lib.flush();
+      const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'A', '.shiori', 'linked', gid, 'gallery.json'), 'utf8'));
+      assert.match(manifest.sources['1'].crc, /^[0-9a-f]{8}$/, 'a page records its picture\'s CRC-32');
+      assert.equal(manifest.files.pages['1']?.translated, undefined);
+      assert.ok(manifest.files.pages['2'].translated);
+    },
+  },
+  {
+    name: 'T07: a linked folder\'s picture replaced in place by one of the same size loses what was made from the old one; the others keep theirs',
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const pics = path.join(dir, 'A', 'Pics');
+      fs.mkdirSync(pics);
+      const hourAgo = new Date(Date.now() - 3600_000);
+      for (const [n, bytes] of [['001.png', png(1)], ['002.png', png(2)]]) {
+        fs.writeFileSync(path.join(pics, n), bytes);
+        fs.utimesSync(path.join(pics, n), hourAgo, hourAgo);
+      }
+      await fx.lib.scan(ref.id);
+      const [gid] = await fx.lib.galleries();
+      await fx.lib.putTranslation(gid, 1, png(11));
+      await fx.lib.putTranslation(gid, 2, png(12));
+      await fx.lib.flush();
+      fs.writeFileSync(path.join(pics, '001.png'), png(9));   // the same size, written now
+      await fx.lib.scan(ref.id);
+      assert.deepEqual(await fx.lib.read(gid, 1), png(9));
+      assert.deepEqual(await fx.lib.read(gid, 1, 'translated'), png(9), 'no translation over it');
+      assert.deepEqual(await fx.lib.read(gid, 2, 'translated'), png(12), 'the page unchanged keeps its own');
+      await fx.lib.flush();
+      const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'A', '.shiori', 'linked', gid, 'gallery.json'), 'utf8'));
+      assert.equal(manifest.sources['2'].mtime, hourAgo.getTime(), 'a page records its picture\'s modification time');
+    },
+  },
+  {
+    // T10: a drawing of a PDF's earlier version was kept, stamped as of the file as it is now.
+    name: 'T10: a PDF\'s drawing, or its failure, is kept only for the version of the file it read',
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const pdf = path.join(dir, 'A', 'Book.pdf');
+      fs.writeFileSync(pdf, '%PDF-1.4 version A');
+      await fx.lib.scan(ref.id);
+      const [w] = await fx.lib.pdfsWaiting();
+      const marker = () => JSON.parse(fs.readFileSync(path.join(dir, 'A', '.shiori', 'linked', w.gid, 'source.json'), 'utf8')).source;
+      const a = await fx.lib.pdfSource(w.folder, w.gid);
+      fs.writeFileSync(pdf, '%PDF-1.4 version B, longer');
+      await fx.lib.scan(ref.id);
+      const stale = (/** @type {any} */ e) => e.code === 'conflict' && e.reason === 'stale';
+      await assert.rejects(fx.lib.addRendered(w.folder, w.gid, [png(1)], a.token), stale, 'a drawing of A refused');
+      await assert.rejects(fx.lib.pdfFailed(w.folder, w.gid, a.token), stale, 'and A\'s failure');
+      await assert.rejects(fx.lib.addRendered(w.folder, w.gid, [png(1)], undefined), stale, 'and a drawing naming no version');
+      assert.deepEqual(await fx.lib.galleries(), [], 'nothing joined');
+      assert.deepEqual([marker().rendered, marker().failed], [undefined, undefined], 'nothing noted');
+      assert.deepEqual((await fx.lib.pdfsWaiting()).map(x => x.gid), [w.gid], 'it still waits');
+      const b = await fx.lib.pdfSource(w.folder, w.gid);
+      assert.equal(await fx.lib.addRendered(w.folder, w.gid, [png(2)], b.token), w.gid);
+      assert.equal(marker().rendered.fingerprint, b.token, 'kept as drawn from B');
+      // Drawn again once it changed, and changed again while that drawing was under way.
+      await fx.lib.flush();   // (a gallery with changes not published yet isn't read again: they win)
+      fs.writeFileSync(pdf, '%PDF-1.4 version C, longer still');
+      await fx.lib.scan(ref.id);
+      const c = await fx.lib.pdfSource(w.folder, w.gid);
+      fs.writeFileSync(pdf, '%PDF-1.4 version D');
+      await assert.rejects(fx.lib.addRendered(w.folder, w.gid, [png(3), png(4)], c.token), stale);
+      assert.deepEqual([await fx.lib.read(w.gid, 1), await fx.lib.read(w.gid, 2)], [png(2), null], 'its pages as they were');
+      await fx.lib.scan(ref.id);
+      const d = await fx.lib.pdfSource(w.folder, w.gid);
+      assert.equal(await fx.lib.addRendered(w.folder, w.gid, [png(3), png(4)], d.token), w.gid);
+      assert.deepEqual([await fx.lib.read(w.gid, 1), await fx.lib.read(w.gid, 2)], [png(3), png(4)]);
+      assert.deepEqual(await fx.lib.pdfsWaiting(), [], 'drawn from the file as it is');
+    },
+  },
+  {
+    // T11: an empty drawing of a PDF the library had replaced its pages with none (the website).
+    name: 'T11: an empty or broken drawing of a PDF is refused before anything is written, and the pages a gallery has stay',
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const pdf = path.join(dir, 'A', 'Book.pdf');
+      fs.writeFileSync(pdf, '%PDF-1.4 first');
+      await fx.lib.scan(ref.id);
+      const [w] = await fx.lib.pdfsWaiting();
+      const images = path.join(dir, 'A', '.shiori', 'linked', w.gid, 'images');
+      const invalid = (/** @type {any} */ e) => e.code === 'invalid';
+      const first = await fx.lib.pdfSource(w.folder, w.gid);
+      await assert.rejects(fx.lib.addRendered(w.folder, w.gid, [], first.token), invalid, 'no pages');
+      assert.ok(!fs.existsSync(images) || fs.readdirSync(images).length === 0, 'nothing written');
+      assert.equal(await fx.lib.addRendered(w.folder, w.gid, [png(1), png(2)], first.token), w.gid);
+      await fx.lib.flush();
+      fs.writeFileSync(pdf, '%PDF-1.4 second, longer');
+      await fx.lib.scan(ref.id);
+      const second = await fx.lib.pdfSource(w.folder, w.gid);
+      await assert.rejects(fx.lib.addRendered(w.folder, w.gid, [], second.token), invalid, 'no pages');
+      await assert.rejects(fx.lib.addRendered(w.folder, w.gid, [png(3), new Uint8Array(0)], second.token), invalid, 'a page with no bytes');
+      assert.deepEqual([await fx.lib.read(w.gid, 1), await fx.lib.read(w.gid, 2)], [png(1), png(2)], 'its pages stay');
+      assert.deepEqual((await fx.lib.pdfsWaiting()).map(x => x.gid), [w.gid], 'it still waits to be drawn');
     },
   },
   // ── The write budget (plan D23): what each operation writes, as the adapter counts it ──

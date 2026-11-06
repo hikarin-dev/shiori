@@ -28,7 +28,8 @@ import { nextClaim, releasedClaim, unchangedSince } from './storage/folder-owner
 import { mounted, canHide, nextDefault, removalOutcome } from './storage/folder-lifecycle.js';
 import { OWN_FILES, MANIFEST_FILE, galleryIdOf, classifyFolder, classifyArchive } from './storage/folder-content.js';
 import { LINKED_DIR, SOURCE_FILE, REMOVED_FILE, IMAGE_NAME, ARCHIVE_NAME, overlayDir, sourceText, parseSource, parseRemoved, isRemoved,
-  folderPrint, metaFromName, planTitles, zipTitles, sortPictures, linkedPages, keepsDerived, pdfReady, pdfWaits, matchSources } from './storage/linked-source.js';
+  folderPrint, folderContent, crcHex, metaFromName, planTitles, zipTitles, sortPictures, linkedPages, keepsDerived, sameSource, sameProvenance,
+  pdfReady, pdfWaits, matchSources, PDF_HEAD, pdfPrint, drawnFrom, isDrawing } from './storage/linked-source.js';
 import { DESCRIPTION_FILES, descriptionStamp, layoutPath, extOfType, describedFiles, derivedRecord } from './storage/gallery-files.js';
 import { PICTURE_DIRS, readGallery, parseManifest, tokenOf, namedPictures } from './storage/gallery-manifest.js';
 import { sha256Hex } from './zip-read.js';
@@ -609,6 +610,12 @@ async function _check(id, { onProgress = () => {}, stopped = () => false } = {})
   const titles = await _linkedTitles(run, found, step);
   const plan = matchSources({ found: titles, kept: kept.filter(g => g.linked).map(g => ({ gid: String(g.galleryId), source: g.linked })),
     overlays: await _overlaysOf(id, root), known: run.known, removed: await _removedOf(run) });
+  // A folder of pictures kept without its content (kept before it was recorded) has it recorded as it is
+  // now, so a picture replaced in place by one of the same size is told from now on.
+  for (const s of plan.same) {
+    const g = kept.find(k => String(k.galleryId) === s.gid);
+    if (g?.linked && g.linked.content == null && s.title.content) await K.patchStat(s.gid, (cur) => (cur.linked ? { ...cur, linked: { ...cur.linked, content: s.title.content } } : cur));
+  }
 
   step.begin('lf.task_adding', found.own.length + plan.moved.length + plan.changed.length + plan.new.length);
   for (const own of found.own) {
@@ -846,7 +853,7 @@ async function _adopt(run, found, { replace = null } = {}) {
 // nothing of it waits to be written to its folder, as that transaction finds it (its mark of changes
 // not written there, pictures held back in this browser): local changes win. Resolves its id, or null
 // when it wasn't read again.
-async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, stamp = null, replace = null, extra = {} }) {
+async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, stamp = null, replace = null, stale = false, extra = {} }) {
   const now = Date.now();
   const db = await K.openDB();
   const S = K.stores;
@@ -870,7 +877,7 @@ async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, s
           images.put(K.stash(tx, rec, [], K.PAGE));
         };
       }
-      K.logIn(tx, gid, { mark: false });   // its folder describes it as read
+      K.logIn(tx, gid, { mark: stale });   // its folder describes it as read — unless `stale`: to be published again
     };
     if (!replace) { put(); return; }
     tx._keepFiles = true;
@@ -974,7 +981,7 @@ async function _linkedTitles(run, found, step) {
     const titles = t.kind === 'zip' ? await _zipTitlesOf(run, t) : [{ kind: t.kind, path: t.path, ...(t.kind === 'dir' ? { name: t.name } : {}) }];
     for (const title of titles) {
       const at = title.pictures ? title : await _titlePictures(run, title);
-      out.push({ ...title, pictures: at?.pictures || [], size: at?.size ?? null, fingerprint: at?.fingerprint ?? null });
+      out.push({ ...title, pictures: at?.pictures || [], size: at?.size ?? null, fingerprint: at?.fingerprint ?? null, content: at?.content ?? null });
     }
     step.tick();
   }
@@ -986,28 +993,33 @@ async function _zipTitlesOf(run, t) {
   const archive = await K.archiveOf(run.id, run.root, t.path).catch(() => null);
   if (!archive) { run.problems.push({ path: t.path, reason: 'corrupt' }); return []; }
   return zipTitles([...archive.entries.keys()]).map(z => ({ kind: 'zip', path: t.path, ...(z.inner ? { inner: z.inner } : {}), chapter: z.chapter,
-    pictures: z.pictures.map(name => ({ name, size: archive.entries.get(name).size })), size: archive.size, fingerprint: archive.fingerprint }));
+    pictures: _zipPictures(z.pictures, archive), size: archive.size, fingerprint: archive.fingerprint }));
 }
-// A title's pictures where they are, in order — [{ name (in its folder, or the archive), size }] — its
-// size and fingerprint (a PDF's: its size and its first megabyte's hash; it has no pictures of its
-// own). Null, reported, when they can't be read.
+// An archive's pictures (`names`, in order) as its directory has them: [{ name, size, crc }] — each with
+// its CRC-32, the content signal its page records (principle 7, T07).
+const _zipPictures = (names, archive) => names.map(name => ({ name, size: archive.entries.get(name).size, crc: crcHex(archive.entries.get(name).crc) }));
+// A title's pictures where they are, in order — [{ name (in its folder, or the archive), size, crc (an
+// archive's) | mtime (a folder's) }] — its size and fingerprint (a PDF's: its size and its first
+// megabyte's hash; it has no pictures of its own; a folder's: its `content` too, folderContent hashed).
+// Null, reported, when they can't be read.
 async function _titlePictures(run, title) {
   try {
     if (title.kind === 'zip') {
       const archive = await K.archiveOf(run.id, run.root, title.path);
       const mine = archive && zipTitles([...archive.entries.keys()]).find(z => z.inner === (title.inner || ''));
       if (!mine) return null;
-      return { pictures: mine.pictures.map(name => ({ name, size: archive.entries.get(name).size })), fingerprint: archive.fingerprint, size: archive.size };
+      return { pictures: _zipPictures(mine.pictures, archive), fingerprint: archive.fingerprint, size: archive.size };
     }
     if (title.kind === 'dir') {
       const pictures = [];
       for (const e of await folderFiles.list(run.id, run.root, title.path)) {
         if (e.kind !== 'file' || !IMAGE_NAME.test(e.name) || e.name.startsWith('.')) continue;
         const file = await e.file();
-        pictures.push({ name: e.name, path: e.name, size: file.size });
+        pictures.push({ name: e.name, path: e.name, size: file.size, mtime: file.lastModified });
       }
       const sorted = sortPictures(pictures);
-      return { pictures: sorted, fingerprint: await sha256Hex(new TextEncoder().encode(folderPrint(sorted))), size: sorted.reduce((n, p) => n + p.size, 0) };
+      const hash = (text) => sha256Hex(new TextEncoder().encode(text));
+      return { pictures: sorted, fingerprint: await hash(folderPrint(sorted)), content: await hash(folderContent(sorted)), size: sorted.reduce((n, p) => n + p.size, 0) };
     }
     const file = await folderFiles.readFile(run.id, run.root, title.path);
     if (!file) return null;
@@ -1017,7 +1029,7 @@ async function _titlePictures(run, title) {
     return null;
   }
 }
-const _pdfPrint = async (file) => `${file.size}:${await sha256Hex(await file.slice(0, 1024 * 1024).arrayBuffer())}`;
+const _pdfPrint = async (file) => pdfPrint(file.size, await sha256Hex(await file.slice(0, PDF_HEAD).arrayBuffer()));
 
 // The overlays folder `id` holds (.shiori/linked/*/source.json): [{ galleryId, source }].
 async function _overlaysOf(id, root) {
@@ -1113,7 +1125,8 @@ async function _relink(run, title, gid) {
 // its pictures read, else `title`'s own) — a PDF's markers kept, each saying the version of the file it
 // is for (its pages drawn from, or drawing them failed: pdfWaits). One that can't be read is never
 // written over: the error is thrown (F06); nor is one naming another gallery (principle 2: reason
-// 'conflict'). Resolves the overlay's folder.
+// 'conflict'). Resolves { dir: the overlay's folder, was: the source its source.json named before (null:
+// none) }.
 async function _overlayFor(run, title, gid, at = null) {
   const dir = overlayDir(gid);
   const path = `${dir}/${SOURCE_FILE}`;
@@ -1125,7 +1138,7 @@ async function _overlayFor(run, title, gid, at = null) {
   const want = sourceText(gid, { kind: title.kind, path: title.path, ...(title.inner ? { inner: title.inner } : {}), size: at?.size ?? title.size ?? null,
     fingerprint, ...(mine ? { rendered: had.source.rendered, failed: had.source.failed } : {}) });
   if (text !== want) await folderFiles.writeFile(run.id, run.root, path, want);
-  return dir;
+  return { dir, was: mine ? had.source : null };
 }
 
 // Title `title` of the folder (linked-source.js: an archive, a folder of pictures, a PDF) joined to the
@@ -1142,28 +1155,37 @@ async function _adoptLinked(run, title, { gid: given = null, replace = null } = 
   if (!at) return null;
   const gid = replace || given || K.nextGalleryId();
   if (!replace && run.known.has(gid)) return null;
-  const dir = await _overlayFor(run, title, gid, at);
+  const kept = replace ? (await K.galleryGet(gid))?.linked : null;
+  const { dir, was } = await _overlayFor(run, title, gid, at);
+  // Whether its source is as the library was last told of it (the source it keeps, for one read again;
+  // else its overlay's source.json): what a page recorded before content signals were may keep.
+  const unchanged = sameSource(replace ? kept : was, at);
   const read = await _readFormat(run.id, run.root, { kind: 'dir', path: dir });
   const entries = _entriesOf(read.records);
   const now = Date.now();
   const overlay = [...read.files].filter(([p]) => /^images\/[^/]+$/.test(p)).map(([p, f]) => ({ name: p.slice('images/'.length), size: f.size }));
-  const source = (p) => ({ $path: p.name, folder: run.id, dir: title.path, ro: 1, ...(title.kind === 'zip' ? { zip: 1 } : {}), size: p.size, type: K.typeOfName(p.name) });
+  // A page of its source records the picture's content signal with it (principle 7: its provenance).
+  const source = (p) => ({ $path: p.name, folder: run.id, dir: title.path, ro: 1, ...(title.kind === 'zip' ? { zip: 1 } : {}), size: p.size, type: K.typeOfName(p.name),
+    ...(p.crc ? { crc: p.crc } : {}), ...(p.mtime != null ? { mtime: p.mtime } : {}) });
   // Its pages of its own: those its manifest names (format v2), else as its descriptions say (v1).
   const listedAs = read.generation ? new Set(read.pictures.pages.values()) : describedFiles(read.records, read.manifest);
   const own = read.generation ? overlay.filter(f => listedAs.has(`images/${f.name}`)) : overlay;
+  let stale = false;   // a page's source picture isn't the one its overlay recorded: published again
   const pages = linkedPages(at.pictures, own, listedAs).map((p) => {
     const entry = entries.get(p.n);
     const url = entry?.url && K.keyPage(entry.url) === p.n ? entry.url : `local://${gid}/${p.n}.${p.name.match(/\.(\w+)$/)?.[1]?.toLowerCase() || 'jpg'}`;
-    const made = keepsDerived(p, entry?.source) ? derivedRecord(read.pictures, read.bubbles, p.n, entry, read.ref) : {};
+    const made = keepsDerived(p, entry?.source, unchanged) ? derivedRecord(read.pictures, read.bubbles, p.n, entry, read.ref) : {};
+    if (p.from === 'source' && entry?.source && !sameProvenance(entry.source, p)) stale = true;
     return { url, n: p.n, record: { url, blob: p.from === 'overlay' ? read.ref(`images/${p.name}`) : source(p), mediaId: String(entry?.mediaId ?? gid),
       galleryId: gid, cachedAt: entry?.cachedAt || now, size: p.size, ...made } };
   });
   if (!pages.length) return null;
   const record = galleryIdOf(read.texts['metadata.json']) === gid ? { ...read.meta, galleryId: gid }
     : { galleryId: gid, ...(await _namedMeta(run, title, gid)), numPages: pages.length, isLocalImport: true, source: '' };
-  const linked = { kind: title.kind, path: title.path, ...(title.inner ? { inner: title.inner } : {}), ...(at.fingerprint ? { fingerprint: at.fingerprint } : {}) };
+  const linked = { kind: title.kind, path: title.path, ...(title.inner ? { inner: title.inner } : {}), ...(at.fingerprint ? { fingerprint: at.fingerprint } : {}),
+    ...(at.content ? { content: at.content } : {}) };
   return _storeAdopted({ folder: run.id, dir, gid, record, pages, ownCover: _ownCovers(read),
-    stamp: read.texts['metadata.json'] != null ? read.token : null, replace, extra: { linked } });
+    stamp: read.texts['metadata.json'] != null ? read.token : null, replace, stale, extra: { linked } });
 }
 // What a title's name and folders say of it: an archive's chapter is named after its folder in it,
 // its tags the archive's.
@@ -1215,35 +1237,53 @@ async function _waitingPdf(folder, gid) {
   if (!over) throw new BackendError('not-found', `no PDF waiting as gallery ${gid}`);
   return { root, source: over.source };
 }
-// The PDF a waiting gallery is drawn from, as a File.
+// The PDF a waiting gallery is drawn from: { file (a File), token (its fingerprint, as read: the version
+// a drawing of it is for — addRendered and pdfFailed take it back, T10) }. A File is the file as it was
+// when read: should it change, reading it fails rather than give another version's bytes.
 async function pdfSource(folder, gid) {
   const { root, source } = await _waitingPdf(folder, gid);
-  return folderFiles.readFile(folder, root, source.path);
+  const file = await folderFiles.readFile(folder, root, source.path);
+  if (!file) throw new BackendError('not-found', `the PDF waiting as gallery ${gid} isn't there`);
+  return { file, token: await _pdfPrint(file) };
 }
-// A waiting PDF's pages, drawn (`pages`: Blobs in order), kept in its overlay — each page written, then
-// its source.json told how many and the file they were drawn from (`rendered`, last: until then a check
-// doesn't take the pages drawn so far for a gallery) — and the gallery joined to the library, while the
-// folder's lock is held (one at a time with its check). One the library has, drawn again, has its pages
-// replaced in one commit (db.js replacePages), then its marker. Resolves its id; rejects when it
-// couldn't join.
-async function addRendered(folder, gid, pages) {
+// Waiting gallery `gid`'s PDF in folder `folder` read again, for a drawing of the version `token` names
+// (pdfSource's): { root, source } while the file is still that version (linked-source.js drawnFrom); else
+// rejects with BackendError 'conflict' (`reason` 'stale'), nothing written — it waits to be drawn as it
+// is now.
+async function _drawnAt(folder, gid, token) {
+  const { root, source } = await _waitingPdf(folder, gid);
+  const file = await folderFiles.readFile(folder, root, source.path).catch(() => null);
+  if (!drawnFrom(token, file ? await _pdfPrint(file) : null)) {
+    throw Object.assign(new BackendError('conflict', `the PDF waiting as gallery ${gid} isn't the version drawn`), { reason: 'stale' });
+  }
+  return { root, source };
+}
+// A waiting PDF's pages, drawn (`pages`: Blobs in order) from the version of its file `token` names
+// (pdfSource's), kept in its overlay — only a drawing (linked-source.js isDrawing: one page at least, each
+// with bytes) of the file as it still is (_drawnAt, read again just before the commit too) — each page
+// written, then its source.json told how many and the version they were drawn from (`rendered`, last:
+// until then a check doesn't take the pages drawn so far for a gallery) — and the gallery joined to the
+// library, while the folder's lock is held (one at a time with its check). One the library has, drawn
+// again, has its pages replaced in one commit (db.js replacePages), then its marker. Resolves its id;
+// rejects when it couldn't join.
+async function addRendered(folder, gid, pages, token) {
+  if (!isDrawing(pages)) throw new BackendError('invalid', 'no pages drawn');
   return folderFiles.withLock(FOLDER_LOCK(folder), async () => {
-    const { root, source } = await _waitingPdf(folder, gid);
+    const { root, source } = await _drawnAt(folder, gid, token);
     const dir = overlayDir(gid);
-    const file = await folderFiles.readFile(folder, root, source.path).catch(() => null);   // can't be read now: the fingerprint it had
-    const fingerprint = file ? await _pdfPrint(file) : source.fingerprint;
     const marker = () => folderFiles.writeFile(folder, root, `${dir}/${SOURCE_FILE}`,
-      sourceText(gid, { ...source, fingerprint, rendered: { pages: pages.length, fingerprint }, failed: null }));
+      sourceText(gid, { ...source, fingerprint: token, rendered: { pages: pages.length, fingerprint: token }, failed: null }));
     if (await K.galleryGet(gid)) {
-      await K.replacePages(String(gid), pages);
+      await K.replacePages(String(gid), pages, { before: () => _drawnAt(folder, gid, token) });
       await marker();
-      await K.patchStat(String(gid), (cur) => (cur.linked ? { ...cur, linked: { ...cur.linked, fingerprint } } : cur));
+      await K.patchStat(String(gid), (cur) => (cur.linked ? { ...cur, linked: { ...cur.linked, fingerprint: token } } : cur));
       return String(gid);
     }
     for (const [i, blob] of pages.entries()) {
       await folderFiles.writeFile(folder, root, `${dir}/${layoutPath.original(i + 1, extOfType(blob.type) || 'webp')}`, blob);
     }
     if (!(await K.rootOf(folder))) throw new BackendError('unavailable', `library folder ${folder} can't be written to`);
+    await _drawnAt(folder, gid, token);
     await marker();
     const run = { id: folder, root, name: (await K.folderById(folder))?.name || '', stopped: () => false,
       known: new Set(await K.transferIds()), added: [], updated: new Set(), problems: [] };
@@ -1255,14 +1295,13 @@ async function addRendered(folder, gid, pages) {
     return made;
   });
 }
-// A waiting PDF a page couldn't draw (it can't be read, or is locked): noted in its source.json
-// (`failed`, with the file's fingerprint as it is now), so it isn't tried again on every page until
-// the file changes (linked-source.js drawFailed).
-async function pdfFailed(folder, gid) {
-  const { root, source } = await _waitingPdf(folder, gid);
-  const file = await folderFiles.readFile(folder, root, source.path).catch(() => null);   // can't be read: the fingerprint it had
-  const fingerprint = file ? await _pdfPrint(file) : source.fingerprint;
-  await folderFiles.writeFile(folder, root, `${overlayDir(gid)}/${SOURCE_FILE}`, sourceText(gid, { ...source, failed: { fingerprint, at: Date.now() } }));
+// A waiting PDF a page couldn't draw from the version `token` names (pdfSource's; it is damaged, or
+// locked): noted in its source.json (`failed`, with that version's fingerprint), so it isn't tried again
+// on every page until the file changes (linked-source.js drawFailed) — only while the file is still that
+// version (_drawnAt): a failure to draw an earlier one notes nothing.
+async function pdfFailed(folder, gid, token) {
+  const { root, source } = await _drawnAt(folder, gid, token);
+  await folderFiles.writeFile(folder, root, `${overlayDir(gid)}/${SOURCE_FILE}`, sourceText(gid, { ...source, failed: { fingerprint: token, at: Date.now() } }));
 }
 
 // ── Series links among galleries read back ──

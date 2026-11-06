@@ -17,7 +17,8 @@
 // restart (the desktop's; the website's reload is left for later: library-drivers.mjs), and the
 // person's or the disk's doing — a description damaged, a gallery's folder moved away and another put
 // at its path, a ZIP's picture changed in place (same name and size), the drive taken away and brought
-// back, a translation written while every delete is refused.
+// back, a translation written while every delete is refused, a PDF put in the folder and drawn — its file
+// changed while it is drawn, or the drawing empty.
 //
 // The base commands find nothing on today's code. The others (OPEN) each run beside them in a run of
 // their own, marked todo on an app where they find something today's code gets wrong — with the step
@@ -44,9 +45,9 @@ const MAX_COMMANDS = 14;
 /** A page as the model has it: its picture's bytes and its translation's (null: none). `changed`: its
  * source changed since it was translated, and the library hasn't checked the folder since.
  * @typedef {{ original: Uint8Array, translated: Uint8Array | null, changed?: boolean }} Page */
-/** @typedef {{ gid: string, place: 'A' | 'home', title: string, pages: Page[], zip?: string, displaced?: boolean }} Gallery */
+/** @typedef {{ gid: string, place: 'A' | 'home', title: string, pages: Page[], zip?: string, pdf?: string, displaced?: boolean }} Gallery */
 /** @typedef {{ state: 'shown' | 'hidden' | 'away', galleries: Gallery[], deleted: Set<string>, notes: Map<string, Uint8Array>,
- *   restartable: boolean, tag: number }} Model */
+ *   restartable: boolean, tag: number, pdfs: string[] }} Model */
 /** @typedef {{ lib: Driver, dir: string, A: string, drive: string, id: string }} Real */
 
 // Bytes no other write has: a picture's type, then the write's number (two bytes).
@@ -136,9 +137,9 @@ const BASE = {
     },
   }),
   putPage: command('putPage', fc.tuple(anyGallery, fc.nat(1)), {
-    check: (m, [i]) => !!galleryAt(m, i, g => !g.zip && g.pages.length > 0),
+    check: (m, [i]) => !!galleryAt(m, i, g => !g.zip && !g.pdf && g.pages.length > 0),
     async run(m, r, [i, k]) {
-      const g = /** @type {Gallery} */ (galleryAt(m, i, g => !g.zip && g.pages.length > 0));
+      const g = /** @type {Gallery} */ (galleryAt(m, i, g => !g.zip && !g.pdf && g.pages.length > 0));
       const n = (k % g.pages.length) + 1, bytes = png(++m.tag);
       // A page stored again is a new picture: its translation goes with the old one (both libraries).
       if (await attempt(!writable(m, g), () => r.lib.putPage(g.gid, n, bytes))) g.pages[n - 1] = { original: bytes, translated: null };
@@ -296,6 +297,37 @@ const OPEN = {
       } finally { undo(); }
     },
   })] },
+  // A source changing while work made from it is under way (T10, T11): a PDF put in the folder, or one
+  // there changed (so a gallery drawn from it waits to be drawn again), the folder checked, then a PDF
+  // waiting drawn as a window draws it — its file changed while it is drawn, or not; the drawing empty,
+  // or not. A drawing of another version than the file's now, or with no pages, is refused and changes
+  // nothing: the gallery keeps the pages it has (none, before it joins) until a drawing of the file as
+  // it is. Longer runs (30) find N4 here on the desktop, outside the drawing: a gallery deleted just
+  // before a check is taken, its folder half deleted, for a folder of pictures (S7, with N2).
+  drawing: { todo: {}, commands: [
+    command('drawPdf', fc.tuple(fc.nat(3).map(k => k === 0), fc.nat(9), fc.constantFrom('drawn', 'changed while drawn', 'drawn empty')), {
+      check: (m) => m.state === 'shown',
+      async run(m, r, [anew, i, how]) {
+        if (anew || !m.pdfs.length) m.pdfs.push(`Book ${++m.tag}.pdf`);
+        const name = m.pdfs[anew ? m.pdfs.length - 1 : i % m.pdfs.length];
+        await r.lib.flush();   // what the library has of it published, so a gallery drawn from it is read again
+        fs.writeFileSync(path.join(r.A, name), `%PDF-1.4 ${++m.tag}`);
+        await r.lib.scan(r.id);
+        const w = (await r.lib.pdfsWaiting()).find(x => x.name === name);
+        // Not waiting: removed from the library, or a gallery drawn from it with changes not published
+        // yet (it isn't read again until they are: local changes win).
+        if (!w) return;
+        const { token } = await r.lib.pdfSource(w.folder, w.gid);
+        if (how === 'changed while drawn') fs.writeFileSync(path.join(r.A, name), `%PDF-1.4 ${++m.tag}, changed while drawn`);
+        const pages = how === 'drawn empty' ? [] : [png(++m.tag), png(++m.tag)];
+        const kept = await r.lib.addRendered(w.folder, w.gid, pages, token).then(() => true, (e) => { if (how === 'drawn') throw e; return false; });
+        if (kept !== (how === 'drawn')) throw new Error(`a drawing ${how} was ${kept ? 'kept' : 'refused'}`);        if (!kept) return;
+        const g = m.galleries.find(x => x.gid === w.gid);
+        if (g) g.pages = pages.map(original => ({ original, translated: null }));   // drawn again: what was made from the old pages goes
+        else m.galleries.push({ gid: w.gid, place: 'A', title: await r.lib.titleOf(w.gid) ?? '', pdf: name, pages: pages.map(original => ({ original, translated: null })) });
+      },
+    }),
+  ] },
 };
 
 /** @param {'website' | 'desktop'} app @returns {Promise<{ model: Model, real: Real, done(): Promise<void> }>} */
@@ -309,7 +341,7 @@ async function setup(app) {
   const id = await lib.add(A);
   await lib.setDefault(id);
   return {
-    model: { state: 'shown', galleries: [], deleted: new Set(), notes: new Map(), restartable: !!lib.restart, tag: 0 },
+    model: { state: 'shown', galleries: [], deleted: new Set(), notes: new Map(), restartable: !!lib.restart, tag: 0, pdfs: [] },
     real: { lib, dir, A, drive, id },
     async done() {
       // What the library does after its last command doesn't outlive the run.
