@@ -461,13 +461,14 @@ export async function deleteNamedIn(dir, list, { emptied: tidy = true } = {}) {
 // library's to delete (with Windows' own delete: files.js _delete). A folder that names the gallery
 // (galleryIn) is emptied so; one that names no gallery — what named it gone already (a deletion cut
 // short), or put there by hand — loses only the files the library recorded writing, each while it is
-// as recorded; one gone, or another gallery's, is left as it is. Resolves whether the deletion is done
-// — true, or 'left' when what it emptied still holds files: a person's, or one changed since Shiori wrote
-// it — or is to be tried again (false: something there couldn't be read or deleted now).
+// as recorded; one gone, or another gallery's, is left as it is ('missing': the gallery's folder isn't
+// there — renamed or moved by hand, perhaps: F4). Resolves whether the deletion is done — true, or
+// 'left' when what it emptied still holds files: a person's, or one changed since Shiori wrote it —
+// 'missing', or is to be tried again (false: something there couldn't be read or deleted now).
 export async function deleteGalleryIn(dir, gid, named) {
   const whose = await galleryIn(dir, String(gid));
   if (whose.kind === 'unreadable') return false;
-  if (whose.kind === 'missing' || (whose.kind === 'conflict' && whose.found != null)) return true;
+  if (whose.kind === 'missing' || (whose.kind === 'conflict' && whose.found != null)) return 'missing';
   const now = whose.kind === 'ok' ? await manifestIn(dir, String(gid)) : contract.MISSING;
   if (now.kind === 'unreadable') return false;
   const area = format.areaOf(dir.split(path.sep).join('/'));

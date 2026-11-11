@@ -99,6 +99,27 @@ async function settles(/** @type {Promise<unknown>} */ work, ms = 3000) {
   if (got === 'never settled') { fsa.failNext(() => true, 'InvalidStateError', { times: Infinity }); await new Promise(r => setTimeout(r, 200)); }
   return got;
 }
+// What folder `at` holds: every file's path in it → its bytes (hex).
+function snapshot(/** @type {string} */ at) {
+  /** @type {Record<string, string>} */
+  const out = {};
+  const walk = (/** @type {string} */ d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p); else out[path.relative(at, p)] = fs.readFileSync(p).toString('hex');
+    }
+  };
+  walk(at);
+  return out;
+}
+// A file `name` added to the archive at `file`, as the person does with an archive tool: written again
+// whole with it.
+async function addToArchive(/** @type {string} */ file, /** @type {string} */ name, /** @type {Uint8Array} */ data) {
+  const { zipEntries } = await import('../js/zip-read.js');
+  const entries = [];
+  for (const e of await zipEntries(new Uint8Array(fs.readFileSync(file)))) entries.push({ name: e.filename, data: await e.read() });
+  fs.writeFileSync(file, zipCreate([...entries, { name, data }]));
+}
 // Resolves once `ready()` holds — what a library does after its write commits — failed after `ms`.
 async function until(/** @type {() => boolean | Promise<boolean>} */ ready, ms = 5000) {
   for (const end = Date.now() + ms; !(await ready()); await new Promise(r => setTimeout(r, 25))) {
@@ -710,7 +731,7 @@ export const CASES = [
       fs.renameSync(at, path.join(dir, 'One aside'));
       fs.cpSync(/** @type {string} */ (await fx.lib.dirOf(two)), at, { recursive: true });
       const swapped = Date.now();
-      // A gallery's folder found to name it is taken to for a few seconds (desktop 2 s, website 5 s).
+      // A gallery's folder found to name it is taken to for reads for two seconds (both apps; plan §8).
       while (await fx.lib.read(one, 1) != null) {
         assert.ok(Date.now() - swapped < 8000, 'still read after 8 s');
         await new Promise(r => setTimeout(r, 200));
@@ -720,6 +741,137 @@ export const CASES = [
       fs.rmSync(at, { recursive: true });
       fs.renameSync(path.join(dir, 'One aside'), at);
       assert.deepEqual(await fx.lib.read(one, 1), png(1), 'its own folder back: read at once');
+    },
+  },
+  {
+    // F4 (S10 review): a gallery's folder renamed by hand, then the gallery deleted — the deletion's
+    // record named the old path, found nothing there and was dropped, and the next check adopted the
+    // renamed folder by its id.
+    name: 'F4: a gallery deleted after its folder was renamed by hand stays deleted: a check deletes the renamed folder by name, never adopting it',
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Renamed');
+      await fx.lib.putPage(gid, 1, png(1));
+      await fx.lib.flush();
+      const at = /** @type {string} */ (await fx.lib.dirOf(gid));
+      const renamed = path.join(dir, 'A', 'Renamed by hand');
+      fs.renameSync(at, renamed);
+      fs.writeFileSync(path.join(renamed, 'notes.txt'), 'mine');
+      await fx.lib.deleteGallery(gid);
+      await new Promise(r => setTimeout(r, 300));   // what a deletion leaves to do, once it commits
+      await fx.lib.scan(ref.id);
+      assert.deepEqual(await fx.lib.galleries(), [], 'not adopted');
+      assert.ok(!fs.existsSync(path.join(renamed, 'images', '0001.png')) && !fs.existsSync(path.join(renamed, 'metadata.json')), 'its files deleted by name');
+      assert.equal(fs.readFileSync(path.join(renamed, 'notes.txt'), 'utf8'), 'mine', 'a person\'s file stays');
+      await fx.lib.scan(ref.id);
+      assert.deepEqual(await fx.lib.galleries(), []);
+    },
+  },
+  {
+    // O3 (S10 review): a gallery's folder copied by hand inside its library folder was left out of the
+    // library without a word.
+    name: 'O3: a copy of a gallery\'s folder made by hand is reported on its folder\'s Needs attention list, and left',
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Copied');
+      await fx.lib.putPage(gid, 1, png(1));
+      await fx.lib.flush();
+      fs.cpSync(/** @type {string} */ (await fx.lib.dirOf(gid)), path.join(dir, 'A', 'Copied (copy)'), { recursive: true });
+      const found = await fx.lib.scan(ref.id);
+      assert.deepEqual(found.problems.map(p => [p.reason, p.path]), [['duplicate', 'Copied (copy)']]);
+      assert.deepEqual(await fx.lib.galleries(), [gid]);
+      const listed = (await fx.lib.list()).find(f => f.id === ref.id);
+      assert.ok(listed.attention.some(i => i.reason === 'duplicate' && i.path === 'Copied (copy)'), 'on its Needs attention list');
+      assert.ok(fs.existsSync(path.join(dir, 'A', 'Copied (copy)', 'images', '0001.png')), 'left as it is');
+    },
+  },
+  {
+    // F6 (S10 review): an archived gallery's deletion took its archive whole while its descriptions
+    // named the gallery — with the files the person had added to it.
+    name: 'F6: an archived gallery\'s archive the person added a file to is left whole by its deletion, reported, and never adopted again',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Archived');
+      await fx.lib.putPage(gid, 1, png(1));
+      await fx.lib.flush();
+      assert.deepEqual((await fx.lib.raw.archiveGallery(gid)).archived, [gid]);
+      const file = fx.lib.raw.files._abs(fx.lib.raw._s('SELECT path FROM files WHERE gid = ?').get(gid).path);
+      await addToArchive(file, 'notes.txt', new TextEncoder().encode('mine'));
+      const edited = fs.readFileSync(file);
+      await fx.lib.deleteGallery(gid);
+      await until(async () => (await fx.lib.list()).find(f => f.id === ref.id).attention.some(a => a.reason === 'left'));
+      assert.deepEqual(fs.readFileSync(file), edited, 'the archive stays as the person left it');
+      for (let i = 0; i < 2; i++) {
+        await fx.lib.scan(ref.id);
+        assert.deepEqual(await fx.lib.galleries(), [], 'never adopted again');
+      }
+      // Its own archive, unchanged, goes whole.
+      const other = await fx.lib.newGallery('Untouched');
+      await fx.lib.putPage(other, 1, png(2));
+      await fx.lib.flush();
+      await fx.lib.raw.archiveGallery(other);
+      const kept = fx.lib.raw.files._abs(fx.lib.raw._s('SELECT path FROM files WHERE gid = ?').get(other).path);
+      await fx.lib.deleteGallery(other);
+      await until(() => !fs.existsSync(kept));
+      assert.ok(fs.existsSync(path.join(dir, 'A')));
+    },
+  },
+  {
+    // F1 (S10 review, the website): which folder a library folder's path holds, found granted, was
+    // taken as it was for five seconds for writes and checks too — so another library put at the path a
+    // moment after a write took the next one, and a check adopted its galleries.
+    name: 'F1: another library put at a library folder\'s path a moment after a write takes no write, and a check then adopts none of its galleries',
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Original');
+      await fx.lib.putPage(gid, 1, png(1));
+      await fx.lib.flush();
+      const A = path.join(dir, 'A');
+      fs.renameSync(A, path.join(dir, 'A aside'));
+      // Another library's folder at its path at once: a copy (the gallery's folder in it naming the
+      // gallery), with a folder of pictures a check would add.
+      fs.cpSync(path.join(dir, 'A aside'), A, { recursive: true });
+      fs.writeFileSync(path.join(A, '.shiori', 'library.json'), JSON.stringify({ format: 'shiori-library', version: 1, id: otherId() }));
+      fs.mkdirSync(path.join(A, 'Theirs'));
+      fs.writeFileSync(path.join(A, 'Theirs', '001.png'), png(50));
+      const before = snapshot(A);
+      await fx.lib.putPage(gid, 2, png(2));
+      await assert.rejects(fx.lib.scan(ref.id), (e) => e.reason === 'other-library', 'nor the folder checked');
+      await fx.lib.flush().catch(() => {});
+      assert.deepEqual(snapshot(A), before, 'nothing written to the other library');
+      assert.deepEqual(await fx.lib.galleries(), [gid], 'nothing of it adopted');
+      // The original back: the page written meanwhile goes there.
+      fs.rmSync(A, { recursive: true });
+      fs.renameSync(path.join(dir, 'A aside'), A);
+      await fx.lib.flush();
+      assert.deepEqual(await fx.lib.read(gid, 2), png(2));
+      assert.ok(fs.readdirSync(path.join(/** @type {string} */ (await fx.lib.dirOf(gid)), 'images')).length === 2, 'both pages in its folder');
+    },
+  },
+  {
+    // F2 (S10 review, the website): a gallery's folder found to name it was taken to for five seconds for
+    // writes too — so a folder swapped by hand for another gallery's a moment after a write took the next
+    // picture as this gallery's.
+    name: 'F2: a gallery\'s folder swapped by hand for another gallery\'s a moment after a write takes none of this gallery\'s pictures',
+    async run({ dir, fx }) {
+      await fx.register('A');
+      const one = await fx.lib.newGallery('One'), two = await fx.lib.newGallery('Two');
+      await fx.lib.putPage(one, 1, png(1));
+      await fx.lib.putPage(two, 1, png(2));
+      await fx.lib.flush();
+      await fx.lib.putPage(one, 2, png(3));
+      const at = /** @type {string} */ (await fx.lib.dirOf(one));
+      fs.renameSync(at, path.join(dir, 'One aside'));
+      fs.cpSync(/** @type {string} */ (await fx.lib.dirOf(two)), at, { recursive: true });
+      const before = snapshot(at);
+      await fx.lib.putPage(one, 3, png(4));
+      assert.deepEqual(snapshot(at), before, 'the other gallery\'s folder takes nothing');
+      assert.deepEqual(await fx.lib.read(two, 1), png(2));
+      fs.rmSync(at, { recursive: true });
+      fs.renameSync(path.join(dir, 'One aside'), at);
+      await fx.lib.flush();
+      assert.deepEqual([await fx.lib.read(one, 1), await fx.lib.read(one, 2), await fx.lib.read(one, 3)], [png(1), png(3), png(4)]);
     },
   },
   // ── Generations travel with the work (principle 7) ──
@@ -795,16 +947,32 @@ export const CASES = [
       assert.deepEqual(await fx.lib.read(gid, 2, 'translated'), png(12), 'the page unchanged takes its own');
       await fx.lib.putTranslation(gid, 1, png(13), 'image/png', (await fx.lib.sources(gid))[1]);
       assert.deepEqual(await fx.lib.read(gid, 1, 'translated'), png(13), 'a translation of the picture as it is, kept');
-      // A page of the library's own has none: its translation is kept as before.
-      const own = await fx.lib.newGallery('Own');
-      await fx.lib.putPage(own, 1, png(20));
-      const mine = await fx.lib.sources(own);
-      assert.equal(mine[1], '');
-      await fx.lib.putTranslation(own, 1, png(21), 'image/png', mine[1]);
-      assert.deepEqual(await fx.lib.read(own, 1, 'translated'), png(21));
       await fx.lib.flush();
       const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'A', '.shiori', 'linked', gid, 'gallery.json'), 'utf8'));
       assert.ok(manifest.files.pages['1'].translated && manifest.files.pages['2'].translated, 'both published');
+    },
+  },
+  {
+    // O1 (S10 review): a page of the library's own carried no token, so a translation of the picture it
+    // had before it was stored again (downloaded again) was kept on the new picture.
+    name: 'O1: a translation made from the picture a page of the library\'s own had before it was stored again is refused; one made from the picture as it is, kept',
+    async run({ fx }) {
+      await fx.register('A');
+      const gid = await fx.lib.newGallery('Own');
+      await fx.lib.putPage(gid, 1, png(20));
+      await fx.lib.putPage(gid, 2, png(22));
+      const sent = await fx.lib.sources(gid);
+      assert.ok(sent[1] && sent[1] !== sent[2], 'each page has a token of its own');
+      await new Promise(r => setTimeout(r, 10));
+      await fx.lib.putPage(gid, 1, png(30));   // stored again, the same size, while the translation is under way
+      await fx.lib.putTranslation(gid, 1, png(21), 'image/png', sent[1]);
+      await fx.lib.putTranslation(gid, 2, png(23), 'image/png', sent[2]);
+      assert.deepEqual(await fx.lib.read(gid, 1, 'translated'), png(30), 'the old picture\'s translation is refused');
+      assert.deepEqual(await fx.lib.read(gid, 2, 'translated'), png(23), 'the page unchanged takes its own');
+      await fx.lib.flush();
+      assert.equal((await fx.lib.sources(gid))[2], sent[2], 'a publication keeps the token');
+      await fx.lib.putTranslation(gid, 1, png(31), 'image/png', (await fx.lib.sources(gid))[1]);
+      assert.deepEqual(await fx.lib.read(gid, 1, 'translated'), png(31), 'a translation of the picture as it is, kept');
     },
   },
   {

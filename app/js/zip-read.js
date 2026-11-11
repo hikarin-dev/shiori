@@ -39,22 +39,15 @@ export async function zipEntries(source) {
     : ArrayBuffer.isView(source) ? new Uint8Array(source.buffer, source.byteOffset, source.byteLength) : new Uint8Array(source);
   const part = (from, to) => (bytes || source).slice(from, to);
   const read = async (from, to) => (bytes ? part(from, to) : new Uint8Array(await part(from, to).arrayBuffer()));
-  // The end record closes the zip, followed only by its comment (at most 64 KiB).
   const size = bytes ? bytes.byteLength : source.size;
-  const tailAt = Math.max(0, size - 22 - 0xffff);
-  const tail = await read(tailAt, size);
-  const tv = new DataView(tail.buffer, tail.byteOffset, tail.byteLength);
-  let eocd = -1;
-  for (let i = tail.byteLength - 22; i >= 0; i--) { if (tv.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
-  if (eocd === -1) throw new CbzImportError('cbz_parse', 'Not a valid ZIP file');
-  const count = tv.getUint16(eocd + 10, true);
+  const found = await _directory(read, size);
+  if (!found) throw new CbzImportError('cbz_parse', 'Not a valid ZIP file');
+  const { cd, count } = found;
   if (count > MAX_ZIP_ENTRIES) throw new CbzImportError('cbz_limits', `Archive has too many entries (${count}).`);
-  const cd = await read(tv.getUint32(eocd + 16, true), tailAt + eocd);
   const view = new DataView(cd.buffer, cd.byteOffset, cd.byteLength);
   const out = [];
   let pos = 0;
-  for (let i = 0; i < count; i++) {
-    if (view.getUint32(pos, true) !== 0x02014b50) break;
+  for (let i = 0; i < count && pos + 46 <= cd.byteLength; i++) {
     const flags = view.getUint16(pos + 8, true);
     const method = view.getUint16(pos + 10, true);
     const crc = view.getUint32(pos + 16, true);
@@ -89,6 +82,41 @@ export async function zipEntries(source) {
   }
   out.fingerprint = await sha256Hex(cd);
   return out;
+}
+// A zip's central directory ({ cd: its bytes, count: its entries }), or null when it has none. The end
+// record closes the zip, followed only by its comment (at most 64 KiB): the last one there whose
+// directory reads as one is taken — ending where the record starts, each of its records one; when none
+// does, one further back, a piece at a time: an addition cut short (the desktop's, appending to an
+// archive it keeps: its entries written, not yet its directory) leaves the previous directory and end
+// record whole before them, and that previous generation is what the zip holds (F3). The desktop's
+// reader (desktop/server/zip.js readDirectory) has the same rule.
+const END_RECORD = 0x06054b50;
+const LOOK_BACK = 1 << 20;   // how much is read at a time looking further back
+async function _directory(read, size) {
+  const at = async (pos) => {
+    const end = await read(pos, pos + 22);
+    const ev = new DataView(end.buffer, end.byteOffset, end.byteLength);
+    const count = ev.getUint16(10, true), cdSize = ev.getUint32(12, true), cdStart = ev.getUint32(16, true);
+    if (cdStart + cdSize !== pos) return null;
+    const cd = await read(cdStart, pos);
+    const cv = new DataView(cd.buffer, cd.byteOffset, cd.byteLength);
+    for (let i = 0, p = 0; i < count && p + 46 <= cd.byteLength; i++) {
+      if (cv.getUint32(p, true) !== 0x02014b50) return null;
+      p += 46 + cv.getUint16(p + 28, true) + cv.getUint16(p + 30, true) + cv.getUint16(p + 32, true);
+    }
+    return { cd, count };
+  };
+  for (let to = size, from = Math.max(0, size - 22 - 0xffff); to > 0; to = from + 3, from = Math.max(0, to - 3 - LOOK_BACK)) {
+    const piece = await read(from, to);
+    const pv = new DataView(piece.buffer, piece.byteOffset, piece.byteLength);
+    for (let i = Math.min(piece.byteLength - 4, size - 22 - from); i >= 0; i--) {
+      if (pv.getUint32(i, true) !== END_RECORD) continue;
+      const found = await at(from + i);
+      if (found) return found;
+    }
+    if (from === 0) break;
+  }
+  return null;
 }
 
 // The SHA-256 of `data` in hex, or null where the browser offers no hashing.

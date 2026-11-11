@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { planTitles, zipTitles, metaFromName, sourceText, parseSource, sourceKey, isRemoved, safeRelPath, withRemoved, linkedPages,
   keepsDerived, pdfReady, drawFailed, pdfWaits, matchSources, parseRemoved, removedText, provenanceOf, sameSource, sameProvenance, crcHex,
-  folderPrint, folderContent, drawnFrom, pdfPrint, isDrawing } from '../js/storage/linked-source.js';
+  folderPrint, folderContent, drawnFrom, pdfPrint, isDrawing, pageToken, madeFromPage } from '../js/storage/linked-source.js';
 
 test('every folder holding pictures, every archive and every PDF is a title; Shiori\'s own folders and other files are left out', () => {
   const titles = planTitles([
@@ -214,4 +214,14 @@ test('F12: a removed source whose overlay is still there (its removal couldn\'t 
   const found = [{ kind: 'dir', path: 'Gone', fingerprint: 'G' }];
   const out = matchSources({ overlays, found, removed: [{ kind: 'dir', path: 'Gone' }] });   // a note still owed: no fingerprint
   assert.deepEqual([out.new, out.skipped.map(s => [s.title.path, s.reason])], [[], [['Gone', 'removed']]]);
+});
+
+test('O1: a page\'s token — a linked page\'s source picture, a page of the library\'s own its picture as stored — changes when the picture does', () => {
+  const linked = pageToken({ name: '001.png', size: 4, crc: 'abcd1234' });
+  assert.equal(linked, pageToken({ name: '001.png', size: 4, crc: 'abcd1234' }, { size: 9, cachedAt: 1 }), 'a linked page\'s is its source picture\'s');
+  assert.notEqual(linked, pageToken({ name: '001.png', size: 4, crc: 'abcd9999' }));
+  const own = pageToken(null, { size: 10, cachedAt: 1000.6 });
+  assert.equal(own, pageToken(null, { size: 10, cachedAt: 1000 }), 'kept while the picture is (to the millisecond)');
+  assert.notEqual(own, pageToken(null, { size: 10, cachedAt: 2000 }), 'stored again: another');
+  assert.ok(madeFromPage(own, own) && !madeFromPage(own, pageToken(null, { size: 11, cachedAt: 1000 })));
 });

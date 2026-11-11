@@ -104,9 +104,13 @@ CREATE TABLE IF NOT EXISTS deleting (
 // the file go (a page replaced or removed, a picture made again, an archived gallery's old folder),
 // so the intent survives a restart. `deleting`: a gallery's own folder or archive (`dir`, a path as
 // `files` has them) to delete for gallery `gid` — deleted, or moved out of it by a copy — with the
-// files the index recorded writing there (`files`: [{ name, size, mtime }]; null for an archive, deleted
-// whole), recorded by the transaction that let it go and deleted by name once that commits
-// (applyDeletions), or at the next start; a check meanwhile leaves it alone (N2, N4). `source`: for a
+// files the index recorded writing there (`files`: [{ name, size, mtime }]; for an archive, deleted
+// whole, { size, mtime } as Shiori last wrote it, or null when it has no record of that), recorded by the
+// transaction that let it go and deleted by name once that commits (applyDeletions), or at the next
+// start; a check meanwhile leaves it alone (N2, N4). `unfound`: its folder or archive wasn't where it
+// has it (renamed or moved by hand: F4) — kept until a check of its library folder has ended, which
+// deletes the folder naming the gallery where it meets one, never adopting it. `zip_size`, `zip_mtime`
+// (`files`): an archive's size and modification time as Shiori last wrote it (F6). `source`: for a
 // linked gallery (linked-source.js) — files Shiori didn't make, used as they are — where they are
 // ({ kind, path in its library folder, inner?, fingerprint }): its row's `path` is then its overlay
 // (.shiori/linked/<gid>), a folder in the gallery format for everything Shiori adds, and a page whose
@@ -125,7 +129,8 @@ const UNUSED_AT_MOST = 0.25;   // the share of an archive left unused before it 
 const REGROUP_RETRY = 10_000;  // how soon a folder Windows wouldn't move is tried again
 const PUBLISH_EVERY = 20;      // pages stored before a gallery being downloaded is published (D12)
 const NAMED_TTL = 2000;        // how long a gallery's folder found to name it is taken to, for reads (_namesIt)
-const COLUMNS = { unpack: 'INTEGER NOT NULL DEFAULT 0', used_at: 'REAL', tail: 'REAL', source: 'TEXT' };
+const COLUMNS = { files: { unpack: 'INTEGER NOT NULL DEFAULT 0', used_at: 'REAL', tail: 'REAL', source: 'TEXT', zip_size: 'INTEGER', zip_mtime: 'REAL' },
+  deleting: { unfound: 'INTEGER NOT NULL DEFAULT 0' } };
 const HOUR = 60 * 60_000, DAY = 24 * HOUR;
 // Files Windows puts in a folder on its own: not the gallery's, and not worth keeping it a folder for.
 const WINDOWS_FILES = new Set(['desktop.ini', 'thumbs.db']);
@@ -140,8 +145,8 @@ const parse = (s) => (s == null ? null : JSON.parse(s));
 // The source picture a linked gallery's page shows (`orig` at 'x'), as its descriptions record it:
 // name, size and content signal (linked-source.js provenanceOf, principle 7).
 const provenance = (orig) => linkedSource.provenanceOf({ name: orig.entry, size: orig.size ?? 0, crc: orig.crc, mtime: orig.mtime });
-// A page's source token (linked-source.js pageToken) from where its original is (`orig`).
-export const sourceToken = (orig) => linkedSource.pageToken(orig?.at === 'x' ? provenance(orig) : null);
+// A page's source token (linked-source.js pageToken) from where its original is (`orig`) and its record.
+export const sourceToken = (orig, record) => linkedSource.pageToken(orig?.at === 'x' ? provenance(orig) : null, record);
 const extOfName = (name) => String(name ?? '').match(/\.(\w+)$/)?.[1]?.toLowerCase();
 // The files of a gallery's own that its records name in its folder, as the index recorded writing
 // them: path → [size, mtime] (mtime 0 where none was recorded) — each page there (`orig` at 'p') and
@@ -304,9 +309,12 @@ export class FileLibrary {
   init() {
     const lib = this.library;
     lib._db.exec(SCHEMA);
-    // An index made before archiving: its columns added, and every gallery counted as used now.
-    const have = new Set(lib._db.prepare('PRAGMA table_info(files)').all().map(c => c.name));
-    for (const [name, type] of Object.entries(COLUMNS)) if (!have.has(name)) lib._db.exec(`ALTER TABLE files ADD COLUMN ${name} ${type}`);
+    // An index made before archiving (or before S10): its columns added, and every gallery counted as
+    // used now.
+    for (const [table, columns] of Object.entries(COLUMNS)) {
+      const have = new Set(lib._db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name));
+      for (const [name, type] of Object.entries(columns)) if (!have.has(name)) lib._db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+    }
     lib._s('UPDATE files SET used_at = ? WHERE used_at IS NULL').run(Date.now());
     lib._db.exec(`CREATE INDEX IF NOT EXISTS files_used ON files (used_at, gid) WHERE format = 'folder'`);
   }
@@ -786,31 +794,36 @@ export class FileLibrary {
 
   // Inside the caller's transaction: gallery `row`'s own folder or archive (as `files` has it) recorded
   // for deletion (`deleting`) — a folder with the files the index recorded writing there (its records',
-  // and those waiting to retire), an archive whole — so the intent outlives a close or a crash (N2).
+  // and those waiting to retire), an archive whole, with its size and modification time as Shiori last
+  // wrote it (F6) — so the intent outlives a close or a crash (N2).
   _deletingIn(row) {
     const lib = this.library;
-    let named = null;
+    let named = row.zip_size != null ? JSON.stringify({ size: row.zip_size, mtime: row.zip_mtime }) : null;
     if (row.format === 'folder') {
       const files = new Map([...recordedFiles(lib._pageRows(row.gid), lib._coverGet(row.gid))].map(([name, [size, mtime]]) => [name, { name, size, mtime: mtime || null }]));
       for (const r of lib._s(`SELECT name, size, mtime FROM retiring WHERE dir = ? AND name <> ''`).all(row.path)) files.set(r.name, { name: r.name, size: r.size, mtime: r.mtime });
       named = JSON.stringify([...files.values()]);
     }
-    lib._s('INSERT OR REPLACE INTO deleting (dir, gid, files) VALUES (?, ?, ?)').run(row.path, String(row.gid), named);
+    lib._s('INSERT OR REPLACE INTO deleting (dir, gid, files, unfound) VALUES (?, ?, ?, 0)').run(row.path, String(row.gid), named);
   }
   // The galleries' folders and archives waiting to be deleted (`deleting`), of library folder `root`
-  // alone when it is given: [{ dir, gid }], `dir` a path as `files` has them.
-  deletingIn(root = null) {
-    return this.library._s('SELECT dir, gid FROM deleting').all().filter(d => root == null || this._split(d.dir).root === root);
+  // alone when it is given: [{ dir, gid }], `dir` a path as `files` has them — those `unfound` aside,
+  // which wait for no one (F4).
+  deletingIn(root = null) { return this._deletingRows(root).filter(d => !d.unfound); }
+  _deletingRows(root = null) {
+    return this.library._s('SELECT dir, gid, files, unfound FROM deleting').all().filter(d => root == null || this._split(d.dir).root === root);
   }
   // What waits to be deleted (`deleting`) deleted, one at a time — of library folder `root` alone, when
   // given — each while its library folder may be written to (`work` as folders.js writable): a folder by
   // name (folder-store.js deleteGalleryIn), then — once it holds no file — whole, with the library's own
   // delete (Windows', so an Explorer window showing it steps out); an archive whole while its
-  // descriptions name the gallery (_whose: never one describing none, added by hand); then its series'
-  // folder, once nothing but series.json is left there (_tidy). A row goes once that is done, or once
-  // its folder or archive is found gone, or another's or no one's (nothing deleted then); one that can't
-  // be done now stays — tried again at the next start, when its folder is shown or taken back, at its
-  // folder's next check, and by its removal, which doesn't forget a folder still owed one. Resolves
+  // descriptions name the gallery (_whose: never one describing none, added by hand) and it is as Shiori
+  // wrote it (_archiveUnchanged: one the person added to stays, theirs — F6); then its series' folder,
+  // once nothing but series.json is left there (_tidy). A row goes once that is done, or once its
+  // folder or archive is found another's or no one's (nothing deleted then); one found gone is kept
+  // `unfound` until a check of its library folder has ended (F4: deletedFound, forgetUnfound); one that
+  // can't be done now stays — tried again at the next start, when its folder is shown or taken back, at
+  // its folder's next check, and by its removal, which doesn't forget a folder still owed one. Resolves
   // whether none of `root`'s waits.
   applyDeletions({ root = null, work = null } = {}) {
     const run = (this._deletions || Promise.resolve()).then(() => this._applyDeletions(root, work));
@@ -818,43 +831,90 @@ export class FileLibrary {
     return run;
   }
   async _applyDeletions(root, work) {
-    const lib = this.library;
-    for (const d of lib._s('SELECT dir, gid, files FROM deleting').all()) {
-      const at = this._split(d.dir).root;
-      if ((root != null && at !== root) || !lib.folders.writable(at, work)) continue;
-      const abs = this._at(d.dir);
-      if (!abs) continue;
-      // A publication or settle of the gallery begun before its deletion lands first: none starts for
-      // a gallery that is gone, so its folder isn't written again once it is deleted (S8: a deleted
-      // gallery came back from a manifest its publication under way wrote after the deletion).
-      await this._describing.get(d.gid)?.catch(() => {});
-      await this._placing.get(d.gid)?.catch(() => {});
-      let done;
-      if (d.files == null) {
-        const whose = await this._whose(d.dir, d.gid);
-        done = whose.kind !== 'unreadable' && (whose.kind !== 'ok' || !!whose.undescribed || await this._discard(abs));
-      } else {
-        done = await deleteGalleryIn(abs, d.gid, JSON.parse(d.files)).catch(() => false);
-        // Left with nothing but empty folders, it goes whole, as Explorer deletes (remove.js); one still
-        // holding files Shiori didn't name keeps them, and is left — theirs (_leftBehind).
-        if (done === 'left') done = await this._leftBehind(at, d, work);
-        else if (done && !(await filesIn(abs).catch((e) => (e?.code === 'ENOENT' ? [] : [null]))).length && disk.existsSync(abs)) done = await this._delete(abs);
-      }
-      if (!done) continue;
-      lib._s('DELETE FROM deleting WHERE dir = ?').run(d.dir);
-      await this._tidy(path.dirname(abs)).catch(() => {});
-    }
+    for (const d of this._deletingRows(root)) await this._deleteOne(d, d.dir, work);
     return !this.deletingIn(root).length;
   }
-  // What a deletion left in its gallery's folder (`d`, its `deleting` row, in library folder `root`) —
-  // files Shiori didn't make, or changed since it wrote them — stays the person's, never joining the
-  // library as a gallery of its own: every title a check would find there is noted as removed in the
-  // folder's removed.json, as it is now (folders.js noteRemovedIn), and the folder is reported once on
-  // its Needs attention list ('left', an item kept until dismissed). Resolves whether that is done
-  // (false: tried again with the deletion, which a check meanwhile leaves alone).
-  async _leftBehind(root, d, work) {
+  // Deletion `d` (its `deleting` row) done at `rel` (a path as `files` has them: where the row has it, or
+  // where a check met a folder or archive naming its gallery), while that library folder may be written to.
+  async _deleteOne(d, rel, work) {
     const lib = this.library;
-    const { rest } = this._split(d.dir);
+    const at = this._split(rel).root;
+    const abs = lib.folders.writable(at, work) && this._at(rel);
+    if (!abs) return;
+    // A publication or settle of the gallery begun before its deletion lands first: none starts for
+    // a gallery that is gone, so its folder isn't written again once it is deleted (S8: a deleted
+    // gallery came back from a manifest its publication under way wrote after the deletion).
+    await this._describing.get(d.gid)?.catch(() => {});
+    await this._placing.get(d.gid)?.catch(() => {});
+    const named = d.files == null ? null : JSON.parse(d.files);
+    let done;
+    if (!Array.isArray(named)) {
+      const whose = await this._whose(rel, d.gid);
+      if (whose.kind === 'missing' || (whose.kind === 'conflict' && whose.found != null)) done = 'missing';
+      else if (whose.kind === 'unreadable') done = false;
+      else if (whose.kind !== 'ok' || whose.undescribed) done = true;
+      else done = await this._archiveUnchanged(abs, named) ? await this._discard(abs) : await this._leftBehind(at, d, rel, work);
+    } else {
+      done = await deleteGalleryIn(abs, d.gid, named).catch(() => false);
+      // Left with nothing but empty folders, it goes whole, as Explorer deletes (remove.js); one still
+      // holding files Shiori didn't name keeps them, and is left — theirs (_leftBehind).
+      if (done === 'left') done = await this._leftBehind(at, d, rel, work);
+      else if (done === true && !(await filesIn(abs).catch((e) => (e?.code === 'ENOENT' ? [] : [null]))).length && disk.existsSync(abs)) done = await this._delete(abs);
+    }
+    if (done === 'missing') {
+      if (!d.unfound) lib._s('UPDATE deleting SET unfound = 1 WHERE dir = ?').run(d.dir);
+      return;
+    }
+    if (!done) return;
+    lib._s('DELETE FROM deleting WHERE dir = ?').run(d.dir);
+    await this._tidy(path.dirname(abs)).catch(() => {});
+  }
+  // Deletion `d`, its gallery's folder or archive not where its row has it, done at `rel`, where a check
+  // met one naming the gallery (F4): deleted as it would have been where it was, never adopted.
+  deletedFound(d, rel, work = null) {
+    const run = (this._deletions || Promise.resolve()).then(() => this._deleteOne(d, rel, work));
+    this._deletions = run.catch(() => {});
+    return run;
+  }
+  // What waited `unfound` in library folder `root`, forgotten once a check of it ended without meeting it.
+  forgetUnfound(root) {
+    for (const d of this._deletingRows(root)) if (d.unfound) this.library._s('DELETE FROM deleting WHERE dir = ?').run(d.dir);
+  }
+  // Whether archive `abs` may be deleted whole (F6): as Shiori last wrote it (`recorded`: its size and
+  // modification time; none for an archive written before S10), and holding nothing of the person's
+  // (_foreignIn) — a file they added stays theirs even once Shiori has added to the archive since.
+  async _archiveUnchanged(abs, recorded) {
+    try {
+      if (recorded) {
+        const st = await disk.stat(abs);
+        if (!format.unchanged(recorded, { size: st.size, mtime: st.mtimeMs })) return false;
+      }
+      return !(await this._foreignIn(abs, await this._directory(abs))).length;
+    } catch { return false; }
+  }
+  // The entries of archive `file` (its directory `dir`) that aren't Shiori's, by its own manifest
+  // (gallery-manifest.js foreignEntries): the person's. One whose manifest is damaged holds nothing
+  // known to be Shiori's.
+  async _foreignIn(file, dir) {
+    const at = dir.get(content.MANIFEST_FILE);
+    const read = at ? format.parseManifest(String(await readEntry(file, at)), { archive: true }) : null;
+    return read?.kind === 'corrupt' ? [...dir.keys()] : format.foreignEntries(dir, read?.kind === 'ok' ? read.value : null);
+  }
+  // An archive's size and modification time noted as Shiori has just written it (F6).
+  _wroteArchive(gid, file) {
+    const st = disk.statSync(file);
+    this.library._s('UPDATE files SET zip_size = ?, zip_mtime = ? WHERE gid = ?').run(st.size, st.mtimeMs, String(gid));
+  }
+  // What a deletion left in its gallery's folder or archive (`d`, its `deleting` row; `rel`, where it was
+  // done, in library folder `root`) — files Shiori didn't make, or changed since it wrote them; an
+  // archive the person added to, whole — stays the person's, never joining the library as a gallery of
+  // its own: every title a check would find there (an archive: itself) is noted as removed in the
+  // folder's removed.json, as it is now (folders.js noteRemovedIn), and the place is reported once on its
+  // Needs attention list ('left', an item kept until dismissed). Resolves whether that is done (false:
+  // tried again with the deletion, which a check meanwhile leaves alone).
+  async _leftBehind(root, d, rel, work) {
+    const lib = this.library;
+    const { rest } = this._split(rel);
     try {
       await lib.folders.noteRemovedIn(root, rest, { work });
     } catch { return false; }
@@ -864,7 +924,7 @@ export class FileLibrary {
   }
   // Inside the transaction forgetting library folder `root`: what waited to be deleted there stays.
   forgetDeletionsIn(root) {
-    for (const d of this.deletingIn(root)) this.library._s('DELETE FROM deleting WHERE dir = ?').run(d.dir);
+    for (const d of this._deletingRows(root)) this.library._s('DELETE FROM deleting WHERE dir = ?').run(d.dir);
   }
 
   // Folder or archive `rel` deleted for gallery `gid` (_remove) only when it is the gallery's own by
@@ -1657,6 +1717,7 @@ export class FileLibrary {
     if (!add.length && !drop.length) return token;
     lib._s('UPDATE files SET tail = ? WHERE gid = ?').run((await disk.stat(file)).size, gid);
     lib.writes.addArchive(await appendZip(file, add, { drop }));
+    this._wroteArchive(gid, file);
     lib._s('UPDATE files SET tail = NULL WHERE gid = ?').run(gid);
     this._dirs.delete(file);
     return token;
@@ -1700,7 +1761,8 @@ export class FileLibrary {
   // own) and its out-of-date descriptions added at its end with one new directory listing what it
   // holds now (and no longer what was removed) — nothing in it written again. Unless that would
   // leave more than UNUSED_AT_MOST of it unused: with pictures waiting, 'unpack' (into a folder, where
-  // they move in by renaming, so it writes least); with none, it is rewritten as a fresh archive.
+  // they move in by renaming, so it writes least); with none, it is rewritten as a fresh archive — never
+  // one holding the person's files (_foreignIn: F6), which keep their place in its directory.
   // Resolves 'done' or 'unpack'.
   async _settleArchive(gid, row) {
     return this._exclusive(gid, async () => {
@@ -1733,7 +1795,8 @@ export class FileLibrary {
       if (dir.has(content.MANIFEST_FILE)) live.set(content.MANIFEST_FILE, { size: dir.get(content.MANIFEST_FILE).size });
       for (const d of described.add) { live.delete(d.name); live.set(d.name, { size: d.data.length, data: d.data }); }
       const add = [...live].filter(([, v]) => v.from || v.data).map(([name, v]) => (v.from ? { name, from: v.from } : { name, data: v.data }));
-      const drop = [...dir.keys()].filter(name => !live.has(name));
+      const foreign = new Set(await this._foreignIn(file, dir).catch(() => [...dir.keys()]));
+      const drop = [...dir.keys()].filter(name => !live.has(name) && !foreign.has(name));
       // Its rows pointed at what it now holds; the staging files that held it deleted at once after
       // (so the gallery's folder in staging can go when it is next described).
       const finish = () => {
@@ -1765,7 +1828,7 @@ export class FileLibrary {
       const directory = [...live.keys()].reduce((sum, name) => sum + 46 + Buffer.byteLength(name), 22);
       const after = size + add.reduce((sum, e) => sum + head(e.name) + live.get(e.name).size, 0) + directory;
       const used = [...live].reduce((sum, [name, v]) => sum + head(name) + v.size, 0) + directory;
-      if ((after - used) / after > UNUSED_AT_MOST) {
+      if (!foreign.size && (after - used) / after > UNUSED_AT_MOST) {
         if (placing.size || stagedOwn.length) return 'unpack';
         await this._compact(gid, row, live, dir);
         finish();
@@ -1773,6 +1836,7 @@ export class FileLibrary {
       }
       lib._s('UPDATE files SET tail = ? WHERE gid = ?').run(size, gid);
       lib.writes.addArchive(await appendZip(file, add, { drop }));
+      this._wroteArchive(gid, file);
       this._dirs.delete(file);
       finish();
       lib.publishFeed(gid);
@@ -1793,6 +1857,7 @@ export class FileLibrary {
       // One synchronous step from here.
       if (this._row(gid)?.path !== row.path) throw new Error('moved meanwhile');
       disk.renameSync(temp, file);
+      this._wroteArchive(gid, file);
       this._dirs.delete(file);
     } catch (e) {
       await disk.rm(temp, { force: true }).catch(() => {});
@@ -2125,7 +2190,7 @@ export class FileLibrary {
       this._retireIn(rel, '', { size: st.size, mtime: st.mtimeMs }, null);
       disk.renameSync(temp, file);
       lib._tx(() => {
-        lib._s('UPDATE files SET path = ?, format = ? WHERE gid = ?').run(rel, archiveFormat, id);
+        lib._s('UPDATE files SET path = ?, format = ?, zip_size = ?, zip_mtime = ? WHERE gid = ?').run(rel, archiveFormat, st.size, st.mtimeMs, id);
         lib._s(`DELETE FROM retiring WHERE dir = ? AND name = ''`).run(rel);
         for (const f of leaving) this._retireIn(row.path, f.name, f, null);
         lib._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(id, token);

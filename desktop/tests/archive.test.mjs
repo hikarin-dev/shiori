@@ -312,6 +312,26 @@ test('an addition to an archive the app didn\'t finish is cut off, and made agai
   assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1)), [...pngBytes(1)]);
 });
 
+// F3 (S10 review): the same, past 64 KiB, in a folder another app took over meanwhile — so never cut
+// back here — hid the archive whole from both apps' readers.
+test('F3: an addition cut short after more than 64 KiB of entries, never cut back, reads as the archive was before it — to both apps\' readers', async (t) => {
+  const library = await open(t);
+  const gid = '1790700000072';
+  await gallery(library, gid, 'Cut, not cut back', { translated: false });
+  leftAlone(library, gid);
+  await library.files.sweep();
+  const file = absOf(library, gid);
+  const before = [...(await readDirectory(file)).keys()];
+  const stray = Buffer.alloc(70_000, 7);
+  stray.writeUInt32LE(0x06054b50, 69_000);   // an end record's signature in the entries written: no archive's
+  fs.appendFileSync(file, stray);
+  library.files._dirs.clear();
+  assert.deepEqual([...(await readDirectory(file)).keys()], before);
+  const { zipEntries } = await import('../../app/js/zip-read.js');
+  assert.deepEqual((await zipEntries(new Uint8Array(fs.readFileSync(file)))).map(e => e.filename), before);
+  assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1)), [...pngBytes(1)]);
+});
+
 test('an archiving the app didn\'t finish leaves nothing behind', async (t) => {
   const where = folders();
   const first = await new Library(where).open();

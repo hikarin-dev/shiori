@@ -59,7 +59,7 @@ const usable = (f) => f.access === 'granted' || f.access === 'prompt';
 // What each kind of Needs attention item says (api.js folders.list `attention`).
 const ATTENTION = { conflict: 'lf.att_conflict', unreadable: 'lf.att_unreadable', corrupt: 'lf.att_corrupt', 'missing-file': 'lf.att_missing_file',
   unsupported: 'lf.att_unsupported', 'adopt-failed': 'lf.att_adopt_failed', 'changed-both': 'lf.att_changed_both', unreferenced: 'lf.att_unreferenced',
-  outside: 'lf.att_outside', left: 'lf.att_left' };
+  outside: 'lf.att_outside', left: 'lf.att_left', duplicate: 'lf.att_duplicate' };
 // The app a folder's claim names (api.js `owner`), as the person knows it.
 const ownerName = (o) => (o?.app === 'desktop' && o.host ? t('lf.owner_desktop', { host: o.host })
   : o?.app === 'web' && o.browser ? t('lf.owner_web', { browser: o.browser, site: o.site || '' }) : t('lf.owner_unknown'));

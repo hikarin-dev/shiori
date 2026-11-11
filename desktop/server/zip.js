@@ -161,63 +161,88 @@ async function readAt(handle, position, length) {
   return buf.subarray(0, bytesRead);
 }
 
-// An archive's entries: Map name → { method, compressedSize, size, headerOffset, crc }.
+// An archive's entries: Map name → { method, compressedSize, size, headerOffset, crc }. Its end record
+// is looked for in its last 64 KiB (it ends the archive, followed only by a comment), the last one there
+// that reads as an archive's; when none does, further back, a piece at a time: an addition cut short
+// (appendZip: its entries written, not yet its directory) leaves the previous directory and end record
+// whole before them, and that previous generation is what the archive holds (F3). The same rule as the
+// website's reader (zip-read.js zipEntries).
+const END = 0x06054b50;
+const BACK = 1 << 20;   // how much is read at a time looking further back
 export async function readDirectory(file) {
   const handle = await disk.open(file, 'r');
   try {
     const { size: fileSize } = await handle.stat();
     const tailLength = Math.min(fileSize, 22 + MAX16);
-    const tail = await readAt(handle, fileSize - tailLength, tailLength);
-    let at = -1;
-    for (let i = tail.length - 22; i >= 0; i--) if (tail.readUInt32LE(i) === 0x06054b50) { at = i; break; }
-    if (at < 0) throw new Error('not a zip archive');
-    let count = tail.readUInt16LE(at + 10);
-    let dirSize = tail.readUInt32LE(at + 12);
-    let dirStart = tail.readUInt32LE(at + 16);
-    if (at >= 20 && tail.readUInt32LE(at - 20) === 0x07064b50) {
-      const end64 = await readAt(handle, Number(tail.readBigUInt64LE(at - 20 + 8)), 56);
-      if (end64.readUInt32LE(0) === 0x06064b50) {
-        count = Number(end64.readBigUInt64LE(32));
-        dirSize = Number(end64.readBigUInt64LE(40));
-        dirStart = Number(end64.readBigUInt64LE(48));
+    for (let to = fileSize, from = fileSize - tailLength; to > 0; to = from + 3, from = Math.max(0, to - 3 - BACK)) {
+      const piece = await readAt(handle, from, to - from);
+      for (let i = Math.min(piece.length - 4, fileSize - 22 - from); i >= 0; i--) {
+        if (piece.readUInt32LE(i) !== END) continue;
+        const entries = await directoryAt(handle, from + i);
+        if (entries) return entries;
       }
+      if (from === 0) break;
     }
-    const dir = await readAt(handle, dirStart, dirSize);
-    const entries = new Map();
-    let p = 0;
-    for (let i = 0; i < count && p + 46 <= dir.length; i++) {
-      if (dir.readUInt32LE(p) !== 0x02014b50) throw new Error('damaged zip directory');
-      const flags = dir.readUInt16LE(p + 8);
-      const method = dir.readUInt16LE(p + 10);
-      const crc = dir.readUInt32LE(p + 16);
-      let compressedSize = dir.readUInt32LE(p + 20);
-      let size = dir.readUInt32LE(p + 24);
-      const nameLength = dir.readUInt16LE(p + 28);
-      const extraLength = dir.readUInt16LE(p + 30);
-      const commentLength = dir.readUInt16LE(p + 32);
-      let headerOffset = dir.readUInt32LE(p + 42);
-      const nameBytes = dir.subarray(p + 46, p + 46 + nameLength);
-      const name = content.zipName(nameBytes, (flags & 0x0800) !== 0);
-      // ZIP64 sizes and offset, in that order, for the fields that overflowed.
-      let e = p + 46 + nameLength;
-      const extraEnd = e + extraLength;
-      while (e + 4 <= extraEnd) {
-        const id = dir.readUInt16LE(e), len = dir.readUInt16LE(e + 2);
-        if (id === 0x0001) {
-          let q = e + 4;
-          if (size === MAX32) { size = Number(dir.readBigUInt64LE(q)); q += 8; }
-          if (compressedSize === MAX32) { compressedSize = Number(dir.readBigUInt64LE(q)); q += 8; }
-          if (headerOffset === MAX32) { headerOffset = Number(dir.readBigUInt64LE(q)); q += 8; }
-        }
-        e += 4 + len;
-      }
-      if (!name.endsWith('/')) entries.set(name, { method, compressedSize, size, headerOffset, crc });
-      p = extraEnd + commentLength;
-    }
-    return entries;
+    throw new Error('not a zip archive');
   } finally {
     await handle.close();
   }
+}
+// The directory the end record at `at` describes, read — null when it doesn't read as an archive's
+// directory: one that doesn't end where the record (or its ZIP64 record) starts, or a record of it
+// that isn't one (an end record's signature that happens to be in an entry's bytes).
+async function directoryAt(handle, at) {
+  const from = Math.max(0, at - 20);
+  const head = await readAt(handle, from, at + 22 - from);
+  const end = head.subarray(at - from);
+  let count = end.readUInt16LE(10);
+  let dirSize = end.readUInt32LE(12);
+  let dirStart = end.readUInt32LE(16);
+  let dirEnd = at;
+  if (at - from === 20 && head.readUInt32LE(0) === 0x07064b50) {
+    const end64At = Number(head.readBigUInt64LE(8));
+    const end64 = await readAt(handle, end64At, 56);
+    if (end64.length === 56 && end64.readUInt32LE(0) === 0x06064b50) {
+      count = Number(end64.readBigUInt64LE(32));
+      dirSize = Number(end64.readBigUInt64LE(40));
+      dirStart = Number(end64.readBigUInt64LE(48));
+      dirEnd = end64At;
+    }
+  }
+  if (dirStart + dirSize !== dirEnd) return null;
+  const dir = await readAt(handle, dirStart, dirSize);
+  const entries = new Map();
+  let p = 0;
+  for (let i = 0; i < count && p + 46 <= dir.length; i++) {
+    if (dir.readUInt32LE(p) !== 0x02014b50) return null;
+    const flags = dir.readUInt16LE(p + 8);
+    const method = dir.readUInt16LE(p + 10);
+    const crc = dir.readUInt32LE(p + 16);
+    let compressedSize = dir.readUInt32LE(p + 20);
+    let size = dir.readUInt32LE(p + 24);
+    const nameLength = dir.readUInt16LE(p + 28);
+    const extraLength = dir.readUInt16LE(p + 30);
+    const commentLength = dir.readUInt16LE(p + 32);
+    let headerOffset = dir.readUInt32LE(p + 42);
+    const nameBytes = dir.subarray(p + 46, p + 46 + nameLength);
+    const name = content.zipName(nameBytes, (flags & 0x0800) !== 0);
+    // ZIP64 sizes and offset, in that order, for the fields that overflowed.
+    let e = p + 46 + nameLength;
+    const extraEnd = e + extraLength;
+    while (e + 4 <= extraEnd) {
+      const id = dir.readUInt16LE(e), len = dir.readUInt16LE(e + 2);
+      if (id === 0x0001) {
+        let q = e + 4;
+        if (size === MAX32) { size = Number(dir.readBigUInt64LE(q)); q += 8; }
+        if (compressedSize === MAX32) { compressedSize = Number(dir.readBigUInt64LE(q)); q += 8; }
+        if (headerOffset === MAX32) { headerOffset = Number(dir.readBigUInt64LE(q)); q += 8; }
+      }
+      e += 4 + len;
+    }
+    if (!name.endsWith('/')) entries.set(name, { method, compressedSize, size, headerOffset, crc });
+    p = extraEnd + commentLength;
+  }
+  return entries;
 }
 
 // One entry's bytes, from an entry of readDirectory's.

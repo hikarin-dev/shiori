@@ -3,7 +3,7 @@
 // folder an earlier desktop version never described may be given its identity.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { galleryDeletion, isOwnDescription, undescribedMatch, sha256Hex } from '../js/storage/gallery-manifest.js';
+import { galleryDeletion, isOwnDescription, undescribedMatch, sha256Hex, foreignEntries } from '../js/storage/gallery-manifest.js';
 
 const G = '1700000000001';
 const manifest = (sizes) => ({ format: 'shiori-gallery', version: 2, galleryId: G, generation: 3, writer: 'test',
@@ -43,4 +43,14 @@ test('a folder never described may take its gallery\'s identity only holding no 
   assert.equal(undescribedMatch({ texts: {}, named, found: new Map([...found, ['images/0003.png', { size: 1, mtime: 1 }]]) }), 'mismatch', 'one more picture');
   assert.equal(undescribedMatch({ texts: {}, named, found: new Map([['images/0001.png', { size: 5, mtime: 100 }]]) }), 'mismatch', 'one less');
   assert.equal(undescribedMatch({ texts: {}, named, found: new Map([['images/0001.png', { size: 5, mtime: 300 }], ['images/0002.png', { size: 6, mtime: 1 }]]) }), 'mismatch', 'changed since');
+});
+
+test('F6: an archive\'s entries that aren\'t Shiori\'s — a file added, a picture of another size than its manifest records — are the person\'s', () => {
+  const manifest = /** @type {any} */ ({ files: { pages: { 1: { original: 'images/0001.png' } }, covers: {} }, sizes: { 'images/0001.png': [10, 0] } });
+  const entries = (/** @type {[string, number][]} */ list) => new Map(list.map(([name, size]) => [name, { size }]));
+  const own = [['images/0001.png', 10], ['metadata.json', 5], ['image_records.json', 5], ['.shiori/gallery.json', 5], ['ComicInfo.xml', 5]];
+  assert.deepEqual(foreignEntries(entries(/** @type {any} */ (own)), manifest), []);
+  assert.deepEqual(foreignEntries(entries([...(/** @type {any} */ (own)), ['notes.txt', 4], ['images/0099.png', 3]]), manifest), ['notes.txt', 'images/0099.png']);
+  assert.deepEqual(foreignEntries(entries([['images/0001.png', 11]]), manifest), ['images/0001.png'], 'replaced by one of another size');
+  assert.deepEqual(foreignEntries(entries([['images/0099.png', 3], ['notes.txt', 4]]), null), ['notes.txt'], 'before manifests: any picture where pictures go');
 });

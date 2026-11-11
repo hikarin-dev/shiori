@@ -423,16 +423,17 @@ export async function deleteNamedIn(id, root, dir, files) {
  * manifest last; then the folders left empty, the gallery's own among them. A folder that names the
  * gallery (galleryIn) is deleted so; one that names no gallery — what named it gone already (a deletion
  * cut short), or put there by hand — loses only the files the library recorded writing, each while it
- * is as recorded; one gone, or another gallery's, is left as it is. `dir` is a folder (an archive is the
- * caller's). Resolves whether the deletion is done — true, or 'left' when what it emptied still holds
- * files: a person's, or one changed since Shiori wrote it — or is to be tried again (false: something
+ * is as recorded; one gone, or another gallery's, is left as it is ('missing': the gallery's folder
+ * isn't there — renamed or moved by hand, perhaps: F4). `dir` is a folder (an archive is the caller's).
+ * Resolves whether the deletion is done — true, or 'left' when what it emptied still holds files: a
+ * person's, or one changed since Shiori wrote it — 'missing', or is to be tried again (false: something
  * there couldn't be read or deleted now).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @param {string} gid
- * @param {{ name: string, size: number, mtime?: number | null }[]} named @returns {Promise<boolean | 'left'>} */
+ * @param {{ name: string, size: number, mtime?: number | null }[]} named @returns {Promise<boolean | 'left' | 'missing'>} */
 export async function deleteGalleryIn(id, root, dir, gid, named) {
   const whose = await galleryIn(id, root, dir, gid);
   if (whose.kind === 'unreadable') return false;
-  if (whose.kind === 'missing' || (whose.kind === 'conflict' && whose.found != null)) return true;
+  if (whose.kind === 'missing' || (whose.kind === 'conflict' && whose.found != null)) return 'missing';
   const now = whose.kind === 'ok' ? await manifestIn(id, root, dir, gid) : MISSING;
   if (now.kind === 'unreadable') return false;
   const area = areaOf(dir);

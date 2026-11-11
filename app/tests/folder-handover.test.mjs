@@ -241,6 +241,92 @@ const ARCHIVED = {
   },
 };
 
+// F5 (S10 review): a gallery the desktop archived, changed (so unpacked: D17) by the website while it
+// had the folder taken over, was left missing by the desktop's check once it had the folder back — a
+// gallery was followed by its id only to a place of the same format.
+const UNPACKED = {
+  name: 'F5: a gallery the desktop archived, unpacked by the website that took the folder over, is followed to its folder by the desktop',
+  async run({ dir, desktop, website }) {
+    const shared = path.join(dir, 'shared');
+    const id = await desktop.add(shared);
+    await desktop.setDefault(id);
+    const gid = await desktop.newGallery('Archived');
+    await write(desktop, gid, FIRST);
+    await desktop.flush();
+    assert.deepEqual((await desktop.raw.archiveGallery(gid)).archived, [gid]);
+    const back = await website.add(shared, { force: true });   // "Use anyway": the desktop still has it
+    assert.deepEqual((await website.scan(back)).problems, []);
+    const changed = [[1, 'translated', webp(1, 7), 'image/webp']];
+    await write(website, gid, changed);
+    await website.flush();
+    assert.ok(!fs.readdirSync(shared).some(n => /\.(zip|cbz)$/i.test(n)), 'unpacked: the archive gone');
+    await website.remove(back);
+    await desktop.raw.folderClaim(id);
+    assert.deepEqual((await desktop.scan(id)).problems, []);
+    assert.deepEqual(await desktop.galleries(), [gid]);
+    assert.deepEqual({ ...desktop.raw._s('SELECT format, state FROM files WHERE gid = ?').get(gid) }, { format: 'folder', state: 'packed' }, 'there, not missing');
+    assert.deepEqual(await mismatches(desktop, gid, [...FIRST.filter(([n, slot]) => !(n === 1 && slot === 'translated')), ...changed]), []);
+  },
+};
+
+// F3 (S10 review): the desktop cut short adding to an archive (more than 64 KiB of entries written, not
+// its directory) and never cut it back — the website took the folder over first: both apps read the
+// archive as it was before the addition.
+const CUT_SHORT = {
+  name: 'F3: an archive the desktop was adding to when it stopped, taken over by the website, reads whole as it was to both apps',
+  async run({ dir, desktop, website }) {
+    const shared = path.join(dir, 'shared');
+    const id = await desktop.add(shared);
+    await desktop.setDefault(id);
+    const gid = await desktop.newGallery('Archived');
+    await write(desktop, gid, FIRST);
+    await desktop.flush();
+    assert.deepEqual((await desktop.raw.archiveGallery(gid)).archived, [gid]);
+    const archive = path.join(shared, fs.readdirSync(shared).find(n => /\.(zip|cbz)$/i.test(n)));
+    fs.appendFileSync(archive, Buffer.alloc(70_000, 7));   // the entries of an addition, and no directory after them
+    const back = await website.add(shared, { force: true });
+    assert.deepEqual((await website.scan(back)).problems, []);
+    assert.deepEqual(await mismatches(website, gid, FIRST), [], 'the website reads it whole');
+    await website.remove(back);
+    await desktop.raw.folderClaim(id);
+    desktop.raw.files._dirs.clear();
+    assert.deepEqual(await mismatches(desktop, gid, FIRST), [], 'and so does the desktop');
+  },
+};
+
+// F6 (S10 review): an archive the desktop wrote, the person's file added to it, was deleted whole by the
+// website's deletion of its gallery. It stays, and neither app adopts it again (removed.json says so).
+const EDITED = {
+  name: 'F6: an archive the person added a file to is left whole by the website\'s deletion of its gallery, and adopted again by neither app',
+  async run({ dir, desktop, website }) {
+    const shared = path.join(dir, 'shared');
+    const id = await desktop.add(shared);
+    await desktop.setDefault(id);
+    const gid = await desktop.newGallery('Archived');
+    await write(desktop, gid, FIRST);
+    await desktop.flush();
+    assert.deepEqual((await desktop.raw.archiveGallery(gid)).archived, [gid]);
+    const archive = path.join(shared, fs.readdirSync(shared).find(n => /\.(zip|cbz)$/i.test(n)));
+    const { zipEntries } = await import('../js/zip-read.js');
+    const entries = [];
+    for (const e of await zipEntries(new Uint8Array(fs.readFileSync(archive)))) entries.push({ name: e.filename, data: await e.read() });
+    fs.writeFileSync(archive, zipCreate([...entries, { name: 'notes.txt', data: new TextEncoder().encode('mine') }]));
+    const edited = fs.readFileSync(archive);
+    await desktop.remove(id);
+    const back = await website.add(shared);
+    assert.deepEqual((await website.scan(back)).problems, []);
+    await website.deleteGallery(gid);
+    for (let i = 0; i < 50 && !(await website.list()).find(f => f.id === back).attention.some(a => a.reason === 'left'); i++) await new Promise(r => setTimeout(r, 50));
+    assert.deepEqual(fs.readFileSync(archive), edited, 'the archive stays as the person left it');
+    await website.scan(back);
+    assert.deepEqual(await website.galleries(), [], 'never adopted again');
+    await website.remove(back);
+    const again = await desktop.add(shared);
+    await desktop.scan(again);
+    assert.deepEqual(await desktop.galleries(), [], 'nor by the other app');
+  },
+};
+
 // D18, the desktop's alone: a gallery in its oldest format (shiori.json beside its pictures, which the
 // website doesn't read) converted to the gallery format at the desktop's check — its pictures renamed
 // into images/, its generation published — and read whole by the website then.
@@ -280,7 +366,7 @@ for (const [direction, apps] of [['website to desktop', ['website', 'desktop']],
       });
     }
     if (apps[0] === 'desktop') {
-      for (const h of [ARCHIVED, OLDEST]) {
+      for (const h of [ARCHIVED, OLDEST, UNPACKED, CUT_SHORT, EDITED]) {
         test(h.name, { skip }, async (t) => {
           const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-handover-'));
           const desktop = await desktopLibrary(path.join(dir, 'desktop'));

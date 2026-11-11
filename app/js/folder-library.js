@@ -342,7 +342,7 @@ async function folderRemove(id, { moveTo = null, discard = false } = {}) {
   const galleries = (await _placedIn(id)).length;
   const now = await K.access(id);
   if (!discard && !(now.state === 'granted' && now.owned)) {   // its removal couldn't write back, nor delete what it owes
-    const n = (await _unsavedIn(id)).length + (await K.deletions(id)).length;
+    const n = (await _unsavedIn(id)).length + (await K.deletions(id)).filter(d => !d.unfound).length;
     if (n) _refuse('unsaved', `${n} galleries have changes not saved to library folder ${id}`, { galleries: n });
   }
   await K.folderWrite((store, tx) => {
@@ -420,7 +420,8 @@ async function _setAside(id, { onProgress = () => {}, stopped = () => false } = 
   // gallery (forgotten, the folder would add its source, or the gallery, again).
   await K.publishRemoved(id, work);
   await K.applyDeletions(id, work).catch(() => {});
-  const owed = [...await K.removedNotes(id), ...await K.deletions(id)].map(n => n.gid);
+  await _finishUnfound(id, work).catch(() => {});
+  const owed = [...await K.removedNotes(id), ...(await K.deletions(id)).filter(d => !d.unfound)].map(n => n.gid);
   const place = await still();
   const { forget, unsaved } = removalOutcome({ required: [...required.map(g => String(g.galleryId)), ...owed], saved, discard: !!place.removal?.discard });
   if (!forget) {
@@ -616,11 +617,16 @@ async function _check(id, { onProgress = () => {}, stopped = () => false } = {})
   // Galleries' folders a deletion let go are deleted first; one still waiting isn't looked into: never
   // adopted again, whole or half deleted (N2, N4).
   await K.applyDeletions(id).catch(() => {});
-  const deleting = (await K.deletions(id).catch(() => [])).map(d => d.dir);
+  const deletions = await K.deletions().catch(() => []);
+  const deleting = deletions.filter(d => d.folder === id && !d.unfound).map(d => d.dir);
+  // A deleted gallery whose folder wasn't where its deletion had it (renamed or moved by hand): its
+  // folder, met here, is deleted, never adopted (F4, S10).
+  run.deleted = new Map(deletions.filter(d => d.unfound).map(d => [String(d.gid), d]));
   const found = await _walk(run, new Set([...kept.filter(g => !g.linked).map(g => g.dir), ...deleting].map(d => d.toLowerCase())));
   const titles = await _linkedTitles(run, found, step);
+  run.removed = await _removedOf(run);
   const plan = matchSources({ found: titles, kept: kept.filter(g => g.linked).map(g => ({ gid: String(g.galleryId), source: g.linked })),
-    overlays: await _overlaysOf(id, root), known: run.known, removed: await _removedOf(run) });
+    overlays: await _overlaysOf(id, root), known: run.known, removed: run.removed });
   // A folder of pictures kept without its content (kept before it was recorded) has it recorded as it is
   // now, so a picture replaced in place by one of the same size is told from now on.
   for (const s of plan.same) {
@@ -651,8 +657,10 @@ async function _check(id, { onProgress = () => {}, stopped = () => false } = {})
   const changed = [...run.added, ...run.updated];
   await _tidySeriesLinks(changed, run.id);
   for (const gid of changed) K.publishFeed(gid);
-  // What it found, for the folder's Needs attention list (D15) — not when it was stopped part way.
+  // What it found, for the folder's Needs attention list (D15), and a deletion whose gallery's folder it
+  // didn't meet forgotten — not when it was stopped part way.
   if (!stopped()) await K.noteChecked(id, [...run.problems, ...run.unreferenced]).catch(() => {});
+  if (!stopped()) await K.forgetUnfound(id).catch(() => {});
   return { added: run.added.length, updated: run.updated.size, problems: run.problems, stopped: !!stopped() };
 }
 // The linked galleries kept here (`kept`) marked missing while their source isn't where it was —
@@ -685,6 +693,20 @@ async function _leftovers(run, stat) {
       if (!named.has(path) && Date.now() - f.mtime >= LEFTOVER_AGE_MS) run.unreferenced.push({ path: `${stat.dir}/${path}`, reason: 'unreferenced', gid });
     }
   } catch { /* what can't be listed now is looked at again by the next check */ }
+}
+// Deletions waiting `unfound` in folder `id` (their gallery's folder wasn't where they had it: F4)
+// finished before the folder is let go (its removal: `work`): its galleries looked for as a check finds
+// them, one naming such a gallery deleted where it is (db.js deletedFound) — once the folder is forgotten,
+// nothing would keep the next library adding it from adopting it again.
+async function _finishUnfound(id, work) {
+  const unfound = new Map((await K.deletions(id)).filter(d => d.unfound).map(d => [String(d.gid), d]));
+  const root = unfound.size ? await K.rootOf(id, { work }) : null;
+  if (!root) return;
+  const found = await _walk({ id, root, name: '', stopped: () => false, problems: [] }, new Set());
+  for (const own of found.own) {
+    const d = !own.series && unfound.get(own.id);
+    if (d && (own.kind === 'zip') === ARCHIVE_NAME.test(d.dir)) await K.deletedFound(d, id, own.path, work);
+  }
 }
 // A check's progress, step by step (each counted on its own).
 function _steps(run, onProgress) {
@@ -729,6 +751,9 @@ async function _walk(run, skip, from = '') {
 // deletion left there: db.js _applyDeletions): [{ kind, path, inner?, fingerprint }], each fingerprint as
 // its files are now (null when they can't be read).
 async function leftBehind(id, root, dir) {
+  // An archive left whole (the person's files in it: F6) is noted as itself — a check never adopts the
+  // gallery it describes again (_joinOwn) — as it is now.
+  if (ARCHIVE_NAME.test(dir)) return [{ kind: 'zip', path: dir, fingerprint: (await K.archiveOf(id, root, dir).catch(() => null))?.fingerprint ?? null }];
   const run = { id, root, name: '', stopped: () => false, problems: [] };
   const titles = await _linkedTitles(run, await _walk(run, new Set(), dir), { begin() {}, tick() {} });
   return titles.map(t => ({ kind: t.kind, path: t.path, ...(t.inner ? { inner: t.inner } : {}), fingerprint: t.fingerprint }));
@@ -773,8 +798,10 @@ const _entryText = async (entry) => new TextDecoder().decode(await entry.read())
 
 // A gallery in the gallery format found in the folder (`found`: a folder, an archive read in place,
 // or a series export's chapters — `inner` each one's folder in it) joined to the library. One the
-// library has is a copy, left alone — unless it keeps it in this folder at a place that is gone: read
-// again where it is now.
+// library has is a copy, left alone and reported ('duplicate': O3, S10) — unless it keeps it in this
+// folder at a place that is gone: read again where it is now. One whose gallery was deleted, its folder
+// not where the deletion had it, is deleted here instead (F4); an archive a deletion left whole, as it
+// was left (removed.json: the person's files in it, F6), is left.
 async function _joinOwn(run, found, kept) {
   if (found.legacy) { run.problems.push({ path: found.path, reason: 'unsupported' }); return; }
   if (found.series) {
@@ -783,12 +810,18 @@ async function _joinOwn(run, found, kept) {
   }
   try {
     if (!run.known.has(found.id)) {
+      const deleted = run.deleted.get(found.id);
+      if (deleted) { if (!found.inner && (found.kind === 'zip') === ARCHIVE_NAME.test(deleted.dir)) await K.deletedFound(deleted, run.id, found.path); return; }
+      if (found.kind === 'zip' && !found.inner && run.removed.length
+        && isRemoved(run.removed, { kind: 'zip', path: found.path, fingerprint: (await K.archiveOf(run.id, run.root, found.path))?.fingerprint ?? null })) return;
       const gid = await _adopt(run, found);
       if (gid) { run.known.add(gid); run.added.push(gid); }
       return;
     }
     const was = kept.find(g => String(g.galleryId) === found.id && !g.linked);
-    if (was && !_samePlace(was, found) && !(await _there(run, was)) && await _adopt(run, found, { replace: found.id })) run.updated.add(found.id);
+    if (!was || _samePlace(was, found)) return;
+    if (await _there(run, was)) { run.problems.push({ path: found.path, reason: 'duplicate', gid: found.id }); return; }
+    if (await _adopt(run, found, { replace: found.id })) run.updated.add(found.id);
   } catch (e) { run.problems.push({ path: `${found.path}${found.inner ? `/${found.inner}` : ''}`, reason: _failure(e) }); }
 }
 // Why a gallery couldn't be read or joined, for `problems`: its files couldn't be read (_readFormat's

@@ -46,3 +46,22 @@ test('A08: an entry named in UTF-8 without its flag reads as UTF-8; one that isn
   const names = (await zipEntries(zipOf([{ name: utf8, data }, { name: flagged, data, utf8: true }, { name: cp437, data }]))).map(e => e.filename);
   assert.deepEqual(names, ['第1話/1.png', '第2話/1.png', 'é/1.png']);
 });
+
+// F3 (S10 review): an addition to an archive cut short after more than 64 KiB of entries (the desktop's
+// appendZip: its entries written, not yet its new directory) hid the archive whole from both readers —
+// the end record looked for in the last 64 KiB alone — and a folder another app took over meanwhile is
+// never cut back by the desktop. Its previous generation is read, as the desktop's reader reads it
+// (desktop/tests/archive.test.mjs).
+test('F3: an addition cut short after more than 64 KiB of entries reads as the archive was before it', async () => {
+  const names = (zip) => zipEntries(zip).then(list => list.map(e => e.filename));
+  const before = zipOf([{ name: new TextEncoder().encode('images/0001.png'), data: new Uint8Array([1, 2, 3]) }]);
+  const cut = (tail) => { const out = new Uint8Array(before.length + tail.length); out.set(before); out.set(tail, before.length); return out; };
+  assert.deepEqual(await names(cut(new Uint8Array(70_000).fill(7))), ['images/0001.png']);
+  // An end record's signature that happens to be in the entries written is no archive's.
+  const stray = new Uint8Array(70_000).fill(7);
+  new DataView(stray.buffer).setUint32(69_000, 0x06054b50, true);
+  assert.deepEqual(await names(cut(stray)), ['images/0001.png']);
+  const blob = new Blob([cut(stray)]);
+  assert.deepEqual(await names(blob), ['images/0001.png'], 'read a piece at a time');
+  await assert.rejects(zipEntries(new Uint8Array(70_000).fill(7)), (e) => e.code === 'cbz_parse', 'nothing that reads as one: not a zip');
+});

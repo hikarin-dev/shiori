@@ -449,6 +449,27 @@ export function galleryDeletion({ area, manifest, named }) {
 }
 const LEGACY_FILE = 'shiori.json';
 
+/** The entries of an archive in the gallery format (`entries`: each one's name → its size) that aren't
+ * what Shiori puts in one — the pictures its manifest names (`manifest`, as read from it; null for an
+ * archive written before manifests: any picture where the format puts pictures), each at the size the
+ * manifest records for it; its descriptions; its manifest; a CBZ's ComicInfo.xml — so the person's: a
+ * file they added, or a picture they replaced by one of another size. An archive holding any is never
+ * deleted whole with its gallery (F6, S10: left, as a folder's deletion leaves a person's files), nor
+ * written again whole, and they stay in its directory.
+ * @param {Map<string, { size: number }>} entries @param {Manifest | null} manifest @returns {string[]} */
+export function foreignEntries(entries, manifest) {
+  const named = manifest ? new Set(namedPictures(manifest.files)) : null;
+  const sizes = manifest?.sizes ?? {};
+  /** @type {string[]} */
+  const out = [];
+  for (const [name, entry] of entries) {
+    if (name === manifestPath('.shiori/') || DESCRIPTION_FILES.includes(name) || name === 'ComicInfo.xml') continue;
+    if ((named ? named.has(name) : isPicturePath(name)) && !(sizes[name] && sizes[name][0] !== entry.size)) continue;
+    out.push(name);
+  }
+  return out;
+}
+
 /** Whether `text`, the file at `path` in gallery `galleryId`'s folder (`area`: areaOf it), is one of
  * the gallery's descriptions as Shiori writes them, which its deletion takes: one stored by content
  * whose content matches its name; its manifest, naming it; a metadata.json, or an earlier version's

@@ -25,7 +25,7 @@ import path from 'node:path';
 import { readDirectory, readEntry } from './zip.js';
 import { files as layout, linked as linkedSource, content, contract, manifest as format, personal } from './shared.js';
 import { descriptionStampOf, classifyAt, ownedBy, ifMissing } from './files.js';
-import { linkRoot, adoptLinked } from './linked.js';
+import { linkRoot, adoptLinked, removedOf, archiveRemoved } from './linked.js';
 const { withoutPersonal } = personal;
 
 const IMAGE = /\.(jpe?g|png|webp|gif|avif)$/i;
@@ -312,9 +312,31 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   }
 
   const changed = new Set();
+  const reread = [];
   const moveTo = (gid, g) => {
     library._s(`UPDATE files SET path = ?, state = 'packed' WHERE gid = ?`).run(g.rel, gid);
     library._logIn(gid);
+    byId.delete(gid);
+    g.claimed = true;
+    out.moved.push(gid);
+    changed.add(gid);
+  };
+  // An archived gallery whose archive is gone, found as a folder naming it — the website's first change
+  // unpacks an archive into a folder beside it, then deletes the archive (plan D17), perhaps while it
+  // had the folder taken over — follows it there (F5, S10): read again from the folder, its generation
+  // caught up; or, with changes of its own still to publish (localChanges: they win, D4), taken there as
+  // it is, to publish them in the folder.
+  const unpackedTo = (row, g) => {
+    const gid = row.gid;
+    if (localChanges(library, gid)) {
+      library._s(`UPDATE files SET path = ?, format = 'folder', state = 'packed', tail = NULL, unpack = 0 WHERE gid = ?`).run(g.rel, gid);
+      library._logIn(gid);
+    } else {
+      files.keep.add(gid);
+      try { library._deleteIn(gid); } finally { files.keep.delete(gid); }
+      addGallery(library, gid, g);
+      reread.push([gid, g]);
+    }
     byId.delete(gid);
     g.claimed = true;
     out.moved.push(gid);
@@ -328,6 +350,7 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
       }
       const moved = byId.get(row.gid);
       if (moved && moved.format === row.format) moveTo(row.gid, moved);
+      else if (moved && moved.format === 'folder' && !row.source) unpackedTo(row, moved);
       else if (row.state !== 'missing' && !out.stopped) {
         setState(library, row.gid, 'missing');
         out.missing.push(row.gid);
@@ -336,6 +359,34 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
     }
     for (const [gid, g] of handMoved) moveTo(gid, g);
   });
+  for (const [gid, g] of reread) {
+    await library.rebuildGalleryEntry(gid, { silent: true });
+    const covers = coverPatch(g.read.derived);
+    if (Object.keys(covers).length) library._tx(() => library._coverPatchIn(gid, covers));
+    library._push('control', { type: 'COVER_INVALIDATED', galleryId: gid });
+  }
+  // A gallery deleted while its folder or archive wasn't where the index had it (renamed or moved by
+  // hand): deleted where it is found, never adopted (F4, S10). An archive a deletion left whole as it is
+  // now (the person's files in it: F6) stays out. A copy of a gallery the library keeps in the same
+  // folder (its place still naming it) is reported, and left (O3) — not the old folder of a gallery
+  // archived since, retiring.
+  const unfound = new Map(files._deletingRows().filter(d => d.unfound).map(d => [String(d.gid), d]));
+  const removed = new Map();
+  for (const g of unknown.filter(g => !g.claimed && g.read?.kind === 'gallery')) {
+    const id = g.read.described?.id ? String(g.read.described.id) : null;
+    const row = id && files._row(id);
+    if (!row && unfound.has(id)) {
+      g.claimed = true;
+      const d = unfound.get(id);
+      if (sameKind(g, d)) await files.deletedFound(d, g.rel);
+    } else if (!row && g.format !== 'folder') {
+      if (!removed.has(g.root)) removed.set(g.root, await removedOf(library, g.root).catch(() => []));
+      if (await archiveRemoved(library, g.root, g.inRoot, removed.get(g.root))) g.claimed = true;
+    } else if (row && present.has(id) && files._split(row.path).root === g.root
+      && !library._s('SELECT 1 FROM retiring WHERE dir = ? LIMIT 1').get(g.rel)) {
+      out.problems.push({ path: g.inRoot, reason: 'duplicate', gid: id });
+    }
+  }
   // The galleries found, joined a few at a time (each few one transaction), the windows answered between.
   // (One with no pages joins too when its folder describes it: a series' record, a chapter not
   // downloaded — written there as its folder left a library.) One whose id the library has is a copy,
@@ -400,6 +451,8 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
     tick();
     if (done % CHUNK === 0) await breathe();
   }
+  // A deletion whose gallery's folder the check didn't meet is forgotten (F4) — not when it was stopped.
+  if (!out.stopped) for (const id of reachable) files.forgetUnfound(id);
   library._tidyLinks([...out.added, ...out.updated]);
   for (const gid of changed) library.publishFeed(gid);
   out.removed += await removeOrphans(library, out.unreferenced, checked);
@@ -407,7 +460,28 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   return out;
 }
 
-// The token gallery files `abs` were last published at (a folder, or an archive in the gallery format:
+// Whether deletion `d` (a `deleting` row) may be finished at gallery files `g` (found by a walk): a folder's
+// at a folder, an archive's at an archive — never, say, at an archive the person made of the folder.
+const sameKind = (g, d) => (g.format === 'folder') === Array.isArray(JSON.parse(d.files ?? 'null'));
+// Deletions waiting `unfound` in library folder `root` (their gallery's folder or archive wasn't where the
+// index had it: F4) finished before the folder is let go (folders.js, its removal): its galleries looked
+// for as a check finds them, one naming such a gallery deleted where it is (`work` as files.js
+// deletedFound) — once the folder is forgotten, nothing would keep the next library adding it from
+// adopting it again.
+export async function finishUnfound(library, root, work) {
+  const files = library.files;
+  const unfound = new Map(files._deletingRows(root).filter(d => d.unfound).map(d => [String(d.gid), d]));
+  if (!unfound.size) return;
+  const { found } = await findGalleries(library.rootDir(root), { problems: [] });
+  for (const f of found) {
+    const g = { ...f, abs: path.join(library.rootDir(root), ...f.rel.split('/')), rel: files._join(root, f.rel), root, inRoot: f.rel };
+    const read = await readGallery(g).catch(() => null);
+    const d = read?.kind === 'gallery' && unfound.get(String(read.described?.id));
+    if (d && sameKind(g, d)) await files.deletedFound(d, g.rel, work);
+  }
+}
+
+// The token gallery files  were last published at (a folder, or an archive in the gallery format:
 // gallery-manifest.js tokenOf its manifest) and the gallery it names — or, format v1, its descriptions'
 // stamp and the gallery its metadata.json names: { token, id }. Rejects when one can't be read, or the
 // manifest is damaged (`reason` 'corrupt').

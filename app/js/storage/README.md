@@ -99,3 +99,12 @@ the source picture its page showed when it was read (principle 7: `linked-source
 drawnFrom, isDrawing, pageToken, madeFromPage). A deletion whose folder can't be written is refused
 (principle 8), and one cut short is finished from its record by name; what it leaves of a person's
 files is noted as removed and reported, never joined as a gallery.
+
+Since S10: a write, and a check, read which folder a library folder's path holds afresh (a read may
+lag it by up to two seconds, on both apps), and a picture goes into a gallery's folder only once that
+folder has just been found to name the gallery. A page of the library's own carries a token too (its
+picture's size and when it was stored). Both apps' ZIP readers take an archive's previous generation
+when an addition to it was cut short. A deletion whose gallery's folder isn't where it was kept is
+finished where a check meets the folder; an archive holding a file of the person's
+(`gallery-manifest.js` foreignEntries) is never deleted or written again whole, and is never adopted
+again once its gallery is deleted; a copy of a gallery's folder is reported ('duplicate').

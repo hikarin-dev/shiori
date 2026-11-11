@@ -130,8 +130,11 @@ export async function fingerprintNow(library, root, source) {
 // The titles a check of library folder `root` would find in its folder `rel` ('/'-separated) — every
 // folder of pictures, archive (each of its titles: zipTitles) and PDF there (linked-source.js
 // planTitles) — as [{ kind, path, inner?, fingerprint }], each fingerprint as its files are now (null
-// when they can't be read). Rejects when the folder can't be listed.
+// when they can't be read). An archive (`rel` one: what a deletion left whole, the person's files in it —
+// F6) is noted as itself, so a check never adopts the gallery it describes again (scan.js). Rejects when
+// the folder can't be listed.
 export async function titlesIn(library, root, rel) {
+  if (L.ARCHIVE_NAME.test(rel)) return [{ kind: 'zip', path: rel, fingerprint: await sourceIn(library, root, rel).then(zipFingerprint).catch(() => null) }];
   const files = [];
   const walk = async (abs, at) => {
     for (const item of await disk.readdir(abs, { withFileTypes: true }).catch(ifMissing([]))) {
@@ -169,7 +172,13 @@ export async function overlaysOf(library, root) {
 }
 // The sources removed from library folder `root`: its removed.json's list, and the notes still owed
 // to it (folders.js removedWaiting) — removed all the same (F12).
-const removedOf = async (library, root) => [
+// Whether archive `rel` in library folder `root` is one of `removed` (removedOf's) as it is now: an
+// archive a gallery's deletion left whole, the person's files in it (F6) — never adopted again.
+export async function archiveRemoved(library, root, rel, removed) {
+  if (!removed.some(r => r.path === rel)) return false;
+  return L.isRemoved(removed, { kind: 'zip', path: rel, fingerprint: await sourceIn(library, root, rel).then(zipFingerprint).catch(() => null) });
+}
+export const removedOf = async (library, root) => [
   ...L.parseRemoved(await disk.readFile(absIn(library, root, L.REMOVED_FILE), 'utf8').catch(() => null)),
   ...library.folders.removedWaiting(root),
 ];

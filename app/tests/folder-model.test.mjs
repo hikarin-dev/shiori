@@ -20,7 +20,11 @@
 // ZIP's picture changed in place (same name and size), the drive taken away and brought back, a
 // translation written while every delete is refused, a PDF put in the folder and drawn — its file
 // changed while it is drawn, or the drawing empty — a translation handed back after its page's picture
-// changed, a picture of the person's own put in a gallery's folder (and left by its deletion).
+// changed, a picture of the person's own put in a gallery's folder (and left by its deletion); and
+// (S10) the folder's drive given to another library, or a gallery's folder swapped for another's, a
+// moment after a write; a gallery's folder renamed, then the gallery deleted; and the desktop's
+// archives — an addition cut short and the folder taken over by the website before it was cut back,
+// one unpacked by the website while it had the folder taken over, one the person added a file to.
 //
 // The base commands find nothing on today's code. The others (OPEN) each run beside them in a run of
 // their own, marked todo on an app where they find something today's code gets wrong — with the step
@@ -35,6 +39,7 @@ import { desktopLibrary, webLibrary } from './library-drivers.mjs';
 import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
 import { zipCreate } from '../js/zip.js';
+import { zipEntries } from '../js/zip-read.js';
 
 // A long run's seed (SHIORI_MODEL_SEED) in place of the fixed ones, and its app alone (SHIORI_MODEL_APP).
 export const SEEDS = process.env.SHIORI_MODEL_SEED ? [Number(process.env.SHIORI_MODEL_SEED)] : [1, 2, 3];
@@ -52,8 +57,11 @@ const MAX_COMMANDS = 14;
  * checked since — a translation put on it meanwhile is bound to the picture the library last read (the
  * page's recorded provenance), so the next check drops it too.
  * @typedef {{ original: Uint8Array, translated: Uint8Array | null, changed?: boolean, unchecked?: boolean }} Page */
-/** `app`: the library it was made in (one kept at `home` is that library's alone).
- * @typedef {{ gid: string, place: 'A' | 'home', app: string, title: string, pages: Page[], zip?: string, pdf?: string, displaced?: boolean }} Gallery */
+/** `app`: the library it was made in (one kept at `home` is that library's alone). `archived`: the desktop
+ * archived it; `edited`: the person then added a file to its archive (it takes no change from the model
+ * after: only its deletion).
+ * @typedef {{ gid: string, place: 'A' | 'home', app: string, title: string, pages: Page[], zip?: string, pdf?: string, displaced?: boolean,
+ *   archived?: boolean, edited?: boolean }} Gallery */
 /** `app`: the app working on folder A now (the hand-over gives it to the other: `other`).
  * @typedef {{ state: 'shown' | 'hidden' | 'away', galleries: Gallery[], deleted: Set<string>, notes: Map<string, Uint8Array>,
  *   restartable: boolean, tag: number, pdfs: string[], app: string, both: boolean }} Model */
@@ -66,7 +74,11 @@ const same = (a, b) => !!a && !!b && a.length === b.length && a.every((x, i) => 
 const show = (b) => (b ? `[${[...b]}]` : 'nothing');
 
 /** @param {Model} m @param {number} i */
-const galleryAt = (m, i, ok = (/** @type {Gallery} */ g) => true) => { const list = m.galleries.filter(g => here(m, g) && ok(g)); return list.length ? list[i % list.length] : null; };
+// (A gallery whose archive the person edited only when `edited`: a deletion.)
+const galleryAt = (m, i, ok = (/** @type {Gallery} */ g) => true, edited = false) => {
+  const list = m.galleries.filter(g => here(m, g) && ok(g) && (edited || !g.edited));
+  return list.length ? list[i % list.length] : null;
+};
 // Whether gallery `g` is in the library of the app working now: in folder A, or kept at its home.
 const here = (/** @type {Model} */ m, /** @type {Gallery} */ g) => g.place === 'A' || g.app === m.app;
 // Whether gallery `g` can be written to now (its folder shown and there), so a refusal is a fault.
@@ -215,9 +227,9 @@ const BASE = {
     },
   }),
   deleteGallery: command('deleteGallery', anyGallery, {
-    check: (m, i) => !!galleryAt(m, i),
+    check: (m, i) => !!galleryAt(m, i, undefined, true),
     async run(m, r, i) {
-      const g = /** @type {Gallery} */ (galleryAt(m, i));
+      const g = /** @type {Gallery} */ (galleryAt(m, i, undefined, true));
       if (!(await attempt(!writable(m, g), () => r.lib.deleteGallery(g.gid)))) return;
       m.galleries = m.galleries.filter(x => x !== g);
       m.deleted.add(g.gid);
@@ -264,6 +276,57 @@ const BASE = {
     async run(m, r) { await r.lib.show(r.id); await r.lib.setDefault(r.id); m.state = 'shown'; },
   }),
 };
+
+// The folder handed to the other app (plan §6.3): this one removes it — first writing there what only
+// it has (§3.4's write-back) — and the other adds it and checks it. Every gallery there reads whole in
+// the other app, whose library the commands after work on (a gallery kept at an app's home stays in
+// that app's alone); handed back, likewise.
+const handOver = command('handOver', fc.constant(null), {
+  check: (m) => m.both && m.state === 'shown',
+  async run(m, r) {
+    const from = r.lib, to = /** @type {Driver} */ (r.other);
+    await from.setDefault(from.home);
+    if (!(await removed(m, r))) return;
+    r.id = await to.add(r.A);
+    await to.setDefault(r.id);
+    await to.scan(r.id);
+    r.lib = to; r.other = from; m.app = to.app;
+    m.galleries = m.galleries.filter(g => !g.displaced);
+    checked(m);
+  },
+});
+// A gallery of the library's own in folder A, with pages, in a folder of its own there.
+const inFolder = (/** @type {Gallery} */ g) => g.place === 'A' && !g.zip && !g.pdf && !g.displaced && !g.archived && g.pages.length > 0;
+// Every file in folder `dir` and its folders (their paths).
+function filesIn(/** @type {string} */ dir) {
+  /** @type {string[]} */
+  const out = [];
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) out.push(...filesIn(p)); else out.push(p);
+  }
+  return out;
+}
+// Gallery `g` archived by the desktop now: its archive's path, or null when it wasn't (one in use stays a
+// folder).
+async function archived(/** @type {Real} */ r, /** @type {Gallery} */ g) {
+  await r.lib.flush();
+  if (!(await r.lib.raw.archiveGallery(g.gid)).archived.includes(g.gid)) return null;
+  g.archived = true;
+  return r.lib.raw.files._abs(r.lib.raw._s('SELECT path FROM files WHERE gid = ?').get(g.gid).path);
+}
+// Folder A taken over by the website ("Use anyway") while the desktop holds it, `work(web)` done there,
+// then given back: the website removes it (its write-back), and the desktop holds it again.
+async function takenOverBriefly(/** @type {Real} */ r, /** @type {(web: Driver) => Promise<void>} */ work) {
+  const web = /** @type {Driver} */ (r.other);
+  const id = await web.add(r.A, { force: true });
+  await web.scan(id);
+  try { await work(web); } finally {
+    await web.setDefault(web.home);
+    await web.remove(id);
+    await r.lib.raw.folderClaim(r.id);
+  }
+}
 
 /** The commands that aren't in the base run yet: the person's or the disk's doing, and the desktop's
  * restart. `todo`, per app, where the fixed seeds find something today's code gets wrong: the step
@@ -426,24 +489,136 @@ const OPEN = {
       m.notes.set(file, bytes);
     },
   })] },
-  // The folder handed to the other app (plan §6.3): this one removes it — first writing there what only
-  // it has (§3.4's write-back) — and the other adds it and checks it. Every gallery there reads whole in
-  // the other app, whose library the commands after work on (a gallery kept at an app's home stays in
-  // that app's alone); handed back, likewise.
-  handover: { both: true, todo: {}, commands: [command('handOver', fc.constant(null), {
-    check: (m) => m.both && m.state === 'shown',
-    async run(m, r) {
-      const from = r.lib, to = /** @type {Driver} */ (r.other);
-      await from.setDefault(from.home);
-      if (!(await removed(m, r))) return;
-      r.id = await to.add(r.A);
-      await to.setDefault(r.id);
-      await to.scan(r.id);
-      r.lib = to; r.other = from; m.app = to.app;
-      m.galleries = m.galleries.filter(g => !g.displaced);
-      checked(m);
+  // The folder handed to the other app (handOver, above).
+  handover: { both: true, todo: {}, commands: [handOver] },
+  // S10: the person's doing within the windows a library takes what it found as it was (F1, F2): folder
+  // A's drive given to another library (a copy of A, its galleries' folders naming them — every file of
+  // it never to change), then, at once, a page written to a gallery in A and a check (refused: another
+  // library's); or a gallery's folder swapped for a copy of another gallery's a moment after a page was
+  // written to it, then another page written to it (nothing of it goes into that copy). Both put back
+  // after: what was written meanwhile reads back.
+  swaps: { todo: {}, commands: [
+    command('swapRoot', fc.tuple(anyGallery, fc.nat(1)), {
+      check: (m) => m.state === 'shown',
+      async run(m, r, [i, k]) {
+        await r.lib.flush();   // nothing under way as it is swapped (a write racing the swap is outside §2)
+        const other = path.join(r.dir, `other library ${++m.tag}`);
+        fs.cpSync(r.drive, other, { recursive: true });
+        fs.writeFileSync(path.join(other, '.shiori', 'library.json'), JSON.stringify({ format: 'shiori-library', version: 1, id: `0f${String(m.tag).padStart(14, '0')}` }));
+        for (const f of filesIn(other)) m.notes.set(f, new Uint8Array(fs.readFileSync(f)));
+        fs.rmdirSync(r.A);
+        faults.junction(other, r.A);
+        try {
+          const g = galleryAt(m, i, g => g.place === 'A' && !g.zip && !g.pdf && !g.displaced && !g.archived && g.pages.length > 0);
+          if (g) {
+            const n = (k % g.pages.length) + 1, bytes = png(++m.tag);
+            if (await attempt(true, () => r.lib.putPage(g.gid, n, bytes))) g.pages[n - 1] = { original: bytes, translated: null };
+          }
+          const checked = await r.lib.scan(r.id).then(() => true, () => false);
+          if (checked) throw new Error('another library at folder A\'s path was checked as it');
+          await r.lib.flush().catch(() => {});   // what the write left to do, tried while the other library is there
+        } finally {
+          fs.rmdirSync(r.A);
+          faults.junction(r.drive, r.A);
+        }
+      },
+    }),
+    command('swapGallery', fc.tuple(anyGallery, anyGallery, fc.nat(1)), {
+      check: (m, [i, j]) => m.state === 'shown' && !!galleryAt(m, i, inFolder) && !!galleryAt(m, j, inFolder) && galleryAt(m, i, inFolder) !== galleryAt(m, j, inFolder),
+      async run(m, r, [i, j, k]) {
+        const g = /** @type {Gallery} */ (galleryAt(m, i, inFolder)), h = /** @type {Gallery} */ (galleryAt(m, j, inFolder));
+        await r.lib.flush();   // both folders made
+        const n = (k % g.pages.length) + 1, first = png(++m.tag);
+        await r.lib.putPage(g.gid, n, first);
+        g.pages[n - 1] = { original: first, translated: null };
+        await r.lib.flush();   // nothing under way as it is swapped (a write racing the swap is outside §2)
+        const at = await r.lib.dirOf(g.gid), theirs = await r.lib.dirOf(h.gid);
+        if (!at || !theirs || !fs.existsSync(at) || !fs.existsSync(theirs)) return;
+        const aside = path.join(r.dir, `aside ${++m.tag}`);
+        if (!(await moveAside(at, aside))) return;
+        try {
+          fs.cpSync(theirs, at, { recursive: true });
+          const before = filesIn(at).sort();
+          const bytes = png(++m.tag);
+          if (await attempt(true, () => r.lib.putPage(g.gid, n, bytes))) g.pages[n - 1] = { original: bytes, translated: null };
+          await r.lib.flush().catch(() => {});   // what the write left to do, tried while the swapped folder is there
+          const after = filesIn(at).sort();
+          if (JSON.stringify(after) !== JSON.stringify(before)) throw new Error(`gallery ${g.gid}'s picture went into another gallery's folder put at its path`);
+        } finally {
+          fs.rmSync(at, { recursive: true, force: true });
+          await moveAside(aside, at);
+        }
+      },
+    }),
+  ] },
+  // S10 (F4): a gallery's folder renamed by hand, then the gallery deleted: it never comes back (a check
+  // meeting the renamed folder deletes it, never adopts it).
+  renamed: { todo: {}, commands: [command('renameThenDelete', anyGallery, {
+    check: (m, i) => m.state === 'shown' && !!galleryAt(m, i, inFolder),
+    async run(m, r, i) {
+      const g = /** @type {Gallery} */ (galleryAt(m, i, inFolder));
+      await r.lib.flush();
+      const at = await r.lib.dirOf(g.gid);
+      if (!at || !fs.existsSync(at) || !(await moveAside(at, `${at} renamed ${++m.tag}`))) return;
+      await r.lib.deleteGallery(g.gid);
+      m.galleries = m.galleries.filter(x => x !== g);
+      m.deleted.add(g.gid);
     },
   })] },
+  // S10, the desktop's archives handed between the apps (F3, F5, F6): a gallery archived by the desktop,
+  // then an addition to it cut short (more than 64 KiB of entries, no directory: the desktop stopped) and
+  // the folder taken over by the website ("Use anyway") before the desktop cut it back — the website
+  // reads it whole, gives the folder back, and the desktop reads it whole; or the folder taken over by the
+  // website, which changes the gallery (its first change unpacks it), then gives it back — the desktop
+  // follows the gallery to its folder; or the person adding a file of their own to the archive — which
+  // nothing changes, nor deletes with the gallery (the model then only deletes it).
+  archives: { both: true, todo: {}, commands: [
+    command('cutAppend', anyGallery, {
+      check: (m, i) => m.both && m.app === 'desktop' && m.state === 'shown' && !!galleryAt(m, i, inFolder),
+      async run(m, r, i) {
+        const g = /** @type {Gallery} */ (galleryAt(m, i, inFolder));
+        const file = await archived(r, g);
+        if (!file) return;
+        fs.appendFileSync(file, Buffer.alloc(70_000, 7));
+        await takenOverBriefly(r, async (web) => {
+          for (const [n, p] of g.pages.entries()) {
+            const got = await web.read(g.gid, n + 1);
+            if (!same(got, p.original)) throw new Error(`the website reads gallery ${g.gid} page ${n + 1} as ${show(got)}, not ${show(p.original)}`);
+          }
+        });
+      },
+    }),
+    command('takeoverUnpack', anyGallery, {
+      check: (m, i) => m.both && m.app === 'desktop' && m.state === 'shown' && !!galleryAt(m, i, inFolder),
+      async run(m, r, i) {
+        const g = /** @type {Gallery} */ (galleryAt(m, i, inFolder));
+        if (!(await archived(r, g))) return;
+        const bytes = png(++m.tag);
+        await takenOverBriefly(r, async (web) => {
+          await web.putPage(g.gid, 1, bytes);
+          await web.flush();
+        });
+        g.pages[0] = { original: bytes, translated: null };
+        delete g.archived;
+        await r.lib.scan(r.id);
+        checked(m);
+      },
+    }),
+    command('editArchive', anyGallery, {
+      check: (m, i) => m.app === 'desktop' && m.state === 'shown' && !!galleryAt(m, i, inFolder),
+      async run(m, r, i) {
+        const g = /** @type {Gallery} */ (galleryAt(m, i, inFolder));
+        const file = await archived(r, g);
+        if (!file) return;
+        const entries = [];
+        for (const e of await zipEntries(new Uint8Array(fs.readFileSync(file)))) entries.push({ name: e.filename, data: await e.read() });
+        fs.writeFileSync(file, zipCreate([...entries, { name: 'notes.txt', data: new TextEncoder().encode(`mine ${++m.tag}`) }]));
+        m.notes.set(file, new Uint8Array(fs.readFileSync(file)));
+        g.edited = true;
+      },
+    }),
+    handOver,
+  ] },
 };
 
 // What each long run found and S8 fixed, replayed as it was found (fast-check's counterexample, its
@@ -484,6 +659,28 @@ const REGRESSIONS = [
     steps: [['link', null], ['translateInFlight', [0, 0, 'changed']], ['deleteGallery', 0], ['link', null]] },
   { app: 'website', name: 'a linked ZIP changed in place, deleted, then its folder added again stays removed (N3)',
     steps: [['scan', null], ['link', null], ['changeEntry', [8, 1]], ['deleteGallery', 4], ['readd', null]] },
+  // S10's situations (the review's F1–F6), each replayed as the commands reach it, on every app it
+  // concerns (`both`: the other app's library there too, for the hand-over).
+  ...['desktop', 'website'].flatMap(app => [
+    { app, name: 'F1: another library put at the folder\'s path a moment after a write takes no write, and isn\'t checked',
+      steps: [['newGallery', 2], ['swapRoot', [0, 1]], ['flush', null], ['scan', null]] },
+    { app, name: 'F2: a gallery\'s folder swapped for another gallery\'s a moment after a write takes none of its pictures',
+      steps: [['newGallery', 1], ['newGallery', 1], ['swapGallery', [0, 1, 0]], ['flush', null], ['scan', null]] },
+    { app, name: 'F4: a gallery deleted after its folder was renamed by hand stays deleted',
+      steps: [['newGallery', 1], ['renameThenDelete', 0], ['scan', null], ['readd', null]] },
+    // Found by S10's long run (website seeds 144953778, 1903532451): the folder removed and added again
+    // before any check — the removal forgot the deletion, and the re-add adopted the renamed folder. A
+    // removal now looks for it first (folder-library.js _finishUnfound, scan.js finishUnfound).
+    { app, name: 'F4: a gallery deleted after its folder was renamed stays deleted when the folder is removed and added again before a check',
+      steps: [['newGallery', 1], ['renameThenDelete', 0], ['readd', null]] },
+  ]),
+  { app: 'desktop', both: true, name: 'F3: an addition cut short, the folder taken over before it was cut back, reads whole to both apps',
+    steps: [['newGallery', 2], ['cutAppend', 0], ['putPage', [0, 1]], ['flush', null], ['handOver', null], ['scan', null]] },
+  { app: 'desktop', both: true, name: 'F5: a gallery the website unpacked while it had the folder taken over is followed to its folder',
+    steps: [['newGallery', 2], ['takeoverUnpack', 0], ['putTranslation', [0, 1, false]], ['flush', null], ['scan', null]] },
+  { app: 'desktop', both: true, name: 'F6: an archive the person added a file to is left whole by its gallery\'s deletion, in either app',
+    steps: [['newGallery', 1], ['newGallery', 1], ['editArchive', 0], ['editArchive', 1], ['deleteGallery', 0], ['scan', null],
+      ['handOver', null], ['deleteGallery', 0], ['scan', null], ['handOver', null], ['scan', null]] },
 ];
 
 /** `both`: the other app's library there too, for the hand-over.
@@ -536,7 +733,7 @@ for (const app of APPS) {
     }
     for (const reg of REGRESSIONS.filter(x => x.app === app)) {
       test(`regression: ${reg.name}`, { skip }, async () => {
-        const s = await setup(app);
+        const s = await setup(app, { both: !!reg.both });
         try {
           for (const [name, a] of reg.steps) {
             const c = step(name, a);

@@ -144,10 +144,14 @@ export const sameProvenance = (recorded, page) => JSON.stringify(provenanceOf(re
 // (pageSources), the work gives it back with its result, and the result is kept only while the page
 // still shows that picture (madeFromPage): one made from a source picture a check has since read anew
 // (changed in place, or another now) is refused and changes nothing. A linked page's token is its
-// source picture's provenance, content signal included; a page of the library's own has '' — its
-// picture changes only by the library's own writes.
-/** @param {{ name: string, size: number | null, crc?: string | null, mtime?: number | null } | null | undefined} provenance @returns {string} */
-export const pageToken = (provenance) => (provenance ? JSON.stringify(provenanceOf(provenance)) : '');
+// source picture's provenance, content signal included; a page of the library's own (`record`, its page
+// record: no provenance) its picture's size and when it was stored (`cachedAt`), so one made from the
+// picture a page had before it was stored again (downloaded again) is refused too (O1, S10) — while a
+// move, an archiving or a settle, which keep the picture, keep the token.
+/** @param {{ name: string, size: number | null, crc?: string | null, mtime?: number | null } | null | undefined} provenance
+ * @param {{ size?: number | null, cachedAt?: number | null } | null} [record] @returns {string} */
+export const pageToken = (provenance, record = null) => (provenance ? JSON.stringify(provenanceOf(provenance))
+  : JSON.stringify({ size: record?.size ?? 0, stored: wholeMs(record?.cachedAt) ?? 0 }));
 /** Whether a result made from a page's picture read as `token` may be kept now that the page's token is
  * `now`. No token (work handed out before tokens were): kept, as before.
  * @param {unknown} token @param {string} now @returns {boolean} */

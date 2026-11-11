@@ -1513,7 +1513,7 @@ export class Library {
 
   // Each page's source token, { [pageNum]: token } (db.js pageSources).
   async pageSources(galleryId) {
-    return Object.fromEntries(this._s('SELECT n, orig FROM pages WHERE gid = ?').all(String(galleryId)).map(r => [r.n, sourceToken(parse(r.orig))]));
+    return Object.fromEntries(this._s('SELECT n, orig, record FROM pages WHERE gid = ?').all(String(galleryId)).map(r => [r.n, sourceToken(parse(r.orig), parse(r.record))]));
   }
 
   async getGalleryImageRecords(galleryId) {
@@ -1659,7 +1659,7 @@ export class Library {
   async putTranslatedPage(at, image, pipeline, own, source) {
     let stale = false;
     const shows = (row) => {
-      if (madeFromPage(source, sourceToken(parse(row.orig)))) return true;
+      if (madeFromPage(source, sourceToken(parse(row.orig), parse(row.record)))) return true;
       stale = true;
       return false;
     };

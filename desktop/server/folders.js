@@ -29,7 +29,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { owner as claims, lifecycle, linked as linkedSource, contract, BackendError } from './shared.js';
 import { libraryId, identityAt } from './files.js';
-import { scanLibrary } from './scan.js';
+import { scanLibrary, finishUnfound } from './scan.js';
 import { fingerprintNow, titlesIn } from './linked.js';
 
 const SCHEMA = `
@@ -738,6 +738,7 @@ export class Folders {
     // unsaved as a gallery (forgotten, the folder would add its source, or the gallery, again).
     await this.publishRemoved(id, { work: 'removal' });
     await files.applyDeletions({ root: id, work: 'removal' }).catch(() => {});
+    await finishUnfound(lib, id, 'removal').catch(() => {});
     const owed = [...lib._s('SELECT gid FROM removed_notes WHERE root = ?').all(id), ...files.deletingIn(id)].map(r => r.gid);
     const { forget, unsaved } = lifecycle.removalOutcome({ required: [...required, ...owed], saved, discard });
     if (!forget) {
