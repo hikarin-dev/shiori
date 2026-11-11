@@ -16,6 +16,7 @@
 
 import * as api from './api.js';
 import { isValidGalleryId } from './sanitize.js';
+import { withMarks } from './storage/personal.js';
 import { makeArchive, openArchive, inspectArchive, restoreArchive, probeBackup, snapshotSettings, restoreSettings,
   footer, mapLimit, sha256, localDate, BackupError } from './backup-core.js';
 
@@ -25,14 +26,18 @@ const progressFn = (arg) => typeof arg === 'function' ? arg : (arg?.onProgress |
 
 // ── Metadata-only export (.shi) ─────────────────────────────────────────────────────────────
 // Only galleries in the library: metadata that never became a gallery (a download that failed
-// before its first page) would otherwise come back from the backup as an empty gallery.
+// before its first page) would otherwise come back from the backup as an empty gallery. Each record
+// keeps the person's favorite (storage/personal.js) as an earlier version's metadata did.
 export async function exportMetadata({ onProgress = () => {}, signal = null } = {}) {
   const payload = [];
   const ids = await api.transfer.ids();
   for (let i = 0; i < ids.length; i++) {
     if (signal?.aborted) throw new BackupError('cancelled');
-    const { meta, stat } = await api.transfer.read(ids[i], { pages: false });
-    if (meta && stat) { const { pageExts, ...rest } = meta; payload.push(rest); }
+    const { meta, stat, personal } = await api.transfer.read(ids[i], { pages: false });
+    if (meta && stat) {
+      const { pageExts, ...rest } = meta;
+      payload.push(typeof personal?.favorite === 'boolean' ? { ...rest, favorite: personal.favorite } : rest);
+    }
     if (i % 25 === 0 || i === ids.length - 1) onProgress({ done: i + 1, total: ids.length });
   }
   return {
@@ -211,13 +216,16 @@ async function restoreMetadata({ entries }, { onProgress = () => {}, signal = nu
   const owners = new Set();
   for (let i = 0; i < entries.length; i++) {
     if (signal?.aborted) break;
-    const meta = entries[i];
+    const { favorite, ...meta } = entries[i];
     const gid = String(meta.galleryId);
     const nextMeta = { ...meta, galleryId: gid, fetchedAt: Date.now() };
     // Only an absent gallery starts from nothing: a gallery that can't be read now stops the restore,
     // rather than having its totals reset as if it had no pages.
-    const existing = (await api.transfer.read(gid, { pages: false })).stat;
-    await api.transfer.write({ galleryId: gid, meta: nextMeta, stat: {
+    const read = await api.transfer.read(gid, { pages: false });
+    const existing = read.stat;
+    // The favorite the backup has is the person's mark again; the rest of their marks stay.
+    const marks = typeof favorite === 'boolean' ? { personal: withMarks(read.personal, { favorite }) } : {};
+    await api.transfer.write({ galleryId: gid, meta: nextMeta, ...marks, stat: {
       galleryId: gid,
       count:     existing?.count    || 0,
       size:      existing?.size     || 0,

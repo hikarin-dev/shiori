@@ -76,9 +76,8 @@ async function allOrThrow(promises) {
 // list) or orphan a chapter (wiping its parentId) just by backfilling its metadata. Carry across
 // any grouping field the incoming meta didn't set so a metadata write can't destroy grouping.
 const GROUPING_FIELDS = ['chapters', 'parentId', 'seriesTitle', 'seriesTags'];
-// The record of which configs translated the gallery's pages is app-only too, and so is whether
-// the user favorited the gallery.
-const APP_ONLY_FIELDS = [...GROUPING_FIELDS, 'translations', 'favorite'];
+// The record of which configs translated the gallery's pages is app-only too.
+const APP_ONLY_FIELDS = [...GROUPING_FIELDS, 'translations'];
 async function withAppOnlyFields(meta) {
   const prev = await api.meta.get(meta.galleryId).catch(() => null);
   if (!prev) return meta;

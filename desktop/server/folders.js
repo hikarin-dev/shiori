@@ -184,7 +184,7 @@ export class Folders {
         lib.asFolderWork(home, () => lib._tx(() => {
           lib._s('DELETE FROM dormant WHERE gid = ?').run(gid);
           if (!there || taken) return;
-          if (b.meta) lib._metaPutRaw(parse(b.meta));
+          if (b.meta) { lib._metaPutRaw(parse(b.meta)); lib._importMarks(gid, parse(b.meta)); }
           lib._statPut(parse(b.stat));
           for (const p of b.pages || []) lib._pagePutRow({ gid, n: p.n, key: p.key, w: p.w, h: p.h, orig: parse(p.orig), record: parse(p.record) });
           if (b.cover) lib._coverPut(b.cover);

@@ -228,9 +228,10 @@ export async function list(id, root, path = '') {
   return out;
 }
 
-/** Whether there is anything at `path` inside the folder.
+/** Whether there is anything at `path` inside the folder (a name taken; a linked gallery's source still
+ * where it was): an error looking is thrown, never taken for nothing there.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @returns {Promise<boolean>} */
-async function _taken(id, root, path) {
+export async function isThere(id, root, path) {
   const [dir, name] = _split(path);
   try {
     const parent = await _dir(id, root, dir, false);
@@ -268,7 +269,7 @@ export function withLock(name, fn) {
 export function reserveDir(id, root, base, metadata, { gid, writer }) {
   return withLock(`shiori:dirs:${id}`, async () => {
     let name = base;
-    for (let i = 2; await _taken(id, root, name); i++) name = `${base} (${i})`;
+    for (let i = 2; await isThere(id, root, name); i++) name = `${base} (${i})`;
     const plan = await publication({ area: '.shiori/', prev: null, next: firstGeneration(gid, writer), texts: { 'metadata.json': metadata } });
     for (const s of plan.stable) if (s.text != null) await writeFile(id, root, _join(name, s.path), s.text);
     for (const w of plan.writes) await writeFile(id, root, _join(name, w.path), w.text, { within: name });
@@ -287,7 +288,7 @@ export function reserveDir(id, root, base, metadata, { gid, writer }) {
  * @param {Blob | string} data @returns {Promise<{ path: string, file: File }>} */
 export async function writeNew(id, root, dir, path, data) {
   let at = path;
-  while (await _taken(id, root, `${dir}/${at}`)) at = path.replace(/(\.[^./]*)?$/, (ext) => `-${_randomPart()}${ext}`);
+  while (await isThere(id, root, `${dir}/${at}`)) at = path.replace(/(\.[^./]*)?$/, (ext) => `-${_randomPart()}${ext}`);
   return { path: at, file: await writeFile(id, root, `${dir}/${at}`, data, { within: dir }) };
 }
 const _randomPart = () => [...crypto.getRandomValues(new Uint8Array(4))].map(b => b.toString(16).padStart(2, '0')).join('');

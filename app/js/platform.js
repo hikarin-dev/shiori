@@ -291,7 +291,8 @@ export const jobsPending = {
 };
 
 // Token-reattach records for in-flight translations: { gid, token, serverUrl, settings,
-// pendingUrls, pendingSources (each page's source token, api.js pages.sources), total, cursor, phase }.
+// pendingUrls, pendingSources (each page's source token, api.js pages.sources), total, cursor, phase,
+// stale (the pages whose result was refused: their picture changed) }.
 // One per active gallery translation, claimed before upload
 // and removed when it finishes. The
 // server owns the job (keyed by token); this lets ANY page — after a navigation, or a service

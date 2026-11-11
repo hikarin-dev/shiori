@@ -9,6 +9,8 @@
 //   writes   Map gid → patch, applied as mutateGallery applies one
 //   deletes  galleries deleted outright: pages, metadata, cover
 //   totals   series owners whose totals are recomputed after the writes and deletes
+//   favorite { from, to } when the series has a new head: the person's favorite (storage/personal.js,
+//            not metadata) moves from the old head to it, in the same transaction
 //   result   what the command returns
 
 import { pickTitle, normalizeTitle } from './titles.js';
@@ -56,7 +58,7 @@ export function canDetachChapter(entity) {
 function _plan() {
   const writes = new Map(), opts = new Map();
   return {
-    writes, opts, deletes: [], totals: [], result: undefined, silent: false,
+    writes, opts, deletes: [], totals: [], favorite: null, result: undefined, silent: false,
     write(gid, patch, o) {
       writes.set(_id(gid), { ...(writes.get(_id(gid)) || {}), ...patch });
       if (o) opts.set(_id(gid), o);
@@ -134,14 +136,12 @@ function _writeSeries(plan, prevMeta, oldOwnerId, newChapters) {
   const owner = newChapters[0] ? _id(newChapters[0].id) : null;
   // A new head takes over the series' favorite, as it does its title and tags, and the old head
   // gives it up — the card that stands for the series stays favorited (or not).
-  const handover = !!owner && owner !== oldOwnerId;
-  const takeFavorite = handover ? { favorite: !!prevMeta?.favorite } : {};
-  const dropFavorite = handover ? { favorite: false } : {};
+  if (owner && owner !== oldOwnerId) plan.favorite = { from: oldOwnerId, to: owner };
 
   if (!owner || newChapters.length < 2) {
-    if (owner) plan.write(owner, { chapters: null, seriesTitle: '', seriesTags: null, parentId: null, ...takeFavorite });
+    if (owner) plan.write(owner, { chapters: null, seriesTitle: '', seriesTags: null, parentId: null });
     if (oldOwnerId !== owner) {
-      plan.write(oldOwnerId, { chapters: null, seriesTitle: '', seriesTags: null, parentId: null, ...dropFavorite });
+      plan.write(oldOwnerId, { chapters: null, seriesTitle: '', seriesTags: null, parentId: null });
       plan.totals.push(oldOwnerId);
     }
     if (owner) plan.totals.push(owner);
@@ -153,7 +153,6 @@ function _writeSeries(plan, prevMeta, oldOwnerId, newChapters) {
     seriesTitle: prevMeta?.seriesTitle || '',
     seriesTags: _seriesTagsOf(prevMeta),
     parentId: null,
-    ...takeFavorite,
   });
   for (const c of newChapters) {
     if (_id(c.id) !== owner) plan.write(c.id, { parentId: owner });
@@ -161,8 +160,8 @@ function _writeSeries(plan, prevMeta, oldOwnerId, newChapters) {
   if (oldOwnerId !== owner) {
     const stillPresent = newChapters.some(c => _id(c.id) === oldOwnerId);
     plan.write(oldOwnerId, stillPresent
-      ? { chapters: null, seriesTitle: '', seriesTags: null, ...dropFavorite }                  // demoted to a plain chapter
-      : { chapters: null, seriesTitle: '', seriesTags: null, parentId: null, ...dropFavorite }); // removed entirely → standalone
+      ? { chapters: null, seriesTitle: '', seriesTags: null }                  // demoted to a plain chapter
+      : { chapters: null, seriesTitle: '', seriesTags: null, parentId: null }); // removed entirely → standalone
     plan.totals.push(oldOwnerId);
   }
   plan.totals.push(owner);

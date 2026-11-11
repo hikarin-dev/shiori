@@ -4,7 +4,7 @@
 // (its descriptions, translations, study layers, covers, pages it fetches or draws itself) is kept in
 // an overlay: a folder in the gallery format of its own, in the library folder's hidden
 // .shiori/linked/<gallery id>/, beside a source.json naming the files it belongs to (where they are in
-// the library folder, their size, and a fingerprint that finds them again once moved or renamed). An
+// the library folder, their size, and a fingerprint that tells when they change there). An
 // overlay's own page NNNN stands in for the source's page NNNN. Removing such a gallery from the
 // library leaves its files, and notes them in .shiori/linked/removed.json so that checking the folder
 // doesn't add them again. What counts as Shiori's own, and so not linked, is folder-content.js's to
@@ -111,8 +111,7 @@ export const withRemoved = (removed, source, now = Date.now()) => [
 // pictures' names and sizes. An archive's is its central directory's bytes (import-cbz.js zipEntries:
 // every entry's name, size and CRC-32). A folder's `content` (folderContent, hashed alike) adds each
 // picture's modification time, so a picture replaced in place by one of the same size is told too
-// (matchSources) — its fingerprint, which finds a moved source again and is what a removal note keeps,
-// stays as it was.
+// (matchSources) — its fingerprint, what a removal note keeps, stays as it was.
 /** @typedef {{ name: string, size?: number | null, mtime?: number | null }} Pictured */
 /** @param {Iterable<Pictured>} pictures */
 const _byName = (pictures) => [...pictures].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
@@ -360,27 +359,23 @@ export const isDrawing = (pages) => Array.isArray(pages) && pages.length > 0
 // null when it couldn't be read), against the linked galleries the library keeps there (`kept`:
 // [{ gid, source }], as stored), the overlays the folder holds (`overlays`: [{ galleryId, source }],
 // parseSource's), the galleries the library has anywhere (`known`: a Set of ids) and removed.json's
-// list (`removed`). Each title found lands in one list, each kept gallery in one:
+// list (`removed`). A source is where it is (plan D5): one renamed or moved outside the app is another
+// source — it joins as new, and the gallery that was there is missing, its overlay (what the library
+// added to it) kept until it is deleted. Each title found lands in one list, each kept gallery in one:
 // - same: a kept gallery's source where it was, its fingerprint the same (or unreadable now).
 // - changed: where it was, its files changed (another fingerprint, or, both known, another content: a
 //   picture replaced in place by one of the same size): its pages are read again.
-// - moved: a source gone from where it was (a kept gallery's, or an overlay's whose gallery the
-//   library hasn't), found elsewhere by its fingerprint. An archive moves as a group — its fingerprint
-//   is its central directory's, the same for all its chapters — and its chapters are then paired by
-//   their folder in it (`inner`). A gallery the library keeps takes its files back before an overlay
-//   does. { title, gid, kept, was (the source as it was) }.
 // - new: a title nothing knows, joining the library — as gallery `gid` when the folder holds an
 //   overlay made for it where it is (that overlay keeps its identity: its series, its edits), unless
 //   it was removed (an overlay its removal hasn't deleted yet: the note is written first).
-// - missing: a kept gallery whose source is nowhere: { gid, source }.
+// - missing: a kept gallery whose source isn't where it was: { gid, source }.
 // - skipped: a title not to join: 'removed' (removed from the library before: isRemoved) or 'copy'
 //   (its overlay's gallery the library has elsewhere). { title, reason }.
 /** @typedef {SourceAt & { [field: string]: unknown }} FoundTitle */
 /** @typedef {{ gid: string, source: SourceAt }} KeptSource */
 /** @typedef {{
  *   same: { title: FoundTitle, gid: string }[], changed: { title: FoundTitle, gid: string, was: SourceAt }[],
- *   moved: { title: FoundTitle, gid: string, kept: boolean, was: SourceAt }[], new: { title: FoundTitle, gid?: string }[],
- *   missing: KeptSource[], skipped: { title: FoundTitle, reason: 'removed' | 'copy' }[],
+ *   new: { title: FoundTitle, gid?: string }[], missing: KeptSource[], skipped: { title: FoundTitle, reason: 'removed' | 'copy' }[],
  * }} SourceMatch */
 /**
  * @param {{ found: FoundTitle[], kept?: { gid: string | number, source: SourceAt }[], overlays?: { galleryId: string, source: SourceAt }[],
@@ -389,15 +384,12 @@ export const isDrawing = (pages) => Array.isArray(pages) && pages.length > 0
  */
 export function matchSources({ found, kept = [], overlays = [], known = new Set(), removed = [] }) {
   /** @type {SourceMatch} */
-  const out = { same: [], changed: [], moved: [], new: [], missing: [], skipped: [] };
+  const out = { same: [], changed: [], new: [], missing: [], skipped: [] };
   const keptAt = new Map(kept.map(k => [sourceKey(k.source), { ...k, gid: String(k.gid) }]));
   const keptIds = new Set([...keptAt.values()].map(k => k.gid));
   // An overlay of a gallery the library keeps here says nothing the library doesn't know.
   const overAt = new Map(overlays.filter(o => !keptIds.has(o.galleryId)).map(o => [sourceKey(o.source), o]));
   const foundKeys = new Set(found.map(sourceKey));
-
-  // Where they were: the kept galleries' sources, and each found title with an overlay made for it.
-  const loose = [];
   for (const title of found) {
     const k = keptAt.get(sourceKey(title));
     const over = !k && overAt.get(sourceKey(title));
@@ -405,61 +397,11 @@ export function matchSources({ found, kept = [], overlays = [], known = new Set(
       const changed = (title.fingerprint != null && title.fingerprint !== (k.source.fingerprint ?? null))
         || (title.content != null && k.source.content != null && title.content !== k.source.content);
       if (changed) out.changed.push({ title, gid: k.gid, was: k.source }); else out.same.push({ title, gid: k.gid });
-    } else if (over && !isRemoved(removed, title)) {   // a removed one's overlay its removal couldn't delete yet: removed
-      if (known.has(over.galleryId)) out.skipped.push({ title, reason: 'copy' }); else out.new.push({ title, gid: over.galleryId });
-    } else loose.push(title);
+    } else if (isRemoved(removed, title)) out.skipped.push({ title, reason: 'removed' });   // a removed one's overlay its removal couldn't delete yet too
+    else if (over && known.has(over.galleryId)) out.skipped.push({ title, reason: 'copy' });
+    else out.new.push(over ? { title, gid: over.galleryId } : { title });
   }
-
-  // Gone from where they were, grouped by what they were in (an archive's chapters together) and its
-  // fingerprint: kept galleries first, then overlays whose gallery the library hasn't.
-  /** @typedef {{ gid: string, kept: boolean, source: SourceAt }} GoneMember */
-  /** @type {{ at: string, kind: string, fingerprint: string | null | undefined, members: Map<string, GoneMember>, kept: boolean, taken?: boolean }[]} */
-  const gone = [];
-  /** @param {SourceAt} source */
-  const goneGroup = (source) => {
-    const at = `${source.kind}\u0000${source.path}\u0000${source.fingerprint}`;
-    let g = gone.find(x => x.at === at);
-    if (!g) gone.push(g = { at, kind: source.kind, fingerprint: source.fingerprint, members: new Map(), kept: false });
-    return g;
-  };
-  for (const k of keptAt.values()) {
-    if (foundKeys.has(sourceKey(k.source)) || !k.source.fingerprint) continue;
-    const g = goneGroup(k.source);
-    g.kept = true;
-    g.members.set(k.source.inner || '', { gid: k.gid, kept: true, source: k.source });
-  }
-  for (const [key, o] of overAt) {
-    if (foundKeys.has(key) || known.has(o.galleryId) || !o.source.fingerprint) continue;
-    const members = goneGroup(o.source).members;
-    if (!members.has(o.source.inner || '')) members.set(o.source.inner || '', { gid: o.galleryId, kept: false, source: o.source });
-  }
-  gone.sort((a, b) => Number(b.kept) - Number(a.kept));
-
-  // The rest found, by what they are in: a group whose fingerprint a gone one has takes its galleries.
-  /** @type {Map<string, FoundTitle[]>} */
-  const groups = new Map();
-  for (const title of loose) {
-    const at = `${title.kind}\u0000${title.path}`;
-    if (!groups.has(at)) groups.set(at, []);
-    /** @type {FoundTitle[]} */ (groups.get(at)).push(title);
-  }
-  for (const titles of groups.values()) {
-    const print = titles[0].fingerprint;
-    const g = print != null && gone.find(x => !x.taken && x.kind === titles[0].kind && x.fingerprint === print);
-    if (g) g.taken = true;
-    for (const title of titles) {
-      const was = g && g.members.get(title.inner || '');
-      if (was) { g.members.delete(title.inner || ''); out.moved.push({ title, gid: was.gid, kept: was.kept, was: was.source }); }
-      else if (isRemoved(removed, title)) out.skipped.push({ title, reason: 'removed' });
-      else out.new.push({ title });
-    }
-  }
-
-  // Kept galleries whose source is nowhere.
-  for (const k of keptAt.values()) {
-    if (foundKeys.has(sourceKey(k.source))) continue;
-    if (!out.moved.some(m => m.kept && m.gid === k.gid)) out.missing.push({ gid: k.gid, source: k.source });
-  }
+  for (const k of keptAt.values()) if (!foundKeys.has(sourceKey(k.source))) out.missing.push({ gid: k.gid, source: k.source });
   return out;
 }
 

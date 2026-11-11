@@ -111,10 +111,9 @@ test('malformed pipeline data is not restored', async () => {
   assert.ok(rec.translated, 'the rest of the page still imports');
 });
 
-// ── What the real exporter (gallery-files.js) writes, restored into a library that lost it ──
+// ── What the real exporter (gallery-export.js) writes, restored into a library that lost it ──
 
-const { galleryFiles, seriesManifest } = await import('../js/storage/gallery-files.js');
-const { fileBytes } = await import('../js/gallery-export.js');
+const { exportFiles } = await import('../js/gallery-export.js');
 const { mergeIntoSeries, setChapterTitle } = await import('../js/series.js');
 
 const TAGS = [{ type: 'category', name: 'manga', url: '' }, { type: 'rating', name: 'safe', url: '' },
@@ -122,11 +121,9 @@ const TAGS = [{ type: 'category', name: 'manga', url: '' }, { type: 'rating', na
 const TITLE = { english: 'Kept', japanese: '残す', pretty: 'Kept' };
 const img = (type, ...values) => new Blob([new Uint8Array(values)], { type });
 
-async function galleryArchiveFiles(gid, prefix = '', opts = {}) {
-  const [meta, records, covers] = await Promise.all([api.meta.get(gid), api.pages.all(gid), api.transfer.read(gid).then(t => t.cover)]);
-  const files = galleryFiles({ meta, records, covers: { gallery: covers?.cover, series: covers?.seriesCover } }, prefix, opts);
-  return Promise.all(files.map(async (f) => ({ name: f.name, data: await fileBytes(f.source) })));
-}
+// The archive's files as the library's export writes them — a series owner's, its whole series.
+const galleryArchiveFiles = async (gid) => (await exportFiles(gid, { read: api.transfer.read, metaGet: api.meta.get })).files
+  .map(f => ({ name: f.name, data: f.data }));
 
 async function pagesOf(gid) {
   const recs = (await api.pages.all(gid)).sort((a, b) => a.url.localeCompare(b.url));
@@ -141,7 +138,7 @@ async function seedGallery(gid, { favorite = true } = {}) {
   await api.meta.put({ galleryId: gid, title: TITLE, tags: TAGS, numPages: 2 });
   await api.pages.put(gid, null, img('image/avif', 1, 1), { key: `local://${gid}/1.avif` });
   await api.pages.put(gid, null, img('image/webp', 2, 2), { key: `local://${gid}/2.webp` });
-  await api.galleries.mutate(gid, { favorite }, { touch: false });
+  await api.personal.favorite(gid, favorite);
 }
 
 test('a gallery export restores its favorite, category, rating, title and AVIF/WebP pages', async () => {
@@ -151,7 +148,7 @@ test('a gallery export restores its favorite, category, rating, title and AVIF/W
   await api.galleries.delete('701');
   await importCbzBuffer('701', archive, 'shiori-701.zip', true);
   const meta = await api.meta.get('701');
-  assert.equal(meta.favorite, true);
+  assert.equal((await api.personal.get('701')).favorite, true, 'the favorite, taken back from the export');
   assert.deepEqual(meta.tags, TAGS);
   assert.deepEqual(meta.title, TITLE);
   assert.deepEqual(await pagesOf('701'), pages, 'every page comes back in its own format, bytes untouched');
@@ -166,22 +163,20 @@ test('a series export restores the series favorite, title, category, rating and 
   const seriesTags = [{ type: 'category', name: 'doujinshi', url: '' }, { type: 'rating', name: 'suggestive', url: '' }];
   // Chapters 1 and 2, and a volume.
   const numbered = (await api.meta.get('801')).chapters.map((c, i) => ({ ...c, number: [1, 2, 1][i], ...(i === 2 ? { kind: 'volume' } : {}) }));
-  await api.galleries.mutate('801', { favorite: true, seriesTags, seriesTitle: { english: 'Series', japanese: '', pretty: 'Series' }, chapters: numbered });
+  await api.personal.favorite('801', true);
+  await api.galleries.mutate('801', { seriesTags, seriesTitle: { english: 'Series', japanese: '', pretty: 'Series' }, chapters: numbered });
   // A field no exporter or importer knows about still makes the trip.
   await api.meta.put({ ...await api.meta.get('802'), futureField: { kept: [1, 'two'] } });
   const before = await api.meta.get('801');
   const chapterBefore = await api.meta.get('802');
 
-  // The bundle library.js writes: chapter-NN/ per chapter (series fields stripped) + series.json.
-  const manifest = seriesManifest(before);
-  const files = [];
-  for (const { id, folder } of manifest.chapters) files.push(...await galleryArchiveFiles(id, `${folder}/`, { stripSeriesFields: true }));
-  files.push({ name: 'series.json', data: enc.encode(JSON.stringify(manifest)) });
+  // The bundle the export writes: chapter-NN/ per chapter (series fields stripped) + series.json.
+  const files = await galleryArchiveFiles('801');
   for (const gid of ['801', '802', '803']) await api.galleries.delete(gid);
 
   await importCbzBuffer('801', zip(files), 'shiori-series-801.zip', true);
   const owner = await api.meta.get('801');
-  assert.equal(owner.favorite, true);
+  assert.equal((await api.personal.get('801')).favorite, true);
   assert.deepEqual(owner.seriesTags, seriesTags);
   assert.deepEqual(owner.seriesTitle, before.seriesTitle);
   assert.deepEqual(owner.chapters, before.chapters, 'member order, titles, numbers and kinds');

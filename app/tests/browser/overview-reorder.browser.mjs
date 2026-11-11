@@ -112,7 +112,7 @@ test('the arrows move a row in place and save the order', async (t) => {
   assert.deepEqual(state.ups, [true, false, false, false]);
   assert.deepEqual(state.downs, [false, false, false, true]);
   assert.equal(state.heading, 'Series', 'the title moves with the series to its new head');
-  assert.match(state.start, new RegExp(`g=${G.b}$`), 'reading starts at the new first chapter');
+  assert.match(state.start, new RegExp(`g=${G.b}&page=1$`), 'reading from the start starts at the new first chapter');
   await finish(page);
 });
 

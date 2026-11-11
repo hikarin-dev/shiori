@@ -153,7 +153,7 @@ test('R12: a source.json path that leads out of its folder is never listed, read
   assert.deepEqual(linkedRows(library), [], 'nothing adopted');
 });
 
-test('R13: a page replaced in a linked gallery\'s overlay stays replaced: through remove and add back, a rename of its source, a catch-up', async (t) => {
+test('R13: a page replaced in a linked gallery\'s overlay stays replaced: through remove and add back, a rename of its source and back, a catch-up', async (t) => {
   const { library, other } = await open(t);
   mk(other, 'Loose/1.png', pngBytes(0x31));
   mk(other, 'Loose/2.png', pngBytes(0x32));
@@ -171,10 +171,15 @@ test('R13: a page replaced in a linked gallery\'s overlay stays replaced: throug
   id = await removeAndAddBack(library, id, other);
   await library.folderScan(id);
   assert.deepEqual(await pagesNow(), want, 'remove and add back');
-  // (b) Its source renamed.
+  // (b) Its source renamed (D5: another source — a gallery of its own joins, this one is missing, its
+  //     overlay kept), then renamed back: this gallery again, its pages as they were.
   fs.renameSync(path.join(other, 'Loose'), path.join(other, 'Loose Renamed'));
-  assert.equal((await library.folderScan(id)).updated, 1);
-  assert.deepEqual(await pagesNow(), want, 'a rename');
+  const away = await library.folderScan(id);
+  assert.deepEqual([away.added, away.updated, rowOf(library, gid).state], [1, 0, 'missing']);
+  fs.renameSync(path.join(other, 'Loose Renamed'), path.join(other, 'Loose'));
+  await library.folderScan(id);
+  assert.equal(rowOf(library, gid).state, 'packed');
+  assert.deepEqual(await pagesNow(), want, 'a rename and back');
   // (c) Another app publishes its overlay anew: read again.
   await described(library, gid);
   await publishElsewhere(overlayOf(other, gid), (texts) => ({ ...texts, 'metadata.json': patched(texts['metadata.json'], { title: title('Changed elsewhere') }) }));
@@ -265,7 +270,7 @@ test('R16: both cover roles survive a catch-up and remove and add back', async (
   assert.deepEqual(roles(), [true, true], 'remove and add back');
 });
 
-test('R18: a multi-chapter archive renamed keeps its galleries — while kept, and while its folder was out of the library', async (t) => {
+test('R18, D5: a multi-chapter archive renamed outside the app joins as new galleries and its old ones show as missing, their overlays kept; renamed back, they are its galleries again — while kept, and while its folder was out of the library', async (t) => {
   const { library, other } = await open(t);
   await writeZip(path.join(other, 'Before.zip'), [{ name: 'Ch 1/1.png', data: pngBytes(11) }, { name: 'Ch 2/1.png', data: pngBytes(21) }]);
   let id = (await library.folderAdd(other)).id;
@@ -274,19 +279,25 @@ test('R18: a multi-chapter archive renamed keeps its galleries — while kept, a
   const ch1 = before.find(r => r.src.inner === 'Ch 1/').gid;
   await library.putTranslatedImage({ galleryId: ch1, pageNum: 1 }, png(99));
   await library.files.settle(ch1);
-  await library.files.describe(ch1, { all: true });
-  fs.renameSync(path.join(other, 'Before.zip'), path.join(other, 'After.zip'));
-  assert.deepEqual(await library.folderScan(id), { added: 0, updated: 2, problems: [], stopped: false });
-  assert.deepEqual(linkedRows(library).map(r => [r.gid, r.state, r.src.path, r.src.inner]), before.map(r => [r.gid, 'packed', 'After.zip', r.src.inner]));
-  assert.deepEqual((await library.seriesResolve(ch1)).chapters.map(c => String(c.id)).sort(), before.map(r => r.gid).sort(), 'its series');
-  // Removed, renamed again while away, added back: the same galleries, from their overlays.
   for (const r of before) await library.files.describe(r.gid, { all: true });
-  id = await removeAndAddBack(library, id, other);
-  fs.renameSync(path.join(other, 'After.zip'), path.join(other, 'Again.zip'));
+  fs.renameSync(path.join(other, 'Before.zip'), path.join(other, 'After.zip'));
+  assert.deepEqual(await library.folderScan(id), { added: 2, updated: 0, problems: [], stopped: false });
+  const now = linkedRows(library);
+  assert.deepEqual(before.map(r => now.find(n => n.gid === r.gid)).map(r => [r.state, r.src.path]), [['missing', 'Before.zip'], ['missing', 'Before.zip']]);
+  assert.deepEqual(now.filter(r => !before.some(b => b.gid === r.gid)).map(r => [r.src.path, r.src.inner]).sort(), [['After.zip', 'Ch 1/'], ['After.zip', 'Ch 2/']],
+    'its chapters join as galleries of their own');
+  assert.ok(fs.existsSync(path.join(overlayOf(other, ch1), 'source.json')), 'the missing one\'s overlay is kept');
+  // Renamed back: its galleries again, the translation with them.
+  fs.renameSync(path.join(other, 'After.zip'), path.join(other, 'Before.zip'));
   await library.folderScan(id);
-  assert.deepEqual(linkedRows(library).map(r => [r.gid, r.src.path]), before.map(r => [r.gid, 'Again.zip']));
+  assert.deepEqual(before.map(r => rowOf(library, r.gid).state), ['packed', 'packed']);
   assert.deepEqual(await bytesOf(await library.getPageBlob(ch1, 1, 'translated')), [...pngBytes(99)]);
-  assert.deepEqual(fs.readdirSync(path.join(other, '.shiori', 'linked')).filter(n => /^\d+$/.test(n)).sort(), before.map(r => r.gid).sort(), 'no second overlays');
+  assert.deepEqual((await library.seriesResolve(ch1)).chapters.map(c => String(c.id)).sort(), before.map(r => r.gid).sort(), 'its series');
+  // Removed and added back: the same galleries, from their overlays where the archive is.
+  id = await removeAndAddBack(library, id, other);
+  await library.folderScan(id);
+  assert.deepEqual(linkedRows(library).map(r => [r.gid, r.src.path]), before.map(r => [r.gid, 'Before.zip']));
+  assert.deepEqual(await bytesOf(await library.getPageBlob(ch1, 1, 'translated')), [...pngBytes(99)]);
 });
 
 test('R19: a linked source is read as it is at every check, and what was made from a page never moves to another picture', async (t) => {
@@ -296,23 +307,21 @@ test('R19: a linked source is read as it is at every check, and what was made fr
   await library.folderScan(id);
   const [g] = linkedRows(library);
   await described(library, g.gid);
-  // (a) A picture added: read again, its fingerprint kept current, so a later rename still finds it.
+  // (a) A picture added: read again, its fingerprint kept current.
   mk(other, 'Loose/2.png', pngBytes(2));
   assert.equal((await library.folderScan(id)).updated, 1);
   assert.equal((await library.getGallery(g.gid)).count, 2);
   assert.notEqual(linkedRows(library)[0].src.fingerprint, g.src.fingerprint);
-  fs.renameSync(path.join(other, 'Loose'), path.join(other, 'Renamed'));
-  assert.deepEqual(await library.folderScan(id), { added: 0, updated: 1, problems: [], stopped: false });
   // (b) A picture renamed: its pages follow, none left unreadable.
   await described(library, g.gid);
-  fs.renameSync(path.join(other, 'Renamed', '1.png'), path.join(other, 'Renamed', '01.png'));
+  fs.renameSync(path.join(other, 'Loose', '1.png'), path.join(other, 'Loose', '01.png'));
   await library.folderScan(id);
   assert.deepEqual(await bytesOf(await library.getPageBlob(g.gid, 1)), [...pngBytes(1)]);
   // (c) A picture inserted before a translated one: the translation is never shown over another.
   await library.putTranslatedImage({ galleryId: g.gid, pageNum: 1 }, png(0x71));
   await library.files.settle(g.gid);
   await library.files.describe(g.gid, { all: true });
-  mk(other, 'Renamed/00.png', pngBytes(0));
+  mk(other, 'Loose/00.png', pngBytes(0));
   await library.folderScan(id);
   assert.deepEqual(await bytesOf(await library.getPageBlob(g.gid, 1)), [...pngBytes(0)]);
   const translatedOf = async (n) => (library._pageRow(g.gid, n) && JSON.parse(library._pageRow(g.gid, n).record).translated) ? bytesOf(await library.getPageBlob(g.gid, n, 'translated')) : null;
@@ -326,8 +335,8 @@ test('R19: a linked source is read as it is at every check, and what was made fr
   await library.folderScan(back);
   for (const r of linkedRows(library)) await library.deleteGallery(r.gid);
   await sleep(200);
-  fs.rmSync(path.join(other, 'Renamed'), { recursive: true });
-  mk(other, 'Renamed/a.png', pngBytes(7, 7, 7));
+  fs.rmSync(path.join(other, 'Loose'), { recursive: true });
+  mk(other, 'Loose/a.png', pngBytes(7, 7, 7));
   fs.rmSync(path.join(other, 'Pack.zip'));
   await writeZip(path.join(other, 'Pack.zip'), [{ name: 'x.png', data: pngBytes(9) }, { name: 'y.png', data: pngBytes(10) }]);
   assert.equal((await library.folderScan(back)).added, 2);
@@ -382,14 +391,18 @@ test('A14: a linked source renamed, or changed, never overwrites the library\'s 
   const meta = await library.metaGet(gid);
   library._tx(() => { library._metaPutRaw({ ...meta, title: title('Edited in library') }); library._logIn(gid); });
   assert.equal(rowOf(library, gid).pending, 1);
+  // Renamed (D5: another source, joining as new; this gallery missing meanwhile), then back: the edit stays.
   fs.renameSync(path.join(other, 'Loose'), path.join(other, 'Renamed'));
-  assert.equal((await library.folderScan(id)).updated, 1, 'found where it is now');
+  assert.deepEqual([(await library.folderScan(id)).added, rowOf(library, gid).state], [1, 'missing']);
+  fs.renameSync(path.join(other, 'Renamed'), path.join(other, 'Loose'));
+  await library.folderScan(id);
   assert.equal((await library.metaGet(gid)).title.english, 'Edited in library', 'a rename');
   // Changed while its edits wait: they are written to its overlay first, then it is read again (S8).
-  mk(other, 'Renamed/2.png', pngBytes(2));
+  library._tx(() => { library._metaPutRaw({ ...meta, title: title('Edited again') }); library._logIn(gid); });
+  mk(other, 'Loose/2.png', pngBytes(2));
   assert.equal(rowOf(library, gid).pending, 1);
   assert.equal((await library.folderScan(id)).updated, 1, 'changed: its edits written first, then read again');
-  assert.deepEqual([(await library.metaGet(gid)).title.english, (await library.getGallery(gid)).count], ['Edited in library', 2], 'a change');
+  assert.deepEqual([(await library.metaGet(gid)).title.english, (await library.getGallery(gid)).count], ['Edited again', 2], 'a change');
 });
 
 test('A19: a check sweeps temporary files only once no write can be making them; staging under the data folder too', async (t) => {

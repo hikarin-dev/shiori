@@ -23,9 +23,10 @@
 import { disk, loadGallery, manifestIn } from './folder-store.js';
 import path from 'node:path';
 import { readDirectory, readEntry } from './zip.js';
-import { files as layout, linked as linkedSource, content, contract, manifest as format } from './shared.js';
+import { files as layout, linked as linkedSource, content, contract, manifest as format, personal } from './shared.js';
 import { descriptionStampOf, classifyAt, ownedBy, ifMissing } from './files.js';
 import { linkRoot, adoptLinked } from './linked.js';
+const { withoutPersonal } = personal;
 
 const IMAGE = /\.(jpe?g|png|webp|gif|avif)$/i;
 const TYPE_OF_EXT = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif' };
@@ -385,7 +386,7 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
     out.updated.push(...r.updated);
     for (const gid of [...r.added, ...r.updated]) changed.add(gid);
   }
-  // A linked gallery found again elsewhere isn't missing.
+  // A linked gallery read again from its source (linked.js) isn't missing.
   out.missing = out.missing.filter(gid => !out.updated.includes(gid));
   // Then the galleries it keeps whose descriptions another app changed since: read again.
   const kept = known.filter(r => present.has(r.gid));
@@ -507,7 +508,9 @@ export const derivedRecord = (derived, n, entry) => layout.derivedRecord(derived
 
 // A gallery the index didn't have, from its files: its own metadata and page keys when it describes
 // itself (and, for a folder in the gallery format, what was made from its pages), else a new
-// gallery named after its folder or file.
+// gallery named after its folder or file. A description an earlier version wrote may carry the
+// person's favorite (storage/personal.js): taken into this library's marks as the gallery joins, and
+// the description published again without it.
 function addGallery(library, gid, g) {
   const { described, pages } = g.read;
   g.addedAs = gid;
@@ -517,6 +520,7 @@ function addGallery(library, gid, g) {
     ? { ...described.meta, galleryId: gid }
     : { galleryId: gid, title: { english: stem, japanese: '', pretty: stem }, tags: [], numPages: pages.length, isLocalImport: true };
   library._metaPutRaw(meta);
+  library._importMarks(gid, meta);
   const now = Date.now();
   if (!pages.length || meta.parentId) startEntry(library, gid, meta, now);
   pages.forEach(({ n: number, name, size }, i) => {
@@ -533,6 +537,7 @@ function addGallery(library, gid, g) {
   });
   library._s(`INSERT INTO files (gid, path, format, state, packed_at, used_at) VALUES (?, ?, ?, 'packed', ?, ?)`).run(gid, g.rel, g.format, now, now);
   if (g.read.token) library._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(gid, g.read.token);   // what it was read at (D4)
+  if (withoutPersonal(meta) !== meta) library.files.describeLater(gid);
   library._logIn(gid);
 }
 

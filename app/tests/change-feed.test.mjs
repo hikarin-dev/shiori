@@ -57,8 +57,8 @@ test('a window further behind than the log reaches resyncs', async () => {
   const gid = api.newGalleryId();
   await api.meta.put({ galleryId: gid, title: title('X') });
   const old = await api.events.revision();
-  await api.galleries.mutate(gid, { favorite: true }, { silent: true });
-  await api.galleries.mutate(gid, { favorite: false }, { silent: true });
+  await api.galleries.mutate(gid, { title: title('X1') }, { silent: true });
+  await api.galleries.mutate(gid, { title: title('X2') }, { silent: true });
   const recent = await api.events.revision();
   // What trimming the log leaves behind, in whichever library the test runs on.
   if (globalThis.__desktopLibrary) globalThis.__desktopLibrary._kvSet('compactedUpTo', recent - 1);
@@ -72,7 +72,7 @@ test('a window further behind than the log reaches resyncs', async () => {
     };
   });
   assert.equal((await api.events.since(old)).resync, true);
-  await api.galleries.mutate(gid, { favorite: true }, { silent: true });
+  await api.galleries.mutate(gid, { title: title('X3') }, { silent: true });
   assert.deepEqual(await api.events.since(recent), { rev: recent + 1, gids: [gid], resync: false });
 });
 
@@ -83,7 +83,7 @@ test('a window that comes back hears what changed while it wasn\'t listening', a
   const stop = api.events.watch((g, beacon) => { if (g === gid) heard.push([g, beacon ? 'live' : 'caught up']); });
   await settle();   // the watcher notes where the library stands
   await api.meta.put({ galleryId: gid, title: title('Silent') }, { silent: true });
-  await api.galleries.mutate(gid, { favorite: true }, { silent: true });
+  await api.galleries.mutate(gid, { title: title('Silent too') }, { silent: true });
   assert.deepEqual(heard, [], 'silent writes announce nothing');
   comeBack();
   await settle();

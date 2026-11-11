@@ -6,8 +6,8 @@
 //
 // What is kept where:
 //   library.db (SQLite)  every record db.js keeps — metadata, gallery entry (stat record), page and
-//                        cover records, source icons, the change log — as JSON, with a column for
-//                        each thing it is looked up or sorted by;
+//                        cover records, source icons, the change log, the person's own marks — as
+//                        JSON, with a column for each thing it is looked up or sorted by;
 //   cache/<gid>/         cover thumbnails (on this computer, beside the index);
 //   the library folders  each gallery's folder in the Shiori gallery format (files.js,
 //                        gallery-files.js): its original pages — staged as they arrive
@@ -33,7 +33,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { DatabaseSync } from 'node:sqlite';
-import { plans, model, titles, pageSize, files as galleryFilesModule, galleryExport, lifecycle, linked as linkedSource, BackendError } from './shared.js';
+import { plans, model, titles, pageSize, files as galleryFilesModule, galleryExport, lifecycle, linked as linkedSource, personal, BackendError } from './shared.js';
 import { disk, folderStore, writeNewIn } from './folder-store.js';
 import { FileLibrary, libraryId, sourceToken } from './files.js';
 import { Folders } from './folders.js';
@@ -47,6 +47,7 @@ const { medianPage, describePage, headerSize } = pageSize;
 const { galleryFiles, layoutPath, extOfType, originalExt } = galleryFilesModule;
 const { exportSize } = galleryExport;
 const { madeFromPage } = linkedSource;
+const { withoutPersonal, marksOf, withMarks, importMarks, favoriteMoved } = personal;
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -96,6 +97,9 @@ CREATE TABLE IF NOT EXISTS icons (source TEXT PRIMARY KEY, record TEXT NOT NULL)
 CREATE TABLE IF NOT EXISTS changes (rev INTEGER PRIMARY KEY, gid TEXT NOT NULL, at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS stamps (gid TEXT PRIMARY KEY, stamp TEXT NOT NULL);
+-- The person's own marks on each gallery — favorite, reading progress (storage/personal.js): this
+-- library's alone, never written to a gallery's folder.
+CREATE TABLE IF NOT EXISTS personal (gid TEXT PRIMARY KEY, record TEXT NOT NULL);
 `;
 
 // A gallery in the library (not one placed in a folder that is hidden or being removed: folders.js
@@ -186,7 +190,6 @@ function entityFrom(id, gal, meta) {
     fetchedAt: m.fetchedAt,
     translated: m.translated || false,
     translatedLang: m.translatedLang || '',
-    favorite: !!m.favorite,
     languages: deriveLangs(m, tags),
     chapters: Array.isArray(m.chapters) ? m.chapters : null,
     parentId: m.parentId || g.parentId || null,
@@ -367,6 +370,7 @@ export class Library {
     // Its folders, their claims and what earlier versions kept of them (folders.js); then what waited
     // for them is settled, and removals cut short go on.
     await this.folders.open();
+    this._personalFromMeta();
     this.files.start();
     this.folders.resume();
     return this;
@@ -681,7 +685,10 @@ export class Library {
   // ── Records ──
   _metaGet(gid) { return parse(this._s('SELECT record FROM meta WHERE gid = ?').get(String(gid))?.record); }
   // A record identical to the one stored writes nothing — not the index, not the gallery's files.
-  _metaPutRaw(record) {
+  // Metadata holds no personal mark (storage/personal.js): an earlier version's favorite is the
+  // personal table's (_importMarks).
+  _metaPutRaw(meta) {
+    const record = withoutPersonal(meta);
     const gid = String(record.galleryId);
     const stored = this._s('SELECT record FROM meta WHERE gid = ?').get(gid)?.record;
     const text = JSON.stringify(record);
@@ -1092,10 +1099,11 @@ export class Library {
     return this._entity(gid, gal, meta);
   }
 
-  // A gallery as surfaces render it; `missing` when its files can't be found in the library folder,
-  // `archived` when it is kept in an archive there.
+  // A gallery as surfaces render it, with the favorite of the person's marks; `missing` when its files
+  // can't be found in the library folder, `archived` when it is kept in an archive there.
   _entity(gid, gal, meta) {
     const entity = entityFrom(gid, gal, meta);
+    entity.favorite = !!this._marks(gid)?.favorite;
     const row = this.files._row(gid);
     if (row?.state === 'missing') entity.missing = true;
     if (row && row.format !== 'folder') entity.archived = true;
@@ -1144,6 +1152,55 @@ export class Library {
     return map;
   }
 
+  // ── The person's own marks (storage/personal.js, db.js personalGet…) ──
+  // What the person marked on a gallery for themselves — favorite, reading progress — in the
+  // `personal` table, this library's alone: never in the gallery's folder.
+  _marks(gid) { return marksOf(parse(this._s('SELECT record FROM personal WHERE gid = ?').get(String(gid))?.record)); }
+  _marksPut(gid, marks) {
+    if (marks) this._s('INSERT INTO personal (gid, record) VALUES (?, ?) ON CONFLICT(gid) DO UPDATE SET record = excluded.record').run(String(gid), JSON.stringify(marks));
+    else this._s('DELETE FROM personal WHERE gid = ?').run(String(gid));
+  }
+  // Inside a transaction: the favorite an earlier version's metadata `meta` carries taken into the
+  // marks, while there is no favorite of the person's own for gallery `gid` (personal.js importMarks).
+  _importMarks(gid, meta) {
+    const next = importMarks(this._marks(gid), meta);
+    if (next) this._marksPut(gid, next);
+  }
+  // The favorite an earlier version kept in a gallery's metadata taken into the marks, and the metadata
+  // stored without it (_metaPutRaw) — so a gallery kept in a folder publishes its description again,
+  // without it. At every start; only such records match.
+  _personalFromMeta() {
+    const rows = this._s(`SELECT gid, record FROM meta WHERE record LIKE '%"favorite":%'`).all();
+    this._tx(() => {
+      for (const r of rows) {
+        const meta = parse(r.record);
+        if (withoutPersonal(meta) === meta) continue;
+        this._importMarks(r.gid, meta);
+        this._metaPutRaw(meta);
+      }
+    });
+  }
+  async personalGet(galleryId) { return this._marks(galleryId); }
+  async personalAll() {
+    const map = new Map();
+    for (const r of this._s('SELECT gid, record FROM personal').all()) { const m = marksOf(parse(r.record)); if (m) map.set(String(r.gid), m); }
+    return map;
+  }
+  // A favorite is shown with the gallery: logged and announced (refused while its folder is hidden), but
+  // never a change for its folder. Reading progress is neither. Resolves the marks.
+  async personalSet(galleryId, change) {
+    const gid = String(galleryId);
+    const shown = typeof change?.favorite === 'boolean';
+    const next = this._tx(() => {
+      const marks = withMarks(this._marks(gid), change);
+      this._marksPut(gid, marks);
+      if (shown) this._logIn(gid);
+      return marks;
+    });
+    if (shown) this.publishFeed(gid);
+    return next;
+  }
+
   // ── Metadata ──
   async metaGet(galleryId) { return this._metaGet(galleryId); }
   async metaGetAll() { return this._s('SELECT record FROM meta ORDER BY gid').all().map(r => parse(r.record)); }
@@ -1156,6 +1213,7 @@ export class Library {
     const written = this._tx(() => {
       if (onlyIfExists && !this._metaGet(gid)) return false;
       this._metaPutRaw(record);
+      this._importMarks(gid, record);   // an earlier version's record (an export imported, say)
       this._logIn(gid);
       if (record.isStub) return true;
       const g = this._statGet(gid);
@@ -1388,7 +1446,14 @@ export class Library {
         if (gone.has(gid)) continue;
         if (this._mutateIn(gid, patch, out.opts.get(gid) || {}).written) written.add(gid);
       }
-      for (const gid of gone) deleted.push([gid, this._deleteIn(gid)]);
+      // A new head takes the series' favorite over (db.js seriesCommand); a gallery deleted takes the
+      // person's marks along.
+      if (out.favorite) {
+        const { from, to } = out.favorite;
+        const moved = favoriteMoved(this._marks(from), this._marks(to));
+        for (const [gid, next] of [[from, moved.from], [to, moved.to]]) if (next) { this._marksPut(gid, next); written.add(gid); }
+      }
+      for (const gid of gone) { this._marksPut(gid, null); deleted.push([gid, this._deleteIn(gid)]); }
       for (const oid of new Set(out.totals.map(String))) {
         if (!gone.has(oid) && this._aggregateIn(oid)) written.add(oid);
       }
@@ -1590,9 +1655,14 @@ export class Library {
   }
 
   // `source`: the page's source token the translation was made from (pageSources); one the page no
-  // longer shows is refused (db.js putTranslatedPage).
+  // longer shows is refused (db.js putTranslatedPage). Resolves { stale }: whether it was refused so.
   async putTranslatedPage(at, image, pipeline, own, source) {
-    const shows = (row) => madeFromPage(source, sourceToken(parse(row.orig)));
+    let stale = false;
+    const shows = (row) => {
+      if (madeFromPage(source, sourceToken(parse(row.orig)))) return true;
+      stale = true;
+      return false;
+    };
     await this._derive(at, { image, pipeline }, (rec, { image: img, pipeline: pipe }, row) => {
       if (!shows(row)) return false;
       delete rec.studyBg;
@@ -1606,6 +1676,7 @@ export class Library {
       if (own) rec.own = own;
       else if (own !== undefined) delete rec.own;
     }, { ready: shows });
+    return { stale };
   }
 
   async putPageData(at, data) {
@@ -1808,7 +1879,8 @@ export class Library {
   // its pictures kept as files are read only as each is used (_lazyRef).
   async transferRead(galleryId, { pages = true, lazy = false } = {}) {
     const gid = String(galleryId);
-    if (!pages) return { meta: this._metaGet(gid), stat: this._statGet(gid), pages: [], cover: null };
+    const personal = this._marks(gid);
+    if (!pages) return { meta: this._metaGet(gid), stat: this._statGet(gid), pages: [], cover: null, personal };
     const cover = this._coverGet(gid);
     if (lazy) {
       const rows = this._pageRows(gid);
@@ -1817,13 +1889,14 @@ export class Library {
         records[i] = { ...await this._internalize(parse(row.record), row.gid, parse(row.orig), row.n, true), pageNum: row.n };
       });
       return { meta: this._metaGet(gid), stat: this._statGet(gid), pages: records,
-        cover: cover ? await this._internalize(cover, gid, null, null, true) : null };
+        cover: cover ? await this._internalize(cover, gid, null, null, true) : null, personal };
     }
     return {
       meta: this._metaGet(gid),
       stat: this._statGet(gid),
       pages: await this.getGalleryImageRecords(gid),
       cover: cover ? await this._internalize(cover, gid) : null,
+      personal,
     };
   }
 
@@ -1837,8 +1910,10 @@ export class Library {
   // A gallery too big for one message comes in parts (`transfer`: { id, first, last }): each part's
   // files are written as it arrives and the gallery is recorded with the last one; the files of a
   // transfer that never finishes go (transferAbort — server.js calls it when its connection closes),
-  // and a part still being written then records nothing.
-  async transferWrite({ galleryId = null, meta = null, stat = null, pages = [], cover = null } = {}, { silent = false, transfer = null } = {}) {
+  // and a part still being written then records nothing. The person's marks (`personal`, with the
+  // first part) replace the gallery's; a bundle without them (an earlier version's backup) has the
+  // favorite its metadata kept taken in (_importMarks).
+  async transferWrite({ galleryId = null, meta = null, stat = null, pages = [], cover = null, personal = undefined } = {}, { silent = false, transfer = null } = {}) {
     const gid = String(galleryId ?? meta?.galleryId ?? stat?.galleryId ?? pages[0]?.galleryId ?? '');
     if (!gid) throw new BackendError('invalid', 'a gallery to restore names no gallery');
     const id = transfer?.id != null ? String(transfer.id) : null;
@@ -1863,7 +1938,7 @@ export class Library {
       throw e;
     }
     if (!state) {
-      state = { gid, meta, stat, fresh: [], moves: [], staged: [], numbers, coverPatch: {}, first: null, dir: null, timer: null,
+      state = { gid, meta, stat, personal, fresh: [], moves: [], staged: [], numbers, coverPatch: {}, first: null, dir: null, timer: null,
         writing: 0, aborted: false };
       // A gallery with no pages yet, kept (or to be kept) as a folder that may be written to now, has
       // its pages written there.
@@ -1897,6 +1972,8 @@ export class Library {
       this._tx(() => {
         this._logIn(gid);
         if (state.meta) this._metaPutRaw(canonicalMeta({ ...state.meta, galleryId: gid }));
+        if (state.personal !== undefined) this._marksPut(gid, marksOf(state.personal));
+        else this._importMarks(gid, state.meta);
         if (state.stat) this._statPut({ ...state.stat, galleryId: gid, uploadDate: uploadDateSeconds(state.stat.uploadDate ?? (Number(state.meta?.uploadDate) || 0)) });
         for (const p of staged) {
           const prev = this._pageRowByKey(p.key);
@@ -1983,9 +2060,10 @@ export class Library {
     const out = { metas: [], galleries: [], pages: [], covers: [], images: [], exportSizes: {}, pagesWithoutGallery: 0 };
     const metaById = new Map(), coverById = new Map(), pagesBy = new Map();
     const origIds = [];
-    // A gallery out of the library (its folder hidden or removed, maybe away) has its files taken as
-    // they were: they aren't looked for.
-    const away = new Set(this._s('SELECT gid FROM unmounted').all().map(r => r.gid));
+    // A gallery out of the library (its folder hidden or removed, maybe away), or one whose files are
+    // missing (a linked gallery's source renamed or moved: D5 — every check looks for them), has its
+    // files taken as they were: they aren't looked for.
+    const away = new Set(this._s(`SELECT gid FROM unmounted UNION SELECT gid FROM files WHERE state = 'missing'`).all().map(r => r.gid));
     const trusted = [];
     this._tx(() => {
       for (const r of this._s('SELECT record FROM meta ORDER BY gid').all()) {
@@ -2062,7 +2140,7 @@ export class Library {
   async clearAll() {
     this._tx(() => {
       this.files.clearIn();   // first: what each gallery recorded writing is read from its pages
-      for (const table of ['meta', 'meta_tags', 'stats', 'pages', 'covers', 'icons', 'places']) this._s(`DELETE FROM ${table}`).run();
+      for (const table of ['meta', 'meta_tags', 'stats', 'pages', 'covers', 'icons', 'places', 'personal']) this._s(`DELETE FROM ${table}`).run();
       this.folders.clearIn();
       this._logIn('*');
     });

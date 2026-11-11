@@ -195,7 +195,7 @@ const commands = [
   }),
   step('favorite', fc.tuple(k), async (i) => {
     const g = await entity(i);
-    if (g) await api.galleries.mutate(g.id, { favorite: !g.favorite });
+    if (g) await api.personal.favorite(g.id, !g.favorite);
   }),
   step('translatePage', fc.tuple(k, k), async (i, p) => {
     const g = await entity(i, e => e.count > 0);

@@ -15,6 +15,7 @@ import { OWNER_FILE, readClaim, access, nextClaim, claimText } from './storage/f
 import { mounted, writeAllowed } from './storage/folder-lifecycle.js';
 import { galleryIdOf, seriesOf } from './storage/folder-content.js';
 import { REMOVED_FILE, overlayDir, parseRemoved, removedText, withRemoved, provenanceOf, pageToken, madeFromPage } from './storage/linked-source.js';
+import { withoutPersonal, marksOf, withMarks, importMarks, favoriteMoved } from './storage/personal.js';
 import { createFolderLibrary } from './folder-library.js';
 import { zipEntries } from './zip-read.js';
 import { imageSize, medianPage, describePage } from './page-size.js';
@@ -22,7 +23,7 @@ import { BackendError } from './backend-error.js';
 import { planAttach, planRemove, planReorder, planChapterTitle, planWrite, planDelete, planDeleteSeries, planRelink } from './series-plan.js';
 
 const DB_NAME = 'shiori-cache';
-const DB_VERSION = 19;
+const DB_VERSION = 20;
 export const STORE = 'images';
 const META_STORE = 'metadata';
 const GALLERY_STORE = 'galleries';
@@ -33,6 +34,9 @@ const CHANGES_STORE = 'changes';   // the change log: one entry per changed gall
 const FOLDER_STORE = 'folders';    // the folders galleries may be kept in (see "Library folders")
 const UNDESCRIBED_STORE = 'undescribed';   // galleries whose folder doesn't have their latest changes yet
 const DORMANT_STORE = 'dormant';   // galleries an earlier version set aside: read only to bring them back
+// The person's own marks on each gallery — favorite, reading progress (storage/personal.js): { gid,
+// ...marks }. This library's alone: never written to a gallery's folder.
+const PERSONAL_STORE = 'personal';
 // A stored page's url ends in its page number and image type ("…/12.webp") — every type a page
 // can be stored as, so no page goes unnumbered. Pages are addressed by (gallery, page number); the
 // url is the key they are stored under. This is the one place a page number is read from a key:
@@ -296,6 +300,7 @@ export function openDB() {
       const places = db.objectStoreNames.contains(FOLDER_STORE) ? tx.objectStore(FOLDER_STORE) : db.createObjectStore(FOLDER_STORE, { keyPath: 'id' });
       if (!db.objectStoreNames.contains(DORMANT_STORE)) db.createObjectStore(DORMANT_STORE, { keyPath: 'gid' }).createIndex('folder', 'folder', { unique: false });
       const marks = db.objectStoreNames.contains(UNDESCRIBED_STORE) ? tx.objectStore(UNDESCRIBED_STORE) : db.createObjectStore(UNDESCRIBED_STORE, { keyPath: 'gid' });
+      const personal = db.objectStoreNames.contains(PERSONAL_STORE) ? tx.objectStore(PERSONAL_STORE) : db.createObjectStore(PERSONAL_STORE, { keyPath: 'gid' });
 
       // Backfill when upgrading an existing database (fresh installs start empty). The folders go
       // first: a stat record naming a folder the library doesn't know is put right as it is read.
@@ -331,6 +336,16 @@ export function openDB() {
           if (v.tagNames == null && (Array.isArray(v.tags) || Array.isArray(v.seriesTags))) { v.tagNames = tagNamesOf(effectiveTagsOf(v)); dirty = true; }
           // Legacy flat title fields → the canonical { english, japanese, pretty } object.
           if (v.title == null || typeof v.title !== 'object') { v = migrateTitle(v); dirty = true; }
+          // IndexedDB 20: the favorite moves out of the metadata into the library's personal store, and a
+          // gallery kept in a folder is marked to publish its description again, without it (plan D6).
+          if (e.oldVersion < 20 && withoutPersonal(v) !== v) {
+            const gid = String(v.galleryId);
+            const mark = importMarks(null, v);
+            if (mark) personal.put({ gid, ...mark });
+            gal.get(gid).onsuccess = (s) => { if (s.target.result?.folder) marks.put({ gid, rev: 0 }); };
+            v = withoutPersonal(v);
+            dirty = true;
+          }
           if (dirty) c.update(v);
           c.continue();
         };
@@ -775,8 +790,8 @@ async function _holds(folder) {
 // home alone (what a gallery keeps through a restore of it: transferWrite). `packed`: the gallery is
 // kept in an archive in the gallery format, `dir` (a native archive, read in place — { inner }: its
 // folder in a series export, '' for an archive of its own), until its first change unpacks it
-// (_unpackLocked).
-const HOME_FIELDS = ['folder', 'dir', 'spilled', 'stamp', 'linked', 'packed'];
+// (_unpackLocked). `missing`: a linked gallery whose source isn't where it was (folder-library.js).
+const HOME_FIELDS = ['folder', 'dir', 'spilled', 'stamp', 'linked', 'packed', 'missing'];
 const _withoutHome = (stat) => { if (!stat) return stat; const { undescribed, ...rest } = stat; for (const k of HOME_FIELDS) delete rest[k]; return rest; };
 const _homeOf = (stat) => Object.fromEntries(HOME_FIELDS.filter(k => stat?.[k] != null).map(k => [k, stat[k]]));
 
@@ -1693,10 +1708,10 @@ export async function moveGallery(galleryId, to, { onProgress = () => {}, series
 // every folder file through the write gate), and exported here under the names api.js uses.
 const _folderLibrary = createFolderLibrary({
   BROWSER, DEFAULT_FOLDER, REF, PAGE, COVER,
-  stores: { STORE, META: META_STORE, GALLERY: GALLERY_STORE, COVER: COVER_STORE, BLOB: BLOB_STORE, UNDESCRIBED: UNDESCRIBED_STORE, DORMANT: DORMANT_STORE },
+  stores: { STORE, META: META_STORE, GALLERY: GALLERY_STORE, COVER: COVER_STORE, BLOB: BLOB_STORE, UNDESCRIBED: UNDESCRIBED_STORE, DORMANT: DORMANT_STORE, PERSONAL: PERSONAL_STORE },
   // IndexedDB, the change log and the change feed
   openDB, tx: _tx, txError: _txError, logIn: _logIn, deleteIn: _deleteIn, afterDelete: _afterDelete, stash: _stash, keyPage: _keyPage,
-  canonicalMeta, publishFeed, muchLater: _muchLater, bulkRun: _bulkRun,
+  canonicalMeta, importMarksIn: _importMarksIn, publishFeed, muchLater: _muchLater, bulkRun: _bulkRun,
   busy: (gid) => _feedTimers.has(gid) || _sizeTimers.has(gid) || _describeTimers.has(gid),
   // the records
   galleryGet, galleryGetAll, metaGet, transferIds, nextGalleryId, rebuildGalleryEntry, refreshSeriesAggregate, putCoverPatch,
@@ -1896,9 +1911,10 @@ export async function metaGet(galleryId) {
 }
 
 // Every metadata write converges on the canonical title format (legacy flat fields stripped), then
-// the tagNames index is kept in sync automatically for every writer.
+// the tagNames index is kept in sync automatically for every writer. Metadata holds no personal mark
+// (storage/personal.js): an earlier version's favorite is the personal store's (_importMarksIn).
 function canonicalMeta(meta) {
-  const record = migrateTitle(meta);
+  const record = migrateTitle(withoutPersonal(meta));
   if (record?.uploadDate != null) record.uploadDate = uploadDateSeconds(record.uploadDate);
   if (Array.isArray(record.tags) || Array.isArray(record.seriesTags)) return { ...record, tagNames: tagNamesOf(effectiveTagsOf(record)) };
   return record;
@@ -1914,7 +1930,7 @@ export async function metaPut(meta, opts = {}) {
   const gid = String(record.galleryId);
   let prevSourceId = null, written = false;
   return new Promise((resolve, reject) => {
-    const tx = _tx(db, [META_STORE, GALLERY_STORE], 'readwrite');
+    const tx = _tx(db, [META_STORE, GALLERY_STORE, PERSONAL_STORE], 'readwrite');
     // A bare stub (sourceId placeholder, no pages yet) is not a user-visible gallery —
     // don't wake subscribers for it, or a reactive read could purge it mid-creation
     // (see the pageless-stub grace window in purgePagelessStubs).
@@ -1934,6 +1950,7 @@ export async function metaPut(meta, opts = {}) {
       written = true;
       prevSourceId = prevReq.result?.sourceId || null;
       mstore.put(record);
+      _importMarksIn(tx, gid, meta);   // an earlier version's record (an export imported, say)
       _logIn(tx, gid);
       // Any metadata change counts as a modification: mark the gallery "updated" and keep its
       // denormalized published date (the Published-date sort key) in step. Only touch a REAL gallery
@@ -1961,6 +1978,63 @@ export async function metaGetAll() {
     req.onsuccess = () => resolve(req.result || []);
     req.onerror = () => reject(req.error);
   });
+}
+
+// ── The person's own marks (storage/personal.js) ──
+// What the person marked on a gallery for themselves — favorite, reading progress — kept in
+// PERSONAL_STORE by this library alone, never in the gallery's folder.
+
+// Gallery `galleryId`'s marks ({ favorite?, page?, pages?, readAt?, finished? }), or null.
+export async function personalGet(galleryId) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = _tx(db, PERSONAL_STORE, 'readonly');
+    const req = tx.objectStore(PERSONAL_STORE).get(String(galleryId));
+    tx.oncomplete = () => resolve(marksOf(req.result));
+    tx.onerror = () => reject(_txError(tx));
+  });
+}
+// Every gallery's marks: Map gid → marks (search's favorite filter reads it).
+export async function personalAll() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = _tx(db, PERSONAL_STORE, 'readonly');
+    const req = tx.objectStore(PERSONAL_STORE).getAll();
+    tx.oncomplete = () => resolve(new Map((req.result || []).map(r => [String(r.gid), marksOf(r)]).filter(([, m]) => m)));
+    tx.onerror = () => reject(_txError(tx));
+  });
+}
+// Gallery `galleryId`'s marks changed (personal.js withMarks: { favorite }, or { read: { page, pages } }).
+// A favorite is shown with the gallery, so its change is logged and announced like any other (refused,
+// like any other, while the gallery's folder is hidden) — but no description of its folder carries it,
+// so its folder isn't marked to publish anything. Reading progress is neither. Resolves the marks.
+export async function personalSet(galleryId, change) {
+  const gid = String(galleryId);
+  const shown = typeof change?.favorite === 'boolean';
+  const db = await openDB();
+  let next = null;
+  await new Promise((resolve, reject) => {
+    const tx = _tx(db, PERSONAL_STORE, 'readwrite');
+    const store = tx.objectStore(PERSONAL_STORE);
+    const req = store.get(gid);
+    req.onsuccess = () => {
+      next = withMarks(req.result, change);
+      if (next) store.put({ gid, ...next }); else store.delete(gid);
+      if (shown) _logIn(tx, gid, { mark: false });
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(_txError(tx));
+  });
+  if (shown) publishFeed(gid);
+  return next;
+}
+// Inside `tx` (which holds PERSONAL_STORE): the favorite an earlier version's metadata `meta` carries
+// taken into the store, while it has none of its own for gallery `gid` (personal.js importMarks).
+function _importMarksIn(tx, gid, meta) {
+  if (meta?.favorite !== true) return;
+  const store = tx.objectStore(PERSONAL_STORE);
+  const req = store.get(String(gid));
+  req.onsuccess = () => { const next = importMarks(req.result, meta); if (next) store.put({ gid: String(gid), ...next }); };
 }
 
 async function metaDelete(galleryId) {
@@ -2254,7 +2328,9 @@ function _deriveLangs(m, tags = effectiveTagsOf(m)) {
   return out;
 }
 
-function _entityFrom(id, gal, meta) {
+// A gallery as surfaces render it: its stat record and metadata merged, with the favorite of its
+// personal marks (`marks`).
+function _entityFrom(id, gal, meta, marks = null) {
   const g = gal || {};
   const m = meta || {};
   const isSeries = isSeriesMeta(m);
@@ -2282,7 +2358,7 @@ function _entityFrom(id, gal, meta) {
     fetchedAt: m.fetchedAt,
     translated: m.translated || false,
     translatedLang: m.translatedLang || '',
-    favorite: !!m.favorite,
+    favorite: !!marks?.favorite,
     languages: _deriveLangs(m, tags),
     // Series/chapter grouping. `chapters` (owner only) is the ordered source of truth for order +
     // titles; `parentId` (children only) is the reverse link. The aggregate fields are denormalized
@@ -2299,8 +2375,10 @@ function _entityFrom(id, gal, meta) {
     // The typical page ({ w, h, mp, tier }, see page-size.js) — of the gallery, and of a series.
     medianPage: describePage(g.medianPage),
     aggMedianPage: describePage(g.aggMedianPage ?? g.medianPage),
-    // Where it is kept: a library folder's id, or this browser's own storage.
+    // Where it is kept: a library folder's id, or this browser's own storage; `missing` when its files
+    // can't be found there (a linked gallery's source, folder-library.js), as the desktop says it.
     folder: g.folder || BROWSER,
+    ...(g.missing ? { missing: true } : {}),
     // A gallery whose files Shiori didn't make (linked-source.js): where they are, read as they are.
     linked: g.linked ? { kind: g.linked.kind, path: g.linked.path, ...(g.linked.inner ? { inner: g.linked.inner } : {}) } : null,
   };
@@ -2588,8 +2666,8 @@ export async function listGalleryStudyRecords(galleryId) {
 }
 
 // ── Transfer (backup, restore, moving a library) ──
-// A gallery's records exactly as stored — metadata, stat record, pages, cover — read in one
-// transaction and written in one, so a restored gallery arrives whole or not at all.
+// A gallery's records exactly as stored — metadata, stat record, pages, cover, and the person's own
+// marks — read in one transaction and written in one, so a restored gallery arrives whole or not at all.
 
 // Every gallery id the library holds anything for: metadata, a stat record, pages or a cover.
 export async function transferIds() {
@@ -2608,15 +2686,17 @@ export async function transferIds() {
   });
 }
 
-// { meta, stat, pages, cover } for one gallery, images as Blobs (null for what it lacks). With
-// `pages: false`, only its metadata and stat record.
+// { meta, stat, pages, cover, personal } for one gallery, images as Blobs (null for what it lacks).
+// With `pages: false`, only its metadata, stat record and marks.
 export async function transferRead(galleryId, { pages: withPages = true } = {}) {
   const gid = String(galleryId);
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    const out = { meta: null, stat: null, pages: [], cover: null };
-    const stores = withPages ? [STORE, META_STORE, GALLERY_STORE, COVER_STORE, BLOB_STORE] : [META_STORE, GALLERY_STORE];
+    const out = { meta: null, stat: null, pages: [], cover: null, personal: null };
+    const stores = [META_STORE, GALLERY_STORE, PERSONAL_STORE, ...(withPages ? [STORE, COVER_STORE, BLOB_STORE] : [])];
     const tx = _tx(db, stores, 'readonly');
+    const marks = tx.objectStore(PERSONAL_STORE).get(gid);
+    marks.onsuccess = () => { out.personal = marksOf(marks.result); };
     const meta = tx.objectStore(META_STORE).get(gid);
     meta.onsuccess = () => { out.meta = meta.result || null; };
     const stat = tx.objectStore(GALLERY_STORE).get(gid);
@@ -2640,8 +2720,10 @@ export async function transferRead(galleryId, { pages: withPages = true } = {}) 
 // commit protocol: _writing). Sizes are brought up to date afterwards. Refused before anything is
 // written: a page with no page number or no picture, and a page whose key another gallery's page is
 // stored under (`conflict`: it would be taken from that gallery — checked again as it commits).
+// The person's marks (`personal`) replace the gallery's; a bundle without them (an earlier version's
+// backup) has the favorite its metadata kept taken in (_importMarksIn).
 // Resolves { pages }: how many pages it stored.
-export async function transferWrite({ galleryId = null, meta = null, stat = null, pages = [], cover = null } = {}, { silent = false } = {}) {
+export async function transferWrite({ galleryId = null, meta = null, stat = null, pages = [], cover = null, personal = undefined } = {}, { silent = false } = {}) {
   const gid = String(galleryId ?? meta?.galleryId ?? stat?.galleryId ?? pages[0]?.galleryId ?? '');
   if (!gid) throw new BackendError('invalid', 'a gallery to restore names no gallery');
   for (const rec of pages) {
@@ -2668,7 +2750,7 @@ export async function transferWrite({ galleryId = null, meta = null, stat = null
       if (await _place(home, _coverFiles(cover), w)) left = true;
     }
     await new Promise((resolve, reject) => {
-      const tx = _tx(db, [STORE, META_STORE, GALLERY_STORE, COVER_STORE, BLOB_STORE], 'readwrite');
+      const tx = _tx(db, [STORE, META_STORE, GALLERY_STORE, COVER_STORE, BLOB_STORE, PERSONAL_STORE], 'readwrite');
       let failure = null;
       // Anything going wrong while the writes are queued aborts them all: nothing queued so far commits.
       const fail = (e) => { if (!failure) { failure = e; try { tx.abort(); } catch {} } };
@@ -2676,6 +2758,10 @@ export async function transferWrite({ galleryId = null, meta = null, stat = null
       tx.onerror = () => reject(failure || _txError(tx));
       try {
         if (meta) tx.objectStore(META_STORE).put(canonicalMeta({ ...meta, galleryId: gid }));
+        if (personal !== undefined) {
+          const marks = marksOf(personal);
+          if (marks) tx.objectStore(PERSONAL_STORE).put({ gid, ...marks }); else tx.objectStore(PERSONAL_STORE).delete(gid);
+        } else _importMarksIn(tx, gid, meta);
         const stats = tx.objectStore(GALLERY_STORE);
         if (stat) {
           const cur = stats.get(gid);
@@ -3028,8 +3114,8 @@ export async function galleriesPage({ sort = 'updated', dir, offset = 0, limit =
     };
     req.onerror = () => reject(req.error);
   });
-  const metas = await Promise.all(stats.map(s => metaGet(s.galleryId)));
-  return stats.map((s, i) => _entityFrom(s.galleryId, s, metas[i]));
+  const [metas, marks] = await Promise.all([Promise.all(stats.map(s => metaGet(s.galleryId))), Promise.all(stats.map(s => personalGet(s.galleryId)))]);
+  return stats.map((s, i) => _entityFrom(s.galleryId, s, metas[i], marks[i]));
 }
 
 // Number of child chapters (stat records carrying a parentId). The main library subtracts this so
@@ -3136,10 +3222,10 @@ export async function tagCounts({ keys, prefix } = {}) {
 
 export async function getGallery(galleryId) {
   const gid = String(galleryId);
-  const [gal, meta, f] = await Promise.all([galleryGet(gid), metaGet(gid), _folders()]);
+  const [gal, meta, marks, f] = await Promise.all([galleryGet(gid), metaGet(gid), personalGet(gid), _folders()]);
   if (!gal && !meta) return null;
   if (gal && !_mounted(gal, f)) return null;   // its place hidden or removed
-  return _entityFrom(gid, gal, meta);
+  return _entityFrom(gid, gal, meta, marks);
 }
 
 export async function getGalleriesByIds(ids) {
@@ -3228,9 +3314,7 @@ function _mutateIn(tx, gid, patch, { touch = true, onlyIfExists = false, ensureS
     if (hasMeta) {
       prevSourceId = curMeta?.sourceId || null;
       // Same canonicalization metaPut applies: title format + tagNames index kept in sync.
-      merged = migrateTitle({ ...merged, ...metaPatch, galleryId: gid });
-      if (merged.uploadDate != null) merged.uploadDate = uploadDateSeconds(merged.uploadDate);
-      if (Array.isArray(merged.tags) || Array.isArray(merged.seriesTags)) merged = { ...merged, tagNames: tagNamesOf(effectiveTagsOf(merged)) };
+      merged = canonicalMeta({ ...merged, ...metaPatch, galleryId: gid });
       nextSourceId = merged.sourceId || null;
       metas.put(merged);
     }
@@ -3469,7 +3553,7 @@ async function _seriesCommand(name, args, { keepFiles = false } = {}) {
   let plan = null, refused = null;
   const written = new Set(), deleted = [], mutated = [];
   await new Promise((resolve, reject) => {
-    const tx = _tx(db, [STORE, META_STORE, GALLERY_STORE, COVER_STORE, BLOB_STORE], 'readwrite');
+    const tx = _tx(db, [STORE, META_STORE, GALLERY_STORE, COVER_STORE, BLOB_STORE, PERSONAL_STORE], 'readwrite');
     if (keepFiles) tx._keepFiles = true;
     if (deletable) tx._deletable = deletable;
     tx.oncomplete = () => resolve();
@@ -3498,10 +3582,21 @@ async function _seriesCommand(name, args, { keepFiles = false } = {}) {
       }
     };
 
-    // Writes first, then deletions, then the totals — each issued once the step before has been.
+    // Writes first (a new head's favorite with them), then deletions — a gallery deleted takes the
+    // person's marks along; one only forgotten keeps them — then the totals, each issued once the step
+    // before has been.
     const apply = () => {
       const gone = new Set(plan.deletes.map(String));
       const writes = [...plan.writes].filter(([gid]) => !gone.has(gid));
+      const marks = tx.objectStore(PERSONAL_STORE);
+      if (plan.favorite) {
+        const { from, to } = plan.favorite;
+        const was = [marks.get(from), marks.get(to)];
+        was[1].onsuccess = () => {
+          const moved = favoriteMoved(was[0].result, was[1].result);
+          for (const [gid, next] of [[from, moved.from], [to, moved.to]]) if (next) { marks.put({ gid, ...next }); written.add(gid); }
+        };
+      }
       const totals = () => {
         for (const oid of new Set(plan.totals.map(String))) {
           if (!gone.has(oid)) _aggregateIn(tx, oid, (c) => { if (c) written.add(oid); });
@@ -3510,7 +3605,10 @@ async function _seriesCommand(name, args, { keepFiles = false } = {}) {
       const deletes = () => {
         let left = gone.size;
         if (!left) { totals(); return; }
-        for (const gid of gone) _deleteIn(tx, gid, (meta) => { deleted.push([gid, meta]); if (!--left) totals(); });
+        for (const gid of gone) {
+          if (!keepFiles) marks.delete(gid);
+          _deleteIn(tx, gid, (meta) => { deleted.push([gid, meta]); if (!--left) totals(); });
+        }
       };
       let left = writes.length;
       if (!left) { deletes(); return; }
@@ -3555,7 +3653,7 @@ export async function clearAll({ folders = false } = {}) {
   const db = await openDB();
   // Every store in one transaction — "clear everything" must mean everything, including the
   // source icons that earlier versions left behind.
-  const stores = [STORE, META_STORE, GALLERY_STORE, COVER_STORE, SOURCE_ICON_STORE, BLOB_STORE, DORMANT_STORE, UNDESCRIBED_STORE, ...(folders ? [FOLDER_STORE] : [])];
+  const stores = [STORE, META_STORE, GALLERY_STORE, COVER_STORE, SOURCE_ICON_STORE, BLOB_STORE, DORMANT_STORE, UNDESCRIBED_STORE, PERSONAL_STORE, ...(folders ? [FOLDER_STORE] : [])];
   // Each gallery kept in a folder of its own, with the files it recorded writing there (read before the
   // stores are cleared): { folder, dir, gid, linked, named }. Its folder is deleted by name, as a
   // deletion's is — recorded by this transaction while the folders are kept (DELETING, and its files'
@@ -3846,11 +3944,16 @@ const RETIRED_FIELDS = ['translatedLang', 'translatedConfig', 'translatedOutputH
 // translation whose settings the page keeps from now on; undefined leaves that as is. `source`: the
 // page's source token the translation was made from (pageSources); one the page no longer shows is
 // refused, checked before any picture is written and again as the record commits (linked-source.js
-// madeFromPage).
+// madeFromPage). Resolves { stale }: whether it was refused so (the job counts such pages).
 // `at` is the page's { galleryId, pageNum } (or, until every caller moves, its key) — as for every
 // write below.
 export async function putTranslatedPage(at, image, pipeline, own, source) {
-  const shows = (rec) => !rec || madeFromPage(source, pageToken(_sourcePicture(rec)));
+  let stale = false;
+  const shows = (rec) => {
+    if (!rec || madeFromPage(source, pageToken(_sourcePicture(rec)))) return true;
+    stale = true;
+    return false;
+  };
   await _pageWrite(at, { translated: image ?? undefined, pipeline: pipeline ?? undefined }, (rec, made) => {
     if (!shows(rec)) return false;
     delete rec.studyBg;
@@ -3864,6 +3967,7 @@ export async function putTranslatedPage(at, image, pipeline, own, source) {
     if (own) rec.own = own;
     else if (own !== undefined) delete rec.own;
   }, shows);
+  return { stale };
 }
 // Gallery `galleryId`'s pages' source tokens, { [pageNum]: token } (linked-source.js pageToken), read
 // before their pictures are for work done away from the library (a translation), which gives each back

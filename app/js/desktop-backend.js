@@ -25,7 +25,7 @@ import { activeDesktop, findDesktop, savedLocation, setLocation } from './librar
 // The operations forwarded as they are (db.js's names).
 const OPS = ['galleriesPage', 'galleriesCount', 'galleryIdsSorted', 'getGallery', 'getGalleriesByIds', 'getStats', 'tagCounts',
   'metaGetAllMap', 'resolveGalleryId', 'galleryCreate', 'mutateGallery', 'rebuildGalleryEntry', 'deleteGallery',
-  'metaGet', 'metaGetAll', 'metaPut', 'seriesResolve', 'seriesChapters', 'seriesCommand', 'refreshSeriesAggregate',
+  'metaGet', 'metaGetAll', 'metaPut', 'personalGet', 'personalAll', 'personalSet', 'seriesResolve', 'seriesChapters', 'seriesCommand', 'refreshSeriesAggregate',
   'pageList', 'pageSources', 'pageHas', 'pageGet', 'getGalleryImageRecords', 'pagePut', 'deleteStaleGalleryImages',
   'putTranslatedPage', 'putTranslatedImage', 'putPageStudy', 'setPagesOwn', 'clearGalleryTranslations',
   'listGalleryStudyRecords', 'putPageData', 'coverGet', 'coverThumbnailGet', 'coverPreviewGet', 'coverThumbnailPut', 'coverPut',
@@ -258,6 +258,9 @@ export const deleteGallery = ownCall('deleteGallery');
 export const metaGet = ownCall('metaGet');
 export const metaGetAll = ownCall('metaGetAll');
 export const metaPut = ownCall('metaPut');
+export const personalGet = ownCall('personalGet');
+export const personalAll = ownCall('personalAll');
+export const personalSet = ownCall('personalSet');
 export const seriesResolve = ownCall('seriesResolve');
 export const seriesChapters = ownCall('seriesChapters');
 export const seriesCommand = ownCall('seriesCommand');

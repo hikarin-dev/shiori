@@ -5,10 +5,10 @@
 // files of each library folder it doesn't know; a PDF's pages are drawn by a window (pdfsWaiting,
 // pdfSource, addRendered, pdfFailed), as the import draws them.
 //
-// A linked gallery is known by its source's fingerprint, read again at every check: a source found
-// where it was with another fingerprint changed (its pages are read again), one found elsewhere with
-// the same moved (only where it is changes — an archive moves as a group, its chapters paired by their
-// folder in it), as linked-source.js matchSources decides for both apps. A re-read never overwrites
+// A linked gallery is known by where its source is, its fingerprint read again at every check: a
+// source found where it was with another fingerprint changed (its pages are read again); one renamed
+// or moved outside the app is another source — it joins as new, and the gallery that was there is
+// missing (plan D5) — as linked-source.js matchSources decides for both apps. A re-read never overwrites
 // what the library hasn't written to the overlay yet (scan.js localChanges), and what was made from a
 // page (a translation, study layers) stays with the picture it was made from or goes — it is never
 // attached to another. Every path read from the folder's files is used only inside the folder: as
@@ -19,9 +19,10 @@ import { disk, physicallyIn, replaceFile, loadGallery } from './folder-store.js'
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { readDirectory, readEntry } from './zip.js';
-import { linked as L, files as layout, content, BackendError } from './shared.js';
+import { linked as L, files as layout, content, personal, BackendError } from './shared.js';
 import { ifMissing } from './files.js';
 import { derivedOf, derivedRecord, coverPatch, localChanges, startEntry } from './scan.js';
+const { withoutPersonal } = personal;
 
 const TYPE_OF_EXT = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif' };
 const typeOf = (name) => TYPE_OF_EXT[String(name).match(/\.(\w+)$/)?.[1]?.toLowerCase()] || '';
@@ -286,6 +287,7 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
       try { library._deleteIn(gid); } finally { files.keep.delete(gid); }
     }
     library._metaPutRaw(record);
+    if (!replace) library._importMarks(gid, record);   // an earlier version's favorite, as the gallery joins (scan.js addGallery)
     if (record.parentId) startEntry(library, gid, record, now);
     const kept = new Map();
     for (const p of pages) {
@@ -317,24 +319,11 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
   const covers = coverPatch(derived);
   if (Object.keys(covers).length) library._tx(() => library._coverPatchIn(gid, covers));
   // Its overlay describes it, in due course — again when a page's source picture isn't the one it
-  // recorded (what was made from it dropped, or recorded before content signals were).
-  if (!meta || stale) files.describeLater(gid);
+  // recorded (what was made from it dropped, or recorded before content signals were), or its
+  // description carries a favorite (an earlier version's: no description does now).
+  if (!meta || stale || withoutPersonal(record) !== record) files.describeLater(gid);
   if (replace) library._push('control', { type: 'COVER_INVALIDATED', galleryId: gid });
   return gid;
-}
-
-// Gallery `gid`, kept in the library, its source found moved or renamed: `title`, the same files (its
-// fingerprint). Only where it is changes — the source the index keeps, and its overlay's source.json —
-// so nothing the library has of it is read again or lost (A14), and its pages, named by their entries
-// in the source, are all still there.
-async function relink(library, root, gid, title, at) {
-  await overlayFor(library, root, title, gid, at);
-  library._tx(() => {
-    if (!library.files._row(gid)) return;
-    library._s(`UPDATE files SET source = ?, state = 'packed' WHERE gid = ?`).run(JSON.stringify(sourceOf(title, at)), gid);
-    library._logIn(gid);
-  });
-  library.publishFeed(gid);
 }
 
 // What library folder `root` holds that isn't Shiori's, joined to the library as linked galleries — as
@@ -343,11 +332,12 @@ async function relink(library, root, gid, title, at) {
 // `archives`, its archives that aren't Shiori's ([{ path, entries }]: readDirectory's, null for one
 // that couldn't be read — its galleries are left as they are). Every title is read as it is now (its
 // fingerprint) and matched against the linked galleries the library keeps there, the overlays the
-// folder holds and its removed.json (linked-source.js matchSources): a gallery the library keeps whose
-// files moved or were renamed is re-pointed (relink), as is the overlay of one it doesn't have (it
-// comes back as that gallery, R18); one changed in place is read again, unless it has changes of its
-// own not yet written (localChanges); one removed from the library before isn't added again; the rest
-// join — an archive's new chapters as a series named after it. What can't be read or joined is added
+// folder holds and its removed.json (linked-source.js matchSources): one at the place of an overlay
+// whose gallery the library doesn't have comes back as that gallery (R18); one changed in place is read
+// again, what the library changed of it and hasn't written yet published first (localChanges); one
+// removed from the library before isn't added again; the rest join — one renamed or moved outside the
+// app among them (D5: the gallery that was there is missing), an archive's new chapters as a series
+// named after it. What can't be read or joined is added
 // to `problems` ([{ path, reason }]).
 // `onProgress(done, total, step, added)` as it goes, in two steps each counted on its own: what is
 // there ('lf.task_checking'), then the galleries joining ('lf.task_adding'). Resolves { added,
@@ -422,18 +412,9 @@ export async function linkRoot(library, root, { files = [], own = [], archives =
   };
   const chapters = new Map();   // an archive → its new chapters, to join as a series
   step = 'lf.task_adding';
-  total = plan.moved.length + plan.changed.length + plan.new.length;
+  total = plan.changed.length + plan.new.length;
   done = 0;
   say();
-  for (const m of plan.moved) {
-    if (stopped()) return out;
-    if (!m.kept) await link(m.title, m.gid);
-    else {
-      try { await relink(library, root, m.gid, m.title, atOf(m.title)); out.updated.push(m.gid); } catch (e) { failed(m.title, e); }
-    }
-    done++;
-    say();
-  }
   for (const c of plan.changed) {
     if (stopped()) return out;
     try {

@@ -81,7 +81,8 @@ function view(job) {
     : job.kind === 'download' ? (total ? Math.round(85 + (done / total) * 15) : 85)
     : total ? Math.round((done / total) * 100) : 0;
   if (job.status === 'done') {
-    return { pct: 100, label: job.kind === 'translate' ? `${t('prog.translated')} ${formatCount(done)}/${formatCount(total)}`
+    return { pct: 100, label: job.kind === 'translate'
+      ? `${t('prog.translated')} ${formatCount(done)}/${formatCount(total)}${job.stale > 0 ? ` · ${t('prog.stale_pages', { n: formatCount(job.stale) })}` : ''}`
       : job.kind === 'sync' ? t('prog.synced') : `${t('prog.done')} — ${formatCount(done)}/${formatCount(total)}${skipped}` };
   }
   if (job.kind === 'translate') return { pct, label: label || `${t('prog.translating')} ${tally}` };

@@ -165,7 +165,7 @@ export const LOCALES = {
     'prog.starting': 'Starting…', 'prog.interrupted': 'Interrupted — run again to resume',
     'prog.cancelled': 'Cancelled', 'card.tip_cancel': 'Stop translating',
     'prog.err_read': 'Error: could not read file.', 'prog.err_stage': 'Error: could not stage file.',
-    'prog.done': 'Done', 'prog.error': 'Error', 'prog.translated': 'Translated', 'prog.already_cached': '{n} already cached',
+    'prog.done': 'Done', 'prog.error': 'Error', 'prog.translated': 'Translated', 'prog.already_cached': '{n} already cached', 'prog.stale_pages': 'Skipped (picture changed): {n}',
 
     'rd.loading': 'Loading…', 'rd.opening_db': 'Opening database…', 'rd.loading_pages': 'Loading cached pages…',
     'rd.empty_msg': 'No cached pages found for this gallery. Browse it on the source site first.',
@@ -507,7 +507,7 @@ export const LOCALES = {
     'prog.starting': '開始中…', 'prog.interrupted': '中断されました — もう一度実行して再開',
     'prog.cancelled': 'キャンセルしました', 'card.tip_cancel': '翻訳を停止',
     'prog.err_read': 'エラー: ファイルを読み込めませんでした。', 'prog.err_stage': 'エラー: ファイルを準備できませんでした。',
-    'prog.done': '完了', 'prog.error': 'エラー', 'prog.translated': '翻訳済み', 'prog.already_cached': '{n}件はキャッシュ済み',
+    'prog.done': '完了', 'prog.error': 'エラー', 'prog.translated': '翻訳済み', 'prog.already_cached': '{n}件はキャッシュ済み', 'prog.stale_pages': 'スキップ（画像が変更）: {n}',
 
     'rd.loading': '読み込み中…', 'rd.opening_db': 'データベースを開いています…', 'rd.loading_pages': 'キャッシュ済みページを読み込み中…',
     'rd.empty_msg': 'このギャラリーのキャッシュページが見つかりません。先にソースサイトで閲覧してください。',
@@ -857,7 +857,7 @@ export const LOCALES = {
     'prog.starting': 'Wird gestartet…', 'prog.interrupted': 'Unterbrochen — erneut ausführen, um fortzusetzen',
     'prog.cancelled': 'Abgebrochen', 'card.tip_cancel': 'Übersetzung stoppen',
     'prog.err_read': 'Fehler: Datei konnte nicht gelesen werden.', 'prog.err_stage': 'Fehler: Datei konnte nicht vorbereitet werden.',
-    'prog.done': 'Fertig', 'prog.error': 'Fehler', 'prog.translated': 'Übersetzt', 'prog.already_cached': '{n} bereits im Cache',
+    'prog.done': 'Fertig', 'prog.error': 'Fehler', 'prog.translated': 'Übersetzt', 'prog.already_cached': '{n} bereits im Cache', 'prog.stale_pages': 'Übersprungen (Bild geändert): {n}',
 
     'rd.loading': 'Wird geladen…', 'rd.opening_db': 'Datenbank wird geöffnet…', 'rd.loading_pages': 'Zwischengespeicherte Seiten werden geladen…',
     'rd.empty_msg': 'Keine zwischengespeicherten Seiten für diese Galerie gefunden. Sieh sie zuerst auf der Quellseite an.',
@@ -1207,7 +1207,7 @@ export const LOCALES = {
     'prog.starting': 'Démarrage…', 'prog.interrupted': 'Interrompu — relancez pour reprendre',
     'prog.cancelled': 'Annulé', 'card.tip_cancel': 'Arrêter la traduction',
     'prog.err_read': 'Erreur : impossible de lire le fichier.', 'prog.err_stage': 'Erreur : impossible de préparer le fichier.',
-    'prog.done': 'Terminé', 'prog.error': 'Erreur', 'prog.translated': 'Traduit', 'prog.already_cached': '{n} déjà en cache',
+    'prog.done': 'Terminé', 'prog.error': 'Erreur', 'prog.translated': 'Traduit', 'prog.already_cached': '{n} déjà en cache', 'prog.stale_pages': 'Ignorées (image modifiée) : {n}',
 
     'rd.loading': 'Chargement…', 'rd.opening_db': 'Ouverture de la base de données…', 'rd.loading_pages': 'Chargement des pages en cache…',
     'rd.empty_msg': 'Aucune page en cache trouvée pour cette galerie. Parcourez-la d’abord sur le site source.',
@@ -1557,7 +1557,7 @@ export const LOCALES = {
     'prog.starting': '正在开始…', 'prog.interrupted': '已中断——再次运行以继续',
     'prog.cancelled': '已取消', 'card.tip_cancel': '停止翻译',
     'prog.err_read': '错误：无法读取文件。', 'prog.err_stage': '错误：无法暂存文件。',
-    'prog.done': '完成', 'prog.error': '错误', 'prog.translated': '已翻译', 'prog.already_cached': '{n} 个已缓存',
+    'prog.done': '完成', 'prog.error': '错误', 'prog.translated': '已翻译', 'prog.already_cached': '{n} 个已缓存', 'prog.stale_pages': '已跳过（图片已更改）：{n}',
 
     'rd.loading': '加载中…', 'rd.opening_db': '正在打开数据库…', 'rd.loading_pages': '正在加载缓存页面…',
     'rd.empty_msg': '未找到此画廊的缓存页面。请先在来源站点浏览。',
@@ -1907,7 +1907,7 @@ export const LOCALES = {
     'prog.starting': '시작 중…', 'prog.interrupted': '중단됨 — 다시 실행하여 재개',
     'prog.cancelled': '취소됨', 'card.tip_cancel': '번역 중지',
     'prog.err_read': '오류: 파일을 읽을 수 없습니다.', 'prog.err_stage': '오류: 파일을 준비할 수 없습니다.',
-    'prog.done': '완료', 'prog.error': '오류', 'prog.translated': '번역됨', 'prog.already_cached': '{n}개 이미 캐시됨',
+    'prog.done': '완료', 'prog.error': '오류', 'prog.translated': '번역됨', 'prog.already_cached': '{n}개 이미 캐시됨', 'prog.stale_pages': '건너뜀(이미지 변경됨): {n}',
 
     'rd.loading': '불러오는 중…', 'rd.opening_db': '데이터베이스 여는 중…', 'rd.loading_pages': '캐시된 페이지 불러오는 중…',
     'rd.empty_msg': '이 갤러리의 캐시된 페이지를 찾을 수 없습니다. 먼저 출처 사이트에서 둘러보세요.',
@@ -2257,7 +2257,7 @@ export const LOCALES = {
     'prog.starting': '正在開始…', 'prog.interrupted': '已中斷——再次執行以繼續',
     'prog.cancelled': '已取消', 'card.tip_cancel': '停止翻譯',
     'prog.err_read': '錯誤：無法讀取檔案。', 'prog.err_stage': '錯誤：無法暫存檔案。',
-    'prog.done': '完成', 'prog.error': '錯誤', 'prog.translated': '已翻譯', 'prog.already_cached': '{n} 個已快取',
+    'prog.done': '完成', 'prog.error': '錯誤', 'prog.translated': '已翻譯', 'prog.already_cached': '{n} 個已快取', 'prog.stale_pages': '已略過（圖片已變更）：{n}',
 
     'rd.loading': '載入中…', 'rd.opening_db': '正在開啟資料庫…', 'rd.loading_pages': '正在載入快取頁面…',
     'rd.empty_msg': '找不到此畫廊的快取頁面。請先在來源網站瀏覽。',
@@ -2607,7 +2607,7 @@ export const LOCALES = {
     'prog.starting': 'Iniciando…', 'prog.interrupted': 'Interrumpido — ejecuta de nuevo para reanudar',
     'prog.cancelled': 'Cancelado', 'card.tip_cancel': 'Detener la traducción',
     'prog.err_read': 'Error: no se pudo leer el archivo.', 'prog.err_stage': 'Error: no se pudo preparar el archivo.',
-    'prog.done': 'Listo', 'prog.error': 'Error', 'prog.translated': 'Traducido', 'prog.already_cached': '{n} ya en caché',
+    'prog.done': 'Listo', 'prog.error': 'Error', 'prog.translated': 'Traducido', 'prog.already_cached': '{n} ya en caché', 'prog.stale_pages': 'Omitidas (imagen cambiada): {n}',
 
     'rd.loading': 'Cargando…', 'rd.opening_db': 'Abriendo base de datos…', 'rd.loading_pages': 'Cargando páginas en caché…',
     'rd.empty_msg': 'No se encontraron páginas en caché para esta galería. Explórala primero en el sitio de origen.',
@@ -2957,7 +2957,7 @@ export const LOCALES = {
     'prog.starting': 'Iniciando…', 'prog.interrupted': 'Interrompido — execute novamente para retomar',
     'prog.cancelled': 'Cancelado', 'card.tip_cancel': 'Parar a tradução',
     'prog.err_read': 'Erro: não foi possível ler o arquivo.', 'prog.err_stage': 'Erro: não foi possível preparar o arquivo.',
-    'prog.done': 'Concluído', 'prog.error': 'Erro', 'prog.translated': 'Traduzido', 'prog.already_cached': '{n} já em cache',
+    'prog.done': 'Concluído', 'prog.error': 'Erro', 'prog.translated': 'Traduzido', 'prog.already_cached': '{n} já em cache', 'prog.stale_pages': 'Ignoradas (imagem alterada): {n}',
 
     'rd.loading': 'Carregando…', 'rd.opening_db': 'Abrindo banco de dados…', 'rd.loading_pages': 'Carregando páginas em cache…',
     'rd.empty_msg': 'Nenhuma página em cache encontrada para esta galeria. Navegue por ela no site de origem primeiro.',
@@ -3307,7 +3307,7 @@ export const LOCALES = {
     'prog.starting': 'Запуск…', 'prog.interrupted': 'Прервано — запустите снова, чтобы продолжить',
     'prog.cancelled': 'Отменено', 'card.tip_cancel': 'Остановить перевод',
     'prog.err_read': 'Ошибка: не удалось прочитать файл.', 'prog.err_stage': 'Ошибка: не удалось подготовить файл.',
-    'prog.done': 'Готово', 'prog.error': 'Ошибка', 'prog.translated': 'Переведено', 'prog.already_cached': '{n} уже в кэше',
+    'prog.done': 'Готово', 'prog.error': 'Ошибка', 'prog.translated': 'Переведено', 'prog.already_cached': '{n} уже в кэше', 'prog.stale_pages': 'Пропущено (изображение изменено): {n}',
 
     'rd.loading': 'Загрузка…', 'rd.opening_db': 'Открытие базы данных…', 'rd.loading_pages': 'Загрузка кэшированных страниц…',
     'rd.empty_msg': 'Кэшированные страницы для этой галереи не найдены. Сначала просмотрите её на сайте-источнике.',
@@ -3657,7 +3657,7 @@ export const LOCALES = {
     'prog.starting': 'Đang bắt đầu…', 'prog.interrupted': 'Đã gián đoạn — chạy lại để tiếp tục',
     'prog.cancelled': 'Đã hủy', 'card.tip_cancel': 'Dừng dịch',
     'prog.err_read': 'Lỗi: không thể đọc tệp.', 'prog.err_stage': 'Lỗi: không thể chuẩn bị tệp.',
-    'prog.done': 'Xong', 'prog.error': 'Lỗi', 'prog.translated': 'Đã dịch', 'prog.already_cached': '{n} đã có trong bộ nhớ đệm',
+    'prog.done': 'Xong', 'prog.error': 'Lỗi', 'prog.translated': 'Đã dịch', 'prog.already_cached': '{n} đã có trong bộ nhớ đệm', 'prog.stale_pages': 'Đã bỏ qua (ảnh đã thay đổi): {n}',
 
     'rd.loading': 'Đang tải…', 'rd.opening_db': 'Đang mở cơ sở dữ liệu…', 'rd.loading_pages': 'Đang tải các trang đã lưu…',
     'rd.empty_msg': 'Không tìm thấy trang đã lưu cho bộ truyện này. Hãy duyệt nó trên trang nguồn trước.',
@@ -4007,7 +4007,7 @@ export const LOCALES = {
     'prog.starting': 'Memulai…', 'prog.interrupted': 'Terhenti — jalankan lagi untuk melanjutkan',
     'prog.cancelled': 'Dibatalkan', 'card.tip_cancel': 'Hentikan terjemahan',
     'prog.err_read': 'Galat: tidak dapat membaca berkas.', 'prog.err_stage': 'Galat: tidak dapat menyiapkan berkas.',
-    'prog.done': 'Selesai', 'prog.error': 'Galat', 'prog.translated': 'Diterjemahkan', 'prog.already_cached': '{n} sudah di-cache',
+    'prog.done': 'Selesai', 'prog.error': 'Galat', 'prog.translated': 'Diterjemahkan', 'prog.already_cached': '{n} sudah di-cache', 'prog.stale_pages': 'Dilewati (gambar berubah): {n}',
 
     'rd.loading': 'Memuat…', 'rd.opening_db': 'Membuka basis data…', 'rd.loading_pages': 'Memuat halaman tersimpan…',
     'rd.empty_msg': 'Tidak ada halaman tersimpan untuk galeri ini. Jelajahi dulu di situs sumber.',

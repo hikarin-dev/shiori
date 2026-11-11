@@ -29,7 +29,7 @@ export const PROTOCOL = 1;
 export const OPS = new Set([
   'galleriesPage', 'galleriesCount', 'galleryIdsSorted', 'getGallery', 'getGalleriesByIds', 'getStats', 'tagCounts',
   'metaGetAllMap', 'resolveGalleryId', 'galleryCreate', 'mutateGallery', 'rebuildGalleryEntry', 'deleteGallery',
-  'metaGet', 'metaGetAll', 'metaPut',
+  'metaGet', 'metaGetAll', 'metaPut', 'personalGet', 'personalAll', 'personalSet',
   'seriesResolve', 'seriesChapters', 'seriesCommand', 'refreshSeriesAggregate',
   'pageList', 'pageSources', 'pageHas', 'pageGet', 'getGalleryImageRecords', 'getPageBlob', 'pagePut', 'deleteStaleGalleryImages',
   'putTranslatedPage', 'putTranslatedImage', 'putPageStudy', 'setPagesOwn', 'clearGalleryTranslations',

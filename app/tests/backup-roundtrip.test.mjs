@@ -30,7 +30,7 @@ async function seed(gid) {
   await api.meta.put({ galleryId: gid, title: TITLE, tags: TAGS, numPages: 2 });
   await api.pages.put(gid, null, img('image/avif', 1, 1), { key: `local://${gid}/1.avif` });
   await api.pages.put(gid, null, img('image/webp', 2, 2), { key: `local://${gid}/2.webp` });
-  await api.galleries.mutate(gid, { favorite: true }, { touch: false });
+  await api.personal.favorite(gid, true);   // the person's own mark, beside the metadata
   // A measured page size, as the library would keep it (written as stored: the library measures it itself).
   const { stat } = await api.transfer.read(gid);
   await api.transfer.write({ galleryId: gid, stat: { ...stat, medianPage: MEDIAN } });
@@ -60,7 +60,7 @@ test('a full backup restores galleries, pages, stats, covers and settings — no
   await importBackup(new File([archive], 'backup.shioridb'));
 
   const meta = await api.meta.get('901');
-  assert.equal(meta.favorite, true);
+  assert.equal((await api.personal.get('901')).favorite, true);
   assert.deepEqual(meta.tags, TAGS);
   assert.deepEqual(meta.title, TITLE);
   assert.deepEqual(await pagesOf('901'), pages, 'every page in its own format, bytes untouched');
@@ -78,7 +78,7 @@ test('a metadata-only backup restores favorite, category, rating and title', asy
   await api.galleries.delete('902');
   await importBackup(new File([await blob.text()], 'backup.shi'));
   const meta = await api.meta.get('902');
-  assert.equal(meta.favorite, true);
+  assert.equal((await api.personal.get('902')).favorite, true);
   assert.deepEqual(meta.tags, TAGS);
   assert.deepEqual(meta.title, TITLE);
 });

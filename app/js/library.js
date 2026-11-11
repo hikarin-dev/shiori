@@ -560,7 +560,7 @@ function buildCard(g) {
     const g = card._g;
     // Alt+click → search for galleries in the same state: favorited or not.
     if (e.altKey) { _addSearchToken(`favorite:"${g.favorite ? 'yes' : 'no'}"`); return; }
-    store.mutate(g.id, { favorite: !g.favorite }, { touch: false });
+    api.personal.favorite(g.id, !g.favorite);
   });
 
   card.querySelectorAll('.card-btn-del').forEach(b => {
@@ -1374,7 +1374,7 @@ function applyJob(job) {
         // The translate label is self-contained (it carries the active stage's own count), so it
         // isn't suffixed with the rendered-page tally the way downloads/uploads are.
         labelEl.textContent = status === 'done'
-          ? `${t('prog.translated')} ${doneText}/${totalText}${job.failed ? ` (${formatCount(job.failed)} failed)` : ''}${job.costNote ? ` · ${job.costNote}` : ''}`
+          ? `${t('prog.translated')} ${doneText}/${totalText}${job.failed ? ` (${formatCount(job.failed)} failed)` : ''}${job.stale > 0 ? ` · ${t('prog.stale_pages', { n: formatCount(job.stale) })}` : ''}${job.costNote ? ` · ${job.costNote}` : ''}`
           : jobLabel ? jobLabel : `${t('prog.translating')} ${doneText} / ${totalText}`;
       } else if (isSync) {
         labelEl.textContent = status === 'done' ? t('prog.synced') : `${t('prog.syncing')} · ${doneText}/${totalText}`;

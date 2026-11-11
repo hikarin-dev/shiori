@@ -17,7 +17,8 @@ format).
 | `folder-content.js` | What a folder or archive in a library folder is: a gallery of Shiori's, a series, or neither. |
 | `folder-owner.js` | Which app keeps a library folder: its claim file and how to read it. |
 | `folder-lifecycle.js` | A library folder's states, what each allows (the write gate), its jobs, how a removal ends. |
-| `linked-source.js` | Content Shiori didn't make (linked galleries): their overlays, `source.json`, `removed.json`. |
+| `linked-source.js` | Content Shiori didn't make (linked galleries): their overlays, `source.json`, `removed.json`. A source is where it is: one renamed or moved joins as new (plan D5). |
+| `personal.js` | The person's own marks on a gallery (favorite, reading progress): kept by each library in a store of its own, never in a folder (plan D6, D11). |
 | `folder-store-web.js` | The website's adapter: the contract over File System Access. |
 
 The desktop's adapter is `desktop/server/folder-store.js`, over node fs.

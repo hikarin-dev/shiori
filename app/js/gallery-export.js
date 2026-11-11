@@ -72,12 +72,15 @@ async function _same(a, b) {
 }
 
 // One gallery's files, read for an archive, from its transfer record (api.transfer.read), every
-// name under `prefix`. A cover that is the gallery's first page is left out: it is implied.
-async function _galleryExport({ meta, pages, cover }, prefix, { translations, stripSeriesFields }) {
+// name under `prefix`. A cover that is the gallery's first page is left out: it is implied. Its
+// metadata.json keeps the person's favorite, as an export always has (importing it takes it back);
+// a library folder's description never does (storage/personal.js).
+async function _galleryExport({ meta, pages, cover, personal }, prefix, { translations, stripSeriesFields }) {
   const records = translations ? pages : withoutTranslations(pages);
   const first = [...(pages || [])].sort((a, b) => _pageNum(a) - _pageNum(b))[0]?.blob ?? null;
   const own = async (src) => (src && !(await _same(src, first)) ? src : null);
-  const listed = galleryFiles({ meta, records, covers: { gallery: await own(cover?.cover), series: await own(cover?.seriesCover) } },
+  const marked = meta && typeof personal?.favorite === 'boolean' ? { ...meta, favorite: personal.favorite } : meta;
+  const listed = galleryFiles({ meta: marked, records, covers: { gallery: await own(cover?.cover), series: await own(cover?.seriesCover) } },
     prefix, { stripSeriesFields });
   const out = [];
   for (const f of listed) out.push({ name: f.name, data: await fileBytes(f.source), original: !!f.original });

@@ -123,7 +123,8 @@ test('R09, A02: a write to a gallery whose folder is hidden, being removed or fo
   const rev = await api.events.revision();
   for (const gid of [inHidden, inRemoving, inForgotten]) {
     await assert.rejects(api.meta.put({ galleryId: gid, title: title('Changed') }), hidden);
-    await assert.rejects(api.galleries.mutate(gid, { favorite: true }), hidden);
+    await assert.rejects(api.galleries.mutate(gid, { title: title('Changed') }), hidden);
+    await assert.rejects(api.personal.favorite(gid, true), hidden);
     await assert.rejects(api.pages.put(gid, 1, webp()), hidden);
     await assert.rejects(api.covers.put(gid, webp()), hidden);
     await assert.rejects(api.galleries.delete(gid), hidden);

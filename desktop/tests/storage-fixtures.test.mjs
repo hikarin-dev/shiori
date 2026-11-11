@@ -2,13 +2,15 @@
 // today's library opens each library.db an earlier version left (released v1.2.6, and each shape the
 // working tree wrote since: folders in kv; tables homes, unmounted, dormant; then roots and places;
 // then unplaced and removed_notes) and carries everything over — every gallery and its pages,
-// translation and cover, every library folder in the state it was in — leaving none of the earlier
-// tables or settings behind. The website's fixtures: app/tests/storage-fixtures.test.mjs.
+// translation and cover, every library folder in the state it was in, the favorite an earlier version
+// kept in a gallery's metadata as the person's own mark (plan D6) — leaving none of the earlier tables
+// or settings behind. The website's fixtures: app/tests/storage-fixtures.test.mjs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 globalThis.BroadcastChannel = class { postMessage() {} close() {} };
 const { Library } = await import('../server/library.js');
@@ -26,6 +28,11 @@ for (const name of DESKTOP_FIXTURES) {
   test(`${name}: today's library opens it and carries everything over`, async (t) => {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-fixture-'));
     const { dataDir, libraryDir, fixture } = await desktopLibrary(name, base);
+    // An earlier version kept the person's favorite in the metadata: gallery A's set so.
+    const db = new DatabaseSync(path.join(dataDir, 'library.db'));
+    const record = JSON.parse(db.prepare('SELECT record FROM meta WHERE gid = ?').get(FIXTURE_GIDS.a).record);
+    db.prepare('UPDATE meta SET record = ? WHERE gid = ?').run(JSON.stringify({ ...record, favorite: true }), FIXTURE_GIDS.a);
+    db.close();
     const library = await new Library({ dataDir, libraryDir, placeDelay: 0 }).open();
     t.after(() => { try { library.close(); } catch {} fs.rmSync(base, { recursive: true, force: true }); });
     const folders = fixture.rows.roots || fixture.rows.kv.some(r => r.key === 'roots');
@@ -36,6 +43,8 @@ for (const name of DESKTOP_FIXTURES) {
       assert.deepEqual(await bytesOf((await library.pageGet(gid, 1))?.translated), png(1), `${gid}'s translation`);
     }
     assert.deepEqual(await bytesOf(await library.coverGet(FIXTURE_GIDS.a)), png(9), 'a cover of its own');
+    assert.deepEqual([(await library.getGallery(FIXTURE_GIDS.a)).favorite, (await library.metaGet(FIXTURE_GIDS.a)).favorite, await library.personalGet(FIXTURE_GIDS.b)],
+      [true, undefined, null], 'the favorite a mark of its own, no longer in the metadata');
     const errors = checkInvariants(await library.integritySnapshot()).violations.filter(v => v.severity === 'error');
     assert.deepEqual(errors.map(v => `${v.id} ${v.detail}`), []);
 

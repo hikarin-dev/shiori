@@ -32,6 +32,7 @@ import { LINKED_DIR, SOURCE_FILE, REMOVED_FILE, IMAGE_NAME, ARCHIVE_NAME, overla
   pdfReady, pdfWaits, matchSources, PDF_HEAD, pdfPrint, drawnFrom, isDrawing } from './storage/linked-source.js';
 import { DESCRIPTION_FILES, descriptionStamp, layoutPath, extOfType, describedFiles, derivedRecord } from './storage/gallery-files.js';
 import { PICTURE_DIRS, readGallery, parseManifest, tokenOf, namedPictures } from './storage/gallery-manifest.js';
+import { withoutPersonal } from './storage/personal.js';
 import { sha256Hex } from './zip-read.js';
 import { uploadDateSeconds } from './gallery-model.js';
 
@@ -547,14 +548,14 @@ async function _restoreDormant(folder) {
     const there = !root || !rec.stat?.dir || (await folderFiles.list(folder, root, rec.stat.dir).catch(() => [])).length > 0;
     const restore = there && !known.has(rec.gid);
     await new Promise((resolve, reject) => {
-      const tx = K.tx(db, [S.STORE, S.META, S.GALLERY, S.COVER, S.BLOB, S.DORMANT], 'readwrite');
+      const tx = K.tx(db, [S.STORE, S.META, S.GALLERY, S.COVER, S.BLOB, S.DORMANT, S.PERSONAL], 'readwrite');
       tx._work = { kind: 'migration', folder };
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(K.txError(tx));
       tx.objectStore(S.DORMANT).delete(rec.gid);
       if (!there && !known.has(rec.gid)) for (const blob of _asideBlobIds(rec)) tx.objectStore(S.BLOB).delete(blob);
       if (!restore) return;
-      if (rec.meta) tx.objectStore(S.META).put(K.canonicalMeta(rec.meta));
+      if (rec.meta) { tx.objectStore(S.META).put(K.canonicalMeta(rec.meta)); K.importMarksIn(tx, rec.gid, rec.meta); }
       const { undescribed, ...stat } = rec.stat;   // its folder's removal or showing writes it there
       tx.objectStore(S.GALLERY).put(stat);
       const images = tx.objectStore(S.STORE);
@@ -581,9 +582,10 @@ async function _restoreDormant(folder) {
 //    on its first change); one it keeps here whose place is gone (renamed, moved, packed or unpacked
 //    by hand or by another app) is read again where it is now — any other it has is a copy, left
 //    alone. Linked titles are matched with what the library keeps here and the overlays the folder
-//    holds (matchSources): one moved or renamed takes its gallery along (an archive's chapters by
-//    their folder in it), one whose files changed is read again, one removed before stays out, and
-//    the rest join — an archive's new chapters as a series, a PDF once its pages are drawn;
+//    holds (matchSources): one whose files changed is read again, one removed before stays out, and
+//    the rest join — one renamed or moved outside the app among them (plan D5: the gallery that was
+//    there shows as missing, _markMissing), an archive's new chapters as a series, a PDF once its
+//    pages are drawn;
 // 3. comparing: galleries it keeps whose descriptions another app changed there are read again.
 // Every re-read is guarded where it commits: a gallery with changes of its own still to be written to
 // its folder, or pictures waiting in this browser, is left as it is (local changes win). A series
@@ -626,18 +628,19 @@ async function _check(id, { onProgress = () => {}, stopped = () => false } = {})
     if (g?.linked && g.linked.content == null && s.title.content) await K.patchStat(s.gid, (cur) => (cur.linked ? { ...cur, linked: { ...cur.linked, content: s.title.content } } : cur));
   }
 
-  step.begin('lf.task_adding', found.own.length + plan.moved.length + plan.changed.length + plan.new.length);
+  step.begin('lf.task_adding', found.own.length + plan.changed.length + plan.new.length);
   for (const own of found.own) {
     if (stopped()) break;
     await _joinOwn(run, own, kept);
     step.tick();
   }
-  for (const m of [...plan.moved, ...plan.changed]) {
+  for (const c of plan.changed) {
     if (stopped()) break;
-    await (m.kept === false ? _link(run, m.title, m.gid) : _relink(run, m.title, m.gid));
+    await _relink(run, c.title, c.gid);
     step.tick();
   }
   await _linkNew(run, plan.new, step);
+  if (!stopped()) await _markMissing(run, kept, plan);
 
   step.begin('lf.task_comparing', kept.length);
   for (const stat of kept) {
@@ -651,6 +654,20 @@ async function _check(id, { onProgress = () => {}, stopped = () => false } = {})
   // What it found, for the folder's Needs attention list (D15) — not when it was stopped part way.
   if (!stopped()) await K.noteChecked(id, [...run.problems, ...run.unreferenced]).catch(() => {});
   return { added: run.added.length, updated: run.updated.size, problems: run.problems, stopped: !!stopped() };
+}
+// The linked galleries kept here (`kept`) marked missing while their source isn't where it was —
+// renamed, moved or deleted outside the app (plan D5: such a source is another; its gallery's overlay,
+// what the library added to it, is kept until the gallery is deleted) — and no longer once it is back.
+// A source that couldn't be looked at now is left as the gallery has it (principle 6).
+async function _markMissing(run, kept, plan) {
+  const away = new Set(plan.missing.map(m => m.gid));
+  for (const g of kept.filter(k => k.linked)) {
+    const gid = String(g.galleryId);
+    const missing = away.has(gid) ? await folderFiles.isThere(run.id, run.root, g.linked.path).then(there => !there, () => !!g.missing) : false;
+    if (missing === !!g.missing) continue;
+    await K.patchStat(gid, (cur) => { const { missing: was, ...rest } = cur; return missing ? { ...rest, missing: true } : rest; });
+    K.publishFeed(gid);
+  }
 }
 // Pictures in kept gallery `stat`'s folder (it names the gallery: _catchUp) that nothing refers to —
 // not its records, not a file waiting to retire — and old enough that no write under way is making
@@ -875,13 +892,18 @@ async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, s
   const db = await K.openDB();
   const S = K.stores;
   const stored = await new Promise((resolve, reject) => {
-    const tx = K.tx(db, [S.STORE, S.META, S.GALLERY, S.COVER, S.BLOB], 'readwrite');
+    const tx = K.tx(db, [S.STORE, S.META, S.GALLERY, S.COVER, S.BLOB, S.PERSONAL], 'readwrite');
     tx._work = { kind: 'adopt', folder };
     let waits = false;
     tx.oncomplete = () => resolve(true);
     tx.onerror = () => (waits ? resolve(false) : reject(K.txError(tx)));
+    // A description an earlier version wrote may carry the person's favorite (storage/personal.js): taken
+    // into this library's marks when the gallery joins it — never when it is read again — and the
+    // description published again without it.
+    const personal = withoutPersonal(record) !== record;
     const put = () => {
       tx.objectStore(S.META).put(K.canonicalMeta(record));
+      if (!replace) K.importMarksIn(tx, gid, record);
       tx.objectStore(S.GALLERY).put({ galleryId: gid, count: 0, size: 0, latestAt: now, addedAt: Number(gid) || now,
         uploadDate: uploadDateSeconds(record.uploadDate ?? 0) || 0, folder, dir, ...(record.parentId ? { parentId: String(record.parentId) } : {}),
         ...(stamp ? { stamp } : {}), ...extra });
@@ -894,7 +916,7 @@ async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, s
           images.put(K.stash(tx, rec, [], K.PAGE));
         };
       }
-      K.logIn(tx, gid, { mark: stale });   // its folder describes it as read — unless `stale`: to be published again
+      K.logIn(tx, gid, { mark: stale || personal });   // its folder describes it as read — unless `stale`: to be published again
     };
     if (!replace) { put(); return; }
     tx._keepFiles = true;
@@ -1129,10 +1151,10 @@ async function _link(run, title, gid) {
     return null;
   }
 }
-// Gallery `gid`, a linked gallery the library keeps here, read again from `title` — its source where
-// it is now (moved or renamed), or its files changed. A PDF's pages are its overlay's, drawn from the
-// file as it was: it follows its file when moved, and when changed, its overlay notes the file as it is
-// now, so its pages are drawn again (pdfsWaiting) — the gallery keeping the old ones meanwhile (F10).
+// Gallery `gid`, a linked gallery the library keeps here, read again from `title` — its source, where it
+// was, its files changed. A PDF's pages are its overlay's, drawn from the file as it was: its overlay
+// notes the file as it is now, so its pages are drawn again (pdfsWaiting) — the gallery keeping the old
+// ones meanwhile (F10).
 async function _relink(run, title, gid) {
   try {
     // What the library changed of it and hasn't published yet is published first: read again, it keeps

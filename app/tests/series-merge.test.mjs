@@ -59,7 +59,8 @@ test('absorbing a series keeps every absorbed chapter title, its former owner in
 
 const { reorderChapters, removeChapter } = await import('../js/series.js');
 const tag = (type, name) => ({ type, name, url: '' });
-const favorites = (...ids) => Promise.all(ids.map(async (id) => !!(await metaGet(id)).favorite));
+// The person's favorite (storage/personal.js), never in the metadata.
+const favorites = (...ids) => Promise.all(ids.map(async (id) => !!(await api.personal.get(id))?.favorite && !(await metaGet(id)).favorite));
 
 test('a merged series keeps one category, the first, and its highest rating', async () => {
   await mutateGallery('RAT1', { ...titled('A'), tags: [tag('category', 'manga'), tag('rating', 'suggestive'), tag('artist', 'x')] });
@@ -81,7 +82,7 @@ test('the series favorite moves with the first chapter: reordered, removed, diss
   }
   await mergeIntoSeries('FAV1', 'FAV2');
   await mergeIntoSeries('FAV1', 'FAV3');
-  await mutateGallery('FAV1', { favorite: true });
+  await api.personal.favorite('FAV1', true);
 
   await reorderChapters('FAV1', ['FAV2', 'FAV1', 'FAV3']);   // FAV2 heads the series now
   assert.deepEqual(await favorites('FAV1', 'FAV2', 'FAV3'), [false, true, false]);

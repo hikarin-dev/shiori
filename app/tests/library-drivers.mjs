@@ -84,6 +84,8 @@ const typed = (type) => (bytes) => new Blob([bytes], { type });
  *   putTranslation(gid: string, n: number, bytes: Uint8Array, type?: string, source?: string): Promise<void>,
  *   sources(gid: string): Promise<Record<number, string>>,
  *   setTitle(gid: string, name: string): Promise<void>,
+ *   favorite(gid: string, on: boolean): Promise<void>, readTo(gid: string, page: number, pages: number): Promise<void>,
+ *   marks(gid: string): Promise<any>, meta(gid: string): Promise<any>,
  *   deleteGallery(gid: string): Promise<void>,
  *   move(gid: string, to: string): Promise<void>,
  *   takeOver(id: string): Promise<void>,
@@ -104,7 +106,8 @@ const typed = (type) => (bytes) => new Blob([bytes], { type });
  * `move`: the gallery moved to folder `to`; `takeOver`: another app's claim written on folder `id`
  * (as "Use anyway" there does); `written`: the bytes the library's folder store adapter has written,
  * by kind (pictures, descriptions, archives, the rest); the PDFs a folder holds, drawn as a window draws
- * them (api.js folders.pdfsWaiting…: `addRendered`'s pages as PNG pictures' bytes). */
+ * them (api.js folders.pdfsWaiting…: `addRendered`'s pages as PNG pictures' bytes); the person's own marks
+ * (api.js personal: `favorite`, `readTo` a page read, `marks`), and a gallery's metadata (`meta`). */
 
 // Another app's claim on the folder at `dir`, a step past whatever claim is there (folder-owner.js).
 function claimElsewhere(dir) {
@@ -141,6 +144,10 @@ export async function desktopLibrary(base) {
     async putTranslation(gid, n, bytes, type = 'image/png', source) { await lib.putTranslatedPage({ galleryId: gid, pageNum: n }, typed(type)(bytes), null, undefined, source); },
     sources: (gid) => lib.pageSources(gid),
     async setTitle(gid, name) { await lib.metaPut({ ...(await lib.metaGet(gid)), title: title(name) }); },
+    async favorite(gid, on) { await lib.personalSet(gid, { favorite: on }); },
+    async readTo(gid, page, pages) { await lib.personalSet(gid, { read: { page, pages } }); },
+    marks: (gid) => lib.personalGet(gid),
+    meta: (gid) => lib.metaGet(gid),
     async deleteGallery(gid) { await lib.deleteGallery(gid); },
     async move(gid, to) { await lib.moveGallery(gid, to); },
     async takeOver(id) { claimElsewhere(lib.folders.dir(id)); lib.folders._probes.clear(); },
@@ -209,6 +216,10 @@ export async function webLibrary() {
     async putTranslation(gid, n, bytes, type = 'image/png', source) { await db.putTranslatedPage({ galleryId: gid, pageNum: n }, typed(type)(bytes), null, undefined, source); },
     sources: (gid) => db.pageSources(gid),
     async setTitle(gid, name) { await db.metaPut({ ...(await db.metaGet(gid)), title: title(name) }); },
+    async favorite(gid, on) { await db.personalSet(gid, { favorite: on }); },
+    async readTo(gid, page, pages) { await db.personalSet(gid, { read: { page, pages } }); },
+    marks: (gid) => db.personalGet(gid),
+    meta: (gid) => db.metaGet(gid),
     async deleteGallery(gid) { await db.deleteGallery(gid); },
     async move(gid, to) { await db.moveGallery(gid, to); },
     async takeOver(id) { claimElsewhere(/** @type {string} */ (webFolders.get(id))); },

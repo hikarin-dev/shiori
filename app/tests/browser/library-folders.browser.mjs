@@ -189,8 +189,8 @@ test('hiding a place keeps it listed while its galleries leave the library; show
     // Out of every listing, written to by nothing — yet still the library's (an import of it is a copy).
     const listings = { page: (await api.galleries.page({ limit: 1000 })).some(g => g.id === gid), ids: (await api.galleries.idsSorted()).includes(gid),
       search: (await api.galleries.searchIndex()).has(gid), stats: gid in (await api.galleries.stats()).galleries, known: (await api.transfer.ids()).includes(gid) };
-    const writes = [await reason(api.pages.put(gid, 9, await t.png(5))), await reason(api.galleries.mutate(gid, { favorite: true })),
-      await reason(api.meta.put({ ...(await api.meta.get(gid)), favorite: true }))];
+    const writes = [await reason(api.pages.put(gid, 9, await t.png(5))), await reason(api.personal.favorite(gid, true)),
+      await reason(api.meta.put({ ...(await api.meta.get(gid)), futureField: 1 }))];
     const hidden = { hid, listings, writes, row: [row?.hidden, row?.galleries], gone: !(await api.galleries.get(gid)),
       kept: await t.has('Lib B', 'Folder Gallery/images/0001.png'),
       refused: [await reason(api.folders.setDefault(b)), await reason(api.folders.scan(b)),
@@ -708,12 +708,14 @@ test('a folder of what Shiori didn\'t make is used as it is: galleries read in p
     await new Promise(r => setTimeout(r, 300));
     const removed = { zip: !!(await fileOf(zipPath)), overlay: await t.has('Lib K', `${overlay}/source.json`),
       noted: JSON.parse(await t.text('Lib K', '.shiori/linked/removed.json')).removed.map(r => r.path), again: (await api.folders.scan(id)).added };
-    // Renamed outside the app: found again by its fingerprint, the same gallery.
+    // Renamed outside the app (D5): another source, joining as a gallery of its own; the one that was
+    // there shows as missing.
     const loose = await byTitle('Loose Title');
     await put('Loose Renamed/1.png', p1); await put('Loose Renamed/2.png', p2);
     await lib.removeEntry('Loose Title', { recursive: true });
     const rescan = await api.folders.scan(id);
-    const renamed = await api.galleries.get(loose.id);
+    const old = await api.galleries.get(loose.id);
+    const renamed = await byTitle('Loose Renamed');
     // Moved to this browser: a gallery of its own there, its files left where they were.
     const inner = await byTitle('Inner Title');
     await api.galleries.move(inner.id, 'browser');
@@ -721,7 +723,7 @@ test('a folder of what Shiori didn\'t make is used as it is: galleries read in p
     const result = { scan, read, chapters: series?.chapters.map(c => c.title), translated, described,
       zipSame: zipAfter.size === zipBefore.size && zipAfter.lastModified === zipBefore.lastModified,
       waiting, book: book && [book.count, book.linked.kind], pdfSame: (await fileOf('Book.pdf')).size === pdf.length, removed,
-      rescan, renamed: [renamed.linked.path, renamed.count, (await api.pages.blob(loose.id, 2))?.size === p2.byteLength],
+      rescan, old: [old.linked.path, old.missing], renamed: [renamed.id !== loose.id, renamed.linked.path, renamed.count, (await api.pages.blob(renamed.id, 2))?.size === p2.byteLength],
       moved: [moved.folder, moved.linked, (await api.pages.blob(inner.id, 1))?.size === p3.byteLength], innerStays: !!(await fileOf('Pack/Nested/Inner Title/1.png')),
       gid: (await byTitle('Ch 1')).id };
     await api.folders.setDefault(a);
@@ -736,8 +738,9 @@ test('a folder of what Shiori didn\'t make is used as it is: galleries read in p
   assert.deepEqual(out.book, [2, 'pdf'], 'its pages drawn into its overlay');
   assert.ok(out.pdfSame);
   assert.deepEqual(out.removed, { zip: true, overlay: false, noted: ['Pack/[Circle (Artist A)] Title One (Mag 2020).zip'], again: 0 });
-  assert.deepEqual(out.rescan, { added: 0, updated: 1, problems: [], stopped: false });
-  assert.deepEqual(out.renamed, ['Loose Renamed', 2, true]);
+  assert.deepEqual(out.rescan, { added: 1, updated: 0, problems: [], stopped: false });
+  assert.deepEqual(out.old, ['Loose Title', true], 'the gallery that was there is missing');
+  assert.deepEqual(out.renamed, [true, 'Loose Renamed', 2, true], 'the renamed folder a gallery of its own');
   assert.deepEqual(out.moved, ['browser', null, true]);
   assert.ok(out.innerStays);
   page.__linked = out.gid;

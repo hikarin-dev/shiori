@@ -25,6 +25,7 @@ import { openFeedback, feedbackOpen } from './reader-feedback.js';
 import { openPageProperties, propertiesOpen, closePageProperties } from './reader-properties.js';
 import { openPageMenu, pageStatus } from './reader-page-menu.js';
 import { translationView } from './page-image.js';
+import { resumeAt } from './storage/personal.js';
 
 // Site names/links come from sites.js (runtime data + the localStorage warm start, so source
 // labels are correct on first paint instead of waiting for the bridge to answer).
@@ -843,6 +844,10 @@ async function init() {
     return;
   }
 
+  // The chapter ?g asks for — one with nothing to show (no pages, and no way to download them) falls
+  // back to the first — and, when no page is asked for, where the person left off in it.
+  const startCh = _chapters.find(c => c.id === gid) || _chapters[0];
+  const marks = initialPageParam ? null : api.personal.get(startCh.id).catch(() => null);
   const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerFitMode', 'readerFitMaxWidth', 'readerDirection', 'readerNavDirection', 'readerPageDirection', 'readerCoverOffset', 'readerDebugLoaded', 'readerAutoScrollSpeed', 'readerDim', 'readerPageGap', 'readerProgressPosition', 'readerView', 'readerTranslateDisplay', 'readerStudyDisplay', 'readerStudyOriginal', 'readerStudySrcFont', 'readerFurigana', 'readerChapterDivider', 'readerStripMode', 'readerAutoBarPosition', 'readerAutoPauseOnUp', 'readerSkipOverview', 'readerSmoothScroll']);
 
   // A saved study view needs its layers before the first paint, and so does a translate view that
@@ -893,15 +898,14 @@ async function init() {
   document.body.classList.toggle('study-mode', studyMode);
 
   // Resolve the initial position BEFORE the first render — a chapter-scoped strip and the
-  // thumbnails both build around it. ?g targets a chapter; ?page / ?p is a page within THAT
-  // chapter ('last' = its final page). A ?g whose chapter has nothing to show (no pages, and no way
-  // to download them) falls back to the first chapter.
-  const startCh = _chapters.find(c => c.id === gid) || _chapters[0];
+  // thumbnails both build around it. ?g targets a chapter (startCh); ?page / ?p is a page within
+  // THAT chapter ('last' = its final page); with neither, it opens where the person left off
+  // (resumeAt: the person's own marks, read beside the settings).
   const fromEnd = String(initialPageParam).toLowerCase() === 'last';
   if (fromEnd) startCh.entry = 'end';
-  const within = fromEnd
-    ? startCh.count
-    : Math.max(1, Math.min(startCh.count, parseInt(initialPageParam, 10) || 1));
+  const within = fromEnd ? startCh.count
+    : initialPageParam ? Math.max(1, Math.min(startCh.count, parseInt(initialPageParam, 10) || 1))
+    : resumeAt(await marks, startCh.count);
   await placeholderRatioReady;
   loadingScreen.style.display = 'none';
   currentPage = startCh.start + within;
@@ -946,6 +950,7 @@ function _announceCurrentPage() {
     _shownGallery = String(ch.id);
     api.galleries.reading(_shownGallery).catch(() => {});
   }
+  if (ch) _noteProgress(ch, currentPage - ch.start);
   if (!ch?.meta?.source) return;
   const gid = String(ch.id);
   extSend({
@@ -956,6 +961,26 @@ function _announceCurrentPage() {
     page: currentPage - ch.start,
   });
 }
+
+// Where the person left off (plan D11): the page shown, of the pages its chapter has, kept by the
+// library as the person's own mark (api.personal.read, never in the gallery's folder) — a second
+// after the page settles, at once when another chapter's page takes over or the reader is hidden or
+// left — so that opening the gallery again resumes there (storage/personal.js resumeAt).
+let _progress = null, _progressTimer = null;
+function _noteProgress(ch, page) {
+  if (_progress && _progress.gid !== String(ch.id)) _saveProgress();
+  _progress = { gid: String(ch.id), page, pages: ch.count };
+  clearTimeout(_progressTimer);
+  _progressTimer = setTimeout(_saveProgress, 1000);
+}
+function _saveProgress() {
+  clearTimeout(_progressTimer);
+  const at = _progress;
+  _progress = null;
+  if (at) api.personal.read(at.gid, at.page, at.pages).catch(() => {});
+}
+window.addEventListener('pagehide', _saveProgress);
+document.addEventListener('visibilitychange', () => { if (document.hidden) _saveProgress(); });
 
 function _handlePageStored(event) {
   const ch = _chapters.find(c => String(c.id) === String(event.galleryId));

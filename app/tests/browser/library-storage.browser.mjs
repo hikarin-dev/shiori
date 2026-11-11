@@ -512,7 +512,7 @@ test('R11: a PDF joins once all its pages are drawn, never with the pages drawn 
   });
 });
 
-test('R13: a page replaced in a linked gallery stays replaced when its source is renamed, and when its folder is removed and added again', { skip }, async () => {
+test('R13: a page replaced in a linked gallery stays replaced when its source is renamed and back (D5: missing meanwhile), and when its folder is removed and added again', { skip }, async () => {
   await fresh(async (ctx) => {
     const page = await tab(ctx);
     const { id, gid, repl } = await page.evaluate(async () => {
@@ -531,16 +531,21 @@ test('R13: a page replaced in a linked gallery stays replaced when its source is
       const api = window.__api, t = window.__t;
       await t.move('R13/Loose', 'R13/Loose Renamed');
       const renamed = await api.folders.scan(id);
-      const afterRename = [(await api.pages.blob(gid, 1))?.size, (await t.raw('galleries', gid)).linked.path];
+      const afterRename = [(await api.pages.blob(gid, 1))?.size, (await t.raw('galleries', gid)).linked.path, (await api.galleries.get(gid)).missing];
+      await t.move('R13/Loose Renamed', 'R13/Loose');
+      await api.folders.scan(id);
+      const back = (await api.galleries.get(gid)).missing ?? false;
       await api.folders.setDefault('browser');
       await api.folders.remove(id);
       await api.folders.setAside(id);
       await api.folders.add(await t.folder('R13'));
       const readded = await api.folders.scan(id);
-      return { renamed: renamed.updated, afterRename, readded: readded.added, afterReadd: (await api.pages.blob(gid, 1))?.size, count: (await api.galleries.get(gid))?.count };
+      return { renamed: [renamed.added, renamed.updated], afterRename, back, readded: readded.added, afterReadd: (await api.pages.blob(gid, 1))?.size,
+        count: (await api.galleries.get(gid))?.count };
     }, { id, gid });
-    assert.equal(out.renamed, 1);
-    assert.deepEqual(out.afterRename, [repl, 'Loose Renamed'], 'renamed: its own page 1 still stands in for the source\'s');
+    assert.deepEqual(out.renamed, [1, 0], 'renamed: another source, joining as new');
+    assert.deepEqual(out.afterRename, [repl, 'Loose', true], 'this gallery missing meanwhile, its own page 1 kept in its overlay');
+    assert.equal(out.back, false, 'renamed back: this gallery again');
     assert.equal(out.readded, 1);
     assert.equal(out.afterReadd, repl, 'added again: the same');
     assert.equal(out.count, 2);
@@ -659,7 +664,7 @@ test('R15: a series kept across two folders comes back whole, whichever folder i
   });
 });
 
-test('R18: an archive of chapters renamed outside the app keeps its galleries, their series and their ids', { skip }, async () => {
+test('R18, D5: an archive of chapters renamed outside the app joins as new galleries, its old ones missing; renamed back, they are its galleries again, their series and their ids', { skip }, async () => {
   await fresh(async (ctx) => {
     const page = await tab(ctx);
     const first = await page.evaluate(async () => {
@@ -671,19 +676,28 @@ test('R18: an archive of chapters renamed outside the app keeps its galleries, t
       return { id, scan: scan.added, ids: (await t.inFolder(id)).sort((x, y) => x.linked.inner.localeCompare(y.linked.inner)).map(g => String(g.galleryId)) };
     });
     for (const gid of first.ids) await settled(page, gid);
-    const out = await page.evaluate(async ({ id }) => {
+    const out = await page.evaluate(async ({ id, ids }) => {
       const api = window.__api, t = window.__t;
       await t.write('R18/After.zip', await t.file('R18/Before.zip'));
       await t.remove('R18/Before.zip');
       const scan = await api.folders.scan(id);
-      const kept = (await t.inFolder(id)).sort((x, y) => x.linked.inner.localeCompare(y.linked.inner));
-      return { scan: [scan.added, scan.updated], ids: kept.map(g => String(g.galleryId)), paths: kept.map(g => g.linked.path),
+      const all = await t.inFolder(id);
+      const missing = await Promise.all(ids.map(async (gid) => (await api.galleries.get(gid)).missing ?? false));
+      const fresh = all.filter(g => !ids.includes(String(g.galleryId))).map(g => `${g.linked.path} ${g.linked.inner}`).sort();
+      await t.write('R18/Before.zip', await t.file('R18/After.zip'));
+      await t.remove('R18/After.zip');
+      await api.folders.scan(id);
+      const kept = (await t.inFolder(id)).filter(g => ids.includes(String(g.galleryId))).sort((x, y) => x.linked.inner.localeCompare(y.linked.inner));
+      return { scan: [scan.added, scan.updated], missing, fresh, ids: kept.map(g => String(g.galleryId)), paths: kept.map(g => g.linked.path),
+        back: await Promise.all(ids.map(async (gid) => (await api.galleries.get(gid)).missing ?? false)),
         series: (await api.series.resolve(String(kept[1].galleryId)))?.chapters.length };
     }, first);
     assert.equal(first.scan, 2);
-    assert.deepEqual(out.scan, [0, 2]);
-    assert.deepEqual(out.ids, first.ids, 'the same galleries');
-    assert.deepEqual(out.paths, ['After.zip', 'After.zip']);
+    assert.deepEqual(out.scan, [2, 0], 'renamed: its chapters join as galleries of their own');
+    assert.deepEqual(out.missing, [true, true], 'the galleries that were there are missing');
+    assert.deepEqual(out.fresh, ['After.zip Ch 1/', 'After.zip Ch 2/']);
+    assert.deepEqual(out.ids, first.ids, 'renamed back: the same galleries');
+    assert.deepEqual([out.paths, out.back], [['Before.zip', 'Before.zip'], [false, false]]);
     assert.equal(out.series, 2, 'still a series');
   });
 });
@@ -788,7 +802,7 @@ test('A10: a removal moving its galleries to a place that can\'t take them now i
   });
 });
 
-test('A14: a linked folder renamed while the library has changes not written to it yet keeps those changes', { skip }, async () => {
+test('A14: a linked folder renamed, and back, while the library has changes not written to it yet keeps those changes', { skip }, async () => {
   await fresh(async (ctx) => {
     const page = await tab(ctx);
     const out = await page.evaluate(async () => {
@@ -799,12 +813,15 @@ test('A14: a linked folder renamed while the library has changes not written to 
       const [g] = await t.inFolder(id);
       const gid = String(g.galleryId);
       await api.meta.put({ ...(await api.meta.get(gid)), title: t.T('Edited in library') });
+      // Renamed (D5: another source, joining as new; this gallery missing meanwhile), then back.
       await t.move('A14/Loose', 'A14/Loose Renamed');
-      // The edit waiting is written to its overlay first, then the rename followed (S8).
       const scan = await api.folders.scan(id);
-      return { scan: scan.updated, title: (await api.galleries.get(gid)).title.english, path: (await t.raw('galleries', gid)).linked.path };
+      const missing = (await api.galleries.get(gid)).missing ?? false;
+      await t.move('A14/Loose Renamed', 'A14/Loose');
+      await api.folders.scan(id);
+      return { scan: [scan.added, scan.updated], missing, title: (await api.galleries.get(gid)).title.english, path: (await t.raw('galleries', gid)).linked.path };
     });
-    assert.deepEqual(out, { scan: 1, title: 'Edited in library', path: 'Loose Renamed' }, 'the rename is followed, the edit kept');
+    assert.deepEqual(out, { scan: [1, 0], missing: true, title: 'Edited in library', path: 'Loose' }, 'the edit kept');
   });
 });
 

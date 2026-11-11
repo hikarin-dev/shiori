@@ -1,6 +1,7 @@
 // storage-fixtures.test.mjs — the migration fixtures (plan D13) as the website library meets them:
 // today's library opens each IndexedDB version an earlier one left (16, released in v1.2.6; 18 and
-// 19 from the working tree), upgrades it and reads every gallery back whole; and the folder fixtures
+// 19 from the working tree), upgrades it and reads every gallery back whole — the favorite an earlier
+// version kept in a gallery's metadata now the person's own mark (plan D6); and the folder fixtures
 // (description format v1 with and without its files list, the desktop's oldest shiori.json) read as
 // the shared rules say. Each IndexedDB version opens in a process of its own, since the library opens
 // one database per process. The desktop's fixtures: desktop/tests/storage-fixtures.test.mjs.
@@ -22,6 +23,16 @@ if (process.env.SHIORI_IDB_FIXTURE) {
   await import('fake-indexeddb/auto');
   globalThis.BroadcastChannel = class { postMessage() {} close() {} };
   await indexedDBLibrary(process.env.SHIORI_IDB_FIXTURE);
+  // An earlier version kept the person's favorite in the metadata: gallery A's set so.
+  await new Promise((resolve) => {
+    const r = indexedDB.open('shiori-cache');
+    r.onsuccess = () => {
+      const tx = r.result.transaction('metadata', 'readwrite');
+      const metas = tx.objectStore('metadata');
+      metas.get(FIXTURE_GIDS.a).onsuccess = (e) => metas.put({ ...e.target.result, favorite: true });
+      tx.oncomplete = () => { r.result.close(); resolve(); };
+    };
+  });
   const api = await import('../js/api.js');
   const galleries = {};
   for (const gid of [FIXTURE_GIDS.a, FIXTURE_GIDS.b]) {
@@ -32,6 +43,7 @@ if (process.env.SHIORI_IDB_FIXTURE) {
       pages: await Promise.all(list.map(p => api.pages.blob(gid, p.pageNum).then(bytesOf))),
       translated: await api.pages.get(gid, 1).then(r => bytesOf(r?.translated instanceof Blob ? r.translated : null)),
       cover: await api.covers.get(gid).then(bytesOf),
+      favorite: [(await api.galleries.get(gid))?.favorite, (await api.meta.get(gid))?.favorite ?? null],
     };
   }
   const db = await new Promise((resolve) => { const r = indexedDB.open('shiori-cache'); r.onsuccess = () => resolve(r.result); });
@@ -47,11 +59,12 @@ for (const name of INDEXEDDB_FIXTURES) {
     const run = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], { env: { ...process.env, SHIORI_IDB_FIXTURE: name }, encoding: 'utf8' });
     assert.equal(run.status, 0, run.stderr);
     const got = JSON.parse(run.stdout);
-    assert.equal(got.version, 19);
-    for (const store of ['folders', 'dormant', 'undescribed', 'blobs', 'changes']) assert.ok(got.stores.includes(store), store);
-    assert.deepEqual(got.galleries[FIXTURE_GIDS.a], { title: 'Fixture A', count: 2, pages: [webp(1), webp(2)], translated: png(1), cover: png(9) });
-    assert.deepEqual(got.galleries[FIXTURE_GIDS.b], { title: 'Fixture B', count: 1, pages: [webp(3)], translated: null, cover: webp(3) },
-      'its cover is its first page');
+    assert.equal(got.version, 20);
+    for (const store of ['folders', 'dormant', 'undescribed', 'blobs', 'changes', 'personal']) assert.ok(got.stores.includes(store), store);
+    assert.deepEqual(got.galleries[FIXTURE_GIDS.a], { title: 'Fixture A', count: 2, pages: [webp(1), webp(2)], translated: png(1), cover: png(9),
+      favorite: [true, null] }, 'its favorite a mark of its own, no longer in its metadata');
+    assert.deepEqual(got.galleries[FIXTURE_GIDS.b], { title: 'Fixture B', count: 1, pages: [webp(3)], translated: null, cover: webp(3),
+      favorite: [false, null] }, 'its cover is its first page');
   });
 }
 

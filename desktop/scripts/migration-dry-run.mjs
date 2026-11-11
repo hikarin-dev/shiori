@@ -113,6 +113,12 @@ export async function dryRun(dataDir, { libraryDir = null } = {}) {
           else if (found === 'unreadable') u.unreachable++;
         }
       }
+      // The favorite an earlier version kept in a gallery's metadata: the person's own mark from the first
+      // start (plan D6), each such gallery's description published again without the field.
+      if (has('meta')) {
+        out.favorites = { marked: rows(`SELECT count(*) AS n FROM meta WHERE json_extract(record, '$.favorite') = 1`)[0].n,
+          carried: rows(`SELECT count(*) AS n FROM meta WHERE json_type(record, '$.favorite') IS NOT NULL`)[0].n };
+      }
       return out;
     } finally { db.close(); }
   } finally { fs.rmSync(copy, { recursive: true, force: true }); }
@@ -133,6 +139,10 @@ function print(r) {
     const u = g.undescribed;
     say(`  Folders never described (pictures only): ${u.bound} get their identity at the first start, ${u.conflicts} stay conflicts (Needs attention)`
       + `${u.unreachable ? `, ${u.unreachable} couldn't be looked at (their folder out of reach)` : ''}.`);
+  }
+  if (r.favorites?.carried) {
+    say(`Favorites in the galleries' metadata: ${r.favorites.marked} become this library's own marks at the first start; `
+      + `${r.favorites.carried} galleries' descriptions are published again without the field.`);
   }
   say('Nothing was changed.');
 }

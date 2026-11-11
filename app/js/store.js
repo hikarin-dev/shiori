@@ -5,7 +5,7 @@
 // keep their own divergent copy or hand-patch fields. Reads/writes and the change feed go
 // through api.js, the library interface.
 
-import { galleries, events } from './api.js';
+import { galleries, personal, events } from './api.js';
 import { normalizeTitle } from './titles.js';
 
 // Windowed cache: only entities currently referenced (the visible page + explicit
@@ -74,8 +74,9 @@ export async function load(gid) {
 }
 
 // Lightweight projection used for search filtering (no cover, no stats — just what a
-// search predicate needs). Keeps the filter pass off the heavy data.
-function _lite(id, meta) {
+// search predicate needs). Keeps the filter pass off the heavy data. The favorite is the person's
+// mark (`marks`), not metadata.
+function _lite(id, meta, marks) {
   const m = meta || {};
   const tt = normalizeTitle(m);
   const isSeries = Array.isArray(m.chapters) && m.chapters.length > 1;
@@ -83,7 +84,7 @@ function _lite(id, meta) {
   // All title variants are searchable, so a query matches whichever language the user typed.
   const title = [tt.english, tt.japanese, tt.pretty].filter(Boolean).join(' ');
   // A partly translated gallery counts as translated.
-  return { id: String(id), title, tags, translated: !!m.translated, source: m.source || '', favorite: !!m.favorite };
+  return { id: String(id), title, tags, translated: !!m.translated, source: m.source || '', favorite: !!marks?.favorite };
 }
 
 // One page of galleries. Without `match`, sorting + pagination happen in the database
@@ -101,10 +102,10 @@ export async function getPage({ sort = 'updated', dir, page = 1, pageSize = 60, 
     return { items, total };
   }
 
-  const [ids, metaMap] = await Promise.all([galleries.idsSorted({ sort, dir }), galleries.searchIndex()]);
+  const [ids, metaMap, marks] = await Promise.all([galleries.idsSorted({ sort, dir }), galleries.searchIndex(), personal.all()]);
   // Child chapters surface as their own search hit only in the unmerged view; merged, they live
   // inside their series.
-  const matched = ids.filter(id => (!merge || !metaMap.get(id)?.parentId) && match(_lite(id, metaMap.get(id))));
+  const matched = ids.filter(id => (!merge || !metaMap.get(id)?.parentId) && match(_lite(id, metaMap.get(id), marks.get(id))));
   const total = matched.length;
   const start = (page - 1) * pageSize;
   const windowIds = matched.slice(start, start + pageSize);

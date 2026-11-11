@@ -124,7 +124,7 @@ test('T07: a linked page keeps what was made from it only while its picture\'s c
   assert.equal(crcHex(5), '00000005');
 });
 
-test('T07: a folder of pictures with a picture replaced in place by one of the same size is changed — its fingerprint, which finds it moved and is what a removal keeps, the same', () => {
+test('T07: a folder of pictures with a picture replaced in place by one of the same size is changed — its fingerprint, what a removal keeps, the same', () => {
   const before = [{ name: '001.png', size: 4, mtime: 1 }, { name: '002.png', size: 5, mtime: 2 }];
   const after = [{ name: '001.png', size: 4, mtime: 9 }, { name: '002.png', size: 5, mtime: 2 }];
   assert.equal(folderPrint(before), folderPrint(after));
@@ -178,16 +178,22 @@ test('F10: a drawn PDF is drawn again once its file changed — unless drawing t
   assert.equal(pdfWaits(read, drawn(2)), false, 'not known to be of another version: kept');
 });
 
-test('a check finds each source again: where it was, changed there, moved — an archive with all its chapters — or new (R18, R19)', () => {
+test('D5 (R18, R19 rewritten): a check takes each source where it is — the same there, changed there, or new; one renamed or moved is new, its gallery missing', () => {
   const zip = (path, inner, fingerprint = 'Z') => ({ kind: 'zip', path, ...(inner ? { inner } : {}), fingerprint });
   const kept = [{ gid: '1', source: zip('Before.zip', 'Ch 1/') }, { gid: '2', source: zip('Before.zip', 'Ch 2/') },
     { gid: '3', source: { kind: 'dir', path: 'Loose', fingerprint: 'D1' } }, { gid: '4', source: { kind: 'dir', path: 'Gone', fingerprint: 'G' } }];
   const out = matchSources({ kept, found: [zip('After.zip', 'Ch 1/'), zip('After.zip', 'Ch 2/'), zip('After.zip', 'Ch 3/'),
-    { kind: 'dir', path: 'Loose', fingerprint: 'D2' }, { kind: 'dir', path: 'Fresh', fingerprint: 'F' }] });
-  assert.deepEqual(out.moved.map(m => [m.gid, m.title.inner]), [['1', 'Ch 1/'], ['2', 'Ch 2/']], 'a renamed archive keeps its chapters\' galleries');
+    { kind: 'dir', path: 'Loose', fingerprint: 'D2' }, { kind: 'dir', path: 'Fresh', fingerprint: 'F' }, { kind: 'dir', path: 'Gone renamed', fingerprint: 'G' }] });
+  assert.equal(out.moved, undefined, 'no source is followed to another path');
   assert.deepEqual(out.changed.map(c => [c.gid, c.was.fingerprint, c.title.fingerprint]), [['3', 'D1', 'D2']], 'files added where it was: read again');
-  assert.deepEqual(out.new.map(n => n.title.path + (n.title.inner || '')), ['After.zipCh 3/', 'Fresh']);
-  assert.deepEqual(out.missing.map(m => m.gid), ['4']);
+  assert.deepEqual(out.new.map(n => [n.title.path + (n.title.inner || ''), n.gid]),
+    [['After.zipCh 1/', undefined], ['After.zipCh 2/', undefined], ['After.zipCh 3/', undefined], ['Fresh', undefined], ['Gone renamed', undefined]],
+    'a renamed archive\'s chapters, and a renamed folder of the same fingerprint, join as new');
+  assert.deepEqual(out.missing.map(m => m.gid), ['1', '2', '4'], 'the galleries that were there are missing');
+  // An overlay is its gallery's only where its source is: one whose source was moved is left as it is.
+  const overlays = [{ galleryId: '1700000000003', source: { kind: 'dir', path: 'Was', fingerprint: 'W' } }];
+  const away = matchSources({ overlays, found: [{ kind: 'dir', path: 'Is', fingerprint: 'W' }] });
+  assert.deepEqual(away.new, [{ title: { kind: 'dir', path: 'Is', fingerprint: 'W' } }]);
 });
 
 test('a check skips what was removed — unless its files changed — and an overlay\'s gallery the library has elsewhere (R19)', () => {

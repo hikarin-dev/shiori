@@ -555,6 +555,10 @@ export async function pollTranslation(galleryId, send = () => {}) {
     const ownsToken = async () => (await translateResume.get(gid))?.token === token;
     let nums = null;
     const at = async (url) => { nums ??= await _pageNums(gid); return nums.get(url); };
+    // Pages whose result was refused because the page shows another picture now (its source changed
+    // since it was read): kept on the job's record (`stale`: their indexes) so its end can say how many.
+    const stale = new Set(rec.stale || []);
+    const before = stale.size;
 
     const form = new FormData();
     form.append('job_token', token);
@@ -608,8 +612,9 @@ export async function pollTranslation(galleryId, send = () => {}) {
           // No image: the page is its study data, in the frame that follows. Kept only while the page
           // still shows the picture it was made from (`source`; a record from before tokens has none).
           const n = await at(url);
-          if (n != null) await api.derived.putTranslation(gid, n, { image: payload.length ? new Blob([payload], { type: _imgMime(payload) }) : null,
+          const put = n == null ? null : await api.derived.putTranslation(gid, n, { image: payload.length ? new Blob([payload], { type: _imgMime(payload) }) : null,
             pipeline: page ? { job, ...page.record, masks: page.masks } : { job }, own: rec.pin ? job : undefined, source: pendingSources?.[idx] });
+          if (put?.stale) stale.add(idx);
         } else {
           let study = null; try { study = JSON.parse(dec.decode(payload)); } catch {}
           if (study && Array.isArray(study.bubbles) && study.bubbles.length) {
@@ -643,6 +648,7 @@ export async function pollTranslation(galleryId, send = () => {}) {
       else if (st === 2) { errMsg = dec.decode(data); }
     }
 
+    if (stale.size > before) await translateResume.patch(gid, token, { stale: [...stale] });
     if (!meta) return;                       // malformed response — try again next tick
     if (meta.status === 'notfound') {
       // Server lost the job (reaped after a long absence, or restarted) → start fresh for the rest.
@@ -724,7 +730,7 @@ export async function pollTranslation(galleryId, send = () => {}) {
       const usd = (estIn * Number(s.priceIn ?? 1.5) + estOut * Number(s.priceOut ?? 9)) / 1e6;
       costNote = `${batches} call${batches > 1 ? 's' : ''} · ~${((estIn + estOut) / 1000).toFixed(1)}K tokens · ~$${usd.toFixed(2)} est.`;
     }
-    send({ status: 'done', done, total, failed, costNote });
+    send({ status: 'done', done, total, failed, costNote, stale: stale.size });
   } finally {
     if (_polling.get(gid) === poll) _polling.delete(gid);
   }

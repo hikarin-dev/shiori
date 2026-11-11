@@ -43,6 +43,9 @@ test('the dry run reports what the carry-over to format v2 would do, changes not
   db.prepare('INSERT INTO unplaced (gid, rel, temp) VALUES (?, ?, ?)').run(B, 'translated/0001.png', 'translated/0001.png.ab12cd34ef.shiori-new');
   db.prepare('INSERT INTO leftovers (gid, entry) VALUES (?, ?)').run(B, 'images/0003.webp');
   db.prepare('INSERT INTO retired (path) VALUES (?)').run(`@${SECOND}/Old Folder`);
+  // The person's favorite, kept in the gallery's metadata by an earlier version (plan D6).
+  const meta = JSON.parse(db.prepare('SELECT record FROM meta WHERE gid = ?').get(B).record);
+  db.prepare('UPDATE meta SET record = ? WHERE gid = ?').run(JSON.stringify({ ...meta, favorite: true }), B);
   db.close();
 
   const before = snapshot(base);
@@ -55,6 +58,7 @@ test('the dry run reports what the carry-over to format v2 would do, changes not
   assert.equal(report.galleries.folders, 2);
   assert.equal(report.galleries.archives, 1);
   assert.equal(report.galleries.linked, 1);
+  assert.deepEqual(report.favorites, { marked: 1, carried: 1 });
 
   library = await new Library({ dataDir, libraryDir, placeDelay: 0, describeDelay: 600_000 }).open();
   for (let i = 0; i < 50 && library._s(`SELECT 1 FROM sqlite_schema WHERE name = 'unplaced'`).get(); i++) await new Promise(r => setTimeout(r, 20));
@@ -67,6 +71,8 @@ test('the dry run reports what the carry-over to format v2 would do, changes not
   assert.equal(fs.existsSync(path.join(gallery, 'images', '0003.webp')), false, 'the leftover too');
   assert.equal(fs.existsSync(path.join(base, 'second', 'Old Folder')), false, 'and the old folder');
   assert.ok(fs.existsSync(path.join(gallery, '.shiori', 'gallery.json')), 'the gallery published in format v2');
+  assert.deepEqual([(await library.getGallery(B)).favorite, (await library.metaGet(B)).favorite], [true, undefined], 'its favorite a mark of its own');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(gallery, 'metadata.json'), 'utf8')).favorite, undefined, 'its description published without it');
 });
 
 // A gallery's folder as an earlier version could leave one it never described: pictures only, never

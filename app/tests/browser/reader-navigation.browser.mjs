@@ -422,4 +422,29 @@ test('the address follows the page being read, without adding history', { skip: 
   await until(page, n => document.getElementById('pageCounter').textContent.split('/')[0].trim() === n, at, { what: `page ${at} after a reload` });
 });
 
+// Opened without a page, the reader resumes where the person left off — the library keeps it as their
+// own mark (storage/personal.js resumeAt) — and once they left the gallery at its end, it starts again
+// from its first page.
+test('opened without a page, a gallery resumes where it was left; once read to its end, from the start', { skip: !chromePath() }, async t => {
+  const page = await reader(t, 'height', { at: 40 });
+  const counter = () => page.$eval('#pageCounter', el => el.textContent.split('/')[0].trim());
+  const kept = (n) => until(page, async ({ gid, n }) => (await (await import('/app/js/api.js')).personal.get(gid))?.page === n, { gid: GALLERY, n },
+    { what: `page ${n} kept as where it was left` });
+  const reopen = async () => {
+    await page.goto(`${origin}/reader?g=${GALLERY}`, { waitUntil: 'load' });
+    await page.waitForFunction(() => document.querySelector('#stripView img[src]')?.naturalWidth > 0);
+    await settle(300);
+  };
+  await page.keyboard.press('ArrowRight');
+  await kept(41);
+  await reopen();
+  assert.equal(await counter(), '41', 'where it was left');
+  assert.equal(await page.evaluate(() => new URLSearchParams(location.search).get('page')), '41');
+  await shiftKey(page, 'D');
+  await expectPage(page, PAGE_COUNT);
+  await kept(PAGE_COUNT);
+  await reopen();
+  assert.equal(await counter(), '1', 'read to its end: from the start');
+});
+
 const settle = (ms = 400) => new Promise(resolve => setTimeout(resolve, ms));

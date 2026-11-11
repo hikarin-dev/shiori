@@ -8,8 +8,10 @@
 // slot's bytes matching; a linked ZIP's overlay, its translation on the page it was made for; claims
 // moving between the apps; and a gallery the desktop archived, read in place by the website, changed
 // there (unpacked) and read back by the desktop; and a gallery in the desktop's oldest format, converted
-// by the desktop's check (D18), read by the website; and a series whose chapters one app kept in two
-// library folders, whole again once the other app has both.
+// by the desktop's check (D18), read by the website; a series whose chapters one app kept in two
+// library folders, whole again once the other app has both; and the person's own marks (favorite,
+// reading progress: D6), which stay with the library that set them — an earlier version's favorite in
+// a folder taken in once as its gallery joins.
 //
 // A case that fails on today's code because of a finding a later step fixes is marked todo with that
 // step (plans/library-storage-plan.md §5).
@@ -22,7 +24,7 @@ import { desktopLibrary, webLibrary } from './library-drivers.mjs';
 import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
 import { zipCreate } from '../js/zip.js';
-import { legacyGallery } from './fixtures/storage-fixtures.mjs';
+import { legacyGallery, v1Gallery } from './fixtures/storage-fixtures.mjs';
 
 const png = (...tag) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, ...tag]);
 const webp = (...tag) => new Uint8Array([0x52, 0x49, 0x46, 0x46, ...tag]);
@@ -160,6 +162,56 @@ const CASES = [
       assert.deepEqual(await chapters(to), before, 'its chapters, in order, with their titles');
       assert.deepEqual(await to.read(owner, 1), png(1, 1));
       assert.deepEqual(await to.read(second, 1), png(2, 1));
+    },
+  },
+  {
+    // D6: favorite and reading progress are the person's marks in the library they set them in.
+    name: 'D6: a folder handed over carries no personal marks — setting them writes nothing to it',
+    async run({ dir, from, to }) {
+      const shared = path.join(dir, 'shared');
+      const id = await from.add(shared);
+      await from.setDefault(id);
+      const gid = await from.newGallery('Marked');
+      await from.putPage(gid, 1, png(1, 1));
+      await from.putPage(gid, 2, png(2, 1));
+      await from.flush();
+      const before = { ...from.written() };
+      await from.favorite(gid, true);
+      await from.readTo(gid, 2, 2);
+      await from.flush();
+      assert.deepEqual(from.written(), before, 'nothing written to the folder');
+      const marks = await from.marks(gid);
+      assert.deepEqual([marks.favorite, marks.page, marks.pages, marks.finished], [true, 2, 2, true]);
+      assert.equal((await from.meta(gid)).favorite, undefined, 'never in the metadata');
+      const texts = fs.readdirSync(shared, { recursive: true }).map(f => path.join(shared, f)).filter(f => f.endsWith('.json'))
+        .map(f => fs.readFileSync(f, 'utf8'));
+      assert.ok(texts.length && !texts.some(t => /"(favorite|readAt|finished)"/.test(t)), 'no description carries them');
+      await from.remove(id);
+      assert.deepEqual((await to.scan(await to.add(shared))).problems, []);
+      assert.deepEqual(await to.galleries(), [gid]);
+      assert.equal(await to.marks(gid), null, 'none came with the folder');
+      assert.equal((await to.meta(gid)).favorite, undefined);
+    },
+  },
+  {
+    // D6: an earlier version kept the favorite in the gallery's metadata.json.
+    name: 'D6: an earlier version\'s favorite in a folder is taken in once as its gallery joins, and the folder published again without it',
+    async run({ dir, to }) {
+      const shared = path.join(dir, 'shared');
+      const made = await v1Gallery(path.join(shared, 'Old'));
+      const file = path.join(shared, 'Old', 'metadata.json');
+      fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), favorite: true }));
+      const id = await to.add(shared);
+      assert.deepEqual((await to.scan(id)).problems, []);
+      assert.deepEqual(await to.marks(made.gid), { favorite: true }, 'taken in as it joins');
+      assert.equal((await to.meta(made.gid)).favorite, undefined, 'never in the metadata');
+      await to.flush();
+      assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).favorite, undefined, 'its folder published again without it');
+      // Unset by the person, it stays unset: removed and added again, the folder holds none.
+      await to.favorite(made.gid, false);
+      await to.remove(id);
+      await to.scan(await to.add(shared));
+      assert.deepEqual(await to.marks(made.gid), { favorite: false });
     },
   },
 ];

@@ -310,7 +310,7 @@ test('a gallery kept in an archive is read in place, and unpacked into a folder 
   const archive = await archived(library, gid, [1, 2]);
   assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 2)), [...pngBytes(2)], 'read from the archive');
 
-  await library.mutateGallery(gid, { favorite: true }, { touch: false });
+  await library.mutateGallery(gid, { futureField: 'kept' }, { touch: false });
   await library.files.flush();
   assert.equal(fileOf(library, gid).format, 'cbz', 'a metadata change leaves the archive as it is');
 
@@ -321,7 +321,7 @@ test('a gallery kept in an archive is read in place, and unpacked into a folder 
   assert.deepEqual(tree(dirOf(library, gid)), ['image_records.json', 'images/0001.png', 'images/0002.png', 'images/0003.png', 'metadata.json']);
   assert.deepEqual(removed, [archive], 'the archive is deleted');
   for (const n of [1, 2, 3]) assert.deepEqual(await bytesOf(await library.getPageBlob(gid, n)), [...pngBytes(n)]);
-  assert.equal(json(library, gid, 'metadata.json').favorite, true);
+  assert.equal(json(library, gid, 'metadata.json').futureField, 'kept');
   await whole(library);
 });
 

@@ -793,7 +793,9 @@ async function render() {
   setText($('ovSubtitle'), subtitle);
   $('ovSubtitle').hidden = !subtitle;
   setAttr($('seriesCover'), 'href', startHref);
-  setAttr($('readStart'), 'href', startHref);
+  // The title and cover open where the person left off (the reader resumes there); "Read from start"
+  // asks for the first page.
+  setAttr($('readStart'), 'href', `${startHref}&page=1`);
   syncFavButton();
   // A library that keeps galleries as files can pack this one — a series: every member — into an
   // archive now; once all of it is, the button says so.
@@ -1508,7 +1510,7 @@ function paintChapterJob(row, job) {
   if (label) {
     if (isTranslate) {
       label.textContent = status === 'done'
-        ? `${t('prog.translated')} ${doneText}/${totalText}${job.failed ? ` (${formatCount(job.failed)} failed)` : ''}${job.costNote ? ` · ${job.costNote}` : ''}`
+        ? `${t('prog.translated')} ${doneText}/${totalText}${job.failed ? ` (${formatCount(job.failed)} failed)` : ''}${job.stale > 0 ? ` · ${t('prog.stale_pages', { n: formatCount(job.stale) })}` : ''}${job.costNote ? ` · ${job.costNote}` : ''}`
         : jobLabel || `${t('prog.translating')} ${doneText} / ${totalText}`;
     } else {
       label.textContent = status === 'done'
@@ -1601,11 +1603,11 @@ function syncFavButton() {
   else delete btn.dataset.tip;
 }
 
-// Favoriting doesn't count as an update to the gallery.
+// Favoriting doesn't count as an update to the gallery: it is the person's own mark.
 async function toggleFavorite() {
   const favorite = !_hero?.owner?.favorite;
   holdRender();
-  await store.mutate(ownerId, { favorite }, { touch: false });
+  await api.personal.favorite(ownerId, favorite);
   _hero.owner = { ..._hero.owner, favorite };
   syncFavButton();
   refreshTooltip();

@@ -124,7 +124,7 @@ test('a hovered card grows over the cards below without moving anything, then sh
   assert.equal(await page.evaluate(drawnAt, overB), 3, 'drawn over the card below');
 
   // A change to a hovered card's gallery waits for it to shrink back before the card is made again.
-  await page.evaluate(async () => (await import('/app/js/store.js')).mutate(document.querySelectorAll('.card')[2].dataset.galleryId, { favorite: true }, { touch: false }));
+  await page.evaluate(async () => (await import('/app/js/api.js')).personal.favorite(document.querySelectorAll('.card')[2].dataset.galleryId, true));
   await sleep(200);
 
   // Down into B: A shrinks back still drawn over B's cover, until it has.

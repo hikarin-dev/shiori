@@ -17,12 +17,12 @@ export const UI_DIR = process.env.SHIORI_UI_DIR
 
 const load = (name) => import(pathToFileURL(path.join(UI_DIR, 'js', name)).href);
 
-const [plans, model, titles, pageSize, galleryExport, errors, wire, backupCore, files, owner, lifecycle, content, linked, contract, manifest] = await Promise.all([
+const [plans, model, titles, pageSize, galleryExport, errors, wire, backupCore, files, owner, lifecycle, content, linked, contract, manifest, personal] = await Promise.all([
   load('series-plan.js'), load('gallery-model.js'), load('titles.js'), load('page-size.js'), load('gallery-export.js'),
   load('backend-error.js'), load('desktop-wire.js'), load('backup-core.js'), load('storage/gallery-files.js'), load('storage/folder-owner.js'),
   load('storage/folder-lifecycle.js'), load('storage/folder-content.js'), load('storage/linked-source.js'), load('storage/contract.js'),
-  load('storage/gallery-manifest.js'),
+  load('storage/gallery-manifest.js'), load('storage/personal.js'),
 ]);
 
-export { plans, model, titles, pageSize, galleryExport, files, wire, backupCore, owner, lifecycle, content, linked, contract, manifest };
+export { plans, model, titles, pageSize, galleryExport, files, wire, backupCore, owner, lifecycle, content, linked, contract, manifest, personal };
 export const { BackendError } = errors;

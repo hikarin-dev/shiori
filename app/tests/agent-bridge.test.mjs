@@ -148,10 +148,11 @@ test('a metadata write over the bridge keeps the record of how the gallery was t
   assert.deepEqual(meta.translations, translations);
 });
 
-test('a metadata write over the bridge keeps the gallery a favorite', async () => {
+test('a metadata write over the bridge keeps the gallery a favorite — the person\'s own mark, not its metadata', async () => {
   const api = await import('../js/api.js');
   const metaPut = api.meta.put, metaGet = api.meta.get;
-  await metaPut({ galleryId: '4343', title: { english: 'Old', japanese: '', pretty: 'Old' }, tags: [], favorite: true });
+  await metaPut({ galleryId: '4343', title: { english: 'Old', japanese: '', pretty: 'Old' }, tags: [] });
+  await api.personal.favorite('4343', true);
 
   const replies = hello(EXT_ORIGIN, SECRET);
   await tick();
@@ -159,7 +160,8 @@ test('a metadata write over the bridge keeps the gallery a favorite', async () =
   _openPorts.push(port);
   const res = await callOverPort(port, 'meta_put', { meta: { galleryId: '4343', title: { english: 'Fresh', japanese: '', pretty: 'Fresh' }, tags: [] } });
   assert.equal(res.ok, true);
-  assert.equal((await metaGet('4343')).favorite, true);
+  assert.equal((await api.personal.get('4343')).favorite, true);
+  assert.equal((await metaGet('4343')).favorite, undefined, 'never in the metadata');
 });
 
 async function session() {
@@ -235,7 +237,8 @@ test('a source whose references are not numbers resolves and serves its gallerie
 test("a page can carry its own gallery's metadata — never another gallery's", async () => {
   const api = await import('../js/api.js');
   const metaPut = api.meta.put, metaGet = api.meta.get, galleryGet = api.galleries.get;
-  await metaPut({ galleryId: '5151', favorite: true });   // a placeholder the user already favorited
+  await metaPut({ galleryId: '5151' });   // a placeholder the user already favorited
+  await api.personal.favorite('5151', true);
   const port = await session();
   const title = { english: 'Arrived', japanese: '', pretty: 'Arrived' };
 
@@ -247,7 +250,7 @@ test("a page can carry its own gallery's metadata — never another gallery's", 
   assert.equal(res.data.metaStored, true, 'the caller learns the metadata was taken');
   const meta = await metaGet('5151');
   assert.equal(meta.title.english, 'Arrived');
-  assert.equal(meta.favorite, true, 'app-only fields survive, as with meta_put');
+  assert.equal((await galleryGet('5151')).favorite, true, 'the favorite stays, as with meta_put');
   assert.equal((await galleryGet('5151')).count, 1);
 
   const crossed = await callOverPort(port, 'store_page', {

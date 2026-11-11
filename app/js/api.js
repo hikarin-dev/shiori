@@ -9,7 +9,8 @@
 //     (unless asked to be `silent`) — callers never announce a change themselves, except to end
 //     a run of silent writes (events.announce);
 //   • the library works out page counts, sizes, sort times, cover pages and series totals itself
-//     (gallery-model.js DERIVED_FIELDS); a change naming one is refused;
+//     (gallery-model.js DERIVED_FIELDS); a change naming one is refused, as is one naming a personal
+//     mark (storage/personal.js: those are `personal`'s);
 //   • pages are addressed by (gallery id, page number); a page's `url` is the key it is stored
 //     under, a name for it, not its address;
 //   • a refused command rejects with a BackendError whose `code` says why (backend-error.js).
@@ -19,6 +20,7 @@ import * as desktopLibrary from './desktop-backend.js';
 import * as platform from './platform.js';
 import { BackendError } from './backend-error.js';
 import { DERIVED_FIELDS } from './gallery-model.js';
+import { PERSONAL_FIELDS } from './storage/personal.js';
 
 export { BackendError };
 
@@ -115,6 +117,8 @@ function _typed(group) {
 function _metadataOnly(patch) {
   const derived = Object.keys(patch || {}).filter(k => DERIVED_FIELDS.has(k));
   if (derived.length) throw new BackendError('invalid', `the library works out ${derived.join(', ')} itself`);
+  const marks = Object.keys(patch || {}).filter(k => PERSONAL_FIELDS.includes(k));
+  if (marks.length) throw new BackendError('invalid', `${marks.join(', ')} is a personal mark (api.personal)`);
 }
 
 // ── Galleries ──
@@ -245,6 +249,20 @@ export const meta = _typed({
   put: (record, opts) => backend.metaPut(record, opts),
 });
 
+// ── The person's own marks ──
+// What the person marked on a gallery for themselves (storage/personal.js): { favorite?, page?,
+// pages?, readAt?, finished? }. Kept by this library alone — never in a gallery's folder, so a folder
+// another library adds carries none — and carried by backups, a library's move and an export. A
+// gallery's entity shows its favorite; a favorite's change is announced as the gallery's, reading
+// progress isn't.
+export const personal = _typed({
+  get: (gid) => backend.personalGet(_gid(gid)),          // its marks, or null
+  all: () => backend.personalAll(),                       // Map gid → marks (search reads favorites)
+  favorite: (gid, on) => backend.personalSet(_gid(gid), { favorite: !!on }),
+  // Page `page` of the `pages` it has read now — where the person left off (the reader resumes there).
+  read: (gid, page, pages) => backend.personalSet(_gid(gid), { read: { page: Number(page), pages: Number(pages) } }),
+});
+
 // ── Series ──
 export const series = _typed({
   resolve:  (gid) => backend.seriesResolve(gid),
@@ -284,7 +302,7 @@ export const pages = _typed({
 const _at = (gid, n) => ({ galleryId: _gid(gid), pageNum: Number(n) });
 export const derived = _typed({
   // `source`: the page's token (pages.sources) the translation was made from; kept only while the page
-  // still shows that picture.
+  // still shows that picture. Resolves { stale }: true when it was refused for that (nothing written).
   putTranslation:     (gid, n, { image, pipeline, own, source } = {}) => backend.putTranslatedPage(_at(gid, n), image, pipeline, own, source),
   putTranslatedImage: (gid, n, image) => backend.putTranslatedImage(_at(gid, n), image),
   putStudy:           (gid, n, study, job) => backend.putPageStudy(_at(gid, n), study, job),
@@ -320,7 +338,9 @@ export const diskWrites = _typed({
 // ── Transfer: a gallery's records exactly as stored (backup, restore, moving a library) ──
 export const transfer = _typed({
   ids:   () => backend.transferIds(),
-  // { meta, stat, pages, cover }; with { pages: false } only its metadata and stat record.
+  // { meta, stat, pages, cover, personal }; with { pages: false } only its metadata, stat record and
+  // marks. Written, `personal` replaces the gallery's marks (left out: an earlier version's bundle,
+  // whose metadata's favorite is taken in).
   read:  (gid, opts) => backend.transferRead(gid, opts),
   // The gallery whole or not at all → { pages } stored. Refuses a page with no number or picture,
   // and (`conflict`) one whose key another gallery's page is stored under.

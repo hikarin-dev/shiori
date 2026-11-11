@@ -18,6 +18,7 @@
 
 import { isValidGalleryId } from './sanitize.js';
 import { BUBBLE_EXTRA_FIELDS } from './storage/gallery-files.js';
+import { marksOf } from './storage/personal.js';
 
 export const FORMAT = 'shiori-db';
 export const VERSION = 9;
@@ -203,7 +204,7 @@ const toBlob = (v) => v instanceof Blob ? v : (typeof v === 'string' ? dataUrlTo
 // One gallery's records as a gallery entry, its pictures collected: { entry, pictures }, each
 // picture { blob, place(spec), what } — `place` puts its reference where it belongs once written
 // (null: it couldn't be read).
-function galleryEntry(gid, { meta = null, stat = null, cover = null, pages = [] }) {
+function galleryEntry(gid, { meta = null, stat = null, cover = null, pages = [], personal = null }) {
   const pictures = [];
   const missing = [];
   const add = (value, what, place) => {
@@ -241,7 +242,8 @@ function galleryEntry(gid, { meta = null, stat = null, cover = null, pages = [] 
       });
     }
   }
-  const entry = { galleryId: gid, meta, stat, cover: null, pages: entries };
+  // The person's own marks travel with the library's backup (storage/personal.js).
+  const entry = { galleryId: gid, meta, stat, cover: null, pages: entries, ...(marksOf(personal) ? { personal: marksOf(personal) } : {}) };
   if (cover) {
     entry.cover = {};
     if (cover.cover != null) add(cover.cover, { part: 'cover' }, (s) => { if (s) entry.cover.body = s; });
@@ -407,7 +409,7 @@ function _assertIds(meta) {
 // One gallery's records checked and turned into what the library writes: { bundle, checks,
 // missing, pages, bytes } — `checks` the pictures with their checksums ({ blob, h }), `missing` the
 // pages that had no picture. `keys` (shared across the file) catches a page key two galleries use.
-function _gallery(gid, { meta, stat, cover, pages, missing: listed }, { file, end, hashed, keys }) {
+function _gallery(gid, { meta, stat, cover, pages, personal, missing: listed }, { file, end, hashed, keys }) {
   if (meta != null) {
     if (!isObj(meta)) throw new GalleryProblem('invalid', 'its details');
     if (String(meta.galleryId) !== gid) throw new GalleryProblem('invalid', 'its details name another gallery');
@@ -486,7 +488,10 @@ function _gallery(gid, { meta, stat, cover, pages, missing: listed }, { file, en
     bytes += (cover.body?.len || 0) + (cover.seriesBody?.len || 0);
   }
   if (!meta && !stat && records.length) throw new GalleryProblem('orphan', 'pages without their gallery');
-  return { bundle: { galleryId: gid, meta, stat, pages: records, cover: coverRec }, checks, missing, pages: records.length, bytes };
+  // A backup made before the person's marks had a store of their own carries none: the favorite its
+  // metadata kept is taken in as it is restored (transfer write).
+  const marks = personal === undefined ? {} : { personal: marksOf(personal) };
+  return { bundle: { galleryId: gid, meta, stat, pages: records, cover: coverRec, ...marks }, checks, missing, pages: records.length, bytes };
 }
 
 // A backup file opened for reading: its footer and index read and checked, nothing restored.

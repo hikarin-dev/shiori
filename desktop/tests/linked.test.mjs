@@ -3,8 +3,8 @@
 // (a series when its pictures sit in folders), each PDF a gallery once a window draws its pages —
 // read where they are, never written, moved, archived or deleted; what Shiori adds kept in each one's
 // overlay (.shiori/linked/<gid>/). Removed from the library, a gallery leaves its files and isn't added
-// again; renamed outside the app, it is found again; moved to another folder, it becomes a gallery of
-// its own there.
+// again; renamed outside the app, it joins as a new gallery and the one that was there shows as
+// missing (plan D5); moved to another folder, it becomes a gallery of its own there.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
@@ -84,13 +84,24 @@ test('a folder of what Shiori didn\'t make is used as it is: galleries read in p
   assert.ok(!fs.existsSync(overlay), 'its overlay goes');
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(pack, '.shiori', 'linked', 'removed.json'), 'utf8')).removed.map(r => r.path), ['Pack/[Circle (Artist A)] Title One (Mag 2020).zip']);
   assert.equal((await library.folderScan(id)).added, 0);
-  // Renamed outside the app: found again by its fingerprint — the same gallery, its overlay kept.
+  // Renamed outside the app (D5): another source — it joins as a new gallery, and the one that was
+  // there shows as missing, its overlay (what the library added to it) kept until it is deleted.
   const loose = by['Loose Title'].id;
+  await library.files.describe(loose, { all: true });
+  const looseOverlay = path.join(pack, '.shiori', 'linked', loose);
   fs.renameSync(path.join(pack, 'Loose Title'), path.join(pack, 'Loose Renamed'));
-  assert.deepEqual(await library.folderScan(id), { added: 0, updated: 1, problems: [], stopped: false });
-  const renamed = await library.getGallery(loose);
-  assert.deepEqual([renamed.linked.path, renamed.count, renamed.missing], ['Loose Renamed', 2, undefined]);
-  assert.deepEqual(await bytesOf(await library.getPageBlob(loose, 2)), [...pngBytes(32)]);
+  assert.deepEqual(await library.folderScan(id), { added: 1, updated: 0, problems: [], stopped: false });
+  const old = await library.getGallery(loose);
+  assert.deepEqual([old.linked.path, old.missing], ['Loose Title', true], 'the gallery that was there is missing');
+  assert.ok(fs.existsSync(path.join(looseOverlay, 'source.json')), 'its overlay kept');
+  const renamed = (await library.getGalleriesByIds(library._s('SELECT gid FROM stats').all().map(r => r.gid))).find(e => e.linked?.path === 'Loose Renamed');
+  assert.deepEqual([renamed.count, renamed.id === loose, renamed.missing], [2, false, undefined]);
+  assert.deepEqual(await bytesOf(await library.getPageBlob(renamed.id, 2)), [...pngBytes(32)]);
+  // Deleted, the missing gallery takes its overlay along; the renamed files stay, the new gallery's.
+  await library.deleteGallery(loose);
+  await new Promise(r => setTimeout(r, 100));
+  assert.ok(!fs.existsSync(looseOverlay), 'its overlay goes with it');
+  assert.equal((await library.getGallery(renamed.id)).count, 2);
   // Moved to another library folder: a gallery of its own there; its files stay where they were.
   const inner = by['Inner Title'].id;
   await library.moveGallery(inner, library.primaryId);
