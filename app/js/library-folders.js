@@ -360,12 +360,16 @@ export async function initLibraryFolders() {
   platform.control.on((msg) => { if (msg?.type === 'FOLDERS_CHANGED') render(); });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') render(); });
 
-  // Adding: the folder's row shows at once, and its check goes on in the background.
+  // Adding: the folder's row shows at once, and its check goes on in the background. A click while
+  // the folder picker is still opening does nothing (the browser would refuse a second picker).
+  let picking = false;
   $('lfAdd')?.addEventListener('click', async () => {
+    if (picking) return;
+    picking = true;
     let target = null;
     try {
       target = manage === 'pick' ? await globalThis.showDirectoryPicker({ id: 'shiori-library', mode: 'readwrite' }) : await shell('pickLibraryFolder');
-    } catch (err) { if (err?.name !== 'AbortError') failed(err); return; }
+    } catch (err) { if (err?.name !== 'AbortError') failed(err); return; } finally { picking = false; }
     if (!target) return;
     const name = target.name || String(target).split(/[\\/]/).filter(Boolean).pop() || String(target);
     const key = `adding-${Date.now()}`;
