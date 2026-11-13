@@ -53,6 +53,8 @@
 import { disk, physicallyIn, containedWhole, replaceFile, tempBeside, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, undescribedAt, bindIn, ioFailures, there, filesIn, ownedIn } from './folder-store.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { pathToFileURL } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 import { readDirectory, directoryEnd, readEntry, writeZip, appendZip } from './zip.js';
 import { files as layout, galleryExport, linked as linkedSource, content, titles, contract, manifest as format, BackendError } from './shared.js';
 
@@ -257,8 +259,8 @@ function writeId(libraryDir, id) {
 // - it has none, and one library's note names this very folder: that library, its library.json written
 //   back (the person deleted it);
 // - it has none, and it was `chosen` by the person just now, or nothing on this computer may have been
-//   kept there (no note names its path, no index is older than the notes): a new library, its folder
-//   made if need be;
+//   kept there (no note names its path, no index is older than the notes; one v1.0.13 or v1.0.14 made
+//   is not, see earlierIndex): a new library, its folder made if need be;
 // - otherwise refused, nothing written (BackendError 'unavailable'): reason 'missing' when no folder is
 //   at the path (its drive not connected, or the folder gone), 'unknown' when a folder is there that
 //   can't be told to be the library's (another drive at its letter, a copy of the folder, or one an index
@@ -282,16 +284,34 @@ export async function firstLibrary(librariesDir, libraryDir, { chosen = false } 
 // Folder `dir`'s number on its volume: null where the system gives none.
 const folderNumber = (st) => (st.ino ? `${st.dev}:${st.ino}` : null);
 // Every library's note on this computer: { id, path, folder }, or { id, path: null } for an index
-// without a note that can be read (one older than the notes).
+// without a note that can be read (one older than the notes), unless v1.0.13 or v1.0.14 made it.
 async function notesIn(librariesDir) {
   const ids = await disk.readdir(librariesDir).catch((e) => { if (e?.code === 'ENOENT') return []; throw e; });
   const out = [];
   for (const id of ids.filter(n => /^[0-9a-f]{16}$/.test(n))) {
     const note = await disk.readFile(path.join(librariesDir, id, FIRST_NOTE), 'utf8').then(JSON.parse).catch(() => null);
+    const index = path.join(librariesDir, id, 'library.db');
     if (typeof note?.path === 'string') out.push({ id, path: note.path, folder: note.folder ?? null });
-    else if (disk.existsSync(path.join(librariesDir, id, 'library.db'))) out.push({ id, path: null });
+    else if (disk.existsSync(index) && !earlierIndex(index)) out.push({ id, path: null });
   }
   return out;
+}
+// Whether index `file` was made by v1.0.13 or v1.0.14. Those named an index by a hash of its folder's
+// path and never wrote a library.json, and v1.1.0 started a new index for every folder rather than carry
+// theirs over: no library can be opened from one, so a folder it was kept in starts a library, as it
+// has since v1.1.0. Told by its change log, which only those versions had SQLite number (AUTOINCREMENT;
+// library.js numbers it itself since v1.1.0, the version that brought library ids). Read as it is on
+// disk (`immutable`: SQLite makes no -wal or -shm beside it), so one whose tables never left its -wal
+// (those versions killed every time before their first checkpoint) isn't told; it counts, as does one
+// that can't be read.
+function earlierIndex(file) {
+  const url = pathToFileURL(file);
+  url.search = 'immutable=1';
+  let db = null;
+  try {
+    db = new DatabaseSync(url, { readOnly: true });
+    return /AUTOINCREMENT/i.test(db.prepare(`SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'changes'`).get()?.sql ?? '');
+  } catch { return false; } finally { db?.close(); }
 }
 // Library `id` noted as opened from folder `dir` (written only when that changed); resolves `id`.
 async function noteFirst(librariesDir, id, dir) {
