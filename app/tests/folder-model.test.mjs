@@ -24,7 +24,8 @@
 // (S10) the folder's drive given to another library, or a gallery's folder swapped for another's, a
 // moment after a write; a gallery's folder renamed, then the gallery deleted; and the desktop's
 // archives — an addition cut short and the folder taken over by the website before it was cut back,
-// one unpacked by the website while it had the folder taken over, one the person added a file to.
+// one unpacked by the website while it had the folder taken over, one the person added a file to; and
+// (S11) one file call answering "not found" during a write, a retitle or a deletion.
 //
 // The base commands find nothing on today's code. The others (OPEN) each run beside them in a run of
 // their own, marked todo on an app where they find something today's code gets wrong — with the step
@@ -398,6 +399,29 @@ const OPEN = {
   // A translation written, and flushed, while the disk refuses every delete in the folder. Aimed at T05
   // (one replaced in another format is read from the old file once the folder is read back), which
   // the fixed seeds don't reach yet; the hand-over tests find it.
+  // One file call answering "not found" (S11, review 4: NotFoundError, ENOENT — a drive away for a
+  // moment), the k-th of a page stored again, a translation, a retitle or a deletion and the flush after
+  // it. The change may be refused (then nothing changes); nothing is deleted or forgotten for it.
+  notFound: { todo: {}, commands: [command('notFoundOnce', fc.tuple(fc.integer({ min: 1, max: 40 }), anyGallery, fc.constantFrom('putPage', 'putTranslation', 'setTitle', 'deleteGallery')), {
+    check: (m, [, i]) => m.state === 'shown' && !!galleryAt(m, i, g => g.place === 'A' && !g.zip && !g.pdf && !g.displaced && g.pages.length > 0),
+    async run(m, r, [k, i, what]) {
+      const g = /** @type {Gallery} */ (galleryAt(m, i, g => g.place === 'A' && !g.zip && !g.pdf && !g.displaced && g.pages.length > 0));
+      const bytes = png(++m.tag), name = `T${m.tag}`;
+      let n = 0;
+      const undo = r.lib.app === 'website' ? fsa.failNext(() => ++n === k, 'NotFoundError') : faults.failNext(() => ++n === k, 'ENOENT');
+      try {
+        const work = { putPage: () => r.lib.putPage(g.gid, 1, bytes), putTranslation: () => r.lib.putTranslation(g.gid, 1, bytes),
+          setTitle: () => r.lib.setTitle(g.gid, name), deleteGallery: () => r.lib.deleteGallery(g.gid) }[what];
+        if (await attempt(true, work)) {
+          if (what === 'putPage') g.pages[0] = { original: bytes, translated: null };
+          else if (what === 'putTranslation') g.pages[0] = translatedAs(g.pages[0], bytes);
+          else if (what === 'setTitle') g.title = name;
+          else { m.galleries = m.galleries.filter(x => x !== g); m.deleted.add(g.gid); }
+        }
+        await r.lib.flush().catch(() => {});   // what couldn't be written is tried again later
+      } finally { undo(); }
+    },
+  })] },
   deletes: { todo: {}, commands: [command('writeDeletesRefused', fc.tuple(anyGallery, fc.nat(1), fc.boolean()), {
     check: (m, [i]) => m.state === 'shown' && !!galleryAt(m, i, g => g.place === 'A' && !g.displaced && g.pages.length > 0),
     async run(m, r, [i, k, inWebp]) {

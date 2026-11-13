@@ -76,6 +76,7 @@ export async function desktopFixture(dir) {
 
 const PURPOSES = /** @type {const} */ (['read', 'write', 'removal', 'claim']);
 const png = (...tag) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, ...tag]);
+const webp = (...tag) => new Uint8Array([0x52, 0x49, 0x46, 0x46, ...tag]);
 const otherId = () => [...crypto.getRandomValues(new Uint8Array(8))].map(b => b.toString(16).padStart(2, '0')).join('');
 // What open() answers for each purpose: { read: 'ok' | refusal, … }.
 async function answers(/** @type {Fixture['store']} */ store, /** @type {any} */ ref) {
@@ -872,6 +873,87 @@ export const CASES = [
       fs.renameSync(path.join(dir, 'One aside'), at);
       await fx.lib.flush();
       assert.deepEqual([await fx.lib.read(one, 1), await fx.lib.read(one, 2), await fx.lib.read(one, 3)], [png(1), png(3), png(4)]);
+    },
+  },
+  // ── "Not found" is not proof (review 4: F1, F3, F9) ──
+  // A drive away for a moment answers "not found" for what is there: such an answer, with the next call
+  // working again, must never delete anything or change what the library records.
+  {
+    // F1 (review 4, the website): a listing of the pictures' folder that answered "not found" was taken
+    // for an empty folder, which the tidy-up after a picture retired deleted with everything in it.
+    name: 'review 4 F1: a listing of a gallery\'s pictures that answers "not found" once deletes none of them',
+    platforms: ['website'],
+    async run({ dir, fx }) {
+      await fx.register('A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 3; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.flush();
+      await fx.lib.putPage(gid, 1, webp(9), 'image/webp');   // downloaded again in another format: its old picture retires
+      fsa.failNext((c) => c.op === 'entries' && c.path === 'Alpha/images', 'NotFoundError', { times: 1 });
+      await fx.lib.flush();
+      assert.deepEqual([await fx.lib.read(gid, 1), await fx.lib.read(gid, 2), await fx.lib.read(gid, 3)], [webp(9), png(2), png(3)]);
+      assert.deepEqual(fs.readdirSync(path.join(dir, 'A', 'Alpha', 'images')).sort(), ['0001.webp', '0002.png', '0003.png']);
+    },
+  },
+  {
+    // F1 (review 4, the website): the same at the end of a gallery's deletion took the person's file in
+    // its folder with it.
+    name: 'review 4 F1: a listing of a deleted gallery\'s folder that answers "not found" once leaves the person\'s file in it, reported',
+    platforms: ['website'],
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 3; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.flush();
+      const mine = path.join(dir, 'A', 'Alpha', 'my-notes.txt');
+      fs.writeFileSync(mine, 'the person\'s own file');
+      fsa.failNext((c) => c.op === 'entries' && c.path === 'Alpha', 'NotFoundError', { times: 1 });
+      await fx.lib.deleteGallery(gid);
+      await fx.lib.flush();
+      await until(async () => (await fx.lib.list()).find(f => f.id === ref.id).attention.some(a => a.reason === 'left'));
+      assert.equal(fs.readFileSync(mine, 'utf8'), 'the person\'s own file');
+      assert.deepEqual(await fx.lib.galleries(), []);
+    },
+  },
+  {
+    // F3 (review 4): one description's read answering "not found" during a deletion left it there,
+    // naming the gallery, while the deletion was recorded done; the next check brought the gallery back.
+    name: 'review 4 F3: a deletion in which a description\'s read answers "not found" once stays recorded until the folder no longer names the gallery, which never comes back',
+    async run({ dir, fx, platform }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 3; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.flush();
+      if (platform === 'desktop') faults.failNext((c) => c.op === 'readFile' && c.path.endsWith('/A/Alpha/metadata.json'), 'ENOENT', { times: 1 });
+      else fsa.failNext((c) => c.op === 'getFile' && c.path === 'Alpha/metadata.json', 'NotFoundError', { times: 1 });
+      await fx.lib.deleteGallery(gid);
+      await fx.lib.flush();
+      await new Promise(r => setTimeout(r, 300));   // what a deletion leaves to do, once it commits
+      assert.deepEqual(await fx.lib.galleries(), []);
+      for (let i = 0; i < 2; i++) {
+        const found = await fx.lib.scan(ref.id);
+        assert.deepEqual([found.added, await fx.lib.galleries()], [0, []], 'the deleted gallery never comes back');
+      }
+      assert.ok(!fs.existsSync(path.join(dir, 'A', 'Alpha')), 'its folder deleted once its files read again');
+    },
+  },
+  {
+    // F9 (review 4, the desktop): a retiring picture whose deletion answered "not found" was forgotten,
+    // left behind archiving, and the next check added its folder as a new gallery.
+    name: 'review 4 F9: a picture an archiving retires whose deletion answers "not found" once is kept on record and deleted later, never joining as a gallery',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 3; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.flush();
+      faults.failNext((c) => c.op === 'rm' && c.path.endsWith('/A/Alpha/images/0002.png'), 'ENOENT', { times: 1 });
+      assert.deepEqual((await fx.lib.raw.archiveGallery(gid)).archived, [gid]);
+      await new Promise(r => setTimeout(r, 300));
+      const found = await fx.lib.scan(ref.id);
+      assert.deepEqual([found.added, await fx.lib.galleries()], [0, [gid]], 'nothing joins from what was left');
+      await until(() => !fs.existsSync(path.join(dir, 'A', 'Alpha')));
+      assert.deepEqual(await fx.lib.read(gid, 2), png(2));
     },
   },
   // ── Generations travel with the work (principle 7) ──

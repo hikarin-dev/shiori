@@ -26,6 +26,16 @@ const APP_JS = new URL('../js/', import.meta.url).href;
 const ONCE = new Set([`${APP_JS}disk-writes.js`]);
 const RESTARTS_AT_MOST = 400;
 let generation = 0;
+/** The website's page loaded now (its generation), and the page whose app module is calling now (null:
+ * a caller outside app/js) — the sweeps tell a page that died from the one loaded after it. */
+export const pageNow = () => generation;
+export const pageCalling = () => {
+  for (const line of String(new Error().stack).split('\n')) {
+    const at = line.match(/(file:\/\/\/[^\s)]+?)(\?gen=(\d+))?:\d+:\d+\)?$/);
+    if (at && at[1].startsWith(APP_JS)) return Number(at[3] ?? 0);
+  }
+  return null;
+};
 let hooked = false;
 // The generation of the app module that called (the first frame of `stack` past this file's), or null
 // for a caller outside app/js.

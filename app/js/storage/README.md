@@ -108,3 +108,10 @@ when an addition to it was cut short. A deletion whose gallery's folder isn't wh
 finished where a check meets the folder; an archive holding a file of the person's
 (`gallery-manifest.js` foreignEntries) is never deleted or written again whole, and is never adopted
 again once its gallery is deleted; a copy of a gallery's folder is reported ('duplicate').
+
+Since S11 ("not found" is not proof): an answer of "not found", which a drive away for a moment gives
+for what is there, deletes nothing and changes no record until a second look agrees (`contract.js`
+surelyMissing); a listing that can't be made says so; the website deletes no folder with what is in it
+(the browser refuses a folder that isn't empty) and deletes only what it named; and a gallery's
+deletion is done only once its folder no longer names it. Review 4's fault sweeps are kept as a test
+(`app/tests/folder-sweep.test.mjs`).

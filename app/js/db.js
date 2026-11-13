@@ -833,11 +833,13 @@ const _homeFields = (home, left) => (!home ? {} : { folder: home.folder, ...(hom
 
 // Gallery `gid`'s own folder in folder `folder`, named after it (or `base`, a path in the folder) and
 // bound to it by its first generation (folderFiles.reserveDir: the only way a folder becomes a
-// gallery's) — noted for write `w`, which deletes it should it not commit. Resolves its name.
+// gallery's; never at a name a deletion still waits on) — noted for write `w`, which deletes it should
+// it not commit. Resolves its name.
 async function _reserveDir(gid, folder, root, meta, w, base = null) {
   const m = migrateTitle({ ...(meta || await metaGet(gid) || {}), galleryId: String(gid) });
-  const dir = await folderFiles.reserveDir(folder, root, base || galleryName(m), JSON.stringify(m, null, 2), { gid: String(gid), writer: await _me() });
-  w?.made.push({ folder, root, path: dir, dir: true });
+  const taken = new Set((await _deletions(folder)).map(d => d.dir));   // a deletion still waits there
+  const dir = await folderFiles.reserveDir(folder, root, base || galleryName(m), JSON.stringify(m, null, 2), { gid: String(gid), writer: await _me(), taken });
+  w?.made.push({ folder, root, path: dir, dir: true, gid: String(gid) });
   return dir;
 }
 // Whether `dir` in a folder is gallery `gid`'s own: it names it (folderFiles.galleryIn: its manifest,
@@ -1018,12 +1020,21 @@ async function _writing(gid, fn) {
     try { return await fn(w); } finally { if (!w.committed || !w.kept) await _discard(w.made); }
   });
 }
-// What a write made, deleted: its files, and a folder it reserved, with everything in it.
+// What a write made, deleted: its files, and a folder it reserved by name (folderFiles.deleteGalleryIn:
+// the files the write put there, then what its reservation wrote), so the folder names the gallery
+// until every picture in it is gone — one that can't be deleted now never leaves a folder of pictures
+// naming no gallery, for a check to add as new.
 async function _discard(made) {
-  for (const m of made.splice(0).reverse()) {
+  const all = made.splice(0).reverse();
+  const reserved = all.filter(m => m.dir);
+  const inside = (m) => reserved.find(r => r.folder === m.folder && m.path.startsWith(`${r.path}/`));
+  for (const m of all) {
     if (m.blob) _fileOf.delete(m.blob);
     if (m.file) _fileOf.delete(m.file);
-    await (m.dir ? folderFiles.removeDir(m.folder, m.root, m.path) : folderFiles.removeFile(m.folder, m.root, m.path)).catch(() => {});
+    if (m.dir) {
+      const named = all.filter(f => !f.dir && inside(f) === m).map(f => ({ name: f.path.slice(m.path.length + 1), size: f.file?.size, mtime: f.file?.lastModified }));
+      await folderFiles.deleteGalleryIn(m.folder, m.root, m.path, m.gid, named).catch(() => {});
+    } else if (!inside(m)) await folderFiles.removeFile(m.folder, m.root, m.path).catch(() => {});
   }
 }
 
@@ -1120,8 +1131,8 @@ function _afterFiles(tx) {
   return tx._afterFiles;
 }
 async function _unlink({ dirs }, work) {
-  // A linked gallery's overlay goes once its note is written; what of it waited to retire goes with it.
-  for (const { folder, dir, linked } of dirs) if (linked) await _forgetRetiring(folder, dir).catch(() => {});
+  // A linked gallery's overlay goes once its note is written, by name with what of it waited to retire
+  // (_publishRemoved).
   for (const folder of new Set(dirs.filter(d => !d.linked).map(d => d.folder))) await _applyDeletions(folder, work).catch(() => {});
   for (const folder of new Set(dirs.filter(d => d.linked).map(d => d.folder))) await _publishRemoved(folder, work);
 }
@@ -1218,7 +1229,7 @@ async function _deleteDir(folder, root, dir, gid, named) {
   if (!file) return folderFiles.deleteGalleryIn(folder, root, dir, gid, await named());
   if (!(await _ownsDir(folder, root, dir, gid))) return true;
   if (!(await _archiveOnlyOwn(folder, root, dir))) return 'left';
-  await folderFiles.removeDir(folder, root, dir);
+  await folderFiles.removeFile(folder, root, dir);
   return true;
 }
 // The files of gallery folder `dir` in folder `folder` waiting to retire (_unlinkLater), as stored.
@@ -1342,9 +1353,17 @@ async function _publishRemoved(id, work = null, also = []) {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(_txError(tx));
     });
-    for (const n of notes) if (await _ownsDir(id, root, n.dir, n.gid)) await folderFiles.removeDir(id, root, n.dir).catch(() => {});
+    for (const n of notes) await _deleteOverlay(id, root, n.dir, n.gid);
     return true;
   }).catch(() => false);
+}
+// Linked gallery `gid`'s overlay `dir` in folder `id` deleted by name (folderFiles.deleteGalleryIn:
+// the files the library recorded writing there — what of it waited to retire — and those its manifest
+// names, its descriptions and its source.json while they name it), then those records forgotten.
+async function _deleteOverlay(id, root, dir, gid) {
+  const named = (await _retiringOf(id, dir).catch(() => [])).map(r => ({ name: r.path, size: r.size, mtime: r.mtime }));
+  await folderFiles.deleteGalleryIn(id, root, dir, gid, named).catch(() => {});
+  await _forgetRetiring(id, dir).catch(() => {});
 }
 
 // ── A gallery's publication in its folder ──
@@ -3756,7 +3775,7 @@ export async function clearAll({ folders = false } = {}) {
   for (const g of gone) {
     const root = roots.get(g.folder);
     if (!root) continue;
-    if (g.linked) { if (await _ownsDir(g.folder, root, g.dir, g.gid).catch(() => false)) await folderFiles.removeDir(g.folder, root, g.dir).catch(() => {}); }
+    if (g.linked) await folderFiles.deleteGalleryIn(g.folder, root, g.dir, g.gid, g.named).catch(() => {});
     else if (folders) await _deleteDir(g.folder, root, g.dir, g.gid, async () => g.named).catch(() => {});
   }
   _foldersChanged();

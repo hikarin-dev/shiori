@@ -27,7 +27,7 @@
 // library's gate has it (its handle, its state, this page's permission, whether the handle reaches it,
 // whether this library holds its claim) and hands out a Root, whose galleries and reservations work as
 // the library does.
-import { refused, MISSING, unreadable } from './contract.js';
+import { refused, MISSING, unreadable, surelyMissing } from './contract.js';
 import { MANIFEST_FILE, OWN_FILES, LIBRARY_FILE, galleryAt, libraryIdOf } from './folder-content.js';
 import { refusalFor } from './folder-lifecycle.js';
 import { SOURCE_FILE, parseSource } from './linked-source.js';
@@ -195,27 +195,36 @@ export async function readText(id, root, path) {
   }
 }
 
-/** The file at `path` deleted (nothing when it isn't there).
+/** An answer of "not found" (`e`) for `path` that is to be taken: thrown unless a second look agrees
+ * (contract.js surelyMissing).
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @param {unknown} e */
+async function _gone(id, root, path, e) {
+  if (_nameOf(e) !== 'NotFoundError') throw e;
+  _forget(id, _parts(path).join('/'));
+  if ((await surelyMissing(() => isThere(id, root, path), e)).kind !== 'missing') throw e;
+}
+
+/** The file at `path` deleted (nothing when it isn't there: a second look agreeing).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @returns {Promise<void>} */
 export async function removeFile(id, root, path) {
   const [dir, name] = _split(path);
-  try { await (await _dir(id, root, dir, false)).removeEntry(name); } catch (e) {
-    if (_nameOf(e) !== 'NotFoundError') throw e;
-  }
+  try { await (await _dir(id, root, dir, false)).removeEntry(name); } catch (e) { await _gone(id, root, path, e); }
 }
 
-/** The folder at `path` deleted with everything in it (nothing when it isn't there).
+/** The folder at `path` deleted once it holds nothing (nothing when it isn't there: a second look
+ * agreeing). Never with what is in it: the browser refuses a folder that holds anything
+ * (InvalidModificationError, thrown), so a listing that was wrong, or a file put there meanwhile,
+ * deletes nothing (S11, review 4 F1). What is in a folder is deleted by name, each file Shiori's.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @returns {Promise<void>} */
 export async function removeDir(id, root, path) {
   const [dir, name] = _split(path);
   if (!name) return;
   _forget(id, _parts(path).join('/'));
-  try { await (await _dir(id, root, dir, false)).removeEntry(name, { recursive: true }); } catch (e) {
-    if (_nameOf(e) !== 'NotFoundError') throw e;
-  }
+  try { await (await _dir(id, root, dir, false)).removeEntry(name); } catch (e) { await _gone(id, root, path, e); }
 }
 
-/** What the folder at `path` holds (none when it isn't there).
+/** What the folder at `path` holds (none when it isn't there: a second look agreeing — a listing that
+ * can't be made says so, thrown, never taken for an empty folder).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} [path] @returns {Promise<Listed[]>} */
 export async function list(id, root, path = '') {
   /** @type {Listed[]} */
@@ -224,7 +233,11 @@ export async function list(id, root, path = '') {
     for await (const [name, handle] of (await _dir(id, root, path, false)).entries()) {
       out.push({ name, kind: handle.kind, file: () => /** @type {FileSystemFileHandle} */ (handle).getFile() });
     }
-  } catch (e) { if (_nameOf(e) !== 'NotFoundError') throw e; }
+  } catch (e) {
+    if (!_split(path)[1]) throw e;   // the folder itself
+    await _gone(id, root, path, e);
+    return [];
+  }
   return out;
 }
 
@@ -263,13 +276,15 @@ export function withLock(name, fn) {
  * one folder: its first generation published there (gallery-manifest.js firstGeneration, by `writer`)
  * — its metadata.json (`metadata`, the gallery's description) first, so the folder names the gallery
  * from its first write, then stored by its content, then the manifest. The only way a folder becomes
- * a gallery's (contract.js reserve; principle 2). Resolves its name.
+ * a gallery's (contract.js reserve; principle 2). `taken`: names passed over though nothing may be
+ * there (a deletion still waits on them: a new folder there would be taken for the one it deletes).
+ * Resolves its name.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} base @param {string} metadata
- * @param {{ gid: string, writer: string }} gallery @returns {Promise<string>} */
-export function reserveDir(id, root, base, metadata, { gid, writer }) {
+ * @param {{ gid: string, writer: string, taken?: Set<string> }} gallery @returns {Promise<string>} */
+export function reserveDir(id, root, base, metadata, { gid, writer, taken = new Set() }) {
   return withLock(`shiori:dirs:${id}`, async () => {
     let name = base;
-    for (let i = 2; await isThere(id, root, name); i++) name = `${base} (${i})`;
+    for (let i = 2; taken.has(name) || await isThere(id, root, name); i++) name = `${base} (${i})`;
     const plan = await publication({ area: '.shiori/', prev: null, next: firstGeneration(gid, writer), texts: { 'metadata.json': metadata } });
     for (const s of plan.stable) if (s.text != null) await writeFile(id, root, _join(name, s.path), s.text);
     for (const w of plan.writes) await writeFile(id, root, _join(name, w.path), w.text, { within: name });
@@ -289,7 +304,15 @@ export function reserveDir(id, root, base, metadata, { gid, writer }) {
 export async function writeNew(id, root, dir, path, data) {
   let at = path;
   while (await isThere(id, root, `${dir}/${at}`)) at = path.replace(/(\.[^./]*)?$/, (ext) => `-${_randomPart()}${ext}`);
-  return { path: at, file: await writeFile(id, root, `${dir}/${at}`, data, { within: dir }) };
+  try { return { path: at, file: await writeFile(id, root, `${dir}/${at}`, data, { within: dir }) }; } catch (e) {
+    // A write that failed can leave a file at that name, where nothing was: the empty one
+    // getFileHandle({ create }) made, or the one written whole before a later call failed. Deleted too
+    // while it is one of those (empty, or as long as what was written), so nothing unrecorded stays —
+    // a folder whose reservation is undone keeps no picture for a check to add as new.
+    const size = typeof data === 'string' ? new Blob([data]).size : data.size;
+    await _fileAt(id, root, `${dir}/${at}`).then(f => (f && (!f.size || f.size === size) ? removeFile(id, root, `${dir}/${at}`) : undefined)).catch(() => {});
+    throw e;
+  }
 }
 const _randomPart = () => [...crypto.getRandomValues(new Uint8Array(4))].map(b => b.toString(16).padStart(2, '0')).join('');
 
@@ -385,9 +408,9 @@ export async function publishIn(id, root, dir, next, texts, { known } = {}) {
 
 /** The files `files` (paths in gallery folder `dir`, as Shiori recorded writing them: name, size,
  * modification time) deleted — each only while it is still as recorded (gallery-manifest.js
- * unchanged); one that differs was changed outside Shiori and is left, as is one that isn't there or
- * can't be checked, each reported in `kept` with why. A folder the deletions left empty goes too, up to
- * `dir` itself (principle 4).
+ * unchanged); one that differs was changed outside Shiori and is left, as is one that isn't there (a
+ * second look agreeing: contract.js surelyMissing) or can't be checked, each reported in `kept` with
+ * why. A folder the deletions left empty goes too, up to `dir` itself (principle 4).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir
  * @param {import('./contract.js').WrittenFile[]} files
  * @returns {Promise<{ deleted: string[], kept: { name: string, why: 'changed' | 'missing' | 'unreadable' }[] }>} */
@@ -402,7 +425,7 @@ export async function deleteNamedIn(id, root, dir, files) {
     const at = _join(dir, f.name);
     let file;
     try { file = await _fileAt(id, root, at); } catch { kept.push({ name: f.name, why: 'unreadable' }); continue; }
-    if (!file) { kept.push({ name: f.name, why: 'missing' }); continue; }
+    if (!file) { kept.push({ name: f.name, why: (await surelyMissing(() => isThere(id, root, at), 'not found')).kind === 'missing' ? 'missing' : 'unreadable' }); continue; }
     if (!unchanged(f, { size: file.size, mtime: file.lastModified })) { kept.push({ name: f.name, why: 'changed' }); continue; }
     try { await removeFile(id, root, at); deleted.push(f.name); emptied.add(_split(at)[0]); } catch { kept.push({ name: f.name, why: 'unreadable' }); }
   }
@@ -427,7 +450,7 @@ export async function deleteNamedIn(id, root, dir, files) {
  * isn't there — renamed or moved by hand, perhaps: F4). `dir` is a folder (an archive is the caller's).
  * Resolves whether the deletion is done — true, or 'left' when what it emptied still holds files: a
  * person's, or one changed since Shiori wrote it — 'missing', or is to be tried again (false: something
- * there couldn't be read or deleted now).
+ * there couldn't be read or deleted now, or the folder still names the gallery).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @param {string} gid
  * @param {{ name: string, size: number, mtime?: number | null }[]} named @returns {Promise<boolean | 'left' | 'missing'>} */
 export async function deleteGalleryIn(id, root, dir, gid, named) {
@@ -451,18 +474,25 @@ export async function deleteGalleryIn(id, root, dir, gid, named) {
       for (const e of await list(id, root, _join(dir, plan.stored))) if (e.kind === 'file') await drop(`${plan.stored}/${e.name}`);
       for (const rel of plan.identity) await drop(rel);
     } catch { return false; }
+    // Done only once the folder no longer names the gallery: a description whose read answered "not
+    // found", still there, names it yet — the deletion stays recorded, tried again (S11, review 4 F3).
+    const after = await galleryIn(id, root, dir, gid);
+    if (after.kind === 'ok' || after.kind === 'unreadable') return false;
   }
-  await _prune(id, root, dir);
-  // Pruned, it is gone unless something is left in it.
-  return (await list(id, root, dir).catch(() => [])).length ? 'left' : true;
+  if (await _prune(id, root, dir)) return true;
+  // Not pruned: something is left in it (a listing that can't be made: tried again, the folder there).
+  const left = await list(id, root, dir).catch(() => null);
+  return !left ? false : left.length ? 'left' : true;
 }
 /** The folders under `dir` left empty, then `dir` itself once it is, removed — as far as they can be.
- * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @returns {Promise<void>} */
+ * Resolves whether `dir` is gone.
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @returns {Promise<boolean>} */
 async function _prune(id, root, dir) {
   let entries;
-  try { entries = await list(id, root, dir); } catch { return; }
+  try { entries = await list(id, root, dir); } catch { return false; }
   for (const e of entries) if (e.kind === 'directory') await _prune(id, root, _join(dir, e.name));
-  if (!(await list(id, root, dir).catch(() => [null])).length) await removeDir(id, root, dir).catch(() => {});
+  if ((await list(id, root, dir).catch(() => [null])).length) return false;
+  return removeDir(id, root, dir).then(() => true, () => false);
 }
 
 /** The picture files gallery folder `dir` holds where the gallery format puts them (PICTURE_DIRS):

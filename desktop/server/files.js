@@ -50,7 +50,7 @@
 // are still as written (`retiring`, principle 4). An archive holds its manifest too, appended with the
 // descriptions it names.
 
-import { disk, physicallyIn, containedWhole, replaceFile, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, undescribedAt, bindIn, ioFailures } from './folder-store.js';
+import { disk, physicallyIn, containedWhole, replaceFile, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, undescribedAt, bindIn, ioFailures, there } from './folder-store.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { readDirectory, readEntry, writeZip, appendZip } from './zip.js';
@@ -251,10 +251,15 @@ export function identityAt(dir, id) {
   return content.libraryIdOf(text) === id ? 'ok' : 'other-library';
 }
 
-// Whether staged `file` is there. A picture is never flushed on its own (folder-store.js writeNewIn):
-// power loss is outside the fault model, and only the small manifest and descriptions are flushed.
+// Whether staged `file` is there (not: a second look agreeing, contract.js surelyMissing — one that
+// doesn't is thrown, the settle tried again). A picture is never flushed on its own (folder-store.js
+// writeNewIn): power loss is outside the fault model, and only the small manifest and descriptions are
+// flushed.
 async function present(file) {
-  try { return (await disk.stat(file)).isFile(); } catch (e) { if (e.code === 'ENOENT') return false; throw e; }
+  try { return (await disk.stat(file)).isFile(); } catch (e) {
+    if (e.code !== 'ENOENT' || (await contract.surelyMissing(() => there(file), e)).kind !== 'missing') throw e;
+    return false;
+  }
 }
 
 // A file moved to `to` where nothing is, synchronously — never over a file (principle 3: the caller
@@ -810,6 +815,9 @@ export class FileLibrary {
   // alone when it is given: [{ dir, gid }], `dir` a path as `files` has them — those `unfound` aside,
   // which wait for no one (F4).
   deletingIn(root = null) { return this._deletingRows(root).filter(d => !d.unfound); }
+  // The folders and archives of library folder `root` waiting to retire that no gallery has any more
+  // (`retiring` rows without one: _retire), as [{ dir }].
+  retiringIn(root) { return this.library._s('SELECT DISTINCT dir FROM retiring WHERE gid IS NULL').all().filter(r => this._split(r.dir).root === root); }
   _deletingRows(root = null) {
     return this.library._s('SELECT dir, gid, files, unfound FROM deleting').all().filter(d => root == null || this._split(d.dir).root === root);
   }

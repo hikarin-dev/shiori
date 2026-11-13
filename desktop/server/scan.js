@@ -236,7 +236,10 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
 
   // Leftovers of interrupted writes, and galleries' folders a deletion let go, in the folders the
   // library may write to. Those still waiting to be deleted aren't looked into (`skip`): never adopted
-  // again, whole or half deleted (N2, N4).
+  // again, whole or half deleted (N2, N4). Nor are those still waiting to retire, a gallery's no more
+  // (an archived gallery's old folder: a file whose deletion answered "not found" stays recorded, F9),
+  // which go first where they can.
+  await files._retire().catch(() => {});
   for (const id of reachable) {
     if (!library.folders.writable(id)) continue;
     out.removed += await sweepLeftovers(library, id);
@@ -266,7 +269,7 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   const loose = new Map();   // a library folder → what it holds outside Shiori's own galleries (linked.js)
   const place = (id, g) => ({ ...g, abs: path.join(library.rootDir(id), ...g.rel.split('/')), rel: files._join(id, g.rel), root: id, inRoot: g.rel });
   for (const id of reachable) {
-    const skip = new Set([...known.filter(r => present.has(r.gid) && files._split(r.path).root === id), ...files.deletingIn(id)]
+    const skip = new Set([...known.filter(r => present.has(r.gid) && files._split(r.path).root === id), ...files.deletingIn(id), ...files.retiringIn(id)]
       .map(r => files._split(r.path ?? r.dir).rest));
     const base = galleries.length;
     const onTop = (n) => onProgress(Math.min(++done, total), total, base + n, step);

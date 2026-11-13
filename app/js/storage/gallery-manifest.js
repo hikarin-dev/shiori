@@ -28,6 +28,7 @@
 import { DESCRIPTION_FILES, descriptionStamp, describedFiles, folderPictures, layoutPath } from './gallery-files.js';
 import { corrupt } from './contract.js';
 import { classifyFolder } from './folder-content.js';
+import { SOURCE_FILE, parseSource } from './linked-source.js';
 import { isValidGalleryId } from '../sanitize.js';
 
 /** @typedef {import('./contract.js').Manifest} Manifest */
@@ -435,8 +436,8 @@ export const unchanged = (recorded, now) => recorded.size === now.size
  *    while it is still as recorded (unchanged);
  * 2. `descriptions`: its descriptions under their usual names, but the one naming it, then those stored
  *    by content (the folder `stored`) — each only while it is one of the gallery's (isOwnDescription);
- * 3. `identity`: what names it — its metadata.json, an earlier version's shiori.json, then its manifest —
- *    likewise.
+ * 3. `identity`: what names it — its metadata.json, an earlier version's shiori.json, a linked gallery's
+ *    overlay its source.json (linked-source.js), then its manifest — likewise.
  * Then the folders left empty, up to the gallery's own. Anything else — a person's own file, a picture
  * changed since Shiori wrote it — is left, and the gallery's folder with it.
  * @param {{ area: string, manifest: Manifest | null, named: { name: string, size: number, mtime?: number | null }[] }} folder
@@ -445,7 +446,7 @@ export function galleryDeletion({ area, manifest, named }) {
   const pictures = new Map(named.map(f => [f.name, f]));
   for (const [name, [size, mtime]] of Object.entries(manifest?.sizes ?? {})) if (!pictures.has(name)) pictures.set(name, { name, size, mtime });
   return { pictures: [...pictures.values()], descriptions: DESCRIPTION_FILES.filter(n => n !== 'metadata.json'), stored: storedDir(area),
-    identity: ['metadata.json', LEGACY_FILE, manifestPath(area)] };
+    identity: ['metadata.json', LEGACY_FILE, ...(area === '' ? [SOURCE_FILE] : []), manifestPath(area)] };
 }
 const LEGACY_FILE = 'shiori.json';
 
@@ -472,13 +473,14 @@ export function foreignEntries(entries, manifest) {
 
 /** Whether `text`, the file at `path` in gallery `galleryId`'s folder (`area`: areaOf it), is one of
  * the gallery's descriptions as Shiori writes them, which its deletion takes: one stored by content
- * whose content matches its name; its manifest, naming it; a metadata.json, or an earlier version's
- * shiori.json, naming it; another description under its usual name, of its shape. Anything else at
- * those names isn't known to be Shiori's, and is left.
+ * whose content matches its name; its manifest, naming it; an overlay's source.json, naming it; a
+ * metadata.json, or an earlier version's shiori.json, naming it; another description under its usual
+ * name, of its shape. Anything else at those names isn't known to be Shiori's, and is left.
  * @param {string} path @param {string} text @param {string} galleryId @param {string} area @returns {Promise<boolean>} */
 export async function isOwnDescription(path, text, galleryId, area) {
   if (storedHash(path) != null) return matches(path, text);
   if (path === manifestPath(area)) return parseManifest(text, { galleryId }).kind === 'ok';
+  if (path === SOURCE_FILE && area === '') return parseSource(text)?.galleryId === String(galleryId);
   if (path === 'metadata.json' || path === LEGACY_FILE) {
     const what = classifyFolder({ [path]: text });
     return what.kind === 'gallery' && what.id === String(galleryId);

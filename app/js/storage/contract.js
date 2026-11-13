@@ -93,6 +93,17 @@ export const corrupt = (detail) => ({ kind: 'corrupt', detail });
  * @returns {boolean} */
 export const mayChangeState = (result) => result.kind === 'ok' || result.kind === 'missing';
 
+/** "Not found" is not proof (S11; review 4 F1, F3, F9): a drive away for a moment answers "not found"
+ * (ENOENT, NotFoundError) for what is there. So an answer of "not found" that would delete something,
+ * or change what a library records, counts only once a second look agrees: `there()` resolves whether
+ * it is there now (rejecting when it can't look). Resolves 'missing' when the second look agrees, else
+ * 'unreadable' with the first answer (`error`): nothing is concluded from it, and it is tried again
+ * later.
+ * @param {() => Promise<boolean>} there @param {unknown} error @returns {Promise<Missing | Unreadable>} */
+export async function surelyMissing(there, error) {
+  try { return (await there()) ? unreadable(error) : MISSING; } catch (e) { return unreadable(e); }
+}
+
 /** A text read parsed by `parse` (which returns the value, or null for text that isn't one): the
  * read's own 'missing' or 'unreadable' kept, text that doesn't parse 'corrupt'.
  * @template T

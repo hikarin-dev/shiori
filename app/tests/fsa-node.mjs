@@ -25,6 +25,7 @@
 //   DOMException `name` — `call` is { op, path }: `op` getDirectoryHandle, getFileHandle, removeEntry,
 //   entries, getFile, createWritable, write or close, `path` the target's path relative to the folder
 //   picked, '/'-separated (for removeEntry and the get…Handle calls, the entry's);
+// - hang(when): every call `when(call)` matches never returns, as a page that died (the sweeps);
 // - setPermission(path, state, { onRequest }): what queryPermission answers for the folder picked at
 //   `path` and everything in it ('granted', 'prompt', 'denied'), and what requestPermission turns it
 //   into; a call without permission fails with NotAllowedError;
@@ -53,23 +54,31 @@ export function failNext(when, name = 'NotReadableError', { times = 1 } = {}) {
   faults.push(fault);
   return () => { faults = faults.filter(f => f !== fault); };
 }
-/** No faults, every folder permitted, nobody listening. */
-export function reset() { faults = []; permissions.clear(); listeners.clear(); }
+/** No faults, every folder permitted, nobody listening, no call left hanging from now on. */
+export function reset() { faults = []; permissions.clear(); listeners.clear(); hangs.clear(); }
 /** @param {string} root @param {'granted' | 'prompt' | 'denied'} state
  * @param {{ onRequest?: () => 'granted' | 'prompt' | 'denied' }} [options] */
 export function setPermission(root, state, { onRequest = () => 'granted' } = {}) { permissions.set(path.resolve(root), { state, onRequest }); }
 /** @param {(call: { op: string, path: string }) => void} fn */
 export function onCall(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
+/** @type {Set<(call: { op: string, path: string }) => boolean>} */
+const hangs = new Set();
+/** Every call `when(call)` matches never returns (a page that died: it is never answered). Returns a
+ * function that takes it back. */
+export function hang(when) { hangs.add(when); return () => hangs.delete(when); }
+const NEVER = new Promise(() => {});
+
 const stateOf = (root) => permissions.get(root)?.state ?? 'granted';
-// Call `op` on `abs` (under folder `root`) about to run: refused without permission, failed by a
-// fault, heard by the listeners.
+// Call `op` on `abs` (under folder `root`) about to run: heard by the listeners, refused without
+// permission, failed by a fault. Returns true when it is never to return (hang): its caller awaits NEVER.
 function call(root, abs, op) {
   const heard = { op, path: path.relative(root, abs).split(path.sep).filter(Boolean).join('/') };
   for (const fn of listeners) fn(heard);
+  for (const when of hangs) if (when(heard)) return true;
   if (stateOf(root) !== 'granted') throw domError('NotAllowedError', `no permission for ${root}`);
   const fault = faults.find(f => f.when(heard));
-  if (!fault) return;
+  if (!fault) return false;
   if (--fault.times <= 0) faults = faults.filter(f => f !== fault);
   throw domError(fault.name, `${fault.name}: injected, ${op} '${heard.path}'`);
 }
@@ -112,7 +121,7 @@ class DirectoryHandle extends Handle {
   constructor(root, abs) { super(root, abs, 'directory'); }
   async #child(name, op, kind, create) {
     const abs = path.join(this._at.abs, childName(name));
-    call(this._at.root, abs, op);
+    if (call(this._at.root, abs, op)) await NEVER;
     try {
       if (!(await statOf(this._at.abs))?.isDirectory()) throw domError('NotFoundError', `${this._at.abs} is gone`);
       const st = await statOf(abs);
@@ -131,7 +140,7 @@ class DirectoryHandle extends Handle {
   /** @param {string} name @param {{ recursive?: boolean }} [options] */
   async removeEntry(name, { recursive = false } = {}) {
     const abs = path.join(this._at.abs, childName(name));
-    call(this._at.root, abs, 'removeEntry');
+    if (call(this._at.root, abs, 'removeEntry')) await NEVER;
     try {
       const st = await fsp.lstat(abs);
       if (st.isDirectory() || (st.isSymbolicLink() && (await statOf(abs))?.isDirectory())) {
@@ -141,7 +150,7 @@ class DirectoryHandle extends Handle {
     } catch (e) { throw asDom(e, 'removeEntry'); }
   }
   async *entries() {
-    call(this._at.root, this._at.abs, 'entries');
+    if (call(this._at.root, this._at.abs, 'entries')) await NEVER;
     let names;
     try { names = await fsp.readdir(this._at.abs); } catch (e) { throw asDom(e, 'entries'); }
     for (const name of names) {
@@ -167,7 +176,7 @@ class FileHandle extends Handle {
   /** @param {string} root @param {string} abs */
   constructor(root, abs) { super(root, abs, 'file'); }
   async getFile() {
-    call(this._at.root, this._at.abs, 'getFile');
+    if (call(this._at.root, this._at.abs, 'getFile')) await NEVER;
     try {
       const [bytes, st] = await Promise.all([fsp.readFile(this._at.abs), fsp.stat(this._at.abs)]);
       return new File([bytes], this.name, { type: typeOf(this.name), lastModified: Math.floor(st.mtimeMs) });
@@ -176,7 +185,7 @@ class FileHandle extends Handle {
   /** @param {{ keepExistingData?: boolean }} [options] */
   async createWritable({ keepExistingData = false } = {}) {
     const { root, abs } = this._at;
-    call(root, abs, 'createWritable');
+    if (call(root, abs, 'createWritable')) await NEVER;
     const swap = abs + SWAP;
     try {
       if (!(await statOf(abs))) throw domError('NotFoundError', `${abs} is not there`);
@@ -194,7 +203,7 @@ class WritableFileStream {
   /** @param {any} data a Blob, BufferSource or string, or { type: 'write' | 'seek' | 'truncate', … } */
   async write(data) {
     this.#open();
-    call(this.#root, this.#abs, 'write');
+    if (call(this.#root, this.#abs, 'write')) await NEVER;
     try {
       if (data && typeof data === 'object' && 'type' in data && !(data instanceof Blob)) {
         if (data.type === 'seek') { this.#at = data.position; return; }
@@ -216,7 +225,7 @@ class WritableFileStream {
   truncate(size) { return this.write({ type: 'truncate', size }); }
   async close() {
     this.#open();
-    call(this.#root, this.#abs, 'close');
+    if (call(this.#root, this.#abs, 'close')) await NEVER;
     this.#done = true;
     try { await fsp.rename(this.#swap, this.#abs); } catch (e) { await fsp.rm(this.#swap, { force: true }).catch(() => {}); throw asDom(e, 'close'); }
   }

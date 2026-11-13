@@ -280,6 +280,9 @@ export async function replaceFile(file, data) {
 
 // ── A gallery's folder (format v2: js/storage/gallery-manifest.js) ──
 const lost = (e) => e?.code === 'ENOENT' || e?.code === 'ENOTDIR';
+// Whether `file` is there, by a look of its own: an answer of "not found" that would delete something
+// or change what is recorded is taken only once this agrees (contract.js surelyMissing).
+export const there = (file) => disk.stat(file).then(() => true, (e) => { if (lost(e)) return false; throw e; });
 const within = (dir, rel) => path.join(dir, ...String(rel).split('/').filter(Boolean));
 const textOr = (file) => disk.readFile(file, 'utf8').catch((e) => { if (lost(e)) return null; throw e; });
 
@@ -430,18 +433,19 @@ export async function publishIn(dir, next, texts, { hide = () => {}, known } = {
 
 // The files `list` ([{ name, size, mtime }]: paths in the folder `dir`, as Shiori recorded writing
 // them) deleted — each only while its size and modification time are still those (gallery-manifest.js
-// unchanged); one that differs was changed outside Shiori and is left, as is one that isn't there or
-// can't be checked, each reported in `kept` with why. A folder the deletions left empty goes too, up to
-// `dir` itself (principle 4) — unless `emptied` is false (`dir` holds more than the files named: an
-// archive's folder). Resolves { deleted, kept }.
+// unchanged); one that differs was changed outside Shiori and is left, as is one that isn't there (a
+// second look agreeing: contract.js surelyMissing) or can't be checked, each reported in `kept` with
+// why. A folder the deletions left empty goes too, up to `dir` itself (principle 4) — unless `emptied`
+// is false (`dir` holds more than the files named: an archive's folder). Resolves { deleted, kept }.
 export async function deleteNamedIn(dir, list, { emptied: tidy = true } = {}) {
   const deleted = [], kept = [], emptied = new Set();
+  const why = async (file, e) => (lost(e) && (await contract.surelyMissing(() => there(file), e)).kind === 'missing' ? 'missing' : 'unreadable');
   for (const f of list) {
     const file = within(dir, f.name);
     let st;
-    try { st = await disk.stat(file); } catch (e) { kept.push({ name: f.name, why: lost(e) ? 'missing' : 'unreadable' }); continue; }
+    try { st = await disk.stat(file); } catch (e) { kept.push({ name: f.name, why: await why(file, e) }); continue; }
     if (!st.isFile() || !format.unchanged(f, { size: st.size, mtime: st.mtimeMs })) { kept.push({ name: f.name, why: 'changed' }); continue; }
-    try { await disk.rm(file); deleted.push(f.name); emptied.add(path.dirname(file)); } catch (e) { kept.push({ name: f.name, why: lost(e) ? 'missing' : 'unreadable' }); }
+    try { await disk.rm(file); deleted.push(f.name); emptied.add(path.dirname(file)); } catch (e) { kept.push({ name: f.name, why: await why(file, e) }); }
   }
   const top = path.resolve(dir);
   if (tidy) for (const d of [...emptied].sort((a, b) => b.length - a.length)) {
@@ -464,7 +468,8 @@ export async function deleteNamedIn(dir, list, { emptied: tidy = true } = {}) {
 // as recorded; one gone, or another gallery's, is left as it is ('missing': the gallery's folder isn't
 // there — renamed or moved by hand, perhaps: F4). Resolves whether the deletion is done — true, or
 // 'left' when what it emptied still holds files: a person's, or one changed since Shiori wrote it —
-// 'missing', or is to be tried again (false: something there couldn't be read or deleted now).
+// 'missing', or is to be tried again (false: something there couldn't be read or deleted now, or the
+// folder still names the gallery).
 export async function deleteGalleryIn(dir, gid, named) {
   const whose = await galleryIn(dir, String(gid));
   if (whose.kind === 'unreadable') return false;
@@ -484,14 +489,22 @@ export async function deleteGalleryIn(dir, gid, named) {
       for (const rel of plan.descriptions) await drop(rel);
       for (const name of await disk.readdir(within(dir, plan.stored)).catch((e) => { if (lost(e)) return []; throw e; })) await drop(`${plan.stored}/${name}`);
       for (const rel of plan.identity) await drop(rel);
+      // Done only once the folder no longer names the gallery: a description whose read answered "not
+      // found", still there, names it yet — the deletion stays recorded, tried again (S11, review 4 F3).
+      const after = await galleryIn(dir, String(gid));
+      if (after.kind === 'ok' || after.kind === 'unreadable') return false;
     }
     return await holdsFile(dir) ? 'left' : true;
   } catch { return false; }
 }
-// Whether folder `dir` holds a file, in it or in a folder of it (none: it isn't there).
+// Whether folder `dir` holds a file, in it or in a folder of it (none: it isn't there, a second look
+// agreeing — one that can't be listed is thrown).
 async function holdsFile(dir) {
   let items;
-  try { items = await disk.readdir(dir, { withFileTypes: true }); } catch (e) { if (lost(e)) return false; throw e; }
+  try { items = await disk.readdir(dir, { withFileTypes: true }); } catch (e) {
+    if (lost(e) && (await contract.surelyMissing(() => there(dir), e)).kind === 'missing') return false;
+    throw e;
+  }
   for (const e of items) if (!e.isDirectory() || await holdsFile(path.join(dir, e.name))) return true;
   return false;
 }
