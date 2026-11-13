@@ -28,7 +28,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { owner as claims, lifecycle, linked as linkedSource, contract, BackendError } from './shared.js';
-import { libraryId, identityAt } from './files.js';
+import { libraryId, identityAt, samePath } from './files.js';
 import { scanLibrary, finishUnfound } from './scan.js';
 import { fingerprintNow, titlesIn } from './linked.js';
 
@@ -70,7 +70,6 @@ const breathe = () => new Promise((resolve) => setImmediate(resolve));
 const parse = (s) => (s == null ? null : JSON.parse(s));
 const refusal = (code, reason, message) => Object.assign(new BackendError(code, message), { reason });
 const isDir = (dir) => { try { return disk.statSync(dir, { throwIfNoEntry: false })?.isDirectory() === true; } catch { return false; } };
-const samePath = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
 const within = (a, b) => { const rel = path.relative(b, a); return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel)); };
 
 export class Folders {

@@ -25,7 +25,7 @@ if (process.env.SHIORI_USER_DATA) app.setPath('userData', path.resolve(process.e
 app.commandLine.appendSwitch('disable-http-cache');
 
 const { Library } = await import('./server/library.js');
-const { libraryId } = await import('./server/files.js');
+const { firstLibrary } = await import('./server/files.js');
 const { removeOutright } = await import('./server/remove.js');
 const { startServer, networkAddresses } = await import('./server/server.js');
 const { BackupJobs, backupName } = await import('./server/backup.js');
@@ -65,8 +65,9 @@ function writeSettings(patch) {
 const libraryDirOf = (settings) => path.resolve(process.env.SHIORI_LIBRARY_DIR || settings.libraryDir || path.join(app.getPath('documents'), 'Shiori Library'));
 // Each library folder has its own index and thumbnails on this computer (even when the folder is on
 // a network drive), found by the id the folder carries — not by its path, so a drive that comes back
-// under another letter, or a folder moved or renamed, still finds them.
-const dataDirOf = (libraryDir) => path.join(app.getPath('userData'), 'libraries', libraryId(libraryDir));
+// under another letter, or a folder moved or renamed, still finds them. Which library the first folder
+// holds is told by files.js firstLibrary, which never starts a new one where the folder may hold one.
+const librariesDir = () => path.join(app.getPath('userData'), 'libraries');
 const closeToTray = () => readSettings().closeToTray !== false;
 // Galleries left alone this long are archived (files.js), as ZIP or CBZ: never, and ZIP, unless chosen.
 const ARCHIVE_AFTER = { never: 0, day: 24 * 60 * 60_000, week: 7 * 24 * 60 * 60_000, month: 30 * 24 * 60 * 60_000 };
@@ -628,10 +629,10 @@ async function start() {
     writeSettings({ backupPartial: undefined });
   }
   libraryDir = libraryDirOf(settings);
+  let chosen = false;   // the folder picked by the person just now: a library of its own if it holds none
   for (;;) {
     try {
-      fs.mkdirSync(libraryDir, { recursive: true });
-      dataDir = dataDirOf(libraryDir);
+      dataDir = path.join(librariesDir(), await firstLibrary(librariesDir(), libraryDir, { chosen }));
       library = await new Library({ dataDir, libraryDir, remove: removeOutright, hide,
         archiveAfter: ARCHIVE_AFTER[archiveAfterOf(settings)], archiveFormat: archiveFormatOf(settings) }).open();
       hide(path.join(libraryDir, '.shiori'));
@@ -643,11 +644,13 @@ async function start() {
       });
       break;
     } catch (e) {
+      // A folder firstLibrary refused is said why in the person's words.
+      const why = e?.reason === 'missing' ? t('library_missing') : e?.reason === 'unknown' ? t('library_unknown') : (e?.message || e);
       const { response } = await dialog.showMessageBox({ type: 'error', buttons: [t('try_again'), t('choose_other'), t('quit')], defaultId: 0,
-        message: t('open_failed'), detail: `${libraryDir}\n\n${e?.message || e}` });
+        message: t('open_failed'), detail: `${libraryDir}\n\n${why}` });
       if (response === 1) {
-        const chosen = await pickFolder(libraryDir);
-        if (chosen) { writeSettings({ libraryDir: chosen }); libraryDir = chosen; }
+        const picked = await pickFolder(libraryDir);
+        if (picked) { writeSettings({ libraryDir: picked }); libraryDir = picked; chosen = true; }
       }
       if (response === 2) { app.exit(1); return; }
     }

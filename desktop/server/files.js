@@ -224,20 +224,87 @@ export const ownedBy = async (dir, gid) => (await galleryIn(dir, String(gid))).k
 // computer's data for the library (its index and thumbnails) is found by it, so the folder keeps
 // them whatever drive letter or path it is reached by. A file that can't be read is an error, never
 // a reason to start over under a new id.
-export function libraryId(libraryDir) {
-  const file = path.join(libraryDir, '.shiori', 'library.json');
-  let text = null;
-  try { text = disk.readFileSync(file, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
-  if (text != null) {
-    const id = JSON.parse(text)?.id;
-    if (typeof id !== 'string' || !/^[0-9a-f]{16}$/.test(id)) throw new Error(`${file} names no library id`);
-    return id;
-  }
-  const id = crypto.randomBytes(8).toString('hex');
-  disk.mkdirSync(path.dirname(file), { recursive: true });
-  disk.writeFileSync(file, JSON.stringify({ format: 'shiori-library', version: 1, id }, null, 2));
+export const libraryId = (libraryDir) => idIn(libraryDir) ?? writeId(libraryDir, crypto.randomBytes(8).toString('hex'));
+// The id folder `libraryDir`'s library.json names; null when it has none.
+function idIn(libraryDir) {
+  const file = path.join(libraryDir, ...content.LIBRARY_FILE.split('/'));
+  let text;
+  try { text = disk.readFileSync(file, 'utf8'); } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
+  const id = JSON.parse(text)?.id;
+  if (typeof id !== 'string' || !/^[0-9a-f]{16}$/.test(id)) throw new Error(`${file} names no library id`);
   return id;
 }
+// `id` written as folder `libraryDir`'s, never over a library.json there: one found there meanwhile (a
+// read that answered "not found" for a moment) is the folder's id.
+function writeId(libraryDir, id) {
+  const file = path.join(libraryDir, ...content.LIBRARY_FILE.split('/'));
+  disk.mkdirSync(path.dirname(file), { recursive: true });
+  try { disk.writeFileSync(file, JSON.stringify({ format: 'shiori-library', version: 1, id }, null, 2), { flag: 'wx' }); } catch (e) {
+    if (e?.code === 'EEXIST') return libraryId(libraryDir);
+    throw e;
+  }
+  return id;
+}
+
+// Which library the first library folder `libraryDir` holds, as the app's start opens it (main.js): its
+// id, its index and thumbnails in `librariesDir/<id>` on this computer. A folder without a library.json
+// is never started over as a new, empty library while it may hold one: that would leave the library's
+// other folders and the person's marks out of reach (review 4 F5), or link whatever another drive at its
+// letter holds (O1). So each library notes in its data folder the folder it was last opened from
+// (FIRST_NOTE: its path, and the number the system gives that folder on its volume, which a folder keeps
+// when renamed and no other folder shares):
+// - the folder's library.json names a library: that one;
+// - it has none, and one library's note names this very folder: that library, its library.json written
+//   back (the person deleted it);
+// - it has none, and it was `chosen` by the person just now, or nothing on this computer may have been
+//   kept there (no note names its path, no index is older than the notes): a new library, its folder
+//   made if need be;
+// - otherwise refused, nothing written (BackendError 'unavailable'): reason 'missing' when no folder is
+//   at the path (its drive not connected, or the folder gone), 'unknown' when a folder is there that
+//   can't be told to be the library's (another drive at its letter, a copy of the folder, or one an index
+//   older than the notes may have been kept in).
+const FIRST_NOTE = 'first-folder.json';
+export async function firstLibrary(librariesDir, libraryDir, { chosen = false } = {}) {
+  const dir = path.resolve(libraryDir);
+  const named = idIn(dir);
+  if (named) return noteFirst(librariesDir, named, dir);
+  const notes = await notesIn(librariesDir);
+  const st = await disk.stat(dir, { bigint: true }).catch((e) => { if (e?.code === 'ENOENT') return null; throw e; });
+  const number = st?.isDirectory() ? folderNumber(st) : null;
+  const same = notes.filter(n => n.path && samePath(n.path, dir) && number && n.folder === number);
+  if (same.length === 1) return noteFirst(librariesDir, writeId(dir, same[0].id), dir);
+  if (!chosen && (same.length || notes.some(n => !n.path || samePath(n.path, dir)))) {
+    throw Object.assign(new BackendError('unavailable', `${dir} can't be told to hold this computer's library`), { reason: st ? 'unknown' : 'missing' });
+  }
+  disk.mkdirSync(dir, { recursive: true });
+  return noteFirst(librariesDir, libraryId(dir), dir);
+}
+// Folder `dir`'s number on its volume: null where the system gives none.
+const folderNumber = (st) => (st.ino ? `${st.dev}:${st.ino}` : null);
+// Every library's note on this computer: { id, path, folder }, or { id, path: null } for an index
+// without a note that can be read (one older than the notes).
+async function notesIn(librariesDir) {
+  const ids = await disk.readdir(librariesDir).catch((e) => { if (e?.code === 'ENOENT') return []; throw e; });
+  const out = [];
+  for (const id of ids.filter(n => /^[0-9a-f]{16}$/.test(n))) {
+    const note = await disk.readFile(path.join(librariesDir, id, FIRST_NOTE), 'utf8').then(JSON.parse).catch(() => null);
+    if (typeof note?.path === 'string') out.push({ id, path: note.path, folder: note.folder ?? null });
+    else if (disk.existsSync(path.join(librariesDir, id, 'library.db'))) out.push({ id, path: null });
+  }
+  return out;
+}
+// Library `id` noted as opened from folder `dir` (written only when that changed); resolves `id`.
+async function noteFirst(librariesDir, id, dir) {
+  const file = path.join(librariesDir, id, FIRST_NOTE);
+  const text = JSON.stringify({ path: dir, folder: folderNumber(await disk.stat(dir, { bigint: true })) });
+  if (await disk.readFile(file, 'utf8').catch(() => null) !== text) {
+    await disk.mkdir(path.dirname(file), { recursive: true });
+    await replaceFile(file, text);
+  }
+  return id;
+}
+// Whether paths `a` and `b` name one place (Windows' are told apart without case).
+export const samePath = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
 // Whether path `dir` holds library folder `id` at this moment (principle 1): 'ok' when its
 // .shiori/library.json names it (folder-content.js libraryIdOf); 'other-library' when a folder is there
 // whose library.json names another id, or none, or isn't there; 'unavailable' when no folder is there,
