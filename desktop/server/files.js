@@ -836,7 +836,7 @@ export class FileLibrary {
   async stageOwn(gid, rel, blob) {
     const id = String(gid);
     const row = this._row(id);
-    const archived = row && row.format !== 'folder' && await this._inFormat(row);
+    const archived = row && row.format !== 'folder' && await this._inFormat(row) !== false;   // staged too when it can't be told
     if (!archived && this.library.folders.writable(this.rootFor(id))) return null;
     const file = this.library._stagedName(id, `own-${crypto.randomBytes(5).toString('hex')}${path.posix.extname(rel)}`);
     await this.library._writeStaged(file, new Uint8Array(await blob.arrayBuffer()), 'pictures');
@@ -1027,11 +1027,17 @@ export class FileLibrary {
     const named = d.files == null ? null : JSON.parse(d.files);
     let done;
     if (!Array.isArray(named)) {
+      // An archive: not there only as the shared rule takes it (folder-store.js gone: not while its drive
+      // is away); one that can't be read now, or told as Shiori left it, tried again (S21).
       const whose = await this._whose(rel, d.gid);
-      if (whose.kind === 'missing' || (whose.kind === 'conflict' && whose.found != null)) done = 'missing';
+      if (whose.kind === 'missing') done = await gone(abs) ? 'missing' : false;
+      else if (whose.kind === 'conflict' && whose.found != null) done = 'missing';
       else if (whose.kind === 'unreadable') done = false;
       else if (whose.kind !== 'ok' || (whose.undescribed && !named?.unpacked)) done = true;
-      else done = await this._archiveUnchanged(abs, named) ? await this._discard(abs) : await this._leftBehind(at, d, rel, work);
+      else {
+        const own = await this._archiveUnchanged(abs, named);
+        done = own == null ? false : own ? await this._discard(abs) : await this._leftBehind(at, d, rel, work);
+      }
     } else {
       done = await deleteGalleryIn(abs, d.gid, named).catch(() => false);
       // Left with nothing but empty folders, it goes whole, as Explorer deletes (remove.js); one still
@@ -1064,7 +1070,8 @@ export class FileLibrary {
   // modification time; none for an archive written before S10), and holding nothing of the person's
   // (_foreignIn) — a file they added stays theirs even once Shiori has added to the archive since; or,
   // one an unpack let go (`recorded.unpacked`), as the unpack read it and holding nothing but what it
-  // took (`recorded.took`) — a file the person put in it stays theirs (review 5 F1).
+  // took (`recorded.took`) — a file the person put in it stays theirs (review 5 F1). Null when that can't
+  // be told now (a read of it failed: principle 6 — never taken for the person's edit, S21).
   async _archiveUnchanged(abs, recorded) {
     try {
       if (recorded) {
@@ -1077,7 +1084,7 @@ export class FileLibrary {
         return [...dir.keys()].every(name => took.has(name));
       }
       return !(await this._foreignIn(abs, dir)).length;
-    } catch { return false; }
+    } catch { return null; }
   }
   // The entries of archive `file` (its directory `dir`) that aren't Shiori's, by its own manifest
   // (gallery-manifest.js foreignEntries): the person's. One whose manifest is damaged holds nothing
@@ -1443,10 +1450,11 @@ export class FileLibrary {
   _staged(gid) { return this.library._pageRows(gid).filter(r => parse(r.orig).at === 's').sort((a, b) => a.n - b.n); }
 
   // Whether an archive is in the gallery format (one Shiori made — it describes itself), so it can be
-  // added to; one added by hand isn't.
+  // added to; one added by hand isn't. Null when its directory can't be read now (principle 6: never
+  // taken for one outside the format, whose unpack records only what it took — S21).
   async _inFormat(row) {
     const dir = await this._directory(this._abs(row.path)).catch(() => null);
-    return !!dir && (dir.has('metadata.json') || dir.has('image_records.json'));
+    return dir ? dir.has('metadata.json') || dir.has('image_records.json') : null;
   }
 
   // One settle of gallery `gid`. Resolves true when done (or nothing was needed, or its library folder
@@ -1470,6 +1478,7 @@ export class FileLibrary {
       if (!await this._writesIn(row)) return true;
       if (row.format !== 'folder' && (row.unpack || this._staged(gid).length || this._stagedOwn(gid).length)) {
         const inFormat = await this._inFormat(row);
+        if (inFormat == null) return true;   // its archive can't be read now: what waits stays staged, tried again
         const how = inFormat ? await this._settleArchive(gid, row) : 'unpack';
         if (how === 'unpack' && !await this._unpack(gid, row, !inFormat || !!whose.undescribed)) return false;
         row = this._row(gid);
@@ -1714,16 +1723,19 @@ export class FileLibrary {
       }
       const own = ownFiles(lib._coverGet(gid), ownFiles(before.map(r => parse(r.record))));
       const staged = new Set(this._stagedOwn(gid).map(s => s.rel));   // moved in after, as they are
+      // A picture its records name that the archive doesn't hold is passed over; one it holds that can't
+      // be read now fails the unpack, tried again — never left behind in an archive about to go (S21).
+      const entries = await this._directory(this._abs(row.path));
       for (const rel of own.keys()) {
-        if (staged.has(rel)) continue;
-        const data = await this._read(row, rel).catch(() => null);
-        if (!data) continue;
+        if (staged.has(rel) || !entries.has(rel)) continue;
+        const data = await this._read(row, rel);
+        if (!data) throw new Error(`${rel} can't be read from ${row.path}`);
         await disk.mkdir(path.dirname(path.join(temp, ...rel.split('/'))), { recursive: true });
         await disk.writeFile(path.join(temp, ...rel.split('/')), data);
         lib.writes.add('pictures', data.length);
         took.push(rel);
       }
-      if (byHand) took.push(...await this._earlierOwn(row, gid));
+      if (byHand) took.push(...await this._earlierOwn(row, gid, entries));
       // One synchronous step from here.
       if (JSON.stringify(archived().map(r => [r.n, r.orig])) !== signature || this._row(gid)?.path !== row.path) {
         await disk.rm(temp, { recursive: true, force: true });
@@ -1752,10 +1764,15 @@ export class FileLibrary {
   // What an earlier desktop version put in archive `row` beside the pages, while its shiori.json names
   // gallery `gid` (gallery-manifest.js isOwnDescription): that shiori.json, the pictures it lists and
   // ComicInfo.xml, written with them — Shiori's own, which may go with the archive once it is unpacked.
-  // None for an archive describing no gallery, or whose shiori.json can't be read now.
-  async _earlierOwn(row, gid) {
-    const text = await this._read(row, 'shiori.json').then(b => (b ? String(b) : null), () => null);
-    if (text == null || !await format.isOwnDescription('shiori.json', text, String(gid), '')) return [];
+  // None for an archive (its entries `entries`) describing no gallery; one whose shiori.json can't be read
+  // now fails the unpack, tried again (S21: taken for none, the archive was left beside the gallery's
+  // folder for good).
+  async _earlierOwn(row, gid, entries) {
+    if (!entries.has('shiori.json')) return [];
+    const data = await this._read(row, 'shiori.json');
+    if (!data) throw new Error(`shiori.json can't be read from ${row.path}`);
+    const text = String(data);
+    if (!await format.isOwnDescription('shiori.json', text, String(gid), '')) return [];
     const { pages } = JSON.parse(text);
     return ['shiori.json', 'ComicInfo.xml', ...(Array.isArray(pages) ? pages.map(p => p?.file).filter(f => typeof f === 'string') : [])];
   }

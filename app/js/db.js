@@ -846,14 +846,20 @@ async function _reserveDir(gid, folder, root, meta, w, base = null) {
 // else its metadata.json; an overlay, its source.json) — or, for an archive in the gallery format, its
 // descriptions name it (its own metadata.json, or a series export's series.json) and no other gallery
 // is still read from it. Nothing is deleted from a folder another gallery's description names, nor
-// from one no description names.
+// from one no description names. Null when that can't be told now (a read failed, or what was there a
+// moment ago isn't: principle 6 — nothing is concluded, S21).
 async function _ownsDir(folder, root, dir, gid) {
   const found = await folderFiles.galleryIn(folder, root, dir, String(gid));
   if (found.kind === 'ok') return true;
-  if (found.kind !== 'conflict' || found.found != null) return false;
+  if (found.kind === 'unreadable' || found.kind === 'missing') return null;
+  if (found.found != null) return false;
   if (dir === overlayDir(gid)) return true;   // its overlay, named by its id in the folder's .shiori/, naming no other
-  if (await folderFiles.readFile(folder, root, dir).then(f => !f, () => true)) return false;   // a folder naming none, not an archive
-  if (!(await _archiveNames(folder, root, dir).catch(() => new Set())).has(String(gid))) return false;
+  const file = await folderFiles.readFile(folder, root, dir).catch(() => undefined);
+  if (file === undefined) return null;
+  if (!file) return false;   // a folder naming none, not an archive
+  const names = await _archiveNames(folder, root, dir).catch(() => null);
+  if (!names) return null;
+  if (!names.has(String(gid))) return false;
   return !(await galleryGetAll()).some(g => g.folder === folder && g.dir === dir && String(g.galleryId) !== String(gid));
 }
 // The galleries an archive in the gallery format describes: its own metadata.json's, or a series
@@ -865,15 +871,18 @@ async function _archiveNames(folder, root, path) {
   return new Set(own ? [own] : (seriesOf(await text('series.json'))?.chapters || []).map(c => c.id));
 }
 // Whether the archive at `path` holds nothing but what Shiori put there (gallery-manifest.js
-// foreignEntries, by its own manifest): what may be deleted whole (F6). One that can't be read, isn't.
+// foreignEntries, by its own manifest): what may be deleted whole (F6). One whose manifest is damaged
+// holds nothing known to be Shiori's; null when it can't be read now (gone a moment after it was read, or
+// a read failed: principle 6 — never taken for the person's, S21).
 async function _archiveOnlyOwn(folder, root, path) {
   try {
     const archive = await _archiveOf(folder, root, path);
-    const at = archive?.entries.get(MANIFEST_FILE);
+    if (!archive) return null;
+    const at = archive.entries.get(MANIFEST_FILE);
     const manifest = at ? parseManifest(new TextDecoder().decode(await at.read()), { archive: true }) : null;
-    if (!archive || manifest?.kind === 'corrupt') return false;
+    if (manifest?.kind === 'corrupt') return false;
     return !foreignEntries(archive.entries, manifest?.kind === 'ok' ? manifest.value : null).length;
-  } catch { return false; }
+  } catch { return null; }
 }
 // Whether gallery `gid` may write into its folder `dir`: the folder names it (folderFiles.galleryIn,
 // principle 2) — one naming another gallery, or none (put there by hand), or gone, is written to
@@ -1222,13 +1231,17 @@ async function _forgetUnfound(folder) {
 // folder by name (folderFiles.deleteGalleryIn, `named()` the files the library recorded writing there:
 // all of it while it names the gallery, those files alone while it names none). Resolves whether that
 // is done ('left': something was left there — an archive the person added to stays whole, F6;
-// 'missing': nothing there; false: something there couldn't be read or deleted now).
+// 'missing': nothing there; false: something there couldn't be read or deleted now, or told).
 async function _deleteDir(folder, root, dir, gid, named) {
   const file = await folderFiles.readFile(folder, root, dir).catch(() => undefined);
   if (file === undefined) return false;
   if (!file) return folderFiles.deleteGalleryIn(folder, root, dir, gid, await named());
-  if (!(await _ownsDir(folder, root, dir, gid))) return true;
-  if (!(await _archiveOnlyOwn(folder, root, dir))) return 'left';
+  const owns = await _ownsDir(folder, root, dir, gid);
+  if (owns == null) return false;
+  if (!owns) return true;
+  const only = await _archiveOnlyOwn(folder, root, dir);
+  if (only == null) return false;
+  if (!only) return 'left';
   await folderFiles.removeFile(folder, root, dir);
   return true;
 }

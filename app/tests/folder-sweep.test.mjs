@@ -42,9 +42,10 @@ import { zipCreate } from '../js/zip.js';
  * @typedef {{ place: 'A' | 'B', title: string, pages: [string, string][] }} G
  * @typedef {{ aIn: boolean, galleries: Record<string, G> }} State */
 /** A run's library and what its scenario made: folder ids and paths, gallery ids (`g`), every gallery
- * id it made (`known`), those whose deletion resolved (`deleted`), the person's files (`plants`).
+ * id it made (`known`), those whose deletion resolved (`deleted`), the person's files (`plants`), and
+ * whether folder A's removal may need the person's Discard (`discard`: a limit of §8, set by a scenario).
  * @typedef {{ lib: Driver, base: string, A: string, B: string, ids: Record<string, string>, g: Record<string, string>,
- *   titles: Record<string, string>, known: Set<string>, deleted: Set<string>, plants: Map<string, string> }} Ctx */
+ *   titles: Record<string, string>, known: Set<string>, deleted: Set<string>, plants: Map<string, string>, discard?: boolean }} Ctx */
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const png = (n) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, n >> 8, n & 255, 1, 2, 3]);
@@ -223,13 +224,41 @@ const SCENARIOS = [
     apps: ['desktop'],
     async setup(c) {
       c.g.alpha = await made(c, 'Alpha', [png(1), png(2), png(3)]);
+      await c.lib.putTranslation(c.g.alpha, 1, png(5));   // archived with it: a picture of its own the unpack copies out (S21)
       plant(c, 'A/mine.txt', 'the person\'s own file');
       await c.lib.flush();
       await c.lib.raw.archiveGallery(c.g.alpha);
     },
-    state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2), png(3)]) } }),
+    state: (c) => withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2), png(3)]) } }, c.g.alpha, 1, png(5)),
     ops: [
       op('translation 2', (c) => c.lib.putTranslation(c.g.alpha, 2, png(4)), (s, c) => withTranslation(s, c.g.alpha, 2, png(4))),
+      FLUSH, SETTLE,
+    ],
+  },
+  {
+    // An earlier version's archive (its shiori.json, as v1.0.x archived a gallery), adopted, then unpacked by
+    // its first change: what the unpack took is recorded, and the archive deleted only while it holds nothing
+    // else (S19, review 5 F1).
+    name: 'an earlier version\'s archive unpacked',
+    apps: ['desktop'],
+    async setup(c) {
+      const gid = '1790000000077', file = (/** @type {number} */ n) => `000${n}.png`;
+      fs.writeFileSync(path.join(c.A, 'Old.cbz'), zipCreate([...[1, 2, 3].map(n => ({ name: file(n), data: png(n) })),
+        { name: 'shiori.json', data: new TextEncoder().encode(JSON.stringify({ format: 'shiori-gallery', version: 1, id: gid,
+          meta: { galleryId: gid, title: { english: 'Old', japanese: '', pretty: '' }, tags: [], numPages: 3 },
+          pages: [1, 2, 3].map(n => ({ n, file: file(n), key: `local://${gid}/${n}.png` })) })) },
+        { name: 'ComicInfo.xml', data: new TextEncoder().encode('<?xml version="1.0"?><ComicInfo></ComicInfo>') }]));
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      await c.lib.scan(c.ids.A);
+      c.g.old = gid;
+      c.known.add(gid);
+      // Until its first change unpacks it, nothing can be published in such an archive (§8, S21): the cover
+      // its adoption chose stays unsaved there, and the folder's removal asks for Discard.
+      c.discard = true;
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.old]: G('A', 'Old', [png(1), png(2), png(3)]) } }),
+    ops: [
+      op('translation 2', (c) => c.lib.putTranslation(c.g.old, 2, png(4)), (s, c) => withTranslation(s, c.g.old, 2, png(4))),
       FLUSH, SETTLE,
     ],
   },
@@ -244,13 +273,9 @@ const KINDS = {
 const sweeps = (/** @type {string} */ app, /** @type {string} */ kind) => SCENARIOS.filter(s => (!s.apps || s.apps.includes(app))
   && (kind === 'EXDEV' ? s.name.startsWith('a move') : !s.kinds || s.kinds.includes(kind)));
 
-// Scenarios a later step's finding fails on (plan §7), by app, kind and scenario. Found by S18's check for
-// copies: deleting the archive an unpack let go, one read of it failing for a moment (EIO, EPERM, ENOENT
-// at its stat or directory) is taken for the person's edit (files.js _archiveUnchanged answers false),
-// so the archive stays beside the gallery's folder for good, reported 'left' and as a copy at every
-// check. That function is S19's (an unpack's archive deletion, review 5 F1): left for a step after it.
+// Scenarios a later step's finding fails on (plan §7), by app, kind and scenario.
 /** @type {Record<string, string>} */
-const TODO = Object.fromEntries(['EIO', 'EPERM', 'ENOENT'].map(kind => [`desktop ${kind}: an unpack`, 'after S19: _archiveUnchanged takes a failed read for the person\'s edit']));
+const TODO = {};
 
 // ── A run ──
 /** A fresh library over a new folder, with folder A added and the default, `sc` set up and published.
@@ -349,7 +374,9 @@ async function stages(c, valid) {
     ['restart', async () => { if (!c.lib.restart) throw new Error('no restart left in this process: run fewer points per process (SHIORI_SWEEP_SHARD)'); await c.lib.restart(); }],
     ['re-add', async () => {
       await c.lib.setDefault(c.lib.home);
-      if ((await c.lib.list()).some(f => f.id === c.ids.A)) await c.lib.remove(c.ids.A);
+      if ((await c.lib.list()).some(f => f.id === c.ids.A)) {
+        await c.lib.remove(c.ids.A).catch((e) => { if (!c.discard) throw e; return c.lib.remove(c.ids.A, { discard: true }); });
+      }
       c.ids.A = await c.lib.add(c.A);
       await c.lib.setDefault(c.ids.A);
       await scanAll();

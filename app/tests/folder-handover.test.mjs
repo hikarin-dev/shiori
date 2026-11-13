@@ -269,6 +269,51 @@ const UNPACKED = {
   },
 };
 
+// S21 (found by reading, the desktop's _archiveUnchanged rule on the website): deleting a gallery the
+// desktop archived, a read of its archive failing once was taken for "not the gallery's" — the deletion
+// recorded done with the archive left whole, which the next check adopted again — or for "holds the
+// person's file" ('left'). Now nothing is concluded: the deletion stays recorded and is done later.
+const ARCHIVE_DELETED = {
+  name: 'S21: a gallery the desktop archived, deleted on the website while a read of its archive fails once, never comes back',
+  async run({ dir, desktop, website }) {
+    const shared = path.join(dir, 'shared');
+    const id = await desktop.add(shared);
+    await desktop.setDefault(id);
+    const gids = [];
+    for (const title of ['First', 'Second']) {
+      const gid = await desktop.newGallery(title);
+      await write(desktop, gid, FIRST);
+      await desktop.flush();
+      assert.deepEqual((await desktop.raw.archiveGallery(gid)).archived, [gid]);
+      gids.push(gid);
+    }
+    await desktop.remove(id);
+    const back = await website.add(shared);
+    assert.deepEqual((await website.scan(back)).problems, []);
+    const archives = fs.readdirSync(shared).filter(n => /\.(zip|cbz)$/i.test(n)).sort();
+    assert.deepEqual(archives.length, 2);
+    // Each deletion's k-th read of its archive fails once: the third (whose galleries it names), the fourth
+    // (whether it holds anything else).
+    for (const [gid, k] of [[gids[0], 3], [gids[1], 4]]) {
+      const name = /** @type {string} */ (await website.raw.galleryGet(gid)).dir;
+      let reads = 0;
+      const undo = fsa.failNext((c) => c.op === 'getFile' && c.path === name && ++reads === k, 'NotReadableError', { times: 1 });
+      try {
+        await website.deleteGallery(gid);
+        await website.flush();
+        await new Promise(r => setTimeout(r, 300));
+      } finally { undo(); }
+      assert.equal(reads >= k, true, `the deletion read ${name} ${reads} times`);
+    }
+    for (let i = 0; i < 2; i++) {
+      const found = await website.scan(back);
+      assert.deepEqual([found.added, await website.galleries()], [0, []], 'the deleted galleries never come back');
+    }
+    assert.deepEqual(fs.readdirSync(shared).filter(n => /\.(zip|cbz)$/i.test(n)), [], 'their archives deleted');
+    assert.deepEqual((await website.list()).find(f => f.id === back).attention, []);
+  },
+};
+
 // F3 (S10 review): the desktop cut short adding to an archive (more than 64 KiB of entries written, not
 // its directory) and never cut it back — the website took the folder over first: both apps read the
 // archive as it was before the addition.
@@ -397,12 +442,12 @@ for (const [direction, apps] of [['website to desktop', ['website', 'desktop']],
       });
     }
     if (apps[0] === 'desktop') {
-      for (const h of [ARCHIVED, OLDEST, UNPACKED, CUT_SHORT, EDITED, KILLED_UNPACK]) {
+      for (const h of [ARCHIVED, OLDEST, UNPACKED, CUT_SHORT, EDITED, KILLED_UNPACK, ARCHIVE_DELETED]) {
         test(h.name, { skip }, async (t) => {
           const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-handover-'));
           const desktop = await desktopLibrary(path.join(dir, 'desktop'));
           const website = await webLibrary();
-          t.after(async () => { await desktop.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+          t.after(async () => { fsa.reset(); await desktop.close(); fs.rmSync(dir, { recursive: true, force: true }); });
           await h.run({ dir, desktop, website });
         });
       }

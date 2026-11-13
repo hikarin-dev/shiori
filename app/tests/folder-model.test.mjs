@@ -41,6 +41,7 @@ import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
 import { zipCreate } from '../js/zip.js';
 import { zipEntries } from '../js/zip-read.js';
+import { REMOVED_FILE, overlayDir } from '../js/storage/linked-source.js';
 
 // A long run's seed (SHIORI_MODEL_SEED) in place of the fixed ones, and its app alone (SHIORI_MODEL_APP).
 export const SEEDS = process.env.SHIORI_MODEL_SEED ? [Number(process.env.SHIORI_MODEL_SEED)] : [1, 2, 3];
@@ -64,8 +65,11 @@ const MAX_COMMANDS = 14;
  * @typedef {{ gid: string, place: 'A' | 'home', app: string, title: string, pages: Page[], zip?: string, pdf?: string, displaced?: boolean,
  *   archived?: boolean, edited?: boolean }} Gallery */
 /** `app`: the app working on folder A now (the hand-over gives it to the other: `other`).
+ * `leaving`: what the deletions in folder A since the last swap leave to do there once they commit (a
+ * gallery's folder, a linked gallery's source and gid), for a swap to wait for (settledDeletions).
  * @typedef {{ state: 'shown' | 'hidden' | 'away', galleries: Gallery[], deleted: Set<string>, notes: Map<string, Uint8Array>,
- *   restartable: boolean, tag: number, pdfs: string[], app: string, both: boolean }} Model */
+ *   restartable: boolean, tag: number, pdfs: string[], app: string, both: boolean,
+ *   leaving: { gid: string, dir: string | null, zip?: string }[] }} Model */
 /** @typedef {{ lib: Driver, other: Driver | null, dir: string, A: string, drive: string, id: string }} Real */
 
 // Bytes no other write has: a picture's type, then the write's number (two bytes).
@@ -113,6 +117,19 @@ function checked(/** @type {Model} */ m) {
 const translatedAs = (p, bytes) => ({ original: p.original, translated: bytes, ...(p.unchecked ? { changed: true, unchecked: true } : {}) });
 /** @param {Page} p @param {Uint8Array} bytes @returns {Page} */
 const sourceChanged = (p, bytes) => ({ original: bytes, translated: p.translated, changed: p.translated != null || !!p.changed, unchecked: true });
+// What the deletions in folder A so far leave to do there ended — a deleted gallery's folder gone; a
+// deleted linked gallery's source noted in removed.json and its overlay gone — before a swap: a write
+// racing the swap is outside §2, and a deletion's work goes on after it resolves (it commits first). At
+// most a few seconds each (a folder holding the person's file stays). S21: one website run of the swaps
+// met a removed.json written into the swapped-in copy.
+async function settledDeletions(/** @type {Model} */ m, /** @type {Real} */ r) {
+  const removed = path.join(r.A, ...REMOVED_FILE.split('/'));
+  for (const s of m.leaving.splice(0)) {
+    const done = () => (s.zip ? fs.existsSync(removed) && fs.readFileSync(removed, 'utf8').includes(s.zip) && !fs.existsSync(path.join(r.A, ...overlayDir(s.gid).split('/')))
+      : !s.dir || !fs.existsSync(s.dir));
+    for (const end = Date.now() + 3000; Date.now() < end && !done();) await new Promise(res => setTimeout(res, 25));
+  }
+}
 // `fn()`, rejected only where the model allows a refusal: resolves whether it was done.
 async function attempt(/** @type {boolean} */ mayRefuse, /** @type {() => Promise<unknown>} */ fn) {
   try { await fn(); return true; } catch (e) { if (!mayRefuse) throw e; return false; }
@@ -231,9 +248,11 @@ const BASE = {
     check: (m, i) => !!galleryAt(m, i, undefined, true),
     async run(m, r, i) {
       const g = /** @type {Gallery} */ (galleryAt(m, i, undefined, true));
+      const dir = g.place === 'A' ? await r.lib.dirOf(g.gid) : null;
       if (!(await attempt(!writable(m, g), () => r.lib.deleteGallery(g.gid)))) return;
       m.galleries = m.galleries.filter(x => x !== g);
       m.deleted.add(g.gid);
+      if (g.place === 'A') m.leaving.push({ gid: g.gid, dir, zip: g.zip });
     },
   }),
   link: command('link', fc.constant(null), {
@@ -358,6 +377,9 @@ const OPEN = {
     check: (m, i) => m.state === 'shown' && !!galleryAt(m, i, g => g.place === 'A' && !g.zip && !g.displaced),
     async run(m, r, i) {
       const g = /** @type {Gallery} */ (galleryAt(m, i, g => g.place === 'A' && !g.zip && !g.displaced));
+      // Nothing under way as it is replaced: a write racing the replacement, between its look at the folder
+      // and the write, is outside §2 (S21: one desktop run met a page moved into the person's folder).
+      await r.lib.flush();
       const dir = await r.lib.dirOf(g.gid);
       if (!dir) return;
       fs.mkdirSync(path.join(r.dir, 'aside'), { recursive: true });
@@ -526,6 +548,7 @@ const OPEN = {
       check: (m) => m.state === 'shown',
       async run(m, r, [i, k]) {
         await r.lib.flush();   // nothing under way as it is swapped (a write racing the swap is outside §2)
+        await settledDeletions(m, r);
         const other = path.join(r.dir, `other library ${++m.tag}`);
         fs.cpSync(r.drive, other, { recursive: true });
         fs.writeFileSync(path.join(other, '.shiori', 'library.json'), JSON.stringify({ format: 'shiori-library', version: 1, id: `0f${String(m.tag).padStart(14, '0')}` }));
@@ -556,6 +579,7 @@ const OPEN = {
         await r.lib.putPage(g.gid, n, first);
         g.pages[n - 1] = { original: first, translated: null };
         await r.lib.flush();   // nothing under way as it is swapped (a write racing the swap is outside §2)
+        await settledDeletions(m, r);
         const at = await r.lib.dirOf(g.gid), theirs = await r.lib.dirOf(h.gid);
         if (!at || !theirs || !fs.existsSync(at) || !fs.existsSync(theirs)) return;
         const aside = path.join(r.dir, `aside ${++m.tag}`);
@@ -724,7 +748,7 @@ async function setup(app, { both = false } = {}) {
   /** @type {Real} */
   const real = { lib, other, dir, A, drive, id };
   return {
-    model: { state: 'shown', galleries: [], deleted: new Set(), notes: new Map(), restartable: !!lib.restart, tag: 0, pdfs: [], app, both },
+    model: { state: 'shown', galleries: [], deleted: new Set(), notes: new Map(), restartable: !!lib.restart, tag: 0, pdfs: [], app, both, leaving: [] },
     real,
     async done() {
       // What the library does after its last command doesn't outlive the run.

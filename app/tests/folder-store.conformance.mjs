@@ -1122,6 +1122,119 @@ export const CASES = [
       assert.equal(await fx.lib.dirOf(gid), path.join(A, 'Alpha'));
     },
   },
+  {
+    // Found by S18's check for copies in the sweeps (S21, the desktop): deleting the archive an unpack let go,
+    // one read of it failing for a moment was taken for the person's edit — the archive stayed beside the
+    // gallery's folder for good, reported 'left' and as a copy at every check. Both kinds: an archived
+    // gallery's archive (checked against its manifest) and an earlier version's (against what the unpack took).
+    name: 'S21: an archive an unpack let go whose read fails for a moment is deleted later, never left as the person\'s',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const A = path.join(dir, 'A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 3; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.flush();
+      assert.deepEqual((await fx.lib.raw.archiveGallery(gid)).archived, [gid]);
+      const { writeZip } = await import('../../desktop/server/zip.js');
+      const old = '1790000000077', file = (/** @type {number} */ n) => `000${n}.png`;
+      await writeZip(path.join(A, 'Old.cbz'), [...[1, 2, 3].map(n => ({ name: file(n), data: png(n) })),
+        { name: 'shiori.json', data: new TextEncoder().encode(JSON.stringify({ format: 'shiori-gallery', version: 1, id: old,
+          meta: { galleryId: old, title: { english: 'Old', japanese: '', pretty: '' }, tags: [], numPages: 3 },
+          pages: [1, 2, 3].map(n => ({ n, file: file(n), key: `local://${old}/${n}.png` })) })) }]);
+      assert.equal((await fx.lib.scan(ref.id)).added, 1);
+      // Each archive's first look at itself in its deletion fails once (EIO), then reads again.
+      const failed = new Set();
+      const undo = faults.failNext((c) => {
+        const name = c.op === 'stat' && /\/A\/(Alpha\.zip|Old\.cbz)$/.test(c.path) && /_archiveUnchanged/.test(String(new Error().stack)) && path.basename(c.path);
+        if (!name || failed.has(name)) return false;
+        failed.add(name);
+        return true;
+      }, 'EIO', { times: Infinity });
+      try {
+        for (const g of [gid, old]) await fx.lib.putTranslation(g, 2, png(9));
+        await fx.lib.flush();
+        await new Promise(r => setTimeout(r, 300));
+      } finally { undo(); }
+      assert.deepEqual([...failed].sort(), ['Alpha.zip', 'Old.cbz'], 'each failed once');
+      for (let i = 0; i < 2; i++) assert.deepEqual((await fx.lib.scan(ref.id)).problems, [], 'nothing left as the person\'s, no copy');
+      await until(() => !fs.existsSync(path.join(A, 'Alpha.zip')) && !fs.existsSync(path.join(A, 'Old.cbz')));
+      assert.deepEqual((await fx.lib.list()).find(f => f.id === ref.id).attention, []);
+      for (const g of [gid, old]) assert.deepEqual([await fx.lib.read(g, 1), await fx.lib.read(g, 2, 'translated')], [png(1), png(9)]);
+    },
+  },
+  {
+    // Found while looking into the above (S21, the desktop): an unpack passed over a picture of the
+    // gallery's own (a translation archived with it) whose read from the archive failed once, as one the
+    // archive didn't hold; the archive then went, and the translation with it.
+    name: 'S21: a translation kept in an archive whose read fails for a moment while the archive is unpacked is kept',
+    platforms: ['desktop'],
+    async run({ fx }) {
+      await fx.register('A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 3; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.putTranslation(gid, 1, png(5));
+      await fx.lib.flush();
+      assert.deepEqual((await fx.lib.raw.archiveGallery(gid)).archived, [gid]);
+      // The unpack's sixth open of the archive (its directory and descriptions, the three pages, then the
+      // translation) fails once.
+      let opens = 0;
+      const undo = faults.failNext((c) => c.op === 'open' && c.path.endsWith('/A/Alpha.zip') && /_unpack/.test(String(new Error().stack)) && ++opens === 6, 'EIO', { times: 1 });
+      try {
+        await fx.lib.putTranslation(gid, 2, png(9));
+        await fx.lib.flush();
+      } finally { undo(); }
+      assert.equal(opens, 6, 'the translation\'s read failed');
+      await fx.lib.flush();
+      assert.deepEqual([await fx.lib.read(gid, 1, 'translated'), await fx.lib.read(gid, 2, 'translated')], [png(5), png(9)]);
+      await fx.lib.restart();
+      assert.deepEqual([await fx.lib.read(gid, 1, 'translated'), await fx.lib.read(gid, 3)], [png(5), png(3)]);
+    },
+  },
+  {
+    // Found by the sweeps (S21, the desktop): a read failing once as an archive's first change unpacked it
+    // decided what the unpack took — the archive's directory, read to tell whether it is in the gallery
+    // format, taken for one outside it (so its descriptions weren't counted as taken), or an earlier
+    // version's shiori.json taken for none — and the archive was then left beside the gallery's folder for
+    // good, reported 'left' and as a copy at every check.
+    name: 'S21: a read failing for a moment as an archive is unpacked never leaves the archive behind as the person\'s',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const A = path.join(dir, 'A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 3; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.flush();
+      assert.deepEqual((await fx.lib.raw.archiveGallery(gid)).archived, [gid]);
+      const { writeZip } = await import('../../desktop/server/zip.js');
+      const old = '1790000000077', file = (/** @type {number} */ n) => `000${n}.png`;
+      await writeZip(path.join(A, 'Old.cbz'), [...[1, 2, 3].map(n => ({ name: file(n), data: png(n) })),
+        { name: 'shiori.json', data: new TextEncoder().encode(JSON.stringify({ format: 'shiori-gallery', version: 1, id: old,
+          meta: { galleryId: old, title: { english: 'Old', japanese: '', pretty: '' }, tags: [], numPages: 3 },
+          pages: [1, 2, 3].map(n => ({ n, file: file(n), key: `local://${old}/${n}.png` })) })) }]);
+      assert.equal((await fx.lib.scan(ref.id)).added, 1);
+      // Once each: the look at Alpha.zip's format as its settle begins, and the read of Old.cbz's shiori.json.
+      const failed = new Set();
+      const undo = faults.failNext((c) => {
+        const stack = String(new Error().stack);
+        const which = c.path.endsWith('/A/Alpha.zip') && c.op === 'stat' && /_inFormat/.test(stack) ? 'format'
+          : c.path.endsWith('/A/Old.cbz') && /_earlierOwn/.test(stack) ? 'shiori.json' : null;
+        if (!which || failed.has(which)) return false;
+        failed.add(which);
+        return true;
+      }, 'EIO', { times: Infinity });
+      try {
+        for (const g of [gid, old]) await fx.lib.putTranslation(g, 2, png(9)).catch(() => {});
+        await fx.lib.flush();
+      } finally { undo(); }
+      assert.deepEqual([...failed].sort(), ['format', 'shiori.json']);
+      await fx.lib.flush();
+      for (let i = 0; i < 2; i++) assert.deepEqual((await fx.lib.scan(ref.id)).problems, [], 'nothing left as the person\'s, no copy');
+      await until(() => !fs.existsSync(path.join(A, 'Alpha.zip')) && !fs.existsSync(path.join(A, 'Old.cbz')));
+      assert.deepEqual((await fx.lib.list()).find(f => f.id === ref.id).attention, []);
+      for (const g of [gid, old]) assert.deepEqual([await fx.lib.read(g, 1), await fx.lib.read(g, 2, 'translated')], [png(1), png(9)]);
+    },
+  },
   // ── A folder names a gallery only once it is whole (review 4: F2, O2) ──
   // A folder reserved for a gallery whose work never committed — the reservation's own writes, or the
   // pictures a first write or a move put in it, cut short by a failed write, a kill or the page closing —
