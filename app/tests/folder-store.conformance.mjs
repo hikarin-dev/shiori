@@ -1389,6 +1389,54 @@ export const CASES = [
       } finally { await lib.close(); }
     },
   },
+  {
+    // F1 (review 5, the desktop): an earlier version's archive went whole once its gallery's first change
+    // unpacked it, as if the unpack had taken all of it — with a file the person had put in it, unreported.
+    name: 'review 5 F1: an earlier version\'s archive the person put a file in is left whole by the unpack, and reported; one holding only what Shiori put there goes',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const { writeZip, readDirectory, readEntry } = await import('../../desktop/server/zip.js');
+      const file = (/** @type {number} */ n) => `000${n}.png`;
+      // As v1.0.x archived a gallery: its pictures, its shiori.json and ComicInfo.xml.
+      const earlier = (/** @type {string} */ name, /** @type {string} */ gid, /** @type {{ name: string, data: Uint8Array }[]} */ more) => writeZip(path.join(dir, 'A', name), [
+        ...[1, 2, 3].map(n => ({ name: file(n), data: png(n) })),
+        { name: 'shiori.json', data: new TextEncoder().encode(JSON.stringify({ format: 'shiori-gallery', version: 1, id: gid,
+          meta: { galleryId: gid, title: { english: name, japanese: '', pretty: '' }, tags: [], numPages: 3 },
+          pages: [1, 2, 3].map(n => ({ n, file: file(n), key: `local://${gid}/${n}.png` })) })) },
+        { name: 'ComicInfo.xml', data: new TextEncoder().encode('<?xml version="1.0"?><ComicInfo></ComicInfo>') },
+        ...more]);
+      const mine = new TextEncoder().encode('the person\'s own notes, inside the archive');
+      await earlier('Old.cbz', '1790000000077', [{ name: 'my-notes.txt', data: mine }]);
+      await earlier('Plain.cbz', '1790000000078', []);
+      const kept = fs.readFileSync(path.join(dir, 'A', 'Old.cbz'));
+      assert.deepEqual((await fx.lib.scan(ref.id)).added, 2);
+      // Each one's first change unpacks it: a translation.
+      for (const gid of ['1790000000077', '1790000000078']) await fx.lib.putTranslation(gid, 2, png(9));
+      await fx.lib.flush();
+      await until(async () => (await fx.lib.list()).find(f => f.id === ref.id).attention.some(a => a.reason === 'left' && a.path === 'Old.cbz'));
+      await until(() => !fs.existsSync(path.join(dir, 'A', 'Plain.cbz')));
+      assert.deepEqual(fs.readFileSync(path.join(dir, 'A', 'Old.cbz')), kept, 'the archive holding the person\'s file stays as it was');
+      const old = path.join(dir, 'A', 'Old.cbz');
+      assert.deepEqual(new Uint8Array(await readEntry(old, (await readDirectory(old)).get('my-notes.txt'))), mine);
+      for (let i = 0; i < 2; i++) await fx.lib.scan(ref.id);
+      assert.deepEqual((await fx.lib.galleries()).sort(), ['1790000000077', '1790000000078'], 'nothing joins from it');
+      for (const gid of ['1790000000077', '1790000000078']) {
+        assert.deepEqual([await fx.lib.read(gid, 1), await fx.lib.read(gid, 2, 'translated'), await fx.lib.read(gid, 3)], [png(1), png(9), png(3)]);
+      }
+      // An archive of the gallery format the person put a file in keeps it too (S10's F6): added to, never unpacked.
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 3; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.flush();
+      assert.deepEqual((await fx.lib.raw.archiveGallery(gid)).archived, [gid]);
+      const zip = path.join(dir, 'A', 'Alpha.zip');
+      await addToArchive(zip, 'my-notes.txt', mine);
+      await fx.lib.putTranslation(gid, 2, png(9));
+      await fx.lib.flush();
+      assert.deepEqual(new Uint8Array(await readEntry(zip, (await readDirectory(zip)).get('my-notes.txt'))), mine);
+      assert.deepEqual([await fx.lib.read(gid, 1), await fx.lib.read(gid, 2, 'translated'), await fx.lib.read(gid, 3)], [png(1), png(9), png(3)]);
+    },
+  },
   // ── The desktop deletes and cuts back only what is still as it recorded (review 4: F4, F6) ──
   {
     // F4 (review 4, the desktop): archiving retired its folder's files as they were once the archive was

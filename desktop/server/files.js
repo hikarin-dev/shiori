@@ -108,7 +108,8 @@ CREATE TABLE IF NOT EXISTS deleting (
 // `files` has them) to delete for gallery `gid` — deleted, moved out of it by a copy, or unpacked out of
 // its archive (F10) — with the files the index recorded writing there (`files`: [{ name, size, mtime }];
 // for an archive, deleted whole, { size, mtime } as Shiori last wrote it, or null when it has no record
-// of that), recorded by the transaction that let it go and deleted by name once that commits
+// of that; { size, mtime, unpacked: true, took } as an unpack read one not in the gallery format, with
+// the entries it took), recorded by the transaction that let it go and deleted by name once that commits
 // (applyDeletions), or at the next start; a check meanwhile leaves it alone (N2, N4). `unfound`: its
 // folder or archive wasn't where it has it (renamed or moved by hand: F4) — kept until a check of its
 // library folder has ended, which deletes the folder naming the gallery where it meets one, never
@@ -944,11 +945,11 @@ export class FileLibrary {
   // Inside the caller's transaction: gallery `row`'s own folder or archive (as `files` has it) recorded
   // for deletion (`deleting`) — a folder with the files the index recorded writing there (its records',
   // and those waiting to retire), an archive whole, with its size and modification time as Shiori last
-  // wrote it (F6), or as an unpack read it (`unpacked`: one not in the gallery format, all of which the
-  // unpack took) — so the intent outlives a close or a crash (N2).
+  // wrote it (F6), or as an unpack read it (`unpacked`: { size, mtime, took }, one not in the gallery
+  // format, with the entries the unpack took: _unpack) — so the intent outlives a close or a crash (N2).
   _deletingIn(row, unpacked = null) {
     const lib = this.library;
-    let named = unpacked ? JSON.stringify({ size: unpacked.size, mtime: unpacked.mtimeMs, unpacked: true })
+    let named = unpacked ? JSON.stringify({ size: unpacked.size, mtime: unpacked.mtime, unpacked: true, took: unpacked.took })
       : row.zip_size != null ? JSON.stringify({ size: row.zip_size, mtime: row.zip_mtime }) : null;
     if (row.format === 'folder') {
       const files = new Map(this._recorded(row.gid).map(f => [f.name, f]));
@@ -1045,14 +1046,20 @@ export class FileLibrary {
   // Whether archive `abs` may be deleted whole (F6): as Shiori last wrote it (`recorded`: its size and
   // modification time; none for an archive written before S10), and holding nothing of the person's
   // (_foreignIn) — a file they added stays theirs even once Shiori has added to the archive since; or,
-  // one an unpack took whole (`recorded.unpacked`), as the unpack read it.
+  // one an unpack let go (`recorded.unpacked`), as the unpack read it and holding nothing but what it
+  // took (`recorded.took`) — a file the person put in it stays theirs (review 5 F1).
   async _archiveUnchanged(abs, recorded) {
     try {
       if (recorded) {
         const st = await disk.stat(abs);
         if (!format.unchanged(recorded, { size: st.size, mtime: st.mtimeMs })) return false;
       }
-      return !!recorded?.unpacked || !(await this._foreignIn(abs, await this._directory(abs))).length;
+      const dir = await this._directory(abs);
+      if (recorded?.unpacked) {
+        const took = new Set(recorded.took);
+        return [...dir.keys()].every(name => took.has(name));
+      }
+      return !(await this._foreignIn(abs, dir)).length;
     } catch { return false; }
   }
   // The entries of archive `file` (its directory `dir`) that aren't Shiori's, by its own manifest
@@ -1171,14 +1178,15 @@ export class FileLibrary {
   // deleted too, while that series.json is Shiori's, told by its content as a gallery's descriptions
   // are (folder-content.js seriesOf; gallery-manifest.js isOwnDescription). One that isn't — the
   // person's — stays with the folder, which is reported once on its library folder's Needs attention
-  // list ('left', review 4 F4's rule); one that can't be read just stays. The library folder itself
-  // never is deleted.
+  // list ('left', review 4 F4's rule); one that can't be read just stays. So does one holding a temporary
+  // a kill left (a member's copy beside its place: nothing proves it Shiori's, review 5 O3). The library
+  // folder itself never is deleted.
   async _tidy(dir) {
     const lib = this.library;
     const root = lib.folders.ids().find(id => { const r = path.relative(lib.folders.path(id), dir); return r && !r.startsWith('..') && !path.isAbsolute(r); });
     if (root == null) return;
     const left = await disk.readdir(dir).catch(() => null);
-    const spare = (name) => ['series.json', 'desktop.ini', 'thumbs.db'].includes(name.toLowerCase()) || name.endsWith('.shiori-tmp');
+    const spare = (name) => ['series.json', 'desktop.ini', 'thumbs.db'].includes(name.toLowerCase());
     if (!left || !left.every(spare)) return;
     const series = left.find(name => name.toLowerCase() === 'series.json');
     const text = series ? await disk.readFile(path.join(dir, series), 'utf8').catch(() => null) : '';
@@ -1656,8 +1664,11 @@ export class FileLibrary {
   // deletion does once that commits, or at the next start: F10). One not in the gallery format, or
   // describing no gallery (`byHand`: added by hand, or an earlier version's shiori.json), whose entries a
   // deletion's rules wouldn't take for Shiori's, is recorded with its size and modification time as the
-  // unpack began reading it, and deleted whole while it is still so (S16). Its descriptions are written
-  // afresh. Resolves false when its pages changed meanwhile (tried again once they settle).
+  // unpack began reading it and the entries it took — those it copied out, and what an earlier version
+  // put there beside them (_earlierOwn) — and deleted whole while it is still so and holds nothing else
+  // (S16); one holding anything else, a file the person put in it, is left and reported (review 5 F1).
+  // Its descriptions are written afresh. Resolves false when its pages changed meanwhile (tried again once
+  // they settle).
   async _unpack(gid, row, byHand = false) {
     const lib = this.library;
     const archived = () => lib._pageRows(gid).filter(r => parse(r.orig).at === 'p').sort((a, b) => a.n - b.n);
@@ -1672,6 +1683,7 @@ export class FileLibrary {
       const token = this._reserveAt(temp, gid);   // the gallery's from its first moment (principle 2)
       await disk.mkdir(path.join(temp, 'images'), { recursive: true });
       const out = [];
+      const took = [];   // the archive's entries copied out
       for (const r of before) {
         const orig = parse(r.orig);
         const data = await this._read(row, orig.entry);
@@ -1681,6 +1693,7 @@ export class FileLibrary {
         await disk.writeFile(path.join(temp, ...entry.split('/')), data);
         lib.writes.add('pages', data.length);
         out.push({ n: r.n, orig: { at: 'p', entry, size: data.length, type: orig.type || TYPE_OF_EXT[ext] || '' } });
+        took.push(orig.entry);
       }
       const own = ownFiles(lib._coverGet(gid), ownFiles(before.map(r => parse(r.record))));
       const staged = new Set(this._stagedOwn(gid).map(s => s.rel));   // moved in after, as they are
@@ -1691,7 +1704,9 @@ export class FileLibrary {
         await disk.mkdir(path.dirname(path.join(temp, ...rel.split('/'))), { recursive: true });
         await disk.writeFile(path.join(temp, ...rel.split('/')), data);
         lib.writes.add('pictures', data.length);
+        took.push(rel);
       }
+      if (byHand) took.push(...await this._earlierOwn(row, gid));
       // One synchronous step from here.
       if (JSON.stringify(archived().map(r => [r.n, r.orig])) !== signature || this._row(gid)?.path !== row.path) {
         await disk.rm(temp, { recursive: true, force: true });
@@ -1700,7 +1715,7 @@ export class FileLibrary {
       disk.renameSync(temp, target);
       // Recorded as it now is on disk, whether or not the gallery is still in the library.
       lib.asFolderWork(this.rootFor(gid), () => lib._tx(() => {
-        this._deletingIn(this._row(gid), read);
+        this._deletingIn(this._row(gid), read && { size: read.size, mtime: read.mtimeMs, took });
         for (const p of out) lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify(p.orig), gid, p.n);
         lib._s(`UPDATE files SET path = ?, format = 'folder', pending = 1, unpack = 0, used_at = ? WHERE gid = ?`).run(rel, Date.now(), gid);
         lib._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(String(gid), token);
@@ -1716,6 +1731,16 @@ export class FileLibrary {
     } finally {
       this._reserved.delete(rel);
     }
+  }
+  // What an earlier desktop version put in archive `row` beside the pages, while its shiori.json names
+  // gallery `gid` (gallery-manifest.js isOwnDescription): that shiori.json, the pictures it lists and
+  // ComicInfo.xml, written with them — Shiori's own, which may go with the archive once it is unpacked.
+  // None for an archive describing no gallery, or whose shiori.json can't be read now.
+  async _earlierOwn(row, gid) {
+    const text = await this._read(row, 'shiori.json').then(b => (b ? String(b) : null), () => null);
+    if (text == null || !await format.isOwnDescription('shiori.json', text, String(gid), '')) return [];
+    const { pages } = JSON.parse(text);
+    return ['shiori.json', 'ComicInfo.xml', ...(Array.isArray(pages) ? pages.map(p => p?.file).filter(f => typeof f === 'string') : [])];
   }
 
   // An archive whose pages are now in a folder — or whose gallery is deleted — deleted once nothing

@@ -222,8 +222,9 @@ test('a series keeps its members in "<Series> Ch. 001" folders with series.json;
 });
 
 // S14's rule on a series' folder (S16): emptied of its members, it goes only while its series.json is
-// Shiori's; one the person wrote over stays, and the folder is reported ('left').
-test('a series\' folder emptied of its members goes with its series.json only while that is Shiori\'s', async (t) => {
+// Shiori's; one the person wrote over stays, and the folder is reported ('left'). One holding a temporary a
+// kill left (a member's copy beside its place) stays as it is, as such a leftover does anywhere (review 5 O3).
+test('a series\' folder emptied of its members goes with its series.json only while that is Shiori\'s, and never with a leftover temporary', async (t) => {
   const library = await open(t);
   const series = async (ids, name) => {
     for (const gid of ids) {
@@ -236,12 +237,18 @@ test('a series\' folder emptied of its members goes with its series.json only wh
   };
   await series(['1790000000013', '1790000000014'], 'Kept');
   await series(['1790000000015', '1790000000016'], 'Plain');
+  await series(['1790000000017', '1790000000018'], 'Leftover');
   const mine = path.join(library.libraryDir, 'Kept', 'series.json');
   fs.writeFileSync(mine, 'my reading notes');
-  for (const gid of ['1790000000013', '1790000000014', '1790000000015', '1790000000016']) await library.deleteGallery(gid);
+  const leftover = path.join(library.libraryDir, 'Leftover', 'Leftover 7.1a2b3c4d.shiori-tmp');
+  fs.writeFileSync(leftover, 'a copy a kill left');
+  for (const gid of ['1790000000013', '1790000000014', '1790000000015', '1790000000016', '1790000000017', '1790000000018']) await library.deleteGallery(gid);
   await until(() => !fs.existsSync(path.join(library.libraryDir, 'Plain')), 'Shiori\'s series.json goes with its folder');
+  await until(() => fs.readdirSync(path.join(library.libraryDir, 'Leftover')).sort().join() === [path.basename(leftover), 'series.json'].join(),
+    'a leftover temporary keeps its folder, its members gone');
   await settle();
   assert.equal(fs.readFileSync(mine, 'utf8'), 'my reading notes', 'the person\'s stays');
+  assert.ok(fs.existsSync(leftover));
   assert.deepEqual((await library.foldersList())[0].attention.filter(a => a.reason === 'left').map(a => a.path), ['Kept'], 'and is reported');
 });
 
@@ -352,12 +359,13 @@ test('a gallery kept in an archive is read in place, and unpacked into a folder 
 test('a page removed from an archive gallery unpacks it without that page', async (t) => {
   const library = await open(t);
   const gid = '1790000000051';
-  await archived(library, gid, [1, 2, 3]);
+  const archive = await archived(library, gid, [1, 2, 3]);
   await library.deleteStaleGalleryImages(gid, [`local://${gid}/1.png`, `local://${gid}/3.png`]);
   await library.files.flush();
   assert.equal(fileOf(library, gid).format, 'folder');
   assert.deepEqual(pagesIn(library, gid), ['0001.png', '0003.png']);
   assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 3)), [...pngBytes(3)]);
+  await until(() => !fs.existsSync(archive), 'the archive goes: the page left out is one its shiori.json lists');
   await whole(library);
 });
 
