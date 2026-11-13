@@ -20,6 +20,16 @@ export const OWN_FILES = [MANIFEST_FILE, 'metadata.json', 'series.json', 'shiori
 // galleryId } (gallery-manifest.js parseManifest checks the rest when it is read).
 /** @param {unknown} text @returns {string | null} */
 const _manifestIdOf = (text) => { const m = _json(text); return _object(m) && m.format === 'shiori-gallery' && m.version === 2 ? _id(m.galleryId) : null; };
+// Whether a manifest's text is a reservation's (gallery-manifest.js firstGeneration: generation 0) —
+// the folder made for its gallery, nothing of the gallery published there yet.
+/** @param {unknown} text @returns {boolean} */
+const _reservedOnly = (text) => _json(text)?.generation === 0;
+
+// The names Shiori writes something under before it takes its place, and nothing else: `<name>.shiori-tmp`
+// (a file replaced whole; a gallery's folder copied, unpacked or archived — `<name>.<hex>.shiori-tmp`),
+// `-new`, `-old`. Neither app's check reads one as a gallery or a linked source; what one holds is Shiori's
+// only once it is in place.
+export const TEMPORARY = /\.shiori-(tmp|old|new)$/;
 
 /** A file's text as parsed JSON, of any shape (each reader checks what it uses), or null.
  * @param {unknown} text @returns {any} */
@@ -37,9 +47,9 @@ const FLAT_TITLES = ['titleEnglish', 'titleJapanese', 'titlePretty'];
  * @typedef {{ [field: string]: unknown, id: string, folder: string }} SeriesChapter
  * @typedef {{ [field: string]: unknown, chapters: SeriesChapter[] }} Series */
 /** What a folder or archive is (classifyFolder, classifyArchive).
- * @typedef {{ kind: 'series', series: Series } | { kind: 'gallery', id: string, legacy?: boolean } | { kind: 'other' }} FolderKind
+ * @typedef {{ kind: 'series', series: Series } | { kind: 'gallery', id: string, legacy?: boolean, reserved?: boolean } | { kind: 'other' }} FolderKind
  * @typedef {{ kind: 'series', series: { [field: string]: unknown, chapters: (SeriesChapter & { present: boolean })[] } }
- *   | { kind: 'gallery', id: string, legacy?: boolean } | { kind: 'linked' }} ArchiveKind */
+ *   | { kind: 'gallery', id: string, legacy?: boolean, reserved?: boolean } | { kind: 'linked' }} ArchiveKind */
 /** The texts of a folder's (or archive's) OWN_FILES: name → text, missing or null when it hasn't it.
  * @typedef {Record<string, string | null | undefined>} OwnTexts */
 
@@ -83,16 +93,23 @@ function _legacyIdOf(text) {
 // hasn't, missing or null):
 // - { kind: 'series', series }: a series' folder (seriesOf). Its members are folders (or archives) of
 //   their own in it, each classified on its own.
-// - { kind: 'gallery', id, legacy? }: a gallery's folder — all it holds is the gallery's — by its
-//   manifest (MANIFEST_FILE), else its metadata.json. `legacy`: described by an earlier desktop
-//   version's shiori.json (its pictures beside it, not in images/).
+// - { kind: 'gallery', id, legacy?, reserved? }: a gallery's folder — all it holds is the gallery's — by
+//   its manifest (MANIFEST_FILE), else its metadata.json. `legacy`: described by an earlier desktop
+//   version's shiori.json (its pictures beside it, not in images/). `reserved`: its manifest is still
+//   its reservation's (generation 0) — the folder names its gallery for the library writing to it, but
+//   isn't whole: what was to be put in it may never have committed (a first write, a move or an unpack
+//   cut short by a failed write, a kill or the page closing). A check never takes it for the gallery,
+//   nor what it holds for a linked one; the gallery's first publication there makes it whole (S12,
+//   review 4 F2).
 // - { kind: 'other' }: not Shiori's. What it holds is linked (linked-source.js planTitles), its
 //   subfolders classified on their own.
 /** @param {OwnTexts} [texts] @returns {FolderKind} */
 export function classifyFolder(texts = {}) {
   const series = seriesOf(texts['series.json']);
   if (series) return { kind: 'series', series };
-  const id = _manifestIdOf(texts[MANIFEST_FILE]) ?? galleryIdOf(texts['metadata.json']);
+  const manifest = _manifestIdOf(texts[MANIFEST_FILE]);
+  if (manifest) return _reservedOnly(texts[MANIFEST_FILE]) ? { kind: 'gallery', id: manifest, reserved: true } : { kind: 'gallery', id: manifest };
+  const id = galleryIdOf(texts['metadata.json']);
   if (id) return { kind: 'gallery', id };
   const legacy = _legacyIdOf(texts['shiori.json']);
   return legacy ? { kind: 'gallery', id: legacy, legacy: true } : { kind: 'other' };

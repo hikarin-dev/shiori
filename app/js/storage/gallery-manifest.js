@@ -346,7 +346,7 @@ export async function readGallery({ area, archive = false, text, files }) {
  * matches its name was Shiori's, and is collected once this one has committed. `texts`: the
  * descriptions (DESCRIPTION_FILES name → text; none for one the gallery hasn't); `area`: areaOf its
  * folder. The generation is the next after both `prev`'s and `next`'s own (the one the library last
- * published or read).
+ * published or read); with no `prev`, `next`'s own (0 for a reservation's, firstGeneration).
  * @param {{ area: string, prev: Manifest | null, next: Omit<Manifest, 'descriptions'>, texts: Record<string, string | null | undefined> }} publication
  * @returns {Promise<Publication>} */
 export async function publication({ area, prev, next, texts }) {
@@ -375,7 +375,8 @@ export function publicationWith({ area, prev, next, texts, hashOf }) {
     descriptions[name] = at;
     if (!before.has(at)) writes.push({ path: at, text: t });
   }
-  const generation = Math.max(next.generation, (prev?.generation ?? 0) + 1);
+  // A folder's first: `next`'s own (a reservation's 0: firstGeneration).
+  const generation = prev ? Math.max(next.generation, prev.generation + 1) : next.generation;
   /** @type {Manifest} */
   const manifest = { ...next, generation, descriptions };
   /** @type {{ path: string, text: string | null, was: string | null }[]} */
@@ -385,10 +386,13 @@ export function publicationWith({ area, prev, next, texts, hashOf }) {
 }
 
 /** The first generation of gallery `galleryId`, which a reservation publishes as it makes the gallery's
- * folder (contract.js reserve: the only operation that makes a directory a gallery's): no pictures yet,
- * written by `writer`. Its descriptions (the gallery's metadata.json) go with it.
+ * folder (contract.js reserve: the only operation that makes a directory a gallery's): generation 0, no
+ * pictures yet, written by `writer`. Its one description (the gallery's metadata.json) is stored with it,
+ * not copied under its own name: the folder names the gallery by this manifest alone, as reserved — never
+ * taken for the gallery by a check until a publication there makes it whole (folder-content.js
+ * classifyFolder `reserved`).
  * @param {string} galleryId @param {string} writer @returns {Omit<Manifest, 'descriptions'>} */
-export const firstGeneration = (galleryId, writer) => ({ format: 'shiori-gallery', version: 2, galleryId: String(galleryId), generation: 1,
+export const firstGeneration = (galleryId, writer) => ({ format: 'shiori-gallery', version: 2, galleryId: String(galleryId), generation: 0,
   writer, files: { pages: {}, covers: {} }, sizes: {} });
 
 /** A manifest for an archive (the desktop's archive mode): its descriptions are the entries appended

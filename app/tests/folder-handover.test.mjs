@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { desktopLibrary, webLibrary } from './library-drivers.mjs';
+import { desktopLibrary, webLibrary, desktopKilled } from './library-drivers.mjs';
 import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
 import { zipCreate } from '../js/zip.js';
@@ -327,6 +327,37 @@ const EDITED = {
   },
 };
 
+// F7 (review 4): the desktop killed as it put a gallery it unpacked in place left the temporary folder
+// it was unpacked into, `Alpha.shiori-tmp`, beside the archive; the website, taking the folder over,
+// took that folder for the gallery and showed it empty, the archive that holds it whole passed over.
+const KILLED_UNPACK = {
+  name: 'F7 (review 4): the folder the desktop was killed unpacking a gallery into is never taken for the gallery by the website',
+  async run({ dir, desktop, website }) {
+    const shared = path.join(dir, 'shared');
+    await desktop.close();
+    assert.equal(desktopKilled(path.join(dir, 'desktop'), async ({ lib, kill, folder }) => {
+      const fs = await import('node:fs'), path = await import('node:path');
+      const png = (n) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, n]);
+      const id = await lib.add(folder);
+      await lib.setDefault(id);
+      const gid = await lib.newGallery('Alpha');
+      for (let n = 1; n <= 3; n++) await lib.putPage(gid, n, png(n));
+      await lib.flush();
+      await lib.raw.archiveGallery(gid);
+      while (fs.existsSync(path.join(folder, 'Alpha'))) await new Promise(r => setTimeout(r, 25));
+      kill((c) => c.op === 'rename' && /\/shared\/Alpha(\.[0-9a-f]+)?\.shiori-tmp$/.test(c.path));
+      await lib.putTranslation(gid, 2, png(9));
+      await lib.flush();
+    }, { folder: shared }), 42);
+    assert.equal(fs.readdirSync(shared).filter(n => n.endsWith('.shiori-tmp')).length, 1, 'the kill left the unpack\'s temporary folder');
+    const back = await website.add(shared, { force: true });
+    const found = await website.scan(back);
+    const [gid] = await website.galleries();
+    assert.deepEqual([found.added, found.problems], [1, []]);
+    assert.deepEqual([await website.read(gid, 1), await website.read(gid, 2), await website.read(gid, 3)], [png(1), png(2), png(3)], 'read whole from the archive');
+  },
+};
+
 // D18, the desktop's alone: a gallery in its oldest format (shiori.json beside its pictures, which the
 // website doesn't read) converted to the gallery format at the desktop's check — its pictures renamed
 // into images/, its generation published — and read whole by the website then.
@@ -366,7 +397,7 @@ for (const [direction, apps] of [['website to desktop', ['website', 'desktop']],
       });
     }
     if (apps[0] === 'desktop') {
-      for (const h of [ARCHIVED, OLDEST, UNPACKED, CUT_SHORT, EDITED]) {
+      for (const h of [ARCHIVED, OLDEST, UNPACKED, CUT_SHORT, EDITED, KILLED_UNPACK]) {
         test(h.name, { skip }, async (t) => {
           const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-handover-'));
           const desktop = await desktopLibrary(path.join(dir, 'desktop'));

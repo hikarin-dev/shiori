@@ -7,7 +7,8 @@
 // archive entry names, so both apps name an archive's chapters alike (A08).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { OWN_FILES, galleryIdOf, seriesOf, classifyFolder, classifyArchive, zipName } from '../js/storage/folder-content.js';
+import { OWN_FILES, TEMPORARY, galleryIdOf, seriesOf, classifyFolder, classifyArchive, galleryAt, zipName } from '../js/storage/folder-content.js';
+import { firstGeneration } from '../js/storage/gallery-manifest.js';
 import { galleryFiles, seriesManifest } from '../js/storage/gallery-files.js';
 import { zipTitles, sourceKey } from '../js/storage/linked-source.js';
 
@@ -83,6 +84,23 @@ test('a folder is Shiori\'s by what its descriptions say, never by its file or f
     'a series\' folder is walked for its members, never taken whole as one gallery');
   assert.deepEqual(classifyFolder({ 'series.json': '{"format":"other"}', 'metadata.json': written(meta('1790000000001')).text }),
     { kind: 'gallery', id: '1790000000001' });
+});
+
+test('a gallery\'s folder still as its reservation made it is reserved: its gallery\'s, never taken for it by a check (S12, review 4 F2)', () => {
+  const reservation = JSON.stringify(firstGeneration('1790000000003', 'w'));
+  assert.deepEqual(classifyFolder({ '.shiori/gallery.json': reservation }), { kind: 'gallery', id: '1790000000003', reserved: true });
+  assert.equal(galleryAt({ '.shiori/gallery.json': reservation }, '1790000000003').kind, 'ok', 'it names its gallery for the library writing to it');
+  assert.deepEqual(classifyFolder({ '.shiori/gallery.json': reservation, 'metadata.json': written(meta('1790000000003')).text }),
+    { kind: 'gallery', id: '1790000000003', reserved: true }, 'the manifest first');
+  const published = JSON.stringify({ ...JSON.parse(reservation), generation: 1 });
+  assert.deepEqual(classifyFolder({ '.shiori/gallery.json': published }), { kind: 'gallery', id: '1790000000003' }, 'whole from its first publication');
+});
+
+test('Shiori\'s temporary names are told by both apps alike (S12, review 4 F7)', () => {
+  for (const name of ['Alpha.shiori-tmp', 'Alpha.1a2b3c4d.shiori-tmp', 'Alpha.zip.1a2b3c4d.shiori-tmp', 'gallery.json.shiori-tmp', '0001.png.0a1b2c3d4e.shiori-new', 'x.shiori-old']) {
+    assert.ok(TEMPORARY.test(name), name);
+  }
+  for (const name of ['Alpha', 'Alpha.zip', 'shiori-tmp', 'Alpha.shiori-tmp.png', 'Alpha (2)']) assert.ok(!TEMPORARY.test(name), name);
 });
 
 test('an archive is Shiori\'s own when its description says so and every entry stays inside it; else it is linked (R01, R14, A20)', () => {

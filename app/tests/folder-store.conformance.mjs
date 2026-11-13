@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
-import { desktopLibrary, webLibrary } from './library-drivers.mjs';
+import { desktopLibrary, webLibrary, desktopKilled, pageNow, pageCalling } from './library-drivers.mjs';
 import { loadGallery as desktopLoad } from '../../desktop/server/folder-store.js';
 import { loadGallery as websiteLoad, forgetFolder } from '../js/storage/folder-store-web.js';
 import { zipCreate } from '../js/zip.js';
@@ -383,17 +383,24 @@ export const CASES = [
     },
   },
   {
-    // Principle 2: only a reservation makes a directory a gallery's — with its first generation.
-    name: 'a reservation publishes the gallery\'s first generation: its directory names it from its first moment',
+    // Principle 2: only a reservation makes a directory a gallery's — with its first generation, its
+    // manifest written last (generation 0: reserved, never taken for the gallery by a check until a
+    // publication makes it whole — S12, review 4 F2). Its stable-named copies come with that publication.
+    name: 'a reservation publishes the gallery\'s first generation, reserved: its directory names it from its manifest on, and is whole from its first publication',
     async run({ dir, store, fx }) {
       const root = await opened(store, await fx.register('A'));
       const g = await root.reserve('Reserved', '1700000000001', null);
       const m = await g.manifest();
       assert.equal(m.kind, 'ok');
-      assert.deepEqual([m.value.galleryId, m.value.generation, Object.keys(m.value.files.pages)], ['1700000000001', 1, []]);
-      const meta = JSON.parse(fs.readFileSync(path.join(dir, 'A', ...g.name.split('/'), 'metadata.json'), 'utf8'));
-      assert.equal(meta.galleryId, '1700000000001', 'and its metadata.json names it, for older readers');
+      assert.deepEqual([m.value.galleryId, m.value.generation, Object.keys(m.value.files.pages)], ['1700000000001', 0, []]);
+      const meta = path.join(dir, 'A', ...g.name.split('/'), 'metadata.json');
+      assert.ok(!fs.existsSync(meta), 'nothing names it but its manifest');
       for (const read of Object.values(await readBoth(path.join(dir, 'A'), g.name))) assert.equal(read.kind, 'ok');
+      const text = JSON.stringify({ galleryId: '1700000000001', title: { english: 'Reserved', japanese: '', pretty: '' } });
+      const done = await g.publish({ manifest: { format: 'shiori-gallery', version: 2, galleryId: '1700000000001', generation: 1, writer: 'conformance',
+        files: { pages: {}, covers: {} }, sizes: {} }, descriptions: { 'metadata.json': text } });
+      assert.equal(done.generation, 1);
+      assert.equal(JSON.parse(fs.readFileSync(meta, 'utf8')).galleryId, '1700000000001', 'its metadata.json names it, for older readers');
     },
   },
   // ── Identity through the libraries (plan §5: T01, T02; D15, D16) ──
@@ -954,6 +961,132 @@ export const CASES = [
       assert.deepEqual([found.added, await fx.lib.galleries()], [0, [gid]], 'nothing joins from what was left');
       await until(() => !fs.existsSync(path.join(dir, 'A', 'Alpha')));
       assert.deepEqual(await fx.lib.read(gid, 2), png(2));
+    },
+  },
+  // ── A folder names a gallery only once it is whole (review 4: F2, O2) ──
+  // A folder reserved for a gallery whose work never committed — the reservation's own writes, or the
+  // pictures a first write or a move put in it, cut short by a failed write, a kill or the page closing —
+  // is never taken for the gallery: not by a re-add, nor by a check once the gallery is deleted.
+  {
+    // F2 (review 4, the website): a reservation's failed write left its metadata.json naming the
+    // gallery; the gallery went to "Alpha (2)", and the folder added again took the stub for it.
+    name: 'review 4 F2: a reservation whose write fails leaves no folder a re-add takes for the gallery',
+    platforms: ['website'],
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Alpha');
+      fsa.failNext((c) => c.op === 'close' && c.path.startsWith('Alpha/.shiori/d/'), 'NoModificationAllowedError', { times: 1 });
+      await fx.lib.putPage(gid, 1, png(1));   // resolves: the page waits in the browser
+      await fx.lib.putPage(gid, 2, png(2));
+      await fx.lib.flush();
+      await fx.lib.setDefault(fx.lib.home);
+      await fx.lib.remove(ref.id);
+      await fx.lib.scan(await fx.lib.add(path.join(dir, 'A')));
+      assert.deepEqual([await fx.lib.read(gid, 1), await fx.lib.read(gid, 2)], [png(1), png(2)]);
+    },
+  },
+  {
+    // F2 (review 4, the desktop): killed inside a reservation (at its manifest's rename), the folder kept
+    // a metadata.json naming the gallery; the folder added again took it for the gallery.
+    name: 'review 4 F2: a reservation the app is killed in leaves no folder a re-add takes for the gallery',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      await fx.close();
+      const base = path.join(dir, 'desktop'), idFile = path.join(dir, 'A-id');
+      assert.equal(desktopKilled(base, async ({ lib, kill, folder, idFile }) => {
+        const id = await lib.add(folder);
+        (await import('node:fs')).writeFileSync(idFile, id);
+        await lib.setDefault(id);
+        const gid = await lib.newGallery('Alpha');
+        kill((c) => c.op === 'rename' && c.path.endsWith('/A/Alpha/.shiori/gallery.json.shiori-tmp'));
+        await lib.putPage(gid, 1, new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1]));
+        await lib.flush();
+      }, { folder: path.join(dir, 'A'), idFile }), 42);
+      const lib = await desktopLibrary(base);
+      try {
+        const [gid] = await lib.galleries();
+        await lib.putPage(gid, 1, png(1));
+        await lib.putPage(gid, 2, png(2));
+        await lib.flush();
+        await lib.setDefault(lib.home);
+        await lib.remove(fs.readFileSync(idFile, 'utf8'));
+        await lib.scan(await lib.add(path.join(dir, 'A')));
+        assert.deepEqual([await lib.read(gid, 1), await lib.read(gid, 2)], [png(1), png(2)]);
+      } finally { await lib.close(); }
+    },
+  },
+  {
+    // F2 (review 4, the website): the page closed while a move copied the gallery's pictures into
+    // another folder; once the gallery was deleted, a check of that folder brought it back, empty.
+    name: 'review 4 F2: a move cut short by the page closing leaves no folder a check brings the deleted gallery back from',
+    platforms: ['website'],
+    async run({ dir, fx }) {
+      await fx.register('A');
+      const B = await fx.lib.add(path.join(dir, 'B'));
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 3; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.flush();
+      // The page's Web Locks go with it: the in-context ones, each page's own (folder-store-web.js withLock).
+      Object.defineProperty(globalThis.navigator, 'locks', { value: undefined, configurable: true });
+      try {
+        const page = pageNow();
+        let died = () => {}, dead = false;
+        const death = new Promise((resolve) => { died = resolve; });
+        fsa.hang((c) => {
+          if (pageCalling() !== page) return false;
+          if (!dead && c.op === 'createWritable' && c.path === 'Alpha/images/0002.png') { dead = true; died(); }
+          return dead;
+        });
+        await Promise.race([fx.lib.move(gid, B), death]);
+        await /** @type {() => Promise<void>} */ (fx.lib.restart)();
+        assert.ok(fs.existsSync(path.join(dir, 'B', 'Alpha', 'images', '0001.png')), 'the move was cut short in B');
+        assert.deepEqual([await fx.lib.read(gid, 1), await fx.lib.read(gid, 2), await fx.lib.read(gid, 3)], [png(1), png(2), png(3)]);
+        await fx.lib.deleteGallery(gid);
+        await fx.lib.flush();
+        await new Promise(r => setTimeout(r, 300));   // what a deletion leaves to do, once it commits
+        const found = await fx.lib.scan(B);
+        assert.deepEqual([found.added, await fx.lib.galleries()], [0, []], 'the deleted gallery never comes back');
+      } finally { delete /** @type {any} */ (globalThis.navigator).locks; }
+    },
+  },
+  {
+    // O2 (review 4, the desktop): a temporary folder a kill left counted as taking the name it was for,
+    // so the next unpack went to "Alpha (2)". It takes no name now, and stays as it is: nothing proves a
+    // folder beside a gallery's place Shiori's (F08).
+    name: 'review 4 O2: a temporary folder a kill left takes no name: the next unpack goes where it was meant to',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      await fx.close();
+      const base = path.join(dir, 'desktop'), A = path.join(dir, 'A'), idFile = path.join(dir, 'A-id');
+      assert.equal(desktopKilled(base, async ({ lib, kill, folder, idFile }) => {
+        const fs = await import('node:fs'), path = await import('node:path');
+        const png = (n) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, n]);
+        const id = await lib.add(folder);
+        fs.writeFileSync(idFile, id);
+        await lib.setDefault(id);
+        const gid = await lib.newGallery('Alpha');
+        for (let n = 1; n <= 3; n++) await lib.putPage(gid, n, png(n));
+        await lib.flush();
+        await lib.raw.archiveGallery(gid);
+        while (fs.existsSync(path.join(folder, 'Alpha'))) await new Promise(r => setTimeout(r, 25));
+        kill((c) => c.op === 'rename' && /\/A\/Alpha(\.[0-9a-f]+)?\.shiori-tmp$/.test(c.path));
+        await lib.putTranslation(gid, 2, png(9));
+        await lib.flush();
+      }, { folder: A, idFile }), 42);
+      const leftover = fs.readdirSync(A).filter(n => n.endsWith('.shiori-tmp'));
+      assert.equal(leftover.length, 1, 'the kill left the unpack\'s temporary folder');
+      const before = snapshot(path.join(A, leftover[0]));
+      const lib = await desktopLibrary(base);
+      try {
+        const [gid] = await lib.galleries();
+        await lib.putTranslation(gid, 2, png(9));
+        await lib.flush();
+        assert.equal(path.basename(/** @type {string} */ (await lib.dirOf(gid))), 'Alpha');
+        assert.deepEqual(snapshot(path.join(A, leftover[0])), before, 'the leftover as it was');
+        await lib.scan(fs.readFileSync(idFile, 'utf8'));
+        assert.deepEqual(await lib.galleries(), [gid], 'nothing joins from it');
+        assert.deepEqual([await lib.read(gid, 1), await lib.read(gid, 2, 'translated'), await lib.read(gid, 3)], [png(1), png(9), png(3)]);
+      } finally { await lib.close(); }
     },
   },
   // ── Generations travel with the work (principle 7) ──

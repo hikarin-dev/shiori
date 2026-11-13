@@ -241,13 +241,6 @@ const sweeps = (/** @type {string} */ app, /** @type {string} */ kind) => SCENAR
 // Scenarios a later step's finding fails on (plan §7 S12–S15), by app, kind and scenario.
 /** @type {Record<string, string>} */
 const TODO = {
-  // Review 4 F2: a reservation cut short (the website's write failing; the desktop killed between its
-  // manifest's temporary file and its rename) leaves a folder naming the gallery, which the re-add
-  // takes for it, the real folder passed over.
-  'desktop kill: a gallery\'s first writes': 'S12',
-  'website NoModificationAllowedError: a gallery\'s first writes': 'S12',
-  'website NotFoundError: a gallery\'s first writes': 'S12',
-  'website NotAllowedError: a gallery\'s first writes': 'S12',
   // Review 4 F8: a same-drive move killed between its rename and its index change (at the library
   // folder's identity read before the commit) leaves the gallery unreadable.
   'desktop kill: a move to another folder and back': 'S13',

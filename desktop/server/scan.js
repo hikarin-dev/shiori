@@ -20,7 +20,7 @@
 // A known path costs one existence check (and its descriptions, to catch up); only files the index
 // doesn't know are opened.
 
-import { disk, loadGallery, manifestIn } from './folder-store.js';
+import { disk, loadGallery, manifestIn, tempBeside } from './folder-store.js';
 import path from 'node:path';
 import { readDirectory, readEntry } from './zip.js';
 import { files as layout, linked as linkedSource, content, contract, manifest as format, personal } from './shared.js';
@@ -37,10 +37,10 @@ const MAX_DEPTH = 6;
 // A moment for the app's process to answer its windows, every so many galleries.
 const breathe = () => new Promise((resolve) => setImmediate(resolve));
 const CHUNK = 20;
-// The temporary files and folders the app writes beside what they become: `<name>.shiori-tmp` (a
-// file replaced whole, a gallery moved, unpacked or archived), `<name>.<hex>.shiori-new` (a picture
-// written beside its folder's), and -old.
-const TEMP = /\.shiori-(tmp|old|new)$/;
+// The temporary files and folders the app writes beside what they become (folder-content.js TEMPORARY):
+// `<name>.shiori-tmp` (a file replaced whole; `<name>.<hex>.shiori-tmp`, a gallery moved, unpacked or
+// archived), `<name>.<hex>.shiori-new` (a picture written beside its folder's), and -old.
+const TEMP = content.TEMPORARY;
 // How old a temporary file must be before a check takes it for a leftover: a write still under way (a
 // large gallery copied to another drive, an archive written) keeps changing its own.
 const LEFTOVER_AGE_MS = 60 * 60 * 1000;
@@ -77,7 +77,9 @@ export function localChanges(library, gid) {
 // Every gallery of Shiori's own in library folder `root`, and what else it holds: { found: [{ rel,
 // format, layout?, entries? }], files, own }. A folder its description says is a gallery's is one
 // (`layout`: in the gallery format; else an earlier version's folder of pictures, `entries` its
-// pictures), and is not looked into; every archive is found, to be read (readGallery); a series' folder
+// pictures), and is not looked into — nor found, while it is still as its reservation made it
+// (classifyFolder `reserved`: what was to be put in it may never have committed, S12); temporary names
+// are passed over (TEMP); every archive is found, to be read (readGallery); a series' folder
 // and any other folder are walked, their pictures and PDFs listed in `files` ([{ path }] in the folder:
 // linked galleries), `own` the paths of the galleries found. `skip`: the folders and archives of
 // galleries the index knows are there, or that wait to be deleted (paths in the folder), not looked
@@ -96,7 +98,7 @@ async function findGalleries(root, { skip = new Set(), onTop = () => {}, stopped
       try { what = await classifyAt(dir, items); } catch { problems.push({ path: here, reason: 'unreadable' }); own.push(here); return; }
       if (what.kind === 'gallery') {
         own.push(here);
-        found.push(what.legacy
+        if (!what.reserved) found.push(what.legacy
           ? { rel: here, format: 'folder', entries: items.filter(i => i.isFile() && IMAGE.test(i.name)).map(i => i.name).sort(natural.compare) }
           : { rel: here, format: 'folder', layout: true });
         return;
@@ -191,10 +193,9 @@ async function unpackSeries(library, g) {
   if (chapters.every(c => files._row(c.id))) return null;
   library.folders.assertWritable(g.root);
   const rel = files._freePath(files._join(g.root, g.inRoot.replace(/\.(cbz|zip)$/i, '')));
-  const target = files._abs(rel), temp = `${target}.shiori-tmp`;
+  const target = files._abs(rel), temp = tempBeside(target);
   files._reserved.add(rel);
   try {
-    await disk.rm(temp, { recursive: true, force: true });
     for (const [name, entry] of g.read.entries) {
       const file = path.join(temp, ...name.split('/'));
       await disk.mkdir(path.dirname(file), { recursive: true });
@@ -634,7 +635,8 @@ export function startEntry(library, gid, meta, now = Date.now()) {
 // staging and overlays), and the folders of the galleries the index keeps there whose description names
 // them (ownedBy). A name alone proves nothing: a file or folder named so in a linked folder, at the
 // folder's top or anywhere else, is someone's own, and stays — as does a whole gallery's interrupted copy
-// beside its place, which the walk never reads and the next such write clears. Resolves how many went.
+// beside its place, which neither app's walk reads and no later write takes a name from (folder-store.js
+// tempBeside). Resolves how many went.
 async function sweepLeftovers(library, id) {
   const root = library.rootDir(id);
   const files = library.files;

@@ -41,8 +41,12 @@ The desktop's adapter is `desktop/server/folder-store.js`, over node fs.
   (the desktop's `folders.js` `reach`, the website's `db.js` `_access`); `open()` is its face.
 - **A gallery's directory** is touched only while it names the gallery (`Root.gallery(dir, gid)`,
   `folder-content.js` `galleryAt`: its manifest, else its v1 `metadata.json`); only `reserve()` makes a
-  directory a gallery's, publishing its first generation there. A directory gone meanwhile is never
-  made again by a write into it. New bytes go to a new name (`writeNew`), never over a file.
+  directory a gallery's, publishing its first generation there, its manifest last. That generation is
+  0, *reserved*: until a publication makes the directory whole, no check of either app takes it for
+  the gallery (what was to be put in it may never have committed), nor what it holds for a linked one.
+  Neither app reads a temporary name (`TEMPORARY`: `*.shiori-tmp`, `-new`, `-old`) as anything. A
+  directory gone meanwhile is never made again by a write into it. New bytes go to a new name
+  (`writeNew`), never over a file.
 - **Containment (desktop).** Every call inside a library folder is refused when its path goes through
   a link (symbolic link or junction) below the folder, and a folder deleted or copied whole must hold
   none (principle 5). The website can't see links (File System Access): it relies on the browser.

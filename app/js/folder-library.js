@@ -26,7 +26,7 @@ import * as folderFiles from './storage/folder-store-web.js';
 import { BackendError } from './backend-error.js';
 import { nextClaim, releasedClaim, unchangedSince } from './storage/folder-owner.js';
 import { mounted, canHide, nextDefault, removalOutcome } from './storage/folder-lifecycle.js';
-import { OWN_FILES, MANIFEST_FILE, galleryIdOf, classifyFolder, classifyArchive } from './storage/folder-content.js';
+import { OWN_FILES, MANIFEST_FILE, TEMPORARY, galleryIdOf, classifyFolder, classifyArchive } from './storage/folder-content.js';
 import { LINKED_DIR, SOURCE_FILE, REMOVED_FILE, IMAGE_NAME, ARCHIVE_NAME, overlayDir, sourceText, parseSource, parseRemoved, isRemoved,
   folderPrint, folderContent, crcHex, metaFromName, planTitles, zipTitles, sortPictures, linkedPages, keepsDerived, sameSource, sameProvenance,
   pdfReady, pdfWaits, matchSources, PDF_HEAD, pdfPrint, drawnFrom, isDrawing } from './storage/linked-source.js';
@@ -717,11 +717,14 @@ function _steps(run, onProgress) {
   };
 }
 
-// What folder `run.id` holds — hidden files and folders, and the library's own .shiori, left out;
-// folders as deep as WALK_DEPTH — { own: Shiori's own galleries found ({ kind: 'dir' | 'zip', path, id,
-// legacy? } — or { kind: 'zip', path, series } for a series export), ownPaths: where they and the
+// What folder `run.id` holds — hidden files and folders, the library's own .shiori, and Shiori's
+// temporary names (folder-content.js TEMPORARY: another app's write under way, or one cut short) left
+// out; folders as deep as WALK_DEPTH — { own: Shiori's own galleries found ({ kind: 'dir' | 'zip', path,
+// id, legacy? } — or { kind: 'zip', path, series } for a series export), ownPaths: where they and the
 // galleries the library keeps there are (not looked into: `skip`, lower-cased), files: [{ path }]
-// everything else }. A folder that can't be listed, an archive that can't be read, are reported.
+// everything else }. A gallery's folder still as its reservation made it (classifyFolder `reserved`) is
+// Shiori's but no gallery found: what was to be put in it may never have committed (S12, review 4 F2).
+// A folder that can't be listed, an archive that can't be read, are reported.
 const WALK_DEPTH = 12;
 async function _walk(run, skip, from = '') {
   const out = { own: [], ownPaths: [], files: [] };
@@ -732,9 +735,13 @@ async function _walk(run, skip, from = '') {
     try { entries = await folderFiles.list(run.id, run.root, path); } catch { run.problems.push({ path: path || '.', reason: 'unreadable' }); return; }
     const what = path ? await _classifyDir(run, path, entries) : { kind: 'other' };
     if (!what) { out.ownPaths.push(path); return; }   // its description unreadable: left as it is
-    if (what.kind === 'gallery') { out.own.push({ kind: 'dir', path, id: what.id, legacy: !!what.legacy }); out.ownPaths.push(path); return; }
+    if (what.kind === 'gallery') {
+      if (!what.reserved) out.own.push({ kind: 'dir', path, id: what.id, legacy: !!what.legacy });
+      out.ownPaths.push(path);
+      return;
+    }
     for (const e of entries) {
-      if (e.name.startsWith('.') || e.name === '__MACOSX') continue;
+      if (e.name.startsWith('.') || e.name === '__MACOSX' || TEMPORARY.test(e.name)) continue;
       const p = path ? `${path}/${e.name}` : e.name;
       if (e.kind === 'directory') { if (depth < WALK_DEPTH) await walk(p, depth + 1); continue; }
       if (ARCHIVE_NAME.test(e.name)) {

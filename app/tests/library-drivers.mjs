@@ -17,6 +17,7 @@
 // copy per page would count every write once per page, each counting the others' counts for ever.
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { registerHooks } from 'node:module';
 import * as fsa from './fsa-node.mjs';
 import { written as desktopWritten } from '../../desktop/server/folder-store.js';
@@ -174,6 +175,25 @@ export async function desktopLibrary(base) {
     async restart() { lib.close(); lib = await new Library(where).open(); },
     async close() { try { lib.close(); } catch {} },
   };
+}
+
+/** The desktop app killed (review 4): `work` — an async function standing alone (it is run from its
+ * source), given { lib: the desktop library over `base`, kill(when), ...args } — run in a child process
+ * that exits inside the first file call `when(call)` matches (fs-faults.mjs calls) once kill(when) is
+ * called. The parent then opens `base` again (desktopLibrary). Returns the child's exit code: 42 when
+ * it was killed there, 0 when the work ended first.
+ * @param {string} base @param {(ctx: any) => Promise<void>} work @param {Record<string, unknown>} [args] @returns {number} */
+export function desktopKilled(base, work, args = {}) {
+  const at = (rel) => JSON.stringify(new URL(rel, import.meta.url).href);
+  const code = `import { desktopLibrary } from ${at('./library-drivers.mjs')};
+    import * as faults from ${at('../../desktop/tests/fs-faults.mjs')};
+    const lib = await desktopLibrary(${JSON.stringify(base)});
+    const kill = (when) => faults.failNext((c) => { if (when(c)) process.exit(42); return false; }, 'EIO', { times: Infinity });
+    await (${work.toString()})({ lib, kill, ...${JSON.stringify(args)} });
+    process.exit(0);`;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8', timeout: 60_000 });
+  if (child.status !== 0 && child.status !== 42) throw new Error(`the killed app ended with ${child.status}: ${child.stderr.slice(-600)}`);
+  return /** @type {number} */ (child.status);
 }
 
 let web = null;          // db.js, once imported (the page's generation's)

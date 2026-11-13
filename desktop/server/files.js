@@ -50,7 +50,7 @@
 // are still as written (`retiring`, principle 4). An archive holds its manifest too, appended with the
 // descriptions it names.
 
-import { disk, physicallyIn, containedWhole, replaceFile, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, undescribedAt, bindIn, ioFailures, there } from './folder-store.js';
+import { disk, physicallyIn, containedWhole, replaceFile, tempBeside, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, undescribedAt, bindIn, ioFailures, there } from './folder-store.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { readDirectory, readEntry, writeZip, appendZip } from './zip.js';
@@ -595,8 +595,8 @@ export class FileLibrary {
   // written to (`work` as folders.js writable). A folder that can't be made leaves the gallery as it
   // was: placed where it was, with no folder yet. The folder is bound to the gallery from its first
   // moment (folder-store.js reserveIn, principle 2: the only way a folder becomes a gallery's): its
-  // first generation is published there, naming it, with its metadata.json (as much of it as is
-  // known), as the website's reserveDir does — and the token it is published at recorded. Nothing is
+  // first generation is published there, naming it as reserved, with its metadata.json (as much of it
+  // as is known) stored, as the website's reserveDir does — and the token it is published at recorded. Nothing is
   // written to, or deleted from, a folder that doesn't name its gallery (_whose), and its full
   // descriptions follow in due course. `root`: the library folder, when it is given (a reservation
   // through the folder store: folder-store.js). Returns its row.
@@ -1480,10 +1480,9 @@ export class FileLibrary {
     const signature = JSON.stringify(before.map(r => [r.n, r.orig]));
     const rel = this._freePath(String(row.path).replace(/\.(cbz|zip)$/i, ''));
     const target = this._abs(rel);
-    const temp = `${target}.shiori-tmp`;
+    const temp = tempBeside(target);
     this._reserved.add(rel);
     try {
-      await disk.rm(temp, { recursive: true, force: true });
       const token = this._reserveAt(temp, gid);   // the gallery's from its first moment (principle 2)
       await disk.mkdir(path.join(temp, 'images'), { recursive: true });
       const out = [];
@@ -1932,7 +1931,7 @@ export class FileLibrary {
       const rel = row.source ? this._freePath(this._join(root, layout.galleryName(lib._metaGet(id) || { galleryId: id }))) : owner
         ? this._freePath(`${this._seriesFolder(owner, root) || this._freePath(this._join(root, layout.seriesName(owner)))}/${this._memberName(owner, id)}`, ext)
         : this._freePath(this._join(root, path.posix.basename(this._split(row.path).rest).replace(/\.(cbz|zip)$/i, '')), ext);
-      const to = this._abs(rel), temp = `${to}.shiori-tmp`;
+      const to = this._abs(rel), temp = tempBeside(to);
       const linkedPlaced = new Map();   // page → where a linked gallery's page from its source is now
       let token = null;                 // a linked gallery's copy: the generation its reservation published
       const signature = () => JSON.stringify([this._row(id), lib._pageRows(id).map(r => [r.n, r.orig, r.record]),
@@ -1986,7 +1985,6 @@ export class FileLibrary {
       }
       try {
         await disk.mkdir(path.dirname(to), { recursive: true });
-        await disk.rm(temp, { recursive: true, force: true });
         // Not what a write under way holds aside, nor its files waiting to retire (its descriptions are
         // published again in its new place).
         const retiring = new Set(lib._s('SELECT name FROM retiring WHERE dir = ?').all(row.path).map(r => path.join(from, ...r.name.split('/'))));
@@ -2045,15 +2043,15 @@ export class FileLibrary {
   }
 
   // ── Places ──
-  // A folder (or, with `ext`, an archive) no gallery has, nothing is being written to and nothing on
-  // disk holds: `base`, or `base (2)`, `base (3)`…
+  // A folder (or, with `ext`, an archive) no gallery has, nothing is being written to (`_reserved`: a
+  // write making it whole beside it, tempBeside) and nothing on disk holds: `base`, or `base (2)`,
+  // `base (3)`… A temporary a kill left beside it takes no name (review 4 O2).
   _freePath(base, ext = '') {
     const lib = this.library;
     for (let i = 1; ; i++) {
       const rel = `${base}${i > 1 ? ` (${i})` : ''}${ext}`;
       const taken = this._reserved.has(rel) || lib._s('SELECT 1 FROM files WHERE path = ?').get(rel)
-        || lib._s('SELECT 1 FROM retiring WHERE dir = ?').get(rel)
-        || disk.existsSync(this._abs(rel)) || disk.existsSync(`${this._abs(rel)}.shiori-tmp`);
+        || lib._s('SELECT 1 FROM retiring WHERE dir = ?').get(rel) || disk.existsSync(this._abs(rel));
       if (!taken) return rel;
     }
   }
@@ -2176,7 +2174,7 @@ export class FileLibrary {
     }
     const { entries, token } = made;
     const rel = this._freePath(row.path, `.${archiveFormat}`);
-    const file = this._abs(rel), temp = `${file}.shiori-tmp`;
+    const file = this._abs(rel), temp = tempBeside(file);
     this._reserved.add(rel);
     try {
       lib.writes.addArchive(await writeZip(temp, entries));

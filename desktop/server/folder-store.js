@@ -264,6 +264,13 @@ async function writeFlushed(file, data) {
   try { await handle.writeFile(data); await handle.sync(); } finally { await handle.close(); }
 }
 
+// A temporary name beside `abs` for what is made whole there before it takes the place (a gallery's
+// folder copied or unpacked, an archive written): `<abs>.<hex>.shiori-tmp`, a name of its own each time.
+// One a kill left is never written over or deleted by its name (nothing proves it Shiori's: F08), nor
+// takes a name from the next write (review 4 O2); neither app's check reads it (folder-content.js
+// TEMPORARY).
+export const tempBeside = (abs) => `${abs}.${crypto.randomBytes(4).toString('hex')}.shiori-tmp`;
+
 // A small file replaced whole: written beside it, then renamed over it — tried again a few times
 // while Windows refuses because something holds the file for a moment (a reader of it, an antivirus
 // scan of the one just written), rather than losing the change (R17).
@@ -342,10 +349,11 @@ export async function galleryIn(dir, gid) {
 // reserved — made exclusively (EEXIST when something is there by now) — and bound to the gallery at
 // once, in the same synchronous step: its first generation published there (gallery-manifest.js
 // firstGeneration, by `writer`), its metadata.json (`metadata`, the gallery's description) stored by its
-// content and copied under its own name, then the manifest, renamed into place last. A reservation cut
-// short takes the folder it made with it. The only way a folder becomes a gallery's (contract.js
-// reserve). `hide(abs)`: called on the .shiori/ folder made for it (D7). Returns the token published
-// (gallery-manifest.js tokenOf).
+// content, then the manifest, renamed into place last — so nothing names the gallery before it, and a
+// kill on the way leaves a folder naming none (review 4 F2). Its stable-named copies come with its first
+// publication. A reservation cut short takes the folder it made with it. The only way a folder becomes
+// a gallery's (contract.js reserve). `hide(abs)`: called on the .shiori/ folder made for it (D7).
+// Returns the token published (gallery-manifest.js tokenOf).
 export function reserveIn(dir, gid, writer, metadata, { hide = () => {} } = {}) {
   disk.mkdirSync(path.dirname(dir), { recursive: true });
   disk.mkdirSync(dir);
@@ -355,7 +363,6 @@ export function reserveIn(dir, gid, writer, metadata, { hide = () => {} } = {}) 
     disk.mkdirSync(within(dir, format.storedDir('.shiori/')), { recursive: true });
     try { hide(within(dir, '.shiori')); } catch {}
     for (const w of plan.writes) disk.writeFileSync(within(dir, w.path), w.text);
-    for (const s of plan.stable) if (s.text != null) disk.writeFileSync(within(dir, s.path), s.text);
     const file = within(dir, format.manifestPath('.shiori/'));
     disk.writeFileSync(`${file}.shiori-tmp`, plan.text);
     disk.renameSync(`${file}.shiori-tmp`, file);

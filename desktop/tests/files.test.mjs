@@ -95,8 +95,8 @@ test('a gallery is settled into a folder of its own in the gallery format, and i
   assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 3)), [...pngBytes(3)]);
   assert.deepEqual(tree(dirOf(library, gid)), await exportNames(library, gid), 'the folder is its export, unzipped');
   const m = manifestOf(library, gid);
-  // Generation 1 is its reservation's (the folder bound to it, no pages yet); its pages are in the next.
-  assert.deepEqual([m.galleryId, m.generation, Object.values(m.files.pages).map(p => p.original)], [gid, 2, ['images/0001.png', 'images/0002.png', 'images/0003.png']],
+  // Generation 0 is its reservation's (the folder bound to it, no pages yet: S12); its pages are in the next.
+  assert.deepEqual([m.galleryId, m.generation, Object.values(m.files.pages).map(p => p.original)], [gid, 1, ['images/0001.png', 'images/0002.png', 'images/0003.png']],
     'and its manifest names each page\'s file, its generation committed');
   await whole(library);
 });
@@ -108,7 +108,7 @@ test('adding a page or changing metadata never writes the other pages again; the
   for (const n of [1, 2]) await library.pagePut(gid, n, png(n));
   await library.files.place(gid);
   const dir = dirOf(library, gid);
-  assert.deepEqual(tree(dir), ['images/0001.png', 'images/0002.png', 'metadata.json'], 'pages moved in at once; descriptions not yet (its metadata.json binds the folder to it from the start)');
+  assert.deepEqual(tree(dir), ['images/0001.png', 'images/0002.png'], 'pages moved in at once; descriptions not yet (its reservation\'s manifest binds the folder to it from the start: S12)');
   await library.files.flush();
   assert.ok(fs.existsSync(path.join(dir, 'image_records.json')), 'written when the app closes (or after a quiet while)');
   const before = ['0001.png', '0002.png'].map(f => identity(path.join(dir, 'images', f)));

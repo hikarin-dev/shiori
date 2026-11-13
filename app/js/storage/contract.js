@@ -214,8 +214,9 @@ export function parsed(read, parse, what = 'file') {
 
 /** A library folder opened to write: its galleries opened to write, reserve() (the only operation
  * that makes a directory a gallery's: an exclusive reservation of a free name that publishes the
- * gallery's first generation there — gallery-manifest.js firstGeneration, its metadata.json naming
- * it) and writes to its .shiori/ area. A write rejects with the I/O error that failed it.
+ * gallery's first generation there — gallery-manifest.js firstGeneration, its manifest written last,
+ * so nothing names the gallery before it, and only as reserved until a publication makes the folder
+ * whole: S12) and writes to its .shiori/ area. A write rejects with the I/O error that failed it.
  * @typedef {Omit<ReadRoot, 'gallery' | 'private'> & {
  *   gallery(dir: string, gid: string): Promise<GalleryResult<GalleryDir>>,
  *   reserve(nameHint: string, gid: string): Promise<GalleryDir>,

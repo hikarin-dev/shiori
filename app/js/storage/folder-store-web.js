@@ -274,11 +274,12 @@ export function withLock(name, fn) {
  * folder) — or "base (2)" and so on when that is taken — made and bound to the gallery at once, while
  * lock shiori:dirs:<folder> is held, so no two galleries, in any tab or the service worker, are given
  * one folder: its first generation published there (gallery-manifest.js firstGeneration, by `writer`)
- * — its metadata.json (`metadata`, the gallery's description) first, so the folder names the gallery
- * from its first write, then stored by its content, then the manifest. The only way a folder becomes
- * a gallery's (contract.js reserve; principle 2). `taken`: names passed over though nothing may be
- * there (a deletion still waits on them: a new folder there would be taken for the one it deletes).
- * Resolves its name.
+ * — its metadata.json (`metadata`, the gallery's description) stored by its content, then the manifest,
+ * so nothing names the gallery before it (review 4 F2); its stable-named copies come with its first
+ * publication. A write that fails takes back what was written, as far as it can: a folder left so
+ * names no gallery. The only way a folder becomes a gallery's (contract.js reserve; principle 2).
+ * `taken`: names passed over though nothing may be there (a deletion still waits on them: a new folder
+ * there would be taken for the one it deletes). Resolves its name.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} base @param {string} metadata
  * @param {{ gid: string, writer: string, taken?: Set<string> }} gallery @returns {Promise<string>} */
 export function reserveDir(id, root, base, metadata, { gid, writer, taken = new Set() }) {
@@ -286,9 +287,18 @@ export function reserveDir(id, root, base, metadata, { gid, writer, taken = new 
     let name = base;
     for (let i = 2; taken.has(name) || await isThere(id, root, name); i++) name = `${base} (${i})`;
     const plan = await publication({ area: '.shiori/', prev: null, next: firstGeneration(gid, writer), texts: { 'metadata.json': metadata } });
-    for (const s of plan.stable) if (s.text != null) await writeFile(id, root, _join(name, s.path), s.text);
-    for (const w of plan.writes) await writeFile(id, root, _join(name, w.path), w.text, { within: name });
-    await writeFile(id, root, _join(name, manifestPath('.shiori/')), plan.text, { within: name });
+    const writes = [...plan.writes, { path: manifestPath('.shiori/'), text: plan.text }];
+    try {
+      for (const [i, w] of writes.entries()) await writeFile(id, root, _join(name, w.path), w.text, { within: i ? name : '' });
+    } catch (e) {
+      // Each file there that is what was written, or the empty one a failed write leaves, deleted; then
+      // the folders left empty (the folder was free: nothing in it is anyone else's).
+      for (const w of writes) {
+        await _fileAt(id, root, _join(name, w.path)).then(f => (f && (!f.size || f.size === new Blob([w.text]).size) ? removeFile(id, root, _join(name, w.path)) : undefined)).catch(() => {});
+      }
+      await _prune(id, root, name);
+      throw e;
+    }
     return name;
   });
 }
