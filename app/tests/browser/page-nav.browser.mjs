@@ -40,8 +40,13 @@ async function visit(t, path, viewport) {
   return page;
 }
 const offered = (page) => page.$$eval('#pageNav option', os => os.map(o => `${o.value}${o.selected ? '*' : ''}`));
+// Picking `value`, then the page it goes to, loaded. Told by the path, not by the next navigation: a page
+// may replace its own address just after it shows (the library's syncUrl), which waitForNavigation took
+// for the pick's (S16: it failed so most runs alone).
 const go = async (page, value) => {
-  await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), page.select('#pageNav', value)]);
+  const from = new URL(page.url()).pathname;
+  await page.select('#pageNav', value);
+  await page.waitForFunction((from) => location.pathname !== from && document.readyState === 'complete', {}, from);
   return new URL(page.url());
 };
 

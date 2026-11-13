@@ -221,6 +221,30 @@ test('a series keeps its members in "<Series> Ch. 001" folders with series.json;
   await whole(library);
 });
 
+// S14's rule on a series' folder (S16): emptied of its members, it goes only while its series.json is
+// Shiori's; one the person wrote over stays, and the folder is reported ('left').
+test('a series\' folder emptied of its members goes with its series.json only while that is Shiori\'s', async (t) => {
+  const library = await open(t);
+  const series = async (ids, name) => {
+    for (const gid of ids) {
+      await library.metaPut({ galleryId: gid, title: title(`${name} ${gid.slice(-1)}`), numPages: 1 });
+      await library.pagePut(gid, 1, png(1));
+    }
+    await library.seriesCommand('write', ids[0], ids.map((id, i) => ({ id, title: `${name} ${id.slice(-1)}`, number: i + 1 })), { seriesTitle: title(name) });
+    await library.files.flush();
+    assert.ok(fs.existsSync(path.join(library.libraryDir, name, 'series.json')));
+  };
+  await series(['1790000000013', '1790000000014'], 'Kept');
+  await series(['1790000000015', '1790000000016'], 'Plain');
+  const mine = path.join(library.libraryDir, 'Kept', 'series.json');
+  fs.writeFileSync(mine, 'my reading notes');
+  for (const gid of ['1790000000013', '1790000000014', '1790000000015', '1790000000016']) await library.deleteGallery(gid);
+  await until(() => !fs.existsSync(path.join(library.libraryDir, 'Plain')), 'Shiori\'s series.json goes with its folder');
+  await settle();
+  assert.equal(fs.readFileSync(mine, 'utf8'), 'my reading notes', 'the person\'s stays');
+  assert.deepEqual((await library.foldersList())[0].attention.filter(a => a.reason === 'left').map(a => a.path), ['Kept'], 'and is reported');
+});
+
 test('deleting a gallery deletes its folder, emptied by name, with the library\'s own delete', async (t) => {
   const removed = [];
   const library = await open(t, { remove: async (p) => { removed.push(p); fs.rmSync(p, { recursive: true, force: true }); } });

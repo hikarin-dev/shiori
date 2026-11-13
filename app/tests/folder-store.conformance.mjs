@@ -1196,6 +1196,40 @@ export const CASES = [
       } finally { await lib.close(); }
     },
   },
+  {
+    // S13's deviation 2 (S16): the same for an archive not in the gallery format — here an earlier version's,
+    // described by its shiori.json — which an unpack deleted at once, unrecorded: killed there, it stayed for good.
+    name: 'S16: an earlier version\'s archive an unpack let go, the app killed in its deletion, is deleted at the next start',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      await fx.close();
+      const base = path.join(dir, 'desktop'), A = path.join(dir, 'A'), idFile = path.join(dir, 'A-id'), gid = '1790000000077';
+      const png = (n) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, n]);
+      assert.equal(desktopKilled(base, async ({ lib, kill, folder, idFile, gid, zipAt }) => {
+        const fs = await import('node:fs'), path = await import('node:path');
+        const png = (n) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, n]);
+        const id = await lib.add(folder);
+        fs.writeFileSync(idFile, id);
+        const file = (n) => `000${n}.png`;
+        await (await import(zipAt)).writeZip(path.join(folder, 'Old.cbz'), [...[1, 2, 3].map(n => ({ name: file(n), data: png(n) })),
+          { name: 'shiori.json', data: Buffer.from(JSON.stringify({ format: 'shiori-gallery', version: 1, id: gid,
+            meta: { galleryId: gid, title: { english: 'Old', japanese: '', pretty: '' }, tags: [], numPages: 3 },
+            pages: [1, 2, 3].map(n => ({ n, file: file(n), key: `local://${gid}/${n}.png` })) })) }]);
+        kill((c) => c.op === 'rm' && c.path.endsWith('/A/Old.cbz'));
+        await lib.scan(id);
+        await lib.putTranslation(gid, 2, png(9));
+        await lib.flush();   // unpacked (if the check hasn't): the archive is deleted once that has committed
+        for (let i = 0; i < 400 && fs.existsSync(path.join(folder, 'Old.cbz')); i++) await new Promise(r => setTimeout(r, 25));
+      }, { folder: A, idFile, gid, zipAt: new URL('../../desktop/server/zip.js', import.meta.url).href }), 42);
+      assert.ok(fs.existsSync(path.join(A, 'Old.cbz')) && fs.existsSync(path.join(A, 'Old')), 'killed as the archive was deleted');
+      const lib = await desktopLibrary(base);
+      try {
+        await until(() => !fs.existsSync(path.join(A, 'Old.cbz')));
+        for (let i = 0; i < 2; i++) assert.deepEqual((await lib.scan(fs.readFileSync(idFile, 'utf8'))).problems, [], 'nothing reported');
+        assert.deepEqual([await lib.galleries(), await lib.read(gid, 1), await lib.read(gid, 3)], [[gid], png(1), png(3)]);
+      } finally { await lib.close(); }
+    },
+  },
   // ── The desktop deletes and cuts back only what is still as it recorded (review 4: F4, F6) ──
   {
     // F4 (review 4, the desktop): archiving retired its folder's files as they were once the archive was

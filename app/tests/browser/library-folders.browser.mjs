@@ -274,9 +274,13 @@ test('a folder is claimed by the library that adds it: another app asks first, a
     // Removing it: a folder that lost what it was published with (its manifest, format v2; its description
     // damaged) is published again, then it is let go.
     await api.folders.setDefault(a);
-    let current = null;
-    while (current == null && Date.now() < deadline + 10000) {   // its manifest, a moment after the last change
-      try { current = await t.text('Lib X', 'Shared/.shiori/gallery.json'); } catch { await new Promise(r => setTimeout(r, 200)); }
+    // Its first publication, a moment after the last change: the manifest past generation 0 (a reservation's,
+    // there from the first page on: S12) and the readable copy written after it (D24). Under load it lands
+    // well after the page (S16: the test once went on at generation 0, before metadata.json existed).
+    let published = false;
+    while (!published && Date.now() < deadline + 10000) {
+      try { published = JSON.parse(await t.text('Lib X', 'Shared/.shiori/gallery.json')).generation > 0 && await t.has('Lib X', 'Shared/metadata.json'); } catch {}
+      if (!published) await new Promise(r => setTimeout(r, 200));
     }
     // (An older description, still naming the gallery: one naming none is no longer known to be its
     // folder, principle 2, and is never written to as it.)
