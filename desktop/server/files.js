@@ -103,14 +103,18 @@ CREATE TABLE IF NOT EXISTS deleting (
 // after it was recorded); `gid` null once nothing waits for that. Recorded by the transaction that let
 // the file go (a page replaced or removed, a picture made again, an archived gallery's old folder),
 // so the intent survives a restart. `deleting`: a gallery's own folder or archive (`dir`, a path as
-// `files` has them) to delete for gallery `gid` — deleted, or moved out of it by a copy — with the
-// files the index recorded writing there (`files`: [{ name, size, mtime }]; for an archive, deleted
-// whole, { size, mtime } as Shiori last wrote it, or null when it has no record of that), recorded by the
-// transaction that let it go and deleted by name once that commits (applyDeletions), or at the next
-// start; a check meanwhile leaves it alone (N2, N4). `unfound`: its folder or archive wasn't where it
-// has it (renamed or moved by hand: F4) — kept until a check of its library folder has ended, which
-// deletes the folder naming the gallery where it meets one, never adopting it. `zip_size`, `zip_mtime`
-// (`files`): an archive's size and modification time as Shiori last wrote it (F6). `source`: for a
+// `files` has them) to delete for gallery `gid` — deleted, moved out of it by a copy, or unpacked out of
+// its archive (F10) — with the files the index recorded writing there (`files`: [{ name, size, mtime }];
+// for an archive, deleted whole, { size, mtime } as Shiori last wrote it, or null when it has no record
+// of that), recorded by the transaction that let it go and deleted by name once that commits
+// (applyDeletions), or at the next start; a check meanwhile leaves it alone (N2, N4). `unfound`: its
+// folder or archive wasn't where it has it (renamed or moved by hand: F4) — kept until a check of its
+// library folder has ended, which deletes the folder naming the gallery where it meets one, never
+// adopting it. `zip_size`, `zip_mtime` (`files`): an archive's size and modification time as Shiori
+// last wrote it (F6). `moving` (`files`): where its folder or archive is being renamed to (a move within
+// a drive: moveTo, _regroup), set before the rename and cleared by the transaction that switches it
+// over, so a rename the app stopped in is finished, or found not done, at the next start (finishMoves;
+// review 4 F8). `source`: for a
 // linked gallery (linked-source.js) — files Shiori didn't make, used as they are — where they are
 // ({ kind, path in its library folder, inner?, fingerprint }): its row's `path` is then its overlay
 // (.shiori/linked/<gid>), a folder in the gallery format for everything Shiori adds, and a page whose
@@ -129,7 +133,7 @@ const UNUSED_AT_MOST = 0.25;   // the share of an archive left unused before it 
 const REGROUP_RETRY = 10_000;  // how soon a folder Windows wouldn't move is tried again
 const PUBLISH_EVERY = 20;      // pages stored before a gallery being downloaded is published (D12)
 const NAMED_TTL = 2000;        // how long a gallery's folder found to name it is taken to, for reads (_namesIt)
-const COLUMNS = { files: { unpack: 'INTEGER NOT NULL DEFAULT 0', used_at: 'REAL', tail: 'REAL', source: 'TEXT', zip_size: 'INTEGER', zip_mtime: 'REAL' },
+const COLUMNS = { files: { unpack: 'INTEGER NOT NULL DEFAULT 0', used_at: 'REAL', tail: 'REAL', source: 'TEXT', zip_size: 'INTEGER', zip_mtime: 'REAL', moving: 'TEXT' },
   deleting: { unfound: 'INTEGER NOT NULL DEFAULT 0' } };
 const HOUR = 60 * 60_000, DAY = 24 * HOUR;
 // Files Windows puts in a folder on its own: not the gallery's, and not worth keeping it a folder for.
@@ -182,6 +186,15 @@ async function filesIn(dir, rel = '') {
     if (e.isDirectory()) out.push(...await filesIn(dir, name)); else out.push(name);
   }
   return out;
+}
+
+// What `abs` holds as it is now, as `retiring` records it: a file as itself (name ''), a folder as each
+// file under it (its path there), each with its size and modification time.
+async function asWritten(abs) {
+  const of = (name, st) => ({ name, size: st.size, mtime: st.mtimeMs });
+  const st = await disk.stat(abs);
+  if (!st.isDirectory()) return [of('', st)];
+  return Promise.all((await filesIn(abs)).map(async (name) => of(name, await disk.stat(path.join(abs, ...name.split('/'))))));
 }
 
 // The bytes of a file, or of every file in a folder.
@@ -323,7 +336,9 @@ export class FileLibrary {
     lib._s('UPDATE files SET used_at = ? WHERE used_at IS NULL').run(Date.now());
     lib._db.exec(`CREATE INDEX IF NOT EXISTS files_used ON files (used_at, gid) WHERE format = 'folder'`);
   }
-  start() {
+  // The moves the app stopped in finished first, before anything reads a gallery (finishMoves).
+  async start() {
+    await this.finishMoves();
     this.resume();
     this._sweepLater(60_000);
   }
@@ -459,9 +474,11 @@ export class FileLibrary {
   // Galleries left with work to do (the app closed before settling them, or their files were away)
   // are settled now, and out-of-date descriptions written in due course. Folders in staging nothing
   // is staged in any more (the app closed before clearing them) go. Again whenever a folder can be
-  // written to again (shown, taken back) — what waited for it then goes there.
+  // written to again (shown, taken back) — what waited for it then goes there, a move it was in
+  // finished.
   resume() {
     const lib = this.library;
+    this.finishMoves().catch(() => {});
     // What was being added to an archive when the app stopped: cut off, to be added again (once its
     // folder may be written to).
     for (const r of lib._s('SELECT gid, path, tail FROM files WHERE tail IS NOT NULL').all()) {
@@ -496,6 +513,44 @@ export class FileLibrary {
       timers.clear();
     }
     clearTimeout(this._sweepTimer);
+  }
+
+  // Each move within a drive the app stopped in (`moving`), told by what is on disk (_whose, principle
+  // 2): one whose folder or archive is gone from where the index has it, its destination naming the
+  // gallery, was renamed and is switched over as its move would have been (_renamedIn) — one still where
+  // the index has it wasn't, and its record goes. One that can't be told now (a folder out of reach or
+  // unreadable, or the switch refused: a folder hidden meanwhile) waits for the next start, or its folder
+  // shown or taken back.
+  async finishMoves() {
+    const lib = this.library;
+    for (const row of lib._s('SELECT * FROM files WHERE moving IS NOT NULL').all()) {
+      try {
+        const here = await this._whose(row.path, row.gid);
+        const renamed = here.kind === 'missing' && (await this._whose(row.moving, row.gid)).kind === 'ok';
+        if (here.kind !== 'ok' && !renamed) continue;
+        lib._tx(() => {
+          const now = this._row(row.gid);
+          if (now?.path !== row.path || now.moving !== row.moving) return;   // changed meanwhile
+          if (!renamed) lib._s('UPDATE files SET moving = NULL WHERE gid = ?').run(row.gid);
+          else { lib._logIn(row.gid); this._renamedIn(row, row.moving); }
+        });
+        if (!renamed) continue;
+        this._forget(row.path);
+        this.scheduleDescribe(row.gid, 0);
+        if (lib.folders.writable(this._split(row.path).root)) await this._tidy(path.dirname(this._abs(row.path)));
+      } catch {}
+    }
+  }
+  // Gallery `gid`'s folder or archive about to be renamed to `rel` within its drive, recorded before the
+  // rename (`moving`); null once it wasn't.
+  _moving(gid, rel) { this.library._s('UPDATE files SET moving = ? WHERE gid = ?').run(rel, String(gid)); }
+  // Inside the caller's transaction: gallery `row`'s folder or archive renamed to `rel` — its row switched
+  // over (and found there), its files waiting to retire with it, it and its series' series.json to publish.
+  _renamedIn(row, rel) {
+    this.library._s(`UPDATE files SET path = ?, moving = NULL, state = 'packed' WHERE gid = ?`).run(rel, row.gid);
+    this.library._s('UPDATE retiring SET dir = ? WHERE dir = ?').run(rel, row.path);
+    this._pend(row.gid);
+    this._pendOwner(row.gid);
   }
 
   _row(gid) { return this.library._s('SELECT * FROM files WHERE gid = ?').get(String(gid)); }
@@ -1262,8 +1317,9 @@ export class FileLibrary {
       if (!row) return true;   // deleted meanwhile
       if (!await this._writesIn(row)) return true;
       if (row.format !== 'folder' && (row.unpack || this._staged(gid).length || this._stagedOwn(gid).length)) {
-        const how = await this._inFormat(row) ? await this._settleArchive(gid, row) : 'unpack';
-        if (how === 'unpack' && !await this._unpack(gid, row)) return false;
+        const inFormat = await this._inFormat(row);
+        const how = inFormat ? await this._settleArchive(gid, row) : 'unpack';
+        if (how === 'unpack' && !await this._unpack(gid, row, !inFormat || !!whose.undescribed)) return false;
         row = this._row(gid);
         if (!row) return true;
       }
@@ -1443,10 +1499,12 @@ export class FileLibrary {
     // One synchronous step from here.
     if (this._row(gid)?.path !== row.path) return;
     const made = disk.mkdirSync(path.dirname(to), { recursive: true });
+    this._moving(gid, rel);
     try { disk.renameSync(from, to); } catch (e) {
       // Windows won't move a folder while something shows or uses a folder inside it (an Explorer
       // window): it stays where it is until then, tried again a little later — and a series' folder
       // made for it goes again at once, so no other member takes it for one already there.
+      this._moving(gid, null);
       if (made) try { disk.rmdirSync(made); } catch {}
       if (!['EPERM', 'EBUSY', 'EACCES'].includes(e?.code)) throw e;
       this._regroupWanted.add(gid);
@@ -1454,10 +1512,7 @@ export class FileLibrary {
       return;
     }
     lib._tx(() => {
-      lib._s('UPDATE files SET path = ? WHERE gid = ?').run(rel, gid);
-      lib._s('UPDATE retiring SET dir = ? WHERE dir = ?').run(rel, row.path);
-      this._pend(gid);
-      this._pendOwner(gid);
+      this._renamedIn(row, rel);
       if (owner) this._pend(owner.galleryId);
     });
     this._forget(row.path);
@@ -1470,10 +1525,13 @@ export class FileLibrary {
   // gallery format when adding to it would leave too much of it unused): the pages its rows still
   // refer to are copied out one at a time into images/, and the pictures of its own its records
   // name (translations, study layers, masks, a cover) where they were; the folder takes the
-  // archive's place in one synchronous step, and the archive is deleted. Its
-  // descriptions are written afresh. Resolves false when its pages changed meanwhile (tried again
-  // once they settle).
-  async _unpack(gid, row) {
+  // archive's place in one synchronous step, which records the archive for deletion (deleted as a
+  // deletion does once that commits, or at the next start: F10). One not in the gallery format, or
+  // describing no gallery (`byHand`: added by hand, or an earlier version's shiori.json), is deleted then
+  // as before, unrecorded: a deletion's rules (_deleteOne) take only the gallery format's archives for
+  // Shiori's. Its descriptions are written afresh. Resolves false when its pages changed meanwhile (tried
+  // again once they settle).
+  async _unpack(gid, row, byHand = false) {
     const lib = this.library;
     const archived = () => lib._pageRows(gid).filter(r => parse(r.orig).at === 'p').sort((a, b) => a.n - b.n);
     const before = archived();
@@ -1514,6 +1572,7 @@ export class FileLibrary {
       disk.renameSync(temp, target);
       // Recorded as it now is on disk, whether or not the gallery is still in the library.
       lib.asFolderWork(this.rootFor(gid), () => lib._tx(() => {
+        if (!byHand) this._deletingIn(this._row(gid));
         for (const p of out) lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify(p.orig), gid, p.n);
         lib._s(`UPDATE files SET path = ?, format = 'folder', pending = 1, unpack = 0, used_at = ? WHERE gid = ?`).run(rel, Date.now(), gid);
         lib._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(String(gid), token);
@@ -1521,7 +1580,8 @@ export class FileLibrary {
       }));
       lib.publishFeed(gid);
       this._forget(row.path);
-      this._discard(this._abs(row.path));
+      if (byHand) this._discard(this._abs(row.path));
+      else this.applyDeletions({ root: this._split(row.path).root }).catch(() => {});
       return true;
     } catch (e) {
       await disk.rm(temp, { recursive: true, force: true }).catch(() => {});
@@ -1945,10 +2005,11 @@ export class FileLibrary {
       const switchOver = (renamed = false) => lib._tx(() => {
         lib.folders.assertMoveTo(root);
         lib._logIn(id);
-        if (!renamed && !row.source) this._deletingIn(row);
+        if (renamed) return this._renamedIn(row, rel);
+        if (!row.source) this._deletingIn(row);
         lib._s('UPDATE files SET path = ?, source = NULL WHERE gid = ?').run(rel, id);
+        lib._s('DELETE FROM retiring WHERE dir = ? AND gid IS NULL').run(rel);   // the copy, recorded as it was renamed there
         if (token) lib._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(id, token);
-        if (renamed) lib._s('UPDATE retiring SET dir = ? WHERE dir = ?').run(rel, row.path);   // its files to delete went with it
         for (const [n, orig] of linkedPlaced) lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify(orig), id, n);
         if (row.source) lib.folders.removedIn(leaving, id, row.path, this.sourceOf(row));
         this._pend(id);
@@ -1958,19 +2019,23 @@ export class FileLibrary {
       // The library's own gallery is moved by renaming its folder or archive there (D25): no picture
       // written again. Renamed and switched over in one synchronous step — while nothing else writes
       // to its archive (_exclusive), and only when nothing changed, is being settled or described
-      // since it was looked at — then renamed back should the switch be refused. A rename the disk
-      // won't do (another drive; Windows holding a file in it for a moment) leaves it to the copy.
+      // since it was looked at — then renamed back should the switch be refused. The rename is
+      // recorded first (`moving`): one the app stops in is finished at the next start (F8). A rename
+      // the disk won't do (another drive; Windows holding a file in it for a moment) leaves it to the
+      // copy.
       let renamed = 'copy';
       if (!row.source) {
         try {
           await disk.mkdir(path.dirname(to), { recursive: true });
           renamed = await this._exclusive(id, () => {
             if (signature() !== before || this._placing.has(id) || this._describing.has(id)) return 'changed';
+            this._moving(id, rel);
             try { disk.renameSync(from, to); } catch (e) {
+              this._moving(id, null);
               if (['EXDEV', 'EPERM', 'EBUSY', 'EACCES'].includes(e?.code)) return 'copy';
               throw e;
             }
-            try { switchOver(true); } catch (e) { disk.renameSync(to, from); throw e; }
+            try { switchOver(true); } catch (e) { disk.renameSync(to, from); this._moving(id, null); throw e; }
             return 'moved';
           });
         } catch (e) { this._reserved.delete(rel); throw e; }
@@ -2017,17 +2082,21 @@ export class FileLibrary {
           }
         }
         lib.writes.add(row.format === 'folder' ? 'pages' : 'archive', await bytesIn(temp));
+        const copied = await asWritten(temp);
+        // One synchronous step from here: renamed into place and switched over only when nothing changed
+        // while it was copied — the copy recorded first, each file as written, to retire (_retire) should
+        // the app stop before the switch (F8) — and deleted again should the switch be refused, the
+        // gallery left where it was.
         if (signature() !== before) { await disk.rm(temp, { recursive: true, force: true }); continue; }
-        await disk.rename(temp, to);
+        lib._tx(() => { for (const f of copied) this._retireIn(rel, f.name, f, null); });
+        disk.renameSync(temp, to);
       } catch (e) {
+        lib._s('DELETE FROM retiring WHERE dir = ? AND gid IS NULL').run(rel);   // it never took its place
         await disk.rm(temp, { recursive: true, force: true }).catch(() => {});
         throw e;
       } finally {
         this._reserved.delete(rel);
       }
-      // One synchronous step from here: switched over only when nothing changed while it was copied;
-      // the copy deleted again should that be refused, the gallery left where it was.
-      if (signature() !== before) { await disk.rm(to, { recursive: true, force: true }).catch(() => {}); continue; }
       try {
         switchOver();
       } catch (e) {

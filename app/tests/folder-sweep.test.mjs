@@ -240,11 +240,7 @@ const sweeps = (/** @type {string} */ app, /** @type {string} */ kind) => SCENAR
 
 // Scenarios a later step's finding fails on (plan §7 S12–S15), by app, kind and scenario.
 /** @type {Record<string, string>} */
-const TODO = {
-  // Review 4 F8: a same-drive move killed between its rename and its index change (at the library
-  // folder's identity read before the commit) leaves the gallery unreadable.
-  'desktop kill: a move to another folder and back': 'S13',
-};
+const TODO = {};
 
 // ── A run ──
 /** A fresh library over a new folder, with folder A added and the default, `sc` set up and published.

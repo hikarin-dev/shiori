@@ -1089,6 +1089,113 @@ export const CASES = [
       } finally { await lib.close(); }
     },
   },
+  // ── Every deletion and move the desktop begins is recorded first (review 4: F8, F10) ──
+  // A move, or the deletion an unpack leaves to do, that the app was killed in is finished or undone at
+  // the next start.
+  {
+    // F8 (review 4, the desktop): killed between a same-drive move's rename and the index's change, the
+    // gallery read nothing until the folder it went to was checked by hand.
+    name: 'review 4 F8: a move the app is killed in between its folder\'s rename and the index\'s change is finished at the next start',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      await fx.close();
+      const base = path.join(dir, 'desktop'), ids = path.join(dir, 'ids');
+      assert.equal(desktopKilled(base, async ({ lib, kill, A, B, ids }) => {
+        const png = (n) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, n]);
+        const a = await lib.add(A), b = await lib.add(B);
+        (await import('node:fs')).writeFileSync(ids, JSON.stringify([a, b]));
+        await lib.setDefault(a);
+        const gid = await lib.newGallery('Alpha');
+        for (let n = 1; n <= 3; n++) await lib.putPage(gid, n, png(n));
+        await lib.flush();
+        let renamed = false;   // killed at the first file call after the folder's rename into B
+        kill((c) => { if (renamed) return true; renamed = c.op === 'rename' && String(c.to).endsWith('/B/Alpha'); return false; });
+        await lib.move(gid, b);
+      }, { A: path.join(dir, 'A'), B: path.join(dir, 'B'), ids }), 42);
+      assert.ok(fs.existsSync(path.join(dir, 'B', 'Alpha')) && !fs.existsSync(path.join(dir, 'A', 'Alpha')), 'killed once renamed');
+      const lib = await desktopLibrary(base);
+      try {
+        const [gid] = await lib.galleries();
+        const pages = async () => [await lib.read(gid, 1), await lib.read(gid, 2), await lib.read(gid, 3)];
+        assert.deepEqual(await pages(), [png(1), png(2), png(3)]);
+        assert.equal(path.dirname(/** @type {string} */ (await lib.dirOf(gid))), path.join(dir, 'B'));
+        for (const id of JSON.parse(fs.readFileSync(ids, 'utf8'))) await lib.scan(id);
+        await lib.restart?.();
+        assert.deepEqual([await lib.galleries(), await pages()], [[gid], [png(1), png(2), png(3)]]);
+      } finally { await lib.close(); }
+    },
+  },
+  {
+    // The same for a move by copy (another drive): killed once the copy was renamed into place, before the
+    // index's change, the copy stayed for good, and the gallery came back from it once deleted.
+    name: 'review 4 F8: a move by copy the app is killed in before the index\'s change leaves no copy the deleted gallery comes back from',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      await fx.close();
+      const base = path.join(dir, 'desktop'), ids = path.join(dir, 'ids');
+      assert.equal(desktopKilled(base, async ({ lib, kill, A, B, ids, faultsAt }) => {
+        const png = (n) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, n]);
+        const a = await lib.add(A), b = await lib.add(B);
+        (await import('node:fs')).writeFileSync(ids, JSON.stringify([a, b]));
+        await lib.setDefault(a);
+        const gid = await lib.newGallery('Alpha');
+        for (let n = 1; n <= 3; n++) await lib.putPage(gid, n, png(n));
+        await lib.flush();
+        // As across drives: the folder's rename refused, so it is copied.
+        (await import(faultsAt)).failNext((c) => c.op === 'rename' && String(c.path).endsWith('/A/Alpha'), 'EXDEV', { times: 1 });
+        let renamed = false;   // killed at the first file call after the copy's rename into place
+        kill((c) => { if (renamed) return true; renamed = c.op === 'rename' && String(c.to).endsWith('/B/Alpha') && c.path.endsWith('.shiori-tmp'); return false; });
+        await lib.move(gid, b);
+      }, { A: path.join(dir, 'A'), B: path.join(dir, 'B'), ids, faultsAt: new URL('../../desktop/tests/fs-faults.mjs', import.meta.url).href }), 42);
+      assert.ok(fs.existsSync(path.join(dir, 'B', 'Alpha')) && fs.existsSync(path.join(dir, 'A', 'Alpha')), 'killed once copied');
+      const lib = await desktopLibrary(base);
+      try {
+        const [gid] = await lib.galleries();
+        assert.deepEqual([await lib.read(gid, 1), await lib.read(gid, 2), await lib.read(gid, 3)], [png(1), png(2), png(3)]);
+        assert.equal(path.dirname(/** @type {string} */ (await lib.dirOf(gid))), path.join(dir, 'A'), 'the move undone');
+        await until(() => !fs.existsSync(path.join(dir, 'B', 'Alpha')));
+        await lib.deleteGallery(gid);
+        await lib.flush();
+        await new Promise(r => setTimeout(r, 300));   // what a deletion leaves to do, once it commits
+        for (const id of JSON.parse(fs.readFileSync(ids, 'utf8'))) await lib.scan(id);
+        assert.deepEqual(await lib.galleries(), [], 'the deleted gallery never comes back');
+      } finally { await lib.close(); }
+    },
+  },
+  {
+    // F10 (review 4, the desktop): killed as an unpack deleted the archive it was made from, the archive
+    // stayed for good, a copy every check reported.
+    name: 'review 4 F10: an archive an unpack let go, the app killed in its deletion, is deleted at the next start, never reported as a copy',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      await fx.close();
+      const base = path.join(dir, 'desktop'), A = path.join(dir, 'A'), idFile = path.join(dir, 'A-id');
+      assert.equal(desktopKilled(base, async ({ lib, kill, folder, idFile }) => {
+        const fs = await import('node:fs'), path = await import('node:path');
+        const png = (n) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, n]);
+        const id = await lib.add(folder);
+        fs.writeFileSync(idFile, id);
+        await lib.setDefault(id);
+        const gid = await lib.newGallery('Alpha');
+        for (let n = 1; n <= 3; n++) await lib.putPage(gid, n, png(n));
+        await lib.flush();
+        await lib.raw.archiveGallery(gid);
+        while (fs.existsSync(path.join(folder, 'Alpha'))) await new Promise(r => setTimeout(r, 25));
+        kill((c) => c.op === 'rm' && c.path.endsWith('/A/Alpha.zip'));
+        await lib.putTranslation(gid, 2, png(9));
+        await lib.flush();   // unpacked: the archive is deleted once that has committed
+        for (let i = 0; i < 400 && fs.existsSync(path.join(folder, 'Alpha.zip')); i++) await new Promise(r => setTimeout(r, 25));
+      }, { folder: A, idFile }), 42);
+      assert.ok(fs.existsSync(path.join(A, 'Alpha.zip')), 'killed as the archive was deleted');
+      const lib = await desktopLibrary(base);
+      try {
+        const [gid] = await lib.galleries();
+        await until(() => !fs.existsSync(path.join(A, 'Alpha.zip')));
+        for (let i = 0; i < 2; i++) assert.deepEqual((await lib.scan(fs.readFileSync(idFile, 'utf8'))).problems, [], 'nothing reported');
+        assert.deepEqual([await lib.galleries(), await lib.read(gid, 1), await lib.read(gid, 2, 'translated'), await lib.read(gid, 3)], [[gid], png(1), png(9), png(3)]);
+      } finally { await lib.close(); }
+    },
+  },
   // ── Generations travel with the work (principle 7) ──
   {
     // T07: a ZIP's picture changed in place (same name and size, another CRC-32) kept the translation of

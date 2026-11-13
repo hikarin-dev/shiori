@@ -371,7 +371,7 @@ export class Library {
     // for them is settled, and removals cut short go on.
     await this.folders.open();
     this._personalFromMeta();
-    this.files.start();
+    await this.files.start();
     this.folders.resume();
     return this;
   }
