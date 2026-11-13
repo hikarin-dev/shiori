@@ -225,27 +225,41 @@ export const ownedBy = async (dir, gid) => (await galleryIn(dir, String(gid))).k
 
 // The library folder's own id, kept in its .shiori/library.json and made the first time: this
 // computer's data for the library (its index and thumbnails) is found by it, so the folder keeps
-// them whatever drive letter or path it is reached by. A file that can't be read is an error, never
-// a reason to start over under a new id.
-export const libraryId = (libraryDir) => idIn(libraryDir) ?? writeId(libraryDir, crypto.randomBytes(8).toString('hex'));
-// The id folder `libraryDir`'s library.json names; null when it has none.
+// them whatever drive letter or path it is reached by. A file that can't be read, or names no library,
+// is an error, never a reason to start over under a new id.
+export const libraryId = (libraryDir) => idIn(libraryDir) ?? writeId(libraryDir, freshId());
+const freshId = () => crypto.randomBytes(8).toString('hex');
+const idFile = (libraryDir) => path.join(libraryDir, ...content.LIBRARY_FILE.split('/'));
+// Folder `libraryDir`'s library.json as it is; null when it has none.
+function idText(libraryDir) {
+  try { return disk.readFileSync(idFile(libraryDir), 'utf8'); } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
+}
+// The id folder `libraryDir`'s library.json names (folder-content.js libraryIdOf); null when it has none.
 function idIn(libraryDir) {
-  const file = path.join(libraryDir, ...content.LIBRARY_FILE.split('/'));
-  let text;
-  try { text = disk.readFileSync(file, 'utf8'); } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
-  const id = JSON.parse(text)?.id;
-  if (typeof id !== 'string' || !/^[0-9a-f]{16}$/.test(id)) throw new Error(`${file} names no library id`);
+  const text = idText(libraryDir);
+  if (text == null) return null;
+  const id = content.libraryIdOf(text);
+  if (!id) throw new Error(`${idFile(libraryDir)} names no library id`);
   return id;
 }
-// `id` written as folder `libraryDir`'s, never over a library.json there: one found there meanwhile (a
-// read that answered "not found" for a moment) is the folder's id.
-function writeId(libraryDir, id) {
-  const file = path.join(libraryDir, ...content.LIBRARY_FILE.split('/'));
+// `id` written as folder `libraryDir`'s library.json, whole: written beside it, then renamed into place,
+// so a kill leaves none there, never an empty one that stops every start (review 5 F4). Never over one
+// naming a library: one found there meanwhile (a read that answered "not found" for a moment) is the
+// folder's id. One there naming none is written over only when it holds nothing, or when the caller has
+// told the folder for the library's (`over`); else it is an error, and stays. Returns the folder's id.
+function writeId(libraryDir, id, { over = false } = {}) {
+  const file = idFile(libraryDir);
   disk.mkdirSync(path.dirname(file), { recursive: true });
-  try { disk.writeFileSync(file, JSON.stringify({ format: 'shiori-library', version: 1, id }, null, 2), { flag: 'wx' }); } catch (e) {
-    if (e?.code === 'EEXIST') return libraryId(libraryDir);
-    throw e;
-  }
+  const temp = tempBeside(file);
+  const drop = () => { try { disk.rmSync(temp, { force: true }); } catch {} };
+  try {
+    disk.writeFileSync(temp, JSON.stringify({ format: 'shiori-library', version: 1, id }, null, 2), { flush: true });
+    const now = idText(libraryDir);
+    const found = now == null ? null : content.libraryIdOf(now);
+    if (found) { drop(); return found; }
+    if (now?.trim() && !over) throw new Error(`${file} names no library id`);
+    disk.renameSync(temp, file);
+  } catch (e) { drop(); throw e; }
   return id;
 }
 
@@ -255,32 +269,35 @@ function writeId(libraryDir, id) {
 // other folders and the person's marks out of reach (review 4 F5), or link whatever another drive at its
 // letter holds (O1). So each library notes in its data folder the folder it was last opened from
 // (FIRST_NOTE: its path, and the number the system gives that folder on its volume, which a folder keeps
-// when renamed and no other folder shares):
+// when renamed and no other folder shares). A library.json that names no library — empty (what a kill
+// inside an earlier version's write of it left) or not a library's — is told as a missing one is:
 // - the folder's library.json names a library: that one;
 // - it has none, and one library's note names this very folder: that library, its library.json written
-//   back (the person deleted it);
+//   back (the person deleted it, or a kill emptied it), over one naming none;
 // - it has none, and it was `chosen` by the person just now, or nothing on this computer may have been
 //   kept there (no note names its path, no index is older than the notes; one v1.0.13 or v1.0.14 made
-//   is not, see earlierIndex): a new library, its folder made if need be;
+//   is not, see earlierIndex): a new library, its folder made if need be — unless a library.json naming
+//   none and holding something is there: the person's, never written over;
 // - otherwise refused, nothing written (BackendError 'unavailable'): reason 'missing' when no folder is
 //   at the path (its drive not connected, or the folder gone), 'unknown' when a folder is there that
-//   can't be told to be the library's (another drive at its letter, a copy of the folder, or one an index
-//   older than the notes may have been kept in).
+//   can't be told to be the library's (another drive at its letter, a copy of the folder, one an index
+//   older than the notes may have been kept in, or one holding a library.json of the person's).
 const FIRST_NOTE = 'first-folder.json';
 export async function firstLibrary(librariesDir, libraryDir, { chosen = false } = {}) {
   const dir = path.resolve(libraryDir);
-  const named = idIn(dir);
+  const text = idText(dir);
+  const named = text == null ? null : content.libraryIdOf(text);
   if (named) return noteFirst(librariesDir, named, dir);
   const notes = await notesIn(librariesDir);
   const st = await disk.stat(dir, { bigint: true }).catch((e) => { if (e?.code === 'ENOENT') return null; throw e; });
   const number = st?.isDirectory() ? folderNumber(st) : null;
   const same = notes.filter(n => n.path && samePath(n.path, dir) && number && n.folder === number);
-  if (same.length === 1) return noteFirst(librariesDir, writeId(dir, same[0].id), dir);
-  if (!chosen && (same.length || notes.some(n => !n.path || samePath(n.path, dir)))) {
+  if (same.length === 1) return noteFirst(librariesDir, writeId(dir, same[0].id, { over: true }), dir);
+  if ((!chosen && (same.length || notes.some(n => !n.path || samePath(n.path, dir)))) || text?.trim()) {
     throw Object.assign(new BackendError('unavailable', `${dir} can't be told to hold this computer's library`), { reason: st ? 'unknown' : 'missing' });
   }
   disk.mkdirSync(dir, { recursive: true });
-  return noteFirst(librariesDir, libraryId(dir), dir);
+  return noteFirst(librariesDir, writeId(dir, freshId()), dir);
 }
 // Folder `dir`'s number on its volume: null where the system gives none.
 const folderNumber = (st) => (st.ino ? `${st.dev}:${st.ino}` : null);

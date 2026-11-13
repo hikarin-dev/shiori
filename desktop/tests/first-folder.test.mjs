@@ -5,7 +5,10 @@
 // library's — another drive at its letter, nothing there, or an index from before the app noted its
 // folder — nothing is opened and nothing is written there (O1); a folder the person picks is theirs to
 // start a library in. An index v1.0.13 or v1.0.14 left (named by its folder's path, no library.json ever
-// written) is none of those: a folder it was kept in starts a library as in v1.1.0 (S17).
+// written) is none of those: a folder it was kept in starts a library as in v1.1.0 (S17). library.json is
+// put in place whole, never left empty by a kill; one there that names no library (empty, or the person's)
+// is told by the notes as a missing one is, and written over only where the note confirms the folder or it
+// holds nothing (review 5 F4).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
@@ -18,6 +21,7 @@ globalThis.BroadcastChannel = class { postMessage() {} close() {} };
 const { Library } = await import('../server/library.js');
 const { firstLibrary } = await import('../server/files.js');
 const { writeZip } = await import('../server/zip.js');
+const { desktopKilled } = await import('../../app/tests/library-drivers.mjs');
 
 const png = (n) => new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, n])], { type: 'image/png' });
 const title = (english) => ({ english, japanese: '', pretty: '' });
@@ -192,4 +196,69 @@ test('S17: an index v1.0.13 or v1.0.14 left for another folder keeps no start fr
   await assert.rejects(firstLibrary(libraries, other), refused('unknown'));
   assert.deepEqual(tree(other), [], 'nothing written');
   assert.deepEqual(filesOf(earlier), before, 'the earlier index left as it was');
+});
+
+test('review 5 F4: a first folder whose library.json a kill left empty opens its own library again, from Try again or picked again', async (t) => {
+  const { libraries, libraryDir, start } = computer(t);
+  let lib = await start();
+  const id = lib.primaryId;
+  const alpha = await gallery(lib, 'Alpha', 1);
+  await lib.files.flush();
+  for (const chosen of [false, true]) {
+    lib.close();
+    fs.writeFileSync(path.join(libraryDir, '.shiori', 'library.json'), '');   // what a kill inside its write left
+    lib = await start({ chosen });
+    assert.equal(lib.primaryId, id, 'the same library');
+    assert.equal(libraryJson(libraryDir), id, 'its library.json written again');
+    assert.deepEqual(fs.readdirSync(libraries), [id], 'no new library made');
+    assert.deepEqual(await bytesOf(await lib.getPageBlob(alpha, 1)), await bytesOf(png(1)));
+  }
+});
+
+test('S20: library.json is put in place whole: a start killed as it writes it leaves none, and the next start opens the library', async (t) => {
+  const { base, libraries, libraryDir, start } = computer(t);
+  const lib = await start();
+  const id = lib.primaryId;
+  lib.close();
+  // Killed as a start puts library.json in place: writing it back (F5), and making a new library's.
+  const fresh = path.join(base, 'Fresh');
+  fs.mkdirSync(fresh);
+  fs.rmSync(path.join(libraryDir, '.shiori', 'library.json'));
+  for (const folder of [libraryDir, fresh]) {
+    assert.equal(desktopKilled(path.join(base, 'killed'), async ({ kill, libraries, folder, filesAt }) => {
+      const path = await import('node:path');
+      const file = path.join(folder, '.shiori', 'library.json').split(path.sep).join('/');
+      kill((c) => c.op === 'rename' && c.to === file);
+      await (await import(filesAt)).firstLibrary(libraries, folder);
+    }, { libraries, folder, filesAt: new URL('../server/files.js', import.meta.url).href }), 42, 'killed as it was put in place');
+    assert.ok(!fs.existsSync(path.join(folder, '.shiori', 'library.json')), 'none there, never an empty one');
+  }
+  assert.equal((await start()).primaryId, id, 'the library, its library.json written back');
+  assert.equal(libraryJson(libraryDir), id);
+  const made = await firstLibrary(libraries, fresh);
+  assert.ok(made !== id && libraryJson(fresh) === made, 'a library of its own');
+});
+
+test('S20: a library.json that names no library is written over only where the note confirms the folder, or it holds nothing', async (t) => {
+  const { base, libraries, libraryDir, start } = computer(t);
+  let lib = await start();
+  const id = lib.primaryId;
+  lib.close();
+  // The library's own folder, its library.json written over by the person: the note tells it for the library's.
+  fs.writeFileSync(path.join(libraryDir, '.shiori', 'library.json'), '{ "mine": true }');
+  lib = await start();
+  assert.equal(lib.primaryId, id);
+  assert.equal(libraryJson(libraryDir), id);
+  // A folder no note names, with a library.json of the person's that names none: never written over, picked or not.
+  const other = path.join(base, 'Other');
+  fs.mkdirSync(path.join(other, '.shiori'), { recursive: true });
+  fs.writeFileSync(path.join(other, '.shiori', 'library.json'), 'my notes');
+  for (const chosen of [false, true]) await assert.rejects(firstLibrary(libraries, other, { chosen }), refused('unknown'));
+  assert.equal(fs.readFileSync(path.join(other, '.shiori', 'library.json'), 'utf8'), 'my notes');
+  assert.deepEqual(tree(other), ['.shiori', path.join('.shiori', 'library.json')], 'nothing else written');
+  assert.deepEqual(fs.readdirSync(libraries), [id], 'no new library made');
+  // One left empty there holds nothing: the folder starts a library, as one without a library.json does.
+  fs.writeFileSync(path.join(other, '.shiori', 'library.json'), '');
+  const made = await firstLibrary(libraries, other);
+  assert.ok(made !== id && libraryJson(other) === made);
 });
