@@ -162,9 +162,10 @@ test('D25: a same-drive move whose switch is refused renames the folder back, th
   const { id } = await library.folderAdd(other);
   const gid = await gallery(library, 'Refused');
   await library.files.place(gid);
-  // Another app takes the folder over as the gallery's folder is about to be renamed there.
+  // Another app takes the folder over as the gallery's folder is about to be renamed there (at the move's
+  // look at the library folder, which it never makes: S18).
   t.after(failNext((c) => {
-    if (c.op !== 'mkdir' || c.path !== slash(other)) return false;
+    if (c.op !== 'stat' || c.path !== slash(other)) return false;
     fs.writeFileSync(path.join(other, '.shiori', 'owner.json'), JSON.stringify({ format: 'shiori-owner', version: 1, owner: 'a1b2c3d4e5f60708',
       by: { app: 'web', browser: 'Chrome', site: 'example.test' }, at: Date.now(), epoch: 99 }));
     library.folders._probes.clear();

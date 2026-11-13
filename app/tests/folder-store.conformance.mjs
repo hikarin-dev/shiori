@@ -127,6 +127,21 @@ async function until(/** @type {() => boolean | Promise<boolean>} */ ready, ms =
     if (Date.now() > end) throw new Error('it never happened');
   }
 }
+// The drive library folder `at` is on taken away inside the first file call `when(call)` matches (the
+// app's: fs-faults.mjs on the desktop, fsa-node.mjs on the website): the folder renamed away there, so
+// that call and every later one in it answer "not found", as they do while a drive is away (review 5).
+// It comes back at the `backAfter`-th file call after that one, or else when the function returned is
+// called (which also takes the fault back).
+function driveAway(/** @type {'website' | 'desktop'} */ platform, /** @type {string} */ at, /** @type {(call: { op: string, path: string }) => boolean} */ when, { backAfter = Infinity } = {}) {
+  let left = false, calls = 0;
+  const away = `${at}.away`, home = () => { if (fs.existsSync(away)) fs.renameSync(away, at); };
+  const watch = (/** @type {{ op: string, path: string }} */ c) => {
+    if (!left && when(c)) { left = true; fs.renameSync(at, away); } else if (left && ++calls === backAfter) home();
+    return false;
+  };
+  const undo = platform === 'desktop' ? faults.failNext(watch, 'EIO', { times: Infinity }) : fsa.failNext(watch, 'EIO', { times: Infinity });
+  return () => { undo(); assert.ok(left, 'the drive left'); home(); };
+}
 
 /** @type {Case[]} */
 export const CASES = [
@@ -963,6 +978,150 @@ export const CASES = [
       assert.deepEqual(await fx.lib.read(gid, 2), png(2));
     },
   },
+  // ── The second look asks the library folder, not the file (review 5: F2, F3, T-D) ──
+  // A drive that leaves answers "not found" for everything on it for as long as it is away, a second
+  // look at the same file included: such an answer counts only while the library folder is there, as
+  // itself (contract.js surelyMissing).
+  {
+    // F2 (review 5): the drive away for the length of a deletion: every picture, the descriptions and
+    // the folder itself answered "not found" twice, and the deletion was recorded done; with the drive
+    // back, the folder still held the gallery whole, and the next check added it again with every page.
+    name: 'review 5 F2: a deletion the drive is away for stays recorded: with the drive back the folder goes, and the deleted gallery never comes back',
+    async run({ dir, fx, platform }) {
+      const ref = await fx.register('A');
+      const A = path.join(dir, 'A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 3; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.flush();
+      const back = driveAway(platform, A, (c) => (platform === 'desktop' ? c.op === 'stat' && c.path.endsWith('/A/Alpha/images/0001.png')
+        : c.op === 'getFile' && c.path === 'Alpha/images/0001.png'));
+      await fx.lib.deleteGallery(gid);
+      await fx.lib.flush();
+      await new Promise(r => setTimeout(r, 300));   // what a deletion leaves to do, once it commits
+      back();
+      assert.deepEqual(await fx.lib.galleries(), []);
+      for (let i = 0; i < 2; i++) {
+        const found = await fx.lib.scan(ref.id);
+        assert.deepEqual([found.added, await fx.lib.galleries()], [0, []], 'the deleted gallery never comes back');
+      }
+      await until(() => !fs.existsSync(path.join(A, 'Alpha')));
+      assert.deepEqual([await fx.lib.read(gid, 1), await fx.lib.read(gid, 3)], [null, null]);
+    },
+  },
+  {
+    // F3 (a) (review 5, the desktop): the drive away while archiving retired the gallery's old folder:
+    // every file answered "not found" twice, its rows were forgotten, and with the drive back the old
+    // folder stayed for good beside the archive, reported as a copy at every check.
+    name: 'review 5 F3: a retirement the drive is away for stays recorded: with the drive back the old folder goes, never reported as a copy',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const A = path.join(dir, 'A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 3; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.flush();
+      const back = driveAway('desktop', A, (c) => c.op === 'stat' && c.path.endsWith('/A/Alpha/images/0001.png') && fs.existsSync(path.join(A, 'Alpha.zip')));
+      assert.deepEqual((await fx.lib.raw.archiveGallery(gid)).archived, [gid]);
+      await new Promise(r => setTimeout(r, 300));
+      back();
+      assert.ok(fx.lib.raw._s('SELECT 1 FROM retiring').get(), 'what waits to retire is still recorded');
+      for (let i = 0; i < 2; i++) assert.deepEqual((await fx.lib.scan(ref.id)).problems, [], 'nothing reported');
+      await until(() => !fs.existsSync(path.join(A, 'Alpha')));
+      assert.deepEqual([await fx.lib.galleries(), await fx.lib.read(gid, 1), await fx.lib.read(gid, 3)], [[gid], png(1), png(3)]);
+    },
+  },
+  {
+    // F3 (b) (review 5, the desktop): a retiring picture whose stat and second look both answered "not
+    // found" (the library folder there) was forgotten and left in the old folder, reported 'left' — and
+    // the next check added that folder's pictures as a gallery "images", as F9 did. What a retirement
+    // leaves is now noted as removed, as a deletion's is.
+    name: 'review 5 F3: a picture a retirement leaves after two "not found" answers is reported and never joins as a gallery',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 3; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.flush();
+      let seen = 0;   // the archiving's own three stats of it, then the retirement's and its second look
+      faults.failNext((c) => c.op === 'stat' && c.path.endsWith('/A/Alpha/images/0002.png') && ++seen > 3, 'ENOENT', { times: 2 });
+      assert.deepEqual((await fx.lib.raw.archiveGallery(gid)).archived, [gid]);
+      await new Promise(r => setTimeout(r, 300));
+      faults.reset();
+      await until(async () => (await fx.lib.list()).find(f => f.id === ref.id).attention.some(a => a.reason === 'left' && a.path === 'Alpha'));
+      for (let i = 0; i < 2; i++) {
+        const found = await fx.lib.scan(ref.id);
+        assert.deepEqual([found.added, await fx.lib.galleries()], [0, [gid]], 'nothing joins from what was left');
+      }
+      assert.ok(fs.existsSync(path.join(dir, 'A', 'Alpha', 'images', '0002.png')), 'left as it is');
+      assert.deepEqual([await fx.lib.read(gid, 1), await fx.lib.read(gid, 2)], [png(1), png(2)]);
+    },
+  },
+  {
+    // T-D (review 5, "Not reproduced", the desktop): a translation staged while its gallery was archived,
+    // moved in by the unpack: the drive away for both looks at the staged picture (back a moment later)
+    // dropped its record, the picture still in staging — the translation lost. The review's run with the
+    // drive away for longer was saved by the next call failing; this one isn't.
+    name: 'review 5 T-D: a staged translation the drive is away for a moment at is kept and moved in later',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      await fx.register('A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 3; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.flush();
+      assert.deepEqual((await fx.lib.raw.archiveGallery(gid)).archived, [gid]);
+      await new Promise(r => setTimeout(r, 300));
+      const back = driveAway('desktop', path.join(dir, 'A'), (c) => c.op === 'stat' && /\/A\/\.shiori\/staging\/.+\.png$/.test(c.path), { backAfter: 2 });
+      await fx.lib.putTranslation(gid, 2, png(9));
+      await fx.lib.flush();
+      await new Promise(r => setTimeout(r, 300));
+      back();
+      await fx.lib.flush();
+      assert.deepEqual([await fx.lib.read(gid, 2, 'translated'), await fx.lib.read(gid, 1)], [png(9), png(1)]);
+      await fx.lib.restart();
+      assert.deepEqual([await fx.lib.read(gid, 2, 'translated'), await fx.lib.read(gid, 3)], [png(9), png(3)]);
+    },
+  },
+  {
+    // Found by the sweeps' drive away (S18, the desktop): a gallery's folder reserved at the library
+    // folder's top while its drive was away made the library folder itself again, empty but for that
+    // gallery's — so the drive's own folder could never come back to its path.
+    name: 'S18: a gallery\'s first write while its library folder\'s drive is away never makes the library folder again',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      await fx.register('A');
+      const A = path.join(dir, 'A');
+      const gid = await fx.lib.newGallery('Alpha');
+      // Away at the reservation's look at the library folder itself (it made it, with `recursive`).
+      const back = driveAway('desktop', A, (c) => (c.op === 'mkdir' || c.op === 'stat') && c.path.endsWith('/A'));
+      await fx.lib.putPage(gid, 1, png(1)).catch(() => {});
+      await fx.lib.flush();
+      back();   // it can come back: nothing was made at its path
+      await fx.lib.putPage(gid, 2, png(2));
+      await fx.lib.flush();
+      assert.deepEqual([await fx.lib.read(gid, 1), await fx.lib.read(gid, 2)], [png(1), png(2)]);
+      assert.ok(fs.existsSync(path.join(A, 'Alpha', 'images')));
+    },
+  },
+  {
+    // Found by the sweeps' drive away (S18, the desktop): a move within a drive whose destination's drive
+    // left just after the rename — the switch refused, the rename back impossible — read nothing once the
+    // drive was back, until the next start finished the move it had recorded.
+    name: 'S18: a move whose destination\'s drive leaves just after the rename is finished once the drive is back',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      const a = await fx.register('A');
+      await fx.register('B');
+      const A = path.join(dir, 'A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 2; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.flush();
+      const back = driveAway('desktop', A, (c) => c.op === 'readFile' && c.path.endsWith('/A/.shiori/library.json') && fs.existsSync(path.join(A, 'Alpha')));
+      await fx.lib.move(gid, a.id).catch(() => {});
+      back();
+      assert.deepEqual([await fx.lib.read(gid, 1), await fx.lib.read(gid, 2)], [png(1), png(2)]);
+      assert.equal(await fx.lib.dirOf(gid), path.join(A, 'Alpha'));
+    },
+  },
   // ── A folder names a gallery only once it is whole (review 4: F2, O2) ──
   // A folder reserved for a gallery whose work never committed — the reservation's own writes, or the
   // pictures a first write or a move put in it, cut short by a failed write, a kill or the page closing —
@@ -1594,10 +1753,11 @@ async function twoGenerations(root, gid, { platform, failAt = 0 }) {
   return { name: g.name, first: t1.name, second: t2.name, writes };
 }
 // Gallery folder `name` of the library folder at `folder` read back by both apps' readers (each
-// adapter's loadGallery, over gallery-manifest.js readGallery): { desktop, website }.
-let reads = 0;
+// adapter's loadGallery, over gallery-manifest.js readGallery): { desktop, website }. The website's is
+// handed the folder's own id: an answer of "not found" counts there only while the folder is it
+// (contract.js surelyMissing).
 async function readBoth(folder, name) {
-  const id = `conformance-read-${++reads}`;
+  const id = JSON.parse(fs.readFileSync(path.join(folder, '.shiori', 'library.json'), 'utf8')).id;
   const website = (await websiteLoad(id, fsa.directory(folder), name)).read;
   forgetFolder(id);
   return { desktop: (await desktopLoad(path.join(folder, ...name.split('/')))).read, website };

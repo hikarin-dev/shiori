@@ -195,24 +195,33 @@ export async function readText(id, root, path) {
   }
 }
 
-/** An answer of "not found" (`e`) for `path` that is to be taken: thrown unless a second look agrees
- * (contract.js surelyMissing).
+/** An answer of "not found" (`e`) for `path`, as the shared rule takes it (contract.js surelyMissing):
+ * MISSING while the folder `root` reaches is still library folder `id` (identityOf, read afresh: not
+ * while its drive is away) and a second look at `path` agrees; else unreadable.
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @param {unknown} e */
+const _notFound = (id, root, path, e) => surelyMissing({ home: async () => (await identityOf(id, root)) === 'ok', there: () => isThere(id, root, path) }, e);
+/** Whether nothing is at `path`, as the shared rule takes it (_notFound), for a read that answered so.
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @returns {Promise<boolean>} */
+const _surelyGone = async (id, root, path) => (await _notFound(id, root, path, 'not found')).kind === 'missing';
+
+/** An answer of "not found" (`e`) for `path` that is to be taken: thrown unless the shared rule takes
+ * it (_notFound).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @param {unknown} e */
 async function _gone(id, root, path, e) {
   if (_nameOf(e) !== 'NotFoundError') throw e;
   _forget(id, _parts(path).join('/'));
-  if ((await surelyMissing(() => isThere(id, root, path), e)).kind !== 'missing') throw e;
+  if ((await _notFound(id, root, path, e)).kind !== 'missing') throw e;
 }
 
-/** The file at `path` deleted (nothing when it isn't there: a second look agreeing).
+/** The file at `path` deleted (nothing when it isn't there, as the shared rule takes it: _gone).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @returns {Promise<void>} */
 export async function removeFile(id, root, path) {
   const [dir, name] = _split(path);
   try { await (await _dir(id, root, dir, false)).removeEntry(name); } catch (e) { await _gone(id, root, path, e); }
 }
 
-/** The folder at `path` deleted once it holds nothing (nothing when it isn't there: a second look
- * agreeing). Never with what is in it: the browser refuses a folder that holds anything
+/** The folder at `path` deleted once it holds nothing (nothing when it isn't there, as the shared rule
+ * takes it: _gone). Never with what is in it: the browser refuses a folder that holds anything
  * (InvalidModificationError, thrown), so a listing that was wrong, or a file put there meanwhile,
  * deletes nothing (S11, review 4 F1). What is in a folder is deleted by name, each file Shiori's.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @returns {Promise<void>} */
@@ -223,8 +232,8 @@ export async function removeDir(id, root, path) {
   try { await (await _dir(id, root, dir, false)).removeEntry(name); } catch (e) { await _gone(id, root, path, e); }
 }
 
-/** What the folder at `path` holds (none when it isn't there: a second look agreeing — a listing that
- * can't be made says so, thrown, never taken for an empty folder).
+/** What the folder at `path` holds (none when it isn't there, as the shared rule takes it: _gone — a
+ * listing that can't be made says so, thrown, never taken for an empty folder).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} [path] @returns {Promise<Listed[]>} */
 export async function list(id, root, path = '') {
   /** @type {Listed[]} */
@@ -418,9 +427,9 @@ export async function publishIn(id, root, dir, next, texts, { known } = {}) {
 
 /** The files `files` (paths in gallery folder `dir`, as Shiori recorded writing them: name, size,
  * modification time) deleted — each only while it is still as recorded (gallery-manifest.js
- * unchanged); one that differs was changed outside Shiori and is left, as is one that isn't there (a
- * second look agreeing: contract.js surelyMissing) or can't be checked, each reported in `kept` with
- * why. A folder the deletions left empty goes too, up to `dir` itself (principle 4).
+ * unchanged); one that differs was changed outside Shiori and is left, as is one that isn't there (as
+ * the shared rule takes it: _notFound) or can't be checked, each reported in `kept` with why. A folder
+ * the deletions left empty goes too, up to `dir` itself (principle 4).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir
  * @param {import('./contract.js').WrittenFile[]} files
  * @returns {Promise<{ deleted: string[], kept: { name: string, why: 'changed' | 'missing' | 'unreadable' }[] }>} */
@@ -435,7 +444,7 @@ export async function deleteNamedIn(id, root, dir, files) {
     const at = _join(dir, f.name);
     let file;
     try { file = await _fileAt(id, root, at); } catch { kept.push({ name: f.name, why: 'unreadable' }); continue; }
-    if (!file) { kept.push({ name: f.name, why: (await surelyMissing(() => isThere(id, root, at), 'not found')).kind === 'missing' ? 'missing' : 'unreadable' }); continue; }
+    if (!file) { kept.push({ name: f.name, why: await _surelyGone(id, root, at) ? 'missing' : 'unreadable' }); continue; }
     if (!unchanged(f, { size: file.size, mtime: file.lastModified })) { kept.push({ name: f.name, why: 'changed' }); continue; }
     try { await removeFile(id, root, at); deleted.push(f.name); emptied.add(_split(at)[0]); } catch { kept.push({ name: f.name, why: 'unreadable' }); }
   }
@@ -457,16 +466,19 @@ export async function deleteNamedIn(id, root, dir, files) {
  * gallery (galleryIn) is deleted so; one that names no gallery — what named it gone already (a deletion
  * cut short), or put there by hand — loses only the files the library recorded writing, each while it
  * is as recorded; one gone, or another gallery's, is left as it is ('missing': the gallery's folder
- * isn't there — renamed or moved by hand, perhaps: F4). `dir` is a folder (an archive is the caller's).
- * Resolves whether the deletion is done — true, or 'left' when what it emptied still holds files: a
- * person's, or one changed since Shiori wrote it — 'missing', or is to be tried again (false: something
- * there couldn't be read or deleted now, or the folder still names the gallery).
+ * isn't there — renamed or moved by hand, perhaps: F4). Nothing is concluded from an answer of "not
+ * found" the shared rule doesn't take (_notFound: the drive away, say — review 5 F2). `dir` is a folder
+ * (an archive is the caller's). Resolves whether the deletion is done — true, or 'left' when what it
+ * emptied still holds files: a person's, or one changed since Shiori wrote it — 'missing', or is to be
+ * tried again (false: something there couldn't be read or deleted now, or the folder still names the
+ * gallery).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @param {string} gid
  * @param {{ name: string, size: number, mtime?: number | null }[]} named @returns {Promise<boolean | 'left' | 'missing'>} */
 export async function deleteGalleryIn(id, root, dir, gid, named) {
   const whose = await galleryIn(id, root, dir, gid);
   if (whose.kind === 'unreadable') return false;
-  if (whose.kind === 'missing' || (whose.kind === 'conflict' && whose.found != null)) return 'missing';
+  if (whose.kind === 'missing') return await _surelyGone(id, root, dir) ? 'missing' : false;
+  if (whose.kind === 'conflict' && whose.found != null) return 'missing';
   const now = whose.kind === 'ok' ? await manifestIn(id, root, dir, gid) : MISSING;
   if (now.kind === 'unreadable') return false;
   const area = areaOf(dir);
@@ -477,8 +489,9 @@ export async function deleteGalleryIn(id, root, dir, gid, named) {
     try {
       /** @param {string} rel */
       const drop = async (rel) => {
-        const text = await readText(id, root, _join(dir, rel));
-        if (text != null && await isOwnDescription(rel, text, gid, area)) await removeFile(id, root, _join(dir, rel));
+        const at = _join(dir, rel), text = await readText(id, root, at);
+        if (text == null && !await _surelyGone(id, root, at)) throw new Error(`${at} can't be read now`);
+        if (text != null && await isOwnDescription(rel, text, gid, area)) await removeFile(id, root, at);
       };
       for (const rel of plan.descriptions) await drop(rel);
       for (const e of await list(id, root, _join(dir, plan.stored))) if (e.kind === 'file') await drop(`${plan.stored}/${e.name}`);
@@ -506,13 +519,26 @@ async function _prune(id, root, dir) {
 }
 
 /** The picture files gallery folder `dir` holds where the gallery format puts them (PICTURE_DIRS):
- * path → { size, mtime }. One gone meanwhile is left out; one that can't be read is thrown.
+ * path → { size, mtime }. One gone meanwhile is left out; one that can't be read is thrown. Only the
+ * folders its listings show are listed: a gallery has few of them, and each answer of "not found" costs
+ * the shared rule's looks (_gone).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir
  * @returns {Promise<Map<string, { size: number, mtime: number }>>} */
 export async function picturesIn(id, root, dir) {
   /** @type {Map<string, { size: number, mtime: number }>} */
   const out = new Map();
+  /** @type {Map<string, Promise<Set<string>>>} folder → the names of the folders in it */
+  const folders = new Map();
+  /** @param {string} at */
+  const foldersIn = (at) => folders.get(at) ?? folders.set(at, list(id, root, at).then(es => new Set(es.filter(e => e.kind === 'directory').map(e => e.name)))).get(at);
+  /** @param {string} sub */
+  const holds = async (sub) => {
+    let at = dir;
+    for (const part of sub.split('/')) { if (!(await /** @type {Promise<Set<string>>} */ (foldersIn(at))).has(part)) return false; at = _join(at, part); }
+    return true;
+  };
   for (const sub of PICTURE_DIRS) {
+    if (!await holds(sub)) continue;
     for (const e of await list(id, root, _join(dir, sub))) {
       if (e.kind !== 'file' || !isPictureName(e.name)) continue;
       const file = await e.file().catch((err) => { if (_nameOf(err) === 'NotFoundError') return null; throw err; });

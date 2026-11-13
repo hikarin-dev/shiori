@@ -93,15 +93,20 @@ export const corrupt = (detail) => ({ kind: 'corrupt', detail });
  * @returns {boolean} */
 export const mayChangeState = (result) => result.kind === 'ok' || result.kind === 'missing';
 
-/** "Not found" is not proof (S11; review 4 F1, F3, F9): a drive away for a moment answers "not found"
- * (ENOENT, NotFoundError) for what is there. So an answer of "not found" that would delete something,
- * or change what a library records, counts only once a second look agrees: `there()` resolves whether
- * it is there now (rejecting when it can't look). Resolves 'missing' when the second look agrees, else
- * 'unreadable' with the first answer (`error`): nothing is concluded from it, and it is tried again
- * later.
- * @param {() => Promise<boolean>} there @param {unknown} error @returns {Promise<Missing | Unreadable>} */
-export async function surelyMissing(there, error) {
-  try { return (await there()) ? unreadable(error) : MISSING; } catch (e) { return unreadable(e); }
+/** "Not found" is not proof (S11, S18; review 4 F1, F3, F9; review 5 F2, F3): a drive that is away
+ * answers "not found" (ENOENT, NotFoundError) for everything on it for as long as it is away — a
+ * second look at the same file too — and one call may answer so for a moment. So an answer of "not
+ * found" that would delete something, or change what a library records, counts only while the library
+ * folder it is in is there as itself and a second look agrees: `home()` resolves whether that folder is
+ * there now, its library.json naming the id it is registered under (as the commit-time mount checks
+ * read it, afresh), and only then `there()` whether the file is there now (each rejecting when it can't
+ * look). The folder is asked first: one that answers as itself has its drive back, so the look after it
+ * is a true answer. Resolves 'missing' when both agree, else 'unreadable' with the first answer
+ * (`error`): nothing is concluded from it, and it is tried again later.
+ * @param {{ home: () => Promise<boolean>, there: () => Promise<boolean> }} look @param {unknown} error
+ * @returns {Promise<Missing | Unreadable>} */
+export async function surelyMissing({ home, there }, error) {
+  try { return !(await home()) || (await there()) ? unreadable(error) : MISSING; } catch (e) { return unreadable(e); }
 }
 
 /** A text read parsed by `parse` (which returns the value, or null for text that isn't one): the

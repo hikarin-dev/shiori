@@ -113,9 +113,12 @@ finished where a check meets the folder; an archive holding a file of the person
 (`gallery-manifest.js` foreignEntries) is never deleted or written again whole, and is never adopted
 again once its gallery is deleted; a copy of a gallery's folder is reported ('duplicate').
 
-Since S11 ("not found" is not proof): an answer of "not found", which a drive away for a moment gives
-for what is there, deletes nothing and changes no record until a second look agrees (`contract.js`
-surelyMissing); a listing that can't be made says so; the website deletes no folder with what is in it
-(the browser refuses a folder that isn't empty) and deletes only what it named; and a gallery's
-deletion is done only once its folder no longer names it. Review 4's fault sweeps are kept as a test
-(`app/tests/folder-sweep.test.mjs`).
+Since S11 ("not found" is not proof): an answer of "not found", which a drive away gives for what is
+there, deletes nothing and changes no record unless the library folder is there as itself (its
+library.json, read afresh, naming its id) and a second look then agrees (`contract.js` surelyMissing;
+S18: a drive away for longer than a moment answers the second look too); a listing that can't be made
+says so; the website deletes no folder with what is in it (the browser refuses a folder that isn't
+empty) and deletes only what it named; and a gallery's deletion is done only once its folder no longer
+names it. Review 4's fault sweeps are kept as a test (`app/tests/folder-sweep.test.mjs`), with review
+5's drive away (the library folder renamed away inside a file call, back after the step) among the
+faults.

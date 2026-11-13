@@ -11,9 +11,12 @@
 //   library is then opened again over the same folders), and EIO, EPERM, ENOENT, EXDEV (the move only);
 // - website: the page dying (that call and every later one of the page never return; the page is
 //   loaded again: library-drivers.mjs restart), and NoModificationAllowedError, NotFoundError,
-//   NotAllowedError.
-// "Not found" (ENOENT, NotFoundError) is among them: a drive away for a moment answers so for what is
-// there (S11).
+//   NotAllowedError;
+// - both: the drive away (folder A renamed away inside the k-th file call, so that call and every later
+//   one in it answer "not found" as they do while a drive is away, and put back once the step has ended:
+//   review 5).
+// "Not found" (ENOENT, NotFoundError) is among them: a drive away answers so for what is there, for a
+// moment (S11) or for as long as it is away (S18).
 //
 // npm test runs a sample: a few fault points of each scenario, for every kind. The whole sweep runs by
 // hand, a process per app, kind and shard (folder-sweep-long.mjs); one process alone:
@@ -169,7 +172,7 @@ const SCENARIOS = [
   },
   {
     name: 'a linked ZIP translated, then deleted',
-    kinds: ['kill', 'EIO', 'ENOENT', 'page death', 'NoModificationAllowedError', 'NotFoundError'],
+    kinds: ['kill', 'EIO', 'ENOENT', 'drive away', 'page death', 'NoModificationAllowedError', 'NotFoundError'],
     async setup(c) {
       const zip = zipCreate([{ name: '001.png', data: png(1) }, { name: '002.png', data: png(2) }]);
       fs.writeFileSync(path.join(c.A, 'Pack.zip'), zip);
@@ -233,17 +236,21 @@ const SCENARIOS = [
 ];
 
 const KINDS = {
-  desktop: ['kill', 'EIO', 'EPERM', 'ENOENT', 'EXDEV'],
-  website: ['page death', 'NoModificationAllowedError', 'NotFoundError', 'NotAllowedError'],
+  desktop: ['kill', 'EIO', 'EPERM', 'ENOENT', 'EXDEV', 'drive away'],
+  website: ['page death', 'NoModificationAllowedError', 'NotFoundError', 'NotAllowedError', 'drive away'],
 };
 // Where each kind runs: EXDEV on the move alone; EPERM and NotAllowedError without the linked ZIP (as
 // the review swept them).
 const sweeps = (/** @type {string} */ app, /** @type {string} */ kind) => SCENARIOS.filter(s => (!s.apps || s.apps.includes(app))
   && (kind === 'EXDEV' ? s.name.startsWith('a move') : !s.kinds || s.kinds.includes(kind)));
 
-// Scenarios a later step's finding fails on (plan §7 S12–S15), by app, kind and scenario.
+// Scenarios a later step's finding fails on (plan §7), by app, kind and scenario. Found by S18's check for
+// copies: deleting the archive an unpack let go, one read of it failing for a moment (EIO, EPERM, ENOENT
+// at its stat or directory) is taken for the person's edit (files.js _archiveUnchanged answers false),
+// so the archive stays beside the gallery's folder for good, reported 'left' and as a copy at every
+// check. That function is S19's (an unpack's archive deletion, review 5 F1): left for a step after it.
 /** @type {Record<string, string>} */
-const TODO = {};
+const TODO = Object.fromEntries(['EIO', 'EPERM', 'ENOENT'].map(kind => [`desktop ${kind}: an unpack`, 'after S19: _archiveUnchanged takes a failed read for the person\'s edit']));
 
 // ── A run ──
 /** A fresh library over a new folder, with folder A added and the default, `sc` set up and published.
@@ -326,11 +333,14 @@ async function wrongAt(stage, c, valid, { aInAlways = false } = {}) {
 }
 
 /** The stages after a step (`valid`: the states they may show), each checked; the first that finds
- * something ends it. Resolves what was wrong. @param {Ctx} c */
+ * something ends it — as does a check that reports a copy of a gallery ('duplicate': one the step left
+ * behind for good, as review 5's F3 left a retired folder). Resolves what was wrong. @param {Ctx} c */
 async function stages(c, valid) {
+  /** @type {{ path: string, reason: string }[]} */
+  const reported = [];
   const scanAll = async () => {
-    if ((await c.lib.list()).some(f => f.id === c.ids.A)) await c.lib.scan(c.ids.A);
-    if (c.ids.B) await c.lib.scan(c.ids.B);
+    if ((await c.lib.list()).some(f => f.id === c.ids.A)) reported.push(...(await c.lib.scan(c.ids.A)).problems);
+    if (c.ids.B) reported.push(...(await c.lib.scan(c.ids.B)).problems);
   };
   /** @type {[string, () => Promise<unknown>][]} */
   const steps = [
@@ -347,7 +357,8 @@ async function stages(c, valid) {
   ];
   for (const [stage, work] of steps) {
     try { await within(stage, work()); } catch (e) { return [`${stage}: ${/** @type {Error} */ (e).message}`]; }
-    const wrong = await wrongAt(stage, c, valid, { aInAlways: stage === 're-add' });
+    const wrong = [...await wrongAt(stage, c, valid, { aInAlways: stage === 're-add' }),
+      ...reported.splice(0).filter(p => p.reason === 'duplicate').map(p => `${stage}: a copy of a gallery stays at ${p.path}`)];
     if (wrong.length) return wrong;
   }
   return [];
@@ -355,6 +366,18 @@ async function stages(c, valid) {
 
 // ── Each kind of fault ──
 const DESKTOP_CODE = { EIO: 'EIO', EPERM: 'EPERM', ENOENT: 'ENOENT', EXDEV: 'EXDEV' };
+// The drive folder A is on leaving: A renamed away beside itself, so every call in it answers "not
+// found" as while a drive is away. Windows refuses to rename a folder while a file in it is open: such
+// a point can't be made, and is passed over (counted: `stuck`). Resolves whether it left.
+let stuck = 0;
+function leave(/** @type {Ctx} */ c) {
+  try { fs.renameSync(c.A, `${c.A}.away`); return true; } catch { stuck++; return false; }
+}
+// The drive back; a finding when it can't be (something made folder A again while it was away).
+function comeBack(/** @type {Ctx} */ c) {
+  if (!fs.existsSync(`${c.A}.away`)) return [];
+  try { fs.renameSync(`${c.A}.away`, c.A); return []; } catch (e) { return [`step: the drive can't come back (${/** @type {Error} */ (e).code}): folder A was made again while it was away`]; }
+}
 // A website page that died: its calls, from the one the fault met on, never return (fsa hang), and the
 // page is loaded again. Its Web Locks go with it: this process takes the in-context locks
 // (folder-store-web.js withLock without navigator.locks), each page's its own.
@@ -406,6 +429,14 @@ async function once(app, kind, sc, k) {
       });
       done = await runOps(sc, c, /** @type {Promise<void>} */ (death));
       if (deadPages.has(page)) await within('the page loaded again', /** @type {any} */ (c.lib.restart)());
+    } else if (kind === 'drive away') {
+      // Away from the k-th call on (that call answers "not found" too), back once the step has ended.
+      const watch = (/** @type {{ op: string, path: string }} */ call) => { if (at(call) && !leave(c)) met = ''; return false; };
+      if (app === 'desktop') faults.failNext(watch, 'EIO', { times: Infinity }); else fsa.failNext(watch, 'EIO', { times: Infinity });
+      done = await runOps(sc, c);
+      faults.reset(); fsa.reset();
+      const back = comeBack(c);
+      if (back.length) return back.map(p => `(${met}) ${p}`);
     } else if (app === 'desktop') {
       faults.failNext(at, /** @type {any} */ (DESKTOP_CODE)[kind]);
       done = await runOps(sc, c);
@@ -476,8 +507,9 @@ for (const app of /** @type {('desktop' | 'website')[]} */ (['desktop', 'website
           if (app === 'website') shadowLocks();
           const count = await callsOf(app, sc);
           const found = [];
+          stuck = 0;
           for (const k of pointsOf(count)) for (const p of await once(app, kind, sc, k)) found.push(`call ${k}/${count}: ${p}`);
-          t.diagnostic(`${pointsOf(count).length} of ${count} fault points`);
+          t.diagnostic(`${pointsOf(count).length} of ${count} fault points${stuck ? `, ${stuck} where the drive couldn't leave (a file in it open)` : ''}`);
           if (found.length) throw new Error(`${found.length} found:\n  ${found.join('\n  ')}`);
         });
       }

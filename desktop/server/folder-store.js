@@ -80,8 +80,8 @@ function counted(handle, file) {
 }
 
 // ── Containment (principle 5) ──
-// Every disk call on a path inside a library folder — each library tells the adapter its folders'
-// paths (containIn) — is refused when a part of that path below the folder is a link (a symbolic link
+// Every disk call on a path inside a library folder — each library tells the adapter its folders
+// (containIn) — is refused when a part of that path below the folder is a link (a symbolic link
 // or a junction, as lstat reports one), wherever it leads and whoever calls: a gallery's pictures read
 // or written, a linked source read, a check's tidy-up, a removal's notes. Nothing in a library folder is
 // ever reached through a link (T04, F09): Shiori makes none there, and a check never walks into one,
@@ -90,19 +90,20 @@ function counted(handle, file) {
 // anywhere inside it too. Checked at each call, from the folder down to the first part not there yet; a
 // link swapped in between the check and the call is outside the fault model (plan §2). Throws (or
 // rejects with) a BackendError 'invalid', `reason: 'outside'`.
-/** @type {Set<() => string[]>} */
+/** @type {Set<() => { path: string, id: string }[]>} */
 const folderSets = new Set();
-// `paths()`: a library's folders' paths, now. Returns a function that takes them back (it closed).
-export function containIn(paths) { folderSets.add(paths); return () => { folderSets.delete(paths); }; }
+// `folders()`: a library's folders now, each its path and its id (what its library.json names: homeOf).
+// Returns a function that takes them back (it closed).
+export function containIn(folders) { folderSets.add(folders); return () => { folderSets.delete(folders); }; }
 const caseOf = process.platform === 'win32' ? (p) => p.toLowerCase() : (p) => p;
-// The library folder `abs` is in (the innermost, should one hold another), or null.
+// The library folder `abs` is in (the innermost, should one hold another): { root, id }, or null.
 function folderAround(abs) {
   const key = caseOf(abs);
   let best = null;
-  for (const paths of folderSets) {
-    for (const p of paths()) {
-      const root = path.resolve(p), k = caseOf(root);
-      if ((key === k || key.startsWith(k.endsWith(path.sep) ? k : k + path.sep)) && (!best || root.length > best.length)) best = root;
+  for (const folders of folderSets) {
+    for (const f of folders()) {
+      const root = path.resolve(f.path), k = caseOf(root);
+      if ((key === k || key.startsWith(k.endsWith(path.sep) ? k : k + path.sep)) && (!best || root.length > best.root.length)) best = { root, id: f.id };
     }
   }
   return best;
@@ -150,7 +151,7 @@ function linkInside(dir) {
 function contained(op, file, whole = false, reading = false) {
   if (!folderSets.size || !(typeof file === 'string' || file instanceof URL || Buffer.isBuffer(file))) return;
   const abs = path.resolve(String(file));
-  const root = folderAround(abs);
+  const root = folderAround(abs)?.root;
   if (!root) return;
   const link = linkOnWay(root, abs, reading) || (whole ? linkInside(abs) : null);
   if (link) throw outside(op, abs);
@@ -205,13 +206,15 @@ const sync = (op, after = null) => (...args) => {
 };
 const WRITES = /[wa+]/;
 // A folder made inside a library folder, with `recursive`, made one part at a time below the library
-// folder, which is never made itself: a drive taken away (its folder gone) while a write is under way
-// fails the call (ENOENT) instead of making the folder again where it was, with a gallery's folder in it
-// (S8: the model found a write begun just before a drive went making its path again).
+// folder, which is never made itself — not even when it is the folder asked for, which must be there: a
+// drive taken away (its folder gone) while a write is under way fails the call (ENOENT) instead of
+// making the folder again where it was, with a gallery's folder in it (S8: the model found a write begun
+// just before a drive went making its path again; S18: a gallery reserved at the library folder's top
+// made the library folder itself again, found by the sweeps' drive away).
 const belowFolder = (file, options) => {
   if (!options?.recursive || !(typeof file === 'string' || file instanceof URL || Buffer.isBuffer(file))) return null;
-  const abs = path.resolve(String(file)), root = folderAround(abs);
-  return root && root !== abs ? { root, parts: path.relative(root, abs).split(path.sep) } : null;
+  const abs = path.resolve(String(file)), root = folderAround(abs)?.root;
+  return root ? { root, parts: path.relative(root, abs).split(path.sep).filter(Boolean) } : null;
 };
 const madeOrThere = (e) => { if (e?.code !== 'EEXIST') throw e; };
 const mkdirAsync = promised('mkdir'), mkdirNow = sync('mkdir');
@@ -225,6 +228,7 @@ export const disk = {
   async mkdir(file, options) {
     const below = belowFolder(file, options);
     if (!below) return mkdirAsync(file, options);
+    if (!below.parts.length) { await disk.stat(below.root); return undefined; }   // the library folder: there, or ENOENT
     let at = below.root, first;
     for (const part of below.parts) { at = path.join(at, part); if (await mkdirAsync(at).then(() => true, madeOrThere)) first ??= at; }
     return first;
@@ -246,6 +250,7 @@ export const disk = {
   mkdirSync(file, options) {
     const below = belowFolder(file, options);
     if (!below) return mkdirNow(file, options);
+    if (!below.parts.length) { disk.statSync(below.root); return undefined; }   // the library folder: there, or ENOENT
     let at = below.root, first;
     for (const part of below.parts) { at = path.join(at, part); try { mkdirNow(at); first ??= at; } catch (e) { madeOrThere(e); } }
     return first;
@@ -287,9 +292,23 @@ export async function replaceFile(file, data) {
 
 // ── A gallery's folder (format v2: js/storage/gallery-manifest.js) ──
 const lost = (e) => e?.code === 'ENOENT' || e?.code === 'ENOTDIR';
-// Whether `file` is there, by a look of its own: an answer of "not found" that would delete something
-// or change what is recorded is taken only once this agrees (contract.js surelyMissing).
-export const there = (file) => disk.stat(file).then(() => true, (e) => { if (lost(e)) return false; throw e; });
+// Whether `file` is there, by a look of its own (notFound's second look).
+const there = (file) => disk.stat(file).then(() => true, (e) => { if (lost(e)) return false; throw e; });
+// Whether the library folder `file` is in is there as itself now: its .shiori/library.json, read
+// afresh, names the id the library registered it under (folder-content.js libraryIdOf, as the
+// commit-time mount checks read it: files.js identityAt). A path in no library folder (the library's
+// own data folder) has none to ask.
+async function homeOf(file) {
+  const home = folderAround(path.resolve(file));
+  return !home || content.libraryIdOf(await disk.readFile(path.join(home.root, ...content.LIBRARY_FILE.split('/')), 'utf8')) === home.id;
+}
+// An answer of "not found" (`error`) for `file`, as the shared rule takes it (contract.js surelyMissing):
+// MISSING while the library folder it is in is there as itself (homeOf: not while its drive is away) and
+// a second look at `file` agrees; else unreadable. What an answer of "not found" that would delete
+// something, or change what is recorded, goes through.
+export const notFound = (file, error) => contract.surelyMissing({ home: () => homeOf(file), there: () => there(file) }, error);
+// Whether nothing is at `file`, as the shared rule takes it (notFound), for a call that answered so.
+export const gone = async (file) => (await notFound(file, 'not found')).kind === 'missing';
 const within = (dir, rel) => path.join(dir, ...String(rel).split('/').filter(Boolean));
 const textOr = (file) => disk.readFile(file, 'utf8').catch((e) => { if (lost(e)) return null; throw e; });
 
@@ -440,13 +459,13 @@ export async function publishIn(dir, next, texts, { hide = () => {}, known } = {
 
 // The files `list` ([{ name, size, mtime }]: paths in the folder `dir`, as Shiori recorded writing
 // them) deleted — each only while its size and modification time are still those (gallery-manifest.js
-// unchanged); one that differs was changed outside Shiori and is left, as is one that isn't there (a
-// second look agreeing: contract.js surelyMissing) or can't be checked, each reported in `kept` with
-// why. A folder the deletions left empty goes too, up to `dir` itself (principle 4) — unless `emptied`
-// is false (`dir` holds more than the files named: an archive's folder). Resolves { deleted, kept }.
+// unchanged); one that differs was changed outside Shiori and is left, as is one that isn't there (as
+// the shared rule takes it: notFound) or can't be checked, each reported in `kept` with why. A folder
+// the deletions left empty goes too, up to `dir` itself (principle 4) — unless `emptied` is false
+// (`dir` holds more than the files named: an archive's folder). Resolves { deleted, kept }.
 export async function deleteNamedIn(dir, list, { emptied: tidy = true } = {}) {
   const deleted = [], kept = [], emptied = new Set();
-  const why = async (file, e) => (lost(e) && (await contract.surelyMissing(() => there(file), e)).kind === 'missing' ? 'missing' : 'unreadable');
+  const why = async (file, e) => (lost(e) && (await notFound(file, e)).kind === 'missing' ? 'missing' : 'unreadable');
   for (const f of list) {
     const file = within(dir, f.name);
     let st;
@@ -473,14 +492,16 @@ export async function deleteNamedIn(dir, list, { emptied: tidy = true } = {}) {
 // (galleryIn) is emptied so; one that names no gallery — what named it gone already (a deletion cut
 // short), or put there by hand — loses only the files the library recorded writing, each while it is
 // as recorded; one gone, or another gallery's, is left as it is ('missing': the gallery's folder isn't
-// there — renamed or moved by hand, perhaps: F4). Resolves whether the deletion is done — true, or
-// 'left' when what it emptied still holds files: a person's, or one changed since Shiori wrote it —
-// 'missing', or is to be tried again (false: something there couldn't be read or deleted now, or the
-// folder still names the gallery).
+// there — renamed or moved by hand, perhaps: F4). Nothing is concluded from an answer of "not found" the
+// shared rule doesn't take (notFound: the drive away, say — review 5 F2). Resolves whether the deletion
+// is done — true (its folder holds no file now, or is gone), or 'left' when what it emptied still holds
+// files: a person's, or one changed since Shiori wrote it — 'missing', or is to be tried again (false:
+// something there couldn't be read or deleted now, or the folder still names the gallery).
 export async function deleteGalleryIn(dir, gid, named) {
   const whose = await galleryIn(dir, String(gid));
   if (whose.kind === 'unreadable') return false;
-  if (whose.kind === 'missing' || (whose.kind === 'conflict' && whose.found != null)) return 'missing';
+  if (whose.kind === 'missing') return await gone(dir) ? 'missing' : false;
+  if (whose.kind === 'conflict' && whose.found != null) return 'missing';
   const now = whose.kind === 'ok' ? await manifestIn(dir, String(gid)) : contract.MISSING;
   if (now.kind === 'unreadable') return false;
   const area = format.areaOf(dir.split(path.sep).join('/'));
@@ -490,11 +511,13 @@ export async function deleteGalleryIn(dir, gid, named) {
   try {
     if (whose.kind === 'ok') {
       const drop = async (rel) => {
-        const text = await textOr(within(dir, rel));
-        if (text != null && await format.isOwnDescription(rel, text, String(gid), area)) await disk.rm(within(dir, rel));
+        const file = within(dir, rel), text = await textOr(file);
+        if (text == null && !await gone(file)) throw new Error(`${file} can't be read now`);
+        if (text != null && await format.isOwnDescription(rel, text, String(gid), area)) await disk.rm(file);
       };
       for (const rel of plan.descriptions) await drop(rel);
-      for (const name of await disk.readdir(within(dir, plan.stored)).catch((e) => { if (lost(e)) return []; throw e; })) await drop(`${plan.stored}/${name}`);
+      const stored = within(dir, plan.stored);
+      for (const name of await disk.readdir(stored).catch(async (e) => { if (lost(e) && await gone(stored)) return []; throw e; })) await drop(`${plan.stored}/${name}`);
       for (const rel of plan.identity) await drop(rel);
       // Done only once the folder no longer names the gallery: a description whose read answered "not
       // found", still there, names it yet — the deletion stays recorded, tried again (S11, review 4 F3).
@@ -504,12 +527,12 @@ export async function deleteGalleryIn(dir, gid, named) {
     return await holdsFile(dir) ? 'left' : true;
   } catch { return false; }
 }
-// Whether folder `dir` holds a file, in it or in a folder of it (none: it isn't there, a second look
-// agreeing — one that can't be listed is thrown).
-async function holdsFile(dir) {
+// Whether folder `dir` holds a file, in it or in a folder of it (none: it isn't there, as the shared rule
+// takes it — notFound; one that can't be listed is thrown).
+export async function holdsFile(dir) {
   let items;
   try { items = await disk.readdir(dir, { withFileTypes: true }); } catch (e) {
-    if (lost(e) && (await contract.surelyMissing(() => there(dir), e)).kind === 'missing') return false;
+    if (lost(e) && (await notFound(dir, e)).kind === 'missing') return false;
     throw e;
   }
   for (const e of items) if (!e.isDirectory() || await holdsFile(path.join(dir, e.name))) return true;

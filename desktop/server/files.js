@@ -50,7 +50,7 @@
 // are still as written (`retiring`, principle 4). An archive holds its manifest too, appended with the
 // descriptions it names.
 
-import { disk, physicallyIn, containedWhole, replaceFile, tempBeside, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, undescribedAt, bindIn, ioFailures, there, filesIn, ownedIn } from './folder-store.js';
+import { disk, physicallyIn, containedWhole, replaceFile, tempBeside, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, undescribedAt, bindIn, ioFailures, notFound, gone, holdsFile, filesIn, ownedIn } from './folder-store.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
@@ -341,13 +341,13 @@ export function identityAt(dir, id) {
   return content.libraryIdOf(text) === id ? 'ok' : 'other-library';
 }
 
-// Whether staged `file` is there (not: a second look agreeing, contract.js surelyMissing — one that
-// doesn't is thrown, the settle tried again). A picture is never flushed on its own (folder-store.js
-// writeNewIn): power loss is outside the fault model, and only the small manifest and descriptions are
-// flushed.
+// Whether staged `file` is there (not: as the shared rule takes it, folder-store.js notFound — an answer
+// it doesn't take, the drive away, is thrown, the settle tried again: review 5 T-D). A picture is never
+// flushed on its own (folder-store.js writeNewIn): power loss is outside the fault model, and only the
+// small manifest and descriptions are flushed.
 async function present(file) {
   try { return (await disk.stat(file)).isFile(); } catch (e) {
-    if (e.code !== 'ENOENT' || (await contract.surelyMissing(() => there(file), e)).kind !== 'missing') throw e;
+    if (e.code !== 'ENOENT' || (await notFound(file, e)).kind !== 'missing') throw e;
     return false;
   }
 }
@@ -608,8 +608,8 @@ export class FileLibrary {
   // 2): one whose folder or archive is gone from where the index has it, its destination naming the
   // gallery, was renamed and is switched over as its move would have been (_renamedIn) — one still where
   // the index has it wasn't, and its record goes. One that can't be told now (a folder out of reach or
-  // unreadable, or the switch refused: a folder hidden meanwhile) waits for the next start, or its folder
-  // shown or taken back.
+  // unreadable, or the switch refused: a folder hidden meanwhile) waits for the next start, its folder
+  // shown or taken back, or a read of the gallery (_namesIt).
   async finishMoves() {
     const lib = this.library;
     for (const row of lib._s('SELECT * FROM files WHERE moving IS NOT NULL').all()) {
@@ -1017,9 +1017,11 @@ export class FileLibrary {
     } else {
       done = await deleteGalleryIn(abs, d.gid, named).catch(() => false);
       // Left with nothing but empty folders, it goes whole, as Explorer deletes (remove.js); one still
-      // holding files Shiori didn't name keeps them, and is left — theirs (_leftBehind).
+      // holding files Shiori didn't name keeps them, and is left — theirs (_leftBehind). Whether it holds
+      // any, and whether it is gone, are told as the shared rule takes "not found" (holdsFile, _delete):
+      // with its drive away, nothing is concluded, and the deletion is tried again (review 5 F2).
       if (done === 'left') done = await this._leftBehind(at, d, rel, work);
-      else if (done === true && !(await filesIn(abs).catch((e) => (e?.code === 'ENOENT' ? [] : [null]))).length && disk.existsSync(abs)) done = await this._delete(abs);
+      else if (done === true) done = await holdsFile(abs).then((held) => held || this._delete(abs), () => false);
     }
     if (done === 'missing') {
       if (!d.unfound) lib._s('UPDATE deleting SET unfound = 1 WHERE dir = ?').run(d.dir);
@@ -1074,13 +1076,14 @@ export class FileLibrary {
   _wroteArchive(gid, file, st = disk.statSync(file)) {
     this.library._s('UPDATE files SET zip_size = ?, zip_mtime = ? WHERE gid = ?').run(st.size, st.mtimeMs, String(gid));
   }
-  // What a deletion left in its gallery's folder or archive (`d`, its `deleting` row; `rel`, where it was
-  // done, in library folder `root`) — files Shiori didn't make, or changed since it wrote them; an
-  // archive the person added to, whole — stays the person's, never joining the library as a gallery of
-  // its own: every title a check would find there (an archive: itself) is noted as removed in the
-  // folder's removed.json, as it is now (folders.js noteRemovedIn), and the place is reported once on its
-  // Needs attention list ('left', an item kept until dismissed). Resolves whether that is done (false:
-  // tried again with the deletion, which a check meanwhile leaves alone).
+  // What a deletion left in its gallery's folder or archive (`d`, its `deleting` row, or `{ gid: null }`
+  // for a folder a retirement left: _retire; `rel`, where it was done, in library folder `root`) — files
+  // Shiori didn't make, or changed since it wrote them; an archive the person added to, whole — stays
+  // the person's, never joining the library as a gallery of its own: every title a check would find
+  // there (an archive: itself) is noted as removed in the folder's removed.json, as it is now (folders.js
+  // noteRemovedIn), and the place is reported once on its Needs attention list ('left', an item kept
+  // until dismissed). Resolves whether that is done (false: tried again with the deletion or retirement,
+  // which a check meanwhile leaves alone).
   async _leftBehind(root, d, rel, work) {
     const lib = this.library;
     const { rest } = this._split(rel);
@@ -1158,10 +1161,10 @@ export class FileLibrary {
 
   // A folder or file deleted outright — never one reached through a link, or holding one (folder-store.js
   // containedWhole: the library's `remove` may be Windows' own file operation). Resolves whether it is
-  // gone.
+  // gone, as the shared rule takes it (folder-store.js gone: not while its drive is away).
   async _delete(file) {
     try { containedWhole(file); await this.library.remove(file); } catch {}
-    return !disk.existsSync(file);
+    return gone(file);
   }
 
   // A series' folder left with nothing but its series.json (its members moved out or deleted):
@@ -1285,7 +1288,11 @@ export class FileLibrary {
     if (hit && hit.failures === ioFailures() && Date.now() - hit.at < NAMED_TTL) return true;
     const whose = await this._whose(row.path, row.gid);
     if (whose.kind === 'unreadable' || (whose.kind === 'conflict' && whose.found != null)) { this._named.delete(key); return false; }
-    if (whose.kind === 'missing') return true;   // the read finds nothing there itself (files.js _seen)
+    // Not there: the read finds nothing there itself (files.js _seen) — unless a move within its drive
+    // is recorded, which is finished first when it can be told (finishMoves), the read then going where
+    // the gallery is: one whose rename back couldn't be made, its drive gone just after the rename (S18,
+    // the sweeps' drive away), is so found as soon as the drive is back.
+    if (whose.kind === 'missing') { if (row.moving) await this.finishMoves(); return true; }
     this._named.set(key, { at: Date.now(), failures: ioFailures() });
     if (this._named.size > 4096) this._named.delete(this._named.keys().next().value);
     return true;
@@ -2146,9 +2153,10 @@ export class FileLibrary {
       // written again. Renamed and switched over in one synchronous step — while nothing else writes
       // to its archive (_exclusive), and only when nothing changed, is being settled or described
       // since it was looked at — then renamed back should the switch be refused. The rename is
-      // recorded first (`moving`): one the app stops in is finished at the next start (F8). A rename
-      // the disk won't do (another drive; Windows holding a file in it for a moment) leaves it to the
-      // copy.
+      // recorded first (`moving`): one the app stops in is finished at the next start (F8), as is one
+      // whose rename back can't be made (its drive gone meanwhile), or as soon as a read of the gallery
+      // can tell (finishMoves). A rename the disk won't do (another drive; Windows holding a file in it
+      // for a moment) leaves it to the copy.
       let renamed = 'copy';
       if (!row.source) {
         try {
@@ -2441,16 +2449,14 @@ export class FileLibrary {
       if (whole) { this._forgetRetired(rel, [{ ...whole, name: path.basename(abs) }], kept); continue; }
       // A folder left with nothing but empty folders goes whole, as Explorer deletes (remove.js) — its
       // rows kept until it has; one still holding files Shiori didn't name, or changed since it wrote
-      // them, keeps them, and is left: the person's, reported once on its Needs attention list ('left',
-      // review 4 F4).
+      // them, keeps them, and is left: the person's, never joining the library as a gallery of its own,
+      // and reported once on its Needs attention list ('left', review 4 F4), as a deletion leaves one
+      // (_leftBehind: review 5 F3) — its rows kept until that is done.
       const held = await filesIn(abs).catch(() => [null]);
       if (!held.length && !await this._delete(abs)) continue;
+      const left = held.length && held[0] !== null && !kept.some(k => k.why === 'unreadable');
+      if (left && !await this._leftBehind(this._split(rel).root, { gid: null }, rel, work)) continue;
       this._forgetRetired(rel, rows, kept);
-      if (held.length && held[0] !== null && !kept.some(k => k.why === 'unreadable')) {
-        const { root, rest } = this._split(rel);
-        lib.folders.note(root, { reason: 'left', path: rest }, { event: true });
-        lib._push('control', { type: 'FOLDERS_CHANGED' });
-      }
     }
   }
   // Gallery `gid`'s files that waited for its publication (recorded up to `retiring` row `upTo`; all of

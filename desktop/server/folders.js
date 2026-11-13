@@ -93,10 +93,11 @@ export class Folders {
     lib._tx(() => this._migrateIn());
     lib._db.exec(UNMOUNTED);
     lib._stmts.clear();
-    // Every disk call inside one of its folders is checked for links from now on (folder-store.js
-    // containIn): their paths as the index has them, read again once one is added or forgotten.
+    // Every disk call inside one of its folders is checked for links from now on, and an answer of "not
+    // found" there taken only while the folder is there as itself (folder-store.js containIn): their
+    // paths and ids as the index has them, read again once one is added or forgotten.
     this._paths = null;
-    this._uncontain = containIn(() => (this._paths ??= this.paths()));
+    this._uncontain = containIn(() => (this._paths ??= this._rows().map(r => ({ path: r.path, id: r.id }))));
     await this._restoreSetAside();
     for (const id of this.ids()) this.probe(id);
   }

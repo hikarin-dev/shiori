@@ -11,8 +11,8 @@ import { fileURLToPath } from 'node:url';
 
 const [which = 'both', atOnce = '12'] = process.argv.slice(2);
 const KINDS = {
-  desktop: ['kill', 'EIO', 'EPERM', 'ENOENT', 'EXDEV'],
-  website: ['page death', 'NoModificationAllowedError', 'NotFoundError', 'NotAllowedError'],
+  desktop: ['kill', 'EIO', 'EPERM', 'ENOENT', 'EXDEV', 'drive away'],
+  website: ['page death', 'NoModificationAllowedError', 'NotFoundError', 'NotAllowedError', 'drive away'],
 };
 const SHARDS = { desktop: 3, website: 5 };
 const file = fileURLToPath(new URL('./folder-sweep.test.mjs', import.meta.url));
