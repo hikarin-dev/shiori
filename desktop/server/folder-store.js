@@ -515,6 +515,42 @@ async function holdsFile(dir) {
   for (const e of items) if (!e.isDirectory() || await holdsFile(path.join(dir, e.name))) return true;
   return false;
 }
+// Every file under `dir`, as paths relative to it.
+export async function filesIn(dir, rel = '') {
+  const out = [];
+  for (const e of await disk.readdir(within(dir, rel), { withFileTypes: true })) {
+    const name = rel ? `${rel}/${e.name}` : e.name;
+    if (e.isDirectory()) out.push(...await filesIn(dir, name)); else out.push(name);
+  }
+  return out;
+}
+
+// The files of gallery `gid`'s own folder `dir` that its deletion takes (gallery-manifest.js
+// galleryDeletion, as deleteGalleryIn takes them), each as it is now ([{ name, size, mtime }], in the
+// order a deletion takes them, what names the gallery last): the pictures the library recorded writing
+// there (`named`) and those its manifest records, each while it is as recorded; its descriptions, each
+// while it is the gallery's. Nothing else the folder holds is listed: a file the person put there, a
+// picture changed since Shiori wrote it (principle 4; review 4 F4). Rejects when the folder, or a file
+// in it, can't be read now.
+export async function ownedIn(dir, gid, named) {
+  const now = await manifestIn(dir, String(gid));
+  if (now.kind === 'unreadable') throw now.error;
+  const area = format.areaOf(dir.split(path.sep).join('/'));
+  const plan = format.galleryDeletion({ area, manifest: now.kind === 'ok' ? now.value : null, named });
+  const pictures = new Map(plan.pictures.map(f => [f.name, f]));
+  const stored = (name) => name.startsWith(`${plan.stored}/`) && !name.slice(plan.stored.length + 1).includes('/');
+  const describes = (name) => plan.descriptions.includes(name) || stored(name) || plan.identity.includes(name);
+  const rank = (name) => (pictures.has(name) ? 0 : plan.descriptions.includes(name) ? 1 : stored(name) ? 2 : 3 + plan.identity.indexOf(name));
+  const own = [];
+  for (const name of await filesIn(dir)) {
+    const st = await disk.stat(within(dir, name));
+    const as = { name, size: st.size, mtime: st.mtimeMs };
+    const recorded = pictures.get(name);
+    if (recorded ? format.unchanged(recorded, as)
+      : describes(name) && await format.isOwnDescription(name, await disk.readFile(within(dir, name), 'utf8'), String(gid), area)) own.push(as);
+  }
+  return own.sort((a, b) => rank(a.name) - rank(b.name));
+}
 
 // What gallery folder `dir`, as the index has it for gallery `gid`, is to its first start in this
 // build (plan §10, the orchestrator after S6): 'match' — it names no gallery, holds no description, and

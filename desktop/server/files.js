@@ -50,10 +50,10 @@
 // are still as written (`retiring`, principle 4). An archive holds its manifest too, appended with the
 // descriptions it names.
 
-import { disk, physicallyIn, containedWhole, replaceFile, tempBeside, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, undescribedAt, bindIn, ioFailures, there } from './folder-store.js';
+import { disk, physicallyIn, containedWhole, replaceFile, tempBeside, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, undescribedAt, bindIn, ioFailures, there, filesIn, ownedIn } from './folder-store.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { readDirectory, readEntry, writeZip, appendZip } from './zip.js';
+import { readDirectory, directoryEnd, readEntry, writeZip, appendZip } from './zip.js';
 import { files as layout, galleryExport, linked as linkedSource, content, titles, contract, manifest as format, BackendError } from './shared.js';
 
 const SCHEMA = `
@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS deleting (
 // next publication: describe); `unpack` when pictures were removed from its archive (its next settle
 // adds to or rewrites it); `used_at` when it was last changed or opened in the reader (kept to the
 // hour); `tail` the length its archive had while descriptions are being added to it (cut back to it
-// should the app stop half way). `staged_own`: a picture of its own (`rel`) waiting in staging
+// should the app stop half way, while nothing of the archive lies past it: cutBack). `staged_own`: a picture of its own (`rel`) waiting in staging
 // (`file`) to be added to its gallery's archive — or moved into its folder, written while that
 // couldn't be (folders.js writable). `retiring`: a file to delete, as Shiori recorded writing it (its
 // `size` and modification time, `mtime`: either null when it wasn't recorded) — `name` in gallery
@@ -178,16 +178,6 @@ function ownFiles(value, into = new Map()) {
   for (const v of Array.isArray(value) ? value : Object.values(value)) ownFiles(v, into);
   return into;
 }
-// Every file under `dir`, as paths relative to it.
-async function filesIn(dir, rel = '') {
-  const out = [];
-  for (const e of await disk.readdir(path.join(dir, ...rel.split('/').filter(Boolean)), { withFileTypes: true })) {
-    const name = rel ? `${rel}/${e.name}` : e.name;
-    if (e.isDirectory()) out.push(...await filesIn(dir, name)); else out.push(name);
-  }
-  return out;
-}
-
 // What `abs` holds as it is now, as `retiring` records it: a file as itself (name ''), a folder as each
 // file under it (its path there), each with its size and modification time.
 async function asWritten(abs) {
@@ -336,9 +326,11 @@ export class FileLibrary {
     lib._s('UPDATE files SET used_at = ? WHERE used_at IS NULL').run(Date.now());
     lib._db.exec(`CREATE INDEX IF NOT EXISTS files_used ON files (used_at, gid) WHERE format = 'folder'`);
   }
-  // The moves the app stopped in finished first, before anything reads a gallery (finishMoves).
+  // The moves the app stopped in finished first, and the additions to archives it stopped in cut off,
+  // before anything reads a gallery (finishMoves, cutBack).
   async start() {
     await this.finishMoves();
+    await this.cutBack();
     this.resume();
     this._sweepLater(60_000);
   }
@@ -479,13 +471,7 @@ export class FileLibrary {
   resume() {
     const lib = this.library;
     this.finishMoves().catch(() => {});
-    // What was being added to an archive when the app stopped: cut off, to be added again (once its
-    // folder may be written to).
-    for (const r of lib._s('SELECT gid, path, tail FROM files WHERE tail IS NOT NULL').all()) {
-      if (!lib.folders.writable(this._split(r.path).root)) continue;
-      try { if (disk.statSync(this._abs(r.path)).size > r.tail) disk.truncateSync(this._abs(r.path), r.tail); } catch {}
-      lib._s('UPDATE files SET tail = NULL, pending = 1 WHERE gid = ?').run(r.gid);
-    }
+    this.cutBack().catch(() => {});
     const ids = new Set();
     for (const r of lib._s(`SELECT DISTINCT gid FROM pages WHERE json_extract(orig, '$.at') = 's'`).all()) ids.add(r.gid);
     for (const r of lib._s('SELECT gid FROM files WHERE unpack = 1').all()) ids.add(r.gid);
@@ -505,6 +491,22 @@ export class FileLibrary {
         for (const name of names) if (!ids.has(name)) await this._unstage(name);
       }).catch(() => {});
     }
+  }
+  // What was being added to an archive when the app stopped (`tail`: the length it had before), once its
+  // folder may be written to: cut back to that length only while nothing of the archive lies past it —
+  // its directory, as readers find it, ends there, so what follows is the addition cut short, which no
+  // reader takes — then added again. An archive changed since (edited by the person, or the addition
+  // finished) is left as it is (review 4 F6), as is one that can't be read now.
+  cutBack() {
+    const lib = this.library;
+    return Promise.all(lib._s('SELECT gid FROM files WHERE tail IS NOT NULL').all().map(({ gid }) => this._exclusive(gid, async () => {
+      const r = lib._s('SELECT path, tail FROM files WHERE gid = ? AND tail IS NOT NULL').get(gid);
+      if (!r || !lib.folders.writable(this._split(r.path).root)) return;
+      const file = this._abs(r.path);
+      try { if ((await disk.stat(file)).size > r.tail && await directoryEnd(file) === r.tail) disk.truncateSync(file, r.tail); } catch {}
+      lib._s('UPDATE files SET tail = NULL, pending = 1 WHERE gid = ?').run(gid);
+      this.scheduleDescribe(gid);
+    })));
   }
 
   close() {
@@ -860,11 +862,17 @@ export class FileLibrary {
     const lib = this.library;
     let named = row.zip_size != null ? JSON.stringify({ size: row.zip_size, mtime: row.zip_mtime }) : null;
     if (row.format === 'folder') {
-      const files = new Map([...recordedFiles(lib._pageRows(row.gid), lib._coverGet(row.gid))].map(([name, [size, mtime]]) => [name, { name, size, mtime: mtime || null }]));
+      const files = new Map(this._recorded(row.gid).map(f => [f.name, f]));
       for (const r of lib._s(`SELECT name, size, mtime FROM retiring WHERE dir = ? AND name <> ''`).all(row.path)) files.set(r.name, { name: r.name, size: r.size, mtime: r.mtime });
       named = JSON.stringify([...files.values()]);
     }
     lib._s('INSERT OR REPLACE INTO deleting (dir, gid, files, unfound) VALUES (?, ?, ?, 0)').run(row.path, String(row.gid), named);
+  }
+  // The files gallery `gid`'s records name in its folder (its pages, what was made from them, its
+  // covers), as the index recorded writing them (recordedFiles): [{ name, size, mtime }].
+  _recorded(gid) {
+    const lib = this.library;
+    return [...recordedFiles(lib._pageRows(gid), lib._coverGet(gid))].map(([name, [size, mtime]]) => ({ name, size, mtime: mtime || null }));
   }
   // The galleries' folders and archives waiting to be deleted (`deleting`), of library folder `root`
   // alone when it is given: [{ dir, gid }], `dir` a path as `files` has them — those `unfound` aside,
@@ -963,9 +971,17 @@ export class FileLibrary {
     const read = at ? format.parseManifest(String(await readEntry(file, at)), { archive: true }) : null;
     return read?.kind === 'corrupt' ? [...dir.keys()] : format.foreignEntries(dir, read?.kind === 'ok' ? read.value : null);
   }
-  // An archive's size and modification time noted as Shiori has just written it (F6).
-  _wroteArchive(gid, file) {
-    const st = disk.statSync(file);
+  // Whether gallery `gid`'s archive `file` is as Shiori last wrote it, by the size and modification time
+  // it noted then (_wroteArchive; one written before S10, with none noted, counts as such).
+  _asRecorded(gid, file) {
+    const r = this._row(gid);
+    if (r?.zip_size == null) return true;
+    const st = disk.statSync(file, { throwIfNoEntry: false });
+    return !!st && format.unchanged({ size: r.zip_size, mtime: r.zip_mtime }, { size: st.size, mtime: st.mtimeMs });
+  }
+  // An archive's size and modification time noted as Shiori has just written it (F6; `st`: as read
+  // before a rename that put it in place).
+  _wroteArchive(gid, file, st = disk.statSync(file)) {
     this.library._s('UPDATE files SET zip_size = ?, zip_mtime = ? WHERE gid = ?').run(st.size, st.mtimeMs, String(gid));
   }
   // What a deletion left in its gallery's folder or archive (`d`, its `deleting` row; `rel`, where it was
@@ -1829,7 +1845,8 @@ export class FileLibrary {
   // holds now (and no longer what was removed) — nothing in it written again. Unless that would
   // leave more than UNUSED_AT_MOST of it unused: with pictures waiting, 'unpack' (into a folder, where
   // they move in by renaming, so it writes least); with none, it is rewritten as a fresh archive — never
-  // one holding the person's files (_foreignIn: F6), which keep their place in its directory.
+  // one holding the person's files (_foreignIn: F6), which keep their place in its directory, nor one
+  // changed since Shiori last wrote it (_asRecorded: S14), which is added to as it is.
   // Resolves 'done' or 'unpack'.
   async _settleArchive(gid, row) {
     return this._exclusive(gid, async () => {
@@ -1897,9 +1914,11 @@ export class FileLibrary {
       const used = [...live].reduce((sum, [name, v]) => sum + head(name) + v.size, 0) + directory;
       if (!foreign.size && (after - used) / after > UNUSED_AT_MOST) {
         if (placing.size || stagedOwn.length) return 'unpack';
-        await this._compact(gid, row, live, dir);
-        finish();
-        return 'done';
+        if (this._asRecorded(gid, file)) {
+          await this._compact(gid, row, live, dir);
+          finish();
+          return 'done';
+        }
       }
       lib._s('UPDATE files SET tail = ? WHERE gid = ?').run(size, gid);
       lib.writes.addArchive(await appendZip(file, add, { drop }));
@@ -1912,7 +1931,8 @@ export class FileLibrary {
   }
 
   // An archive with too much of it unused and nothing waiting in staging, written whole once as a
-  // fresh archive of what it holds (`live`, as _settleArchive lists it), which takes its place.
+  // fresh archive of what it holds (`live`, as _settleArchive lists it), which takes its place — unless
+  // it changed while that was written (the person's edit is never replaced: S14), when it rejects.
   async _compact(gid, row, live, dir) {
     const lib = this.library;
     const file = this._abs(row.path), temp = `${file}.shiori-tmp`;
@@ -1921,10 +1941,12 @@ export class FileLibrary {
       lib.writes.addArchive(await writeZip(temp, entries));
       if ((await readDirectory(temp)).size !== entries.length) throw new Error('the archive did not read back');
       for (let i = 0; i < 3 && this._reading.get(file); i++) await new Promise(r => setTimeout(r, 1000));
-      // One synchronous step from here.
-      if (this._row(gid)?.path !== row.path) throw new Error('moved meanwhile');
+      // One synchronous step from here: its size and time, which the rename keeps, recorded as soon as it
+      // is in place, with no file call between that a kill could stop in.
+      const st = disk.statSync(temp);
+      if (this._row(gid)?.path !== row.path || !this._asRecorded(gid, file)) throw new Error('moved or changed meanwhile');
       disk.renameSync(temp, file);
-      this._wroteArchive(gid, file);
+      this._wroteArchive(gid, file, st);
       this._dirs.delete(file);
     } catch (e) {
       await disk.rm(temp, { force: true }).catch(() => {});
@@ -2223,9 +2245,10 @@ export class FileLibrary {
 
   // Gallery `gid` archived: its folder's files written once into one archive beside it (stored, in
   // archiveFormat), read back, then — in one synchronous step, when the gallery hasn't changed
-  // meanwhile — put in the folder's place. The folder retires, each of its files named as it is now
-  // (what an archiving let go is deleted by name, never whatever holds its path later: T03), and the
-  // archive is named there too until the gallery has it (an archiving cut short leaves it to delete).
+  // meanwhile — put in the folder's place. The folder retires: each file of it Shiori wrote, named as
+  // it is now (what an archiving let go is deleted by name, never whatever holds its path later: T03),
+  // and the archive is named there too until the gallery has it (an archiving cut short leaves it to
+  // delete).
   // Resolves whether it was archived.
   async archive(gid) {
     const id = String(gid);
@@ -2250,9 +2273,12 @@ export class FileLibrary {
       const written = await readDirectory(temp);
       const sizeOf = (e) => e.data?.length ?? disk.statSync(e.from).size;
       if (written.size !== entries.length || entries.some(e => written.get(e.name)?.size !== sizeOf(e))) throw new Error('the archive did not read back');
-      const leaving = [];
-      for (const name of await filesIn(dir)) {
-        const st = disk.statSync(path.join(dir, ...name.split('/')), { throwIfNoEntry: false });
+      // What the folder lets go: what its deletion would take, each while it is as Shiori wrote it
+      // (ownedIn), and Windows' own files at its top (O3) — never a file the person put there, before or
+      // while the archive was written (review 4 F4), which stays, and is reported (_retire).
+      const leaving = await ownedIn(dir, id, this._recorded(id));
+      for (const name of (await disk.readdir(dir)).filter(n => WINDOWS_FILES.has(n.toLowerCase()))) {
+        const st = disk.statSync(path.join(dir, name), { throwIfNoEntry: false });
         if (st?.isFile()) leaving.push({ name, size: st.size, mtime: st.mtimeMs });
       }
       // One synchronous step from here.
@@ -2310,10 +2336,17 @@ export class FileLibrary {
       const { kept } = await deleteNamedIn(whole ? path.dirname(abs) : abs, list, { emptied: false });
       if (whole) { this._forgetRetired(rel, [{ ...whole, name: path.basename(abs) }], kept); continue; }
       // A folder left with nothing but empty folders goes whole, as Explorer deletes (remove.js) — its
-      // rows kept until it has; one still holding files Shiori didn't name keeps them, and is left.
-      const empty = !(await filesIn(abs).catch(() => [null])).length;
-      if (empty && !await this._delete(abs)) continue;
+      // rows kept until it has; one still holding files Shiori didn't name, or changed since it wrote
+      // them, keeps them, and is left: the person's, reported once on its Needs attention list ('left',
+      // review 4 F4).
+      const held = await filesIn(abs).catch(() => [null]);
+      if (!held.length && !await this._delete(abs)) continue;
       this._forgetRetired(rel, rows, kept);
+      if (held.length && held[0] !== null && !kept.some(k => k.why === 'unreadable')) {
+        const { root, rest } = this._split(rel);
+        lib.folders.note(root, { reason: 'left', path: rest }, { event: true });
+        lib._push('control', { type: 'FOLDERS_CHANGED' });
+      }
     }
   }
   // Gallery `gid`'s files that waited for its publication (recorded up to `retiring` row `upTo`; all of

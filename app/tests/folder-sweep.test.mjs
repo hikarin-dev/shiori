@@ -193,6 +193,9 @@ const SCENARIOS = [
     async setup(c) {
       c.g.alpha = await made(c, 'Alpha', [png(1), png(2), png(3)]);
       plant(c, 'A/mine.txt', 'the person\'s own file');
+      // One in the gallery's .shiori/, which archiving lets through, and once retired with the folder (S14,
+      // review 4 F4).
+      plant(c, path.relative(c.base, path.join(await dirOf(c, c.g.alpha), '.shiori', 'mine.txt')), 'another of the person\'s files');
     },
     state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2), png(3)]) } }),
     ops: [op('archive', (c) => c.lib.raw.archiveGallery(c.g.alpha)), SETTLE],

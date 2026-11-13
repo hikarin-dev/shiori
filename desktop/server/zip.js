@@ -167,9 +167,14 @@ async function readAt(handle, position, length) {
 // (appendZip: its entries written, not yet its directory) leaves the previous directory and end record
 // whole before them, and that previous generation is what the archive holds (F3). The same rule as the
 // website's reader (zip-read.js zipEntries).
+export async function readDirectory(file) { return (await lastDirectory(file)).entries; }
+// Where the archive at `file`, as readDirectory reads it, ends: the end of the end record its directory
+// is read from, comment included. Less than its length when what follows is no part of it (an addition
+// cut short, which readers pass over).
+export async function directoryEnd(file) { return (await lastDirectory(file)).end; }
 const END = 0x06054b50;
 const BACK = 1 << 20;   // how much is read at a time looking further back
-export async function readDirectory(file) {
+async function lastDirectory(file) {
   const handle = await disk.open(file, 'r');
   try {
     const { size: fileSize } = await handle.stat();
@@ -178,8 +183,8 @@ export async function readDirectory(file) {
       const piece = await readAt(handle, from, to - from);
       for (let i = Math.min(piece.length - 4, fileSize - 22 - from); i >= 0; i--) {
         if (piece.readUInt32LE(i) !== END) continue;
-        const entries = await directoryAt(handle, from + i);
-        if (entries) return entries;
+        const found = await directoryAt(handle, from + i);
+        if (found) return found;
       }
       if (from === 0) break;
     }
@@ -188,9 +193,10 @@ export async function readDirectory(file) {
     await handle.close();
   }
 }
-// The directory the end record at `at` describes, read — null when it doesn't read as an archive's
-// directory: one that doesn't end where the record (or its ZIP64 record) starts, or a record of it
-// that isn't one (an end record's signature that happens to be in an entry's bytes).
+// The directory the end record at `at` describes, read, as { entries, end: where the record ends } —
+// null when it doesn't read as an archive's directory: one that doesn't end where the record (or its
+// ZIP64 record) starts, or a record of it that isn't one (an end record's signature that happens to be
+// in an entry's bytes).
 async function directoryAt(handle, at) {
   const from = Math.max(0, at - 20);
   const head = await readAt(handle, from, at + 22 - from);
@@ -242,7 +248,7 @@ async function directoryAt(handle, at) {
     if (!name.endsWith('/')) entries.set(name, { method, compressedSize, size, headerOffset, crc });
     p = extraEnd + commentLength;
   }
-  return entries;
+  return { entries, end: at + 22 + end.readUInt16LE(20) };
 }
 
 // One entry's bytes, from an entry of readDirectory's.

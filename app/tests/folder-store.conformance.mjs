@@ -1196,6 +1196,110 @@ export const CASES = [
       } finally { await lib.close(); }
     },
   },
+  // ── The desktop deletes and cuts back only what is still as it recorded (review 4: F4, F6) ──
+  {
+    // F4 (review 4, the desktop): archiving retired its folder's files as they were once the archive was
+    // written, so a file the person put there — in its .shiori/ before, or anywhere in it while the
+    // archive was written — was deleted with them, unreported.
+    name: 'review 4 F4: archiving leaves a file the person put in the gallery\'s folder, before or while the archive is written, reported',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const at = (/** @type {string[]} */ ...p) => path.join(dir, 'A', 'Alpha', ...p);
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 3; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.flush();
+      fs.writeFileSync(at('.shiori', 'my-notes.txt'), 'before');
+      let planted = false;
+      const back = faults.failNext((c) => {
+        if (!planted && c.op === 'open' && /\/A\/Alpha\.zip\.[0-9a-f]+\.shiori-tmp$/.test(c.path)) { planted = true; fs.writeFileSync(at('my-notes.txt'), 'while'); }
+        return false;
+      }, 'EIO', { times: Infinity });
+      try { assert.deepEqual((await fx.lib.raw.archiveGallery(gid)).archived, [gid]); } finally { back(); }
+      assert.ok(planted, 'planted while the archive was written');
+      await until(async () => (await fx.lib.list()).find(f => f.id === ref.id).attention.some(a => a.reason === 'left' && a.path === 'Alpha'));
+      const files = (/** @type {string} */ d) => fs.readdirSync(d, { recursive: true, withFileTypes: true }).filter(e => e.isFile())
+        .map(e => path.relative(d, path.join(e.parentPath, e.name)).split(path.sep).join('/')).sort();
+      assert.deepEqual(files(at()), ['.shiori/my-notes.txt', 'my-notes.txt'], 'the person\'s files stay; Shiori\'s went');
+      assert.deepEqual([fs.readFileSync(at('.shiori', 'my-notes.txt'), 'utf8'), fs.readFileSync(at('my-notes.txt'), 'utf8')], ['before', 'while']);
+      const found = await fx.lib.scan(ref.id);
+      assert.deepEqual([found.added, await fx.lib.galleries()], [0, [gid]], 'nothing joins from what was left');
+      assert.deepEqual([await fx.lib.read(gid, 1), await fx.lib.read(gid, 3)], [png(1), png(3)]);
+    },
+  },
+  {
+    // F6 (review 4, the desktop): killed in an addition to an archive, then the archive edited by the
+    // person with the app closed, the next start cut it back to its length before the addition: no
+    // longer a ZIP, the gallery's pictures and the person's file unreadable.
+    name: 'review 4 F6: an archive the person edited after an addition to it was cut short is never cut back',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      await fx.close();
+      const base = path.join(dir, 'desktop'), A = path.join(dir, 'A');
+      assert.equal(desktopKilled(base, async ({ lib, kill, folder }) => {
+        const png = (n) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, n]);
+        await lib.setDefault(await lib.add(folder));
+        const gid = await lib.newGallery('Alpha');
+        for (let n = 1; n <= 3; n++) await lib.putPage(gid, n, png(n));
+        await lib.flush();
+        await lib.raw.archiveGallery(gid);
+        await lib.setTitle(gid, 'Beta');
+        kill((c) => c.op === 'open' && c.path.endsWith('/A/Alpha.zip') && lib.raw.files._row(gid)?.tail != null);
+        await lib.flush();
+      }, { folder: A }), 42);
+      // The person's edit, the app closed: the archive written anew, every entry as it is, and a file of theirs.
+      const file = path.join(A, 'Alpha.zip');
+      const { readDirectory, readEntry } = await import('../../desktop/server/zip.js');
+      const entries = [];
+      for (const [name, e] of await readDirectory(file)) entries.push({ name, data: new Uint8Array(await readEntry(file, e)) });
+      const edited = zipCreate([...entries, { name: 'my-notes.txt', data: new TextEncoder().encode('the person\'s own file') }]);
+      fs.writeFileSync(file, edited);
+      const lib = await desktopLibrary(base);
+      try {
+        const [gid] = await lib.galleries();
+        await lib.flush();
+        assert.deepEqual(fs.readFileSync(file).subarray(0, edited.length), Buffer.from(edited), 'the person\'s edit stays whole');
+        const now = await readDirectory(file);
+        assert.equal(String(await readEntry(file, now.get('my-notes.txt'))), 'the person\'s own file');
+        assert.deepEqual([await lib.titleOf(gid), await lib.read(gid, 1), await lib.read(gid, 3)], ['Beta', png(1), png(3)]);
+      } finally { await lib.close(); }
+    },
+  },
+  {
+    // The same rule (S14): an archive rewritten whole to give back its unused space took the place of the
+    // archive as it was when the rewrite began, so a file the person added to it meanwhile was lost.
+    name: 'S14: an archive the person edits while it is rewritten whole keeps their edit',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      await fx.register('A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 3; n++) { await fx.lib.putPage(gid, n, png(n)); await fx.lib.putTranslation(gid, n, png(10 + n)); }
+      await fx.lib.flush();
+      assert.deepEqual((await fx.lib.raw.archiveGallery(gid)).archived, [gid]);
+      const file = path.join(dir, 'A', 'Alpha.zip');
+      const { readDirectory, readEntry } = await import('../../desktop/server/zip.js');
+      // The person's edit: the archive written anew, every entry as it is, and a file of theirs — once the
+      // rewrite is written and read back (the second open of its temporary file).
+      const entries = [];
+      for (const [name, e] of await readDirectory(file)) entries.push({ name, data: new Uint8Array(await readEntry(file, e)) });
+      const edited = zipCreate([...entries, { name: 'my-notes.txt', data: new TextEncoder().encode('the person\'s own file') }]);
+      let opens = 0;
+      const back = faults.failNext((c) => {
+        if (c.op === 'open' && c.path.endsWith('/A/Alpha.zip.shiori-tmp') && ++opens === 2) fs.writeFileSync(file, edited);
+        return false;
+      }, 'EIO', { times: Infinity });
+      try {
+        await fx.lib.raw.clearGalleryTranslations(gid);
+        await fx.lib.raw.files.settle(gid).catch(() => {});
+        assert.ok(opens >= 2, 'rewritten whole');
+        await fx.lib.raw.files.settle(gid);
+      } finally { back(); }
+      const now = await readDirectory(file);
+      assert.equal(String(await readEntry(file, now.get('my-notes.txt'))), 'the person\'s own file');
+      assert.ok(![...now.keys()].some(n => n.startsWith('translated/')), 'its translations cleared');
+      assert.deepEqual([await fx.lib.read(gid, 1), await fx.lib.read(gid, 3), await fx.lib.read(gid, 3, 'translated')], [png(1), png(3), png(3)]);
+    },
+  },
   // ── Generations travel with the work (principle 7) ──
   {
     // T07: a ZIP's picture changed in place (same name and size, another CRC-32) kept the translation of
