@@ -1868,6 +1868,70 @@ export const CASES = [
     },
   },
   {
+    // Found in S24 (both apps): F6's deletion waiting `unfound` is looked for by its folder's removal too,
+    // which went on when it met the folder but couldn't finish deleting it (one deletion there failing),
+    // couldn't read the folder whole (its listing failing once), or couldn't reach it at all: added again, the
+    // folder reported what the deletion left at every check, for good — or, a gallery of one page, or a
+    // folder the removal didn't read, the deleted gallery joined again. A removal that couldn't finish a
+    // deletion it owes is refused like unsaved work (the card's "Remove anyway"); a check then finishes it,
+    // and the removal goes through. "Remove anyway" leaves the folder as it is.
+    name: 'S25b: a folder\'s removal that couldn\'t finish a deletion it owes is refused, and the deleted gallery never comes back',
+    async run({ dir, fx, platform }) {
+      const [failure, busy] = platform === 'desktop' ? ['EIO', 'EBUSY'] : ['NotReadableError', 'NoModificationAllowedError'];
+      const forms = ['a deletion failing', 'a deletion failing, one page', 'a listing failing', 'out of reach', 'Remove anyway'];
+      for (const [i, form] of forms.entries()) {
+        const name = `A${i}`, A = path.join(dir, name);
+        const ref = await fx.register(name);
+        const gid = await fx.lib.newGallery('Alpha');
+        for (let n = 1; n <= (form.endsWith('one page') ? 1 : 3); n++) await fx.lib.putPage(gid, n, png(n));
+        await fx.lib.flush();
+        const renamed = path.join(A, 'Alpha by hand');
+        fs.renameSync(/** @type {string} */ (await fx.lib.dirOf(gid)), renamed);
+        await fx.lib.deleteGallery(gid);
+        await fx.lib.flush();
+        await new Promise(r => setTimeout(r, 300));
+        await fx.lib.setDefault(fx.lib.home);
+        const listing = (/** @type {{ op: string, path: string }} */ c) => (platform === 'desktop' ? c.op === 'readdir' && c.path.endsWith(`/${name}/Alpha by hand`)
+          : c.op === 'entries' && c.path === 'Alpha by hand');
+        const deletion = (/** @type {{ op: string, path: string }} */ c) => (platform === 'desktop' ? ['rm', 'unlink'].includes(c.op) && c.path.includes(`/${name}/Alpha by hand/`)
+          : c.op === 'removeEntry' && c.path.startsWith('Alpha by hand/'));
+        const inject = platform === 'desktop' ? faults : fsa;
+        if (form === 'out of reach') {
+          fs.renameSync(A, `${A} away`);
+          await fx.lib.list();
+          await assert.rejects(fx.lib.remove(ref.id), (e) => /** @type {any} */ (e).reason === 'unsaved', 'refused at once, as with unsaved work');
+          fs.renameSync(`${A} away`, A);
+          await fx.lib.list();
+        } else {
+          let n = 0;
+          const undo = form === 'a listing failing' ? inject.failNext((c) => listing(c) && ++n === 1, failure, { times: Infinity })
+            : inject.failNext(deletion, busy, { times: form === 'Remove anyway' ? Infinity : 1 });
+          await assert.rejects(fx.lib.remove(ref.id), (e) => /** @type {any} */ (e).errorKey === 'lf.task_kept', `refused (${form})`);
+          if (form === 'Remove anyway') {
+            const was = snapshot(renamed);
+            await fx.lib.remove(ref.id, { discard: true });
+            undo();
+            assert.ok(!(await fx.lib.list()).some(f => f.id === ref.id), 'removed');
+            assert.deepEqual(snapshot(renamed), was, 'the folder as it is');
+            continue;
+          }
+          undo();
+        }
+        assert.ok((await fx.lib.list()).some(f => f.id === ref.id), `the folder stays (${form})`);
+        await fx.lib.scan(ref.id);
+        assert.equal(fs.existsSync(renamed), false, `its folder is deleted where the check meets it (${form})`);
+        await fx.lib.remove(ref.id);
+        const again = await fx.lib.add(A);
+        for (let k = 0; k < 2; k++) {
+          const r = await fx.lib.scan(again);
+          assert.deepEqual([r.added, r.problems, (await fx.lib.galleries()).includes(gid)], [0, [], false], `the deleted gallery never comes back (${form})`);
+        }
+        await fx.lib.setDefault(fx.lib.home);
+        await fx.lib.remove(again);
+      }
+    },
+  },
+  {
     // F5 (review 6, the website): adding a folder read its .shiori/library.json and, at one answer of "not
     // found" (the .shiori folder's lookup, the file's, its read), wrote a new id over it — before it weighed
     // the claim, so even for an add it then refused. Here a folder of the library's own, picked again: refused

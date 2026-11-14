@@ -14,7 +14,7 @@ import * as folderFiles from './storage/folder-store-web.js';
 import { OWNER_FILE, readClaim, access, nextClaim, claimText } from './storage/folder-owner.js';
 import { mounted, writeAllowed } from './storage/folder-lifecycle.js';
 import { galleryIdOf, seriesOf, MANIFEST_FILE } from './storage/folder-content.js';
-import { REMOVED_FILE, overlayDir, parseRemoved, removedText, withRemoved, provenanceOf, pageToken, madeFromPage } from './storage/linked-source.js';
+import { REMOVED_FILE, ARCHIVE_NAME, overlayDir, parseRemoved, removedText, withRemoved, provenanceOf, pageToken, madeFromPage } from './storage/linked-source.js';
 import { withoutPersonal, marksOf, withMarks, importMarks, favoriteMoved } from './storage/personal.js';
 import { createFolderLibrary } from './folder-library.js';
 import { zipEntries } from './zip-read.js';
@@ -873,17 +873,18 @@ async function _archiveNames(folder, root, path) {
   return new Set(own ? [own] : (seriesOf(await text('series.json'))?.chapters || []).map(c => c.id));
 }
 // Whether the archive at `path` holds nothing but what Shiori put there (gallery-manifest.js
-// foreignEntries, by its own manifest): what may be deleted whole (F6). One whose manifest is damaged
-// holds nothing known to be Shiori's; null when it can't be read now (gone a moment after it was read, or
-// a read failed: principle 6 — never taken for the person's, S21).
-async function _archiveOnlyOwn(folder, root, path) {
+// foreignEntries, by its own manifest; `met`: one a folder's deletion met in its place): what may be
+// deleted whole (F6). One whose manifest is damaged holds nothing known to be Shiori's; null when it
+// can't be read now (gone a moment after it was read, or a read failed: principle 6 — never taken for the
+// person's, S21).
+async function _archiveOnlyOwn(folder, root, path, met = false) {
   try {
     const archive = await _archiveOf(folder, root, path);
     if (!archive) return null;
     const at = archive.entries.get(MANIFEST_FILE);
     const manifest = at ? parseManifest(new TextDecoder().decode(await at.read()), { archive: true }) : null;
     if (manifest?.kind === 'corrupt') return false;
-    return !foreignEntries(archive.entries, manifest?.kind === 'ok' ? manifest.value : null).length;
+    return !foreignEntries(archive.entries, manifest?.kind === 'ok' ? manifest.value : null, { met }).length;
   } catch { return null; }
 }
 // Whether gallery `gid` may write into its folder `dir`: the folder names it (folderFiles.galleryIn,
@@ -1184,7 +1185,7 @@ async function _unlink({ dirs }, work) {
 // hand before the deletion: F4, S10) is kept, `unfound`, until a check of its folder has ended: a check
 // meeting a folder that names its gallery deletes that by name instead of adopting it (_deletedFound);
 // one that didn't forgets it (_forgetUnfound), and the folder's removal looks for it first, as a check
-// would (folder-library.js _finishUnfound). It is owed to no one meanwhile (a removal doesn't wait for it).
+// would (folder-library.js _finishUnfound), refused while it is still owed (it waits for no one else).
 const DELETING = '$deleting:';
 const _deletingKey = (folder, dir) => `${DELETING}${folder}\u0000${dir}`;
 // The folders waiting to be deleted (of folder `folder` alone, when given): [{ id, folder, dir, gid, unfound? }].
@@ -1226,7 +1227,7 @@ async function _deleteOne(d, at, work) {
   // folder isn't written again once deleted (S8). A gallery still there (one moved away: the folder it
   // left) is no longer published there, and its mover may hold the lock, awaiting this.
   const gone = !(await galleryGet(d.gid));
-  const deleteDir = () => _deleteDir(at.folder, root, at.dir, d.gid, named);
+  const deleteDir = () => _deleteDir(at.folder, root, at.dir, d.gid, named, at.dir !== d.dir ? ARCHIVE_NAME.test(d.dir) : null);
   const done = root && await (gone ? folderFiles.withLock(`shiori:gallery:${d.gid}`, deleteDir) : deleteDir());
   if (!done) return;
   if (done === 'missing') {
@@ -1257,17 +1258,22 @@ async function _forgetUnfound(folder, met = new Set()) {
 // Gallery `gid`'s own folder `dir` (in folder `folder`, its handle `root`) deleted: an archive whole
 // while it is the gallery's (_ownsDir) and holds nothing but what Shiori put there (_archiveOnlyOwn); a
 // folder by name (folderFiles.deleteGalleryIn, `named()` the files the library recorded writing there:
-// all of it while it names the gallery, those files alone while it names none). Resolves whether that
-// is done ('left': something was left there — an archive the person added to stays whole, F6;
-// 'missing': nothing there; false: something there couldn't be read or deleted now, or told).
-async function _deleteDir(folder, root, dir, gid, named) {
+// all of it while it names the gallery, those files alone while it names none). `archived`: where a
+// check met it in place of the one its deletion recorded, whether that was an archive — met at the other
+// kind of place (the other app archived the gallery's folder, or unpacked its archive: D17), whose files
+// the library never recorded, it is deleted by that place's own manifest alone (gallery-manifest.js
+// galleryDeletion, foreignEntries `met`). Resolves whether that is done ('left': something was left
+// there — an archive the person added to stays whole, F6; 'missing': nothing there; false: something
+// there couldn't be read or deleted now, or told).
+async function _deleteDir(folder, root, dir, gid, named, archived = null) {
   const file = await folderFiles.readFile(folder, root, dir).catch(() => undefined);
   if (file === undefined) return false;
-  if (!file) return folderFiles.deleteGalleryIn(folder, root, dir, gid, await named());
+  const met = archived != null && archived !== !!file;
+  if (!file) return folderFiles.deleteGalleryIn(folder, root, dir, gid, met ? null : await named());
   const owns = await _ownsDir(folder, root, dir, gid);
   if (owns == null) return false;
   if (!owns) return true;
-  const only = await _archiveOnlyOwn(folder, root, dir);
+  const only = await _archiveOnlyOwn(folder, root, dir, met);
   if (only == null) return false;
   if (!only) return 'left';
   await folderFiles.removeFile(folder, root, dir);

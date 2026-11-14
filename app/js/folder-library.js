@@ -324,8 +324,9 @@ async function folderShow(id) {
 // it be cut short (foldersPending). `moveTo`: a place its galleries are moved to first — one that can
 // take them now (shown, and a folder this context may write to: refused, reason 'move-to', else; the
 // page asks the person's leave first). A folder this context can't write to now while galleries of it
-// have what only this library has is refused (reason 'unsaved', `galleries` how many) — unless
-// `discard`: that is lost. The default leaves with it (folder-lifecycle.js nextDefault: this browser,
+// have what only this library has, or a gallery's folder there waits to be deleted (found where it was,
+// or not: `unfound`), is refused (reason 'unsaved', `galleries` how many) — unless `discard`: that is
+// lost. The default leaves with it (folder-lifecycle.js nextDefault: this browser,
 // or the first other folder that can be the default; none — reason 'default'). Resolves { id,
 // galleries }: how many leave it.
 async function folderRemove(id, { moveTo = null, discard = false } = {}) {
@@ -346,7 +347,7 @@ async function folderRemove(id, { moveTo = null, discard = false } = {}) {
   const galleries = (await _placedIn(id)).length;
   const now = await K.access(id);
   if (!discard && !(now.state === 'granted' && now.owned)) {   // its removal couldn't write back, nor delete what it owes
-    const n = (await _unsavedIn(id)).length + (await K.deletions(id)).filter(d => !d.unfound).length;
+    const n = (await _unsavedIn(id)).length + (await K.deletions(id)).length;
     if (n) _refuse('unsaved', `${n} galleries have changes not saved to library folder ${id}`, { galleries: n });
   }
   await K.folderWrite((store, tx) => {
@@ -420,12 +421,14 @@ async function _setAside(id, { onProgress = () => {}, stopped = () => false } = 
   const end = await halt();
   if (end) return end;
   // The notes of linked sources let go from it (deleted before, or moved out above) written there, and
-  // the folders of galleries deleted from it (or moved out) deleted: one still owed is as unsaved as a
-  // gallery (forgotten, the folder would add its source, or the gallery, again).
+  // the folders of galleries deleted from it (or moved out) deleted — those not where their deletion had
+  // them looked for, as a check would (_finishUnfound): one still owed — not finished where it was met,
+  // or perhaps in what couldn't be read — is as unsaved as a gallery (forgotten, the folder would add its
+  // source, or the gallery, again).
   await K.publishRemoved(id, work);
   await K.applyDeletions(id, work).catch(() => {});
   await _finishUnfound(id, work).catch(() => {});
-  const owed = [...await K.removedNotes(id), ...(await K.deletions(id)).filter(d => !d.unfound)].map(n => n.gid);
+  const owed = [...await K.removedNotes(id), ...await K.deletions(id)].map(n => n.gid);
   const place = await still();
   const { forget, unsaved } = removalOutcome({ required: [...required.map(g => String(g.galleryId)), ...owed], saved, discard: !!place.removal?.discard });
   if (!forget) {
@@ -706,16 +709,20 @@ async function _leftovers(run, stat) {
 // Deletions waiting `unfound` in folder `id` (their gallery's folder wasn't where they had it: F4)
 // finished before the folder is let go (its removal: `work`): its galleries looked for as a check finds
 // them, one naming such a gallery deleted where it is (db.js deletedFound) — once the folder is forgotten,
-// nothing would keep the next library adding it from adopting it again.
+// nothing would keep the next library adding it from adopting it again. Then, as a check's end, those it
+// didn't meet are forgotten only when it read all of the folder (review 6 F6); what is still recorded is
+// owed, and the removal refused while it is.
 async function _finishUnfound(id, work) {
   const unfound = new Map((await K.deletions(id)).filter(d => d.unfound).map(d => [String(d.gid), d]));
   const root = unfound.size ? await K.rootOf(id, { work }) : null;
   if (!root) return;
   const found = await _walk({ id, root, name: '', stopped: () => false, problems: [] }, new Set());
+  const known = new Set(await K.transferIds()), met = new Set();
   for (const own of found.own) {
-    const d = !own.series && unfound.get(own.id);
-    if (d && (own.kind === 'zip') === ARCHIVE_NAME.test(d.dir)) await K.deletedFound(d, id, own.path, work);
+    const d = !own.series && !known.has(own.id) && unfound.get(own.id);
+    if (d) { met.add(d.id); await K.deletedFound(d, id, own.path, work); }
   }
+  if (found.whole) await K.forgetUnfound(id, met);
 }
 // A check's progress, step by step (each counted on its own).
 function _steps(run, onProgress) {
@@ -821,7 +828,8 @@ const _entryText = async (entry) => new TextDecoder().decode(await entry.read())
 // or a series export's chapters — `inner` each one's folder in it) joined to the library. One the
 // library has is a copy, left alone and reported ('duplicate': O3, S10) — unless it keeps it in this
 // folder at a place that is gone: read again where it is now. One whose gallery was deleted, its folder
-// not where the deletion had it, is deleted here instead (F4); an archive a deletion left whole, as it
+// not where the deletion had it (or archived by the other app since: db.js _deleteDir), is deleted here
+// instead (F4); an archive a deletion left whole, as it
 // was left (removed.json: the person's files in it, F6), is left — as is every such archive while
 // removed.json can't be read (`run.removed` null: review 6 F4), till a check reads it.
 async function _joinOwn(run, found, kept) {
@@ -834,7 +842,7 @@ async function _joinOwn(run, found, kept) {
     if (!run.known.has(found.id)) {
       const deleted = run.deleted.get(found.id);
       if (deleted) {
-        if (!found.inner && (found.kind === 'zip') === ARCHIVE_NAME.test(deleted.dir)) { run.met.add(deleted.id); await K.deletedFound(deleted, run.id, found.path); }
+        if (!found.inner) { run.met.add(deleted.id); await K.deletedFound(deleted, run.id, found.path); }
         return;
       }
       if (found.kind === 'zip' && !found.inner && (!run.removed || (run.removed.length

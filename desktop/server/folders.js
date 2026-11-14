@@ -467,7 +467,7 @@ export class Folders {
   // short; then the library forgets the folder and its galleries (their files stay). `moveTo`: a folder
   // its galleries are moved to first. A folder that can't be written to now (out of reach, or another
   // app's) while galleries of it have what only this library has, or a gallery's folder there waits to
-  // be deleted, is refused (reason 'unsaved',
+  // be deleted (found where it was, or not: `unfound`), is refused (reason 'unsaved',
   // `galleries` how many) — unless `discard`: that is lost. Asked again while it is being removed, the
   // removal goes on (started again if it was stopped). Resolves { id, galleries }: how many leave.
   async remove(id, { moveTo = null, discard = false } = {}) {
@@ -489,7 +489,7 @@ export class Folders {
       }
       const { reachable, access } = this.probe(id);
       if (!discard && !(reachable && access === 'mine')) {
-        const n = this._unsavedIn(id).length + this._dormantIn(id) + lib.files.deletingIn(id).length;
+        const n = this._unsavedIn(id).length + this._dormantIn(id) + lib.files._deletingRows(id).length;
         if (n) throw Object.assign(refusal('invalid', 'unsaved', `${n} galleries have changes not saved to library folder ${id}`), { galleries: n });
       }
       if (next) lib._kvSet('defaultRoot', next === this.primaryId ? null : next);
@@ -736,12 +736,14 @@ export class Folders {
     } else for (const gid of required) if (this._nothingWaits(gid)) saved.add(gid);
     if (job.stop) return stopped();
     // The notes of linked sources let go from it (deleted before, or moved out above) written there, and
-    // the folders of galleries deleted from it (or moved out by a copy) deleted: one still owed is as
-    // unsaved as a gallery (forgotten, the folder would add its source, or the gallery, again).
+    // the folders of galleries deleted from it (or moved out by a copy) deleted — those not where their
+    // deletion had them looked for, as a check would (finishUnfound): one still owed — not finished where
+    // it was met, or perhaps in what couldn't be read — is as unsaved as a gallery (forgotten, the folder
+    // would add its source, or the gallery, again).
     await this.publishRemoved(id, { work: 'removal' });
     await files.applyDeletions({ root: id, work: 'removal' }).catch(() => {});
     await finishUnfound(lib, id, 'removal').catch(() => {});
-    const owed = [...lib._s('SELECT gid FROM removed_notes WHERE root = ?').all(id), ...files.deletingIn(id)].map(r => r.gid);
+    const owed = [...lib._s('SELECT gid FROM removed_notes WHERE root = ?').all(id), ...files._deletingRows(id)].map(r => r.gid);
     const { forget, unsaved } = lifecycle.removalOutcome({ required: [...required, ...owed], saved, discard });
     if (!forget) {
       this._setState(id, before);

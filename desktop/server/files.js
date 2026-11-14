@@ -965,7 +965,7 @@ export class FileLibrary {
   }
   // The galleries' folders and archives waiting to be deleted (`deleting`), of library folder `root`
   // alone when it is given: [{ dir, gid }], `dir` a path as `files` has them — those `unfound` aside,
-  // which wait for no one (F4).
+  // which are looked for where they are (F4), not at their place (a removal is owed them too: folders.js).
   deletingIn(root = null) { return this._deletingRows(root).filter(d => !d.unfound); }
   // The folders and archives of library folder `root` waiting to retire that no gallery has any more
   // (`retiring` rows without one: _retire), as [{ dir }].
@@ -981,7 +981,8 @@ export class FileLibrary {
   // wrote it (_archiveUnchanged: one the person added to stays, theirs — F6); then its series' folder,
   // once nothing but series.json is left there (_tidy). A row goes once that is done, or once its
   // folder or archive is found another's or no one's (nothing deleted then); one found gone is kept
-  // `unfound` until a check of its library folder has ended (F4: deletedFound, forgetUnfound); one that
+  // `unfound` until a check of its library folder, or its removal, has ended (F4: deletedFound,
+  // forgetUnfound; scan.js finishUnfound); one that
   // can't be done now stays — tried again at the next start, when its folder is shown or taken back, at
   // its folder's next check, and by its removal, which doesn't forget a folder still owed one. Resolves
   // whether none of `root`'s waits.
@@ -995,8 +996,9 @@ export class FileLibrary {
     return !this.deletingIn(root).length;
   }
   // Deletion `d` (its `deleting` row) done at `rel` (a path as `files` has them: where the row has it, or
-  // where a check met a folder or archive naming its gallery), while that library folder may be written to.
-  async _deleteOne(d, rel, work) {
+  // where a check met a folder or archive naming its gallery — `folder`: whether that is a folder), while
+  // that library folder may be written to.
+  async _deleteOne(d, rel, work, folder = null) {
     const lib = this.library;
     const at = this._split(rel).root;
     const abs = lib.folders.writable(at, work) && this._at(rel);
@@ -1006,9 +1008,14 @@ export class FileLibrary {
     // gallery came back from a manifest its publication under way wrote after the deletion).
     await this._describing.get(d.gid)?.catch(() => {});
     await this._placing.get(d.gid)?.catch(() => {});
-    const named = d.files == null ? null : JSON.parse(d.files);
+    const recorded = d.files == null ? null : JSON.parse(d.files);
+    // Met at the other kind of place than its row's — the other app unpacked the archive the gallery was
+    // in into a folder beside it (D17), or archived its folder — whose files the row never recorded: done
+    // there by that place's own manifest alone (gallery-manifest.js galleryDeletion, foreignEntries `met`).
+    const met = folder != null && folder !== Array.isArray(recorded);
+    const named = met ? null : recorded;
     let done;
-    if (!Array.isArray(named)) {
+    if (met ? !folder : !Array.isArray(named)) {
       // An archive: not there only as the shared rule takes it (_whose: not while its drive is away); one
       // that can't be read now, or told as Shiori left it, tried again (S21).
       const whose = await this._whose(rel, d.gid);
@@ -1016,7 +1023,7 @@ export class FileLibrary {
       else if (whose.kind === 'unreadable') done = false;
       else if (whose.kind !== 'ok' || (whose.undescribed && !named?.unpacked)) done = true;
       else {
-        const own = await this._archiveUnchanged(abs, named);
+        const own = await this._archiveUnchanged(abs, named, met);
         done = own == null ? false : own ? await this._discard(abs) : await this._leftBehind(at, d, rel, work);
       }
     } else {
@@ -1037,9 +1044,10 @@ export class FileLibrary {
     await this._tidy(path.dirname(abs)).catch(() => {});
   }
   // Deletion `d`, its gallery's folder or archive not where its row has it, done at `rel`, where a check
-  // met one naming the gallery (F4): deleted as it would have been where it was, never adopted.
-  deletedFound(d, rel, work = null) {
-    const run = (this._deletions || Promise.resolve()).then(() => this._deleteOne(d, rel, work));
+  // met one naming the gallery (F4; `folder`: whether it is a folder): deleted as it would have been where
+  // it was, never adopted.
+  deletedFound(d, rel, work, folder) {
+    const run = (this._deletions || Promise.resolve()).then(() => this._deleteOne(d, rel, work, folder));
     this._deletions = run.catch(() => {});
     return run;
   }
@@ -1052,9 +1060,10 @@ export class FileLibrary {
   // modification time; none for an archive written before S10), and holding nothing of the person's
   // (_foreignIn) — a file they added stays theirs even once Shiori has added to the archive since; or,
   // one an unpack let go (`recorded.unpacked`), as the unpack read it and holding nothing but what it
-  // took (`recorded.took`) — a file the person put in it stays theirs (review 5 F1). Null when that can't
-  // be told now (a read of it failed: principle 6 — never taken for the person's edit, S21).
-  async _archiveUnchanged(abs, recorded) {
+  // took (`recorded.took`) — a file the person put in it stays theirs (review 5 F1); `met`, one a folder's
+  // deletion met in its place, by its manifest alone (_foreignIn). Null when that can't be told now (a read
+  // of it failed: principle 6 — never taken for the person's edit, S21).
+  async _archiveUnchanged(abs, recorded, met = false) {
     try {
       if (recorded) {
         const st = await disk.stat(abs);
@@ -1065,16 +1074,16 @@ export class FileLibrary {
         const took = new Set(recorded.took);
         return [...dir.keys()].every(name => took.has(name));
       }
-      return !(await this._foreignIn(abs, dir)).length;
+      return !(await this._foreignIn(abs, dir, met)).length;
     } catch { return null; }
   }
   // The entries of archive `file` (its directory `dir`) that aren't Shiori's, by its own manifest
-  // (gallery-manifest.js foreignEntries): the person's. One whose manifest is damaged holds nothing
-  // known to be Shiori's.
-  async _foreignIn(file, dir) {
+  // (gallery-manifest.js foreignEntries; `met`: one a folder's deletion met in its place): the person's.
+  // One whose manifest is damaged holds nothing known to be Shiori's.
+  async _foreignIn(file, dir, met = false) {
     const at = dir.get(content.MANIFEST_FILE);
     const read = at ? format.parseManifest(String(await readEntry(file, at)), { archive: true }) : null;
-    return read?.kind === 'corrupt' ? [...dir.keys()] : format.foreignEntries(dir, read?.kind === 'ok' ? read.value : null);
+    return read?.kind === 'corrupt' ? [...dir.keys()] : format.foreignEntries(dir, read?.kind === 'ok' ? read.value : null, { met });
   }
   // Whether gallery `gid`'s archive `file` is as Shiori last wrote it, by the size and modification time
   // it noted then (_wroteArchive; one written before S10, with none noted, counts as such).

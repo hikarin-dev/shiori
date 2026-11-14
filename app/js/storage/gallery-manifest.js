@@ -443,11 +443,16 @@ export const unchanged = (recorded, now) => recorded.size === now.size
  * 3. `identity`: what names it — its metadata.json, an earlier version's shiori.json, a linked gallery's
  *    overlay its source.json (linked-source.js), then its manifest — likewise.
  * Then the folders left empty, up to the gallery's own. Anything else — a person's own file, a picture
- * changed since Shiori wrote it — is left, and the gallery's folder with it.
- * @param {{ area: string, manifest: Manifest | null, named: { name: string, size: number, mtime?: number | null }[] }} folder
- * @returns {{ pictures: { name: string, size: number, mtime?: number | null }[], descriptions: string[], stored: string, identity: string[] }} */
+ * changed since Shiori wrote it — is left, and the gallery's folder with it. `named` null: the deletion
+ * met the gallery at the other kind of place than its own — the other app unpacked the archive it was in
+ * into a folder beside it (D17) — whose files it never recorded: what the folder's manifest records alone,
+ * and nothing (null) where it has none: nothing there is known to be Shiori's (an earlier version's, or
+ * the person's own copy), and it is left whole.
+ * @param {{ area: string, manifest: Manifest | null, named: { name: string, size: number, mtime?: number | null }[] | null }} folder
+ * @returns {{ pictures: { name: string, size: number, mtime?: number | null }[], descriptions: string[], stored: string, identity: string[] } | null} */
 export function galleryDeletion({ area, manifest, named }) {
-  const pictures = new Map(named.map(f => [f.name, f]));
+  if (!named && !manifest) return null;
+  const pictures = new Map((named ?? []).map(f => [f.name, f]));
   for (const [name, [size, mtime]] of Object.entries(manifest?.sizes ?? {})) if (!pictures.has(name)) pictures.set(name, { name, size, mtime });
   return { pictures: [...pictures.values()], descriptions: DESCRIPTION_FILES.filter(n => n !== 'metadata.json'), stored: storedDir(area),
     identity: ['metadata.json', LEGACY_FILE, ...(area === '' ? [SOURCE_FILE] : []), manifestPath(area)] };
@@ -460,9 +465,13 @@ const LEGACY_FILE = 'shiori.json';
  * manifest records for it; its descriptions; its manifest; a CBZ's ComicInfo.xml — so the person's: a
  * file they added, or a picture they replaced by one of another size. An archive holding any is never
  * deleted whole with its gallery (F6, S10: left, as a folder's deletion leaves a person's files), nor
- * written again whole, and they stay in its directory.
- * @param {Map<string, { size: number }>} entries @param {Manifest | null} manifest @returns {string[]} */
-export function foreignEntries(entries, manifest) {
+ * written again whole, and they stay in its directory. `met`: one a folder's deletion met in its place
+ * (the other app archived the gallery's folder), taken by its manifest alone, as galleryDeletion takes a
+ * folder met so: without one, every entry is foreign (the person's own archive of the folder, perhaps).
+ * @param {Map<string, { size: number }>} entries @param {Manifest | null} manifest @param {{ met?: boolean }} [how]
+ * @returns {string[]} */
+export function foreignEntries(entries, manifest, { met = false } = {}) {
+  if (met && !manifest) return [...entries.keys()];
   const named = manifest ? new Set(namedPictures(manifest.files)) : null;
   const sizes = manifest?.sizes ?? {};
   /** @type {string[]} */

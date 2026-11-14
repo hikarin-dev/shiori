@@ -54,3 +54,13 @@ test('F6: an archive\'s entries that aren\'t Shiori\'s — a file added, a pictu
   assert.deepEqual(foreignEntries(entries([['images/0001.png', 11]]), manifest), ['images/0001.png'], 'replaced by one of another size');
   assert.deepEqual(foreignEntries(entries([['images/0099.png', 3], ['notes.txt', 4]]), null), ['notes.txt'], 'before manifests: any picture where pictures go');
 });
+
+test('S25b: a deletion met at the other kind of place than it recorded takes what that place\'s manifest records alone, nothing without one', () => {
+  const plan = galleryDeletion({ area: '.shiori/', manifest: manifest({ 'images/0001.png': [5, 100] }), named: null });
+  assert.deepEqual(plan?.pictures, [{ name: 'images/0001.png', size: 5, mtime: 100 }], 'a folder the other app unpacked the gallery into');
+  assert.equal(galleryDeletion({ area: '.shiori/', manifest: null, named: null }), null, 'one without a manifest: nothing there is known to be Shiori\'s');
+  const archived = /** @type {any} */ ({ files: { pages: { 1: { original: 'images/0001.png' } }, covers: {} }, sizes: { 'images/0001.png': [10, 0] } });
+  const entries = new Map([['images/0001.png', { size: 10 }], ['metadata.json', { size: 5 }]]);
+  assert.deepEqual(foreignEntries(entries, archived, { met: true }), [], 'an archive the other app made of the gallery\'s folder');
+  assert.deepEqual(foreignEntries(entries, null, { met: true }), ['images/0001.png', 'metadata.json'], 'one without a manifest: all of it the person\'s');
+});

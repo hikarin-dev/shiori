@@ -392,11 +392,12 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
     library._push('control', { type: 'COVER_INVALIDATED', galleryId: gid });
   }
   // A gallery deleted while its folder or archive wasn't where the index had it (renamed or moved by
-  // hand): deleted where it is found, never adopted (F4, S10) — its deletion `met`, kept until it is done.
-  // A folder that couldn't be read whole is found by the gallery its descriptions name (as the deletion
-  // tells it, principle 2): what a deletion met there left part way is deleted at the next check (F6). A
-  // copy of a gallery the library keeps in the same folder (its place still naming it) is reported, and
-  // left (O3) — not the old folder of a gallery archived since, retiring.
+  // hand, or unpacked by the other app: D17): deleted where it is found, never adopted (F4, S10) — its
+  // deletion `met`, kept until it is done (files.js _deleteOne: at the other kind of place, by its
+  // manifest). A folder that couldn't be read whole is found by the gallery its descriptions name (as the
+  // deletion tells it, principle 2): what a deletion met there left part way is deleted at the next check
+  // (F6). A copy of a gallery the library keeps in the same folder (its place still naming it) is
+  // reported, and left (O3) — not the old folder of a gallery archived since, retiring.
   const unfound = new Map(files._deletingRows().filter(d => d.unfound).map(d => [String(d.gid), d]));
   const met = new Set();
   for (const g of unknown.filter(g => !g.claimed && (g.read?.kind === 'gallery' || g.unreadable))) {
@@ -405,7 +406,8 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
     if (!row && unfound.has(id)) {
       g.claimed = true;
       const d = unfound.get(id);
-      if (sameKind(g, d)) { met.add(d.dir); await files.deletedFound(d, g.rel); }
+      met.add(d.dir);
+      await files.deletedFound(d, g.rel, null, g.format === 'folder');
     } else if (g.read && row && present.has(id) && files._split(row.path).root === g.root
       && !library._s('SELECT 1 FROM retiring WHERE dir = ? LIMIT 1').get(g.rel)) {
       out.problems.push({ path: g.inRoot, reason: 'duplicate', gid: id });
@@ -487,25 +489,28 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   return out;
 }
 
-// Whether deletion `d` (a `deleting` row) may be finished at gallery files `g` (found by a walk): a folder's
-// at a folder, an archive's at an archive — never, say, at an archive the person made of the folder.
-const sameKind = (g, d) => (g.format === 'folder') === Array.isArray(JSON.parse(d.files ?? 'null'));
 // Deletions waiting `unfound` in library folder `root` (their gallery's folder or archive wasn't where the
 // index had it: F4) finished before the folder is let go (folders.js, its removal): its galleries looked
 // for as a check finds them, one naming such a gallery deleted where it is (`work` as files.js
 // deletedFound) — once the folder is forgotten, nothing would keep the next library adding it from
-// adopting it again.
+// adopting it again. Then, as a check's end, those it didn't meet are forgotten only when it read all of
+// the folder (review 6 F6); what is still recorded is owed, and the removal refused while it is.
 export async function finishUnfound(library, root, work) {
   const files = library.files;
   const unfound = new Map(files._deletingRows(root).filter(d => d.unfound).map(d => [String(d.gid), d]));
-  if (!unfound.size) return;
-  const { found } = await findGalleries(library.rootDir(root), { problems: [] });
-  for (const f of found) {
+  if (!unfound.size || library.folders.reach(root, 'read', { fresh: true }).status !== 'ok') return;
+  const walked = await findGalleries(library.rootDir(root), { problems: [] });
+  let whole = walked.whole;
+  const met = new Set();
+  for (const f of walked.found) {
+    if (f.id != null && files._row(String(f.id))) continue;   // one the library has: never a deleted gallery's, as in a check
     const g = { ...f, abs: path.join(library.rootDir(root), ...f.rel.split('/')), rel: files._join(root, f.rel), root, inRoot: f.rel };
-    const read = await readGallery(g).catch(() => null);
-    const d = read?.kind === 'gallery' && unfound.get(String(read.described?.id));
-    if (d && sameKind(g, d)) await files.deletedFound(d, g.rel, work);
+    const read = await readGallery(g).catch(() => { whole = false; return null; });
+    const id = read ? (read.kind === 'gallery' && read.described?.id ? String(read.described.id) : null) : f.id ?? null;
+    const d = id && !files._row(id) && unfound.get(id);
+    if (d) { met.add(d.dir); await files.deletedFound(d, g.rel, work, g.format === 'folder'); }
   }
+  if (whole) files.forgetUnfound(root, met);
 }
 
 // The token gallery files  were last published at (a folder, or an archive in the gallery format:

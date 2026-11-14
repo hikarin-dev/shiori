@@ -504,6 +504,113 @@ const NOTED_ARCHIVE = {
   },
 };
 
+// Found in S24 (the desktop): a gallery it archived, unpacked by the website that took the folder over (D17:
+// the archive deleted, or kept for the person's file), deleted on the desktop right after it took the folder
+// back, before any check. The deletion of its archive found no place ('unfound'); the next check met the
+// folder the website unpacked it into, but finished an archive's deletion only at an archive: it passed the
+// folder over, forgot the deletion, and the check after joined it — the deleted gallery back. A deletion met
+// at the other kind of place is done there by that place's own manifest (principle 4). The mirror, the
+// website deleting right after it took a folder back from the desktop, which archived the gallery meanwhile,
+// came back alike: the website's folder deletion met the desktop's archive.
+const DELETED_ON_TAKE_BACK = {
+  name: 'S25b: a gallery deleted right after its folder was taken back from the other app, which unpacked or archived it, never comes back',
+  async run({ dir, desktop, website }) {
+    const { zipEntries } = await import('../js/zip-read.js');
+    const mine = async (archive) => {
+      const entries = [];
+      for (const e of await zipEntries(new Uint8Array(fs.readFileSync(archive)))) entries.push({ name: e.filename, data: await e.read() });
+      fs.writeFileSync(archive, zipCreate([...entries, { name: 'notes.txt', data: new TextEncoder().encode('mine') }]));
+      return fs.readFileSync(archive);
+    };
+    const archiveIn = (shared) => fs.readdirSync(shared).find(n => /\.(zip|cbz)$/i.test(n));
+    for (const form of ['the archive gone', 'the archive kept for the person\'s file']) {
+      const shared = path.join(dir, `desktop ${form.replaceAll(' ', '-').replaceAll('\'', '')}`);
+      const id = await desktop.add(shared);
+      await desktop.setDefault(id);
+      const gid = await desktop.newGallery('Archived');
+      await write(desktop, gid, FIRST);
+      await desktop.flush();
+      assert.deepEqual((await desktop.raw.archiveGallery(gid)).archived, [gid]);
+      const archive = path.join(shared, archiveIn(shared));
+      const edited = form.endsWith('file') ? await mine(archive) : null;
+      const back = await website.add(shared, { force: true });
+      assert.deepEqual((await website.scan(back)).problems, []);
+      await write(website, gid, [[1, 'translated', webp(1, 7), 'image/webp']]);
+      await website.flush();
+      await new Promise(r => setTimeout(r, 400));
+      assert.ok(fs.existsSync(path.join(shared, 'Archived', '.shiori', 'gallery.json')), `${form}: unpacked beside the archive`);
+      await website.remove(back);
+      await desktop.raw.folderClaim(id);
+      await desktop.deleteGallery(gid);
+      await desktop.flush();
+      await new Promise(r => setTimeout(r, 300));
+      for (let i = 0; i < 2; i++) {
+        const found = await desktop.scan(id);
+        assert.deepEqual([found.added, found.problems, await desktop.galleries()], [0, [], []], `${form}: check ${i + 1} adds nothing`);
+      }
+      assert.equal(fs.existsSync(path.join(shared, 'Archived')), false, `${form}: the folder it was unpacked into is deleted`);
+      if (edited) assert.deepEqual(fs.readFileSync(archive), edited, `${form}: the archive stays as the person's`);
+      else assert.equal(archiveIn(shared), undefined, form);
+      await desktop.setDefault(desktop.home);
+      await desktop.remove(id);
+    }
+    for (const form of ['an archive of its own', 'an archive with the person\'s file']) {
+      const shared = path.join(dir, `website ${form.replaceAll(' ', '-').replaceAll('\'', '')}`);
+      const back = await website.add(shared);
+      await website.setDefault(back);
+      const gid = await website.newGallery('Folder');
+      await write(website, gid, FIRST);
+      await website.flush();
+      await new Promise(r => setTimeout(r, 300));
+      const id = await desktop.add(shared, { force: true });   // "Use anyway" on the desktop
+      assert.deepEqual((await desktop.scan(id)).problems, []);
+      assert.deepEqual((await desktop.raw.archiveGallery(gid)).archived, [gid]);
+      const archive = path.join(shared, archiveIn(shared));
+      const edited = form.endsWith('file') ? await mine(archive) : null;
+      await desktop.setDefault(desktop.home);
+      await desktop.remove(id);
+      assert.equal(await website.raw.folderClaim(back), 'granted');
+      await website.deleteGallery(gid);
+      await website.flush();
+      await new Promise(r => setTimeout(r, 400));
+      for (let i = 0; i < 2; i++) {
+        const found = await website.scan(back);
+        assert.deepEqual([found.added, await website.galleries()], [0, []], `${form}: check ${i + 1} adds nothing`);
+      }
+      if (edited) {
+        assert.deepEqual(fs.readFileSync(archive), edited, `${form}: the archive stays as the person's`);
+        assert.deepEqual((await website.list()).find(f => f.id === back).attention.map(a => a.reason), ['left'], form);
+      } else assert.equal(archiveIn(shared), undefined, `${form}: the archive the desktop made is deleted`);
+      await website.setDefault(website.home);
+      await website.remove(back);
+    }
+    // And the desktop's own mirror: another desktop app took the folder over and archived the gallery.
+    const other = await desktopLibrary(path.join(dir, 'other desktop'));
+    try {
+      const shared = path.join(dir, 'desktop and another');
+      const id = await desktop.add(shared);
+      await desktop.setDefault(id);
+      const gid = await desktop.newGallery('Folder');
+      await write(desktop, gid, FIRST);
+      await desktop.flush();
+      const theirs = await other.add(shared, { force: true });
+      assert.deepEqual((await other.scan(theirs)).problems, []);
+      assert.deepEqual((await other.raw.archiveGallery(gid)).archived, [gid]);
+      await other.setDefault(other.home);
+      await other.remove(theirs);
+      await desktop.raw.folderClaim(id);
+      await desktop.deleteGallery(gid);
+      await desktop.flush();
+      await new Promise(r => setTimeout(r, 300));
+      for (let i = 0; i < 2; i++) {
+        const found = await desktop.scan(id);
+        assert.deepEqual([found.added, found.problems, await desktop.galleries()], [0, [], []], `another desktop's archive: check ${i + 1} adds nothing`);
+      }
+      assert.equal(archiveIn(shared), undefined, 'the archive the other desktop made is deleted');
+    } finally { await other.close(); }
+  },
+};
+
 // F7 (review 4): the desktop killed as it put a gallery it unpacked in place left the temporary folder
 // it was unpacked into, `Alpha.shiori-tmp`, beside the archive; the website, taking the folder over,
 // took that folder for the gallery and showed it empty, the archive that holds it whole passed over.
@@ -574,7 +681,7 @@ for (const [direction, apps] of [['website to desktop', ['website', 'desktop']],
       });
     }
     if (apps[0] === 'desktop') {
-      for (const h of [ARCHIVED, OLDEST, UNPACKED, CUT_SHORT, EDITED, NOTES_UNREAD, FIRST_FOLDER, NOTED_ARCHIVE, KILLED_UNPACK, ARCHIVE_DELETED]) {
+      for (const h of [ARCHIVED, OLDEST, UNPACKED, CUT_SHORT, EDITED, NOTES_UNREAD, FIRST_FOLDER, NOTED_ARCHIVE, DELETED_ON_TAKE_BACK, KILLED_UNPACK, ARCHIVE_DELETED]) {
         test(h.name, { skip }, async (t) => {
           const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-handover-'));
           const desktop = await desktopLibrary(path.join(dir, 'desktop'));

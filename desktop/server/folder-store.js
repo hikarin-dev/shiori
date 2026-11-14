@@ -552,10 +552,12 @@ export async function deleteNamedIn(dir, list, { emptied: tidy = true } = {}) {
 // short), or put there by hand — loses only the files the library recorded writing, each while it is
 // as recorded; one gone, or another gallery's, is left as it is ('missing': the gallery's folder isn't
 // there — renamed or moved by hand, perhaps: F4). Nothing is concluded from an answer of "not found" the
-// shared rule doesn't take (notFound: the drive away, say — review 5 F2). Resolves whether the deletion
-// is done — true (its folder holds no file now, or is gone), or 'left' when what it emptied still holds
-// files: a person's, or one changed since Shiori wrote it — 'missing', or is to be tried again (false:
-// something there couldn't be read or deleted now, or the folder still names the gallery).
+// shared rule doesn't take (notFound: the drive away, say — review 5 F2). `named` null: a folder the
+// deletion met in place of the archive it recorded, emptied by its manifest alone — left whole without one
+// (galleryDeletion). Resolves whether the deletion is done — true (its folder holds no file now, or is
+// gone), or 'left' when what it emptied still holds files: a person's, or one changed since Shiori wrote
+// it — 'missing', or is to be tried again (false: something there couldn't be read or deleted now, or the
+// folder still names the gallery).
 export async function deleteGalleryIn(dir, gid, named) {
   const whose = await galleryIn(dir, String(gid));
   if (whose.kind === 'unreadable') return false;
@@ -564,6 +566,7 @@ export async function deleteGalleryIn(dir, gid, named) {
   if (now.kind === 'unreadable') return false;
   const area = format.areaOf(dir.split(path.sep).join('/'));
   const plan = format.galleryDeletion({ area, manifest: now.kind === 'ok' ? now.value : null, named });
+  if (!plan) return 'left';
   const { kept } = await deleteNamedIn(dir, plan.pictures, { emptied: false });
   if (kept.some(k => k.why === 'unreadable')) return false;
   try {
