@@ -30,7 +30,7 @@ import crypto from 'node:crypto';
 import { owner as claims, lifecycle, linked as linkedSource, contract, BackendError } from './shared.js';
 import { libraryId, identityAt, samePath } from './files.js';
 import { scanLibrary, finishUnfound } from './scan.js';
-import { fingerprintNow, titlesIn } from './linked.js';
+import { fingerprintNow, titlesIn, removedOf, archiveRemoved } from './linked.js';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS roots (
@@ -864,6 +864,11 @@ export class Folders {
   removedIn(root, gid, overlay, source) {
     this.library._s('INSERT OR REPLACE INTO removed_notes (gid, root, overlay, source) VALUES (?, ?, ?, ?)').run(String(gid), root, overlay, JSON.stringify(source));
   }
+  // Whether archive `rel` of folder `root` is one its removed.json notes as removed, as a check weighs it
+  // (linked.js archiveRemoved): an archive a deletion, or the other app's unpack (D17), left whole for the
+  // person's files in it (S10's F6) — theirs, no gallery's place any more (files.js _whose: review 6 F7).
+  // Rejects when removed.json can't be read now.
+  async noted(root, rel) { return archiveRemoved(this.library, root, rel, await removedOf(this.library, root)); }
   // The sources of folder `root` noted as removed but not yet in its removed.json, as a check weighs
   // them (linked-source.js isRemoved): where they were, whatever their files are now.
   removedWaiting(root) {

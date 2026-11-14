@@ -1635,6 +1635,109 @@ export const CASES = [
       }
     },
   },
+  // ── Rules that stopped one case short (review 6: F5, F6; S22's names picked free) ──
+  {
+    // F6 (review 6, both apps): a gallery deleted after its folder was renamed by hand waits `unfound` for a
+    // check to meet that folder (S10's F4). A check that couldn't list the folder — a listing failing once,
+    // answering "not found" for a moment, or the drive away from there to the check's end — forgot the
+    // deletion all the same, and the check after added the deleted gallery back, every page readable. Found
+    // beside it (S24): a check that met the folder but couldn't finish deleting it (one deletion there
+    // failing) forgot it too, leaving the folder naming the deleted gallery for good.
+    name: 'review 6 F6: a check that can\'t read a folder it walks never forgets a deletion still owed, and the deleted gallery stays deleted',
+    async run({ dir, fx, platform }) {
+      const [failure, notFound] = platform === 'desktop' ? ['EIO', 'ENOENT'] : ['NotReadableError', 'NotFoundError'];
+      const unfinished = 'a deletion there failing once';
+      for (const [i, kind] of [failure, notFound, 'the drive away', unfinished].entries()) {
+        const name = `A${i}`, A = path.join(dir, name);
+        const ref = await fx.register(name);
+        const gid = await fx.lib.newGallery('Alpha');
+        for (let n = 1; n <= 3; n++) await fx.lib.putPage(gid, n, png(n));
+        await fx.lib.flush();
+        const renamed = path.join(A, 'Alpha by hand');
+        fs.renameSync(/** @type {string} */ (await fx.lib.dirOf(gid)), renamed);
+        await fx.lib.deleteGallery(gid);
+        await fx.lib.flush();
+        await new Promise(r => setTimeout(r, 300));
+        const listing = (/** @type {{ op: string, path: string }} */ c) => (platform === 'desktop' ? c.op === 'readdir' && c.path.endsWith(`/${name}/Alpha by hand`)
+          : c.op === 'entries' && c.path === 'Alpha by hand');
+        const deletion = (/** @type {{ op: string, path: string }} */ c) => (platform === 'desktop' ? ['rm', 'unlink'].includes(c.op) && c.path.includes(`/${name}/Alpha by hand/`)
+          : c.op === 'removeEntry' && c.path.startsWith('Alpha by hand/'));
+        let n = 0;
+        const undo = kind === 'the drive away' ? driveAway(platform, A, listing)
+          : kind === unfinished ? (platform === 'desktop' ? faults.failNext(deletion, 'EBUSY') : fsa.failNext(deletion, 'NoModificationAllowedError'))
+            : (platform === 'desktop' ? faults : fsa).failNext((c) => listing(c) && ++n === 1, kind, { times: Infinity });
+        const faulted = await fx.lib.scan(ref.id);
+        undo();
+        if (kind !== unfinished) assert.ok(faulted.problems.some(p => p.reason === 'unreadable'), `the check says what it couldn't read (${kind})`);
+        for (let k = 0; k < 2; k++) {
+          const r = await fx.lib.scan(ref.id);
+          assert.deepEqual([r.added, (await fx.lib.galleries()).includes(gid)], [0, false], `the deleted gallery never comes back (${kind})`);
+        }
+        assert.equal(fs.existsSync(renamed), false, `its folder is deleted where a check met it (${kind})`);
+        await fx.lib.setDefault(fx.lib.home);
+        await fx.lib.remove(ref.id);
+      }
+    },
+  },
+  {
+    // F5 (review 6, the website): adding a folder read its .shiori/library.json and, at one answer of "not
+    // found" (the .shiori folder's lookup, the file's, its read), wrote a new id over it — before it weighed
+    // the claim, so even for an add it then refused. Here a folder of the library's own, picked again: refused
+    // 'nested', and from then on 'other-library', its galleries unread. The website has no exclusive create: a
+    // library.json is written only where there surely is none, and only once the add is allowed — a folder
+    // inside one of the library's, refused, is given none.
+    name: 'review 6 F5: adding a folder writes a library.json only where there surely is none, and only once the add is allowed',
+    platforms: ['website'],
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const A = path.join(dir, 'A');
+      const gid = await fx.lib.newGallery('Alpha');
+      await fx.lib.putPage(gid, 1, png(1));
+      await fx.lib.flush();
+      const idIn = (/** @type {string} */ at) => JSON.parse(fs.readFileSync(path.join(at, '.shiori', 'library.json'), 'utf8')).id;
+      for (const [op, at] of [['getDirectoryHandle', '.shiori'], ['getFileHandle', '.shiori/library.json'], ['getFile', '.shiori/library.json']]) {
+        const undo = fsa.failNext((c) => c.op === op && c.path === at, 'NotFoundError', { times: 1 });
+        await fx.lib.add(A).catch(() => {});
+        undo();
+        assert.equal(idIn(A), ref.id, `its library.json is as it was (${op} answered "not found")`);
+      }
+      assert.equal((await fx.lib.list()).find(f => f.id === ref.id)?.access, 'granted', 'still the library\'s folder');
+      assert.deepEqual(await fx.lib.read(gid, 1), png(1));
+      const inner = path.join(A, 'Inner');
+      fs.mkdirSync(inner);
+      await assert.rejects(fx.lib.add(inner), (e) => /** @type {any} */ (e).reason === 'nested');
+      assert.equal(fs.existsSync(path.join(inner, '.shiori')), false, 'a refused add writes nothing');
+      const B = path.join(dir, 'B');
+      const added = await fx.lib.add(B);
+      assert.equal(idIn(B), added, 'a folder with none is given its library.json as it joins');
+    },
+  },
+  {
+    // Found in S22 (the website): writeNew and reserve picked a free name by a look that answered false for
+    // "not found", then wrote with `create`: one look answering "not found" for a moment, and a file a
+    // manifest names was written over, or another gallery's folder taken (its manifest replaced). A name is
+    // free only where there surely is nothing (the desktop creates exclusively).
+    name: 'S24: a look at a name answering "not found" for a moment never lets writeNew or reserve write over what is there',
+    async run({ store, fx, platform }) {
+      const root = await opened(store, await fx.register('A'));
+      const notFound = (/** @type {(path: string) => boolean} */ at) => (platform === 'desktop'
+        ? faults.failNext((c) => (c.op === 'exists' || c.op === 'stat' || c.op === 'access') && at(c.path), 'ENOENT', { times: 1 })
+        : fsa.failNext((c) => c.op === 'getDirectoryHandle' && at(c.path), 'NotFoundError', { times: 1 }));
+      const g = await root.reserve('Pictures', '1700000000001', null);
+      const first = await g.writeNew('translated/0001', 'png', png(1));
+      let undo = notFound((p) => p.endsWith(`Pictures/${first.name}`));
+      const second = await g.writeNew('translated/0001', 'png', png(2)).catch(() => null);
+      undo();
+      assert.notEqual(second?.name, first.name, 'never the name taken');
+      assert.deepEqual((await g.read(first.name)).data, png(1), 'the file there is as it was');
+      undo = notFound((p) => p === 'Pictures' || p.endsWith('/A/Pictures'));
+      const other = await root.reserve('Pictures', '1700000000002', null).catch(() => null);
+      undo();
+      assert.notEqual(other?.name, g.name, 'never the folder taken');
+      assert.equal((await root.gallery(g.name, '1700000000001')).kind, 'ok', 'which still names its gallery');
+      assert.deepEqual((await g.read(first.name)).data, png(1));
+    },
+  },
   // ── A folder names a gallery only once it is whole (review 4: F2, O2) ──
   // A folder reserved for a gallery whose work never committed — the reservation's own writes, or the
   // pictures a first write or a move put in it, cut short by a failed write, a kill or the page closing —

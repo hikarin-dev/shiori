@@ -1218,10 +1218,11 @@ async function _deleteOne(d, at, work) {
 // Deletion `d`, its gallery's folder not where its record has it, finished at `dir` in folder `folder`,
 // where a check met a folder naming its gallery (F4): deleted as it would have been where it was.
 const _deletedFound = (d, folder, dir, work = null) => folderFiles.withLock(`shiori:deleting:${d.folder}`, () => _deleteOne(d, { folder, dir }, work));
-// What waited `unfound` in folder `folder`, forgotten once a check of it ended without meeting it.
-async function _forgetUnfound(folder) {
+// What waited `unfound` in folder `folder`, forgotten once a check that read all of it ended without
+// meeting it — but those it met (`met`: their ids), not deleted yet where it met them.
+async function _forgetUnfound(folder, met = new Set()) {
   for (const d of await _deletions(folder)) {
-    if (!d.unfound) continue;
+    if (!d.unfound || met.has(d.id)) continue;
     await _forgetRetiring(d.folder, d.dir);
     await _recordsWrite((store) => store.delete(d.id));
   }

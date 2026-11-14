@@ -1041,9 +1041,10 @@ export class FileLibrary {
     this._deletions = run.catch(() => {});
     return run;
   }
-  // What waited `unfound` in library folder `root`, forgotten once a check of it ended without meeting it.
-  forgetUnfound(root) {
-    for (const d of this._deletingRows(root)) if (d.unfound) this.library._s('DELETE FROM deleting WHERE dir = ?').run(d.dir);
+  // What waited `unfound` in library folder `root`, forgotten once a check that read all of it ended
+  // without meeting it — but those it met (`met`: their `dir`s), not deleted yet where it met them.
+  forgetUnfound(root, met = new Set()) {
+    for (const d of this._deletingRows(root)) if (d.unfound && !met.has(d.dir)) this.library._s('DELETE FROM deleting WHERE dir = ?').run(d.dir);
   }
   // Whether archive `abs` may be deleted whole (F6): as Shiori last wrote it (`recorded`: its size and
   // modification time; none for an archive written before S10), and holding nothing of the person's
@@ -1121,8 +1122,10 @@ export class FileLibrary {
   // (principle 2): a folder as galleryIn says (its manifest or description; an overlay's source.json),
   // an archive by its descriptions (folder-content.js classifyArchive) — one describing no gallery is
   // the one the index keeps there (an archive added by hand, which its first change unpacks; it can
-  // only be read; `undescribed`, and never deleted for it). { kind: 'ok' } when it names gallery `gid`;
-  // 'missing' (nothing there); 'conflict'
+  // only be read; `undescribed`, and never deleted for it), and one its folder's removed.json notes as
+  // removed is no gallery's (folders.js noted: the person's, left whole for their files by a deletion or
+  // by the other app's unpack — the gallery is where a folder naming it is, scan.js unpackedTo; review 6
+  // F7). { kind: 'ok' } when it names gallery `gid`; 'missing' (nothing there, or no gallery's); 'conflict'
   // (`found`: what it names instead, or null); 'unreadable' (it, or its library folder as itself, can't
   // be read now: nothing is concluded). Nothing there is told as the shared rule takes it (statIn: a look
   // that answers "not found" while the drive is away for a moment never makes it so — review 6 F8).
@@ -1140,7 +1143,9 @@ export class FileLibrary {
       for (const name of content.OWN_FILES) if (dir.has(name)) texts[name] = (await readEntry(abs, dir.get(name))).toString('utf8');
       const what = content.classifyArchive([...dir.keys()], texts);
       if (what.kind !== 'gallery') return { kind: 'ok', undescribed: true };
-      return what.id === String(gid) ? { kind: 'ok' } : { kind: 'conflict', found: what.id };
+      if (what.id !== String(gid)) return { kind: 'conflict', found: what.id };
+      const { root, rest } = this._split(rel);
+      return await this.library.folders.noted(root, rest) ? contract.MISSING : { kind: 'ok' };
     } catch (e) { return contract.unreadable(e); }
   }
 

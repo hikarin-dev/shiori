@@ -417,6 +417,93 @@ const NOTES_UNREAD = {
   },
 };
 
+// F5 (review 6, the website): adding the desktop's first library folder, one "not found" in the read of its
+// .shiori/library.json (the .shiori folder's lookup, the file's, its read) and the website wrote a new id
+// over it, before it weighed the claim — so in an add it refused ('claimed'). The desktop then read none of
+// that folder's galleries, and its next start opened another, empty library. The website writes a
+// library.json only where there surely is none, once the add is allowed.
+const FIRST_FOLDER = {
+  name: 'review 6 F5: the website adding the desktop\'s first folder while its library.json answers "not found" for a moment writes nothing there',
+  async run({ dir, desktop, website }) {
+    const first = path.join(dir, 'desktop', 'own');
+    const gid = await desktop.newGallery('Alpha');
+    await desktop.putPage(gid, 1, png(1));
+    await desktop.flush();
+    const idFile = path.join(first, '.shiori', 'library.json');
+    const was = fs.readFileSync(idFile, 'utf8');
+    for (const [op, at] of [['getDirectoryHandle', '.shiori'], ['getFileHandle', '.shiori/library.json'], ['getFile', '.shiori/library.json']]) {
+      const undo = fsa.failNext((c) => c.op === op && c.path === at, 'NotFoundError', { times: 1 });
+      const got = await reason(website.add(first));
+      undo();
+      assert.notEqual(got, 'resolved', `refused (${op} answered "not found")`);
+      assert.equal(fs.readFileSync(idFile, 'utf8'), was, `library.json as it was (${op})`);
+    }
+    assert.equal(await reason(website.add(first)), 'claimed', 'the desktop\'s folder');
+    assert.equal(fs.readFileSync(idFile, 'utf8'), was);
+    await new Promise(r => setTimeout(r, 2200));   // past the desktop's read window
+    assert.deepEqual(await desktop.read(gid, 1), png(1), 'the desktop reads it as its own');
+  },
+};
+
+// F7 (review 6, the desktop): a gallery it archived, the person's file added to the archive; the website
+// changed it (unpacked beside the archive, D17, which stays for the person's file: noted in removed.json,
+// S10's F6). The desktop kept reading the archive — the website's translation never showed, and the folder
+// it was unpacked into was reported a copy at every check — when it had the folder back from "Use anyway".
+// An archive noted as removed is not the gallery's place: the desktop follows the gallery to the folder
+// naming it, in both forms of the hand-over ("Use anyway" and back; removed and added again), with no copy
+// reported; and a change the desktop made while the website had the folder is kept (local changes win, D4).
+const NOTED_ARCHIVE = {
+  name: 'review 6 F7: a gallery the website unpacked beside an archive kept for the person\'s file is read from its folder by the desktop, with no copy reported',
+  async run({ dir, desktop, website }) {
+    const { zipEntries } = await import('../js/zip-read.js');
+    for (const form of ['use anyway and back', 'removed and added again', 'use anyway and back, changed meanwhile']) {
+      const shared = path.join(dir, form.replaceAll(' ', '-').replaceAll(',', ''));
+      let id = await desktop.add(shared);
+      await desktop.setDefault(id);
+      const gid = await desktop.newGallery('Archived');
+      await write(desktop, gid, FIRST);
+      await desktop.flush();
+      assert.deepEqual((await desktop.raw.archiveGallery(gid)).archived, [gid]);
+      const archive = path.join(shared, fs.readdirSync(shared).find(n => /\.(zip|cbz)$/i.test(n)));
+      const entries = [];
+      for (const e of await zipEntries(new Uint8Array(fs.readFileSync(archive)))) entries.push({ name: e.filename, data: await e.read() });
+      fs.writeFileSync(archive, zipCreate([...entries, { name: 'notes.txt', data: new TextEncoder().encode('mine') }]));
+      const edited = fs.readFileSync(archive);
+      if (form === 'removed and added again') await desktop.remove(id);
+      const back = await website.add(shared, { force: form !== 'removed and added again' });
+      assert.deepEqual((await website.scan(back)).problems, []);
+      const changed = [[1, 'translated', webp(1, 7), 'image/webp']];
+      if (form.endsWith('changed meanwhile')) {
+        desktop.raw.folders._probes.clear();   // the desktop sees the take-over at once
+        await desktop.putPage(gid, 3, png(3, 1));   // waits on the desktop, the folder taken
+      }
+      await write(website, gid, changed);
+      await website.flush();
+      await new Promise(r => setTimeout(r, 400));
+      assert.deepEqual(await mismatches(website, gid, changed), [], 'the website reads its translation');
+      assert.deepEqual(fs.readFileSync(archive), edited, 'the archive stays, the person\'s file in it');
+      await website.remove(back);
+      if (form === 'removed and added again') id = await desktop.add(shared);
+      else await desktop.raw.folderClaim(id);
+      for (let i = 0; i < 2; i++) {
+        const found = await desktop.scan(id);
+        assert.deepEqual(found.problems.filter(p => p.reason !== 'changed-both'), [], `${form}: check ${i + 1} reports no copy`);
+      }
+      assert.deepEqual(await desktop.galleries(), [gid], form);
+      assert.deepEqual({ ...desktop.raw._s('SELECT format, state FROM files WHERE gid = ?').get(gid) }, { format: 'folder', state: 'packed' }, `${form}: read from its folder`);
+      if (form.endsWith('changed meanwhile')) {
+        assert.deepEqual(await desktop.read(gid, 3), png(3, 1), 'the desktop\'s own change is kept');
+        assert.deepEqual(await mismatches(desktop, gid, FIRST.filter(([n, slot]) => !(n === 1 && slot === 'translated'))), [], form);
+      } else {
+        assert.deepEqual(await mismatches(desktop, gid, [...FIRST.filter(([n, slot]) => !(n === 1 && slot === 'translated')), ...changed]), [], `${form}: the website's work reads`);
+      }
+      assert.deepEqual(fs.readFileSync(archive), edited, `${form}: the archive is left as the person's`);
+      await desktop.setDefault(desktop.home);
+      await desktop.remove(id);
+    }
+  },
+};
+
 // F7 (review 4): the desktop killed as it put a gallery it unpacked in place left the temporary folder
 // it was unpacked into, `Alpha.shiori-tmp`, beside the archive; the website, taking the folder over,
 // took that folder for the gallery and showed it empty, the archive that holds it whole passed over.
@@ -487,7 +574,7 @@ for (const [direction, apps] of [['website to desktop', ['website', 'desktop']],
       });
     }
     if (apps[0] === 'desktop') {
-      for (const h of [ARCHIVED, OLDEST, UNPACKED, CUT_SHORT, EDITED, NOTES_UNREAD, KILLED_UNPACK, ARCHIVE_DELETED]) {
+      for (const h of [ARCHIVED, OLDEST, UNPACKED, CUT_SHORT, EDITED, NOTES_UNREAD, FIRST_FOLDER, NOTED_ARCHIVE, KILLED_UNPACK, ARCHIVE_DELETED]) {
         test(h.name, { skip }, async (t) => {
           const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-handover-'));
           const desktop = await desktopLibrary(path.join(dir, 'desktop'));

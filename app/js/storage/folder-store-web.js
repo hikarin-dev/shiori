@@ -276,6 +276,18 @@ export async function isThere(id, root, path) {
     return false;
   } catch (e) { if (_nameOf(e) === 'NotFoundError') return false; throw e; }
 }
+/** Whether a name in the folder is taken, for picking a free one (reserveDir, writeNew: the website has no
+ * exclusive create, so a write to a name this calls free replaces what is there): true when anything is at
+ * `path`; false only where there surely is nothing — an answer of "not found" as the shared rule takes it
+ * (_notFound). One it doesn't take (a look answering so for a moment, the drive away) is thrown, a
+ * NotFoundError: the write waits (S24, found in S22).
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @returns {Promise<boolean>} */
+async function _taken(id, root, path) {
+  if (await isThere(id, root, path)) return true;
+  const looked = new DOMException(`${path}: not found`, 'NotFoundError');
+  if ((await _notFound(id, root, path, looked)).kind !== 'missing') throw looked;
+  return false;
+}
 
 // ── Coordination between the site's tabs and its service worker ──
 
@@ -309,7 +321,7 @@ export function withLock(name, fn) {
 export function reserveDir(id, root, base, metadata, { gid, writer, taken = new Set() }) {
   return withLock(`shiori:dirs:${id}`, async () => {
     let name = base;
-    for (let i = 2; taken.has(name) || await isThere(id, root, name); i++) name = `${base} (${i})`;
+    for (let i = 2; taken.has(name) || await _taken(id, root, name); i++) name = `${base} (${i})`;
     const plan = await publication({ area: '.shiori/', prev: null, next: firstGeneration(gid, writer), texts: { 'metadata.json': metadata } });
     const writes = [...plan.writes, { path: manifestPath('.shiori/'), text: plan.text }];
     try {
@@ -337,7 +349,7 @@ export function reserveDir(id, root, base, metadata, { gid, writer, taken = new 
  * @param {Blob | string} data @returns {Promise<{ path: string, file: File }>} */
 export async function writeNew(id, root, dir, path, data) {
   let at = path;
-  while (await isThere(id, root, `${dir}/${at}`)) at = path.replace(/(\.[^./]*)?$/, (ext) => `-${_randomPart()}${ext}`);
+  while (await _taken(id, root, `${dir}/${at}`)) at = path.replace(/(\.[^./]*)?$/, (ext) => `-${_randomPart()}${ext}`);
   try { return { path: at, file: await writeFile(id, root, `${dir}/${at}`, data, { within: dir }) }; } catch (e) {
     // A write that failed can leave a file at that name, where nothing was: the empty one
     // getFileHandle({ create }) made, or the one written whole before a later call failed. Deleted too
@@ -700,14 +712,27 @@ export function folderStore(gate) {
  * another, or none, or isn't there; 'unavailable' when it can't be read now. Read only.
  * @param {string} id @param {FileSystemDirectoryHandle} handle @returns {Promise<'ok' | 'other-library' | 'unavailable'>} */
 export async function identityOf(id, handle) {
-  try { return libraryIdOf(await libraryText(id, handle)) === id ? 'ok' : 'other-library'; } catch (e) {
+  try { return libraryIdOf(await _textNow(id, handle, LIBRARY_FILE)) === id ? 'ok' : 'other-library'; } catch (e) {
     return _nameOf(e) === 'TypeMismatchError' ? 'other-library' : 'unavailable';
   }
 }
-/** The text of the folder's .shiori/library.json, which tells which library folder it is (principle 1),
- * or null for an answer of "not found": there is no library folder to ask yet whether that is so (the
- * shared rule's own look — identityOf — and a folder being added). Any other failure is thrown.
- * @param {string} id @param {FileSystemDirectoryHandle} handle @returns {Promise<string | null>} */
-export function libraryText(id, handle) {
-  return _textNow(id, handle, LIBRARY_FILE);
+/** The text of file `rel` in folder `handle`, one the person picked that is being added to the library —
+ * it has no id the library knows yet, so the shared rule can't ask whether it is itself — or null where
+ * there surely is nothing: an answer of "not found" taken as the shared rule takes it (contract.js
+ * surelyMissing), the folder picked answering its listing in place of its library.json (its drive is
+ * there), then a second look agreeing. Any other failure, and a "not found" the rule doesn't take, is
+ * thrown. What the website has in place of an exclusive create: a folder's library.json is written only
+ * where this answers null, and only once its add is allowed (folder-library.js folderAdd; review 6 F5).
+ * @param {FileSystemDirectoryHandle} handle @param {string} rel @returns {Promise<string | null>} */
+export async function pickedText(handle, rel) {
+  const probe = `picked-${Date.now()}-${Math.random()}`;
+  try {
+    return await _text(probe, handle, rel);
+  } catch (e) {
+    if (_nameOf(e) !== 'NotFoundError') throw e;
+    _forget(probe);
+    const home = async () => { await handle.keys().next(); return true; };
+    if ((await surelyMissing({ home, there: () => isThere(probe, handle, rel) }, e)).kind !== 'missing') throw e;
+    return null;
+  } finally { _forget(probe); }
 }

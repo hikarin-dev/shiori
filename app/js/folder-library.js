@@ -24,7 +24,7 @@
 import * as platform from './platform.js';
 import * as folderFiles from './storage/folder-store-web.js';
 import { BackendError } from './backend-error.js';
-import { nextClaim, releasedClaim, unchangedSince } from './storage/folder-owner.js';
+import { OWNER_FILE, readClaim, nextClaim, releasedClaim, unchangedSince } from './storage/folder-owner.js';
 import { mounted, canHide, nextDefault, removalOutcome } from './storage/folder-lifecycle.js';
 import { OWN_FILES, MANIFEST_FILE, TEMPORARY, galleryIdOf, classifyFolder, classifyArchive } from './storage/folder-content.js';
 import { LINKED_DIR, SOURCE_FILE, REMOVED_FILE, IMAGE_NAME, ARCHIVE_NAME, overlayDir, sourceText, parseSource, parseRemoved, isRemoved,
@@ -120,26 +120,29 @@ async function foldersWaiting() {
 }
 
 // A folder's own id, kept in its .shiori/library.json — the file a desktop library folder keeps its
-// id in, the same format — and written the first time: the folder is known by it wherever it is
-// reached from (another drive letter, a folder renamed or moved), and removing it from the library
-// and adding it again finds what it held. A file that can't be read is an error, never a reason to
+// id in, the same format: the folder is known by it wherever it is reached from (another drive letter,
+// a folder renamed or moved), and removing it from the library and adding it again finds what it held.
+// { id, fresh }: `fresh`, a new id for a folder that surely has none (folder-store-web.js pickedText), to
+// be written there only once its add is allowed (folderAdd: the website has no exclusive create, and a
+// refused add writes nothing — review 6 F5). A file that can't be read is an error, never a reason to
 // start over under a new id.
 const LIBRARY_FILE = '.shiori/library.json';
 async function _folderIdOf(handle) {
-  const probe = `probe-${Date.now()}-${Math.random()}`;
-  try {
-    const text = await folderFiles.libraryText(probe, handle).catch((e) => {
-      throw new BackendError('unavailable', `${LIBRARY_FILE} can't be read: ${e?.message || e}`);
-    });
-    if (text != null) {
-      const id = JSON.parse(text)?.id;
-      if (typeof id !== 'string' || !/^[0-9a-f]{16}$/.test(id)) throw new BackendError('invalid', `${LIBRARY_FILE} names no library id`);
-      return id;
-    }
-    const id = K.randomId();
-    await folderFiles.writeFile(probe, handle, LIBRARY_FILE, JSON.stringify({ format: 'shiori-library', version: 1, id }, null, 2));
-    return id;
-  } finally { folderFiles.forgetFolder(probe); }
+  const text = await folderFiles.pickedText(handle, LIBRARY_FILE).catch((e) => {
+    throw new BackendError('unavailable', `${LIBRARY_FILE} can't be read: ${e?.message || e}`);
+  });
+  if (text == null) return { id: K.randomId(), fresh: true };
+  const id = JSON.parse(text)?.id;
+  if (typeof id !== 'string' || !/^[0-9a-f]{16}$/.test(id)) throw new BackendError('invalid', `${LIBRARY_FILE} names no library id`);
+  return { id, fresh: false };
+}
+// The claim of a folder being added that surely has no library.json yet (_folderIdOf `fresh`), read as
+// its library.json was (pickedText: the library's own rule asks a library.json it hasn't got) — one that
+// can't be read is damaged (folder-owner.js readClaim).
+async function _pickedClaim(handle) {
+  let text;
+  try { text = await folderFiles.pickedText(handle, OWNER_FILE); } catch (e) { text = e; }
+  return readClaim(text);
 }
 
 // A folder the person picked (its handle) joins the library's folders, claimed by this library
@@ -156,11 +159,11 @@ async function _folderIdOf(handle) {
 async function folderAdd(handle, { force = false } = {}) {
   if (handle?.kind !== 'directory') throw new BackendError('invalid', 'not a folder');
   if (await folderFiles.permission(handle) !== 'granted') throw new BackendError('unavailable', 'the folder can\'t be used');
-  const id = await _folderIdOf(handle);
+  const { id, fresh } = await _folderIdOf(handle);
   const listed = await _listedAs(id, handle);
   if (listed) return listed;
   const me = await K.me();
-  const read = await K.readClaim(id, handle);
+  const read = fresh ? await _pickedClaim(handle) : await K.readClaim(id, handle);
   const leaving = (await K.folders()).removing.get(id) || null;
   const got = nextClaim(read, me, K.myLabel(), { held: leaving?.epoch ?? null, force });
   if (got.refused) _refuse('claimed', 'the folder is in use by another app', { owner: _ownerOf(got.refused) });
@@ -173,6 +176,7 @@ async function folderAdd(handle, { force = false } = {}) {
     const f = await K.folders();
     if (f.byId.has(id)) return _listedAs(id, handle);   // its removal was kept
     if (f.removing.has(id)) await _forget(id);           // stopped half way: what it had is out of date
+    if (fresh) await folderFiles.writeFile(id, handle, LIBRARY_FILE, JSON.stringify({ format: 'shiori-library', version: 1, id }, null, 2));
     if (got.changed) await K.writeClaim(id, handle, got.claim);
     await _putPlace({ id, name: handle.name, handle, addedAt: Date.now(), epoch: got.claim.epoch }, 'shown');
     return { id, restored: 0 };
@@ -620,8 +624,9 @@ async function _check(id, { onProgress = () => {}, stopped = () => false } = {})
   const deletions = await K.deletions().catch(() => []);
   const deleting = deletions.filter(d => d.folder === id && !d.unfound).map(d => d.dir);
   // A deleted gallery whose folder wasn't where its deletion had it (renamed or moved by hand): its
-  // folder, met here, is deleted, never adopted (F4, S10).
+  // folder, met here, is deleted, never adopted (F4, S10) — its deletion `met`, kept until it is done.
   run.deleted = new Map(deletions.filter(d => d.unfound).map(d => [String(d.gid), d]));
+  run.met = new Set();
   const found = await _walk(run, new Set([...kept.filter(g => !g.linked).map(g => g.dir), ...deleting].map(d => d.toLowerCase())));
   const titles = await _linkedTitles(run, found, step);
   run.removed = await _removedOf(run);
@@ -661,9 +666,10 @@ async function _check(id, { onProgress = () => {}, stopped = () => false } = {})
   await _tidySeriesLinks(changed, run.id);
   for (const gid of changed) K.publishFeed(gid);
   // What it found, for the folder's Needs attention list (D15), and a deletion whose gallery's folder it
-  // didn't meet forgotten — not when it was stopped part way.
+  // didn't meet forgotten — not when it was stopped part way, nor when its walk couldn't read everything
+  // (review 6 F6).
   if (!stopped()) await K.noteChecked(id, [...run.problems, ...run.unreferenced]).catch(() => {});
-  if (!stopped()) await K.forgetUnfound(id).catch(() => {});
+  if (!stopped() && found.whole) await K.forgetUnfound(id, run.met).catch(() => {});
   return { added: run.added.length, updated: run.updated.size, problems: run.problems, stopped: !!stopped() };
 }
 // The linked galleries kept here (`kept`) marked missing while their source isn't where it was —
@@ -727,10 +733,12 @@ function _steps(run, onProgress) {
 // galleries the library keeps there are (not looked into: `skip`, lower-cased), files: [{ path }]
 // everything else }. A gallery's folder still as its reservation made it (classifyFolder `reserved`) is
 // Shiori's but no gallery found: what was to be put in it may never have committed (S12, review 4 F2).
-// A folder that can't be listed, an archive that can't be read, are reported.
+// A folder that can't be listed, an archive that can't be read, are reported; `whole`: none was — every
+// folder walked was read.
 const WALK_DEPTH = 12;
 async function _walk(run, skip, from = '') {
-  const out = { own: [], ownPaths: [], files: [] };
+  const out = { own: [], ownPaths: [], files: [], whole: true };
+  const before = run.problems.length;
   const walk = async (path, depth) => {
     if (run.stopped()) return;
     if (path && skip.has(path.toLowerCase())) { out.ownPaths.push(path); return; }
@@ -755,6 +763,7 @@ async function _walk(run, skip, from = '') {
     }
   };
   await walk(from, from ? from.split('/').length : 0);
+  out.whole = run.problems.length === before;
   return out;
 }
 // The titles a check of folder `id` (its handle `root`) would find in its folder `dir` (what a gallery's
@@ -824,7 +833,10 @@ async function _joinOwn(run, found, kept) {
   try {
     if (!run.known.has(found.id)) {
       const deleted = run.deleted.get(found.id);
-      if (deleted) { if (!found.inner && (found.kind === 'zip') === ARCHIVE_NAME.test(deleted.dir)) await K.deletedFound(deleted, run.id, found.path); return; }
+      if (deleted) {
+        if (!found.inner && (found.kind === 'zip') === ARCHIVE_NAME.test(deleted.dir)) { run.met.add(deleted.id); await K.deletedFound(deleted, run.id, found.path); }
+        return;
+      }
       if (found.kind === 'zip' && !found.inner && (!run.removed || (run.removed.length
         && isRemoved(run.removed, { kind: 'zip', path: found.path, fingerprint: (await K.archiveOf(run.id, run.root, found.path))?.fingerprint ?? null })))) return;
       const gid = await _adopt(run, found);
