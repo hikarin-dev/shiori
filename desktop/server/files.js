@@ -199,14 +199,6 @@ async function bytesIn(abs) {
   return n;
 }
 
-// A read of a gallery's files that finds nothing there resolves `value`; any other failure (the disk, or
-// its permissions, wouldn't) is thrown: a file that can't be read is never taken for one that isn't
-// there, so nothing is concluded from it (F06). `disk.readFile(…).catch(ifMissing(null))`.
-export const ifMissing = (value) => (e) => {
-  if (e?.code === 'ENOENT' || e?.code === 'ENOTDIR') return value;
-  throw e;
-};
-
 // What a folder of a library folder is (folder-content.js classifyFolder), from the descriptions its
 // listing (`items`: its entries) shows (folder-store.js textsIn). Rejects when one can't be read now.
 export const classifyAt = async (dir, items) => content.classifyFolder(await textsIn(dir, items, content.OWN_FILES));

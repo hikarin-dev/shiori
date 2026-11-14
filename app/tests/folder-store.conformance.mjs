@@ -1384,6 +1384,257 @@ export const CASES = [
       assert.deepEqual([await fx.lib.galleries(), (await fx.lib.list()).find(f => f.id === ref.id).attention], [[], []]);
     },
   },
+  // ── Linked galleries, removal notes and claims, under the same rule (review 6: F1, F2, F4, F10; O4) ──
+  // What a check reads of a linked title (its pictures), of the overlays a folder holds for its linked
+  // galleries (their source.json, their pages of their own), of removed.json, and what an app reads of
+  // owner.json, decides what the library records: an answer of "not found" there is 'missing' only as the
+  // shared rule takes it, and what can't be read now decides nothing.
+  {
+    // F1 (review 6, the desktop): a linked folder of pictures, two pages translated; a check during which
+    // one picture's look answered "not found" — once (a), or the drive away from that look and back at the
+    // m-th call after it, or once the check ended (b) — read the title without that picture: the page was
+    // dropped, and the translation made from it deleted from the overlay (every one, the drive away).
+    name: 'review 6 F1: a linked folder\'s picture whose look fails during a check never drops its page, nor deletes a translation\'s file',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      for (const [i, back] of [0, 1, 2, 3, 5, Infinity].entries()) {
+        const name = `A${i}`, A = path.join(dir, name);
+        fs.mkdirSync(path.join(A, 'Pics'), { recursive: true });
+        for (let n = 1; n <= 3; n++) fs.writeFileSync(path.join(A, 'Pics', `00${n}.png`), png(10 + n));
+        const ref = await fx.register(name);
+        await fx.lib.scan(ref.id);
+        const [gid] = await fx.lib.galleries();
+        await fx.lib.putTranslation(gid, 1, png(71));
+        await fx.lib.putTranslation(gid, 2, png(72));
+        await fx.lib.flush();
+        await fx.lib.scan(ref.id);
+        // The overlay's translations, as files.
+        const kept = () => fs.readdirSync(path.join(A, '.shiori', 'linked'), { recursive: true }).map(p => String(p).replaceAll('\\', '/'))
+          .filter(p => /^\d+\/translated\/[^/]+$/.test(p)).map(p => p.replace(/^\d+\//, '')).sort();
+        assert.deepEqual(kept(), ['translated/0001.png', 'translated/0002.png']);
+        const look = (/** @type {{ op: string, path: string }} */ c) => c.op === 'stat' && c.path.endsWith(`/${name}/Pics/002.png`);
+        const undo = back ? driveAway('desktop', A, look, { backAfter: back }) : faults.failNext(look, 'ENOENT');
+        const faulted = await fx.lib.scan(ref.id);
+        undo();
+        if (!back) assert.ok(faulted.problems.some(p => p.path === 'Pics'), 'the title is reported, not read without the picture');
+        for (let k = 0; k < 2; k++) { await fx.lib.flush(); await new Promise(r => setTimeout(r, 200)); await fx.lib.scan(ref.id); }
+        await fx.lib.flush();
+        await new Promise(r => setTimeout(r, 200));
+        assert.deepEqual([await fx.lib.read(gid, 1, 'translated'), await fx.lib.read(gid, 2, 'translated'), await fx.lib.read(gid, 3)], [png(71), png(72), png(13)],
+          `every page and translation reads (${back ? `the drive back ${back === Infinity ? 'after the check' : `at the ${back}-th call after`}` : 'one "not found"'})`);
+        assert.deepEqual(kept(), ['translated/0001.png', 'translated/0002.png'], 'the overlay keeps both translations\' files');
+        await fx.lib.setDefault(fx.lib.home);
+        await fx.lib.remove(ref.id);
+      }
+    },
+  },
+  {
+    // F1 (review 6, the desktop: its overlay's pages, the same rule): a linked ZIP whose page 1 was
+    // replaced in the app — its own picture in the overlay — and translated, its folder removed and added
+    // again; the look at that picture answering "not found" at the first check read page 1 as the source's
+    // picture, the translation made from the replaced one dropped.
+    name: 'review 6 F1: a linked gallery\'s page of its own whose look answers "not found" as it is read back never shows the source\'s picture',
+    async run({ dir, fx, platform }) {
+      // Each look at the replaced picture in the first check, failed in turn (none: the 0-th).
+      const look = (/** @type {{ op: string, path: string }} */ c) => /(^|\/)\.shiori\/linked\/\d+\/images\/0001\.png$/.test(c.path) && (platform === 'desktop' ? c.op === 'stat' : c.op === 'getFile');
+      let count = 0;
+      for (let k = 0; k <= count; k++) {
+        const name = `A${k}`, A = path.join(dir, name);
+        fs.mkdirSync(A, { recursive: true });
+        fs.writeFileSync(path.join(A, 'Pack.zip'), zipCreate([{ name: '001.png', data: png(1) }, { name: '002.png', data: png(2) }]));
+        let ref = await fx.register(name);
+        await fx.lib.scan(ref.id);
+        const [gid] = await fx.lib.galleries();
+        await fx.lib.putPage(gid, 1, png(9));
+        await fx.lib.putTranslation(gid, 1, png(7));
+        await fx.lib.flush();
+        await fx.lib.setDefault(fx.lib.home);
+        await fx.lib.remove(ref.id);
+        ref = await fx.register(name);
+        let n = 0;
+        const undo = (platform === 'desktop' ? faults : fsa).failNext((c) => look(c) && ++n === k, platform === 'desktop' ? 'ENOENT' : 'NotFoundError', { times: Infinity });
+        await fx.lib.scan(ref.id);
+        undo();
+        if (!k) { count = n; assert.ok(count > 0, 'the first check looks at the replaced picture'); }
+        for (let i = 0; i < 2; i++) { await fx.lib.flush(); await fx.lib.scan(ref.id); }
+        assert.deepEqual([await fx.lib.galleries(), await fx.lib.read(gid, 1), await fx.lib.read(gid, 1, 'translated'), await fx.lib.read(gid, 2)],
+          [[gid], png(9), png(7), png(2)], `the gallery reads as it was published (the ${k}-th look failed)`);
+        await fx.lib.setDefault(fx.lib.home);
+        await fx.lib.remove(ref.id);
+      }
+    },
+  },
+  {
+    // F2 (review 6, both apps): a linked ZIP translated, its folder removed and added again; one failed
+    // read of the folder's overlays at the first check — the listing of .shiori/linked, an overlay's
+    // folder, its source.json (any failure, "not found" or not) — and the gallery joined under a new id
+    // without its translation, which stayed on disk in the old overlay, read by nothing again.
+    name: 'review 6 F2: an overlay that can\'t be read at a folder\'s first check never makes its linked gallery join again under a new id',
+    async run({ dir, fx, platform }) {
+      const overlays = (/** @type {string} */ name) => (/** @type {{ op: string, path: string }} */ c) => (platform === 'desktop'
+        ? (c.op === 'readdir' && c.path.endsWith(`/${name}/.shiori/linked`)) || new RegExp(`/${name}/\\.shiori/linked/\\d+/source\\.json$`).test(c.path)
+        : c.path === '.shiori/linked' || /^\.shiori\/linked\/\d+(\/source\.json)?$/.test(c.path));
+      let round = 0;
+      const setUp = async () => {
+        const name = `A${round++}`, A = path.join(dir, name);
+        fs.mkdirSync(A, { recursive: true });
+        fs.writeFileSync(path.join(A, 'Pack.zip'), zipCreate([{ name: '001.png', data: png(1) }, { name: '002.png', data: png(2) }]));
+        let ref = await fx.register(name);
+        await fx.lib.scan(ref.id);
+        const [gid] = await fx.lib.galleries();
+        await fx.lib.putTranslation(gid, 1, png(7));
+        await fx.lib.flush();
+        await new Promise(r => setTimeout(r, 150));
+        await fx.lib.setDefault(fx.lib.home);
+        await fx.lib.remove(ref.id);
+        ref = await fx.register(name);
+        return { name, A, ref, gid };
+      };
+      // How many such calls the first check makes, with no fault.
+      let count = 0;
+      const first = await setUp();
+      const counting = overlays(first.name);
+      const undo = (platform === 'desktop' ? faults : fsa).failNext((c) => { if (counting(c)) count++; return false; }, 'EIO', { times: Infinity });
+      await fx.lib.scan(first.ref.id);
+      undo();
+      assert.ok(count >= 2, 'the first check lists the overlays and reads their source.json');
+      await fx.lib.setDefault(fx.lib.home);
+      await fx.lib.remove(first.ref.id);
+      for (const code of platform === 'desktop' ? ['EIO', 'ENOENT'] : ['NotReadableError', 'NotFoundError']) {
+        for (let k = 1; k <= count; k++) {
+          const { name, A, ref, gid } = await setUp();
+          const match = overlays(name);
+          let n = 0;
+          const once = (platform === 'desktop' ? faults : fsa).failNext((c) => match(c) && ++n === k, code, { times: Infinity });
+          await fx.lib.scan(ref.id);
+          once();
+          await fx.lib.flush();
+          await fx.lib.scan(ref.id);
+          await fx.lib.flush();
+          assert.deepEqual([await fx.lib.galleries(), await fx.lib.read(gid, 1, 'translated'), fs.readdirSync(path.join(A, '.shiori', 'linked')).filter(f => /^\d+$/.test(f))],
+            [[gid], png(7), [gid]], `the gallery joins again as itself, with its translation (${code}, the ${k}-th call)`);
+          await fx.lib.setDefault(fx.lib.home);
+          await fx.lib.remove(ref.id);
+        }
+      }
+    },
+  },
+  {
+    // O4 (review 6, the desktop; F2's shape on both apps): a PDF drawn, its folder removed and added again;
+    // its overlay's source.json answering "not found" at the first check was written again without what it
+    // said of the drawing (`rendered`), so the PDF was offered to be drawn again — or, read as no overlay at
+    // all, joined under a new id.
+    name: 'review 6 O4: a drawn PDF\'s source.json answering "not found" at its folder\'s first check is never written again without its drawing',
+    async run({ dir, fx, platform }) {
+      const sourceJson = (/** @type {{ op: string, path: string }} */ c) => /(^|\/)\.shiori\/linked\/\d+\/source\.json$/.test(c.path) && (platform === 'desktop' ? c.op === 'readFile' : c.op === 'getFileHandle');
+      let count = 0;
+      for (let k = 0; k <= count; k++) {
+        const name = `A${k}`, A = path.join(dir, name);
+        fs.mkdirSync(A, { recursive: true });
+        fs.writeFileSync(path.join(A, 'Doc.pdf'), '%PDF-1.4 a document');
+        let ref = await fx.register(name);
+        await fx.lib.scan(ref.id);
+        const [w] = await fx.lib.pdfsWaiting();
+        const gid = await fx.lib.addRendered(w.folder, w.gid, [png(61), png(62)], (await fx.lib.pdfSource(w.folder, w.gid)).token);
+        await fx.lib.flush();
+        const file = path.join(A, '.shiori', 'linked', gid, 'source.json');
+        const drawn = JSON.parse(fs.readFileSync(file, 'utf8')).source.rendered;
+        assert.equal(drawn?.pages, 2);
+        await fx.lib.setDefault(fx.lib.home);
+        await fx.lib.remove(ref.id);
+        ref = await fx.register(name);
+        let n = 0;
+        const once = (platform === 'desktop' ? faults : fsa).failNext((c) => sourceJson(c) && ++n === k, platform === 'desktop' ? 'ENOENT' : 'NotFoundError', { times: Infinity });
+        await fx.lib.scan(ref.id);
+        once();
+        if (!k) { count = n; assert.ok(count > 0, 'the first check reads source.json'); }
+        assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).source.rendered, drawn, `source.json still says it is drawn (the ${k}-th read failed)`);
+        for (let i = 0; i < 2; i++) { await fx.lib.flush(); await fx.lib.scan(ref.id); }
+        assert.deepEqual([await fx.lib.galleries(), await fx.lib.read(gid, 2), (await fx.lib.pdfsWaiting()).length],
+          [[gid], png(62), 0], `the PDF joins again as itself, drawn (the ${k}-th read failed)`);
+        await fx.lib.setDefault(fx.lib.home);
+        await fx.lib.remove(ref.id);
+      }
+    },
+  },
+  {
+    // F4 (review 6, both apps): two linked ZIPs, one deleted (removed.json notes it). (i) A check that
+    // couldn't read removed.json — any failure, "not found" or not — added the deleted one again. (ii) A note
+    // added while removed.json answered "not found" wrote the file anew with that note alone: the earlier
+    // note gone for good, and the next check added that gallery again.
+    name: 'review 6 F4: a check that can\'t read removed.json adds no gallery deleted before, and a note added while it answers "not found" waits',
+    async run({ dir, fx, platform }) {
+      const [failure, notFound] = platform === 'desktop' ? ['EIO', 'ENOENT'] : ['NotReadableError', 'NotFoundError'];
+      const notes = (/** @type {{ op: string, path: string }} */ c) => /(^|\/)\.shiori\/linked\/removed\.json$/.test(c.path) && (c.op === 'readFile' || c.op === 'getFileHandle');
+      const titles = async () => (await Promise.all((await fx.lib.galleries()).map(g => fx.lib.titleOf(g)))).sort();
+      const of = async (/** @type {string} */ t) => { for (const g of await fx.lib.galleries()) if (await fx.lib.titleOf(g) === t) return g; return ''; };
+      for (const [i, part] of [['i', failure], ['i', notFound], ['ii', notFound]].entries()) {
+        const name = `A${i}`, A = path.join(dir, name);
+        fs.mkdirSync(A, { recursive: true });
+        for (const [file, k] of /** @type {[string, number][]} */ ([['Pack1.zip', 1], ['Pack2.zip', 5]])) {
+          fs.writeFileSync(path.join(A, file), zipCreate([{ name: '001.png', data: png(k) }, { name: '002.png', data: png(k + 1) }]));
+        }
+        const ref = await fx.register(name);
+        await fx.lib.scan(ref.id);
+        await fx.lib.deleteGallery(await of('Pack1'));
+        await fx.lib.flush();
+        await new Promise(r => setTimeout(r, 300));
+        await fx.lib.scan(ref.id);
+        assert.deepEqual(await titles(), ['Pack2'], 'the note keeps Pack1 out');
+        let n = 0;
+        const once = (platform === 'desktop' ? faults : fsa).failNext((c) => notes(c) && ++n === 1, part[1], { times: Infinity });
+        const listed = () => JSON.parse(fs.readFileSync(path.join(A, '.shiori', 'linked', 'removed.json'), 'utf8')).removed.map((/** @type {{ path: string }} */ r) => r.path).sort();
+        if (part[0] === 'i') {
+          const faulted = await fx.lib.scan(ref.id);
+          once();
+          assert.deepEqual(await titles(), ['Pack2'], `a check that can't read removed.json (${part[1]}) adds nothing removed`);
+          assert.ok(faulted.problems.some(p => p.path === '.shiori/linked/removed.json' && p.reason === 'unreadable'), 'and says so');
+          await fx.lib.scan(ref.id);
+          assert.deepEqual([await titles(), listed()], [['Pack2'], ['Pack1.zip']]);
+        } else {
+          await fx.lib.deleteGallery(await of('Pack2'));
+          await fx.lib.flush();
+          await new Promise(r => setTimeout(r, 300));
+          once();
+          assert.ok(n >= 1, 'removed.json was read to add the note');
+          assert.deepEqual(listed(), ['Pack1.zip'], 'the earlier note is kept, the new one waits');
+          for (let k = 0; k < 2; k++) await fx.lib.scan(ref.id);
+          assert.deepEqual([await titles(), listed()], [[], ['Pack1.zip', 'Pack2.zip']], 'written at the next check, adding neither');
+        }
+        await fx.lib.setDefault(fx.lib.home);
+        await fx.lib.remove(ref.id);
+      }
+    },
+  },
+  {
+    // F10 (review 6, both apps): a folder another app took over; one "not found" for its owner.json and
+    // this app took the claim back by itself and wrote into the folder. Claims fail closed: a claim that
+    // can't be read is one that can't be checked.
+    name: 'review 6 F10: a folder another app took over is never claimed back by itself when its owner.json answers "not found"',
+    async run({ dir, fx, platform }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Alpha');
+      await fx.lib.putPage(gid, 1, png(1));
+      await fx.lib.flush();
+      const at = /** @type {string} */ (await fx.lib.dirOf(gid));
+      const owner = () => JSON.parse(fs.readFileSync(path.join(dir, 'A', '.shiori', 'owner.json'), 'utf8'));
+      await fx.takeOver(ref);
+      const theirs = owner();
+      const read = (/** @type {{ op: string, path: string }} */ c) => (platform === 'desktop' ? c.op === 'readFile' && c.path.endsWith('/A/.shiori/owner.json')
+        : c.path === '.shiori/owner.json' && (c.op === 'getFileHandle' || c.op === 'getFile'));
+      for (let k = 1; k <= 3; k++) {
+        let n = 0;
+        const once = (platform === 'desktop' ? faults : fsa).failNext((c) => read(c) && ++n === k, platform === 'desktop' ? 'ENOENT' : 'NotFoundError', { times: Infinity });
+        for (let i = 0; i < 3; i++) assert.notEqual((await fx.store.open(ref, { purpose: 'write' })).status, 'ok', 'not written to');
+        await fx.lib.putTranslation(gid, 1, png(3)).catch(() => {});
+        await fx.lib.flush().catch(() => {});
+        once();
+        assert.ok(n >= k, `owner.json was read ${k} times`);
+        assert.deepEqual(owner(), theirs, `the other app keeps its claim (the ${k}-th read)`);
+        assert.equal(fs.existsSync(path.join(at, 'translated')), false, 'nothing is written into the folder');
+      }
+    },
+  },
   // ── A folder names a gallery only once it is whole (review 4: F2, O2) ──
   // A folder reserved for a gallery whose work never committed — the reservation's own writes, or the
   // pictures a first write or a move put in it, cut short by a failed write, a kill or the page closing —

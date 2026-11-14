@@ -88,7 +88,6 @@ test('no code outside the folder store adapter turns a failed read of a library 
   const READ = /\b(?:folderFiles\.\w+|K\.archiveOf)\s*\(/;
   const NONE = /\.catch\(\s*\(\)\s*=>\s*(?:null|undefined|false|true|''|\[[^\]]*\])\s*\)|,\s*\(\)\s*=>\s*(?:false|true)\s*\)/;
   const NAME = /'NotFoundError'/;
-  const S23 = 'S23: linked galleries, removal notes and claims, under the same rule';
   /** @type {[string, string, string][]} module, a part of the line, why */
   const allowed = [
     ['db.js', 'const file = await folderFiles.readFile(folder, root, dir).catch(() => undefined);\n  if (file === undefined) return null;',
@@ -102,15 +101,10 @@ test('no code outside the folder store adapter turns a failed read of a library 
       'galleries an unreleased build set aside (§8, review 4 O5)'],
     ['folder-library.js', 'if (stat.packed) return folderFiles.readFile(run.id, run.root, stat.dir).then(Boolean, () => true);',
       'a look that fails is taken for "there": nothing is concluded from it'],
-    ['folder-library.js', 'fingerprint: (await K.archiveOf(id, root, dir).catch(() => null))?.fingerprint ?? null', `${S23} (removal notes)`],
-    ['folder-library.js', 'const archive = await K.archiveOf(run.id, run.root, t.path).catch(() => null);', S23],
-    ['folder-library.js', 'for (const e of await folderFiles.list(id, root, LINKED_DIR).catch(() => [])) {', `${S23} (F2)`],
-    ['folder-library.js', 'const read = parseSource(await folderFiles.readText(id, root, `${LINKED_DIR}/${e.name}/${SOURCE_FILE}`).catch(() => null));', `${S23} (F2)`],
-    ['folder-library.js', 'const read = parseSource(await folderFiles.readText(id, root, `${overlayDir(gid)}/${SOURCE_FILE}`).catch(() => null));', S23],
-    ['folder-library.js', 'const images = (await folderFiles.list(id, root, `${overlayDir(gid)}/images`).catch(() => []))', S23],
-    ['folder-library.js', 'const removed = parseRemoved(await folderFiles.readText(f.id, root, REMOVED_FILE).catch(() => null));', `${S23} (F4)`],
-    ['folder-library.js', 'const file = await folderFiles.readFile(f.id, root, over.source.path).catch(() => null);', S23],
-    ['folder-library.js', 'const file = await folderFiles.readFile(folder, root, source.path).catch(() => null);', S23],
+    ['folder-library.js', 'fingerprint: (await K.archiveOf(id, root, dir).catch(() => null))?.fingerprint ?? null',
+      'a removal note\'s fingerprint, unknown (null) when the archive can\'t be read now: the note then holds whatever the archive holds, as the desktop\'s (linked.js titlesIn)'],
+    ['folder-library.js', 'const file = await folderFiles.readFile(folder, root, source.path).catch(() => null);',
+      'a drawing weighed against the PDF as it is: one that can\'t be read now is not the version drawn, and nothing is written'],
   ];
   const used = new Set();
   const offenders = [];

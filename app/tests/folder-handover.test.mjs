@@ -372,6 +372,51 @@ const EDITED = {
   },
 };
 
+// F4 (review 6, both apps): a check that couldn't read removed.json took it for "nothing removed", so an
+// archive a deletion left whole (the person's file in it: F6 above), noted there, could be adopted again —
+// the deleted gallery back. A check that can't read it ("not found" or any failure) adopts no archive it
+// might note, on either app.
+const NOTES_UNREAD = {
+  name: 'review 6 F4: a check that can\'t read removed.json adopts no archive a deletion left, on either app',
+  async run({ dir, desktop, website }) {
+    const shared = path.join(dir, 'shared');
+    const id = await desktop.add(shared);
+    await desktop.setDefault(id);
+    const gid = await desktop.newGallery('Archived');
+    await write(desktop, gid, FIRST);
+    await desktop.flush();
+    assert.deepEqual((await desktop.raw.archiveGallery(gid)).archived, [gid]);
+    const archive = path.join(shared, fs.readdirSync(shared).find(n => /\.(zip|cbz)$/i.test(n)));
+    const { zipEntries } = await import('../js/zip-read.js');
+    const entries = [];
+    for (const e of await zipEntries(new Uint8Array(fs.readFileSync(archive)))) entries.push({ name: e.filename, data: await e.read() });
+    fs.writeFileSync(archive, zipCreate([...entries, { name: 'notes.txt', data: new TextEncoder().encode('mine') }]));
+    await desktop.remove(id);
+    const back = await website.add(shared);
+    assert.deepEqual((await website.scan(back)).problems, []);
+    await website.deleteGallery(gid);
+    for (let i = 0; i < 50 && !(await website.list()).find(f => f.id === back).attention.some(a => a.reason === 'left'); i++) await new Promise(r => setTimeout(r, 50));
+    assert.ok(fs.existsSync(archive), 'left whole, noted in removed.json');
+    const notes = /(^|\/)\.shiori\/linked\/removed\.json$/;
+    for (const code of ['NotReadableError', 'NotFoundError']) {
+      const undo = fsa.failNext((c) => c.op === 'getFileHandle' && notes.test(c.path), code, { times: 1 });
+      const found = await website.scan(back);
+      undo();
+      assert.deepEqual([found.added, await website.galleries()], [0, []], `the website adopts nothing (${code})`);
+    }
+    await website.remove(back);
+    const again = await desktop.add(shared);
+    for (const code of ['EIO', 'ENOENT']) {
+      const undo = faults.failNext((c) => c.op === 'readFile' && notes.test(c.path), code, { times: 1 });
+      const found = await desktop.scan(again);
+      undo();
+      assert.deepEqual([found.added, await desktop.galleries()], [0, []], `nor does the desktop (${code})`);
+    }
+    await desktop.scan(again);
+    assert.deepEqual(await desktop.galleries(), [], 'nor at a check that reads it');
+  },
+};
+
 // F7 (review 4): the desktop killed as it put a gallery it unpacked in place left the temporary folder
 // it was unpacked into, `Alpha.shiori-tmp`, beside the archive; the website, taking the folder over,
 // took that folder for the gallery and showed it empty, the archive that holds it whole passed over.
@@ -442,7 +487,7 @@ for (const [direction, apps] of [['website to desktop', ['website', 'desktop']],
       });
     }
     if (apps[0] === 'desktop') {
-      for (const h of [ARCHIVED, OLDEST, UNPACKED, CUT_SHORT, EDITED, KILLED_UNPACK, ARCHIVE_DELETED]) {
+      for (const h of [ARCHIVED, OLDEST, UNPACKED, CUT_SHORT, EDITED, NOTES_UNREAD, KILLED_UNPACK, ARCHIVE_DELETED]) {
         test(h.name, { skip }, async (t) => {
           const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-handover-'));
           const desktop = await desktopLibrary(path.join(dir, 'desktop'));

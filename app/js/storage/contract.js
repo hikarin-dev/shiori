@@ -108,6 +108,13 @@ export const mayChangeState = (result) => result.kind === 'ok' || result.kind ==
 export async function surelyMissing({ home, there }, error) {
   try { return !(await home()) || (await there()) ? unreadable(error) : MISSING; } catch (e) { return unreadable(e); }
 }
+/** The same rule, its two looks made at once (each returning, or throwing, without waiting): for a read
+ * a caller can't wait on — the desktop reads a folder's claim (folder-owner.js) in front of every write.
+ * @param {{ home: () => boolean, there: () => boolean }} look @param {unknown} error
+ * @returns {Missing | Unreadable} */
+export function surelyMissingNow({ home, there }, error) {
+  try { return !home() || there() ? unreadable(error) : MISSING; } catch (e) { return unreadable(e); }
+}
 
 /** A text read parsed by `parse` (which returns the value, or null for text that isn't one): the
  * read's own 'missing' or 'unreadable' kept, text that doesn't parse 'corrupt'.

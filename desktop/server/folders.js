@@ -23,7 +23,7 @@
 // can be reached, this library holds its claim, and its state allows it.
 // Work on a folder — its check, its removal — runs through its queue, one job at a time (jobPlan), as a
 // task the windows' tasks pages list.
-import { disk, replaceFile, ioFailures, containIn } from './folder-store.js';
+import { disk, replaceFile, ioFailures, containIn, textIn, textNow } from './folder-store.js';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -283,10 +283,12 @@ export class Folders {
   }
   _label() { return { app: 'desktop', host: os.hostname() }; }
   _claimFile(dir) { return path.join(dir, ...claims.OWNER_FILE.split('/')); }
-  // What folder `dir`'s claim file says (folder-owner.js readClaim); one that can't be read is damaged.
+  // What folder `dir`'s claim file says (folder-owner.js readClaim); one that can't be read is damaged —
+  // "not found" too, but as the shared rule takes it (folder-store.js textNow: one answer while the drive
+  // is away for a moment never makes a folder another app holds this library's again; review 6 F10).
   _readClaim(dir) {
     let text;
-    try { text = disk.readFileSync(this._claimFile(dir), 'utf8'); } catch (e) { text = e?.code === 'ENOENT' ? null : e; }
+    try { text = textNow(this._claimFile(dir)); } catch (e) { text = e; }
     return claims.readClaim(text);
   }
   // A claim written whole — beside the file, then renamed over it — in a folder that is there: never one
@@ -882,11 +884,13 @@ export class Folders {
     return run;
   }
   // Folder `root`'s removed.json read, `sources` noted in it (linked-source.js withRemoved, each with its
-  // fingerprint as given) and written whole, through the gate (`work` as writable). Rejects when it can't be.
+  // fingerprint as given) and written whole, through the gate (`work` as writable). Rejects when it can't be
+  // — read too: none there only as the shared rule takes it (textIn), so a list that answers "not found"
+  // for a moment is never written anew without its earlier notes (review 6 F4).
   async _writeRemoved(root, sources, work) {
     this.assertWritable(root, work);
     const file = path.join(this.dir(root), ...linkedSource.REMOVED_FILE.split('/'));
-    let list = linkedSource.parseRemoved(await disk.readFile(file, 'utf8').catch((e) => { if (e.code === 'ENOENT') return null; throw e; }));
+    let list = linkedSource.parseRemoved(await textIn(file));
     for (const s of sources) list = linkedSource.withRemoved(list, s);
     await disk.mkdir(path.dirname(file), { recursive: true });
     await replaceFile(file, Buffer.from(linkedSource.removedText(list)));

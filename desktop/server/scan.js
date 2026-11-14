@@ -20,7 +20,7 @@
 // A known path costs one existence check (and its descriptions, to catch up); only files the index
 // doesn't know are opened.
 
-import { disk, loadGallery, manifestIn, tempBeside, textIn, entriesIn, textsIn } from './folder-store.js';
+import { disk, loadGallery, manifestIn, tempBeside, textIn, entriesIn, textsIn, statIn } from './folder-store.js';
 import path from 'node:path';
 import { readDirectory, readEntry } from './zip.js';
 import { files as layout, linked as linkedSource, content, contract, manifest as format, personal } from './shared.js';
@@ -250,8 +250,9 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   // A gallery is there while its folder or archive names it (files.js _whose, principle 2: one that
   // can't be read now isn't concluded gone) — a folder put at its place by hand is not it: reported, the
   // gallery looked for elsewhere, else missing (T02) — and, a linked one, while its source is (its
-  // overlay alone doesn't make it so).
-  const sourceThere = (row) => !row.source || disk.access(files._sourceAbs(row)).then(() => true, () => false);
+  // overlay alone doesn't make it so): gone as the shared rule takes it (statIn), a look that fails
+  // leaving it as the index has it.
+  const sourceThere = (row) => !row.source || statIn(files._sourceAbs(row)).then(Boolean, () => row.state !== 'missing');
   for (const row of known) {
     const whose = await files._whose(row.path, row.gid);
     if (whose.kind === 'conflict') out.problems.push({ path: files._split(row.path).rest, reason: 'conflict', gid: row.gid });
@@ -372,9 +373,10 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   }
   // A gallery deleted while its folder or archive wasn't where the index had it (renamed or moved by
   // hand): deleted where it is found, never adopted (F4, S10). An archive a deletion left whole as it is
-  // now (the person's files in it: F6) stays out. A copy of a gallery the library keeps in the same
-  // folder (its place still naming it) is reported, and left (O3) — not the old folder of a gallery
-  // archived since, retiring.
+  // now (the person's files in it: F6) stays out — every archive of a gallery the library doesn't have,
+  // in a folder whose removed.json can't be read now (reported: review 6 F4), till a check reads it. A
+  // copy of a gallery the library keeps in the same folder (its place still naming it) is reported, and
+  // left (O3) — not the old folder of a gallery archived since, retiring.
   const unfound = new Map(files._deletingRows().filter(d => d.unfound).map(d => [String(d.gid), d]));
   const removed = new Map();
   for (const g of unknown.filter(g => !g.claimed && g.read?.kind === 'gallery')) {
@@ -385,8 +387,11 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
       const d = unfound.get(id);
       if (sameKind(g, d)) await files.deletedFound(d, g.rel);
     } else if (!row && g.format !== 'folder') {
-      if (!removed.has(g.root)) removed.set(g.root, await removedOf(library, g.root).catch(() => []));
-      if (await archiveRemoved(library, g.root, g.inRoot, removed.get(g.root))) g.claimed = true;
+      if (!removed.has(g.root)) {
+        removed.set(g.root, await removedOf(library, g.root).catch(() => { out.problems.push({ path: linkedSource.REMOVED_FILE, reason: 'unreadable' }); return null; }));
+      }
+      const notes = removed.get(g.root);
+      if (!notes || await archiveRemoved(library, g.root, g.inRoot, notes)) g.claimed = true;
     } else if (row && present.has(id) && files._split(row.path).root === g.root
       && !library._s('SELECT 1 FROM retiring WHERE dir = ? LIMIT 1').get(g.rel)) {
       out.problems.push({ path: g.inRoot, reason: 'duplicate', gid: id });

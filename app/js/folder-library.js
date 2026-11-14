@@ -625,8 +625,11 @@ async function _check(id, { onProgress = () => {}, stopped = () => false } = {})
   const found = await _walk(run, new Set([...kept.filter(g => !g.linked).map(g => g.dir), ...deleting].map(d => d.toLowerCase())));
   const titles = await _linkedTitles(run, found, step);
   run.removed = await _removedOf(run);
+  // Overlays that can't be read now are reported and null: no title joins as new this time (matchSources:
+  // one may be about it; review 6 F2), nor while removed.json can't be read (F4).
+  const overlays = await _overlaysOf(id, root).catch(() => { run.problems.push({ path: LINKED_DIR, reason: 'unreadable' }); return null; });
   const plan = matchSources({ found: titles, kept: kept.filter(g => g.linked).map(g => ({ gid: String(g.galleryId), source: g.linked })),
-    overlays: await _overlaysOf(id, root), known: run.known, removed: run.removed });
+    overlays, known: run.known, removed: run.removed });
   // A folder of pictures kept without its content (kept before it was recorded) has it recorded as it is
   // now, so a picture replaced in place by one of the same size is told from now on.
   for (const s of plan.same) {
@@ -810,7 +813,8 @@ const _entryText = async (entry) => new TextDecoder().decode(await entry.read())
 // library has is a copy, left alone and reported ('duplicate': O3, S10) — unless it keeps it in this
 // folder at a place that is gone: read again where it is now. One whose gallery was deleted, its folder
 // not where the deletion had it, is deleted here instead (F4); an archive a deletion left whole, as it
-// was left (removed.json: the person's files in it, F6), is left.
+// was left (removed.json: the person's files in it, F6), is left — as is every such archive while
+// removed.json can't be read (`run.removed` null: review 6 F4), till a check reads it.
 async function _joinOwn(run, found, kept) {
   if (found.legacy) { run.problems.push({ path: found.path, reason: 'unsupported' }); return; }
   if (found.series) {
@@ -821,8 +825,8 @@ async function _joinOwn(run, found, kept) {
     if (!run.known.has(found.id)) {
       const deleted = run.deleted.get(found.id);
       if (deleted) { if (!found.inner && (found.kind === 'zip') === ARCHIVE_NAME.test(deleted.dir)) await K.deletedFound(deleted, run.id, found.path); return; }
-      if (found.kind === 'zip' && !found.inner && run.removed.length
-        && isRemoved(run.removed, { kind: 'zip', path: found.path, fingerprint: (await K.archiveOf(run.id, run.root, found.path))?.fingerprint ?? null })) return;
+      if (found.kind === 'zip' && !found.inner && (!run.removed || (run.removed.length
+        && isRemoved(run.removed, { kind: 'zip', path: found.path, fingerprint: (await K.archiveOf(run.id, run.root, found.path))?.fingerprint ?? null })))) return;
       const gid = await _adopt(run, found);
       if (gid) { run.known.add(gid); run.added.push(gid); }
       return;
@@ -1069,10 +1073,15 @@ async function _linkedTitles(run, found, step) {
   return out;
 }
 // An archive's titles (linked-source.js zipTitles), each with its pictures and the archive's
-// fingerprint.
+// fingerprint — none, reported, when it can't be read now (its file, or what it holds), and none when it
+// is gone meanwhile (as the shared rule takes it).
 async function _zipTitlesOf(run, t) {
-  const archive = await K.archiveOf(run.id, run.root, t.path).catch(() => null);
-  if (!archive) { run.problems.push({ path: t.path, reason: 'corrupt' }); return []; }
+  let archive;
+  try { archive = await K.archiveOf(run.id, run.root, t.path); } catch (e) {
+    run.problems.push({ path: t.path, reason: e instanceof DOMException ? 'unreadable' : 'corrupt' });
+    return [];
+  }
+  if (!archive) return [];
   return zipTitles([...archive.entries.keys()]).map(z => ({ kind: 'zip', path: t.path, ...(z.inner ? { inner: z.inner } : {}), chapter: z.chapter,
     pictures: _zipPictures(z.pictures, archive), size: archive.size, fingerprint: archive.fingerprint }));
 }
@@ -1118,32 +1127,37 @@ async function fingerprintNow(id, root, source) {
   return (await _titlePictures({ id, root, problems: [] }, source))?.fingerprint ?? null;
 }
 
-// The overlays folder `id` holds (.shiori/linked/*/source.json): [{ galleryId, source }].
+// The overlays folder `id` holds (.shiori/linked/*/source.json): [{ galleryId, source }]. Rejects when
+// they can't be read now (the listing, or an overlay's source.json: none there only as the shared rule
+// takes it, folder-store-web.js) — never a list with one left out, whose source would join again as a
+// new gallery without what the library added to it (review 6 F2).
 async function _overlaysOf(id, root) {
   const out = [];
-  for (const e of await folderFiles.list(id, root, LINKED_DIR).catch(() => [])) {
+  for (const e of await folderFiles.list(id, root, LINKED_DIR)) {
     if (e.kind !== 'directory') continue;
-    const read = parseSource(await folderFiles.readText(id, root, `${LINKED_DIR}/${e.name}/${SOURCE_FILE}`).catch(() => null));
+    const read = parseSource(await folderFiles.readText(id, root, `${LINKED_DIR}/${e.name}/${SOURCE_FILE}`));
     if (read && read.galleryId === e.name) out.push(read);
   }
   return out;
 }
 // Gallery `gid`'s overlay in folder `id`: { source, images: [{ name }] (its pages of its own) }, or null.
+// Rejects when it can't be read now (as _overlaysOf).
 async function _overlayOf(id, root, gid) {
-  const read = parseSource(await folderFiles.readText(id, root, `${overlayDir(gid)}/${SOURCE_FILE}`).catch(() => null));
+  const read = parseSource(await folderFiles.readText(id, root, `${overlayDir(gid)}/${SOURCE_FILE}`));
   if (!read || read.galleryId !== String(gid)) return null;
-  const images = (await folderFiles.list(id, root, `${overlayDir(gid)}/images`).catch(() => [])).filter(e => e.kind === 'file').map(e => ({ name: e.name }));
+  const images = (await folderFiles.list(id, root, `${overlayDir(gid)}/images`)).filter(e => e.kind === 'file').map(e => ({ name: e.name }));
   return { source: read.source, images };
 }
-// The sources removed from the library the folder notes (removed.json: none when it can't be read,
-// reported), and those noted but not written there yet (db.js removedNotes, written first when they
-// can be): removed as well, where they were whatever their files are now (F12).
+// The sources removed from the library the folder notes (removed.json), and those noted but not written
+// there yet (db.js removedNotes, written first when they can be): removed as well, where they were
+// whatever their files are now (F12). Null, reported, when removed.json can't be read now (none there
+// only as the shared rule takes it): a check then joins nothing it may note (review 6 F4).
 async function _removedOf(run) {
   await K.publishRemoved(run.id);
   const owed = (await K.removedNotes(run.id)).map(({ linked: { fingerprint, ...where } }) => where);
   try { return [...parseRemoved(await folderFiles.readText(run.id, run.root, REMOVED_FILE)), ...owed]; } catch {
     run.problems.push({ path: REMOVED_FILE, reason: 'unreadable' });
-    return owed;
+    return null;
   }
 }
 
@@ -1297,7 +1311,9 @@ async function _namedMeta(run, title, gid) {
 // may write to — not drawn yet, or drawn from another version of the file than the one there now (F10:
 // for a gallery the library has, the one its last check found, so that a page doesn't read every PDF
 // of the library) — and not one removed from the library, or whose drawing failed for the file as it is
-// (drawFailed: tried again once it changes).
+// (drawFailed: tried again once it changes). One whose file or overlay can't be read now isn't offered,
+// nor any of a folder whose overlays or removed.json can't be (one may be a PDF removed from the
+// library: review 6 F4).
 async function pdfsWaiting() {
   const { byId } = await K.folders();
   const known = new Set(await K.transferIds());
@@ -1305,16 +1321,19 @@ async function pdfsWaiting() {
   for (const f of byId.values()) {
     const root = mounted(f.state) ? await K.rootOf(f.id) : null;
     if (!root) continue;
-    const removed = parseRemoved(await folderFiles.readText(f.id, root, REMOVED_FILE).catch(() => null));
-    for (const over of await _overlaysOf(f.id, root)) {
+    let removed, overlays;
+    try { [removed, overlays] = [parseRemoved(await folderFiles.readText(f.id, root, REMOVED_FILE)), await _overlaysOf(f.id, root)]; } catch { continue; }
+    for (const over of overlays) {
       if (over.source.kind !== 'pdf') continue;
-      const file = await folderFiles.readFile(f.id, root, over.source.path).catch(() => null);   // can't be read now: not offered
-      if (!file) continue;
-      const joined = known.has(over.galleryId);
-      const print = joined ? over.source.fingerprint : await _pdfPrint(file);
-      if (!joined && isRemoved(removed, { ...over.source, fingerprint: print })) continue;
-      if (!pdfWaits(over.source, (await _overlayOf(f.id, root, over.galleryId))?.images, print)) continue;
-      out.push({ folder: f.id, gid: over.galleryId, path: over.source.path, name: over.source.path.split('/').pop() });
+      try {
+        const file = await folderFiles.readFile(f.id, root, over.source.path);
+        if (!file) continue;
+        const joined = known.has(over.galleryId);
+        const print = joined ? over.source.fingerprint : await _pdfPrint(file);
+        if (!joined && isRemoved(removed, { ...over.source, fingerprint: print })) continue;
+        if (!pdfWaits(over.source, (await _overlayOf(f.id, root, over.galleryId))?.images, print)) continue;
+        out.push({ folder: f.id, gid: over.galleryId, path: over.source.path, name: over.source.path.split('/').pop() });
+      } catch { /* not offered */ }
     }
   }
   return out;

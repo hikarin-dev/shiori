@@ -15,12 +15,11 @@
 // written (absIn), and as the disk resolves it (folder-store.js physicallyIn: no link out of it is
 // followed).
 
-import { disk, physicallyIn, replaceFile, loadGallery } from './folder-store.js';
+import { disk, physicallyIn, replaceFile, loadGallery, textIn, entriesIn, statIn } from './folder-store.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { readDirectory, readEntry } from './zip.js';
 import { linked as L, files as layout, content, personal, BackendError } from './shared.js';
-import { ifMissing } from './files.js';
 import { derivedOf, derivedRecord, coverPatch, localChanges, startEntry } from './scan.js';
 const { withoutPersonal } = personal;
 
@@ -92,7 +91,10 @@ const pdfPrintOf = (size, head) => L.pdfPrint(size, sha256(head));
 // archive's) | mtime (a folder's) }] — with its fingerprint and size (an archive's: its `directory`
 // too; a folder's: its `content`, linked-source.js folderContent hashed); null when they can't be read.
 // `directory`: the archive's, when the caller has read it. Rejects for one that leads out of the
-// folder (F09).
+// folder (F09), and when a folder's picture, or a PDF, can't be looked at now: what isn't there is told
+// as the shared rule takes it (folder-store.js entriesIn, statIn) — a picture whose look answers "not
+// found" while the drive is away for a moment is never left out, which would read the title with a page
+// fewer and drop what was made from it, its files too (review 6 F1).
 async function titleAt(library, root, title, directory = null) {
   const abs = await sourceIn(library, root, title.path);
   if (title.kind === 'zip') {
@@ -104,16 +106,18 @@ async function titleAt(library, root, title, directory = null) {
       size: (await disk.stat(abs)).size, directory: dir };
   }
   if (title.kind === 'dir') {
+    const items = await entriesIn(abs);
+    if (!items) return null;
     const pictures = [];
-    for (const item of await disk.readdir(abs, { withFileTypes: true })) {
+    for (const item of items) {
       if (!item.isFile() || !L.IMAGE_NAME.test(item.name) || item.name.startsWith('.')) continue;
-      const st = await disk.stat(path.join(abs, item.name)).catch(ifMissing(null));
+      const st = await statIn(path.join(abs, item.name));
       if (st) pictures.push({ name: item.name, path: item.name, size: st.size, mtime: L.wholeMs(st.mtimeMs) });
     }
     const sorted = L.sortPictures(pictures);
     return { pictures: sorted, fingerprint: sha256(L.folderPrint(sorted)), content: sha256(L.folderContent(sorted)), size: sorted.reduce((n, p) => n + p.size, 0) };
   }
-  const st = await disk.stat(abs).catch(() => null);
+  const st = await statIn(abs);
   if (!st) return null;
   const fh = await disk.open(abs, 'r');
   try {
@@ -137,7 +141,7 @@ export async function titlesIn(library, root, rel) {
   if (L.ARCHIVE_NAME.test(rel)) return [{ kind: 'zip', path: rel, fingerprint: await sourceIn(library, root, rel).then(zipFingerprint).catch(() => null) }];
   const files = [];
   const walk = async (abs, at) => {
-    for (const item of await disk.readdir(abs, { withFileTypes: true }).catch(ifMissing([]))) {
+    for (const item of (await entriesIn(abs)) ?? []) {
       if (item.isDirectory()) await walk(path.join(abs, item.name), `${at}/${item.name}`);
       else if (item.isFile()) files.push({ path: `${at}/${item.name}` });
     }
@@ -158,38 +162,45 @@ const sourceOf = (title, at) => ({ kind: title.kind, path: title.path, ...(title
   ...(at?.fingerprint ? { fingerprint: at.fingerprint } : {}), ...(at?.content ? { content: at.content } : {}) });
 
 // The overlays library folder `root` holds: source key → { galleryId, source } — one whose source
-// would lead out of the folder left out.
+// would lead out of the folder left out. Rejects when they can't be read now (the listing, or an
+// overlay's source.json: none there only as the shared rule takes it, textIn) — never a list with one
+// left out, whose source would join again as a new gallery without what the library added to it
+// (review 6 F2).
 export async function overlaysOf(library, root) {
   const out = new Map();
   const dir = absIn(library, root, L.LINKED_DIR);
   const inside = (rel) => { try { return !!absIn(library, root, rel); } catch { return false; } };
-  for (const item of await disk.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+  for (const item of (await entriesIn(dir)) ?? []) {
     if (!item.isDirectory()) continue;
-    const read = L.parseSource(await disk.readFile(path.join(dir, item.name, L.SOURCE_FILE), 'utf8').catch(() => null));
+    const read = L.parseSource(await textIn(path.join(dir, item.name, L.SOURCE_FILE)));
     if (read && read.galleryId === item.name && inside(read.source.path)) out.set(L.sourceKey(read.source), read);
   }
   return out;
 }
-// The sources removed from library folder `root`: its removed.json's list, and the notes still owed
-// to it (folders.js removedWaiting) — removed all the same (F12).
 // Whether archive `rel` in library folder `root` is one of `removed` (removedOf's) as it is now: an
 // archive a gallery's deletion left whole, the person's files in it (F6) — never adopted again.
 export async function archiveRemoved(library, root, rel, removed) {
   if (!removed.some(r => r.path === rel)) return false;
   return L.isRemoved(removed, { kind: 'zip', path: rel, fingerprint: await sourceIn(library, root, rel).then(zipFingerprint).catch(() => null) });
 }
+// The sources removed from library folder `root`: its removed.json's list, and the notes still owed
+// to it (folders.js removedWaiting) — removed all the same (F12). Rejects when removed.json can't be read
+// now (none there only as the shared rule takes it, textIn): a check then joins nothing it may note
+// (review 6 F4).
 export const removedOf = async (library, root) => [
-  ...L.parseRemoved(await disk.readFile(absIn(library, root, L.REMOVED_FILE), 'utf8').catch(() => null)),
+  ...L.parseRemoved(await textIn(absIn(library, root, L.REMOVED_FILE))),
   ...library.folders.removedWaiting(root),
 ];
 // The pages of its own gallery `gid`'s overlay holds (its images/: pages replaced, a PDF's drawn):
-// [{ name, size }]. Rejects when they can't be read (F06).
+// [{ name, size }]. Rejects when they can't be read (F06): each told as the shared rule takes it
+// (entriesIn, statIn), so a page whose look answers "not found" for a moment is never read as the
+// source's picture (review 6 F1).
 async function overlayPages(library, root, gid) {
   const dir = path.join(absIn(library, root, L.overlayDir(gid)), 'images');
   const out = [];
-  for (const item of await disk.readdir(dir, { withFileTypes: true }).catch(ifMissing([]))) {
+  for (const item of (await entriesIn(dir)) ?? []) {
     if (!item.isFile() || !L.IMAGE_NAME.test(item.name)) continue;
-    const st = await disk.stat(path.join(dir, item.name)).catch(ifMissing(null));
+    const st = await statIn(path.join(dir, item.name));
     if (st) out.push({ name: item.name, size: st.size });
   }
   return out;
@@ -212,10 +223,11 @@ async function overlayFor(library, root, title, gid, at, marks = {}) {
 }
 // Gallery `gid`'s overlay's source.json: where it is, its text, the source it names (`was`, null when
 // there is none, or it names another gallery: `other`). Rejects when it can't be read: never written
-// over.
+// over — none there only as the shared rule takes it (textIn), so one answering "not found" for a moment
+// is never written again without what it said of a PDF's drawing (review 6 O4).
 async function sourceJson(library, root, gid) {
   const file = path.join(absIn(library, root, L.overlayDir(gid)), L.SOURCE_FILE);
-  const text = await disk.readFile(file, 'utf8').catch(ifMissing(null));
+  const text = await textIn(file);
   const read = L.parseSource(text);
   return { file, text, was: read?.galleryId === String(gid) ? read.source : null, other: !!read && read.galleryId !== String(gid) };
 }
@@ -380,9 +392,11 @@ export async function linkRoot(library, root, { files = [], own = [], archives =
     if (!entries) {
       for (const k of kept) if (k.source.kind === 'zip' && k.source.path === zip) found.push({ ...k.source, fingerprint: null });
     } else {
+      // Its fingerprint and size, unknown (null) when they can't be read now: a fingerprint not known
+      // concludes no change (matchSources), and source.json keeps the size it had.
       const abs = absIn(library, root, zip);
       const fingerprint = await zipFingerprint(abs).catch(() => null);
-      const size = (await disk.stat(abs).catch(() => null))?.size ?? null;
+      const size = (await statIn(abs).catch(() => null))?.size ?? null;
       for (const z of L.zipTitles([...entries.keys()])) {
         const title = { kind: 'zip', path: zip, ...(z.inner ? { inner: z.inner } : {}), chapter: z.chapter };
         read.set(L.sourceKey(title), { pictures: zipPictures(z.pictures, entries), fingerprint, size, directory: entries });
@@ -402,7 +416,11 @@ export async function linkRoot(library, root, { files = [], own = [], archives =
 
   const known = new Set(library._s('SELECT gid FROM files UNION SELECT gid FROM meta').all().map(r => r.gid));
   await library.folders.publishRemoved(root);   // notes still owed to the folder, tried again
-  const plan = L.matchSources({ found, kept, overlays: [...(await overlaysOf(library, root)).values()], known, removed: await removedOf(library, root) });
+  // The overlays and removed.json that can't be read now are reported and null: no title joins as new
+  // this time (matchSources: either may be about it), the galleries kept here are weighed as ever.
+  const unread = (rel) => () => { problems.push({ path: rel, reason: 'unreadable' }); return null; };
+  const plan = L.matchSources({ found, kept, overlays: await overlaysOf(library, root).then(o => [...o.values()], unread(L.LINKED_DIR)), known,
+    removed: await removedOf(library, root).catch(unread(L.REMOVED_FILE)) });
   const atOf = (title) => read.get(L.sourceKey(title)) || null;
   // A folder of pictures the index keeps without its content (kept before it was recorded) has it
   // recorded as it is now, so a picture replaced in place by one of the same size is told from now on.
@@ -411,7 +429,7 @@ export async function linkRoot(library, root, { files = [], own = [], archives =
     const was = keptSource.get(s.gid);
     if (was && was.content == null && s.title.content) library._s('UPDATE files SET source = ? WHERE gid = ?').run(JSON.stringify({ ...was, content: s.title.content }), s.gid);
   }
-  const failed = (title, e) => problems.push({ path: title.path, reason: e?.reason === 'outside' ? 'outside' : e?.syscall ? 'unreadable' : 'adopt-failed' });
+  const failed = (title, e) => problems.push({ path: title.path, reason: ['outside', 'unreadable'].includes(e?.reason) ? e.reason : e?.syscall ? 'unreadable' : 'adopt-failed' });
   const link = async (title, gid) => {
     try {
       const made = await adoptLinked(library, root, title, { gid, at: atOf(title) });
@@ -466,17 +484,18 @@ export async function linkRoot(library, root, { files = [], own = [], archives =
 // folder, gid, path, name }] — not drawn yet, or drawn from another version of the file than its last
 // check found (F10: the library may have it already) — and not removed from the library, nor one drawing
 // failed for, until its file changes (A23). One whose file or overlay can't be read now, or whose file
-// leads out of the folder (F09), isn't offered.
+// leads out of the folder (F09), isn't offered — nor any of a folder whose overlays or removed.json can't
+// be read now (one may be a PDF removed from the library: review 6 F4).
 export async function pdfsWaiting(library) {
   const out = [];
   for (const root of library.activeRoots()) {
-    if (!disk.existsSync(library.rootDir(root))) continue;
-    const removed = await removedOf(library, root);
-    for (const over of (await overlaysOf(library, root)).values()) {
+    let removed, overlays;
+    try { [removed, overlays] = [await removedOf(library, root), await overlaysOf(library, root)]; } catch { continue; }
+    for (const over of overlays.values()) {
       const src = over.source;
       if (src.kind !== 'pdf') continue;
       try {
-        if (!disk.existsSync(await sourceIn(library, root, src.path))) continue;
+        if (!(await statIn(await sourceIn(library, root, src.path)))) continue;
         // Its fingerprint as it is now, read only when something is noted against a version of it.
         const noted = !!src.failed || removed.some(r => r.path === src.path);
         const print = noted ? await fingerprintNow(library, root, src) : src.fingerprint;

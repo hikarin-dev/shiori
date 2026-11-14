@@ -329,11 +329,25 @@ async function ruled(file, read, none = null) {
     if (!lost(e)) throw e;
     const r = await notFound(file, e);
     if (r.kind === 'missing') return none;
-    throw Object.assign(new Error(`${file} can't be read now: ${r.error}`), { reason: 'unreadable' });
+    throw cantRead(file, r);
   }
 }
+const cantRead = (file, r) => Object.assign(new Error(`${file} can't be read now: ${r.error}`), { reason: 'unreadable' });
 // The text of `file`, or null when nothing is there.
 export const textIn = (file) => ruled(file, () => disk.readFile(file, 'utf8'));
+// The same, for a read that can't wait (folders.js reads a folder's claim in front of every write): the
+// rule's two looks made at once (contract.js surelyMissingNow), as homeOf and there make them.
+export function textNow(file) {
+  try { return disk.readFileSync(file, 'utf8'); } catch (e) {
+    if (!lost(e)) throw e;
+    const at = folderAround(path.resolve(file));
+    const home = () => !at || content.libraryIdOf(disk.readFileSync(path.join(at.root, ...content.LIBRARY_FILE.split('/')), 'utf8')) === at.id;
+    const there = () => { try { disk.statSync(file); return true; } catch (e2) { if (lost(e2)) return false; throw e2; } };
+    const r = contract.surelyMissingNow({ home, there }, e);
+    if (r.kind === 'missing') return null;
+    throw cantRead(file, r);
+  }
+}
 // What folder `dir` holds (its entries, with their types), or null when it isn't there.
 export const entriesIn = (dir) => ruled(dir, () => disk.readdir(dir, { withFileTypes: true }));
 // `file`'s stat, or null when nothing is there.

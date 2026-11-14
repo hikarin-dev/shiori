@@ -373,17 +373,19 @@ export const isDrawing = (pages) => Array.isArray(pages) && pages.length > 0
 //   overlay made for it where it is (that overlay keeps its identity: its series, its edits), unless
 //   it was removed (an overlay its removal hasn't deleted yet: the note is written first).
 // - missing: a kept gallery whose source isn't where it was: { gid, source }.
-// - skipped: a title not to join: 'removed' (removed from the library before: isRemoved) or 'copy'
-//   (its overlay's gallery the library has elsewhere). { title, reason }.
+// - skipped: a title not to join: 'removed' (removed from the library before: isRemoved), 'copy' (its
+//   overlay's gallery the library has elsewhere) or 'unknown' (the overlays, or removed.json, couldn't be
+//   read now: null — either may be about it, so it waits for a check that reads them; review 6 F2, F4).
+//   { title, reason }.
 /** @typedef {SourceAt & { [field: string]: unknown }} FoundTitle */
 /** @typedef {{ gid: string, source: SourceAt }} KeptSource */
 /** @typedef {{
  *   same: { title: FoundTitle, gid: string }[], changed: { title: FoundTitle, gid: string, was: SourceAt }[],
- *   new: { title: FoundTitle, gid?: string }[], missing: KeptSource[], skipped: { title: FoundTitle, reason: 'removed' | 'copy' }[],
+ *   new: { title: FoundTitle, gid?: string }[], missing: KeptSource[], skipped: { title: FoundTitle, reason: 'removed' | 'copy' | 'unknown' }[],
  * }} SourceMatch */
 /**
- * @param {{ found: FoundTitle[], kept?: { gid: string | number, source: SourceAt }[], overlays?: { galleryId: string, source: SourceAt }[],
- *   known?: Set<string>, removed?: Removed[] }} check
+ * @param {{ found: FoundTitle[], kept?: { gid: string | number, source: SourceAt }[], overlays?: { galleryId: string, source: SourceAt }[] | null,
+ *   known?: Set<string>, removed?: Removed[] | null }} check
  * @returns {SourceMatch}
  */
 export function matchSources({ found, kept = [], overlays = [], known = new Set(), removed = [] }) {
@@ -392,7 +394,7 @@ export function matchSources({ found, kept = [], overlays = [], known = new Set(
   const keptAt = new Map(kept.map(k => [sourceKey(k.source), { ...k, gid: String(k.gid) }]));
   const keptIds = new Set([...keptAt.values()].map(k => k.gid));
   // An overlay of a gallery the library keeps here says nothing the library doesn't know.
-  const overAt = new Map(overlays.filter(o => !keptIds.has(o.galleryId)).map(o => [sourceKey(o.source), o]));
+  const overAt = new Map((overlays ?? []).filter(o => !keptIds.has(o.galleryId)).map(o => [sourceKey(o.source), o]));
   const foundKeys = new Set(found.map(sourceKey));
   for (const title of found) {
     const k = keptAt.get(sourceKey(title));
@@ -401,7 +403,8 @@ export function matchSources({ found, kept = [], overlays = [], known = new Set(
       const changed = (title.fingerprint != null && title.fingerprint !== (k.source.fingerprint ?? null))
         || (title.content != null && k.source.content != null && title.content !== k.source.content);
       if (changed) out.changed.push({ title, gid: k.gid, was: k.source }); else out.same.push({ title, gid: k.gid });
-    } else if (isRemoved(removed, title)) out.skipped.push({ title, reason: 'removed' });   // a removed one's overlay its removal couldn't delete yet too
+    } else if (!overlays || !removed) out.skipped.push({ title, reason: 'unknown' });
+    else if (isRemoved(removed, title)) out.skipped.push({ title, reason: 'removed' });   // a removed one's overlay its removal couldn't delete yet too
     else if (over && known.has(over.galleryId)) out.skipped.push({ title, reason: 'copy' });
     else out.new.push(over ? { title, gid: over.galleryId } : { title });
   }

@@ -474,6 +474,44 @@ const SCENARIOS = [
     state: () => ({ aIn: true, galleries: {} }),
     ops: [FIRST_CHECK('pack')],
   },
+  {
+    name: 'a first check of a linked folder of pictures translated, its folder added again',
+    sample: 1,
+    async setup(c) {
+      fs.mkdirSync(path.join(c.A, 'Pics'));
+      for (const n of [1, 2]) fs.writeFileSync(path.join(c.A, 'Pics', `00${n}.png`), png(10 + n));
+      for (const n of [1, 2]) theirs(c, path.join(c.A, 'Pics', `00${n}.png`));
+      await c.lib.scan(c.ids.A);
+      c.g.pics = (await c.lib.galleries()).map(String)[0];
+      c.known.add(c.g.pics);
+      await c.lib.putTranslation(c.g.pics, 2, png(17));
+      await c.lib.flush();
+      await sleep(150);
+      await addedAgain(c);
+      c.want = { pics: { place: 'A', title: 'Pics', pages: [[hex(png(11)), hex(png(11))], [hex(png(12)), hex(png(17))]] } };
+    },
+    state: () => ({ aIn: true, galleries: {} }),
+    ops: [FIRST_CHECK('pics')],
+  },
+  {
+    name: 'a first check of a drawn PDF translated, its folder added again',
+    sample: 1,
+    async setup(c) {
+      fs.writeFileSync(path.join(c.A, 'Doc.pdf'), '%PDF-1.4 a document');
+      theirs(c, path.join(c.A, 'Doc.pdf'));
+      await c.lib.scan(c.ids.A);
+      const [w] = await c.lib.pdfsWaiting();
+      c.g.doc = await c.lib.addRendered(w.folder, w.gid, [png(61), png(62)], (await c.lib.pdfSource(w.folder, w.gid)).token);
+      c.known.add(c.g.doc);
+      await c.lib.putTranslation(c.g.doc, 1, png(69));
+      await c.lib.flush();
+      await sleep(150);
+      await addedAgain(c);
+      c.want = { doc: { place: 'A', title: 'Doc', pages: [[hex(png(61)), hex(png(69))], [hex(png(62)), hex(png(62))]] } };
+    },
+    state: () => ({ aIn: true, galleries: {} }),
+    ops: [FIRST_CHECK('doc')],
+  },
 ];
 
 const BLIPS = ['drive blip 1', 'drive blip 2', 'drive blip 3', 'drive blip 5'];
@@ -492,11 +530,6 @@ const TODO = {};
 const later = (/** @type {string} */ step, /** @type {'desktop' | 'website'} */ app, /** @type {string[]} */ kinds, /** @type {string} */ scenario) => {
   for (const kind of kinds) TODO[`${app} ${kind}: ${scenario}`] = step;
 };
-// Review 6 F2: a linked gallery joins again without its overlay's work (the overlays read with every
-// failure taken for none).
-for (const app of /** @type {const} */ (['desktop', 'website'])) later('S23 (review 6 F2)', app, KINDS[app], 'a first check of a linked ZIP translated, its folder added again');
-// Review 6 F1: a check drops a linked folder's page whose look answers "not found".
-later('S23 (review 6 F1)', 'desktop', ['ENOENT', ...BLIPS], 'a check of linked titles');
 // Review 6 F12: a conversion from the oldest format cut short (a failed look just after a picture's rename,
 // or a kill) leaves a page unreadable.
 later('S25 (review 6 F12)', 'desktop', KINDS.desktop, 'a first check of a gallery in the oldest format');

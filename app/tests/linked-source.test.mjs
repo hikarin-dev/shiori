@@ -216,6 +216,16 @@ test('F12: a removed source whose overlay is still there (its removal couldn\'t 
   assert.deepEqual([out.new, out.skipped.map(s => [s.title.path, s.reason])], [[], [['Gone', 'removed']]]);
 });
 
+test('review 6 F2, F4: with the overlays or removed.json not read now, no title joins as new — a kept gallery is still weighed', () => {
+  const kept = [{ gid: '1', source: { kind: 'dir', path: 'Kept', fingerprint: 'K1' } }];
+  const found = [{ kind: 'dir', path: 'Kept', fingerprint: 'K2' }, { kind: 'dir', path: 'Fresh', fingerprint: 'F' }];
+  for (const unread of [{ overlays: null }, { removed: null }]) {
+    const out = matchSources({ kept, found, ...unread });
+    assert.deepEqual([out.new, out.changed.map(c => c.gid), out.skipped.map(s => [s.title.path, s.reason])], [[], ['1'], [['Fresh', 'unknown']]],
+      `${Object.keys(unread)[0]} unread: what it might have said is told later`);
+  }
+});
+
 test('O1: a page\'s token — a linked page\'s source picture, a page of the library\'s own its picture as stored — changes when the picture does', () => {
   const linked = pageToken({ name: '001.png', size: 4, crc: 'abcd1234' });
   assert.equal(linked, pageToken({ name: '001.png', size: 4, crc: 'abcd1234' }, { size: 9, cachedAt: 1 }), 'a linked page\'s is its source picture\'s');
