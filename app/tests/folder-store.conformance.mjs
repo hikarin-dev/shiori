@@ -1407,10 +1407,12 @@ export const CASES = [
         for (const id of [a.id, b]) await fx.lib.scan(id);
         assert.deepEqual((await fx.lib.galleries()).sort(), want.sort(), 'no gallery joins that nobody put there');
       };
-      // Away at the writable's opening (the picture left empty) or at the look after its close (left whole).
-      for (const op of ['createWritable', 'getFile']) {
+      // Away at the writable's opening (the picture left empty), at the look after its close (left whole), or
+      // at its write or its close (S25's "found, not fixed": the picture left empty, and beside it the
+      // browser's swap file, which it can't drop while the drive is away).
+      for (const op of ['createWritable', 'getFile', 'write', 'close']) {
         if (!(/** @type {string} */ (await fx.lib.dirOf(gid))).includes(`${path.sep}B${path.sep}`)) await fx.lib.move(gid, b);
-        const back = driveAway('website', A, (c) => c.op === op && c.path === 'Alpha/images/0001.png', { backAfter: 2 });
+        const back = driveAway('website', A, (c) => c.op === op && /^Alpha( \(\d\))?\/images\/0001(-[0-9a-f]+)?\.png$/.test(c.path), { backAfter: 2 });
         await fx.lib.move(gid, a.id).catch(() => {});
         back();
         await nothingJoined([gid]);
@@ -1419,13 +1421,13 @@ export const CASES = [
       }
       // A gallery's first pictures, in its own folder.
       const beta = await fx.lib.newGallery('Beta');
-      for (const [n, op] of /** @type {[number, string][]} */ ([[1, 'createWritable'], [2, 'getFile']])) {
+      for (const [n, op] of /** @type {[number, string][]} */ ([[1, 'createWritable'], [2, 'getFile'], [3, 'write'], [4, 'close']])) {
         const back = driveAway('website', A, (c) => c.op === op && c.path === `Beta/images/000${n}.png`, { backAfter: 2 });
         await fx.lib.putPage(beta, n, png(10 + n));
         back();
       }
       await nothingJoined([gid, beta]);
-      await reads(beta, [png(11), png(12)]);
+      await reads(beta, [png(11), png(12), png(13), png(14)]);
       for (const g of [gid, beta]) await fx.lib.deleteGallery(g);
       await fx.lib.flush();
       await new Promise(r => setTimeout(r, 300));   // what a deletion leaves to do, once it commits
@@ -1526,6 +1528,9 @@ export const CASES = [
           }, { folder, n }), 42, 'killed as the rename returned');
           lib = await desktopLibrary(base);
           id = fs.readFileSync(`${folder}-id`, 'utf8');
+          // Read whole from the start on, not only from the next check (S25's "found, not fixed").
+          const [gid] = await lib.galleries();
+          assert.deepEqual([await lib.read(gid, 1), await lib.read(gid, 2)].map(b => b && Buffer.from(b)), bytes, `kill at page ${n}: both pages read at the start`);
         } else {
           lib = await desktopLibrary(base);
           id = await lib.add(folder);
@@ -2637,6 +2642,107 @@ export const CASES = [
       const moved = await stored(fx, () => fx.lib.move(gid, to.id));
       assert.equal(moved.picture, 7);
       assert.deepEqual(await fx.lib.read(gid, 1), png(1, 2, 3));
+    },
+  },
+  // ── Found by S26a's sweep ("a new folder added") ──
+  {
+    // The website makes a file before it writes it, so its first write of a folder's library.json or claim
+    // cut short (a failed call, the page closed, the drive away for a moment) left the file empty, and the
+    // folder could never be added again, on either app: its library.json "named no library", its claim was
+    // "in use by another app". A file that holds nothing names nothing: the folder is added as one without it.
+    name: 'S26a: a folder whose library.json or claim a first write cut short left empty is added again, by either app',
+    async run({ dir, fx }) {
+      const empty = (/** @type {string} */ name, /** @type {string[]} */ files) => {
+        const at = path.join(dir, name);
+        fs.mkdirSync(path.join(at, '.shiori'), { recursive: true });
+        if (!files.includes('library.json')) fs.writeFileSync(path.join(at, '.shiori', 'library.json'), JSON.stringify({ format: 'shiori-library', version: 1, id: otherId() }));
+        for (const f of files) fs.writeFileSync(path.join(at, '.shiori', f), '');
+        return at;
+      };
+      const named = (/** @type {string} */ at) => JSON.parse(fs.readFileSync(path.join(at, '.shiori', 'library.json'), 'utf8')).id;
+      for (const at of [empty('Both', ['library.json', 'owner.json']), empty('Id', ['library.json']), empty('Claim', ['owner.json'])]) {
+        const id = await fx.lib.add(at);
+        assert.equal(named(at), id, `${path.basename(at)}: its library.json names the folder's id`);
+        assert.equal(JSON.parse(fs.readFileSync(path.join(at, '.shiori', 'owner.json'), 'utf8')).format, 'shiori-owner', `${path.basename(at)}: claimed`);
+      }
+      if (fx.lib.app !== 'website') return;
+      // The website's own writes, cut at each call.
+      for (const file of ['library.json', 'owner.json']) {
+        for (const op of ['createWritable', 'write', 'close']) {
+          const at = path.join(dir, `Cut ${file} ${op}`);
+          const undo = fsa.failNext((c) => c.op === op && c.path === `.shiori/${file}`, 'NoModificationAllowedError');
+          await assert.rejects(fx.lib.add(at), `${file} ${op}: the add fails`);
+          undo();
+          const id = await fx.lib.add(at);
+          assert.equal(named(at), id, `${file} ${op}: added at the next try`);
+        }
+      }
+    },
+  },
+  {
+    // Found by S26a's sweep ("a first check of a series export", the website): a chapter of a series export
+    // whose read failed once at its folder's first check never joined — the archive was a place the library
+    // kept a gallery at (the other chapter's), so no later check looked into it again.
+    name: 'S26a: a chapter of a series export that couldn\'t be read at its folder\'s first check joins at the next',
+    async run({ dir, fx }) {
+      const json = (/** @type {unknown} */ v) => new TextEncoder().encode(JSON.stringify(v));
+      const T = (/** @type {string} */ english) => ({ english, japanese: '', pretty: '' });
+      const exportIn = (/** @type {string} */ at, /** @type {number} */ k) => {
+        const [one, two] = [String(1790000000100 + 2 * k), String(1790000000101 + 2 * k)];
+        const chapters = [{ id: one, title: 'One', folder: 'One' }, { id: two, title: 'Two', folder: 'Two' }];
+        fs.mkdirSync(at, { recursive: true });
+        fs.writeFileSync(path.join(at, 'Series.zip'), zipCreate([
+          { name: 'series.json', data: json({ format: 'shiori-series', version: 1, seriesTitle: 'Series', chapters }) },
+          { name: 'One/metadata.json', data: json({ galleryId: one, title: T('One'), chapters: chapters.map(({ id, title }) => ({ id, title })), seriesTitle: 'Series' }) },
+          { name: 'One/images/0001.png', data: png(1, k) },
+          { name: 'Two/metadata.json', data: json({ galleryId: two, title: T('Two'), parentId: one }) },
+          { name: 'Two/images/0001.png', data: png(2, k) },
+        ]));
+        return [one, two];
+      };
+      // The reads of the export in folder `name`: the archive itself (website: paths are the folder's own),
+      // the folder it is unpacked into (desktop).
+      const reads = (/** @type {{ op: string, path: string }} */ c, /** @type {string} */ name) => (fx.lib.app === 'website' ? c.path === 'Series.zip'
+        : ['readdir', 'readFile'].includes(c.op) && c.path.includes(`/${name}/Series/`));
+      const inject = fx.lib.app === 'website' ? fsa : faults;
+      let count = 0;
+      const clean = path.join(dir, 'clean');
+      exportIn(clean, 0);
+      const offClean = inject.failNext((c) => { if (reads(c, 'clean')) count++; return false; }, 'EIO', { times: Infinity });
+      await fx.lib.scan(await fx.lib.add(clean));
+      offClean();
+      assert.ok(count > 2, `the export is read (${count} calls)`);
+      for (let k = 1; k <= count; k++) {
+        const at = path.join(dir, `k${k}`), [one, two] = exportIn(at, k);
+        const id = await fx.lib.add(at);
+        let n = 0;
+        const off = inject.failNext((c) => reads(c, `k${k}`) && ++n === k, fx.lib.app === 'website' ? 'NotReadableError' : 'EIO');
+        await fx.lib.scan(id);
+        off();
+        await fx.lib.scan(id);
+        const have = new Set(await fx.lib.galleries());
+        assert.deepEqual([one, two].map(g => have.has(g)), [true, true], `read ${k} failing: both chapters joined by the next check`);
+        assert.deepEqual((await fx.lib.raw.seriesChapters(one)).map((/** @type {any} */ c) => c.id), [one, two], `read ${k}: the series whole`);
+      }
+    },
+  },
+  {
+    // The desktop made a folder's .shiori with every folder on its way, so a folder whose drive left as it
+    // was added (its library.json's read, or the making of its .shiori) was made again at its path, empty.
+    name: 'S26a: a folder whose drive leaves as it is added is never made again at its path',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      const A = path.join(dir, 'A');
+      fs.mkdirSync(A);
+      fs.writeFileSync(path.join(A, 'mine.txt'), 'the person\'s own file');
+      for (const [op, end] of [['readFile', '/A/.shiori/library.json'], ['mkdir', '/A/.shiori']]) {
+        const back = driveAway('desktop', A, (c) => c.op === op && c.path.endsWith(end));
+        await assert.rejects(fx.lib.add(A), `${op}: the add fails`);
+        assert.equal(fs.existsSync(A), false, `${op}: the folder isn't made again while its drive is away`);
+        back();
+      }
+      await fx.lib.add(A);
+      assert.equal(fs.readFileSync(path.join(A, 'mine.txt'), 'utf8'), 'the person\'s own file');
     },
   },
 ];

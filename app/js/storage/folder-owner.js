@@ -11,11 +11,14 @@
 // file. An app is known by its own id (a random one, kept where its library is) and described by
 // `by`: { app: 'desktop', host } or { app: 'web', browser, site }.
 
+import { holdsNothing } from './folder-content.js';
+
 export const OWNER_FILE = '.shiori/owner.json';
 
 // What reading the claim file found (`text`: its text, null when there is no file, or — any other
 // value — the error the read failed with):
-// - { state: 'absent' }: no file: no app claimed the folder (or its claim was deleted);
+// - { state: 'absent' }: no file, or one holding nothing (folder-content.js holdsNothing: a first claim's
+//   write cut short): no app claimed the folder (or its claim was deleted);
 // - { state: 'damaged' }: a file that isn't a whole claim, or couldn't be read: its keeper can't be
 //   checked;
 // - { state: 'claim', owner (an app's id, or null once released), by, at, epoch }.
@@ -23,7 +26,7 @@ export const OWNER_FILE = '.shiori/owner.json';
 /** @typedef {{ state: 'absent' } | { state: 'damaged' } | ({ state: 'claim' } & Claim)} ClaimRead */
 /** @param {unknown} text @returns {ClaimRead} */
 export function readClaim(text) {
-  if (text === null) return { state: 'absent' };
+  if (text === null || holdsNothing(text)) return { state: 'absent' };
   /** @type {any} JSON of any shape, checked field by field below */
   let c;
   try { c = typeof text === 'string' ? JSON.parse(text) : null; } catch {}

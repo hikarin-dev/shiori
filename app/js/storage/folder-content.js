@@ -134,6 +134,11 @@ export function galleryAt(texts, gid, linked) {
 // joins a library ({ format: 'shiori-library', version: 1, id }: sixteen hex digits) — or null for
 // text that names none. Which library folder a path holds is told by it alone (principle 1).
 export const LIBRARY_FILE = '.shiori/library.json';
+// A file that holds nothing (empty, or white space alone) — what a first write cut short leaves, since the
+// website makes a file before it writes it (a failed call, the page closed, the drive away a moment) —
+// says nothing: a library.json or a claim holding nothing is taken as none (S26a).
+/** @param {unknown} text @returns {boolean} */
+export const holdsNothing = (text) => typeof text === 'string' && !text.trim();
 /** @param {unknown} text @returns {string | null} */
 export function libraryIdOf(text) {
   const id = _json(text)?.id;

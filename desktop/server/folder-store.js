@@ -261,6 +261,13 @@ export const disk = {
   copyFileSync: sync('copyFile', ([, to]) => count(to, fs.statSync(to).size)),
   truncateSync: sync('truncate'),
 };
+// Folder `dir`'s own .shiori/, made where it isn't there — inside `dir` alone, which is never made: a folder
+// not one of the library's yet (being added: its library.json, its claim) whose drive is away a moment
+// fails (ENOENT) instead of being made again at its path, empty (S26a).
+/** @param {string} dir */
+export function ownDirIn(dir) {
+  try { disk.mkdirSync(path.join(dir, '.shiori')); } catch (e) { madeOrThere(e); }
+}
 
 // ── Writing a file whole ──
 // `data` written to `file` and flushed to the disk.

@@ -90,7 +90,7 @@ const typed = (type) => (bytes) => new Blob([bytes], { type });
  *   remove(id: string, options?: { discard?: boolean }): Promise<void>,
  *   scan(id: string): Promise<{ added: number, updated: number, problems: { path: string, reason: string }[] }>,
  *   list(): Promise<any[]>, dismiss(id: string, item: { reason: string, path: string }): Promise<void>,
- *   newGallery(name: string): Promise<string>,
+ *   newGallery(name: string, gid?: string): Promise<string>,
  *   putPage(gid: string, n: number, bytes: Uint8Array, type?: string): Promise<void>,
  *   putTranslation(gid: string, n: number, bytes: Uint8Array, type?: string, source?: string): Promise<void>,
  *   sources(gid: string): Promise<Record<number, string>>,
@@ -150,7 +150,7 @@ export async function desktopLibrary(base) {
     scan: (id) => lib.folderScan(id),
     list: () => lib.foldersList(),
     dismiss: (id, item) => lib.folderDismiss(id, item),
-    async newGallery(name) { const gid = String(lib.nextGalleryId()); await lib.metaPut({ galleryId: gid, title: title(name) }); return gid; },
+    async newGallery(name, gid = String(lib.nextGalleryId())) { await lib.metaPut({ galleryId: gid, title: title(name) }); return gid; },
     async putPage(gid, n, bytes, type = 'image/png') { await lib.pagePut(gid, n, typed(type)(bytes)); },
     async putTranslation(gid, n, bytes, type = 'image/png', source) { await lib.putTranslatedPage({ galleryId: gid, pageNum: n }, typed(type)(bytes), null, undefined, source); },
     sources: (gid) => lib.pageSources(gid),
@@ -172,7 +172,12 @@ export async function desktopLibrary(base) {
     galleries: () => lib.galleryIdsSorted({ sort: 'id' }),
     dirOf: async (gid) => lib.files.folderOf(gid),
     async flush() { await lib.files.flush(); },
-    async restart() { lib.close(); lib = await new Library(where).open(); },
+    // A start that fails lets go of what it opened (the app's process ends then), and one after it starts afresh.
+    async restart() {
+      try { lib.close(); } catch {}
+      const next = new Library(where);
+      try { lib = await next.open(); } catch (e) { try { next.close(); } catch { try { next._db?.close(); } catch {} } throw e; }
+    },
     async close() { try { lib.close(); } catch {} },
   };
 }
@@ -236,7 +241,7 @@ export async function webLibrary() {
     scan: (id) => db.folderScan(id),
     list: () => db.foldersList(),
     dismiss: (id, item) => db.folderDismiss(id, item),
-    async newGallery(name) { const gid = String(db.nextGalleryId()); await db.metaPut({ galleryId: gid, title: title(name) }); return gid; },
+    async newGallery(name, gid = String(db.nextGalleryId())) { await db.metaPut({ galleryId: gid, title: title(name) }); return gid; },
     // A page replaced keeps the key its record is stored under, as a page downloaded again does: a new
     // key (pagePut names one after the picture's type) would be a second record of that page.
     async putPage(gid, n, bytes, type = 'image/png') {

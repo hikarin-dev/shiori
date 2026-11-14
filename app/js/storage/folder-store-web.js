@@ -506,8 +506,7 @@ export async function deleteNamedIn(id, root, dir, files) {
   const top = _parts(dir).join('/');
   for (const d of [...emptied].sort((a, b) => b.length - a.length)) {
     for (let at = d; at === top || at.startsWith(`${top}/`); at = _split(at)[0]) {
-      if ((await list(id, root, at).catch(() => [null])).length) break;
-      try { await removeDir(id, root, at); } catch { break; }
+      if (!(await _removeEmptied(id, root, at))) break;
       if (at === top) break;
     }
   }
@@ -577,8 +576,26 @@ async function _prune(id, root, dir) {
   let entries;
   try { entries = await list(id, root, dir); } catch { return false; }
   for (const e of entries) if (e.kind === 'directory') await _prune(id, root, _join(dir, e.name));
-  if ((await list(id, root, dir).catch(() => [null])).length) return false;
-  return removeDir(id, root, dir).then(() => true, () => false);
+  return _removeEmptied(id, root, dir);
+}
+// The browser's swap file of a write: File System Access writes `<name>.crswap` beside the file and puts it
+// in place on close, and an abort drops it — but not while the drive is away (S25's "found, not fixed": a
+// write cut by a drive leaving for a moment, at its write or its close). Only the website's own writes make
+// one, so a folder of Shiori's it emptied goes with the swap files left in it — and with nothing else
+// (S26a): the reservation it was undoes whole, a deleted gallery's folder isn't reported as the person's.
+const SWAP = /\.crswap$/;
+/** Folder `dir`, emptied by Shiori, removed while it holds nothing but the browser's swap files (removed
+ * first). Resolves whether it went: one that holds anything else, or can't be listed or removed now, stays.
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @returns {Promise<boolean>} */
+async function _removeEmptied(id, root, dir) {
+  let entries;
+  try { entries = await list(id, root, dir); } catch { return false; }
+  if (entries.some(e => e.kind !== 'file' || !SWAP.test(e.name))) return false;
+  try {
+    for (const e of entries) await removeFile(id, root, _join(dir, e.name));
+    await removeDir(id, root, dir);
+    return true;
+  } catch { return false; }
 }
 
 /** The picture files gallery folder `dir` holds where the gallery format puts them (PICTURE_DIRS):

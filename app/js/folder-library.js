@@ -26,7 +26,7 @@ import * as folderFiles from './storage/folder-store-web.js';
 import { BackendError } from './backend-error.js';
 import { OWNER_FILE, readClaim, nextClaim, releasedClaim, unchangedSince } from './storage/folder-owner.js';
 import { mounted, canHide, nextDefault, removalOutcome } from './storage/folder-lifecycle.js';
-import { OWN_FILES, MANIFEST_FILE, TEMPORARY, galleryIdOf, classifyFolder, classifyArchive } from './storage/folder-content.js';
+import { OWN_FILES, MANIFEST_FILE, TEMPORARY, galleryIdOf, classifyFolder, classifyArchive, holdsNothing } from './storage/folder-content.js';
 import { LINKED_DIR, SOURCE_FILE, REMOVED_FILE, IMAGE_NAME, ARCHIVE_NAME, overlayDir, sourceText, parseSource, parseRemoved, isRemoved,
   folderPrint, folderContent, crcHex, metaFromName, planTitles, zipTitles, sortPictures, linkedPages, keepsDerived, sameSource, sameProvenance,
   pdfReady, pdfWaits, matchSources, PDF_HEAD, pdfPrint, drawnFrom, isDrawing } from './storage/linked-source.js';
@@ -122,7 +122,8 @@ async function foldersWaiting() {
 // A folder's own id, kept in its .shiori/library.json — the file a desktop library folder keeps its
 // id in, the same format: the folder is known by it wherever it is reached from (another drive letter,
 // a folder renamed or moved), and removing it from the library and adding it again finds what it held.
-// { id, fresh }: `fresh`, a new id for a folder that surely has none (folder-store-web.js pickedText), to
+// { id, fresh }: `fresh`, a new id for a folder that surely has none (folder-store-web.js pickedText), or
+// whose library.json holds nothing (folder-content.js holdsNothing: a first write of it cut short), to
 // be written there only once its add is allowed (folderAdd: the website has no exclusive create, and a
 // refused add writes nothing — review 6 F5). A file that can't be read is an error, never a reason to
 // start over under a new id.
@@ -131,7 +132,7 @@ async function _folderIdOf(handle) {
   const text = await folderFiles.pickedText(handle, LIBRARY_FILE).catch((e) => {
     throw new BackendError('unavailable', `${LIBRARY_FILE} can't be read: ${e?.message || e}`);
   });
-  if (text == null) return { id: K.randomId(), fresh: true };
+  if (text == null || holdsNothing(text)) return { id: K.randomId(), fresh: true };
   const id = JSON.parse(text)?.id;
   if (typeof id !== 'string' || !/^[0-9a-f]{16}$/.test(id)) throw new BackendError('invalid', `${LIBRARY_FILE} names no library id`);
   return { id, fresh: false };
@@ -630,7 +631,9 @@ async function _check(id, { onProgress = () => {}, stopped = () => false } = {})
   // folder, met here, is deleted, never adopted (F4, S10) — its deletion `met`, kept until it is done.
   run.deleted = new Map(deletions.filter(d => d.unfound).map(d => [String(d.gid), d]));
   run.met = new Set();
-  const found = await _walk(run, new Set([...kept.filter(g => !g.linked).map(g => g.dir), ...deleting].map(d => d.toLowerCase())));
+  // Places the library keeps galleries at aren't looked into — but a series export is read again: a chapter
+  // of it that couldn't be read when the others joined joins now (S26a).
+  const found = await _walk(run, new Set([...kept.filter(g => !g.linked && !g.packed?.inner).map(g => g.dir), ...deleting].map(d => d.toLowerCase())));
   const titles = await _linkedTitles(run, found, step);
   run.removed = await _removedOf(run);
   // Overlays that can't be read now are reported and null: no title joins as new this time (matchSources:

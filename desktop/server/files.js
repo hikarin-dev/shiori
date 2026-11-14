@@ -50,7 +50,7 @@
 // are still as written (`retiring`, principle 4). An archive holds its manifest too, appended with the
 // descriptions it names.
 
-import { disk, physicallyIn, containedWhole, replaceFile, tempBeside, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, undescribedAt, bindIn, ioFailures, gone, holdsFile, filesIn, ownedIn, textsIn, statIn, statNow, entriesIn, textIn } from './folder-store.js';
+import { disk, physicallyIn, containedWhole, replaceFile, tempBeside, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, undescribedAt, bindIn, ioFailures, gone, holdsFile, filesIn, ownedIn, textsIn, statIn, statNow, entriesIn, textIn, ownDirIn } from './folder-store.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
@@ -136,8 +136,8 @@ const UNUSED_AT_MOST = 0.25;   // the share of an archive left unused before it 
 const REGROUP_RETRY = 10_000;  // how soon a folder Windows wouldn't move is tried again
 const PUBLISH_EVERY = 20;      // pages stored before a gallery being downloaded is published (D12)
 const NAMED_TTL = 2000;        // how long a gallery's folder found to name it is taken to, for reads (_namesIt)
-const COLUMNS = { files: { unpack: 'INTEGER NOT NULL DEFAULT 0', used_at: 'REAL', tail: 'REAL', source: 'TEXT', zip_size: 'INTEGER', zip_mtime: 'REAL', moving: 'TEXT' },
-  deleting: { unfound: 'INTEGER NOT NULL DEFAULT 0' } };
+const COLUMNS = { files: { unpack: 'INTEGER NOT NULL DEFAULT 0', used_at: 'REAL', tail: 'REAL', source: 'TEXT', zip_size: 'INTEGER', zip_mtime: 'REAL', moving: 'TEXT',
+  converting: 'INTEGER NOT NULL DEFAULT 0' }, deleting: { unfound: 'INTEGER NOT NULL DEFAULT 0' } };
 const HOUR = 60 * 60_000, DAY = 24 * HOUR;
 // Files Windows puts in a folder on its own: not the gallery's, and not worth keeping it a folder for.
 const WINDOWS_FILES = new Set(['desktop.ini', 'thumbs.db']);
@@ -219,10 +219,11 @@ const idFile = (libraryDir) => path.join(libraryDir, ...content.LIBRARY_FILE.spl
 function idText(libraryDir) {
   try { return disk.readFileSync(idFile(libraryDir), 'utf8'); } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
 }
-// The id folder `libraryDir`'s library.json names (folder-content.js libraryIdOf); null when it has none.
+// The id folder `libraryDir`'s library.json names (folder-content.js libraryIdOf); null when it has none,
+// or one holding nothing (holdsNothing: the website's first write of it cut short).
 function idIn(libraryDir) {
   const text = idText(libraryDir);
-  if (text == null) return null;
+  if (text == null || content.holdsNothing(text)) return null;
   const id = content.libraryIdOf(text);
   if (!id) throw new Error(`${idFile(libraryDir)} names no library id`);
   return id;
@@ -234,7 +235,7 @@ function idIn(libraryDir) {
 // told the folder for the library's (`over`); else it is an error, and stays. Returns the folder's id.
 function writeId(libraryDir, id, { over = false } = {}) {
   const file = idFile(libraryDir);
-  disk.mkdirSync(path.dirname(file), { recursive: true });
+  ownDirIn(libraryDir);
   const temp = tempBeside(file);
   const drop = () => { try { disk.rmSync(temp, { force: true }); } catch {} };
   try {
@@ -242,7 +243,7 @@ function writeId(libraryDir, id, { over = false } = {}) {
     const now = idText(libraryDir);
     const found = now == null ? null : content.libraryIdOf(now);
     if (found) { drop(); return found; }
-    if (now?.trim() && !over) throw new Error(`${file} names no library id`);
+    if (now != null && !content.holdsNothing(now) && !over) throw new Error(`${file} names no library id`);
     disk.renameSync(temp, file);
   } catch (e) { drop(); throw e; }
   return id;
@@ -413,11 +414,14 @@ export class FileLibrary {
     lib._s('UPDATE files SET used_at = ? WHERE used_at IS NULL').run(Date.now());
     lib._db.exec(`CREATE INDEX IF NOT EXISTS files_used ON files (used_at, gid) WHERE format = 'folder'`);
   }
-  // The moves the app stopped in finished first, and the additions to archives it stopped in cut off,
-  // before anything reads a gallery (finishMoves, cutBack).
+  // The moves the app stopped in finished first, the additions to archives it stopped in cut off, and the
+  // conversions from the oldest format it stopped in picked up where they stopped (toFormat `converting`:
+  // killed just as a picture's rename returned, a page's row would name its old place until the next check —
+  // S26a), before anything reads a gallery (finishMoves, cutBack).
   async start() {
     await this.finishMoves();
     await this.cutBack();
+    for (const { gid } of this.library._s('SELECT gid FROM files WHERE converting = 1').all()) await this.toFormat(gid).catch(() => {});
     this.resume();
     this._sweepLater(60_000);
   }
@@ -1521,15 +1525,16 @@ export class FileLibrary {
   // rename and its row's change are one synchronous step, no file call between them (the size and time
   // its row takes are the picture's before the rename, which keeps them): a failed call or a kill never
   // parts them. One parted all the same (a kill just as the rename returns) picks up where it stopped at
-  // the next check: a picture no longer at its old place (as the shared rule takes it) whose name in
-  // images/ holds a file of the size its row records has only its row brought up to date, as _moveIn does
-  // (review 6 F12).
+  // the next start — the conversion is noted under way (`converting`) before its first rename — or check:
+  // a picture no longer at its old place (as the shared rule takes it) whose name in images/ holds a file
+  // of the size its row records has only its row brought up to date, as _moveIn does (review 6 F12).
   async toFormat(gid) {
     const lib = this.library, id = String(gid);
     const row = this._row(id);
     if (!this._legacy(id) || !lib.folders.writable(this.rootFor(id))) return false;
     if ((await this._whose(row.path, id)).kind !== 'ok') return false;   // its folder doesn't name it now (principle 2)
     const dir = this._abs(row.path);
+    lib._s('UPDATE files SET converting = 1 WHERE gid = ?').run(id);
     await disk.mkdir(path.join(dir, 'images'), { recursive: true });
     for (const r of lib._pageRows(id)) {
       const orig = parse(r.orig);
@@ -1544,6 +1549,7 @@ export class FileLibrary {
         this._pend(id);
       });
     }
+    lib._s('UPDATE files SET converting = 0 WHERE gid = ?').run(id);
     return (await this.describe(id)).ok;
   }
 

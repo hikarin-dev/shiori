@@ -15,7 +15,7 @@ const KINDS = {
   desktop: ['kill', 'EIO', 'EPERM', 'ENOENT', 'EXDEV', 'drive away', ...BLIPS],
   website: ['page death', 'NoModificationAllowedError', 'NotFoundError', 'NotAllowedError', 'drive away', ...BLIPS],
 };
-const SHARDS = { desktop: 3, website: 8 };
+const SHARDS = { desktop: 5, website: 16 };
 const file = fileURLToPath(new URL('./folder-sweep.test.mjs', import.meta.url));
 const jobs = [];
 for (const app of /** @type {('desktop' | 'website')[]} */ (['desktop', 'website'])) {

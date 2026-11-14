@@ -23,7 +23,7 @@
 // can be reached, this library holds its claim, and its state allows it.
 // Work on a folder — its check, its removal — runs through its queue, one job at a time (jobPlan), as a
 // task the windows' tasks pages list.
-import { disk, replaceFile, ioFailures, containIn, textIn, textNow } from './folder-store.js';
+import { disk, replaceFile, ioFailures, containIn, textIn, textNow, ownDirIn } from './folder-store.js';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -297,7 +297,7 @@ export class Folders {
     if (!isDir(dir)) throw refusal('unavailable', 'unavailable', `${dir} can't be reached`);
     const file = this._claimFile(dir);
     const temp = `${file}.${crypto.randomBytes(4).toString('hex')}.shiori-tmp`;
-    disk.mkdirSync(path.dirname(file), { recursive: true });
+    ownDirIn(dir);
     try {
       disk.writeFileSync(temp, claims.claimText(claim));
       disk.renameSync(temp, file);

@@ -14,7 +14,10 @@ test('a claim file reads as none, damaged or a claim — never as none when it i
   assert.deepEqual(readClaim(null), { state: 'absent' });
   assert.equal(claim(ME, 3).state, 'claim');
   assert.equal(claim(null, 3).owner, null, 'a released claim');
-  for (const bad of ['', '{', '[]', '{"format":"other"}', JSON.stringify({ format: 'shiori-owner', owner: ME, at: 1 }),
+  // A file holding nothing is what a first claim's write cut short leaves (the website makes the file before
+  // it writes it): no claim, never "in use by another app" for good (S26a).
+  for (const none of ['', ' \n']) assert.deepEqual(readClaim(none), { state: 'absent' }, JSON.stringify(none));
+  for (const bad of ['{', '[]', '{"format":"other"}', JSON.stringify({ format: 'shiori-owner', owner: ME, at: 1 }),
     JSON.stringify({ format: 'shiori-owner', owner: ME, at: 1, epoch: -1 }), JSON.stringify({ format: 'shiori-owner', owner: 7, at: 1, epoch: 1 })]) {
     assert.equal(readClaim(bad).state, 'damaged', bad);
   }
