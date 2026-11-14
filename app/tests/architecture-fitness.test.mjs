@@ -95,6 +95,8 @@ test('no code outside the folder store adapter turns a failed read of a library 
     ['db.js', 'const file = await folderFiles.readFile(folder, root, dir).catch(() => undefined);\n  if (file === undefined) return false;',
       'undefined: can\'t be told now, the deletion tried again'],
     ['db.js', 'const OUT_OF_REACH = [\'NotFoundError\'', 'a write that fails while the folder is out of reach: the picture kept in this browser (a write)'],
+    ['db.js', 'const done = await folderFiles.deleteGalleryIn(m.folder, m.root, m.path, m.gid, named).catch(() => false);',
+      'a reservation undone: false is "not done", recorded for deletion (_owe: review 6 F9 b), never "nothing there"'],
     ['db.js', 'await folderFiles.readFile(ref.folder, root, _joinPath(ref.dir, ref.$path), ref.type || undefined).catch(() => null);',
       'a page read to show: null shows nothing, and changes nothing recorded'],
     ['folder-library.js', 'const there = !root || !rec.stat?.dir || (await folderFiles.list(folder, root, rec.stat.dir).catch(() => [])).length > 0;',

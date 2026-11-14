@@ -337,8 +337,8 @@ const cantRead = (file, r) => Object.assign(new Error(`${file} can't be read now
 export const textIn = (file) => ruled(file, () => disk.readFile(file, 'utf8'));
 // The same, for a read that can't wait (folders.js reads a folder's claim in front of every write): the
 // rule's two looks made at once (contract.js surelyMissingNow), as homeOf and there make them.
-export function textNow(file) {
-  try { return disk.readFileSync(file, 'utf8'); } catch (e) {
+function ruledNow(file, read) {
+  try { return read(); } catch (e) {
     if (!lost(e)) throw e;
     const at = folderAround(path.resolve(file));
     const home = () => !at || content.libraryIdOf(disk.readFileSync(path.join(at.root, ...content.LIBRARY_FILE.split('/')), 'utf8')) === at.id;
@@ -348,6 +348,9 @@ export function textNow(file) {
     throw cantRead(file, r);
   }
 }
+export const textNow = (file) => ruledNow(file, () => disk.readFileSync(file, 'utf8'));
+// `file`'s stat, or null when nothing is there, the same way (files.js moveSync: a move's target).
+export const statNow = (file) => ruledNow(file, () => disk.statSync(file));
 // What folder `dir` holds (its entries, with their types), or null when it isn't there.
 export const entriesIn = (dir) => ruled(dir, () => disk.readdir(dir, { withFileTypes: true }));
 // `file`'s stat, or null when nothing is there.

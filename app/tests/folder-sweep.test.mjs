@@ -527,14 +527,6 @@ const sweeps = (/** @type {string} */ app, /** @type {string} */ kind) => SCENAR
 // Scenarios a later step's finding fails on (plan §7), by app, kind and scenario.
 /** @type {Record<string, string>} */
 const TODO = {};
-const later = (/** @type {string} */ step, /** @type {'desktop' | 'website'} */ app, /** @type {string[]} */ kinds, /** @type {string} */ scenario) => {
-  for (const kind of kinds) TODO[`${app} ${kind}: ${scenario}`] = step;
-};
-// Review 6 F12: a conversion from the oldest format cut short (a failed look just after a picture's rename,
-// or a kill) leaves a page unreadable.
-later('S25 (review 6 F12)', 'desktop', KINDS.desktop, 'a first check of a gallery in the oldest format');
-// Review 6 F9 (b): a write cut by a blip leaves its empty picture, which joins as a gallery "images".
-later('S25 (review 6 F9 b)', 'website', ['drive blip 2', 'drive blip 3'], 'a move to another folder and back');
 
 // ── A run ──
 /** A fresh library over a new folder, with folder A added and the default, `sc` set up and published.

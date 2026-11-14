@@ -834,11 +834,13 @@ const _homeFields = (home, left) => (!home ? {} : { folder: home.folder, ...(hom
 // Gallery `gid`'s own folder in folder `folder`, named after it (or `base`, a path in the folder) and
 // bound to it by its first generation (folderFiles.reserveDir: the only way a folder becomes a
 // gallery's; never at a name a deletion still waits on) — noted for write `w`, which deletes it should
-// it not commit. Resolves its name.
+// it not commit. Resolves its name. A reservation that failed and couldn't be taken back now is recorded
+// for deletion (_owe: review 6 F9 b).
 async function _reserveDir(gid, folder, root, meta, w, base = null) {
   const m = migrateTitle({ ...(meta || await metaGet(gid) || {}), galleryId: String(gid) });
   const taken = new Set((await _deletions(folder)).map(d => d.dir));   // a deletion still waits there
-  const dir = await folderFiles.reserveDir(folder, root, base || galleryName(m), JSON.stringify(m, null, 2), { gid: String(gid), writer: await _me(), taken });
+  const dir = await folderFiles.reserveDir(folder, root, base || galleryName(m), JSON.stringify(m, null, 2), { gid: String(gid), writer: await _me(), taken })
+    .catch(async (e) => { if (e?.left) await _owe(folder, e.left.dir, gid, e.left.files).catch(() => {}); throw e; });
   w?.made.push({ folder, root, path: dir, dir: true, gid: String(gid) });
   return dir;
 }
@@ -983,6 +985,10 @@ async function _place(home, slots, w) {
     }
     let written;
     try { written = await folderFiles.writeNew(home.folder, home.root, home.dir, path, blob); } catch (e) {
+      // A file the failed write may have left there and couldn't delete now retires (deleted once it can
+      // be: review 6 F9 b) — a folder reserved for it is undone with it (_discard) — so nothing unrecorded
+      // stays in the gallery's folder.
+      if (e?.left) await _retireLater(home.folder, home.dir, [e.left]);
       // The folder went out of reach (taken away, or its permission withdrawn): kept here for now.
       if (!OUT_OF_REACH.includes(e?.name)) throw e;
       _grants.delete(home.folder);
@@ -991,7 +997,7 @@ async function _place(home, slots, w) {
       continue;
     }
     const ref = { $path: written.path, folder: home.folder, dir: home.dir, size: blob.size, type: blob.type, mtime: written.file.lastModified };
-    w.made.push({ folder: home.folder, root: home.root, path: `${home.dir}/${written.path}`, blob, file: written.file });
+    w.made.push({ folder: home.folder, root: home.root, path: `${home.dir}/${written.path}`, in: home.dir, blob, file: written.file });
     _fileOf.set(written.file, ref);
     _fileOf.set(blob, ref);
     obj[key] = ref;
@@ -1030,9 +1036,11 @@ async function _writing(gid, fn) {
   });
 }
 // What a write made, deleted: its files, and a folder it reserved by name (folderFiles.deleteGalleryIn:
-// the files the write put there, then what its reservation wrote), so the folder names the gallery
-// until every picture in it is gone — one that can't be deleted now never leaves a folder of pictures
-// naming no gallery, for a check to add as new.
+// the files the write put there and those a failed write left there, then what its reservation wrote),
+// so the folder names the gallery until every picture in it is gone — one that can't be deleted now
+// never leaves a folder of pictures naming no gallery, for a check to add as new. What can't be deleted
+// now stays recorded, deleted later (review 6 F9 b): a file, to retire with its gallery's next
+// publication; a reserved folder, as a deletion (_owe).
 async function _discard(made) {
   const all = made.splice(0).reverse();
   const reserved = all.filter(m => m.dir);
@@ -1041,11 +1049,30 @@ async function _discard(made) {
     if (m.blob) _fileOf.delete(m.blob);
     if (m.file) _fileOf.delete(m.file);
     if (m.dir) {
-      const named = all.filter(f => !f.dir && inside(f) === m).map(f => ({ name: f.path.slice(m.path.length + 1), size: f.file?.size, mtime: f.file?.lastModified }));
-      await folderFiles.deleteGalleryIn(m.folder, m.root, m.path, m.gid, named).catch(() => {});
-    } else if (!inside(m)) await folderFiles.removeFile(m.folder, m.root, m.path).catch(() => {});
+      const named = [...all.filter(f => !f.dir && inside(f) === m).map(f => ({ name: f.path.slice(m.path.length + 1), size: f.file?.size, mtime: f.file?.lastModified })),
+        ...(await _retiringOf(m.folder, m.path).catch(() => [])).map(r => ({ name: r.path, size: r.size, mtime: r.mtime }))];
+      const done = await folderFiles.deleteGalleryIn(m.folder, m.root, m.path, m.gid, named).catch(() => false);
+      await (done === true || done === 'missing' ? _forgetRetiring(m.folder, m.path) : _owe(m.folder, m.path, m.gid, named)).catch(() => {});
+    } else if (!inside(m)) {
+      await folderFiles.removeFile(m.folder, m.root, m.path)
+        .catch(() => _retireLater(m.folder, m.in, [{ name: m.path.slice(m.in.length + 1), size: m.file.size, mtime: m.file.lastModified }]));
+    }
   }
 }
+// Files a write left in gallery folder `dir` of folder `folder` that couldn't be deleted now ([{ name,
+// size, mtime }], as they were left), noted to retire: deleted, each while it is as noted, by the
+// gallery's next publication or the deletion of its folder (_unlinkLater's notes).
+const _retireLater = (folder, dir, files) => _recordsWrite((store) => {
+  for (const f of files) store.put({ id: `${_retiringPrefix(folder, dir)}${f.name}`, folder, dir, path: f.name, size: f.size, mtime: f.mtime ?? null });
+}).catch(() => {});
+// Folder `dir` of folder `folder`, reserved for gallery `gid` by a write that didn't commit, and what of
+// it couldn't be deleted now (`named`: [{ name, size, mtime }]), recorded for deletion as a deleted
+// gallery's folder is (_goneLater: DELETING, beside its files' notes) — deleted by name later
+// (_applyDeletions), never read by a check meanwhile, and its name taken by no reservation.
+const _owe = (folder, dir, gid, named) => _recordsWrite((store) => {
+  store.put({ id: _deletingKey(folder, dir), folder, dir, gid: String(gid) });
+  for (const f of named) store.put({ id: `${_retiringPrefix(folder, dir)}${f.name}`, folder, dir, path: f.name, size: f.size, mtime: f.mtime ?? null });
+});
 
 // The files records read in `tx` refer to, put in place of the references once it has completed
 // (_loadBlobs lists them): null for one that can't be read (its folder out of reach, or the file gone).
@@ -1493,7 +1520,9 @@ async function _describe(gid, { work = null } = {}) {
     await _described(gid, rev, tokenOf({ ...next, generation, descriptions: {} }));
     _changesSince.delete(String(gid));
     if (retiring.length) {
-      const { kept } = await found.dir.deleteNamed(retiring.map(n => ({ name: n.path, size: n.size, mtime: n.mtime })));
+      // Never a file the generation just published names: a failed write's leftover is noted without its
+      // time (_retireLater), and its name may hold a picture of the gallery's by now, of the same size.
+      const { kept } = await found.dir.deleteNamed(retiring.filter(n => !(n.path in next.sizes)).map(n => ({ name: n.path, size: n.size, mtime: n.mtime })));
       const again = new Set(kept.filter(k => k.why === 'unreadable').map(k => k.name));
       for (const k of kept) if (k.why === 'changed') console.warn(`[shiori] ${stat.dir}/${k.name} changed since Shiori wrote it: left as it is`);
       await _forgetRetiring(stat.folder, stat.dir, retiring.map(n => n.path).filter(p => !again.has(p))).catch(() => {});

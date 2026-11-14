@@ -436,10 +436,12 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
       for (const g of chunk) { try { made.push(...join([g])); } catch { out.problems.push({ path: g.inRoot, reason: 'adopt-failed' }); } }
     }
     for (const [gid, g] of made) {
-      if (g.format === 'folder' && !g.layout) await files.toFormat(gid).catch(() => out.problems.push({ path: g.inRoot, reason: 'unreadable' }));
       await library.rebuildGalleryEntry(gid, { silent: true });
       const covers = coverPatch(g.read.derived);
       if (Object.keys(covers).length) library._tx(() => library._coverPatchIn(gid, covers));
+      // One in the desktop's oldest format brought to the gallery format once it is in the library whole:
+      // a conversion cut short (a failed call, a kill) is picked up by the next check (review 6 F12).
+      if (g.format === 'folder' && !g.layout) await files.toFormat(gid).catch(() => out.problems.push({ path: g.inRoot, reason: 'unreadable' }));
       out.added.push(gid);
       changed.add(gid);
       tick();

@@ -50,7 +50,7 @@
 // are still as written (`retiring`, principle 4). An archive holds its manifest too, appended with the
 // descriptions it names.
 
-import { disk, physicallyIn, containedWhole, replaceFile, tempBeside, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, undescribedAt, bindIn, ioFailures, gone, holdsFile, filesIn, ownedIn, textsIn, statIn } from './folder-store.js';
+import { disk, physicallyIn, containedWhole, replaceFile, tempBeside, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, undescribedAt, bindIn, ioFailures, gone, holdsFile, filesIn, ownedIn, textsIn, statIn, statNow, entriesIn, textIn } from './folder-store.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
@@ -352,10 +352,12 @@ const present = async (file) => !!(await statIn(file))?.isFile();
 
 // A file moved to `to` where nothing is, synchronously — never over a file (principle 3: the caller
 // chose a name no file has, and a file put there since is left as it is: EEXIST) — across drives (a
-// junction inside the library folder), copied and the original deleted. Returns whether it was copied
-// (written again).
+// junction inside the library folder), copied and the original deleted. Nothing is at `to` only as the
+// shared rule takes it (folder-store.js statNow): a look that fails, or answers "not found" while the
+// drive is away for a moment, fails the move — Windows' rename replaces a file (found in S22). Returns
+// whether it was copied (written again).
 function moveSync(from, to) {
-  if (disk.existsSync(to)) throw Object.assign(new Error(`${to} is taken`), { code: 'EEXIST' });
+  if (statNow(to)) throw Object.assign(new Error(`${to} is taken`), { code: 'EEXIST' });
   try { disk.renameSync(from, to); return false; } catch (e) {
     if (e.code !== 'EXDEV') throw e;
     disk.copyFileSync(from, to, disk.constants.COPYFILE_EXCL);
@@ -1189,20 +1191,25 @@ export class FileLibrary {
   // deleted too, while that series.json is Shiori's, told by its content as a gallery's descriptions
   // are (folder-content.js seriesOf; gallery-manifest.js isOwnDescription). One that isn't — the
   // person's — stays with the folder, which is reported once on its library folder's Needs attention
-  // list ('left', review 4 F4's rule); one that can't be read just stays. So does one holding a temporary
-  // a kill left (a member's copy beside its place: nothing proves it Shiori's, review 5 O3). The library
-  // folder itself never is deleted.
+  // list ('left', review 4 F4's rule); one that can't be read just stays. So does a folder holding no
+  // series.json — empty, or with Windows' own files alone: nothing proves it a series' (a folder the
+  // person made, a gallery's moved into it by hand: review 6 F11) — and one holding a temporary a kill left
+  // (a member's copy beside its place: nothing proves it Shiori's, review 5 O3). The library folder itself
+  // never is deleted.
   async _tidy(dir) {
     const lib = this.library;
     const root = lib.folders.ids().find(id => { const r = path.relative(lib.folders.path(id), dir); return r && !r.startsWith('..') && !path.isAbsolute(r); });
     if (root == null) return;
-    const left = await disk.readdir(dir).catch(() => null);
     const spare = (name) => ['series.json', 'desktop.ini', 'thumbs.db'].includes(name.toLowerCase());
-    if (!left || !left.every(spare)) return;
-    const series = left.find(name => name.toLowerCase() === 'series.json');
-    const text = series ? await disk.readFile(path.join(dir, series), 'utf8').catch(() => null) : '';
+    let text;
+    try {
+      const left = (await entriesIn(dir))?.map(e => e.name);
+      const series = left?.find(name => name.toLowerCase() === 'series.json');
+      if (!series || !left.every(spare)) return;
+      text = await textIn(path.join(dir, series));
+    } catch { return; }
     if (text == null) return;
-    if (series && !content.seriesOf(text)) {
+    if (!content.seriesOf(text)) {
       lib.folders.note(root, { reason: 'left', path: path.relative(lib.folders.path(root), dir).split(path.sep).join('/') }, { event: true });
       lib._push('control', { type: 'FOLDERS_CHANGED' });
       return;
@@ -1501,7 +1508,13 @@ export class FileLibrary {
   // Gallery `gid`, kept in a folder of the desktop's oldest format, brought to the gallery format (D18),
   // so the website reads it too: each page's picture renamed into images/ (_nameFor; no picture written
   // again) and its row pointed at it, then the gallery published there. Its shiori.json is left as it
-  // is: the manifest names the gallery now. Only while its library folder may be written to.
+  // is: the manifest names the gallery now. Only while its library folder may be written to. A picture's
+  // rename and its row's change are one synchronous step, no file call between them (the size and time
+  // its row takes are the picture's before the rename, which keeps them): a failed call or a kill never
+  // parts them. One parted all the same (a kill just as the rename returns) picks up where it stopped at
+  // the next check: a picture no longer at its old place (as the shared rule takes it) whose name in
+  // images/ holds a file of the size its row records has only its row brought up to date, as _moveIn does
+  // (review 6 F12).
   async toFormat(gid) {
     const lib = this.library, id = String(gid);
     const row = this._row(id);
@@ -1512,10 +1525,11 @@ export class FileLibrary {
     for (const r of lib._pageRows(id)) {
       const orig = parse(r.orig);
       if (orig.at !== 'p' || orig.entry.includes('/')) continue;
-      const name = this._nameFor(id, r, orig, dir);
+      const from = path.join(dir, orig.entry), was = await statIn(from), there = !!was?.isFile();
+      const name = this._nameFor(id, r, orig, dir, there);
       const to = path.join(dir, ...name.split('/'));
-      moveSync(path.join(dir, orig.entry), to);
-      const st = disk.statSync(to);
+      const st = !there ? disk.statSync(to) : moveSync(from, to) ? disk.statSync(to) : was;   // copied across drives: as it is now
+      if (!there && st.size !== orig.size) throw Object.assign(new Error(`page ${r.n} of gallery ${id} is at neither of its places`), { reason: 'unreadable' });
       lib._tx(() => {
         lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify({ ...orig, entry: name, size: st.size, mtime: st.mtimeMs }), id, r.n);
         this._pend(id);

@@ -1384,6 +1384,194 @@ export const CASES = [
       assert.deepEqual([await fx.lib.galleries(), (await fx.lib.list()).find(f => f.id === ref.id).attention], [[], []]);
     },
   },
+  {
+    // F9 (b) (review 6, the website): a picture written as the drive left for a moment (away at a call of
+    // the write, back two calls later) failed, and its clean-up couldn't look at the file it may have left:
+    // the picture stayed, empty or whole, unrecorded. In the folder reserved for a move back to A, undone
+    // with the move, it was all the folder held, and a gallery "images" (or "translated") joined at the
+    // next check; in a gallery's own folder it stayed for good, and was reported as the person's ('left')
+    // once the gallery was deleted.
+    name: 'review 6 F9 b: a picture write the drive leaves for a moment leaves nothing behind: no gallery of Shiori\'s pictures joins, and a deletion reports nothing',
+    platforms: ['website'],
+    async run({ dir, fx }) {
+      const a = await fx.register('A');
+      const A = path.join(dir, 'A'), b = await fx.lib.add(path.join(dir, 'B'));
+      await fx.lib.setDefault(a.id);
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 2; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.putTranslation(gid, 1, png(9));
+      await fx.lib.flush();
+      const reads = async (g, pages) => assert.deepEqual(await Promise.all(pages.map((_, i) => fx.lib.read(g, i + 1))), pages);
+      const nothingJoined = async (/** @type {string[]} */ want) => {
+        await fx.lib.flush();
+        for (const id of [a.id, b]) await fx.lib.scan(id);
+        assert.deepEqual((await fx.lib.galleries()).sort(), want.sort(), 'no gallery joins that nobody put there');
+      };
+      // Away at the writable's opening (the picture left empty) or at the look after its close (left whole).
+      for (const op of ['createWritable', 'getFile']) {
+        if (!(/** @type {string} */ (await fx.lib.dirOf(gid))).includes(`${path.sep}B${path.sep}`)) await fx.lib.move(gid, b);
+        const back = driveAway('website', A, (c) => c.op === op && c.path === 'Alpha/images/0001.png', { backAfter: 2 });
+        await fx.lib.move(gid, a.id).catch(() => {});
+        back();
+        await nothingJoined([gid]);
+        await reads(gid, [png(1), png(2)]);
+        assert.deepEqual(await fx.lib.read(gid, 1, 'translated'), png(9));
+      }
+      // A gallery's first pictures, in its own folder.
+      const beta = await fx.lib.newGallery('Beta');
+      for (const [n, op] of /** @type {[number, string][]} */ ([[1, 'createWritable'], [2, 'getFile']])) {
+        const back = driveAway('website', A, (c) => c.op === op && c.path === `Beta/images/000${n}.png`, { backAfter: 2 });
+        await fx.lib.putPage(beta, n, png(10 + n));
+        back();
+      }
+      await nothingJoined([gid, beta]);
+      await reads(beta, [png(11), png(12)]);
+      for (const g of [gid, beta]) await fx.lib.deleteGallery(g);
+      await fx.lib.flush();
+      await new Promise(r => setTimeout(r, 300));   // what a deletion leaves to do, once it commits
+      await /** @type {NonNullable<typeof fx.lib.restart>} */ (fx.lib.restart)();
+      await nothingJoined([]);
+      for (const id of [a.id, b]) assert.deepEqual((await fx.lib.scan(id)).problems, [], 'nothing reported');
+      await until(() => !fs.readdirSync(A).some(n => /^(Alpha|Beta)/.test(n)) && !fs.readdirSync(path.join(dir, 'B')).some(n => n.startsWith('Alpha')));
+      assert.deepEqual((await fx.lib.list()).filter(f => f.id === a.id || f.id === b).flatMap(f => f.attention), [], 'nothing on Needs attention');
+    },
+  },
+  {
+    // F9 (c) (review 6, the website): a deletion the drive leaves for a moment (away at the K-th call of its
+    // end, back two calls later) left the folders of the gallery's own it couldn't remove then —
+    // `Alpha/.shiori/d`, `Alpha/.shiori`, or `Alpha` empty — and answered 'left' for them (seven of the
+    // last nine calls: reported as the person's, for good), or took an empty `Alpha` for done.
+    name: 'review 6 F9 c: a deletion the drive leaves for a moment as it removes the gallery\'s folders reports nothing of its own, and leaves nothing',
+    platforms: ['website'],
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const A = path.join(dir, 'A');
+      // The removals of the folders a deletion empties, in the order it makes them.
+      const folders = (/** @type {{ op: string, path: string }} */ c) => c.op === 'removeEntry' && /^Alpha( \(\d+\))?(\/\.shiori(\/d)?|\/images|\/translated)?$/.test(c.path);
+      for (let k = 1; ; k++) {
+        const gid = await fx.lib.newGallery('Alpha');
+        for (let n = 1; n <= 3; n++) await fx.lib.putPage(gid, n, png(n));
+        await fx.lib.putTranslation(gid, 2, png(9));
+        await fx.lib.flush();
+        let seen = 0;
+        const back = driveAway('website', A, (c) => folders(c) && ++seen === k, { backAfter: 2 });
+        await fx.lib.deleteGallery(gid);
+        await fx.lib.flush();
+        await new Promise(r => setTimeout(r, 300));   // what a deletion leaves to do, once it commits
+        let left = true;
+        try { back(); } catch { left = false; }   // past the last removal: the drive never left
+        await /** @type {NonNullable<typeof fx.lib.restart>} */ (fx.lib.restart)();
+        await fx.lib.flush();
+        for (let i = 0; i < 2; i++) assert.deepEqual((await fx.lib.scan(ref.id)).problems, [], `nothing reported (removal ${k})`);
+        await until(() => !fs.readdirSync(A).some(n => n.startsWith('Alpha')));
+        assert.deepEqual([await fx.lib.galleries(), (await fx.lib.list()).find(f => f.id === ref.id).attention], [[], []], `removal ${k}`);
+        if (!left) break;
+      }
+    },
+  },
+  {
+    // F11 (review 6, the desktop): a folder the person made, a gallery's folder moved into it by hand, was
+    // deleted once that gallery was deleted or moved to another library folder — with its desktop.ini, or
+    // empty — as if it were a series' folder emptied of its members.
+    name: 'review 6 F11: a folder the person made is never deleted with a gallery that leaves it',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const A = path.join(dir, 'A'), B = await fx.lib.add(path.join(dir, 'B'));
+      await fx.lib.setDefault(ref.id);
+      const ini = '[.ShellClassInfo]\r\nIconResource=C:\\mine.ico,0\r\n';
+      for (const [shelf, withIni, leaves] of /** @type {[string, boolean, string][]} */ ([['My shelf', true, 'deleted'], ['Empty shelf', false, 'deleted'], ['Moving shelf', true, 'moved']])) {
+        const gid = await fx.lib.newGallery(`${shelf} gallery`);
+        await fx.lib.putPage(gid, 1, png(1));
+        await fx.lib.flush();
+        const at = path.join(A, shelf);
+        fs.mkdirSync(at);
+        if (withIni) fs.writeFileSync(path.join(at, 'desktop.ini'), ini);
+        fs.renameSync(/** @type {string} */ (await fx.lib.dirOf(gid)), path.join(at, 'Gallery'));   // moved into it by hand
+        await fx.lib.scan(ref.id);   // the check follows it there
+        if (leaves === 'deleted') await fx.lib.deleteGallery(gid); else await fx.lib.move(gid, B);
+        await fx.lib.flush();
+        await until(() => !fs.existsSync(path.join(at, 'Gallery')));
+        await new Promise(r => setTimeout(r, 300));   // what the deletion leaves to do, once it commits
+        assert.ok(fs.existsSync(at), `"${shelf}" stays, the gallery ${leaves}`);
+        if (withIni) assert.equal(fs.readFileSync(path.join(at, 'desktop.ini'), 'utf8'), ini);
+      }
+    },
+  },
+  {
+    // F12 (review 6, the desktop): a gallery in the desktop's oldest format is brought to the gallery format
+    // at its folder's first check, a page at a time: its picture renamed into images/, then its row pointed
+    // there. A failed look at the picture there (the review's: the look just after the rename), or a kill
+    // between the two, left the row naming the picture's old place: that page unreadable for good, and the
+    // conversion failing at every check after.
+    name: 'review 6 F12: a conversion from the oldest format cut short — by a failed look or a kill — picks up where it stopped',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      await fx.close();
+      const pictures = (/** @type {string} */ at) => fs.readdirSync(at, { recursive: true }).map(p => String(p).replaceAll('\\', '/')).filter(p => p.endsWith('.webp')).sort();
+      for (const [cut, n] of /** @type {['failed look' | 'kill', number][]} */ ([['failed look', 1], ['failed look', 2], ['kill', 1], ['kill', 2]])) {
+        const base = path.join(dir, `${cut} ${n}`), folder = path.join(base, 'A'), at = path.join(folder, 'Old one');
+        fs.mkdirSync(folder, { recursive: true });
+        legacyGallery(at);
+        const bytes = [1, 2].map(p => fs.readFileSync(path.join(at, `000${p}.webp`)));
+        let lib, id;
+        if (cut === 'kill') {
+          // Killed just as page n's rename returns: the picture in images/, its row not changed yet.
+          assert.equal(desktopKilled(base, async ({ lib, kill, folder, n }) => {
+            const fs = await import('node:fs');
+            const id = await lib.add(folder);
+            fs.writeFileSync(`${folder}-id`, id);
+            kill((c) => c.op === 'rename' && c.to?.endsWith(`/Old one/images/000${n}.webp`) && (fs.renameSync(c.path, c.to), true));
+            await lib.scan(id);
+          }, { folder, n }), 42, 'killed as the rename returned');
+          lib = await desktopLibrary(base);
+          id = fs.readFileSync(`${folder}-id`, 'utf8');
+        } else {
+          lib = await desktopLibrary(base);
+          id = await lib.add(folder);
+          faults.failNext((c) => c.op === 'stat' && c.path.endsWith(`/Old one/images/000${n}.webp`), 'EIO', { times: 1 });
+          await lib.scan(id);
+          faults.reset();
+        }
+        try {
+          await lib.scan(id);
+          assert.deepEqual((await lib.scan(id)).problems, [], `${cut} at page ${n}: nothing reported`);
+          await lib.restart?.();
+          const [gid] = await lib.galleries();
+          assert.deepEqual([await lib.read(gid, 1), await lib.read(gid, 2)].map(b => b && Buffer.from(b)), bytes, `${cut} at page ${n}: both pages read`);
+          assert.deepEqual(pictures(at), ['images/0001.webp', 'images/0002.webp'], 'every picture moved into images/');
+          assert.ok(fs.existsSync(path.join(at, '.shiori', 'gallery.json')), 'and the gallery published in the gallery format');
+        } finally { faults.reset(); await lib.close(); }
+      }
+    },
+  },
+  {
+    // Found in S22 (the desktop): a picture moved into its gallery's folder (files.js moveSync, renaming it
+    // under a name picked free) looked at its target with existsSync, which answers false for a look that
+    // fails too — and Windows' rename replaces a file. With the drive away for the two looks (the name picked
+    // free, then the move's own) and back at the rename, a page staged while the folder was another app's
+    // went over a file the person had put in the gallery's folder at that name.
+    name: 'S25: a picture moved into its gallery\'s folder never goes over a file there, the drive away for the looks at its name',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 2; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.flush();
+      const mine = path.join(/** @type {string} */ (await fx.lib.dirOf(gid)), 'images', '0003.png');
+      fs.writeFileSync(mine, 'the person\'s own file');
+      await fx.takeOver(ref);
+      await fx.lib.putPage(gid, 3, png(3));   // waits in the library's own staging: the folder is another app's
+      const back = driveAway('desktop', path.join(dir, 'A'), (c) => c.op === 'stat' && /\/desktop\/data\/staging\//.test(c.path), { backAfter: 1 });
+      try {
+        await fx.lib.raw.folderClaim(ref.id);   // taken back: the staged page goes to the folder
+        await fx.lib.flush();
+      } finally { back(); }
+      await fx.lib.flush();
+      assert.equal(fs.readFileSync(mine, 'utf8'), 'the person\'s own file', 'the person\'s file stays as it was');
+      assert.deepEqual(await fx.lib.read(gid, 3), png(3));
+    },
+  },
   // ── Linked galleries, removal notes and claims, under the same rule (review 6: F1, F2, F4, F10; O4) ──
   // What a check reads of a linked title (its pictures), of the overlays a folder holds for its linked
   // galleries (their source.json, their pages of their own), of removed.json, and what an app reads of

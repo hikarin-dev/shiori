@@ -140,7 +140,7 @@ export const written = () => ({ ..._totals });
 /** `data` written whole to `path` inside the folder — the file it replaces stays as it was until the
  * new one is complete. `within`: a folder on the way that must be there already (a gallery's own:
  * one gone meanwhile is never made again by a write into it — NotFoundError). Resolves the file as
- * written.
+ * written. A failure once the file was put in place whole (its look after) is thrown with `whole` set.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @param {Blob | string} data
  * @param {{ within?: string }} [options] @param {boolean} [retried] @returns {Promise<File>} */
 export async function writeFile(id, root, path, data, { within = '' } = {}, retried = false) {
@@ -155,7 +155,8 @@ export async function writeFile(id, root, path, data, { within = '' } = {}, retr
   const stream = await handle.createWritable();
   /** @type {any} */ (stream).__shioriKind = 'folder';   // disk-writes.js counts it as the folder's
   try { await stream.write(data); await stream.close(); } catch (e) { try { await stream.abort(); } catch {} throw e; }
-  const file = await handle.getFile();
+  let file;
+  try { file = await handle.getFile(); } catch (e) { throw Object.assign(/** @type {object} */ (e), { whole: true }); }
   _count(name, file.size);
   return file;
 }
@@ -313,9 +314,12 @@ export function withLock(name, fn) {
  * — its metadata.json (`metadata`, the gallery's description) stored by its content, then the manifest,
  * so nothing names the gallery before it (review 4 F2); its stable-named copies come with its first
  * publication. A write that fails takes back what was written, as far as it can: a folder left so
- * names no gallery. The only way a folder becomes a gallery's (contract.js reserve; principle 2).
- * `taken`: names passed over though nothing may be there (a deletion still waits on them: a new folder
- * there would be taken for the one it deletes). Resolves its name.
+ * names no gallery — and one it can't take back now (a look or a deletion failing: the drive away for a
+ * moment) is thrown as `left` ({ dir: its name, files: [{ name, size, mtime }], what may be in it as the
+ * failed writes left it }), for the caller to keep recorded as a deletion (review 6 F9 b). The only way
+ * a folder becomes a gallery's (contract.js reserve; principle 2). `taken`: names passed over though
+ * nothing may be there (a deletion still waits on them: a new folder there would be taken for the one it
+ * deletes). Resolves its name.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} base @param {string} metadata
  * @param {{ gid: string, writer: string, taken?: Set<string> }} gallery @returns {Promise<string>} */
 export function reserveDir(id, root, base, metadata, { gid, writer, taken = new Set() }) {
@@ -324,15 +328,21 @@ export function reserveDir(id, root, base, metadata, { gid, writer, taken = new 
     for (let i = 2; taken.has(name) || await _taken(id, root, name); i++) name = `${base} (${i})`;
     const plan = await publication({ area: '.shiori/', prev: null, next: firstGeneration(gid, writer), texts: { 'metadata.json': metadata } });
     const writes = [...plan.writes, { path: manifestPath('.shiori/'), text: plan.text }];
+    let at = 0;
     try {
-      for (const [i, w] of writes.entries()) await writeFile(id, root, _join(name, w.path), w.text, { within: i ? name : '' });
+      for (const [i, w] of writes.entries()) { at = i; await writeFile(id, root, _join(name, w.path), w.text, { within: i ? name : '' }); }
     } catch (e) {
       // Each file there that is what was written, or the empty one a failed write leaves, deleted; then
       // the folders left empty (the folder was free: nothing in it is anyone else's).
-      for (const w of writes) {
-        await _fileAt(id, root, _join(name, w.path)).then(f => (f && (!f.size || f.size === new Blob([w.text]).size) ? removeFile(id, root, _join(name, w.path)) : undefined)).catch(() => {});
+      /** @type {{ name: string, size: number, mtime: number | null }[]} */
+      const files = [];
+      for (const [i, w] of writes.slice(0, at + 1).entries()) {
+        const size = new Blob([w.text]).size;
+        const f = await _fileAt(id, root, _join(name, w.path)).catch(() => undefined);
+        if (f === undefined) files.push({ name: w.path, size: i < at || /** @type {any} */ (e)?.whole ? size : 0, mtime: null });
+        else if (f && (!f.size || f.size === size)) await removeFile(id, root, _join(name, w.path)).catch(() => files.push({ name: w.path, size: f.size, mtime: f.lastModified }));
       }
-      await _prune(id, root, name);
+      if (!(await _prune(id, root, name))) throw Object.assign(/** @type {object} */ (e), { left: { dir: name, files } });
       throw e;
     }
     return name;
@@ -344,7 +354,8 @@ export function reserveDir(id, root, base, metadata, { gid, writer, taken = new 
  * images/0001-3fa2c9e1.webp: gallery-files.js pageNumberOf reads both), so a file something refers to
  * is never written over. `dir` (a gallery's own folder) must be there: one gone meanwhile is never
  * made again (NotFoundError). Resolves { path, file }: where it went (in `dir`), and the file as
- * written.
+ * written. Rejects with the write's error — with `left` ({ name, size, mtime }: in `dir`) when it may have
+ * left a file that couldn't be deleted now (below), for the caller to keep recorded and delete later.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @param {string} path
  * @param {Blob | string} data @returns {Promise<{ path: string, file: File }>} */
 export async function writeNew(id, root, dir, path, data) {
@@ -352,12 +363,19 @@ export async function writeNew(id, root, dir, path, data) {
   while (await _taken(id, root, `${dir}/${at}`)) at = path.replace(/(\.[^./]*)?$/, (ext) => `-${_randomPart()}${ext}`);
   try { return { path: at, file: await writeFile(id, root, `${dir}/${at}`, data, { within: dir }) }; } catch (e) {
     // A write that failed can leave a file at that name, where nothing was: the empty one
-    // getFileHandle({ create }) made, or the one written whole before a later call failed. Deleted too
-    // while it is one of those (empty, or as long as what was written), so nothing unrecorded stays —
-    // a folder whose reservation is undone keeps no picture for a check to add as new.
+    // getFileHandle({ create }) made, or the one written whole before a later call failed (`whole`).
+    // Deleted too while it is one of those (empty, or as long as what was written), so nothing unrecorded
+    // stays — a folder whose reservation is undone keeps no picture for a check to add as new. One that
+    // can't be looked at or deleted now (the drive away for a moment: a "not found" the shared rule doesn't
+    // take) is thrown as `left`, at the size that write left it (review 6 F9 b).
     const size = typeof data === 'string' ? new Blob([data]).size : data.size;
-    await _fileAt(id, root, `${dir}/${at}`).then(f => (f && (!f.size || f.size === size) ? removeFile(id, root, `${dir}/${at}`) : undefined)).catch(() => {});
-    throw e;
+    const file = await _fileAt(id, root, `${dir}/${at}`).catch(() => undefined);
+    /** @type {{ name: string, size: number, mtime: number | null } | null} */
+    let left = file === undefined ? { name: at, size: /** @type {any} */ (e)?.whole ? size : 0, mtime: null } : null;
+    if (file && (!file.size || file.size === size)) {
+      await removeFile(id, root, `${dir}/${at}`).catch(() => { left = { name: at, size: file.size, mtime: file.lastModified }; });
+    }
+    throw left ? Object.assign(/** @type {object} */ (e), { left }) : e;
   }
 }
 const _randomPart = () => [...crypto.getRandomValues(new Uint8Array(4))].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -538,9 +556,17 @@ export async function deleteGalleryIn(id, root, dir, gid, named) {
     if (after.kind === 'ok' || after.kind === 'unreadable') return false;
   }
   if (await _prune(id, root, dir)) return true;
-  // Not pruned: something is left in it (a listing that can't be made: tried again, the folder there).
-  const left = await list(id, root, dir).catch(() => null);
-  return !left ? false : left.length ? 'left' : true;
+  // Not pruned: 'left' only for a file in it — the person's, or one changed since Shiori wrote it, as the
+  // desktop's holdsFile tells. Folders of its own it couldn't remove now (the drive away for a moment), or
+  // a listing that can't be made, leave the deletion recorded, tried again (review 6 F9 c).
+  return _holdsFile(id, root, dir).then(held => (held ? 'left' : false), () => false);
+}
+/** Whether folder `dir` holds a file, in it or in a folder of it (none: it isn't there, as the shared rule
+ * takes it — list; one that can't be listed is thrown).
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @returns {Promise<boolean>} */
+async function _holdsFile(id, root, dir) {
+  for (const e of await list(id, root, dir)) if (e.kind !== 'directory' || await _holdsFile(id, root, _join(dir, e.name))) return true;
+  return false;
 }
 /** The folders under `dir` left empty, then `dir` itself once it is, removed — as far as they can be.
  * Resolves whether `dir` is gone.
