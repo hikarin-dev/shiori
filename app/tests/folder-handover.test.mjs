@@ -24,7 +24,7 @@ import { desktopLibrary, webLibrary, desktopKilled } from './library-drivers.mjs
 import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
 import { zipCreate } from '../js/zip.js';
-import { legacyGallery, v1Gallery } from './fixtures/storage-fixtures.mjs';
+import { legacyGallery, v1Gallery, seriesExport } from './fixtures/storage-fixtures.mjs';
 
 const png = (...tag) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, ...tag]);
 const webp = (...tag) => new Uint8Array([0x52, 0x49, 0x46, 0x46, ...tag]);
@@ -212,6 +212,32 @@ const CASES = [
       await to.remove(id);
       await to.scan(await to.add(shared));
       assert.deepEqual(await to.marks(made.gid), { favorite: false });
+    },
+  },
+  {
+    // A5 (review 7): a chapter of a series export deleted on the website, which reads the export in place,
+    // came back on the desktop: nothing noted the chapter removed, so the desktop's first check unpacked it
+    // with the rest, and it joined again. Both apps' checks honour the note for that chapter; on the desktop
+    // a series export's chapters are folders (it unpacks it), each deleted as any.
+    name: 'review 7 A5: a chapter of a series export deleted on one app never comes back on the other',
+    async run({ dir, from, to }) {
+      const shared = path.join(dir, 'shared');
+      const [one, two, three] = seriesExport(shared, (n) => png(0, n));
+      const id = await from.add(shared);
+      await from.setDefault(id);
+      await from.scan(id);
+      await from.deleteGallery(two);
+      await from.flush();
+      await new Promise(r => setTimeout(r, 400));
+      await from.setDefault(from.home);
+      await from.remove(id);
+      const back = await to.add(shared);
+      for (let k = 1; k <= 2; k++) {
+        const r = await to.scan(back);
+        await to.flush();
+        assert.deepEqual([r.problems, (await to.galleries()).sort()], [[], [one, three]], `check ${k}: the chapter deleted doesn't come back`);
+      }
+      assert.deepEqual([await to.read(one, 1), await to.read(two, 1), await to.read(three, 1)], [png(0, 1), null, png(0, 3)], 'the others read');
     },
   },
 ];

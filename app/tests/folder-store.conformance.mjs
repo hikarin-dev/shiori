@@ -17,7 +17,7 @@ import path from 'node:path';
 import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
 import { desktopLibrary, webLibrary, desktopKilled, pageNow, pageCalling } from './library-drivers.mjs';
-import { v1Gallery, legacyGallery } from './fixtures/storage-fixtures.mjs';
+import { v1Gallery, legacyGallery, seriesExport } from './fixtures/storage-fixtures.mjs';
 import { loadGallery as desktopLoad } from '../../desktop/server/folder-store.js';
 import { loadGallery as websiteLoad, forgetFolder } from '../js/storage/folder-store-web.js';
 import { zipCreate } from '../js/zip.js';
@@ -2920,7 +2920,192 @@ export const CASES = [
       }
     },
   },
+  // ── Deletions that end (S28a) ──
+  {
+    // A1 (review 7, both apps; made by S24 and S25b): a gallery deleted after the person moved its folder out
+    // waits for a check to meet that folder, and was forgotten only by a check that read everything in the
+    // library folder — so one holding a thing a check reads and finds damaged (a download cut short) kept
+    // the deletion owed for good: the folder's removal refused at every try short of "Remove anyway", and the
+    // gallery's folder, moved back later, deleted at the next check. What was read and is damaged isn't the
+    // deleted gallery: the check forgets the deletion, the removal goes through, and a folder moved back later
+    // is the person's copy, which joins (plan §8).
+    name: 'review 7 A1: a library folder holding a damaged archive keeps no deletion owed: it is removed at once, or the folder moved back joins',
+    async run({ dir, fx }) {
+      for (const [i, then] of ['removed', 'moved back'].entries()) {
+        const name = `A${i}`, A = path.join(dir, name);
+        fs.mkdirSync(A);
+        fs.writeFileSync(path.join(A, 'old download.zip'), 'this is not a zip archive, it was cut short');
+        const ref = await fx.register(name);
+        const gid = await fx.lib.newGallery('Alpha');
+        for (let n = 1; n <= 3; n++) await fx.lib.putPage(gid, n, png(n));
+        await fx.lib.flush();
+        const outside = path.join(dir, `outside ${i}`);
+        fs.mkdirSync(outside);
+        fs.renameSync(/** @type {string} */ (await fx.lib.dirOf(gid)), path.join(outside, 'Alpha'));   // the person moves it out
+        await fx.lib.scan(ref.id);
+        await fx.lib.deleteGallery(gid);   // and deletes the gallery, missing
+        await fx.lib.flush();
+        await new Promise(r => setTimeout(r, 300));
+        await fx.lib.setDefault(fx.lib.home);
+        const checked = await fx.lib.scan(ref.id);
+        assert.deepEqual(checked.problems.map(p => `${p.reason} ${p.path}`), ['corrupt old download.zip'], `${then}: the damaged archive is reported`);
+        if (then === 'removed') {
+          await fx.lib.remove(ref.id);
+          assert.ok(!(await fx.lib.list()).some(f => f.id === ref.id), 'the removal goes through');
+          continue;
+        }
+        await /** @type {() => Promise<void>} */ (fx.lib.restart)();
+        fs.renameSync(path.join(outside, 'Alpha'), path.join(A, 'Alpha'));   // later, the person moves it back
+        await fx.lib.scan(ref.id);
+        await fx.lib.flush();
+        assert.ok(fs.existsSync(path.join(A, 'Alpha')), 'the folder moved back is kept');
+        assert.deepEqual([await fx.lib.galleries(), await fx.lib.read(gid, 1), await fx.lib.read(gid, 3)], [[gid], png(1), png(3)], 'it joins, whole: the person\'s copy');
+      }
+    },
+  },
+  {
+    // A1's other form (review 7): what a check can't read at all (a folder the person's account may not
+    // list) may hold the gallery's folder, so a check that couldn't read it can't rule the deletion out — and
+    // such a folder is never read, so the deletion waited for good. It is given up after three looks that
+    // couldn't read everything (a check's, or a removal's, which looks as a check does), counted with the
+    // deletion across a restart; until then the removal is refused as with unsaved work. A folder that turns
+    // up later is the person's copy, which joins (plan §8).
+    name: 'review 7 A1: a deletion a check can\'t rule out is given up after three looks that couldn\'t read everything, the removal refused only till then',
+    async run({ dir, fx, platform }) {
+      const A = path.join(dir, 'A');
+      fs.mkdirSync(path.join(A, 'Locked'), { recursive: true });
+      fs.writeFileSync(path.join(A, 'Locked', 'mine.txt'), 'the person\'s');
+      const ref = await fx.register('A');
+      const off = platform === 'desktop' ? faults.failNext((c) => c.op === 'readdir' && c.path.endsWith('/A/Locked'), 'EPERM', { times: Infinity })
+        : fsa.failNext((c) => c.op === 'entries' && c.path === 'Locked', 'NotReadableError', { times: Infinity });
+      try {
+        const gid = await fx.lib.newGallery('Alpha');
+        for (let n = 1; n <= 2; n++) await fx.lib.putPage(gid, n, png(n));
+        await fx.lib.flush();
+        const outside = path.join(dir, 'outside');
+        fs.mkdirSync(outside);
+        fs.renameSync(/** @type {string} */ (await fx.lib.dirOf(gid)), path.join(outside, 'Alpha'));
+        await fx.lib.scan(ref.id);
+        await fx.lib.deleteGallery(gid);
+        await fx.lib.flush();
+        await new Promise(r => setTimeout(r, 300));
+        await fx.lib.setDefault(fx.lib.home);
+        const restart = /** @type {() => Promise<void>} */ (fx.lib.restart);
+        const unread = (/** @type {{ problems: { path: string, reason: string }[] }} */ r) => r.problems.some(p => p.reason === 'unreadable' && p.path === 'Locked');
+        assert.ok(unread(await fx.lib.scan(ref.id)), 'the first look: a check that can\'t read Locked');
+        await restart();
+        await assert.rejects(fx.lib.remove(ref.id), (e) => /** @type {any} */ (e).errorKey === 'lf.task_kept', 'the second, the removal\'s: refused, the deletion still owed');
+        await restart();
+        assert.ok(unread(await fx.lib.scan(ref.id)), 'the third');
+        fs.renameSync(path.join(outside, 'Alpha'), path.join(A, 'Alpha'));   // later, the person moves it back
+        await fx.lib.scan(ref.id);
+        await fx.lib.flush();
+        assert.deepEqual([await fx.lib.galleries(), await fx.lib.read(gid, 1), await fx.lib.read(gid, 2)], [[gid], png(1), png(2)], 'given up: the folder moved back joins');
+        await fx.lib.remove(ref.id);
+        assert.ok(!(await fx.lib.list()).some(f => f.id === ref.id), 'the removal goes through');
+      } finally { off(); }
+    },
+  },
+  {
+    // Found in S27 (the desktop): a gallery whose folder holds a junction the person made — where its
+    // pictures are, where its .shiori is, or its folder itself one — was deleted by name through the link,
+    // which every call refuses (principle 5), so the deletion stayed owed for good: tried at every check, the
+    // library folder's removal refused short of "Remove anyway". What is behind a link is the person's: the
+    // deletion takes what it can show to be Shiori's without going through one — nothing, where what names
+    // the folder the gallery's is behind it — the folder is reported once as holding the person's files, and
+    // it ends. The folder joins only once the junction is undone: a folder the person put there.
+    name: 'S28a: a gallery whose folder holds a junction is deleted as far as Shiori can without going through it, and its deletion ends',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      for (const [i, sub] of ['images', '.shiori', ''].entries()) {
+        const form = sub ? `${sub} junctioned` : 'its folder junctioned';
+        const name = `A${i}`;
+        const ref = await fx.register(name);
+        const gid = await fx.lib.newGallery('Alpha');
+        for (let n = 1; n <= 2; n++) await fx.lib.putPage(gid, n, png(n));
+        await fx.lib.putTranslation(gid, 1, png(7));
+        await fx.lib.flush();
+        const at = /** @type {string} */ (await fx.lib.dirOf(gid)), linked = sub ? path.join(at, sub) : at, aside = path.join(dir, `elsewhere ${i}`);
+        fs.renameSync(linked, aside);   // the person moves it to another place, and junctions it back
+        faults.junction(aside, linked);
+        const behind = snapshot(aside);
+        await fx.lib.scan(ref.id);
+        await fx.lib.deleteGallery(gid);
+        await fx.lib.flush();
+        await until(() => !fx.lib.raw.files._deletingRows(ref.id).length);
+        assert.deepEqual(snapshot(aside), behind, `${form}: what is behind the link is as it was`);
+        const left = async () => (await fx.lib.list()).find(f => f.id === ref.id).attention.filter((/** @type {any} */ a) => a.reason === 'left');
+        assert.deepEqual(await left(), [{ reason: 'left', path: 'Alpha', gid }], `${form}: reported once as left`);
+        if (sub === 'images') {
+          assert.deepEqual(fs.readdirSync(at, { recursive: true }).map(String).filter(p => fs.statSync(path.join(at, p), { throwIfNoEntry: false })?.isFile() && !p.startsWith('images')), [],
+            `${form}: every file of Shiori's beside the link deleted`);
+        }
+        for (const check of ['first', 'next']) {
+          const found = await fx.lib.scan(ref.id);
+          // A gallery's description behind a link is never read (review 7 A2): the folder says so while it is.
+          assert.deepEqual(found.problems.map(p => `${p.reason} ${p.path}`), sub === '.shiori' ? ['unreadable Alpha'] : [], `${form}, the ${check} check`);
+          assert.deepEqual(await fx.lib.galleries(), [], `${form}, the ${check} check: nothing joins`);
+        }
+        assert.deepEqual(await left(), [{ reason: 'left', path: 'Alpha', gid }], `${form}: still reported once`);
+        fs.rmSync(linked);
+        fs.renameSync(aside, linked);   // the junction undone
+        assert.deepEqual((await fx.lib.scan(ref.id)).problems, [], `${form}: nothing reported once it is undone`);
+        const joined = await fx.lib.galleries();
+        if (sub === 'images') assert.ok(joined.length === 1 && joined[0] !== gid && same(await fx.lib.read(joined[0], 2), png(2)), `${form}: its pictures join as the person's`);
+        else assert.deepEqual([joined, await fx.lib.read(gid, 1, 'translated')], [[gid], png(7)], `${form}: it joins whole as the person's copy`);
+        await fx.lib.setDefault(fx.lib.home);
+        await fx.lib.remove(ref.id);
+        assert.ok(!(await fx.lib.list()).some(f => f.id === ref.id), `${form}: the removal goes through`);
+      }
+    },
+  },
+  {
+    // A5 (review 7, the website): a chapter of a series export the website reads in place, deleted, joined
+    // again at the next check — its deletion recorded the archive, which couldn't go (another chapter lives in
+    // it), and nothing noted the chapter removed — and since S26a another chapter of it was reported a copy at
+    // every check. A chapter of an archive read in place is deleted from the library alone (the archive, the
+    // person's file, never changed for it): its removal is noted for that chapter in the folder's
+    // removed.json, which every check honours — on both apps — and the archive is neither reported left nor
+    // noted removed while another chapter lives in it. The desktop unpacks a series export at its folder's
+    // first check: its chapters are folders, each deleted as any.
+    name: 'review 7 A5: a chapter of a series export deleted stays deleted, at every check and once its folder is added again',
+    async run({ dir, fx, platform }) {
+      const A = path.join(dir, 'A');
+      const [one, two, three] = seriesExport(A, (n) => png(n));
+      const id = await fx.lib.add(A);
+      await fx.lib.setDefault(id);
+      await fx.lib.scan(id);
+      assert.deepEqual((await fx.lib.galleries()).sort(), [one, two, three]);
+      await fx.lib.deleteGallery(two);
+      await fx.lib.flush();
+      await new Promise(r => setTimeout(r, 400));
+      const stays = async (/** @type {string} */ when) => {
+        for (let k = 0; k < 2; k++) {
+          const r = await fx.lib.scan(id);
+          assert.deepEqual([r.added, r.problems, (await fx.lib.galleries()).sort()], [0, [], [one, three]], `${when}: nothing joins, nothing reported`);
+        }
+        assert.deepEqual([await fx.lib.read(two, 1), await fx.lib.read(one, 1), await fx.lib.read(three, 1)], [null, png(1), png(3)], `${when}: the chapter stays deleted`);
+      };
+      await stays('after the deletion');
+      if (platform === 'website') {
+        const removed = JSON.parse(fs.readFileSync(path.join(A, '.shiori', 'linked', 'removed.json'), 'utf8')).removed;
+        assert.ok(removed.some((/** @type {any} */ r) => r.path === 'Series.zip' && r.inner === 'Two/'), 'its removal noted for the chapter');
+        assert.ok(!removed.some((/** @type {any} */ r) => r.path === 'Series.zip' && !r.inner), 'the archive itself not noted removed');
+        assert.deepEqual((await fx.lib.list()).find(f => f.id === id).attention, [], 'nor reported left');
+      }
+      await fx.lib.setDefault(fx.lib.home);
+      await fx.lib.remove(id);
+      const again = await fx.lib.add(A);
+      await fx.lib.setDefault(again);
+      await fx.lib.scan(again);
+      await fx.lib.flush();
+      await fx.lib.scan(again);
+      assert.deepEqual((await fx.lib.galleries()).sort(), [one, three], 'added again: the chapter doesn\'t come back');
+      assert.equal(await fx.lib.read(two, 1), null);
+    },
+  },
 ];
+const same =(/** @type {Uint8Array | null} */ a, /** @type {Uint8Array} */ b) => !!a && a.length === b.length && a.every((x, i) => x === b[i]);
 
 // Gallery `gid` reserved in `root` and published twice through the adapter: the first generation
 // (titled First, one page, its translation `first`), then the second (titled Second, a second page and

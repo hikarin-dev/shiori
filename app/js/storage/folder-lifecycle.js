@@ -7,8 +7,9 @@
 //   only the library has of them (that write-back alone writes to it), then forgetting it.
 // Work on a folder (its check, its removal) runs one job at a time, in its queue (jobPlan); a removal
 // forgets the folder only when everything is saved there, or the person chose to discard what isn't
-// (removalOutcome). Pure: the browser library (db.js, folder-library.js, folder-scan.js) and the
-// desktop app's (server/folders.js) keep the state and run the work.
+// (removalOutcome), and a deletion the folder owes ends as unfoundEnd says. Pure: the browser library
+// (db.js, folder-library.js, folder-scan.js) and the desktop app's (server/folders.js, files.js, scan.js)
+// keep the state and run the work.
 
 /** @typedef {'shown' | 'hidden' | 'removing'} State */
 /** @type {State[]} */
@@ -104,4 +105,28 @@ export function removalOutcome({ required, saved, discard = false }) {
   const done = new Set([...saved].map(String));
   const unsaved = [...new Set([...required].map(String))].filter(gid => !done.has(gid));
   return { forget: !!discard || !unsaved.length, unsaved };
+}
+
+// A gallery deleted while its folder or archive wasn't where the library had it (moved, renamed or deleted
+// by hand) waits `unfound` — owed by its library folder, whose removal is refused while it waits — for a look
+// at that folder (a check, or its removal's, which looks as a check does) to meet a folder or archive naming
+// it, deleted there and never adopted (S10's F4). A look that didn't meet it rules it out once it could tell
+// whose everything it walked is: what it couldn't read at all (leavesOpen: a folder it couldn't list, a
+// description or an archive it couldn't read) may be the gallery's, while what it read, damaged or not, isn't
+// (review 6 F6, review 7 A1). A deletion looks can't rule out is given up after UNFOUND_LOOKS of them — a
+// folder holding a thing no look ever reads would keep it for good — and a folder naming the gallery that
+// turns up later is the person's copy, which joins (plan §8).
+export const UNFOUND_LOOKS = 3;
+// Whether a problem a look reports ({ reason }) leaves open whose the thing is: only what couldn't be read.
+/** @param {{ reason: string }} problem @returns {boolean} */
+export const leavesOpen = (problem) => problem.reason === 'unreadable';
+// What a look's end does with a deletion waiting `unfound`: `met` — it met the gallery's folder or archive
+// (deleted there: kept until that is done); `whole` — nothing it walked leaves the question open; `misses`
+// — the looks it waited through already that couldn't rule it out. Resolves 'keep', 'forget', or the
+// deletion's count of such looks from now on.
+/** @param {{ met: boolean, whole: boolean, misses?: number | null }} look @returns {'keep' | 'forget' | number} */
+export function unfoundEnd({ met, whole, misses = 0 }) {
+  if (met) return 'keep';
+  const next = (misses ?? 0) + 1;
+  return whole || next >= UNFOUND_LOOKS ? 'forget' : next;
 }

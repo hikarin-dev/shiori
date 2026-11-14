@@ -25,9 +25,9 @@ import * as platform from './platform.js';
 import * as folderFiles from './storage/folder-store-web.js';
 import { BackendError } from './backend-error.js';
 import { OWNER_FILE, readClaim, nextClaim, releasedClaim, unchangedSince } from './storage/folder-owner.js';
-import { mounted, canHide, nextDefault, removalOutcome } from './storage/folder-lifecycle.js';
+import { mounted, canHide, nextDefault, removalOutcome, leavesOpen } from './storage/folder-lifecycle.js';
 import { OWN_FILES, MANIFEST_FILE, TEMPORARY, galleryIdOf, classifyFolder, classifyArchive, holdsNothing } from './storage/folder-content.js';
-import { LINKED_DIR, SOURCE_FILE, REMOVED_FILE, IMAGE_NAME, ARCHIVE_NAME, overlayDir, sourceText, parseSource, parseRemoved, isRemoved,
+import { LINKED_DIR, SOURCE_FILE, REMOVED_FILE, IMAGE_NAME, ARCHIVE_NAME, overlayDir, sourceText, parseSource, parseRemoved, isRemoved, chapterRemoved,
   folderPrint, folderContent, crcHex, metaFromName, planTitles, zipTitles, sortPictures, linkedPages, keepsDerived, sameSource, sameProvenance,
   pdfReady, pdfWaits, matchSources, PDF_HEAD, pdfPrint, drawnFrom, isDrawing } from './storage/linked-source.js';
 import { DESCRIPTION_FILES, descriptionStamp, layoutPath, extOfType, describedFiles, derivedRecord } from './storage/gallery-files.js';
@@ -672,10 +672,10 @@ async function _check(id, { onProgress = () => {}, stopped = () => false } = {})
   await _tidySeriesLinks(changed, run.id);
   for (const gid of changed) K.publishFeed(gid);
   // What it found, for the folder's Needs attention list (D15), and a deletion whose gallery's folder it
-  // didn't meet forgotten — not when it was stopped part way, nor when its walk couldn't read everything
-  // (review 6 F6).
+  // didn't meet forgotten — not when it was stopped part way; when its walk couldn't read everything, once
+  // a few such looks didn't (review 6 F6, review 7 A1).
   if (!stopped()) await K.noteChecked(id, [...run.problems, ...run.unreferenced]).catch(() => {});
-  if (!stopped() && found.whole) await K.forgetUnfound(id, run.met).catch(() => {});
+  if (!stopped()) await K.endUnfound(id, run.met, found.whole).catch(() => {});
   return { added: run.added.length, updated: run.updated.size, problems: run.problems, stopped: !!stopped() };
 }
 // The linked galleries kept here (`kept`) marked missing while their source isn't where it was —
@@ -712,9 +712,9 @@ async function _leftovers(run, stat) {
 // Deletions waiting `unfound` in folder `id` (their gallery's folder wasn't where they had it: F4)
 // finished before the folder is let go (its removal: `work`): its galleries looked for as a check finds
 // them, one naming such a gallery deleted where it is (db.js deletedFound) — once the folder is forgotten,
-// nothing would keep the next library adding it from adopting it again. Then, as a check's end, those it
-// didn't meet are forgotten only when it read all of the folder (review 6 F6); what is still recorded is
-// owed, and the removal refused while it is.
+// nothing would keep the next library adding it from adopting it again. Then it ends as a check's does
+// (db.js endUnfound: review 6 F6, review 7 A1); what is still recorded is owed, and the removal refused
+// while it is.
 async function _finishUnfound(id, work) {
   const unfound = new Map((await K.deletions(id)).filter(d => d.unfound).map(d => [String(d.gid), d]));
   const root = unfound.size ? await K.rootOf(id, { work }) : null;
@@ -725,7 +725,7 @@ async function _finishUnfound(id, work) {
     const d = !own.series && !known.has(own.id) && unfound.get(own.id);
     if (d) { met.add(d.id); await K.deletedFound(d, id, own.path, work); }
   }
-  if (found.whole) await K.forgetUnfound(id, met);
+  await K.endUnfound(id, met, found.whole);
 }
 // A check's progress, step by step (each counted on its own).
 function _steps(run, onProgress) {
@@ -744,7 +744,7 @@ function _steps(run, onProgress) {
 // everything else }. A gallery's folder still as its reservation made it (classifyFolder `reserved`) is
 // Shiori's but no gallery found: what was to be put in it may never have committed (S12, review 4 F2).
 // A folder that can't be listed, an archive that can't be read, are reported; `whole`: none was — every
-// folder walked was read.
+// folder walked was read, an archive found damaged among them (folder-lifecycle.js leavesOpen).
 const WALK_DEPTH = 12;
 async function _walk(run, skip, from = '') {
   const out = { own: [], ownPaths: [], files: [], whole: true };
@@ -773,7 +773,7 @@ async function _walk(run, skip, from = '') {
     }
   };
   await walk(from, from ? from.split('/').length : 0);
-  out.whole = run.problems.length === before;
+  out.whole = !run.problems.slice(before).some(leavesOpen);
   return out;
 }
 // The titles a check of folder `id` (its handle `root`) would find in its folder `dir` (what a gallery's
@@ -834,7 +834,9 @@ const _entryText = async (entry) => new TextDecoder().decode(await entry.read())
 // not where the deletion had it (or archived by the other app since: db.js _deleteDir), is deleted here
 // instead (F4); an archive a deletion left whole, as it
 // was left (removed.json: the person's files in it, F6), is left — as is every such archive while
-// removed.json can't be read (`run.removed` null: review 6 F4), till a check reads it.
+// removed.json can't be read (`run.removed` null: review 6 F4), till a check reads it. A chapter of a
+// series export whose removal removed.json notes (its own note, or the archive's: db.js _goneLater) is no
+// gallery's — never joined, nor taken for a copy of one it left for a folder (review 7 A5).
 async function _joinOwn(run, found, kept) {
   if (found.legacy) { run.problems.push({ path: found.path, reason: 'unsupported' }); return; }
   if (found.series) {
@@ -842,6 +844,8 @@ async function _joinOwn(run, found, kept) {
     return;
   }
   try {
+    if (found.inner && (!run.removed || (run.removed.some(r => r.path === found.path) && chapterRemoved(run.removed,
+      { path: found.path, inner: found.inner, fingerprint: (await K.archiveOf(run.id, run.root, found.path))?.fingerprint ?? null })))) return;
     if (!run.known.has(found.id)) {
       const deleted = run.deleted.get(found.id);
       if (deleted) {
@@ -1146,7 +1150,9 @@ const _pdfPrint = async (file) => pdfPrint(file.size, await sha256Hex(await file
 // Source `source`'s fingerprint as its files are now in folder `id` (its handle `root`; null when they
 // can't be read): what a note that it was removed carries (db.js publishRemoved), so a source changed
 // since the library last checked it isn't taken for a new one (N3; the desktop's folders.js does alike).
+// An archive's is its own, whichever of its titles or chapters is noted.
 async function fingerprintNow(id, root, source) {
+  if (source.kind === 'zip') return (await K.archiveOf(id, root, source.path).catch(() => null))?.fingerprint ?? null;
   return (await _titlePictures({ id, root, problems: [] }, source))?.fingerprint ?? null;
 }
 

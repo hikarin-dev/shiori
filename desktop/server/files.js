@@ -56,7 +56,7 @@ import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { readDirectory, directoryEnd, readEntry, writeZip, appendZip } from './zip.js';
-import { files as layout, galleryExport, linked as linkedSource, content, titles, contract, manifest as format, BackendError } from './shared.js';
+import { files as layout, galleryExport, linked as linkedSource, content, titles, contract, manifest as format, lifecycle, BackendError } from './shared.js';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS files (
@@ -111,9 +111,11 @@ CREATE TABLE IF NOT EXISTS deleting (
 // of that; { size, mtime, unpacked: true, took } as an unpack read one not in the gallery format, with
 // the entries it took), recorded by the transaction that let it go and deleted by name once that commits
 // (applyDeletions), or at the next start; a check meanwhile leaves it alone (N2, N4). `unfound`: its
-// folder or archive wasn't where it has it (renamed or moved by hand: F4) — kept until a check of its
-// library folder has ended, which deletes the folder naming the gallery where it meets one, never
-// adopting it. `zip_size`, `zip_mtime` (`files`): an archive's size and modification time as Shiori
+// folder or archive wasn't where it has it (renamed or moved by hand: F4) — kept until a look at its
+// library folder (a check, its removal's) rules it out, or meets the folder naming the gallery and deletes
+// it there, never adopting it; `misses`, the looks it waited through that couldn't rule it out
+// (folder-lifecycle.js unfoundEnd: given up after a few). `zip_size`, `zip_mtime` (`files`): an
+// archive's size and modification time as Shiori
 // last wrote it (F6). `moving` (`files`): where its folder or archive is being renamed to (a move within
 // a drive: moveTo, _regroup), set before the rename and cleared by the transaction that switches it
 // over, so a rename the app stopped in is finished, or found not done, at the next start (finishMoves;
@@ -137,7 +139,7 @@ const REGROUP_RETRY = 10_000;  // how soon a folder Windows wouldn't move is tri
 const PUBLISH_EVERY = 20;      // pages stored before a gallery being downloaded is published (D12)
 const NAMED_TTL = 2000;        // how long a gallery's folder found to name it is taken to, for reads (_namesIt)
 const COLUMNS = { files: { unpack: 'INTEGER NOT NULL DEFAULT 0', used_at: 'REAL', tail: 'REAL', source: 'TEXT', zip_size: 'INTEGER', zip_mtime: 'REAL', moving: 'TEXT',
-  converting: 'INTEGER NOT NULL DEFAULT 0' }, deleting: { unfound: 'INTEGER NOT NULL DEFAULT 0' } };
+  converting: 'INTEGER NOT NULL DEFAULT 0' }, deleting: { unfound: 'INTEGER NOT NULL DEFAULT 0', misses: 'INTEGER NOT NULL DEFAULT 0' } };
 const HOUR = 60 * 60_000, DAY = 24 * HOUR;
 // Files Windows puts in a folder on its own: not the gallery's, and not worth keeping it a folder for.
 const WINDOWS_FILES = new Set(['desktop.ini', 'thumbs.db']);
@@ -989,7 +991,7 @@ export class FileLibrary {
   // (`retiring` rows without one: _retire), as [{ dir }].
   retiringIn(root) { return this.library._s('SELECT DISTINCT dir FROM retiring WHERE gid IS NULL').all().filter(r => this._split(r.dir).root === root); }
   _deletingRows(root = null) {
-    return this.library._s('SELECT dir, gid, files, unfound FROM deleting').all().filter(d => root == null || this._split(d.dir).root === root);
+    return this.library._s('SELECT dir, gid, files, unfound, misses FROM deleting').all().filter(d => root == null || this._split(d.dir).root === root);
   }
   // What waits to be deleted (`deleting`) deleted, one at a time — of library folder `root` alone, when
   // given — each while its library folder may be written to (`work` as folders.js writable): a folder by
@@ -1069,10 +1071,17 @@ export class FileLibrary {
     this._deletions = run.catch(() => {});
     return run;
   }
-  // What waited `unfound` in library folder `root`, forgotten once a check that read all of it ended
-  // without meeting it — but those it met (`met`: their `dir`s), not deleted yet where it met them.
-  forgetUnfound(root, met = new Set()) {
-    for (const d of this._deletingRows(root)) if (d.unfound && !met.has(d.dir)) this.library._s('DELETE FROM deleting WHERE dir = ?').run(d.dir);
+  // What waited `unfound` in library folder `root` once a look at it ended (a check, or its removal's:
+  // scan.js finishUnfound), as folder-lifecycle.js unfoundEnd weighs each: those it met (`met`: their
+  // `dir`s) kept until they are done where it met them; the rest forgotten when it ruled them out
+  // (`whole`), else counted, and given up after a few such looks (review 7 A1).
+  endUnfound(root, met, whole) {
+    for (const d of this._deletingRows(root)) {
+      if (!d.unfound) continue;
+      const end = lifecycle.unfoundEnd({ met: met.has(d.dir), whole, misses: d.misses });
+      if (end === 'forget') this.library._s('DELETE FROM deleting WHERE dir = ?').run(d.dir);
+      else if (end !== 'keep') this.library._s('UPDATE deleting SET misses = ? WHERE dir = ?').run(end, d.dir);
+    }
   }
   // Whether archive `abs` may be deleted whole (F6): as Shiori last wrote it (`recorded`: its size and
   // modification time; none for an archive written before S10), and holding nothing of the person's

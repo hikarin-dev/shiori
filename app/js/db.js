@@ -12,7 +12,7 @@ import { slotFiles, tokenOf, generationOf, parseManifest, foreignEntries } from 
 import { exportSize } from './gallery-export.js';
 import * as folderFiles from './storage/folder-store-web.js';
 import { OWNER_FILE, readClaim, access, nextClaim, claimText } from './storage/folder-owner.js';
-import { mounted, writeAllowed } from './storage/folder-lifecycle.js';
+import { mounted, writeAllowed, unfoundEnd } from './storage/folder-lifecycle.js';
 import { galleryIdOf, seriesOf, MANIFEST_FILE } from './storage/folder-content.js';
 import { REMOVED_FILE, ARCHIVE_NAME, overlayDir, parseRemoved, removedText, withRemoved, provenanceOf, pageToken, madeFromPage } from './storage/linked-source.js';
 import { withoutPersonal, marksOf, withMarks, importMarks, favoriteMoved } from './storage/personal.js';
@@ -1150,13 +1150,22 @@ function _retiringIn(tx, folder, dir, found) {
   const req = tx.objectStore(FOLDER_STORE).getAll(IDBKeyRange.bound(prefix, `${prefix}￿`));
   req.onsuccess = () => found(req.result || []);
 }
-function _goneLater(tx, folder, dir, gid, linked = null) {
+// A chapter of an archive read in place (`inner`, its folder in it: a series export's) leaves the archive
+// as it is — the person's file, never changed for it — with its removal noted for that chapter (a
+// REMOVED_NOTE without an overlay, as a linked source's is noted), which every check honours, on both apps
+// (review 7 A5); the archive itself is recorded as any archive a gallery leaves, deleted only once no
+// gallery is read from it (_ownsDir).
+function _goneLater(tx, folder, dir, gid, linked = null, inner = null) {
   if (!folder || !dir) return;
+  const chapter = inner ? { kind: 'zip', path: dir, inner } : null;
   if (!tx._keepFiles) {
-    tx.objectStore(FOLDER_STORE).put(linked ? { id: `${REMOVED_NOTE}${gid}`, folder, dir, gid: String(gid), linked }
+    const store = tx.objectStore(FOLDER_STORE);
+    store.put(linked ? { id: `${REMOVED_NOTE}${gid}`, folder, dir, gid: String(gid), linked }
       : { id: _deletingKey(folder, dir), folder, dir, gid: String(gid) });
+    if (chapter) store.put({ id: `${REMOVED_NOTE}${gid}`, folder, dir: null, gid: String(gid), linked: chapter });
   }
   _afterFiles(tx).dirs.push({ folder, dir, gid: String(gid), linked });
+  if (chapter) _afterFiles(tx).dirs.push({ folder, dir: null, gid: String(gid), linked: chapter });
 }
 // `tx._unlinked` settles once they are gone (at once for a transaction that didn't commit).
 function _afterFiles(tx) {
@@ -1184,13 +1193,15 @@ async function _unlink({ dirs }, work) {
 // commits (_applyDeletions), or else as a page opens (foldersPending), at its folder's next check —
 // which meanwhile never reads it, nor adds what is left of it as new (N4) — and by its removal, which
 // doesn't forget a folder still owed one. One whose folder isn't where it has it (renamed or moved by
-// hand before the deletion: F4, S10) is kept, `unfound`, until a check of its folder has ended: a check
+// hand before the deletion: F4, S10) is kept, `unfound`, until a look at its folder ends it: a check
 // meeting a folder that names its gallery deletes that by name instead of adopting it (_deletedFound);
-// one that didn't forgets it (_forgetUnfound), and the folder's removal looks for it first, as a check
-// would (folder-library.js _finishUnfound), refused while it is still owed (it waits for no one else).
+// one that didn't rules it out, or counts it (`misses`) towards giving it up (_endUnfound), and the
+// folder's removal looks for it first, as a check would (folder-library.js _finishUnfound), refused while
+// it is still owed (it waits for no one else).
 const DELETING = '$deleting:';
 const _deletingKey = (folder, dir) => `${DELETING}${folder}\u0000${dir}`;
-// The folders waiting to be deleted (of folder `folder` alone, when given): [{ id, folder, dir, gid, unfound? }].
+// The folders waiting to be deleted (of folder `folder` alone, when given): [{ id, folder, dir, gid,
+// unfound?, misses? }].
 async function _deletions(folder = null) {
   const db = await openDB();
   const prefix = folder == null ? DELETING : `${DELETING}${folder}\u0000`;
@@ -1248,13 +1259,25 @@ async function _deleteOne(d, at, work) {
 // Deletion `d`, its gallery's folder not where its record has it, finished at `dir` in folder `folder`,
 // where a check met a folder naming its gallery (F4): deleted as it would have been where it was.
 const _deletedFound = (d, folder, dir, work = null) => folderFiles.withLock(`shiori:deleting:${d.folder}`, () => _deleteOne(d, { folder, dir }, work));
-// What waited `unfound` in folder `folder`, forgotten once a check that read all of it ended without
-// meeting it — but those it met (`met`: their ids), not deleted yet where it met them.
-async function _forgetUnfound(folder, met = new Set()) {
+// What waited `unfound` in folder `folder` once a look at it ended (a check, or its removal's:
+// folder-library.js _finishUnfound), as folder-lifecycle.js unfoundEnd weighs each: those it met (`met`:
+// their ids) kept until they are done where it met them; the rest forgotten when it ruled them out
+// (`whole`), else counted (`misses`, kept with the deletion), and given up after a few such looks (review
+// 7 A1).
+async function _endUnfound(folder, met, whole) {
   for (const d of await _deletions(folder)) {
-    if (!d.unfound || met.has(d.id)) continue;
-    await _forgetRetiring(d.folder, d.dir);
-    await _recordsWrite((store) => store.delete(d.id));
+    if (!d.unfound) continue;
+    const end = unfoundEnd({ met: met.has(d.id), whole, misses: d.misses });
+    if (end === 'keep') continue;
+    if (end === 'forget') {
+      await _forgetRetiring(d.folder, d.dir);
+      await _recordsWrite((store) => store.delete(d.id));
+    } else {
+      await _recordsWrite((store) => {
+        const now = store.get(d.id);   // as it is now: one done meanwhile stays done
+        now.onsuccess = () => { if (now.result?.unfound) store.put({ ...now.result, misses: end }); };
+      });
+    }
   }
 }
 // Gallery `gid`'s own folder `dir` (in folder `folder`, its handle `root`) deleted: an archive whole
@@ -1362,7 +1385,8 @@ const _forgetAttention = (folder) => _recordsWrite((store) => store.delete(IDBKe
 // the library's own) is noted by the transaction letting it go, in the folders store — which every
 // write transaction holds — as { id: REMOVED_NOTE + gid, folder, dir (its overlay), gid, linked (the
 // source) }, and counted as removed by every check of the folder (folder-library.js) until it is in
-// the folder's removed.json (F12).
+// the folder's removed.json (F12). A chapter that left an archive read in place is noted alike, `linked`
+// the chapter ({ kind: 'zip', path, inner }) and no overlay (`dir` null: _goneLater).
 const REMOVED_NOTE = '$removed:';
 // The notes still owed to folder `id` (to every folder: no `id`).
 async function _removedNotes(id = null) {
@@ -1402,7 +1426,7 @@ async function _publishRemoved(id, work = null, also = []) {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(_txError(tx));
     });
-    for (const n of notes) await _deleteOverlay(id, root, n.dir, n.gid);
+    for (const n of notes) if (n.dir) await _deleteOverlay(id, root, n.dir, n.gid);
     return true;
   }).catch(() => false);
 }
@@ -1728,7 +1752,7 @@ async function _relocateOnce(gid, to, tick, work, w) {
         stats.put(home ? { ..._withoutHome(cur), ...(same ? kept : {}), folder: home.folder, dir: home.dir } : _withoutHome(cur));
         if (!home) tx.objectStore(UNDESCRIBED_STORE).delete(gid);
         _logIn(tx, gid);   // the place it goes to, and the descriptions it owes there
-        if (!same || packed) _goneLater(tx, from === BROWSER ? null : from, cur.dir, gid, cur.linked || null);
+        if (!same || packed) _goneLater(tx, from === BROWSER ? null : from, cur.dir, gid, cur.linked || null, cur.packed?.inner || null);
       });
     };
   });
@@ -1848,7 +1872,7 @@ const _folderLibrary = createFolderLibrary({
   note: _note, noteChecked: _noteChecked, attentionOf: _attentionOf, dismiss: _dismiss, forgetAttention: _forgetAttention,
   placeOf: _placeOf, placeKey: _placeKey, access: _access, rootOf: _rootOf, usable: _usable, readRootOf: _readRootOf,
   removedNotes: _removedNotes, publishRemoved: _publishRemoved,
-  deletions: _deletions, applyDeletions: _applyDeletions, forgetDeletions: _forgetDeletions, deletedFound: _deletedFound, forgetUnfound: _forgetUnfound,
+  deletions: _deletions, applyDeletions: _applyDeletions, forgetDeletions: _forgetDeletions, deletedFound: _deletedFound, endUnfound: _endUnfound,
   me: _me, myLabel: _myLabel, readClaim: _readClaim, writeClaim: _writeClaim, noteEpoch: _noteEpoch, randomId: _randomId,
   // the pictures' storage in folders
   writing: _writing, replacePages: _replacePages, relocate: _relocate, reserveDir: _reserveDir, describe: _describe, cancelDescribe: _cancelDescribe,
@@ -3589,7 +3613,7 @@ function _deleteIn(tx, gid, done = () => {}) {
         try { tx.abort(); } catch {}
         return;
       }
-      _goneLater(tx, stat.result?.folder, stat.result?.dir, gid, stat.result?.linked || null);
+      _goneLater(tx, stat.result?.folder, stat.result?.dir, gid, stat.result?.linked || null, stat.result?.packed?.inner || null);
       stats.delete(gid);
       tx.objectStore(UNDESCRIBED_STORE).delete(gid);
     };

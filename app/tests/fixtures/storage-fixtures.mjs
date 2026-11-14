@@ -8,11 +8,15 @@
 //   saved under a suffixed name beside the old file: with image_records.json's `files` list naming it
 //   (as written since the list exists) or without (as written before).
 // - legacyGallery(dir): a gallery folder in the desktop's oldest format: shiori.json beside its pictures.
+// - seriesExport(dir, page, k): a series export at dir/Series.zip, as an export lays one out (series.json
+//   and a folder per chapter in the gallery format): three chapters, One its head, chapter n's one page
+//   `page(n)` (bytes); `k` keeps the ids of several apart. Returns the chapters' ids.
 // The captured libraries hold Windows paths (where they were made, and the desktop's platform: D14).
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { galleryFiles } from '../../js/storage/gallery-files.js';
+import { zipCreate } from '../../js/zip.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const DESKTOP_FIXTURES = ['desktop-v1.2.6', 'desktop-kv-roots', 'desktop-roots', 'desktop-unplaced'];
@@ -115,4 +119,19 @@ export function legacyGallery(dir) {
   write(path.join(dir, 'shiori.json'), JSON.stringify({ format: 'shiori-gallery', version: 1, id: gid,
     meta: { galleryId: gid, title: title('The oldest format'), tags: [], numPages: pages.length }, pages }, null, 2));
   return { gid, pages: pages.map(p => p.file) };
+}
+
+export function seriesExport(dir, page, k = 0) {
+  const json = (v) => new TextEncoder().encode(JSON.stringify(v));
+  const ids = [1, 2, 3].map(n => String(1790000000200 + 3 * k + n));
+  const chapters = ['One', 'Two', 'Three'].map((name, i) => ({ id: ids[i], title: name, folder: name }));
+  write(path.join(dir, 'Series.zip'), zipCreate([
+    { name: 'series.json', data: json({ format: 'shiori-series', version: 1, seriesTitle: 'Series', chapters }) },
+    ...chapters.flatMap((c, i) => [
+      { name: `${c.folder}/metadata.json`, data: json(i ? { galleryId: c.id, title: title(c.title), parentId: ids[0] }
+        : { galleryId: c.id, title: title(c.title), chapters: chapters.map(({ id, title: t }) => ({ id, title: t })), seriesTitle: 'Series' }) },
+      { name: `${c.folder}/images/0001.png`, data: page(i + 1) },
+    ]),
+  ]));
+  return ids;
 }

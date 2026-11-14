@@ -99,6 +99,15 @@ export const removedText = (list) => JSON.stringify({ format: 'shiori-linked-rem
 /** @param {Removed[]} removed @param {SourceAt} source @returns {boolean} */
 export const isRemoved = (removed, source) => removed.some(r => r.path === source.path && (r.inner || '') === (source.inner || '')
   && (!r.fingerprint || !source.fingerprint || r.fingerprint === source.fingerprint));
+// Whether chapter `inner` ("Name/") of the archive at `path` — a series export, whose chapters the website
+// reads in place — is one `removed` notes (its fingerprint as it is now): by the chapter's own note (the
+// chapter deleted, or gone out of the archive: never joined from it again) or the archive's (a deletion left
+// it whole, the person's). A chapter's note is a note as any title of an archive has (`inner`), so a version
+// that knows no such notes reads the list whole and takes neither the archive nor another chapter for
+// removed (review 7 A5).
+/** @param {Removed[]} removed @param {{ path: string, inner: string, fingerprint?: string | null }} chapter @returns {boolean} */
+export const chapterRemoved = (removed, { path, inner, fingerprint }) => isRemoved(removed, { kind: 'zip', path, fingerprint })
+  || isRemoved(removed, { kind: 'zip', path, inner, fingerprint });
 // `removed` with `source` noted as removed (its fingerprint as it is now), in place of an earlier note
 // of the same files.
 /** @param {Removed[]} removed @param {SourceAt} source @param {number} [now] @returns {Removed[]} */

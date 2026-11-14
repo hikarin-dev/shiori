@@ -110,6 +110,10 @@ function folderAround(abs) {
 }
 const outside = (op, file) => Object.assign(new BackendError('invalid', `${file} is reached through a link in its library folder`),
   { reason: 'outside', syscall: op, path: file });
+// Whether `e` is a call's refusal to go through a link in a library folder (outside). What is behind a link
+// is the person's, never Shiori's to delete: a deletion takes nothing there and ends (deleteGalleryIn), and
+// a check, which walks no link, finds nothing there (linked.js titlesIn).
+export const throughLink = (e) => e?.reason === 'outside';
 // The first part of `abs` below folder `root` that is a link, or null. A read (`reading`) takes a folder
 // on the way found no link within the last CLEAR_TTL as it was (the identity of a library folder is
 // taken as read for as long: folders.js IDENTITY_TTL), so reading a page costs one lstat; every change
@@ -422,14 +426,16 @@ export async function writeNewIn(dir, slot, ext, bytes) {
 // { kind: 'ok', items } when it names gallery `gid` (`items`: the folder's listing that told it, its
 // entries with their types); MISSING when nothing is there; { kind: 'conflict', found }
 // when something is that names another gallery (`found`), or none (null); unreadable when what it holds
-// can't be read (nothing is concluded from it). Nothing there, and a description not there, are told as
-// the shared rule takes them (notFound, textsIn). What a change to an existing gallery folder needs
-// first: nothing else makes a folder a gallery's but its reservation (reserveIn).
+// can't be read (nothing is concluded from it) — `link: true` when that is because the folder, or what
+// names it, is reached through a link (throughLink: the person's). Nothing there, and a description not
+// there, are told as the shared rule takes them (notFound, textsIn). What a change to an existing gallery
+// folder needs first: nothing else makes a folder a gallery's but its reservation (reserveIn).
 export async function galleryIn(dir, gid) {
+  const unread = (e) => (throughLink(e) ? { ...unreadable(e), link: true } : unreadable(e));
   let items;
   try { items = await disk.readdir(dir, { withFileTypes: true }); } catch (e) {
     if (e?.code === 'ENOTDIR') return { kind: 'conflict', found: null };   // a file at its place
-    return lost(e) ? notFound(dir, e) : unreadable(e);
+    return lost(e) ? notFound(dir, e) : unread(e);
   }
   const listed = (whose) => (whose.kind === 'ok' ? { ...whose, items } : whose);
   try {
@@ -439,7 +445,7 @@ export async function galleryIn(dir, gid) {
     if (format.areaOf(dir.split(path.sep).join('/')) !== '') return listed(content.galleryAt(texts, gid));
     const source = linkedSource.parseSource((await textsIn(dir, items, [linkedSource.SOURCE_FILE]))[linkedSource.SOURCE_FILE])?.galleryId ?? null;
     return listed(content.galleryAt(texts, gid, { source }));
-  } catch (e) { return unreadable(e); }
+  } catch (e) { return unread(e); }
 }
 
 // Gallery `gid`'s folder `dir` (an absolute path in a library folder, or in a series' folder there)
@@ -539,12 +545,13 @@ export async function publishIn(dir, next, texts, { hide = () => {}, known } = {
 // The files `list` ([{ name, size, mtime }]: paths in the folder `dir`, as Shiori recorded writing
 // them) deleted — each only while its size and modification time are still those (gallery-manifest.js
 // unchanged); one that differs was changed outside Shiori and is left, as is one that isn't there (as
-// the shared rule takes it: notFound) or can't be checked, each reported in `kept` with why. A folder
-// the deletions left empty goes too, up to `dir` itself (principle 4) — unless `emptied` is false
-// (`dir` holds more than the files named: an archive's folder). Resolves { deleted, kept }.
+// the shared rule takes it: notFound) or can't be checked, and one reached through a link (throughLink:
+// the person's, 'link'), each reported in `kept` with why. A folder the deletions left empty goes too, up
+// to `dir` itself (principle 4) — unless `emptied` is false (`dir` holds more than the files named: an
+// archive's folder). Resolves { deleted, kept }.
 export async function deleteNamedIn(dir, list, { emptied: tidy = true } = {}) {
   const deleted = [], kept = [], emptied = new Set();
-  const why = async (file, e) => (lost(e) && (await notFound(file, e)).kind === 'missing' ? 'missing' : 'unreadable');
+  const why = async (file, e) => (throughLink(e) ? 'link' : lost(e) && (await notFound(file, e)).kind === 'missing' ? 'missing' : 'unreadable');
   for (const f of list) {
     const file = within(dir, f.name);
     let st;
@@ -585,13 +592,16 @@ async function removeEmptied(at) {
 // there — renamed or moved by hand, perhaps: F4). Nothing is concluded from an answer of "not found" the
 // shared rule doesn't take (notFound: the drive away, say — review 5 F2). `named` null: a folder the
 // deletion met in place of the archive it recorded, emptied by its manifest alone — left whole without one
-// (galleryDeletion). Resolves whether the deletion is done — true (its folder holds no file now, or is
-// gone), or 'left' when what it emptied still holds files: a person's, or one changed since Shiori wrote
-// it — 'missing', or is to be tried again (false: something there couldn't be read or deleted now, or the
-// folder still names the gallery).
+// (galleryDeletion). Nothing is deleted through a link (principle 5): what is behind one — the gallery's
+// pictures, say, junctioned to another drive — is the person's and left, the rest deleted as ever; and a
+// folder that is one, or whose description naming it is behind one, can't be shown to be the gallery's,
+// so nothing of it is touched (S28a). Resolves whether the deletion is done — true (its folder holds no
+// file now, or is gone), or 'left' when what it emptied still holds files: a person's, one changed since
+// Shiori wrote it, a link — 'missing', or is to be tried again (false: something there couldn't be read or
+// deleted now, or the folder still names the gallery).
 export async function deleteGalleryIn(dir, gid, named) {
   const whose = await galleryIn(dir, String(gid));
-  if (whose.kind === 'unreadable') return false;
+  if (whose.kind === 'unreadable') return whose.link ? 'left' : false;
   if (whose.kind === 'missing' || (whose.kind === 'conflict' && whose.found != null)) return 'missing';
   const now = whose.kind === 'ok' ? await manifestIn(dir, String(gid)) : contract.MISSING;
   if (now.kind === 'unreadable') return false;
@@ -602,17 +612,20 @@ export async function deleteGalleryIn(dir, gid, named) {
   if (kept.some(k => k.why === 'unreadable')) return false;
   try {
     if (whose.kind === 'ok') {
+      // A description, or the folder of those stored by content, reached through a link is left (the person's).
+      const past = (e) => { if (throughLink(e)) return null; throw e; };
       const drop = async (rel) => {
-        const file = within(dir, rel), text = await textIn(file);
+        const file = within(dir, rel), text = await textIn(file).catch(past);
         if (text != null && await format.isOwnDescription(rel, text, String(gid), area)) await disk.rm(file);
       };
       for (const rel of plan.descriptions) await drop(rel);
-      for (const e of (await entriesIn(within(dir, plan.stored))) ?? []) await drop(`${plan.stored}/${e.name}`);
+      for (const e of (await entriesIn(within(dir, plan.stored)).catch(past)) ?? []) await drop(`${plan.stored}/${e.name}`);
       for (const rel of plan.identity) await drop(rel);
       // Done only once the folder no longer names the gallery: a description whose read answered "not
       // found", still there, names it yet — the deletion stays recorded, tried again (S11, review 4 F3).
+      // One behind a link, left, is the person's.
       const after = await galleryIn(dir, String(gid));
-      if (after.kind === 'ok' || after.kind === 'unreadable') return false;
+      if (after.kind === 'ok' || (after.kind === 'unreadable' && !after.link)) return false;
     }
     return await holdsFile(dir) ? 'left' : true;
   } catch { return false; }

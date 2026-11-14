@@ -3,12 +3,12 @@
 // can't be hidden; new galleries and moves go only to a place shown, held and reachable (R07, A10);
 // the write gate refuses a hidden folder, one another app holds, one out of reach, and a removing one
 // but for the removal's own write-back (R07, R09, A03); work on a folder is planned per pair of jobs
-// (A09); and a removal forgets the folder only when everything is saved, or the person chose to
-// discard (R06).
+// (A09); a removal forgets the folder only when everything is saved, or the person chose to
+// discard (R06); and a deletion the folder owes ends (review 7 A1).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { STATES, mounted, canHide, canShow, canSetDefault, canMoveTo, nextDefault, writeAllowed, JOBS, jobPlan, removalOutcome }
-  from '../js/storage/folder-lifecycle.js';
+import { STATES, mounted, canHide, canShow, canSetDefault, canMoveTo, nextDefault, writeAllowed, JOBS, jobPlan, removalOutcome,
+  UNFOUND_LOOKS, leavesOpen, unfoundEnd } from '../js/storage/folder-lifecycle.js';
 
 const place = (over = {}) => ({ state: 'shown', isDefault: false, owned: true, reachable: true, ...over });
 
@@ -81,4 +81,16 @@ test('a removal forgets the folder only when everything is saved there, or the p
   assert.deepEqual(removalOutcome({ required: [], saved: [] }), { forget: true, unsaved: [] }, 'an empty folder (or one out of reach with nothing unsaved)');
   assert.deepEqual(removalOutcome({ required: new Set([1, '2', 2]), saved: new Set(['1', '9']) }), { forget: false, unsaved: ['2'] },
     'ids compared as strings; one saved that wasn\'t required counts for nothing');
+});
+
+test('review 7 A1: a deletion waiting for its gallery\'s folder ends: met, it waits to be done there; ruled out, forgotten; else given up after three looks', () => {
+  assert.equal(unfoundEnd({ met: true, whole: false, misses: 5 }), 'keep', 'met: deleted where it was met, kept till then');
+  assert.equal(unfoundEnd({ met: false, whole: true, misses: 0 }), 'forget', 'a look that could tell whose everything is rules it out');
+  assert.equal(unfoundEnd({ met: false, whole: false }), 1, 'one that couldn\'t: counted');
+  assert.equal(unfoundEnd({ met: false, whole: false, misses: 1 }), 2);
+  assert.equal(UNFOUND_LOOKS, 3);
+  assert.equal(unfoundEnd({ met: false, whole: false, misses: 2 }), 'forget', 'the third such look gives it up');
+  assert.equal(unfoundEnd({ met: false, whole: false, misses: null }), 1, 'a deletion recorded before the count (none) starts at none');
+  assert.deepEqual(['unreadable', 'corrupt', 'missing-file', 'adopt-failed'].map(reason => leavesOpen({ reason })), [true, false, false, false],
+    'only what couldn\'t be read at all may be the deleted gallery\'s: what was read, damaged or not, isn\'t');
 });

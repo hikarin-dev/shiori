@@ -15,7 +15,7 @@
 // written (absIn), and as the disk resolves it (folder-store.js physicallyIn: no link out of it is
 // followed).
 
-import { disk, physicallyIn, replaceFile, loadGallery, textIn, entriesIn, statIn } from './folder-store.js';
+import { disk, physicallyIn, replaceFile, loadGallery, textIn, entriesIn, statIn, throughLink } from './folder-store.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { readDirectory, readEntry } from './zip.js';
@@ -135,13 +135,13 @@ export async function fingerprintNow(library, root, source) {
 // folder of pictures, archive (each of its titles: zipTitles) and PDF there (linked-source.js
 // planTitles) — as [{ kind, path, inner?, fingerprint }], each fingerprint as its files are now (null
 // when they can't be read). An archive (`rel` one: what a deletion left whole, the person's files in it —
-// F6) is noted as itself, so a check never adopts the gallery it describes again (scan.js). Rejects when
-// the folder can't be listed.
+// F6) is noted as itself, so a check never adopts the gallery it describes again (scan.js). A folder that
+// is a link holds none (a check walks no link: throughLink). Rejects when the folder can't be listed.
 export async function titlesIn(library, root, rel) {
   if (L.ARCHIVE_NAME.test(rel)) return [{ kind: 'zip', path: rel, fingerprint: await sourceIn(library, root, rel).then(zipFingerprint).catch(() => null) }];
   const files = [];
   const walk = async (abs, at) => {
-    for (const item of (await entriesIn(abs)) ?? []) {
+    for (const item of (await entriesIn(abs).catch((e) => { if (throughLink(e)) return null; throw e; })) ?? []) {
       if (item.isDirectory()) await walk(path.join(abs, item.name), `${at}/${item.name}`);
       else if (item.isFile()) files.push({ path: `${at}/${item.name}` });
     }
@@ -182,6 +182,15 @@ export async function overlaysOf(library, root) {
 export async function archiveRemoved(library, root, rel, removed) {
   if (!removed.some(r => r.path === rel)) return false;
   return L.isRemoved(removed, { kind: 'zip', path: rel, fingerprint: await sourceIn(library, root, rel).then(zipFingerprint).catch(() => null) });
+}
+// Which chapters of series export `rel` in library folder `root` are among `removed` (removedOf's) as the
+// export is now (linked-source.js chapterRemoved: the chapter's own note, or the export's): a test of a
+// chapter's folder in it — a chapter the website deleted, reading the export in place, or unpacked to a
+// folder of its own (review 7 A5).
+export async function removedChapters(library, root, rel, removed) {
+  if (!removed.some(r => r.path === rel)) return () => false;
+  const fingerprint = await sourceIn(library, root, rel).then(zipFingerprint).catch(() => null);
+  return (folder) => L.chapterRemoved(removed, { path: rel, inner: `${folder}/`, fingerprint });
 }
 // The sources removed from library folder `root`: its removed.json's list, and the notes still owed
 // to it (folders.js removedWaiting) — removed all the same (F12). Rejects when removed.json can't be read

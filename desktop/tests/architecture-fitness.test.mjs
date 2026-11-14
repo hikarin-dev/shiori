@@ -124,6 +124,7 @@ test('no code outside the folder store adapter turns a failed read of a library 
       'an archive whose directory can\'t be read now is noted as removed whole, as itself: no check adopts anything from it'],
     ['linked.js', 'const fingerprint = await zipFingerprint(abs).catch(() => null);\n    for (const z', UNKNOWN],
     ['linked.js', 'fingerprint: await sourceIn(library, root, rel).then(zipFingerprint).catch(() => null) });', UNKNOWN],
+    ['linked.js', 'const fingerprint = await sourceIn(library, root, rel).then(zipFingerprint).catch(() => null);\n  return (folder) => L.chapterRemoved(', UNKNOWN],
     ['linked.js', 'const fingerprint = await zipFingerprint(abs).catch(() => null);\n      const size', UNKNOWN],
     ['linked.js', 'const size = (await statIn(abs).catch(() => null))?.size ?? null;', 'an archive\'s size unknown (null) when it can\'t be read now: its source.json keeps the size it had'],
     ['linked.js', 'const at = await titleAt(library, root, over.source).catch(() => null);',

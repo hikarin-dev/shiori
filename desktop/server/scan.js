@@ -23,9 +23,9 @@
 import { disk, loadGallery, manifestIn, tempBeside, textIn, entriesIn, textsIn, statIn } from './folder-store.js';
 import path from 'node:path';
 import { readDirectory, readEntry } from './zip.js';
-import { files as layout, linked as linkedSource, content, contract, manifest as format, personal } from './shared.js';
+import { files as layout, linked as linkedSource, content, contract, manifest as format, personal, lifecycle } from './shared.js';
 import { descriptionStampOf, classifyAt, ownedBy } from './files.js';
-import { linkRoot, adoptLinked, removedOf, archiveRemoved } from './linked.js';
+import { linkRoot, adoptLinked, removedOf, archiveRemoved, removedChapters } from './linked.js';
 const { withoutPersonal } = personal;
 
 const IMAGE = /\.(jpe?g|png|webp|gif|avif)$/i;
@@ -85,7 +85,7 @@ export function localChanges(library, gid) {
 // galleries the index knows are there, or that wait to be deleted (paths in the folder), not looked
 // into; `onTop(found)` after each thing at the folder's top; the walk ends once `stopped()`. A folder that can't be listed, or whose descriptions
 // can't be read, is added to `problems` and left as it is (in `own`: never read for a linked gallery);
-// `whole`: none was — every folder walked was read.
+// `whole`: none was — every folder walked was read (folder-lifecycle.js leavesOpen).
 async function findGalleries(root, { skip = new Set(), onTop = () => {}, stopped = () => false, problems = [] } = {}) {
   const found = [], files = [], own = [];
   const before = problems.length;
@@ -119,7 +119,7 @@ async function findGalleries(root, { skip = new Set(), onTop = () => {}, stopped
     }
   };
   await walk(root, 0);
-  return { found, files, own, whole: problems.length === before };
+  return { found, files, own, whole: !problems.slice(before).some(lifecycle.leavesOpen) };
 }
 
 // A found gallery read: { kind, described, pages, derived?, series?, entries?, token? }. `kind` 'gallery'
@@ -190,11 +190,14 @@ function describedBy(meta, records, pages) {
 // A series export (an archive holding a series' folder: its series.json and its chapters' folders, each
 // in the gallery format) unpacked beside itself — its entries copied out as they are — into the
 // series' folder the library keeps such a series in: the library has no form for a chapter kept
-// inside an archive. Resolves the folder's path in the library folder; null when the library has
-// every chapter it holds already (a copy of a series it has, left as it is).
-async function unpackSeries(library, g) {
+// inside an archive. A chapter its folder's removed.json notes as removed (`removed(folder)`: the website,
+// which reads an export in place, deleted it there, or unpacked it into a folder of its own — review 7
+// A5) is left out, never joining again. Resolves the folder's path in the library folder; null when the
+// library has every other chapter it holds already (a copy of a series it has, left as it is).
+async function unpackSeries(library, g, removed) {
   const files = library.files;
-  const chapters = g.read.series.chapters.filter(c => c.present);
+  const left = g.read.series.chapters.filter(c => removed(c.folder)).map(c => `${c.folder}/`);
+  const chapters = g.read.series.chapters.filter(c => c.present && !left.includes(`${c.folder}/`));
   if (chapters.every(c => files._row(c.id))) return null;
   library.folders.assertWritable(g.root);
   const rel = files._freePath(files._join(g.root, g.inRoot.replace(/\.(cbz|zip)$/i, '')));
@@ -202,6 +205,7 @@ async function unpackSeries(library, g) {
   files._reserved.add(rel);
   try {
     for (const [name, entry] of g.read.entries) {
+      if (left.some(at => name.startsWith(at))) continue;
       const file = path.join(temp, ...name.split('/'));
       await disk.mkdir(path.dirname(file), { recursive: true });
       await disk.writeFile(file, await readEntry(g.abs, entry));
@@ -274,8 +278,9 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   const galleries = [];
   const loose = new Map();   // a library folder → what it holds outside Shiori's own galleries (linked.js)
   // The library folders of which this check couldn't read everything it walked: a folder it couldn't
-  // list, a gallery or a removed.json it couldn't read. It concludes nothing there from what it didn't
-  // meet (review 6 F6).
+  // list, an archive, a series export or a removed.json it couldn't read. It concludes nothing there from
+  // what it didn't meet (review 6 F6) — but a gallery's folder whose description named its gallery as
+  // the walk found it, and whatever it read and found damaged, are no deleted gallery's (review 7 A1).
   const partial = new Set();
   const place = (id, g) => ({ ...g, abs: path.join(library.rootDir(id), ...g.rel.split('/')), rel: files._join(id, g.rel), root: id, inRoot: g.rel });
   for (const id of reachable) {
@@ -291,14 +296,31 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   out.stopped = !!stopped();
   const unknown = galleries.filter(g => !byPath.has(g.rel) || !present.has(byPath.get(g.rel).gid));
   for (const g of unknown) {
-    try { g.read = await readGallery(g); } catch (e) { out.problems.push({ path: g.inRoot, reason: unreadable(e) }); g.unreadable = true; partial.add(g.root); }
+    try { g.read = await readGallery(g); } catch (e) {
+      const problem = { path: g.inRoot, reason: unreadable(e) };
+      out.problems.push(problem);
+      g.unreadable = true;
+      if (g.id == null && lifecycle.leavesOpen(problem)) partial.add(g.root);
+    }
   }
-  // A series export joins as its folder would (unpackSeries): its chapters are read from there, and
-  // the archive goes once they all joined.
+  // Each library folder's removed.json as the check weighs it (linked.js removedOf), read once, when an
+  // archive of Shiori's asks: null, reported, while it can't be read now — nothing it may note joins then,
+  // till a check reads it (review 6 F4).
+  const removed = new Map();
+  const removedIn = async (root) => {
+    if (!removed.has(root)) {
+      removed.set(root, await removedOf(library, root).catch(() => { out.problems.push({ path: linkedSource.REMOVED_FILE, reason: 'unreadable' }); partial.add(root); return null; }));
+    }
+    return removed.get(root);
+  };
+  // A series export joins as its folder would (unpackSeries): its chapters are read from there — those
+  // its removed.json notes as removed left out (review 7 A5) — and the archive goes once they all joined.
   const exports = [];
   for (const g of unknown.filter(g => g.read?.kind === 'series' && !out.stopped)) {
     try {
-      const at = await unpackSeries(library, g);
+      const notes = await removedIn(g.root);
+      if (!notes) continue;
+      const at = await unpackSeries(library, g, await removedChapters(library, g.root, g.inRoot, notes));
       if (at == null) continue;
       const missed = [];
       const walked = await findGalleries(path.join(library.rootDir(g.root), ...at.split('/')), { problems: missed });
@@ -314,12 +336,8 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   // deletion, or by the other app's unpack (S10's F6, D17) — is theirs: no gallery's place (files.js
   // _whose: review 6 F7), never joined, followed, nor taken for a copy. Nor, while removed.json can't be
   // read now (reported), is any archive naming a gallery, till a check reads it (review 6 F4).
-  const removed = new Map();
   for (const g of unknown.filter(g => g.format !== 'folder' && g.read?.kind === 'gallery')) {
-    if (!removed.has(g.root)) {
-      removed.set(g.root, await removedOf(library, g.root).catch(() => { out.problems.push({ path: linkedSource.REMOVED_FILE, reason: 'unreadable' }); partial.add(g.root); return null; }));
-    }
-    const notes = removed.get(g.root);
+    const notes = await removedIn(g.root);
     if (!notes || await archiveRemoved(library, g.root, g.inRoot, notes)) g.claimed = true;
   }
   const byId = new Map();
@@ -482,9 +500,9 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
     tick();
     if (done % CHUNK === 0) await breathe();
   }
-  // A deletion whose gallery's folder the check didn't meet is forgotten (F4) — not when it was stopped,
-  // nor in a folder it couldn't read whole (review 6 F6).
-  if (!out.stopped) for (const id of reachable) if (!partial.has(id)) files.forgetUnfound(id, met);
+  // A deletion whose gallery's folder the check didn't meet is forgotten (F4) — not when it was stopped;
+  // in a folder it couldn't read whole, once a few such checks didn't (review 6 F6, review 7 A1).
+  if (!out.stopped) for (const id of reachable) files.endUnfound(id, met, !partial.has(id));
   library._tidyLinks([...out.added, ...out.updated]);
   for (const gid of changed) library.publishFeed(gid);
   out.removed += await removeOrphans(library, out.unreferenced, checked);
@@ -496,8 +514,8 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
 // index had it: F4) finished before the folder is let go (folders.js, its removal): its galleries looked
 // for as a check finds them, one naming such a gallery deleted where it is (`work` as files.js
 // deletedFound) — once the folder is forgotten, nothing would keep the next library adding it from
-// adopting it again. Then, as a check's end, those it didn't meet are forgotten only when it read all of
-// the folder (review 6 F6); what is still recorded is owed, and the removal refused while it is.
+// adopting it again. Then it ends as a check's does (files.js endUnfound: review 6 F6, review 7 A1); what
+// is still recorded is owed, and the removal refused while it is.
 export async function finishUnfound(library, root, work) {
   const files = library.files;
   const unfound = new Map(files._deletingRows(root).filter(d => d.unfound).map(d => [String(d.gid), d]));
@@ -508,12 +526,12 @@ export async function finishUnfound(library, root, work) {
   for (const f of walked.found) {
     if (f.id != null && files._row(String(f.id))) continue;   // one the library has: never a deleted gallery's, as in a check
     const g = { ...f, abs: path.join(library.rootDir(root), ...f.rel.split('/')), rel: files._join(root, f.rel), root, inRoot: f.rel };
-    const read = await readGallery(g).catch(() => { whole = false; return null; });
+    const read = await readGallery(g).catch((e) => { if (f.id == null && lifecycle.leavesOpen({ reason: unreadable(e) })) whole = false; return null; });
     const id = read ? (read.kind === 'gallery' && read.described?.id ? String(read.described.id) : null) : f.id ?? null;
     const d = id && !files._row(id) && unfound.get(id);
     if (d) { met.add(d.dir); await files.deletedFound(d, g.rel, work, g.format === 'folder'); }
   }
-  if (whole) files.forgetUnfound(root, met);
+  files.endUnfound(root, met, whole);
 }
 
 // The token gallery files  were last published at (a folder, or an archive in the gallery format:

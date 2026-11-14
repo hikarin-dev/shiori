@@ -111,6 +111,8 @@ test('no code outside the folder store adapter turns a failed read of a library 
       'a look that fails is taken for "there": nothing is concluded from it'],
     ['folder-library.js', 'fingerprint: (await K.archiveOf(id, root, dir).catch(() => null))?.fingerprint ?? null',
       'a removal note\'s fingerprint, unknown (null) when the archive can\'t be read now: the note then holds whatever the archive holds, as the desktop\'s (linked.js titlesIn)'],
+    ['folder-library.js', 'if (source.kind === \'zip\') return (await K.archiveOf(id, root, source.path).catch(() => null))?.fingerprint ?? null;',
+      'a removal note\'s fingerprint (fingerprintNow), unknown (null) when the archive can\'t be read now: the note then holds whatever the archive holds, and db.js _publishRemoved keeps one recorded before'],
     ['folder-library.js', 'const file = await folderFiles.readFile(folder, root, source.path).catch(() => null);',
       'a drawing weighed against the PDF as it is: one that can\'t be read now is not the version drawn, and nothing is written'],
   ];

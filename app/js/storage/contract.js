@@ -180,13 +180,14 @@ export function parsed(read, parse, what = 'file') {
  *   `changedBoth`: the generation it replaced was another app's, published since (D4: this app's
  *   change wins, and the library reports it).
  * - deleteNamed: removes the listed files whose size and modification time still match; one that
- *   differs, or can't be checked, is left and reported. The directory goes once it is empty.
+ *   differs, or can't be checked, is left and reported — as is one reached through a link ('link', the
+ *   desktop's: principle 5; the website sees none). The directory goes once it is empty.
  * - sweep: removes this gallery's own temporary files (*.shiori-tmp, -new, -old) older than
  *   `olderThan` (ms), none of `reserved`.
  * @typedef {GalleryView & {
  *   writeNew(slot: string, ext: string, bytes: Uint8Array): Promise<WrittenFile>,
  *   publish(next: { manifest: Manifest, descriptions: Record<string, string>, known?: string | null }): Promise<{ generation: number, changedBoth: boolean }>,
- *   deleteNamed(files: WrittenFile[]): Promise<{ deleted: string[], kept: { name: string, why: 'changed' | 'missing' | 'unreadable' }[] }>,
+ *   deleteNamed(files: WrittenFile[]): Promise<{ deleted: string[], kept: { name: string, why: 'changed' | 'missing' | 'unreadable' | 'link' }[] }>,
  *   sweep(options: { olderThan: number, reserved: string[] }): Promise<{ removed: string[] }>,
  * }} GalleryDir */
 

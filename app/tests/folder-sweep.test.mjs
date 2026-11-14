@@ -49,7 +49,7 @@ import { desktopLibrary, webLibrary, pageNow, pageCalling } from './library-driv
 import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
 import { zipCreate } from '../js/zip.js';
-import { v1Gallery, legacyGallery } from './fixtures/storage-fixtures.mjs';
+import { v1Gallery, legacyGallery, seriesExport } from './fixtures/storage-fixtures.mjs';
 
 /** @typedef {import('./library-drivers.mjs').Driver} Driver */
 /** A gallery as a stage must show it: where it is (folder A or B), its title, its pages ([original,
@@ -820,6 +820,28 @@ const SCENARIOS = [
       { aIn: true, galleries: { [c.g.two]: G('A', 'Two', [png(72)]) } }]),
     state: () => ({ aIn: true, galleries: {} }),
     ops: [FIRST_CHECK('one', 'two')],
+  },
+  {
+    // A chapter of a series export deleted (review 7 A5): on the website a chapter of an archive read in
+    // place — the archive, the person's file, never changed for it, its removal noted for the chapter — on
+    // the desktop a folder of the series' it unpacked the export into at its first check.
+    name: 'a chapter of a series export deleted',
+    sample: 0,
+    async setup(c) {
+      const [one, two, three] = seriesExport(c.A, (n) => png(80 + n));
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      Object.assign(c.g, { one, two, three });
+      for (const gid of [one, two, three]) c.known.add(gid);
+      c.series = [one];
+      await c.lib.scan(c.ids.A);
+      if (c.lib.app === 'website') theirs(c, path.join(c.A, 'Series.zip'));
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.one]: { ...G('A', 'One', [png(81)]), chapters: [c.g.one, c.g.two, c.g.three] },
+      [c.g.two]: G('A', 'Two', [png(82)]), [c.g.three]: G('A', 'Three', [png(83)]) } }),
+    ops: [
+      op('delete Two', (c) => c.lib.deleteGallery(c.g.two), (s, c) => withChapters(without(s, c.g.two), c.g.one, [c.g.one, c.g.three]), 'two'),
+      FLUSH, SETTLE,
+    ],
   },
   {
     // The website without leave to use folder A: pictures wait in this browser, then go to the folder once

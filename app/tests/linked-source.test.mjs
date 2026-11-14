@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { planTitles, zipTitles, metaFromName, sourceText, parseSource, sourceKey, isRemoved, safeRelPath, withRemoved, linkedPages,
   keepsDerived, pdfReady, drawFailed, pdfWaits, matchSources, parseRemoved, removedText, provenanceOf, sameSource, sameProvenance, crcHex,
-  folderPrint, folderContent, drawnFrom, pdfPrint, isDrawing, pageToken, madeFromPage } from '../js/storage/linked-source.js';
+  folderPrint, folderContent, drawnFrom, pdfPrint, isDrawing, pageToken, madeFromPage, chapterRemoved } from '../js/storage/linked-source.js';
 
 test('every folder holding pictures, every archive and every PDF is a title; Shiori\'s own folders and other files are left out', () => {
   const titles = planTitles([
@@ -224,6 +224,19 @@ test('review 6 F2, F4: with the overlays or removed.json not read now, no title 
     assert.deepEqual([out.new, out.changed.map(c => c.gid), out.skipped.map(s => [s.title.path, s.reason])], [[], ['1'], [['Fresh', 'unknown']]],
       `${Object.keys(unread)[0]} unread: what it might have said is told later`);
   }
+});
+
+test('review 7 A5: a chapter\'s removal note is read whole by the rule before it, which takes neither the archive nor another chapter for removed', () => {
+  const archive = { kind: 'zip', path: 'Series.zip', fingerprint: 'F' };
+  const list = parseRemoved(removedText(withRemoved([], { ...archive, inner: 'Two/' }, 1)));
+  assert.equal(list.length, 1, 'read whole, not damaged');
+  // How the code before S28a weighs an archive of Shiori's (folder-library.js _joinOwn, linked.js
+  // archiveRemoved): its whole note alone — parseRemoved and isRemoved are as they were.
+  assert.equal(isRemoved(list, archive), false, 'the archive isn\'t taken for removed');
+  assert.deepEqual(['Two/', 'One/'].map(inner => chapterRemoved(list, { path: 'Series.zip', inner, fingerprint: 'F' })), [true, false], 'that chapter is, another isn\'t');
+  assert.equal(chapterRemoved(list, { path: 'Series.zip', inner: 'Two/', fingerprint: 'G' }), false, 'nor is it in another archive put at that path');
+  const whole = parseRemoved(removedText(withRemoved(list, archive, 2)));
+  assert.equal(chapterRemoved(whole, { path: 'Series.zip', inner: 'One/', fingerprint: 'F' }), true, 'an archive a deletion left whole: each of its chapters');
 });
 
 test('O1: a page\'s token — a linked page\'s source picture, a page of the library\'s own its picture as stored — changes when the picture does', () => {
