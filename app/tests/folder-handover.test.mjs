@@ -665,6 +665,171 @@ const OLDEST = {
   },
 };
 
+// A4 (review 7, the desktop): while the website used folder A anyway it translated page 1 there; the
+// desktop, told the folder was taken, translated page 1 too, its picture waiting in its own staging. At the
+// take-back that picture went into translated/ beside the website's under a random name, then was looked at
+// before its record was pointed there: one look that failed, or answered "not found" (the drive away for
+// that look), or a kill there, left the page's record on the website's file — the desktop showed the
+// website's translation, its own in the folder, unreferenced — and a kill as the rename returned picked yet
+// another name at the next start. Local changes win (D4): whatever the move's first call after the rename
+// does, the desktop reads its own, nothing reported, the website's file left as it is; and so does the
+// folder added again. And the website's mirror (pictures waiting in the browser whose slot the desktop
+// wrote), with no fault: the folder sweep's "…, a page both apps translated" faults it at every call.
+const BOTH_TRANSLATED = {
+  name: 'review 7 A4: a page both apps translated across "Use anyway" and the take-back shows the translation of the app that took the folder back',
+  async run({ dir, desktop, website }) {
+    const base = path.join(dir, 'desktop');
+    let lib = desktop;
+    const pngOf = (n) => png(0, n);
+    const bytesAt = (A) => Object.fromEntries(fs.readdirSync(path.join(A, 'Alpha', 'translated')).map(n => [n, [...fs.readFileSync(path.join(A, 'Alpha', 'translated', n))].at(-1)]));
+    try {
+      for (const form of ['no fault', 'ENOENT', 'EIO', 'the drive away for that call', 'a kill there', 'a kill as the rename returns']) {
+        const A = path.join(dir, form);
+        const id = await lib.add(A);
+        await lib.setDefault(id);
+        const gid = await lib.newGallery('Alpha');
+        for (let n = 1; n <= 2; n++) await lib.putPage(gid, n, pngOf(n));
+        await lib.flush();
+        const w = await website.add(A, { force: true });   // the website: "Use anyway"
+        await website.scan(w);
+        await website.putTranslation(gid, 1, pngOf(7));
+        await website.flush();
+        await until(() => fs.existsSync(path.join(A, 'Alpha', 'translated', '0001.png')));
+        await lib.setDefault(lib.home);
+        lib.raw.folders._probes.clear();   // the desktop told the folder is taken
+        await lib.putTranslation(gid, 1, pngOf(8));   // waits in its own staging
+        const moved = (c) => c.op === 'rename' && /\/translated\/0001[^/]*\.png$/.test(c.to ?? '') && c.to.includes(`/${form}/Alpha/`);
+        if (form.startsWith('a kill')) {
+          await lib.close();
+          const asItReturns = form.endsWith('returns');
+          assert.equal(desktopKilled(base, async ({ lib, kill, id, form, asItReturns }) => {
+            const fs = await import('node:fs');
+            let renamed = false;
+            const moved = (c) => c.op === 'rename' && /\/translated\/0001[^/]*\.png$/.test(c.to ?? '') && c.to.includes(`/${form}/Alpha/`);
+            kill((c) => {
+              if (asItReturns) return moved(c) && (fs.renameSync(c.path, c.to), true);
+              if (renamed) return true;
+              renamed = moved(c);
+              return false;
+            });
+            await lib.raw.folderClaim(id);   // taken back
+            await lib.flush();
+            await new Promise(r => setTimeout(r, 500));
+          }, { id, form, asItReturns }), 42, `${form}: killed`);
+          lib = await desktopLibrary(base);
+        } else {
+          const away = form.startsWith('the drive');
+          let state = 0;
+          const undo = form === 'no fault' ? () => {} : faults.failNext((c) => {
+            if (state === 0) { if (moved(c)) state = 1; return false; }
+            if (state === 2 && away) { state = 3; fs.renameSync(`${A}.away`, A); }   // back at the next call
+            if (state !== 1) return false;
+            state = 2;
+            if (away) { fs.renameSync(A, `${A}.away`); return false; }   // away for that call
+            return true;   // that call fails
+          }, away ? 'EIO' : form, { times: Infinity });
+          try {
+            await lib.raw.folderClaim(id);   // taken back: the staged translation goes into the folder
+            await lib.flush();
+            await new Promise(r => setTimeout(r, 500));
+          } finally { undo(); if (fs.existsSync(`${A}.away`)) fs.renameSync(`${A}.away`, A); }
+          assert.ok(form === 'no fault' || state >= 2, `${form}: the call after the move was made`);
+        }
+        await lib.flush();
+        for (let i = 0; i < 2; i++) assert.deepEqual((await lib.scan(id)).problems, [], `${form}: nothing reported`);
+        await lib.restart();
+        await lib.flush();
+        assert.deepEqual(await lib.read(gid, 1, 'translated'), pngOf(8), `${form}: the desktop reads its own translation`);
+        assert.deepEqual(Object.entries(bytesAt(A)).sort(), [['0001.png', 7], [Object.keys(bytesAt(A)).find(n => n !== '0001.png'), 8]].sort(),
+          `${form}: its own beside the website's, which stays as it is`);
+        await lib.remove(id);
+        const again = await lib.add(A);
+        await lib.scan(again);
+        assert.deepEqual(await lib.read(gid, 1, 'translated'), pngOf(8), `${form}: the folder added again reads it too`);
+        await lib.setDefault(lib.home);
+        await lib.remove(again);
+      }
+      // The website's mirror: the desktop used its folder anyway and translated page 1 there.
+      const A = path.join(dir, 'mirror');
+      const id = await website.add(A);
+      await website.setDefault(id);
+      const gid = await website.newGallery('Alpha');
+      for (let n = 1; n <= 2; n++) await website.putPage(gid, n, pngOf(n));
+      await website.flush();
+      const d = await lib.add(A, { force: true });
+      await lib.scan(d);
+      await lib.putTranslation(gid, 1, pngOf(7));
+      await lib.flush();
+      await until(() => fs.existsSync(path.join(A, 'Alpha', 'translated', '0001.png')));
+      await website.setDefault(website.home);   // the website told the folder is taken
+      await website.putTranslation(gid, 1, pngOf(8));   // waits in this browser
+      assert.equal(await website.raw.folderClaim(id), 'granted');
+      await website.flush();
+      await website.scan(id);
+      await website.flush();
+      assert.deepEqual(await website.read(gid, 1, 'translated'), pngOf(8), 'the website reads its own translation');
+      assert.equal(Object.values(bytesAt(A)).sort().join(), '7,8', 'its own beside the desktop\'s');
+      await website.remove(id);
+      await website.scan(await website.add(A));
+      assert.deepEqual(await website.read(gid, 1, 'translated'), pngOf(8), 'the folder added again reads it too');
+    } finally { await lib.close(); }
+  },
+};
+
+// A3 (review 7, the desktop; S26a fixed the website alone): a website write the drive cut short leaves the
+// browser's swap file (`<name>.crswap`) beside its file, which only the website's own writes make. The
+// desktop, deleting that gallery, took the swap file for the person's: the folder stayed, two empty folders
+// and the swap file, reported 'left' on Needs attention for good; archiving it kept it a folder. A folder
+// Shiori empties goes with the browser's swap files left in it, on both apps (folder-content.js SWAP_FILE).
+const SWAP_LEFT = {
+  name: 'review 7 A3: the browser\'s swap file a website write left is never the person\'s for the desktop: a deletion and archiving take the folder with it',
+  async run({ dir, desktop, website }) {
+    for (const then of ['deleted', 'archived']) {
+      const A = path.join(dir, then);
+      const wid = await website.add(A);
+      await website.setDefault(wid);
+      const gid = await website.newGallery('Alpha');
+      for (let n = 1; n <= 2; n++) await website.putPage(gid, n, png(0, n));
+      await website.flush();
+      // The drive away at the write of a translation, back two calls later: the browser's swap file stays.
+      let step = 0, k = 0;
+      const undo = fsa.failNext((c) => {
+        if (!step && c.op === 'write' && /^Alpha\/translated\//.test(c.path)) { step = 1; fs.renameSync(A, `${A}.away`); } else if (step === 1 && ++k === 2) { step = 2; fs.renameSync(`${A}.away`, A); }
+        return false;
+      }, 'NotFoundError', { times: Infinity });
+      await website.putTranslation(gid, 1, png(0, 7)).catch(() => {});
+      await website.flush();
+      undo();
+      if (fs.existsSync(`${A}.away`)) fs.renameSync(`${A}.away`, A);
+      await website.flush();
+      const swaps = () => fs.readdirSync(A, { recursive: true }).map(String).filter(p => p.endsWith('.crswap'));
+      assert.equal(swaps().length, 1, `${then}: the browser's swap file is left`);
+      await website.setDefault(website.home);
+      await website.remove(wid);   // the website lets the folder go
+      const id = await desktop.add(A);
+      await desktop.setDefault(id);
+      await desktop.scan(id);
+      if (then === 'deleted') await desktop.deleteGallery(gid);
+      else assert.deepEqual((await desktop.raw.archiveGallery(gid)).archived, [gid], 'archived');
+      await desktop.flush();
+      await until(() => !fs.existsSync(path.join(A, 'Alpha')));
+      for (let i = 0; i < 2; i++) assert.deepEqual((await desktop.scan(id)).problems, [], `${then}: nothing reported`);
+      assert.deepEqual((await desktop.list()).find(f => f.id === id).attention, [], `${then}: nothing on Needs attention`);
+      assert.deepEqual(swaps(), [], `${then}: the swap file went with the folder`);
+      if (then === 'archived') assert.deepEqual([await desktop.read(gid, 1), await desktop.read(gid, 2)], [png(0, 1), png(0, 2)], 'read from its archive');
+      await desktop.setDefault(desktop.home);
+      await desktop.remove(id);
+    }
+  },
+};
+
+// Resolves once `ready()` holds, failed after `ms`.
+async function until(ready, ms = 5000) {
+  for (const end = Date.now() + ms; !(await ready()); await new Promise(r => setTimeout(r, 25))) {
+    if (Date.now() > end) throw new Error('it never happened');
+  }
+}
+
 // These drive both libraries themselves: run against the desktop library (npm run test:desktop),
 // there is nothing more to run.
 const skip = !!globalThis.__desktopLibrary && 'run by npm test';
@@ -681,7 +846,7 @@ for (const [direction, apps] of [['website to desktop', ['website', 'desktop']],
       });
     }
     if (apps[0] === 'desktop') {
-      for (const h of [ARCHIVED, OLDEST, UNPACKED, CUT_SHORT, EDITED, NOTES_UNREAD, FIRST_FOLDER, NOTED_ARCHIVE, DELETED_ON_TAKE_BACK, KILLED_UNPACK, ARCHIVE_DELETED]) {
+      for (const h of [ARCHIVED, OLDEST, UNPACKED, CUT_SHORT, EDITED, NOTES_UNREAD, FIRST_FOLDER, NOTED_ARCHIVE, DELETED_ON_TAKE_BACK, KILLED_UNPACK, ARCHIVE_DELETED, BOTH_TRANSLATED, SWAP_LEFT]) {
         test(h.name, { skip }, async (t) => {
           const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-handover-'));
           const desktop = await desktopLibrary(path.join(dir, 'desktop'));

@@ -273,6 +273,49 @@ export const CASES = [
       assert.ok(fs.existsSync(file), 'the changed file is left');
     },
   },
+  {
+    // A3 (review 7): S26a's rule — a folder Shiori empties goes with the browser's swap files a website write
+    // left in it — was the website's alone; the desktop's emptying left such a folder, the swap file in it.
+    name: 'review 7 A3: a folder deleteNamed empties goes with the browser\'s swap files left in it, and with nothing else',
+    async run({ dir, store, fx }) {
+      const root = await opened(store, await fx.register('A'));
+      const g = await root.reserve('Named', '1700000000001', null);
+      const at = (/** @type {string} */ rel) => path.join(dir, 'A', ...g.name.split('/'), ...rel.split('/'));
+      const a = await g.writeNew('translated/0001', 'png', png(1));
+      const b = await g.writeNew('study/bg/0001', 'png', png(2));
+      fs.writeFileSync(at('translated/0001-a.png.crswap'), png(9));   // a website write cut short
+      fs.writeFileSync(at('study/bg/0001.png.crswap'), png(9));
+      fs.writeFileSync(at('study/mine.txt'), 'the person\'s own file');
+      assert.deepEqual((await g.deleteNamed([a, b])).deleted, [a.name, b.name]);
+      assert.equal(fs.existsSync(at('translated')), false, 'the folder it emptied goes, with the swap file');
+      assert.equal(fs.existsSync(at('study/bg')), false);
+      assert.equal(fs.readFileSync(at('study/mine.txt'), 'utf8'), 'the person\'s own file', 'one holding anything else stays');
+    },
+  },
+  {
+    // And the website's "what is left is the person's": a deletion whose removal of a swap file failed for a
+    // moment took the swap file for a file of the person's ('left', for good); it is tried again instead.
+    name: 'review 7 A3: a deletion that can\'t remove the browser\'s swap file at once reports nothing as the person\'s, and finishes later',
+    platforms: ['website'],
+    async run({ fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Alpha');
+      await fx.lib.putPage(gid, 1, png(1));
+      await fx.lib.flush();
+      const at = /** @type {string} */ (await fx.lib.dirOf(gid));
+      fs.writeFileSync(path.join(at, 'images', '0002.png.crswap'), png(9));   // a website write cut short
+      let n = 0;
+      const off = fsa.failNext((c) => c.op === 'removeEntry' && c.path.endsWith('.crswap') && ++n > 0, 'NoModificationAllowedError', { times: Infinity });
+      await fx.lib.deleteGallery(gid);
+      await fx.lib.flush();
+      await new Promise(r => setTimeout(r, 300));   // what a deletion leaves to do, once it commits
+      off();
+      assert.equal(n >= 2, true, `its removal was tried, at its end too (${n})`);
+      for (let i = 0; i < 2; i++) assert.deepEqual((await fx.lib.scan(ref.id)).problems, [], 'nothing reported');
+      await until(() => !fs.existsSync(at));
+      assert.deepEqual((await fx.lib.list()).find(f => f.id === ref.id).attention, [], 'nothing on Needs attention');
+    },
+  },
   // ── Publication (format v2: gallery-manifest.js) ──
   {
     name: 'a publication cut short after any of its writes leaves, to both apps, the whole previous generation or the whole new one',
@@ -2743,6 +2786,138 @@ export const CASES = [
       }
       await fx.lib.add(A);
       assert.equal(fs.readFileSync(path.join(A, 'mine.txt'), 'utf8'), 'the person\'s own file');
+    },
+  },
+  // ── Review 7 (S27) ──
+  {
+    // Found by S27's wider fitness rule (the desktop): a linked archive whose own metadata.json is Shiori's
+    // (one read as a linked title: an entry's name leads out of it) joins under that description's id and
+    // title — but a read of it that failed was taken for none, and the archive joined under a new id, its
+    // title made from its name, for good (the next check finds it linked and reads it no more).
+    name: 'S27: a linked archive\'s own description that can\'t be read at its first check never makes it join under another id',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      const json = (/** @type {unknown} */ v) => new TextEncoder().encode(JSON.stringify(v));
+      const gid = '1790000000555';
+      const reads = (/** @type {string} */ name) => (/** @type {{ op: string, path: string }} */ c) => c.op === 'open' && c.path.endsWith(`/${name}/Pack.zip`);
+      for (let k = 1; ; k++) {
+        const name = `A${k}`, A = path.join(dir, name);
+        fs.mkdirSync(A);
+        fs.writeFileSync(path.join(A, 'Pack.zip'), zipCreate([{ name: 'metadata.json', data: json({ galleryId: gid, title: { english: 'Its own title', japanese: '', pretty: '' } }) },
+          { name: '001.png', data: png(1) }, { name: '../outside.png', data: png(2) }]));
+        const id = await fx.lib.add(A);
+        let n = 0;
+        const off = faults.failNext((c) => reads(name)(c) && ++n === k, 'EIO');
+        await fx.lib.scan(id);
+        off();
+        await fx.lib.scan(id);
+        assert.deepEqual([await fx.lib.galleries(), await fx.lib.titleOf(gid)], [[gid], 'Its own title'], `the ${k}-th read of the archive failing: it joins as itself`);
+        await fx.lib.setDefault(fx.lib.home);
+        await fx.lib.remove(id);
+        if (n < k) break;   // past its last read: no fault was met
+      }
+    },
+  },
+  {
+    // The fitness rule's gaps (review 7): "a backup made during a blip may silently lack files". A backup
+    // reads each picture by its gallery's records (each app's own backup: the desktop's made by the app,
+    // the website's in the page), and lists a page whose picture it couldn't read as missing — but a
+    // picture of a page's own (its translation, a study layer, a mask, a cover) that couldn't be read came
+    // back as none, and the backup left it out saying nothing. Each it couldn't read is listed.
+    name: 'S27: a backup made while a gallery\'s pictures can\'t be read lists each one it couldn\'t read',
+    async run({ dir, fx, platform }) {
+      await fx.register('A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 2; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.putTranslation(gid, 1, png(7));
+      await fx.lib.flush();
+      const at = /** @type {string} */ (await fx.lib.dirOf(gid));
+      const files = ['images', 'translated'].flatMap(sub => fs.readdirSync(path.join(at, sub)).map(n => `${sub}/${n}`));
+      const unread = files.filter(f => f.startsWith('translated/') || f.startsWith('images/0002'));
+      assert.equal(unread.length, 2, files.join());
+      const off = platform === 'desktop'
+        ? faults.failNext((c) => unread.some(f => c.path.endsWith(`/Alpha/${f}`)), 'EIO', { times: Infinity })
+        : fsa.failNext((c) => unread.some(f => c.path === `Alpha/${f}`), 'NotReadableError', { times: Infinity });
+      const had = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+      let made;
+      try {
+        if (platform === 'desktop') {
+          const { exportArchive } = await import('../../desktop/server/backup.js');
+          made = await exportArchive(fx.lib.raw, path.join(dir, 'backup.shioridb'));
+        } else {
+          // The page's settings, which a backup carries: none here.
+          if (!had) globalThis.localStorage = /** @type {any} */ ({ length: 0, key: () => null, getItem: () => null, setItem() {}, removeItem() {} });
+          const { exportFull } = await import(`../js/backup.js${pageNow() ? `?gen=${pageNow()}` : ''}`);
+          made = await exportFull();
+        }
+      } finally {
+        off();
+        if (!had) delete globalThis.localStorage;
+      }
+      assert.deepEqual(made.missing.map((/** @type {any} */ m) => [m.gid, m.what.n, m.what.part]).sort(), [[gid, 1, 'translated'], [gid, 2, 'page']],
+        'the page and the translation it couldn\'t read are listed, nothing left out unsaid');
+    },
+  },
+  {
+    // A2 (review 7, the desktop; made by S22): a gallery's folder is read by its listing, and a listing shows
+    // a junction as neither file nor folder, so a junction the person made of a gallery's images/ or .shiori
+    // was taken for "not there". An earlier version's gallery without its files list — whose pictures are
+    // what images/ holds — joined with no pages at its folder's first check, nothing reported, and its next
+    // change published a manifest with no pages: its pictures and translation never read again. A gallery in
+    // the gallery format with its .shiori junctioned joined by its stable-named copies. Each form must be
+    // reported at the first check and at the next, nothing of it joining or written in its folder, and join
+    // whole once the junction is undone. The website's browser shows a link as what it leads to (fsa-node.mjs,
+    // as S2 took Chrome to): there each joins whole at once, read through it.
+    name: 'review 7 A2: a gallery whose picture folder or .shiori is a junction never joins in part, nor has anything written for it',
+    async run({ dir, fx, platform }) {
+      const forms = /** @type {const} */ (['v1, images/ junctioned', 'v1 without its files list, images/ junctioned',
+        'the gallery format, images/ junctioned', 'the gallery format, .shiori junctioned']);
+      for (const [i, form] of forms.entries()) {
+        const name = `A${i}`, A = path.join(dir, name);
+        let gid, at, want;
+        if (form.startsWith('v1')) {
+          at = path.join(A, 'Old one');
+          const old = await v1Gallery(at, { files: !form.includes('without') });
+          const bytes = (/** @type {string} */ rel) => new Uint8Array(fs.readFileSync(path.join(at, ...rel.split('/'))));
+          ({ gid } = old);
+          want = [bytes(form.includes('without') ? 'images/0001.webp' : old.current[1]), bytes('images/0002.webp'), bytes('translated/0001.png')];
+        } else {
+          const ref = await fx.register(name);
+          gid = await fx.lib.newGallery('Alpha');
+          for (let n = 1; n <= 2; n++) await fx.lib.putPage(gid, n, png(n));
+          await fx.lib.putTranslation(gid, 1, png(7));
+          await fx.lib.flush();
+          at = /** @type {string} */ (await fx.lib.dirOf(gid));
+          want = [png(1), png(2), png(7)];
+          await fx.lib.setDefault(fx.lib.home);
+          await fx.lib.remove(ref.id);   // removed, to be added again: its galleries read back at its first check
+        }
+        const sub = form.includes('.shiori') ? '.shiori' : 'images', aside = path.join(dir, `elsewhere ${i}`);
+        fs.renameSync(path.join(at, sub), aside);   // the person moves it to another place, and junctions it back
+        faults.junction(aside, path.join(at, sub));
+        const manifest = () => { try { return fs.readFileSync(path.join(at, '.shiori', 'gallery.json'), 'utf8'); } catch { return null; } };
+        const before = manifest();
+        const id = await fx.lib.add(A);
+        await fx.lib.setDefault(id);
+        const reads = async () => [await fx.lib.read(gid, 1), await fx.lib.read(gid, 2), await fx.lib.read(gid, 1, 'translated')];
+        for (const check of ['first', 'next']) {
+          const found = await fx.lib.scan(id);
+          if ((await fx.lib.galleries()).includes(gid)) await fx.lib.setTitle(gid, `Renamed at the ${check} check`);   // a change: it publishes
+          await fx.lib.flush();
+          if (platform === 'desktop') {
+            assert.ok(found.problems.some(p => at.endsWith(path.sep + p.path.split('/').join(path.sep))), `${form}, ${check} check: reported (${JSON.stringify(found.problems)})`);
+            assert.deepEqual([await fx.lib.galleries(), manifest()], [[], before], `${form}, ${check} check: nothing joins, nothing written`);
+          } else assert.deepEqual([await fx.lib.galleries(), await reads()], [[gid], want], `${form}: the website reads it whole, through the link`);
+        }
+        fs.rmSync(path.join(at, sub));
+        fs.renameSync(aside, path.join(at, sub));   // the junction undone
+        await fx.lib.scan(id);
+        await fx.lib.flush();
+        assert.deepEqual((await fx.lib.scan(id)).problems, [], `${form}: nothing left to report`);
+        assert.deepEqual([await fx.lib.galleries(), await reads()], [[gid], want], `${form}: joins whole once the junction is undone`);
+        await fx.lib.setDefault(fx.lib.home);
+        await fx.lib.remove(id);
+      }
     },
   },
 ];

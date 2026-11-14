@@ -346,11 +346,11 @@ export function identityAt(dir, id) {
   return content.libraryIdOf(text) === id ? 'ok' : 'other-library';
 }
 
-// Whether staged `file` is there (not: as the shared rule takes it, folder-store.js statIn — an answer
-// it doesn't take, the drive away, is thrown, the settle tried again: review 5 T-D). A picture is never
-// flushed on its own (folder-store.js writeNewIn): power loss is outside the fault model, and only the
-// small manifest and descriptions are flushed.
-const present = async (file) => !!(await statIn(file))?.isFile();
+// Staged `file` as it is now: its stat, or null when it isn't there (as the shared rule takes it,
+// folder-store.js statIn — an answer it doesn't take, the drive away, is thrown, the settle tried again:
+// review 5 T-D). A picture is never flushed on its own (folder-store.js writeNewIn): power loss is outside
+// the fault model, and only the small manifest and descriptions are flushed.
+const stagedNow = async (file) => { const st = await statIn(file); return st?.isFile() ? st : null; };
 
 // A file moved to `to` where nothing is, synchronously — never over a file (principle 3: the caller
 // chose a name no file has, and a file put there since is left as it is: EEXIST) — across drives (a
@@ -366,6 +366,19 @@ function moveSync(from, to) {
     disk.rmSync(from, { force: true });
     return true;
   }
+}
+// Staged picture `from` — as it was looked at (`was`: stagedNow), or null when it isn't there any more —
+// moved into its gallery's folder at `to`, a name its caller picked so that a move tried again picks the
+// same one (_nameFor, _ownNameFor). Returns { size, mtime, copied } as its record takes them, with no file
+// call between the rename and that record that could part them (review 6 F12, review 7 A4): a rename keeps
+// the picture's size and time, so they are `was`'s; a copy across drives is looked at as written. One
+// moved before an interruption (`was` null) is looked for at `to` under the rule (statNow): null when
+// nothing is there.
+function movedInto(from, was, to) {
+  if (!was) { const st = statNow(to); return st && { size: st.size, mtime: st.mtimeMs, copied: false }; }
+  const copied = moveSync(from, to);
+  const st = copied ? disk.statSync(to) : was;
+  return { size: st.size, mtime: st.mtimeMs, copied };
 }
 
 export class FileLibrary {
@@ -1564,47 +1577,47 @@ export class FileLibrary {
   // Staged page `r` moved into the gallery's folder `dir`: in one synchronous step,
   // so no other operation sees the file in one place and its row naming the other — renamed into
   // images/ under a name no file has (_nameFor) and its row pointed at it, with the size and
-  // modification time it has there. A page replaced or removed meanwhile is left alone (its staged
-  // file goes with its row). One already renamed before an interruption only has its row brought up to
-  // date.
+  // modification time it has there (movedInto). A page replaced or removed meanwhile is left alone (its
+  // staged file goes with its row). One already renamed before an interruption only has its row brought
+  // up to date.
   async _moveIn(gid, dir, r) {
     const lib = this.library;
     const orig = parse(r.orig);
     const from = lib._staged(orig.file);
-    const there = await present(from);
+    const was = await stagedNow(from);
     const now = lib._pageRow(gid, r.n);
     if (!now || now.orig !== r.orig) return;
-    const name = this._nameFor(gid, r, orig, dir, there);
-    const to = path.join(dir, ...name.split('/'));
-    if (there && moveSync(from, to)) lib.writes.add('pages', orig.size);
-    const st = disk.statSync(to, { throwIfNoEntry: false });
-    if (!there && st?.size !== orig.size) {
+    const name = this._nameFor(gid, r, orig, dir, !!was);
+    const moved = movedInto(from, was, path.join(dir, ...name.split('/')));
+    if (moved?.copied) lib.writes.add('pages', orig.size);
+    if (!was && moved?.size !== orig.size) {
       console.warn(`[shiori] page ${r.n} of gallery ${gid} is gone from staging`);
       return;
     }
     lib._tx(() => {
-      lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify({ at: 'p', entry: name, size: orig.size, type: orig.type, mtime: st?.mtimeMs }), gid, r.n);
+      lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify({ at: 'p', entry: name, size: orig.size, type: orig.type, mtime: moved.mtime }), gid, r.n);
     });
   }
 
   // Pictures of its own staged while the gallery was kept in an archive (unpacked since), or while its
-  // folder couldn't be written to: renamed into its folder — under the name they were staged for, or,
-  // when a file is there by now, another its records are pointed at (_retarget) — never over a file;
-  // one staged again meanwhile waits for the next settle.
+  // folder couldn't be written to: renamed into its folder as _moveIn moves a page — under the name they
+  // were staged for, or, when a file is there by now (the other app's picture of the same page, say),
+  // another its records are pointed at (_retarget) — never over a file; one staged again meanwhile waits
+  // for the next settle. One already moved before an interruption only has its records brought up to
+  // date (review 7 A4: one parted from its records that way showed the other app's picture as its own).
   async _moveOwnIn(gid, dir) {
     const lib = this.library;
     for (const s of this._stagedOwn(gid)) {
       const from = lib._staged(s.file);
-      const there = await present(from);
+      const was = await stagedNow(from);
       if (lib._s('SELECT file FROM staged_own WHERE gid = ? AND rel = ?').get(gid, s.rel)?.file !== s.file) continue;
-      let name = s.rel;
-      while (disk.existsSync(path.join(dir, ...name.split('/')))) name = s.rel.replace(/(\.[^./]*)$/, `-${crypto.randomBytes(5).toString('hex')}$1`);
+      const name = this._ownNameFor(s, dir, !!was);
       const to = path.join(dir, ...name.split('/'));
       disk.mkdirSync(path.dirname(to), { recursive: true });
-      if (there && moveSync(from, to)) lib.writes.add('pictures', s.size);
-      const st = disk.statSync(to, { throwIfNoEntry: false });
+      const moved = movedInto(from, was, to);
+      if (moved?.copied) lib.writes.add('pictures', s.size);
       lib._tx(() => {
-        if (st) this._retarget(gid, s.rel, { $own: name, size: st.size, mtime: st.mtimeMs });
+        if (was || moved?.size === s.size) this._retarget(gid, s.rel, { $own: name, size: moved.size, mtime: moved.mtime });
         lib._s('DELETE FROM staged_own WHERE gid = ? AND rel = ?').run(gid, s.rel);
       });
     }
@@ -1614,18 +1627,32 @@ export class FileLibrary {
   // a file is there already (the page it replaces, still to retire; a folder named by hand) or another
   // page of the gallery has that name, the number and the staged file's random part, so a retried move
   // picks the same name. `fresh`: the staged file is still there to move (else the move happened before
-  // an interruption, and the name it would have taken is the one it has).
+  // an interruption, and the name it would have taken is the one it has: looked for under the rule,
+  // statNow — one a look missed for a moment would be taken for the other's).
   _nameFor(gid, r, orig, dir, fresh = true) {
     const ext = layout.originalExt(orig.type, r.key);
     const name = layout.layoutPath.original(r.n, ext);
     const taken = (n) => !!this.library._s(`SELECT 1 FROM pages WHERE gid = ? AND n != ? AND json_extract(orig, '$.at') = 'p'
       AND json_extract(orig, '$.entry') = ?`).get(gid, r.n, n) || (fresh && dir != null && disk.existsSync(path.join(dir, ...n.split('/'))));
     const suffixed = name.replace(/\.(\w+)$/, `-${String(orig.file).match(/-([0-9a-f]+)\.\w+$/)?.[1] || 'x'}.$1`);
-    if (!fresh) return dir != null && disk.existsSync(path.join(dir, ...suffixed.split('/'))) ? suffixed : name;
+    if (!fresh) return dir != null && statNow(path.join(dir, ...suffixed.split('/'))) ? suffixed : name;
     if (!taken(name)) return name;
     let out = suffixed;
     while (taken(out)) out = name.replace(/\.(\w+)$/, `-${crypto.randomBytes(5).toString('hex')}.$1`);
     return out;
+  }
+  // Where picture `s` of a gallery's own, staged (its staged_own row: `rel` the name it was staged for,
+  // `file` its staging file), goes in the gallery's folder `dir`, as _nameFor has it for a page: `rel` while
+  // no file has it, else `rel` with the staging file's random part (translated/0001-3fa2c9e10b.png), so a
+  // move tried again picks the same name; `fresh` as there.
+  _ownNameFor(s, dir, fresh) {
+    const at = (rel) => path.join(dir, ...rel.split('/'));
+    const suffixed = s.rel.replace(/(\.[^./]*)$/, `-${String(s.file).match(/-([0-9a-f]+)\.\w+$/)?.[1] || 'x'}$1`);
+    if (!fresh) return statNow(at(suffixed)) ? suffixed : s.rel;
+    if (!disk.existsSync(at(s.rel))) return s.rel;
+    let name = suffixed;
+    while (disk.existsSync(at(name))) name = s.rel.replace(/(\.[^./]*)$/, `-${crypto.randomBytes(5).toString('hex')}$1`);
+    return name;
   }
 
   // ── Series ──
@@ -2404,7 +2431,8 @@ export class FileLibrary {
   // (format v2, naming those entries) — as { entries, token: the token it is published at }, or null
   // when the folder holds anything else (put there by hand, or a write under way) or lacks one of them.
   // Its own .shiori/ (the folder's manifest and stored descriptions) is Shiori's, and not copied: the
-  // archive's manifest takes its place.
+  // archive's manifest takes its place; so are the browser's swap files a website write left (SWAP_FILE),
+  // which go with the folder.
   async _archiveEntries(gid, dir, archiveFormat) {
     const lib = this.library;
     const rows = lib._pageRows(gid).sort((a, b) => a.n - b.n);
@@ -2419,7 +2447,7 @@ export class FileLibrary {
     const descriptions = this._descriptions(gid, { comicInfo: archiveFormat === 'cbz' });
     const named = new Set([...pictures.keys(), ...DESCRIPTIONS]);
     for (const name of await filesIn(dir)) {
-      if (!named.has(name) && !name.startsWith('.shiori/') && !WINDOWS_FILES.has(name.toLowerCase())) return null;
+      if (!named.has(name) && !name.startsWith('.shiori/') && !WINDOWS_FILES.has(name.toLowerCase()) && !content.SWAP_FILE.test(name)) return null;
     }
     const sizes = {};
     for (const [name, size] of pictures) {
@@ -2468,11 +2496,13 @@ export class FileLibrary {
       const sizeOf = (e) => e.data?.length ?? disk.statSync(e.from).size;
       if (written.size !== entries.length || entries.some(e => written.get(e.name)?.size !== sizeOf(e))) throw new Error('the archive did not read back');
       // What the folder lets go: what its deletion would take, each while it is as Shiori wrote it
-      // (ownedIn), and Windows' own files at its top (O3) — never a file the person put there, before or
-      // while the archive was written (review 4 F4), which stays, and is reported (_retire).
+      // (ownedIn), and Windows' own files at its top (O3; one gone meanwhile as the shared rule takes it,
+      // statNow — a look that fails stops the archiving, tried again later, never leaving that file to be
+      // reported as the person's) — never a file the person put there, before or while the archive was
+      // written (review 4 F4), which stays, and is reported (_retire).
       const leaving = await ownedIn(dir, id, this._recorded(id));
       for (const name of (await disk.readdir(dir)).filter(n => WINDOWS_FILES.has(n.toLowerCase()))) {
-        const st = disk.statSync(path.join(dir, name), { throwIfNoEntry: false });
+        const st = statNow(path.join(dir, name));
         if (st?.isFile()) leaving.push({ name, size: st.size, mtime: st.mtimeMs });
       }
       // One synchronous step from here.
@@ -2533,11 +2563,12 @@ export class FileLibrary {
       // rows kept until it has; one still holding files Shiori didn't name, or changed since it wrote
       // them, keeps them, and is left: the person's, never joining the library as a gallery of its own,
       // and reported once on its Needs attention list ('left', review 4 F4), as a deletion leaves one
-      // (_leftBehind: review 5 F3) — its rows kept until that is done.
-      const held = await filesIn(abs).catch(() => [null]);
-      if (!held.length && !await this._delete(abs)) continue;
-      const left = held.length && held[0] !== null && !kept.some(k => k.why === 'unreadable');
-      if (left && !await this._leftBehind(this._split(rel).root, { gid: null }, rel, work)) continue;
+      // (_leftBehind: review 5 F3) — its rows kept until that is done. Whether it holds any is told as the
+      // shared rule takes "not found", the browser's swap files aside (holdsFile: review 7 A3); one that
+      // can't be listed now keeps its rows, tried again at the next sweep.
+      const held = await holdsFile(abs).catch(() => null);
+      if (held == null || (!held && !await this._delete(abs))) continue;
+      if (held && !kept.some(k => k.why === 'unreadable') && !await this._leftBehind(this._split(rel).root, { gid: null }, rel, work)) continue;
       this._forgetRetired(rel, rows, kept);
     }
   }

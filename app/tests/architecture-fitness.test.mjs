@@ -82,11 +82,13 @@ test('no code outside the folder store adapter turns a failed read of a library 
   // under it: readText, readFile, list, picturesIn, galleryIn, manifestIn, loadGallery), and any other
   // failure is a failure (S22). So outside the adapter no code tells "not found" by an error's name, and no
   // read through it turns its failure into a value meaning "none" (null, [], false, a look answering
-  // false) — but these, each for its reason. The desktop's rule: desktop/tests/architecture-fitness.test.mjs.
-  // A line matched is the whole line, comments stripped; an entry no line matches any more is stale.
+  // false) — but these, each for its reason. A read is one through the adapter, or through the archive
+  // readers over it: a failure of those, caught into "none", is the same "not there" (review 7). The
+  // desktop's rule: desktop/tests/architecture-fitness.test.mjs. A line matched is the whole line, comments
+  // stripped; an entry no line matches any more is stale.
   const adapter = 'storage/folder-store-web.js';
-  const READ = /\b(?:folderFiles\.\w+|K\.archiveOf)\s*\(/;
-  const NONE = /\.catch\(\s*\(\)\s*=>\s*(?:null|undefined|false|true|''|\[[^\]]*\])\s*\)|,\s*\(\)\s*=>\s*(?:false|true)\s*\)/;
+  const READ = /\b(?:folderFiles\.\w+|K\.archiveOf|_archiveOf|_archiveNames|_readEntry|_classifyZip|_zipTitlesOf)\s*\(/;
+  const NONE = /\.catch\(\s*\(\)\s*=>\s*(?:null|undefined|false|true|''|\[[^\]]*\]|new Map\(\)|\(\{\}\))\s*\)|,\s*\(\)\s*=>\s*(?:false|true)\s*\)/;
   const NAME = /'NotFoundError'/;
   /** @type {[string, string, string][]} module, a part of the line, why */
   const allowed = [
@@ -98,7 +100,11 @@ test('no code outside the folder store adapter turns a failed read of a library 
     ['db.js', 'const done = await folderFiles.deleteGalleryIn(m.folder, m.root, m.path, m.gid, named).catch(() => false);',
       'a reservation undone: false is "not done", recorded for deletion (_owe: review 6 F9 b), never "nothing there"'],
     ['db.js', 'await folderFiles.readFile(ref.folder, root, _joinPath(ref.dir, ref.$path), ref.type || undefined).catch(() => null);',
-      'a page read to show: null shows nothing, and changes nothing recorded'],
+      'a page read to show (the line before reads one in an archive): null shows nothing, and changes nothing recorded'],
+    ['db.js', 'const names = await _archiveNames(folder, root, dir).catch(() => null);\n  if (!names) return null;',
+      'whose an archive is, can\'t be told now (null) when its descriptions can\'t be read: nothing is deleted for the gallery (S21)'],
+    ['db.js', 'const names = await _archiveNames(ref.folder, root, ref.dir).catch(() => null);',
+      'an archive whose descriptions can\'t be read now serves nothing as the gallery\'s (fail closed), and changes nothing recorded'],
     ['folder-library.js', 'const there = !root || !rec.stat?.dir || (await folderFiles.list(folder, root, rec.stat.dir).catch(() => [])).length > 0;',
       'galleries an unreleased build set aside (§8, review 4 O5)'],
     ['folder-library.js', 'if (stat.packed) return folderFiles.readFile(run.id, run.root, stat.dir).then(Boolean, () => true);',

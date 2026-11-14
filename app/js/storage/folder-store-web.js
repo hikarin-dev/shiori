@@ -28,7 +28,7 @@
 // whether this library holds its claim) and hands out a Root, whose galleries and reservations work as
 // the library does.
 import { refused, MISSING, unreadable, surelyMissing } from './contract.js';
-import { MANIFEST_FILE, OWN_FILES, LIBRARY_FILE, galleryAt, libraryIdOf } from './folder-content.js';
+import { MANIFEST_FILE, OWN_FILES, LIBRARY_FILE, SWAP_FILE, galleryAt, libraryIdOf } from './folder-content.js';
 import { refusalFor } from './folder-lifecycle.js';
 import { SOURCE_FILE, parseSource } from './linked-source.js';
 import { PICTURE_DIRS, isPictureName, areaOf, manifestPath, storedDir, storedHash, parseManifest, publication, firstGeneration, tokenOf, sizesOf,
@@ -562,11 +562,14 @@ export async function deleteGalleryIn(id, root, dir, gid, named) {
   // a listing that can't be made, leave the deletion recorded, tried again (review 6 F9 c).
   return _holdsFile(id, root, dir).then(held => (held ? 'left' : false), () => false);
 }
-/** Whether folder `dir` holds a file, in it or in a folder of it (none: it isn't there, as the shared rule
- * takes it — list; one that can't be listed is thrown).
+/** Whether folder `dir` holds a file, in it or in a folder of it — the browser's swap files aside, which
+ * are never the person's (SWAP_FILE) — none: it isn't there, as the shared rule takes it (list); one that
+ * can't be listed is thrown.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @returns {Promise<boolean>} */
 async function _holdsFile(id, root, dir) {
-  for (const e of await list(id, root, dir)) if (e.kind !== 'directory' || await _holdsFile(id, root, _join(dir, e.name))) return true;
+  for (const e of await list(id, root, dir)) {
+    if (e.kind === 'directory' ? await _holdsFile(id, root, _join(dir, e.name)) : !SWAP_FILE.test(e.name)) return true;
+  }
   return false;
 }
 /** The folders under `dir` left empty, then `dir` itself once it is, removed — as far as they can be.
@@ -578,19 +581,15 @@ async function _prune(id, root, dir) {
   for (const e of entries) if (e.kind === 'directory') await _prune(id, root, _join(dir, e.name));
   return _removeEmptied(id, root, dir);
 }
-// The browser's swap file of a write: File System Access writes `<name>.crswap` beside the file and puts it
-// in place on close, and an abort drops it — but not while the drive is away (S25's "found, not fixed": a
-// write cut by a drive leaving for a moment, at its write or its close). Only the website's own writes make
-// one, so a folder of Shiori's it emptied goes with the swap files left in it — and with nothing else
-// (S26a): the reservation it was undoes whole, a deleted gallery's folder isn't reported as the person's.
-const SWAP = /\.crswap$/;
 /** Folder `dir`, emptied by Shiori, removed while it holds nothing but the browser's swap files (removed
- * first). Resolves whether it went: one that holds anything else, or can't be listed or removed now, stays.
+ * first: folder-content.js SWAP_FILE) — and with nothing else (S26a): the reservation it was undoes whole,
+ * a deleted gallery's folder isn't reported as the person's. Resolves whether it went: one that holds
+ * anything else, or can't be listed or removed now, stays.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @returns {Promise<boolean>} */
 async function _removeEmptied(id, root, dir) {
   let entries;
   try { entries = await list(id, root, dir); } catch { return false; }
-  if (entries.some(e => e.kind !== 'file' || !SWAP.test(e.name))) return false;
+  if (entries.some(e => e.kind !== 'file' || !SWAP_FILE.test(e.name))) return false;
   try {
     for (const e of entries) await removeFile(id, root, _join(dir, e.name));
     await removeDir(id, root, dir);

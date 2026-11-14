@@ -362,15 +362,26 @@ export const statNow = (file) => ruledNow(file, () => disk.statSync(file));
 export const entriesIn = (dir) => ruled(dir, () => disk.readdir(dir, { withFileTypes: true }));
 // `file`'s stat, or null when nothing is there.
 export const statIn = (file) => ruled(file, () => disk.stat(file));
-// Whether a folder's listing (`items`) shows path `rel` in it: its first part, a folder when there is more.
-const shownIn = (items) => (rel) => {
+// Entry `e` of folder `dir`'s listing (or none), where a gallery's folder, picture folder, picture or
+// description is looked for: one that is a link (a junction the person made, say) is refused as every
+// read through it is (principle 5) — thrown as 'outside', so the gallery is reported and left as the index
+// has it, never read without what the link holds (review 7 A2: a listing shows a link as neither file
+// nor folder, which S22's reads took for "not there").
+function noLink(dir, e) {
+  if (e?.isSymbolicLink()) throw outside('readdir', path.join(dir, e.name));
+  return e;
+}
+// Whether folder `dir`'s listing (`items`) shows path `rel` in it: its first part, a folder when there is
+// more (a link there refused: noLink).
+const shownIn = (dir, items) => (rel) => {
   const [top, ...rest] = String(rel).split('/');
-  return items.some(i => i.name === top && (rest.length ? i.isDirectory() : i.isFile()));
+  const e = noLink(dir, items.find(i => i.name === top));
+  return !!e && (rest.length ? e.isDirectory() : e.isFile());
 };
 // The texts of `names` (paths in folder `dir`) that its listing (`items`) shows, each read under the rule
 // (textIn); null for one it doesn't show, unlooked at.
 export async function textsIn(dir, items, names) {
-  const shown = shownIn(items), texts = {};
+  const shown = shownIn(dir, items), texts = {};
   for (const name of names) texts[name] = shown(name) ? await textIn(within(dir, name)) : null;
   return texts;
 }
@@ -544,12 +555,23 @@ export async function deleteNamedIn(dir, list, { emptied: tidy = true } = {}) {
   const top = path.resolve(dir);
   if (tidy) for (const d of [...emptied].sort((a, b) => b.length - a.length)) {
     for (let at = path.resolve(d); at === top || at.startsWith(top + path.sep); at = path.dirname(at)) {
-      if ((await disk.readdir(at).catch(() => [null])).length) break;
-      try { await disk.rmdir(at); } catch { break; }
+      if (!await removeEmptied(at)) break;
       if (at === top) break;
     }
   }
   return { deleted, kept };
+}
+// Folder `at`, emptied by Shiori, removed while it holds nothing but the browser's swap files a website
+// write left (removed first: folder-content.js SWAP_FILE, review 7 A3), as the website's own emptying
+// does. Resolves whether it went: one that holds anything else, or can't be listed or removed now, stays.
+async function removeEmptied(at) {
+  const left = await disk.readdir(at, { withFileTypes: true }).catch(() => null);
+  if (!left || left.some(e => !e.isFile() || !content.SWAP_FILE.test(e.name))) return false;
+  try {
+    for (const e of left) await disk.rm(path.join(at, e.name));
+    await disk.rmdir(at);
+    return true;
+  } catch { return false; }
 }
 
 // Gallery `gid`'s own folder `dir` emptied by name (gallery-manifest.js galleryDeletion, principle 4):
@@ -595,10 +617,13 @@ export async function deleteGalleryIn(dir, gid, named) {
     return await holdsFile(dir) ? 'left' : true;
   } catch { return false; }
 }
-// Whether folder `dir` holds a file, in it or in a folder of it (none: it isn't there, as the shared rule
-// takes it — notFound; one that can't be listed is thrown).
+// Whether folder `dir` holds a file, in it or in a folder of it — the browser's swap files a website write
+// left aside, which are never the person's (folder-content.js SWAP_FILE: the folder goes with them, review
+// 7 A3) — none: it isn't there, as the shared rule takes it (notFound); one that can't be listed is thrown.
 export async function holdsFile(dir) {
-  for (const e of (await entriesIn(dir)) ?? []) if (!e.isDirectory() || await holdsFile(path.join(dir, e.name))) return true;
+  for (const e of (await entriesIn(dir)) ?? []) {
+    if (e.isDirectory() ? await holdsFile(path.join(dir, e.name)) : !(e.isFile() && content.SWAP_FILE.test(e.name))) return true;
+  }
   return false;
 }
 // Every file under `dir`, as paths relative to it.
@@ -681,20 +706,23 @@ export async function bindIn(dir, next, texts, { hide = () => {} } = {}) {
 // PICTURE_DIRS), by their names a picture's: path → { size, mtime }. Only the folders its listings show
 // are listed (`items`: the gallery's own listing, when the caller has it), and each folder and picture
 // they show is read under the rule (entriesIn, statIn): one gone, as the rule takes it, holds nothing;
-// one that can't be read now rejects — never a gallery with a page fewer.
+// one that can't be read now, or is a link (noLink), rejects — never a gallery with a page fewer.
 export async function picturesIn(dir, items = null) {
   const out = new Map();
   const listed = new Map(items ? [['', items]] : []);   // a folder in the gallery's → its entries
   const entries = async (rel) => listed.get(rel) ?? listed.set(rel, (await entriesIn(within(dir, rel))) ?? []).get(rel);
   const holds = async (sub) => {
     let at = '';
-    for (const part of sub.split('/')) { if (!(await entries(at)).some(e => e.name === part && e.isDirectory())) return false; at = at ? `${at}/${part}` : part; }
+    for (const part of sub.split('/')) {
+      if (!noLink(within(dir, at), (await entries(at)).find(e => e.name === part))?.isDirectory()) return false;
+      at = at ? `${at}/${part}` : part;
+    }
     return true;
   };
   for (const sub of format.PICTURE_DIRS) {
     if (!await holds(sub)) continue;
     for (const e of await entries(sub)) {
-      if (!e.isFile() || !format.isPictureName(e.name)) continue;
+      if (!format.isPictureName(e.name) || !noLink(within(dir, sub), e).isFile()) continue;
       const st = await statIn(within(dir, `${sub}/${e.name}`));
       if (st) out.set(`${sub}/${e.name}`, { size: st.size, mtime: st.mtimeMs });
     }
@@ -709,7 +737,7 @@ export async function picturesIn(dir, items = null) {
 export async function loadGallery(dir) {
   const items = (await entriesIn(dir)) ?? [];
   const files = await picturesIn(dir, items);
-  const shown = shownIn(items);
+  const shown = shownIn(dir, items);
   const read = await format.readGallery({ area: format.areaOf(dir.split(path.sep).join('/')), text: (rel) => (shown(rel) ? textIn(within(dir, rel)) : null), files });
   return { read, files };
 }

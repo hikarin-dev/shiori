@@ -100,8 +100,11 @@ async function findGalleries(root, { skip = new Set(), onTop = () => {}, stopped
       try { what = await classifyAt(dir, items); } catch { problems.push({ path: here, reason: 'unreadable' }); own.push(here); return; }
       if (what.kind === 'gallery') {
         own.push(here);
+        // An earlier version's folder of pictures: they are what it holds, a link among them too — its read
+        // refused like every read through one (principle 5), so the gallery is reported, never read without
+        // that page (review 7 A2).
         if (!what.reserved) found.push(what.legacy
-          ? { rel: here, format: 'folder', id: what.id, entries: items.filter(i => i.isFile() && IMAGE.test(i.name)).map(i => i.name).sort(natural.compare) }
+          ? { rel: here, format: 'folder', id: what.id, entries: items.filter(i => !i.isDirectory() && IMAGE.test(i.name)).map(i => i.name).sort(natural.compare) }
           : { rel: here, format: 'folder', id: what.id, layout: true });
         return;
       }

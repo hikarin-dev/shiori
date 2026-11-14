@@ -48,10 +48,11 @@ export async function exportMetadata({ onProgress = () => {}, signal = null } = 
 }
 
 // ── Full export (.shioridb) ─────────────────────────────────────────────────────────────────
-// This library as the backup-core reads it.
+// This library as the backup-core reads it: a picture that can't be read now given as false, so it is
+// listed missing, never left out saying nothing (db.js transferRead `unread`).
 const librarySource = {
   ids: () => api.transfer.ids(),
-  read: (gid) => api.transfer.read(gid),
+  read: (gid) => api.transfer.read(gid, { unread: false }),
   icons: () => api.icons.all(),
   revision: () => api.events.revision(),
   since: (rev) => api.events.since(rev),

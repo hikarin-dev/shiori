@@ -1076,14 +1076,16 @@ const _owe = (folder, dir, gid, named) => _recordsWrite((store) => {
 });
 
 // The files records read in `tx` refer to, put in place of the references once it has completed
-// (_loadBlobs lists them): null for one that can't be read (its folder out of reach, or the file gone).
+// (_loadBlobs lists them): null for one that can't be read (its folder out of reach, or the file gone),
+// or what the read asked for instead (`tx._unread`: transferRead's).
 async function _withFiles(tx) {
   const list = tx._paths;
   if (!list?.length) return;
   tx._paths = null;
+  const unread = tx._unread ?? null;
   let at = 0;
   await Promise.all(Array.from({ length: Math.min(16, list.length) }, async () => {
-    while (at < list.length) { const [obj, key, gid] = list[at++]; obj[key] = await _readPath(obj[key], gid); }
+    while (at < list.length) { const [obj, key, gid] = list[at++]; obj[key] = (await _readPath(obj[key], gid)) ?? unread; }
   }));
 }
 // File reference `ref` of gallery `gid`'s records read: null when it can't be read, or when the
@@ -2812,14 +2814,17 @@ export async function transferIds() {
 }
 
 // { meta, stat, pages, cover, personal } for one gallery, images as Blobs (null for what it lacks).
-// With `pages: false`, only its metadata, stat record and marks.
-export async function transferRead(galleryId, { pages: withPages = true } = {}) {
+// With `pages: false`, only its metadata, stat record and marks. `unread`: what a picture in a library
+// folder that can't be read now is given as — none by default; a backup asks for false, so it lists the
+// picture missing (backup-core) rather than leave it out saying nothing (S27).
+export async function transferRead(galleryId, { pages: withPages = true, unread = null } = {}) {
   const gid = String(galleryId);
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const out = { meta: null, stat: null, pages: [], cover: null, personal: null };
     const stores = [META_STORE, GALLERY_STORE, PERSONAL_STORE, ...(withPages ? [STORE, COVER_STORE, BLOB_STORE] : [])];
     const tx = _tx(db, stores, 'readonly');
+    tx._unread = unread;
     const marks = tx.objectStore(PERSONAL_STORE).get(gid);
     marks.onsuccess = () => { out.personal = marksOf(marks.result); };
     const meta = tx.objectStore(META_STORE).get(gid);

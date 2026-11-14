@@ -30,6 +30,11 @@ const _reservedOnly = (text) => _json(text)?.generation === 0;
 // `-new`, `-old`. Neither app's check reads one as a gallery or a linked source; what one holds is Shiori's
 // only once it is in place.
 export const TEMPORARY = /\.shiori-(tmp|old|new)$/;
+// The browser's swap file of a write: File System Access writes `<name>.crswap` beside the file and puts it
+// in place on close (an abort drops it) — but not while the drive is away, so a write cut by a drive
+// leaving for a moment leaves it (S25, S26a). Only the website's own writes make one: it is never the
+// person's, and a folder Shiori empties goes with the swap files left in it, on both apps (review 7 A3).
+export const SWAP_FILE = /\.crswap$/;
 
 /** A file's text as parsed JSON, of any shape (each reader checks what it uses), or null.
  * @param {unknown} text @returns {any} */

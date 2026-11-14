@@ -600,12 +600,14 @@ export class Library {
   }
 
   // `value` with its references read back into Blobs; `gid` the gallery it belongs to, and for a page
-  // record its number `n` and where its original is (`orig`). `lazy`: as _lazyRef reads them.
+  // record its number `n` and where its original is (`orig`). `lazy`: as _lazyRef reads them, for a
+  // backup — one that can't be read given as false, not none, so the backup lists it missing
+  // (backup-core), never leaves it out saying nothing (S27: a translation's read failing for a moment).
   async _internalize(value, gid, orig = null, n = null, lazy = false) {
     const walk = async (v) => {
       if (v == null || typeof v !== 'object') return v;
       if (isRef(v)) {
-        if (lazy) return this._lazyRef(v, gid, orig, n);
+        if (lazy) return (await this._lazyRef(v, gid, orig, n)) ?? false;
         if (typeof v.$file === 'string' || typeof v.$own === 'string') return this._readFile(gid, v);
         if (v.$orig) return this._readOrig(gid, n, orig);
         if (v.$page != null) {

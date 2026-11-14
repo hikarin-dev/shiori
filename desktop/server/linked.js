@@ -233,11 +233,13 @@ async function sourceJson(library, root, gid) {
 }
 
 // An archive's own metadata, when it is a description Shiori wrote (folder-content.js galleryIdOf) —
-// another tool's metadata.json describes nothing of it (R01).
+// another tool's metadata.json describes nothing of it (R01), nor does an entry that can't be decoded
+// (damaged, or packed by a method the reader lacks). A read of it that fails is thrown: the title is
+// reported and joins at a later check, never under another id and title for good (review 7's fitness gaps).
 async function embeddedMeta(library, root, title, at) {
   const entry = at.directory?.get('metadata.json');
   if (!entry) return null;
-  const text = String(await readEntry(await sourceIn(library, root, title.path), entry).catch(() => ''));
+  const text = String(await readEntry(await sourceIn(library, root, title.path), entry).catch((e) => { if (e?.syscall) throw e; return ''; }));
   const id = content.galleryIdOf(text);
   return id ? { ...JSON.parse(text), galleryId: id } : null;
 }

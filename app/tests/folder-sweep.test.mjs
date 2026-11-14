@@ -748,6 +748,28 @@ const SCENARIOS = [
     ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A)), CATCH_UP((s, c) => withTranslation(s, c.g.alpha, 1, png(7))), FLUSH, SETTLE],
     noSetupFlush: true,
   },
+  {
+    // The same, both apps translating one page (review 7 A4): this app's translation waits while the other
+    // app's is in the folder under the name it would take, and goes in beside it at the take-back — this
+    // app's change wins (D4), through every point of that move.
+    name: 'a folder the other app used anyway, taken back, a page both apps translated',
+    async setup(c) {
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      await c.lib.flush();
+      const other = await otherApp(c);
+      await other.scan(await other.add(c.A, { force: true }));
+      await other.putTranslation(c.g.alpha, 1, png(7));
+      await publishedThere(other, c.g.alpha, 'translated/');
+      await other.close();
+      await sawTaken(c);
+      await c.lib.putTranslation(c.g.alpha, 1, png(8));
+      c.takeBack = true;
+    },
+    state: (c) => withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }, c.g.alpha, 1, png(8)),
+    ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A)), CHECK, FLUSH, SETTLE],
+    noSetupFlush: true,
+  },
   // A series: made, a chapter added, the chapters reordered, then moved to another folder whole; and a
   // series export joining a folder at its first check.
   {
