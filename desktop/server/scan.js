@@ -20,11 +20,11 @@
 // A known path costs one existence check (and its descriptions, to catch up); only files the index
 // doesn't know are opened.
 
-import { disk, loadGallery, manifestIn, tempBeside } from './folder-store.js';
+import { disk, loadGallery, manifestIn, tempBeside, textIn, entriesIn, textsIn } from './folder-store.js';
 import path from 'node:path';
 import { readDirectory, readEntry } from './zip.js';
 import { files as layout, linked as linkedSource, content, contract, manifest as format, personal } from './shared.js';
-import { descriptionStampOf, classifyAt, ownedBy, ifMissing } from './files.js';
+import { descriptionStampOf, classifyAt, ownedBy } from './files.js';
 import { linkRoot, adoptLinked, removedOf, archiveRemoved } from './linked.js';
 const { withoutPersonal } = personal;
 
@@ -133,7 +133,7 @@ async function readGallery(g) {
     return formatRead(readable(read, g.rel), files);
   }
   if (g.format === 'folder') {
-    const described = parse(await disk.readFile(path.join(abs, 'shiori.json'), 'utf8').catch(ifMissing(null)));
+    const described = parse(await textIn(path.join(abs, 'shiori.json')));
     const pages = await Promise.all(g.entries.map(async (name) => ({ name, size: (await disk.stat(path.join(abs, name))).size })));
     return { kind: 'gallery', described, pages };
   }
@@ -233,7 +233,6 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   const checked = new Set(reachable);
   const known = library._s('SELECT * FROM files').all().filter(r => checked.has(files._split(r.path).root));
   const byPath = new Map(known.map(r => [r.path, r]));
-  const exists = (rel) => disk.access(files._abs(rel)).then(() => true, () => false);
 
   // Leftovers of interrupted writes, and galleries' folders a deletion let go, in the folders the
   // library may write to. Those still waiting to be deleted aren't looked into (`skip`): never adopted
@@ -306,13 +305,15 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   }
   // A gallery the index keeps in another library folder (or one not checked now), its files gone from
   // where the index has them — moved there by hand — follows them here: the index takes the path it
-  // was found at (its place goes with it). With its files still where they were, this is a copy.
+  // was found at (its place goes with it). Gone as the shared rule takes it (files.js _whose): a look
+  // there that fails, or answers "not found" while that folder's drive is away for a moment, concludes
+  // nothing (review 6 F8). With its files still where they were, this is a copy.
   const handMoved = new Map();
   for (const [id, g] of byId) {
     const row = files._row(id);
     const root = row && files._split(row.path).root;
     if (!row || row.source || row.format !== g.format || checked.has(root) || !library.folders.has(root)) continue;
-    if (library.folders.reach(root).status === 'ok' && !await exists(row.path)) handMoved.set(id, g);
+    if (library.folders.reach(root).status === 'ok' && (await files._whose(row.path, id)).kind === 'missing') handMoved.set(id, g);
   }
 
   const changed = new Set();
@@ -494,7 +495,7 @@ async function tokenAt(library, abs, rowFormat, gid) {
   if (rowFormat === 'folder') {
     manifest = await manifestIn(abs, gid);
     if (manifest.kind === 'unreadable') throw Object.assign(new Error(manifest.error), { reason: 'unreadable' });
-    if (manifest.kind === 'missing') for (const name of layout.DESCRIPTION_FILES) texts[name] = await disk.readFile(path.join(abs, ...name.split('/')), 'utf8').catch(ifMissing(null));
+    if (manifest.kind === 'missing') texts = await textsIn(abs, (await entriesIn(abs)) ?? [], layout.DESCRIPTION_FILES);
   } else {
     const dir = await library.files._directory(abs);
     const at = dir.get(content.MANIFEST_FILE);

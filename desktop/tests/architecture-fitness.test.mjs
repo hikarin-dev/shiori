@@ -36,3 +36,89 @@ test('library.js calls node:fs only for its data folder', () => {
   }
   assert.deepEqual(offenders, [], 'these may touch a library folder: go through folder-store.js `disk`');
 });
+
+test('no code outside the folder store adapter turns a failed read of a library folder into "nothing there"', () => {
+  // Review 6: where a folder is read to tell what the library records, an answer of "not found" is
+  // 'missing' only as the shared rule takes it (folder-store.js notFound, and the reads made under it:
+  // textIn, entriesIn, statIn, textsIn, galleryIn, manifestIn, loadGallery), and any other failure is a
+  // failure (S22). So outside folder-store.js no code tells "not found" by an error's code, and no read
+  // through `disk` turns its failure into a value meaning "none" (null, [], false, ifMissing, existsSync,
+  // a look answering false) — but these, each for its reason. A line matched is the whole line, comments
+  // stripped; an entry no line matches any more is stale and fails too.
+  const READ = /\bdisk\.(?:readFile|readFileSync|readdir|stat|statSync|access|openAsBlob)\s*\(/;
+  const NONE = /\.catch\(\s*(?:ifMissing\(|\(\)\s*=>\s*(?:null|undefined|false|true|''|\[[^\]]*\]|new Map\(\))\s*\))|,\s*\(\)\s*=>\s*(?:false|true)\s*\)/;
+  const CODE = /'(?:ENOENT|ENOTDIR)'/;
+  const EXISTS = /\bdisk\.existsSync\s*\(/;
+  const DATA = 'this computer\'s data folder (the notes beside each library\'s index), not a library folder';
+  const START = 'the first folder\'s library.json at the start, before a library is open (S15, S20): the notes decide what one not there means, and one found there meanwhile is the folder\'s (writeId)';
+  const FREE = 'a name looked for free before a move or a gallery\'s first folder: the move looks again (moveSync), the folder is made exclusively';
+  const NOTHING = 'a failed listing or look deletes nothing, and changes nothing recorded';
+  const S23 = 'S23: linked galleries, removal notes and claims, under the same rule';
+  /** @type {[string, string, string][]} file, a part of the line, why */
+  const allowed = [
+    ['files.js', 'if (e?.code === \'ENOENT\' || e?.code === \'ENOTDIR\') return value;', `ifMissing, linked.js's alone (${S23})`],
+    ['files.js', 'try { return disk.readFileSync(idFile(libraryDir), \'utf8\'); } catch (e) { if (e.code === \'ENOENT\') return null;', START],
+    ['files.js', 'const st = await disk.stat(dir, { bigint: true }).catch((e) => { if (e?.code === \'ENOENT\') return null;', START],
+    ['files.js', 'const ids = await disk.readdir(librariesDir)', DATA],
+    ['files.js', 'const note = await disk.readFile(path.join(librariesDir, id, FIRST_NOTE)', DATA],
+    ['files.js', 'else if (disk.existsSync(index) && !earlierIndex(index))', DATA],
+    ['files.js', 'if (await disk.readFile(file, \'utf8\').catch(() => null) !== text) {', DATA],
+    ['files.js', 'if (e?.code !== \'ENOENT\' && e?.code !== \'ENOTDIR\' && e?.reason !== \'outside\') return \'unavailable\';',
+      'a library folder\'s identity (principle 1), the shared rule\'s own look: one not there refuses (other-library, unavailable)'],
+    ['files.js', 'if (disk.existsSync(to)) throw Object.assign(new Error(`${to} is taken`)', 'a move\'s target, taken or not: it refuses a name taken'],
+    ['files.js', 'while (disk.existsSync(path.join(dir, ...name.split(\'/\')))) name = rel.replace(', FREE],
+    ['files.js', 'while (disk.existsSync(path.join(dir, ...name.split(\'/\')))) name = s.rel.replace(', FREE],
+    ['files.js', 'fresh && dir != null && disk.existsSync(path.join(dir, ...n.split(\'/\')))', FREE],
+    ['files.js', 'if (!fresh) return dir != null && disk.existsSync(path.join(dir, ...suffixed.split(\'/\')))', FREE],
+    ['files.js', '|| disk.existsSync(this._abs(rel));', FREE],
+    ['files.js', '(await classifyAt(abs, await disk.readdir(abs, { withFileTypes: true })).catch(() => null))?.kind === \'gallery\'',
+      'an upgrade\'s retired rows: a folder that can\'t be told for a gallery\'s has nothing retired from it, and stays'],
+    ['files.js', 'if (!disk.existsSync(this._abs(row.path))) return false;', 'a publication waits while the gallery\'s folder isn\'t there: tried again'],
+    ['files.js', 'const left = await disk.readdir(dir).catch(() => null);', 'S25: _tidy deletes only a series\' folder of Shiori\'s (F11)'],
+    ['files.js', 'const text = series ? await disk.readFile(path.join(dir, series), \'utf8\').catch(() => null) : \'\';', 'S25: _tidy deletes only a series\' folder of Shiori\'s (F11)'],
+    ['files.js', 'if (src?.kind === \'dir\') return disk.access(path.join(this._sourceAbs(row), orig.entry)).then(() => true, () => false);',
+      'which pictures a backup lists (hasOriginal): decides nothing the library records'],
+    ['files.js', 'if (row.format === \'folder\') return disk.access(path.join(this._abs(row.path), orig.entry)).then(() => true, () => false);',
+      'which pictures a backup lists (hasOriginal): decides nothing the library records'],
+    ['files.js', '(await disk.readdir(dir).catch(() => null))?.length === 0;', `${NOTHING}: a folder that can't be listed isn't taken for empty`],
+    ['folders.js', 'const there = !b.files || disk.existsSync(lib.files._abs(b.files.path));', 'galleries an unreleased build set aside (§8, review 4 O5)'],
+    ['folders.js', 'try { text = disk.readFileSync(this._claimFile(dir), \'utf8\'); } catch (e) { text = e?.code === \'ENOENT\' ? null : e; }', `${S23} (F10)`],
+    ['folders.js', 'if (!(await disk.stat(abs).then(st => st.isDirectory(), () => false)))', 'a folder to add that can\'t be looked at is refused'],
+    ['folders.js', 'let list = linkedSource.parseRemoved(await disk.readFile(file, \'utf8\').catch((e) => { if (e.code === \'ENOENT\') return null;', `${S23} (F4)`],
+    ['library.js', 'if (!disk.existsSync(root)) throw new BackendError(\'unavailable\'', 'a staged write refused while its library folder isn\'t there'],
+    ['library.js', 'if (e.code !== \'ENOENT\') throw e;', 'a staged write whose folder was cleared meanwhile: the folder made again (a write, not a read)'],
+    ['library.js', 'disk.access(this._staged(o.file)).then(() => true, () => false)', 'which pictures a backup lists (_origExists): decides nothing the library records'],
+    ['library.js', 'for (const name of await disk.readdir(dir).catch(() => [])) await disk.rm(', NOTHING],
+    ['linked.js', 'const st = await disk.stat(path.join(abs, item.name)).catch(ifMissing(null));', `${S23} (F1)`],
+    ['linked.js', 'const st = await disk.stat(abs).catch(() => null);', S23],
+    ['linked.js', 'for (const item of await disk.readdir(abs, { withFileTypes: true }).catch(ifMissing([]))) {', S23],
+    ['linked.js', 'for (const item of await disk.readdir(dir, { withFileTypes: true }).catch(() => [])) {', `${S23} (F2)`],
+    ['linked.js', 'const read = L.parseSource(await disk.readFile(path.join(dir, item.name, L.SOURCE_FILE), \'utf8\').catch(() => null));', `${S23} (F2)`],
+    ['linked.js', '...L.parseRemoved(await disk.readFile(absIn(library, root, L.REMOVED_FILE), \'utf8\').catch(() => null)),', `${S23} (F4)`],
+    ['linked.js', 'for (const item of await disk.readdir(dir, { withFileTypes: true }).catch(ifMissing([]))) {', `${S23} (F1)`],
+    ['linked.js', 'const st = await disk.stat(path.join(dir, item.name)).catch(ifMissing(null));', `${S23} (F1)`],
+    ['linked.js', 'const text = await disk.readFile(file, \'utf8\').catch(ifMissing(null));', `${S23} (O4)`],
+    ['linked.js', 'const size = (await disk.stat(abs).catch(() => null))?.size ?? null;', S23],
+    ['linked.js', 'if (!disk.existsSync(library.rootDir(root))) continue;', S23],
+    ['linked.js', 'if (!disk.existsSync(await sourceIn(library, root, src.path))) continue;', S23],
+    ['remove.js', 'if (disk.existsSync(file)) await disk.rm(', NOTHING],
+    ['scan.js', 'const stat = await disk.stat(file).catch(() => null);', `${NOTHING}: a leftover that can't be looked at isn't old`],
+    ['scan.js', 'const sourceThere = (row) => !row.source || disk.access(files._sourceAbs(row)).then(() => true, () => false);', S23],
+    ['scan.js', '(await disk.readdir(library.rootDir(id)).catch(() => []))', 'a count for the progress shown'],
+    ['scan.js', 'for (const item of await disk.readdir(dir, { withFileTypes: true }).catch(() => [])) {', `${NOTHING} (leftovers)`],
+    ['scan.js', 'for (const gid of await disk.readdir(dir).catch(() => [])) {', `${NOTHING} (leftovers)`],
+    ['scan.js', 'for (const name of await disk.readdir(path.join(dir, gid)).catch(() => [])) {', `${NOTHING} (leftovers)`],
+    ['scan.js', 'for (const name of await disk.readdir(path.join(dir, ...sub.split(\'/\'))).catch(() => [])) {', `${NOTHING} (leftovers)`],
+  ];
+  const used = new Set();
+  const offenders = [];
+  for (const f of readdirSync(server).filter((f) => f.endsWith('.js') && f !== 'folder-store.js')) {
+    for (const line of code(read(f)).split('\n')) {
+      if (!((READ.test(line) && NONE.test(line)) || CODE.test(line) || EXISTS.test(line))) continue;
+      const at = allowed.findIndex(([file, part]) => file === f && line.includes(part));
+      if (at < 0) offenders.push(`${f}: ${line.trim()}`); else used.add(at);
+    }
+  }
+  assert.deepEqual(offenders, [], 'read through folder-store.js textIn / entriesIn / statIn (or say why here)');
+  assert.deepEqual(allowed.filter((_, i) => !used.has(i)).map(([f, part]) => `${f}: ${part}`), [], 'stale entries');
+});

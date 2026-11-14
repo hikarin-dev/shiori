@@ -160,17 +160,29 @@ export async function writeFile(id, root, path, data, { within = '' } = {}, retr
   return file;
 }
 
-/** The file at `path` inside the folder, or null when it isn't there (nor any file by that name: a
- * folder is). One that can't be read is thrown.
+// ── Reading what a folder holds (principle 6; review 6) ──
+// Every read that tells what a library folder holds — which galleries, which pages and pictures, which
+// descriptions, whether a gallery's folder is still there — answers "nothing there" only as the shared rule
+// takes it (_gone, _notFound): an answer of "not found" for a file or folder that a second look finds, or
+// while the library folder isn't there as itself (a drive away for a moment), is thrown like any other
+// failure. So a gallery is never read in part: one that can't be read whole now is reported and left as the
+// index has it, and read again at a later check. A description is looked for only where its folder's listing
+// shows its first part (loadGallery), so what isn't there costs no look. The libraries read folders with
+// these (and the typed results of galleryIn, manifestIn, loadGallery); none tells "not there" by an error's
+// name of its own (architecture-fitness.test.mjs).
+
+/** The file at `path` inside the folder, or null when nothing is there (as the shared rule takes it:
+ * _gone) or a folder is. One that can't be read is thrown.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @returns {Promise<File | null>} */
 async function _fileAt(id, root, path) {
   const [dir, name] = _split(path);
   try {
     return await (await (await _dir(id, root, dir, false)).getFileHandle(name)).getFile();
   } catch (e) {
+    if (_nameOf(e) === 'TypeMismatchError') return null;
     if (_nameOf(e) === 'NotFoundError') _forget(id, dir);
-    if (_nameOf(e) === 'NotFoundError' || _nameOf(e) === 'TypeMismatchError') return null;
-    throw e;
+    await _gone(id, root, path, e);
+    return null;
   }
 }
 /** The same, as `type` when it differs from what the browser gives it.
@@ -181,18 +193,24 @@ export async function readFile(id, root, path, type) {
   return file && type && file.type !== type ? file.slice(0, file.size, type) : file;
 }
 
-/** The text of the file at `path` inside the folder, or null when it isn't there — an error reading
- * it is thrown (never taken for a file that isn't there).
+/** The text of the file at `path` inside the folder, or null when nothing is there, as the shared rule
+ * takes it (_gone) — any other failure, and a "not found" the rule doesn't take, is thrown (never taken
+ * for a file that isn't there).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @returns {Promise<string | null>} */
 export async function readText(id, root, path) {
+  try { return await _text(id, root, path); } catch (e) { await _gone(id, root, path, e); return null; }
+}
+/** The text of the file at `path` inside the folder; null for any answer of "not found", for the reads
+ * that decide nothing by it: the shared rule's own look at the folder's identity (identityOf: one not found
+ * refuses the folder for now) and a publication's best-effort refresh of its stable-named copies.
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @returns {Promise<string | null>} */
+async function _textNow(id, root, path) {
+  try { return await _text(id, root, path); } catch (e) { if (_nameOf(e) === 'NotFoundError') return null; throw e; }
+}
+/** @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @returns {Promise<string>} */
+async function _text(id, root, path) {
   const [dir, name] = _split(path);
-  try {
-    const file = await (await (await _dir(id, root, dir, false)).getFileHandle(name)).getFile();
-    return await file.text();
-  } catch (e) {
-    if (_nameOf(e) === 'NotFoundError') return null;
-    throw e;
-  }
+  return (await (await (await _dir(id, root, dir, false)).getFileHandle(name)).getFile()).text();
 }
 
 /** An answer of "not found" (`e`) for `path`, as the shared rule takes it (contract.js surelyMissing):
@@ -200,9 +218,6 @@ export async function readText(id, root, path) {
  * while its drive is away) and a second look at `path` agrees; else unreadable.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @param {unknown} e */
 const _notFound = (id, root, path, e) => surelyMissing({ home: async () => (await identityOf(id, root)) === 'ok', there: () => isThere(id, root, path) }, e);
-/** Whether nothing is at `path`, as the shared rule takes it (_notFound), for a read that answered so.
- * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @returns {Promise<boolean>} */
-const _surelyGone = async (id, root, path) => (await _notFound(id, root, path, 'not found')).kind === 'missing';
 
 /** An answer of "not found" (`e`) for `path` that is to be taken: thrown unless the shared rule takes
  * it (_notFound).
@@ -354,27 +369,37 @@ export async function manifestIn(id, root, dir, gid = null) {
  * metadata.json, else an earlier version's shiori.json; a linked gallery's overlay, its source.json):
  * { kind: 'ok' } when it names gallery `gid`; MISSING when nothing is there; { kind: 'conflict', found }
  * when something is that names another gallery (`found`), or none (null); unreadable when what it holds
- * can't be read (nothing is concluded from it). What a change to an existing gallery folder needs
+ * can't be read (nothing is concluded from it). Nothing there, and a description not there, are told as
+ * the shared rule takes them (_notFound, readText). What a change to an existing gallery folder needs
  * first: nothing else makes a folder a gallery's but its reservation (reserveDir).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @param {string} gid
  * @returns {Promise<import('./contract.js').GalleryResult<never> | { kind: 'ok' }>} */
 export async function galleryIn(id, root, dir, gid) {
   const [parent, base] = _split(dir);
   try { await (await _dir(id, root, parent, false)).getDirectoryHandle(base); } catch (e) {
-    if (_nameOf(e) === 'NotFoundError') { _forget(id, _parts(dir).join('/')); return MISSING; }
+    if (_nameOf(e) === 'NotFoundError') { _forget(id, _parts(dir).join('/')); return _notFound(id, root, dir, e); }
     return _nameOf(e) === 'TypeMismatchError' ? { kind: 'conflict', found: null } : unreadable(e);
   }
   try {
     const own = await readText(id, root, _join(dir, MANIFEST_FILE));
     if (galleryAt({ [MANIFEST_FILE]: own }, gid).kind === 'ok') return { kind: 'ok' };
+    const shown = _shown(await list(id, root, dir));
+    /** @param {string} name */
+    const text = async (name) => (shown(name) ? readText(id, root, _join(dir, name)) : null);
     /** @type {Record<string, string | null>} */
     const texts = { [MANIFEST_FILE]: own };
-    for (const name of OWN_FILES.slice(1)) texts[name] = await readText(id, root, _join(dir, name));
+    for (const name of OWN_FILES.slice(1)) texts[name] = await text(name);
     if (areaOf(dir) !== '') return galleryAt(texts, gid);
-    const source = parseSource(await readText(id, root, _join(dir, SOURCE_FILE)) ?? '')?.galleryId ?? null;
+    const source = parseSource(await text(SOURCE_FILE) ?? '')?.galleryId ?? null;
     return galleryAt(texts, gid, { source });
   } catch (e) { return unreadable(e); }
 }
+/** Whether a folder's listing (`items`) shows path `rel` in it: its first part, a folder when there is more.
+ * @param {Listed[]} items @returns {(rel: string) => boolean} */
+const _shown = (items) => (rel) => {
+  const [top, ...rest] = rel.split('/');
+  return items.some(e => e.name === top && e.kind === (rest.length ? 'directory' : 'file'));
+};
 
 /** Generation `next` (a manifest without its descriptions) published in gallery folder `dir` with its
  * descriptions `texts`: the descriptions the current manifest doesn't store written as new files named
@@ -409,7 +434,7 @@ export async function publishIn(id, root, dir, next, texts, { known } = {}) {
   await writeFile(id, root, _join(dir, manifestPath(area)), plan.text, within);
   for (const s of plan.stable) {
     try {
-      const had = await readText(id, root, _join(dir, s.path));
+      const had = await _textNow(id, root, _join(dir, s.path));
       if (s.text != null && had !== s.text) await writeFile(id, root, _join(dir, s.path), s.text, within);
       else if (s.text == null && had != null && s.was && await matches(s.was, had)) await removeFile(id, root, _join(dir, s.path));
     } catch {}
@@ -418,7 +443,7 @@ export async function publishIn(id, root, dir, next, texts, { known } = {}) {
     for (const e of await list(id, root, _join(dir, storedDir(area)))) {
       const at = `${storedDir(area)}/${e.name}`;
       if (e.kind !== 'file' || plan.keep.has(at) || !storedHash(at)) continue;
-      const had = await readText(id, root, _join(dir, at)).catch(() => null);
+      const had = await _textNow(id, root, _join(dir, at)).catch(() => null);
       if (had != null && await matches(at, had)) await removeFile(id, root, _join(dir, at));
     }
   } catch {}
@@ -444,7 +469,7 @@ export async function deleteNamedIn(id, root, dir, files) {
     const at = _join(dir, f.name);
     let file;
     try { file = await _fileAt(id, root, at); } catch { kept.push({ name: f.name, why: 'unreadable' }); continue; }
-    if (!file) { kept.push({ name: f.name, why: await _surelyGone(id, root, at) ? 'missing' : 'unreadable' }); continue; }
+    if (!file) { kept.push({ name: f.name, why: 'missing' }); continue; }
     if (!unchanged(f, { size: file.size, mtime: file.lastModified })) { kept.push({ name: f.name, why: 'changed' }); continue; }
     try { await removeFile(id, root, at); deleted.push(f.name); emptied.add(_split(at)[0]); } catch { kept.push({ name: f.name, why: 'unreadable' }); }
   }
@@ -477,8 +502,7 @@ export async function deleteNamedIn(id, root, dir, files) {
 export async function deleteGalleryIn(id, root, dir, gid, named) {
   const whose = await galleryIn(id, root, dir, gid);
   if (whose.kind === 'unreadable') return false;
-  if (whose.kind === 'missing') return await _surelyGone(id, root, dir) ? 'missing' : false;
-  if (whose.kind === 'conflict' && whose.found != null) return 'missing';
+  if (whose.kind === 'missing' || (whose.kind === 'conflict' && whose.found != null)) return 'missing';
   const now = whose.kind === 'ok' ? await manifestIn(id, root, dir, gid) : MISSING;
   if (now.kind === 'unreadable') return false;
   const area = areaOf(dir);
@@ -490,7 +514,6 @@ export async function deleteGalleryIn(id, root, dir, gid, named) {
       /** @param {string} rel */
       const drop = async (rel) => {
         const at = _join(dir, rel), text = await readText(id, root, at);
-        if (text == null && !await _surelyGone(id, root, at)) throw new Error(`${at} can't be read now`);
         if (text != null && await isOwnDescription(rel, text, gid, area)) await removeFile(id, root, at);
       };
       for (const rel of plan.descriptions) await drop(rel);
@@ -519,18 +542,22 @@ async function _prune(id, root, dir) {
 }
 
 /** The picture files gallery folder `dir` holds where the gallery format puts them (PICTURE_DIRS):
- * path → { size, mtime }. One gone meanwhile is left out; one that can't be read is thrown. Only the
- * folders its listings show are listed: a gallery has few of them, and each answer of "not found" costs
- * the shared rule's looks (_gone).
- * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir
+ * path → { size, mtime }. One gone, as the shared rule takes it (_gone), is left out; one that can't be
+ * read now is thrown — never a gallery with a page fewer. Only the folders its listings show are listed
+ * (`items`: the gallery's own listing, when the caller has it): a gallery has few of them, and each answer
+ * of "not found" costs the shared rule's looks.
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @param {Listed[] | null} [items]
  * @returns {Promise<Map<string, { size: number, mtime: number }>>} */
-export async function picturesIn(id, root, dir) {
+export async function picturesIn(id, root, dir, items = null) {
   /** @type {Map<string, { size: number, mtime: number }>} */
   const out = new Map();
   /** @type {Map<string, Promise<Set<string>>>} folder → the names of the folders in it */
   const folders = new Map();
+  /** @param {Listed[]} es */
+  const named = (es) => new Set(es.filter(e => e.kind === 'directory').map(e => e.name));
+  if (items) folders.set(dir, Promise.resolve(named(items)));
   /** @param {string} at */
-  const foldersIn = (at) => folders.get(at) ?? folders.set(at, list(id, root, at).then(es => new Set(es.filter(e => e.kind === 'directory').map(e => e.name)))).get(at);
+  const foldersIn = (at) => folders.get(at) ?? folders.set(at, list(id, root, at).then(named)).get(at);
   /** @param {string} sub */
   const holds = async (sub) => {
     let at = dir;
@@ -541,7 +568,8 @@ export async function picturesIn(id, root, dir) {
     if (!await holds(sub)) continue;
     for (const e of await list(id, root, _join(dir, sub))) {
       if (e.kind !== 'file' || !isPictureName(e.name)) continue;
-      const file = await e.file().catch((err) => { if (_nameOf(err) === 'NotFoundError') return null; throw err; });
+      const at = _join(dir, sub, e.name);
+      const file = await e.file().catch(async (err) => { await _gone(id, root, at, err); return null; });
       if (file) out.set(`${sub}/${e.name}`, { size: file.size, mtime: file.lastModified });
     }
   }
@@ -549,12 +577,15 @@ export async function picturesIn(id, root, dir) {
 }
 
 /** Gallery folder `dir` read back (gallery-manifest.js readGallery): by its manifest when it has one,
- * else by format v1's rules, with the picture files it holds (`files`, picturesIn). Rejects when
- * something in it can't be read.
+ * else by format v1's rules, with the picture files it holds (`files`, picturesIn), each description
+ * looked for where the folder's listing shows it, under the rule (readText). Rejects when something in it
+ * can't be read now.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir */
 export async function loadGallery(id, root, dir) {
-  const files = await picturesIn(id, root, dir);
-  const read = await readGallery({ area: areaOf(dir), text: (rel) => readText(id, root, _join(dir, rel)), files });
+  const items = await list(id, root, dir);
+  const files = await picturesIn(id, root, dir, items);
+  const shown = _shown(items);
+  const read = await readGallery({ area: areaOf(dir), text: async (rel) => (shown(rel) ? readText(id, root, _join(dir, rel)) : null), files });
   return { read, files };
 }
 
@@ -669,7 +700,14 @@ export function folderStore(gate) {
  * another, or none, or isn't there; 'unavailable' when it can't be read now. Read only.
  * @param {string} id @param {FileSystemDirectoryHandle} handle @returns {Promise<'ok' | 'other-library' | 'unavailable'>} */
 export async function identityOf(id, handle) {
-  try { return libraryIdOf(await readText(id, handle, LIBRARY_FILE)) === id ? 'ok' : 'other-library'; } catch (e) {
+  try { return libraryIdOf(await libraryText(id, handle)) === id ? 'ok' : 'other-library'; } catch (e) {
     return _nameOf(e) === 'TypeMismatchError' ? 'other-library' : 'unavailable';
   }
+}
+/** The text of the folder's .shiori/library.json, which tells which library folder it is (principle 1),
+ * or null for an answer of "not found": there is no library folder to ask yet whether that is so (the
+ * shared rule's own look — identityOf — and a folder being added). Any other failure is thrown.
+ * @param {string} id @param {FileSystemDirectoryHandle} handle @returns {Promise<string | null>} */
+export function libraryText(id, handle) {
+  return _textNow(id, handle, LIBRARY_FILE);
 }

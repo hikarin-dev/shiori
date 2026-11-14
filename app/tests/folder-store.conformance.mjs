@@ -17,6 +17,7 @@ import path from 'node:path';
 import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
 import { desktopLibrary, webLibrary, desktopKilled, pageNow, pageCalling } from './library-drivers.mjs';
+import { v1Gallery, legacyGallery } from './fixtures/storage-fixtures.mjs';
 import { loadGallery as desktopLoad } from '../../desktop/server/folder-store.js';
 import { loadGallery as websiteLoad, forgetFolder } from '../js/storage/folder-store-web.js';
 import { zipCreate } from '../js/zip.js';
@@ -1235,6 +1236,154 @@ export const CASES = [
       for (const g of [gid, old]) assert.deepEqual([await fx.lib.read(g, 1), await fx.lib.read(g, 2, 'translated')], [png(1), png(9)]);
     },
   },
+  // ── A read that fails decides nothing (review 6: F3, F8, F9 a) ──
+  // Where a folder is read to tell what the library records — which galleries it holds, which pages one
+  // has, whether a gallery's folder is still there — an answer of "not found" for something the folder's
+  // listing showed, or the library recorded, is 'missing' only as the shared rule takes it (contract.js
+  // surelyMissing); anything else is 'unreadable': the gallery or folder is reported and left as the index
+  // has it, never adopted in part (it joins at a later check).
+  ...earlierVersionCases(),
+  {
+    // F3 (review 6, the website): a gallery in the current format, page 1 replaced (its old picture left
+    // beside the new one, as a refused delete leaves it), its folder removed and added again; its manifest
+    // answering "not found" once at the first check read it by v1's rules: page 1 showed the picture it
+    // had replaced, and its next publication wrote that.
+    name: 'review 6 F3: a gallery\'s manifest answering "not found" at its folder\'s first check never reads it by an older rule',
+    async run({ dir, fx, platform }) {
+      const manifest = (/** @type {{ op: string, path: string }} */ c) => /(^|\/)A\d+\/Alpha\/\.shiori\/gallery\.json$|^Alpha\/\.shiori\/gallery\.json$/.test(c.path);
+      const at = async (/** @type {number} */ k) => {
+        const ref = await fx.register(`A${k}`);
+        const gid = await fx.lib.newGallery('Alpha');
+        for (let n = 1; n <= 2; n++) await fx.lib.putPage(gid, n, png(n));
+        await fx.lib.putTranslation(gid, 1, png(31));
+        await fx.lib.flush();
+        const kept = platform === 'website' ? fsa.failNext((c) => c.op === 'removeEntry', 'NoModificationAllowedError', { times: Infinity })
+          : faults.failNext((c) => ['rm', 'unlink', 'rmdir'].includes(c.op), 'EBUSY', { times: Infinity });
+        await fx.lib.putPage(gid, 1, webp(9), 'image/webp');
+        await fx.lib.putTranslation(gid, 1, png(33));
+        await fx.lib.flush();
+        kept();
+        await fx.lib.setDefault(fx.lib.home);
+        await fx.lib.remove(ref.id);
+        return { id: await fx.lib.add(path.join(dir, `A${k}`)), gid };
+      };
+      // How many calls of the first check read the manifest, with no fault.
+      let count = 0;
+      const { id: first } = await at(0);
+      const undo = (platform === 'desktop' ? faults : fsa).failNext((c) => { if (manifest(c)) count++; return false; }, 'EIO', { times: Infinity });
+      await fx.lib.scan(first);
+      undo();
+      assert.ok(count > 0, 'the first check reads the manifest');
+      for (let k = 1; k <= count; k++) {
+        const { id, gid } = await at(k);
+        let n = 0;
+        const once = (platform === 'desktop' ? faults : fsa).failNext((c) => manifest(c) && ++n === k, platform === 'desktop' ? 'ENOENT' : 'NotFoundError', { times: Infinity });
+        await fx.lib.scan(id);
+        once();
+        await fx.lib.flush();
+        await fx.lib.scan(id);
+        await fx.lib.flush();
+        assert.deepEqual((await fx.lib.scan(id)).problems, [], `nothing left to report (the ${k}-th read)`);
+        assert.deepEqual([await fx.lib.read(gid, 1), await fx.lib.read(gid, 1, 'translated'), await fx.lib.read(gid, 2)], [webp(9), png(33), png(2)],
+          `the gallery reads as it was published (the ${k}-th read)`);
+      }
+    },
+  },
+  {
+    // F8 (review 6, the desktop): the person's copy of a gallery's folder in another library folder; a
+    // check of that one, its look at the gallery's own folder failing once (any failure: EIO, EPERM, or
+    // "not found"), took the gallery for moved there by hand: the library followed the copy, and the work
+    // done since the copy stopped showing, for good.
+    name: 'review 6 F8: a copy in another library folder never takes a gallery over when a look at its own folder fails during a check',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      for (const [i, code] of ['EIO', 'EPERM', 'ENOENT'].entries()) {
+        const a = await fx.register(`A${i}`), b = await fx.register(`B${i}`);
+        const gid = await fx.lib.newGallery('Beta');
+        for (let n = 1; n <= 2; n++) await fx.lib.putPage(gid, n, png(n));
+        await fx.lib.flush();
+        const own = /** @type {string} */ (await fx.lib.dirOf(gid));
+        fs.cpSync(own, path.join(dir, `A${i}`, 'Beta'), { recursive: true });   // the person's copy
+        await fx.lib.scan(a.id);
+        await fx.lib.putTranslation(gid, 1, png(7));   // work done after the copy
+        await fx.lib.flush();
+        let met = false;
+        const undo = faults.failNext((c) => !met && c.path.endsWith(`/B${i}/Beta`) && (met = true), code, { times: Infinity });
+        await fx.lib.scan(a.id);
+        undo();
+        assert.ok(met, `a look at the gallery's own folder was made (${code})`);
+        for (const ref of [a, b, a]) await fx.lib.scan(ref.id);
+        assert.deepEqual([await fx.lib.dirOf(gid), await fx.lib.read(gid, 1, 'translated')], [own, png(7)], `the gallery stays its own (${code})`);
+      }
+    },
+  },
+  {
+    // F8 (review 6, both apps): the person's copy of a gallery's folder in the same library folder (a
+    // 'duplicate' at every check); one "not found" for the gallery's own folder during a check, and the
+    // library followed the copy: the work done since stopped showing, and later checks reported the
+    // gallery's own folder as the copy.
+    name: 'review 6 F8: a copy in the same library folder never takes a gallery over when a look at its own folder answers "not found"',
+    async run({ dir, fx, platform }) {
+      const at = (/** @type {number} */ k) => (/** @type {{ op: string, path: string }} */ c) => (platform === 'desktop'
+        ? ['stat', 'access', 'readdir', 'readFile'].includes(c.op) && new RegExp(`/A${k}/Beta(/|$)`).test(c.path)
+        : /^Beta(\/|$)/.test(c.path));
+      const setUp = async (/** @type {number} */ k) => {
+        const ref = await fx.register(`A${k}`);
+        const gid = await fx.lib.newGallery('Beta');
+        for (let n = 1; n <= 2; n++) await fx.lib.putPage(gid, n, png(n));
+        await fx.lib.flush();
+        fs.cpSync(/** @type {string} */ (await fx.lib.dirOf(gid)), path.join(dir, `A${k}`, 'Alpha copy'), { recursive: true });   // the person's copy
+        await fx.lib.scan(ref.id);
+        await fx.lib.putTranslation(gid, 1, png(7));   // work done after the copy
+        await fx.lib.flush();
+        return { id: ref.id, gid };
+      };
+      // How many calls of a check look at the gallery's own folder, with no fault.
+      let count = 0;
+      const { id: first } = await setUp(0);
+      const look = at(0);
+      const undo = (platform === 'desktop' ? faults : fsa).failNext((c) => { if (look(c)) count++; return false; }, 'EIO', { times: Infinity });
+      await fx.lib.scan(first);
+      undo();
+      assert.ok(count > 0, 'a check looks at the gallery\'s own folder');
+      for (let k = 1; k <= count; k++) {
+        const { id, gid } = await setUp(k);
+        const own = await fx.lib.dirOf(gid), match = at(k);
+        let n = 0;
+        const once = (platform === 'desktop' ? faults : fsa).failNext((c) => match(c) && ++n === k, platform === 'desktop' ? 'ENOENT' : 'NotFoundError', { times: Infinity });
+        await fx.lib.scan(id);
+        once();
+        await fx.lib.flush();
+        const problems = (await fx.lib.scan(id)).problems.map(p => `${p.reason} ${p.path}`);
+        assert.deepEqual([await fx.lib.dirOf(gid), await fx.lib.read(gid, 1, 'translated'), problems], [own, png(7), ['duplicate Alpha copy']],
+          `the gallery stays its own (the ${k}-th look)`);
+      }
+    },
+  },
+  {
+    // F9 (a) (review 6, both apps): the drive away from a deletion's first read of the gallery's manifest
+    // and back two calls later: the manifest and metadata.json both answered "not found", so the folder
+    // was taken for one naming no gallery — its pictures deleted, its descriptions left, reported as the
+    // person's ('left') and as a missing file at every check, for good.
+    name: 'review 6 F9 a: a deletion the drive leaves for a moment as it reads the gallery\'s descriptions finishes once it is back, leaving nothing behind',
+    async run({ dir, fx, platform }) {
+      const ref = await fx.register('A');
+      const A = path.join(dir, 'A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 3; n++) await fx.lib.putPage(gid, n, png(n));
+      await fx.lib.flush();
+      const back = driveAway(platform, A, (c) => /(^|\/)Alpha\/\.shiori\/gallery\.json$/.test(c.path), { backAfter: 2 });
+      await fx.lib.deleteGallery(gid);
+      await fx.lib.flush();
+      await new Promise(r => setTimeout(r, 300));   // what a deletion leaves to do, once it commits
+      back();
+      await /** @type {NonNullable<typeof fx.lib.restart>} */ (fx.lib.restart)();
+      await fx.lib.flush();
+      for (let i = 0; i < 2; i++) assert.deepEqual((await fx.lib.scan(ref.id)).problems, [], 'nothing reported');
+      await until(() => !fs.existsSync(path.join(A, 'Alpha')));
+      assert.deepEqual([await fx.lib.galleries(), (await fx.lib.list()).find(f => f.id === ref.id).attention], [[], []]);
+    },
+  },
   // ── A folder names a gallery only once it is whole (review 4: F2, O2) ──
   // A folder reserved for a gallery whose work never committed — the reservation's own writes, or the
   // pictures a first write or a move put in it, cut short by a failed write, a kill or the page closing —
@@ -1913,6 +2062,56 @@ async function twoGenerations(root, gid, { platform, failAt = 0 }) {
   } finally { undo(); }
   return { name: g.name, first: t1.name, second: t2.name, writes };
 }
+// F3 (review 6): a gallery an earlier version wrote, read back at its folder's first check while one call
+// of that check answers "not found" — each row of the review's table, on the apps it names (the website's
+// listings answered so already: S18). A row: what it is, the gallery's folder ('v1' with its files list,
+// 'v1 bare' without, 'oldest': the desktop's shiori.json beside its pictures), and per app the call (its
+// op, the file in the gallery's folder, which such call). On v1.2.6 each row left the gallery read in
+// part for good: a page or its translation gone, the picture a page had replaced shown, an empty gallery,
+// or its images/ and translated/ joined as galleries of their own; and nothing was reported.
+function earlierVersionCases() {
+  /** @type {[string, 'v1' | 'v1 bare' | 'oldest', Partial<Record<'desktop' | 'website', [string, string, number?]>>][]} */
+  const rows = [
+    ['the read of metadata.json as the folder is told', 'v1', { desktop: ['readFile', 'metadata.json'], website: ['getFile', 'metadata.json'] }],
+    ['the listing of images/', 'v1 bare', { desktop: ['readdir', 'images'] }],
+    ['a page\'s picture', 'v1', { desktop: ['stat', 'images/0002.webp'], website: ['getFile', 'images/0002.webp'] }],
+    ['the listing of translated/', 'v1', { desktop: ['readdir', 'translated'] }],
+    ['the translation\'s picture', 'v1', { desktop: ['stat', 'translated/0001.png'], website: ['getFile', 'translated/0001.png'] }],
+    ['the read of image_records.json', 'v1', { desktop: ['readFile', 'image_records.json'], website: ['getFile', 'image_records.json'] }],
+    ['the second read of metadata.json', 'v1', { desktop: ['readFile', 'metadata.json', 2] }],
+    ['the first read of shiori.json', 'oldest', { desktop: ['readFile', 'shiori.json'] }],
+    ['the second read of shiori.json', 'oldest', { desktop: ['readFile', 'shiori.json', 2] }],
+  ];
+  return rows.map(([row, kind, calls]) => /** @type {Case} */ ({
+    name: `review 6 F3: an earlier version's gallery (${kind}) read back while ${row} answers "not found" joins whole at a later check`,
+    platforms: /** @type {('website' | 'desktop')[]} */ (Object.keys(calls)),
+    async run({ dir, fx, platform }) {
+      const at = path.join(dir, 'A', 'Old one');
+      const old = kind === 'oldest' ? legacyGallery(at) : await v1Gallery(at, { files: kind === 'v1' });
+      const bytes = (/** @type {string} */ rel) => new Uint8Array(fs.readFileSync(path.join(at, ...rel.split('/'))));
+      // What it reads with no fault: its pages (v1 without its files list shows the layout name's picture),
+      // and page 1's translation (the oldest format has none: the original).
+      const want = kind === 'oldest' ? [bytes('0001.webp'), bytes('0002.webp'), bytes('0001.webp')]
+        : [bytes(kind === 'v1' ? /** @type {any} */ (old).current[1] : 'images/0001.webp'), bytes('images/0002.webp'), bytes('translated/0001.png')];
+      const ref = await fx.register('A');
+      const [op, file, nth = 1] = /** @type {[string, string, number?]} */ (calls[platform]);
+      let n = 0;
+      const once = (platform === 'desktop' ? faults : fsa).failNext((c) => c.op === op && (platform === 'desktop' ? c.path.endsWith(`/A/Old one/${file}`)
+        : c.path === `Old one/${file}`) && ++n === nth, platform === 'desktop' ? 'ENOENT' : 'NotFoundError', { times: Infinity });
+      const first = await fx.lib.scan(ref.id);
+      once();
+      assert.ok(n >= nth, 'the call was made');
+      assert.ok(first.problems.some(p => p.path.startsWith('Old one')), 'the gallery is reported, not read in part');
+      await fx.lib.flush();
+      await fx.lib.scan(ref.id);
+      await fx.lib.flush();
+      assert.deepEqual((await fx.lib.scan(ref.id)).problems, [], 'nothing left to report');
+      assert.deepEqual(await fx.lib.galleries(), [old.gid], 'the gallery alone joined');
+      assert.deepEqual([await fx.lib.read(old.gid, 1), await fx.lib.read(old.gid, 2), await fx.lib.read(old.gid, 1, 'translated')], want, 'whole');
+    },
+  }));
+}
+
 // Gallery folder `name` of the library folder at `folder` read back by both apps' readers (each
 // adapter's loadGallery, over gallery-manifest.js readGallery): { desktop, website }. The website's is
 // handed the folder's own id: an answer of "not found" counts there only while the folder is it

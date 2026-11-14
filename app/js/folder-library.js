@@ -128,11 +128,11 @@ const LIBRARY_FILE = '.shiori/library.json';
 async function _folderIdOf(handle) {
   const probe = `probe-${Date.now()}-${Math.random()}`;
   try {
-    const file = await folderFiles.readFile(probe, handle, LIBRARY_FILE).catch((e) => {
+    const text = await folderFiles.libraryText(probe, handle).catch((e) => {
       throw new BackendError('unavailable', `${LIBRARY_FILE} can't be read: ${e?.message || e}`);
     });
-    if (file) {
-      const id = JSON.parse(await file.text())?.id;
+    if (text != null) {
+      const id = JSON.parse(text)?.id;
       if (typeof id !== 'string' || !/^[0-9a-f]{16}$/.test(id)) throw new BackendError('invalid', `${LIBRARY_FILE} names no library id`);
       return id;
     }
@@ -784,16 +784,18 @@ async function _classifyDir(run, path, entries) {
 }
 // What the archive at `path` is: Shiori's own (folder-content.js classifyArchive) — { kind: 'zip',
 // path, id, legacy? } or, a series export, { kind: 'zip', path, series } — or null (linked). One that
-// can't be read is reported and left out: { corrupt: true }.
+// can't be read, its descriptions included, is reported and left out: { corrupt: true }.
 async function _classifyZip(run, path) {
   let archive;
-  try { archive = await K.archiveOf(run.id, run.root, path); } catch (e) {
+  const texts = {};
+  try {
+    archive = await K.archiveOf(run.id, run.root, path);
+    for (const name of OWN_FILES) { const e = archive?.entries.get(name); if (e) texts[name] = await _entryText(e); }
+  } catch (e) {
     run.problems.push({ path, reason: e instanceof DOMException ? 'unreadable' : 'corrupt' });   // its file, or what it holds
     return { corrupt: true };
   }
   if (!archive) return { corrupt: true };   // gone meanwhile
-  const texts = {};
-  for (const name of OWN_FILES) { const e = archive.entries.get(name); if (e) texts[name] = await _entryText(e).catch(() => null); }
   const what = classifyArchive([...archive.entries.keys()], texts);
   if (what.kind === 'gallery') return { kind: 'zip', path, id: what.id, legacy: !!what.legacy };
   if (what.kind === 'series') return { kind: 'zip', path, series: what.series };

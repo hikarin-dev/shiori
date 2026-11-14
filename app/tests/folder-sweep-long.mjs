@@ -10,11 +10,12 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const [which = 'both', atOnce = '12'] = process.argv.slice(2);
+const BLIPS = ['drive blip 1', 'drive blip 2', 'drive blip 3', 'drive blip 5'];
 const KINDS = {
-  desktop: ['kill', 'EIO', 'EPERM', 'ENOENT', 'EXDEV', 'drive away'],
-  website: ['page death', 'NoModificationAllowedError', 'NotFoundError', 'NotAllowedError', 'drive away'],
+  desktop: ['kill', 'EIO', 'EPERM', 'ENOENT', 'EXDEV', 'drive away', ...BLIPS],
+  website: ['page death', 'NoModificationAllowedError', 'NotFoundError', 'NotAllowedError', 'drive away', ...BLIPS],
 };
-const SHARDS = { desktop: 3, website: 5 };
+const SHARDS = { desktop: 3, website: 8 };
 const file = fileURLToPath(new URL('./folder-sweep.test.mjs', import.meta.url));
 const jobs = [];
 for (const app of /** @type {('desktop' | 'website')[]} */ (['desktop', 'website'])) {

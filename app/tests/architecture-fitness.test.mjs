@@ -76,6 +76,57 @@ test('only the folder store adapter touches the files of a library folder', () =
   assert.ok(handleCall.test(code(read(adapter))), 'the adapter is where they are');
 });
 
+test('no code outside the folder store adapter turns a failed read of a library folder into "nothing there"', () => {
+  // Review 6: where a folder is read to tell what the library records, an answer of "not found" is
+  // 'missing' only as the shared rule takes it (storage/folder-store-web.js _notFound, and the reads made
+  // under it: readText, readFile, list, picturesIn, galleryIn, manifestIn, loadGallery), and any other
+  // failure is a failure (S22). So outside the adapter no code tells "not found" by an error's name, and no
+  // read through it turns its failure into a value meaning "none" (null, [], false, a look answering
+  // false) — but these, each for its reason. The desktop's rule: desktop/tests/architecture-fitness.test.mjs.
+  // A line matched is the whole line, comments stripped; an entry no line matches any more is stale.
+  const adapter = 'storage/folder-store-web.js';
+  const READ = /\b(?:folderFiles\.\w+|K\.archiveOf)\s*\(/;
+  const NONE = /\.catch\(\s*\(\)\s*=>\s*(?:null|undefined|false|true|''|\[[^\]]*\])\s*\)|,\s*\(\)\s*=>\s*(?:false|true)\s*\)/;
+  const NAME = /'NotFoundError'/;
+  const S23 = 'S23: linked galleries, removal notes and claims, under the same rule';
+  /** @type {[string, string, string][]} module, a part of the line, why */
+  const allowed = [
+    ['db.js', 'const file = await folderFiles.readFile(folder, root, dir).catch(() => undefined);\n  if (file === undefined) return null;',
+      'undefined: can\'t be told now (S21), tried again'],
+    ['db.js', 'const file = await folderFiles.readFile(folder, root, dir).catch(() => undefined);\n  if (file === undefined) return false;',
+      'undefined: can\'t be told now, the deletion tried again'],
+    ['db.js', 'const OUT_OF_REACH = [\'NotFoundError\'', 'a write that fails while the folder is out of reach: the picture kept in this browser (a write)'],
+    ['db.js', 'await folderFiles.readFile(ref.folder, root, _joinPath(ref.dir, ref.$path), ref.type || undefined).catch(() => null);',
+      'a page read to show: null shows nothing, and changes nothing recorded'],
+    ['folder-library.js', 'const there = !root || !rec.stat?.dir || (await folderFiles.list(folder, root, rec.stat.dir).catch(() => [])).length > 0;',
+      'galleries an unreleased build set aside (§8, review 4 O5)'],
+    ['folder-library.js', 'if (stat.packed) return folderFiles.readFile(run.id, run.root, stat.dir).then(Boolean, () => true);',
+      'a look that fails is taken for "there": nothing is concluded from it'],
+    ['folder-library.js', 'fingerprint: (await K.archiveOf(id, root, dir).catch(() => null))?.fingerprint ?? null', `${S23} (removal notes)`],
+    ['folder-library.js', 'const archive = await K.archiveOf(run.id, run.root, t.path).catch(() => null);', S23],
+    ['folder-library.js', 'for (const e of await folderFiles.list(id, root, LINKED_DIR).catch(() => [])) {', `${S23} (F2)`],
+    ['folder-library.js', 'const read = parseSource(await folderFiles.readText(id, root, `${LINKED_DIR}/${e.name}/${SOURCE_FILE}`).catch(() => null));', `${S23} (F2)`],
+    ['folder-library.js', 'const read = parseSource(await folderFiles.readText(id, root, `${overlayDir(gid)}/${SOURCE_FILE}`).catch(() => null));', S23],
+    ['folder-library.js', 'const images = (await folderFiles.list(id, root, `${overlayDir(gid)}/images`).catch(() => []))', S23],
+    ['folder-library.js', 'const removed = parseRemoved(await folderFiles.readText(f.id, root, REMOVED_FILE).catch(() => null));', `${S23} (F4)`],
+    ['folder-library.js', 'const file = await folderFiles.readFile(f.id, root, over.source.path).catch(() => null);', S23],
+    ['folder-library.js', 'const file = await folderFiles.readFile(folder, root, source.path).catch(() => null);', S23],
+  ];
+  const used = new Set();
+  const offenders = [];
+  for (const f of modules.filter((f) => f !== adapter)) {
+    const lines = code(read(f)).split('\n');
+    for (const [i, line] of lines.entries()) {
+      if (!((READ.test(line) && NONE.test(line)) || NAME.test(line))) continue;
+      const near = `${line}\n${lines[i + 1] ?? ''}`;   // an entry may name the line after too
+      const at = allowed.findIndex(([file, part]) => file === f && near.includes(part));
+      if (at < 0) offenders.push(`${f}: ${line.trim()}`); else used.add(at);
+    }
+  }
+  assert.deepEqual(offenders, [], `read through ${adapter} (or say why here)`);
+  assert.deepEqual(allowed.filter((_, i) => !used.has(i)).map(([f, part]) => `${f}: ${part}`), [], 'stale entries');
+});
+
 test('the app never names a source site or the companion helper', () => {
   // The app is site-agnostic and must carry no evidence of the companion relationship in
   // user-facing copy. Bridge message names (EXT_*) are the sanctioned contract and stay.

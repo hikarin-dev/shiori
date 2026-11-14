@@ -50,7 +50,7 @@
 // are still as written (`retiring`, principle 4). An archive holds its manifest too, appended with the
 // descriptions it names.
 
-import { disk, physicallyIn, containedWhole, replaceFile, tempBeside, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, undescribedAt, bindIn, ioFailures, notFound, gone, holdsFile, filesIn, ownedIn } from './folder-store.js';
+import { disk, physicallyIn, containedWhole, replaceFile, tempBeside, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, undescribedAt, bindIn, ioFailures, gone, holdsFile, filesIn, ownedIn, textsIn, statIn } from './folder-store.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
@@ -207,16 +207,9 @@ export const ifMissing = (value) => (e) => {
   throw e;
 };
 
-// What a folder of a library folder is (folder-content.js classifyFolder), from the descriptions it
-// holds (`items`: its entries). Rejects when one can't be read.
-export async function classifyAt(dir, items) {
-  const texts = {};
-  for (const name of content.OWN_FILES) {
-    const [top] = name.split('/');
-    if (items.some(i => i.name === top && (top === name ? i.isFile() : i.isDirectory()))) texts[name] = await disk.readFile(path.join(dir, ...name.split('/')), 'utf8').catch(ifMissing(null));
-  }
-  return content.classifyFolder(texts);
-}
+// What a folder of a library folder is (folder-content.js classifyFolder), from the descriptions its
+// listing (`items`: its entries) shows (folder-store.js textsIn). Rejects when one can't be read now.
+export const classifyAt = async (dir, items) => content.classifyFolder(await textsIn(dir, items, content.OWN_FILES));
 // Whether folder `dir` is gallery `gid`'s own by what it holds (folder-store.js galleryIn: its manifest,
 // else its description; a linked gallery's overlay, its source.json), so that a folder the index took
 // for a gallery's on another rule is never tidied (R01) nor deleted with it (F01). One that can't be
@@ -359,16 +352,11 @@ export function identityAt(dir, id) {
   return content.libraryIdOf(text) === id ? 'ok' : 'other-library';
 }
 
-// Whether staged `file` is there (not: as the shared rule takes it, folder-store.js notFound — an answer
+// Whether staged `file` is there (not: as the shared rule takes it, folder-store.js statIn — an answer
 // it doesn't take, the drive away, is thrown, the settle tried again: review 5 T-D). A picture is never
 // flushed on its own (folder-store.js writeNewIn): power loss is outside the fault model, and only the
 // small manifest and descriptions are flushed.
-async function present(file) {
-  try { return (await disk.stat(file)).isFile(); } catch (e) {
-    if (e.code !== 'ENOENT' || (await notFound(file, e)).kind !== 'missing') throw e;
-    return false;
-  }
-}
+const present = async (file) => !!(await statIn(file))?.isFile();
 
 // A file moved to `to` where nothing is, synchronously — never over a file (principle 3: the caller
 // chose a name no file has, and a file put there since is left as it is: EEXIST) — across drives (a
@@ -1027,11 +1015,10 @@ export class FileLibrary {
     const named = d.files == null ? null : JSON.parse(d.files);
     let done;
     if (!Array.isArray(named)) {
-      // An archive: not there only as the shared rule takes it (folder-store.js gone: not while its drive
-      // is away); one that can't be read now, or told as Shiori left it, tried again (S21).
+      // An archive: not there only as the shared rule takes it (_whose: not while its drive is away); one
+      // that can't be read now, or told as Shiori left it, tried again (S21).
       const whose = await this._whose(rel, d.gid);
-      if (whose.kind === 'missing') done = await gone(abs) ? 'missing' : false;
-      else if (whose.kind === 'conflict' && whose.found != null) done = 'missing';
+      if (whose.kind === 'missing' || (whose.kind === 'conflict' && whose.found != null)) done = 'missing';
       else if (whose.kind === 'unreadable') done = false;
       else if (whose.kind !== 'ok' || (whose.undescribed && !named?.unpacked)) done = true;
       else {
@@ -1145,12 +1132,15 @@ export class FileLibrary {
   // only be read; `undescribed`, and never deleted for it). { kind: 'ok' } when it names gallery `gid`;
   // 'missing' (nothing there); 'conflict'
   // (`found`: what it names instead, or null); 'unreadable' (it, or its library folder as itself, can't
-  // be read now: nothing is concluded). Every change to an existing gallery folder or archive asks first.
+  // be read now: nothing is concluded). Nothing there is told as the shared rule takes it (statIn: a look
+  // that answers "not found" while the drive is away for a moment never makes it so — review 6 F8).
+  // Every change to an existing gallery folder or archive asks first.
   async _whose(rel, gid) {
     const abs = this._at(rel);
     if (!abs) return contract.unreadable('its library folder can\'t be reached as itself');
     let stat;
-    try { stat = await disk.stat(abs); } catch (e) { return e?.code === 'ENOENT' || e?.code === 'ENOTDIR' ? contract.MISSING : contract.unreadable(e); }
+    try { stat = await statIn(abs); } catch (e) { return contract.unreadable(e); }
+    if (!stat) return contract.MISSING;
     if (stat.isDirectory()) return galleryIn(abs, String(gid));
     try {
       const dir = await this._directory(abs);
@@ -1351,15 +1341,14 @@ export class FileLibrary {
   }
 
   // What a read says about the gallery's files: one that read is there (no longer missing); one
-  // that didn't is missing when its folder or archive is found not there — not when only a page is,
+  // that didn't is missing when its folder or archive is found not there, as the shared rule takes it
+  // (folder-store.js gone) — not when only a page is,
   // nor when its library folder can't be reached as itself or the folder can't be looked at (principle
   // 6: only what is found not there changes what the index has). Only a change is written.
   async _seen(row, readable) {
     if (readable ? row.state !== 'missing' : row.state === 'missing') return;
     if (!readable) {
-      if (!this._at(row.path)) return;
-      const gone = await disk.access(row.source ? this._sourceAbs(row) : this._abs(row.path)).then(() => false, (e) => e?.code === 'ENOENT' || e?.code === 'ENOTDIR');
-      if (!gone) return;
+      if (!this._at(row.path) || !await gone(row.source ? this._sourceAbs(row) : this._abs(row.path))) return;
     }
     const lib = this.library;
     const state = readable ? 'packed' : 'missing';
@@ -2257,7 +2246,7 @@ export class FileLibrary {
           token = this._reserveAt(temp, id);
           for (const d of format.PICTURE_DIRS) {
             const at = path.join(from, ...d.split('/')), into = path.join(temp, ...d.split('/'));
-            if (!disk.existsSync(at)) continue;
+            if (!(await statIn(at))) continue;   // none there, as the shared rule takes it; a look that fails fails the move
             await disk.mkdir(path.dirname(into), { recursive: true });
             await disk.cp(at, into, { ...copy, filter: (src) => src === at || (taken(src) && format.isPictureName(src)) });
           }
