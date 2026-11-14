@@ -85,7 +85,7 @@ test('no code outside the folder store adapter turns a failed read of a library 
     ['remove.js', 'if (disk.existsSync(file)) await disk.rm(', NOTHING],
     ['scan.js', 'const stat = await disk.stat(file).catch(() => null);', `${NOTHING}: a leftover that can't be looked at isn't old`],
     ['scan.js', '(await disk.readdir(library.rootDir(id)).catch(() => []))', 'a count for the progress shown'],
-    ['scan.js', 'for (const item of await disk.readdir(dir, { withFileTypes: true }).catch(() => [])) {', `${NOTHING} (leftovers)`],
+    ['scan.js', 'for (const item of listed ?? await disk.readdir(dir, { withFileTypes: true }).catch(() => [])) {', `${NOTHING} (leftovers)`],
     ['scan.js', 'for (const gid of await disk.readdir(dir).catch(() => [])) {', `${NOTHING} (leftovers)`],
     ['scan.js', 'for (const name of await disk.readdir(path.join(dir, gid)).catch(() => [])) {', `${NOTHING} (leftovers)`],
     ['scan.js', 'for (const name of await disk.readdir(path.join(dir, ...sub.split(\'/\'))).catch(() => [])) {', `${NOTHING} (leftovers)`],

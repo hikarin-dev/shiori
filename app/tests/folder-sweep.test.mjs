@@ -29,8 +29,9 @@
 // the library's own, and the hand-overs, where the other app (the website for the desktop's runs, the
 // desktop for the website's: `otherApp`) wrote folder A in the setup.
 //
-// npm test runs a sample: a few fault points of each scenario (but those marked `sample: 0`, the whole
-// sweep's alone), for every kind (of the blips, m = 2) — the
+// npm test runs a sample: one fault point of each scenario (but those marked `sample: 0`, the whole
+// sweep's alone) for every kind (of the blips, m = 2), a fifth of the way into its step, midway or four
+// fifths, turning with the kind — the
 // desktop's in this file, the website's in folder-sweep-website.test.mjs. The whole sweep runs by hand, a
 // process per app, kind and shard (folder-sweep-long.mjs); one process alone:
 //   SHIORI_SWEEP_EVERY=1 SHIORI_SWEEP_APP=<desktop|website> SHIORI_SWEEP_KIND=<kind> node --test app/tests/folder-sweep.test.mjs
@@ -171,7 +172,7 @@ const dirOf = async (/** @type {Ctx} */ c, gid) => /** @type {string} */ (await 
 /** The scenarios: `setup` (then flushed: committed and published), the expected state after it
  * (`state`), and the step's operations. `apps`: where it runs (both by default); `kinds`: the fault
  * kinds it is swept with, where not all; `moves`: a gallery moves in it (swept with EXDEV too);
- * `sample`: 1 for one fault point in npm test's sample, not three — 0 for none (the long sweep's alone);
+ * `sample`: 0 for none of its fault points in npm test's sample (the long sweep's alone);
  * `noA`: folder A is made, not added (the step adds it); `also`: states stage `stage` may show besides
  * the step's (what the operation may end in by design, or what a later stage brings about); `startsAgain`:
  * the step is a start, and one that failed is made again before the stages (the person opening the app
@@ -351,9 +352,7 @@ const SCENARIOS = [
   // Review 6's three, swept under every kind.
   {
     name: 'an archived gallery deleted',
-    apps: ['desktop'],
-    sample: 1,
-    async setup(c) {
+    apps: ['desktop'],    async setup(c) {
       c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
       c.g.beta = await made(c, 'Beta', [png(4)]);
       await c.lib.putTranslation(c.g.alpha, 1, png(5));
@@ -366,9 +365,7 @@ const SCENARIOS = [
     ops: [op('delete', (c) => c.lib.deleteGallery(c.g.alpha), (s, c) => without(s, c.g.alpha), 'alpha'), FLUSH, SETTLE],
   },
   {
-    name: 'a folder hidden and shown with changes not published',
-    sample: 1,
-    async setup(c) {
+    name: 'a folder hidden and shown with changes not published',    async setup(c) {
       c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
       plant(c, 'A/mine.txt', 'the person\'s own file');
       await c.lib.flush();
@@ -386,9 +383,7 @@ const SCENARIOS = [
     noSetupFlush: true,
   },
   {
-    name: 'a translation replaced, then the gallery deleted',
-    sample: 1,
-    async setup(c) {
+    name: 'a translation replaced, then the gallery deleted',    async setup(c) {
       c.g.alpha = await made(c, 'Alpha', [png(1), png(2), png(3)]);
       await c.lib.putTranslation(c.g.alpha, 2, png(5));
       await c.lib.flush();
@@ -405,9 +400,7 @@ const SCENARIOS = [
   },
   // ── A check as the step (review 6): galleries the library has, read back ──
   {
-    name: 'a check of Shiori\'s own galleries',
-    sample: 1,
-    async setup(c) {
+    name: 'a check of Shiori\'s own galleries',    async setup(c) {
       c.g.own = await made(c, 'Own', [png(21), png(22)]);
       await c.lib.putTranslation(c.g.own, 1, png(29));
       plant(c, 'A/mine.txt', 'the person\'s own file');
@@ -425,9 +418,7 @@ const SCENARIOS = [
     ops: [CHECK],
   },
   {
-    name: 'a check of linked titles',
-    sample: 1,
-    async setup(c) {
+    name: 'a check of linked titles',    async setup(c) {
       fs.writeFileSync(path.join(c.A, 'Pack.zip'), zipCreate([{ name: '001.png', data: png(1) }, { name: '002.png', data: png(2) }]));
       fs.mkdirSync(path.join(c.A, 'Pics'));
       for (const n of [1, 2]) fs.writeFileSync(path.join(c.A, 'Pics', `00${n}.png`), png(10 + n));
@@ -449,9 +440,7 @@ const SCENARIOS = [
   },
   // ── A folder's first check as the step (review 6): galleries it holds, read back ──
   {
-    name: 'a first check of an earlier version\'s gallery, with its files list',
-    sample: 1,
-    async setup(c) {
+    name: 'a first check of an earlier version\'s gallery, with its files list',    async setup(c) {
       const at = path.join(c.A, 'Old one'), old = await v1Gallery(at, { files: true });
       c.g.old = old.gid;
       c.known.add(old.gid);
@@ -462,9 +451,7 @@ const SCENARIOS = [
     ops: [FIRST_CHECK('old')],
   },
   {
-    name: 'a first check of an earlier version\'s gallery, without its files list',
-    sample: 1,
-    async setup(c) {
+    name: 'a first check of an earlier version\'s gallery, without its files list',    async setup(c) {
       const at = path.join(c.A, 'Old one'), old = await v1Gallery(at, { files: false });
       c.g.old = old.gid;
       c.known.add(old.gid);
@@ -475,9 +462,7 @@ const SCENARIOS = [
   },
   {
     name: 'a first check of a gallery in the oldest format',
-    apps: ['desktop'],
-    sample: 1,
-    async setup(c) {
+    apps: ['desktop'],    async setup(c) {
       const at = path.join(c.A, 'Old one'), old = legacyGallery(at);
       c.g.old = old.gid;
       c.known.add(old.gid);
@@ -487,9 +472,7 @@ const SCENARIOS = [
     ops: [FIRST_CHECK('old')],
   },
   {
-    name: 'a first check of a gallery with a page replaced, its folder added again',
-    sample: 1,
-    async setup(c) {
+    name: 'a first check of a gallery with a page replaced, its folder added again',    async setup(c) {
       c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
       await c.lib.putTranslation(c.g.alpha, 1, png(31));
       await c.lib.putTranslation(c.g.alpha, 2, png(32));
@@ -506,9 +489,7 @@ const SCENARIOS = [
     ops: [FIRST_CHECK('alpha')],
   },
   {
-    name: 'a first check of a linked ZIP translated, its folder added again',
-    sample: 1,
-    async setup(c) {
+    name: 'a first check of a linked ZIP translated, its folder added again',    async setup(c) {
       fs.writeFileSync(path.join(c.A, 'Pack.zip'), zipCreate([{ name: '001.png', data: png(1) }, { name: '002.png', data: png(2) }]));
       theirs(c, path.join(c.A, 'Pack.zip'));
       await c.lib.scan(c.ids.A);
@@ -524,9 +505,7 @@ const SCENARIOS = [
     ops: [FIRST_CHECK('pack')],
   },
   {
-    name: 'a first check of a linked folder of pictures translated, its folder added again',
-    sample: 1,
-    async setup(c) {
+    name: 'a first check of a linked folder of pictures translated, its folder added again',    async setup(c) {
       fs.mkdirSync(path.join(c.A, 'Pics'));
       for (const n of [1, 2]) fs.writeFileSync(path.join(c.A, 'Pics', `00${n}.png`), png(10 + n));
       for (const n of [1, 2]) theirs(c, path.join(c.A, 'Pics', `00${n}.png`));
@@ -543,9 +522,7 @@ const SCENARIOS = [
     ops: [FIRST_CHECK('pics')],
   },
   {
-    name: 'a first check of a drawn PDF translated, its folder added again',
-    sample: 1,
-    async setup(c) {
+    name: 'a first check of a drawn PDF translated, its folder added again',    async setup(c) {
       fs.writeFileSync(path.join(c.A, 'Doc.pdf'), '%PDF-1.4 a document');
       theirs(c, path.join(c.A, 'Doc.pdf'));
       await c.lib.scan(c.ids.A);
@@ -701,11 +678,10 @@ const SCENARIOS = [
     state: () => ({ aIn: false, galleries: {} }),
     ops: [ADD(), FIRST_CHECK('old')],
   },
-  // The hand-overs: the other app wrote folder A in the setup.
+  // The hand-overs: the other app wrote folder A in the setup (in npm test's sample: the family's).
   {
     name: 'a folder the other app let go, added',
     noA: true,
-    sample: 0,
     async setup(c) {
       const other = await otherApp(c);
       const theirs = await other.add(c.A);
@@ -727,7 +703,6 @@ const SCENARIOS = [
   },
   {
     name: 'a folder the other app holds, used anyway',
-    sample: 0,
     async setup(c) {
       c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
       plant(c, 'A/mine.txt', 'the person\'s own file');
@@ -750,7 +725,6 @@ const SCENARIOS = [
     // (it waits: the desktop's in its own staging, the website's in this browser), and takes the folder
     // back: what waited goes to the folder, and its check reads the other app's work.
     name: 'a folder the other app used anyway, taken back',
-    sample: 0,
     async setup(c) {
       c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
       c.g.beta = await made(c, 'Beta', [png(4)]);
@@ -1127,13 +1101,14 @@ if (process.env.SHIORI_SWEEP_CHILD) await child(JSON.parse(process.env.SHIORI_SW
 const EVERY = Number(process.env.SHIORI_SWEEP_EVERY) || 0;   // 0: the sample
 const [SHARD, SHARDS] = (process.env.SHIORI_SWEEP_SHARD || '0/1').split('/').map(Number);
 const only = (/** @type {string} */ name, /** @type {string} */ v) => !process.env[name] || process.env[name].split('|').includes(v);
-// The fault points swept out of `count` for scenario `sc`: every EVERY-th (the shard's), or the sample —
-// three spread over the step, or the middle one for a scenario that says so (`sample: 1`).
-const pointsOf = (/** @type {number} */ count, /** @type {{ sample?: number }} */ sc) => {
+// The fault points swept out of `count` for a scenario under the kind at `turn` in KINDS: every EVERY-th
+// (the shard's), or the sample — one, a fifth of the way into the step, midway or four fifths as the kinds
+// turn, so each scenario is faulted early, midway and late across them.
+const pointsOf = (/** @type {number} */ count, /** @type {number} */ turn) => {
   const all = Array.from({ length: count }, (_, i) => i + 1);
   if (process.env.SHIORI_SWEEP_POINTS) return process.env.SHIORI_SWEEP_POINTS.split(',').map(Number);
   if (EVERY) return all.filter((k, i) => i % EVERY === 0 && Math.floor(i / EVERY) % SHARDS === SHARD);
-  return [...new Set((sc.sample === 1 ? [0.5] : [0.2, 0.5, 0.8]).map(f => all[Math.floor(f * (count - 1))]))].filter(Boolean);
+  return [all[Math.floor([0.2, 0.5, 0.8][turn % 3] * (count - 1))]].filter(Boolean);
 };
 const skip = !!globalThis.__desktopLibrary && 'run by npm test';
 // npm test runs this file for the desktop's sample, and folder-sweep-website.test.mjs (this file again,
@@ -1148,10 +1123,11 @@ for (const app of /** @type {('desktop' | 'website')[]} */ (['desktop', 'website
         test(`${kind}: ${sc.name}`, { skip, todo: TODO[`${app} ${kind}: ${sc.name}`] }, async (t) => {
           if (app === 'website') shadowLocks();
           const count = await callsOf(app, sc);
+          const points = pointsOf(count, KINDS[app].indexOf(kind));
           const found = [];
           stuck = 0;
-          for (const k of pointsOf(count, sc)) for (const p of await once(app, kind, sc, k)) found.push(`call ${k}/${count}: ${p}`);
-          t.diagnostic(`${pointsOf(count, sc).length} of ${count} fault points${stuck ? `, ${stuck} where the drive couldn't leave (a file in it open)` : ''}`);
+          for (const k of points) for (const p of await once(app, kind, sc, k)) found.push(`call ${k}/${count}: ${p}`);
+          t.diagnostic(`${points.length} of ${count} fault points${stuck ? `, ${stuck} where the drive couldn't leave (a file in it open)` : ''}`);
           if (found.length) throw new Error(`${found.length} found:\n  ${found.join('\n  ')}`);
         });
       }

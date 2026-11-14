@@ -408,7 +408,8 @@ export async function writeNewIn(dir, slot, ext, bytes) {
 
 // Whose gallery folder `dir` is now (principle 2: folder-content.js galleryAt — its manifest, else its
 // metadata.json, else an earlier version's shiori.json; a linked gallery's overlay, its source.json):
-// { kind: 'ok' } when it names gallery `gid`; MISSING when nothing is there; { kind: 'conflict', found }
+// { kind: 'ok', items } when it names gallery `gid` (`items`: the folder's listing that told it, its
+// entries with their types); MISSING when nothing is there; { kind: 'conflict', found }
 // when something is that names another gallery (`found`), or none (null); unreadable when what it holds
 // can't be read (nothing is concluded from it). Nothing there, and a description not there, are told as
 // the shared rule takes them (notFound, textsIn). What a change to an existing gallery folder needs
@@ -419,13 +420,14 @@ export async function galleryIn(dir, gid) {
     if (e?.code === 'ENOTDIR') return { kind: 'conflict', found: null };   // a file at its place
     return lost(e) ? notFound(dir, e) : unreadable(e);
   }
+  const listed = (whose) => (whose.kind === 'ok' ? { ...whose, items } : whose);
   try {
     const own = (await textsIn(dir, items, [content.MANIFEST_FILE]))[content.MANIFEST_FILE];
-    if (content.galleryAt({ [content.MANIFEST_FILE]: own }, gid).kind === 'ok') return { kind: 'ok' };
+    if (content.galleryAt({ [content.MANIFEST_FILE]: own }, gid).kind === 'ok') return { kind: 'ok', items };
     const texts = { [content.MANIFEST_FILE]: own, ...await textsIn(dir, items, content.OWN_FILES.slice(1)) };
-    if (format.areaOf(dir.split(path.sep).join('/')) !== '') return content.galleryAt(texts, gid);
+    if (format.areaOf(dir.split(path.sep).join('/')) !== '') return listed(content.galleryAt(texts, gid));
     const source = linkedSource.parseSource((await textsIn(dir, items, [linkedSource.SOURCE_FILE]))[linkedSource.SOURCE_FILE])?.galleryId ?? null;
-    return content.galleryAt(texts, gid, { source });
+    return listed(content.galleryAt(texts, gid, { source }));
   } catch (e) { return unreadable(e); }
 }
 

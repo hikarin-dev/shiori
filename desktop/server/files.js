@@ -202,11 +202,12 @@ async function bytesIn(abs) {
 // What a folder of a library folder is (folder-content.js classifyFolder), from the descriptions its
 // listing (`items`: its entries) shows (folder-store.js textsIn). Rejects when one can't be read now.
 export const classifyAt = async (dir, items) => content.classifyFolder(await textsIn(dir, items, content.OWN_FILES));
-// Whether folder `dir` is gallery `gid`'s own by what it holds (folder-store.js galleryIn: its manifest,
-// else its description; a linked gallery's overlay, its source.json), so that a folder the index took
-// for a gallery's on another rule is never tidied (R01) nor deleted with it (F01). One that can't be
-// read isn't known to be.
-export const ownedBy = async (dir, gid) => (await galleryIn(dir, String(gid))).kind === 'ok';
+// Folder `dir`'s listing (its entries, with their types) when it is gallery `gid`'s own by what it holds
+// (folder-store.js galleryIn: its manifest, else its description; a linked gallery's overlay, its
+// source.json), else null — so that a folder the index took for a gallery's on another rule is never
+// tidied (R01) nor deleted with it (F01), and what is looked for in it goes by the listing that told it
+// so. One that can't be read isn't known to be.
+export const ownedBy = async (dir, gid) => { const whose = await galleryIn(dir, String(gid)); return whose.kind === 'ok' ? whose.items : null; };
 
 // The library folder's own id, kept in its .shiori/library.json and made the first time: this
 // computer's data for the library (its index and thumbnails) is found by it, so the folder keeps
@@ -1144,10 +1145,17 @@ export class FileLibrary {
   // (`found`: what it names instead, or null); 'unreadable' (it, or its library folder as itself, can't
   // be read now: nothing is concluded). Nothing there is told as the shared rule takes it (statIn: a look
   // that answers "not found" while the drive is away for a moment never makes it so — review 6 F8).
-  // Every change to an existing gallery folder or archive asks first.
+  // Every change to an existing gallery folder or archive asks first. A place not named as an archive is
+  // listed as a folder first (galleryIn: its listing tells all a look before it would — a folder there,
+  // or nothing there as the same rule takes it); only one found naming no gallery (a file there, say) is
+  // looked at as below.
   async _whose(rel, gid) {
     const abs = this._at(rel);
     if (!abs) return contract.unreadable('its library folder can\'t be reached as itself');
+    if (!/\.(cbz|zip)$/i.test(rel)) {
+      const whose = await galleryIn(abs, String(gid));
+      if (whose.kind !== 'conflict' || whose.found != null) return whose;
+    }
     let stat;
     try { stat = await statIn(abs); } catch (e) { return contract.unreadable(e); }
     if (!stat) return contract.MISSING;

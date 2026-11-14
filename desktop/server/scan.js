@@ -661,20 +661,16 @@ export function startEntry(library, gid, meta, now = Date.now()) {
 // archive still running (files.js _reserved) — A19 — nor a picture still to take its place (files.js
 // unplaced: F03). Looked for only where everything is Shiori's (F08): the folder's own .shiori/ (its
 // staging and overlays), and the folders of the galleries the index keeps there whose description names
-// them (ownedBy). A name alone proves nothing: a file or folder named so in a linked folder, at the
-// folder's top or anywhere else, is someone's own, and stays — as does a whole gallery's interrupted copy
-// beside its place, which neither app's walk reads and no later write takes a name from (folder-store.js
-// tempBeside). Resolves how many went.
+// them (ownedBy: each walked from the listing that told it so). A name alone proves nothing: a file or
+// folder named so in a linked folder, at the folder's top or anywhere else, is someone's own, and stays —
+// as does a whole gallery's interrupted copy beside its place, which neither app's walk reads and no later
+// write takes a name from (folder-store.js tempBeside). Resolves how many went.
 async function sweepLeftovers(library, id) {
   const root = library.rootDir(id);
   const files = library.files;
-  const own = [path.join(root, '.shiori')];
-  for (const { gid, path: rel } of library._s(`SELECT gid, path FROM files WHERE format = 'folder' AND source IS NULL`).all()) {
-    if (files._split(rel).root === id && await ownedBy(files._abs(rel), gid)) own.push(files._abs(rel));
-  }
   let removed = 0;
-  const walk = async (dir, depth) => {
-    for (const item of await disk.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+  const walk = async (dir, depth, listed = null) => {
+    for (const item of listed ?? await disk.readdir(dir, { withFileTypes: true }).catch(() => [])) {
       if (item.name.startsWith('.')) continue;
       const abs = path.join(dir, item.name);
       if (!TEMP.test(item.name)) {
@@ -687,7 +683,11 @@ async function sweepLeftovers(library, id) {
       removed++;
     }
   };
-  for (const dir of own) await walk(dir, 0);
+  await walk(path.join(root, '.shiori'), 0);
+  for (const { gid, path: rel } of library._s(`SELECT gid, path FROM files WHERE format = 'folder' AND source IS NULL`).all()) {
+    const items = files._split(rel).root === id ? await ownedBy(files._abs(rel), gid) : null;
+    if (items) await walk(files._abs(rel), 0, items);
+  }
   return removed;
 }
 
@@ -696,8 +696,9 @@ async function sweepLeftovers(library, id) {
 // (under its data folder) and in each library folder it may write to (another's, a hidden one's and one
 // out of reach are left alone: what its galleries set aside may wait there). A gallery's pictures no
 // record refers to, in a folder that is its own by what it holds (ownedBy) in one of the library
-// folders checked (`checked`, their ids), are added to `unreferenced` ({ path, gid }). Resolves how
-// many went.
+// folders checked (`checked`, their ids), are added to `unreferenced` ({ path, gid }): its picture
+// folders are listed where the listing that told it so shows them (one it doesn't show holds none).
+// Resolves how many went.
 async function removeOrphans(library, unreferenced = [], checked = new Set()) {
   const keep = new Set();   // the files records refer to, where they are
   for (const r of library._s('SELECT orig, record FROM pages').all()) {
@@ -729,7 +730,8 @@ async function removeOrphans(library, unreferenced = [], checked = new Set()) {
   for (const { gid, path: rel } of library._s(`SELECT gid, path FROM files WHERE format = 'folder' AND gid NOT IN (SELECT gid FROM unmounted)`).all()) {
     if (!checked.has(library.files._split(rel).root) || !library.folders.writable(library.files.rootFor(gid))) continue;   // another app's folder, or out of reach
     const dir = library.files._abs(rel);
-    if (!await ownedBy(dir, gid)) continue;
+    const items = await ownedBy(dir, gid);
+    if (!items) continue;
     const refs = new Set(library._s('SELECT name FROM retiring WHERE dir = ?').all(rel).map(r => r.name));
     for (const r of library._pageRows(gid)) {
       collect(parse(r.record), (ref) => refs.add(ref), '$own');
@@ -738,6 +740,7 @@ async function removeOrphans(library, unreferenced = [], checked = new Set()) {
     }
     collect(library._coverGet(gid), (ref) => refs.add(ref), '$own');
     for (const sub of format.PICTURE_DIRS) {
+      if (!items.some(e => e.name === sub.split('/')[0] && e.isDirectory())) continue;
       for (const name of await disk.readdir(path.join(dir, ...sub.split('/'))).catch(() => [])) {
         const file = path.join(dir, ...sub.split('/'), name);
         if (!IMAGE.test(name) || refs.has(`${sub}/${name}`) || !await stale(file, ORPHAN_AGE_MS)) continue;
