@@ -2198,7 +2198,11 @@ export class FileLibrary {
   // its manifest unless the archive's names the same files and descriptions already, and the
   // descriptions it no longer has. `placing` and `without` as for _generation — by default, every picture of
   // its own still staged (only a settle adds them: _settleArchive).
-  async _archiveChanges(gid, row, dir, { placing = null, without = new Set(this._stagedOwn(gid).map(s => s.rel)) } = {}) {
+  // `adding`: pictures the caller adds to the archive with these (name → size, a settle's staged pages and pictures):
+  // a generation of their own — one replacing an entry by its name changes no description, yet the archive holds
+  // another picture, which a generation must say (S30: none was, so no app saw the change, and its recorded size
+  // was the old picture's).
+  async _archiveChanges(gid, row, dir, { placing = null, without = new Set(this._stagedOwn(gid).map(s => s.rel)), adding = new Map() } = {}) {
     const file = this._abs(row.path);
     const differs = async (name, data) => { const e = dir.get(name); return !e || e.size !== data.length || !(await readEntry(file, e)).equals(data); };
     const listed = this._descriptions(gid, { comicInfo: row.format === 'cbz', placing, without });
@@ -2210,8 +2214,8 @@ export class FileLibrary {
     const prev = had?.kind === 'ok' ? had.value : null;
     const fresh = format.archiveManifest({ ...next, generation: Math.max(next.generation, (prev?.generation ?? 0) + 1) }, texts);
     const same = prev && JSON.stringify([prev.files, prev.descriptions, prev.sources ?? null]) === JSON.stringify([fresh.files, fresh.descriptions, fresh.sources ?? null]);
-    if (same && !add.length && !drop.length) return { add, drop, token: format.tokenOf(prev) };
-    fresh.sizes = Object.fromEntries(format.namedPictures(fresh.files).map(f => [f, [dir.get(f)?.size ?? next.sizes[f]?.[0] ?? 0, 0]]));
+    if (same && !adding.size && !add.length && !drop.length) return { add, drop, token: format.tokenOf(prev) };
+    fresh.sizes = Object.fromEntries(format.namedPictures(fresh.files).map(f => [f, [adding.get(f) ?? dir.get(f)?.size ?? next.sizes[f]?.[0] ?? 0, 0]]));
     add.push({ name: content.MANIFEST_FILE, data: Buffer.from(format.manifestText(fresh)) });
     return { add, drop, token: format.tokenOf(fresh) };
   }
@@ -2269,7 +2273,8 @@ export class FileLibrary {
       // Its descriptions, and its manifest last (_archiveChanges): each kept as the archive has it unless
       // it changed.
       const names = new Map([...placing].map(([n, p]) => [n, p.name]));
-      const described = await this._archiveChanges(gid, row, dir, { placing: names, without: left });
+      const adding = new Map([...live].filter(([, v]) => v.from).map(([name, v]) => [name, v.size]));
+      const described = await this._archiveChanges(gid, row, dir, { placing: names, without: left, adding });
       for (const d of this._descriptions(gid, { comicInfo: row.format === 'cbz', placing: names, without: left })) live.set(d.name, { size: d.data.length });
       if (dir.has(content.MANIFEST_FILE)) live.set(content.MANIFEST_FILE, { size: dir.get(content.MANIFEST_FILE).size });
       for (const d of described.add) { live.delete(d.name); live.set(d.name, { size: d.data.length, data: d.data }); }

@@ -1070,6 +1070,12 @@ const REGRESSIONS = [
   // using the folder anyway, changes it — so unpacks it — is dropped where a check meets the folder, the gallery
   // joining again at the next; a title of it made in the window reaches its archive before the website's change, so
   // the folder's version is the first to reach it (the model held the other app's: its own mistake, S30).
+  // S30's second long run (desktop seed 1201853647): a second desktop library replacing the translation of a gallery this
+  // one archived, while this one's title waited from the drive's absence — the archive took the picture with no new
+  // generation, so the title was published over it; now the replacement is a generation, and the title is dropped.
+  { app: 'desktop', both: true, name: 'a translation replaced in an archive by a second desktop library is a generation: the title waiting here is dropped at the take-back',
+    steps: [['newGallery', 1], ['putTranslation', [0, 0, false]], ['archiveIt', 0],
+      ['usedAnyway', { by: 'second desktop', mine: [0, 'title', 0, 'away', 1], unseen: false, theirs: [[0, 'translation', 0]], tries: [], made: false }]] },
   // S30's long run (desktop seed 778611996): the desktop killed as it translates an archived gallery, started again
   // with the drive away — its translation was refused "out of reach" (files.js _inFormat); now it waits.
   { app: 'desktop', both: true, name: 'an archived gallery translated by a desktop started with its folder\'s drive away waits for the drive',

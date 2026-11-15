@@ -3546,6 +3546,39 @@ export const CASES = [
     },
   },
   {
+    // Found by S30's second long model run (desktop seed 1201853647, a second desktop library replacing a translation
+    // of a gallery the first had archived, the first's title waiting from the drive's absence): a picture replaced in
+    // an archive under the same name was appended at the settle with no new generation — the archive's manifest kept
+    // the old one, naming the old picture's size — so no app saw a change there: the other library's waiting title was
+    // published over it at its take-back (both changes kept, against one app at a time), and a deletion by that library
+    // took the archive for the person's (its size not as recorded). A picture added to an archive is a new generation.
+    name: 'S30: a picture replaced in an archive under the same name is published with a new generation naming its size',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      const { zipEntries } = await import('../js/zip-read.js');
+      await fx.register('A');
+      const gid = await fx.lib.newGallery('Alpha');
+      await fx.lib.putPage(gid, 1, new Uint8Array([...png(4, 1), ...new Uint8Array(20_000)]));   // the replaced picture a small share of it (the 25% rule)
+      await fx.lib.putTranslation(gid, 1, png(4, 2));
+      await fx.lib.flush();
+      assert.deepEqual((await fx.lib.raw.archiveGallery(gid)).archived, [gid], 'archived');
+      await fx.lib.flush();
+      const zip = path.join(dir, 'A', 'Alpha.zip');
+      const manifest = async () => {
+        const all = await zipEntries(new Uint8Array(fs.readFileSync(zip)));
+        return JSON.parse(new TextDecoder().decode(await all.filter(e => e.filename === '.shiori/gallery.json').pop()?.read()));
+      };
+      const before = await manifest();
+      const bigger = new Uint8Array([...png(4, 3), ...new Uint8Array(40)]);   // another size than the first's
+      await fx.lib.putTranslation(gid, 1, bigger);
+      await fx.lib.flush();
+      const after = await manifest();
+      assert.ok(after.generation > before.generation, `a new generation (${before.generation} → ${after.generation})`);
+      assert.equal(after.sizes[after.files.pages[1].translated][0], bigger.length, 'naming the new picture\'s size');
+      assert.deepEqual(await fx.lib.read(gid, 1, 'translated'), bigger, 'it reads');
+    },
+  },
+  {
     // Found by S30's long model run (desktop seed 778611996, the take-over's killed form with the drive away): the
     // desktop started while a library folder's drive was away refused a translation of a gallery it keeps archived
     // there ("library folder … is out of reach": the look at whether the archive is in the gallery format went
