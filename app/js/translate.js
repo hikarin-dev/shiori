@@ -583,8 +583,12 @@ export async function pollTranslation(galleryId, send = () => {}) {
     const buf = new Uint8Array(await resp.arrayBuffer());
     const dec = new TextDecoder();
 
-    let meta = null, summary = null, errMsg = null, off = 0;
-    while (buf.length - off >= 5) {
+    let meta = null, summary = null, errMsg = null, off = 0, refused = null;
+    // A page's result the library refuses to store — its gallery can't be changed now: its folder is
+    // hidden, or in use by another app (one app changes a folder's galleries at a time) — ends the job,
+    // failed, saying why, rather than asking for the same pages at every tick.
+    const store = (write) => write().catch((e) => { if (e?.reason === 'not-owned' || e?.reason === 'hidden') { refused = e; return null; } throw e; });
+    while (!refused && buf.length - off >= 5) {
       const st = buf[off];
       const size = ((buf[off + 1] << 24) | (buf[off + 2] << 16) | (buf[off + 3] << 8) | buf[off + 4]) >>> 0;
       if (buf.length - off < 5 + size) break;
@@ -612,8 +616,8 @@ export async function pollTranslation(galleryId, send = () => {}) {
           // No image: the page is its study data, in the frame that follows. Kept only while the page
           // still shows the picture it was made from (`source`; a record from before tokens has none).
           const n = await at(url);
-          const put = n == null ? null : await api.derived.putTranslation(gid, n, { image: payload.length ? new Blob([payload], { type: _imgMime(payload) }) : null,
-            pipeline: page ? { job, ...page.record, masks: page.masks } : { job }, own: rec.pin ? job : undefined, source: pendingSources?.[idx] });
+          const put = n == null ? null : await store(() => api.derived.putTranslation(gid, n, { image: payload.length ? new Blob([payload], { type: _imgMime(payload) }) : null,
+            pipeline: page ? { job, ...page.record, masks: page.masks } : { job }, own: rec.pin ? job : undefined, source: pendingSources?.[idx] }));
           if (put?.stale) stale.add(idx);
         } else {
           let study = null; try { study = JSON.parse(dec.decode(payload)); } catch {}
@@ -640,7 +644,7 @@ export async function pollTranslation(galleryId, send = () => {}) {
                 bubbles.push(bubble);
               }
               const n = await at(url);
-              if (bubbles.length && n != null && await ownsToken()) await api.derived.putStudy(gid, n, { bg, bubbles, page: study.page || null }, job);
+              if (bubbles.length && n != null && await ownsToken()) await store(() => api.derived.putStudy(gid, n, { bg, bubbles, page: study.page || null }, job));
             }
           }
         }
@@ -648,6 +652,15 @@ export async function pollTranslation(galleryId, send = () => {}) {
       else if (st === 2) { errMsg = dec.decode(data); }
     }
 
+    if (refused) {
+      if (await translateResume.remove(gid, token)) {
+        const entry = _controllers.get(gid);
+        if (!entry || entry.jobToken === token) _controllers.delete(gid);
+        await jobsPending.remove(`${gid}:translate`);
+        send({ status: 'error', error: String(refused.message || refused), ...(refused.reason === 'not-owned' ? { errorKey: 'lf.taken_msg' } : {}) });
+      }
+      return;
+    }
     if (stale.size > before) await translateResume.patch(gid, token, { stale: [...stale] });
     if (!meta) return;                       // malformed response — try again next tick
     if (meta.status === 'notfound') {

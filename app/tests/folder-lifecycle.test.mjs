@@ -8,7 +8,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { STATES, mounted, canHide, canShow, canSetDefault, canMoveTo, nextDefault, writeAllowed, JOBS, jobPlan, removalOutcome,
-  UNFOUND_LOOKS, leavesOpen, unfoundEnd } from '../js/storage/folder-lifecycle.js';
+  UNFOUND_LOOKS, leavesOpen, unfoundEnd, changeRefusal } from '../js/storage/folder-lifecycle.js';
+import { published, othersSince, writerOf } from '../js/storage/gallery-manifest.js';
+
+test('S29a: one app changes a folder\'s galleries at a time — the commit gate refuses a change reaching a gallery the folder holds while another app holds it, never the person\'s marks nor one only this app has', () => {
+  const at = (o) => changeRefusal({ state: 'shown', change: true, taken: true, held: true, ...o });
+  assert.equal(at({}), 'not-owned', 'a change to a gallery published in a folder another app holds');
+  assert.equal(at({ change: false }), null, 'no change of its folder: the person\'s marks, a size, a total');
+  assert.equal(at({ held: false }), null, 'a gallery only this app has (never published there) keeps working, and waits');
+  assert.equal(at({ taken: false }), null, 'a folder this app holds, or one not known to be taken (out of reach: the change waits)');
+  assert.equal(at({ work: true }), null, 'the folder\'s own work');
+  assert.deepEqual(['hidden', 'removing', null].map(state => changeRefusal({ state })), ['hidden', 'hidden', 'hidden'], 'out of the library: hidden, as before');
+  assert.equal(changeRefusal({ state: 'hidden', work: true }), null);
+  // What says the folder holds a gallery as published, and what is another app's generation since.
+  assert.deepEqual([null, 'v2:0:me', 'v2:1:me', 'v2:7:them', 'stamp-of-a-v1-folder'].map(published), [false, false, true, true, true]);
+  assert.deepEqual(['v2:3:a1b2', 'v2:0:x', 'v1stamp', null].map(writerOf), ['a1b2', 'x', null, null]);
+  assert.equal(othersSince('v2:3:them', 'v2:2:me', 'me'), true, 'another app published since');
+  assert.equal(othersSince('v2:3:me', 'v2:2:me', 'me'), false, 'this app\'s own generation (its stamp not kept, say) is never another\'s');
+  assert.equal(othersSince('v2:2:me', 'v2:2:me', 'me'), false, 'the one known');
+  assert.equal(othersSince('v2:3:them', null, 'me'), false, 'a gallery this library never published or read there: not weighed');
+  assert.equal(othersSince(null, 'v2:2:me', 'me'), false, 'a folder holding none');
+  assert.equal(othersSince('v1stamp-b', 'v1stamp-a', 'me'), false, 'an earlier version\'s descriptions tell no writer: what waits is kept, as before');
+});
 
 const place = (over = {}) => ({ state: 'shown', isDefault: false, owned: true, reachable: true, ...over });
 

@@ -168,9 +168,10 @@ test('R07: nothing is written to a folder another app took over — pictures, a 
   fs.writeFileSync(marker, pngBytes(2));
   const before = fs.readdirSync(other).sort();
   claimedElsewhere(library, other, 99);
-  // Pictures made from its pages, a cover, a new gallery's pages: kept in the library's own staging.
-  await library.putTranslatedImage({ galleryId: gid, pageNum: 1 }, png(9));
-  await library.coverPut(gid, png(5));
+  // Pictures made from its pages, a cover: refused, the gallery the folder holds read-only meanwhile (one
+  // app changes a folder's galleries at a time: S29a). A new gallery's pages: kept in the library's own staging.
+  assert.equal(await reason(library.putTranslatedImage({ galleryId: gid, pageNum: 1 }, png(9))), 'not-owned');
+  assert.equal(await reason(library.coverPut(gid, png(5))), 'not-owned');
   const fresh = library.nextGalleryId();
   await library.metaPut({ galleryId: fresh, title: title('Fresh') });
   await library.pagePut(fresh, 1, png(3));
@@ -178,7 +179,6 @@ test('R07: nothing is written to a folder another app took over — pictures, a 
   await library.files.settle(gid);
   assert.ok(!fs.existsSync(path.join(folderOf(library, gid), 'translated', '0001.png')));
   assert.ok(!fs.existsSync(path.join(folderOf(library, gid), 'covers')));
-  assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1, 'translated')), [...pngBytes(9)], 'read from staging meanwhile');
   assert.match(JSON.parse(library._pageRow(fresh, 1).orig).file, /^~data\//);
   // Not made the default; the orphan sweep and an archive's tail leave it alone.
   await library.folderSetDefault(library.primaryId);
@@ -208,8 +208,10 @@ test('R08: a claim that can\'t be read, or isn\'t one, leaves the folder read-on
   library.folders._probes.clear();
   assert.equal(library.folders.probe(id).access, 'unknown');
   assert.equal(library.folders.writable(id), false);
-  await library.metaPut({ ...(await library.metaGet(gid)), title: title('Written While Unknown') });
-  assert.deepEqual(await library.files.describe(gid), { ok: false });
+  // A change to its gallery is refused meanwhile (one app changes a folder's galleries at a time: S29a —
+  // a claim that can't be checked counts as another app's).
+  assert.equal(await reason(library.metaPut({ ...(await library.metaGet(gid)), title: title('Written While Unknown') })), 'not-owned');
+  assert.deepEqual(await library.files.describe(gid), { ok: true });
   assert.notEqual(JSON.parse(fs.readFileSync(meta, 'utf8')).title.english, 'Written While Unknown');
   assert.equal(fs.readFileSync(path.join(other, '.shiori', 'owner.json'), 'utf8'), damaged, 'never overwritten unasked');
   const listed = (await library.foldersList()).find(p => p.id === id);
@@ -226,8 +228,9 @@ test('R08: a claim that can\'t be read, or isn\'t one, leaves the folder read-on
   fs.writeFileSync(path.join(other, '.shiori', 'owner.json'), damaged);
   await library.folderClaim(id);
   assert.ok(claimOf(other).epoch > Math.max(held, 7) + 1);
+  await library.metaPut({ ...(await library.metaGet(gid)), title: title('Written While Unknown') });
   await library.files.describe(gid);
-  assert.equal(JSON.parse(fs.readFileSync(meta, 'utf8')).title.english, 'Written While Unknown', 'written once it is held again');
+  assert.equal(JSON.parse(fs.readFileSync(meta, 'utf8')).title.english, 'Written While Unknown', 'changed and written once it is held again');
 });
 
 test('R09: a series command or a series move reaching a gallery in a hidden folder is refused whole', async (t) => {

@@ -435,23 +435,28 @@ test('a folder is claimed by the app that adds it: another app asks first, the a
   await library.folderSetDefault(id);
   const gid = await gallery(library, 'Shared', 2);
   await library.files.describe(gid);
-  // Taken over by the other app: listed so, and nothing more is written there.
+  // Taken over by the other app: listed so, and nothing more is written there. A gallery the folder holds
+  // is read-only meanwhile (one app changes a folder's galleries at a time: S29a); one made meanwhile, only
+  // this library's, keeps working, its pages waiting in the library's own staging.
   elsewhere(3);
   const listed = (await library.foldersList()).find(p => p.id === id);
   assert.equal(listed.access, 'taken');
   assert.equal(listed.owner.site, 'shiori.cc');
   assert.equal(library.defaultRoot(), id);
-  await library.pagePut(gid, 3, png(3, 7));
-  await library.files.place(gid);
-  assert.ok(!fs.existsSync(path.join(other, 'Shared', 'images', '0003.png')), 'a new page waits, staged');
-  assert.ok(!fs.existsSync(path.join(other, '.shiori', 'staging', gid)), 'in the library\'s own staging, not the folder\'s');
+  assert.equal(await reason(library.pagePut(gid, 3, png(3, 7))), 'not-owned', 'a page of a gallery the folder holds is refused');
+  const fresh = await gallery(library, 'Made Meanwhile', 1);
+  assert.ok(!fs.existsSync(path.join(other, 'Made Meanwhile')), 'a new gallery\'s page waits, staged');
+  assert.ok(!fs.existsSync(path.join(other, '.shiori', 'staging', fresh)), 'in the library\'s own staging, not the folder\'s');
   assert.deepEqual([await reason(library.folderScan(id)), await reason(library.moveGallery(gid, library.primaryId)), await reason(library.folderSetDefault(id))],
     ['taken', 'taken', 'taken']);
   assert.equal((await library.rescan()).added.length, 0);
-  // Taken back: what waited is settled into it.
+  // Taken back: what waited is settled into it, and the gallery can be changed again.
   await library.folderClaim(id);
   assert.equal(claimOf().owner, library.folders._me());
   assert.equal(claimOf().epoch, 4, 'past every claim known');
+  await library.files.place(fresh);
+  assert.ok(fs.existsSync(path.join(other, 'Made Meanwhile', 'images', '0001.png')));
+  await library.pagePut(gid, 3, png(3, 7));
   await library.files.place(gid);
   assert.ok(fs.existsSync(path.join(other, 'Shared', 'images', '0003.png')));
   // Removing it: a folder that lost what it was published with (its manifest, format v2; its
@@ -473,12 +478,13 @@ test('a folder is claimed by the app that adds it: another app asks first, the a
   const epoch = claimOf().epoch;
   fs.writeFileSync(claimFile, JSON.stringify({ format: 'shiori-owner', version: 1, owner: null, by: { app: 'web' }, at: 2, epoch: epoch + 1 }));
   assert.equal((await library.folderAdd(other)).restored, 0);
-  assert.equal((await library.folderScan(id)).added, 1);
+  assert.equal((await library.folderScan(id)).added, 2);
   assert.equal((await library.getGallery(gid))?.count, 3);
+  assert.equal((await library.getGallery(fresh))?.count, 1);
   await whole(library);
 });
 
-test('a check of a folder reads again the galleries another app changed there, unless this app has changes of its own waiting', async (t) => {
+test('a check of a folder reads again the galleries another app changed there — where this app has changes of its own waiting too, the folder\'s version stands and they are dropped, reported', async (t) => {
   const { library, other, dir } = await open(t);
   const { id } = await library.folderAdd(other);
   await library.folderSetDefault(id);
@@ -506,17 +512,21 @@ test('a check of a folder reads again the galleries another app changed there, u
     assert.equal(back.count, 3);
     assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 3)), [0x89, 0x50, 0x4e, 0x47, 3, 9]);
     assert.equal((await library.folderScan(id)).updated, 0, 'read once: the next check finds nothing new');
-    // Changed there again, but changed here too, not yet written: this app's change wins.
+    // Changed there again, and changed here too, not yet written: one app changes a folder's galleries at a
+    // time (the owner's rule, 2026-11-15) — the folder's version stands, this app's change is dropped,
+    // reported once, and nothing is published over it.
     second.folders._probes.clear();
     await second.folderClaim(id);
     await second.metaPut({ ...(await second.metaGet(gid)), title: title('Their Title') });
     await second.files.describe(gid, { all: true });
     await library.folderClaim(id);
     await library.metaPut({ ...(await library.metaGet(gid)), title: title('My Title') });
-    assert.equal((await library.folderScan(id)).updated, 0);
-    assert.equal((await library.getGallery(gid)).title.english, 'My Title');
+    await library.files.flush();   // its publication meets that generation (or the check after it would)
+    await library.folderScan(id);
+    assert.equal((await library.getGallery(gid)).title.english, 'Their Title');
     await library.files.describe(gid);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(other, 'Shared', 'metadata.json'), 'utf8')).title.english, 'My Title');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(other, 'Shared', 'metadata.json'), 'utf8')).title.english, 'Their Title');
+    assert.deepEqual(library.folders.attention(id).filter(a => a.reason === 'changed-both').map(a => a.gid), [gid]);
     await whole(library);
   } finally { second.close(); }
 });

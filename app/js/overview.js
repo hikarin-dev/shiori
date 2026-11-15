@@ -24,7 +24,7 @@ import { handImport } from './submit-job.js';
 import { importDropped, mountImportTracker } from './import-tracker.js';
 import { openRerunMenu } from './rerun-menu.js';
 import { confirmDialog, alertDialog } from './notice.js';
-import { moveGalleryTo, deleteRefused } from './library-folders.js';
+import { moveGalleryTo, deleteRefused, refusalText } from './library-folders.js';
 import { openTagEditor, removeTag, tagKey, TAG_TYPE_LABEL } from './tag-editor.js';
 
 // ── Header details ──
@@ -1951,7 +1951,7 @@ async function runSearch(term) {
 const fileTypeAlert = (file) =>
   alertDialog({ title: t('dlg.file_type_title'), body: t('dlg.file_type_body'), detail: file.name, tone: 'error' });
 const chapterFailAlert = (err) =>
-  alertDialog({ title: t('dlg.chapter_fail_title'), detail: err.message, tone: 'error' });
+  alertDialog({ title: t('dlg.chapter_fail_title'), detail: refusalText(err) ?? err.message, tone: 'error' });
 
 // ── Drop a file as the next chapter ──
 function wireDrop() {

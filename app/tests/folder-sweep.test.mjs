@@ -132,6 +132,12 @@ async function sawTaken(/** @type {Ctx} */ c) {
   await c.lib.setDefault(c.lib.home);
   if (c.lib.app === 'desktop') c.lib.raw.folders._probes.clear();
 }
+// `work` done while folder A's drive is away — what it changes waits — and every attempt to save it there
+// that it set going (a publication made at once, a settle) ended before the drive is back.
+async function awayFor(/** @type {Ctx} */ c, /** @type {() => Promise<unknown>} */ work) {
+  fs.renameSync(c.A, `${c.A}.away`);
+  try { await work(); await c.lib.flush(); } finally { fs.renameSync(`${c.A}.away`, c.A); }
+}
 // The person's file at `at` (a source of theirs), to stay as it is now (wrongAt reads it back so).
 const theirs = (/** @type {Ctx} */ c, /** @type {string} */ at) => c.plants.set(at, fs.readFileSync(at, at.endsWith('.zip') ? 'latin1' : 'utf8'));
 // A gallery `title` of folder A as a stage shows it, from its files in `dir` as they are now (`pages`:
@@ -725,53 +731,60 @@ const SCENARIOS = [
     ops: [ADD({ force: true }), FIRST_CHECK('alpha')],
   },
   {
-    // The other app used folder A anyway and translated a page there; this app, told, put a page meanwhile
-    // (it waits: the desktop's in its own staging, the website's in this browser), and takes the folder
-    // back: what waited goes to the folder, and its check reads the other app's work.
+    // This app put a page of Beta while folder A's drive was away (it waits: the desktop's in its own
+    // staging, the website's in this browser); then the other app used the folder anyway and translated a
+    // page of Alpha there. This app, told, makes Gamma meanwhile — a gallery only it has, which keeps
+    // working and waits (one the folder holds is read-only here: the owner's rule of 2026-11-15) — and takes
+    // the folder back: what waited goes to the folder (the other app changed neither Beta nor Gamma), and
+    // its check reads the other app's work.
     name: 'a folder the other app used anyway, taken back',
     async setup(c) {
       c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
       c.g.beta = await made(c, 'Beta', [png(4)]);
       plant(c, 'A/mine.txt', 'the person\'s own file');
       await c.lib.flush();
+      await awayFor(c, () => c.lib.putPage(c.g.beta, 2, png(5)));
       const other = await otherApp(c);
       await other.scan(await other.add(c.A, { force: true }));
       await other.putTranslation(c.g.alpha, 1, png(7));
       await publishedThere(other, c.g.alpha, 'translated/');
       await other.close();
-      await sawTaken(c);
-      await c.lib.putPage(c.g.beta, 2, png(5));
+      await c.lib.list();   // the person sees the folder used elsewhere: it is known taken
+      c.g.gamma = await made(c, 'Gamma', [png(6)]);
       c.takeBack = true;
     },
-    state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]), [c.g.beta]: G('A', 'Beta', [png(4), png(5)]) } }),
+    state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]), [c.g.beta]: G('A', 'Beta', [png(4), png(5)]),
+      [c.g.gamma]: G('A', 'Gamma', [png(6)]) } }),
     // The website reads the other app's generation later while it is busy with the gallery itself (a
     // change of a moment ago announced, its size refreshed: folder-library.js _catchUp) — under load, at
     // every check of the stages: until the folder is read afresh (added again), the state before it may show.
     also: (c, stage) => (c.lib.app !== 'website' || stage === 're-add' ? []
-      : [{ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]), [c.g.beta]: G('A', 'Beta', [png(4), png(5)]) } }]),
+      : [{ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]), [c.g.beta]: G('A', 'Beta', [png(4), png(5)]), [c.g.gamma]: G('A', 'Gamma', [png(6)]) } }]),
     ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A)), CATCH_UP((s, c) => withTranslation(s, c.g.alpha, 1, png(7))), FLUSH, SETTLE],
     noSetupFlush: true,
   },
   {
-    // The same, both apps translating one page (review 7 A4): this app's translation waits while the other
-    // app's is in the folder under the name it would take, and goes in beside it at the take-back — this
-    // app's change wins (D4), through every point of that move.
+    // The same, both apps translating one page (review 7 A4, under the owner's rule of 2026-11-15): this
+    // app translated page 1 while the drive was away (it waits), the other app translated it while it used
+    // the folder anyway. At the take-back the folder's version stands — this app's translation is dropped,
+    // nothing of it goes into the folder — through every point of the take-back and the drop: from the
+    // stages' check on, the other app's translation shows (until then this app's may: it waited).
     name: 'a folder the other app used anyway, taken back, a page both apps translated',
     async setup(c) {
       c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
       plant(c, 'A/mine.txt', 'the person\'s own file');
       await c.lib.flush();
+      await awayFor(c, () => c.lib.putTranslation(c.g.alpha, 1, png(8)));
       const other = await otherApp(c);
       await other.scan(await other.add(c.A, { force: true }));
       await other.putTranslation(c.g.alpha, 1, png(7));
       await publishedThere(other, c.g.alpha, 'translated/');
       await other.close();
       await sawTaken(c);
-      await c.lib.putTranslation(c.g.alpha, 1, png(8));
       c.takeBack = true;
     },
     state: (c) => withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }, c.g.alpha, 1, png(8)),
-    ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A)), CHECK, FLUSH, SETTLE],
+    ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A), (s, c) => withTranslation(s, c.g.alpha, 1, png(7)), null, true), CHECK, FLUSH, SETTLE],
     noSetupFlush: true,
   },
   // A series: made, a chapter added, the chapters reordered, then moved to another folder whole; and a

@@ -26,7 +26,10 @@ export { BackendError };
 
 const own = !desktopLibrary.active;
 // A write to a gallery whose folder is hidden or being removed (out of the library meanwhile) is
-// refused by the library itself, as it commits (BackendError 'invalid', reason 'hidden').
+// refused by the library itself, as it commits (BackendError 'invalid', reason 'hidden'); so is a change
+// that would reach a gallery's folder while another app is using it, the gallery published there (one
+// app changes a folder's galleries at a time: BackendError 'unavailable', reason 'not-owned') — the
+// person's own marks are no such change.
 const backend = own ? browserLibrary : desktopLibrary;
 
 // What this library can do beyond the common interface; surfaces hide what it lacks.
@@ -168,7 +171,8 @@ export const galleries = _typed({
 // library only reads it; claim takes it back; see folder-owner.js). `attention`: a folder's Needs
 // attention list, [{ reason, path, gid? }] — what its last check found (scan's `problems`, and
 // 'conflict': a gallery's folder holding something else now; 'unreferenced': a picture nothing refers
-// to) and what happened since ('changed-both' at a publication; 'left': files a gallery's deletion left
+// to) and what happened since ('changed-both': a gallery another app changed while this library had
+// changes of it waiting, which were dropped — the folder's version stands; 'left': files a gallery's deletion left
 // in its folder, not Shiori's, which never join the library); dismiss puts one away. Removing a place takes
 // its galleries out of the library at once, writes back what only the library has of them, then
 // forgets them, leaving their files where they are: adding it again checks it from scratch. Hiding
@@ -205,9 +209,8 @@ export const folders = _typed({
   // library's: `onProgress(done, total, added, step)` and `stopped()` (folder-scan.js runs it as a
   // job); the desktop app's runs it as a job of its own. Resolves { added, updated, problems, stopped }
   // — `problems`: what couldn't be read, [{ path, reason }] (reason a short word: 'unreadable',
-  // 'corrupt', 'missing-file' (a file its manifest names isn't there), 'unsupported', 'adopt-failed',
-  // 'changed-both' (another app published it while this library's own changes wait: they win)); the
-  // desktop app's also lists `unreferenced`: [{ path }], pictures in its galleries' folders nothing
+  // 'corrupt', 'missing-file' (a file its manifest names isn't there), 'unsupported', 'adopt-failed');
+  // the desktop app's also lists `unreferenced`: [{ path }], pictures in its galleries' folders nothing
   // refers to, left as they are.
   scan: (id, opts) => backend.folderScan(String(id), opts),
   // What waits in this browser for a folder it couldn't reach is moved out to it: how many galleries.

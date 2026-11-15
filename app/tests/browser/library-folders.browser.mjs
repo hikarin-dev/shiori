@@ -256,16 +256,31 @@ test('a folder is claimed by the library that adds it: another app asks first, a
     const { id } = await api.folders.add(x, { force: true });
     const forced = await claimOf();
     await api.folders.setDefault(id);
+    // A gallery published there before the take-over (its manifest past its reservation's generation 0).
+    const held = api.newGalleryId();
+    await api.meta.put({ galleryId: held, title: { english: 'Held', japanese: '', pretty: '' } });
+    await api.pages.put(held, 1, await t.png(20));
+    for (const end = Date.now() + 20000; Date.now() < end; await new Promise(r => setTimeout(r, 200))) {
+      try { if (JSON.parse(await t.text('Lib X', 'Held/.shiori/gallery.json')).generation > 0) break; } catch {}
+    }
     const gid = api.newGalleryId();
     await api.meta.put({ galleryId: gid, title: { english: 'Shared', japanese: '', pretty: '' } });
     await api.pages.put(gid, 1, await t.png(30));
-    // Taken over by the other app: listed so; a new page waits in the browser, nothing is written there.
+    // Taken over by the other app: listed so. A gallery the folder holds is read-only here (one app changes a
+    // folder's galleries at a time): a change is refused, and says so; the person's marks still work. One
+    // only this library has (Shared, never published there) keeps working: a new page waits in the browser,
+    // nothing is written there.
     await elsewhere(forced.epoch + 1);
     const row = (await api.folders.list()).find(f => f.id === id);
+    const refusedPut = await api.pages.put(held, 2, await t.png(21)).then(() => null, (e) => e);
+    const { refusalText } = await import('/app/js/library-folders.js');
+    const { t: tr } = await import('/app/js/i18n.js');
+    const readOnly = { put: refusedPut?.reason, says: refusalText(refusedPut) === tr('lf.taken_msg'), favorite: await reason(api.personal.favorite(held, true)),
+      reads: (await api.pages.blob(held, 1))?.size > 0 };
     await api.pages.put(gid, 2, await t.png(40));
     const taken = { access: row.access, owner: row.owner, page2: await t.has('Lib X', 'Shared/images/0002.png'),
       spilled: !!(await api.galleries.get(gid)).spilled || (await t.blobs()).some(b => b.includes(gid) && b.endsWith('|page')),
-      scan: await reason(api.folders.scan(id)) };
+      scan: await reason(api.folders.scan(id)), readOnly };
     // Taken back: what waited moves out.
     await api.folders.claim(id);
     const deadline = Date.now() + 10000;
@@ -307,15 +322,17 @@ test('a folder is claimed by the library that adds it: another app asks first, a
   assert.equal(out.taken.page2, false, 'nothing written to a folder another app holds');
   assert.ok(out.taken.spilled, 'the new page waits in the browser');
   assert.equal(out.taken.scan, 'unavailable');
+  assert.deepEqual(out.taken.readOnly, { put: 'not-owned', says: true, favorite: 'resolved', reads: true },
+    'a gallery the folder holds is read-only meanwhile, a change refused with "in use by another app", the person\'s marks kept');
   assert.ok(out.back.owner && out.back.page2, 'taken back, what waited moved out');
   assert.equal(out.removed.meta, out.gid, 'the folder has the library\'s description again');
   assert.equal(out.removed.claim.owner, null, 'let go');
   assert.equal(out.again.restored, 0, 'nothing kept of it to bring back');
-  assert.equal(out.found.added, 1, 'checking the folder finds the gallery as it is');
+  assert.equal(out.found.added, 2, 'checking the folder finds the galleries as they are');
   assert.equal(out.count, 2);
 });
 
-test('a check of a folder reads again the galleries another app changed there, unless this library has changes of its own waiting', { skip: !chromePath() }, async () => {
+test('a check of a folder reads again the galleries another app changed there — where this library has changes of its own waiting too, the folder\'s version stands and they are dropped, reported', { skip: !chromePath() }, async () => {
   const out = await run(async ({ a }) => {
     const api = window.__api, t = window.__t;
     const r = await t.folder('Lib S');
@@ -361,16 +378,21 @@ test('a check of a folder reads again the galleries another app changed there, u
     const back = await api.galleries.get(gid);
     const page3 = (await api.pages.blob(gid, 3))?.size || 0;
     const again = await api.folders.scan(id);
-    // Changed there again while a change of this library's waits to be written: this library's wins.
+    // Changed there again while a change of this library's waits to be written: one app changes a folder's
+    // galleries at a time (the owner's rule, 2026-11-15), so the folder's version stands — this library's
+    // change is dropped, and that is reported once.
     await api.meta.put({ ...(await api.meta.get(gid)), title: { english: 'My Title', japanese: '', pretty: '' } });
     await publishElsewhere((texts) => ({ ...texts, 'metadata.json': JSON.stringify({ ...JSON.parse(texts['metadata.json']), title: { english: 'Their Title', japanese: '', pretty: '' } }) }));
+    // Its publication, a moment after the change (D12), finds that generation: nothing is published over it.
+    await until(async () => (await api.galleries.get(gid)).title.english === 'Their Title');
     const waiting = await api.folders.scan(id);
     const mine = (await api.galleries.get(gid)).title.english;
-    const written = await until(async () => JSON.parse(await t.text('Lib S', 'Shared/metadata.json')).title.english === 'My Title');
+    const written = JSON.parse(await t.text('Lib S', 'Shared/metadata.json')).title.english;
+    const reported = (await api.folders.list()).find(f => f.id === id).attention.filter(i => i.reason === 'changed-both').map(i => i.gid);
     await api.folders.setDefault(a);
     await api.folders.remove(id);
     await api.folders.setAside(id);
-    return { quiet, changed, title: back.title.english, count: back.count, page3, again, waiting, mine, written };
+    return { quiet, changed, title: back.title.english, count: back.count, page3, again, waiting, mine, written, reported, gid };
   }, { a: page.__folderA });
   assert.deepEqual(out.quiet, { added: 0, updated: 0, problems: [], stopped: false }, 'nothing changed: nothing read again');
   assert.deepEqual(out.changed, { added: 0, updated: 1, problems: [], stopped: false });
@@ -378,9 +400,10 @@ test('a check of a folder reads again the galleries another app changed there, u
   assert.equal(out.count, 3);
   assert.ok(out.page3 > 0, 'the new page reads from the folder');
   assert.equal(out.again.updated, 0, 'read once: the next check finds nothing new');
-  assert.equal(out.waiting.updated, 0);
-  assert.equal(out.mine, 'My Title', 'this library\'s change waiting to be written wins');
-  assert.ok(out.written, 'and is written to the folder');
+  assert.equal(out.waiting.updated, 0, 'read again already, at the publication');
+  assert.equal(out.mine, 'Their Title', 'the folder\'s version stands, this library\'s waiting change dropped');
+  assert.equal(out.written, 'Their Title', 'nothing published over it');
+  assert.deepEqual(out.reported, [out.gid], 'reported once');
 });
 
 test('checking a folder finds what was put in it outside the app, as a task that can be stopped', { skip: !chromePath() }, async () => {

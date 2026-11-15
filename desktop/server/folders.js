@@ -57,7 +57,8 @@ CREATE TABLE IF NOT EXISTS attention (root TEXT NOT NULL, reason TEXT NOT NULL, 
 // transaction that let it go, so the note is never lost, and its overlay (`overlay`, its path as
 // files.js keeps it) deleted once the note is there. `attention`: what a folder's "Needs attention"
 // list shows (D15: noteChecked, note) — `path` in the folder, `gid` the gallery it is about, `event`
-// for what happened once (a publication over another app's newer one) rather than what a check finds.
+// for what happened once (a change waiting here dropped for another app's newer generation, files a
+// deletion left) rather than what a check finds.
 // The galleries out of the library: those placed in a folder that isn't shown (one no longer known
 // among them).
 const UNMOUNTED = `CREATE VIEW IF NOT EXISTS unmounted AS
@@ -327,6 +328,13 @@ export class Folders {
       this._probes.set(row.id, hit);
     }
     return { reachable: true, access: hit.access, read: hit.read, identity };
+  }
+  // Whether the library knows another app holds folder `id` (its claim as last read: probe's, no file
+  // call) — what the commit gate weighs (library.js _heldCheck): a folder not read yet, or out of reach
+  // when it was, isn't known to be.
+  heldElsewhere(id) {
+    const hit = this._probes.get(String(id));
+    return !!hit && hit.access !== 'mine';
   }
   // Whether folder `row`'s path holds that folder now (_identity, read afresh).
   _here(row) { return this._identity(row, { fresh: true }) === 'ok'; }

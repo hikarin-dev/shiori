@@ -8,11 +8,11 @@ import { imageToBlob, imageToDataUrl } from './image-util.js';
 import { isSeriesMeta, effectiveTagsOf, LANG_NAME_TO_CODE, DERIVED_FIELDS, uploadDateSeconds } from './gallery-model.js';
 import { translatedImage } from './page-image.js';
 import { galleryFiles, layoutPath, layoutOf, extOfType, originalExt, galleryName, DESCRIPTION_FILES } from './storage/gallery-files.js';
-import { slotFiles, tokenOf, generationOf, parseManifest, foreignEntries } from './storage/gallery-manifest.js';
+import { slotFiles, tokenOf, generationOf, published, othersSince, parseManifest, foreignEntries } from './storage/gallery-manifest.js';
 import { exportSize } from './gallery-export.js';
 import * as folderFiles from './storage/folder-store-web.js';
 import { OWNER_FILE, readClaim, access, nextClaim, claimText } from './storage/folder-owner.js';
-import { mounted, writeAllowed, unfoundEnd } from './storage/folder-lifecycle.js';
+import { mounted, writeAllowed, changeRefusal, unfoundEnd } from './storage/folder-lifecycle.js';
 import { galleryIdOf, seriesOf, MANIFEST_FILE } from './storage/folder-content.js';
 import { REMOVED_FILE, ARCHIVE_NAME, overlayDir, parseRemoved, removedText, withRemoved, provenanceOf, pageToken, madeFromPage } from './storage/linked-source.js';
 import { withoutPersonal, marksOf, withMarks, importMarks, favoriteMoved } from './storage/personal.js';
@@ -401,17 +401,26 @@ const _txError = (tx) => tx._refused || tx.error || new BackendError('aborted', 
 // no folder.
 // A gallery kept in a folder is marked as having changes its folder lacks (UNDESCRIBED_STORE: { gid,
 // rev }, the revision of this change) until _describe has written them there — `mark: false` for a
-// change no description shows (its size, a series' totals).
+// change no description shows (its size, a series' totals, the person's own marks). A change its folder
+// would get (one marked) is refused too while this context knows another app holds that folder (its
+// claim as last read: _heldElsewhere, no file call) and the folder holds the gallery as published (its
+// stamp): one app changes a folder's galleries at a time (folder-lifecycle.js changeRefusal) —
+// BackendError 'unavailable', reason 'not-owned', as a deletion is refused there. A gallery only this
+// library has (never published there) keeps working: its pictures wait in this browser (`spilled`).
 const CHANGES_KEPT = 20000;
 let _lastRev = 0;   // the newest revision this window has written
 function _logIn(tx, gid, { mark = true } = {}) {
   const id = String(gid);
   const seen = (tx._logged ||= new Map()).get(id);
   if (seen) {
-    if (mark && !seen.mark) { seen.mark = true; if (seen.folder) _markIn(tx, id, seen.rev); }
+    if (mark && !seen.mark) {
+      seen.mark = true;
+      if (seen.held) _refuseIn(tx, id, 'not-owned', seen.folder);
+      else if (seen.folder) _markIn(tx, id, seen.rev);
+    }
     return;
   }
-  const entry = { mark, rev: null, folder: null };
+  const entry = { mark, rev: null, folder: null, held: false };
   tx._logged.set(id, entry);
   const log = tx.objectStore(CHANGES_STORE);
   const req = log.add({ gid: id, at: Date.now() });
@@ -426,8 +435,12 @@ function _logIn(tx, gid, { mark = true } = {}) {
   if (id === '*') return;
   const stat = tx.objectStore(GALLERY_STORE).get(id);
   stat.onsuccess = () => _placeStateIn(tx, stat.result, (state) => {
-    if (!mounted(state) && !_workOn(tx._work, stat.result?.folder || BROWSER)) { _refuseIn(tx, id); return; }
-    entry.folder = stat.result?.folder || null;
+    const folder = stat.result?.folder || null;
+    const work = !!_workOn(tx._work, folder || BROWSER);
+    if (changeRefusal({ state, work })) { _refuseIn(tx, id); return; }
+    entry.folder = folder;
+    entry.held = !!changeRefusal({ state, work, change: true, taken: !!folder && _heldElsewhere(folder), held: published(stat.result?.stamp) });
+    if (entry.held && entry.mark) { _refuseIn(tx, id, 'not-owned', folder); return; }
     if (entry.folder && entry.mark) _markIn(tx, id, entry.rev);
   });
 }
@@ -447,10 +460,13 @@ function _placeStateIn(tx, stat, found) {
   const req = tx.objectStore(FOLDER_STORE).get(stat.folder || BROWSER);
   req.onsuccess = () => found(req.result ? req.result.state || 'shown' : stat.folder ? null : 'shown');
 }
-// `tx` aborted: gallery `gid` is out of the library, its place hidden or removed.
-function _refuseIn(tx, gid) {
+// `tx` aborted: gallery `gid` is out of the library, its place hidden or removed — or, `why`
+// 'not-owned', in folder `folder`, which another app holds (_logIn).
+function _refuseIn(tx, gid, why = 'hidden', folder = null) {
   if (tx._refused) return;
-  tx._refused = Object.assign(new BackendError('invalid', `gallery ${gid} is in a hidden library folder`), { reason: 'hidden' });
+  tx._refused = why === 'not-owned'
+    ? Object.assign(new BackendError('unavailable', `gallery ${gid} is in a library folder another app is using`), { reason: why, folder })
+    : Object.assign(new BackendError('invalid', `gallery ${gid} is in a hidden library folder`), { reason: 'hidden' });
   try { tx.abort(); } catch {}
 }
 
@@ -719,6 +735,13 @@ async function _access(id, { fresh = false } = {}) {
   const out = { state, ...held, at: Date.now() };
   if (state === 'granted') _grants.set(id, out); else _grants.delete(id);
   return out;
+}
+// Whether this context knows another app holds folder `id` (its claim as last read, _access — whatever
+// its age: no file call) — what the commit gate weighs (_logIn). A folder not asked about yet here, or
+// out of reach when it was, isn't known to be.
+function _heldElsewhere(id) {
+  const hit = _grants.get(id);
+  return !!hit && hit.state === 'granted' && !hit.owned;
 }
 // The write gate: folder `id`'s handle when this context may change its files now — it can be
 // reached, this library holds its claim, and its state allows it (folder-lifecycle.js writeAllowed:
@@ -1155,13 +1178,16 @@ function _retiringIn(tx, folder, dir, found) {
 // REMOVED_NOTE without an overlay, as a linked source's is noted), which every check honours, on both apps
 // (review 7 A5); the archive itself is recorded as any archive a gallery leaves, deleted only once no
 // gallery is read from it (_ownsDir).
-function _goneLater(tx, folder, dir, gid, linked = null, inner = null) {
+// `made`, a deletion's: the token the gallery was last published or read at there, and the claim's
+// counter its folder was held at (`stamp`, `epoch`: _deleteOne drops a deletion made before another app
+// took the folder over that finds a generation that app published since).
+function _goneLater(tx, folder, dir, gid, linked = null, inner = null, made = {}) {
   if (!folder || !dir) return;
   const chapter = inner ? { kind: 'zip', path: dir, inner } : null;
   if (!tx._keepFiles) {
     const store = tx.objectStore(FOLDER_STORE);
     store.put(linked ? { id: `${REMOVED_NOTE}${gid}`, folder, dir, gid: String(gid), linked }
-      : { id: _deletingKey(folder, dir), folder, dir, gid: String(gid) });
+      : { id: _deletingKey(folder, dir), folder, dir, gid: String(gid), ...(made.stamp ? { stamp: made.stamp } : {}), ...(made.epoch != null ? { epoch: made.epoch } : {}) });
     if (chapter) store.put({ id: `${REMOVED_NOTE}${gid}`, folder, dir: null, gid: String(gid), linked: chapter });
   }
   _afterFiles(tx).dirs.push({ folder, dir, gid: String(gid), linked });
@@ -1240,6 +1266,15 @@ async function _deleteOne(d, at, work) {
   // folder isn't written again once deleted (S8). A gallery still there (one moved away: the folder it
   // left) is no longer published there, and its mover may hold the lock, awaiting this.
   const gone = !(await galleryGet(d.gid));
+  // A deletion made before another app took the folder over (its claim held at another counter since),
+  // which published the gallery there since (one app changes a folder's galleries at a time), is
+  // dropped: that app's version stands, nothing of it is deleted, the folder's next check joins it again
+  // — reported once ('changed-both'). One made since the take-back takes it whatever its folder holds (S25b).
+  const before = d.epoch != null && d.epoch !== (await _folderById(at.folder))?.epoch;
+  if (root && gone && before && await _othersThere({ galleryId: d.gid, folder: at.folder, dir: at.dir, stamp: d.stamp, packed: ARCHIVE_NAME.test(at.dir) ? { inner: '' } : null })) {
+    await _recordsWrite((store) => { store.delete(d.id); store.put(_attentionRecord(at.folder, { reason: 'changed-both', path: at.dir, gid: d.gid }, true)); });
+    return;
+  }
   const deleteDir = () => _deleteDir(at.folder, root, at.dir, d.gid, named, at.dir !== d.dir ? ARCHIVE_NAME.test(d.dir) : null);
   const done = root && await (gone ? folderFiles.withLock(`shiori:gallery:${d.gid}`, deleteDir) : deleteDir());
   if (!done) return;
@@ -1353,6 +1388,8 @@ const _attentionRecord = (folder, { reason, path = '', gid = null }, event) => (
 async function _note(folder, problem, { event = false } = {}) {
   await _recordsWrite((store) => store.put(_attentionRecord(folder, problem, event))).catch(() => {});
 }
+// The same for what happened once, inside `tx` (which holds FOLDER_STORE): noted with the change itself.
+const _noteIn = (tx, folder, problem) => tx.objectStore(FOLDER_STORE).put(_attentionRecord(folder, problem, true));
 // What folder `folder`'s check found (`problems`), in place of what its last one found.
 async function _noteChecked(folder, problems) {
   const all = await _attentionOf(folder, { records: true });
@@ -1533,6 +1570,13 @@ async function _describe(gid, { work = null } = {}) {
     let read = await _wantedDescriptions(gid);
     if (read?.stat.packed && read.rev == null) return { ok: true };   // its archive describes it as read
     const root = read && await _rootOf(read.stat.folder, { work: as });
+    // Nothing of this library's goes into a generation another app published there since — not even
+    // unpacked out of its archive: the folder's version stands, and what waited here is dropped
+    // (folder-library.js dropWaiting).
+    if (root && read.stat.packed && await _othersThere(read.stat)) {
+      const dropped = await _dropOrOver(gid);
+      if (dropped !== 'over') return { ok: dropped };
+    }
     if (root && read.stat.packed) {
       await _unpackLocked(gid, as);
       read = await _wantedDescriptions(gid);
@@ -1546,9 +1590,15 @@ async function _describe(gid, { work = null } = {}) {
     if (found.kind === 'conflict') await _note(stat.folder, { reason: 'conflict', path: stat.dir, gid: String(gid) });
     if (found.kind !== 'ok') return { ok: false };
     if (rev == null && stat.stamp && (await found.dir.manifest()).kind === 'ok') return { ok: true };
-    const { generation, changedBoth } = await found.dir.publish({ manifest: next, descriptions: _textsOf(wanted), known: stat.stamp ?? null });
-    // Another app published it since this library last did or read it: this app's change won (D4).
-    if (changedBoth) await _note(stat.folder, { reason: 'changed-both', path: stat.dir, gid: String(gid) }, { event: true });
+    let { generation, newer } = await found.dir.publish({ manifest: next, descriptions: _textsOf(wanted), known: stat.stamp ?? null });
+    // Another app published it since this library last did or read it: the folder's version stands, and
+    // what waited here for it is dropped (folder-library.js dropWaiting) — unless that version is damaged
+    // (_dropOrOver: no version to stand), which this one replaces (T08).
+    if (newer) {
+      const dropped = await _dropOrOver(gid);
+      if (dropped !== 'over') return { ok: dropped };
+      ({ generation } = await found.dir.publish({ manifest: next, descriptions: _textsOf(wanted), known: undefined }));
+    }
     await _described(gid, rev, tokenOf({ ...next, generation, descriptions: {} }));
     _changesSince.delete(String(gid));
     if (retiring.length) {
@@ -1561,6 +1611,43 @@ async function _describe(gid, { work = null } = {}) {
     }
     return { ok: true };
   });
+}
+// Whether gallery `stat`'s place (its folder, or the archive it is read from) holds a generation another
+// app published since this library last published or read it there (gallery-manifest.js othersSince: one
+// app changes a folder's galleries at a time) — asked before what waits here for it would be written
+// there (its pictures moved out of this browser, its archive unpacked). One the library never published
+// is never another's, and a place that can't be read now tells nothing (false: the publication's own
+// look at its manifest weighs it again, folderFiles.publishIn).
+async function _othersThere(stat) {
+  if (!published(stat.stamp)) return false;
+  const root = await _readRootOf(stat.folder);
+  if (!root) return false;
+  const gid = String(stat.galleryId);
+  let manifest;
+  try {
+    if (stat.packed) {
+      const at = (await _archiveOf(stat.folder, root, stat.dir))?.entries.get(`${stat.packed.inner || ''}${MANIFEST_FILE}`);
+      manifest = at ? parseManifest(new TextDecoder().decode(await at.read()), { galleryId: gid, archive: true }) : null;
+    } else manifest = await folderFiles.manifestIn(stat.folder, root, stat.dir, gid);
+  } catch { return false; }   // can't be told now: weighed again as it is published
+  return manifest?.kind === 'ok' && othersSince(tokenOf(manifest.value), stat.stamp, await _me());
+}
+// What waits here for gallery `gid`, its place holding a generation another app published since, dropped
+// (folder-library.js dropWaiting): true when it was, false when that can't be done now (its place can't
+// be read now: tried again later) — or 'over', when that generation was read and is damaged (a description
+// that doesn't parse, a file it names not there): no version to stand, so what waits is published over it,
+// as a change to a damaged folder always was (T08), never left waiting for good.
+async function _dropOrOver(gid) {
+  try { return await _folderLibrary.dropWaiting(String(gid)); } catch (e) {
+    if (['corrupt', 'missing-file'].includes(e?.reason)) return 'over';
+    throw e;
+  }
+}
+// Inside `tx`: files of gallery folder `dir` in folder `folder` ({ path, size, mtime }, as Shiori recorded
+// writing them) to retire, as a change letting them go records them (_unlinkLater) — deleted once a
+// publication of the gallery no longer naming them has committed, each only while still as written.
+function _retireIn(tx, folder, dir, files) {
+  for (const f of files) tx.objectStore(FOLDER_STORE).put({ id: `${_retiringPrefix(folder, dir)}${f.path}`, folder, dir, path: f.path, size: f.size ?? null, mtime: f.mtime ?? null });
 }
 // Inside one transaction: gallery `gid`'s mark cleared when it is still the one of revision `rev`
 // (compare-and-clear), and its stamp kept.
@@ -1684,7 +1771,9 @@ async function _relocateOnce(gid, to, tick, work, w) {
   const same = from === to;
   const packed = same && stat.packed;   // unpacked where it is
   if (same && !stat.spilled && !packed) return false;
-  if (from !== BROWSER && !(await _usable(from, { work }))) throw new BackendError('unavailable', `library folder ${from} can't be reached`);
+  if (from !== BROWSER && !(await _usable(from, { work }))) {
+    throw Object.assign(new BackendError('unavailable', `library folder ${from} can't be reached`), _heldElsewhere(from) ? { reason: 'taken', folder: from } : {});
+  }
   const before = _picturesOf(raw.pages, raw.cover);
   const pages = await getGalleryImageRecords(gid);
   const cover = await _coverRecord(gid);
@@ -1845,6 +1934,9 @@ export async function settleFolders() {
   let settled = 0;
   for (const stat of waiting) {
     if (!stat.spilled || !byId.has(stat.folder) || !(await _usable(stat.folder))) continue;
+    // Its pictures never go into a generation another app published there since: the folder's version
+    // stands, and they are dropped with what else waited (folder-library.js dropWaiting).
+    if (await _othersThere(stat) && await _dropOrOver(stat.galleryId).catch(() => false) !== 'over') continue;
     try { if (await _relocate(String(stat.galleryId), stat.folder)) settled++; } catch {}
   }
   for (const gid of await _marked()) {
@@ -1932,14 +2024,14 @@ const _folderLibrary = createFolderLibrary({
   seriesWrite: (...args) => _seriesCommand('write', args),
   // the places, the write gate, the claims
   folders: _folders, folderById: _folderById, folderWrite: _folderWrite, forgetGrant: (id) => _grants.delete(id), forgetRetiring: _forgetRetiring,
-  note: _note, noteChecked: _noteChecked, attentionOf: _attentionOf, dismiss: _dismiss, forgetAttention: _forgetAttention,
+  note: _note, noteIn: _noteIn, noteChecked: _noteChecked, attentionOf: _attentionOf, dismiss: _dismiss, forgetAttention: _forgetAttention,
   placeOf: _placeOf, placeKey: _placeKey, access: _access, rootOf: _rootOf, usable: _usable, readRootOf: _readRootOf,
   removedNotes: _removedNotes, publishRemoved: _publishRemoved,
   deletions: _deletions, applyDeletions: _applyDeletions, forgetDeletions: _forgetDeletions, deletedFound: _deletedFound, endUnfound: _endUnfound,
   me: _me, myLabel: _myLabel, readClaim: _readClaim, writeClaim: _writeClaim, noteEpoch: _noteEpoch, randomId: _randomId,
   // the pictures' storage in folders
   writing: _writing, replacePages: _replacePages, relocate: _relocate, follow: _follow, reserveDir: _reserveDir, describe: _describe, cancelDescribe: _cancelDescribe,
-  marked: _marked, patchStat: _patchStat, wantedDescriptions: _wantedDescriptions, textsOf: _textsOf,
+  marked: _marked, patchStat: _patchStat, wantedDescriptions: _wantedDescriptions, textsOf: _textsOf, retireIn: _retireIn,
   archiveOf: _archiveOf, typeOfName: _typeOfName, settleFolders,
 });
 export const { foldersList, foldersWaiting, folderAdd, folderClaim, folderSetDefault, folderAllow, folderHide, folderShow,
@@ -3676,7 +3768,10 @@ function _deleteIn(tx, gid, done = () => {}) {
         try { tx.abort(); } catch {}
         return;
       }
-      _goneLater(tx, stat.result?.folder, stat.result?.dir, gid, stat.result?.linked || null, stat.result?.packed?.inner || null);
+      // Its folder's deletion notes the claim's counter the folder is held at now (_deleteOne).
+      const goneLater = (epoch) => _goneLater(tx, stat.result?.folder, stat.result?.dir, gid, stat.result?.linked || null, stat.result?.packed?.inner || null,
+        { stamp: stat.result?.stamp || null, epoch });
+      if (folder && !tx._keepFiles) { const at = tx.objectStore(FOLDER_STORE).get(folder); at.onsuccess = () => goneLater(at.result?.epoch ?? null); } else goneLater(null);
       stats.delete(gid);
       tx.objectStore(UNDESCRIBED_STORE).delete(gid);
     };

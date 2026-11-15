@@ -114,7 +114,11 @@ CREATE TABLE IF NOT EXISTS deleting (
 // folder or archive wasn't where it has it (renamed or moved by hand: F4) — kept until a look at its
 // library folder (a check, its removal's) rules it out, or meets the folder naming the gallery and deletes
 // it there, never adopting it; `misses`, the looks it waited through that couldn't rule it out
-// (folder-lifecycle.js unfoundEnd: given up after a few). `zip_size`, `zip_mtime` (`files`): an
+// (folder-lifecycle.js unfoundEnd: given up after a few); `stamp`, the token the gallery was last published
+// or read at there, and `epoch`, the claim's counter its library folder was held at (both null in a row
+// from before S29a): a deletion made before another app took the folder over that finds a generation that
+// app published since is dropped there — that app's version stands (_deleteOne) — while one made since
+// the take-back takes the gallery whatever generation its folder holds (S25b). `zip_size`, `zip_mtime` (`files`): an
 // archive's size and modification time as Shiori
 // last wrote it (F6). `moving` (`files`): where its folder or archive is being renamed to (a move within
 // a drive: moveTo, _regroup), set before the rename and cleared by the transaction that switches it
@@ -139,7 +143,7 @@ const REGROUP_RETRY = 10_000;  // how soon a folder Windows wouldn't move is tri
 const PUBLISH_EVERY = 20;      // pages stored before a gallery being downloaded is published (D12)
 const NAMED_TTL = 2000;        // how long a gallery's folder found to name it is taken to, for reads (_namesIt)
 const COLUMNS = { files: { unpack: 'INTEGER NOT NULL DEFAULT 0', used_at: 'REAL', tail: 'REAL', source: 'TEXT', zip_size: 'INTEGER', zip_mtime: 'REAL', moving: 'TEXT',
-  converting: 'INTEGER NOT NULL DEFAULT 0' }, deleting: { unfound: 'INTEGER NOT NULL DEFAULT 0', misses: 'INTEGER NOT NULL DEFAULT 0' } };
+  converting: 'INTEGER NOT NULL DEFAULT 0' }, deleting: { unfound: 'INTEGER NOT NULL DEFAULT 0', misses: 'INTEGER NOT NULL DEFAULT 0', stamp: 'TEXT', epoch: 'INTEGER' } };
 const HOUR = 60 * 60_000, DAY = 24 * HOUR;
 // Files Windows puts in a folder on its own: not the gallery's, and not worth keeping it a folder for.
 const WINDOWS_FILES = new Set(['desktop.ini', 'thumbs.db']);
@@ -637,7 +641,7 @@ export class FileLibrary {
         const here = await this._whose(row.path, row.gid);
         const renamed = here.kind === 'missing' && (await this._whose(row.moving, row.gid)).kind === 'ok';
         if (here.kind !== 'ok' && !renamed) continue;
-        lib._tx(() => {
+        lib._ownTx(() => {
           const now = this._row(row.gid);
           if (now?.path !== row.path || now.moving !== row.moving) return;   // changed meanwhile
           if (!renamed) lib._s('UPDATE files SET moving = NULL WHERE gid = ?').run(row.gid);
@@ -897,8 +901,11 @@ export class FileLibrary {
     this._later(() => this.scheduleDescribe(id));
   }
 
-  // Gallery `gid` has something to catch up on (inside the caller's transaction when there is one).
+  // Gallery `gid` has something to catch up on (inside the caller's transaction when there is one, which
+  // then passes the commit gate for it — library.js _heldCheck — unless it is the library's own placement
+  // of what was committed before: _ownTx).
   _pend(gid) {
+    if (!this.library._inTx?.own) this.library._inTx?.changed.add(String(gid));
     this.library._s('UPDATE files SET pending = 1 WHERE gid = ? AND pending = 0').run(String(gid));
     this._touched.add(String(gid));
     this.used(gid);
@@ -944,11 +951,11 @@ export class FileLibrary {
         throw Object.assign(new BackendError('unavailable', `the library folder of gallery ${id} can't be written to now`), { reason: opened.status, folder: root });
       }
     }
-    lib._s('DELETE FROM stamps WHERE gid = ?').run(id);
     for (const s of this._stagedOwn(id)) lib._dropStaged(s.file);
     lib._s('DELETE FROM staged_own WHERE gid = ?').run(id);
     const linked = !keep && !!row?.source;
     if (row && !keep && !linked) this._deletingIn(row);
+    lib._s('DELETE FROM stamps WHERE gid = ?').run(id);
     lib._s('DELETE FROM retiring WHERE gid = ?').run(id);   // those of its folder go with it; the rest stay with what holds them
     if (!row) return;
     lib._s('DELETE FROM files WHERE gid = ?').run(id);
@@ -975,7 +982,9 @@ export class FileLibrary {
       for (const r of lib._s(`SELECT name, size, mtime FROM retiring WHERE dir = ? AND name <> ''`).all(row.path)) files.set(r.name, { name: r.name, size: r.size, mtime: r.mtime });
       named = JSON.stringify([...files.values()]);
     }
-    lib._s('INSERT OR REPLACE INTO deleting (dir, gid, files, unfound) VALUES (?, ?, ?, 0)').run(row.path, String(row.gid), named);
+    const stamp = lib._s('SELECT stamp FROM stamps WHERE gid = ?').get(String(row.gid))?.stamp ?? null;
+    const epoch = lib._s('SELECT epoch FROM roots WHERE id = ?').get(this._split(row.path).root)?.epoch ?? null;
+    lib._s('INSERT OR REPLACE INTO deleting (dir, gid, files, unfound, stamp, epoch) VALUES (?, ?, ?, 0, ?, ?)').run(row.path, String(row.gid), named, stamp, epoch);
   }
   // The files gallery `gid`'s records name in its folder (its pages, what was made from them, its
   // covers), as the index recorded writing them (recordedFiles): [{ name, size, mtime }].
@@ -991,7 +1000,7 @@ export class FileLibrary {
   // (`retiring` rows without one: _retire), as [{ dir }].
   retiringIn(root) { return this.library._s('SELECT DISTINCT dir FROM retiring WHERE gid IS NULL').all().filter(r => this._split(r.dir).root === root); }
   _deletingRows(root = null) {
-    return this.library._s('SELECT dir, gid, files, unfound, misses FROM deleting').all().filter(d => root == null || this._split(d.dir).root === root);
+    return this.library._s('SELECT dir, gid, files, unfound, misses, stamp, epoch FROM deleting').all().filter(d => root == null || this._split(d.dir).root === root);
   }
   // What waits to be deleted (`deleting`) deleted, one at a time — of library folder `root` alone, when
   // given — each while its library folder may be written to (`work` as folders.js writable): a folder by
@@ -1034,11 +1043,23 @@ export class FileLibrary {
     // there by that place's own manifest alone (gallery-manifest.js galleryDeletion, foreignEntries `met`).
     const met = folder != null && folder !== Array.isArray(recorded);
     const named = met ? null : recorded;
+    const archive = met ? !folder : !Array.isArray(named);
+    // A deletion made before another app took the folder over, which published the gallery there since
+    // (one app changes a folder's galleries at a time), is dropped: that app's version stands, nothing of
+    // it is deleted, the folder's next check joins it again — reported once ('changed-both').
+    const before = d.epoch != null && d.epoch !== lib._s('SELECT epoch FROM roots WHERE id = ?').get(at)?.epoch;
+    const whose = archive || before ? await this._whose(rel, d.gid) : null;
+    if (before && whose?.kind === 'ok' && this._others(whose.manifest, d.gid, d.stamp, archive)) {
+      lib._tx(() => {
+        lib._s('DELETE FROM deleting WHERE dir = ?').run(d.dir);
+        lib.folders.note(at, { reason: 'changed-both', path: this._split(rel).rest, gid: d.gid }, { event: true });
+      });
+      return;
+    }
     let done;
-    if (met ? !folder : !Array.isArray(named)) {
+    if (archive) {
       // An archive: not there only as the shared rule takes it (_whose: not while its drive is away); one
       // that can't be read now, or told as Shiori left it, tried again (S21).
-      const whose = await this._whose(rel, d.gid);
       if (whose.kind === 'missing' || (whose.kind === 'conflict' && whose.found != null)) done = 'missing';
       else if (whose.kind === 'unreadable') done = false;
       else if (whose.kind !== 'ok' || (whose.undescribed && !named?.unpacked)) done = true;
@@ -1190,7 +1211,7 @@ export class FileLibrary {
       if (what.kind !== 'gallery') return { kind: 'ok', undescribed: true };
       if (what.id !== String(gid)) return { kind: 'conflict', found: what.id };
       const { root, rest } = this._split(rel);
-      return await this.library.folders.noted(root, rest) ? contract.MISSING : { kind: 'ok' };
+      return await this.library.folders.noted(root, rest) ? contract.MISSING : { kind: 'ok', manifest: texts[content.MANIFEST_FILE] ?? null };
     } catch (e) { return contract.unreadable(e); }
   }
 
@@ -1512,6 +1533,10 @@ export class FileLibrary {
       row = this._row(gid);
       if (!row) return true;   // deleted meanwhile
       if (!await this._writesIn(row)) return true;
+      // Nothing of this library's goes into a generation another app published there since (one app
+      // changes a folder's galleries at a time): what waited for it is dropped instead (scan.js dropWaiting).
+      if ((row.unpack || this._staged(gid).length || this._stagedOwn(gid).length) && this._othersIn(gid, whose.manifest)
+        && await this._dropOrOver(gid) !== 'over') return true;
       if (row.format !== 'folder' && (row.unpack || this._staged(gid).length || this._stagedOwn(gid).length)) {
         const inFormat = await this._inFormat(row);
         if (inFormat == null) return true;   // its archive can't be read now: what waits stays staged, tried again
@@ -1574,7 +1599,7 @@ export class FileLibrary {
       const to = path.join(dir, ...name.split('/'));
       const st = !there ? disk.statSync(to) : moveSync(from, to) ? disk.statSync(to) : was;   // copied across drives: as it is now
       if (!there && st.size !== orig.size) throw Object.assign(new Error(`page ${r.n} of gallery ${id} is at neither of its places`), { reason: 'unreadable' });
-      lib._tx(() => {
+      lib._ownTx(() => {
         lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify({ ...orig, entry: name, size: st.size, mtime: st.mtimeMs }), id, r.n);
         this._pend(id);
       });
@@ -1731,7 +1756,7 @@ export class FileLibrary {
       this._retryRegroup(gid);
       return;
     }
-    lib._tx(() => {
+    lib._ownTx(() => {
       this._renamedIn(row, rel);
       if (owner) this._pend(owner.galleryId);
     });
@@ -2005,11 +2030,38 @@ export class FileLibrary {
     if (!row.pending && had && (await found.dir.manifest()).kind === 'ok') return had;
     if (!this._row(gid)) return null;   // deleted meanwhile: its deletion, waiting for this, takes the folder
     const { next, texts } = this._generation(gid);
-    const { manifest, bytes, changedBoth } = await found.dir.publish({ manifest: next, descriptions: texts, known: had ?? null });
-    lib.writes.add('descriptions', bytes);
-    // Another app published it since this library last did or read it: this app's change won (D4).
-    if (changedBoth) lib.folders.note(root, { reason: 'changed-both', path: rest, gid }, { event: true });
+    const publish = async (known) => { const done = await found.dir.publish({ manifest: next, descriptions: texts, known }); lib.writes.add('descriptions', done.bytes); return done; };
+    let { manifest, newer } = await publish(had ?? null);
+    // Another app published it since this library last did or read it: the folder's version stands, and
+    // what waited here for it is dropped (scan.js dropWaiting) — the token kept, the one it was read at —
+    // unless that version is damaged (_dropOrOver: no version to stand), which this one replaces (T08).
+    if (newer) {
+      const dropped = await this._dropOrOver(gid);
+      if (dropped !== 'over') return dropped ? newer : null;
+      ({ manifest } = await publish(undefined));
+    }
     return format.tokenOf(manifest);
+  }
+  // What waits here for gallery `gid`, its folder holding a generation another app published since, dropped
+  // (scan.js dropWaiting): true when it was, false when that can't be done now (its folder can't be read
+  // now: tried again later) — or 'over', when that generation was read and is damaged (a description that
+  // doesn't parse, a file it names not there): no version to stand, so what waits is published over it,
+  // as a change to a damaged folder always was (T08), never left waiting for good.
+  async _dropOrOver(gid) {
+    try { return await this.library._dropWaiting(gid); } catch (e) {
+      if (['corrupt', 'missing-file'].includes(e?.reason)) return 'over';
+      throw e;
+    }
+  }
+  // Whether gallery `gid`'s folder holds, by its manifest's text (`text`: as _whose read it), a generation
+  // another app published since this library last published or read it (gallery-manifest.js othersSince).
+  _othersIn(gid, text) {
+    return this._others(text, gid, this.library._s('SELECT stamp FROM stamps WHERE gid = ?').get(String(gid))?.stamp, this._archived(gid));
+  }
+  // The same by a manifest's text and the token known (`known`; `archive`: read from an archive).
+  _others(text, gid, known, archive) {
+    const read = text == null ? null : format.parseManifest(String(text), { galleryId: String(gid), archive });
+    return read?.kind === 'ok' && format.othersSince(format.tokenOf(read.value), known, this.library.folders._me());
   }
 
   // An archive's changes published: the descriptions that changed and its manifest (format v2, naming
@@ -2025,6 +2077,12 @@ export class FileLibrary {
     const file = this._abs(row.path);
     const dir = await this._directory(file);
     if (!this._formatted(dir)) return null;
+    // A generation another app appended there since: the archive's version stands (scan.js dropWaiting),
+    // unless it is damaged (_dropOrOver).
+    if (dir.has(content.MANIFEST_FILE) && this._othersIn(gid, await readEntry(file, dir.get(content.MANIFEST_FILE)))) {
+      const dropped = await this._dropOrOver(gid);
+      if (dropped !== 'over') return dropped ? this.library._s('SELECT stamp FROM stamps WHERE gid = ?').get(String(gid))?.stamp ?? null : null;
+    }
     const { add, drop, token } = await this._archiveChanges(gid, row, dir);
     if (!add.length && !drop.length) return token;
     lib._s('UPDATE files SET tail = ? WHERE gid = ?').run((await disk.stat(file)).size, gid);

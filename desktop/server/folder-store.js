@@ -423,8 +423,9 @@ export async function writeNewIn(dir, slot, ext, bytes) {
 
 // Whose gallery folder `dir` is now (principle 2: folder-content.js galleryAt — its manifest, else its
 // metadata.json, else an earlier version's shiori.json; a linked gallery's overlay, its source.json):
-// { kind: 'ok', items } when it names gallery `gid` (`items`: the folder's listing that told it, its
-// entries with their types); MISSING when nothing is there; { kind: 'conflict', found }
+// { kind: 'ok', items, manifest? } when it names gallery `gid` (`items`: the folder's listing that told
+// it, its entries with their types; `manifest`, the text of the manifest that named it, when one did);
+// MISSING when nothing is there; { kind: 'conflict', found }
 // when something is that names another gallery (`found`), or none (null); unreadable when what it holds
 // can't be read (nothing is concluded from it) — `link: true` when that is because the folder, or what
 // names it, is reached through a link (throughLink: the person's). Nothing there, and a description not
@@ -440,7 +441,7 @@ export async function galleryIn(dir, gid) {
   const listed = (whose) => (whose.kind === 'ok' ? { ...whose, items } : whose);
   try {
     const own = (await textsIn(dir, items, [content.MANIFEST_FILE]))[content.MANIFEST_FILE];
-    if (content.galleryAt({ [content.MANIFEST_FILE]: own }, gid).kind === 'ok') return { kind: 'ok', items };
+    if (content.galleryAt({ [content.MANIFEST_FILE]: own }, gid).kind === 'ok') return { kind: 'ok', items, manifest: own };
     const texts = { [content.MANIFEST_FILE]: own, ...await textsIn(dir, items, content.OWN_FILES.slice(1)) };
     if (format.areaOf(dir.split(path.sep).join('/')) !== '') return listed(content.galleryAt(texts, gid));
     const source = linkedSource.parseSource((await textsIn(dir, items, [linkedSource.SOURCE_FILE]))[linkedSource.SOURCE_FILE])?.galleryId ?? null;
@@ -494,11 +495,13 @@ export async function manifestIn(dir, gid = null) {
 // records come from `next.sizes` where the library knew them. `hide(abs)`: called on the .shiori/
 // folder made for it (the app marks it hidden, D7). `known`: the token the library last published or
 // read there (gallery-manifest.js tokenOf; undefined: not to be weighed). Resolves { manifest: the one
-// published, bytes: how many it wrote, changedBoth: whether it replaced a generation another app
-// published since `known` — this app's change wins, and the case is the caller's to report (D4) }.
-// Rejects when the folder no longer names the gallery (galleryIn: principle 2 — nothing is written,
-// reason 'conflict' or 'missing'), when the current manifest can't be read (nothing is written then:
-// tried again later), or when a write fails before the commit (the previous generation stays whole).
+// published, bytes: how many it wrote } — or, where the folder holds a generation another app published
+// since `known` (gallery-manifest.js othersSince: one app changes a folder's galleries at a time), {
+// newer: the token of that generation, bytes: 0 }: nothing is written, the folder's version stands, and
+// what the library has waiting for it is the caller's to drop. Rejects when the folder no longer names
+// the gallery (galleryIn: principle 2 — nothing is written, reason 'conflict' or 'missing'), when the
+// current manifest can't be read (nothing is written then: tried again later), or when a write fails
+// before the commit (the previous generation stays whole).
 export async function publishIn(dir, next, texts, { hide = () => {}, known } = {}) {
   const area = format.areaOf(dir.split(path.sep).join('/'));
   const whose = await galleryIn(dir, next.galleryId);
@@ -508,7 +511,7 @@ export async function publishIn(dir, next, texts, { hide = () => {}, known } = {
   const now = await manifestIn(dir, next.galleryId);
   if (now.kind === 'unreadable') throw new Error(`the manifest in ${dir} can't be read: ${now.error}`);
   const prev = now.kind === 'ok' ? now.value : null;
-  const changedBoth = known !== undefined && !!prev && format.tokenOf(prev) !== known && prev.writer !== next.writer;
+  if (prev && known !== undefined && format.othersSince(format.tokenOf(prev), known, next.writer)) return { newer: format.tokenOf(prev), bytes: 0 };
   const sizes = await format.sizesOf(next.files, new Map(Object.entries(next.sizes || {})), prev, async (f) => {
     const st = await disk.stat(within(dir, f)).catch(() => null);
     return st?.isFile() ? [st.size, st.mtimeMs] : null;
@@ -539,7 +542,7 @@ export async function publishIn(dir, next, texts, { hide = () => {}, known } = {
       if (had != null && await format.matches(at, had)) await disk.rm(within(dir, at), { force: true });
     }
   } catch {}
-  return { manifest: plan.manifest, bytes, changedBoth };
+  return { manifest: plan.manifest, bytes };
 }
 
 // The files `list` ([{ name, size, mtime }]: paths in the folder `dir`, as Shiori recorded writing
@@ -798,7 +801,7 @@ export function folderStore(library) {
         async writeNew(slot, ext, bytes) { await ours(); return writeNewIn(abs(name), slot, ext, bytes); },
         async publish({ manifest, descriptions, known }) {
           const done = await publishIn(abs(name), manifest, descriptions, { hide: (dir) => library._hide(dir), known });
-          return { generation: done.manifest.generation, ...done };
+          return done.newer ? { generation: format.generationOf(done.newer), ...done } : { generation: done.manifest.generation, ...done };
         },
         async deleteNamed(list) { await ours(); return deleteNamedIn(abs(name), list); },
         async sweep() { await library.folderScan(id); return { removed: [] }; },

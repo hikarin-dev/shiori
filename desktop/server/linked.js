@@ -347,9 +347,9 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
   });
   if (held) return null;
   if (replace) await overlayFor(library, root, title, gid, at);
-  await library.rebuildGalleryEntry(gid, { silent: true });
+  await library.rebuildGalleryEntry(gid, { silent: true, mark: false });
   const covers = coverPatch(derived);
-  if (Object.keys(covers).length) library._tx(() => library._coverPatchIn(gid, covers));
+  if (Object.keys(covers).length) library._tx(() => library._coverPatchIn(gid, covers, { mark: false }));
   // Its overlay describes it, in due course — again when a page's source picture isn't the one it
   // recorded (what was made from it dropped, or recorded before content signals were), or its
   // description carries a favorite (an earlier version's: no description does now).

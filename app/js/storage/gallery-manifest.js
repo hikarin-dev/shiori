@@ -182,6 +182,25 @@ export function manifestText(m) {
 export const tokenOf = (m) => `v2:${m.generation}:${m.writer}`;
 /** The generation a token names (0 for a v1 stamp, or none). @param {string | null | undefined} token @returns {number} */
 export const generationOf = (token) => Number(/^v2:(\d+):/.exec(String(token ?? ''))?.[1] ?? 0);
+/** The app a token names as the generation's writer (null for a v1 stamp, or none). @param {string | null | undefined} token @returns {string | null} */
+export const writerOf = (token) => /^v2:\d+:(.+)$/.exec(String(token ?? ''))?.[1] ?? null;
+/** Whether the token a library keeps for a gallery says its folder holds it as published (a generation
+ * past its reservation's, or an earlier version's descriptions read there) — so another app may have it
+ * too — rather than a gallery only this library has (reserved, or with no folder yet).
+ * @param {string | null | undefined} token @returns {boolean} */
+export const published = (token) => !!token && (!String(token).startsWith('v2:') || generationOf(token) > 0);
+/** Whether `now`, the token of the generation a gallery's folder holds now, is one another app published
+ * since `known` (the token the library last published or read there): one app changes a folder's
+ * galleries at a time (the owner's rule, 2026-11-15), so where both did — a change waiting here from
+ * before the other app took the folder over, or made while the drive was away — the folder's version
+ * stands: this app never publishes over it, and its waiting change to that gallery is dropped. A
+ * generation of this app's own (`writer`) never is another's. Told by a manifest alone (format v2): an
+ * earlier version's descriptions (a v1 stamp) name no writer, and a read by their rules could be one a
+ * "not found" of a moment made of nothing — so what waits here for such a folder is kept, as before, and
+ * published over it. Not weighed (false) either for a gallery this library never published or read there
+ * (`known` null: it can't tell what changed) or a folder holding none (`now` null).
+ * @param {string | null | undefined} now @param {string | null | undefined} known @param {string} writer @returns {boolean} */
+export const othersSince = (now, known, writer) => !!now && String(now).startsWith('v2:') && !!known && now !== known && writerOf(now) !== writer;
 
 // ── What a generation names ──
 

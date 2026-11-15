@@ -56,6 +56,25 @@ export function writeAllowed({ state, owned, reachable, work = null }) {
   return !!owned && (state === 'shown' || (state === 'removing' && work === 'removal') || (state === 'hidden' && work === 'publish'));
 }
 
+// Why a change to a gallery is refused as it is committed — the commit gate's one rule (the website's
+// db.js _logIn, the desktop's library.js _mountCheck and _heldCheck) — or null when it isn't: 'hidden' (the
+// gallery's place, `state` — null for a folder the library no longer knows — isn't in the library:
+// nothing of it changes) or 'not-owned' (one app changes a folder's galleries at a time, the owner's rule
+// of 2026-11-15: the library knows another app holds the folder, `taken` — its claim as last read, no file
+// call — and the folder holds the gallery as published, `held` (gallery-manifest.js published), so the
+// change would reach what that app may be changing: refused, never kept to be saved later). Only a
+// `change` reaching the folder is weighed for 'not-owned' — the person's own marks, a size or a total no
+// description shows, are not — and a gallery only this library has (made meanwhile, never published
+// there) keeps working: what it gets waits, as for a folder out of reach. `work`: the change is that
+// folder's own work (its check, its removal), never refused.
+/** @param {{ state: string | null, work?: boolean, change?: boolean, taken?: boolean, held?: boolean }} at
+ * @returns {'hidden' | 'not-owned' | null} */
+export function changeRefusal({ state, work = false, change = false, taken = false, held = false }) {
+  if (work) return null;
+  if (!state || !mounted(state)) return 'hidden';
+  return change && taken && held ? 'not-owned' : null;
+}
+
 // Why a folder store's open() refuses `purpose` (contract.js Purpose) at a place, or null when it
 // doesn't: 'unavailable' (it can't be reached), 'other-library' (its path holds another library folder,
 // or a folder naming none: `here` false — principle 1: never read, scanned, adopted or written as it),

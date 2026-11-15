@@ -86,6 +86,11 @@ async function moveAll(ids, to, { series = true } = {}) {
   return { failed, error };
 }
 
+// What a change the library refused because another app is using its gallery's folder says (one app
+// changes a folder's galleries at a time: reason 'not-owned' as it commits, 'taken' for a folder's own
+// work), or null for any other failure.
+export const refusalText = (err) => (['not-owned', 'taken'].includes(err?.reason) ? t('lf.taken_msg') : null);
+
 // A deletion the library refused because its gallery's folder can't be changed now (BackendError
 // 'unavailable' with the folder's refusal as its `reason`: out of reach, another library's folder at
 // its place, another app's, or this page without leave), said in a dialog. Resolves whether it was one.
@@ -112,7 +117,7 @@ export async function moveGalleryTo(gid, current) {
     return false;
   }
   const { failed, error } = await moveAll([gid], choice);
-  if (failed) await alertDialog({ title: t('lf.move_failed'), body: String(error?.message || error), tone: 'error' });
+  if (failed) await alertDialog({ title: t('lf.move_failed'), body: refusalText(error) ?? String(error?.message || error), tone: 'error' });
   return !failed;
 }
 

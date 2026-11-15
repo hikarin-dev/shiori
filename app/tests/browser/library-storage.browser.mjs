@@ -268,18 +268,21 @@ test('R08: a folder whose claim can\'t be read is read, never written, until it 
     const out = await page.evaluate(async (id, g) => {
       const api = window.__api, t = window.__t;
       const listed = (await api.folders.list()).find(f => f.id === id);
-      await api.pages.put(g, 2, await t.png(90));
-      const waiting = { spilled: (await t.raw('galleries', g)).spilled ?? null, files: await t.ls('Lib/Claimed/images'), claim: await t.text('Lib/.shiori/owner.json') };
+      // Its gallery is read-only meanwhile (a claim that can't be checked counts as another app's: one app
+      // changes a folder's galleries at a time, S29a).
+      const refused = await api.pages.put(g, 2, await t.png(90)).then(() => 'resolved', (e) => e.reason);
+      const meanwhile = { refused, spilled: (await t.raw('galleries', g)).spilled ?? null, files: await t.ls('Lib/Claimed/images'), claim: await t.text('Lib/.shiori/owner.json') };
       const claimed = await api.folders.claim(id);
+      await api.pages.put(g, 2, await t.png(90));
       await api.folders.settle();
-      return { access: listed.access, owner: listed.owner ?? null, waiting, claimed, files: await t.ls('Lib/Claimed/images'),
+      return { access: listed.access, owner: listed.owner ?? null, waiting: meanwhile, claimed, files: await t.ls('Lib/Claimed/images'),
         spilled: (await t.raw('galleries', g)).spilled ?? null, page2: (await api.pages.blob(g, 2))?.size ?? null };
     }, id, gid);
     assert.equal(out.access, 'taken', 'shown as not this library\'s');
     assert.equal(out.owner, null, 'by no one it can name');
-    assert.deepEqual(out.waiting, { spilled: 1, files: ['0001.png'], claim: '{ damaged' }, 'the new page waits in the browser; the claim is left as it is');
+    assert.deepEqual(out.waiting, { refused: 'not-owned', spilled: null, files: ['0001.png'], claim: '{ damaged' }, 'a new page is refused, nothing written; the claim is left as it is');
     assert.equal(out.claimed, 'granted');
-    assert.deepEqual(out.files, ['0001.png', '0002.png'], 'taken back, what waited is written there');
+    assert.deepEqual(out.files, ['0001.png', '0002.png'], 'taken back, a page put then is written there');
     assert.equal(out.spilled, null);
     assert.ok(out.page2 > 0);
   });

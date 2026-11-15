@@ -670,8 +670,11 @@ export const CASES = [
     },
   },
   {
-    // D4 at publication: another app published a newer generation while this app had a change waiting.
-    name: 'a publication over another app\'s newer generation keeps this app\'s change and is reported on the folder\'s Needs attention list (changed-both)',
+    // D4 at publication, under the owner's rule of 2026-11-15 (one app changes a folder's galleries at a
+    // time): another app published a newer generation while this app had a change waiting. This app never
+    // publishes over it: the folder's version stands, its waiting change is dropped, reported once. (Before
+    // the rule its change won and was published.)
+    name: 'a publication over another app\'s newer generation never goes ahead: the folder\'s version stands, this app\'s change is dropped, reported on the folder\'s Needs attention list (changed-both)',
     async run({ fx }) {
       const ref = await fx.register('A');
       const gid = await fx.lib.newGallery('Both');
@@ -680,12 +683,15 @@ export const CASES = [
       const at = /** @type {string} */ (await fx.lib.dirOf(gid));
       const file = path.join(at, '.shiori', 'gallery.json');
       const m = JSON.parse(fs.readFileSync(file, 'utf8'));
-      fs.writeFileSync(file, JSON.stringify({ ...m, generation: m.generation + 1, writer: 'a1b2c3d4e5f60708' }));   // the other app's
-      await fx.lib.setTitle(gid, 'Kept here');
+      const theirs = JSON.stringify({ ...m, generation: m.generation + 1, writer: 'a1b2c3d4e5f60708' });   // the other app's
+      fs.writeFileSync(file, theirs);
+      await fx.lib.setTitle(gid, 'Mine');
       await fx.lib.flush();
       const items = () => fx.lib.list().then(l => l.find(f => f.id === ref.id).attention.filter(i => i.reason === 'changed-both'));
       assert.deepEqual((await items()).map(i => i.gid), [gid]);
-      assert.equal(JSON.parse(fs.readFileSync(path.join(at, 'metadata.json'), 'utf8')).title.english, 'Kept here');
+      assert.equal(fs.readFileSync(file, 'utf8'), theirs, 'nothing published over it');
+      assert.equal(JSON.parse(fs.readFileSync(path.join(at, 'metadata.json'), 'utf8')).title.english, 'Both', 'the folder keeps its own');
+      assert.equal(await fx.lib.titleOf(gid), 'Both', 'the library reads the folder\'s version');
       await fx.lib.scan(ref.id);
       assert.equal((await items()).length, 1, 'a check keeps what happened once');
       const [item] = await items();
@@ -1608,12 +1614,15 @@ export const CASES = [
       await fx.lib.flush();
       const mine = path.join(/** @type {string} */ (await fx.lib.dirOf(gid)), 'images', '0003.png');
       fs.writeFileSync(mine, 'the person\'s own file');
-      await fx.takeOver(ref);
-      await fx.lib.putPage(gid, 3, png(3));   // waits in the library's own staging: the folder is another app's
-      const back = driveAway('desktop', path.join(dir, 'A'), (c) => c.op === 'stat' && /\/desktop\/data\/staging\//.test(c.path), { backAfter: 1 });
+      // Page 3 put while the drive is away: it waits in the library's own staging. (Before S29a this was a
+      // page put while another app held the folder; such a change is refused now: one app changes a
+      // folder's galleries at a time.)
+      const A = path.join(dir, 'A');
+      fs.renameSync(A, `${A}.away`);
+      try { await fx.lib.putPage(gid, 3, png(3)); await fx.lib.flush(); } finally { fs.renameSync(`${A}.away`, A); }
+      const back = driveAway('desktop', A, (c) => c.op === 'stat' && /\/desktop\/data\/staging\//.test(c.path), { backAfter: 1 });
       try {
-        await fx.lib.raw.folderClaim(ref.id);   // taken back: the staged page goes to the folder
-        await fx.lib.flush();
+        await fx.lib.flush();   // the drive back: the staged page goes to the folder
       } finally { back(); }
       await fx.lib.flush();
       assert.equal(fs.readFileSync(mine, 'utf8'), 'the person\'s own file', 'the person\'s file stays as it was');

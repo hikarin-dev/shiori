@@ -111,11 +111,12 @@ async function _import(gid, buffer, filename, skipExisting, { importHash = null,
 function _importFailed(gid, e, say) {
   // Stopped: the last word on the job channel, after any progress still on its way.
   if (e instanceof ImportStopped) { say({ gid, kind: 'upload', status: 'cancelled' }); return; }
-  say({
-    gid, kind: 'upload', status: 'error', error: String(e && e.message || e),
-    ...(e && e.code ? { errorKey: `err.${e.code}` } : {}),
-  });
+  const key = jobErrorKey(e);
+  say({ gid, kind: 'upload', status: 'error', error: String(e && e.message || e), ...(key ? { errorKey: key } : {}) });
 }
+// What a job's failure `e` says, by its key: a change the library refused because another app is using
+// its gallery's folder (reason 'not-owned' as it commits, 'taken' for a folder's own work) says so.
+export const jobErrorKey = (e) => (e && ['not-owned', 'taken'].includes(e.reason) ? 'lf.taken_msg' : e && e.code ? `err.${e.code}` : null);
 
 // Start a gallery translation: upload the not-yet-translated pages and create the server-owned job.
 // Returns once it's created; the poll ticks (runPoll) drive it. Resumable: re-running only uploads
@@ -126,7 +127,8 @@ export async function runTranslate({ galleryId, settings, forceFrom = null, page
   try {
     await startTranslation(gid, settings, (m) => platform.jobs.publish({ gid, kind: 'translate', ...m }), { forceFrom, pages, after });
   } catch (e) {
-    platform.jobs.publish({ gid, kind: 'translate', status: 'error', error: String(e && e.message || e) });
+    const key = jobErrorKey(e);
+    platform.jobs.publish({ gid, kind: 'translate', status: 'error', error: String(e && e.message || e), ...(key === 'lf.taken_msg' ? { errorKey: key } : {}) });
   }
 }
 

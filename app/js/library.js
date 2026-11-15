@@ -28,7 +28,7 @@ import { TIERS, describePage } from './page-size.js';
 import { escHtml, safeExternalUrl } from './sanitize.js';
 import { openRerunMenu } from './rerun-menu.js';
 import { confirmDialog, alertDialog, promptDialog, choiceDialog } from './notice.js';
-import { deleteRefused } from './library-folders.js';
+import { deleteRefused, refusalText } from './library-folders.js';
 import { openTagEditor, TAG_TYPE_LABEL, TAG_VALUES, LANG_TAG_NAME, langDisplayName, tagPatchFor } from './tag-editor.js';
 import { initSearchField, searchQuery, setSearchQuery, appendSearchToken, SEARCH_TYPES } from './search-field.js';
 
@@ -1071,7 +1071,7 @@ async function handleMergeDrop(targetId, sourceId) {
   try {
     await mergeIntoSeries(targetId, sourceId);
   } catch (err) {
-    alertDialog({ title: t('dlg.merge_fail_title'), body: t('dlg.merge_fail_body'), detail: err.message, tone: 'error' });
+    alertDialog({ title: t('dlg.merge_fail_title'), body: t('dlg.merge_fail_body'), detail: refusalText(err) ?? err.message, tone: 'error' });
     return;
   }
   await applyFilters();

@@ -31,7 +31,7 @@ import { refused, MISSING, unreadable, surelyMissing } from './contract.js';
 import { MANIFEST_FILE, OWN_FILES, LIBRARY_FILE, SWAP_FILE, galleryAt, libraryIdOf } from './folder-content.js';
 import { refusalFor } from './folder-lifecycle.js';
 import { SOURCE_FILE, parseSource } from './linked-source.js';
-import { PICTURE_DIRS, isPictureName, areaOf, manifestPath, storedDir, storedHash, parseManifest, publication, firstGeneration, tokenOf, sizesOf,
+import { PICTURE_DIRS, isPictureName, areaOf, manifestPath, storedDir, storedHash, parseManifest, publication, firstGeneration, tokenOf, generationOf, othersSince, sizesOf,
   matches, unchanged, readGallery, galleryDeletion, isOwnDescription } from './gallery-manifest.js';
 
 /** @typedef {import('./contract.js').ReadResult<Uint8Array>} ReadBytes */
@@ -437,15 +437,17 @@ const _shown = (items) => (rel) => {
  * complete: the commit point), then, as a best effort, the stable-named copies brought up to date and
  * the stored descriptions neither generation names collected (gallery-manifest.js publication).
  * `known`: the token the library last published or read there (undefined: not weighed). Resolves {
- * manifest: the one published, changedBoth: whether it replaced a generation another app published
- * since `known` — this app's change wins; the case is the caller's to report (D4) }. Rejects when the
+ * manifest: the one published } — or, where the folder holds a generation another app published since
+ * `known` (gallery-manifest.js othersSince: one app changes a folder's galleries at a time), { newer: the
+ * token of that generation }: nothing is written, the folder's version stands, and what the library has
+ * waiting for it is the caller's to drop. Rejects when the
  * folder no longer names the gallery (galleryIn: nothing is written, `reason` 'conflict' or
  * 'missing'), when the current manifest can't be read, or a write before the commit fails (the
  * previous generation stays whole).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir
  * @param {Omit<import('./contract.js').Manifest, 'descriptions'>} next @param {Record<string, string | null | undefined>} texts
  * @param {{ known?: string | null }} [options]
- * @returns {Promise<{ manifest: import('./contract.js').Manifest, changedBoth: boolean }>} */
+ * @returns {Promise<{ manifest: import('./contract.js').Manifest, newer?: undefined } | { newer: string, manifest?: undefined }>} */
 export async function publishIn(id, root, dir, next, texts, { known } = {}) {
   const area = areaOf(dir);
   const whose = await galleryIn(id, root, dir, next.galleryId);
@@ -453,7 +455,7 @@ export async function publishIn(id, root, dir, next, texts, { known } = {}) {
   const now = await manifestIn(id, root, dir, next.galleryId);
   if (now.kind === 'unreadable') throw new Error(`the manifest in ${dir} can't be read: ${now.error}`);
   const prev = now.kind === 'ok' ? now.value : null;
-  const changedBoth = known !== undefined && !!prev && tokenOf(prev) !== known && prev.writer !== next.writer;
+  if (prev && known !== undefined && othersSince(tokenOf(prev), known, next.writer)) return { newer: tokenOf(prev) };
   const sizes = await sizesOf(next.files, new Map(Object.entries(next.sizes || {})), prev, async (f) => {
     const file = await _fileAt(id, root, _join(dir, f)).catch(() => null);
     return file ? [file.size, file.lastModified] : null;
@@ -477,7 +479,7 @@ export async function publishIn(id, root, dir, next, texts, { known } = {}) {
       if (had != null && await matches(at, had)) await removeFile(id, root, _join(dir, at));
     }
   } catch {}
-  return { manifest: plan.manifest, changedBoth };
+  return { manifest: plan.manifest };
 }
 
 /** The files `files` (paths in gallery folder `dir`, as Shiori recorded writing them: name, size,
@@ -691,7 +693,7 @@ function _root(id, root, purpose, writer) {
       },
       async publish({ manifest, descriptions, known }) {
         const done = await publishIn(id, root, name, manifest, descriptions, { known });
-        return { generation: done.manifest.generation, changedBoth: done.changedBoth };
+        return done.newer ? { generation: generationOf(done.newer), newer: done.newer } : { generation: /** @type {import('./contract.js').Manifest} */ (done.manifest).generation };
       },
       async deleteNamed(files) { await ours(); return deleteNamedIn(id, root, name, files); },
       sweep: async () => ({ removed: [] }),

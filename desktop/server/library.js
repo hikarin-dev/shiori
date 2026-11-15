@@ -33,12 +33,13 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { DatabaseSync } from 'node:sqlite';
-import { plans, model, titles, pageSize, files as galleryFilesModule, galleryExport, lifecycle, linked as linkedSource, personal, BackendError } from './shared.js';
+import { plans, model, titles, pageSize, files as galleryFilesModule, galleryExport, lifecycle, linked as linkedSource, personal, manifest as format, BackendError } from './shared.js';
 import { disk, folderStore, writeNewIn } from './folder-store.js';
 import { FileLibrary, libraryId, sourceToken } from './files.js';
 import { Folders } from './folders.js';
 import { WriteMeter } from './writes.js';
 import * as linked from './linked.js';
+import { dropWaiting } from './scan.js';
 
 const { planAttach, planRemove, planReorder, planChapterTitle, planWrite, planDelete, planDeleteSeries, planRelink } = plans;
 const { isSeriesMeta, effectiveTagsOf, LANG_NAME_TO_CODE, uploadDateSeconds } = model;
@@ -411,15 +412,17 @@ export class Library {
 
   // One transaction: `fn` runs synchronously inside it. Files queued with _drop are deleted once it
   // commits; on a failure the files in `fresh` (written for it beforehand) are deleted instead. Before
-  // it commits, every gallery it changed has its place (_placesIn).
+  // it commits, every gallery it changed has its place (_placesIn), and those whose folder it gives
+  // something to publish (`changed`: files.js _pend, a page staged) pass the commit gate (_heldCheck).
   _tx(fn, fresh = []) {
     if (this._inTx) return fn();
     this._db.exec('BEGIN IMMEDIATE');
-    this._inTx = { logged: new Set(), drop: [], after: [] };
+    this._inTx = { logged: new Set(), changed: new Set(), drop: [], after: [] };
     let out, drop, after;
     try {
       out = fn();
       this._placesIn(this._inTx.logged);
+      for (const gid of this._inTx.changed) this._heldCheck(gid);
       this._db.exec('COMMIT');
       ({ drop, after } = this._inTx);
     } catch (e) {
@@ -433,6 +436,15 @@ export class Library {
     for (const file of drop) disk.rm(file, { force: true }).catch(() => {});
     for (const fn of after) { try { fn(); } catch {} }
     return out;
+  }
+
+  // `fn` inside a transaction as the library's own placement of what was committed before — a settle, a
+  // regroup, a conversion, a rename finished at the start, a drop: what it gives a folder to publish isn't a
+  // new change, so the commit gate never weighs it (_heldCheck: a claim read that failed a moment ago
+  // would refuse it after its files moved, parting them from the index).
+  _ownTx(fn) {
+    const own = () => { const was = this._inTx.own; this._inTx.own = true; try { return fn(); } finally { this._inTx.own = was; } };
+    return this._inTx ? own() : this._tx(own);
   }
 
   // The database's writes so far (writes.js). SQLite appends every change to its write-ahead log —
@@ -734,7 +746,10 @@ export class Library {
   _pageRowByKey(key) { return this._s('SELECT * FROM pages WHERE key = ?').get(String(key)); }
   _pageRows(gid) { return this._s('SELECT * FROM pages WHERE gid = ? ORDER BY key').all(String(gid)); }
   _pageCount(gid) { return Number(this._s('SELECT count(*) AS c FROM pages WHERE gid = ?').get(String(gid)).c); }
+  // A page row put; one whose picture waits in staging gives its gallery's folder something to publish
+  // (the commit gate: _heldCheck).
   _pagePutRow({ gid, n, key, w, h, orig, record }) {
+    if (orig?.at === 's' && !this._inTx?.own) this._inTx?.changed.add(String(gid));
     this._s(`INSERT INTO pages (gid, n, key, w, h, orig, record) VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(gid, n) DO UPDATE SET key = excluded.key, w = excluded.w, h = excluded.h, orig = excluded.orig, record = excluded.record`)
       .run(String(gid), Number(n), String(key), w ?? null, h ?? null, JSON.stringify(orig), JSON.stringify(record));
@@ -800,11 +815,25 @@ export class Library {
   }
 
   // Refused (BackendError 'invalid', reason 'hidden'): gallery `gid` is placed in a folder that isn't
-  // shown (folder-lifecycle.js mounted) — or no longer known — and this isn't that folder's own work.
+  // shown (folder-lifecycle.js changeRefusal) — or no longer known — and this isn't that folder's own work.
   _mountCheck(gid) {
     const at = this._s('SELECT p.root, r.state FROM places p LEFT JOIN roots r ON r.id = p.root WHERE p.gid = ?').get(gid);
-    if (!at || lifecycle.mounted(at.state) || at.root === this._folderWork.getStore()) return;
+    if (!at || !lifecycle.changeRefusal({ state: at.state, work: at.root === this._folderWork.getStore() })) return;
     throw Object.assign(new BackendError('invalid', `gallery ${gid} is in a hidden library folder`), { reason: 'hidden' });
+  }
+  // Refused (BackendError 'unavailable', reason 'not-owned', `folder` its id, as a deletion is refused
+  // there): a change to what gallery `gid`'s folder holds, while the library knows another app holds that
+  // folder (folders.js heldElsewhere: its claim as last read, no file call) and the folder holds the
+  // gallery as published (its stamp: gallery-manifest.js published) — one app changes a folder's
+  // galleries at a time (folder-lifecycle.js changeRefusal; the website's _logIn alike). A gallery only
+  // this library has (made meanwhile, never published there) keeps working: what it gets waits, staged,
+  // as for a folder out of reach. Reading it, and the person's own marks, are no change of its folder.
+  _heldCheck(gid) {
+    const root = this._s('SELECT root FROM places WHERE gid = ?').get(String(gid))?.root;
+    if (!root) return;
+    const held = format.published(this._s('SELECT stamp FROM stamps WHERE gid = ?').get(String(gid))?.stamp);
+    const why = lifecycle.changeRefusal({ state: 'shown', work: root === this._folderWork.getStore(), change: true, taken: this.folders.heldElsewhere(root), held });
+    if (why) throw Object.assign(new BackendError('unavailable', `gallery ${gid} is in a library folder another app is using`), { reason: why, folder: root });
   }
 
   // Inside a transaction about to commit: the galleries it changed (`logged`) placed. A gallery has a
@@ -822,6 +851,10 @@ export class Library {
       this._mountCheck(gid);
     }
   }
+
+  // Gallery `gid`'s changes waiting here dropped for the generation another app published in its folder
+  // since (scan.js dropWaiting: the folder's version stands). Resolves whether they were.
+  _dropWaiting(gid) { return dropWaiting(this, gid); }
 
   // `fn`, and everything it awaits or starts, as folder `root`'s own work (folders.js: a check adopting
   // what it holds, its removal writing back, moving out and forgetting, what earlier versions kept of
@@ -1291,9 +1324,15 @@ export class Library {
   }
 
   // Recompute a gallery's stat record from its pages, in one transaction (db.js rebuildGalleryEntry).
+  // `mark` false: the gallery was read from its folder just now (a check joining it, or reading it again),
+  // which describes it as it is: its cover, the first page, gives the folder nothing to publish — as the
+  // website's adoption marks nothing (db.js rebuildGalleryEntry `mark`). Else a check publishing every
+  // gallery it read would make a generation of this app's of each, over which the other app's changes
+  // waiting for that folder would be dropped (gallery-manifest.js othersSince).
   async rebuildGalleryEntry(galleryId, opts = {}) {
     const gid = String(galleryId);
     const silent = !!opts.silent;
+    const mark = opts.mark !== false;
     let prev = null, gone = false, coverChanged = false;
     this._tx(() => {
       const rows = this._pageRows(gid);
@@ -1318,7 +1357,7 @@ export class Library {
       const uploadDate = prev?.uploadDate ?? (Number(meta?.uploadDate) || 0);
       this._statPut({ ...prev, galleryId: gid, count, size, latestAt, addedAt: prev?.addedAt ?? (Number(gid) || latestAt), coverPage: first.n, uploadDate });
       const orig = parse(first.orig);
-      this._coverPatchIn(gid, { cover: { $page: first.n, size: orig.size, type: orig.type } });
+      this._coverPatchIn(gid, { cover: { $page: first.n, size: orig.size, type: orig.type } }, { mark });
       coverChanged = true;
     });
     if (gone) return;
@@ -1740,8 +1779,9 @@ export class Library {
 
   // ── Covers ──
   // Merge `patch` into a gallery's cover record inside the caller's transaction: a replaced image
-  // drops that role's thumbnails and gets a new revision (db.js putCoverPatch).
-  _coverPatchIn(galleryId, patch) {
+  // drops that role's thumbnails and gets a new revision (db.js putCoverPatch); its folder publishes it
+  // in due course — not with `mark` false (rebuildGalleryEntry's: what its folder was just read as).
+  _coverPatchIn(galleryId, patch, { mark = true } = {}) {
     const gid = String(galleryId);
     const current = this._coverGet(gid) || {};
     const coverThumbs = { ...(current.coverThumbs || {}) };
@@ -1759,7 +1799,7 @@ export class Library {
     for (const [rel, ref] of ownRefs(current, new Map())) if (!keptOwn.has(rel)) this._dropOwn(gid, rel, ref);
     this._coverPut(next);
     this._logIn(gid);
-    this.files.describeLater(gid);
+    if (mark) this.files.describeLater(gid);
   }
 
   _coverDeleteIn(galleryId, role) {

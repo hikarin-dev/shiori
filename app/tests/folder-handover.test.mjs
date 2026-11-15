@@ -51,6 +51,14 @@ async function mismatches(lib, gid, slots) {
   return out;
 }
 
+// `work` done on app `app` while library folder `dir`'s drive is away — what it changes waits — and every
+// attempt to save it there that it set going (a publication made at once, a settle) ended before the drive
+// is back (`app.flush`), so it still waits.
+async function whileAway(app, dir, work) {
+  fs.renameSync(dir, `${dir}.away`);
+  try { await work(); await app.flush(); } finally { fs.renameSync(`${dir}.away`, dir); }
+}
+
 // Every delete in the folder refused while `fn` runs, on the app that writes.
 async function deletesRefused(app, dir, fn) {
   const inside = (p) => p.toLowerCase().startsWith(dir.split(path.sep).join('/').toLowerCase());
@@ -240,7 +248,179 @@ const CASES = [
       assert.deepEqual([await to.read(one, 1), await to.read(two, 1), await to.read(three, 1)], [png(0, 1), null, png(0, 3)], 'the others read');
     },
   },
+  {
+    // B2 (review 7, both apps): the other app used the folder anyway and replaced page 1 (or re-translated
+    // it, retiring the file it replaced); this app changed the gallery meanwhile — a translation of page 2,
+    // or just its title — and took the folder back. Its publication over the other app's newer generation
+    // named the file that app had deleted: that page read on neither app, and the folder added again
+    // reported the gallery 'missing-file' for good. One app changes a folder's galleries at a time (the
+    // owner's rule, 2026-11-15): the change tried meanwhile is refused, and after the take-back every page
+    // reads on both apps, the folder holds every file it names, and added again it reports nothing.
+    name: 'review 7 B2: a gallery the other app changed while it used the folder anyway reads whole on both apps after the take-back, the change tried here meanwhile refused',
+    async run({ dir, from, to }) {
+      for (const form of ['a page replaced there, a translation here', 'a translation replaced there, a title here']) {
+        const F = path.join(dir, form.replaceAll(' ', '-').replaceAll(',', ''));
+        const id = await from.add(F);
+        await from.setDefault(id);
+        const gid = await from.newGallery('Alpha');
+        for (let n = 1; n <= 2; n++) await from.putPage(gid, n, png(0, n));
+        await from.putTranslation(gid, 1, png(0, 71));
+        await from.flush();
+        const theirs = await to.add(F, { force: true });   // "Use anyway"
+        await to.scan(theirs);
+        const titled = form.endsWith('a title here');
+        if (titled) await to.putTranslation(gid, 1, png(0, 81)); else await to.putPage(gid, 1, png(0, 11));
+        await to.flush();
+        assert.equal((await from.list()).find(f => f.id === id)?.access, 'taken', `${form}: shown as used elsewhere`);
+        assert.equal(await reason(titled ? from.setTitle(gid, 'Alpha, retitled') : from.putTranslation(gid, 2, png(0, 72))), 'not-owned', `${form}: refused here`);
+        await to.setDefault(to.home);
+        await to.remove(theirs);   // the other app lets go
+        assert.equal(await from.raw.folderClaim(id), 'granted', `${form}: taken back`);
+        await from.flush();
+        await new Promise(r => setTimeout(r, 1200));   // the website reads another app's work once it isn't busy with the gallery (§8)
+        for (let i = 0; i < 2; i++) assert.deepEqual((await from.scan(id)).problems, [], `${form}: check ${i + 1}, nothing reported`);
+        await from.flush();
+        // (A page replaced keeps no translation of the picture it replaced: principle 7.)
+        const want = titled ? [png(0, 1), png(0, 2), png(0, 81), 'Alpha'] : [png(0, 11), png(0, 2), false, 'Alpha'];
+        const reads = async (lib) => [await lib.read(gid, 1), await lib.read(gid, 2), titled ? await lib.read(gid, 1, 'translated') : same(await lib.read(gid, 1, 'translated'), png(0, 71)), await lib.titleOf(gid)];
+        assert.deepEqual(await reads(from), want, `${form}: the other app's change reads`);
+        assert.deepEqual(namedMissing(F), [], `${form}: the folder holds every file it names`);
+        await from.setDefault(from.home);
+        await from.remove(id);
+        const again = await to.add(F);
+        assert.deepEqual((await to.scan(again)).problems, [], `${form}: added again, nothing reported`);
+        assert.deepEqual(await reads(to), want, `${form}: read alike there`);
+        await to.setDefault(to.home);
+        await to.remove(again);
+      }
+    },
+  },
+  {
+    // The owner's rule (2026-11-15), its first part: while another app holds a folder, a gallery the folder
+    // holds is read-only here — every kind of change that would reach the folder is refused as it is
+    // committed (reason 'not-owned'), never kept to be saved later — while it still reads and the person's
+    // own marks (never written to the folder) work as ever; a gallery only this app has (made meanwhile,
+    // never published there) keeps working and waits, as when the drive is away, and is published at the
+    // take-back. After the take-back every change is allowed again.
+    name: 'S29a: while the other app holds the folder, a gallery it holds is read-only here — every change refused, the person\'s marks kept — and one made meanwhile waits and is published at the take-back',
+    async run({ dir, from, to }) {
+      const F = path.join(dir, 'F'), G = path.join(dir, 'G');
+      const id = await from.add(F);
+      const other = await from.add(G);
+      await from.setDefault(id);
+      const gid = await from.newGallery('Alpha');
+      for (let n = 1; n <= 2; n++) await from.putPage(gid, n, png(0, n));
+      await from.putTranslation(gid, 1, png(0, 71));
+      await from.flush();
+      const theirs = await to.add(F, { force: true });   // "Use anyway"
+      await to.scan(theirs);
+      assert.equal((await from.list()).find(f => f.id === id)?.access, 'taken', 'shown as used elsewhere');
+      const tries = {
+        'a page added': () => from.putPage(gid, 3, png(0, 3)),
+        'a page replaced': () => from.putPage(gid, 1, png(0, 11)),
+        'a translation': () => from.putTranslation(gid, 2, png(0, 72)),
+        'its title': () => from.setTitle(gid, 'Alpha, retitled'),
+        'a deletion': () => from.deleteGallery(gid),
+      };
+      for (const [what, tried] of Object.entries(tries)) assert.equal(await reason(tried()), 'not-owned', `${what}: refused`);
+      // A move asks the folder it leaves before anything is copied: refused as a folder another app keeps.
+      assert.equal(await reason(from.move(gid, other)), 'taken', 'a move to another folder: refused');
+      if (from.app === 'desktop') assert.deepEqual((await from.raw.archiveGallery(gid)).archived, [], 'archiving: not done');
+      await from.favorite(gid, true);
+      await from.readTo(gid, 2, 2);
+      const marks = await from.marks(gid);
+      assert.deepEqual([marks?.favorite, marks?.page, marks?.finished], [true, 2, true], 'the person\'s marks work');
+      assert.deepEqual([await from.read(gid, 1), await from.read(gid, 2), await from.read(gid, 1, 'translated'), await from.titleOf(gid)],
+        [png(0, 1), png(0, 2), png(0, 71), 'Alpha'], 'it reads as it was');
+      const made = await from.newGallery('Made meanwhile');   // goes where new galleries go: F
+      await from.putPage(made, 1, png(0, 31));
+      await from.flush();
+      assert.deepEqual(await from.read(made, 1), png(0, 31), 'one made meanwhile works');
+      assert.ok(!fs.readdirSync(F).includes('Made meanwhile') || !fs.existsSync(path.join(F, 'Made meanwhile', 'metadata.json')), 'nothing of it published in the folder another app holds');
+      await to.setDefault(to.home);
+      await to.remove(theirs);
+      assert.equal(await from.raw.folderClaim(id), 'granted');
+      await from.flush();
+      await new Promise(r => setTimeout(r, 300));
+      await from.flush();
+      await from.setTitle(gid, 'Alpha, retitled');   // allowed again
+      await from.putTranslation(gid, 2, png(0, 72));
+      await from.flush();
+      assert.deepEqual((await from.scan(id)).problems, [], 'nothing reported');
+      await from.setDefault(from.home);
+      await from.remove(id);
+      const again = await to.add(F);
+      assert.deepEqual((await to.scan(again)).problems, [], 'added again, nothing reported');
+      assert.deepEqual([await to.titleOf(gid), await to.read(gid, 2, 'translated'), await to.read(made, 1)], ['Alpha, retitled', png(0, 72), png(0, 31)],
+        'the changes after the take-back, and the gallery made meanwhile, are in the folder');
+      assert.ok(!(await to.marks(gid))?.favorite, 'the person\'s marks stayed with the app that set them');
+    },
+  },
+  {
+    // The owner's rule (2026-11-15), its second and third parts: changes waiting here from before the other
+    // app took the folder over (made while the drive was away) stay waiting; at the take-back a gallery the
+    // other app didn't change has them published, and one it did change keeps the folder's version — what
+    // waited here for it dropped whole (its pictures with it), the gallery read again, the case reported
+    // once ('changed-both').
+    name: 'S29a: changes waiting from before the other app used the folder anyway are published where it changed nothing, and dropped, reported once, where it changed the gallery',
+    async run({ dir, from, to }) {
+      for (const form of ['a page', 'a translation', 'a title', 'a deletion']) {
+        const F = path.join(dir, form.replaceAll(' ', '-'));
+        const id = await from.add(F);
+        await from.setDefault(id);
+        const touched = await from.newGallery('Touched'), untouched = await from.newGallery('Untouched');
+        for (const g of [touched, untouched]) for (let n = 1; n <= 2; n++) await from.putPage(g, n, png(0, n));
+        await from.flush();
+        const change = (g) => (form === 'a page' ? from.putPage(g, 3, png(0, 3)) : form === 'a translation' ? from.putTranslation(g, 1, png(0, 8)) : from.setTitle(g, 'Mine'));
+        // What is changed now waits: the drive away — or, a deletion (refused while its folder can't be
+        // written: D3), every delete of its files refused for now, so the deletion of its folder waits.
+        if (form === 'a deletion') {
+          await deletesRefused(from.app, F, async () => {
+            for (const g of [touched, untouched]) await from.deleteGallery(g);
+            await new Promise(r => setTimeout(r, 500));
+          });
+        } else await whileAway(from, F, async () => { for (const g of [touched, untouched]) await change(g); });
+        const theirs = await to.add(F, { force: true });   // "Use anyway"
+        await to.scan(theirs);
+        await to.putTranslation(touched, 2, png(0, 7));   // the other app changes one of them
+        await to.flush();
+        await to.setDefault(to.home);
+        await to.remove(theirs);
+        assert.equal(await from.raw.folderClaim(id), 'granted', `${form}: taken back`);
+        await from.flush();
+        await new Promise(r => setTimeout(r, 1200));   // the website reads another app's work once it isn't busy with the gallery (§8)
+        for (let i = 0; i < 2; i++) { assert.deepEqual((await from.scan(id)).problems, [], `${form}: check ${i + 1}, nothing reported`); await from.flush(); }
+        const mine = async (lib, g) => (form === 'a page' ? same(await lib.read(g, 3), png(0, 3)) : form === 'a translation' ? same(await lib.read(g, 1, 'translated'), png(0, 8))
+          : form === 'a title' ? await lib.titleOf(g) === 'Mine' : !(await lib.galleries()).includes(g));
+        assert.deepEqual([await mine(from, untouched), await mine(from, touched)], [true, false], `${form}: published where the other app changed nothing, dropped where it changed the gallery`);
+        assert.deepEqual(await from.read(touched, 2, 'translated'), png(0, 7), `${form}: the other app's change reads`);
+        assert.deepEqual((await from.list()).find(f => f.id === id).attention.filter(a => a.reason === 'changed-both').map(a => a.path), ['Touched'], `${form}: reported once`);
+        assert.deepEqual(namedMissing(F), [], `${form}: the folder holds every file it names`);
+        await from.setDefault(from.home);
+        await from.remove(id);
+        const again = await to.add(F);
+        assert.deepEqual((await to.scan(again)).problems, [], `${form}: added again, nothing reported`);
+        assert.deepEqual([await mine(to, untouched), await mine(to, touched), await to.read(touched, 2, 'translated')], [true, false, png(0, 7)], `${form}: read alike there`);
+        await to.setDefault(to.home);
+        await to.remove(again);
+      }
+    },
+  },
 ];
+
+// The files the manifests of folder `F`'s galleries name that aren't there: [] when every one is (a
+// publication never names a file the folder doesn't hold).
+function namedMissing(F) {
+  const out = [];
+  for (const name of fs.readdirSync(F)) {
+    const at = path.join(F, name, '.shiori', 'gallery.json');
+    if (!fs.existsSync(at)) continue;
+    const { files } = JSON.parse(fs.readFileSync(at, 'utf8'));
+    const named = [...Object.values(files.pages).flatMap(p => [p.original, p.translated, p.studyBg, ...(p.studyText || []), p.masks?.raw, p.masks?.text]), ...Object.values(files.covers)];
+    for (const f of named) if (f && !fs.existsSync(path.join(F, name, ...f.split('/')))) out.push(`${name}/${f}`);
+  }
+  return out;
+}
 // The desktop's alone: a gallery it archived, read in place by the website, then changed there (its
 // first change unpacks it) and read back whole by the desktop.
 const ARCHIVED = {
@@ -495,13 +675,18 @@ const NOTED_ARCHIVE = {
       for (const e of await zipEntries(new Uint8Array(fs.readFileSync(archive)))) entries.push({ name: e.filename, data: await e.read() });
       fs.writeFileSync(archive, zipCreate([...entries, { name: 'notes.txt', data: new TextEncoder().encode('mine') }]));
       const edited = fs.readFileSync(archive);
+      const meanwhile = form.endsWith('changed meanwhile');
+      if (meanwhile) {
+        // The desktop's page 3, put while the drive was away (it waits), before the website used the folder.
+        await whileAway(desktop, shared, () => desktop.putPage(gid, 3, png(3, 1)));
+      }
       if (form === 'removed and added again') await desktop.remove(id);
       const back = await website.add(shared, { force: form !== 'removed and added again' });
       assert.deepEqual((await website.scan(back)).problems, []);
       const changed = [[1, 'translated', webp(1, 7), 'image/webp']];
-      if (form.endsWith('changed meanwhile')) {
-        desktop.raw.folders._probes.clear();   // the desktop sees the take-over at once
-        await desktop.putPage(gid, 3, png(3, 1));   // waits on the desktop, the folder taken
+      if (meanwhile) {
+        assert.equal((await desktop.list()).find(f => f.id === id)?.access, 'taken', 'the desktop sees the take-over');
+        assert.equal(await reason(desktop.putPage(gid, 4, png(4, 1))), 'not-owned', 'a page put now is refused');
       }
       await write(website, gid, changed);
       await website.flush();
@@ -517,11 +702,12 @@ const NOTED_ARCHIVE = {
       }
       assert.deepEqual(await desktop.galleries(), [gid], form);
       assert.deepEqual({ ...desktop.raw._s('SELECT format, state FROM files WHERE gid = ?').get(gid) }, { format: 'folder', state: 'packed' }, `${form}: read from its folder`);
-      if (form.endsWith('changed meanwhile')) {
-        assert.deepEqual(await desktop.read(gid, 3), png(3, 1), 'the desktop\'s own change is kept');
-        assert.deepEqual(await mismatches(desktop, gid, FIRST.filter(([n, slot]) => !(n === 1 && slot === 'translated'))), [], form);
-      } else {
-        assert.deepEqual(await mismatches(desktop, gid, [...FIRST.filter(([n, slot]) => !(n === 1 && slot === 'translated')), ...changed]), [], `${form}: the website's work reads`);
+      assert.deepEqual(await mismatches(desktop, gid, [...FIRST.filter(([n, slot]) => !(n === 1 && slot === 'translated')), ...changed]), [], `${form}: the website's work reads`);
+      if (meanwhile) {
+        // One app changes a folder's galleries at a time: the website's version stands, the desktop's page
+        // that waited is dropped, and that is said once.
+        assert.equal(await desktop.read(gid, 3), null, 'the desktop\'s page that waited is dropped');
+        assert.deepEqual((await desktop.list()).find(f => f.id === id).attention.filter(a => a.reason === 'changed-both').map(a => a.path), ['Archived'], 'reported once');
       }
       assert.deepEqual(fs.readFileSync(archive), edited, `${form}: the archive is left as the person's`);
       await desktop.setDefault(desktop.home);
@@ -691,87 +877,74 @@ const OLDEST = {
   },
 };
 
-// A4 (review 7, the desktop): while the website used folder A anyway it translated page 1 there; the
-// desktop, told the folder was taken, translated page 1 too, its picture waiting in its own staging. At the
-// take-back that picture went into translated/ beside the website's under a random name, then was looked at
-// before its record was pointed there: one look that failed, or answered "not found" (the drive away for
-// that look), or a kill there, left the page's record on the website's file — the desktop showed the
-// website's translation, its own in the folder, unreferenced — and a kill as the rename returned picked yet
-// another name at the next start. Local changes win (D4): whatever the move's first call after the rename
-// does, the desktop reads its own, nothing reported, the website's file left as it is; and so does the
-// folder added again. And the website's mirror (pictures waiting in the browser whose slot the desktop
-// wrote), with no fault: the folder sweep's "…, a page both apps translated" faults it at every call.
+// A4 (review 7, the desktop) under the owner's rule of 2026-11-15 (one app changes a folder's galleries at
+// a time): the desktop translated page 1 while folder A's drive was away (its picture waiting in its own
+// staging); then the website used the folder anyway and translated page 1 there. While the website holds
+// the folder a translation tried on the desktop is refused. At the take-back the folder's version stands:
+// the desktop reads the website's translation, its own is dropped — nothing of it goes into the folder —
+// and that is reported once; a kill before the drop, or as it deletes what waited, ends the same after a
+// start. (Before the rule the desktop's picture went into translated/ beside the website's and won, D4.)
+// And the website's mirror (its picture waiting in the browser), with no fault: the folder sweep's "…, a
+// page both apps translated" faults it at every call.
 const BOTH_TRANSLATED = {
-  name: 'review 7 A4: a page both apps translated across "Use anyway" and the take-back shows the translation of the app that took the folder back',
+  name: 'review 7 A4: a page both apps translated — this app while the drive was away, the other while it used the folder anyway — shows the folder\'s translation after the take-back, this app\'s dropped and reported once; one tried meanwhile is refused',
   async run({ dir, desktop, website }) {
     const base = path.join(dir, 'desktop');
     let lib = desktop;
     const pngOf = (n) => png(0, n);
     const bytesAt = (A) => Object.fromEntries(fs.readdirSync(path.join(A, 'Alpha', 'translated')).map(n => [n, [...fs.readFileSync(path.join(A, 'Alpha', 'translated', n))].at(-1)]));
+    const changedBoth = async (app, id) => (await app.list()).find(f => f.id === id).attention.filter(a => a.reason === 'changed-both').map(a => a.path);
+    // `who` puts a translation of page 1 while folder A's drive is away: it waits (the desktop's in its own
+    // staging, the website's in this browser).
+    const awayTranslated = (who, A, gid, bytes) => whileAway(who, A, () => who.putTranslation(gid, 1, bytes));
     try {
-      for (const form of ['no fault', 'ENOENT', 'EIO', 'the drive away for that call', 'a kill there', 'a kill as the rename returns']) {
+      // The kill forms stop the desktop at the take-back's first file call after its claim is written (before
+      // the drop), and as the drop deletes what waited in its staging (after it committed).
+      for (const form of ['no fault', 'a kill as the take-back begins', 'a kill as what waited is deleted']) {
         const A = path.join(dir, form);
         const id = await lib.add(A);
         await lib.setDefault(id);
         const gid = await lib.newGallery('Alpha');
         for (let n = 1; n <= 2; n++) await lib.putPage(gid, n, pngOf(n));
         await lib.flush();
+        await awayTranslated(lib, A, gid, pngOf(8));
         const w = await website.add(A, { force: true });   // the website: "Use anyway"
         await website.scan(w);
         await website.putTranslation(gid, 1, pngOf(7));
         await website.flush();
         await until(() => fs.existsSync(path.join(A, 'Alpha', 'translated', '0001.png')));
-        await lib.setDefault(lib.home);
-        lib.raw.folders._probes.clear();   // the desktop told the folder is taken
-        await lib.putTranslation(gid, 1, pngOf(8));   // waits in its own staging
-        const moved = (c) => c.op === 'rename' && /\/translated\/0001[^/]*\.png$/.test(c.to ?? '') && c.to.includes(`/${form}/Alpha/`);
+        assert.equal((await lib.list()).find(f => f.id === id)?.access, 'taken', `${form}: the desktop sees the folder used elsewhere`);
+        assert.equal(await reason(lib.putTranslation(gid, 2, pngOf(9))), 'not-owned', `${form}: a translation tried meanwhile is refused`);
+        await website.setDefault(website.home);
+        await website.remove(w);   // the website lets go
         if (form.startsWith('a kill')) {
           await lib.close();
-          const asItReturns = form.endsWith('returns');
-          assert.equal(desktopKilled(base, async ({ lib, kill, id, form, asItReturns }) => {
-            const fs = await import('node:fs');
-            let renamed = false;
-            const moved = (c) => c.op === 'rename' && /\/translated\/0001[^/]*\.png$/.test(c.to ?? '') && c.to.includes(`/${form}/Alpha/`);
+          assert.equal(desktopKilled(base, async ({ lib, kill, id, form }) => {
+            let claimed = false;
             kill((c) => {
-              if (asItReturns) return moved(c) && (fs.renameSync(c.path, c.to), true);
-              if (renamed) return true;
-              renamed = moved(c);
-              return false;
+              if (form.endsWith('begins')) { if (claimed) return true; claimed = c.op === 'rename' && /\/\.shiori\/owner\.json$/.test(c.to ?? ''); return false; }
+              return c.op === 'rm' && /\/data\/staging\//.test(c.path);
             });
             await lib.raw.folderClaim(id);   // taken back
             await lib.flush();
             await new Promise(r => setTimeout(r, 500));
-          }, { id, form, asItReturns }), 42, `${form}: killed`);
+          }, { id, form }), 42, `${form}: killed`);
           lib = await desktopLibrary(base);
         } else {
-          const away = form.startsWith('the drive');
-          let state = 0;
-          const undo = form === 'no fault' ? () => {} : faults.failNext((c) => {
-            if (state === 0) { if (moved(c)) state = 1; return false; }
-            if (state === 2 && away) { state = 3; fs.renameSync(`${A}.away`, A); }   // back at the next call
-            if (state !== 1) return false;
-            state = 2;
-            if (away) { fs.renameSync(A, `${A}.away`); return false; }   // away for that call
-            return true;   // that call fails
-          }, away ? 'EIO' : form, { times: Infinity });
-          try {
-            await lib.raw.folderClaim(id);   // taken back: the staged translation goes into the folder
-            await lib.flush();
-            await new Promise(r => setTimeout(r, 500));
-          } finally { undo(); if (fs.existsSync(`${A}.away`)) fs.renameSync(`${A}.away`, A); }
-          assert.ok(form === 'no fault' || state >= 2, `${form}: the call after the move was made`);
+          assert.equal(await lib.raw.folderClaim(id), 'granted');
         }
         await lib.flush();
-        for (let i = 0; i < 2; i++) assert.deepEqual((await lib.scan(id)).problems, [], `${form}: nothing reported`);
+        for (let i = 0; i < 2; i++) assert.deepEqual((await lib.scan(id)).problems, [], `${form}: check ${i + 1}, nothing reported`);
         await lib.restart();
         await lib.flush();
-        assert.deepEqual(await lib.read(gid, 1, 'translated'), pngOf(8), `${form}: the desktop reads its own translation`);
-        assert.deepEqual(Object.entries(bytesAt(A)).sort(), [['0001.png', 7], [Object.keys(bytesAt(A)).find(n => n !== '0001.png'), 8]].sort(),
-          `${form}: its own beside the website's, which stays as it is`);
+        assert.ok((await lib.galleries()).includes(gid), `${form}: the gallery is listed`);
+        assert.deepEqual(await lib.read(gid, 1, 'translated'), pngOf(7), `${form}: the desktop reads the folder's translation`);
+        assert.deepEqual(bytesAt(A), { '0001.png': 7 }, `${form}: nothing of the desktop's went into the folder`);
+        assert.deepEqual(await changedBoth(lib, id), ['Alpha'], `${form}: reported once`);
         await lib.remove(id);
         const again = await lib.add(A);
-        await lib.scan(again);
-        assert.deepEqual(await lib.read(gid, 1, 'translated'), pngOf(8), `${form}: the folder added again reads it too`);
+        assert.deepEqual((await lib.scan(again)).problems, [], `${form}: added again, nothing reported`);
+        assert.deepEqual(await lib.read(gid, 1, 'translated'), pngOf(7), `${form}: the folder added again reads it too`);
         await lib.setDefault(lib.home);
         await lib.remove(again);
       }
@@ -782,40 +955,54 @@ const BOTH_TRANSLATED = {
       const gid = await website.newGallery('Alpha');
       for (let n = 1; n <= 2; n++) await website.putPage(gid, n, pngOf(n));
       await website.flush();
+      await awayTranslated(website, A, gid, pngOf(8));
       const d = await lib.add(A, { force: true });
       await lib.scan(d);
       await lib.putTranslation(gid, 1, pngOf(7));
       await lib.flush();
       await until(() => fs.existsSync(path.join(A, 'Alpha', 'translated', '0001.png')));
-      await website.setDefault(website.home);   // the website told the folder is taken
-      await website.putTranslation(gid, 1, pngOf(8));   // waits in this browser
+      assert.equal((await website.list()).find(f => f.id === id)?.access, 'taken', 'the website sees the folder used elsewhere');
+      assert.equal(await reason(website.putTranslation(gid, 2, pngOf(9))), 'not-owned', 'a translation tried meanwhile is refused');
+      await lib.setDefault(lib.home);
+      await lib.remove(d);
       assert.equal(await website.raw.folderClaim(id), 'granted');
       await website.flush();
-      await website.scan(id);
+      for (let i = 0; i < 2; i++) assert.deepEqual((await website.scan(id)).problems, [], `check ${i + 1}, nothing reported`);
       await website.flush();
-      assert.deepEqual(await website.read(gid, 1, 'translated'), pngOf(8), 'the website reads its own translation');
-      assert.equal(Object.values(bytesAt(A)).sort().join(), '7,8', 'its own beside the desktop\'s');
+      assert.deepEqual(await website.read(gid, 1, 'translated'), pngOf(7), 'the website reads the folder\'s translation');
+      assert.deepEqual(bytesAt(A), { '0001.png': 7 }, 'nothing of the website\'s went into the folder');
+      assert.equal((await website.raw.galleryGet(gid)).spilled, undefined, 'nothing waits in the browser');
+      assert.deepEqual(await changedBoth(website, id), ['Alpha'], 'reported once');
+      await website.setDefault(website.home);
       await website.remove(id);
-      await website.scan(await website.add(A));
-      assert.deepEqual(await website.read(gid, 1, 'translated'), pngOf(8), 'the folder added again reads it too');
+      assert.deepEqual((await website.scan(await website.add(A))).problems, [], 'added again, nothing reported');
+      assert.deepEqual(await website.read(gid, 1, 'translated'), pngOf(7), 'the folder added again reads it too');
     } finally { await lib.close(); }
   },
 };
 
 // B5 (review 7, the website): while the desktop used the website's folder anyway it archived the website's
 // gallery, or moved it into another folder of the website's, or the person renamed its folder then; the
-// website, told the folder was taken, translated page 1, its picture waiting in this browser. At the
-// take-back its check followed the gallery only by reading it again there — refused while something of it
-// waits — so it stayed bound to a place that is gone: its pages unreadable, its translation never reaching
-// the folder, nothing reported. Followed apart from being read again, it takes the place it is in now, and
-// its translation goes there (into the folder its first change unpacks the archive to, D17); the desktop,
-// adding the folder again, reads it. And the desktop's mirror (scan.js moveTo, unpackedTo): its translation
-// waiting while the website unpacked its archived gallery, or the person renamed its folder, is followed
-// and goes there at its take-back.
+// website had translated page 1 while the drive was away just before, its picture waiting in this browser.
+// At the take-back its check followed the gallery only by reading it again there — refused while something
+// of it waits — so it stayed bound to a place that is gone: its pages unreadable, its translation never
+// reaching the folder, nothing reported. Followed apart from being read again, it takes the place it is in
+// now. Under the owner's rule of 2026-11-15 (one app changes a folder's galleries at a time) what waited
+// goes there where the desktop published nothing of the gallery (the rename), and is dropped, reported
+// once, where it did (archiving and a move publish it there: the folder's version stands); the desktop,
+// adding the folder again, reads the same. And the desktop's mirror (scan.js moveTo, unpackedTo): its
+// translation waiting while the website unpacked its archived gallery (a change of it there: dropped), or
+// the person renamed its folder (it goes there), at its take-back.
 const FOLLOWED = {
-  name: 'review 7 B5: a gallery the other app archived, moved or unpacked while it used the folder anyway, or the person renamed then, is followed at the take-back with what waited',
+  name: 'review 7 B5: a gallery the other app archived, moved or unpacked while it used the folder anyway, or the person renamed then, is followed at the take-back — what waited going there, or dropped where that app published the gallery',
   async run({ dir, desktop, website }) {
     const pngOf = (n) => png(0, n);
+    // `who` translates page `n` while folder `F`'s drive is away: it waits there (before the other app's "Use anyway").
+    const awayTranslated = (who, F, gid, n, bytes) => whileAway(who, F, () => who.putTranslation(gid, n, bytes));
+    const changedBoth = async (app, id) => (await app.list()).find(f => f.id === id).attention.filter(a => a.reason === 'changed-both').length;
+    // Archiving and a move publish the gallery on the desktop (its own actions, the person changing nothing):
+    // the folder's version stands, and the website's translation that waited is dropped. A rename by hand
+    // publishes nothing: it goes there.
     for (const form of ['archived', 'moved to another of its folders', 'renamed by hand']) {
       const F = path.join(dir, `website ${form}`), G = path.join(dir, `website ${form} G`);
       const id = await website.add(F);
@@ -824,11 +1011,9 @@ const FOLLOWED = {
       const gid = await website.newGallery('Alpha');
       for (let n = 1; n <= 2; n++) await website.putPage(gid, n, pngOf(n));
       await website.flush();
+      await awayTranslated(website, F, gid, 1, pngOf(7));   // waits in this browser
       const theirs = [await desktop.add(F, { force: true }), ...(two ? [await desktop.add(G, { force: true })] : [])];   // "Use anyway"
       await desktop.scan(theirs[0]);
-      await website.setDefault(website.home);   // the website told the folder is taken
-      await website.putTranslation(gid, 1, pngOf(7));   // waits in this browser
-      await website.flush();
       if (form === 'archived') assert.deepEqual((await desktop.raw.archiveGallery(gid)).archived, [gid], form);
       if (two) await desktop.move(gid, theirs[1]);
       if (form.startsWith('renamed')) { fs.renameSync(path.join(F, 'Alpha'), path.join(F, 'Alpha by hand')); await desktop.scan(theirs[0]); }
@@ -836,23 +1021,26 @@ const FOLLOWED = {
       await desktop.setDefault(desktop.home);
       for (const f of theirs) await desktop.remove(f);   // the desktop lets go
       for (const f of [id, two].filter(Boolean)) assert.equal(await website.raw.folderClaim(f), 'granted', `${form}: taken back`);
-      const now = two ?? id, at = form.startsWith('renamed') ? path.join(F, 'Alpha by hand') : path.join(two ? G : F, 'Alpha');
+      const now = two ?? id, kept = form.startsWith('renamed');
+      const at = kept ? path.join(F, 'Alpha by hand') : form === 'archived' ? null : path.join(G, 'Alpha');
       await website.scan(now);
       await website.flush();
       await new Promise(r => setTimeout(r, 300));
       for (let i = 0; i < 2; i++) assert.deepEqual((await website.scan(now)).problems, [], `${form}: check ${i + 1}, nothing reported`);
-      assert.deepEqual([await website.dirOf(gid), await website.read(gid, 1), await website.read(gid, 2), await website.read(gid, 1, 'translated')],
-        [at, pngOf(1), pngOf(2), pngOf(7)], `${form}: followed, its translation read`);
+      assert.deepEqual([await website.dirOf(gid), await website.read(gid, 1), await website.read(gid, 2)], [at, pngOf(1), pngOf(2)], `${form}: followed`);
+      assert.equal(same(await website.read(gid, 1, 'translated'), pngOf(7)), kept, `${form}: its translation ${kept ? 'read' : 'dropped'}`);
       assert.equal((await website.raw.galleryGet(gid)).spilled, undefined, `${form}: nothing waits in the browser`);
-      assert.ok(JSON.parse(fs.readFileSync(path.join(at, '.shiori', 'gallery.json'), 'utf8')).files.pages[1].translated, `${form}: its translation in the folder`);
-      if (form === 'archived') assert.deepEqual(fs.readdirSync(F).sort(), ['.shiori', 'Alpha'], `${form}: the archive unpacked, and gone`);
+      assert.equal(await changedBoth(website, now), kept ? 0 : 1, `${form}: ${kept ? 'nothing' : 'the drop'} reported`);
+      if (kept) assert.ok(JSON.parse(fs.readFileSync(path.join(at, '.shiori', 'gallery.json'), 'utf8')).files.pages[1].translated, `${form}: its translation in the folder`);
+      if (form === 'archived') assert.ok(fs.readdirSync(F).some(n => /\.(zip|cbz)$/i.test(n)), `${form}: read from the archive, nothing unpacked for what was dropped`);
       for (const f of [id, two].filter(Boolean)) { await website.setDefault(website.home); await website.remove(f); }
       const back = await desktop.add(two ? G : F);
-      await desktop.scan(back);
-      assert.deepEqual(await desktop.read(gid, 1, 'translated'), pngOf(7), `${form}: the desktop reads it, the folder added again`);
+      assert.deepEqual((await desktop.scan(back)).problems, [], `${form}: the folder added again, nothing reported`);
+      assert.equal(same(await desktop.read(gid, 1, 'translated'), pngOf(7)), kept, `${form}: read alike by the desktop`);
       await desktop.setDefault(desktop.home);
       await desktop.remove(back);
     }
+    // The website's unpack is a change of the gallery there: the desktop's translation that waited is dropped.
     for (const form of ['unpacked', 'renamed by hand']) {
       const F = path.join(dir, `desktop ${form}`);
       const id = await desktop.add(F);
@@ -861,11 +1049,10 @@ const FOLLOWED = {
       for (let n = 1; n <= 2; n++) await desktop.putPage(gid, n, pngOf(n));
       await desktop.flush();
       if (form === 'unpacked') assert.deepEqual((await desktop.raw.archiveGallery(gid)).archived, [gid], form);
+      await desktop.setDefault(desktop.home);
+      await awayTranslated(desktop, F, gid, 2, pngOf(8));   // waits in its own staging
       const w = await website.add(F, { force: true });   // "Use anyway" on the website
       await website.scan(w);
-      await desktop.setDefault(desktop.home);
-      desktop.raw.folders._probes.clear();   // the desktop told the folder is taken
-      await desktop.putTranslation(gid, 2, pngOf(8));   // waits in its own staging
       if (form === 'unpacked') {
         await website.putTranslation(gid, 1, pngOf(7));   // its first change there: unpacked beside the archive, the archive deleted
         await website.flush();
@@ -881,10 +1068,13 @@ const FOLLOWED = {
       await new Promise(r => setTimeout(r, 300));
       for (let i = 0; i < 2; i++) assert.ok(!(await desktop.scan(id)).problems.some(p => p.reason === 'duplicate'), `${form}: check ${i + 1}, no copy`);
       await desktop.flush();
-      const at = path.join(F, form === 'unpacked' ? 'Alpha' : 'Alpha by hand');
-      assert.deepEqual([await desktop.dirOf(gid), await desktop.read(gid, 1), await desktop.read(gid, 2), await desktop.read(gid, 2, 'translated')],
-        [at, pngOf(1), pngOf(2), pngOf(8)], `${form}: followed, its translation read`);
-      assert.ok(JSON.parse(fs.readFileSync(path.join(at, '.shiori', 'gallery.json'), 'utf8')).files.pages[2].translated, `${form}: its translation in the folder`);
+      const kept = form.startsWith('renamed');
+      const at = path.join(F, kept ? 'Alpha by hand' : 'Alpha');
+      assert.deepEqual([await desktop.dirOf(gid), await desktop.read(gid, 1), await desktop.read(gid, 2)], [at, pngOf(1), pngOf(2)], `${form}: followed`);
+      assert.equal(same(await desktop.read(gid, 2, 'translated'), pngOf(8)), kept, `${form}: its translation ${kept ? 'read' : 'dropped'}`);
+      assert.equal(!!JSON.parse(fs.readFileSync(path.join(at, '.shiori', 'gallery.json'), 'utf8')).files.pages[2].translated, kept, `${form}: in the folder ${kept ? 'too' : 'neither'}`);
+      assert.equal(await changedBoth(desktop, id), kept ? 0 : 1, `${form}: ${kept ? 'nothing' : 'the drop'} reported`);
+      if (!kept) assert.deepEqual(await desktop.read(gid, 1, 'translated'), pngOf(7), `${form}: the website's translation reads`);
       await desktop.setDefault(desktop.home);
       await desktop.remove(id);
     }
