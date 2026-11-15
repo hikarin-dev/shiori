@@ -1529,9 +1529,11 @@ export class FileLibrary {
 
   // Whether an archive is in the gallery format (one Shiori made — it describes itself), so it can be
   // added to; one added by hand isn't. Null when its directory can't be read now (principle 6: never
-  // taken for one outside the format, whose unpack records only what it took — S21).
+  // taken for one outside the format, whose unpack records only what it took — S21) — its library folder out
+  // of reach among it (`_at`: S30, a start with the drive away refused a translation of such a gallery).
   async _inFormat(row) {
-    const dir = await this._directory(this._abs(row.path)).catch(() => null);
+    const abs = this._at(row.path);
+    const dir = abs && await this._directory(abs).catch(() => null);
     return dir ? dir.has('metadata.json') || dir.has('image_records.json') : null;
   }
 

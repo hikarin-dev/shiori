@@ -1070,6 +1070,11 @@ const REGRESSIONS = [
   // using the folder anyway, changes it — so unpacks it — is dropped where a check meets the folder, the gallery
   // joining again at the next; a title of it made in the window reaches its archive before the website's change, so
   // the folder's version is the first to reach it (the model held the other app's: its own mistake, S30).
+  // S30's long run (desktop seed 778611996): the desktop killed as it translates an archived gallery, started again
+  // with the drive away — its translation was refused "out of reach" (files.js _inFormat); now it waits.
+  { app: 'desktop', both: true, name: 'an archived gallery translated by a desktop started with its folder\'s drive away waits for the drive',
+    steps: [['handOver', null], ['usedAnyway', { by: 'other', mine: null, unseen: false, theirs: [], tries: [], made: true }], ['handOver', null], ['archiveIt', 0],
+      ['usedAnyway', { by: 'other', mine: [0, 'translation', 0, 'killed', 3], unseen: true, theirs: [], tries: [], made: false }]] },
   { app: 'desktop', both: true, name: 'a second desktop library\'s change of an archived gallery this one unpacked in the window is dropped by a check, and its removal goes on',
     steps: [['newGallery', 1], ['archiveIt', 0], ['usedAnyway', { by: 'second desktop', mine: [0, 'translation', 0, 'window', 1], unseen: false, theirs: [[0, 'title', 0]], tries: [], made: false }]] },
   { app: 'desktop', both: true, name: 'a translation of an archived gallery made in the window: the unpack it set going reached the folder first, so it is published at the take-back',

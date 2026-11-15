@@ -1161,8 +1161,10 @@ const SCENARIOS = [
     },
     state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1)]), [c.g.beta]: G('A', 'Beta there', [png(4)]) } }),
     // Before the stages' check reads what the other app published (D4), Beta's own title shows — with any of
-    // the step's states of Alpha.
-    also: (c, stage) => (stage !== 'flush' ? [] : [[png(1)], [png(1), png(2)]].flatMap((pages) => {
+    // the step's states of Alpha — and on the website until the folder is read afresh (added again): under load
+    // it reads another app's generation at a later check while it is busy with the gallery (§8, S26a; the whole
+    // sweep's load showed it at the check, 40 points, each passing alone).
+    also: (c, stage) => (stage === 're-add' || (stage !== 'flush' && c.lib.app !== 'website') ? [] : [[png(1)], [png(1), png(2)]].flatMap((pages) => {
       const s = { aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', pages), [c.g.beta]: G('A', 'Beta', [png(4)]) } };
       return [s, withTranslation(s, c.g.alpha, 1, png(5))];
     })),

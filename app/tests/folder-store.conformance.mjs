@@ -3546,6 +3546,38 @@ export const CASES = [
     },
   },
   {
+    // Found by S30's long model run (desktop seed 778611996, the take-over's killed form with the drive away): the
+    // desktop started while a library folder's drive was away refused a translation of a gallery it keeps archived
+    // there ("library folder … is out of reach": the look at whether the archive is in the gallery format went
+    // through the folder's path, which can't be had then, before it could say "can't tell"). With the drive away
+    // after the start the same translation waited. A change made while the drive is away waits, whenever it left.
+    name: 'S30: a translation of an archived gallery, made after a start with its library folder\'s drive away, waits and reaches the archive once the drive is back',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const A = path.join(dir, 'A');
+      const gid = await fx.lib.newGallery('Alpha');
+      await fx.lib.putPage(gid, 1, png(5, 1));
+      await fx.lib.flush();
+      assert.deepEqual((await fx.lib.raw.archiveGallery(gid)).archived, [gid], 'archived');
+      await fx.lib.flush();
+      fs.renameSync(A, `${A}.away`);   // the drive away
+      try {
+        await /** @type {() => Promise<void>} */ (fx.lib.restart)();   // the app started again meanwhile
+        await fx.lib.putTranslation(gid, 1, png(5, 7));
+        assert.deepEqual(await fx.lib.read(gid, 1, 'translated'), png(5, 7), 'it reads while it waits');
+        await fx.lib.flush().catch(() => {});
+      } finally { fs.renameSync(`${A}.away`, A); }   // back
+      await fx.lib.flush();
+      assert.deepEqual([(await fx.lib.scan(ref.id)).problems, await fx.lib.read(gid, 1, 'translated')], [[], png(5, 7)], 'back: reported nothing, its translation read');
+      await fx.lib.setDefault(fx.lib.home);
+      await fx.lib.remove(ref.id);   // saved there: the removal goes on
+      const again = await fx.lib.add(A);
+      await fx.lib.scan(again);
+      assert.deepEqual(await fx.lib.read(gid, 1, 'translated'), png(5, 7), 'added again, its translation read from the folder');
+    },
+  },
+  {
     // S28a's "found, not fixed" (desktop): a gallery's archive that is a symbolic link to a file — the person's
     // (Windows makes one only in developer mode, so the link is the disk's answer here: lstat says so). Shiori
     // never goes through a link in a library folder, so the deletion asked whose the archive is, met the link,
