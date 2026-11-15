@@ -226,6 +226,32 @@ test('a frame whose pictures are shorter than it says is refused', async () => {
   assert.equal((await decode(frame).args[0].arrayBuffer()).byteLength, 7);
 });
 
+// S27's "found, not fixed": a gallery kept in one of this browser's library folders whose translation (a
+// picture of a page's own: a study layer, a mask, a cover alike) couldn't be read as it moved went without
+// it, saying nothing — and the person may then delete the browser's copy, the only one with it. It doesn't
+// move this time (the move's existing failure: "Some galleries couldn't be moved … nothing is lost"), and
+// moves whole once its picture can be read.
+test('a gallery with a picture that can\'t be read now doesn\'t move, never carried without it', async () => {
+  const fsa = await import('../../app/tests/fsa-node.mjs');
+  const db = await import('../../app/js/db.js');
+  fsa.install();
+  const { id } = await db.folderAdd(fsa.directory(path.join(dir, 'browser folder')));
+  await db.folderSetDefault(id);
+  const gid = await gallery('Kept in a folder', 2);
+  await api.derived.putTranslation(gid, 1, { image: png(5, 5), pipeline: { job: 'j3' }, own: 'j3' });
+  await db.settleFolders();
+  const undo = fsa.failNext((c) => c.op === 'getFile' && c.path.includes('/translated/'), 'NotReadableError', { times: Infinity });
+  let first;
+  try { first = await moveToDesktop(config, [gid]); } finally { undo(); }
+  assert.deepEqual([first.moved, first.failed.map(f => f.gid)], [0, [gid]], 'it doesn\'t move');
+  assert.equal(await desktop.metaGet(gid), null, 'nothing of it on the desktop');
+  const again = await moveToDesktop(config, [gid]);
+  assert.deepEqual([again.moved, again.failed], [1, []]);
+  assert.deepEqual(await bytes((await desktop.pageGet(gid, 1)).translated), await bytes(png(5, 5)), 'it moves whole once it can be read');
+  await db.folderSetDefault(db.BROWSER);
+  fsa.reset();
+});
+
 test('a message the app will not take ends that connection, and the app carries on', async () => {
   const bad = new WebSocket(`${server.url.replace(/^http/, 'ws')}/api/ws?k=${TOKEN}`);
   await new Promise((resolve, reject) => { bad.once('open', resolve); bad.once('error', reject); });

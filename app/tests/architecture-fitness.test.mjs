@@ -107,7 +107,7 @@ test('no code outside the folder store adapter turns a failed read of a library 
       'an archive whose descriptions can\'t be read now serves nothing as the gallery\'s (fail closed), and changes nothing recorded'],
     ['folder-library.js', 'const there = !root || !rec.stat?.dir || (await folderFiles.list(folder, root, rec.stat.dir).catch(() => [])).length > 0;',
       'galleries an unreleased build set aside (§8, review 4 O5)'],
-    ['folder-library.js', 'if (stat.packed) return folderFiles.readFile(run.id, run.root, stat.dir).then(Boolean, () => true);',
+    ['folder-library.js', 'if (stat.packed) return folderFiles.readFile(stat.folder, root, stat.dir).then(Boolean, () => true);',
       'a look that fails is taken for "there": nothing is concluded from it'],
     ['folder-library.js', 'fingerprint: (await K.archiveOf(id, root, dir).catch(() => null))?.fingerprint ?? null',
       'a removal note\'s fingerprint, unknown (null) when the archive can\'t be read now: the note then holds whatever the archive holds, as the desktop\'s (linked.js titlesIn)'],

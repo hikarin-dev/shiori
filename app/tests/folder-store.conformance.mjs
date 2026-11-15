@@ -2867,13 +2867,19 @@ export const CASES = [
     // the gallery format with its .shiori junctioned joined by its stable-named copies. Each form must be
     // reported at the first check and at the next, nothing of it joining or written in its folder, and join
     // whole once the junction is undone. The website's browser shows a link as what it leads to (fsa-node.mjs,
-    // as S2 took Chrome to): there each joins whole at once, read through it.
+    // as S2 took Chrome to): there each joins whole at once, read through it. A browser may show a link as
+    // nothing instead (not checked in Chrome: S27), so the website runs under both (fsa-node.mjs hideLinks):
+    // hidden, a picture folder is reported as its gallery's records name pictures it doesn't show (the first
+    // form by its files list, the second by its pages, gallery-manifest.js readGallery: S28b, the third by its
+    // manifest), and a .shiori hidden leaves a folder the website reads as an earlier version's, whole by its
+    // stable-named copies, never writing in it (it can't make the .shiori it doesn't see).
     name: 'review 7 A2: a gallery whose picture folder or .shiori is a junction never joins in part, nor has anything written for it',
     async run({ dir, fx, platform }) {
       const forms = /** @type {const} */ (['v1, images/ junctioned', 'v1 without its files list, images/ junctioned',
         'the gallery format, images/ junctioned', 'the gallery format, .shiori junctioned']);
-      for (const [i, form] of forms.entries()) {
-        const name = `A${i}`, A = path.join(dir, name);
+      const runs = (platform === 'website' ? ['followed', 'hidden'] : ['refused']).flatMap(mode => [...forms.entries()].map(([i, form]) => ({ mode, i, form })));
+      for (const { mode, i, form } of runs) {
+        const name = `A${mode}${i}`, A = path.join(dir, name);
         let gid, at, want;
         if (form.startsWith('v1')) {
           at = path.join(A, 'Old one');
@@ -2892,31 +2898,38 @@ export const CASES = [
           await fx.lib.setDefault(fx.lib.home);
           await fx.lib.remove(ref.id);   // removed, to be added again: its galleries read back at its first check
         }
-        const sub = form.includes('.shiori') ? '.shiori' : 'images', aside = path.join(dir, `elsewhere ${i}`);
+        const sub = form.includes('.shiori') ? '.shiori' : 'images', aside = path.join(dir, `elsewhere ${mode} ${i}`);
         fs.renameSync(path.join(at, sub), aside);   // the person moves it to another place, and junctions it back
         faults.junction(aside, path.join(at, sub));
         const manifest = () => { try { return fs.readFileSync(path.join(at, '.shiori', 'gallery.json'), 'utf8'); } catch { return null; } };
         const before = manifest();
+        fsa.hideLinks(mode === 'hidden');
         const id = await fx.lib.add(A);
         await fx.lib.setDefault(id);
         const reads = async () => [await fx.lib.read(gid, 1), await fx.lib.read(gid, 2), await fx.lib.read(gid, 1, 'translated')];
+        const refused = mode === 'refused' || (mode === 'hidden' && sub === 'images');
+        const as = `${form} (links ${mode})`;
         for (const check of ['first', 'next']) {
           const found = await fx.lib.scan(id);
           if ((await fx.lib.galleries()).includes(gid)) await fx.lib.setTitle(gid, `Renamed at the ${check} check`);   // a change: it publishes
           await fx.lib.flush();
-          if (platform === 'desktop') {
-            assert.ok(found.problems.some(p => at.endsWith(path.sep + p.path.split('/').join(path.sep))), `${form}, ${check} check: reported (${JSON.stringify(found.problems)})`);
-            assert.deepEqual([await fx.lib.galleries(), manifest()], [[], before], `${form}, ${check} check: nothing joins, nothing written`);
-          } else assert.deepEqual([await fx.lib.galleries(), await reads()], [[gid], want], `${form}: the website reads it whole, through the link`);
+          if (refused) {
+            assert.ok(found.problems.some(p => at.endsWith(path.sep + p.path.split('/').join(path.sep))), `${as}, ${check} check: reported (${JSON.stringify(found.problems)})`);
+            assert.deepEqual([await fx.lib.galleries(), manifest()], [[], before], `${as}, ${check} check: nothing joins, nothing written`);
+          } else {
+            assert.deepEqual([await fx.lib.galleries(), await reads()], [[gid], want], `${as}: the website reads it whole, ${mode === 'hidden' ? 'by its stable-named copies' : 'through the link'}`);
+            if (mode === 'hidden') assert.equal(manifest(), before, `${as}, ${check} check: nothing written in the .shiori it doesn't see`);
+          }
         }
         fs.rmSync(path.join(at, sub));
         fs.renameSync(aside, path.join(at, sub));   // the junction undone
         await fx.lib.scan(id);
         await fx.lib.flush();
-        assert.deepEqual((await fx.lib.scan(id)).problems, [], `${form}: nothing left to report`);
-        assert.deepEqual([await fx.lib.galleries(), await reads()], [[gid], want], `${form}: joins whole once the junction is undone`);
+        assert.deepEqual((await fx.lib.scan(id)).problems, [], `${as}: nothing left to report`);
+        assert.deepEqual([await fx.lib.galleries(), await reads()], [[gid], want], `${as}: joins whole once the junction is undone`);
         await fx.lib.setDefault(fx.lib.home);
         await fx.lib.remove(id);
+        fsa.hideLinks(false);
       }
     },
   },
@@ -3102,6 +3115,159 @@ export const CASES = [
       await fx.lib.scan(again);
       assert.deepEqual((await fx.lib.galleries()).sort(), [one, three], 'added again: the chapter doesn\'t come back');
       assert.equal(await fx.lib.read(two, 1), null);
+    },
+  },
+  // ── Galleries that are followed (S28b) ──
+  {
+    // A2's rule on both apps (review 7; S28b): an earlier version's gallery written without its files list
+    // names its pictures by what its images/ shows, so one whose images/ shows none — moved away by the
+    // person, or a link a browser shows as nothing — joined with no pages, nothing reported, and its next
+    // change published a manifest naming none. Its records name pages: it is 'missing-file', reported at
+    // every check, nothing of it joining or written, until its pictures are back — then it joins whole. One
+    // with no pages by design (not downloaded yet: a metadata.json alone, or no page in its image_records.json)
+    // joins as it is.
+    name: 'review 7 A2: an earlier version\'s gallery whose records name pages its folder shows no picture of never joins with no pages',
+    async run({ dir, fx }) {
+      const A = path.join(dir, 'A');
+      const at = path.join(A, 'Old one');
+      const { gid } = await v1Gallery(at, { files: false });
+      const want = ['images/0001.webp', 'images/0002.webp', 'translated/0001.png'].map(rel => new Uint8Array(fs.readFileSync(path.join(at, ...rel.split('/')))));
+      fs.renameSync(path.join(at, 'images'), path.join(dir, 'images aside'));   // the person moves its pictures away
+      const empty = { 'Not downloaded': null, 'No page yet': '[]' };
+      for (const [name, records] of Object.entries(empty)) {
+        const meta = { galleryId: String(1790000000300 + Object.keys(empty).indexOf(name)), title: { english: name, japanese: '', pretty: name } };
+        fs.mkdirSync(path.join(A, name), { recursive: true });
+        fs.writeFileSync(path.join(A, name, 'metadata.json'), JSON.stringify(meta));
+        if (records) fs.writeFileSync(path.join(A, name, 'image_records.json'), records);
+      }
+      const id = await fx.lib.add(A);
+      await fx.lib.setDefault(id);
+      for (const check of ['first', 'next']) {
+        const found = await fx.lib.scan(id);
+        await fx.lib.flush();
+        assert.deepEqual(found.problems.map(p => `${p.reason} ${p.path}`), ['missing-file Old one'], `${check} check: reported`);
+        assert.deepEqual((await fx.lib.galleries()).map(String).sort(), ['1790000000300', '1790000000301'], `${check} check: the galleries with no pages by design join, it doesn't`);
+        assert.equal(fs.existsSync(path.join(at, '.shiori')), false, `${check} check: nothing written for it`);
+      }
+      fs.renameSync(path.join(dir, 'images aside'), path.join(at, 'images'));   // back
+      assert.deepEqual((await fx.lib.scan(id)).problems, [], 'nothing left to report');
+      assert.deepEqual([await fx.lib.read(gid, 1), await fx.lib.read(gid, 2), await fx.lib.read(gid, 1, 'translated')], want, 'it joins whole once its pictures are back');
+    },
+  },
+  {
+    // B5 (review 7, the website): a gallery's folder renamed by hand was followed only by reading it again
+    // there, and that is refused while anything of it waits in the browser (local changes win) — a page or a
+    // translation written since (its folder not there to take it) or while the folder couldn't be reached, a
+    // change not published. So it stayed bound to a place that is gone: its pages unreadable, what waited
+    // never reaching the folder, nothing reported, for good. Following it is apart from reading it again: its
+    // old place surely gone, it takes the new one whatever waits, and what waits goes there; reading it again
+    // stays refused while something waits. The desktop did so already (scan.js moveTo).
+    name: 'review 7 B5: a gallery whose folder was renamed by hand is followed there whatever of it waits, and what waits goes there',
+    async run({ dir, fx, platform }) {
+      const forms = ['a page written since', 'a title changed since', ...(platform === 'website' ? ['a translation written while the folder couldn\'t be reached'] : [])];
+      for (const [i, form] of forms.entries()) {
+        const name = `A${i}`, A = path.join(dir, name);
+        const ref = await fx.register(name);
+        const gid = await fx.lib.newGallery('Alpha');
+        for (let n = 1; n <= 2; n++) await fx.lib.putPage(gid, n, png(n));
+        await fx.lib.putTranslation(gid, 1, png(7));
+        await fx.lib.flush();
+        const reads = async () => [await fx.lib.read(gid, 1), await fx.lib.read(gid, 2), await fx.lib.read(gid, 1, 'translated'),
+          await fx.lib.read(gid, 2, 'translated'), await fx.lib.read(gid, 3), await fx.lib.titleOf(gid)];
+        const want = [png(1), png(2), png(7), png(2), null, 'Alpha'];   // page 2 untranslated: its translation reads as the page
+        if (form.startsWith('a translation')) {
+          fsa.setPermission(A, 'prompt', { onRequest: () => 'prompt' });   // the person's leave not given this visit
+          await fx.lib.setDefault(fx.lib.home);
+          await fx.lib.putTranslation(gid, 2, png(8));   // waits in this browser
+          await fx.lib.flush();
+          want[3] = png(8);
+        }
+        const moved = path.join(A, 'Alpha by hand');
+        fs.renameSync(path.join(A, 'Alpha'), moved);   // the person renames it
+        if (form.startsWith('a translation')) fsa.setPermission(A, 'granted');   // and the leave is back
+        if (form.startsWith('a page')) { await fx.lib.putPage(gid, 3, png(3)); want[4] = png(3); }
+        if (form.startsWith('a title')) { await fx.lib.setTitle(gid, 'Renamed'); want[5] = 'Renamed'; }
+        await fx.lib.flush();
+        const found = await fx.lib.scan(ref.id);
+        await fx.lib.flush();
+        assert.deepEqual([found.problems, await fx.lib.dirOf(gid)], [[], moved], `${form}: followed, nothing reported`);
+        assert.deepEqual(await reads(), want, `${form}: every page and what waited read`);
+        const manifest = JSON.parse(fs.readFileSync(path.join(moved, '.shiori', 'gallery.json'), 'utf8'));
+        const title = JSON.parse(fs.readFileSync(path.join(moved, 'metadata.json'), 'utf8')).title.english;
+        assert.ok(form.startsWith('a page') ? !!manifest.files.pages[3] : form.startsWith('a title') ? title === 'Renamed' : !!manifest.files.pages[2]?.translated,
+          `${form}: what waited is in the folder (${JSON.stringify(manifest.files)}, titled ${title})`);
+        assert.deepEqual(fs.readdirSync(A).filter(n => !n.startsWith('.')), ['Alpha by hand'], `${form}: nothing made at the old place`);
+        if (platform === 'website') assert.equal((await fx.lib.raw.galleryGet(gid)).spilled, undefined, `${form}: nothing waits in the browser`);
+        assert.deepEqual((await fx.lib.list()).find(f => f.id === ref.id).attention, [], `${form}: nothing on Needs attention`);
+        await /** @type {() => Promise<void>} */ (fx.lib.restart)();
+        await fx.lib.flush();
+        assert.deepEqual([(await fx.lib.scan(ref.id)).problems, await reads()], [[], want], `${form}: the same after a restart`);
+      }
+    },
+  },
+  {
+    // B3 (review 7, the website): a gallery's folder moved by hand into another of the library's folders was
+    // never followed — the gallery kept where it was, its pages unreadable, nothing reported. As the desktop
+    // does (scan.js handMoved), a check meeting it follows it there once its old place is surely gone,
+    // whatever of it waits — from a folder another app holds too (read, nothing written there), its old place
+    // taken by a folder of the person's too; while that can't be told (the other folder out of reach), or the
+    // other folder is out of the library (hidden: nothing of it changes — the desktop's check failed whole,
+    // its mount check refusing the follow), or its old place is still there (the person's copy), it is
+    // reported 'duplicate' — on both apps — and followed by the check after that folder is back.
+    name: 'review 7 B3: a gallery whose folder was moved by hand into another library folder is followed there, either way; a copy is reported',
+    async run({ dir, fx }) {
+      const made = async (/** @type {string} */ folder) => {
+        await fx.lib.setDefault(folder);
+        const gid = await fx.lib.newGallery('Alpha');
+        for (let n = 1; n <= 2; n++) await fx.lib.putPage(gid, n, png(n));
+        await fx.lib.putTranslation(gid, 1, png(7));
+        await fx.lib.flush();
+        return gid;
+      };
+      const reads = async (/** @type {string} */ gid) => [await fx.lib.read(gid, 1), await fx.lib.read(gid, 2), await fx.lib.read(gid, 1, 'translated')];
+      const problems = async (/** @type {string} */ id) => (await fx.lib.scan(id)).problems.map(p => `${p.reason} ${p.path}`);
+      for (const [i, form] of ['F to G', 'G to F', 'with a page written since', 'its old place taken by a folder of the person\'s', 'from a folder another app holds',
+        'from a hidden folder', 'while the folder it left is out of reach', 'a copy'].entries()) {
+        const F = await fx.register(`F${i}`), G = await fx.register(`G${i}`);
+        const [from, to] = form === 'G to F' ? [G, F] : [F, G];
+        const at = (/** @type {any} */ ref) => path.join(dir, `${ref === F ? 'F' : 'G'}${i}`);
+        const gid = await made(from.id);
+        await fx.lib.setDefault(to.id);
+        const want = [png(1), png(2), png(7)], there = path.join(at(to), 'Alpha');
+        if (form === 'a copy') fs.cpSync(path.join(at(from), 'Alpha'), there, { recursive: true });
+        else fs.renameSync(path.join(at(from), 'Alpha'), there);   // moved by hand into the other folder
+        const page3 = form.startsWith('with a page') ? png(3) : null;
+        if (page3) await fx.lib.putPage(gid, 3, page3);   // waits: its folder isn't where it was
+        if (form.startsWith('its old place')) {
+          fs.mkdirSync(path.join(at(from), 'Alpha'));
+          fs.writeFileSync(path.join(at(from), 'Alpha', 'notes.txt'), 'the person\'s');   // naming no gallery: not it
+        }
+        if (form.startsWith('from a folder another')) await fx.takeOver(from);   // read, never written: the follow writes nothing there
+        if (form.startsWith('from a hidden')) {
+          await fx.lib.hide(from.id);   // out of the library: nothing of it changes
+          assert.deepEqual(await problems(to.id), ['duplicate Alpha'], `${form}: reported while that folder is hidden`);
+          await fx.lib.show(from.id);
+        }
+        if (form.startsWith('while')) {
+          fs.renameSync(at(from), `${at(from)}.away`);   // its drive away
+          assert.deepEqual(await problems(to.id), ['duplicate Alpha'], `${form}: reported while it can't be told`);
+          fs.renameSync(`${at(from)}.away`, at(from));   // back
+        }
+        if (form === 'a copy') {
+          for (let k = 0; k < 2; k++) assert.deepEqual(await problems(to.id), ['duplicate Alpha'], `${form}: reported`);
+          assert.deepEqual([await fx.lib.dirOf(gid), await reads(gid)], [path.join(at(from), 'Alpha'), want], `${form}: the gallery stays its own`);
+          continue;
+        }
+        assert.deepEqual(await problems(to.id), [], `${form}: followed, nothing reported`);
+        await fx.lib.flush();
+        for (const ref of form.startsWith('from a folder another') ? [to] : [from, to]) assert.deepEqual(await problems(ref.id), [], `${form}: nothing left to report`);
+        assert.deepEqual([await fx.lib.dirOf(gid), await reads(gid), await fx.lib.read(gid, 3)], [there, want, page3], `${form}: every page read, where it now is`);
+        if (page3) assert.ok(JSON.parse(fs.readFileSync(path.join(there, '.shiori', 'gallery.json'), 'utf8')).files.pages[3], `${form}: the page written since is in its folder`);
+        if (form.startsWith('its old place')) assert.equal(fs.readFileSync(path.join(at(from), 'Alpha', 'notes.txt'), 'utf8'), 'the person\'s', `${form}: theirs, as it was`);
+        await /** @type {() => Promise<void>} */ (fx.lib.restart)();
+        await fx.lib.flush();
+        assert.deepEqual([await problems(to.id), await fx.lib.dirOf(gid), await reads(gid)], [[], there, want], `${form}: the same after a restart`);
+      }
     },
   },
 ];

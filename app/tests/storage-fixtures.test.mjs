@@ -99,3 +99,51 @@ test('a folder in the desktop\'s oldest format is Shiori\'s, by its shiori.json'
   assert.deepEqual(classifyFolder({ 'shiori.json': fs.readFileSync(path.join(dir, 'shiori.json'), 'utf8') }), { kind: 'gallery', id: made.gid, legacy: true });
   assert.deepEqual(fs.readdirSync(dir).filter(f => f.endsWith('.webp')), made.pages);
 });
+
+// S28b (review 7 A2's rule, gallery-manifest.js readGallery): an earlier version's gallery whose records
+// name pages its folder shows no picture of is 'missing-file'. Every gallery the released formats' fixtures
+// hold — the folders and the archive v1.2.6 and the working tree's builds left (the desktop's fixtures), their
+// linked galleries' overlays, v1 with and without its files list, a series export's chapters — reads as it was
+// written on both apps' readers, none of them taken for one missing its pictures.
+test('S28b: every gallery of the released formats\' fixtures reads whole on both apps\' readers', async (t) => {
+  const { DESKTOP_FIXTURES, loadFixture, seriesExport } = await import('./fixtures/storage-fixtures.mjs');
+  const { loadGallery: websiteLoad, forgetFolder } = await import('../js/storage/folder-store-web.js');
+  const { loadGallery: desktopLoad } = await import('../../desktop/server/folder-store.js');
+  const { readGallery, PICTURE_DIRS } = await import('../js/storage/gallery-manifest.js');
+  const { zipEntries } = await import('../js/zip-read.js');
+  const fsa = await import('./fsa-node.mjs');
+  const base = temp(t);
+  const folders = [], archives = [];
+  for (const name of DESKTOP_FIXTURES) {
+    for (const [rel, b64] of Object.entries(loadFixture(name).files)) {
+      const at = path.join(base, name, ...rel.split('/'));
+      fs.mkdirSync(path.dirname(at), { recursive: true });
+      fs.writeFileSync(at, Buffer.from(b64, 'base64'));
+      if (rel.endsWith('/metadata.json')) folders.push([path.join(base, name, rel.split('/')[0]), rel.split('/').slice(1, -1).join('/')]);
+      if (/\.(zip|cbz)$/i.test(rel)) archives.push([at, '']);
+    }
+  }
+  for (const files of [true, false]) { await v1Gallery(path.join(base, 'v1', `files ${files}`), { files }); folders.push([path.join(base, 'v1'), `files ${files}`]); }
+  fs.mkdirSync(path.join(base, 'series'));
+  seriesExport(path.join(base, 'series'), (n) => new Uint8Array(pictureBytes('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', n)));
+  for (const inner of ['One/', 'Two/', 'Three/']) archives.push([path.join(base, 'series', 'Series.zip'), inner]);
+  const read = [];
+  for (const [folder, rel] of folders) {
+    const website = (await websiteLoad('fixture', fsa.directory(folder), rel)).read;
+    forgetFolder('fixture');
+    const desktop = (await desktopLoad(path.join(folder, ...rel.split('/')))).read;
+    read.push([`${path.relative(base, folder)}/${rel}`, website.kind, desktop.kind, website.kind === 'ok' && website.pictures.pages.size]);
+  }
+  for (const [at, inner] of archives) {
+    const entries = new Map((await zipEntries(new Uint8Array(fs.readFileSync(at)))).map(e => [e.filename, e]));
+    const files = new Map([...entries].filter(([n]) => n.startsWith(inner) && PICTURE_DIRS.includes(n.slice(inner.length, n.lastIndexOf('/'))))
+      .map(([n, e]) => [n.slice(inner.length), { size: e.size }]));
+    const got = await readGallery({ area: '.shiori/', archive: true, files, text: async (rel) => { const e = entries.get(`${inner}${rel}`); return e ? new TextDecoder().decode(await e.read()) : null; } });
+    read.push([`${path.relative(base, at)}/${inner}`, got.kind, got.kind, got.kind === 'ok' && got.pictures.pages.size]);
+  }
+  assert.ok(read.length >= 19, `every fixture's galleries read (${read.length})`);
+  for (const [what, website, desktop, pages] of read) {
+    assert.deepEqual([website, desktop], ['ok', 'ok'], what);
+    if (!what.includes('.shiori/linked/')) assert.ok(pages > 0, `${what}: its pages`);
+  }
+});

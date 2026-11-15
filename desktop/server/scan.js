@@ -347,15 +347,17 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   }
   // A gallery the index keeps in another library folder (or one not checked now), its files gone from
   // where the index has them — moved there by hand — follows them here: the index takes the path it
-  // was found at (its place goes with it). Gone as the shared rule takes it (files.js _whose): a look
-  // there that fails, or answers "not found" while that folder's drive is away for a moment, concludes
-  // nothing (review 6 F8). With its files still where they were, this is a copy.
+  // was found at (its place goes with it). Gone as for a folder checked (`present`: files.js _whose —
+  // nothing there as the shared rule takes it, or something that doesn't name it): a look there that
+  // fails, or answers "not found" while that folder's drive is away for a moment, concludes nothing
+  // (review 6 F8). With its files still where they were, this is a copy — as is one whose folder is out of
+  // the library (hidden: nothing of it changes, _mountCheck) until it is shown; both reported.
   const handMoved = new Map();
   for (const [id, g] of byId) {
     const row = files._row(id);
     const root = row && files._split(row.path).root;
-    if (!row || row.source || row.format !== g.format || checked.has(root) || !library.folders.has(root)) continue;
-    if (library.folders.reach(root).status === 'ok' && (await files._whose(row.path, id)).kind === 'missing') handMoved.set(id, g);
+    if (!row || row.source || row.format !== g.format || checked.has(root) || !library.folders.has(root) || !lifecycle.mounted(library.folders.state(root))) continue;
+    if (library.folders.reach(root).status === 'ok' && !['ok', 'unreadable'].includes((await files._whose(row.path, id)).kind)) handMoved.set(id, g);
   }
 
   const changed = new Set();
@@ -417,8 +419,9 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   // deletion `met`, kept until it is done (files.js _deleteOne: at the other kind of place, by its
   // manifest). A folder that couldn't be read whole is found by the gallery its descriptions name (as the
   // deletion tells it, principle 2): what a deletion met there left part way is deleted at the next check
-  // (F6). A copy of a gallery the library keeps in the same folder (its place still naming it) is
-  // reported, and left (O3) — not the old folder of a gallery archived since, retiring.
+  // (F6). A copy of a gallery the library keeps (its place still naming it, or not to be told now: in
+  // another folder, out of reach or out of the library — not followed above) is reported, and left (O3,
+  // review 7 B3) — not the old folder of a gallery archived since, retiring.
   const unfound = new Map(files._deletingRows().filter(d => d.unfound).map(d => [String(d.gid), d]));
   const met = new Set();
   for (const g of unknown.filter(g => !g.claimed && (g.read?.kind === 'gallery' || g.unreadable))) {
@@ -429,7 +432,7 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
       const d = unfound.get(id);
       met.add(d.dir);
       await files.deletedFound(d, g.rel, null, g.format === 'folder');
-    } else if (g.read && row && present.has(id) && files._split(row.path).root === g.root
+    } else if (g.read && row && !row.source && (!checked.has(files._split(row.path).root) || present.has(id))
       && !library._s('SELECT 1 FROM retiring WHERE dir = ? LIMIT 1').get(g.rel)) {
       out.problems.push({ path: g.inRoot, reason: 'duplicate', gid: id });
     }

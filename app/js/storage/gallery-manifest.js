@@ -290,7 +290,12 @@ function _description(name, text) {
  *   description that isn't what it should be (T08) — the gallery's earlier records and token are to be
  *   kept, and the problem reported;
  * - 'missing-file': files its manifest (or, v1, its descriptions) name that aren't there (T09) —
- *   reported, never replaced by another file.
+ *   reported, never replaced by another file. In v1 a gallery of Shiori's own (not a linked gallery's
+ *   overlay, whose pages' pictures are its source's) whose image_records.json has pages but whose
+ *   images/ shows none is so too (review 7 A2): a v1 folder without a files list names its pictures by
+ *   what images/ shows, and one a browser lists as nothing (a link it hides) would join with no pages,
+ *   its next publication naming none. A gallery that has no pages by design (not downloaded yet, a
+ *   series' own record) has no page in its image_records.json, or none.
  * @param {{ area: string, archive?: boolean, text(rel: string): Promise<string | null>, files: Map<string, { size: number }> }} view
  * @returns {Promise<GalleryReadResult>} */
 export async function readGallery({ area, archive = false, text, files }) {
@@ -330,9 +335,10 @@ export async function readGallery({ area, archive = false, text, files }) {
     const missing = [...describedFiles(records, covers)].filter(f => !files.has(f));
     if (missing.length) return { kind: 'missing-file', files: missing };
   }
+  const pictures = manifest ? manifestPictures(manifest) : folderPictures(files.keys(), { records, manifest: covers });
+  if (!manifest && area && !pictures.pages.size && (records ?? []).some(_object)) return { kind: 'missing-file', files: [`${PICTURE_DIRS[0]}/`] };
   return { kind: 'ok', version: manifest ? 2 : 1, manifest, token: manifest ? tokenOf(manifest) : descriptionStamp(texts), texts,
-    meta: parsed['metadata.json'] ?? null, records, bubbles: parsed['study/bubbles.json'] ?? {}, covers,
-    pictures: manifest ? manifestPictures(manifest) : folderPictures(files.keys(), { records, manifest: covers }) };
+    meta: parsed['metadata.json'] ?? null, records, bubbles: parsed['study/bubbles.json'] ?? {}, covers, pictures };
 }
 
 // ── Publishing ──

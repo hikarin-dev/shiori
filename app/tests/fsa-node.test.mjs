@@ -1,8 +1,9 @@
 // fsa-node.test.mjs — the File System Access shim the website's storage is tested with under Node
 // (fsa-node.mjs) behaves as Chrome does where the library relies on it: a file written is the old one
 // whole until close() puts the new one in its place, and stays so when the write is aborted or fails;
-// errors are named as Chrome names them; a handle comes back from IndexedDB as a handle; and its hooks
-// fail the calls asked for, and answer permission queries as told.
+// errors are named as Chrome names them; a link is followed, or hidden as a browser may show one
+// (hideLinks); a handle comes back from IndexedDB as a handle; and its hooks fail the calls asked for,
+// and answer permission queries as told.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -80,6 +81,19 @@ test('a folder lists what it holds, follows links, and tells what is inside it',
   assert.deepEqual(await root.resolve(await linked.getFileHandle('x.png')), ['linked', 'x.png']);
   assert.equal(await linked.resolve(root), null);
   assert.ok(await root.isSameEntry(fsa.directory(dir)));
+  // A browser that shows a link as nothing (hideLinks): left out of the listing, not found by its name —
+  // made or removed — and the target untouched; followed again once it is off (and after reset).
+  fsa.hideLinks();
+  const hidden = [];
+  for await (const [name] of root.entries()) hidden.push(name);
+  assert.deepEqual(hidden, ['b.txt']);
+  for (const call of [() => root.getDirectoryHandle('linked'), () => root.getDirectoryHandle('linked', { create: true }),
+    () => root.getFileHandle('linked', { create: true }), () => root.removeEntry('linked', { recursive: true })]) {
+    assert.equal(await errName(call()), 'NotFoundError');
+  }
+  assert.deepEqual(fs.readdirSync(outside), ['x.png']);
+  fsa.reset();
+  assert.equal((await root.getDirectoryHandle('linked')).kind, 'directory');
 });
 
 test('the hooks fail the calls asked for, and answer permission as told', async (t) => {

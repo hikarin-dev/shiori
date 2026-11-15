@@ -13,7 +13,8 @@
 //   taken away), TypeMismatchError (a file where a folder was asked for, or the reverse),
 //   InvalidModificationError (removeEntry of a folder that isn't empty, without `recursive`),
 //   NotAllowedError (no permission);
-// - a link (symbolic or a junction) is followed, as File System Access can't tell one from its target;
+// - a link (symbolic or a junction) is followed, as File System Access can't tell one from its target —
+//   or, while hideLinks() is on, hidden (a browser may show a link as nothing: Chrome wasn't checked);
 // - a handle put in IndexedDB (fake-indexeddb clones with structuredClone) comes back as a handle to
 //   the same place (install()).
 // What it does differently: getFile() reads the file whole at once (Chrome's File reads it later, and
@@ -29,7 +30,10 @@
 // - setPermission(path, state, { onRequest }): what queryPermission answers for the folder picked at
 //   `path` and everything in it ('granted', 'prompt', 'denied'), and what requestPermission turns it
 //   into; a call without permission fails with NotAllowedError;
-// - onCall(fn): `fn(call)` told of every call, for counting what was read or written.
+// - onCall(fn): `fn(call)` told of every call, for counting what was read or written;
+// - hideLinks(on): a link hidden from now on, as a browser that shows one as nothing would: a listing
+//   leaves it out, and a handle asked for by its name (made or not), or its removal, answers
+//   NotFoundError. Off by default, and again after reset().
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -46,6 +50,7 @@ let faults = [];
 const permissions = new Map();   // folder picked (its path) → { state, onRequest }
 /** @type {Set<(call: { op: string, path: string }) => void>} */
 const listeners = new Set();
+let hidden = false;   // links hidden (hideLinks)
 
 /** The next `times` calls `when` matches fail with a DOMException `name`. Resolves a function that
  * takes the fault back (it is taken back by itself once used up). */
@@ -54,8 +59,12 @@ export function failNext(when, name = 'NotReadableError', { times = 1 } = {}) {
   faults.push(fault);
   return () => { faults = faults.filter(f => f !== fault); };
 }
-/** No faults, every folder permitted, nobody listening, no call left hanging from now on. */
-export function reset() { faults = []; permissions.clear(); listeners.clear(); hangs.clear(); }
+/** No faults, every folder permitted, nobody listening, no call left hanging, links followed from now on. */
+export function reset() { faults = []; permissions.clear(); listeners.clear(); hangs.clear(); hidden = false; }
+/** Links hidden (`on`) or followed from now on. @param {boolean} [on] */
+export function hideLinks(on = true) { hidden = on; }
+// Whether `abs` is a link hidden now (hideLinks).
+const hiddenLink = async (/** @type {string} */ abs) => hidden && !!(await fsp.lstat(abs).catch(() => null))?.isSymbolicLink();
 /** @param {string} root @param {'granted' | 'prompt' | 'denied'} state
  * @param {{ onRequest?: () => 'granted' | 'prompt' | 'denied' }} [options] */
 export function setPermission(root, state, { onRequest = () => 'granted' } = {}) { permissions.set(path.resolve(root), { state, onRequest }); }
@@ -124,6 +133,7 @@ class DirectoryHandle extends Handle {
     if (call(this._at.root, abs, op)) await NEVER;
     try {
       if (!(await statOf(this._at.abs))?.isDirectory()) throw domError('NotFoundError', `${this._at.abs} is gone`);
+      if (await hiddenLink(abs)) throw domError('NotFoundError', `${abs} is a link, hidden`);
       const st = await statOf(abs);
       if (st && st.isDirectory() !== (kind === 'directory')) throw domError('TypeMismatchError', `${abs} is not a ${kind}`);
       if (!st) {
@@ -142,6 +152,7 @@ class DirectoryHandle extends Handle {
     const abs = path.join(this._at.abs, childName(name));
     if (call(this._at.root, abs, 'removeEntry')) await NEVER;
     try {
+      if (await hiddenLink(abs)) throw domError('NotFoundError', `${abs} is a link, hidden`);
       const st = await fsp.lstat(abs);
       if (st.isDirectory() || (st.isSymbolicLink() && (await statOf(abs))?.isDirectory())) {
         if (!recursive && (await fsp.readdir(abs)).length) throw domError('InvalidModificationError', `${abs} is not empty`);
@@ -155,6 +166,7 @@ class DirectoryHandle extends Handle {
     try { names = await fsp.readdir(this._at.abs); } catch (e) { throw asDom(e, 'entries'); }
     for (const name of names) {
       const abs = path.join(this._at.abs, name);
+      if (await hiddenLink(abs)) continue;
       const st = await statOf(abs);
       if (st) yield /** @type {[string, Handle]} */ ([name, st.isDirectory() ? new DirectoryHandle(this._at.root, abs) : new FileHandle(this._at.root, abs)]);
     }

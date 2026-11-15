@@ -588,13 +588,13 @@ async function _restoreDormant(folder) {
 //    (linked-source.js planTitles; an archive's from it, zipTitles), each with its fingerprint as it
 //    is now;
 // 2. joining: an own gallery the library hasn't is read where it lies (an archive in place, unpacked
-//    on its first change); one it keeps here whose place is gone (renamed, moved, packed or unpacked
-//    by hand or by another app) is read again where it is now — any other it has is a copy, left
-//    alone. Linked titles are matched with what the library keeps here and the overlays the folder
-//    holds (matchSources): one whose files changed is read again, one removed before stays out, and
-//    the rest join — one renamed or moved outside the app among them (plan D5: the gallery that was
-//    there shows as missing, _markMissing), an archive's new chapters as a series, a PDF once its
-//    pages are drawn;
+//    on its first change); one it keeps here or in another of its folders whose place is gone (renamed,
+//    moved, packed or unpacked by hand or by another app) is followed here, what waits of it going here
+//    too, and read again — any other it has is a copy, left alone. Linked titles are matched with what
+//    the library keeps here and the overlays the folder holds (matchSources): one whose files changed
+//    is read again, one removed before stays out, and the rest join — one renamed or moved outside the
+//    app among them (plan D5: the gallery that was there shows as missing, _markMissing), an archive's
+//    new chapters as a series, a PDF once its pages are drawn;
 // 3. comparing: galleries it keeps whose descriptions another app changed there are read again.
 // Every re-read is guarded where it commits: a gallery with changes of its own still to be written to
 // its folder, or pictures waiting in this browser, is left as it is (local changes win). A series
@@ -617,7 +617,7 @@ async function _check(id, { onProgress = () => {}, stopped = () => false } = {})
     throw new BackendError('unavailable', `library folder ${id} can't be reached`);
   }
   const run = { id, root, name: folder.name || '', stopped, known: new Set(await K.transferIds()), marked: await K.marked(), added: [], updated: new Set(),
-    problems: [], unreferenced: [] };
+    problems: [], unreferenced: [], followed: false };
   const kept = (await _placedIn(id)).filter(g => g.dir);
   const step = _steps(run, onProgress);
 
@@ -676,6 +676,8 @@ async function _check(id, { onProgress = () => {}, stopped = () => false } = {})
   // a few such looks didn't (review 6 F6, review 7 A1).
   if (!stopped()) await K.noteChecked(id, [...run.problems, ...run.unreferenced]).catch(() => {});
   if (!stopped()) await K.endUnfound(id, run.met, found.whole).catch(() => {});
+  // What waited of a gallery followed to its place now goes there, in the background (as at a page's start).
+  if (run.followed) K.settleFolders().catch(() => {});
   return { added: run.added.length, updated: run.updated.size, problems: run.problems, stopped: !!stopped() };
 }
 // The linked galleries kept here (`kept`) marked missing while their source isn't where it was —
@@ -829,8 +831,11 @@ const _entryText = async (entry) => new TextDecoder().decode(await entry.read())
 
 // A gallery in the gallery format found in the folder (`found`: a folder, an archive read in place,
 // or a series export's chapters — `inner` each one's folder in it) joined to the library. One the
-// library has is a copy, left alone and reported ('duplicate': O3, S10) — unless it keeps it in this
-// folder at a place that is gone: read again where it is now. One whose gallery was deleted, its folder
+// library has is a copy, left alone and reported ('duplicate': O3, S10) — unless it keeps it at a place
+// that is surely gone, in this folder or another of its own (renamed or moved there by hand, or packed,
+// unpacked or moved by another app: review 7 B3): followed here whatever waits of it (K.follow: what
+// waits then goes here, review 7 B5), then read again here unless something of it waits (local changes
+// win: _storeAdopted). One whose gallery was deleted, its folder
 // not where the deletion had it (or archived by the other app since: db.js _deleteDir), is deleted here
 // instead (F4); an archive a deletion left whole, as it
 // was left (removed.json: the person's files in it, F6), is left — as is every such archive while
@@ -858,22 +863,42 @@ async function _joinOwn(run, found, kept) {
       if (gid) { run.known.add(gid); run.added.push(gid); }
       return;
     }
-    const was = kept.find(g => String(g.galleryId) === found.id && !g.linked);
-    if (!was || _samePlace(was, found)) return;
+    const was = kept.find(g => String(g.galleryId) === found.id && !g.linked) ?? await _keptElsewhere(run, found.id);
+    if (!was || _samePlace(run, was, found)) return;
     if (await _there(run, was)) { run.problems.push({ path: found.path, reason: 'duplicate', gid: found.id }); return; }
-    if (await _adopt(run, found, { replace: found.id })) run.updated.add(found.id);
+    const read = await _readFormat(run.id, run.root, found);
+    if (galleryIdOf(read.texts['metadata.json']) !== found.id) return;   // described as another gallery now
+    const here = { folder: run.id, dir: found.path, inner: found.kind === 'zip' ? found.inner || '' : null };
+    if (!(await K.follow(found.id, _keptAt(was), here, read.ref))) return;   // its record changed meanwhile
+    run.updated.add(found.id);
+    run.followed = true;
+    await _adopt(run, found, { replace: found.id, read });
   } catch (e) { run.problems.push({ path: `${found.path}${found.inner ? `/${found.inner}` : ''}`, reason: _failure(e) }); }
+}
+// Gallery `gid`'s stat record where the library keeps it in another of its folders (one being removed
+// too), else null.
+async function _keptElsewhere(run, gid) {
+  const stat = await K.galleryGet(gid);
+  return stat?.folder && stat.folder !== run.id && stat.dir && !stat.linked && await K.folderById(stat.folder) ? stat : null;
 }
 // Why a gallery couldn't be read or joined, for `problems`: its files couldn't be read (_readFormat's
 // 'unreadable'), are damaged ('corrupt') or miss a file they name ('missing-file'), or it couldn't be
 // stored ('adopt-failed').
 const _failure = (e) => (['unreadable', 'corrupt', 'missing-file'].includes(e?.reason) ? e.reason : 'adopt-failed');
-const _samePlace = (stat, found) => stat.dir === found.path && (stat.packed?.inner || '') === (found.inner || '');
+const _samePlace = (run, stat, found) => stat.folder === run.id && stat.dir === found.path && (stat.packed?.inner || '') === (found.inner || '');
+// Where a gallery's stat record keeps it (K.follow's place).
+const _keptAt = (stat) => ({ folder: stat.folder, dir: stat.dir, inner: stat.packed ? stat.packed.inner || '' : null });
 // Whether a kept gallery's place is still there: its archive, or its folder naming it (galleryIn) — one
-// that can't be read is.
+// that can't be read is, and so is one in another folder that can't be read now (out of reach) or is out
+// of the library (hidden or being removed: nothing of it changes, the kernel's mount check), until it can
+// be and is shown.
 async function _there(run, stat) {
-  if (stat.packed) return folderFiles.readFile(run.id, run.root, stat.dir).then(Boolean, () => true);
-  const whose = await folderFiles.galleryIn(run.id, run.root, stat.dir, String(stat.galleryId));
+  const own = stat.folder === run.id;
+  const other = !own && await K.folderById(stat.folder);
+  const root = own ? run.root : other && mounted(other.state) ? await K.readRootOf(stat.folder) : null;
+  if (!root) return true;
+  if (stat.packed) return folderFiles.readFile(stat.folder, root, stat.dir).then(Boolean, () => true);
+  const whose = await folderFiles.galleryIn(stat.folder, root, stat.dir, String(stat.galleryId));
   return whose.kind === 'ok' || whose.kind === 'unreadable';
 }
 
@@ -936,10 +961,10 @@ const _entriesOf = (records) => new Map((Array.isArray(records) ? records : []).
 // Own gallery `found` (_readFormat's) joined to the library, its records referring to its files where
 // they lie — an archive's as its entries (`packed`: it stays an archive until its first change unpacks
 // it). Its page numbers are its pictures' (sparse ones kept) and its records its description's.
-// `replace`: a gallery the library keeps, read again from there. Resolves its id, or null when there
-// is nothing to read (or it wasn't read again: _storeAdopted).
-async function _adopt(run, found, { replace = null } = {}) {
-  const read = await _readFormat(run.id, run.root, found);
+// `replace`: a gallery the library keeps, read again from there; `read`, what was read of it there just
+// now. Resolves its id, or null when there is nothing to read (or it wasn't read again: _storeAdopted).
+async function _adopt(run, found, { replace = null, read = null } = {}) {
+  read ??= await _readFormat(run.id, run.root, found);
   const gid = replace || found.id;
   if (galleryIdOf(read.texts['metadata.json']) !== gid) return null;   // described as another gallery now
   const entries = _entriesOf(read.records);
@@ -1024,13 +1049,14 @@ async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, s
 // folder is its own now.
 async function _catchUp(run, stat) {
   const gid = String(stat.galleryId);
+  if (run.updated.has(gid)) return false;   // followed or read again by this check: `stat` is its place before
   if (!stat.packed) {
     const whose = await folderFiles.galleryIn(run.id, run.root, stat.dir, gid);
     if (whose.kind === 'conflict') run.problems.push({ path: stat.dir, reason: 'conflict', gid });
     if (whose.kind === 'unreadable') run.problems.push({ path: stat.dir, reason: 'unreadable' });
     if (whose.kind !== 'ok') return false;
   }
-  if (run.updated.has(gid) || K.busy(gid)) return true;
+  if (K.busy(gid)) return true;
   const where = stat.packed ? { kind: 'zip', path: stat.dir, inner: stat.packed.inner || '', id: gid } : { kind: 'dir', path: stat.dir, id: gid };
   let at;
   try { at = await _tokenAt(run, where, gid); } catch (e) { run.problems.push({ path: stat.dir, reason: e?.reason === 'corrupt' ? 'corrupt' : 'unreadable' }); return true; }

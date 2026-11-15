@@ -63,7 +63,9 @@ export function browserLibraryForMove() {
         count: byId.get(gid)?.count || 0 }));
     },
     ids: () => browserLibrary.transferIds(),
-    read: (gid) => browserLibrary.transferRead(gid),
+    // A picture in a library folder that can't be read now is given as false, never none (db.js
+    // transferRead `unread`): library-move.js leaves such a gallery for a later move.
+    read: (gid) => browserLibrary.transferRead(gid, { unread: false }),
     clear: () => browserLibrary.clearAll(),
   });
 }

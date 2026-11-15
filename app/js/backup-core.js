@@ -252,6 +252,11 @@ function galleryEntry(gid, { meta = null, stat = null, cover = null, pages = [],
   return { entry, pictures, missing };
 }
 
+// The pictures of gallery `gid`'s records (`records`: a library's transferRead, read with `unread:
+// false`) that couldn't be read now, as a backup lists them missing ([{ n?, part }]: galleryEntry) —
+// for whatever else carries a gallery whole (library-move.js), which never carries one without them.
+export const unreadPictures = (gid, records) => galleryEntry(gid, records).missing;
+
 // The gallery entry made final once its pictures are written: pages whose picture couldn't be read
 // leave it (listed as missing), as do pictures of its layers that couldn't be.
 function finishEntry(entry, missing) {

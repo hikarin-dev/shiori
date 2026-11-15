@@ -1764,6 +1764,69 @@ async function _relocateOnce(gid, to, tick, work, w) {
   return true;
 }
 
+// Gallery `gid` followed to where a check found its folder (or archive) — renamed or moved there by
+// hand, or packed, unpacked or moved there by another app while it held the library folder — from the
+// place its stat record has (`from`: { folder, dir, inner }) to `to` (the same; `inner` its folder in the
+// archive `dir`: '' for an archive of its own, null for a folder), under its lock (no write of its
+// pictures interleaves), in one transaction and only while its record still has it at `from`: its place
+// taken there, every file its records refer to at `from` referred to where it now lies (`refAt(rel)`: the
+// file at `rel` in the gallery's folder as the check read it there — or, one it didn't find, the reference
+// as recorded, moved along), and its files waiting to retire noted there (a folder to a folder: they
+// moved with it). Nothing of a folder is read or written here, and what waits of it stays — pictures in
+// this browser (`spilled`), changes not published (its mark) — to go to that place as they would have to
+// the one it left (review 7 B5): following a gallery is apart from reading it again, which waits for
+// them (folder-library.js _storeAdopted). Resolves whether it was followed.
+async function _follow(gid, from, to, refAt) {
+  return folderFiles.withLock(`shiori:gallery:${gid}`, async () => {
+    const db = await openDB();
+    let followed = false;
+    await new Promise((resolve, reject) => {
+      const tx = _tx(db, [STORE, GALLERY_STORE, COVER_STORE], 'readwrite');
+      tx._work = { kind: 'adopt', folder: to.folder };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(_txError(tx));
+      const stats = tx.objectStore(GALLERY_STORE), images = tx.objectStore(STORE), covers = tx.objectStore(COVER_STORE);
+      const stat = stats.get(gid);
+      const pages = images.index('galleryId').getAll(IDBKeyRange.only(gid));
+      const cover = covers.get(gid);
+      const there = (v) => _isPath(v) && !v.ro && v.folder === from.folder && v.dir === from.dir;
+      const moved = (v) => {
+        const rel = from.inner != null && v.$path.startsWith(from.inner) ? v.$path.slice(from.inner.length) : v.$path;
+        const found = refAt(rel);
+        if (found) return found;
+        const { zip, ...rest } = v;
+        return { ...rest, folder: to.folder, dir: to.dir, $path: `${to.inner ?? ''}${rel}`, ...(to.inner != null ? { zip: 1 } : {}) };
+      };
+      const repoint = (rec, kind) => {
+        let changed = false;
+        for (const [obj, key] of kind.slots(rec)) if (there(obj[key])) { obj[key] = moved(obj[key]); changed = true; }
+        return changed;
+      };
+      cover.onsuccess = () => {
+        const cur = stat.result;
+        if (!cur || cur.linked || cur.folder !== from.folder || cur.dir !== from.dir || (cur.packed ? cur.packed.inner || '' : null) !== from.inner) return;
+        for (const rec of pages.result || []) if (repoint(rec, PAGE)) images.put(rec);
+        if (cover.result && repoint(cover.result, COVER)) covers.put(cover.result);
+        const { packed, ...rest } = cur;
+        stats.put({ ...rest, folder: to.folder, dir: to.dir, ...(to.inner != null ? { packed: { inner: to.inner } } : {}) });
+        if (from.inner == null && to.inner == null) {
+          _retiringIn(tx, from.folder, from.dir, (list) => {
+            const notes = tx.objectStore(FOLDER_STORE);
+            for (const r of list) {
+              notes.delete(r.id);
+              notes.put({ ...r, id: `${_retiringPrefix(to.folder, to.dir)}${r.path}`, folder: to.folder, dir: to.dir });
+            }
+          });
+        }
+        _logIn(tx, gid, { mark: false });   // its place as it now is, in the library (the mount check)
+        followed = true;
+      };
+    });
+    if (followed) platform.control.send({ type: 'COVER_INVALIDATED', galleryId: gid });
+    return followed;
+  });
+}
+
 // What waits in this browser for the library's folders moved out to them, and the changes their folders
 // lack published there — for every folder this context may write to now (the write gate: pictures for a
 // hidden folder wait until it is shown, but what was committed before it was hidden is published there
@@ -1875,7 +1938,7 @@ const _folderLibrary = createFolderLibrary({
   deletions: _deletions, applyDeletions: _applyDeletions, forgetDeletions: _forgetDeletions, deletedFound: _deletedFound, endUnfound: _endUnfound,
   me: _me, myLabel: _myLabel, readClaim: _readClaim, writeClaim: _writeClaim, noteEpoch: _noteEpoch, randomId: _randomId,
   // the pictures' storage in folders
-  writing: _writing, replacePages: _replacePages, relocate: _relocate, reserveDir: _reserveDir, describe: _describe, cancelDescribe: _cancelDescribe,
+  writing: _writing, replacePages: _replacePages, relocate: _relocate, follow: _follow, reserveDir: _reserveDir, describe: _describe, cancelDescribe: _cancelDescribe,
   marked: _marked, patchStat: _patchStat, wantedDescriptions: _wantedDescriptions, textsOf: _textsOf,
   archiveOf: _archiveOf, typeOfName: _typeOfName, settleFolders,
 });

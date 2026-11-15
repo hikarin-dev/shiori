@@ -2,9 +2,12 @@
 // library when a site starts using the desktop app, or what was saved while it continued without
 // it. One gallery at a time in the full-backup record format, each checked once it lands (every
 // page it had is there); what has moved is noted as it goes, so a move cut short carries on where
-// it stopped. The browser keeps its copies until the person deletes them.
+// it stopped. The browser keeps its copies until the person deletes them. A gallery with a picture
+// that can't be read now (its library folder out of reach for a moment) doesn't move this time:
+// carried without it, the person could delete the browser's copy, the only one with it (S28b).
 import * as api from './api.js';
 import { checkInvariants } from './library-check.js';
+import { unreadPictures } from './backup-core.js';
 
 const JOURNAL_KEY = 'shiori:moveJournal';
 const JOURNAL_EVERY = 20;   // galleries between notes of progress (a gallery moved twice is moved alike)
@@ -46,6 +49,8 @@ export async function moveToDesktop(config, ids, { onProgress = () => {}, signal
           const bundle = await source.read(gid);
           // A page stored without a page number (long ago) can't be addressed in either library.
           bundle.pages = bundle.pages.filter(p => /\/\d+\.(webp|jpg|jpeg|png|gif|avif)$/i.test(String(p.url)));
+          const unread = unreadPictures(gid, bundle).length;
+          if (unread) throw new Error(`${unread} picture(s) couldn't be read`);
           await target.write({ galleryId: gid, ...bundle }, { silent: true });
           const there = new Set((await target.pages(gid)).map(p => p.url));
           const lost = bundle.pages.filter(p => /\/\d+\.\w+$/.test(String(p.url)) && !there.has(p.url));

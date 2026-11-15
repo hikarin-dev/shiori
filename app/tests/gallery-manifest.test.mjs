@@ -1,9 +1,10 @@
 // gallery-manifest.test.mjs — the shared rules of a gallery's deletion (storage/gallery-manifest.js,
-// plan principle 4): what it takes, in what order, and which descriptions are the gallery's; and when a
-// folder an earlier desktop version never described may be given its identity.
+// plan principle 4): what it takes, in what order, and which descriptions are the gallery's; when a
+// folder an earlier desktop version never described may be given its identity; and when an earlier
+// version's folder read back misses its pictures (readGallery).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { galleryDeletion, isOwnDescription, undescribedMatch, sha256Hex, foreignEntries } from '../js/storage/gallery-manifest.js';
+import { galleryDeletion, isOwnDescription, undescribedMatch, sha256Hex, foreignEntries, readGallery } from '../js/storage/gallery-manifest.js';
 
 const G = '1700000000001';
 const manifest = (sizes) => ({ format: 'shiori-gallery', version: 2, galleryId: G, generation: 3, writer: 'test',
@@ -63,4 +64,19 @@ test('S25b: a deletion met at the other kind of place than it recorded takes wha
   const entries = new Map([['images/0001.png', { size: 10 }], ['metadata.json', { size: 5 }]]);
   assert.deepEqual(foreignEntries(entries, archived, { met: true }), [], 'an archive the other app made of the gallery\'s folder');
   assert.deepEqual(foreignEntries(entries, null, { met: true }), ['images/0001.png', 'metadata.json'], 'one without a manifest: all of it the person\'s');
+});
+
+test('S28b: an earlier version\'s gallery of its own whose records name pages its folder shows no picture of misses them; one with no pages by design, and a linked overlay, don\'t', async () => {
+  const meta = JSON.stringify({ galleryId: G, title: { english: 'Old', japanese: '', pretty: '' } });
+  const records = JSON.stringify([{ url: `local://${G}/1.webp`, translated: true }, { url: `local://${G}/2.webp`, translated: false }]);
+  const read = (texts, pictures, area = '.shiori/', archive = false) => readGallery({ area, archive,
+    text: async (rel) => texts[rel] ?? null, files: new Map(pictures.map(p => [p, { size: 1 }])) });
+  const kind = async (...args) => (await read(...args)).kind;
+  assert.deepEqual(await read({ 'metadata.json': meta, 'image_records.json': records }, ['translated/0001.png']), { kind: 'missing-file', files: ['images/'] },
+    'no page picture shown, its records naming two');
+  assert.equal(await kind({ 'metadata.json': meta, 'image_records.json': records }, [], '.shiori/', true), 'missing-file', 'an archive alike');
+  assert.equal(await kind({ 'metadata.json': meta, 'image_records.json': records }, ['images/0001.webp']), 'ok', 'a page shown: read by v1\'s rules as before');
+  assert.equal(await kind({ 'metadata.json': meta }, []), 'ok', 'not downloaded yet: no image_records.json');
+  assert.equal(await kind({ 'metadata.json': meta, 'image_records.json': '[]' }, []), 'ok', 'no page in its image_records.json');
+  assert.equal(await kind({ 'metadata.json': meta, 'image_records.json': records }, [], ''), 'ok', 'a linked gallery\'s overlay: its pages\' pictures are its source\'s');
 });

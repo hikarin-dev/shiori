@@ -168,6 +168,10 @@ function plant(c, rel, text) {
   c.plants.set(at, text);
 }
 const dirOf = async (/** @type {Ctx} */ c, gid) => /** @type {string} */ (await c.lib.dirOf(gid));
+// Gallery alpha as it shows while its folder isn't where the library has it and no check has followed it
+// yet: page 3 alone, which waits, reads (its pages 1 and 2 none).
+const unfollowed = (/** @type {Ctx} */ c, /** @type {'A' | 'B'} */ place) => /** @type {State} */ ({ aIn: true,
+  galleries: { [c.g.alpha]: /** @type {G} */ (/** @type {any} */ ({ place, title: 'Alpha', pages: [null, null, [hex(png(3)), hex(png(3))]] })) } });
 
 /** The scenarios: `setup` (then flushed: committed and published), the expected state after it
  * (`state`), and the step's operations. `apps`: where it runs (both by default); `kinds`: the fault
@@ -842,6 +846,41 @@ const SCENARIOS = [
       op('delete Two', (c) => c.lib.deleteGallery(c.g.two), (s, c) => withChapters(without(s, c.g.two), c.g.one, [c.g.one, c.g.three]), 'two'),
       FLUSH, SETTLE,
     ],
+  },
+  // A gallery followed (review 7 B5, B3): its folder renamed, or moved into folder B, by hand, then a page put
+  // before any check (it waits: the desktop's in its staging, the website's in this browser). The step is the
+  // check that follows it, and what waited going there. Until a check follows it, it reads only what waited
+  // (`also`: before the stages' own check); from then on, whole and where it now is.
+  {
+    name: 'a gallery renamed by hand, followed with a page waiting',
+    async setup(c) {
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
+      await c.lib.putTranslation(c.g.alpha, 1, png(5));
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      await c.lib.flush();
+      fs.renameSync(path.join(c.A, 'Alpha'), path.join(c.A, 'Alpha by hand'));
+      await c.lib.putPage(c.g.alpha, 3, png(3));
+    },
+    state: (c) => withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2), png(3)]) } }, c.g.alpha, 1, png(5)),
+    also: (c, stage) => (stage === 'flush' ? [unfollowed(c, 'A')] : []),
+    ops: [CHECK, FLUSH, SETTLE],
+  },
+  {
+    name: 'a gallery moved by hand into another folder, followed with a page waiting',
+    sample: 0,
+    async setup(c) {
+      c.ids.B = await c.lib.add(c.B);
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
+      await c.lib.putTranslation(c.g.alpha, 1, png(5));
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      plant(c, 'B/mine.txt', 'another of the person\'s files');
+      await c.lib.flush();
+      fs.renameSync(path.join(c.A, 'Alpha'), path.join(c.B, 'Alpha'));
+      await c.lib.putPage(c.g.alpha, 3, png(3));
+    },
+    state: (c) => withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('B', 'Alpha', [png(1), png(2), png(3)]) } }, c.g.alpha, 1, png(5)),
+    also: (c, stage) => (stage === 'flush' ? [unfollowed(c, 'B')] : []),
+    ops: [op('check B', (c) => c.lib.scan(c.ids.B)), FLUSH, SETTLE],
   },
   {
     // The website without leave to use folder A: pictures wait in this browser, then go to the folder once
