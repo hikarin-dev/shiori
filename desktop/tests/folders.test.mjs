@@ -68,8 +68,9 @@ test('a new gallery goes to the default folder, staged there and settled into it
   await library.metaPut({ galleryId: gid, title: title('Second Home') });
   await library.pagePut(gid, 1, png(1));
   const staged = JSON.parse(library._pageRow(gid, 1).orig);
-  assert.match(staged.file, new RegExp(`^@${id}/${gid}/`), 'its page waits in the second folder\'s own staging');
-  assert.ok(fs.existsSync(path.join(other, '.shiori', 'staging', gid)));
+  // In the second folder's staging, in the library's own there (named by its id: review 7 B1).
+  assert.match(staged.file, new RegExp(`^@${id}/${library.primaryId}/${gid}/`), 'its page waits in the second folder\'s own staging');
+  assert.ok(fs.existsSync(path.join(other, '.shiori', 'staging', library.primaryId, gid)));
   await library.files.place(gid);
   assert.equal(row(library, gid).path, `@${id}/Second Home`);
   assert.ok(fs.existsSync(path.join(other, 'Second Home', 'images', '0001.png')));
@@ -446,7 +447,7 @@ test('a folder is claimed by the app that adds it: another app asks first, the a
   assert.equal(await reason(library.pagePut(gid, 3, png(3, 7))), 'not-owned', 'a page of a gallery the folder holds is refused');
   const fresh = await gallery(library, 'Made Meanwhile', 1);
   assert.ok(!fs.existsSync(path.join(other, 'Made Meanwhile')), 'a new gallery\'s page waits, staged');
-  assert.ok(!fs.existsSync(path.join(other, '.shiori', 'staging', fresh)), 'in the library\'s own staging, not the folder\'s');
+  assert.ok(!fs.existsSync(path.join(other, '.shiori', 'staging', library.primaryId, fresh)), 'in the library\'s own staging, not the folder\'s');
   assert.deepEqual([await reason(library.folderScan(id)), await reason(library.moveGallery(gid, library.primaryId)), await reason(library.folderSetDefault(id))],
     ['taken', 'taken', 'taken']);
   assert.equal((await library.rescan()).added.length, 0);

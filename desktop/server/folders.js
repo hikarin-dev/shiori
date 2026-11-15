@@ -63,7 +63,6 @@ CREATE TABLE IF NOT EXISTS attention (root TEXT NOT NULL, reason TEXT NOT NULL, 
 // among them).
 const UNMOUNTED = `CREATE VIEW IF NOT EXISTS unmounted AS
   SELECT gid, root FROM places WHERE root NOT IN (SELECT id FROM roots WHERE state = 'shown')`;
-const CLAIM_TTL = 5000;   // how long a folder's claim, as read, is taken as it is
 const IDENTITY_TTL = 2000;   // how long which folder a path holds, as read for reading, is taken as it is
 
 // A moment for the windows' requests: long work on a folder waits for it every so often.
@@ -76,7 +75,7 @@ const within = (a, b) => { const rel = path.relative(b, a); return rel === '' ||
 export class Folders {
   constructor(library) {
     this.library = library;
-    this._probes = new Map();    // id → { read, access, at }: its claim as last read (for CLAIM_TTL)
+    this._probes = new Map();    // id → { read, access, at }: its claim as last read (for folder-owner.js CLAIM_TTL_MS)
     this._ids = new Map();       // id → { status, path, failures, at }: which folder its path held, as last read (_identity)
     this._jobs = new Map();      // id → the job in its queue: { kind, stop, cancel, phase, run }
     this._removed = new Map();   // id → its removed.json's last write (publishRemoved: one at a time)
@@ -312,29 +311,34 @@ export class Folders {
 
   // Whether folder `id` can be reached now (looked at every time: a drive goes at any moment) and, when
   // it can, which app keeps it: `access` (folder-owner.js — 'mine', 'taken' or 'unknown') and the claim
-  // as read (`read`), read again at most every few seconds. One no app holds (or this library let go
+  // as read (`read`), read again once CLAIM_TTL_MS has passed. One no app holds (or this library let go
   // itself, untouched since) is claimed now — written, then read back; one that can't be is not this
-  // library's. A folder is reached only where its path holds it (_identity, read afresh for every
-  // probe: each change to a folder's files is weighed by one): another folder there — a drive letter or
-  // mount point given to another disk, the folder replaced — is not it (`identity` 'other-library'),
-  // and is neither claimed, read as it, nor written to (F01, T01).
+  // library's. A claim whose read failed (readClaim `unread`) is kept for no time, as an identity out of
+  // reach is: the next probe reads it again, so one failure refuses only the call it met (C1). A folder
+  // is reached only where its path holds it (_identity, read afresh for every probe: each change to a
+  // folder's files is weighed by one): another folder there — a drive letter or mount point given to
+  // another disk, the folder replaced — is not it (`identity` 'other-library'), and is neither claimed,
+  // read as it, nor written to (F01, T01).
   probe(id, { fresh = false } = {}) {
     const row = this._row(id);
     const identity = row ? this._identity(row, { fresh: true }) : 'unavailable';
     if (identity !== 'ok') return { reachable: false, access: null, read: null, identity };
     let hit = this._probes.get(row.id);
-    if (fresh || !hit || Date.now() - hit.at >= CLAIM_TTL) {
+    if (fresh || !hit || Date.now() - hit.at >= claims.CLAIM_TTL_MS) {
       hit = { ...this._access(row), at: Date.now() };
-      this._probes.set(row.id, hit);
+      if (hit.read?.unread) this._probes.delete(row.id); else this._probes.set(row.id, hit);
     }
     return { reachable: true, access: hit.access, read: hit.read, identity };
   }
-  // Whether the library knows another app holds folder `id` (its claim as last read: probe's, no file
-  // call) — what the commit gate weighs (library.js _heldCheck): a folder not read yet, or out of reach
-  // when it was, isn't known to be.
+  // Whether the library knows another app holds folder `id` — what the commit gate weighs (library.js
+  // _heldCheck): its claim as last read (probe's), weighed by folder-owner.js heldElsewhere — knowledge
+  // only: a folder not read yet, one out of reach, a claim that couldn't be read or names no app, are no
+  // knowledge. A read older than the claim's time to live is made again first (probe: at most one read
+  // per time to live, none for a change inside it), so the gate never refuses, nor accepts, on an old one.
   heldElsewhere(id) {
-    const hit = this._probes.get(String(id));
-    return !!hit && hit.access !== 'mine';
+    const seen = () => { const hit = this._probes.get(String(id)); return hit && { read: hit.read, owned: hit.access === 'mine', at: hit.at }; };
+    if (claims.heldElsewhere(seen()) === 'stale') this.probe(String(id));
+    return claims.heldElsewhere(seen()) === 'held';
   }
   // Whether folder `row`'s path holds that folder now (_identity, read afresh).
   _here(row) { return this._identity(row, { fresh: true }) === 'ok'; }

@@ -3279,6 +3279,109 @@ export const CASES = [
       }
     },
   },
+  // ── The commit gate weighs knowledge only (S29b: C1) ──
+  {
+    // C1 (the coordinator, verifying S29a; both apps): the commit gate — one app changes a folder's galleries
+    // at a time — took a claim that couldn't be read for another app's. One failed read of .shiori/owner.json,
+    // nobody else on the folder, and the person's next changes to its published galleries were refused "This
+    // folder is in use by another app." — on the website for a few seconds, on the desktop until a write read
+    // the claim again — a download or a translation under way ending failed. A claim that couldn't be read is
+    // no knowledge: nothing is refused for it, and everything reaches the folder.
+    name: 'S29b C1: one failed read of a folder\'s claim, nobody else on it, refuses no change — a download under way, a translation, a title, a deletion — and all of it reaches the folder',
+    async run({ dir, fx, platform }) {
+      const kinds = platform === 'desktop' ? ['EIO', 'EPERM', 'ENOENT'] : ['NotReadableError', 'NoModificationAllowedError', 'NotFoundError', 'NotAllowedError'];
+      const said = (/** @type {Promise<unknown>} */ p) => p.then(() => 'resolved', (/** @type {any} */ e) => e?.reason || e?.code || String(e));
+      for (const [i, kind] of kinds.entries()) {
+        const name = `A${i}`;
+        const ref = await fx.register(name);
+        const gid = await fx.lib.newGallery('Alpha'), doomed = await fx.lib.newGallery('Beta');
+        for (let n = 1; n <= 2; n++) await fx.lib.putPage(gid, n, png(i, n));
+        await fx.lib.putPage(doomed, 1, png(i, 9));
+        await fx.lib.flush();
+        const at = /** @type {string} */ (await fx.lib.dirOf(gid)), gone = /** @type {string} */ (await fx.lib.dirOf(doomed));
+        // The claim as last read forgotten (the desktop's probes; the website's grants, which a change of the
+        // default forgets), so the next change reads it — and that read fails, once.
+        if (platform === 'desktop') fx.lib.raw.folders._probes.clear(); else await fx.lib.setDefault(fx.lib.home);
+        let n = 0;
+        const claimRead = (/** @type {{ op: string, path: string }} */ c) => (platform === 'desktop' ? c.op === 'readFile' && c.path.endsWith(`/${name}/.shiori/owner.json`)
+          : c.path === '.shiori/owner.json' && (c.op === 'getFileHandle' || c.op === 'getFile'));
+        const undo = (platform === 'desktop' ? faults : fsa).failNext((c) => claimRead(c) && ++n === 1, kind, { times: Infinity });
+        const answers = [];
+        try {
+          for (let p = 3; p <= 5; p++) answers.push(await said(fx.lib.putPage(gid, p, png(i, p))));   // a download under way
+          answers.push(await said(fx.lib.putTranslation(gid, 1, png(i, 71))));
+          answers.push(await said(fx.lib.setTitle(gid, 'Alpha, retitled')));
+          answers.push(await said(fx.lib.deleteGallery(doomed)));
+        } finally { undo(); }
+        assert.ok(n >= 1, `${kind}: the claim was read, and that read failed`);
+        assert.deepEqual(answers, Array(6).fill('resolved'), `${kind}: nothing refused`);
+        for (let k = 0; k < 2; k++) { await fx.lib.flush(); await new Promise(r => setTimeout(r, 200)); }
+        assert.deepEqual((await fx.lib.scan(ref.id)).problems, [], `${kind}: a check reports nothing`);
+        const manifest = JSON.parse(fs.readFileSync(path.join(at, '.shiori', 'gallery.json'), 'utf8'));
+        assert.deepEqual([Object.keys(manifest.files.pages).sort(), !!manifest.files.pages[1].translated], [['1', '2', '3', '4', '5'], true], `${kind}: every page and the translation in the folder`);
+        assert.equal(JSON.parse(fs.readFileSync(path.join(at, 'metadata.json'), 'utf8')).title.english, 'Alpha, retitled', `${kind}: the title too`);
+        assert.equal(fs.existsSync(gone), false, `${kind}: the gallery deleted is gone from the folder`);
+        assert.deepEqual([await fx.lib.read(gid, 5), await fx.lib.read(gid, 1, 'translated')], [png(i, 5), png(i, 71)], `${kind}: they read`);
+        await fx.lib.setDefault(fx.lib.home);
+        await fx.lib.remove(ref.id);
+      }
+    },
+  },
+  {
+    // C1's other half: a refusal never rests on a read of the claim older than its time to live (folder-owner.js
+    // CLAIM_TTL_MS) — the other app let the folder go, and a change that writes no file (a title) is accepted
+    // without the person opening Settings, waiting until the folder is taken back (on `4211111` it was refused
+    // for as long as nothing read the claim again); and a claim damaged for good is no knowledge either: the
+    // folder is listed as used elsewhere, changes are accepted and wait (a deletion, which can't wait, is
+    // refused as for any folder that can't be written: D3), and "Take back" ends it — all of it reaches the
+    // folder then.
+    name: 'S29b C1: a refusal never rests on an old read of the claim — once the other app let the folder go a title is accepted and waits for the take-back; a claim damaged for good refuses no change either, and "Take back" ends it',
+    async run({ dir, fx, platform }) {
+      const said = (/** @type {Promise<unknown>} */ p) => p.then(() => 'resolved', (/** @type {any} */ e) => e?.reason || e?.code || String(e));
+      const claimFile = (/** @type {string} */ name) => path.join(dir, name, '.shiori', 'owner.json');
+      const titleThere = (/** @type {string} */ at) => JSON.parse(fs.readFileSync(path.join(at, 'metadata.json'), 'utf8')).title.english;
+      const access = async (/** @type {string} */ id) => (await fx.lib.list()).find(f => f.id === id)?.access;
+      // The other app let go: its claim released (no app holds the folder), past the claim's time to live.
+      const A = await fx.register('A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 2; n++) await fx.lib.putPage(gid, n, png(1, n));
+      await fx.lib.flush();
+      const at = /** @type {string} */ (await fx.lib.dirOf(gid));
+      await fx.takeOver(A);
+      assert.equal(await access(A.id), 'taken', 'shown as used elsewhere');
+      assert.equal(await said(fx.lib.setTitle(gid, 'Alpha 1')), 'not-owned', 'refused while the other app holds it (S29a)');
+      fs.writeFileSync(claimFile('A'), JSON.stringify({ ...JSON.parse(fs.readFileSync(claimFile('A'), 'utf8')), owner: null, at: Date.now() }));
+      await new Promise(r => setTimeout(r, 5300));
+      assert.equal(await said(fx.lib.setTitle(gid, 'Alpha 2')), 'resolved', 'the other app let it go: accepted on a fresh read');
+      assert.equal(await said(fx.lib.putTranslation(gid, 1, png(1, 71))), 'resolved', 'a translation too');
+      await fx.lib.flush();
+      assert.equal(titleThere(at), 'Alpha', 'it waits: the folder is taken back by hand');
+      assert.equal(await fx.lib.raw.folderClaim(A.id), 'granted', 'taken back');
+      for (let k = 0; k < 2; k++) { await fx.lib.flush(); await new Promise(r => setTimeout(r, 200)); }
+      assert.deepEqual([titleThere(at), await fx.lib.read(gid, 1, 'translated'), (await fx.lib.scan(A.id)).problems], ['Alpha 2', png(1, 71), []], 'published at the take-back');
+      // A claim damaged for good: changes accepted and waiting, the folder shown as used elsewhere.
+      const B = await fx.register('B');
+      const beta = await fx.lib.newGallery('Beta'), doomed = await fx.lib.newGallery('Doomed');
+      for (let n = 1; n <= 2; n++) await fx.lib.putPage(beta, n, png(2, n));
+      await fx.lib.putPage(doomed, 1, png(2, 9));
+      await fx.lib.flush();
+      const there = /** @type {string} */ (await fx.lib.dirOf(beta));
+      fs.writeFileSync(claimFile('B'), '{ "format": "shiori-owner", "owner": ');   // cut, or edited by hand
+      if (platform === 'desktop') fx.lib.raw.folders._probes.clear(); else await fx.lib.setDefault(B.id);
+      assert.deepEqual([await said(fx.lib.putPage(beta, 3, png(2, 3))), await said(fx.lib.putTranslation(beta, 1, png(2, 72))), await said(fx.lib.setTitle(beta, 'Beta 2'))],
+        ['resolved', 'resolved', 'resolved'], 'changes accepted');
+      assert.notEqual(await said(fx.lib.deleteGallery(doomed)), 'resolved', 'a deletion refused: its folder can\'t be written now (D3)');
+      await fx.lib.flush();
+      assert.equal(await access(B.id), 'taken', 'shown as used elsewhere, with "Take back"');
+      assert.deepEqual([titleThere(there), fs.existsSync(path.join(there, 'translated'))], ['Beta', false], 'nothing written there meanwhile');
+      assert.deepEqual([await fx.lib.read(beta, 3), await fx.lib.read(beta, 1, 'translated')], [png(2, 3), png(2, 72)], 'what waits reads');
+      assert.equal(await fx.lib.raw.folderClaim(B.id), 'granted', '"Take back" ends it');
+      for (let k = 0; k < 2; k++) { await fx.lib.flush(); await new Promise(r => setTimeout(r, 200)); }
+      const manifest = JSON.parse(fs.readFileSync(path.join(there, '.shiori', 'gallery.json'), 'utf8'));
+      assert.deepEqual([titleThere(there), Object.keys(manifest.files.pages).sort(), !!manifest.files.pages[1].translated, (await fx.lib.scan(B.id)).problems],
+        ['Beta 2', ['1', '2', '3'], true, []], 'all of it in the folder then');
+    },
+  },
 ];
 const same =(/** @type {Uint8Array | null} */ a, /** @type {Uint8Array} */ b) => !!a && a.length === b.length && a.every((x, i) => x === b[i]);
 

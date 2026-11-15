@@ -39,7 +39,7 @@ import { FileLibrary, libraryId, sourceToken } from './files.js';
 import { Folders } from './folders.js';
 import { WriteMeter } from './writes.js';
 import * as linked from './linked.js';
-import { dropWaiting } from './scan.js';
+import { dropWaiting, followUnpacked } from './scan.js';
 
 const { planAttach, planRemove, planReorder, planChapterTitle, planWrite, planDelete, planDeleteSeries, planRelink } = plans;
 const { isSeriesMeta, effectiveTagsOf, LANG_NAME_TO_CODE, uploadDateSeconds } = model;
@@ -683,12 +683,13 @@ export class Library {
       if (!disk.existsSync(root)) throw new BackendError('unavailable', `${root} can't be reached`);
       await this._mkdir(dir);
     };
-    await mkdir();
     try {
+      await mkdir();
       await disk.writeFile(abs, bytes);
     } catch (e) {
       if (e.code !== 'ENOENT') throw e;
-      // Its folder was cleared just now, emptied by the gallery's last settle (files.js _unstage).
+      // Its folder (or the library's own in the folder's staging) was cleared just now, emptied by a
+      // gallery's last settle (files.js _unstage), as it was being made or written into.
       this._dirs.delete(dir);
       await mkdir();
       await disk.writeFile(abs, bytes);
@@ -823,16 +824,19 @@ export class Library {
   }
   // Refused (BackendError 'unavailable', reason 'not-owned', `folder` its id, as a deletion is refused
   // there): a change to what gallery `gid`'s folder holds, while the library knows another app holds that
-  // folder (folders.js heldElsewhere: its claim as last read, no file call) and the folder holds the
-  // gallery as published (its stamp: gallery-manifest.js published) — one app changes a folder's
-  // galleries at a time (folder-lifecycle.js changeRefusal; the website's _logIn alike). A gallery only
+  // folder (folders.js heldElsewhere: a claim read within its time to live naming another app — read again
+  // first when its last read is older) and the folder holds the gallery as published (its stamp:
+  // gallery-manifest.js published) — one app changes a folder's galleries at a time
+  // (folder-lifecycle.js changeRefusal; the website's _logIn alike). Asked only of a change that would be
+  // weighed (no file call for the folder's own work, nor for a gallery never published). A gallery only
   // this library has (made meanwhile, never published there) keeps working: what it gets waits, staged,
   // as for a folder out of reach. Reading it, and the person's own marks, are no change of its folder.
   _heldCheck(gid) {
     const root = this._s('SELECT root FROM places WHERE gid = ?').get(String(gid))?.root;
     if (!root) return;
     const held = format.published(this._s('SELECT stamp FROM stamps WHERE gid = ?').get(String(gid))?.stamp);
-    const why = lifecycle.changeRefusal({ state: 'shown', work: root === this._folderWork.getStore(), change: true, taken: this.folders.heldElsewhere(root), held });
+    const work = root === this._folderWork.getStore();
+    const why = lifecycle.changeRefusal({ state: 'shown', work, change: true, taken: held && !work && this.folders.heldElsewhere(root), held });
     if (why) throw Object.assign(new BackendError('unavailable', `gallery ${gid} is in a library folder another app is using`), { reason: why, folder: root });
   }
 
@@ -855,6 +859,9 @@ export class Library {
   // Gallery `gid`'s changes waiting here dropped for the generation another app published in its folder
   // since (scan.js dropWaiting: the folder's version stands). Resolves whether they were.
   _dropWaiting(gid) { return dropWaiting(this, gid); }
+  // Archived gallery `gid` followed to the folder at `rel` beside its archive, naming it at a later
+  // generation (scan.js followUnpacked: an unpack cut short, review 7 B6). Resolves whether it was.
+  _followUnpacked(gid, rel) { return followUnpacked(this, gid, rel); }
 
   // `fn`, and everything it awaits or starts, as folder `root`'s own work (folders.js: a check adopting
   // what it holds, its removal writing back, moving out and forgetting, what earlier versions kept of
@@ -990,22 +997,30 @@ export class Library {
   rootDir(id) { return this.folders.dir(id); }
   defaultRoot() { return this.folders.defaultRoot(); }
   activeRoots() { return this.folders.activeRoots(); }
+  // Library folder `id`'s staging: what libraries sharing the folder set aside there for its galleries —
+  // each in a folder of its own, named by its id (_ownStagingOf: review 7 B1), and, staged before S29b,
+  // at its top (`<gid>/…`, whose library can't be told).
   _stagingOf(id) { return id === this.primaryId ? this.stagingDir : path.join(this.folders.dir(id), '.shiori', 'staging'); }
-  // Where pages wait as they arrive: the library's own staging, and that of each folder it may write to.
-  stagingDirs() { return [this.dataStagingDir, ...this.folders.ids().filter(id => this.folders.writable(id)).map(id => this._stagingOf(id))]; }
+  // This library's own in it, named by its id — its first folder's, which is the library's (primaryId):
+  // the same however often its index is made again, never another library's.
+  _ownStagingOf(id) { return path.join(this._stagingOf(id), this.primaryId); }
+  // Where pages this library stages wait as they arrive: its own staging, and its own in each folder it
+  // may write to (_ownStagingOf) — never another library's there.
+  stagingDirs() { return [this.dataStagingDir, ...this.folders.ids().filter(id => this.folders.writable(id)).map(id => this._ownStagingOf(id))]; }
   // Whether gallery `gid` is out of the library (placed in a folder hidden or being removed): nothing
   // reads it meanwhile — pages, counts, search, tags, stats, series — nor writes to it (_logIn); it
   // still counts as one the library has (a source it came from, an import of it).
   unmounted(gid) { return !!this._s('SELECT 1 FROM unmounted WHERE gid = ?').get(String(gid)); }
 
-  // A staged file of gallery `gid` (`name` in its folder in staging): `<gid>/<name>` in the staging of
-  // the library folder it goes to — `@<id>/<gid>/<name>` in another than the first — or, while that
-  // folder can't be written to (another app's, out of reach), `~data/<gid>/<name>` in the library's own
-  // staging, moved into the folder once it can be.
+  // A staged file of gallery `gid` (`name` in its folder in staging): `<library id>/<gid>/<name>` in the
+  // staging of the library folder it goes to, in this library's own there (_ownStagingOf) — named
+  // `@<id>/<library id>/<gid>/<name>` in another than the first — or, while that folder can't be written to
+  // (another app's, out of reach), `~data/<gid>/<name>` in the library's own staging, moved into the
+  // folder once it can be. One named before S29b (`<gid>/<name>`, at the top of the folder's staging) is
+  // read and placed where its name has it (_staged), as ever.
   _stagedName(gid, name) {
     const root = this.files.rootFor(gid);
-    const rest = `${gid}/${name}`;
-    return this.folders.writable(root) ? this.files._join(root, rest) : `${DATA_STAGED}${rest}`;
+    return this.folders.writable(root) ? this.files._join(root, `${this.primaryId}/${gid}/${name}`) : `${DATA_STAGED}${gid}/${name}`;
   }
   // Where a staged file is. (One of a folder no longer in the library, or that can't be reached as
   // itself now — folders.js reach — a path that isn't there.)
@@ -1015,6 +1030,19 @@ export class Library {
     const dir = data ? this.dataStagingDir : this.folders.reach(root).status === 'ok' ? this._stagingOf(root) : path.join(this.dataDir, 'gone');
     const abs = path.resolve(dir, rest);
     return abs.startsWith(dir + path.sep) ? abs : path.join(this.dataDir, 'gone', 'outside');
+  }
+  // Whether staged file `file` was named before S29b: at the top of its library folder's staging
+  // (`<gid>/<name>`), not in this library's own there.
+  _stagedBefore(file) { return !String(file).startsWith(DATA_STAGED) && this.files._split(file).rest.split('/').length === 2; }
+  // Where a staged file is as the index has it, whatever is there now — for telling files apart (scan.js
+  // removeOrphans' files to keep), never for I/O: through its library folder's registered path, so a look
+  // that finds the folder away for a moment never takes the file for another (S29b, found by its sweep).
+  _stagedKey(file) {
+    if (String(file).startsWith(DATA_STAGED)) return path.resolve(this.dataStagingDir, String(file).slice(DATA_STAGED.length));
+    const { root, rest } = this.files._split(file);
+    if (!this.folders.has(root)) return null;
+    const dir = root === this.primaryId ? this.stagingDir : path.join(this.folders.path(root), '.shiori', 'staging');
+    return path.resolve(dir, rest);
   }
   // A staged file deleted once the transaction commits — but not one in the staging of a folder that
   // can't be written to now (a check of it, once it can be, finds it left over: scan.js removeOrphans).
@@ -2178,8 +2206,12 @@ export class Library {
 
   // Everything in the library, cleared in one step (Settings → clear everything). Its folders stay
   // its own; what is in them is deleted only where the library may write (files.js clearIn,
-  // stagingDirs): not in a folder another app keeps, hidden, or out of reach.
+  // stagingDirs): not in a folder another app keeps, hidden, or out of reach — and of their staging,
+  // only this library's own (another library's there is never its to clear: review 7 B1), and what it
+  // staged before S29b by name.
   async clearAll() {
+    const named = [...this._s(`SELECT orig FROM pages WHERE json_extract(orig, '$.at') = 's'`).all().map(r => parse(r.orig).file), ...this._s('SELECT file FROM staged_own').all().map(r => r.file)]
+      .filter(file => String(file).startsWith(DATA_STAGED) || this.folders.writable(this.files._split(file).root)).map(file => this._staged(file));
     this._tx(() => {
       this.files.clearIn();   // first: what each gallery recorded writing is read from its pages
       for (const table of ['meta', 'meta_tags', 'stats', 'pages', 'covers', 'icons', 'places', 'personal']) this._s(`DELETE FROM ${table}`).run();
@@ -2188,6 +2220,7 @@ export class Library {
     });
     this._dirs.clear();
     await this._clearCache();
+    for (const file of named) await disk.rm(file, { force: true }).catch(() => {});
     for (const dir of this.stagingDirs()) {
       for (const name of await disk.readdir(dir).catch(() => [])) await disk.rm(path.join(dir, name), { recursive: true, force: true }).catch(() => {});
     }

@@ -6,7 +6,8 @@
 // The claim's counter (`epoch`) changes with every app that claims it and never repeats, so an app
 // adding back a folder it removed can tell whether another app had it meanwhile — what it kept of it
 // then is out of date. Claims fail closed: a claim file that can't be read, or isn't a claim, means
-// the folder's keeper can't be checked, and nothing is written there until it is taken back by hand.
+// the folder's keeper can't be checked, and nothing is written there until it is taken back by hand —
+// but it is no knowledge that another app holds it either: no change is refused for it (heldElsewhere).
 // Pure: the browser library (db.js) and the desktop app's (server/folders.js) read and write the
 // file. An app is known by its own id (a random one, kept where its library is) and described by
 // `by`: { app: 'desktop', host } or { app: 'web', browser, site }.
@@ -19,17 +20,19 @@ export const OWNER_FILE = '.shiori/owner.json';
 // value — the error the read failed with):
 // - { state: 'absent' }: no file, or one holding nothing (folder-content.js holdsNothing: a first claim's
 //   write cut short): no app claimed the folder (or its claim was deleted);
-// - { state: 'damaged' }: a file that isn't a whole claim, or couldn't be read: its keeper can't be
-//   checked;
+// - { state: 'damaged' }: a file that isn't a whole claim, or couldn't be read (`unread`: the read
+//   failed — what a moment's failure answers, kept for no time: the next look reads it again): its
+//   keeper can't be checked;
 // - { state: 'claim', owner (an app's id, or null once released), by, at, epoch }.
 /** @typedef {{ owner: string | null, by: Record<string, unknown> | null, at: number, epoch: number }} Claim */
-/** @typedef {{ state: 'absent' } | { state: 'damaged' } | ({ state: 'claim' } & Claim)} ClaimRead */
+/** @typedef {{ state: 'absent' } | { state: 'damaged', unread?: boolean } | ({ state: 'claim' } & Claim)} ClaimRead */
 /** @param {unknown} text @returns {ClaimRead} */
 export function readClaim(text) {
   if (text === null || holdsNothing(text)) return { state: 'absent' };
+  if (typeof text !== 'string') return { state: 'damaged', unread: true };
   /** @type {any} JSON of any shape, checked field by field below */
   let c;
-  try { c = typeof text === 'string' ? JSON.parse(text) : null; } catch {}
+  try { c = JSON.parse(text); } catch {}
   const owner = c?.owner === null || (typeof c?.owner === 'string' && c.owner) ? c.owner : undefined;
   if (c?.format !== 'shiori-owner' || owner === undefined || !Number.isSafeInteger(c.epoch) || c.epoch < 0 || !Number.isFinite(c.at)) {
     return { state: 'damaged' };
@@ -50,6 +53,25 @@ export function access(read, me, held) {
   if (read.state !== 'claim') return 'unknown';
   if (read.owner === me) return 'mine';
   return read.owner == null && held != null && read.epoch === held ? 'free' : 'taken';
+}
+
+// How long a claim, as read, is taken as it is: what an app weighs it by meanwhile, without reading it
+// again — the desktop's every write, both apps' commit gates.
+export const CLAIM_TTL_MS = 5000;
+// What a folder's claim as last read (`seen`: { read — readClaim's — owned — whether it is this app's
+// (access 'mine') — at — when it was read, in ms }, or none) tells the commit gate (folder-lifecycle.js
+// changeRefusal: one app changes a folder's galleries at a time) of another app holding the folder, at
+// `now`: 'held' (a claim read within CLAIM_TTL_MS that names another app as holding it: the gate's one
+// knowledge of it), 'stale' (any claim read longer ago: to be read again before it is weighed — a refusal
+// never rests on it, nor does an acceptance where it can be read again at once), or null (no knowledge:
+// none read, one that couldn't be read or isn't a claim, one no app holds — let go — or this app's own).
+// A change the gate doesn't refuse for want of knowledge waits as for a folder out of reach: writes stay
+// fail closed (access, writeAllowed).
+/** @param {{ read: ClaimRead | null, owned: boolean, at: number } | null | undefined} seen @param {number} [now] @returns {'held' | 'stale' | null} */
+export function heldElsewhere(seen, now = Date.now()) {
+  if (!seen) return null;
+  if (now - seen.at >= CLAIM_TTL_MS) return 'stale';
+  return !seen.owned && seen.read?.state === 'claim' && seen.read.owner != null ? 'held' : null;
 }
 
 // App `me` (described by `by`) claiming a folder claimed as `read`: { claim, changed } — the claim to

@@ -31,7 +31,7 @@ import { LINKED_DIR, SOURCE_FILE, REMOVED_FILE, IMAGE_NAME, ARCHIVE_NAME, overla
   folderPrint, folderContent, crcHex, metaFromName, planTitles, zipTitles, sortPictures, linkedPages, keepsDerived, sameSource, sameProvenance,
   pdfReady, pdfWaits, matchSources, PDF_HEAD, pdfPrint, drawnFrom, isDrawing } from './storage/linked-source.js';
 import { DESCRIPTION_FILES, descriptionStamp, layoutPath, extOfType, describedFiles, derivedRecord } from './storage/gallery-files.js';
-import { PICTURE_DIRS, readGallery, parseManifest, tokenOf, namedPictures, othersSince } from './storage/gallery-manifest.js';
+import { PICTURE_DIRS, readGallery, parseManifest, tokenOf, namedPictures, othersSince, supersedes } from './storage/gallery-manifest.js';
 import { withoutPersonal } from './storage/personal.js';
 import { sha256Hex } from './zip-read.js';
 import { uploadDateSeconds } from './gallery-model.js';
@@ -45,7 +45,7 @@ export function createFolderLibrary(kernel) {
   K = kernel;
   return { foldersList, foldersWaiting, folderAdd, folderClaim, folderSetDefault, folderAllow, folderHide, folderShow,
     folderRemove, folderSetAside, foldersPending, folderScan, folderDismiss, pdfsWaiting, pdfSource, addRendered, pdfFailed, leftBehind, fingerprintNow,
-    dropWaiting };
+    dropWaiting, followUnpacked };
 }
 
 // An item of folder `id`'s Needs attention list ({ reason, path }) put away: a check that finds it
@@ -867,18 +867,73 @@ async function _joinOwn(run, found, kept) {
       if (gid) { run.known.add(gid); run.added.push(gid); }
       return;
     }
-    const was = kept.find(g => String(g.galleryId) === found.id && !g.linked) ?? await _keptElsewhere(run, found.id);
+    const joined = kept.some(g => String(g.galleryId) === found.id) ? null : await _joinedHere(run, found.id);
+    const was = kept.find(g => String(g.galleryId) === found.id && !g.linked) ?? await _keptElsewhere(run, found.id) ?? joined;
     if (!was || _samePlace(run, was, found)) return;
-    if (await _there(run, was)) { run.problems.push({ path: found.path, reason: 'duplicate', gid: found.id }); return; }
-    const read = await _readFormat(run.id, run.root, found);
-    if (galleryIdOf(read.texts['metadata.json']) !== found.id) return;   // described as another gallery now
-    const here = { folder: run.id, dir: found.path, inner: found.kind === 'zip' ? found.inner || '' : null };
-    if (!(await K.follow(found.id, _keptAt(was), here, read.ref))) return;   // its record changed meanwhile
-    run.updated.add(found.id);
-    run.followed = true;
-    const waits = !!was.spilled || run.marked.has(found.id);
-    await _adopt(run, found, { replace: found.id, read, drop: waits && othersSince(read.token, was.stamp, await K.me()) });
+    // Kept at another of this folder's places — one this check joined a moment ago, or an archive kept from
+    // before — and named here at a later generation (gallery-manifest.js supersedes): the unpack of it
+    // someone began, cut short before its archive went (review 7 B6), is where it is now — followed, the
+    // archive it leaves deleted as an unpack deletes it. At no later generation: one joined just now stays
+    // where it is, this passed over; an archive kept from before is the place, this a copy (below).
+    let read = null;
+    if (was === joined || (was.packed && was.folder === run.id)) {
+      read = await _readFormat(run.id, run.root, found);
+      if (!supersedes(read.token, was.stamp) && was === joined) return;
+    }
+    if (!read || !supersedes(read.token, was.stamp)) {
+      if (await _there(run, was)) { run.problems.push({ path: found.path, reason: 'duplicate', gid: found.id }); return; }
+    }
+    read ??= await _readFormat(run.id, run.root, found);
+    await _followTo(run, found, was, read, { leave: !!was.packed && was.folder === run.id && supersedes(read.token, was.stamp) });
   } catch (e) { run.problems.push({ path: `${found.path}${found.inner ? `/${found.inner}` : ''}`, reason: _failure(e) }); }
+}
+// Gallery `gid`'s stat record where this check joined it a moment ago from another of folder `run.id`'s
+// places (`run.added`), else null.
+async function _joinedHere(run, gid) {
+  if (!run.added.includes(gid)) return null;
+  const stat = await K.galleryGet(gid);
+  return stat?.folder === run.id && stat.dir ? stat : null;
+}
+// Gallery `was` (its stat record) followed to `found`, a place of folder `run.id` naming it (`read`, what was
+// read there just now): its record taken there, whatever waits of it (K.follow: what waits then goes
+// there, review 7 B5), then read again there unless something of it waits — published there in due
+// course — or, where another app published the gallery there since, read again with what waited dropped
+// (_storeAdopted `drop`: one app changes a folder's galleries at a time). `leave`: the archive it leaves,
+// still there, deleted as this app's unpack deletes it; `locked`: the gallery's lock is the caller's.
+// Resolves whether it was followed.
+async function _followTo(run, found, was, read, { leave = false, locked = false } = {}) {
+  if (galleryIdOf(read.texts['metadata.json']) !== found.id) return false;   // described as another gallery now
+  const here = { folder: run.id, dir: found.path, inner: found.kind === 'zip' ? found.inner || '' : null };
+  if (!(await K.follow(found.id, _keptAt(was), here, read.ref, { leave, locked }))) return false;   // its record changed meanwhile
+  run.updated.add(found.id);
+  run.followed = true;
+  const waits = !!was.spilled || run.marked.has(found.id);
+  await _adopt(run, found, { replace: found.id, read, drop: waits && othersSince(read.token, was.stamp, await K.me()) });
+  return true;
+}
+// Gallery `stat`, kept in an archive in its folder (`packed`), about to be unpacked (db.js _relocateOnce,
+// under its lock: a first change's unpack, or what waits in this browser going out): followed instead to a
+// folder beside the archive that names it at a later generation (supersedes) — the unpack of it someone
+// began, published there and cut short before its archive went (review 7 B6) — never unpacked a second
+// time. Looked for at an unpack's names (the archive's own, then " (2)" and on, as reserveDir picks them,
+// and the desktop's _freePath), as far as one is there; one that can't be told now rejects, the change
+// waiting (principle 6). Resolves whether it was.
+async function followUnpacked(stat) {
+  const root = await K.rootOf(stat.folder);
+  if (!root || !stat.packed) return false;
+  const gid = String(stat.galleryId), base = K.unpackedName(stat);
+  for (let i = 1; ; i++) {
+    const dir = i > 1 ? `${base} (${i})` : base;
+    const whose = await folderFiles.galleryIn(stat.folder, root, dir, gid);
+    if (whose.kind === 'missing') return false;
+    if (whose.kind === 'unreadable') throw Object.assign(new BackendError('unavailable', `${dir} can't be read now`), { reason: 'unreadable' });
+    if (whose.kind !== 'ok') continue;
+    const found = { kind: 'dir', path: dir, id: gid };
+    const read = await _readFormat(stat.folder, root, found);
+    if (!supersedes(read.token, stat.stamp)) continue;
+    const run = { id: stat.folder, root, name: '', stopped: () => false, known: new Set(), marked: await K.marked(), added: [], updated: new Set(), problems: [], followed: false };
+    return _followTo(run, found, stat, read, { leave: true, locked: true });
+  }
 }
 // Gallery `gid`'s stat record where the library keeps it in another of its folders (one being removed
 // too), else null.

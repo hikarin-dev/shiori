@@ -60,9 +60,11 @@ export function writeAllowed({ state, owned, reachable, work = null }) {
 // db.js _logIn, the desktop's library.js _mountCheck and _heldCheck) — or null when it isn't: 'hidden' (the
 // gallery's place, `state` — null for a folder the library no longer knows — isn't in the library:
 // nothing of it changes) or 'not-owned' (one app changes a folder's galleries at a time, the owner's rule
-// of 2026-11-15: the library knows another app holds the folder, `taken` — its claim as last read, no file
-// call — and the folder holds the gallery as published, `held` (gallery-manifest.js published), so the
-// change would reach what that app may be changing: refused, never kept to be saved later). Only a
+// of 2026-11-15: the library knows another app holds the folder, `taken` — a claim read within its time
+// to live that names another app, folder-owner.js heldElsewhere: knowledge only, never a claim that
+// couldn't be read nor an old read — and the folder holds the gallery as published, `held`
+// (gallery-manifest.js published), so the change would reach what that app may be changing: refused,
+// never kept to be saved later). Only a
 // `change` reaching the folder is weighed for 'not-owned' — the person's own marks, a size or a total no
 // description shows, are not — and a gallery only this library has (made meanwhile, never published
 // there) keeps working: what it gets waits, as for a folder out of reach. `work`: the change is that

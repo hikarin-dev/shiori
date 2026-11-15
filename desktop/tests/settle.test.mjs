@@ -63,7 +63,7 @@ async function call(ws, op, ...args) {
 const folderOf = (library, gid) => library.files.folderOf(gid);
 const described = (library, gid, name = 'metadata.json') => !!folderOf(library, gid) && fs.existsSync(path.join(folderOf(library, gid), name));
 const metadata = (library, gid) => JSON.parse(fs.readFileSync(path.join(folderOf(library, gid), 'metadata.json'), 'utf8'));
-const stagingOf = (library, gid) => path.join(library.stagingDir, gid);
+const stagingOf = (library, gid) => path.join(library._ownStagingOf(library.primaryId), gid);   // its own there (review 7 B1)
 async function arrived(library, gid, name, pages = [1, 2]) {
   await library.metaPut({ galleryId: gid, title: title(name), tags: [], numPages: pages.length });
   for (const n of pages) await library.pagePut(gid, n, png(n));
@@ -169,7 +169,7 @@ test('folders in staging left empty when the app closed go at its next start; on
   const gid = '1790500000061';
   await arrived(first, gid, 'Waiting', [1]);
   first.close();
-  const empty = path.join(first.stagingDir, '1790500000099');
+  const empty = stagingOf(first, '1790500000099');
   fs.mkdirSync(empty);
   const library = await new Library(where).open();
   t.after(() => { library.close(); fs.rmSync(dir, { recursive: true, force: true }); });

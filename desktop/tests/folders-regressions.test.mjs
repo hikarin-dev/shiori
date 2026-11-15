@@ -208,10 +208,10 @@ test('R08: a claim that can\'t be read, or isn\'t one, leaves the folder read-on
   library.folders._probes.clear();
   assert.equal(library.folders.probe(id).access, 'unknown');
   assert.equal(library.folders.writable(id), false);
-  // A change to its gallery is refused meanwhile (one app changes a folder's galleries at a time: S29a —
-  // a claim that can't be checked counts as another app's).
-  assert.equal(await reason(library.metaPut({ ...(await library.metaGet(gid)), title: title('Written While Unknown') })), 'not-owned');
-  assert.deepEqual(await library.files.describe(gid), { ok: true });
+  // A change to its gallery is accepted meanwhile, and waits: a claim that can't be checked is no
+  // knowledge that another app holds the folder (S29b, C1; S29a refused it), and nothing is written there.
+  assert.equal(await reason(library.metaPut({ ...(await library.metaGet(gid)), title: title('Written While Unknown') })), 'resolved');
+  assert.deepEqual(await library.files.describe(gid), { ok: false });
   assert.notEqual(JSON.parse(fs.readFileSync(meta, 'utf8')).title.english, 'Written While Unknown');
   assert.equal(fs.readFileSync(path.join(other, '.shiori', 'owner.json'), 'utf8'), damaged, 'never overwritten unasked');
   const listed = (await library.foldersList()).find(p => p.id === id);

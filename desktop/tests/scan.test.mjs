@@ -122,17 +122,19 @@ test('leftovers of an interrupted write are cleared', async (t) => {
   fs.utimesSync(`${folder}.shiori-tmp`, old, old);
   fs.writeFileSync(path.join(folder, 'shiori.json.shiori-tmp'), 'half a description');
   fs.utimesSync(path.join(folder, 'shiori.json.shiori-tmp'), old, old);
-  const stray = path.join(library.stagingDir, gid, '9-stray.png');
-  fs.mkdirSync(path.dirname(stray), { recursive: true });
-  fs.writeFileSync(stray, pngBytes(9));
-  const fresh = path.join(library.stagingDir, gid, '8-writing.png');
+  // In the library's own staging (named by its id: review 7 B1), and in the folder's staging itself, where
+  // what was staged before S29b is — by this library or another sharing the folder, which can't be told.
+  const stray = path.join(library._ownStagingOf(library.primaryId), gid, '9-stray.png');
+  const before = path.join(library.stagingDir, gid, '7-before.png');
+  for (const f of [stray, before]) { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, pngBytes(9)); fs.utimesSync(f, old, old); }
+  const fresh = path.join(library._ownStagingOf(library.primaryId), gid, '8-writing.png');
   fs.writeFileSync(fresh, pngBytes(8));
-  fs.utimesSync(stray, old, old);
   await library.rescan();
   assert.equal(fs.existsSync(`${folder}.shiori-tmp`), true, 'beside the gallery, not in it: nothing proves it Shiori\'s (F08)');
   assert.equal(fs.existsSync(path.join(folder, 'shiori.json.shiori-tmp')), false);
   assert.equal(fs.existsSync(stray), false, 'a staged page nothing refers to');
   assert.equal(fs.existsSync(fresh), true, 'one just written may still be on its way');
+  assert.equal(fs.existsSync(before), true, 'one staged before S29b nothing here refers to: perhaps another library\'s, never deleted for this one\'s');
   assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1)), [...pngBytes(1)]);
 });
 

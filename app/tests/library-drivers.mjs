@@ -130,13 +130,16 @@ function claimElsewhere(dir) {
 }
 
 /** The desktop library, its data and first folder in `base` (data/, own/), as the tests open it:
- * pictures put in their folders at once, descriptions written when flushed.
- * @param {string} base @returns {Promise<Driver>} */
-export async function desktopLibrary(base) {
+ * pictures put in their folders at once, descriptions written when flushed. `me`: the app's own id (as
+ * folder-owner.js knows it) where it stands for the desktop app on another computer — by default this
+ * one's, which every desktop library in this process shares.
+ * @param {string} base @param {{ me?: string }} [options] @returns {Promise<Driver>} */
+export async function desktopLibrary(base, { me } = {}) {
   globalThis.BroadcastChannel = Quiet;
   const { Library } = await import('../../desktop/server/library.js');
   const where = { dataDir: path.join(base, 'data'), libraryDir: path.join(base, 'own'), placeDelay: 0, describeDelay: 600_000 };
-  let lib = await new Library(where).open();
+  const made = () => { const l = new Library(where); if (me) l.folders._instance = me; return l; };
+  let lib = await made().open();
   return {
     app: 'desktop',
     get raw() { return lib; },
@@ -175,7 +178,7 @@ export async function desktopLibrary(base) {
     // A start that fails lets go of what it opened (the app's process ends then), and one after it starts afresh.
     async restart() {
       try { lib.close(); } catch {}
-      const next = new Library(where);
+      const next = made();
       try { lib = await next.open(); } catch (e) { try { next.close(); } catch { try { next._db?.close(); } catch {} } throw e; }
     },
     async close() { try { lib.close(); } catch {} },

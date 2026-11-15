@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { desktopLibrary, webLibrary, desktopKilled } from './library-drivers.mjs';
+import { desktopLibrary, webLibrary, desktopKilled, pageNow, pageCalling } from './library-drivers.mjs';
 import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
 import { zipCreate } from '../js/zip.js';
@@ -1128,6 +1128,348 @@ const SWAP_LEFT = {
   },
 };
 
+// B1 (review 7, desktop × desktop): a picture one desktop library committed and staged in a library folder's
+// own staging (an archived gallery's translation waits there for its lifecycle point) was deleted by another
+// desktop library's check once that one used the folder anyway — staging names didn't say whose — and back on
+// the first it never read again, nothing reported. A folder's staging is the library's that wrote it
+// (`.shiori/staging/<its id>/…`): no other library's check deletes it, nor the website's, and at the take-back
+// what waited is published where the other changed nothing of that gallery, dropped and reported once where it
+// changed it (one app changes a folder's galleries at a time). Files staged in the layout before S29b
+// (`.shiori/staging/<gid>/…`, the index naming them so: as `4211111` and earlier wrote them, toOldLayout) are
+// still read and placed by the library whose index names them, and never deleted by another's.
+const STAGED = {
+  name: 'review 7 B1: what one desktop library staged in a folder is its own — another library\'s or the website\'s check never deletes it, and at the take-back it is published where the other changed nothing, dropped and reported where it changed the gallery; the layout before S29b too',
+  async run({ dir, desktop, website }) {
+    const other = await desktopLibrary(path.join(dir, 'other desktop'), { me: 'c0ffee00c0ffee00' });   // the desktop app on another computer
+    try {
+      for (const form of ['another desktop', 'the website', 'another desktop, the layout before S29b', 'the layout before S29b, alone']) {
+        const F = path.join(dir, form);
+        const id = await desktop.add(F);
+        await desktop.setDefault(id);
+        const touched = await desktop.newGallery('Touched'), untouched = await desktop.newGallery('Untouched');
+        for (const g of [touched, untouched]) for (let n = 1; n <= 2; n++) await desktop.putPage(g, n, png(0, n));
+        await desktop.flush();
+        for (const g of [touched, untouched]) assert.deepEqual((await desktop.raw.archiveGallery(g)).archived, [g], form);
+        for (const g of [touched, untouched]) await desktop.putTranslation(g, 1, png(0, 71));   // waits in the folder's staging for the archive's lifecycle point
+        const old = form.includes('before S29b');
+        if (old) toOldLayout(desktop, F);
+        const mine = stagedIn(F);
+        assert.equal(mine.length, 2, `${form}: staged in the folder`);
+        const by = form === 'the website' ? website : form.endsWith('alone') ? null : other;
+        const changes = by && !old;
+        if (by) {
+          const theirs = await by.add(F, { force: true });   // "Use anyway"
+          agedStaging(F);   // its check an hour later
+          assert.deepEqual((await by.scan(theirs)).problems, [], `${form}: its check reports nothing`);
+          assert.deepEqual(stagedIn(F), mine, `${form}: its check deleted nothing staged here`);
+          if (changes) await by.setTitle(touched, 'Touched there');   // it changes one of them
+          await by.flush();
+          await by.setDefault(by.home);
+          await by.remove(theirs);   // it lets go
+          assert.equal(await desktop.raw.folderClaim(id), 'granted', `${form}: taken back`);
+        } else await desktop.restart();   // an index and a folder written by 4211111, opened by this code
+        await desktop.flush();
+        await new Promise(r => setTimeout(r, 300));
+        for (let i = 0; i < 2; i++) { assert.deepEqual((await desktop.scan(id)).problems, [], `${form}: check ${i + 1}, nothing reported`); await desktop.flush(); }
+        assert.deepEqual([same(await desktop.read(untouched, 1, 'translated'), png(0, 71)), same(await desktop.read(touched, 1, 'translated'), png(0, 71))], [true, !changes],
+          `${form}: published where the other changed nothing${changes ? ', dropped where it changed the gallery' : ''}`);
+        const notes = (await desktop.list()).find(f => f.id === id).attention.filter(a => a.reason === 'changed-both');
+        assert.equal(notes.length, changes ? 1 : 0, `${form}: ${changes ? 'the drop reported once' : 'nothing reported'}`);
+        if (changes) assert.equal(await desktop.titleOf(touched), 'Touched there', `${form}: the other's change stands`);
+        assert.deepEqual(stagedIn(F), [], `${form}: nothing left staged`);
+        await desktop.setDefault(desktop.home);
+        await desktop.remove(id);
+        const again = await other.add(F);
+        assert.deepEqual((await other.scan(again)).problems, [], `${form}: added again elsewhere, nothing reported`);
+        assert.deepEqual([same(await other.read(untouched, 1, 'translated'), png(0, 71)), same(await other.read(touched, 1, 'translated'), png(0, 71))], [true, !changes], `${form}: read alike there`);
+        await other.setDefault(other.home);
+        await other.remove(again);
+      }
+    } finally { await other.close(); }
+  },
+};
+// The same with a kill (review 7's b1-kill): the desktop killed as a page it staged in the folder was being
+// placed in its gallery's folder; another desktop library used the folder anyway and checked it an hour later;
+// back on the first, the page reads and is in the folder. And a staged picture not found as it is placed
+// (deleted by hand, or by an earlier version's check): reported once ('missing-file'), never dropped unsaid —
+// it still waits, named by no publication, and the folder's removal asks before it goes without it.
+const STAGED_KILLED = {
+  name: 'review 7 B1: a page staged in the folder by a desktop killed as it placed it survives another library\'s check, and reads after the take-back; one deleted from staging is reported, and named by nothing',
+  async run({ dir, desktop }) {
+    await desktop.close();
+    const base = path.join(dir, 'desktop');
+    const other = await desktopLibrary(path.join(dir, 'other desktop'), { me: 'c0ffee00c0ffee00' });
+    let lib = null;
+    try {
+      for (const form of ['killed', 'killed, then deleted from staging by hand', 'a translation deleted from staging by hand']) {
+        const F = path.join(dir, form);
+        const page = form.startsWith('killed'), gone = form.includes('deleted');
+        const gid = page ? '1790000000100' : '1790000000110';
+        let id = null;
+        if (page) {
+          await lib?.close();
+          lib = null;
+          assert.equal(desktopKilled(base, async ({ lib, kill, F, gid }) => {
+            const png = (n) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, n]);
+            const id = await lib.add(F);
+            await lib.setDefault(id);
+            await lib.newGallery('Alpha', gid);
+            for (let n = 1; n <= 2; n++) await lib.putPage(gid, n, png(n));
+            await lib.flush();
+            kill((c) => c.op === 'rename' && /\/staging\//.test(c.path));   // the page staged, killed as it is placed
+            await lib.putPage(gid, 3, png(3));
+            await new Promise(r => setTimeout(r, 2000));
+          }, { F, gid }), 42, form);
+        } else {
+          lib ??= await desktopLibrary(base);
+          id = await lib.add(F);
+          await lib.setDefault(id);
+          await lib.newGallery('Alpha', gid);
+          for (let n = 1; n <= 2; n++) await lib.putPage(gid, n, png(0, n));
+          await lib.flush();
+          assert.deepEqual((await lib.raw.archiveGallery(gid)).archived, [gid], form);
+          await lib.putTranslation(gid, 1, png(0, 71));   // waits in the folder's staging
+        }
+        assert.equal(stagedIn(F).length, 1, `${form}: staged in the folder`);
+        if (gone) fs.rmSync(path.join(F, '.shiori', 'staging', ...stagedIn(F)[0].split('/')));
+        else {
+          const theirs = await other.add(F, { force: true });   // "Use anyway", on another computer
+          agedStaging(F);
+          assert.deepEqual((await other.scan(theirs)).problems, [], `${form}: its check reports nothing`);
+          assert.equal(stagedIn(F).length, 1, `${form}: its check deleted nothing staged here`);
+          await other.setDefault(other.home);
+          await other.remove(theirs);
+        }
+        lib ??= await desktopLibrary(base);   // the desktop starts again
+        id ??= /** @type {any} */ ((await lib.list()).find(f => f.id !== lib?.home)).id;
+        if (!gone) assert.equal(await lib.raw.folderClaim(id), 'granted', `${form}: taken back`);
+        await lib.flush();
+        await new Promise(r => setTimeout(r, 300));
+        await lib.flush();
+        const attention = (await lib.list()).find(f => f.id === id).attention.map(a => a.reason);
+        if (gone) {
+          assert.deepEqual(attention, ['missing-file'], `${form}: reported`);
+          assert.ok(!same(page ? await lib.read(gid, 3) : await lib.read(gid, 1, 'translated'), page ? png(0, 3) : png(0, 71)), `${form}: it doesn't read`);
+          assert.deepEqual([await lib.read(gid, 1), await lib.read(gid, 2)], [png(0, 1), png(0, 2)], `${form}: the rest reads`);
+        } else {
+          assert.deepEqual(await lib.read(gid, 3), png(0, 3), `${form}: page 3 reads after the take-back`);
+          assert.ok(JSON.parse(fs.readFileSync(path.join(F, 'Alpha', '.shiori', 'gallery.json'), 'utf8')).files.pages[3], `${form}: in the folder`);
+          assert.deepEqual(attention, [], `${form}: nothing reported`);
+        }
+        assert.deepEqual([stagedIn(F), (await lib.scan(id)).problems], [[], []], `${form}: nothing left staged in the folder, a check reports nothing`);
+        assert.deepEqual(namedMissing(F), [], `${form}: the folder holds every file it names (one still waiting named by none)`);
+        await lib.setDefault(lib.home);
+        // What can't be found still waits (a "not found" may have been one of a moment): the folder's removal
+        // asks, and goes with "Remove anyway".
+        if (gone) assert.notEqual(await lib.remove(id).then(() => 'removed', (e) => e.reason ?? e.code), 'removed', `${form}: the removal is refused first`);
+        await lib.remove(id, { discard: gone });
+      }
+    } finally { await lib?.close(); await other.close(); }
+  },
+};
+// B6 (review 7): the desktop killed just after it unpacked an archived gallery left the folder it unpacked
+// into at generation 0 — a reservation, which no other app takes for a gallery — beside the archive; the
+// website, using the folder anyway, read the gallery from the archive and its first change unpacked a second
+// copy beside them ('Alpha (2)'): each app kept its own, reported the other's 'duplicate' for good, and the
+// website's work read on neither. An unpack's folder is published (a generation naming what it holds) before
+// it takes its place — the desktop's in the folder it is made in before that is renamed into place, the
+// website's before its records take it — so what a kill leaves at any point is a whole gallery to any reader,
+// or no gallery; a first check takes a folder over an archive naming the same gallery; and an app keeping a
+// gallery in an archive that finds a folder beside it naming the gallery at a later generation takes the
+// folder (at a check, or at the unpack it was about to make), never unpacks a second copy, and deletes the
+// archive as its own unpack would.
+const UNPACK_MET = {
+  name: 'review 7 B6: an unpack cut short — the desktop killed, the website\'s page dying — is met whole by the other app: one gallery, never a second copy, both apps\' work read on both, no copy reported',
+  async run({ dir, desktop, website }) {
+    await desktop.close();
+    const base = path.join(dir, 'desktop');
+    let lib = null;
+    // A page's Web Locks go with it: the in-context ones, each page's own (folder-store-web.js withLock).
+    Object.defineProperty(globalThis.navigator, 'locks', { value: undefined, configurable: true });
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const copies = (problems) => problems.filter(p => p.reason === 'duplicate').map(p => p.path);
+    const held = (F) => fs.readdirSync(F).filter(n => !n.startsWith('.')).sort();
+    const reads = async (app, g, want) => { for (const [n, b] of want) assert.deepEqual(await app.read(g, n, 'translated'), b, `${app.app} reads translation ${n}`); };
+    // The website's page dies at the first file call `at` matches: it and every later one of that page never return.
+    const dies = (at) => {
+      let died = () => {};
+      const death = new Promise((r) => { died = r; });
+      let dead = null;
+      const undo = fsa.hang((c) => {
+        const page = pageCalling();
+        if (page != null && page === dead) return true;
+        if (dead != null || page !== pageNow() || !at(c)) return false;
+        dead = page;
+        died();
+        return true;
+      });
+      return { death, undo };
+    };
+    try {
+      // 1. The desktop killed as it deletes the archive its unpack let go (review 7's b6-unpack).
+      {
+        const F = path.join(dir, 'the desktop killed'), g = '1790000000200';
+        assert.equal(desktopKilled(base, async ({ lib, kill, F, g }) => {
+          const png = (n) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, n]);
+          const id = await lib.add(F);
+          await lib.setDefault(id);
+          await lib.newGallery('Alpha', g);
+          for (let n = 1; n <= 3; n++) await lib.putPage(g, n, png(n));
+          await lib.putTranslation(g, 1, png(5));
+          await lib.flush();
+          await lib.raw.archiveGallery(g);
+          kill((c) => ['rm', 'unlink'].includes(c.op) && /Alpha\.(zip|cbz)$/.test(c.path));   // the archive's deletion after the unpack
+          await lib.putTranslation(g, 2, png(4));   // its first change: unpacked to take it
+          await lib.flush();
+        }, { F, g }), 42, 'killed');
+        const w = await website.add(F, { force: true });   // "Use anyway"
+        assert.deepEqual(copies((await website.scan(w)).problems), [], 'the desktop killed: the website\'s check finds no copy');
+        await website.putTranslation(g, 3, png(0, 6));
+        await website.flush();
+        await sleep(500);
+        assert.deepEqual(held(F), ['Alpha', 'Alpha.zip'], 'the desktop killed: no second copy');
+        await website.setDefault(website.home);
+        await website.remove(w);
+        lib = await desktopLibrary(base);   // the desktop starts again, and takes the folder back
+        const id = /** @type {any} */ ((await lib.list()).find(f => f.id !== lib?.home)).id;
+        assert.equal(await lib.raw.folderClaim(id), 'granted');
+        await lib.flush();
+        await sleep(400);
+        for (let i = 0; i < 2; i++) { assert.deepEqual(copies((await lib.scan(id)).problems), [], `the desktop killed: its check ${i + 1}, no copy`); await lib.flush(); }
+        await reads(lib, g, [[1, png(0, 5)], [2, png(0, 4)], [3, png(0, 6)]]);
+        assert.deepEqual(held(F), ['Alpha'], 'the desktop killed: the archive deleted, one gallery');
+        await lib.setDefault(lib.home);
+        await lib.remove(id);
+        const again = await website.add(F);
+        for (let i = 0; i < 2; i++) { assert.deepEqual((await website.scan(again)).problems, [], `the desktop killed: the website's check ${i + 1} again, nothing reported`); await website.flush(); }
+        await reads(website, g, [[1, png(0, 5)], [2, png(0, 4)], [3, png(0, 6)]]);
+        await website.setDefault(website.home);
+        await website.remove(again);
+      }
+      // 2. The website's page dying as it deletes the archive its unpack let go (its records took the folder):
+      //    the desktop uses the folder anyway before the page is loaded again.
+      // 3. The same dying before its records took it (as its publication's stable-named copies are written):
+      //    the website, loaded again, keeps the gallery in the archive and finds the folder beside it — at a
+      //    check, or at its next change's unpack.
+      for (const form of ['its records took the folder', 'before its records took the folder, at a check', 'before its records took the folder, at its unpack']) {
+        const F = path.join(dir, `the website's page dying, ${form}`);
+        lib ??= await desktopLibrary(base);
+        const id = await lib.add(F);
+        await lib.setDefault(id);
+        const g = await lib.newGallery('Alpha');
+        for (let n = 1; n <= 3; n++) await lib.putPage(g, n, png(0, n));
+        await lib.putTranslation(g, 1, png(0, 5));
+        await lib.flush();
+        assert.deepEqual((await lib.raw.archiveGallery(g)).archived, [g]);
+        await lib.setDefault(lib.home);
+        await lib.remove(id);   // the desktop lets go
+        const w = await website.add(F);
+        assert.deepEqual((await website.scan(w)).problems, [], form);
+        const before = form.startsWith('before');
+        const { death, undo } = dies((c) => (before ? c.path === 'Alpha/image_records.json' : c.op === 'removeEntry' && /Alpha\.(zip|cbz)$/.test(c.path)));
+        website.putTranslation(g, 2, png(0, 7)).catch(() => {});   // its first change unpacks it; the page dies on the way
+        await death;
+        if (before) {
+          await website.restart();   // the page loaded again
+          undo();
+          if (form.endsWith('a check')) assert.deepEqual(copies((await website.scan(w)).problems), [], `${form}: no copy`);
+          await website.putTranslation(g, 2, png(0, 7));
+          await website.flush();
+          await sleep(300);
+          assert.deepEqual(held(F), ['Alpha'], `${form}: the website took the folder, the archive deleted — never a second copy`);
+        }
+        // The desktop meets what the website left: "Use anyway", a check, a change.
+        const d = await lib.add(F, { force: true });
+        assert.deepEqual(copies((await lib.scan(d)).problems), [], `${form}: the desktop's check finds no copy`);
+        await lib.putTranslation(g, 3, png(0, 6));
+        await lib.flush();
+        assert.ok(!held(F).includes('Alpha (2)'), `${form}: no second copy`);
+        await lib.setDefault(lib.home);
+        await lib.remove(d);
+        if (!before) { await website.restart(); undo(); }
+        assert.equal(await website.raw.folderClaim(w), 'granted', `${form}: taken back`);
+        await website.flush();
+        await sleep(1200);   // the website reads another app's work once it isn't busy with the gallery (§8)
+        for (let i = 0; i < 2; i++) { assert.deepEqual(copies((await website.scan(w)).problems), [], `${form}: the website's check ${i + 1}, no copy`); await website.flush(); }
+        const want = [[1, png(0, 5)], [2, before ? png(0, 7) : png(0, 2)], [3, png(0, 6)]];   // (the change the dying page made never committed)
+        await reads(website, g, want);
+        assert.deepEqual(held(F), ['Alpha'], `${form}: one gallery, the archive deleted`);
+        assert.deepEqual(namedMissing(F), [], `${form}: the folder holds every file it names`);
+        await website.setDefault(website.home);
+        await website.remove(w);
+        const back = await lib.add(F);
+        assert.deepEqual((await lib.scan(back)).problems, [], `${form}: the desktop's check again, nothing reported`);
+        await reads(lib, g, want);
+        await lib.setDefault(lib.home);
+        await lib.remove(back);
+      }
+      // 4. The desktop keeping the gallery in its archive meets the folder the website's dying page published
+      //    beside it before its records took it — at the check of its take-back, and at its own unpack.
+      for (const form of ['at a check', 'at its unpack']) {
+        const F = path.join(dir, `the desktop keeping the archive, ${form}`);
+        lib ??= await desktopLibrary(base);
+        const id = await lib.add(F);
+        await lib.setDefault(id);
+        const g = await lib.newGallery('Alpha');
+        for (let n = 1; n <= 3; n++) await lib.putPage(g, n, png(0, n));
+        await lib.putTranslation(g, 1, png(0, 5));
+        await lib.flush();
+        assert.deepEqual((await lib.raw.archiveGallery(g)).archived, [g]);
+        const w = await website.add(F, { force: true });   // the website: "Use anyway"
+        await website.scan(w);
+        const { death, undo } = dies((c) => c.path === 'Alpha/image_records.json');
+        website.putTranslation(g, 2, png(0, 7)).catch(() => {});
+        await death;
+        undo();
+        await website.restart();   // the page closed: its claim stays
+        assert.equal(await lib.raw.folderClaim(id), 'granted', `${form}: the desktop takes it back`);
+        if (form === 'at a check') assert.deepEqual(copies((await lib.scan(id)).problems), [], `${form}: no copy`);
+        await lib.putTranslation(g, 3, png(0, 6));
+        await lib.flush();
+        await sleep(300);
+        for (let i = 0; i < 2; i++) { assert.deepEqual(copies((await lib.scan(id)).problems), [], `${form}: its check ${i + 1}, no copy`); await lib.flush(); }
+        assert.deepEqual(held(F), ['Alpha'], `${form}: it took the folder, the archive deleted — never a second copy`);
+        assert.deepEqual(namedMissing(F), [], `${form}: the folder holds every file it names`);
+        // A change made before any check finds the website's generation there: the folder's version stands
+        // (one app changes a folder's galleries at a time), that change dropped and reported once.
+        const dropped = form === 'at its unpack';
+        assert.equal(same(await lib.read(g, 3, 'translated'), png(0, 6)), !dropped, `${form}: its translation ${dropped ? 'dropped' : 'read'}`);
+        assert.equal((await lib.list()).find(f => f.id === id).attention.filter(a => a.reason === 'changed-both').length, dropped ? 1 : 0, `${form}: reported ${dropped ? 'once' : 'never'}`);
+        await lib.setDefault(lib.home);
+        await lib.remove(id);
+      }
+    } finally { await lib?.close(); delete /** @type {any} */ (globalThis.navigator).locks; }
+  },
+};
+// The files staged in folder `F`'s staging, as paths there (sorted).
+function stagedIn(F) {
+  const at = path.join(F, '.shiori', 'staging');
+  return fs.existsSync(at) ? fs.readdirSync(at, { recursive: true }).map(p => String(p).replaceAll('\\', '/')).filter(p => fs.statSync(path.join(at, p)).isFile()).sort() : [];
+}
+// Everything in folder `F`'s staging aged an hour (the other app's check comes that much later: scan.js ORPHAN_AGE_MS).
+function agedStaging(F) {
+  const at = path.join(F, '.shiori', 'staging'), t = (Date.now() - 3600_000) / 1000;
+  for (const p of fs.readdirSync(at, { recursive: true })) fs.utimesSync(path.join(at, String(p)), t, t);
+}
+// What the desktop library `lib` staged in folder `F` put as `4211111` and earlier wrote it: each file at
+// `.shiori/staging/<gid>/<name>`, its index naming it so (`@<folder>/<gid>/<name>`), not under the library's own id.
+function toOldLayout(lib, F) {
+  const raw = lib.raw, files = raw.files;
+  const moved = (file) => {
+    const { root, rest } = files._split(file);
+    const old = rest.replace(new RegExp(`^${raw.primaryId}/`), '');
+    const [from, to] = [rest, old].map(r => path.join(F, '.shiori', 'staging', ...r.split('/')));
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    if (from !== to) fs.renameSync(from, to);
+    return files._join(root, old);
+  };
+  for (const r of raw._s('SELECT gid, rel, file FROM staged_own').all()) raw._s('UPDATE staged_own SET file = ? WHERE gid = ? AND rel = ?').run(moved(r.file), r.gid, r.rel);
+  for (const r of raw._s(`SELECT gid, n, orig FROM pages WHERE json_extract(orig, '$.at') = 's'`).all()) {
+    const orig = JSON.parse(r.orig);
+    raw._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify({ ...orig, file: moved(orig.file) }), r.gid, r.n);
+  }
+}
+
 // Resolves once `ready()` holds, failed after `ms`.
 async function until(ready, ms = 5000) {
   for (const end = Date.now() + ms; !(await ready()); await new Promise(r => setTimeout(r, 25))) {
@@ -1151,7 +1493,8 @@ for (const [direction, apps] of [['website to desktop', ['website', 'desktop']],
       });
     }
     if (apps[0] === 'desktop') {
-      for (const h of [ARCHIVED, OLDEST, UNPACKED, CUT_SHORT, EDITED, NOTES_UNREAD, FIRST_FOLDER, NOTED_ARCHIVE, DELETED_ON_TAKE_BACK, KILLED_UNPACK, ARCHIVE_DELETED, BOTH_TRANSLATED, SWAP_LEFT, FOLLOWED]) {
+      for (const h of [ARCHIVED, OLDEST, UNPACKED, CUT_SHORT, EDITED, NOTES_UNREAD, FIRST_FOLDER, NOTED_ARCHIVE, DELETED_ON_TAKE_BACK, KILLED_UNPACK, ARCHIVE_DELETED, BOTH_TRANSLATED, SWAP_LEFT, FOLLOWED,
+        STAGED, STAGED_KILLED, UNPACK_MET]) {
         test(h.name, { skip }, async (t) => {
           const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-handover-'));
           const desktop = await desktopLibrary(path.join(dir, 'desktop'));

@@ -201,6 +201,14 @@ export const published = (token) => !!token && (!String(token).startsWith('v2:')
  * (`known` null: it can't tell what changed) or a folder holding none (`now` null).
  * @param {string | null | undefined} now @param {string | null | undefined} known @param {string} writer @returns {boolean} */
 export const othersSince = (now, known, writer) => !!now && String(now).startsWith('v2:') && !!known && now !== known && writerOf(now) !== writer;
+/** Whether a folder naming a gallery at `now` (the token of its generation) supersedes the archive the
+ * library keeps that gallery in, at `known` (the token it last published or read there): a later
+ * generation (format v2), which an unpack of the archive publishes before it takes the archive's place
+ * (review 7 B6) — so a folder beside the archive naming the gallery so is where the gallery is now, the
+ * unpack someone began (the other app, or this one before a kill), taken as it is and never unpacked a
+ * second time; one at or before the archive's generation, or an earlier version's (no manifest), is a copy.
+ * @param {string | null | undefined} now @param {string | null | undefined} known @returns {boolean} */
+export const supersedes = (now, known) => String(now ?? '').startsWith('v2:') && generationOf(now) > generationOf(known);
 
 // ── What a generation names ──
 

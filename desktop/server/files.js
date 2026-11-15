@@ -50,7 +50,7 @@
 // are still as written (`retiring`, principle 4). An archive holds its manifest too, appended with the
 // descriptions it names.
 
-import { disk, physicallyIn, containedWhole, replaceFile, tempBeside, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, undescribedAt, bindIn, ioFailures, gone, holdsFile, filesIn, ownedIn, textsIn, statIn, statNow, entriesIn, textIn, ownDirIn } from './folder-store.js';
+import { disk, physicallyIn, containedWhole, replaceFile, tempBeside, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, publishIn, undescribedAt, bindIn, ioFailures, gone, holdsFile, filesIn, ownedIn, textsIn, statIn, statNow, entriesIn, textIn, ownDirIn } from './folder-store.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
@@ -179,6 +179,14 @@ export function recordedFiles(rows, cover) {
   }
   note(cover);
   return known;
+}
+// `value` (a gallery's record) without the references to its own files that `gone(rel)` leaves out — an
+// object's field, an array's element — as a picture removed leaves its slot.
+function withoutOwn(value, gone) {
+  const leaves = (v) => v != null && typeof v === 'object' && typeof v.$own === 'string' && gone(v.$own);
+  if (value == null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.filter(x => !leaves(x)).map(x => withoutOwn(x, gone));
+  return Object.fromEntries(Object.entries(value).filter(([, x]) => !leaves(x)).map(([k, x]) => [k, withoutOwn(x, gone)]));
 }
 // The files of the gallery's own a value refers to ({ $own: 'translated/0001.png', size }): rel → size.
 function ownFiles(value, into = new Map()) {
@@ -418,6 +426,8 @@ export class FileLibrary {
     this._failures = new Map();        // gid → settles that failed in a row
     this._writing = new Map();         // gid → the write to its archive under way (_exclusive)
     this._changes = new Map();         // gid → changes since its last publication (D12)
+    this._unpacks = 0;                 // unpacks done (_unpack): a settle or flush that made one waits for its archive's deletion
+    this._before = new Set();          // galleries with files staged before S29b, found at the start (resume)
     this.keep = new Set();             // galleries being forgotten: deleted from the index, their files kept
   }
 
@@ -584,9 +594,11 @@ export class FileLibrary {
     this.finishMoves().catch(() => {});
     this.cutBack().catch(() => {});
     const ids = new Set();
-    for (const r of lib._s(`SELECT DISTINCT gid FROM pages WHERE json_extract(orig, '$.at') = 's'`).all()) ids.add(r.gid);
+    // (Those with files staged before S29b, at the top of a folder's staging, have their folders there
+    // removed once empty too: _unstage.)
+    for (const r of lib._s(`SELECT gid, json_extract(orig, '$.file') AS file FROM pages WHERE json_extract(orig, '$.at') = 's'`).all()) { ids.add(r.gid); if (lib._stagedBefore(r.file)) this._before.add(r.gid); }
     for (const r of lib._s('SELECT gid FROM files WHERE unpack = 1').all()) ids.add(r.gid);
-    for (const r of lib._s('SELECT DISTINCT gid FROM staged_own').all()) ids.add(r.gid);
+    for (const r of lib._s('SELECT gid, file FROM staged_own').all()) { ids.add(r.gid); if (lib._stagedBefore(r.file)) this._before.add(r.gid); }
     for (const r of lib._s('SELECT gid FROM files WHERE pending = 1').all()) this.scheduleDescribe(r.gid);
     for (const id of ids) this.schedule(id);
     this._carryOver().catch((e) => console.warn('[shiori] carrying the index over to format v2 failed:', String(e?.message || e)))
@@ -1076,7 +1088,9 @@ export class FileLibrary {
       if (done === 'left') done = await this._leftBehind(at, d, rel, work);
       else if (done === true) done = await holdsFile(abs).then((held) => held || this._delete(abs), () => false);
     }
-    if (done === 'missing') {
+    // Gone for a gallery still in the library — the place it left (an archive it was unpacked from, which
+    // the other app may have deleted first: review 7 B6) — is done: only a deleted gallery's is looked for.
+    if (done === 'missing' && !this._row(d.gid)) {
       if (!d.unfound) lib._s('UPDATE deleting SET unfound = 1 WHERE dir = ?').run(d.dir);
       return;
     }
@@ -1464,6 +1478,7 @@ export class FileLibrary {
   // closing): an archived gallery's staged pictures too, which wait for this.
   async flush() {
     const lib = this.library;
+    const unpacks = this._unpacks;
     const waiting = [...lib._s(`SELECT DISTINCT gid FROM pages WHERE json_extract(orig, '$.at') = 's'`).all(), ...lib._s('SELECT DISTINCT gid FROM staged_own').all()].map(r => r.gid);
     const ids = [...new Set([...this._timers.keys(), ...this._regroupRetries.keys(), ...waiting])];
     for (const timers of [this._timers, this._regroupRetries]) {
@@ -1478,6 +1493,7 @@ export class FileLibrary {
     for (const { gid } of this.library._s('SELECT gid FROM files WHERE pending = 1').all()) {
       await this.describe(gid).catch(() => {});
     }
+    if (this._unpacks !== unpacks) await this._deletions;   // the archives its unpacks let go deleted too
   }
 
   // Gallery `gid` settled: what waits in staging moved into its folder (_place) — when its library
@@ -1520,7 +1536,7 @@ export class FileLibrary {
   async _place(gid, work = null) {
     const lib = this.library;
     if (!lib.folders.writable(this.rootFor(gid), work)) return true;
-    let row = this._row(gid);
+    let row = this._row(gid), unpacked = false;
     if (row) {
       // A gallery whose folder or archive is gone (moved outside the app, or its drive away), or no
       // longer names it (principle 2: put there by hand — reported), waits, its new pages staged, until
@@ -1540,8 +1556,15 @@ export class FileLibrary {
       if (row.format !== 'folder' && (row.unpack || this._staged(gid).length || this._stagedOwn(gid).length)) {
         const inFormat = await this._inFormat(row);
         if (inFormat == null) return true;   // its archive can't be read now: what waits stays staged, tried again
+        // A folder beside the archive naming the gallery at a later generation — the other app's unpack of
+        // it, published before its records took it (review 7 B6) — is where it is now: taken (scan.js
+        // followUnpacked), never a second copy unpacked beside them; what waits settles there next.
+        if (await this._unpackedBeside(gid, row)) return false;
         const how = inFormat ? await this._settleArchive(gid, row) : 'unpack';
-        if (how === 'unpack' && !await this._unpack(gid, row, !inFormat || !!whose.undescribed)) return false;
+        if (how === 'unpack') {
+          if (!await this._unpack(gid, row, !inFormat || !!whose.undescribed)) return false;
+          unpacked = true;
+        }
         row = this._row(gid);
         if (!row) return true;
       }
@@ -1549,7 +1572,8 @@ export class FileLibrary {
       row = this._row(gid);
       if (!row) return true;
       if (row.format !== 'folder' || (!this._staged(gid).length && !this._stagedOwn(gid).length)) {
-        if (row.pending) this.scheduleDescribe(gid);
+        if (unpacked) await this.describe(gid);
+        else if (row.pending) this.scheduleDescribe(gid);
         return true;
       }
     } else {
@@ -1563,7 +1587,9 @@ export class FileLibrary {
 
     if (!this._row(gid)) return true;   // deleted meanwhile
     this._pend(gid);   // its pages changed: its descriptions follow, in due course
-    this.scheduleDescribe(gid);
+    // — at once after an unpack: what it moved in published before the archive it took them from goes
+    // (its deletion waits for this settle: _deleteOne), so a kill between leaves nothing of it waiting.
+    if (unpacked) await this.describe(gid); else this.scheduleDescribe(gid);
     return true;
   }
 
@@ -1624,10 +1650,7 @@ export class FileLibrary {
     const name = this._nameFor(gid, r, orig, dir, !!was);
     const moved = movedInto(from, was, path.join(dir, ...name.split('/')));
     if (moved?.copied) lib.writes.add('pages', orig.size);
-    if (!was && moved?.size !== orig.size) {
-      console.warn(`[shiori] page ${r.n} of gallery ${gid} is gone from staging`);
-      return;
-    }
+    if (!was && moved?.size !== orig.size) { this._stagedMissing(gid, `page ${r.n}`); return; }
     lib._tx(() => {
       lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify({ at: 'p', entry: name, size: orig.size, type: orig.type, mtime: moved.mtime }), gid, r.n);
     });
@@ -1650,11 +1673,26 @@ export class FileLibrary {
       disk.mkdirSync(path.dirname(to), { recursive: true });
       const moved = movedInto(from, was, to);
       if (moved?.copied) lib.writes.add('pictures', s.size);
+      if (!was && moved?.size !== s.size) { this._stagedMissing(gid, s.rel); continue; }
       lib._tx(() => {
-        if (was || moved?.size === s.size) this._retarget(gid, s.rel, { $own: name, size: moved.size, mtime: moved.mtime });
+        this._retarget(gid, s.rel, { $own: name, size: moved.size, mtime: moved.mtime });
         lib._s('DELETE FROM staged_own WHERE gid = ? AND rel = ?').run(gid, s.rel);
       });
     }
+  }
+  // A picture staged for gallery `gid` (`what`: its page, or its own picture's name), never placed, found
+  // gone from staging as it was to be (by the shared rule: stagedNow) — deleted outside Shiori, or, staged
+  // before S29b, by an earlier version's check of another library sharing the folder (review 7 B1):
+  // reported on its library folder's Needs attention ('missing-file', the gallery's place; once — a note
+  // kept until dismissed), never dropped unsaid (principle 3). What refers to it is left as it is, still
+  // waiting: a "not found" can be judged after the drive is back from a moment away (S29a's "found, not
+  // fixed"), and one that wasn't true is placed at the next settle. Nothing names it meanwhile (a
+  // publication leaves out what is still staged: _generation `without`), and it waits until the person
+  // replaces or deletes it (or its gallery), or removes the folder with what can't be saved.
+  _stagedMissing(gid, what) {
+    const row = this._row(gid);
+    console.warn(`[shiori] ${what} of gallery ${gid} isn't in staging`);
+    this.library.folders.note(this.rootFor(gid), { reason: 'missing-file', path: row ? this._split(row.path).rest : '', gid: String(gid) }, { event: true });
   }
 
   // Where page `r` goes in its folder `dir`: images/0012.webp for page 12 (gallery-files.js) — or, when
@@ -1820,6 +1858,15 @@ export class FileLibrary {
         took.push(rel);
       }
       if (byHand) took.push(...await this._earlierOwn(row, gid, entries));
+      // Published there, whole — naming what it holds as the index has it, the pictures of its own still
+      // staged left out (they move in after, as they are: _moveOwnIn) — before it takes the archive's
+      // place: whatever a kill stops, what comes into place is a gallery any reader takes for this one's,
+      // never a reservation beside the archive, which the other app passes over and unpacks a second copy
+      // beside (review 7 B6). Its sizes and times as written here (a rename keeps them).
+      this._touched.delete(gid);
+      const { next, texts } = this._generation(gid, { placing: new Map(out.map(p => [p.n, p.orig.entry])), without: staged });
+      const done = await publishIn(temp, { ...next, sizes: {} }, texts, { hide: (d) => lib._hide(d), known: token });
+      lib.writes.add('descriptions', done.bytes);
       // One synchronous step from here.
       if (JSON.stringify(archived().map(r => [r.n, r.orig])) !== signature || this._row(gid)?.path !== row.path) {
         await disk.rm(temp, { recursive: true, force: true });
@@ -1830,12 +1877,13 @@ export class FileLibrary {
       lib.asFolderWork(this.rootFor(gid), () => lib._tx(() => {
         this._deletingIn(this._row(gid), read && { size: read.size, mtime: read.mtimeMs, took });
         for (const p of out) lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify(p.orig), gid, p.n);
-        lib._s(`UPDATE files SET path = ?, format = 'folder', pending = 1, unpack = 0, used_at = ? WHERE gid = ?`).run(rel, Date.now(), gid);
-        lib._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(String(gid), token);
+        lib._s(`UPDATE files SET path = ?, format = 'folder', pending = ?, unpack = 0, used_at = ? WHERE gid = ?`).run(rel, this._touched.has(gid) ? 1 : 0, Date.now(), gid);
+        lib._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(String(gid), format.tokenOf(done.manifest));
         lib._logIn(gid);
       }));
       lib.publishFeed(gid);
       this._forget(row.path);
+      this._unpacks++;
       this.applyDeletions({ root: this._split(row.path).root }).catch(() => {});
       return true;
     } catch (e) {
@@ -1845,6 +1893,31 @@ export class FileLibrary {
       this._reserved.delete(rel);
     }
   }
+  // Whether archived gallery `gid` (`row`) was followed to a folder beside its archive naming it at a later
+  // generation than the one this library last published or read (gallery-manifest.js supersedes): an
+  // unpack of it published there and cut short before the archive went — the other app's, or this
+  // library's own (review 7 B6). Looked for at an unpack's names, as both apps pick them (the archive's
+  // name without its extension, then " (2)" and on: _freePath, the website's reserveDir), as far as one is
+  // there (_whose, under the shared rule); one that can't be told now fails the settle, tried again
+  // (principle 6). The gallery is then where that folder is (library.js _followUnpacked), and nothing is
+  // unpacked a second time.
+  async _unpackedBeside(gid, row) {
+    const base = String(row.path).replace(/\.(cbz|zip)$/i, '');
+    for (let i = 1; ; i++) {
+      const rel = `${base}${i > 1 ? ` (${i})` : ''}`;
+      const whose = await this._whose(rel, gid);
+      if (whose.kind === 'missing') return false;
+      if (whose.kind === 'unreadable') throw Object.assign(new Error(`${rel} can't be read now`), { reason: 'unreadable' });
+      if (whose.kind === 'ok' && this._newer(whose.manifest, gid)) return this.library._followUnpacked(gid, rel);
+    }
+  }
+  // Whether a folder's manifest (its text) names gallery `gid` at a generation past the one this library
+  // keeps it at (gallery-manifest.js supersedes).
+  _newer(text, gid) {
+    const read = text == null ? null : format.parseManifest(String(text), { galleryId: String(gid) });
+    return read?.kind === 'ok' && format.supersedes(format.tokenOf(read.value), this.library._s('SELECT stamp FROM stamps WHERE gid = ?').get(String(gid))?.stamp);
+  }
+
   // What an earlier desktop version put in archive `row` beside the pages, while its shiori.json names
   // gallery `gid` (gallery-manifest.js isOwnDescription): that shiori.json, the pictures it lists and
   // ComicInfo.xml, written with them — Shiori's own, which may go with the archive once it is unpacked.
@@ -1875,12 +1948,14 @@ export class FileLibrary {
   // pages ends, and when the reader leaves it.
   async settle(gid) {
     const id = String(gid);
+    const unpacks = this._unpacks;
     clearTimeout(this._timers.get(id));
     this._timers.delete(id);
     await this.place(id);
     await this.describe(id);
     const owner = this._ownerOf(id);
     if (owner) await this.describe(owner.galleryId);
+    if (this._unpacks !== unpacks) await this._deletions;   // the archive its unpack let go, once what it held is published (_place)
   }
 
   // In due course, when nothing settles the gallery sooner: once it has been left alone a while — at
@@ -1947,14 +2022,21 @@ export class FileLibrary {
     return { ok };
   }
 
-  // Gallery `gid`'s folder in staging (inside the library folder's hidden .shiori), once nothing is
-  // staged in it: removed — only while empty, so a page staged meanwhile is never lost with it (it
-  // makes the folder again: library.js _stage).
+  // Gallery `gid`'s folder in staging (inside the library folder's hidden .shiori: this library's own
+  // there, library.js stagingDirs — and the folder's staging itself for one with files staged there
+  // before S29b, `_before`), once nothing is staged in it: removed — only while empty, so a page staged
+  // meanwhile is never lost with it (it makes the folder again: library.js _stage). Then this library's
+  // own folder in that staging, once nothing is left in it either: a check looks into every folder of
+  // .shiori/ (scan.js sweepLeftovers), which would cost it a look each (a page being staged as it goes
+  // makes it again: library.js _writeStaged).
   async _unstage(gid) {
     const lib = this.library;
-    for (const staging of lib.stagingDirs()) {
+    const own = lib.stagingDirs();
+    const before = this._before.has(String(gid)) ? lib.folders.ids().filter(id => lib.folders.writable(id)).map(id => lib._stagingOf(id)) : [];
+    const emptyIn = async (dir) => (await disk.readdir(dir).catch(() => null))?.length === 0;
+    for (const staging of [...own, ...before]) {
       const dir = path.join(staging, String(gid));
-      const empty = async () => !this._staged(gid).length && !this._stagedOwn(gid).length && (await disk.readdir(dir).catch(() => null))?.length === 0;
+      const empty = async () => !this._staged(gid).length && !this._stagedOwn(gid).length && await emptyIn(dir);
       try {
         // Looked at twice: a page whose file was on its way in when it was first looked at has landed
         // by the second.
@@ -1962,21 +2044,25 @@ export class FileLibrary {
         if (!await empty()) continue;
         lib._dirs.delete(dir);
         await disk.rmdir(dir);
+        if (own.includes(staging) && staging !== lib.dataStagingDir && await emptyIn(staging)) await disk.rmdir(staging);
       } catch {}
     }
+    if (before.length && !this._staged(gid).length && !this._stagedOwn(gid).length) this._before.delete(String(gid));
   }
 
   // Gallery `gid`'s descriptions as the index holds it (gallery-files.js; its pages in its folder or
-  // archive, and those about to be: `placing`, page numbers): [{ name, data }] — and ComicInfo.xml,
+  // archive, and those about to be: `placing`, page number → the name each takes there; `without`, its
+  // own pictures not there yet, as _generation has them): [{ name, data }] — and ComicInfo.xml,
   // for a CBZ, as its export has. They name the file each picture is in where it isn't the layout name
   // (a page whose layout name another page has: _nameFor), and a linked gallery's page the source
   // picture it shows (galleryFiles `fileOf`, `sourceOf`): each record's original is its `orig` here.
-  _descriptions(gid, { comicInfo = false, placing = null } = {}) {
+  _descriptions(gid, { comicInfo = false, placing = null, without = null } = {}) {
     const lib = this.library;
     const meta = lib._metaGet(gid);
-    const records = lib._pageRows(gid).map(r => ({ ...lib._rowRecord(r), blob: parse(r.orig) }))
-      .filter(r => ['p', 'x'].includes(r.blob.at) || placing?.has(r.pageNum));
-    const cover = lib._coverGet(gid);
+    const left = (v) => (without ? withoutOwn(v, (rel) => without.has(rel)) : v);
+    const records = lib._pageRows(gid).map(r => ({ ...left(lib._rowRecord(r)), blob: placing?.has(r.n) ? { at: 'p', entry: placing.get(r.n), size: parse(r.orig).size } : parse(r.orig) }))
+      .filter(r => ['p', 'x'].includes(r.blob.at));
+    const cover = left(lib._coverGet(gid));
     const fileOf = (src) => src?.$own ?? (src?.at === 'p' ? src.entry : null);
     const sourceOf = (rec) => (rec.blob.at === 'x' ? provenance(rec.blob) : null);
     const out = layout.galleryFiles({ meta, records, covers: { gallery: cover?.cover, series: cover?.seriesCover } }, '', { fileOf, sourceOf })
@@ -1991,20 +2077,23 @@ export class FileLibrary {
   // Gallery `gid`'s next generation as the index has it (gallery-manifest.js): { next — its manifest but
   // the descriptions: every slot's file, the size and time each was recorded written with, a linked
   // page's source picture, the generation after the one last published or read here, this app as its
-  // writer — and texts, its descriptions by name (_descriptions) }. `placing`: staged pages about to be
-  // added to its archive, page number → the name each takes there.
-  _generation(gid, { placing = null } = {}) {
+  // writer — and texts, its descriptions by name (_descriptions) }. `placing`: pages about to be put where
+  // they aren't yet (staged pages added to its archive, an archive's pages unpacked into a folder), page
+  // number → the name each takes there; `without`: pictures of its own its records name that aren't
+  // there yet (still staged, as an unpack goes), named by neither.
+  _generation(gid, { placing = null, without = null } = {}) {
     const lib = this.library;
-    const rows = lib._pageRows(gid), cover = lib._coverGet(gid);
+    const left = (v) => (without ? withoutOwn(v, (rel) => without.has(rel)) : v);
+    const rows = lib._pageRows(gid), cover = left(lib._coverGet(gid));
     const known = recordedFiles(rows, cover);   // path → [size, mtime]: as the index recorded them
     const records = rows.map((r) => {
-      const rec = lib._rowRecord(r), orig = parse(r.orig), name = placing?.get(r.n);
+      const rec = left(lib._rowRecord(r)), orig = parse(r.orig), name = placing?.get(r.n);
       return { ...rec, blob: name ? { at: 'p', entry: name, size: orig.size } : orig };
     });
     const files = format.slotFiles({ records, covers: { gallery: cover?.cover, series: cover?.seriesCover } },
       (src) => src.$own ?? (src.at === 'p' ? src.entry : null));
     const sources = Object.fromEntries(records.filter(r => r.blob.at === 'x').map(r => [String(r.pageNum), provenance(r.blob)]));
-    const texts = Object.fromEntries(this._descriptions(gid, { placing: placing && new Set(placing.keys()) }).map(f => [f.name, f.data.toString('utf8')]));
+    const texts = Object.fromEntries(this._descriptions(gid, { placing, without }).map(f => [f.name, f.data.toString('utf8')]));
     const sizes = Object.fromEntries([...known].filter(([f]) => format.isPicturePath(f)));
     const generation = format.generationOf(lib._s('SELECT stamp FROM stamps WHERE gid = ?').get(String(gid))?.stamp) + 1;
     return { next: { format: 'shiori-gallery', version: 2, galleryId: String(gid), generation, writer: lib.folders._me(), files, sizes,
@@ -2029,7 +2118,8 @@ export class FileLibrary {
     const had = lib._s('SELECT stamp FROM stamps WHERE gid = ?').get(String(gid))?.stamp;
     if (!row.pending && had && (await found.dir.manifest()).kind === 'ok') return had;
     if (!this._row(gid)) return null;   // deleted meanwhile: its deletion, waiting for this, takes the folder
-    const { next, texts } = this._generation(gid);
+    // Pictures of its own still staged (not moved in yet, or not in staging: _stagedMissing) named by none.
+    const { next, texts } = this._generation(gid, { without: new Set(this._stagedOwn(gid).map(s => s.rel)) });
     const publish = async (known) => { const done = await found.dir.publish({ manifest: next, descriptions: texts, known }); lib.writes.add('descriptions', done.bytes); return done; };
     let { manifest, newer } = await publish(had ?? null);
     // Another app published it since this library last did or read it: the folder's version stands, and
@@ -2098,15 +2188,16 @@ export class FileLibrary {
   // What publishing gallery `gid` adds to its archive (`row`, its directory `dir`): { add, drop, token }
   // — its descriptions that differ from the archive's (and ComicInfo.xml, for a CBZ, as its export has),
   // its manifest unless the archive's names the same files and descriptions already, and the
-  // descriptions it no longer has. `placing` as for _generation.
-  async _archiveChanges(gid, row, dir, { placing = null } = {}) {
+  // descriptions it no longer has. `placing` and `without` as for _generation — by default, every picture of
+  // its own still staged (only a settle adds them: _settleArchive).
+  async _archiveChanges(gid, row, dir, { placing = null, without = new Set(this._stagedOwn(gid).map(s => s.rel)) } = {}) {
     const file = this._abs(row.path);
     const differs = async (name, data) => { const e = dir.get(name); return !e || e.size !== data.length || !(await readEntry(file, e)).equals(data); };
-    const listed = this._descriptions(gid, { comicInfo: row.format === 'cbz', placing: placing && new Set(placing.keys()) });
+    const listed = this._descriptions(gid, { comicInfo: row.format === 'cbz', placing, without });
     const add = [];
     for (const f of listed) if (await differs(f.name, f.data)) add.push(f);
     const drop = DESCRIPTIONS.filter(name => dir.has(name) && !listed.some(f => f.name === name));
-    const { next, texts } = this._generation(gid, { placing });
+    const { next, texts } = this._generation(gid, { placing, without });
     const had = dir.get(content.MANIFEST_FILE) ? format.parseManifest(String(await readEntry(file, dir.get(content.MANIFEST_FILE))), { galleryId: gid, archive: true }) : null;
     const prev = had?.kind === 'ok' ? had.value : null;
     const fresh = format.archiveManifest({ ...next, generation: Math.max(next.generation, (prev?.generation ?? 0) + 1) }, texts);
@@ -2141,19 +2232,28 @@ export class FileLibrary {
       const file = this._abs(row.path);
       const dir = await this._directory(file);
       const rows = lib._pageRows(gid);
+      // What waits staged that isn't in staging is reported (_stagedMissing) and left out of this addition,
+      // still waiting, named by none; a look that fails fails the settle, tried again (principle 6).
+      const absent = new Set();
+      for (const f of [...rows.map(r => parse(r.orig)).filter(o => o.at === 's').map(o => o.file), ...this._stagedOwn(gid).map(s => s.file)]) {
+        if (!await stagedNow(lib._staged(f))) absent.add(f);
+      }
       const live = new Map();       // name → { size, from? (staging), data? (a description) }
       const placing = new Map();    // page number → { name, row } staged pages to add
       for (const r of rows) {
         const orig = parse(r.orig);
         if (orig.at === 's') {
+          if (absent.has(orig.file)) { this._stagedMissing(gid, `page ${r.n}`); continue; }
           const name = this._nameFor(gid, r, orig, null);
           placing.set(r.n, { name, row: r });
           live.set(name, { size: orig.size, from: lib._staged(orig.file) });
         } else if (orig.at === 'p') live.set(orig.entry, { size: dir.get(orig.entry)?.size ?? orig.size });
       }
-      const stagedOwn = this._stagedOwn(gid);
+      const left = new Set(this._stagedOwn(gid).filter(s => absent.has(s.file)).map(s => { this._stagedMissing(gid, s.rel); return s.rel; }));
+      const stagedOwn = this._stagedOwn(gid).filter(s => !absent.has(s.file));
       const staged = new Map(stagedOwn.map(s => [s.rel, s]));
       for (const [rel, size] of ownFiles(lib._coverGet(gid), ownFiles(rows.map(r => parse(r.record))))) {
+        if (left.has(rel)) { if (dir.has(rel)) live.set(rel, { size: dir.get(rel).size }); continue; }   // what it replaces stays
         const s = staged.get(rel);
         live.set(rel, s ? { size: s.size, from: lib._staged(s.file) } : { size: dir.get(rel)?.size ?? size ?? 0 });
       }
@@ -2161,8 +2261,8 @@ export class FileLibrary {
       // Its descriptions, and its manifest last (_archiveChanges): each kept as the archive has it unless
       // it changed.
       const names = new Map([...placing].map(([n, p]) => [n, p.name]));
-      const described = await this._archiveChanges(gid, row, dir, { placing: names });
-      for (const d of this._descriptions(gid, { comicInfo: row.format === 'cbz', placing: new Set(placing.keys()) })) live.set(d.name, { size: d.data.length });
+      const described = await this._archiveChanges(gid, row, dir, { placing: names, without: left });
+      for (const d of this._descriptions(gid, { comicInfo: row.format === 'cbz', placing: names, without: left })) live.set(d.name, { size: d.data.length });
       if (dir.has(content.MANIFEST_FILE)) live.set(content.MANIFEST_FILE, { size: dir.get(content.MANIFEST_FILE).size });
       for (const d of described.add) { live.delete(d.name); live.set(d.name, { size: d.data.length, data: d.data }); }
       const add = [...live].filter(([, v]) => v.from || v.data).map(([name, v]) => (v.from ? { name, from: v.from } : { name, data: v.data }));

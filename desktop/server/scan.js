@@ -374,36 +374,21 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   };
   // An archived gallery whose archive is gone, found as a folder naming it — the website's first change
   // unpacks an archive into a folder beside it, then deletes the archive (plan D17), perhaps while it
-  // had the folder taken over — follows it there (F5, S10): read again from the folder, its generation
-  // caught up. With changes of its own still to publish (localChanges), it is taken there as it is, to
-  // publish them in the folder — unless the folder holds a generation another app published since this
-  // library last published or read the gallery (gallery-manifest.js othersSince: the other app's unpack
-  // is a change of it): the folder's version stands, read again there, what waited here dropped with
-  // its staged pages and pictures, and the case reported once (as scan.js dropWaiting does).
-  const unpackedTo = (row, g) => {
-    const gid = row.gid;
-    const waits = localChanges(library, gid);
-    const had = library._s('SELECT stamp FROM stamps WHERE gid = ?').get(gid)?.stamp;
-    if (waits && !format.othersSince(g.read.token, had, library.folders._me())) {
-      library._s(`UPDATE files SET path = ?, format = 'folder', state = 'packed', tail = NULL, unpack = 0 WHERE gid = ?`).run(g.rel, gid);
-      library._logIn(gid);
-    } else {
-      const staged = waits ? files._staged(gid).map(r => JSON.parse(r.orig).file) : [];
-      files.keep.add(gid);
-      try { library._deleteIn(gid); } finally { files.keep.delete(gid); }
-      addGallery(library, gid, g);
-      for (const file of staged) library._dropStaged(file);
-      if (waits) library.folders.note(g.root, { reason: 'changed-both', path: g.inRoot, gid }, { event: true });
-      entryIn(library, gid, g);
-      reread.push(gid);
-    }
-    byId.delete(gid);
+  // had the folder taken over — follows it there (F5, S10; followTo). So does one whose archive is still
+  // there, found as a folder beside it naming it at a later generation (gallery-manifest.js supersedes:
+  // an unpack cut short before the archive went — review 7 B6), its archive deleted as an unpack deletes it.
+  const unpackedTo = (row, g, left = false) => {
+    if (followTo(library, row, g, { left })) reread.push(row.gid);
+    byId.delete(row.gid);
     g.claimed = true;
-    out.moved.push(gid);
-    changed.add(gid);
+    out.moved.push(row.gid);
+    changed.add(row.gid);
   };
   library._tx(() => {
     for (const row of known) {
+      const beside = byId.get(row.gid);
+      if (present.has(row.gid) && row.format !== 'folder' && !row.source && beside?.format === 'folder'
+        && format.supersedes(beside.read.token, library._s('SELECT stamp FROM stamps WHERE gid = ?').get(row.gid)?.stamp)) { unpackedTo(row, beside, true); continue; }
       if (present.has(row.gid)) {
         if (row.state === 'missing') { setState(library, row.gid, 'packed'); out.found.push(row.gid); changed.add(row.gid); }
         continue;
@@ -447,7 +432,17 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   // (One with no pages joins too when its folder describes it: a series' record, a chapter not
   // downloaded — written there as its folder left a library.) One whose id the library has is a copy,
   // left out. One that can't be joined is a problem.
-  const joining = unknown.filter(g => !g.claimed && g.read?.kind === 'gallery' && (g.read.pages.length || (g.layout && g.read.described?.meta)));
+  // Of several places naming one gallery (an unpack cut short leaves its folder beside the archive: review
+  // 7 B6), the one at the latest generation joins — a folder over an archive at the same — the others
+  // passed over as copies are.
+  const candidates = unknown.filter(g => !g.claimed && g.read?.kind === 'gallery' && (g.read.pages.length || (g.layout && g.read.described?.meta)));
+  const rank = (g) => format.generationOf(g.read.token) * 2 + (g.format === 'folder' ? 1 : 0);
+  const best = new Map();
+  for (const g of candidates) {
+    const id = g.read.described?.id == null ? null : String(g.read.described.id);
+    if (id && (!best.has(id) || rank(g) > rank(best.get(id)))) best.set(id, g);
+  }
+  const joining = candidates.filter(g => g.read.described?.id == null || best.get(String(g.read.described.id)) === g);
   const join = (list) => library._tx(() => {
     const made = [];
     for (const g of list) {
@@ -497,8 +492,9 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   }
   // A linked gallery read again from its source (linked.js) isn't missing.
   out.missing = out.missing.filter(gid => !out.updated.includes(gid));
-  // Then the galleries it keeps whose descriptions another app changed since: read again.
-  const kept = known.filter(r => present.has(r.gid));
+  // Then the galleries it keeps whose descriptions another app changed since: read again — not one it
+  // followed from where it was (unpackedTo: read where it now is).
+  const kept = known.filter(r => present.has(r.gid) && !out.moved.includes(r.gid));
   begin('lf.task_comparing', kept.length);
   for (const row of kept) {
     if (stopped()) { out.stopped = true; break; }
@@ -668,6 +664,56 @@ export async function dropWaiting(library, gid) {
   return true;
 }
 
+// Inside the caller's transaction: archived gallery `row` followed to folder `g` (as a check reads it:
+// readGallery) that names it — the unpack of its archive, by the website (D17) or cut short by a kill
+// (review 7 B6) — its generation caught up. With changes of its own still to publish (localChanges), it is
+// taken there as it is, to publish them in the folder — unless the folder holds a generation another app
+// published since this library last published or read the gallery (gallery-manifest.js othersSince: the
+// other app's unpack is a change of it): the folder's version stands, read again there, what waited here
+// dropped with its staged pages and pictures, and the case reported once (as dropWaiting does). The
+// archive, still there (`left`), is recorded for deletion as this library's own unpack records it (files.js
+// _deletingIn: deleted while it is as Shiori wrote it and holds nothing else) — the folder is the gallery's
+// now, never a second copy unpacked beside them. Returns whether it was read again.
+function followTo(library, row, g, { left = false } = {}) {
+  const files = library.files, gid = row.gid;
+  if (left) files._deletingIn(row);
+  const waits = localChanges(library, gid);
+  const had = library._s('SELECT stamp FROM stamps WHERE gid = ?').get(gid)?.stamp;
+  if (waits && !format.othersSince(g.read.token, had, library.folders._me())) {
+    library._s(`UPDATE files SET path = ?, format = 'folder', state = 'packed', tail = NULL, unpack = 0 WHERE gid = ?`).run(g.rel, gid);
+    library._logIn(gid);
+    return false;
+  }
+  const staged = waits ? files._staged(gid).map(r => JSON.parse(r.orig).file) : [];
+  files.keep.add(gid);
+  try { library._deleteIn(gid); } finally { files.keep.delete(gid); }
+  addGallery(library, gid, g);
+  for (const file of staged) library._dropStaged(file);
+  if (waits) library.folders.note(g.root, { reason: 'changed-both', path: g.inRoot, gid }, { event: true });
+  entryIn(library, gid, g);
+  return true;
+}
+// Archived gallery `gid` followed to the folder at `rel` (a path as `files` has them) beside its archive,
+// which names it at a later generation (gallery-manifest.js supersedes) — what its unpack meets there
+// (files.js _unpackedBeside) — as a check follows it (followTo), outside one: in its own transaction, the
+// archive then deleted. Resolves whether it was followed: not when the folder doesn't read whole as that
+// now (rejects when it can't be read now: tried again later).
+export async function followUnpacked(library, gid, rel) {
+  const files = library.files;
+  const row = files._row(gid);
+  const { root, rest } = files._split(rel);
+  if (!row || row.format === 'folder' || row.source) return false;
+  const g = { rel, root, inRoot: rest, abs: files._abs(rel), format: 'folder', layout: true };
+  g.read = await readGallery(g);
+  const had = library._s('SELECT stamp FROM stamps WHERE gid = ?').get(gid)?.stamp;
+  if (g.read.kind !== 'gallery' || String(g.read.described?.id) !== String(gid) || !format.supersedes(g.read.token, had)) return false;
+  library.asFolderWork(root, () => library._tx(() => { if (files._row(gid)?.path === row.path) followTo(library, row, g, { left: true }); }));
+  library.publishFeed(gid);
+  library._push('control', { type: 'COVER_INVALIDATED', galleryId: gid });
+  files.applyDeletions({ root }).catch(() => {});
+  return files._row(gid)?.path === rel;
+}
+
 function setState(library, gid, state) {
   library._s('UPDATE files SET state = ? WHERE gid = ?').run(state, gid);
   library._logIn(gid);
@@ -780,28 +826,28 @@ async function sweepLeftovers(library, id) {
 
 // Staged pages and cache files no record refers to (a write that failed half way, or the app closed in
 // the middle of one): gone once ORPHAN_AGE_MS old — staging is looked through in the library's own
-// (under its data folder) and in each library folder it may write to (another's, a hidden one's and one
-// out of reach are left alone: what its galleries set aside may wait there). A gallery's pictures no
+// (under its data folder) and in its own in each library folder it may write to (library.js
+// _ownStagingOf; another's, a hidden one's and one out of reach are left alone: what its galleries set
+// aside may wait there). Never another library's there, nor what was staged there before S29b (at the
+// top of the folder's staging, whose library can't be told): only the library that wrote a staged file
+// knows whether it is a leftover (review 7 B1: another desktop library's check deleted what one had
+// staged for a gallery both have). A gallery's pictures no
 // record refers to, in a folder that is its own by what it holds (ownedBy) in one of the library
 // folders checked (`checked`, their ids), are added to `unreferenced` ({ path, gid }): its picture
 // folders are listed where the listing that told it so shows them (one it doesn't show holds none).
 // Resolves how many went.
 async function removeOrphans(library, unreferenced = [], checked = new Set()) {
-  const keep = new Set();   // the files records refer to, where they are
+  const keep = new Set();   // the files records refer to, where the index has them (library.js _stagedKey)
   for (const r of library._s('SELECT orig, record FROM pages').all()) {
     const orig = parse(r.orig);
-    if (orig?.at === 's') keep.add(library._staged(orig.file));
+    if (orig?.at === 's') keep.add(library._stagedKey(orig.file));
     collect(parse(r.record), (ref) => keep.add(path.join(library.cacheDir, ref)));
   }
   for (const r of library._s('SELECT record FROM covers').all()) collect(parse(r.record), (ref) => keep.add(path.join(library.cacheDir, ref)));
-  for (const r of library._s('SELECT file FROM staged_own').all()) keep.add(library._staged(r.file));   // pictures waiting for their archive
+  for (const r of library._s('SELECT file FROM staged_own').all()) keep.add(library._stagedKey(r.file));   // pictures waiting for their archive
   let removed = 0;
-  // Staged pages of galleries this library doesn't have, in a library folder's staging, are another
-  // app's: left alone.
-  const places = [[library.dataStagingDir, false], [library.cacheDir, false], ...library.activeRoots().map(id => [library._stagingOf(id), true])];
-  for (const [dir, shared] of places) {
+  for (const dir of [library.dataStagingDir, library.cacheDir, ...library.activeRoots().map(id => library._ownStagingOf(id))]) {
     for (const gid of await disk.readdir(dir).catch(() => [])) {
-      if (shared && !library._s('SELECT 1 FROM stats WHERE gid = ?').get(gid)) continue;
       for (const name of await disk.readdir(path.join(dir, gid)).catch(() => [])) {
         const file = path.join(dir, gid, name);
         if (keep.has(file) || !await stale(file, ORPHAN_AGE_MS)) continue;

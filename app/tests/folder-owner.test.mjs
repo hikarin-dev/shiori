@@ -4,7 +4,7 @@
 // back, so an app adding a folder back can tell whether another had it meanwhile.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readClaim, claimText, access, nextClaim, releasedClaim, unchangedSince } from '../js/storage/folder-owner.js';
+import { readClaim, claimText, access, nextClaim, releasedClaim, unchangedSince, heldElsewhere, CLAIM_TTL_MS } from '../js/storage/folder-owner.js';
 
 const ME = 'aaaaaaaaaaaaaaaa', OTHER = 'bbbbbbbbbbbbbbbb';
 const by = { app: 'desktop', host: 'pc' };
@@ -22,6 +22,21 @@ test('a claim file reads as none, damaged or a claim — never as none when it i
     assert.equal(readClaim(bad).state, 'damaged', bad);
   }
   assert.equal(readClaim(new Error('EPERM')).state, 'damaged', 'a read that failed is not "no claim"');
+  // One that failed is told from one read whole that is damaged: a moment's failure, kept for no time (C1).
+  assert.deepEqual([readClaim(new Error('EIO')).unread, readClaim('{').unread], [true, undefined]);
+});
+
+test('the commit gate knows another app holds a folder only by a claim read within its time to live that names one (S29b, C1)', () => {
+  const at = 1_800_000_000_000;
+  const seen = (read, owned = false, when = at) => ({ read, owned, at: when });
+  assert.equal(heldElsewhere(seen(claim(OTHER, 3)), at + CLAIM_TTL_MS - 1), 'held');
+  // No knowledge: nothing read, a read that failed, a damaged claim, one no app holds (let go), this app's own.
+  for (const [what, s] of [['none read', null], ['a read that failed', seen(readClaim(new Error('EIO')))], ['damaged', seen(readClaim('{'))],
+    ['let go', seen(claim(null, 5))], ['no claim', seen(readClaim(null))], ['this app\'s', seen(claim(ME, 3), true)]]) {
+    assert.equal(heldElsewhere(s, at + 1), null, what);
+  }
+  // A read older than that is read again before it is weighed, whatever it said.
+  for (const s of [seen(claim(OTHER, 3)), seen(claim(ME, 3), true), seen(readClaim('{'))]) assert.equal(heldElsewhere(s, at + CLAIM_TTL_MS), 'stale');
 });
 
 test('only the app holding the claim writes; a damaged or unreadable claim is read-only (R08)', () => {

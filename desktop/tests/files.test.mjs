@@ -53,7 +53,8 @@ function tree(dir) {
 // Gallery `gid`'s manifest (format v2), as its folder has it.
 const manifestOf = (library, gid) => JSON.parse(fs.readFileSync(path.join(dirOf(library, gid), '.shiori', 'gallery.json'), 'utf8'));
 const pagesIn = (library, gid) => fs.readdirSync(path.join(dirOf(library, gid), 'images')).sort();
-const staged = (library, gid) => (fs.existsSync(path.join(library.stagingDir, gid)) ? fs.readdirSync(path.join(library.stagingDir, gid)).length : 0);
+const stagedAt = (library, gid) => path.join(library._ownStagingOf(library.primaryId), gid);   // its own staging there (review 7 B1)
+const staged = (library, gid) => (fs.existsSync(stagedAt(library, gid)) ? fs.readdirSync(stagedAt(library, gid)).length : 0);
 const retiring = (library) => library._s('SELECT dir, name FROM retiring').all();
 const json = (library, gid, name) => JSON.parse(fs.readFileSync(path.join(dirOf(library, gid), ...name.split('/')), 'utf8'));
 const derived = (dir) => tree(dir).filter(n => !n.startsWith('images/') && !n.endsWith('.json'));
@@ -90,7 +91,7 @@ test('a gallery is settled into a folder of its own in the gallery format, and i
   assert.deepEqual(tree(dirOf(library, gid)), ['image_records.json', 'images/0001.png', 'images/0002.png', 'images/0003.png', 'metadata.json']);
   assert.equal(json(library, gid, 'metadata.json').galleryId, gid, 'the folder carries its id');
   assert.deepEqual(json(library, gid, 'image_records.json').map(r => r.url), [1, 2, 3].map(n => `local://${gid}/${n}.png`));
-  assert.equal(fs.existsSync(path.join(library.stagingDir, gid)), false, 'nothing is left staged, nor its folder in staging');
+  assert.equal(fs.existsSync(stagedAt(library, gid)), false, 'nothing is left staged, nor its folder in staging');
   assert.deepEqual(await bytesOf((await library.pageGet(gid, 2)).blob), [...pngBytes(2)]);
   assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 3)), [...pngBytes(3)]);
   assert.deepEqual(tree(dirOf(library, gid)), await exportNames(library, gid), 'the folder is its export, unzipped');

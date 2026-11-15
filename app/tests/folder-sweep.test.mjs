@@ -64,10 +64,11 @@ import { v1Gallery, legacyGallery, seriesExport } from './fixtures/storage-fixtu
  * whether folder A is to be shown again before the stages (`showFirst`: a kill may leave it hidden),
  * whether it is to be taken back from another app then, and added again with "Use anyway" (`takeBack`),
  * the galleries a first check is to join (`want`, by `g`'s key, as a stage shows them), the series
- * owners whose chapters a stage shows (`series`), and the other app (`other`, made in the setup alone).
+ * owners whose chapters a stage shows (`series`), the other app (`other`, made in the setup alone), and
+ * what the step itself found wrong (`wrong`: refusedFor).
  * @typedef {{ lib: Driver, base: string, A: string, B: string, ids: Record<string, string>, g: Record<string, string>,
  *   titles: Record<string, string>, known: Set<string>, deleted: Set<string>, plants: Map<string, string>, discard?: boolean,
- *   showFirst?: boolean, takeBack?: boolean, want?: Record<string, G>, series?: string[], other?: Driver | null }} Ctx */
+ *   showFirst?: boolean, takeBack?: boolean, want?: Record<string, G>, series?: string[], other?: Driver | null, wrong?: string[] }} Ctx */
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const png = (n) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, n >> 8, n & 255, 1, 2, 3]);
@@ -132,6 +133,15 @@ async function sawTaken(/** @type {Ctx} */ c) {
   await c.lib.setDefault(c.lib.home);
   if (c.lib.app === 'desktop') c.lib.raw.folders._probes.clear();
 }
+// Change `p`, which the commit gate may refuse: refused as for another app's claim ('not-owned', "This
+// folder is in use by another app.") with nobody else on folder A, it is a finding of the run (`c.wrong`,
+// reported by the stages); the step stops there, as for any failure.
+async function refusedFor(/** @type {Ctx} */ c, /** @type {string} */ what, /** @type {Promise<unknown>} */ p) {
+  try { return await p; } catch (e) {
+    if (/** @type {any} */ (e)?.reason === 'not-owned') (c.wrong ||= []).push(`${what} refused "in use by another app" with nobody else on the folder`);
+    throw e;
+  }
+}
 // `work` done while folder A's drive is away — what it changes waits — and every attempt to save it there
 // that it set going (a publication made at once, a settle) ended before the drive is back.
 async function awayFor(/** @type {Ctx} */ c, /** @type {() => Promise<unknown>} */ work) {
@@ -186,9 +196,10 @@ const unfollowed = (/** @type {Ctx} */ c, /** @type {'A' | 'B'} */ place) => /**
  * `noA`: folder A is made, not added (the step adds it); `also`: states stage `stage` may show besides
  * the step's (what the operation may end in by design, or what a later stage brings about); `startsAgain`:
  * the step is a start, and one that failed is made again before the stages (the person opening the app
- * again).
+ * again); `met`: what the other app does once the step has ended, wherever the fault stopped it, before
+ * the stages (with no fault: it uses folder A anyway, works there and lets it go).
  * @type {{ name: string, apps?: string[], kinds?: string[], moves?: boolean, sample?: number, noA?: boolean, noSetupFlush?: boolean, startsAgain?: boolean,
- *   also?(c: Ctx, stage: string): State[], setup(c: Ctx): Promise<void>, state(c: Ctx): State, ops: ReturnType<typeof op>[] }[]} */
+ *   also?(c: Ctx, stage: string): State[], setup(c: Ctx): Promise<void>, state(c: Ctx): State, ops: ReturnType<typeof op>[], met?(c: Ctx): Promise<void> }[]} */
 const SCENARIOS = [
   {
     name: 'a gallery\'s first writes',
@@ -895,6 +906,117 @@ const SCENARIOS = [
     also: (c, stage) => (stage === 'flush' ? [unfollowed(c, 'B')] : []),
     ops: [op('check B', (c) => c.lib.scan(c.ids.B)), FLUSH, SETTLE],
   },
+  // Work in flight at a take-over (S29b).
+  {
+    // C1: the folder's claim as last read forgotten, so the step's first change reads it again — every point
+    // of that read and of the changes after it faulted. A claim that couldn't be read is no knowledge that
+    // another app holds the folder: a change that writes no file is never refused for it (`refusedFor`), and
+    // whatever was accepted reaches the folder.
+    name: 'changes made as the folder\'s claim is read again',
+    async setup(c) {
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
+      c.g.beta = await made(c, 'Beta', [png(4)]);
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]), [c.g.beta]: G('A', 'Beta', [png(4)]) } }),
+    ops: [
+      op('the claim as read forgotten', async (c) => { if (c.lib.app === 'desktop') c.lib.raw.folders._probes.clear(); else await c.lib.setDefault(c.ids.A); }),
+      op('page 3', (c) => refusedFor(c, 'page 3', c.lib.putPage(c.g.alpha, 3, png(3))), (s, c) => withPage(s, c.g.alpha, 3, png(3))),
+      op('translation 1', (c) => refusedFor(c, 'translation 1', c.lib.putTranslation(c.g.alpha, 1, png(5))), (s, c) => withTranslation(s, c.g.alpha, 1, png(5))),
+      op('retitled', (c) => refusedFor(c, 'its title', c.lib.setTitle(c.g.alpha, 'Alpha 2')), (s, c) => { const t = clone(s); t.galleries[c.g.alpha].title = 'Alpha 2'; return t; }),
+      op('delete Beta', (c) => c.lib.deleteGallery(c.g.beta), (s, c) => without(s, c.g.beta), 'beta'),
+      FLUSH, SETTLE,
+    ],
+  },
+  {
+    // B1: what this desktop library staged in folder A for its archived galleries (a translation of each,
+    // waiting for the archive's lifecycle point) when another desktop library — the app on another computer —
+    // used the folder anyway, checked it an hour later and changed Beta, then let it go. The step is the
+    // take-back: Alpha's translation is published, Beta's dropped for the other library's version (one app
+    // changes a folder's galleries at a time) — never deleted by the other's check, never lost.
+    name: 'staged work taken back after another desktop library\'s check',
+    apps: ['desktop'],
+    sample: 0,
+    async setup(c) {
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
+      c.g.beta = await made(c, 'Beta', [png(4)]);
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      await c.lib.flush();
+      for (const g of [c.g.alpha, c.g.beta]) await c.lib.raw.archiveGallery(g);
+      await c.lib.putTranslation(c.g.alpha, 1, png(8));
+      await c.lib.putTranslation(c.g.beta, 1, png(9));
+      const other = await desktopLibrary(path.join(c.base, 'other'), { me: 'c0ffee00c0ffee00' });
+      try {
+        const theirs = await other.add(c.A, { force: true });   // "Use anyway"
+        const staging = path.join(c.A, '.shiori', 'staging'), t = (Date.now() - 3600_000) / 1000;
+        for (const p of fs.readdirSync(staging, { recursive: true })) fs.utimesSync(path.join(staging, String(p)), t, t);
+        await other.scan(theirs);   // an hour later
+        await other.setTitle(c.g.beta, 'Beta there');
+        await other.flush();
+        await other.setDefault(other.home);
+        await other.remove(theirs);
+      } finally { await other.close(); }
+      c.takeBack = true;
+    },
+    state: (c) => withTranslation(withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]), [c.g.beta]: G('A', 'Beta', [png(4)]) } },
+      c.g.alpha, 1, png(8)), c.g.beta, 1, png(9)),
+    ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A), (s, c) => { const t = clone(s); t.galleries[c.g.beta] = G('A', 'Beta there', [png(4)]); return t; }, null, true),
+      CHECK, FLUSH, SETTLE],
+    noSetupFlush: true,
+  },
+  {
+    // B6: an unpack of an archived gallery (its first change, a translation of page 2) faulted at every point
+    // — a kill, a failed call, the page dying, the drive away — then met by the other app, which uses the
+    // folder anyway, translates page 3 and lets it go (`met`), and taken back. One gallery whatever the point:
+    // never a second copy beside the first (a check reporting 'duplicate' is a finding), both apps' work read
+    // — this app's translation 2 unless it still waited when the other app changed the gallery (then dropped:
+    // one app changes a folder's galleries at a time).
+    name: 'an unpack cut short, met by the other app using the folder anyway',
+    sample: 0,
+    async setup(c) {
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      const by = c.lib.app === 'desktop' ? c.lib : await otherApp(c);   // the desktop archives it
+      if (by !== c.lib) { await c.lib.setDefault(c.lib.home); await c.lib.remove(c.ids.A); }
+      const at = by === c.lib ? c.ids.A : await by.add(c.A, { force: true });
+      await by.setDefault(at);
+      c.g.alpha = await by.newGallery('Alpha');
+      c.known.add(c.g.alpha);
+      for (const n of [1, 2, 3]) await by.putPage(c.g.alpha, n, png(n));
+      await by.putTranslation(c.g.alpha, 1, png(5));
+      await by.flush();
+      await by.raw.archiveGallery(c.g.alpha);
+      await sleep(250);
+      if (by !== c.lib) {
+        await by.setDefault(by.home);
+        await by.remove(at);
+        await by.close();
+        c.ids.A = await c.lib.add(c.A);   // the website reads it in place
+        await c.lib.setDefault(c.ids.A);
+        await c.lib.scan(c.ids.A);
+      }
+      c.takeBack = true;
+    },
+    state: (c) => withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2), png(3)]) } }, c.g.alpha, 1, png(5)),
+    // Once the other app met it: its translation 3 read, this app's translation 2 — or not, dropped where it
+    // still waited when the other app changed the gallery. Before the stages' check, where the other app
+    // unpacked it (its archive gone), not shown until that check follows it to its folder (S10's F5).
+    also: (c, stage) => { const s = withTranslation(withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2), png(3)]) } }, c.g.alpha, 1, png(5)), c.g.alpha, 3, png(9));
+      return [s, withTranslation(s, c.g.alpha, 2, png(4)), ...(stage === 'flush' ? [{ aIn: true, galleries: {} }] : [])]; },
+    ops: [op('translation 2', (c) => c.lib.putTranslation(c.g.alpha, 2, png(4)), (s, c) => withTranslation(s, c.g.alpha, 2, png(4))), FLUSH, SETTLE],
+    async met(c) {
+      const other = await otherApp(c);
+      try {
+        const theirs = await other.add(c.A, { force: true });   // "Use anyway"
+        const found = await other.scan(theirs);
+        if (found.problems.some(p => p.reason === 'duplicate')) (c.wrong ||= []).push(`the other app's check found a copy: ${JSON.stringify(found.problems)}`);
+        await other.putTranslation(c.g.alpha, 3, png(9));
+        await other.flush();
+        await other.setDefault(other.home);
+        await other.remove(theirs);   // it lets go
+      } finally { await other.close(); c.other = null; }
+    },
+    noSetupFlush: true,
+  },
   {
     // The website without leave to use folder A: pictures wait in this browser, then go to the folder once
     // the person allows it (plan D23's second case).
@@ -1049,6 +1171,8 @@ async function stages(c, sc, states, done) {
   ];
   if (sc.startsAgain && !done) await /** @type {() => Promise<void>} */ (c.lib.restart)();
   if (c.showFirst) await c.lib.show(c.ids.A).catch(() => {});
+  if (sc.met) { try { await within('the other app', sc.met(c)); } catch (e) { return [`the other app: ${/** @type {Error} */ (e).message}`]; } }
+  if (c.wrong?.length) return c.wrong.map(w => `step: ${w}`);
   if (c.takeBack && (await c.lib.list()).some(f => f.id === c.ids.A)) await c.lib.raw.folderClaim(c.ids.A).catch(() => {});
   for (const [stage, work] of steps) {
     try { await within(stage, work()); } catch (e) { return [`${stage}: ${/** @type {Error} */ (e).message}`]; }
@@ -1074,16 +1198,48 @@ function comeBack(/** @type {Ctx} */ c) {
   try { fs.renameSync(`${c.A}.away`, c.A); return []; } catch (e) { return [`step: the drive can't come back (${/** @type {Error} */ (e).code}): folder A was made again while it was away`]; }
 }
 // A website page that died: its calls, from the one the fault met on, never return (fsa hang), and the
-// page is loaded again. Its Web Locks go with it: this process takes the in-context locks
-// (folder-store-web.js withLock without navigator.locks), each page's its own.
+// page is loaded again. Web Locks are the site's, as in a browser (folder-store-web.js withLock, through
+// this navigator.locks): one holder of a name at a time across the pages loaded in this process — a page
+// loaded again waits for what the one before it still has under way (library-drivers.mjs: it ends) —
+// but a page that died holds none: its locks go with it, and what it asks for is never granted.
 const deadPages = new Set();
 // Every call of a page that died never returns, from now on (fsa.reset, as a library is made, forgets it).
 const stillDead = () => fsa.hang(() => deadPages.has(pageCalling()));
+/** @type {Map<string, { page: number | null, start: () => void }[]>} lock name → its holder, then who waits */
+const lockQueues = new Map();
+function grantNext(/** @type {string} */ name) {
+  const q = lockQueues.get(name) ?? [];
+  while (q.length && deadPages.has(q[0].page)) q.shift();
+  if (q.length) q[0].start(); else lockQueues.delete(name);
+}
+function pageDied(/** @type {number | null} */ page) {
+  deadPages.add(page);
+  for (const [name, q] of lockQueues) {
+    const holder = q[0];
+    const left = q.filter(e => e.page !== page);
+    lockQueues.set(name, left);
+    if (left[0] !== holder) grantNext(name);
+  }
+}
 let locksShadowed = false;
 function shadowLocks() {
   if (locksShadowed) return;
   locksShadowed = true;
-  Object.defineProperty(globalThis.navigator, 'locks', { value: undefined, configurable: true });
+  const request = (/** @type {string} */ name, /** @type {any} */ options, /** @type {() => unknown} */ fn = options) => new Promise((resolve, reject) => {
+    const entry = { page: pageCalling(), start: () => {
+      Promise.resolve().then(() => fn()).then(resolve, reject).finally(() => {
+        const q = lockQueues.get(name);
+        if (q?.[0] !== entry) return;   // let go when its page died
+        q.shift();
+        grantNext(name);
+      });
+    } };
+    const q = lockQueues.get(name) ?? [];
+    lockQueues.set(name, q);
+    q.push(entry);
+    if (q.length === 1) grantNext(name);
+  });
+  Object.defineProperty(globalThis.navigator, 'locks', { value: { request }, configurable: true });
 }
 
 /** How many file calls the step makes, with no fault. */
@@ -1120,7 +1276,7 @@ async function once(app, kind, sc, k) {
         if (page !== pageNow()) return false;
         if (deadPages.has(page)) return true;
         if (!at(call)) return false;
-        deadPages.add(page);
+        pageDied(page);
         died();
         return true;
       });
