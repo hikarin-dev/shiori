@@ -45,7 +45,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
-import { desktopLibrary, webLibrary, pageNow, pageCalling } from './library-drivers.mjs';
+import { desktopLibrary, webLibrary, pageNow, pageCalling, clockAhead } from './library-drivers.mjs';
+import { CLAIM_TTL_MS } from '../js/storage/folder-owner.js';
 import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
 import { zipCreate } from '../js/zip.js';
@@ -141,6 +142,18 @@ async function refusedFor(/** @type {Ctx} */ c, /** @type {string} */ what, /** 
     if (/** @type {any} */ (e)?.reason === 'not-owned') (c.wrong ||= []).push(`${what} refused "in use by another app" with nobody else on the folder`);
     throw e;
   }
+}
+// Change `change`, tried a quiet moment past the claim's time to live (nothing else reading it) while the
+// other app holds folder A and this app has learned of it: the gate refuses it ('not-owned'; a deletion
+// while the drive is away, as D3 refuses it: 'unavailable'), and the step goes on. One accepted is a
+// finding of the run (`c.wrong`); one that fails otherwise (the fault itself) stops the step there.
+async function refusedHere(/** @type {Ctx} */ c, /** @type {string} */ what, /** @type {() => Promise<unknown>} */ change) {
+  clockAhead(CLAIM_TTL_MS);
+  try { await change(); } catch (e) {
+    if (['not-owned', 'unavailable'].includes(/** @type {any} */ (e)?.reason)) return;
+    throw e;
+  }
+  (c.wrong ||= []).push(`${what} accepted while the other app holds the folder`);
 }
 // `work` done while folder A's drive is away — what it changes waits — and every attempt to save it there
 // that it set going (a publication made at once, a settle) ended before the drive is back.
@@ -927,6 +940,36 @@ const SCENARIOS = [
       op('delete Beta', (c) => c.lib.deleteGallery(c.g.beta), (s, c) => without(s, c.g.beta), 'beta'),
       FLUSH, SETTLE,
     ],
+  },
+  {
+    // C2 (S29c): the other app uses folder A anyway, and this app has learned of it (the person saw the folder
+    // used elsewhere, a change refused). The step: a title, a page, a translation and Beta's deletion, each a
+    // quiet moment past the claim's time to live after the one before, every point of their reads of the claim
+    // and of the changes themselves faulted. The gate knows the last claim it read — a read that fails, or
+    // the drive away, changes nothing of it — so each is refused: one accepted is a finding (`refusedHere`),
+    // and nothing of them reaches the folder, nor waits here for the take-back.
+    name: 'changes refused while the other app holds the folder, its claim read again',
+    async setup(c) {
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
+      c.g.beta = await made(c, 'Beta', [png(4)]);
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      await c.lib.flush();
+      const other = await otherApp(c);
+      await other.scan(await other.add(c.A, { force: true }));   // "Use anyway"
+      await other.close();
+      await c.lib.list();   // the person sees the folder used elsewhere
+      if (await c.lib.setTitle(c.g.alpha, 'Alpha 1').then(() => true, () => false)) throw new Error('a title accepted once the folder was seen used elsewhere');
+      c.takeBack = true;
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]), [c.g.beta]: G('A', 'Beta', [png(4)]) } }),
+    ops: [
+      op('its title, a while later', (c) => refusedHere(c, 'its title', () => c.lib.setTitle(c.g.alpha, 'Alpha 2'))),
+      op('page 3, a while later', (c) => refusedHere(c, 'page 3', () => c.lib.putPage(c.g.alpha, 3, png(3)))),
+      op('translation 1, a while later', (c) => refusedHere(c, 'translation 1', () => c.lib.putTranslation(c.g.alpha, 1, png(5)))),
+      op('delete Beta, a while later', (c) => refusedHere(c, 'Beta\'s deletion', () => c.lib.deleteGallery(c.g.beta))),
+      FLUSH, SETTLE,
+    ],
+    noSetupFlush: true,
   },
   {
     // B1: what this desktop library staged in folder A for its archived galleries (a translation of each,

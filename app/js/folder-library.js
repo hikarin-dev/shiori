@@ -490,6 +490,7 @@ async function _forget(id) {
   await K.forgetDeletions(id).catch(() => {});  // and galleries' folders likewise
   await K.forgetAttention(id).catch(() => {});
   folderFiles.forgetFolder(id);
+  K.forgetKnown(id);   // what the commit gate knew of its claim
   K.muchLater();
 }
 // The galleries of folder `folder` let go — their records deleted, their files kept.

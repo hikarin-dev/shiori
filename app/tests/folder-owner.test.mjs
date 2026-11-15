@@ -4,7 +4,7 @@
 // back, so an app adding a folder back can tell whether another had it meanwhile.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readClaim, claimText, access, nextClaim, releasedClaim, unchangedSince, heldElsewhere, CLAIM_TTL_MS } from '../js/storage/folder-owner.js';
+import { readClaim, claimText, access, nextClaim, releasedClaim, unchangedSince, heldElsewhere, knownAfter, CLAIM_TTL_MS } from '../js/storage/folder-owner.js';
 
 const ME = 'aaaaaaaaaaaaaaaa', OTHER = 'bbbbbbbbbbbbbbbb';
 const by = { app: 'desktop', host: 'pc' };
@@ -26,17 +26,27 @@ test('a claim file reads as none, damaged or a claim — never as none when it i
   assert.deepEqual([readClaim(new Error('EIO')).unread, readClaim('{').unread], [true, undefined]);
 });
 
-test('the commit gate knows another app holds a folder only by a claim read within its time to live that names one (S29b, C1)', () => {
+test('the commit gate knows the last claim it read: one naming another app refuses until a later read says otherwise, a read that failed says nothing, and past its time to live it is read again (S29c, C2)', () => {
   const at = 1_800_000_000_000;
-  const seen = (read, owned = false, when = at) => ({ read, owned, at: when });
-  assert.equal(heldElsewhere(seen(claim(OTHER, 3)), at + CLAIM_TTL_MS - 1), 'held');
-  // No knowledge: nothing read, a read that failed, a damaged claim, one no app holds (let go), this app's own.
-  for (const [what, s] of [['none read', null], ['a read that failed', seen(readClaim(new Error('EIO')))], ['damaged', seen(readClaim('{'))],
-    ['let go', seen(claim(null, 5))], ['no claim', seen(readClaim(null))], ['this app\'s', seen(claim(ME, 3), true)]]) {
-    assert.equal(heldElsewhere(s, at + 1), null, what);
+  const read = (r, owned = false, when = at, before = null) => knownAfter(before, r, owned, when);
+  const other = read(claim(OTHER, 3));
+  assert.deepEqual(heldElsewhere(other, at + CLAIM_TTL_MS - 1), { held: true, again: false }, 'inside its time to live: refused, no read');
+  // Past it the last answer still stands, to be read again (on `339ddee` a read that old was no knowledge: C2).
+  assert.deepEqual(heldElsewhere(other, at + 60_000), { held: true, again: true }, 'past it: still refused, read again');
+  // A read that failed says nothing: not kept, the last answer standing whatever it was (C1 stays: none refuses).
+  for (const failed of [new Error('EIO'), undefined]) {
+    assert.equal(read(readClaim(failed), false, at + 9000, other), other, 'another app\'s still');
+    const mine = read(claim(ME, 3), true);
+    assert.equal(read(readClaim(failed), false, at + 9000, mine), mine, 'this app\'s still');
+    assert.equal(read(readClaim(failed), false, at + 9000), null, 'nothing read yet: still nothing');
   }
-  // A read older than that is read again before it is weighed, whatever it said.
-  for (const s of [seen(claim(OTHER, 3)), seen(claim(ME, 3), true), seen(readClaim('{'))]) assert.equal(heldElsewhere(s, at + CLAIM_TTL_MS), 'stale');
+  // A later read that says otherwise ends it: this app's claim, one let go, none, a file there that isn't a claim.
+  for (const [what, r, owned] of [['this app\'s', claim(ME, 4), true], ['let go', claim(null, 5), false], ['no claim', readClaim(null), false], ['damaged', readClaim('{'), false]]) {
+    assert.deepEqual(heldElsewhere(read(r, owned, at + 9000, other), at + 9001), { held: false, again: false }, what);
+  }
+  // Nothing read yet: nothing refused, and the claim to be read.
+  assert.deepEqual(heldElsewhere(null, at), { held: false, again: true });
+  assert.deepEqual(heldElsewhere(read(claim(ME, 3), true), at + CLAIM_TTL_MS), { held: false, again: true }, 'this app\'s, past its time to live: read again');
 });
 
 test('only the app holding the claim writes; a damaged or unreadable claim is read-only (R08)', () => {

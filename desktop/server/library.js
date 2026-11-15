@@ -824,8 +824,8 @@ export class Library {
   }
   // Refused (BackendError 'unavailable', reason 'not-owned', `folder` its id, as a deletion is refused
   // there): a change to what gallery `gid`'s folder holds, while the library knows another app holds that
-  // folder (folders.js heldElsewhere: a claim read within its time to live naming another app — read again
-  // first when its last read is older) and the folder holds the gallery as published (its stamp:
+  // folder (folders.js heldElsewhere: the last claim it read names another app — read again first when
+  // that read is older than its time to live) and the folder holds the gallery as published (its stamp:
   // gallery-manifest.js published) — one app changes a folder's galleries at a time
   // (folder-lifecycle.js changeRefusal; the website's _logIn alike). Asked only of a change that would be
   // weighed (no file call for the folder's own work, nor for a gallery never published). A gallery only

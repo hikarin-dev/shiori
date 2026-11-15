@@ -16,7 +16,8 @@ import os from 'node:os';
 import path from 'node:path';
 import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
-import { desktopLibrary, webLibrary, desktopKilled, pageNow, pageCalling } from './library-drivers.mjs';
+import { desktopLibrary, webLibrary, desktopKilled, pageNow, pageCalling, clockAhead } from './library-drivers.mjs';
+import { CLAIM_TTL_MS } from '../js/storage/folder-owner.js';
 import { v1Gallery, legacyGallery, seriesExport } from './fixtures/storage-fixtures.mjs';
 import { loadGallery as desktopLoad } from '../../desktop/server/folder-store.js';
 import { loadGallery as websiteLoad, forgetFolder } from '../js/storage/folder-store-web.js';
@@ -3300,8 +3301,10 @@ export const CASES = [
         await fx.lib.flush();
         const at = /** @type {string} */ (await fx.lib.dirOf(gid)), gone = /** @type {string} */ (await fx.lib.dirOf(doomed));
         // The claim as last read forgotten (the desktop's probes; the website's grants, which a change of the
-        // default forgets), so the next change reads it — and that read fails, once.
+        // default forgets) and its time to live past (what the commit gate knows of it read again too: S29c),
+        // so the next change reads it — and that read fails, once.
         if (platform === 'desktop') fx.lib.raw.folders._probes.clear(); else await fx.lib.setDefault(fx.lib.home);
+        clockAhead(CLAIM_TTL_MS);
         let n = 0;
         const claimRead = (/** @type {{ op: string, path: string }} */ c) => (platform === 'desktop' ? c.op === 'readFile' && c.path.endsWith(`/${name}/.shiori/owner.json`)
           : c.path === '.shiori/owner.json' && (c.op === 'getFileHandle' || c.op === 'getFile'));
@@ -3328,14 +3331,18 @@ export const CASES = [
     },
   },
   {
-    // C1's other half: a refusal never rests on a read of the claim older than its time to live (folder-owner.js
-    // CLAIM_TTL_MS) — the other app let the folder go, and a change that writes no file (a title) is accepted
-    // without the person opening Settings, waiting until the folder is taken back (on `4211111` it was refused
-    // for as long as nothing read the claim again); and a claim damaged for good is no knowledge either: the
-    // folder is listed as used elsewhere, changes are accepted and wait (a deletion, which can't wait, is
-    // refused as for any folder that can't be written: D3), and "Take back" ends it — all of it reaches the
-    // folder then.
-    name: 'S29b C1: a refusal never rests on an old read of the claim — once the other app let the folder go a title is accepted and waits for the take-back; a claim damaged for good refuses no change either, and "Take back" ends it',
+    // C1's other half, as S29c has it: the other app let the folder go (its claim released: no app holds it),
+    // and a change that writes no file (a title) is accepted again without the person opening Settings, once
+    // the claim is read again past its time to live (folder-owner.js CLAIM_TTL_MS) — on the desktop before the
+    // change is weighed, so at once; on the website, whose gate sits inside a transaction and can't wait, in
+    // the background while the try weighs the last answer, so the try that has it read is still refused and
+    // none after it (on `4211111` it was refused for as long as nothing read the claim again). It waits until
+    // the folder is taken back. (S29b's form, "a refusal never rests on an old read", took the website's first
+    // try after a 5.3 s wait: withdrawn with S29c — the last answer stands until a read says otherwise, C2.)
+    // And a claim damaged for good tells nothing of another app either: the folder is listed as used
+    // elsewhere, changes are accepted and wait (a deletion, which can't wait, is refused as for any folder
+    // that can't be written: D3), and "Take back" ends it — all of it reaches the folder then.
+    name: 'S29b C1, S29c: once the other app let the folder go a title is accepted again — the desktop at once, the website once its gate has read the claim — and waits for the take-back; a claim damaged for good refuses no change either, and "Take back" ends it',
     async run({ dir, fx, platform }) {
       const said = (/** @type {Promise<unknown>} */ p) => p.then(() => 'resolved', (/** @type {any} */ e) => e?.reason || e?.code || String(e));
       const claimFile = (/** @type {string} */ name) => path.join(dir, name, '.shiori', 'owner.json');
@@ -3351,8 +3358,20 @@ export const CASES = [
       assert.equal(await access(A.id), 'taken', 'shown as used elsewhere');
       assert.equal(await said(fx.lib.setTitle(gid, 'Alpha 1')), 'not-owned', 'refused while the other app holds it (S29a)');
       fs.writeFileSync(claimFile('A'), JSON.stringify({ ...JSON.parse(fs.readFileSync(claimFile('A'), 'utf8')), owner: null, at: Date.now() }));
-      await new Promise(r => setTimeout(r, 5300));
-      assert.equal(await said(fx.lib.setTitle(gid, 'Alpha 2')), 'resolved', 'the other app let it go: accepted on a fresh read');
+      clockAhead(CLAIM_TTL_MS);   // nothing reads the claim meanwhile
+      const reads = [];   // the website's reads of it from now on: its gate's alone
+      const heard = fsa.onCall((c) => { if (c.op === 'getFile' && c.path === '.shiori/owner.json') reads.push(c); });
+      const tries = [];
+      try {
+        for (const end = Date.now() + 5000; tries.at(-1) !== 'resolved' && Date.now() < end; await new Promise(r => setTimeout(r, 25))) {
+          tries.push(await said(fx.lib.setTitle(gid, 'Alpha 2')));
+        }
+      } finally { heard(); }
+      if (platform === 'desktop') assert.deepEqual(tries, ['resolved'], 'the other app let it go: the desktop reads the claim before it weighs the change, accepted at once');
+      else {
+        assert.equal(tries.at(-1), 'resolved', 'the other app let it go: the website accepts once its gate has read the claim');
+        assert.deepEqual([tries[0], reads.length], ['not-owned', 1], 'the try that had it read weighed the last answer, and that one read ended it');
+      }
       assert.equal(await said(fx.lib.putTranslation(gid, 1, png(1, 71))), 'resolved', 'a translation too');
       await fx.lib.flush();
       assert.equal(titleThere(at), 'Alpha', 'it waits: the folder is taken back by hand');
@@ -3380,6 +3399,114 @@ export const CASES = [
       const manifest = JSON.parse(fs.readFileSync(path.join(there, '.shiori', 'gallery.json'), 'utf8'));
       assert.deepEqual([titleThere(there), Object.keys(manifest.files.pages).sort(), !!manifest.files.pages[1].translated, (await fx.lib.scan(B.id)).problems],
         ['Beta 2', ['1', '2', '3'], true, []], 'all of it in the folder then');
+    },
+  },
+  // ── What the commit gate knows (S29c: C2) ──
+  {
+    // C2 (the coordinator, verifying S29b; both apps): S29b's C1 made the gate forget that another app holds
+    // a folder — a read of the claim older than its time to live, one that failed, or the folder out of reach
+    // was no knowledge — so once this app had learned of the other (a change refused) it accepted changes
+    // again: on the website a title after a quiet moment with no fault at all (a record alone, as an edit
+    // dialog saves what it read as it opened); on both apps every title while the claim couldn't be read or
+    // the drive was away, on the website two more once it could. The gate knows the last claim it read: past
+    // its time to live it is read again (the desktop before it weighs the change, the website in the
+    // background, weighing the last answer meanwhile), and a read that fails or a folder out of reach changes
+    // nothing of it. "Take back" ends it: every change allowed at once.
+    name: 'S29c C2: once this app has learned another app holds a folder, its galleries stay read-only past the claim\'s time to live — a title, a page, a translation and a deletion refused round after round, the claim unreadable or the folder out of reach meanwhile and after — and "Take back" allows each at once',
+    async run({ dir, fx, platform }) {
+      const said = (/** @type {Promise<unknown>} */ p) => p.then(() => 'resolved', (/** @type {any} */ e) => e?.reason || e?.code || String(e));
+      const named = (/** @type {string} */ english) => ({ english, japanese: '', pretty: '' });
+      const forms = ['quiet', ...(platform === 'desktop' ? ['EIO', 'EPERM', 'ENOENT'] : ['NotReadableError', 'NoModificationAllowedError', 'NotFoundError', 'NotAllowedError']), 'away'];
+      for (const [i, form] of forms.entries()) {
+        const name = `A${i}`, folder = path.join(dir, name);
+        const ref = await fx.register(name);
+        const gid = await fx.lib.newGallery('Alpha'), doomed = await fx.lib.newGallery('Beta');
+        for (let n = 1; n <= 2; n++) await fx.lib.putPage(gid, n, png(i, n));
+        await fx.lib.putPage(doomed, 1, png(i, 9));
+        await fx.lib.flush();
+        const at = /** @type {string} */ (await fx.lib.dirOf(gid)), gone = /** @type {string} */ (await fx.lib.dirOf(doomed));
+        const meta = await fx.lib.meta(gid);   // what an edit dialog read as it opened: each title is that record saved, nothing read first
+        let n = 0;
+        const tries = /** @type {[string, () => Promise<unknown>][]} */ ([
+          ['a title', () => fx.lib.raw.metaPut({ ...meta, title: named(`Alpha ${++n}`) })],
+          ['a page', () => fx.lib.putPage(gid, 3, png(i, 3))],
+          ['a translation', () => fx.lib.putTranslation(gid, 1, png(i, 71))],
+          ['a deletion', () => fx.lib.deleteGallery(doomed)],
+        ]);
+        await fx.takeOver(ref);
+        await fx.lib.list();   // the person sees the folder used elsewhere
+        assert.equal(await said(tries[0][1]()), 'not-owned', `${form}: learned — a change refused`);
+        const calls = [];
+        const heard = (platform === 'desktop' ? faults : fsa).failNext((c) => { calls.push(`${c.op} ${c.path}`); return false; }, 'EIO', { times: Infinity });
+        try { assert.equal(await said(tries[0][1]()), 'not-owned', `${form}: inside the claim's time to live, refused`); } finally { heard(); }
+        assert.deepEqual(calls, [], `${form}: with no file call`);
+        // Each change a quiet moment past the claim's time to live after the one before, nothing else reading it.
+        const rounds = async (/** @type {string} */ what, /** @type {number} */ count) => {
+          for (let r = 1; r <= count; r++) {
+            for (const [change, tried] of tries) {
+              clockAhead(CLAIM_TTL_MS);
+              const want = form === 'away' && what === 'meanwhile' && change === 'a deletion' ? 'unavailable' : 'not-owned';   // out of reach: D3
+              assert.equal(await said(tried()), want, `${form}, ${what}, round ${r}: ${change} refused`);
+            }
+          }
+        };
+        if (form === 'quiet') await rounds('meanwhile', 3);
+        else if (form === 'away') {
+          fs.renameSync(folder, `${folder}.away`);
+          try { await rounds('meanwhile', 2); } finally { fs.renameSync(`${folder}.away`, folder); }
+          await rounds('back', 1);
+        } else {
+          // Every read of the claim's text fails; a look at whether it is there doesn't (so it is never taken for none).
+          const read = (/** @type {{ op: string, path: string }} */ c) => (platform === 'desktop' ? c.op === 'readFile' && c.path.endsWith(`/${name}/.shiori/owner.json`)
+            : c.op === 'getFile' && c.path === '.shiori/owner.json');
+          const undo = (platform === 'desktop' ? faults : fsa).failNext(read, form, { times: Infinity });
+          try { await rounds('meanwhile', 2); } finally { undo(); }
+          await rounds('readable again', 1);
+        }
+        assert.equal(await fx.lib.titleOf(gid), 'Alpha', `${form}: nothing of it changed here`);
+        assert.equal(await fx.lib.raw.folderClaim(ref.id), 'granted', `${form}: taken back`);
+        const after = [];
+        for (const [, tried] of tries) after.push(await said(tried()));
+        assert.deepEqual(after, Array(4).fill('resolved'), `${form}: after "Take back" each accepted at once`);
+        await fx.lib.flush();
+        await until(() => !fs.existsSync(gone));
+        const manifest = JSON.parse(fs.readFileSync(path.join(at, '.shiori', 'gallery.json'), 'utf8'));
+        assert.deepEqual([JSON.parse(fs.readFileSync(path.join(at, 'metadata.json'), 'utf8')).title.english, Object.keys(manifest.files.pages).sort(), !!manifest.files.pages[1].translated,
+          (await fx.lib.scan(ref.id)).problems], [`Alpha ${n}`, ['1', '2', '3'], true, []], `${form}: all of it in the folder`);
+        await fx.lib.setDefault(fx.lib.home);
+        await fx.lib.remove(ref.id);
+      }
+    },
+  },
+  {
+    // C2's form for an app started again while another app holds a folder (S29c). The desktop reads every
+    // folder's claim as it opens. The website's page loaded afresh knows nothing of it yet: its first change
+    // is accepted (made before the app has learned of the other: the owner knows, S29a) and has the claim
+    // read at once, in the background — every change once that read is in is refused. On `339ddee` its gate
+    // never asked: every title was accepted for as long as nothing else read the claim.
+    name: 'S29c C2: started again while another app holds a folder, the app learns of it at its first change at the latest — each change once its claim was read is refused',
+    async run({ dir, fx, platform }) {
+      const said = (/** @type {Promise<unknown>} */ p) => p.then(() => 'resolved', (/** @type {any} */ e) => e?.reason || e?.code || String(e));
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 2; n++) await fx.lib.putPage(gid, n, png(1, n));
+      await fx.lib.flush();
+      await fx.takeOver(ref);
+      await /** @type {() => Promise<void>} */ (fx.lib.restart)();
+      const meta = await fx.lib.meta(gid);
+      let n = 0;
+      const title = () => fx.lib.raw.metaPut({ ...meta, title: { english: `Alpha ${++n}`, japanese: '', pretty: '' } });
+      const tries = [];
+      for (const end = Date.now() + 5000; tries.at(-1) !== 'not-owned' && Date.now() < end; await new Promise(r => setTimeout(r, 25))) tries.push(await said(title()));
+      if (platform === 'desktop') assert.deepEqual(tries, ['not-owned'], 'the desktop read the claim as it opened: its first change refused');
+      else assert.equal(tries.at(-1), 'not-owned', 'the website\'s page: refused once its gate has read the claim (its first change, with no answer yet, accepted)');
+      for (let k = 0; k < 3; k++) {
+        clockAhead(CLAIM_TTL_MS);
+        assert.equal(await said(title()), 'not-owned', `refused from then on (${k + 1})`);
+      }
+      assert.equal(await fx.lib.raw.folderClaim(ref.id), 'granted', 'taken back');
+      await fx.lib.flush();
+      assert.deepEqual((await fx.lib.scan(ref.id)).problems, [], 'nothing reported');
     },
   },
 ];

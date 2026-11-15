@@ -20,7 +20,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { desktopLibrary, webLibrary, desktopKilled, pageNow, pageCalling } from './library-drivers.mjs';
+import { desktopLibrary, webLibrary, desktopKilled, pageNow, pageCalling, clockAhead } from './library-drivers.mjs';
+import { CLAIM_TTL_MS } from '../js/storage/folder-owner.js';
 import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
 import { zipCreate } from '../js/zip.js';
@@ -403,6 +404,73 @@ const CASES = [
         assert.deepEqual([await mine(to, untouched), await mine(to, touched), await to.read(touched, 2, 'translated')], [true, false, png(0, 7)], `${form}: read alike there`);
         await to.setDefault(to.home);
         await to.remove(again);
+      }
+    },
+  },
+  {
+    // C2 (the coordinator after S29b, s29b-quiet2 and s29b-forget): the other app uses the folder anyway and
+    // retitles Alpha there; this app, once it has learned of it (a change refused), went on accepting changes
+    // after S29b — on the website a title a quiet moment later with no fault at all, on both apps every title
+    // while the claim couldn't be read or the drive was away — shown here while the other app held the
+    // folder, then dropped at the take-back ('changed-both'). The gate knows the last claim it read: each
+    // change below comes a quiet moment past the claim's time to live after the one before, and all are
+    // refused, the claim unreadable or the drive away meanwhile and after; at the take-back nothing waits
+    // here, nothing is dropped, and the other app's title reads.
+    name: 'S29c C2: once this app has learned the other app uses its folder anyway, a title, a page, a translation and a deletion stay refused past the claim\'s time to live — the claim unreadable or the drive away meanwhile and after — and nothing is dropped at the take-back',
+    async run({ dir, from, to }) {
+      const named = (english) => ({ english, japanese: '', pretty: '' });
+      for (const [i, form] of ['quiet', 'the claim unreadable', 'the drive away'].entries()) {
+        const F = path.join(dir, `F${i}`);
+        const id = await from.add(F);
+        await from.setDefault(id);
+        const gid = await from.newGallery('Alpha'), doomed = await from.newGallery('Beta');
+        for (let n = 1; n <= 2; n++) await from.putPage(gid, n, png(i, n));
+        await from.putPage(doomed, 1, png(i, 9));
+        await from.flush();
+        const theirs = await to.add(F, { force: true });   // "Use anyway"
+        await to.scan(theirs);
+        await to.setTitle(gid, 'Alpha there');
+        await to.flush();
+        const meta = await from.meta(gid);   // what an edit dialog read as it opened: each title is that record saved, nothing read first
+        let n = 0;
+        const tries = [
+          ['a title', () => from.raw.metaPut({ ...meta, title: named(`Alpha ${++n}`) })],
+          ['a page', () => from.putPage(gid, 3, png(i, 3))],
+          ['a translation', () => from.putTranslation(gid, 1, png(i, 71))],
+          ['a deletion', () => from.deleteGallery(doomed)],
+        ];
+        assert.equal((await from.list()).find(f => f.id === id)?.access, 'taken', `${form}: shown as used elsewhere`);
+        assert.equal(await reason(tries[0][1]()), 'not-owned', `${form}: learned — a change refused`);
+        const round = async (what) => {
+          for (const [change, tried] of tries) {
+            clockAhead(CLAIM_TTL_MS);   // a quiet moment past the claim's time to live, nothing else reading it
+            const want = form === 'the drive away' && what === 'meanwhile' && change === 'a deletion' ? 'unavailable' : 'not-owned';   // out of reach: D3
+            assert.equal(await reason(tried()), want, `${form}, ${what}: ${change} refused`);
+          }
+        };
+        if (form === 'quiet') { await round('meanwhile'); await round('again'); }
+        else if (form === 'the drive away') {
+          fs.renameSync(F, `${F}.away`);
+          try { await round('meanwhile'); } finally { fs.renameSync(`${F}.away`, F); }
+          await round('back');
+        } else {
+          const read = from.app === 'desktop' ? (c) => c.op === 'readFile' && c.path.endsWith(`/F${i}/.shiori/owner.json`) : (c) => c.op === 'getFile' && c.path === '.shiori/owner.json';
+          const undo = (from.app === 'desktop' ? faults : fsa).failNext(read, from.app === 'desktop' ? 'EIO' : 'NotReadableError', { times: Infinity });
+          try { await round('meanwhile'); } finally { undo(); }
+          await round('readable again');
+        }
+        assert.deepEqual([await from.titleOf(gid), await from.read(gid, 3), (await from.galleries()).includes(doomed)], ['Alpha', null, true], `${form}: nothing of it here`);
+        await to.setDefault(to.home);
+        await to.remove(theirs);   // it lets go
+        assert.equal(await from.raw.folderClaim(id), 'granted', `${form}: taken back`);
+        await from.flush();
+        // (The website reads another app's work once it isn't busy with the gallery: §8.)
+        await until(async () => { await from.scan(id); return await from.titleOf(gid) === 'Alpha there'; }, 10_000);
+        assert.deepEqual((await from.scan(id)).problems, [], `${form}: nothing reported`);
+        assert.deepEqual([await from.titleOf(gid), (await from.list()).find(f => f.id === id).attention.map(a => a.reason)], ['Alpha there', []], `${form}: the other app's title, nothing dropped`);
+        assert.deepEqual(namedMissing(F), [], `${form}: the folder holds every file it names`);
+        await from.setDefault(from.home);
+        await from.remove(id);
       }
     },
   },

@@ -74,6 +74,18 @@ function closePage(gen) {
   for (const [handle, g] of timers) if (g === gen) { clearTimeout(handle); clearInterval(handle); timers.delete(handle); }
 }
 
+// ── The clock ──
+// The clock moved on by `ms` for everything in this process (both apps' libraries run in it): a quiet
+// moment — a claim's time to live passing (folder-owner.js CLAIM_TTL_MS), say — without waiting it out.
+// It never goes back, so whatever is taken as it is for a while is as old as it would be by then.
+let ahead = 0;
+const realNow = Date.now;
+/** @param {number} ms */
+export function clockAhead(ms) {
+  if (!ahead) Date.now = () => realNow() + ahead;
+  ahead += ms;
+}
+
 // The windows' channel, heard by nobody here (Node's own would keep the process alive, and tell other
 // test files' libraries nothing they should hear).
 const Quiet = class { postMessage() {} close() {} };

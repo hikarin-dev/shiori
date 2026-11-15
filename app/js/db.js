@@ -11,7 +11,7 @@ import { galleryFiles, layoutPath, layoutOf, extOfType, originalExt, galleryName
 import { slotFiles, tokenOf, generationOf, published, othersSince, parseManifest, foreignEntries } from './storage/gallery-manifest.js';
 import { exportSize } from './gallery-export.js';
 import * as folderFiles from './storage/folder-store-web.js';
-import { OWNER_FILE, readClaim, access, nextClaim, claimText, heldElsewhere } from './storage/folder-owner.js';
+import { OWNER_FILE, readClaim, access, nextClaim, claimText, heldElsewhere, knownAfter } from './storage/folder-owner.js';
 import { mounted, writeAllowed, changeRefusal, unfoundEnd } from './storage/folder-lifecycle.js';
 import { galleryIdOf, seriesOf, MANIFEST_FILE } from './storage/folder-content.js';
 import { REMOVED_FILE, ARCHIVE_NAME, overlayDir, parseRemoved, removedText, withRemoved, provenanceOf, pageToken, madeFromPage } from './storage/linked-source.js';
@@ -402,8 +402,8 @@ const _txError = (tx) => tx._refused || tx.error || new BackendError('aborted', 
 // A gallery kept in a folder is marked as having changes its folder lacks (UNDESCRIBED_STORE: { gid,
 // rev }, the revision of this change) until _describe has written them there — `mark: false` for a
 // change no description shows (its size, a series' totals, the person's own marks). A change its folder
-// would get (one marked) is refused too while this context knows another app holds that folder (a claim
-// read within its time to live naming another app: _heldElsewhere, no file call) and the folder holds
+// would get (one marked) is refused too while this context knows another app holds that folder (the last
+// claim it read names another app: _heldElsewhere, no file call) and the folder holds
 // the gallery as published (its stamp): one app changes a folder's galleries at a time
 // (folder-lifecycle.js changeRefusal) — BackendError 'unavailable', reason 'not-owned', as a deletion is
 // refused there. A gallery only this
@@ -416,12 +416,12 @@ function _logIn(tx, gid, { mark = true } = {}) {
   if (seen) {
     if (mark && !seen.mark) {
       seen.mark = true;
-      if (seen.held) _refuseIn(tx, id, 'not-owned', seen.folder);
+      if (seen.held?.()) _refuseIn(tx, id, 'not-owned', seen.folder);
       else if (seen.folder) _markIn(tx, id, seen.rev);
     }
     return;
   }
-  const entry = { mark, rev: null, folder: null, held: false };
+  const entry = { mark, rev: null, folder: null, held: null };
   tx._logged.set(id, entry);
   const log = tx.objectStore(CHANGES_STORE);
   const req = log.add({ gid: id, at: Date.now() });
@@ -441,8 +441,10 @@ function _logIn(tx, gid, { mark = true } = {}) {
     if (changeRefusal({ state, work })) { _refuseIn(tx, id); return; }
     entry.folder = folder;
     const held = published(stat.result?.stamp);
-    entry.held = !!changeRefusal({ state, work, change: true, taken: !!folder && held && !work && _heldElsewhere(folder), held });
-    if (entry.held && entry.mark) { _refuseIn(tx, id, 'not-owned', folder); return; }
+    // Weighed once the change is one its folder would get (marked), and the gate asked only then: a change no
+    // description shows (a size, the person's marks) costs it no read of the claim.
+    entry.held = () => !!changeRefusal({ state, work, change: true, taken: !!folder && held && !work && _heldElsewhere(folder), held });
+    if (entry.mark && entry.held()) { _refuseIn(tx, id, 'not-owned', folder); return; }
     if (entry.folder && entry.mark) _markIn(tx, id, entry.rev);
   });
 }
@@ -664,6 +666,7 @@ const DEFAULT_FOLDER = '$default';
 let _foldersRead = null;
 const _grants = new Map();     // folder id → { state, owned, claim, at }: what it allows, asked at most every few seconds
 const GRANT_TTL_MS = 2000;     // as the desktop's (folders.js IDENTITY_TTL): the window a read may lag a folder swapped by hand
+const _known = new Map();      // folder id → the last claim this context read of it: what the commit gate knows (folder-owner.js knownAfter)
 const _fileOf = new WeakMap(); // a picture read from or written to a gallery's folder → its reference
 
 // A folder record as IndexedDB 18 kept it (flags `hidden`, `dormant`, `settingAside`, `claimEpoch`…),
@@ -704,7 +707,13 @@ function _foldersChanged() {
   platform.control.send({ type: 'FOLDERS_CHANGED' });
 }
 function _forgetFolders() { _foldersRead = null; _grants.clear(); _ours.clear(); _readable.clear(); }
-platform.control.on((msg) => { if (msg?.type === 'FOLDERS_CHANGED') _forgetFolders(); });
+// What the commit gate knew of folder `id`'s claim forgotten, in every context of this browser: this
+// library wrote the claim (claimed the folder, took it back, let it go: _writeClaim), or forgot the folder.
+const _forgetKnown = (id) => platform.control.send({ type: 'CLAIM_FORGOTTEN', folder: id });
+platform.control.on((msg) => {
+  if (msg?.type === 'FOLDERS_CHANGED') _forgetFolders();
+  else if (msg?.type === 'CLAIM_FORGOTTEN') _known.delete(msg.folder);
+});
 
 // What this context may do with folder `id` now: { state (its permission — or 'other-library': the
 // folder its handle reaches is another library folder, or names none: principle 1), owned, claim (as
@@ -716,7 +725,9 @@ platform.control.on((msg) => { if (msg?.type === 'FOLDERS_CHANGED') _forgetFolde
 // What a folder reached allows is taken as it is for GRANT_TTL_MS, for reads; one out of reach, another
 // library's at its place, without leave or whose claim couldn't be read now (readClaim `unread`: C1) is
 // asked again the next time, so one back is used at once (S8: a folder whose drive came back couldn't be
-// checked for five seconds), and one failed read refuses only what it met. `fresh` (every write, and every
+// checked for five seconds), and one failed read refuses only what it met. Every claim read is what the
+// commit gate knows from then on (`_known`, folder-owner.js knownAfter: one that failed, or a folder out of
+// reach, changes nothing of it). `fresh` (every write, and every
 // check, through the write gate: _rootOf) reads which folder the handle reaches again, as the desktop
 // does: another library put at its path a moment after a write is never written to, nor its galleries
 // adopted (F1, S10).
@@ -737,20 +748,24 @@ async function _access(id, { fresh = false } = {}) {
   const held = state === 'granted' ? await _holds(folder).catch(() => ({ owned: false, claim: readClaim(undefined) })) : { owned: false, claim: null };
   const out = { state, ...held, at: Date.now() };
   if (state === 'granted' && !held.claim?.unread) _grants.set(id, out); else _grants.delete(id);
+  if (state === 'granted' && held.claim) { const known = knownAfter(_known.get(id), held.claim, held.owned, out.at); if (known) _known.set(id, known); }
   return out;
 }
-// Whether this context knows another app holds folder `id` — what the commit gate weighs (_logIn): its
-// claim as last read (_access), weighed by folder-owner.js heldElsewhere — knowledge only: a folder not
-// asked about yet here, one out of reach, a claim that couldn't be read or names no app, are none. The
-// gate sits inside a transaction and can't wait for a read: one older than the claim's time to live is no
-// knowledge either — the change goes ahead, and the claim is read again in the background (one read under
-// way per folder), so the next change rests on a fresh read. No file call for a change inside it.
+// Whether this context knows another app holds folder `id` — what the commit gate weighs (_logIn): the
+// last claim it read of it (`_known`), weighed by folder-owner.js heldElsewhere. One naming another app
+// refuses until a later read says otherwise; a read that failed, or the folder out of reach, changes
+// nothing of it. The gate sits inside a transaction and can't wait for a read: none read yet here, or one
+// older than the claim's time to live, it weighs the last answer (none: nothing refused) and has the claim
+// read again at once in the background (one read under way per folder), so the next change rests on it.
+// No file call for a change inside the time to live.
 const _rereads = new Map();   // folder id → its claim's read under way, asked by the gate
 function _heldElsewhere(id) {
-  const hit = _grants.get(id);
-  const known = heldElsewhere(hit && { read: hit.claim, owned: hit.owned, at: hit.at });
-  if (known === 'stale' && !_rereads.has(id)) _rereads.set(id, _access(id).catch(() => {}).finally(() => _rereads.delete(id)));
-  return known === 'held';
+  const { held, again } = heldElsewhere(_known.get(id));
+  if (again && !_rereads.has(id)) {
+    _grants.delete(id);   // read afresh: a grant of a moment ago may be older than a claim this library wrote since
+    _rereads.set(id, _access(id).catch(() => {}).finally(() => _rereads.delete(id)));
+  }
+  return held;
 }
 // The write gate: folder `id`'s handle when this context may change its files now — it can be
 // reached, this library holds its claim, and its state allows it (folder-lifecycle.js writeAllowed:
@@ -807,7 +822,12 @@ const _myLabel = () => ({ app: 'web', browser: platform.helperHost, site: global
 async function _readClaim(id, root) {
   try { return readClaim(await folderFiles.readText(id, root, OWNER_FILE)); } catch (e) { return readClaim(e); }
 }
-const _writeClaim = (id, root, claim) => folderFiles.writeFile(id, root, OWNER_FILE, claimText(claim));
+// The claim this library writes (claiming the folder, taking it back, letting it go) ends what the commit
+// gate knew of it in every context: the next read tells (_forgetKnown).
+async function _writeClaim(id, root, claim) {
+  await folderFiles.writeFile(id, root, OWNER_FILE, claimText(claim));
+  _forgetKnown(id);
+}
 // The claim's counter this library holds folder `id` at, kept on its record: added back after it was
 // removed, the folder tells by it whether another app had it meanwhile.
 const _noteEpoch = (id, epoch) => _folderWrite((store) => {
@@ -2083,7 +2103,7 @@ const _folderLibrary = createFolderLibrary({
   galleryGet, galleryGetAll, metaGet, transferIds, nextGalleryId, rebuildGalleryEntry, refreshSeriesAggregate, putCoverPatch,
   seriesWrite: (...args) => _seriesCommand('write', args),
   // the places, the write gate, the claims
-  folders: _folders, folderById: _folderById, folderWrite: _folderWrite, forgetGrant: (id) => _grants.delete(id), forgetRetiring: _forgetRetiring,
+  folders: _folders, folderById: _folderById, folderWrite: _folderWrite, forgetGrant: (id) => _grants.delete(id), forgetKnown: _forgetKnown, forgetRetiring: _forgetRetiring,
   note: _note, noteIn: _noteIn, noteChecked: _noteChecked, attentionOf: _attentionOf, dismiss: _dismiss, forgetAttention: _forgetAttention,
   placeOf: _placeOf, placeKey: _placeKey, access: _access, rootOf: _rootOf, usable: _usable, readRootOf: _readRootOf,
   removedNotes: _removedNotes, publishRemoved: _publishRemoved,
@@ -4074,6 +4094,7 @@ export async function clearAll({ folders = false } = {}) {
     if (g.linked) await folderFiles.deleteGalleryIn(g.folder, root, g.dir, g.gid, g.named).catch(() => {});
     else if (folders) await _deleteDir(g.folder, root, g.dir, g.gid, async () => g.named).catch(() => {});
   }
+  if (folders) _known.clear();   // the folders forgotten, what the commit gate knew of their claims with them
   _foldersChanged();
   if (!folders) await _applyDeletions().catch(() => {});
 }

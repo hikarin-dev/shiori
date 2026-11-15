@@ -79,7 +79,7 @@ test('a folder of what Shiori didn\'t make is used as it is: galleries read in p
   assert.deepEqual(await library.pdfsWaiting(), []);
   // Removed from the library: its overlay goes, its files stay, and a check doesn't add it again.
   await library.deleteGallery(one.id);
-  await new Promise(r => setTimeout(r, 100));
+  await library.folders.publishRemoved(id);   // after the one its deletion set going: noted in removed.json, then its overlay deleted
   assert.ok(fs.existsSync(zipFile), 'its archive stays');
   assert.ok(!fs.existsSync(overlay), 'its overlay goes');
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(pack, '.shiori', 'linked', 'removed.json'), 'utf8')).removed.map(r => r.path), ['Pack/[Circle (Artist A)] Title One (Mag 2020).zip']);
@@ -99,7 +99,7 @@ test('a folder of what Shiori didn\'t make is used as it is: galleries read in p
   assert.deepEqual(await bytesOf(await library.getPageBlob(renamed.id, 2)), [...pngBytes(32)]);
   // Deleted, the missing gallery takes its overlay along; the renamed files stay, the new gallery's.
   await library.deleteGallery(loose);
-  await new Promise(r => setTimeout(r, 100));
+  await library.folders.publishRemoved(id);   // as above
   assert.ok(!fs.existsSync(looseOverlay), 'its overlay goes with it');
   assert.equal((await library.getGallery(renamed.id)).count, 2);
   // Moved to another library folder: a gallery of its own there; its files stay where they were.

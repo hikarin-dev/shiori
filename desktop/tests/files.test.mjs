@@ -263,7 +263,7 @@ test('deleting a gallery deletes its folder, emptied by name, with the library\'
   const dir = dirOf(library, gid);
   removed.length = 0;
   await library.deleteGallery(gid);
-  await settle();
+  await library.files.applyDeletions();   // after the one its deletion set going (one at a time)
   assert.deepEqual(removed, [dir], 'the folder, whole, through the library\'s delete (the desktop app\'s: remove.js)');
   assert.equal(fs.existsSync(dir), false, 'gone, not kept anywhere');
   assert.ok(fs.existsSync(library.libraryDir), 'the library folder itself stays');
@@ -442,7 +442,7 @@ test('translations, study layers and masks are written under their layout names,
   // published yet among them — then the folder, left with no file, whole.
   await library.putTranslatedPage(at, png(11), null);
   await library.deleteGallery(gid);
-  await settle(); await settle();
+  await library.files.applyDeletions();   // after the one its deletion set going (one at a time): its folder's removal awaited
   assert.deepEqual(removed, [[dir, []]], 'the folder goes once its translation has, by name');
   assert.equal(fs.existsSync(dir), false);
 });

@@ -76,6 +76,7 @@ export class Folders {
   constructor(library) {
     this.library = library;
     this._probes = new Map();    // id → { read, access, at }: its claim as last read (for folder-owner.js CLAIM_TTL_MS)
+    this._known = new Map();     // id → the last claim read of it: what the commit gate knows (folder-owner.js knownAfter)
     this._ids = new Map();       // id → { status, path, failures, at }: which folder its path held, as last read (_identity)
     this._jobs = new Map();      // id → the job in its queue: { kind, stop, cancel, phase, run }
     this._removed = new Map();   // id → its removed.json's last write (publishRemoved: one at a time)
@@ -314,11 +315,12 @@ export class Folders {
   // as read (`read`), read again once CLAIM_TTL_MS has passed. One no app holds (or this library let go
   // itself, untouched since) is claimed now — written, then read back; one that can't be is not this
   // library's. A claim whose read failed (readClaim `unread`) is kept for no time, as an identity out of
-  // reach is: the next probe reads it again, so one failure refuses only the call it met (C1). A folder
-  // is reached only where its path holds it (_identity, read afresh for every probe: each change to a
-  // folder's files is weighed by one): another folder there — a drive letter or mount point given to
-  // another disk, the folder replaced — is not it (`identity` 'other-library'), and is neither claimed,
-  // read as it, nor written to (F01, T01).
+  // reach is: the next probe reads it again, so one failure refuses only the call it met (C1). Every claim
+  // read is what the commit gate knows from then on (`_known`, folder-owner.js knownAfter: one that failed
+  // says nothing). A folder is reached only where its path holds it (_identity, read afresh for every
+  // probe: each change to a folder's files is weighed by one): another folder there — a drive letter or
+  // mount point given to another disk, the folder replaced — is not it (`identity` 'other-library'), and
+  // is neither claimed, read as it, nor written to (F01, T01).
   probe(id, { fresh = false } = {}) {
     const row = this._row(id);
     const identity = row ? this._identity(row, { fresh: true }) : 'unavailable';
@@ -327,18 +329,26 @@ export class Folders {
     if (fresh || !hit || Date.now() - hit.at >= claims.CLAIM_TTL_MS) {
       hit = { ...this._access(row), at: Date.now() };
       if (hit.read?.unread) this._probes.delete(row.id); else this._probes.set(row.id, hit);
+      const known = claims.knownAfter(this._known.get(row.id), hit.read, hit.access === 'mine', hit.at);
+      if (known) this._known.set(row.id, known);
     }
     return { reachable: true, access: hit.access, read: hit.read, identity };
   }
   // Whether the library knows another app holds folder `id` — what the commit gate weighs (library.js
-  // _heldCheck): its claim as last read (probe's), weighed by folder-owner.js heldElsewhere — knowledge
-  // only: a folder not read yet, one out of reach, a claim that couldn't be read or names no app, are no
-  // knowledge. A read older than the claim's time to live is made again first (probe: at most one read
-  // per time to live, none for a change inside it), so the gate never refuses, nor accepts, on an old one.
+  // _heldCheck): the last claim it read of it (`_known`), weighed by folder-owner.js heldElsewhere. One
+  // naming another app refuses until a later read says otherwise; a read that failed, or the folder out
+  // of reach, changes nothing of it. None read yet, or read longer ago than the claim's time to live, it
+  // is read again first (probe: at most one read per time to live, none for a change inside it).
   heldElsewhere(id) {
-    const seen = () => { const hit = this._probes.get(String(id)); return hit && { read: hit.read, owned: hit.access === 'mine', at: hit.at }; };
-    if (claims.heldElsewhere(seen()) === 'stale') this.probe(String(id));
-    return claims.heldElsewhere(seen()) === 'held';
+    const known = () => claims.heldElsewhere(this._known.get(String(id)));
+    if (known().again) this.probe(String(id), { fresh: true });
+    return known().held;
+  }
+  // What the library knew of folder `id`'s claim forgotten — the claim as last read, and what the commit
+  // gate knows: this library claimed it, let it go, or forgot the folder.
+  _forgetClaim(id) {
+    this._probes.delete(id);
+    this._known.delete(id);
   }
   // Whether folder `row`'s path holds that folder now (_identity, read afresh).
   _here(row) { return this._identity(row, { fresh: true }) === 'ok'; }
@@ -440,7 +450,7 @@ export class Folders {
     const claim = this._claimFor(abs, { force });
     lib._s(`INSERT INTO roots (id, path, state, first, added_at, epoch) VALUES (?, ?, 'shown', 0, ?, ?)`).run(id, abs, Date.now(), claim.epoch);
     this._paths = null;
-    this._probes.delete(id);
+    this._forgetClaim(id);
     try { lib._hide(path.join(abs, '.shiori')); } catch {}
     lib._push('control', { type: 'FOLDERS_CHANGED' });
     return { id, restored: 0 };
@@ -465,7 +475,7 @@ export class Folders {
         await job.run.catch(() => {});
       }
       this._setState(row.id, 'shown');
-      this._probes.delete(row.id);
+      this._forgetClaim(row.id);
       this.library.files.resume();
       return { id: row.id, restored: this.galleriesIn(row.id).length };
     }
@@ -547,14 +557,15 @@ export class Folders {
   }
 
   // Folder `id`, taken over by another app (or its claim unreadable), held by this library again — from
-  // a click, the person told what that risks: what waited for it meanwhile is settled into it.
+  // a click, the person told what that risks: what waited for it meanwhile is settled into it, and every
+  // change is allowed at once (what the commit gate knew of the other app is forgotten).
   async claim(id) {
     const row = this._row(id);
     if (!row) throw new BackendError('not-found', `no library folder ${id}`);
     if (!this._here(row)) throw this._refusal(id);   // out of reach, or another folder at its path
     const claim = this._claimFor(row.path, { force: true, held: row.epoch });
     this._setEpoch(id, claim.epoch);
-    this._probes.delete(id);
+    this._forgetClaim(id);
     this.library._push('control', { type: 'FOLDERS_CHANGED' });
     const files = this.library.files;
     files.resume();
@@ -804,7 +815,7 @@ export class Folders {
     if (!row || !this._here(row)) return;
     const next = claims.releasedClaim(this._readClaim(row.path), this._me());
     if (next) try { this._writeClaim(row.path, next); } catch {}
-    this._probes.delete(id);
+    this._forgetClaim(id);
   }
 
   // Folder `id` forgotten: every record of its galleries gone (their files stay — the folder has what
@@ -833,7 +844,7 @@ export class Folders {
       lib._logIn('*');
     });
     this._paths = null;
-    this._probes.delete(id);
+    this._forgetClaim(id);
     this._ids.delete(id);
     lib._push('control', { type: 'FOLDERS_CHANGED' });
   }

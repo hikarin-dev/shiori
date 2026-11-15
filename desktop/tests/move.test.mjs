@@ -123,6 +123,13 @@ test('a gallery too big for one message goes in parts and arrives whole', async 
 const filesUnder = (root) => fs.readdirSync(root, { recursive: true, withFileTypes: true })
   .filter(d => d.isFile()).map(d => path.join(d.parentPath ?? d.path, d.name));
 const pictures = () => filesUnder(path.join(dir, 'library')).filter(f => /\.(png|webp|jpg)$/i.test(f));
+// `fn()` once it holds — what the app does once a message it was sent arrives — or a failure saying `what` after 5 s.
+async function until(fn, what) {
+  for (const end = Date.now() + 5000; !fn();) {
+    if (Date.now() > end) assert.fail(`timed out: ${what}`);
+    await new Promise(r => setTimeout(r, 20));
+  }
+}
 
 test('a gallery in parts is recorded whole or not at all: a part that fails takes the others with it', async () => {
   const gid = await gallery('Parts fail', 3);
@@ -136,7 +143,7 @@ test('a gallery in parts is recorded whole or not at all: a part that fails take
   } finally {
     desktop.transferWrite = original;
   }
-  await new Promise(r => setTimeout(r, 100));   // the abort it sends
+  await until(() => pictures().length === before, 'the abort it sends: the pictures the first parts wrote deleted');
   client.close();
   assert.equal(await desktop.metaGet(gid), null, 'nothing recorded');
   assert.deepEqual(await desktop.pageList(gid), []);
