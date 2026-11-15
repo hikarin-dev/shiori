@@ -8,6 +8,7 @@
 // Exits 1 when anything failed.
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { ownTemp } from './long-temp.mjs';
 
 const [app, minutes = '20', runs = '25'] = process.argv.slice(2);
 if (app !== 'desktop' && app !== 'website') {
@@ -17,18 +18,18 @@ if (app !== 'desktop' && app !== 'website') {
 const file = fileURLToPath(new URL('./folder-model.test.mjs', import.meta.url));
 const end = Date.now() + Number(minutes) * 60_000;
 
-// One process: the model test for `app` with `seed`. Resolves its output (the spec reporter's: a test
-// failed is `✖ <name>`, a todo one `⚠`).
-const once = (seed) => new Promise((resolve) => {
+// One process: the model test for `app` with `seed`, its temporary folders in one of its own, removed once it
+// ended (long-temp.mjs). Resolves its output (the spec reporter's: a test failed is `✖ <name>`, a todo one `⚠`).
+const once = (seed) => ownTemp((temp) => new Promise((resolve) => {
   const child = spawn(process.execPath, ['--test', '--test-force-exit', '--test-reporter=spec', file], {
-    env: { ...process.env, SHIORI_MODEL_APP: app, SHIORI_MODEL_SEED: String(seed), SHIORI_MODEL_RUNS: runs },
+    env: { ...process.env, ...temp, SHIORI_MODEL_APP: app, SHIORI_MODEL_SEED: String(seed), SHIORI_MODEL_RUNS: runs },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let out = '';
   child.stdout.on('data', (d) => { out += d; });
   child.stderr.on('data', (d) => { out += d; });
   child.on('close', (code) => resolve({ code, out }));
-});
+}));
 
 let failed = 0, done = 0;
 while (Date.now() < end) {

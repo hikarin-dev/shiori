@@ -8,6 +8,7 @@
 // and kind's fault points and time. Exits 1 when anything failed.
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { ownTemp } from './long-temp.mjs';
 
 const [which = 'both', atOnce = '12'] = process.argv.slice(2);
 const BLIPS = ['drive blip 1', 'drive blip 2', 'drive blip 3', 'drive blip 5'];
@@ -23,17 +24,18 @@ for (const app of /** @type {('desktop' | 'website')[]} */ (['desktop', 'website
   for (const kind of KINDS[app]) for (let i = 0; i < SHARDS[app]; i++) jobs.push({ app, kind, shard: `${i}/${SHARDS[app]}` });
 }
 
-// One process: its output (the spec reporter's: a failed test `✖ <name>`, a todo one `⚠ <name> # <step>`).
-const run = ({ app, kind, shard }) => new Promise((resolve) => {
+// One process, its temporary folders in one of its own, removed once it ended (long-temp.mjs): its output (the
+// spec reporter's: a failed test `✖ <name>`, a todo one `⚠ <name> # <step>`).
+const run = ({ app, kind, shard }) => ownTemp((temp) => new Promise((resolve) => {
   const child = spawn(process.execPath, ['--test', '--test-force-exit', '--test-reporter=spec', file], {
-    env: { ...process.env, SHIORI_SWEEP_EVERY: '1', SHIORI_SWEEP_APP: app, SHIORI_SWEEP_KIND: kind, SHIORI_SWEEP_SHARD: shard },
+    env: { ...process.env, ...temp, SHIORI_SWEEP_EVERY: '1', SHIORI_SWEEP_APP: app, SHIORI_SWEEP_KIND: kind, SHIORI_SWEEP_SHARD: shard },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let out = '';
   child.stdout.on('data', (d) => { out += d; });
   child.stderr.on('data', (d) => { out += d; });
   child.on('close', (code) => resolve({ code, out }));
-});
+}));
 
 const started = Date.now();
 const totals = new Map();   // "app kind" → { points, ms }

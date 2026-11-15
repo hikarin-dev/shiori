@@ -96,6 +96,26 @@ test('a folder lists what it holds, follows links, and tells what is inside it',
   assert.equal((await root.getDirectoryHandle('linked')).kind, 'directory');
 });
 
+// S30 (S29a's "a 'not found' judged after the drive is back"): Chrome reads a folder's entries, with their
+// kinds, whole before it hands any of them out. The stand-in looked at each entry as it handed it out, so
+// a drive leaving meanwhile — a call of other work under way taking it away for a moment — cut the listing
+// short with no error: a gallery's folder listed without its .shiori read by an earlier version's rules,
+// with no pages. A listing is whole, or fails.
+test('a folder\'s listing is read whole before any entry is handed out: a drive leaving as they are takes none away', async (t) => {
+  const { dir } = folder(t);
+  const at = path.join(dir, 'drive');
+  for (const name of ['.shiori', 'images']) fs.mkdirSync(path.join(at, 'Alpha', name), { recursive: true });
+  for (const name of ['a.json', 'b.json', 'c.json']) fs.writeFileSync(path.join(at, 'Alpha', name), '{}');
+  const gallery = await fsa.directory(at).getDirectoryHandle('Alpha');
+  const listed = [];
+  for await (const [name, h] of gallery.entries()) {
+    if (!listed.length) fs.renameSync(at, `${at}.away`);   // the drive away as the first entry is handed out
+    listed.push(`${name}:${h.kind}`);
+  }
+  fs.renameSync(`${at}.away`, at);   // and back
+  assert.deepEqual(listed.sort(), ['.shiori:directory', 'a.json:file', 'b.json:file', 'c.json:file', 'images:directory']);
+});
+
 test('the hooks fail the calls asked for, and answer permission as told', async (t) => {
   const { dir, root } = folder(t);
   const heard = [];

@@ -781,16 +781,22 @@ export class Folders {
   }
 
   // Gallery `gid` written back to its folder, which is being removed: what waits settled in, then its
-  // descriptions (those that differ, and its series') written. Resolves whether the folder now has
-  // everything the library has of it.
+  // descriptions (those that differ, and its series') written. Resolves whether it counts as saved
+  // (folder-lifecycle.js savedAtRemoval): the folder now has everything the library has of it — or nothing
+  // of it waits here and its place is surely gone (files._whose, under the shared rule: renamed, moved or
+  // deleted by hand, or by the other app; S30), asked only then.
   async _writeBack(gid) {
     const files = this.library.files;
     if (!files._row(gid)) return false;
+    let written = false;
     try {
       await files.place(gid, { work: 'removal' });
       const { ok } = await files.describe(gid, { all: true, work: 'removal' });
-      return ok && this._nothingWaits(gid);
-    } catch { return false; }
+      written = ok && this._nothingWaits(gid);
+    } catch {}
+    const waits = !this._nothingWaits(gid);
+    const place = written || waits ? null : (await files._whose(files._row(gid).path, gid).catch(() => null))?.kind;
+    return lifecycle.savedAtRemoval({ written, waits, place });
   }
   // Whether gallery `gid` has nothing only the library has: a folder of its own, its changes
   // published, nothing staged for it, nothing to take out of its archive.

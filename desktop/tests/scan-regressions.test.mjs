@@ -234,6 +234,9 @@ test('R15: a series spanning two folders keeps its links while one half is away,
   mk(third, 'Chapter/images/0001.png', pngBytes(2));
   const first = (await library.folderAdd(other)).id;
   await library.folderScan(first);
+  // A change of it published (an earlier version's folder is published at its next change, S30: never for
+  // nothing).
+  await library.metaPut({ ...(await library.metaGet(owner)), title: title('Owner, described') });
   await described(library, owner);
   // Another app edits the owner meanwhile: it is read again, its chapter still away.
   await publishElsewhere(path.join(other, 'Owner'), (texts) => ({ ...texts, 'metadata.json': patched(texts['metadata.json'], { title: title('Owner (edited)') }) }));

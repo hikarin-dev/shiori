@@ -25,7 +25,7 @@ import * as platform from './platform.js';
 import * as folderFiles from './storage/folder-store-web.js';
 import { BackendError } from './backend-error.js';
 import { OWNER_FILE, readClaim, nextClaim, releasedClaim, unchangedSince } from './storage/folder-owner.js';
-import { mounted, canHide, nextDefault, removalOutcome, leavesOpen } from './storage/folder-lifecycle.js';
+import { mounted, canHide, nextDefault, removalOutcome, savedAtRemoval, leavesOpen } from './storage/folder-lifecycle.js';
 import { OWN_FILES, MANIFEST_FILE, TEMPORARY, galleryIdOf, classifyFolder, classifyArchive, holdsNothing } from './storage/folder-content.js';
 import { LINKED_DIR, SOURCE_FILE, REMOVED_FILE, IMAGE_NAME, ARCHIVE_NAME, overlayDir, sourceText, parseSource, parseRemoved, isRemoved, chapterRemoved,
   folderPrint, folderContent, crcHex, metaFromName, planTitles, zipTitles, sortPictures, linkedPages, keepsDerived, sameSource, sameProvenance,
@@ -445,9 +445,21 @@ async function _setAside(id, { onProgress = () => {}, stopped = () => false } = 
 }
 // Gallery `g` (its stat record) of folder `id` written back there by its removal — its galleries take
 // no writes meanwhile (out of the library: the mount check), so what is written now is all it has.
-// Resolves whether it is confirmed saved: described there, nothing left in this browser, a folder of
-// its own.
+// Resolves whether it counts as saved (folder-lifecycle.js savedAtRemoval): described there, nothing left
+// in this browser, a folder of its own — or nothing of it waiting here and its place surely gone
+// (folderFiles.galleryIn, under the shared rule: renamed, moved or deleted by hand, or by the other app;
+// S30), asked only then.
 async function _writeBack(id, g) {
+  const work = { kind: 'removal', folder: id };
+  const written = await _writtenBack(id, g);
+  const now = await K.galleryGet(String(g.galleryId));
+  const waits = !now || _waiting(now, await K.marked());
+  if (written || waits) return written;
+  const root = await K.rootOf(id, { work });
+  const place = root ? (await folderFiles.galleryIn(id, root, now.dir, String(g.galleryId))).kind : null;
+  return savedAtRemoval({ written, waits, place });
+}
+async function _writtenBack(id, g) {
   const gid = String(g.galleryId), work = { kind: 'removal', folder: id };
   if (g.spilled) await K.relocate(gid, id, () => {}, { work }).catch(() => {});
   if (!g.dir) {
@@ -1454,8 +1466,12 @@ async function _adoptLinked(run, title, { gid: given = null, replace = null, dro
     : { galleryId: gid, ...(await _namedMeta(run, title, gid)), numPages: pages.length, isLocalImport: true, source: '' };
   const linked = { kind: title.kind, path: title.path, ...(title.inner ? { inner: title.inner } : {}), ...(at.fingerprint ? { fingerprint: at.fingerprint } : {}),
     ...(at.content ? { content: at.content } : {}) };
+  // Its stamp is its overlay's token as read, a description of its own there or not: the gallery is in the
+  // folder for any app from the moment its source is (another reads it there too), so a change of it waits
+  // for the folder's claim, and one waiting here never goes over another app's generation of its overlay
+  // (S30: an overlay with no description yet left it unstamped — "only this app's" to the commit gate).
   return _storeAdopted({ folder: run.id, dir, gid, record, pages, ownCover: _ownCovers(read),
-    stamp: read.texts['metadata.json'] != null ? read.token : null, replace, drop: drop && _droppedFor(read, dir), stale, extra: { linked } });
+    stamp: read.token, replace, drop: drop && _droppedFor(read, dir), stale, extra: { linked } });
 }
 // What a title's name and folders say of it: an archive's chapter is named after its folder in it,
 // its tags the archive's.

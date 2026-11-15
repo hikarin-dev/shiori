@@ -15,6 +15,8 @@
 //   NotAllowedError (no permission);
 // - a link (symbolic or a junction) is followed, as File System Access can't tell one from its target —
 //   or, while hideLinks() is on, hidden (a browser may show a link as nothing: Chrome wasn't checked);
+// - a folder's entries are read whole, with their kinds, before any is handed out (a listing is whole, or
+//   fails: a drive leaving as they are handed out takes none away);
 // - a handle put in IndexedDB (fake-indexeddb clones with structuredClone) comes back as a handle to
 //   the same place (install()).
 // What it does differently: getFile() reads the file whole at once (Chrome's File reads it later, and
@@ -160,15 +162,24 @@ class DirectoryHandle extends Handle {
       } else await fsp.unlink(abs);
     } catch (e) { throw asDom(e, 'removeEntry'); }
   }
+  // Chrome reads a folder's entries, with their kinds, whole before it hands any of them out: a drive leaving
+  // as they are handed out takes none away (S30: a look at each as it was handed out cut a listing short with
+  // no error). A link's kind is its target's (followed), and one hidden (hideLinks) or leading nowhere is left out.
   async *entries() {
     if (call(this._at.root, this._at.abs, 'entries')) await NEVER;
-    let names;
-    try { names = await fsp.readdir(this._at.abs); } catch (e) { throw asDom(e, 'entries'); }
-    for (const name of names) {
+    /** @type {[string, boolean][]} */
+    const items = [];
+    try {
+      for (const e of await fsp.readdir(this._at.abs, { withFileTypes: true })) {
+        if (!e.isSymbolicLink()) { if (e.isDirectory() || e.isFile()) items.push([e.name, e.isDirectory()]); continue; }
+        if (hidden) continue;
+        const st = await statOf(path.join(this._at.abs, e.name));
+        if (st) items.push([e.name, st.isDirectory()]);
+      }
+    } catch (e) { throw asDom(e, 'entries'); }
+    for (const [name, dir] of items) {
       const abs = path.join(this._at.abs, name);
-      if (await hiddenLink(abs)) continue;
-      const st = await statOf(abs);
-      if (st) yield /** @type {[string, Handle]} */ ([name, st.isDirectory() ? new DirectoryHandle(this._at.root, abs) : new FileHandle(this._at.root, abs)]);
+      yield /** @type {[string, Handle]} */ ([name, dir ? new DirectoryHandle(this._at.root, abs) : new FileHandle(this._at.root, abs)]);
     }
   }
   async *keys() { for await (const [name] of this.entries()) yield name; }

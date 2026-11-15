@@ -9,7 +9,7 @@
 // A case the adapters fail today is marked todo with the step that fixes it, and the finding (plan
 // §5) it rediscovers where it is one. A gallery's folder in format v2 (gallery-manifest.js) is read
 // back by both apps' readers (readBoth: each adapter's loadGallery), whichever adapter wrote it.
-import test, { describe } from 'node:test';
+import test, { describe, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -3507,6 +3507,87 @@ export const CASES = [
       assert.equal(await fx.lib.raw.folderClaim(ref.id), 'granted', 'taken back');
       await fx.lib.flush();
       assert.deepEqual((await fx.lib.scan(ref.id)).problems, [], 'nothing reported');
+    },
+  },
+  {
+    // S28a's "found, not fixed" (desktop): a gallery's archive that is a symbolic link to a file — the person's
+    // (Windows makes one only in developer mode, so the link is the disk's answer here: lstat says so). Shiori
+    // never goes through a link in a library folder, so the deletion asked whose the archive is, met the link,
+    // and stayed owed for good (tried at every check, the folder's removal refused short of "Remove anyway").
+    // What is behind a link is the person's: the deletion ends, the archive left as it is and reported once.
+    name: 'S30: a gallery whose archive is a link to a file is deleted without going through it, and its deletion ends',
+    platforms: ['desktop'],
+    async run({ dir, fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Alpha');
+      for (let n = 1; n <= 2; n++) await fx.lib.putPage(gid, n, png(8, n));
+      await fx.lib.flush();
+      assert.deepEqual((await fx.lib.raw.archiveGallery(gid)).archived, [gid], 'archived');
+      const raw = fx.lib.raw;
+      const archive = raw.files._abs(raw._s('SELECT path FROM files WHERE gid = ?').get(gid).path);
+      const before = fs.readFileSync(archive);
+      const real = fs.lstatSync;
+      const linked = mock.method(fs, 'lstatSync', (/** @type {any} */ p, /** @type {any} */ o) => {
+        const st = real(p, o);
+        return path.resolve(String(p)).toLowerCase() === archive.toLowerCase() ? Object.assign(Object.create(Object.getPrototypeOf(st)), st, { isSymbolicLink: () => true }) : st;
+      });
+      try {
+        await fx.lib.deleteGallery(gid);
+        await fx.lib.flush();
+        await until(async () => { await raw.files.applyDeletions().catch(() => {}); return !raw.files._deletingRows(ref.id).length; });
+      } finally { linked.mock.restore(); }
+      assert.ok(fs.readFileSync(archive).equals(before), 'what is behind the link left byte for byte');
+      assert.deepEqual((await fx.lib.list()).find(f => f.id === ref.id).attention.map(a => `${a.reason} ${a.path}`), ['left Alpha.zip'], 'reported once, as a file of the person\'s');
+      assert.ok(!(await fx.lib.galleries()).includes(gid), 'deleted');
+      await fx.lib.setDefault(fx.lib.home);
+      await fx.lib.remove(ref.id);   // nothing owed: the removal goes on
+    },
+  },
+  // ── A removal after the person's edit (S30) ──
+  {
+    // S28b's "found, not fixed" (both apps): a folder's removal asks each of its galleries' folders for its
+    // write-back, and one whose folder the person renamed, moved or deleted by hand — or the other app deleted
+    // while it used the folder anyway — isn't where the library has it: the removal was refused ("couldn't be
+    // written there: it stays") at every try, the card offering "Remove anyway", though nothing of it waited —
+    // after a check too, for one whose folder is gone. A gallery with nothing waiting whose place is surely
+    // gone loses nothing by being forgotten: the removal goes on, and the folder added again holds what it
+    // holds (a renamed folder joins whole). One with something waiting stays unsaved — refused as before until
+    // a check follows it, or "Remove anyway".
+    name: 'S30: a folder\'s removal goes on while a gallery whose folder the person renamed or deleted by hand has nothing waiting, and one with something waiting is refused until a check follows it',
+    async run({ dir, fx }) {
+      const said = (/** @type {Promise<unknown>} */ p) => p.then(() => 'removed', (/** @type {any} */ e) => e?.errorKey || e?.reason || String(e));
+      for (const [i, form] of ['renamed', 'deleted', 'renamed, deleted after a check', 'renamed, a title waiting'].entries()) {
+        const name = `A${i}`, A = path.join(dir, name);
+        const ref = await fx.register(name);
+        const gid = await fx.lib.newGallery('Alpha');
+        for (let n = 1; n <= 2; n++) await fx.lib.putPage(gid, n, png(9, n));
+        await fx.lib.putTranslation(gid, 1, png(7));
+        await fx.lib.flush();
+        if (form.includes('waiting')) {
+          fs.renameSync(A, `${A}.away`);   // the drive away a moment: the title waits
+          try { await fx.lib.setTitle(gid, 'Waiting'); await fx.lib.flush().catch(() => {}); } finally { fs.renameSync(`${A}.away`, A); }
+        }
+        if (form.startsWith('renamed')) fs.renameSync(path.join(A, 'Alpha'), path.join(A, 'Alpha by hand'));
+        if (form.includes('deleted')) fs.rmSync(path.join(A, form === 'deleted' ? 'Alpha' : 'Alpha by hand'), { recursive: true });
+        if (form.includes('after a check')) assert.deepEqual((await fx.lib.scan(ref.id)).problems, [], `${form}: the check reports nothing`);
+        await fx.lib.setDefault(fx.lib.home);
+        if (form.includes('waiting')) {
+          assert.equal(await said(fx.lib.remove(ref.id)), 'lf.task_kept', `${form}: refused, its title not saved`);
+          await fx.lib.scan(ref.id);   // follows it, and the title goes there
+          await fx.lib.flush();
+        }
+        assert.equal(await said(fx.lib.remove(ref.id)), 'removed', `${form}: the removal goes on`);
+        assert.ok(!(await fx.lib.galleries()).includes(gid), `${form}: the gallery forgotten with its folder`);
+        const again = await fx.lib.add(A);
+        assert.deepEqual((await fx.lib.scan(again)).problems, [], `${form}: added again, nothing reported`);
+        if (form.includes('deleted')) assert.ok(!(await fx.lib.galleries()).includes(gid), `${form}: nothing comes back`);
+        else {
+          assert.deepEqual([await fx.lib.dirOf(gid), await fx.lib.read(gid, 1), await fx.lib.read(gid, 2), await fx.lib.read(gid, 1, 'translated'), await fx.lib.titleOf(gid)],
+            [path.join(A, 'Alpha by hand'), png(9, 1), png(9, 2), png(7), form.includes('waiting') ? 'Waiting' : 'Alpha'], `${form}: the renamed folder joins whole`);
+        }
+        await fx.lib.setDefault(fx.lib.home);
+        await fx.lib.remove(again);
+      }
     },
   },
 ];

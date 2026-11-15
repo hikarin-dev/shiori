@@ -8,7 +8,7 @@ import { imageToBlob, imageToDataUrl } from './image-util.js';
 import { isSeriesMeta, effectiveTagsOf, LANG_NAME_TO_CODE, DERIVED_FIELDS, uploadDateSeconds } from './gallery-model.js';
 import { translatedImage } from './page-image.js';
 import { galleryFiles, layoutPath, layoutOf, extOfType, originalExt, galleryName, DESCRIPTION_FILES } from './storage/gallery-files.js';
-import { slotFiles, tokenOf, generationOf, published, othersSince, parseManifest, foreignEntries } from './storage/gallery-manifest.js';
+import { slotFiles, tokenOf, generationOf, published, othersSince, nothingToWrite, parseManifest, foreignEntries } from './storage/gallery-manifest.js';
 import { exportSize } from './gallery-export.js';
 import * as folderFiles from './storage/folder-store-web.js';
 import { OWNER_FILE, readClaim, access, nextClaim, claimText, heldElsewhere, knownAfter } from './storage/folder-owner.js';
@@ -1612,7 +1612,9 @@ const _textsOf = (wanted) => Object.fromEntries(DESCRIPTIONS.map(name => [name, 
 // what the library has of it — not when it is kept in no folder of its own, nor in one this context may
 // not write to (the gate): its mark stays, for settleFolders or the removal. A gallery with nothing
 // waiting (a removal's write-back) whose folder has a generation already writes nothing (another app's
-// since is read by a check, D4). A gallery kept in an archive (`packed`) is described there as it was
+// since is read by a check, D4), nor one whose folder never held one this library knew of
+// (gallery-manifest.js nothingToWrite: an earlier version's folder, a linked gallery's overlay not described
+// yet). A gallery kept in an archive (`packed`) is described there as it was
 // read until it changes; changed, it is unpacked first (_unpackLocked), then published in its folder.
 async function _describe(gid, { work = null } = {}) {
   const as = work ?? PUBLISHING;
@@ -1640,7 +1642,7 @@ async function _describe(gid, { work = null } = {}) {
     const found = await opened.root.gallery(stat.dir, gid);
     if (found.kind === 'conflict') await _note(stat.folder, { reason: 'conflict', path: stat.dir, gid: String(gid) });
     if (found.kind !== 'ok') return { ok: false };
-    if (rev == null && stat.stamp && (await found.dir.manifest()).kind === 'ok') return { ok: true };
+    if (rev == null && nothingToWrite(stat.stamp, (await found.dir.manifest()).kind)) return { ok: true };
     let { generation, newer } = await found.dir.publish({ manifest: next, descriptions: _textsOf(wanted), known: stat.stamp ?? null });
     // Another app published it since this library last did or read it: the folder's version stands, and
     // what waited here for it is dropped (folder-library.js dropWaiting) — unless that version is damaged

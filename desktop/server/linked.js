@@ -341,7 +341,10 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
     }
     library._s(`INSERT OR REPLACE INTO files (gid, path, format, state, packed_at, used_at, source) VALUES (?, ?, 'folder', 'packed', ?, ?, ?)`)
       .run(gid, rel, now, now, JSON.stringify(sourceOf(title, at)));
-    if (meta) library._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(gid, read.token);
+    // Its overlay's token as read, a description of its own there or not (S30): the gallery is in the folder
+    // for any app from the moment its source is, so a change of it waits for the folder's claim, and one
+    // waiting here never goes over another app's generation of its overlay.
+    library._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(gid, read.token);
     for (const [name, ref] of had) if (!kept.has(name)) library._dropOwn(gid, name, ref);   // made from a picture it no longer shows
     library._logIn(gid);
   });
@@ -350,10 +353,12 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
   await library.rebuildGalleryEntry(gid, { silent: true, mark: false });
   const covers = coverPatch(derived);
   if (Object.keys(covers).length) library._tx(() => library._coverPatchIn(gid, covers, { mark: false }));
-  // Its overlay describes it, in due course — again when a page's source picture isn't the one it
-  // recorded (what was made from it dropped, or recorded before content signals were), or its
-  // description carries a favorite (an earlier version's: no description does now).
-  if (!meta || stale || withoutPersonal(record) !== record) files.describeLater(gid);
+  // Its overlay describes it again, in due course, when a page's source picture isn't the one it recorded
+  // (what was made from it dropped, or recorded before content signals were), or its description carries a
+  // favorite (an earlier version's: no description does now). One merely joined is described at its first
+  // change, as the website's is (S30: publishing what no one changed, in a folder another app has changes of
+  // it waiting for, makes that app's change lose at its take-back).
+  if (stale || withoutPersonal(record) !== record) files.describeLater(gid);
   if (replace) library._push('control', { type: 'COVER_INVALIDATED', galleryId: gid });
   return gid;
 }

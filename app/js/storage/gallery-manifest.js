@@ -201,6 +201,15 @@ export const published = (token) => !!token && (!String(token).startsWith('v2:')
  * (`known` null: it can't tell what changed) or a folder holding none (`now` null).
  * @param {string | null | undefined} now @param {string | null | undefined} known @param {string} writer @returns {boolean} */
 export const othersSince = (now, known, writer) => !!now && String(now).startsWith('v2:') && !!known && now !== known && writerOf(now) !== writer;
+/** Whether a publication of a gallery with nothing of it waiting (a removal's write-back) writes nothing:
+ * its folder holds a generation already (its manifest read 'ok': the one last published or read here, or
+ * another app's since, which a check reads: D4), or holds none and never held one this library knew of —
+ * `known`, the token it keeps, isn't a manifest's: an earlier version's descriptions read there, a linked
+ * gallery's overlay no app has described yet. Nothing of it is only here then, and publishing it would be a
+ * change no one made, which another app's waiting change of it would lose to (S30). Only a manifest lost or
+ * damaged since is written again. `manifest`: the kind its manifest reads as now.
+ * @param {string | null | undefined} known @param {string} manifest @returns {boolean} */
+export const nothingToWrite = (known, manifest) => !!known && (manifest === 'ok' || (manifest === 'missing' && !String(known).startsWith('v2:')));
 /** Whether a folder naming a gallery at `now` (the token of its generation) supersedes the archive the
  * library keeps that gallery in, at `known` (the token it last published or read there): a later
  * generation (format v2), which an unpack of the archive publishes before it takes the archive's place

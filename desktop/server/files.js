@@ -50,7 +50,7 @@
 // are still as written (`retiring`, principle 4). An archive holds its manifest too, appended with the
 // descriptions it names.
 
-import { disk, physicallyIn, containedWhole, replaceFile, tempBeside, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, publishIn, undescribedAt, bindIn, ioFailures, gone, holdsFile, filesIn, ownedIn, textsIn, statIn, statNow, entriesIn, textIn, ownDirIn } from './folder-store.js';
+import { disk, physicallyIn, containedWhole, replaceFile, tempBeside, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, reserveIn, publishIn, undescribedAt, bindIn, ioFailures, gone, holdsFile, filesIn, ownedIn, textsIn, statIn, statNow, entriesIn, textIn, ownDirIn, throughLink } from './folder-store.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
@@ -1071,9 +1071,11 @@ export class FileLibrary {
     let done;
     if (archive) {
       // An archive: not there only as the shared rule takes it (_whose: not while its drive is away); one
-      // that can't be read now, or told as Shiori left it, tried again (S21).
+      // that can't be read now, or told as Shiori left it, tried again (S21) — but one reached through a link
+      // (a link to a file: the person's, never read through) is left as it is and reported, and that ends it
+      // (S30, as a folder holding a link: deleteGalleryIn).
       if (whose.kind === 'missing' || (whose.kind === 'conflict' && whose.found != null)) done = 'missing';
-      else if (whose.kind === 'unreadable') done = false;
+      else if (whose.kind === 'unreadable') done = whose.link ? await this._leftBehind(at, d, rel, work) : false;
       else if (whose.kind !== 'ok' || (whose.undescribed && !named?.unpacked)) done = true;
       else {
         const own = await this._archiveUnchanged(abs, named, met);
@@ -1200,8 +1202,10 @@ export class FileLibrary {
   // by the other app's unpack — the gallery is where a folder naming it is, scan.js unpackedTo; review 6
   // F7). { kind: 'ok' } when it names gallery `gid`; 'missing' (nothing there, or no gallery's); 'conflict'
   // (`found`: what it names instead, or null); 'unreadable' (it, or its library folder as itself, can't
-  // be read now: nothing is concluded). Nothing there is told as the shared rule takes it (statIn: a look
-  // that answers "not found" while the drive is away for a moment never makes it so — review 6 F8).
+  // be read now: nothing is concluded; `link: true` when it is reached through a link — an archive that is a
+  // link to a file, as a folder's galleryIn says: the person's, never read through, S30). Nothing there is told
+  // as the shared rule takes it (statIn: a look that answers "not found" while the drive is away for a
+  // moment never makes it so — review 6 F8).
   // Every change to an existing gallery folder or archive asks first. A place not named as an archive is
   // listed as a folder first (galleryIn: its listing tells all a look before it would — a folder there,
   // or nothing there as the same rule takes it); only one found naming no gallery (a file there, say) is
@@ -1213,8 +1217,9 @@ export class FileLibrary {
       const whose = await galleryIn(abs, String(gid));
       if (whose.kind !== 'conflict' || whose.found != null) return whose;
     }
+    const unread = (e) => (throughLink(e) ? { ...contract.unreadable(e), link: true } : contract.unreadable(e));
     let stat;
-    try { stat = await statIn(abs); } catch (e) { return contract.unreadable(e); }
+    try { stat = await statIn(abs); } catch (e) { return unread(e); }
     if (!stat) return contract.MISSING;
     if (stat.isDirectory()) return galleryIn(abs, String(gid));
     try {
@@ -1226,7 +1231,7 @@ export class FileLibrary {
       if (what.id !== String(gid)) return { kind: 'conflict', found: what.id };
       const { root, rest } = this._split(rel);
       return await this.library.folders.noted(root, rest) ? contract.MISSING : { kind: 'ok', manifest: texts[content.MANIFEST_FILE] ?? null };
-    } catch (e) { return contract.unreadable(e); }
+    } catch (e) { return unread(e); }
   }
 
   // Inside the transaction clearing the library (library.js clearAll), before its pages and covers go:
@@ -2105,8 +2110,9 @@ export class FileLibrary {
   // there): resolves the token it is published at (gallery-manifest.js tokenOf), or null when the
   // folder can't take it now. A gallery with nothing waiting (a removal's write-back) writes nothing
   // where its folder has a generation already — the one last published or read here, or another app's
-  // since, which a check reads (D4) — and is published only where the folder's manifest is lost or
-  // damaged.
+  // since, which a check reads (D4) — nor where none was ever published that this library knew of
+  // (gallery-manifest.js nothingToWrite: an earlier version's folder, an overlay not described yet), and is
+  // published only where the folder's manifest is lost or damaged.
   async _publish(gid, row, work) {
     const lib = this.library;
     const { root, rest } = this._split(row.path);
@@ -2116,7 +2122,7 @@ export class FileLibrary {
     if (found.kind === 'conflict') this._conflict(row);
     if (found.kind !== 'ok') return null;
     const had = lib._s('SELECT stamp FROM stamps WHERE gid = ?').get(String(gid))?.stamp;
-    if (!row.pending && had && (await found.dir.manifest()).kind === 'ok') return had;
+    if (!row.pending && format.nothingToWrite(had, (await found.dir.manifest()).kind)) return had;
     if (!this._row(gid)) return null;   // deleted meanwhile: its deletion, waiting for this, takes the folder
     // Pictures of its own still staged (not moved in yet, or not in staging: _stagedMissing) named by none.
     const { next, texts } = this._generation(gid, { without: new Set(this._stagedOwn(gid).map(s => s.rel)) });

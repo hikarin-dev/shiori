@@ -474,6 +474,101 @@ const CASES = [
       }
     },
   },
+  {
+    // Found by S30's model (the take-over shape, website seed 11 and desktop seed 13): a linked gallery — a ZIP
+    // of the person's this app linked, its overlay holding no description of its own yet — was a gallery "only
+    // this app has" to the website's gate: while the other app, using the folder anyway, has it too (read from
+    // the same source), a title of it was accepted here, and at the take-back this app's change was published
+    // over the other app's newer generation of its overlay — the other app's change lost, nothing reported.
+    // One app changes a folder's galleries at a time, a linked one too: refused here while the other app holds
+    // the folder; at the take-back the folder's version stands where that app changed it ('changed-both'), and
+    // what waited here is published where it didn't.
+    name: 'S30: a linked gallery is read-only here while the other app uses its folder anyway, and what that app changed of it stands at the take-back',
+    async run({ dir, from, to }) {
+      for (const [i, form] of ['the other app retitled it', 'the other app left it'].entries()) {
+        const F = path.join(dir, `F${i}`);
+        const id = await from.add(F);
+        await from.setDefault(id);
+        fs.writeFileSync(path.join(F, 'Pack.zip'), zipCreate([{ name: '001.png', data: png(i, 1) }, { name: '002.png', data: png(i, 2) }]));
+        await from.scan(id);
+        const [gid] = await from.galleries();
+        await from.flush();
+        await whileAway(from, F, () => from.setTitle(gid, 'Waiting here'));   // waits for the folder
+        const theirs = await to.add(F, { force: true });   // "Use anyway"
+        await to.scan(theirs);
+        if (form === 'the other app retitled it') { await to.setTitle(gid, 'Retitled there'); await to.flush(); }
+        await from.list();   // the person sees the folder used elsewhere
+        assert.equal(await reason(from.setTitle(gid, 'Tried here')), 'not-owned', `${form}: a title of the linked gallery refused here`);
+        assert.equal(await reason(from.putTranslation(gid, 1, png(i, 7))), 'not-owned', `${form}: a translation of it refused here`);
+        await to.setDefault(to.home);
+        await to.remove(theirs);   // it lets go
+        assert.equal(await from.raw.folderClaim(id), 'granted', `${form}: taken back`);
+        await from.flush();
+        const want = form === 'the other app retitled it' ? 'Retitled there' : 'Waiting here';
+        await until(async () => { await from.scan(id); return await from.titleOf(gid) === want; }, 10_000).catch(() => {});
+        assert.deepEqual([await from.titleOf(gid), (await from.list()).find(f => f.id === id).attention.map(a => a.reason), await from.read(gid, 1, 'translated')],
+          [want, form === 'the other app retitled it' ? ['changed-both'] : [], png(i, 1)], `${form}: the folder's version where the other app changed it, nothing else of here's`);
+        await from.setDefault(from.home);
+        await from.remove(id);
+        const again = await to.add(F);
+        assert.deepEqual([(await to.scan(again)).problems, await to.titleOf(gid)], [[], want], `${form}: the other app reads the same`);
+        await to.setDefault(to.home);
+        await to.remove(again);
+      }
+    },
+  },
+  {
+    // The other app deletes a gallery while it uses the folder anyway (the coordinator's b2-gone after S29a): the
+    // folder no longer holds it, and here it stays listed with nothing to read until the person deletes it
+    // (a gallery whose folder is gone, plan §8) — nothing of it published again, nothing reported. Its folder's
+    // removal (S30) goes on with nothing of it waiting; with a change of it waiting here (made while the drive was
+    // away) it is refused as unsaved until the person deletes the gallery, then goes on, nothing coming back. A
+    // translation written here in the moment before this app learned of the other app (the window, S29a) is a
+    // file of this app's in the gallery's folder, never published: the other app's deletion leaves it ('left',
+    // a file it doesn't know), and here the folder at the gallery's place names none — reported as a conflict at
+    // each check until the person deletes the gallery, which takes that file and the folder (S30's list: P3,
+    // reported, nothing lost; plan §8).
+    name: 'S30: a gallery the other app deleted while it used the folder anyway stays deleted there: nothing of it is published again here, and the folder\'s removal goes on once nothing of it waits',
+    async run({ dir, from, to }) {
+      for (const [i, form] of ['nothing waiting here', 'a translation waiting here', 'a translation written here in the window'].entries()) {
+        const F = path.join(dir, `F${i}`);
+        const id = await from.add(F);
+        await from.setDefault(id);
+        const gid = await from.newGallery('Alpha');
+        for (let n = 1; n <= 2; n++) await from.putPage(gid, n, png(i, n));
+        await from.flush();
+        if (form === 'a translation waiting here') await whileAway(from, F, () => from.putTranslation(gid, 2, png(i, 72)));
+        const theirs = await to.add(F, { force: true });   // "Use anyway"
+        await to.scan(theirs);
+        // Accepted, unless this app read the claim since (the window is one change, measured: S29a).
+        const window = form.endsWith('window') && await reason(from.putTranslation(gid, 2, png(i, 72))) === 'resolved';
+        if (window) await from.flush().catch(() => {});
+        await to.deleteGallery(gid);
+        await to.flush();
+        await until(() => !fs.existsSync(path.join(F, 'Alpha', ...(window ? ['images', '0001.png'] : []))));   // with this app's file left there
+        await to.setDefault(to.home);
+        await to.remove(theirs);   // it lets go
+        assert.equal(await from.raw.folderClaim(id), 'granted', `${form}: taken back`);
+        await from.flush();
+        const report = window ? ['conflict Alpha'] : [];
+        for (let k = 0; k < 2; k++) assert.deepEqual((await from.scan(id)).problems.map(p => `${p.reason} ${p.path}`), report, `${form}: reported (${k + 1})`);
+        assert.deepEqual([fs.existsSync(path.join(F, 'Alpha', '.shiori', 'gallery.json')), await from.read(gid, 1)], [false, null], `${form}: nothing of it published again, nothing of it read`);
+        await from.setDefault(from.home);
+        if (form !== 'nothing waiting here') {
+          if (form === 'a translation waiting here' || window) assert.equal(await reason(from.remove(id)), 'unavailable', `${form}: the removal refused while it waits`);
+          await from.deleteGallery(gid);   // the person deletes it
+          await from.flush();
+          await until(() => !fs.existsSync(path.join(F, 'Alpha')));   // this app's own file with it, by name
+        }
+        await from.remove(id);
+        assert.ok(!(await from.galleries()).includes(gid), `${form}: forgotten with the folder`);
+        const again = await to.add(F);
+        assert.deepEqual([(await to.scan(again)).problems, (await to.galleries()).includes(gid)], [[], false], `${form}: nothing comes back`);
+        await to.setDefault(to.home);
+        await to.remove(again);
+      }
+    },
+  },
 ];
 
 // The files the manifests of folder `F`'s galleries name that aren't there: [] when every one is (a

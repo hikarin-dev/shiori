@@ -66,10 +66,11 @@ import { v1Gallery, legacyGallery, seriesExport } from './fixtures/storage-fixtu
  * whether it is to be taken back from another app then, and added again with "Use anyway" (`takeBack`),
  * the galleries a first check is to join (`want`, by `g`'s key, as a stage shows them), the series
  * owners whose chapters a stage shows (`series`), the other app (`other`, made in the setup alone), and
- * what the step itself found wrong (`wrong`: refusedFor).
+ * what the step itself found wrong (`wrong`: refusedFor), and whether the other app met the folder already
+ * (`met`).
  * @typedef {{ lib: Driver, base: string, A: string, B: string, ids: Record<string, string>, g: Record<string, string>,
  *   titles: Record<string, string>, known: Set<string>, deleted: Set<string>, plants: Map<string, string>, discard?: boolean,
- *   showFirst?: boolean, takeBack?: boolean, want?: Record<string, G>, series?: string[], other?: Driver | null, wrong?: string[] }} Ctx */
+ *   showFirst?: boolean, takeBack?: boolean, want?: Record<string, G>, series?: string[], other?: Driver | null, wrong?: string[], met?: boolean }} Ctx */
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const png = (n) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, n >> 8, n & 255, 1, 2, 3]);
@@ -117,13 +118,14 @@ async function otherApp(/** @type {Ctx} */ c) {
   c.other = c.lib.app === 'desktop' ? await webLibrary() : await desktopLibrary(path.join(c.base, 'other'));
   return c.other;
 }
-// Until the other app's work on gallery `gid` is in its folder: the manifest there names `file` (flushed
-// again meanwhile — the desktop's close doesn't wait for a picture still being put in place, §8).
-async function publishedThere(/** @type {Driver} */ other, /** @type {string} */ gid, /** @type {string} */ file) {
+// Until the other app's work on gallery `gid` is in its folder: the manifest there names `file` — or the
+// gallery's description `at` holds `file` (flushed again meanwhile — the desktop's close doesn't wait for a
+// picture still being put in place, §8).
+async function publishedThere(/** @type {Driver} */ other, /** @type {string} */ gid, /** @type {string} */ file, at = '.shiori/gallery.json') {
   for (let i = 0; i < 100; i++) {
     await other.flush();
-    const at = path.join(/** @type {string} */ (await other.dirOf(gid)), '.shiori', 'gallery.json');
-    if (fs.existsSync(at) && fs.readFileSync(at, 'utf8').includes(file)) return;
+    const there = path.join(/** @type {string} */ (await other.dirOf(gid)), ...at.split('/'));
+    if (fs.existsSync(there) && fs.readFileSync(there, 'utf8').includes(file)) return;
     await sleep(50);
   }
   throw new Error(`the other app's ${file} never reached gallery ${gid}'s folder`);
@@ -210,9 +212,11 @@ const unfollowed = (/** @type {Ctx} */ c, /** @type {'A' | 'B'} */ place) => /**
  * the step's (what the operation may end in by design, or what a later stage brings about); `startsAgain`:
  * the step is a start, and one that failed is made again before the stages (the person opening the app
  * again); `met`: what the other app does once the step has ended, wherever the fault stopped it, before
- * the stages (with no fault: it uses folder A anyway, works there and lets it go).
+ * the stages (with no fault: it uses folder A anyway, works there and lets it go) — `metFirst`: after a kill
+ * or the page's death, before this app is opened again.
  * @type {{ name: string, apps?: string[], kinds?: string[], moves?: boolean, sample?: number, noA?: boolean, noSetupFlush?: boolean, startsAgain?: boolean,
- *   also?(c: Ctx, stage: string): State[], setup(c: Ctx): Promise<void>, state(c: Ctx): State, ops: ReturnType<typeof op>[], met?(c: Ctx): Promise<void> }[]} */
+ *   also?(c: Ctx, stage: string): State[], setup(c: Ctx): Promise<void>, state(c: Ctx): State, ops: ReturnType<typeof op>[], met?(c: Ctx): Promise<void>,
+ *   metFirst?: boolean }[]} */
 const SCENARIOS = [
   {
     name: 'a gallery\'s first writes',
@@ -1060,6 +1064,125 @@ const SCENARIOS = [
     },
     noSetupFlush: true,
   },
+  // Two apps on one folder, the shapes S30 listed with no scenario of their own (plan §10).
+  {
+    // A change made in the moment before this app learned that the other app uses folder A anyway (the window:
+    // accepted, or refused had it read the claim already), the other app having changed that gallery there.
+    // The step is the take-back: the folder's version stands — this app's change dropped, nothing of it
+    // published — from the stages' check on.
+    name: 'a change made before this app learned the other app used the folder anyway, taken back',
+    sample: 0,
+    async setup(c) {
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      await c.lib.flush();
+      const other = await otherApp(c);
+      await other.scan(await other.add(c.A, { force: true }));   // "Use anyway"
+      await other.setTitle(c.g.alpha, 'Alpha there');
+      await publishedThere(other, c.g.alpha, 'Alpha there', 'metadata.json');
+      await other.close();
+      c.titles.window = await c.lib.putTranslation(c.g.alpha, 2, png(8)).then(() => 'accepted', () => 'refused');
+      await c.lib.flush().catch(() => {});
+      c.takeBack = true;
+    },
+    state: (c) => { const s = { aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }; return c.titles.window === 'accepted' ? withTranslation(s, c.g.alpha, 2, png(8)) : s; },
+    also: (c, stage) => (c.lib.app !== 'website' || stage === 're-add' ? [] : [{ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }]),
+    ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A), (s, c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha there', [png(1), png(2)]) } }), null, true),
+      CHECK, FLUSH, SETTLE],
+    noSetupFlush: true,
+  },
+  {
+    // A gallery the other app deleted while it used folder A anyway: the step is the take-back. Here it reads
+    // nothing from then on (its folder is gone: kept listed until the person deletes it), nothing of it is
+    // published again, and the folder's removal goes on (S30) — added again, it never comes back.
+    name: 'a gallery the other app deleted while it used the folder anyway, taken back',
+    sample: 0,
+    async setup(c) {
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
+      c.g.beta = await made(c, 'Beta', [png(4)]);
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      await c.lib.flush();
+      const beta = await dirOf(c, c.g.beta);
+      const other = await otherApp(c);
+      await other.scan(await other.add(c.A, { force: true }));   // "Use anyway"
+      await other.deleteGallery(c.g.beta);
+      for (let i = 0; i < 100 && fs.existsSync(beta); i++) { await other.flush(); await sleep(50); }
+      if (fs.existsSync(beta)) throw new Error('the other app\'s deletion never ended');
+      await other.close();
+      c.takeBack = true;
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }),
+    ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A)), CHECK, FLUSH, SETTLE],
+    noSetupFlush: true,
+  },
+  {
+    // A linked ZIP of the person's, retitled here while the drive was away (it waits), retitled by the other app
+    // while it used folder A anyway (S30's finding: the website took such a gallery for its own alone). The
+    // step is the take-back: the folder's version stands, this app's title dropped — the ZIP as it was.
+    name: 'a linked ZIP both apps retitled across the other app\'s use of the folder, taken back',
+    sample: 0,
+    async setup(c) {
+      const zip = path.join(c.A, 'Pack.zip');
+      fs.writeFileSync(zip, zipCreate([{ name: '001.png', data: png(61) }, { name: '002.png', data: png(62) }]));
+      theirs(c, zip);
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      await c.lib.scan(c.ids.A);
+      c.g.pack = (await c.lib.galleries())[0];
+      c.known.add(c.g.pack);
+      await c.lib.flush();
+      await awayFor(c, () => c.lib.setTitle(c.g.pack, 'Pack here'));
+      const other = await otherApp(c);
+      await other.scan(await other.add(c.A, { force: true }));   // "Use anyway"
+      await other.setTitle(c.g.pack, 'Pack there');
+      await other.flush();
+      await other.close();
+      c.takeBack = true;
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.pack]: G('A', 'Pack here', [png(61), png(62)]) } }),
+    also: (c, stage) => (c.lib.app !== 'website' || stage === 're-add' ? [] : [{ aIn: true, galleries: { [c.g.pack]: G('A', 'Pack here', [png(61), png(62)]) } }]),
+    ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A), (s, c) => ({ aIn: true, galleries: { [c.g.pack]: G('A', 'Pack there', [png(61), png(62)]) } }), null, true),
+      CHECK, FLUSH, SETTLE],
+    noSetupFlush: true,
+  },
+  {
+    // A page and a translation written, faulted at every point — a kill, a failed call, the page dying, the drive
+    // away — then met by the other app before this app starts again (`metFirst`: after a kill or the page's
+    // death, before it is opened again): it uses folder A anyway, retitles Beta there and lets the folder go.
+    // At the take-back what this app wrote of Alpha is published (the other app changed nothing of it), and
+    // Beta has the other app's title.
+    name: 'a page and a translation written as the app stops, met by the other app before it starts again',
+    sample: 0,
+    metFirst: true,
+    async setup(c) {
+      c.g.alpha = await made(c, 'Alpha', [png(1)]);
+      c.g.beta = await made(c, 'Beta', [png(4)]);
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      c.takeBack = true;
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1)]), [c.g.beta]: G('A', 'Beta there', [png(4)]) } }),
+    // Before the stages' check reads what the other app published (D4), Beta's own title shows — with any of
+    // the step's states of Alpha.
+    also: (c, stage) => (stage !== 'flush' ? [] : [[png(1)], [png(1), png(2)]].flatMap((pages) => {
+      const s = { aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', pages), [c.g.beta]: G('A', 'Beta', [png(4)]) } };
+      return [s, withTranslation(s, c.g.alpha, 1, png(5))];
+    })),
+    ops: [
+      op('page 2', (c) => c.lib.putPage(c.g.alpha, 2, png(2)), (s, c) => { const t = clone(s); t.galleries[c.g.alpha].pages.push([hex(png(2)), hex(png(2))]); return t; }),
+      op('translation 1', (c) => c.lib.putTranslation(c.g.alpha, 1, png(5)), (s, c) => withTranslation(s, c.g.alpha, 1, png(5))),
+      FLUSH, SETTLE,
+    ],
+    async met(c) {
+      const other = await otherApp(c);
+      try {
+        const theirs = await other.add(c.A, { force: true });   // "Use anyway"
+        await other.scan(theirs);
+        await other.setTitle(c.g.beta, 'Beta there');
+        await other.flush();
+        await other.setDefault(other.home);
+        await other.remove(theirs);   // it lets go
+      } finally { await other.close(); c.other = null; }
+    },
+  },
   {
     // The website without leave to use folder A: pictures wait in this browser, then go to the folder once
     // the person allows it (plan D23's second case).
@@ -1180,6 +1303,12 @@ async function wrongAt(stage, c, valid, { aInAlways = false } = {}) {
   return problems.map(p => `${stage}: ${p}`);
 }
 
+// What the other app does once the step has ended (the scenario's `met`), once: resolves what went wrong.
+async function meet(sc, /** @type {Ctx} */ c) {
+  c.met = true;
+  try { await within('the other app', sc.met(c)); return []; } catch (e) { return [`the other app: ${/** @type {Error} */ (e).message}`]; }
+}
+
 /** The stages after scenario `sc`'s step, with `done` of its operations resolved, each checked; the first
  * that finds something ends it — as does a check that reports a copy of a gallery ('duplicate': one the
  * step left behind for good, as review 5's F3 left a retired folder). A stage may show the state after
@@ -1214,7 +1343,7 @@ async function stages(c, sc, states, done) {
   ];
   if (sc.startsAgain && !done) await /** @type {() => Promise<void>} */ (c.lib.restart)();
   if (c.showFirst) await c.lib.show(c.ids.A).catch(() => {});
-  if (sc.met) { try { await within('the other app', sc.met(c)); } catch (e) { return [`the other app: ${/** @type {Error} */ (e).message}`]; } }
+  if (sc.met && !c.met) { const p = await meet(sc, c); if (p.length) return p; }
   if (c.wrong?.length) return c.wrong.map(w => `step: ${w}`);
   if (c.takeBack && (await c.lib.list()).some(f => f.id === c.ids.A)) await c.lib.raw.folderClaim(c.ids.A).catch(() => {});
   for (const [stage, work] of steps) {
@@ -1324,7 +1453,12 @@ async function once(app, kind, sc, k) {
         return true;
       });
       done = await runOps(sc, c, /** @type {Promise<void>} */ (death));
-      if (deadPages.has(pageNow())) await within('the page loaded again', /** @type {any} */ (c.lib.restart)());
+      if (deadPages.has(pageNow())) {
+        // The other app meets the folder before the page is loaded again (`metFirst`).
+        const first = sc.met && sc.metFirst ? await meet(sc, c) : [];
+        await within('the page loaded again', /** @type {any} */ (c.lib.restart)());
+        if (first.length) return first;
+      }
     } else if (BLIPS.includes(kind)) {
       // Away from the k-th call (that call answers "not found" too), back at the m-th call after it.
       const m = Number(kind.split(' ').pop());
@@ -1372,11 +1506,13 @@ async function killed(sc, k) {
   }
   const was = JSON.parse(fs.readFileSync(saved, 'utf8'));
   const done = Number(fs.readFileSync(path.join(base, 'done'), 'utf8'));
-  const lib = await desktopLibrary(base);
   /** @type {Ctx} */
-  const c = { ...was, lib, known: new Set(was.known), deleted: new Set(was.deleted), plants: new Map(was.plants) };
+  const c = { ...was, lib: /** @type {any} */ ({ app: 'desktop' }), known: new Set(was.known), deleted: new Set(was.deleted), plants: new Map(was.plants) };
+  // The other app meets the folder before the desktop starts again (`metFirst`).
+  const first = sc.met && sc.metFirst ? await meet(sc, c) : [];
+  c.lib = await desktopLibrary(base);
   const met = fs.existsSync(path.join(base, 'met')) ? fs.readFileSync(path.join(base, 'met'), 'utf8') : 'no call';
-  try { return (await stages(c, sc, statesOf(sc, c), done)).map(p => `(${met}) ${p}`); } finally { await finish(c); }
+  try { return (first.length ? first : await stages(c, sc, statesOf(sc, c), done)).map(p => `(${met}) ${p}`); } finally { await finish(c); }
 }
 // The child's part: set up, saved for the parent, then the step with an exit in its k-th file call.
 async function child({ scenario, base, k }) {

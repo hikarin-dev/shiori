@@ -127,6 +127,15 @@ export function removalOutcome({ required, saved, discard = false }) {
   const unsaved = [...new Set([...required].map(String))].filter(gid => !done.has(gid));
   return { forget: !!discard || !unsaved.length, unsaved };
 }
+// Whether a gallery of a folder being removed counts as saved (removalOutcome's `saved`): `written`, its
+// write-back confirmed; else when nothing of it waits here (`waits`: changes not published, pictures held
+// back, no folder of its own) and its place is surely gone (`place`, the shared rule's answer for it:
+// 'missing') — renamed, moved or deleted by hand, or by the other app while it used the folder anyway: what
+// it had is in the folder or gone with its place, so forgetting it loses nothing (S30, S28b's "found, not
+// fixed"). One with something waiting stays unsaved: a check follows a renamed one, or the person chooses
+// "Remove anyway".
+/** @param {{ written: boolean, waits: boolean, place?: string | null }} gallery @returns {boolean} */
+export const savedAtRemoval = ({ written, waits, place = null }) => written || (!waits && place === 'missing');
 
 // A gallery deleted while its folder or archive wasn't where the library had it (moved, renamed or deleted
 // by hand) waits `unfound` — owed by its library folder, whose removal is refused while it waits — for a look
