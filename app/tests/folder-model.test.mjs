@@ -108,10 +108,12 @@ const writable = (/** @type {Model} */ m, /** @type {Gallery} */ g) => !g.displa
 // folder was replaced by hand, with something of it still to be written there — or moved by hand, not
 // followed yet, with something waiting, or deleted by the other app with something of it waiting here —
 // keeps the removal from ending (the folder stays, and the removal's failure says so), so it may be
-// refused then; refused, nothing changes (A is the default again). Removed, what the other app deleted is
-// forgotten with it, never to come back.
+// refused then; refused, nothing changes (A is the default again). (A gallery the other app deleted with a file
+// of this app's left in its folder — dropped in the window, retiring at its next publication, which never comes —
+// keeps the folder at its place, reported as a conflict, and the removal refused until the person deletes it
+// here: §8.) Removed, what the other app deleted is forgotten with it, never to come back.
 async function removed(/** @type {Model} */ m, /** @type {Real} */ r) {
-  const unsaved = m.galleries.some(g => (g.displaced || (g.unfollowed && g.waits)) && here(m, g)) || [...m.gone.values()].some(g => g.waits);
+  const unsaved = m.galleries.some(g => (g.displaced || (g.unfollowed && g.waits)) && here(m, g)) || m.gone.size > 0;
   if (await attempt(unsaved, () => r.lib.remove(r.id))) {
     for (const gid of m.gone.keys()) m.deleted.add(gid);
     m.gone.clear();
@@ -396,6 +398,18 @@ async function change(/** @type {Model} */ m, /** @type {Driver} */ lib, /** @ty
   else g.pages[k] = translatedAs(g.pages[k], bytes);
   return true;
 }
+// What library `lib` shows of gallery `g` now: its title and pages (as many as `g` has), as the model holds them.
+async function viewOf(/** @type {Driver} */ lib, /** @type {Gallery} */ g) {
+  const pages = [];
+  for (let k = 1; k <= g.pages.length; k++) {
+    const original = await lib.read(g.gid, k), translated = await lib.read(g.gid, k, 'translated');
+    pages.push({ original: /** @type {Uint8Array} */ (original), translated: same(translated, original) ? null : translated });
+  }
+  return { title: /** @type {string} */ (await lib.titleOf(g.gid)), pages };
+}
+// Whether two galleries' titles and pages are alike, byte for byte.
+const sameView = (/** @type {{ title: string, pages: Page[] }} */ a, /** @type {{ title: string, pages: Page[] }} */ b) => a.title === b.title && a.pages.length === b.pages.length
+  && a.pages.every((p, i) => same(p.original, b.pages[i].original) && (p.translated ? same(p.translated, b.pages[i].translated) : !b.pages[i].translated));
 // The app that uses folder A anyway: the other (the website for the desktop, the desktop for the website), or
 // for the desktop a second desktop library — the desktop app on another computer — made the first time.
 async function taker(/** @type {Real} */ r, /** @type {string} */ by) {
@@ -411,13 +425,15 @@ async function taker(/** @type {Real} */ r, /** @type {string} */ by) {
 // deletes it: `gone`). `mine`: a change of this app's waiting as the take-over comes — made while the drive is
 // away, in the moment before this app learns of the take-over (the window: accepted, or refused had it read
 // the claim), or as the desktop is killed (its change made, or not: read back) and started again only after
-// the other app let go. `unseen`: the drive away here the whole time, the folder back changed (a newer copy).
+// the other app let go — or a deletion of a gallery whose folder's deletes are refused, so it is still owed
+// (done at the take-back where the other app changed nothing of it, dropped where it did: the gallery back as
+// the folder has it). `unseen`: the drive away here the whole time, the folder back changed (a newer copy).
 // `theirs`: what the other app does there; `tries`: changes tried here after learning of it — each refused,
 // a quiet moment, the claim unreadable or the drive away before it; `made`: a gallery made here meanwhile
 // (only this app has it: it works, and waits).
 const usedAnyway = command('usedAnyway', fc.record({
   by: fc.constantFrom('other', 'second desktop'),
-  mine: fc.option(fc.tuple(anyGallery, fc.constantFrom('title', 'page', 'translation'), fc.nat(1), fc.constantFrom('away', 'window', 'killed'), fc.integer({ min: 1, max: 40 }))),
+  mine: fc.option(fc.tuple(anyGallery, fc.constantFrom('title', 'page', 'translation', 'delete'), fc.nat(1), fc.constantFrom('away', 'window', 'killed'), fc.integer({ min: 1, max: 40 }))),
   unseen: fc.boolean(),
   theirs: fc.array(fc.tuple(anyGallery, fc.constantFrom('title', 'page', 'translation', 'delete', 'new'), fc.nat(1)), { maxLength: 3 }),
   tries: fc.array(fc.tuple(anyGallery, fc.constantFrom('title', 'page', 'translation', 'delete'), fc.nat(1), fc.constantFrom('at once', 'a quiet moment', 'the claim unreadable', 'the drive away')), { maxLength: 2 }),
@@ -426,16 +442,29 @@ const usedAnyway = command('usedAnyway', fc.record({
   check: (m) => m.both && m.state === 'shown',
   ms: 60_000,
   async run(m, r, a) {
-    const by = await taker(r, a.by);
+    let mode = a.mine?.[1] === 'delete' ? 'deletes refused' : a.mine?.[3];
+    // (Its folder's deletes refused for this app alone: the other kind of app takes the folder.)
+    const by = await taker(r, mode === 'deletes refused' ? 'other' : a.by);
     await r.lib.flush();   // what this app had waiting is in the folder: the take-back weighs only what follows
     await settledDeletions(m, r);
     const inA = m.galleries.filter(g => g.place === 'A' && here(m, g) && !g.displaced && !g.unfollowed && !g.pdf && !g.edited && g.pages.length > 0);
     const base = new Map(inA.map(g => [g.gid, structuredClone(g)]));   // each as the folder has it
-    let mode = a.mine?.[3];
     if (mode === 'killed' && r.lib.app !== 'desktop') mode = 'away';
     if (a.unseen && mode === 'window') mode = 'away';
-    const mineOn = a.mine && pick(inA, a.mine[0], g => !(a.mine?.[1] === 'page' && g.zip));
+    const mineOn = a.mine && pick(inA, a.mine[0], g => !(g.zip && (a.mine?.[1] === 'page' || a.mine?.[1] === 'delete')));
     let killed = null;   // the change the killed desktop made, or not: read back at the end
+    // A deletion owed: its folder's deletes refused until the take-back — a deletion retried as the other app
+    // takes the folder over, before this app has learned of it, is §8's advisory claim (S30: it raced the other
+    // app's check), not this shape.
+    let deletesBack = () => {};
+    if (mineOn && mode === 'deletes refused') {
+      const inside = r.A.split(path.sep).join('/').toLowerCase();
+      deletesBack = r.lib.app === 'website' ? fsa.failNext((c) => c.op === 'removeEntry', 'NoModificationAllowedError', { times: Infinity })
+        : faults.failNext((c) => ['rm', 'unlink', 'rmdir'].includes(c.op) && c.path.toLowerCase().startsWith(inside), 'EBUSY', { times: Infinity });
+      await r.lib.deleteGallery(mineOn.gid);
+      await r.lib.flush().catch(() => {});
+      m.galleries = m.galleries.filter(x => x !== mineOn);   // gone from the library at once: its folder's deletion owed
+    }
     if (a.unseen || (mineOn && mode === 'away')) fs.rmdirSync(r.A);   // the drive away
     if (mineOn && mode === 'away') {
       if (await change(m, r.lib, mineOn, a.mine[1], a.mine[2], true)) mineOn.waits = true;
@@ -493,6 +522,14 @@ const usedAnyway = command('usedAnyway', fc.record({
       touched.set(g.gid, t);
     }
     await by.flush();
+    // This app's change in the window may have reached the folder before the other app changed that gallery
+    // (a write isn't stopped the instant the folder is taken: §8's advisory claim) — then the other app's change
+    // met a newer generation and was dropped there (one app changes a folder's galleries at a time), and the
+    // folder's newest generation is this app's, whose waiting rest is published at the take-back; else the other
+    // app's change stands. Either way both apps end showing the same: what the other app shows of it now, or this
+    // app's change (the take-back below tells which, by what this app shows).
+    const raced = mineOn && mode === 'window' && mineOn.waits && touched.get(mineOn.gid) ? /** @type {Gallery} */ (touched.get(mineOn.gid)) : null;
+    if (raced) Object.assign(raced, await viewOf(by, raced));
     if (!a.unseen && !killed) {
       await r.lib.list();   // the person sees the folder used elsewhere: this app has learned of it
       for (const [i, what, n, how] of a.tries) {
@@ -519,19 +556,36 @@ const usedAnyway = command('usedAnyway', fc.record({
       m.galleries.push({ gid, place: 'A', app: m.app, title, pages: [{ original: bytes, translated: null }] });
     }
     await by.setDefault(by.home);
-    await by.remove(theirsAt);   // it lets go, what it changed written there first
+    // It lets go, what it changed written there first — refused while a change of a gallery it holds waits for a
+    // place gone meanwhile (this app's unpack of it in the window: §8, a removal with a moved gallery's change
+    // waiting): a check follows it there, then the removal goes on.
+    await by.remove(theirsAt).catch(async (e) => {
+      if (e?.errorKey !== 'lf.task_kept') throw e;
+      await by.scan(theirsAt);
+      await by.flush();
+      await by.remove(theirsAt);
+    });
     if (a.unseen) faults.junction(r.drive, r.A);   // the drive back
     if (killed) await /** @type {() => Promise<void>} */ (r.lib.restart)();   // the desktop starts again
     const back = await r.lib.raw.folderClaim(r.id);   // "Take back"
+    deletesBack();
     if (back !== 'granted') throw new Error(`folder A taken back: ${back}`);
     await r.lib.flush();
     await r.lib.scan(r.id);
+    await r.lib.flush();
+    await r.lib.scan(r.id);   // the next check: a deletion dropped where a check met the gallery joins it again then
     checked(m);
     for (const g of inA) {
       const t = touched.get(g.gid), waited = !!g.waits || (!!killed && g === mineOn);
       delete g.waits;
-      if (t === undefined) {
-        // The other app changed nothing of it: what waited here is in the folder (a killed change, if made).
+      if (mode === 'deletes refused' && g === mineOn) {
+        // The deletion still owed: done where the other app changed nothing of it (or deleted it too); dropped
+        // where it changed it — the gallery back as the folder has it (S29a's rule 3).
+        if (t) { Object.assign(g, { title: t.title, pages: t.pages }); if (by.app === 'website') delete g.archived; m.galleries.push(g); }
+        else m.deleted.add(g.gid);
+      } else if (t === undefined || (!!raced && t === raced && sameView(await viewOf(r.lib, g), g) && !sameView(g, raced))) {
+        // The other app changed nothing of it — or its change was dropped there for this app's, which reached the
+        // folder first (the window: `raced`): what waited here is in the folder (a killed change, if made).
         if (killed && g === mineOn && await showsKilled(r.lib)) applyKilled(g);
       } else if (t === null) {
         // Deleted there: gone here, what waited for it waiting still (the removal may be refused for it).
@@ -543,11 +597,11 @@ const usedAnyway = command('usedAnyway', fc.record({
       }
     }
     m.galleries.push(...news);
-    // The website reads another app's generation of a gallery it changed a moment ago at a later check (plan
-    // §8, S26a): checked again a few times, until it does.
-    for (let i = 0; r.lib.app === 'website' && i < 4; i++) {
+    // The website reads another app's generation of a gallery it is busy with (a change of a moment ago, a
+    // publication of it due) at a later check (plan §8, S26a): checked again until it does, for at most 10 s.
+    for (const end = Date.now() + 10_000; r.lib.app === 'website' && Date.now() < end;) {
       if (await verify(m, r).then(() => true, () => false)) break;
-      await pause(400);
+      await pause(250);
       await r.lib.scan(r.id);
     }
   },
@@ -1012,6 +1066,23 @@ const REGRESSIONS = [
   // Seed 740776427 (S29b's short run, both apps alike): a ZIP linked after another's picture changed in place.
   // The link's check read the changed picture, so a translation put on it afterwards is the new picture's and
   // stays at the next check. The model's own mistake (its link didn't count as a check), fixed in S30.
+  // S30's take-over shapes with an archived gallery (desktop seeds 42 and 43): a deletion owed of it while the website,
+  // using the folder anyway, changes it — so unpacks it — is dropped where a check meets the folder, the gallery
+  // joining again at the next; a title of it made in the window reaches its archive before the website's change, so
+  // the folder's version is the first to reach it (the model held the other app's: its own mistake, S30).
+  { app: 'desktop', both: true, name: 'a second desktop library\'s change of an archived gallery this one unpacked in the window is dropped by a check, and its removal goes on',
+    steps: [['newGallery', 1], ['archiveIt', 0], ['usedAnyway', { by: 'second desktop', mine: [0, 'translation', 0, 'window', 1], unseen: false, theirs: [[0, 'title', 0]], tries: [], made: false }]] },
+  { app: 'desktop', both: true, name: 'a translation of an archived gallery made in the window: the unpack it set going reached the folder first, so it is published at the take-back',
+    steps: [['newGallery', 1], ['archiveIt', 0], ['usedAnyway', { by: 'other', mine: [0, 'translation', 0, 'window', 1], unseen: false, theirs: [[0, 'title', 0]], tries: [], made: false }]] },
+  { app: 'desktop', both: true, name: 'a deletion owed of an archived gallery the website unpacked while it used the folder anyway is dropped, the gallery back from its folder',
+    steps: [['newGallery', 1], ['archiveIt', 0], ['usedAnyway', { by: 'other', mine: [0, 'delete', 0, 'away', 1], unseen: false, theirs: [[0, 'title', 0]], tries: [], made: false }]] },
+  { app: 'desktop', both: true, name: 'a title of an archived gallery made in the window before learning of the take-over: the folder keeps the first change that reached it',
+    steps: [['newGallery', 1], ['archiveIt', 0], ['usedAnyway', { by: 'other', mine: [0, 'title', 0, 'window', 1], unseen: false, theirs: [[0, 'title', 0]], tries: [], made: false }]] },
+  // S30's take-over shapes (seed 42, both apps): a deletion owed (its folder's deletes refused) as the other app
+  // uses the folder anyway and retitles the gallery — dropped at the take-back, the gallery back as the folder has
+  // it (S29a's rule 3).
+  ...['desktop', 'website'].map(app => ({ app, both: true, name: 'a deletion owed as the other app changes the gallery while it uses the folder anyway is dropped at the take-back',
+    steps: [['newGallery', 1], ['usedAnyway', { by: 'other', mine: [0, 'delete', 0, 'away', 1], unseen: false, theirs: [[0, 'title', 0]], tries: [], made: false }]] })),
   ...['desktop', 'website'].map(app => ({ app, name: 'a translation put after a check read a changed source stays: the check made as a ZIP is linked counts',
     steps: [['link', null], ['changeEntry', [0, 1]], ['link', null], ['putTranslation', [0, 1, false]], ['scan', null]] })),
   // S10's situations (the review's F1–F6), each replayed as the commands reach it, on every app it

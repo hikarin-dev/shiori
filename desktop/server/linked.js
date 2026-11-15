@@ -309,6 +309,7 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
     : embedded ? { ...embedded, galleryId: gid }
     : { galleryId: gid, ...named, numPages: pages.length, isLocalImport: true, source: '' };
   const files = library.files;
+  const covers = coverPatch(derived);
   let held = false, stale = false;   // stale: a page's source picture isn't the one its overlay recorded
   library._tx(() => {
     if (guard?.()) { held = true; return; }
@@ -347,12 +348,14 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
     library._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(gid, read.token);
     for (const [name, ref] of had) if (!kept.has(name)) library._dropOwn(gid, name, ref);   // made from a picture it no longer shows
     library._logIn(gid);
+    // Its entry (its listing and cover) rebuilt and its covers of its own put in the same step: whatever
+    // fails after this commits (its source.json written again, below) never leaves it out of every listing
+    // for good (S30, as scan.js entryIn for Shiori's own: a look at source.json failing there did).
+    library.rebuildGalleryEntry(gid, { silent: true, mark: false });   // its transaction runs inside this one
+    if (Object.keys(covers).length) library._coverPatchIn(gid, covers, { mark: false });
   });
   if (held) return null;
   if (replace) await overlayFor(library, root, title, gid, at);
-  await library.rebuildGalleryEntry(gid, { silent: true, mark: false });
-  const covers = coverPatch(derived);
-  if (Object.keys(covers).length) library._tx(() => library._coverPatchIn(gid, covers, { mark: false }));
   // Its overlay describes it again, in due course, when a page's source picture isn't the one it recorded
   // (what was made from it dropped, or recorded before content signals were), or its description carries a
   // favorite (an earlier version's: no description does now). One merely joined is described at its first

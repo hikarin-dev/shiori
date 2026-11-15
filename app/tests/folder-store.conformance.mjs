@@ -3510,6 +3510,42 @@ export const CASES = [
     },
   },
   {
+    // Found by S30's sweep ("a linked ZIP both apps retitled…, taken back", the desktop, every kind at the same call):
+    // a linked gallery read again — its source changed in place, or another app's generation of its overlay met —
+    // had its records replaced in one step and its entry (its listing and cover) rebuilt only after its source.json
+    // was noted again: a look at that file failing in between left it out of every listing for good, its pages
+    // still in the index. Its entry is rebuilt in the same step as its records.
+    name: 'S30: a linked gallery read again stays listed when a look at its source.json fails just after',
+    async run({ fx, dir, platform }) {
+      const isSource = (/** @type {{ op: string, path: string }} */ c) => c.op === (platform === 'desktop' ? 'readFile' : 'getFile') && c.path.endsWith('/source.json');
+      // The check that reads it again, its source changed in place, with the `failAt`-th read of its source.json
+      // failing (0: none): resolves how many it made, the gallery and its folder's id.
+      const readAgain = async (/** @type {string} */ name, failAt = 0) => {
+        const ref = await fx.register(name);
+        const zip = path.join(dir, name, 'Pack.zip');
+        fs.writeFileSync(zip, zipCreate([{ name: '001.png', data: png(6, 1) }, { name: '002.png', data: png(6, 2) }]));
+        const before = new Set(await fx.lib.galleries());
+        await fx.lib.scan(ref.id);
+        const gid = (await fx.lib.galleries()).find(g => !before.has(g));
+        await fx.lib.flush();
+        fs.writeFileSync(zip, zipCreate([{ name: '001.png', data: png(6, 3) }, { name: '002.png', data: png(6, 2) }]));   // changed in place
+        let n = 0;
+        const undo = (platform === 'desktop' ? faults : fsa).failNext((c) => isSource(c) && ++n === failAt, platform === 'desktop' ? 'EIO' : 'NotReadableError', { times: Infinity });
+        try { await fx.lib.scan(ref.id).catch(() => {}); await fx.lib.flush(); } finally { undo(); }
+        return { n, gid: /** @type {string} */ (gid), id: ref.id };
+      };
+      const { n } = await readAgain('A0');
+      assert.ok(n > 0, 'its source.json is read');
+      for (let k = 1; k <= n; k++) {   // each of those reads failing, the last after its records are replaced among them
+        const { gid, id } = await readAgain(`A${k}`, k);
+        assert.ok((await fx.lib.galleries()).includes(gid), `read ${k} of ${n} failing: still listed`);
+        await fx.lib.scan(id);
+        await fx.lib.flush();
+        assert.deepEqual([(await fx.lib.galleries()).includes(gid), await fx.lib.read(gid, 1)], [true, png(6, 3)], `read ${k} of ${n} failing: the next check reads its changed page`);
+      }
+    },
+  },
+  {
     // S28a's "found, not fixed" (desktop): a gallery's archive that is a symbolic link to a file — the person's
     // (Windows makes one only in developer mode, so the link is the disk's answer here: lstat says so). Shiori
     // never goes through a link in a library folder, so the deletion asked whose the archive is, met the link,
