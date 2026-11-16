@@ -418,19 +418,24 @@ test('A04: a restore keeps where a gallery is kept — pictures waiting in the b
       await api.meta.put({ galleryId: g, title: t.T('Waiting') });
       await api.pages.put(g, 1, await t.png(300));
       const before = { spilled: (await t.raw('galleries', g)).spilled, linked: !!(await t.raw('galleries', linked)).linked };
-      // What restoring a metadata backup does with each gallery.
-      for (const gid of [g, linked]) {
+      // What restoring a metadata backup does with a gallery.
+      const restore = async (gid) => {
         const meta = await api.meta.get(gid);
         const { stat } = await api.transfer.read(gid, { pages: false });
         await api.transfer.write({ galleryId: gid, meta: { ...meta, fetchedAt: Date.now() }, stat: { ...stat, latestAt: Date.now() } }, { silent: true });
-      }
-      const restored = { spilled: (await t.raw('galleries', g)).spilled ?? null, folder: (await t.raw('galleries', g)).folder === id,
-        linked: !!(await t.raw('galleries', linked)).linked };
+      };
+      await restore(g);
+      // The linked gallery is the folder's, which another app holds: read-only here until the take-back.
+      const refused = await restore(linked).then(() => 'resolved', (e) => e.reason);
+      const waiting = { spilled: (await t.raw('galleries', g)).spilled ?? null, folder: (await t.raw('galleries', g)).folder === id };
       await api.folders.claim(id);
+      await restore(linked);
+      const restored = { ...waiting, linked: !!(await t.raw('galleries', linked)).linked };
       await api.folders.settle();
-      return { before, restored, dir: (await t.raw('galleries', g)).dir ?? null, spilled: (await t.raw('galleries', g)).spilled ?? null };
+      return { before, refused, restored, dir: (await t.raw('galleries', g)).dir ?? null, spilled: (await t.raw('galleries', g)).spilled ?? null };
     }, first);
     assert.deepEqual(out.before, { spilled: 1, linked: true });
+    assert.equal(out.refused, 'not-owned', 'a linked gallery of a folder another app holds isn\'t restored over');
     assert.deepEqual(out.restored, { spilled: 1, folder: true, linked: true }, 'its place survives the restore');
     assert.equal(out.dir, 'Waiting', 'taken back, what waited went to the folder');
     assert.equal(out.spilled, null);
