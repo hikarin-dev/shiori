@@ -144,12 +144,13 @@ function claimElsewhere(dir) {
 /** The desktop library, its data and first folder in `base` (data/, own/), as the tests open it:
  * pictures put in their folders at once, descriptions written when flushed. `me`: the app's own id (as
  * folder-owner.js knows it) where it stands for the desktop app on another computer — by default this
- * one's, which every desktop library in this process shares.
- * @param {string} base @param {{ me?: string }} [options] @returns {Promise<Driver>} */
-export async function desktopLibrary(base, { me } = {}) {
+ * one's, which every desktop library in this process shares. `own`: its first folder elsewhere (an
+ * earlier version's library, as storage-fixtures.mjs desktopLibrary lays one out beside base/data).
+ * @param {string} base @param {{ me?: string, own?: string }} [options] @returns {Promise<Driver>} */
+export async function desktopLibrary(base, { me, own = path.join(base, 'own') } = {}) {
   globalThis.BroadcastChannel = Quiet;
   const { Library } = await import('../../desktop/server/library.js');
-  const where = { dataDir: path.join(base, 'data'), libraryDir: path.join(base, 'own'), placeDelay: 0, describeDelay: 600_000 };
+  const where = { dataDir: path.join(base, 'data'), libraryDir: own, placeDelay: 0, describeDelay: 600_000 };
   const made = () => { const l = new Library(where); if (me) l.folders._instance = me; return l; };
   let lib = await made().open();
   return {

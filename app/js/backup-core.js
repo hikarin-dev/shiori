@@ -680,12 +680,20 @@ export async function verifyArchive(archive, inspection, { onProgress = () => {}
   return { checked: todo.length, problems, hashed: archive.hashed };
 }
 
+// Whether a library's refusal of a gallery's write is for now and that gallery alone: its library folder
+// is in use by another app (BackendError 'unavailable', reason 'not-owned' — one app changes a folder's
+// galleries at a time — or 'taken'). A restore passes over such a gallery and lists it with what it
+// couldn't restore (reason 'not-owned'); "Take back", then the restore again, brings it in (S31, review 8
+// R8-5). Any other 'unavailable' is the library gone, which stops a restore.
+export const refusedForNow = (e) => e?.code === 'unavailable' && ['not-owned', 'taken'].includes(e?.reason);
+
 // Restore the galleries `inspection` found restorable into `library` — { write(bundle) → { pages },
 // exists(gid), recount(gid), putIcon(icon), refreshSeries(ownerId), announce(gid) } — except those
 // in `skip`. Each gallery's pictures are checked before it is written (the next one's while the
 // current one is written) and each is written whole or not at all. `onGallery(gid)` once one is
 // in; `onProgress({ done, total, bytes, totalBytes })`; `signal` stops it between galleries.
-// Resolves { written: [gid], problems: [{ gid, title, reason, detail }], skipped, cancelled }.
+// Resolves { written: [gid], problems: [{ gid, title, reason, detail }], skipped, cancelled } — a
+// gallery whose library folder another app is using among the problems (refusedForNow).
 // Throws a BackupError when nothing more can be restored (no space left, the library gone, the
 // file unreadable) — what was written before stays, and is in `error.written`.
 export async function restoreArchive(archive, inspection, library, { skip = new Set(), onGallery = () => {}, onProgress = () => {}, signal = null, verify = true } = {}) {
@@ -725,8 +733,8 @@ export async function restoreArchive(archive, inspection, library, { skip = new 
         if (e instanceof BackupError) throw e;
         const code = e?.code;
         if (code === 'quota') throw Object.assign(new BackupError('quota', String(e?.message || e)), { written });
-        if (code === 'unavailable') throw Object.assign(new BackupError('unavailable', String(e?.message || e)), { written });
-        problems.push({ gid: g.gid, title: g.title, reason: e instanceof GalleryProblem ? e.reason : (code === 'conflict' ? 'conflict' : 'failed'),
+        if (code === 'unavailable' && !refusedForNow(e)) throw Object.assign(new BackupError('unavailable', String(e?.message || e)), { written });
+        problems.push({ gid: g.gid, title: g.title, reason: e instanceof GalleryProblem ? e.reason : refusedForNow(e) ? 'not-owned' : (code === 'conflict' ? 'conflict' : 'failed'),
           detail: e?.detail || String(e?.message || e) });
       }
       done++;

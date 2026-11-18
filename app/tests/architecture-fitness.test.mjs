@@ -131,6 +131,34 @@ test('no code outside the folder store adapter turns a failed read of a library 
   assert.deepEqual(allowed.filter((_, i) => !used.has(i)).map(([f, part]) => `${f}: ${part}`), [], 'stale entries');
 });
 
+// The top-level function (or `const name =`) each line of `src`'s code is in: [line, its function's name].
+function linesByFunction(src) {
+  let at = null;
+  return code(src).split('\n').map((line) => {
+    const m = /^(?:export\s+)?(?:async\s+)?function\s*\*?\s*([\w$]+)|^(?:export\s+)?const\s+([\w$]+)\s*=/.exec(line);
+    if (m) at = m[1] ?? m[2];
+    return [line, at];
+  });
+}
+
+test('S31: whose version a gallery\'s place holds is weighed in one place — the adapter\'s placeIn, reached through the library\'s gateway alone', () => {
+  // Review 8: S29a's rule (the folder's version stands) sat in the callers that publish and settle, keyed on a stamp
+  // that could be missing or name two publications, and an unpack and a move out never asked. The rule is one
+  // function of the shared core (storage/gallery-manifest.js whoseVersion), weighed in one place of the adapter
+  // (storage/folder-store-web.js placeIn: a gallery's place held, as it is now), which the library reaches through
+  // one gateway (db.js _hold) every operation writing into, moving, unpacking or deleting at a gallery's place
+  // passes first (folder-stale-view.test.mjs runs each). So whoseVersion is called in placeIn alone, placeIn by the
+  // adapter's own contract (_root: Root.gallery with a view, reserve) and _hold alone, and none of the per-path
+  // checks of before is left. A check's catch-up compares a place's token with the stamp for equality alone (rule 1:
+  // equal tokens are the same publication, anything else is read again) — it weighs nothing of whose it is, and with
+  // something waiting it holds the place (_hold). The desktop's rule: desktop/tests/architecture-fitness.test.mjs.
+  const calls = (re) => modules.flatMap((f) => linesByFunction(read(f)).filter(([line]) => re.test(line)).map(([, fn]) => `${f} ${fn}`));
+  assert.deepEqual([...new Set(calls(/\bwhoseVersion\s*\(/))], ['storage/folder-store-web.js placeIn'], 'the rule weighed in the adapter\'s placeIn alone');
+  assert.deepEqual([...new Set(calls(/(?<!function\s+)\bplaceIn\s*\(/))].sort(), ['db.js _hold', 'storage/folder-store-web.js _root'], 'a place held through the library\'s gateway, and the adapter\'s contract, alone');
+  assert.deepEqual(calls(/\b(?:othersSince|_othersThere|_othersIn|_dropOrOver|dropWaiting)\b|\b_others\s*\(/), [], 'no per-path check of another app\'s generation left');
+  assert.deepEqual(calls(/\bwriterOf\s*\(/).filter(c => !c.startsWith('storage/gallery-manifest.js')), [], 'whose a token is told by the rule alone');
+});
+
 test('the app never names a source site or the companion helper', () => {
   // The app is site-agnostic and must carry no evidence of the companion relationship in
   // user-facing copy. Bridge message names (EXT_*) are the sanctioned contract and stay.

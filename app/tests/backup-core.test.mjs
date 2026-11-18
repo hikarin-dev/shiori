@@ -272,6 +272,42 @@ test('a restore that runs out of space stops, says what it wrote, and the same f
   assert.equal(localStorage.getItem('shiori:restoreJournal'), null, 'finished: nothing left to carry on');
 });
 
+// Review 8, R8-5 (8A3): while another app holds a library folder, a write of a gallery the folder holds is
+// refused (BackendError 'unavailable', reason 'not-owned': one app changes a folder's galleries at a time).
+// On 146199d a full restore took that for the library gone and stopped there ("Shiori Desktop stopped
+// answering.", on the website too), and a metadata restore stopped at it, the galleries after it not restored.
+// A restore passes over such a gallery and lists it with what it couldn't restore (S31); a library that stopped
+// answering still stops it.
+test('R8-5: a restore passes over a gallery whose library folder another app is using, lists it, and restores the rest — a full backup and a metadata one', async () => {
+  const { BackendError } = await import('../js/backend-error.js');
+  for (const kind of ['full', 'metadata']) {
+    await fresh();
+    const ids = [await gallery('1'), await gallery('2'), await gallery('3')];
+    const file = kind === 'full' ? asFile(new Blob([await archiveBytes()])) : new File([await (await exportMetadata()).blob.text()], 'backup.shi');
+    if (kind === 'full') await fresh();
+    const write = api.transfer.write;
+    api.transfer.write = async (b, o) => {
+      if (String(b.galleryId) === ids[1]) throw Object.assign(new BackendError('unavailable', `gallery ${b.galleryId} is in a library folder another app is using`), { reason: 'not-owned' });
+      return write(b, o);
+    };
+    let result;
+    try { result = await importBackup(file); } finally { api.transfer.write = write; }
+    assert.deepEqual([result.written, result.cancelled], [[ids[0], ids[2]], false], `${kind}: the rest restored`);
+    assert.deepEqual(result.problems.map(p => [p.gid, p.reason]), [[ids[1], 'not-owned']], `${kind}: the one refused listed`);
+    if (kind === 'full') assert.deepEqual((await api.transfer.ids()).sort(), [ids[0], ids[2]].sort(), 'nothing of the refused gallery written');
+  }
+  // The library gone (no reason: the desktop stopped answering) still stops a full restore.
+  await fresh();
+  const ids = [await gallery('1'), await gallery('2')];
+  const buf = await archiveBytes();
+  await fresh();
+  const write = api.transfer.write;
+  api.transfer.write = async (b, o) => { if (String(b.galleryId) === ids[1]) throw new BackendError('unavailable', 'the desktop app closed the connection'); return write(b, o); };
+  try {
+    await assert.rejects(importBackup(asFile(new Blob([buf]))), (e) => e.code === 'unavailable' && e.written.length === 1);
+  } finally { api.transfer.write = write; }
+});
+
 test('a restore stopped between galleries reports exactly what it restored', async () => {
   await fresh();
   const ids = [await gallery('1'), await gallery('2'), await gallery('3')];

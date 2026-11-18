@@ -15,6 +15,7 @@ import { pickTitle } from './titles.js';
 import { showOperation, alertDialog, confirmDialog, choiceDialog } from './notice.js';
 import { exportFull, exportMetadata, openBackup, restoreBackup, probeBackup, BackupError } from './backup.js';
 import { openArchive, inspectArchive, verifyArchive, snapshotSettings, restoreSettings } from './backup-core.js';
+import { refusalText } from './library-folders.js';
 
 // One backup at a time, in every window of this browser (and Settings won't clear the library
 // meanwhile: backupRunning).
@@ -41,7 +42,8 @@ const busy = (on) => { try { desktop()?.shell?.('busy', { on, label: on ? t('bk.
 // ── Wording ──
 const titleOf = (title) => pickTitle({ title }, getLang()) || '';
 const dateOf = (ms) => { try { return new Date(ms).toLocaleDateString(getLang(), { dateStyle: 'medium' }); } catch { return ''; } };
-const reasonOf = (reason) => t(`bk.reason_${reason}`) || reason;
+// A gallery passed over because its library folder is in use by another app says so as the folders do.
+const reasonOf = (reason) => refusalText({ reason }) ?? (t(`bk.reason_${reason}`) || reason);
 
 // Up to `max` problems as lines ("Title — why"), and how many more there are.
 function problemLines(problems, max = 6) {
@@ -66,11 +68,13 @@ function progressLines({ done, total, bytes = 0, totalBytes = 0 }, started, unit
 }
 const fraction = ({ done, total, bytes = 0, totalBytes = 0 }) => (totalBytes ? [bytes, totalBytes] : [done, total]);
 
-// A failure, said for what it is.
+// A failure, said for what it is: "the desktop stopped answering" only for that — a library's refusal
+// carries its reason (a folder in use by another app says so, as the folders do).
 function errorText(e) {
   const code = String(e?.code || '');
   const known = ['not-backup', 'truncated', 'newer', 'too-large', 'corrupt', 'unsafe', 'unreadable', 'quota', 'unavailable'];
-  const body = known.includes(code) ? t(`bk.err_${code.replace('-', '_')}`) : t('bk.err_other');
+  const refused = code === 'unavailable' && e?.reason ? refusalText(e) ?? t('bk.err_other') : null;
+  const body = refused ?? (known.includes(code) ? t(`bk.err_${code.replace('-', '_')}`) : t('bk.err_other'));
   const lines = [];
   if (e?.written?.length) lines.push(t('bk.err_written', { n: formatCount(e.written.length) }));
   const detail = e?.detail || (known.includes(code) ? '' : String(e?.message || e || ''));

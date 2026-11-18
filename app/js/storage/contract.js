@@ -147,8 +147,10 @@ export function parsed(read, parse, what = 'file') {
 /** For a linked gallery's page, the source picture it shows: name and size, plus the archive entry's
  * CRC-32 or the file's modification time.
  * @typedef {{ name: string, size: number, crc?: string, mtime?: number }} SourceSignal */
-/** @typedef {{
- *   format: 'shiori-gallery', version: 2, galleryId: string, generation: number,
+/** `publication`: the publication's own id (gallery-manifest.js newPublication; none in a manifest written
+ * before S31).
+ * @typedef {{
+ *   format: 'shiori-gallery', version: 2, galleryId: string, generation: number, publication?: string,
  *   files: { pages: Record<string, PageFiles>, covers: { gallery?: string, series?: string } },
  *   sizes: Record<string, [number, number]>,
  *   sources?: Record<string, SourceSignal>,
@@ -175,11 +177,10 @@ export function parsed(read, parse, what = 'file') {
  * - writeNew: a new file for `slot` (its layout name without extension, as gallery-files.js
  *   layoutPath gives it): the layout name if free, else NNNN-<hex>.<ext>; never over an existing file.
  * - publish: the generation's descriptions written as new files named by their content, then the
- *   manifest in one atomic write (the commit point), then the stable-named copies as a best effort.
- *   `known`: the token the library last published or read there (gallery-manifest.js tokenOf).
- *   Never over a generation another app published since (gallery-manifest.js othersSince: one app
- *   changes a folder's galleries at a time): nothing is written then, and it resolves `newer`, that
- *   generation's token — the folder's version stands, the library drops what it had waiting for it.
+ *   manifest in one atomic write (the commit point), then the stable-named copies as a best effort —
+ *   only at the directory's place as held (WriteRoot.gallery with the library's view of it, or its
+ *   reservation: one app changes a folder's galleries at a time, S31), and only while it still holds the
+ *   publication held (else refused, `reason` 'changed'); resolves the token it is published at.
  * - deleteNamed: removes the listed files whose size and modification time still match; one that
  *   differs, or can't be checked, is left and reported — as is one reached through a link ('link', the
  *   desktop's: principle 5; the website sees none). The directory goes once it is empty.
@@ -187,16 +188,17 @@ export function parsed(read, parse, what = 'file') {
  *   `olderThan` (ms), none of `reserved`.
  * @typedef {GalleryView & {
  *   writeNew(slot: string, ext: string, bytes: Uint8Array): Promise<WrittenFile>,
- *   publish(next: { manifest: Manifest, descriptions: Record<string, string>, known?: string | null }): Promise<{ generation: number, newer?: string }>,
+ *   publish(next: { manifest: Manifest, descriptions: Record<string, string> }): Promise<{ generation: number, token: string }>,
  *   deleteNamed(files: WrittenFile[]): Promise<{ deleted: string[], kept: { name: string, why: 'changed' | 'missing' | 'unreadable' | 'link' }[] }>,
  *   sweep(options: { olderThan: number, reserved: string[] }): Promise<{ removed: string[] }>,
  * }} GalleryDir */
 
 /** What Root.gallery() found at a directory: the gallery (it names it: its manifest, else its v1
- * metadata.json, folder-content.js galleryAt), nothing, a directory that names another gallery
+ * metadata.json, folder-content.js galleryAt) — with the library's view of it, its place held: 'ok', or
+ * 'theirs' where another publication is there (`token`) — nothing, a directory that names another gallery
  * (`found`: its id) or none (`found`: null), or one whose descriptions can't be read now.
  * @template D
- * @typedef {{ kind: 'ok', dir: D } | Missing | { kind: 'conflict', found: string | null } | Unreadable} GalleryResult */
+ * @typedef {{ kind: 'ok', dir: D } | { kind: 'theirs', token: string, dir: D } | Missing | { kind: 'conflict', found: string | null } | Unreadable} GalleryResult */
 
 /** A source Shiori didn't make (a linked gallery's archive, folder of pictures or PDF), read-only.
  * @typedef {{
@@ -231,8 +233,12 @@ export function parsed(read, parse, what = 'file') {
  * gallery's first generation there — gallery-manifest.js firstGeneration, its manifest written last,
  * so nothing names the gallery before it, and only as reserved until a publication makes the folder
  * whole: S12) and writes to its .shiori/ area. A write rejects with the I/O error that failed it.
+ * gallery() with the library's view of the gallery (`view`: { known: the token it last published or read
+ * there, or null; over?: a damaged version it may publish over }) holds its place (the adapters' placeIn,
+ * gallery-manifest.js whoseVersion): 'ok', or 'theirs' where another publication is there (`token`) — the
+ * folder's version stands — each with its directory, which publishes only at that place.
  * @typedef {Omit<ReadRoot, 'gallery' | 'private'> & {
- *   gallery(dir: string, gid: string): Promise<GalleryResult<GalleryDir>>,
+ *   gallery(dir: string, gid: string, view?: { known: string | null, over?: string | null } | null): Promise<GalleryResult<GalleryDir>>,
  *   reserve(nameHint: string, gid: string): Promise<GalleryDir>,
  *   private: PrivateArea,
  * }} WriteRoot */

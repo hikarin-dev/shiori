@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS roots (
 );
 CREATE TABLE IF NOT EXISTS places (gid TEXT PRIMARY KEY, root TEXT NOT NULL) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS places_root ON places (root);
-CREATE TABLE IF NOT EXISTS removed_notes (gid TEXT PRIMARY KEY, root TEXT NOT NULL, overlay TEXT NOT NULL, source TEXT NOT NULL) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS removed_notes (gid TEXT PRIMARY KEY, root TEXT NOT NULL, overlay TEXT NOT NULL, source TEXT NOT NULL, stamp TEXT, epoch INTEGER) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS attention (root TEXT NOT NULL, reason TEXT NOT NULL, path TEXT NOT NULL, gid TEXT, event INTEGER NOT NULL DEFAULT 0,
   at REAL NOT NULL, PRIMARY KEY (root, reason, path)) WITHOUT ROWID;
 `;
@@ -91,6 +91,10 @@ export class Folders {
   async open() {
     const lib = this.library;
     lib._db.exec(SCHEMA);
+    // An index made before S31: its removal notes' token and claim's counter (none — a note made then is
+    // weighed as one made before S29a: removedIn).
+    const noted = new Set(lib._db.prepare('PRAGMA table_info(removed_notes)').all().map(c => c.name));
+    for (const [name, type] of [['stamp', 'TEXT'], ['epoch', 'INTEGER']]) if (!noted.has(name)) lib._db.exec(`ALTER TABLE removed_notes ADD COLUMN ${name} ${type}`);
     lib._tx(() => this._migrateIn());
     lib._db.exec(UNMOUNTED);
     lib._stmts.clear();
@@ -891,9 +895,13 @@ export class Folders {
   // the library's own): its source `source` is noted as removed (`removed_notes`), so a check of the
   // folder never adds it again — published to removed.json once that commits (publishRemoved), and
   // till then counted as removed by every check (removedWaiting). `overlay`: its overlay's path,
-  // deleted once the note is there.
-  removedIn(root, gid, overlay, source) {
-    this.library._s('INSERT OR REPLACE INTO removed_notes (gid, root, overlay, source) VALUES (?, ?, ?, ?)').run(String(gid), root, overlay, JSON.stringify(source));
+  // deleted once the note is there. `stamp`: the token the gallery was last published or read at there;
+  // with the claim's counter the folder is held at now (`epoch`), what the overlay's deletion is weighed by
+  // (files.js hold, S29a's rule 3).
+  removedIn(root, gid, overlay, source, stamp = null) {
+    const epoch = this.library._s('SELECT epoch FROM roots WHERE id = ?').get(root)?.epoch ?? null;
+    this.library._s('INSERT OR REPLACE INTO removed_notes (gid, root, overlay, source, stamp, epoch) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(String(gid), root, overlay, JSON.stringify(source), stamp, epoch);
   }
   // Whether archive `rel` of folder `root` is one its removed.json notes as removed, as a check weighs it
   // (linked.js archiveRemoved): an archive a deletion, or the other app's unpack (D17), left whole for the
@@ -942,8 +950,16 @@ export class Folders {
   }
   async _publishRemoved(root, work) {
     const lib = this.library;
-    const notes = lib._s('SELECT gid, overlay, source FROM removed_notes WHERE root = ?').all(root);
-    if (!notes.length) return true;
+    // A linked gallery's deletion made before another app took the folder over, which published its overlay
+    // there since, is dropped (files.js hold, S29a's rule 3): its source isn't noted removed, its overlay
+    // stays, and the gallery joins again as the folder has it — reported once. One moved out (still in the
+    // library) is noted whatever: its overlay is weighed as it goes (files.js _removeOwn).
+    const notes = [];
+    for (const n of lib._s('SELECT gid, overlay, source, stamp, epoch FROM removed_notes WHERE root = ?').all(root)) {
+      const forget = () => lib._s('DELETE FROM removed_notes WHERE gid = ? AND source = ?').run(n.gid, n.source);
+      if (lib.files._row(n.gid) || (await lib.files.hold(n.gid, { rel: n.overlay, known: n.stamp, deletion: { epoch: n.epoch, forget } })).kind !== 'dropped') notes.push(n);
+    }
+    if (!notes.length) return !lib._s('SELECT 1 FROM removed_notes WHERE root = ? LIMIT 1').get(root);
     try {
       const sources = [];
       for (const n of notes) {
@@ -956,7 +972,7 @@ export class Folders {
       return false;
     }
     lib._tx(() => { for (const n of notes) lib._s('DELETE FROM removed_notes WHERE gid = ? AND source = ?').run(n.gid, n.source); });
-    for (const n of notes) await lib.files._removeOwn(n.overlay, n.gid, work);
+    for (const n of notes) await lib.files._removeOwn(n.overlay, n.gid, work, n);
     return !lib._s('SELECT 1 FROM removed_notes WHERE root = ? LIMIT 1').get(root);
   }
 }

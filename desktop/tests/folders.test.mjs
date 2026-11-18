@@ -505,9 +505,11 @@ test('a check of a folder reads again the galleries another app changed there â€
     await second.pagePut(gid, 3, png(3, 9));
     await second.files.settle(gid);
     await second.files.describe(gid, { all: true });
-    // Taken back here: a check reads it again as the folder has it now.
+    // Taken back here: the take-back's settle holds the gallery's place and reads it again as the folder has
+    // it now (files.js hold, S31) â€” a check after it finds nothing more to read.
     await library.folderClaim(id);
-    assert.deepEqual(await library.folderScan(id), { added: 0, updated: 1, problems: [], stopped: false });
+    await library.files.flush();
+    assert.deepEqual(await library.folderScan(id), { added: 0, updated: 0, problems: [], stopped: false });
     const back = await library.getGallery(gid);
     assert.equal(back.title.english, 'Shared, Renamed');
     assert.equal(back.count, 3);

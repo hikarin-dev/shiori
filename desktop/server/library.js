@@ -39,7 +39,7 @@ import { FileLibrary, libraryId, sourceToken } from './files.js';
 import { Folders } from './folders.js';
 import { WriteMeter } from './writes.js';
 import * as linked from './linked.js';
-import { dropWaiting, followUnpacked } from './scan.js';
+import { folderStands, followUnpacked } from './scan.js';
 
 const { planAttach, planRemove, planReorder, planChapterTitle, planWrite, planDelete, planDeleteSeries, planRelink } = plans;
 const { isSeriesMeta, effectiveTagsOf, LANG_NAME_TO_CODE, uploadDateSeconds } = model;
@@ -825,16 +825,18 @@ export class Library {
   // Refused (BackendError 'unavailable', reason 'not-owned', `folder` its id, as a deletion is refused
   // there): a change to what gallery `gid`'s folder holds, while the library knows another app holds that
   // folder (folders.js heldElsewhere: the last claim it read names another app — read again first when
-  // that read is older than its time to live) and the folder holds the gallery as published (its stamp:
-  // gallery-manifest.js published) — one app changes a folder's galleries at a time
-  // (folder-lifecycle.js changeRefusal; the website's _logIn alike). Asked only of a change that would be
-  // weighed (no file call for the folder's own work, nor for a gallery never published). A gallery only
-  // this library has (made meanwhile, never published there) keeps working: what it gets waits, staged,
-  // as for a folder out of reach. Reading it, and the person's own marks, are no change of its folder.
+  // that read is older than its time to live) and the gallery is the folder's — it has a place there (its
+  // folder or archive: a `files` row), not a reservation no publication made whole, whatever stamp this
+  // library keeps of it (gallery-manifest.js inFolder: one carried over from an index before stamps has
+  // none, S31) — one app changes a folder's galleries at a time (folder-lifecycle.js changeRefusal; the
+  // website's _logIn alike). Asked only of a change that would be weighed (no file call for the folder's own
+  // work, nor for a gallery with no place there). A gallery only this library has (made meanwhile, never
+  // placed there) keeps working: what it gets waits, staged, as for a folder out of reach. Reading it, and
+  // the person's own marks, are no change of its folder.
   _heldCheck(gid) {
     const root = this._s('SELECT root FROM places WHERE gid = ?').get(String(gid))?.root;
     if (!root) return;
-    const held = format.published(this._s('SELECT stamp FROM stamps WHERE gid = ?').get(String(gid))?.stamp);
+    const held = format.inFolder(!!this.files._row(gid), this._s('SELECT stamp FROM stamps WHERE gid = ?').get(String(gid))?.stamp);
     const work = root === this._folderWork.getStore();
     const why = lifecycle.changeRefusal({ state: 'shown', work, change: true, taken: held && !work && this.folders.heldElsewhere(root), held });
     if (why) throw Object.assign(new BackendError('unavailable', `gallery ${gid} is in a library folder another app is using`), { reason: why, folder: root });
@@ -856,9 +858,10 @@ export class Library {
     }
   }
 
-  // Gallery `gid`'s changes waiting here dropped for the generation another app published in its folder
-  // since (scan.js dropWaiting: the folder's version stands). Resolves whether they were.
-  _dropWaiting(gid) { return dropWaiting(this, gid); }
+  // The folder's version of gallery `gid` stands, its place holding a publication this library hasn't read
+  // (scan.js folderStands: what waited here dropped, reported — else the gallery read again). Resolves
+  // whether that was done.
+  _folderStands(gid) { return folderStands(this, gid); }
   // Archived gallery `gid` followed to the folder at `rel` beside its archive, naming it at a later
   // generation (scan.js followUnpacked: an unpack cut short, review 7 B6). Resolves whether it was.
   _followUnpacked(gid, rel) { return followUnpacked(this, gid, rel); }
@@ -1356,7 +1359,7 @@ export class Library {
   // which describes it as it is: its cover, the first page, gives the folder nothing to publish — as the
   // website's adoption marks nothing (db.js rebuildGalleryEntry `mark`). Else a check publishing every
   // gallery it read would make a generation of this app's of each, over which the other app's changes
-  // waiting for that folder would be dropped (gallery-manifest.js othersSince).
+  // waiting for that folder would be dropped (gallery-manifest.js whoseVersion).
   async rebuildGalleryEntry(galleryId, opts = {}) {
     const gid = String(galleryId);
     const silent = !!opts.silent;

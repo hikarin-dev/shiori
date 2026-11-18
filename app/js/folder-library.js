@@ -31,7 +31,7 @@ import { LINKED_DIR, SOURCE_FILE, REMOVED_FILE, IMAGE_NAME, ARCHIVE_NAME, overla
   folderPrint, folderContent, crcHex, metaFromName, planTitles, zipTitles, sortPictures, linkedPages, keepsDerived, sameSource, sameProvenance,
   pdfReady, pdfWaits, matchSources, PDF_HEAD, pdfPrint, drawnFrom, isDrawing } from './storage/linked-source.js';
 import { DESCRIPTION_FILES, descriptionStamp, layoutPath, extOfType, describedFiles, derivedRecord } from './storage/gallery-files.js';
-import { PICTURE_DIRS, readGallery, parseManifest, tokenOf, namedPictures, othersSince, supersedes } from './storage/gallery-manifest.js';
+import { PICTURE_DIRS, readGallery, parseManifest, tokenOf, namedPictures, supersedes } from './storage/gallery-manifest.js';
 import { withoutPersonal } from './storage/personal.js';
 import { sha256Hex } from './zip-read.js';
 import { uploadDateSeconds } from './gallery-model.js';
@@ -45,7 +45,7 @@ export function createFolderLibrary(kernel) {
   K = kernel;
   return { foldersList, foldersWaiting, folderAdd, folderClaim, folderSetDefault, folderAllow, folderHide, folderShow,
     folderRemove, folderSetAside, foldersPending, folderScan, folderDismiss, pdfsWaiting, pdfSource, addRendered, pdfFailed, leftBehind, fingerprintNow,
-    dropWaiting, followUnpacked };
+    folderStands, followUnpacked };
 }
 
 // An item of folder `id`'s Needs attention list ({ reason, path }) put away: a check that finds it
@@ -465,9 +465,9 @@ async function _writtenBack(id, g) {
   if (!g.dir) {
     await K.writing(gid, async (w) => {
       const root = await K.rootOf(id, { work });
-      const dir = root && await K.reserveDir(gid, id, root, null, w);
-      if (dir) await K.patchStat(gid, (cur) => (cur.dir ? null : { ...cur, dir }));
-      w.committed = !!dir;
+      const place = root && await K.reserveDir(gid, id, root, null, w);
+      if (place) await K.patchStat(gid, (cur) => (cur.dir ? null : { ...cur, dir: place.dir, stamp: place.token }));
+      w.committed = !!place;
     }).catch(() => {});
   }
   K.cancelDescribe(gid);
@@ -909,19 +909,19 @@ async function _joinedHere(run, gid) {
 }
 // Gallery `was` (its stat record) followed to `found`, a place of folder `run.id` naming it (`read`, what was
 // read there just now): its record taken there, whatever waits of it (K.follow: what waits then goes
-// there, review 7 B5), then read again there unless something of it waits — published there in due
-// course — or, where another app published the gallery there since, read again with what waited dropped
-// (_storeAdopted `drop`: one app changes a folder's galleries at a time). `leave`: the archive it leaves,
-// still there, deleted as this app's unpack deletes it; `locked`: the gallery's lock is the caller's.
-// Resolves whether it was followed.
+// there, review 7 B5), then read again there — or, something of it waiting, its place held there (K.hold):
+// where another app published the gallery there since, the folder's version stands, what waited dropped
+// (one app changes a folder's galleries at a time); else what waits is published there in due course.
+// `leave`: the archive it leaves, still there, deleted as this app's unpack deletes it; `locked`: the
+// gallery's lock is the caller's. Resolves whether it was followed.
 async function _followTo(run, found, was, read, { leave = false, locked = false } = {}) {
   if (galleryIdOf(read.texts['metadata.json']) !== found.id) return false;   // described as another gallery now
   const here = { folder: run.id, dir: found.path, inner: found.kind === 'zip' ? found.inner || '' : null };
   if (!(await K.follow(found.id, _keptAt(was), here, read.ref, { leave, locked }))) return false;   // its record changed meanwhile
   run.updated.add(found.id);
   run.followed = true;
-  const waits = !!was.spilled || run.marked.has(found.id);
-  await _adopt(run, found, { replace: found.id, read, drop: waits && othersSince(read.token, was.stamp, await K.me()) });
+  if (!!was.spilled || run.marked.has(found.id)) await K.hold(found.id);
+  else await _adopt(run, found, { replace: found.id, read });
   return true;
 }
 // Gallery `stat`, kept in an archive in its folder (`packed`), about to be unpacked (db.js _relocateOnce,
@@ -1068,9 +1068,9 @@ function _droppedFor(read, at) {
 // keeps, read again — its records as they were going first (its files staying), and only while
 // nothing of it waits to be written to its folder, as that transaction finds it (its mark of changes
 // not written there, pictures held back in this browser), which is published there in due course —
-// unless `drop`: the folder holds a generation another app published since this library last published
-// or read the gallery (gallery-manifest.js othersSince; one app changes a folder's galleries at a time),
-// so the folder's version stands. Then what waited goes in the same transaction — its mark, its
+// unless `drop`: the folder holds a publication this library hasn't read, another app's (folderStands,
+// db.js _hold; one app changes a folder's galleries at a time), so the folder's version stands. Then
+// what waited goes in the same transaction — its mark, its
 // pictures in this browser — and the files of its own its records named in its folder that the folder's
 // records don't (written here, never published) retire, deleted by its next publication while each is
 // as written (db.js _retireIn); the case is reported once ('changed-both', noted in that transaction:
@@ -1122,11 +1122,13 @@ async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, s
   });
   if (!stored) return null;
   if (replace) platform.control.send({ type: 'COVER_INVALIDATED', galleryId: gid });
-  await K.rebuildGalleryEntry(gid, { silent: true, mark: false });
+  const work = { kind: 'adopt', folder };   // what it was read from: that folder's own work, as its records' transaction
+  await K.rebuildGalleryEntry(gid, { silent: true, mark: false, work });
   // A cover of its own, where its folder keeps one (rebuilding pointed the cover at the first page).
   if (Object.keys(ownCover).length) {
     await new Promise((resolve, reject) => {
       const tx = K.tx(db, [S.COVER, S.BLOB], 'readwrite');
+      tx._work = work;
       K.putCoverPatch(tx, gid, ownCover, { mark: false });
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(K.txError(tx));
@@ -1147,15 +1149,14 @@ async function _leftHere(gid, folder, dir, pages, ownCover, drop) {
   return Object.entries(mine.next.sizes).filter(([path]) => !named.has(path)).map(([path, [size, mtime]]) => ({ path, size, mtime: mtime || null }));
 }
 
-// Gallery `stat`, kept in the folder, read again when what it was published at there changed since this
-// library last published or read it (D4: another app published a generation of it). With changes of its
-// own waiting to be published there, the folder's version stands where another app published it since
-// (gallery-manifest.js othersSince: one app changes a folder's galleries at a time) — what waited here is
-// dropped and the case reported once (_storeAdopted `drop`) — and a gallery this library never stamped,
-// or whose newer generation is its own, keeps them, to be published (a hint here, checked again as it is
-// stored). A v1 folder stamped before stamps existed counts as changed only when its descriptions differ
-// from this library's. Its folder must name it (principle 2): one put at its place by hand is reported
-// ('conflict') and never read as it. Resolves whether its folder is its own now.
+// Gallery `stat`, kept in the folder, read again when its place holds another publication than the one this
+// library last published or read there (D4; a token names one publication: gallery-manifest.js tokenOf).
+// With changes of its own waiting to be published there, its place is held instead (K.hold, db.js _hold):
+// where that publication is another app's, or this library has no stamp of it, the folder's version stands —
+// what waited here dropped, the case reported once — and where it is this app's own, what waits is published
+// over it, in due course. A v1 folder stamped before stamps existed counts as changed only when its
+// descriptions differ from this library's. Its folder must name it (principle 2): one put at its place by hand
+// is reported ('conflict') and never read as it. Resolves whether its folder is its own now.
 async function _catchUp(run, stat) {
   const gid = String(stat.galleryId);
   if (run.updated.has(gid)) return false;   // followed or read again by this check: `stat` is its place before
@@ -1174,28 +1175,34 @@ async function _catchUp(run, stat) {
     const mine = await K.wantedDescriptions(gid);
     if (mine && descriptionStamp(K.textsOf(mine.wanted)) === at.token) { await K.patchStat(gid, (cur) => ({ ...cur, stamp: at.token })); return true; }
   }
-  const waits = !!stat.spilled || run.marked.has(gid);
-  const drop = waits && othersSince(at.token, stat.stamp, await K.me());
-  if (waits && !drop) return true;
+  if (!!stat.spilled || run.marked.has(gid)) {
+    const held = await K.hold(gid);
+    if (held.kind === 'unreadable' || held.damaged) run.problems.push({ path: stat.dir, reason: held.damaged ?? 'unreadable' });
+    if ((await K.galleryGet(gid))?.stamp !== stat.stamp) run.updated.add(gid);
+    return true;
+  }
   try {
-    const again = stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, drop }) : await _adopt(run, where, { replace: gid, drop, manifest: !at.texts });
+    const again = stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid }) : await _adopt(run, where, { replace: gid, manifest: !at.texts });
     if (again) run.updated.add(gid);
   } catch (e) { run.problems.push({ path: stat.dir, reason: _failure(e) }); }
   return true;
 }
 
-// Gallery `gid`'s changes waiting in this library dropped for the generation another app published in its
-// folder since this library last published or read it there — found as they were about to be published
-// (db.js _describe, settleFolders): the folder's version stands (_storeAdopted `drop`), read again where
-// it lies. Resolves whether it was; rejects, nothing changed, when its folder can't be read whole now
-// (its mark stays: weighed again at the next publication or check).
-async function dropWaiting(gid) {
+// The folder's version of gallery `gid` stands: its place holds a publication this library hasn't read —
+// another app's, or one where it keeps no stamp (db.js _hold, gallery-manifest.js whoseVersion) — and one app
+// changes a folder's galleries at a time, so the gallery is read again where it lies, and what waited here for
+// it (its mark, its pictures in this browser) goes in the same transaction, reported once (_storeAdopted
+// `drop`); with nothing of it waiting it is only read again, nothing reported. Resolves whether that was
+// done; rejects, nothing changed, when its place can't be read whole now (weighed again at the next
+// publication or check) — `reason` 'corrupt' or 'missing-file' where that publication is damaged.
+async function folderStands(gid) {
   const stat = await K.galleryGet(gid);
-  const root = stat?.folder && stat.dir ? await K.rootOf(stat.folder) : null;
+  const root = stat?.folder && stat.dir ? await K.readRootOf(stat.folder) : null;   // read where it lies (its own work's write, the adoption, is the library's)
   if (!root) return false;
   const run = { id: stat.folder, root, name: (await K.folderById(stat.folder))?.name || '', stopped: () => false, known: new Set(), added: [], updated: new Set(), problems: [] };
   const where = stat.packed ? { kind: 'zip', path: stat.dir, inner: stat.packed.inner || '', id: gid } : { kind: 'dir', path: stat.dir, id: gid };
-  return !!(stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, drop: true }) : await _adopt(run, where, { replace: gid, drop: true }));
+  const drop = !!stat.spilled || (await K.marked()).has(String(gid));
+  return !!(stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, drop }) : await _adopt(run, where, { replace: gid, drop, manifest: true }));
 }
 // What a gallery's place (`where`: _readFormat's) was last published at, and the gallery it names:
 // { token, id, texts } — by its manifest (gallery-manifest.js tokenOf; `texts` null), else, format v1,

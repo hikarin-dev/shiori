@@ -37,6 +37,35 @@ test('library.js calls node:fs only for its data folder', () => {
   assert.deepEqual(offenders, [], 'these may touch a library folder: go through folder-store.js `disk`');
 });
 
+// The function each line of `src`'s code is in — a top-level function (or `const name =`), or a class's method
+// (two spaces in): [line, its name].
+function linesByFunction(src) {
+  let at = null;
+  return code(src).split('\n').map((line) => {
+    const m = /^(?:export\s+)?(?:async\s+)?function\s*\*?\s*([\w$]+)|^(?:export\s+)?const\s+([\w$]+)\s*=|^ {2}(?:async |static )?(?!(?:if|for|while|switch|catch|return)\b)([A-Za-z_$][\w$]*)\s*\(.*\)\s*\{\s*$/.exec(line);
+    if (m) at = m[1] ?? m[2] ?? m[3];
+    return [line, at];
+  });
+}
+
+test('S31: whose version a gallery\'s place holds is weighed in one place — the adapter\'s placeIn, reached through the library\'s gateway alone', () => {
+  // Review 8: S29a's rule (the folder's version stands) sat in the callers that publish and settle, keyed on a stamp
+  // that could be missing or name two publications, and a regroup, an archiving or a move never asked. The rule is
+  // one function of the shared core (app/js/storage/gallery-manifest.js whoseVersion), weighed in one place of the
+  // adapter (folder-store.js placeIn: a gallery's place held, as it is now), which the library reaches through one
+  // gateway (files.js hold) every operation writing into, moving, unpacking, archiving into or deleting at a
+  // gallery's place passes first (app/tests/folder-stale-view.test.mjs runs each). So whoseVersion is called in
+  // placeIn alone, placeIn by the adapter's own contract (folderStore: Root.gallery with a view, reserve) and hold
+  // alone, and none of the per-path checks of before is left. A check's catch-up compares a place's token with the
+  // stamp for equality alone (rule 1), weighing nothing of whose it is; with something waiting it holds the place.
+  const files = readdirSync(server).filter((f) => f.endsWith('.js'));
+  const calls = (re) => files.flatMap((f) => linesByFunction(read(f)).filter(([line]) => re.test(line)).map(([, fn]) => `${f} ${fn}`));
+  assert.deepEqual([...new Set(calls(/\bwhoseVersion\s*\(/))], ['folder-store.js placeIn'], 'the rule weighed in the adapter\'s placeIn alone');
+  assert.deepEqual([...new Set(calls(/(?<!function\s+)\bplaceIn\s*\(/))].sort(), ['files.js hold', 'folder-store.js folderStore'], 'a place held through the library\'s gateway, and the adapter\'s contract, alone');
+  assert.deepEqual(calls(/\b(?:othersSince|_othersThere|_othersIn|_dropOrOver|dropWaiting|_dropWaiting)\b|\b_others\s*\(/), [], 'no per-path check of another app\'s generation left');
+  assert.deepEqual(calls(/\bwriterOf\s*\(/), [], 'whose a token is told by the rule alone');
+});
+
 test('no code outside the folder store adapter turns a failed read of a library folder into "nothing there"', () => {
   // Review 6: where a folder is read to tell what the library records, an answer of "not found" is
   // 'missing' only as the shared rule takes it (folder-store.js notFound, and the reads made under it:

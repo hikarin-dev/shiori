@@ -9,7 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { STATES, mounted, canHide, canShow, canSetDefault, canMoveTo, nextDefault, writeAllowed, JOBS, jobPlan, removalOutcome,
   UNFOUND_LOOKS, leavesOpen, unfoundEnd, changeRefusal } from '../js/storage/folder-lifecycle.js';
-import { published, othersSince, writerOf } from '../js/storage/gallery-manifest.js';
+import { published, inFolder, whoseVersion, writerOf, generationOf, tokenOf } from '../js/storage/gallery-manifest.js';
 
 test('S29a: one app changes a folder\'s galleries at a time — the commit gate refuses a change reaching a gallery the folder holds while another app holds it, never the person\'s marks nor one only this app has', () => {
   const at = (o) => changeRefusal({ state: 'shown', change: true, taken: true, held: true, ...o });
@@ -20,15 +20,31 @@ test('S29a: one app changes a folder\'s galleries at a time — the commit gate 
   assert.equal(at({ work: true }), null, 'the folder\'s own work');
   assert.deepEqual(['hidden', 'removing', null].map(state => changeRefusal({ state })), ['hidden', 'hidden', 'hidden'], 'out of the library: hidden, as before');
   assert.equal(changeRefusal({ state: 'hidden', work: true }), null);
-  // What says the folder holds a gallery as published, and what is another app's generation since.
+  // What says the folder holds a gallery as published.
   assert.deepEqual([null, 'v2:0:me', 'v2:1:me', 'v2:7:them', 'stamp-of-a-v1-folder'].map(published), [false, false, true, true, true]);
   assert.deepEqual(['v2:3:a1b2', 'v2:0:x', 'v1stamp', null].map(writerOf), ['a1b2', 'x', null, null]);
-  assert.equal(othersSince('v2:3:them', 'v2:2:me', 'me'), true, 'another app published since');
-  assert.equal(othersSince('v2:3:me', 'v2:2:me', 'me'), false, 'this app\'s own generation (its stamp not kept, say) is never another\'s');
-  assert.equal(othersSince('v2:2:me', 'v2:2:me', 'me'), false, 'the one known');
-  assert.equal(othersSince('v2:3:them', null, 'me'), false, 'a gallery this library never published or read there: not weighed');
-  assert.equal(othersSince(null, 'v2:2:me', 'me'), false, 'a folder holding none');
-  assert.equal(othersSince('v1stamp-b', 'v1stamp-a', 'me'), false, 'an earlier version\'s descriptions tell no writer: what waits is kept, as before');
+});
+
+test('S31: a token names one publication, and a gallery\'s place is held against this library\'s view of it — the rule, stated once (gallery-manifest.js whoseVersion), the gate\'s "in the folder" by its place', () => {
+  // A publication's own id travels in its token; a manifest written before S31, with none, keeps the token it had.
+  const m = { format: 'shiori-gallery', version: 2, galleryId: '1', generation: 2, writer: 'me', files: { pages: {}, covers: {} }, sizes: {}, descriptions: {} };
+  assert.equal(tokenOf(m), 'v2:2:me', 'no id: the token of before');
+  assert.equal(tokenOf({ ...m, publication: '0a1b2c3d4e5f6071' }), 'v2:2.0a1b2c3d4e5f6071:me');
+  assert.notEqual(tokenOf({ ...m, publication: '0a1b2c3d4e5f6071' }), tokenOf({ ...m, publication: '1b2c3d4e5f607182' }), 'the same number and writer, another publication');
+  assert.deepEqual(['v2:3.ab12cd34:them', 'v2:3:them'].map(t => [generationOf(t), writerOf(t)]), [[3, 'them'], [3, 'them']]);
+  const t = (n, w, id = 'ab12cd34') => `v2:${n}.${id}:${w}`;
+  assert.equal(whoseVersion(t(2, 'me'), t(2, 'me'), 'me'), 'ours', 'the very publication this library knows');
+  assert.equal(whoseVersion(t(3, 'them'), t(2, 'me'), 'me'), 'theirs', 'another app published since');
+  assert.equal(whoseVersion(t(2, 'them', 'ffff0000'), t(2, 'them'), 'me'), 'theirs', 'the same number by the same app, another publication (a folder put back from an older copy)');
+  assert.equal(whoseVersion(t(3, 'them'), null, 'me'), 'theirs', 'any manifest where this library has no stamp (R8-1: an index from before stamps)');
+  assert.equal(whoseVersion(t(3, 'me'), t(2, 'me'), 'me'), 'ours', 'a later one of this app\'s own (published, its stamp not kept: a kill between)');
+  assert.equal(whoseVersion(t(1, 'me'), t(2, 'me'), 'me'), 'theirs', 'an earlier one of this app\'s own: a folder put back from an older copy, not the view here');
+  assert.equal(whoseVersion(null, t(2, 'me'), 'me'), 'ours', 'no manifest there');
+  assert.equal(whoseVersion('v1stamp-b', 'v1stamp-a', 'me'), 'ours', 'an earlier version\'s descriptions tell no writer: what waits is published over them, as before');
+  assert.equal(whoseVersion('v2:4:them', 'v2:4:them', 'me'), 'ours', 'a manifest from before S31, the token as it was kept');
+  // The read-only gate's "in the folder": a place there, not a reservation no publication made whole — a stamp or none.
+  assert.deepEqual([[true, null], [true, 'v2:1:me'], [true, 'v1stamp'], [true, 'v2:0.ab12cd34:me'], [false, 'v2:3:me'], [false, null]].map(([placed, known]) => inFolder(placed, known)),
+    [true, true, true, false, false, false]);
 });
 
 const place = (over = {}) => ({ state: 'shown', isDefault: false, owned: true, reachable: true, ...over });

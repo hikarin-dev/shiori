@@ -31,7 +31,7 @@ import { refused, MISSING, unreadable, surelyMissing } from './contract.js';
 import { MANIFEST_FILE, OWN_FILES, LIBRARY_FILE, SWAP_FILE, galleryAt, libraryIdOf } from './folder-content.js';
 import { refusalFor } from './folder-lifecycle.js';
 import { SOURCE_FILE, parseSource } from './linked-source.js';
-import { PICTURE_DIRS, isPictureName, areaOf, manifestPath, storedDir, storedHash, parseManifest, publication, firstGeneration, tokenOf, generationOf, othersSince, sizesOf,
+import { PICTURE_DIRS, isPictureName, areaOf, manifestPath, storedDir, storedHash, parseManifest, publication, firstGeneration, tokenOf, whoseVersion, sizesOf,
   matches, unchanged, readGallery, galleryDeletion, isOwnDescription } from './gallery-manifest.js';
 
 /** @typedef {import('./contract.js').ReadResult<Uint8Array>} ReadBytes */
@@ -319,9 +319,10 @@ export function withLock(name, fn) {
  * failed writes left it }), for the caller to keep recorded as a deletion (review 6 F9 b). The only way
  * a folder becomes a gallery's (contract.js reserve; principle 2). `taken`: names passed over though
  * nothing may be there (a deletion still waits on them: a new folder there would be taken for the one it
- * deletes). Resolves its name.
+ * deletes). Resolves its place, held from its first moment as placeIn holds one (`dir` its name, `token`
+ * the reservation's publication).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} base @param {string} metadata
- * @param {{ gid: string, writer: string, taken?: Set<string> }} gallery @returns {Promise<string>} */
+ * @param {{ gid: string, writer: string, taken?: Set<string> }} gallery @returns {Promise<Place>} */
 export function reserveDir(id, root, base, metadata, { gid, writer, taken = new Set() }) {
   return withLock(`shiori:dirs:${id}`, async () => {
     let name = base;
@@ -345,7 +346,7 @@ export function reserveDir(id, root, base, metadata, { gid, writer, taken = new 
       if (!(await _prune(id, root, name))) throw Object.assign(/** @type {object} */ (e), { left: { dir: name, files } });
       throw e;
     }
-    return name;
+    return { id, root, dir: name, gid: String(gid), token: tokenOf(plan.manifest), manifest: plan.manifest, archive: false };
   });
 }
 
@@ -397,13 +398,15 @@ export async function manifestIn(id, root, dir, gid = null) {
 
 /** Whose gallery folder `dir` is now (principle 2: folder-content.js galleryAt — its manifest, else its
  * metadata.json, else an earlier version's shiori.json; a linked gallery's overlay, its source.json):
- * { kind: 'ok' } when it names gallery `gid`; MISSING when nothing is there; { kind: 'conflict', found }
- * when something is that names another gallery (`found`), or none (null); unreadable when what it holds
- * can't be read (nothing is concluded from it). Nothing there, and a description not there, are told as
- * the shared rule takes them (_notFound, readText). What a change to an existing gallery folder needs
- * first: nothing else makes a folder a gallery's but its reservation (reserveDir).
+ * { kind: 'ok', manifest } when it names gallery `gid` (`manifest`: the text of the manifest that named it,
+ * when one did — a linked gallery's overlay is named by its source.json: null); MISSING when
+ * nothing is there; { kind: 'conflict', found } when something is that names another gallery (`found`), or
+ * none (null); unreadable when what it holds can't be read (nothing is concluded from it). Nothing there,
+ * and a description not there, are told as the shared rule takes them (_notFound, readText). What a change
+ * to an existing gallery folder needs first: nothing else makes a folder a gallery's but its reservation
+ * (reserveDir).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @param {string} gid
- * @returns {Promise<import('./contract.js').GalleryResult<never> | { kind: 'ok' }>} */
+ * @returns {Promise<Whose>} */
 export async function galleryIn(id, root, dir, gid) {
   const [parent, base] = _split(dir);
   try { await (await _dir(id, root, parent, false)).getDirectoryHandle(base); } catch (e) {
@@ -412,18 +415,63 @@ export async function galleryIn(id, root, dir, gid) {
   }
   try {
     const own = await readText(id, root, _join(dir, MANIFEST_FILE));
-    if (galleryAt({ [MANIFEST_FILE]: own }, gid).kind === 'ok') return { kind: 'ok' };
+    if (galleryAt({ [MANIFEST_FILE]: own }, gid).kind === 'ok') return { kind: 'ok', manifest: own };
     const shown = _shown(await list(id, root, dir));
     /** @param {string} name */
     const text = async (name) => (shown(name) ? readText(id, root, _join(dir, name)) : null);
     /** @type {Record<string, string | null>} */
     const texts = { [MANIFEST_FILE]: own };
     for (const name of OWN_FILES.slice(1)) texts[name] = await text(name);
-    if (areaOf(dir) !== '') return galleryAt(texts, gid);
+    if (areaOf(dir) !== '') { const whose = galleryAt(texts, gid); return whose.kind === 'ok' ? { kind: 'ok', manifest: null } : whose; }
     const source = parseSource(await text(SOURCE_FILE) ?? '')?.galleryId ?? null;
-    return galleryAt(texts, gid, { source });
+    const whose = galleryAt(texts, gid, { source });
+    return whose.kind === 'ok' ? { kind: 'ok', manifest: null } : whose;
   } catch (e) { return unreadable(e); }
 }
+
+/** Gallery `gid`'s place held for a change there, as it is now: the one place the website weighs whose
+ * version a gallery's place holds, before anything is written into, moved out of, unpacked from or deleted at
+ * it (S31; the rule itself: gallery-manifest.js whoseVersion). The library asks it through db.js _hold alone
+ * (the contract's Root.gallery, below, for a publication through it). Its place: folder `dir` in the folder
+ * (`id`, its handle `root`) — its identity first (galleryIn, principle 2), then the manifest that named it, as
+ * that read it (a linked gallery's overlay's, `gallery.json`, read beside it) — or, `archive`, the archive at
+ * `dir` the gallery is read from in place, through the library's reader of it (`read()`: the text of the
+ * manifest entry of the gallery's folder in it, null for none; undefined: no archive there; rejects when it
+ * can't be read now). That publication is weighed against `known` (the token this library last published or
+ * read there; null for none) and `writer` (this app). { kind: 'ok', place } where the place holds this
+ * library's view (the same publication, one of this app's own, or no manifest); { kind: 'theirs', token, place }
+ * where another publication is there — the folder's version stands — but for the one `over` names (a version
+ * the library read and found damaged: no version to stand, T08 — published over). `place`: { id, root, dir,
+ * gid, token (the publication there; null for none — a manifest that doesn't parse is none), manifest
+ * (parsed), archive }. Else what galleryIn answers ('missing', 'conflict', 'unreadable').
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @param {string} gid
+ * @param {{ known?: string | null, over?: string | null, writer: string, archive?: { read(): Promise<string | null | undefined> } | null }} view
+ * @returns {Promise<{ kind: 'ok', place: Place } | { kind: 'theirs', token: string, place: Place } | Exclude<Whose, { kind: 'ok' }>>} */
+export async function placeIn(id, root, dir, gid, { known = null, over = null, writer, archive = null }) {
+  let text;
+  if (archive) {
+    try { text = await archive.read(); } catch (e) { return unreadable(e); }
+    if (text === undefined) return MISSING;
+  } else {
+    const whose = await galleryIn(id, root, dir, gid);
+    if (whose.kind !== 'ok') return whose;
+    try { text = areaOf(dir) === '' ? await readText(id, root, _join(dir, manifestPath(''))) : whose.manifest; } catch (e) { return unreadable(e); }
+  }
+  const read = text == null ? null : parseManifest(text, { galleryId: String(gid), archive: !!archive });
+  const manifest = read?.kind === 'ok' ? read.value : null;
+  const token = manifest ? tokenOf(manifest) : null;
+  /** @type {Place} */
+  const place = { id, root, dir, gid: String(gid), token, manifest, archive: !!archive };
+  return token != null && token !== over && whoseVersion(token, known, writer) === 'theirs'
+    ? { kind: 'theirs', token, place } : { kind: 'ok', place };
+}
+/** Whose a gallery's folder is (galleryIn).
+ * @typedef {{ kind: 'ok', manifest: string | null } | import('./contract.js').Missing | { kind: 'conflict', found: string | null } | import('./contract.js').Unreadable} Whose */
+/** A gallery's place held (placeIn, or the reservation that made it: reserveDir): where it is — folder `dir`
+ * of library folder `id` (its handle `root`), or the archive there it is read from (`archive`) — and the
+ * publication it held (`token`, `manifest`; null for none), which a publication there moves on.
+ * @typedef {{ id: string, root: FileSystemDirectoryHandle, dir: string, gid: string, token: string | null,
+ *   manifest: import('./contract.js').Manifest | null, archive: boolean }} Place */
 /** Whether a folder's listing (`items`) shows path `rel` in it: its first part, a folder when there is more.
  * @param {Listed[]} items @returns {(rel: string) => boolean} */
 const _shown = (items) => (rel) => {
@@ -431,31 +479,30 @@ const _shown = (items) => (rel) => {
   return items.some(e => e.name === top && e.kind === (rest.length ? 'directory' : 'file'));
 };
 
-/** Generation `next` (a manifest without its descriptions) published in gallery folder `dir` with its
- * descriptions `texts`: the descriptions the current manifest doesn't store written as new files named
- * by their content, then the manifest written whole (createWritable replaces the file only once it is
- * complete: the commit point), then, as a best effort, the stable-named copies brought up to date and
- * the stored descriptions neither generation names collected (gallery-manifest.js publication).
- * `known`: the token the library last published or read there (undefined: not weighed). Resolves {
- * manifest: the one published } — or, where the folder holds a generation another app published since
- * `known` (gallery-manifest.js othersSince: one app changes a folder's galleries at a time), { newer: the
- * token of that generation }: nothing is written, the folder's version stands, and what the library has
- * waiting for it is the caller's to drop. Rejects when the
- * folder no longer names the gallery (galleryIn: nothing is written, `reason` 'conflict' or
- * 'missing'), when the current manifest can't be read, or a write before the commit fails (the
- * previous generation stays whole).
- * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir
+/** Generation `next` (a manifest without its descriptions) published at gallery place `place` — held
+ * (placeIn, or the reservation that made it: reserveDir), `place.dir` its folder — with its descriptions
+ * `texts`: the descriptions the current manifest doesn't store written as new files named by their content,
+ * then the manifest written whole (createWritable replaces the file only once it is complete: the commit
+ * point), then, as a best effort, the stable-named copies brought up to date and the stored descriptions
+ * neither generation names collected (gallery-manifest.js publication). Whose version the place holds was
+ * weighed as it was held: here it is published only while it still holds that publication (`place.token`) —
+ * the manifest the folder's own look reads now (galleryIn) — and the place is held at the new one from then
+ * on. Resolves { manifest: the one published }. Rejects, nothing written, when the folder no longer names
+ * the gallery (galleryIn: `reason` 'conflict' or 'missing'), when it holds another publication than the one
+ * held (`reason` 'changed': tried again, its place held afresh), when its manifest can't be read now, or a
+ * write before the commit fails (the previous generation stays whole).
+ * @param {Place} place
  * @param {Omit<import('./contract.js').Manifest, 'descriptions'>} next @param {Record<string, string | null | undefined>} texts
- * @param {{ known?: string | null }} [options]
- * @returns {Promise<{ manifest: import('./contract.js').Manifest, newer?: undefined } | { newer: string, manifest?: undefined }>} */
-export async function publishIn(id, root, dir, next, texts, { known } = {}) {
+ * @returns {Promise<{ manifest: import('./contract.js').Manifest }>} */
+export async function publishIn(place, next, texts) {
+  const { id, root, dir } = place;
   const area = areaOf(dir);
   const whose = await galleryIn(id, root, dir, next.galleryId);
   if (whose.kind !== 'ok') throw Object.assign(new Error(`${dir} is not gallery ${next.galleryId}'s folder now`), { reason: whose.kind === 'missing' ? 'missing' : 'conflict' });
-  const now = await manifestIn(id, root, dir, next.galleryId);
-  if (now.kind === 'unreadable') throw new Error(`the manifest in ${dir} can't be read: ${now.error}`);
-  const prev = now.kind === 'ok' ? now.value : null;
-  if (prev && known !== undefined && othersSince(tokenOf(prev), known, next.writer)) return { newer: tokenOf(prev) };
+  const text = area === '' ? await readText(id, root, _join(dir, manifestPath(''))) : whose.manifest;
+  const now = text == null ? null : parseManifest(text, { galleryId: next.galleryId });
+  const prev = now?.kind === 'ok' ? now.value : null;
+  if ((prev ? tokenOf(prev) : null) !== place.token) throw Object.assign(new Error(`${dir} holds another publication than the one held`), { reason: 'changed' });
   const sizes = await sizesOf(next.files, new Map(Object.entries(next.sizes || {})), prev, async (f) => {
     const file = await _fileAt(id, root, _join(dir, f)).catch(() => null);
     return file ? [file.size, file.lastModified] : null;
@@ -479,6 +526,7 @@ export async function publishIn(id, root, dir, next, texts, { known } = {}) {
       if (had != null && await matches(at, had)) await removeFile(id, root, _join(dir, at));
     }
   } catch {}
+  Object.assign(place, { token: tokenOf(plan.manifest), manifest: plan.manifest });
   return { manifest: plan.manifest };
 }
 
@@ -674,10 +722,11 @@ async function _list(id, root, path) {
 function _root(id, root, purpose, writer) {
   // Gallery `gid`'s directory `name`, in format v2 (the functions above). Each change is made only while
   // the directory still names the gallery (galleryIn, principle 2) — one gone meanwhile, or put there
-  // since by hand, is refused. The website writes no temporary files of its own (createWritable
-  // writes a file whole), so there is nothing to sweep.
-  /** @param {string} name @param {string} gid @returns {GalleryDir} */
-  const galleryDir = (name, gid) => {
+  // since by hand, is refused — and a publication only at its place as held (`place`: placeIn's, or its
+  // reservation's; publishIn). The website writes no temporary files of its own (createWritable writes a
+  // file whole), so there is nothing to sweep.
+  /** @param {string} name @param {string} gid @param {Place | null} [place] @returns {GalleryDir} */
+  const galleryDir = (name, gid, place = null) => {
     const ours = async () => {
       const found = await galleryIn(id, root, name, gid);
       if (found.kind !== 'ok') throw Object.assign(new Error(`${name} is not gallery ${gid}'s folder now`), { reason: found.kind === 'missing' ? 'missing' : 'conflict' });
@@ -691,9 +740,10 @@ function _root(id, root, purpose, writer) {
         const { path, file } = await writeNew(id, root, name, `${slot}.${ext}`, new Blob([/** @type {BlobPart} */ (bytes)]));
         return { name: path, size: file.size, mtime: file.lastModified };
       },
-      async publish({ manifest, descriptions, known }) {
-        const done = await publishIn(id, root, name, manifest, descriptions, { known });
-        return done.newer ? { generation: generationOf(done.newer), newer: done.newer } : { generation: /** @type {import('./contract.js').Manifest} */ (done.manifest).generation };
+      async publish({ manifest, descriptions }) {
+        if (!place) throw Object.assign(new Error(`gallery ${gid}'s place isn't held: open it with this library's view of it (gallery(dir, gid, { known }))`), { reason: 'conflict' });
+        const { manifest: done } = await publishIn(place, manifest, descriptions);
+        return { generation: done.generation, token: tokenOf(done) };
       },
       async deleteNamed(files) { await ours(); return deleteNamedIn(id, root, name, files); },
       sweep: async () => ({ removed: [] }),
@@ -703,15 +753,25 @@ function _root(id, root, purpose, writer) {
     id, purpose,
     read: (rel) => _read(id, root, rel),
     list: (rel) => _list(id, root, rel),
-    // The directory, while it names the gallery (galleryIn).
-    async gallery(name, gid) {
-      const found = await galleryIn(id, root, name, String(gid));
-      return found.kind === 'ok' ? { kind: 'ok', dir: galleryDir(name, String(gid)) } : found;
+    // The directory, while it names the gallery (galleryIn) — or, with the library's view of it (`view`:
+    // { known: the token it last published or read there, or null; over: a damaged version it may publish
+    // over }), its place held (placeIn: 'ok', or 'theirs' with the token of the publication there).
+    async gallery(name, gid, view = null) {
+      if (!view) {
+        const found = await galleryIn(id, root, name, String(gid));
+        return found.kind === 'ok' ? { kind: 'ok', dir: galleryDir(name, String(gid)) } : found;
+      }
+      const at = await placeIn(id, root, name, String(gid), { ...view, writer });
+      if (at.kind === 'ok') return { kind: 'ok', dir: galleryDir(name, String(gid), at.place) };
+      if (at.kind === 'theirs') return { kind: 'theirs', token: at.token, dir: galleryDir(name, String(gid), at.place) };
+      return at;
     },
-    // A free directory named after the hint, bound to the gallery by its first generation (reserveDir).
+    // A free directory named after the hint, bound to the gallery by its first generation (reserveDir),
+    // held as its reservation made it.
     async reserve(hint, gid) {
       const metadata = JSON.stringify({ galleryId: String(gid), title: { english: hint, japanese: '', pretty: '' } });
-      return galleryDir(await reserveDir(id, root, hint, metadata, { gid: String(gid), writer }), String(gid));
+      const place = await reserveDir(id, root, hint, metadata, { gid: String(gid), writer });
+      return galleryDir(place.dir, String(gid), place);
     },
     // File System Access walks the folder one name at a time and never sees a link: a source is read
     // where it is named (the browser's own handling of links, plan §2).

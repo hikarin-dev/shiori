@@ -18,7 +18,7 @@ import * as api from './api.js';
 import { isValidGalleryId } from './sanitize.js';
 import { withMarks } from './storage/personal.js';
 import { makeArchive, openArchive, inspectArchive, restoreArchive, probeBackup, snapshotSettings, restoreSettings,
-  footer, mapLimit, sha256, localDate, BackupError } from './backup-core.js';
+  footer, mapLimit, sha256, localDate, refusedForNow, BackupError } from './backup-core.js';
 
 export { probeBackup, BackupError };
 
@@ -212,11 +212,15 @@ const _pagesOf = (inspection, written, skipped) => {
   return inspection.galleries.reduce((n, g) => n + (ids.has(g.gid) ? g.pages : 0), 0);
 };
 
+// A gallery the library refuses for now — its library folder in use by another app (backup-core.js
+// refusedForNow) — is passed over and listed with what couldn't be restored, as a full restore lists it.
 async function restoreMetadata({ entries }, { onProgress = () => {}, signal = null } = {}) {
   const written = [];
+  const problems = [];
   const owners = new Set();
+  let cancelled = false;
   for (let i = 0; i < entries.length; i++) {
-    if (signal?.aborted) break;
+    if (signal?.aborted) { cancelled = true; break; }
     const { favorite, ...meta } = entries[i];
     const gid = String(meta.galleryId);
     const nextMeta = { ...meta, galleryId: gid, fetchedAt: Date.now() };
@@ -226,7 +230,7 @@ async function restoreMetadata({ entries }, { onProgress = () => {}, signal = nu
     const existing = read.stat;
     // The favorite the backup has is the person's mark again; the rest of their marks stay.
     const marks = typeof favorite === 'boolean' ? { personal: withMarks(read.personal, { favorite }) } : {};
-    await api.transfer.write({ galleryId: gid, meta: nextMeta, ...marks, stat: {
+    const wrote = await api.transfer.write({ galleryId: gid, meta: nextMeta, ...marks, stat: {
       galleryId: gid,
       count:     existing?.count    || 0,
       size:      existing?.size     || 0,
@@ -237,16 +241,22 @@ async function restoreMetadata({ entries }, { onProgress = () => {}, signal = nu
       // Keep the stat record's series link in step with the metadata, so a chapter restored from a
       // metadata-only backup stays hidden from the top-level grid (which filters on stat.parentId).
       ...(nextMeta.parentId ? { parentId: String(nextMeta.parentId) } : {}),
-    } }, { silent: true });
-    if (nextMeta.parentId) owners.add(String(nextMeta.parentId));
-    if (Array.isArray(nextMeta.chapters) && nextMeta.chapters.length > 1) owners.add(gid);
-    written.push(gid);
+    } }, { silent: true }).then(() => true, (e) => {
+      if (!refusedForNow(e)) throw e;
+      problems.push({ gid, title: nextMeta.title ?? null, reason: 'not-owned', detail: String(e?.message || e) });
+      return false;
+    });
+    if (wrote) {
+      if (nextMeta.parentId) owners.add(String(nextMeta.parentId));
+      if (Array.isArray(nextMeta.chapters) && nextMeta.chapters.length > 1) owners.add(gid);
+      written.push(gid);
+    }
     if (i % 10 === 0 || i === entries.length - 1) onProgress({ done: i + 1, total: entries.length });
   }
   const seriesNotRefreshed = [];
   for (const ownerId of owners) await api.series.refreshTotals(ownerId).catch(() => seriesNotRefreshed.push(ownerId));
   for (const gid of written) api.events.announce(gid);
-  return { kind: 'metadata', written, problems: [], cancelled: written.length < entries.length, seriesNotRefreshed,
+  return { kind: 'metadata', written, problems, cancelled, seriesNotRefreshed,
     settings: { restored: 0, failed: [] }, counts: { galleries: written.length, images: 0 } };
 }
 

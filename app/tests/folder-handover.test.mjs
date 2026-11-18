@@ -569,6 +569,130 @@ const CASES = [
       }
     },
   },
+  {
+    // Review 8, R8-2 (8A2, 8B1): a library folder put back from an older copy. This app (`from`) publishes a
+    // gallery, the person copies the folder, `from` publishes again (page 1 replaced, page 3 added, a
+    // translation, a title); the other app (`to`) uses the folder anyway, reads that, lets it go. The older copy
+    // comes back; `from` reads it and changes the gallery again — a second publication of the same generation
+    // number by the same app. On 146199d its token was the one `to` already knew: `to`, taking the folder, never
+    // read it, and its next change published its older view over it — `from`'s title gone on both apps, the
+    // manifest naming page 3's picture and page 1's replacement, which the folder doesn't hold ('missing-file' at
+    // every check), and the gallery in neither app once the folder was added again. A token names one
+    // publication (S31: each carries an id of its own), so `to` reads it at its check, and its change is made
+    // on the folder's version.
+    name: 'R8-2: after a folder is put back from an older copy, this app\'s next publication there is read by the other app, whose change then goes on the folder\'s version — nothing lost, every named file there',
+    async run({ dir, from, to }) {
+      const F = path.join(dir, 'F');
+      const id = await from.add(F);
+      await from.setDefault(id);
+      const gid = await from.newGallery('Alpha');
+      for (let n = 1; n <= 2; n++) await from.putPage(gid, n, png(0, n));
+      await from.flush();
+      fs.cpSync(F, `${F}.copy`, { recursive: true, preserveTimestamps: true });   // the person's copy
+      await from.putPage(gid, 1, png(0, 11));
+      await from.putPage(gid, 3, png(0, 3));
+      await from.putTranslation(gid, 1, png(0, 71));
+      await from.setTitle(gid, 'Alpha two');
+      await from.flush();
+      const theirs = await to.add(F, { force: true });   // "Use anyway": it reads that generation
+      await to.scan(theirs);
+      assert.equal(await to.titleOf(gid), 'Alpha two', 'the other app read the second publication');
+      await to.setDefault(to.home);
+      assert.equal(await from.raw.folderClaim(id), 'granted', 'taken back');
+      await from.flush();
+      fs.renameSync(F, `${F}.newer`); fs.renameSync(`${F}.copy`, F);   // the older copy put back
+      await from.scan(id);
+      await from.putTranslation(gid, 2, png(0, 72));
+      await from.setTitle(gid, 'Alpha again');
+      await from.flush();
+      assert.equal(await to.raw.folderClaim(theirs), 'granted', 'the other app takes the folder');
+      // The website reads another app's work at a check once it isn't busy with the gallery (§8, S26a).
+      const caughtUp = async (lib, id, title) => {
+        for (let i = 0; i < 20; i++) {
+          assert.deepEqual((await lib.scan(id)).problems, [], 'its check reports nothing');
+          if (await lib.titleOf(gid) === title) return;
+          await new Promise(r => setTimeout(r, 500));
+        }
+      };
+      await caughtUp(to, theirs, 'Alpha again');
+      const reads = async (lib) => [await lib.titleOf(gid), await lib.read(gid, 1), await lib.read(gid, 2), await lib.read(gid, 3), await lib.read(gid, 2, 'translated')];
+      assert.deepEqual(await reads(to), ['Alpha again', png(0, 1), png(0, 2), null, png(0, 72)], 'it read this app\'s publication over the older copy');
+      await to.setTitle(gid, 'Alpha by the other app');
+      await to.flush();
+      assert.deepEqual(namedMissing(F), [], 'its publication names only files the folder holds');
+      await to.setDefault(to.home);
+      await to.remove(theirs);
+      assert.equal(await from.raw.folderClaim(id), 'granted', 'taken back again');
+      await from.flush();
+      await caughtUp(from, id, 'Alpha by the other app');
+      const want = ['Alpha by the other app', png(0, 1), png(0, 2), null, png(0, 72)];
+      assert.deepEqual(await reads(from), want, 'both changes read here');
+      assert.equal((await from.list()).find(f => f.id === id).attention.filter(a => a.reason === 'changed-both').length, 0, 'nothing dropped, nothing reported');
+      await from.setDefault(from.home);
+      await from.remove(id);
+      const again = await to.add(F);
+      assert.deepEqual((await to.scan(again)).problems, [], 'added again, nothing reported');
+      assert.deepEqual(await reads(to), want, 'read alike there');
+      await to.setDefault(to.home);
+      await to.remove(again);
+    },
+  },
+  {
+    // Review 8, R8-4 (8B3): the other app uses this app's folder anyway, translates a gallery (published) and
+    // lets the folder go; this app takes it back and moves that gallery out before it has read it again — to
+    // another of its folders, into the place it always has (the browser's own storage, the desktop's first
+    // folder), by the folder's removal moving its galleries, or after a take-back check that met one failed read
+    // of the gallery. On 146199d the website's move copied its own records and deleted the old folder by the
+    // folder's manifest: the other app's translation deleted from the disk, never copied, nothing reported. A
+    // gallery's place is written from the folder's version (S31): the move carries the gallery as the folder has
+    // it. Nothing of it waited here, so nothing is reported dropped either (rule 5: the desktop noted
+    // 'changed-both' for it).
+    name: 'R8-4: a gallery moved out right after "Take back", before this app read it again, carries the other app\'s work wherever it goes — nothing deleted, nothing reported dropped',
+    async run({ dir, from, to }) {
+      for (const form of ['to another folder', 'into this library\'s own place', 'by the removal of its folder', 'after a check that met one failed read']) {
+        const F = path.join(dir, `${form.replaceAll(' ', '-').replaceAll('\'', '')}-F`), F2 = `${F}2`;
+        const id = await from.add(F);
+        await from.setDefault(id);
+        const id2 = await from.add(F2);
+        const gid = await from.newGallery('Alpha');
+        for (let n = 1; n <= 2; n++) await from.putPage(gid, n, png(0, n));
+        await from.flush();
+        const theirs = await to.add(F, { force: true });   // "Use anyway"
+        await to.scan(theirs);
+        await to.putTranslation(gid, 1, png(0, 71));
+        await to.flush();
+        await to.setDefault(to.home);
+        await to.remove(theirs);   // and lets it go
+        clockAhead(CLAIM_TTL_MS + 1000);
+        assert.equal(await from.raw.folderClaim(id), 'granted', `${form}: taken back`);
+        if (form.startsWith('after')) {
+          const once = (when) => { let n = 0; return (c) => when(c) && ++n === 1; };
+          const manifest = (c) => /Alpha[\\/]\.shiori[\\/]gallery\.json$/.test(String(c.path));
+          if (from.app === 'website') fsa.failNext(once((c) => manifest(c) && /getFile/.test(c.op)), 'NotReadableError', { times: 1e6 });
+          else faults.failNext(once((c) => manifest(c) && c.op === 'readFile'), 'EIO', { times: 1e6 });
+          await from.scan(id);   // meets the failed read: the gallery reported, read at no check yet
+          faults.reset(); fsa.reset();
+        }
+        if (form === 'by the removal of its folder') { await from.setDefault(id2); await from.remove(id, { moveTo: id2 }); }
+        else await from.move(gid, form.startsWith('into') ? from.home : id2);
+        await from.flush();
+        assert.ok(same(await from.read(gid, 1, 'translated'), png(0, 71)), `${form}: the other app's translation reads here`);
+        assert.equal(await from.titleOf(gid), 'Alpha', `${form}: its title`);
+        const dropped = (await from.list()).flatMap(f => f.attention ?? []).filter(a => a.reason === 'changed-both');
+        assert.deepEqual(dropped, [], `${form}: nothing waited here, nothing reported dropped`);
+        if (!form.startsWith('into')) {
+          assert.deepEqual(namedMissing(F2), [], `${form}: the folder it went to holds every file it names`);
+          const there = await to.add(F2, { force: true });
+          await to.scan(there);
+          assert.ok(same(await to.read(gid, 1, 'translated'), png(0, 71)), `${form}: the other app reads its translation where the gallery went`);
+          await to.setDefault(to.home);
+          await to.remove(there);
+        }
+        await from.setDefault(from.home);
+        for (const f of [id, id2]) if ((await from.list()).some(x => x.id === f)) await from.remove(f);
+      }
+    },
+  },
 ];
 
 // The files the manifests of folder `F`'s galleries name that aren't there: [] when every one is (a
@@ -1604,6 +1728,119 @@ const UNPACK_MET = {
     } finally { await lib?.close(); delete /** @type {any} */ (globalThis.navigator).locks; }
   },
 };
+// Review 8, R8-1 (8A1): the desktop upgraded from the released version (v1.2.6, whose index keeps no stamps)
+// carries every gallery over with none, until its folder's first check. On 146199d the read-only gate took such
+// a gallery for one only this library has: while the website used the folder anyway, a title or a translation of
+// it was accepted on the desktop, and at "Take back" published over the website's — the website's change gone on
+// both apps, nothing reported; a deletion owed took the gallery as the website had changed it. A gallery with a
+// place in a library folder is the folder's (S31, rule 3): refused while the website holds the folder, and at the
+// take-back the folder's version stands — the deletion owed dropped, the gallery back, reported once.
+const UPGRADED = {
+  name: 'R8-1: a gallery the desktop carried over from the released version\'s index, unchecked, is read-only while the website uses its folder anyway, and the website\'s version stands at the take-back — a deletion owed dropped',
+  async run({ dir, website }) {
+    const { desktopLibrary: fixture, FIXTURE_GIDS } = await import('./fixtures/storage-fixtures.mjs');
+    const A = FIXTURE_GIDS.a, B = FIXTURE_GIDS.b;
+    for (const form of ['a title', 'a translation', 'a deletion owed']) {
+      const base = path.join(dir, form.replaceAll(' ', '-'));
+      const { libraryDir } = await fixture('desktop-v1.2.6', base);
+      const desktop = await desktopLibrary(base, { own: libraryDir });
+      try {
+        const id = desktop.home;
+        assert.equal(desktop.raw._s('SELECT stamp FROM stamps WHERE gid = ?').get(B)?.stamp ?? null, null, `${form}: carried over with no stamp`);
+        const page2 = await desktop.read(B, 2, 'translated');   // the released version's translation of it, kept throughout
+        // The deletion's deletes refused until the take-back, so it is owed then (one let through sooner would be
+        // done before the website looks).
+        const inside = libraryDir.split(path.sep).join('/').toLowerCase();
+        const owed = form === 'a deletion owed' ? faults.failNext((c) => ['rm', 'unlink', 'rmdir'].includes(c.op) && c.path.toLowerCase().startsWith(inside), 'EBUSY', { times: 1e6 }) : () => {};
+        if (form === 'a deletion owed') { await desktop.deleteGallery(B); await desktop.flush(); }
+        const theirs = await website.add(libraryDir, { force: true });   // "Use anyway"
+        await website.scan(theirs);
+        await website.putTranslation(B, 1, png(0, 81));
+        await website.setTitle(B, 'B by the website');
+        await website.flush();
+        clockAhead(CLAIM_TTL_MS + 1000);   // the desktop's last read of the claim has aged: it reads it again
+        if (form !== 'a deletion owed') {
+          assert.equal(await reason(desktop.setTitle(A, 'A by the desktop')), 'not-owned', `${form}: the archived gallery's title refused`);
+          const tried = form === 'a title' ? desktop.setTitle(B, 'B by the desktop') : desktop.putTranslation(B, 2, png(0, 92));
+          assert.equal(await reason(tried), 'not-owned', `${form}: refused`);
+        }
+        await website.setDefault(website.home);
+        await website.remove(theirs);   // the website lets go
+        owed();
+        assert.equal(await desktop.raw.folderClaim(id), 'granted', `${form}: taken back`);
+        await desktop.flush();
+        for (let i = 0; i < 2; i++) { await desktop.scan(id); await desktop.flush(); }
+        const reads = async (lib) => [(await lib.galleries()).includes(B), await lib.titleOf(B), same(await lib.read(B, 1, 'translated'), png(0, 81)), same(await lib.read(B, 2, 'translated'), page2)];
+        assert.deepEqual(await reads(desktop), [true, 'B by the website', true, true], `${form}: the website's version stands here`);
+        assert.equal(await desktop.titleOf(A), 'Fixture A', `${form}: the archived gallery as it was`);
+        const dropped = (await desktop.list()).find(f => f.id === id).attention.filter(a => a.reason === 'changed-both').map(a => a.path);
+        assert.deepEqual(dropped, form === 'a deletion owed' ? ['Fixture B'] : [], `${form}: what was dropped here reported`);
+        assert.deepEqual(namedMissing(libraryDir), [], `${form}: every named file there`);
+        const again = await website.add(libraryDir, { force: true });
+        assert.deepEqual((await website.scan(again)).problems, [], `${form}: the website adding it again reports nothing`);
+        assert.deepEqual(await reads(website), [true, 'B by the website', true, true], `${form}: read alike there`);
+        await website.setDefault(website.home);
+        await website.remove(again);
+      } finally { faults.reset(); await desktop.close(); }
+    }
+  },
+};
+// Review 8, R8-3 (8B2): the desktop keeps a gallery in an archive; its title changed there reaches the archive
+// (a generation the website hasn't read) — in the moment after the website used the folder anyway, or while the
+// desktop held it before the website took it back and before the website's check read it again. On 146199d the
+// website's first picture change of it unpacked the archive from its own older view, published that over the
+// desktop's generation and deleted the archive: the desktop's title gone on both apps, nothing reported. An
+// unpack is written from the folder's version (S31): the website reads the archive's generation first, and its
+// translation goes on that.
+const UNPACKED_STALE = {
+  name: 'R8-3: the website\'s first picture change of an archived gallery the desktop changed since the website read it unpacks the folder\'s version — the desktop\'s title kept on both apps',
+  async run({ dir, desktop, website }) {
+    for (const form of ['in the moment after "Use anyway"', 'after "Take back", before a check read it']) {
+      const F = path.join(dir, form.startsWith('in') ? 'window' : 'takeback');
+      const id = await desktop.add(F);
+      await desktop.setDefault(id);
+      const gid = await desktop.newGallery('Alpha');
+      for (let n = 1; n <= 3; n++) await desktop.putPage(gid, n, png(0, n));
+      await desktop.flush();
+      await desktop.raw.archiveGallery(gid);
+      await desktop.flush();
+      const theirs = await website.add(F, { force: true });   // "Use anyway": it reads the archive in place
+      await website.scan(theirs);
+      if (form.startsWith('in')) {
+        clockAhead(2000);   // within the desktop's last read of the claim: the change is accepted, and reaches the archive
+        await desktop.setTitle(gid, 'Alpha by the desktop');
+        await desktop.flush();
+      } else {
+        await website.setDefault(website.home);   // the website keeps the folder: listed as used elsewhere from now on
+        clockAhead(CLAIM_TTL_MS + 1000);
+        assert.equal(await desktop.raw.folderClaim(id), 'granted', `${form}: the desktop takes it back`);
+        await desktop.setTitle(gid, 'Alpha by the desktop');
+        await desktop.flush();
+        await desktop.setDefault(desktop.home);
+        clockAhead(CLAIM_TTL_MS + 1000);
+        assert.equal(await website.raw.folderClaim(theirs), 'granted', `${form}: the website takes it back`);   // and changes it before any check
+      }
+      clockAhead(2000);
+      await website.putTranslation(gid, 2, png(0, 92));
+      await website.flush();
+      assert.equal(await website.titleOf(gid), 'Alpha by the desktop', `${form}: the desktop's title reads on the website`);
+      assert.ok(same(await website.read(gid, 2, 'translated'), png(0, 92)), `${form}: the website's translation on it`);
+      const folders = await website.list();
+      await website.setDefault(website.home);
+      for (const f of folders.filter(f => f.id !== website.home)) await website.remove(f.id);
+      clockAhead(CLAIM_TTL_MS + 1000);
+      assert.equal(await desktop.raw.folderClaim(id), 'granted', `${form}: the desktop takes it back`);
+      await desktop.flush();
+      for (let i = 0; i < 2; i++) { await desktop.scan(id); await desktop.flush(); }
+      assert.equal(await desktop.titleOf(gid), 'Alpha by the desktop', `${form}: the desktop's title kept`);
+      assert.ok(same(await desktop.read(gid, 2, 'translated'), png(0, 92)), `${form}: the website's translation reads on the desktop`);
+      assert.deepEqual(namedMissing(F), [], `${form}: every named file there`);
+      await desktop.setDefault(desktop.home);
+      await desktop.remove(id);
+    }
+  },
+};
+
 // The files staged in folder `F`'s staging, as paths there (sorted).
 function stagedIn(F) {
   const at = path.join(F, '.shiori', 'staging');
@@ -1657,7 +1894,7 @@ for (const [direction, apps] of [['website to desktop', ['website', 'desktop']],
     }
     if (apps[0] === 'desktop') {
       for (const h of [ARCHIVED, OLDEST, UNPACKED, CUT_SHORT, EDITED, NOTES_UNREAD, FIRST_FOLDER, NOTED_ARCHIVE, DELETED_ON_TAKE_BACK, KILLED_UNPACK, ARCHIVE_DELETED, BOTH_TRANSLATED, SWAP_LEFT, FOLLOWED,
-        STAGED, STAGED_KILLED, UNPACK_MET]) {
+        STAGED, STAGED_KILLED, UNPACK_MET, UPGRADED, UNPACKED_STALE]) {
         test(h.name, { skip }, async (t) => {
           const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-handover-'));
           const desktop = await desktopLibrary(path.join(dir, 'desktop'));

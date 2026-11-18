@@ -356,15 +356,18 @@ test('a check of a folder reads again the galleries another app changed there �
       await w.close();
     };
     // Another app's publication of the gallery (format v2): `change(texts, files)` — its descriptions by
-    // name, its manifest's files — makes the new generation's descriptions.
+    // name, its manifest's files — makes the new generation's descriptions, its place held as that app
+    // holds it, having read the generation there.
     const publishElsewhere = async (change) => {
       const store = await import('/app/js/storage/folder-store-web.js');
-      const { descriptions, ...next } = (await store.manifestIn('elsewhere', r, 'Shared')).value;
+      const { manifest: m, tokenOf } = { manifest: (await store.manifestIn('elsewhere', r, 'Shared')).value, tokenOf: (await import('/app/js/storage/gallery-manifest.js')).tokenOf };
+      const { descriptions, ...next } = m;
       const texts = {};
       for (const [name, at] of Object.entries(descriptions)) texts[name] = await t.text('Lib S', `Shared/${at}`);
       const files = structuredClone(next.files);
       const made = change(texts, files);
-      await store.publishIn('elsewhere', r, 'Shared', { ...next, files, sizes: {}, generation: next.generation + 1, writer: 'a1b2c3d4e5f60708' }, made);
+      const held = await store.placeIn('elsewhere', r, 'Shared', next.galleryId, { known: tokenOf(m), writer: 'a1b2c3d4e5f60708' });
+      await store.publishIn(held.place, { ...next, files, sizes: {}, generation: next.generation + 1, writer: 'a1b2c3d4e5f60708' }, made);
       store.forgetFolder('elsewhere');
     };
     await write('Shared/images/0003.png', await t.png(30));

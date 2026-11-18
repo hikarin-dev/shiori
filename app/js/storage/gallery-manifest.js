@@ -19,8 +19,11 @@
 //   for people, other tools and older versions; a v2 reader never reads them. In an archive (the
 //   desktop's archive mode), whose new directory commits everything appended at once, the manifest
 //   names those entries themselves.
-// - `generation` counts publications, `writer` names the app that made it (its instance id): an app
-//   catches up on a generation that isn't the one it last published or read (token).
+// - `generation` counts publications, `writer` names the app that made it (its instance id), and
+//   `publication` is an id of the publication's own, random, made as it is planned: an app catches up on
+//   a generation that isn't the one it last published or read (its token, which carries all three — two
+//   publications never share one, whatever an app remembers: a folder put back from an older copy, an
+//   index restored, S31).
 // - A folder without a manifest is format v1, read by today's rules (gallery-files.js folderPictures),
 //   except that a file its descriptions name but that isn't there is a problem, never a cue to fall
 //   back (T09); it becomes v2 at its next publication.
@@ -95,6 +98,7 @@ export function parseManifest(text, { galleryId = null, archive = false } = {}) 
   if (galleryId != null && m.galleryId !== String(galleryId)) return corrupt(`the manifest names gallery ${m.galleryId}`);
   if (!Number.isSafeInteger(m.generation) || m.generation < 0) return corrupt('the manifest has no generation');
   if (typeof m.writer !== 'string' || !m.writer || m.writer.length > 64) return corrupt('the manifest names no writer');
+  if (m.publication != null && !PUBLICATION.test(String(m.publication))) return corrupt('the manifest\'s publication is not valid');
   if (!_object(m.files) || !_object(m.files.pages) || !_object(m.files.covers ?? {})) return corrupt('the manifest lists no files');
   /** @type {Record<string, PageFiles>} */
   const pages = {};
@@ -158,6 +162,7 @@ export function parseManifest(text, { galleryId = null, archive = false } = {}) 
     }
   }
   return { kind: 'ok', value: { format: 'shiori-gallery', version: 2, galleryId: m.galleryId, generation: m.generation,
+    ...(m.publication != null ? { publication: m.publication } : {}),
     files: { pages, covers }, sizes, ...(sources ? { sources } : {}), descriptions, writer: m.writer } };
 }
 
@@ -167,7 +172,8 @@ export function parseManifest(text, { galleryId = null, archive = false } = {}) 
 export function manifestText(m) {
   /** @param {Record<string, unknown>} obj */
   const lines = (obj) => `{${Object.entries(obj).map(([k, v]) => `\n${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(',')}\n}`;
-  const head = { format: m.format, version: m.version, galleryId: m.galleryId, generation: m.generation, writer: m.writer };
+  const head = { format: m.format, version: m.version, galleryId: m.galleryId, generation: m.generation,
+    ...(m.publication != null ? { publication: m.publication } : {}), writer: m.writer };
   return `{${Object.entries(head).map(([k, v]) => `${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(', ')},\n`
     + `"files": { "pages": ${lines(m.files.pages)},\n"covers": ${JSON.stringify(m.files.covers)} },\n`
     + `"sizes": ${lines(m.sizes)},\n`
@@ -175,32 +181,51 @@ export function manifestText(m) {
     + `"descriptions": ${lines(m.descriptions)}\n}\n`;
 }
 
-/** What tells one published generation from another, for catching up (D4): the generation and the app
- * that wrote it. A folder of format v1 is told by its descriptions' stamp (gallery-files.js
- * descriptionStamp), as before.
+/** A publication's own id (S31): random, made as the publication is planned (publicationWith,
+ * archiveManifest) — never derived from anything an app remembers. @returns {string} */
+export const newPublication = () => [...globalThis.crypto.getRandomValues(new Uint8Array(8))].map(b => b.toString(16).padStart(2, '0')).join('');
+const PUBLICATION = /^[0-9a-z]{4,32}$/;
+/** What tells one publication of a gallery from another, for catching up (D4) and for holding its place
+ * (whoseVersion): its generation, its own id and the app that wrote it, `v2:<generation>.<id>:<writer>` —
+ * equal tokens are the same publication. A manifest written before S31 has no id and keeps the token it had,
+ * `v2:<generation>:<writer>`: no gallery of an existing library reads as changed for it. A folder of format
+ * v1 is told by its descriptions' stamp (gallery-files.js descriptionStamp), as before.
  * @param {Manifest} m @returns {string} */
-export const tokenOf = (m) => `v2:${m.generation}:${m.writer}`;
+export const tokenOf = (m) => `v2:${m.generation}${m.publication != null ? `.${m.publication}` : ''}:${m.writer}`;
 /** The generation a token names (0 for a v1 stamp, or none). @param {string | null | undefined} token @returns {number} */
-export const generationOf = (token) => Number(/^v2:(\d+):/.exec(String(token ?? ''))?.[1] ?? 0);
+export const generationOf = (token) => Number(/^v2:(\d+)[.:]/.exec(String(token ?? ''))?.[1] ?? 0);
 /** The app a token names as the generation's writer (null for a v1 stamp, or none). @param {string | null | undefined} token @returns {string | null} */
-export const writerOf = (token) => /^v2:\d+:(.+)$/.exec(String(token ?? ''))?.[1] ?? null;
-/** Whether the token a library keeps for a gallery says its folder holds it as published (a generation
- * past its reservation's, or an earlier version's descriptions read there) — so another app may have it
- * too — rather than a gallery only this library has (reserved, or with no folder yet).
+export const writerOf = (token) => /^v2:\d+(?:\.[0-9a-z]+)?:(.+)$/.exec(String(token ?? ''))?.[1] ?? null;
+/** Whether a token says its folder holds the gallery as published (a generation past its reservation's, or
+ * an earlier version's descriptions read there), rather than a reservation no publication made whole.
  * @param {string | null | undefined} token @returns {boolean} */
 export const published = (token) => !!token && (!String(token).startsWith('v2:') || generationOf(token) > 0);
-/** Whether `now`, the token of the generation a gallery's folder holds now, is one another app published
- * since `known` (the token the library last published or read there): one app changes a folder's
- * galleries at a time (the owner's rule, 2026-11-15), so where both did — a change waiting here from
- * before the other app took the folder over, or made while the drive was away — the folder's version
- * stands: this app never publishes over it, and its waiting change to that gallery is dropped. A
- * generation of this app's own (`writer`) never is another's. Told by a manifest alone (format v2): an
- * earlier version's descriptions (a v1 stamp) name no writer, and a read by their rules could be one a
- * "not found" of a moment made of nothing — so what waits here for such a folder is kept, as before, and
- * published over it. Not weighed (false) either for a gallery this library never published or read there
- * (`known` null: it can't tell what changed) or a folder holding none (`now` null).
- * @param {string | null | undefined} now @param {string | null | undefined} known @param {string} writer @returns {boolean} */
-export const othersSince = (now, known, writer) => !!now && String(now).startsWith('v2:') && !!known && now !== known && writerOf(now) !== writer;
+/** Whether a gallery is the folder's for the read-only gate (folder-lifecycle.js changeRefusal `held`): it
+ * has a place in a library folder (`placed`: a folder or archive the library keeps it at — not one made
+ * meanwhile and never placed) that isn't a reservation of this library's no publication made whole
+ * (`known`, the token it keeps: a generation 0), whatever else this library knows of it — a gallery carried
+ * over from an index before stamps (the released version's) has none, and is the folder's all the same
+ * (S31, review 8 R8-1; a linked gallery since S30).
+ * @param {boolean} placed @param {string | null | undefined} known @returns {boolean} */
+export const inFolder = (placed, known) => !!placed && (known == null || published(known));
+/** Whose version of a gallery its place holds — weighed in one place in each adapter (placeIn: desktop
+ * folder-store.js, website folder-store-web.js) before anything is written into, moved out of, unpacked from,
+ * archived into or deleted at that place. `now`: the token of the publication the place holds now (null: no
+ * manifest — an earlier version's folder, v1, which names no writer, or none yet); `known`: the token this
+ * library last published or read there (null: none — a gallery carried over from an index before stamps);
+ * `writer`: this app.
+ * - 'ours': the place holds the publication this library knows (equal tokens: the same publication), a later
+ *   one of this app's own (published from this library's records, its token not kept yet: a kill between the
+ *   two — a publication's generation is always past the one it was made over), or no manifest — what is
+ *   written there is written from the folder's version.
+ * - 'theirs': another publication — another app's since this library's last read, an earlier one of this
+ *   app's own (a folder put back from an older copy), or any manifest where this library has no stamp but this
+ *   app's. One app changes a folder's galleries at a time (the owner's rule, 2026-11-15): the folder's version
+ *   stands, nothing of this library's older view is written or deleted there, and what waited here for the
+ *   gallery is dropped (the libraries' gateway: desktop files.js hold, website db.js _hold).
+ * @param {string | null | undefined} now @param {string | null | undefined} known @param {string} writer @returns {'ours' | 'theirs'} */
+export const whoseVersion = (now, known, writer) =>
+  (!String(now ?? '').startsWith('v2:') || now === known || (writerOf(now) === writer && generationOf(now) > generationOf(known)) ? 'ours' : 'theirs');
 /** Whether a publication of a gallery with nothing of it waiting (a removal's write-back) writes nothing:
  * its folder holds a generation already (its manifest read 'ok': the one last published or read here, or
  * another app's since, which a check reads: D4), or holds none and never held one this library knew of —
@@ -420,7 +445,7 @@ export function publicationWith({ area, prev, next, texts, hashOf }) {
   // A folder's first: `next`'s own (a reservation's 0: firstGeneration).
   const generation = prev ? Math.max(next.generation, prev.generation + 1) : next.generation;
   /** @type {Manifest} */
-  const manifest = { ...next, generation, descriptions };
+  const manifest = { ...next, generation, publication: newPublication(), descriptions };
   /** @type {{ path: string, text: string | null, was: string | null }[]} */
   const stable = DESCRIPTION_FILES.flatMap(name => (texts[name] != null ? [{ path: name, text: /** @type {string | null} */ (texts[name]), was: /** @type {string | null} */ (null) }]
     : prev?.descriptions[name] ? [{ path: name, text: /** @type {string | null} */ (null), was: /** @type {string | null} */ (prev.descriptions[name]) }] : []));
@@ -438,9 +463,11 @@ export const firstGeneration = (galleryId, writer) => ({ format: 'shiori-gallery
   writer, files: { pages: {}, covers: {} }, sizes: {} });
 
 /** A manifest for an archive (the desktop's archive mode): its descriptions are the entries appended
- * with it, under their own names — the archive's new directory commits them all at once.
+ * with it, under their own names — the archive's new directory commits them all at once — and the
+ * publication an id of its own (tokenOf).
  * @param {Omit<Manifest, 'descriptions'>} next @param {Record<string, string | null | undefined>} texts @returns {Manifest} */
-export const archiveManifest = (next, texts) => ({ ...next, descriptions: Object.fromEntries(DESCRIPTION_FILES.filter(n => texts[n] != null).map(n => [n, n])) });
+export const archiveManifest = (next, texts) => ({ ...next, publication: newPublication(),
+  descriptions: Object.fromEntries(DESCRIPTION_FILES.filter(n => texts[n] != null).map(n => [n, n])) });
 
 /** The sizes a manifest records for the files it names: each from `known` (path → [size, mtime] as the
  * library recorded writing it; mtime 0 when it didn't), else from `prev` when that names the same file

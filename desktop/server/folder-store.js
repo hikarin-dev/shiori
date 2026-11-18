@@ -11,8 +11,10 @@
 // - Containment (principle 5): every `disk` call inside a library folder is refused when its path
 //   goes through a link there (containIn; physicallyIn for a linked source's path, ahead of its reads).
 // - A gallery's folder in format v2 (the app's js/storage/gallery-manifest.js has the rules): galleryIn
-//   (whose it is: principle 2), reserveIn (the only way a folder becomes a gallery's), writeNewIn (a new
-//   file never written over one), publishIn (a generation committed by one atomic manifest write),
+//   (whose it is: principle 2; whoseIn, a gallery's place, its archive too), placeIn (the place held against
+//   the library's view of the gallery: the one place whose version it holds is weighed, S31), reserveIn (the
+//   only way a folder becomes a gallery's), writeNewIn (a new file never written over one), publishIn (a
+//   generation committed by one atomic manifest write, at a place held),
 //   deleteNamedIn (only files still as Shiori recorded writing them), deleteGalleryIn (a gallery's
 //   folder deleted by name), undescribedAt / bindIn (a folder an earlier version never described, given
 //   its gallery's identity), loadGallery (a folder read back by its manifest, or by v1's rules).
@@ -25,6 +27,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { contract, content, linked as linkedSource, manifest as format, BackendError } from './shared.js';
+import { readDirectory, readEntry } from './zip.js';
 
 // ── Faults, for the storage tests ──
 // failNext(when, code, { times }): the next `times` calls `when(call)` matches throw (or reject, for a
@@ -449,6 +452,73 @@ export async function galleryIn(dir, gid) {
   } catch (e) { return unread(e); }
 }
 
+// Whose gallery place `abs` is now, by what it holds (principle 2): a folder as galleryIn says (its manifest or
+// description; an overlay's source.json), an archive by its descriptions (folder-content.js classifyArchive) — one
+// describing no gallery is the one the index keeps there (an archive added by hand, which its first change
+// unpacks; it can only be read: `undescribed`, never deleted for it), and one its folder's removed.json notes as
+// removed is no gallery's (`noted()`, folders.js noted: the person's, left whole for their files by a deletion or
+// by the other app's unpack — the gallery is where a folder naming it is, scan.js unpackedTo; review 6 F7).
+// { kind: 'ok', manifest (the text of the manifest that named it — a folder's, or an archive's last directory's —
+// or none), items (a folder's listing), archive (an archive) } when it names gallery `gid`; 'missing' (nothing
+// there, or no gallery's); 'conflict' (`found`: what it names instead, or null); 'unreadable' (it can't be read
+// now: nothing is concluded; `link: true` when it is reached through a link — an archive that is a link to a file,
+// as a folder's galleryIn says: the person's, never read through, S30). Nothing there is told as the shared rule
+// takes it (statIn: a look that answers "not found" while the drive is away for a moment never makes it so —
+// review 6 F8). A place not named as an archive is listed as a folder first (galleryIn: its listing tells all a
+// look before it would — a folder there, or nothing there as the same rule takes it); only one found naming no
+// gallery (a file there, say) is looked at as below. `directory(abs)`: an archive's directory, read (the
+// library's own reads go through its cache).
+export async function whoseIn(abs, gid, { directory = readDirectory, noted = async () => false } = {}) {
+  if (!/\.(cbz|zip)$/i.test(abs)) {
+    const whose = await galleryIn(abs, String(gid));
+    if (whose.kind !== 'conflict' || whose.found != null) return whose;
+  }
+  const unread = (e) => (throughLink(e) ? { ...unreadable(e), link: true } : unreadable(e));
+  let stat;
+  try { stat = await statIn(abs); } catch (e) { return unread(e); }
+  if (!stat) return contract.MISSING;
+  if (stat.isDirectory()) return galleryIn(abs, String(gid));
+  try {
+    const dir = await directory(abs);
+    const texts = {};
+    for (const name of content.OWN_FILES) if (dir.has(name)) texts[name] = (await readEntry(abs, dir.get(name))).toString('utf8');
+    const what = content.classifyArchive([...dir.keys()], texts);
+    if (what.kind !== 'gallery') return { kind: 'ok', undescribed: true, archive: true };
+    if (what.id !== String(gid)) return { kind: 'conflict', found: what.id };
+    return await noted() ? contract.MISSING : { kind: 'ok', archive: true, manifest: texts[content.MANIFEST_FILE] ?? null };
+  } catch (e) { return unread(e); }
+}
+
+// Gallery `gid`'s place `abs` held for a change there, as it is now: the one place the desktop weighs whose version
+// a gallery's place holds, before anything is written into, moved out of, unpacked from, archived into or deleted
+// at it (S31; the rule itself: gallery-manifest.js whoseVersion). The library asks it through files.js hold alone
+// (the contract's Root.gallery, below, for a publication through it). Its identity first (whoseIn, principle 2),
+// then the publication it holds — the manifest that named it, as whoseIn read it: no look of its own — weighed
+// against `known` (the token this library last published or read there; null for none) and `writer` (this app).
+// { kind: 'ok', place } where the place holds this library's view (the same publication, one of this app's own, or
+// no manifest); { kind: 'theirs', token, place } where another publication is there — the folder's version stands —
+// but for the one `over` names (a version the library read and found damaged: no version to stand, T08 — it is
+// published over). `place`: { abs, gid, token (the publication there; null for none — a manifest that doesn't parse
+// is none), manifest (parsed), undescribed }. Else what whoseIn answers ('missing', 'conflict', 'unreadable').
+export async function placeIn(abs, gid, { known = null, over = null, writer, ...look } = {}) {
+  const whose = await whoseIn(abs, gid, look);
+  if (whose.kind !== 'ok') return whose;
+  let text;
+  try { text = await heldText(abs, whose); } catch (e) { return unreadable(e); }
+  const read = text == null ? null : format.parseManifest(String(text), { galleryId: String(gid), archive: !!whose.archive });
+  const manifest = read?.kind === 'ok' ? read.value : null;
+  const token = manifest ? format.tokenOf(manifest) : null;
+  const place = { abs, gid: String(gid), token, manifest, undescribed: !!whose.undescribed };
+  return token !== over && format.whoseVersion(token, known, writer) === 'theirs' ? { kind: 'theirs', token, place } : { kind: 'ok', place };
+}
+// The text of the manifest gallery place `abs` holds, as its identity read found it (whoseIn's) — but a linked
+// gallery's overlay's, which isn't what names it (its source.json is): read beside it, where the listing shows
+// it, under the rule (null for none; rejects when it can't be read now).
+async function heldText(abs, whose) {
+  if (whose.archive || format.areaOf(abs.split(path.sep).join('/')) !== '') return whose.manifest ?? null;
+  return (await textsIn(abs, whose.items ?? [], [format.MANIFEST_NAME]))[format.MANIFEST_NAME];
+}
+
 // Gallery `gid`'s folder `dir` (an absolute path in a library folder, or in a series' folder there)
 // reserved — made exclusively (EEXIST when something is there by now) — and bound to the gallery at
 // once, in the same synchronous step: its first generation published there (gallery-manifest.js
@@ -457,7 +527,8 @@ export async function galleryIn(dir, gid) {
 // kill on the way leaves a folder naming none (review 4 F2). Its stable-named copies come with its first
 // publication. A reservation cut short takes the folder it made with it. The only way a folder becomes
 // a gallery's (contract.js reserve). `hide(abs)`: called on the .shiori/ folder made for it (D7).
-// Returns the token published (gallery-manifest.js tokenOf).
+// Returns the place, held from its first moment as placeIn holds one: { abs, gid, token (the reservation's
+// publication, gallery-manifest.js tokenOf), manifest }.
 export function reserveIn(dir, gid, writer, metadata, { hide = () => {} } = {}) {
   disk.mkdirSync(path.dirname(dir), { recursive: true });
   disk.mkdirSync(dir);
@@ -470,7 +541,7 @@ export function reserveIn(dir, gid, writer, metadata, { hide = () => {} } = {}) 
     const file = within(dir, format.manifestPath('.shiori/'));
     disk.writeFileSync(`${file}.shiori-tmp`, plan.text);
     disk.renameSync(`${file}.shiori-tmp`, file);
-    return format.tokenOf(plan.manifest);
+    return { abs: dir, gid: String(gid), token: format.tokenOf(plan.manifest), manifest: plan.manifest, undescribed: false };
   } catch (e) {
     try { disk.rmSync(dir, { recursive: true, force: true }); } catch {}
     throw e;
@@ -487,31 +558,32 @@ export async function manifestIn(dir, gid = null) {
   } catch (e) { return contract.unreadable(e); }
 }
 
-// Generation `next` (a manifest without its descriptions, gallery-manifest.js) published in the gallery
-// folder `dir`, with its descriptions `texts` (name → text): the descriptions the folder's current
-// manifest doesn't store written as new files named by their content, then the manifest replaced in
-// one atomic write — the commit point — then, as a best effort, the stable-named copies brought up to
-// date and the stored descriptions neither generation names collected (publication). The sizes it
-// records come from `next.sizes` where the library knew them. `hide(abs)`: called on the .shiori/
-// folder made for it (the app marks it hidden, D7). `known`: the token the library last published or
-// read there (gallery-manifest.js tokenOf; undefined: not to be weighed). Resolves { manifest: the one
-// published, bytes: how many it wrote } — or, where the folder holds a generation another app published
-// since `known` (gallery-manifest.js othersSince: one app changes a folder's galleries at a time), {
-// newer: the token of that generation, bytes: 0 }: nothing is written, the folder's version stands, and
-// what the library has waiting for it is the caller's to drop. Rejects when the folder no longer names
-// the gallery (galleryIn: principle 2 — nothing is written, reason 'conflict' or 'missing'), when the
-// current manifest can't be read (nothing is written then: tried again later), or when a write fails
-// before the commit (the previous generation stays whole).
-export async function publishIn(dir, next, texts, { hide = () => {}, known } = {}) {
+// Generation `next` (a manifest without its descriptions, gallery-manifest.js) published at gallery place
+// `place` — held (placeIn, or the reservation that made it: reserveIn), `place.abs` its folder — with its
+// descriptions `texts` (name → text): the descriptions the folder's current manifest doesn't store written as
+// new files named by their content, then the manifest replaced in one atomic write — the commit point — then, as
+// a best effort, the stable-named copies brought up to date and the stored descriptions neither generation names
+// collected (publication). The sizes it records come from `next.sizes` where the library knew them. `hide(abs)`:
+// called on the .shiori/ folder made for it (the app marks it hidden, D7). Whose version the place holds was
+// weighed as it was held: here it is published only while it still holds that publication (`place.token`) —
+// the manifest the folder's own look reads now (galleryIn) — and the place is held at the new one from then on.
+// Resolves { manifest: the one published, bytes: how many it wrote }. Rejects, nothing written, when the folder
+// no longer names the gallery (galleryIn: principle 2 — reason 'conflict' or 'missing'), when it holds another
+// publication than the one held (reason 'changed': tried again, its place held afresh), when its manifest can't
+// be read now (tried again later), or when a write fails before the commit (the previous generation stays whole).
+export async function publishIn(place, next, texts, { hide = () => {} } = {}) {
+  const dir = place.abs;
   const area = format.areaOf(dir.split(path.sep).join('/'));
   const whose = await galleryIn(dir, next.galleryId);
   if (whose.kind !== 'ok') {
     throw Object.assign(new BackendError('conflict', `${dir} is not gallery ${next.galleryId}'s folder now`), { reason: whose.kind === 'missing' ? 'missing' : 'conflict' });
   }
-  const now = await manifestIn(dir, next.galleryId);
-  if (now.kind === 'unreadable') throw new Error(`the manifest in ${dir} can't be read: ${now.error}`);
-  const prev = now.kind === 'ok' ? now.value : null;
-  if (prev && known !== undefined && format.othersSince(format.tokenOf(prev), known, next.writer)) return { newer: format.tokenOf(prev), bytes: 0 };
+  const text = await heldText(dir, whose);
+  const now = text == null ? null : format.parseManifest(String(text), { galleryId: next.galleryId });
+  const prev = now?.kind === 'ok' ? now.value : null;
+  if ((prev ? format.tokenOf(prev) : null) !== place.token) {
+    throw Object.assign(new BackendError('conflict', `${dir} holds another publication than the one held`), { reason: 'changed' });
+  }
   const sizes = await format.sizesOf(next.files, new Map(Object.entries(next.sizes || {})), prev, async (f) => {
     const st = await disk.stat(within(dir, f)).catch(() => null);
     return st?.isFile() ? [st.size, st.mtimeMs] : null;
@@ -542,6 +614,7 @@ export async function publishIn(dir, next, texts, { hide = () => {}, known } = {
       if (had != null && await format.matches(at, had)) await disk.rm(within(dir, at), { force: true });
     }
   } catch {}
+  Object.assign(place, { token: format.tokenOf(plan.manifest), manifest: plan.manifest });
   return { manifest: plan.manifest, bytes };
 }
 
@@ -788,8 +861,9 @@ export function folderStore(library) {
     const abs = (rel) => path.join(at, ...rel.split('/').filter(Boolean));
     // Gallery `gid`'s directory `name`, in format v2 (the functions above); the folder check's tidy-up
     // as its sweep (scan.js). Each change is made only while the directory still names the gallery
-    // (galleryIn, principle 2) — one gone meanwhile, or put there since by hand, is refused.
-    const galleryDir = (name, gid) => {
+    // (galleryIn, principle 2) — one gone meanwhile, or put there since by hand, is refused — and a
+    // publication only at its place as held (`place`: placeIn's, or its reservation's; publishIn).
+    const galleryDir = (name, gid, place = null) => {
       const ours = async () => {
         const found = await galleryIn(abs(name), gid);
         if (found.kind !== 'ok') throw Object.assign(new BackendError('conflict', `${name} is not gallery ${gid}'s folder now`), { reason: found.kind === 'missing' ? 'missing' : 'conflict' });
@@ -799,28 +873,42 @@ export function folderStore(library) {
         manifest: () => manifestIn(abs(name), gid),
         read: (rel) => readTyped(abs(join(name, rel))),
         async writeNew(slot, ext, bytes) { await ours(); return writeNewIn(abs(name), slot, ext, bytes); },
-        async publish({ manifest, descriptions, known }) {
-          const done = await publishIn(abs(name), manifest, descriptions, { hide: (dir) => library._hide(dir), known });
-          return done.newer ? { generation: format.generationOf(done.newer), ...done } : { generation: done.manifest.generation, ...done };
+        async publish({ manifest, descriptions }) {
+          if (!place) throw new BackendError('invalid', `gallery ${gid}'s place isn't held: open it with this library's view of it (gallery(dir, gid, { known }))`);
+          const done = await publishIn(place, manifest, descriptions, { hide: (dir) => library._hide(dir) });
+          return { generation: done.manifest.generation, token: format.tokenOf(done.manifest), ...done };
         },
         async deleteNamed(list) { await ours(); return deleteNamedIn(abs(name), list); },
         async sweep() { await library.folderScan(id); return { removed: [] }; },
       };
     };
+    // How the library reads the places of folder `id`: an archive's directory through its cache, a removal
+    // note from its own reading of removed.json (files.js _whose).
+    const look = (name) => ({ directory: (f) => files._directory(f), noted: () => folders.noted(id, name) });
     return {
       id, purpose,
       read: (rel) => readTyped(abs(rel)),
       list: (rel) => listTyped(abs(rel)),
-      // The directory, while it names the gallery (galleryIn).
-      async gallery(name, gid) {
-        const found = await galleryIn(abs(name), String(gid));
-        return found.kind === 'ok' ? { kind: 'ok', dir: galleryDir(name, String(gid)) } : found;
+      // The directory, while it names the gallery (galleryIn) — or, with the library's view of it (`view`:
+      // { known: the token it last published or read there, or null; over: a damaged version it may publish
+      // over }), its place held (placeIn: 'ok', or 'theirs' with the token of the publication there).
+      async gallery(name, gid, view = null) {
+        if (!view) {
+          const found = await galleryIn(abs(name), String(gid));
+          return found.kind === 'ok' ? { kind: 'ok', dir: galleryDir(name, String(gid)) } : found;
+        }
+        const at = await placeIn(abs(name), String(gid), { ...view, writer: folders._me(), ...look(name) });
+        if (at.kind === 'ok') return { kind: 'ok', dir: galleryDir(name, String(gid), at.place) };
+        if (at.kind === 'theirs') return { kind: 'theirs', token: at.token, dir: galleryDir(name, String(gid), at.place) };
+        return at;
       },
       // A free directory chosen, made and bound to the gallery by its first generation (files.js _claim:
-      // reserveIn).
+      // reserveIn), held as its reservation made it.
       async reserve(hint, gid) {
         const row = files._claim(gid, { galleryId: gid, title: { english: hint, japanese: '', pretty: '' } }, null, id);
-        return galleryDir(files._split(row.path).rest, gid);
+        const name = files._split(row.path).rest;
+        const at = await placeIn(abs(name), String(gid), { known: library._s('SELECT stamp FROM stamps WHERE gid = ?').get(String(gid))?.stamp ?? null, writer: folders._me(), ...look(name) });
+        return galleryDir(name, gid, at.kind === 'ok' ? at.place : null);
       },
       // A source is read only inside the folder (physicallyIn, F09).
       async source(at) {

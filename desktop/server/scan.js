@@ -66,7 +66,7 @@ function readable(read, at) {
 // pictures staged, changes pending, an archive to unpack or being written, a settle or a publication
 // under way — or no files at all: reading it again from its files would lose them, so it isn't (the
 // rule every re-read keeps, re-checked as it commits) — unless another app published the gallery there
-// since: then the folder's version stands, and they are dropped (dropWaiting: one app changes a
+// since: then the folder's version stands, and they are dropped (folderStands: one app changes a
 // folder's galleries at a time).
 export function localChanges(library, gid) {
   const files = library.files;
@@ -560,16 +560,15 @@ async function tokenAt(library, abs, rowFormat, gid) {
   return { token: layout.descriptionStamp(texts), id: content.galleryIdOf(texts['metadata.json']), texts };
 }
 
-// Gallery `row` (a folder or archive the index keeps) read again from its files when what they were
-// published at there changed since the library last published or read them (D4: another app
-// published a generation of it). With changes of its own waiting to be published there (localChanges),
-// the folder's version stands where another app published it since (gallery-manifest.js othersSince: one
-// app changes a folder's galleries at a time) — what waited here is dropped and the case reported once
-// (dropWaiting) — and a gallery this library never stamped keeps them (it can't tell what changed). One
-// whose files no longer name it is left. A v1 folder stamped before stamps existed counts as changed only
-// when its descriptions differ from the index's. Resolves whether it was read again; rejects, its records
-// and token as they were, when any of its files can't be read (F06), is damaged (T08) or misses a file it
-// names (T09).
+// Gallery `row` (a folder or archive the index keeps) read again from its files when they hold another
+// publication than the one the library last published or read there (D4; a token names one publication:
+// gallery-manifest.js tokenOf). With changes of its own waiting to be published there (localChanges), its
+// place is held instead (files.js hold): where that publication is another app's, or the library has no
+// stamp of it, the folder's version stands — what waited here dropped, the case reported once — and where it
+// is this app's own, what waits is published over it, in due course. One whose files no longer name it is
+// left. A v1 folder stamped before stamps existed counts as changed only when its descriptions differ from
+// the index's. Resolves whether it was read again; rejects, its records and token as they were, when any of
+// its files can't be read (F06), is damaged (T08) or misses a file it names (T09).
 async function refreshGallery(library, row) {
   const files = library.files;
   const gid = row.gid;
@@ -584,7 +583,12 @@ async function refreshGallery(library, row) {
     library._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(gid, at.token);
     return false;
   }
-  if (localChanges(library, gid)) return format.othersSince(at.token, had, library.folders._me()) && dropWaiting(library, gid);
+  if (localChanges(library, gid)) {
+    if (!waiting(library, gid)) return false;   // under way for it now: weighed at its next look
+    const held = await files.hold(gid);
+    if (held.damaged) throw Object.assign(new Error(`${row.path}: the publication there is damaged`), { reason: held.damaged });
+    return library._s('SELECT stamp FROM stamps WHERE gid = ?').get(gid)?.stamp !== had;
+  }
   const src = files.sourceOf(row);
   if (src) return !!await adoptLinked(library, files._split(row.path).root, src, { replace: gid, guard: () => localChanges(library, gid) });
   return reread(library, row, { guard: () => localChanges(library, gid), manifest: !at.texts });
@@ -592,7 +596,7 @@ async function refreshGallery(library, row) {
 
 // Gallery `row` read again from its folder or archive, its records replaced by what that holds, in one
 // transaction — unless `guard()` says otherwise as it commits — the pictures of its own staged for it
-// going with them (files.js deleteIn), and with `drop` (dropWaiting) its pages staged too, and its own
+// going with them (files.js deleteIn), and with `drop` (folderStands) its pages staged too, and its own
 // files the folder's generation doesn't name, the case noted on the folder's Needs attention list in the
 // same transaction. Resolves whether it was; rejects as readGallery does.
 async function reread(library, row, { guard = () => false, drop = false, manifest = false } = {}) {
@@ -637,59 +641,66 @@ function entryIn(library, gid, g) {
   if (Object.keys(covers).length) library._coverPatchIn(gid, covers, { mark: false });
 }
 
-// Gallery `gid`'s changes waiting here dropped for the generation another app published in its folder
-// since this library last published or read it there (gallery-manifest.js othersSince): one app changes
-// a folder's galleries at a time (the owner's rule, 2026-11-15), so where both changed one — this app's
-// change made before the other took the folder over, or while the drive was away — the folder's version
-// stands. Its records are read again from its folder or archive as that holds it (nothing of it written
-// there), and what waited here goes with them in the same transaction: its pending mark and anything an
+// The folder's version of gallery `gid` stands: its place holds a publication this library hasn't read —
+// another app's, or one where it keeps no stamp (files.js hold: gallery-manifest.js whoseVersion) — and one
+// app changes a folder's galleries at a time (the owner's rule, 2026-11-15), so where both changed it (this
+// app's change made before the other took the folder over, or while the drive was away) the folder's version
+// is what stands. Its records are read again from its folder or archive as that holds it (nothing of it
+// written there). What waited here goes with them, in the same transaction: its pending mark and anything an
 // archive was to be given, the pages and pictures staged for it (their staging files once that has
-// committed), and the files of its own its records named in its folder that the folder's generation
-// doesn't (written here, never published), which retire — deleted by name while each is as written
-// (principle 4). A linked gallery's overlay is read again alike (linked.js adoptLinked). Reported once
-// ('changed-both', on the folder's Needs attention list). A kill or a failed call leaves it dropped or as
-// it was, never in part: the next settle, publication or check that meets that generation drops it then.
-// Resolves whether it was dropped; rejects, nothing changed, when its folder can't be read whole now.
-export async function dropWaiting(library, gid) {
+// committed), and the files of its own its records named in its folder that the folder's generation doesn't
+// (written here, never published), which retire — deleted by name while each is as written (principle 4) —
+// reported once ('changed-both', on the folder's Needs attention list). With nothing of it waiting it is only
+// read again, nothing reported: nothing was dropped. A linked gallery's overlay is read again alike (linked.js
+// adoptLinked). A kill or a failed call leaves it as it was or stood, never in part: the next settle,
+// publication or check that meets that publication does it then. Resolves whether it was done; rejects,
+// nothing changed, when its place can't be read whole now — `reason` 'corrupt' or 'missing-file' where that
+// publication was read and is damaged (no version to stand: files.js _stands).
+export async function folderStands(library, gid) {
   const files = library.files;
   const id = String(gid);
   const row = files._row(id);
   if (!row) return false;
   const { root, rest } = files._split(row.path);
   const src = files.sourceOf(row);
-  const dropped = src ? !!await adoptLinked(library, root, src, { replace: id, guard: () => false }) : await reread(library, row, { drop: true });
-  if (!dropped) return false;
-  if (src) library.folders.note(root, { reason: 'changed-both', path: rest, gid: id }, { event: true });
-  await files._letGo(id).catch(() => {});
+  const waits = () => waiting(library, id);
+  const drop = waits();
+  const stood = src ? !!await adoptLinked(library, root, src, { replace: id, guard: drop ? () => false : waits })
+    : await reread(library, row, drop ? { drop: true } : { guard: waits, manifest: true });
+  if (!stood) return false;
+  if (src && drop) library.folders.note(root, { reason: 'changed-both', path: rest, gid: id }, { event: true });
+  if (drop) await files._letGo(id).catch(() => {});
   return true;
+}
+// Whether something of gallery `gid` waits here for its folder or archive — a change not published there, an
+// unpack, pages or pictures staged, an addition to its archive cut short — whatever is running for it now
+// (localChanges counts that too).
+function waiting(library, gid) {
+  const files = library.files;
+  const row = files._row(gid);
+  return !!row && (!!row.pending || !!row.unpack || row.tail != null || files._staged(gid).length > 0 || files._stagedOwn(gid).length > 0);
 }
 
 // Inside the caller's transaction: archived gallery `row` followed to folder `g` (as a check reads it:
 // readGallery) that names it — the unpack of its archive, by the website (D17) or cut short by a kill
-// (review 7 B6) — its generation caught up. With changes of its own still to publish (localChanges), it is
-// taken there as it is, to publish them in the folder — unless the folder holds a generation another app
-// published since this library last published or read the gallery (gallery-manifest.js othersSince: the
-// other app's unpack is a change of it): the folder's version stands, read again there, what waited here
-// dropped with its staged pages and pictures, and the case reported once (as dropWaiting does). The
-// archive, still there (`left`), is recorded for deletion as this library's own unpack records it (files.js
-// _deletingIn: deleted while it is as Shiori wrote it and holds nothing else) — the folder is the gallery's
-// now, never a second copy unpacked beside them. Returns whether it was read again.
+// (review 7 B6). With changes of its own still to publish (localChanges), it is taken there as it is, what
+// waits with it: following a gallery is apart from reading it again (review 7 B5), and its place is held
+// before what waits is written there (files.js hold) — the folder's version standing where it is another
+// app's (the other app's unpack is a change of it), what waited dropped then, reported once. Else it is read
+// again there. The archive, still there (`left`), is recorded for deletion as this library's own unpack records
+// it (files.js _deletingIn: deleted while it is as Shiori wrote it and holds nothing else) — the folder is the
+// gallery's now, never a second copy unpacked beside them. Returns whether it was read again.
 function followTo(library, row, g, { left = false } = {}) {
   const files = library.files, gid = row.gid;
   if (left) files._deletingIn(row);
-  const waits = localChanges(library, gid);
-  const had = library._s('SELECT stamp FROM stamps WHERE gid = ?').get(gid)?.stamp;
-  if (waits && !format.othersSince(g.read.token, had, library.folders._me())) {
+  if (localChanges(library, gid)) {
     library._s(`UPDATE files SET path = ?, format = 'folder', state = 'packed', tail = NULL, unpack = 0 WHERE gid = ?`).run(g.rel, gid);
     library._logIn(gid);
     return false;
   }
-  const staged = waits ? files._staged(gid).map(r => JSON.parse(r.orig).file) : [];
   files.keep.add(gid);
   try { library._deleteIn(gid); } finally { files.keep.delete(gid); }
   addGallery(library, gid, g);
-  for (const file of staged) library._dropStaged(file);
-  if (waits) library.folders.note(g.root, { reason: 'changed-both', path: g.inRoot, gid }, { event: true });
   entryIn(library, gid, g);
   return true;
 }
