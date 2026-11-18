@@ -533,3 +533,24 @@ test('a zip another program wrote, with deflated entries, is read', async (t) =>
   assert.equal(String(await readEntry(path.join(dir, 'deflated.zip'), entries.get('b.txt'))), 'hello hello hello hello');
   assert.equal(String(await readEntry(file, (await readDirectory(file)).get('a.txt'))), 'stored');
 });
+
+// S31's close-out: a series' first chapter regrouped (its folder renamed into the series' folder) while a publication
+// of it was under way made its folder again at the old name, holding that publication — a manifest a generation past
+// the one at the gallery's place, which then read as an older copy of it: the gallery's waiting series dropped. A
+// publication whose gallery's folder is moved away after its place was held fails now, making nothing there.
+test('a publication whose gallery folder is moved away after its place was held fails, making nothing at the old name', async (t) => {
+  const { reserveIn, publishIn } = await import('../server/folder-store.js');
+  const faults = await import('./fs-faults.mjs');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-files-'));
+  t.after(() => { faults.reset(); fs.rmSync(base, { recursive: true, force: true }); });
+  const gid = '1790000000099', dir = path.join(base, 'One'), to = path.join(base, 'Saga', 'Saga Ch. 001');
+  const place = reserveIn(dir, gid, '0123456789abcdef', JSON.stringify({ galleryId: gid, title: title('One') }));
+  fs.mkdirSync(path.dirname(to));
+  let moved = false;
+  faults.failNext((c) => { if (!moved && c.op === 'mkdir') { fs.renameSync(dir, to); moved = true; } return false; }, 'EIO', { times: Infinity });
+  const { descriptions, ...m } = place.manifest;
+  await assert.rejects(publishIn(place, { ...m, generation: m.generation + 1 }, { 'metadata.json': JSON.stringify({ galleryId: gid, title: title('One two') }) }));
+  assert.ok(moved, 'moved as the publication wrote');
+  assert.equal(fs.existsSync(dir), false, 'nothing made at the old name');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(to, '.shiori', 'gallery.json'), 'utf8')).generation, m.generation, 'the gallery\'s own publication as it was');
+});

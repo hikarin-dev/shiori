@@ -1085,10 +1085,12 @@ const SCENARIOS = [
   {
     // A change made in the moment before this app learned that the other app uses folder A anyway (the window:
     // accepted, or refused had it read the claim already), the other app having changed that gallery there.
-    // The step is the take-back: the folder's version stands — this app's change dropped, nothing of it
-    // published — from the stages' check on.
+    // Accepted, it is saved at once, its place held first (S31): the other app's publication read, the change
+    // goes on from it — the folder's version with this app's translation, nothing published over the other
+    // app's, nothing dropped (S30 had it wait and be dropped at the take-back). Had it waited instead, it is
+    // dropped at the take-back, reported. The step is the take-back: the folder's version stands from the
+    // stages' check on.
     name: 'a change made before this app learned the other app used the folder anyway, taken back',
-    sample: 0,
     async setup(c) {
       c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
       plant(c, 'A/mine.txt', 'the person\'s own file');
@@ -1102,9 +1104,12 @@ const SCENARIOS = [
       await c.lib.flush().catch(() => {});
       c.takeBack = true;
     },
-    state: (c) => { const s = { aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }; return c.titles.window === 'accepted' ? withTranslation(s, c.g.alpha, 2, png(8)) : s; },
-    also: (c, stage) => (c.lib.app !== 'website' || stage === 're-add' ? [] : [{ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }]),
-    ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A), (s, c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha there', [png(1), png(2)]) } }), null, true),
+    state: (c) => { const s = { aIn: true, galleries: { [c.g.alpha]: G('A', c.titles.window === 'accepted' ? 'Alpha there' : 'Alpha', [png(1), png(2)]) } }; return c.titles.window === 'accepted' ? withTranslation(s, c.g.alpha, 2, png(8)) : s; },
+    // The translation dropped where it waited; and on the website, this app's view before it read the other app's
+    // title (it reads a gallery it is busy with at a later check: §8, S26a), but at the re-add.
+    also: (c, stage) => [{ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha there', [png(1), png(2)]) } },
+      ...(c.lib.app !== 'website' || stage === 're-add' ? [] : [{ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }])],
+    ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A), (s, c) => { const t = { aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha there', [png(1), png(2)]) } }; return c.titles.window === 'accepted' ? withTranslation(t, c.g.alpha, 2, png(8)) : t; }, null, true),
       CHECK, FLUSH, SETTLE],
     noSetupFlush: true,
   },
@@ -1352,11 +1357,17 @@ const sweeps = (/** @type {string} */ app, /** @type {string} */ kind) => SCENAR
 // Scenarios a later step's finding fails on (plan §7), by app, kind and scenario.
 /** @type {Record<string, string>} */
 const TODO = {};
+// The website's page can be loaded again only so many times in one process (library-drivers.mjs).
+const NO_LOAD_LEFT = 'no restart left in this process: run fewer points per process (SHIORI_SWEEP_SHARD)';
 
 // ── A run ──
 /** A fresh library over a new folder, with folder A added and the default (made only, for `noA`), `sc`
  * set up and published. @returns {Promise<Ctx>} */
 async function setUp(/** @type {string} */ app, sc, base = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-sweep-'))) {
+  // The page loaded now died, and none could be loaded after it (the process's loads used up): a library made
+  // over it would never return from a call — the run fails here instead (S31's close-out: seven shards waited
+  // so for good).
+  if (app === 'website' && deadPages.has(pageNow())) throw new Error(NO_LOAD_LEFT);
   const lib = app === 'desktop' ? await desktopLibrary(base) : await webLibrary();
   if (app === 'website') stillDead();
   /** @type {Ctx} */
@@ -1434,8 +1445,7 @@ async function wrongAt(stage, c, valid, { aInAlways = false } = {}) {
   const wanted = valid.map(s => visible(s, aInAlways ? true : s.aIn));
   if (!wanted.some(w => isDeepStrictEqual(w, seen))) problems.push(`it shows ${JSON.stringify(seen)}, neither ${wanted.map(w => JSON.stringify(w)).join(' nor ')}`);
   // SHIORI_SWEEP_TREE=1: what the folders hold then, with each finding.
-  if (problems.length && process.env.SHIORI_SWEEP_TREE) problems.push(`the folders hold: ${fs.readdirSync(c.base, { recursive: true }).filter(f => /^[AB][\\/]/.test(String(f))).join(', ')}`);
-  return problems.map(p => `${stage}: ${p}`);
+  if (problems.length && process.env.SHIORI_SWEEP_TREE) problems.push(`the folders hold: ${fs.readdirSync(c.base, { recursive: true }).filter(f => /^[AB][\\/]/.test(String(f))).join(', ')}`);  return problems.map(p => `${stage}: ${p}`);
 }
 
 // What the other app does once the step has ended (the scenario's `met`), once: resolves what went wrong.
@@ -1465,7 +1475,7 @@ async function stages(c, sc, states, done) {
   const steps = [
     ['flush', () => c.lib.flush()],
     ['check', scanAll],
-    ['restart', async () => { if (!c.lib.restart) throw new Error('no restart left in this process: run fewer points per process (SHIORI_SWEEP_SHARD)'); await c.lib.restart(); }],
+    ['restart', async () => { if (!c.lib.restart) throw new Error(NO_LOAD_LEFT); await c.lib.restart(); }],
     ['re-add', async () => {
       await c.lib.setDefault(c.lib.home);
       if ((await c.lib.list()).some(f => f.id === c.ids.A)) {
@@ -1594,7 +1604,8 @@ async function once(app, kind, sc, k) {
       if (deadPages.has(pageNow())) {
         // The other app meets the folder before the page is loaded again (`metFirst`).
         const first = sc.met && sc.metFirst ? await meet(sc, c) : [];
-        await within('the page loaded again', /** @type {any} */ (c.lib.restart)());
+        if (!c.lib.restart) throw new Error(NO_LOAD_LEFT);
+        await within('the page loaded again', c.lib.restart());
         if (first.length) return first;
       }
     } else if (BLIPS.includes(kind)) {
@@ -1700,6 +1711,21 @@ for (const app of /** @type {('desktop' | 'website')[]} */ (['desktop', 'website
           if (found.length) throw new Error(`${found.length} found:\n  ${found.join('\n  ')}`);
         });
       }
+    }
+    // S31's close-out: seven processes of the whole sweep waited for good — in each, a run's page had died with no
+    // load left in the process (library-drivers.mjs RESTARTS_AT_MOST), and the next run made its library over that
+    // page, whose every call never returns. npm test's sample loads a page about a hundred times a process, never
+    // near the limit. A run over a page that died fails at its setup now, at once.
+    if (app === 'website' && !process.env.SHIORI_SWEEP_KIND && !process.env.SHIORI_SWEEP_SCENARIO) {
+      test('a run whose page died with none loaded after it fails at its setup, never waits for good', { skip }, async () => {
+        await webLibrary();   // a page loaded
+        const page = pageNow(), base = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-sweep-'));
+        deadPages.add(page);
+        try {
+          const e = await within('the setup', setUp('website', SCENARIOS[0], base), 5000).then(() => null, (x) => x);
+          if (e?.message !== NO_LOAD_LEFT) throw new Error(`the run over a dead page ${e ? `failed otherwise: ${e.message}` : 'went on'}`);
+        } finally { deadPages.delete(page); fsa.reset(); fs.rmSync(base, { recursive: true, force: true }); }
+      });
     }
   });
 }

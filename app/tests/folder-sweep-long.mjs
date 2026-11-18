@@ -2,11 +2,14 @@
 // scenario, for every kind of fault, on both apps), a process per app, kind and shard, some at once.
 // Run by hand:
 //   node app/tests/folder-sweep-long.mjs [desktop|website|both = both] [processes at once = 12]
-// The website's page is loaded again at least once per fault point, and a process has a few hundred
-// loads in it (library-drivers.mjs), so its kinds run in more shards. Prints each process as it ends
-// with what it found (a test marked todo — a later step's finding — isn't a failure), then each app's
-// and kind's fault points and time. Exits 1 when anything failed.
-import { spawn } from 'node:child_process';
+// The website's page is loaded again at least once per fault point (twice where it died), and a process has
+// at most 400 loads in it (library-drivers.mjs RESTARTS_AT_MOST), so its kinds run in more shards: 32 keeps
+// a page-death shard at about 150 points, 300 loads (S31: at 24 its first shards passed 400 and failed; a run
+// whose page died with no load left fails at its setup since). Prints each process as it ends with what it
+// found (a test marked todo — a later step's finding — isn't a failure), then each app's and kind's fault
+// points and time. A process still running after PROCESS_MS is stopped (its process tree, by its pid) and
+// counted as failed, named. Exits 1 when anything failed.
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ownTemp } from './long-temp.mjs';
 
@@ -16,7 +19,8 @@ const KINDS = {
   desktop: ['kill', 'EIO', 'EPERM', 'ENOENT', 'EXDEV', 'drive away', ...BLIPS],
   website: ['page death', 'NoModificationAllowedError', 'NotFoundError', 'NotAllowedError', 'drive away', ...BLIPS],
 };
-const SHARDS = { desktop: 5, website: 24 };
+const SHARDS = { desktop: 5, website: 32 };
+const PROCESS_MS = 40 * 60_000;   // a shard took at most about 15 min (S30, S31)
 const file = fileURLToPath(new URL('./folder-sweep.test.mjs', import.meta.url));
 const jobs = [];
 for (const app of /** @type {('desktop' | 'website')[]} */ (['desktop', 'website'])) {
@@ -31,10 +35,15 @@ const run = ({ app, kind, shard }) => ownTemp((temp) => new Promise((resolve) =>
     env: { ...process.env, ...temp, SHIORI_SWEEP_EVERY: '1', SHIORI_SWEEP_APP: app, SHIORI_SWEEP_KIND: kind, SHIORI_SWEEP_SHARD: shard },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  let out = '';
+  let out = '', late = false;
   child.stdout.on('data', (d) => { out += d; });
   child.stderr.on('data', (d) => { out += d; });
-  child.on('close', (code) => resolve({ code, out }));
+  // Too long: the process and what it started stopped, by its pid.
+  const timer = setTimeout(() => {
+    late = true;
+    if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F']); else child.kill('SIGKILL');
+  }, PROCESS_MS);
+  child.on('close', (code) => { clearTimeout(timer); resolve({ code, out, late }); });
 }));
 
 const started = Date.now();
@@ -44,10 +53,11 @@ const queue = [...jobs];
 await Promise.all(Array.from({ length: Math.min(Number(atOnce), jobs.length) }, async () => {
   for (let job = queue.shift(); job; job = queue.shift()) {
     const t0 = Date.now();
-    const { code, out } = await run(job);
+    const { code, out, late } = await run(job);
     const ms = Date.now() - t0;
     const lines = out.split('\n'), cut = lines.findIndex(l => /✖ failing tests:/.test(l));
-    const failures = (cut < 0 ? lines : lines.slice(0, cut)).filter(l => /^\s+✖ /.test(l));
+    const failures = [...(cut < 0 ? lines : lines.slice(0, cut)).filter(l => /^\s+✖ /.test(l)),
+      ...(late ? [`  ✖ never ended: stopped after ${PROCESS_MS / 60_000} min, in the test after "${lines.filter(l => /^\s+[✔✖﹣⚠] /.test(l)).at(-1)?.trim() ?? 'none'}"`] : [])];
     const todos = (cut < 0 ? lines : lines.slice(0, cut)).filter(l => /^\s+⚠ /.test(l));   // a later step's finding
     const points = lines.map(l => l.match(/ℹ (\d+) of \d+ fault points/)).filter(Boolean).reduce((n, m) => n + Number(m[1]), 0);
     const key = `${job.app} ${job.kind}`;

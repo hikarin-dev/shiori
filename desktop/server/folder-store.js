@@ -324,6 +324,19 @@ export const notFound = (file, error) => contract.surelyMissing({ home: () => ho
 // Whether nothing is at `file`, as the shared rule takes it (notFound), for a call that answered so.
 export const gone = async (file) => (await notFound(file, 'not found')).kind === 'missing';
 const within = (dir, rel) => path.join(dir, ...String(rel).split('/').filter(Boolean));
+// Folder `rel` ('/'-separated) made inside gallery folder `dir` a level at a time, never `dir` itself: a gallery's
+// folder moved away meanwhile (its regroup's rename, under a publication of it) fails the write ('ENOENT'), never
+// is made again at its old name holding a publication of the gallery there (S31's close-out: such a stray manifest,
+// a generation past the one at the gallery's place, made that place read as an older copy). Resolves the first
+// folder it made, if any.
+async function mkdirIn(dir, rel) {
+  let made, sub = '';
+  for (const part of String(rel).split('/').filter(p => p && p !== '.')) {
+    sub = sub ? `${sub}/${part}` : part;
+    try { await disk.mkdir(within(dir, sub)); made ??= within(dir, sub); } catch (e) { if (e?.code !== 'EEXIST') throw e; }
+  }
+  return made;
+}
 // A text read for what decides nothing (publishIn's best-effort refresh of its stable-named copies): null
 // for "not found", whatever the reason.
 const textOr = (file) => disk.readFile(file, 'utf8').catch((e) => { if (lost(e)) return null; throw e; });
@@ -590,10 +603,10 @@ export async function publishIn(place, next, texts, { hide = () => {} } = {}) {
   });
   const plan = await format.publication({ area, prev, next: { ...next, sizes }, texts });
   if (area) {
-    const made = await disk.mkdir(within(dir, area), { recursive: true });
+    const made = await mkdirIn(dir, area);
     if (made) try { hide(within(dir, area)); } catch {}
   }
-  if (plan.writes.length) await disk.mkdir(within(dir, format.storedDir(area)), { recursive: true });
+  if (plan.writes.length) await mkdirIn(dir, format.storedDir(area));
   let bytes = 0;
   for (const w of plan.writes) { await replaceFile(within(dir, w.path), w.text); bytes += Buffer.byteLength(w.text); }
   await replaceFile(within(dir, format.manifestPath(area)), plan.text);
@@ -602,7 +615,7 @@ export async function publishIn(place, next, texts, { hide = () => {} } = {}) {
     try {
       const file = within(dir, s.path);
       const had = await textOr(file);
-      if (s.text != null && had !== s.text) { await disk.mkdir(path.dirname(file), { recursive: true }); await replaceFile(file, s.text); bytes += Buffer.byteLength(s.text); }
+      if (s.text != null && had !== s.text) { await mkdirIn(dir, path.posix.dirname(s.path)); await replaceFile(file, s.text); bytes += Buffer.byteLength(s.text); }
       else if (s.text == null && had != null && s.was && await format.matches(s.was, had)) await disk.rm(file, { force: true });
     } catch {}
   }
