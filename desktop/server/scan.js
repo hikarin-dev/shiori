@@ -377,8 +377,9 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   // had the folder taken over — follows it there (F5, S10; followTo). So does one whose archive is still
   // there, found as a folder beside it naming it at a later generation (gallery-manifest.js supersedes:
   // an unpack cut short before the archive went — review 7 B6), its archive deleted as an unpack deletes it.
+  const followedWaiting = new Set();   // followed with something of it waiting here: its new place held below
   const unpackedTo = (row, g, left = false) => {
-    if (followTo(library, row, g, { left })) reread.push(row.gid);
+    if (followTo(library, row, g, { left })) reread.push(row.gid); else followedWaiting.add(row.gid);
     byId.delete(row.gid);
     g.claimed = true;
     out.moved.push(row.gid);
@@ -493,8 +494,11 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   // A linked gallery read again from its source (linked.js) isn't missing.
   out.missing = out.missing.filter(gid => !out.updated.includes(gid));
   // Then the galleries it keeps whose descriptions another app changed since: read again — not one it
-  // followed from where it was (unpackedTo: read where it now is).
-  const kept = known.filter(r => present.has(r.gid) && !out.moved.includes(r.gid));
+  // followed from where it was (unpackedTo: read where it now is), but one followed with something of it
+  // waiting here: its new place is held now (refreshGallery, S31), so where that is another app's publication
+  // the folder's version stands from this check on, not from the next settle.
+  const kept = [...known.filter(r => present.has(r.gid) && !out.moved.includes(r.gid)),
+    ...[...followedWaiting].map(gid => files._row(gid)).filter(Boolean)];
   begin('lf.task_comparing', kept.length);
   for (const row of kept) {
     if (stopped()) { out.stopped = true; break; }

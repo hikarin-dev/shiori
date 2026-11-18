@@ -70,7 +70,8 @@ import { v1Gallery, legacyGallery, seriesExport } from './fixtures/storage-fixtu
  * (`met`).
  * @typedef {{ lib: Driver, base: string, A: string, B: string, ids: Record<string, string>, g: Record<string, string>,
  *   titles: Record<string, string>, known: Set<string>, deleted: Set<string>, plants: Map<string, string>, discard?: boolean,
- *   showFirst?: boolean, takeBack?: boolean, want?: Record<string, G>, series?: string[], other?: Driver | null, wrong?: string[], met?: boolean }} Ctx */
+ *   showFirst?: boolean, takeBack?: boolean, want?: Record<string, G>, series?: string[], other?: Driver | null, wrong?: string[], met?: boolean,
+ *   busy?: Set<string> }} Ctx */
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const png = (n) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, n >> 8, n & 255, 1, 2, 3]);
@@ -183,6 +184,22 @@ async function addedAgain(/** @type {Ctx} */ c) {
   c.ids.A = await c.lib.add(c.A);
   await c.lib.setDefault(c.ids.A);
 }
+
+// S31: the other app uses folder A anyway — Alpha retitled and its page 1 translated there — and is closed; this
+// app has learned of it, and takes the folder back in the step.
+async function usedThere(/** @type {Ctx} */ c) {
+  const other = await otherApp(c);
+  await other.scan(await other.add(c.A, { force: true }));   // "Use anyway"
+  await other.setTitle(c.g.alpha, 'Alpha there');
+  await other.putTranslation(c.g.alpha, 1, png(7));
+  await publishedThere(other, c.g.alpha, 'translated/');
+  await other.close();
+  c.other = null;
+  await sawTaken(c);
+  c.takeBack = true;
+}
+// Alpha as the other app left it in folder A (usedThere).
+const thereNow = (/** @type {Ctx} */ c) => withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha there', [png(1), png(2)]) } }, c.g.alpha, 1, png(7));
 
 /** A gallery `title` with pages `pages`, in the default folder. @param {Ctx} c */
 async function made(c, title, pages) {
@@ -1161,10 +1178,10 @@ const SCENARIOS = [
     },
     state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1)]), [c.g.beta]: G('A', 'Beta there', [png(4)]) } }),
     // Before the stages' check reads what the other app published (D4), Beta's own title shows — with any of
-    // the step's states of Alpha — and on the website until the folder is read afresh (added again): under load
-    // it reads another app's generation at a later check while it is busy with the gallery (§8, S26a; the whole
-    // sweep's load showed it at the check, 40 points, each passing alone).
-    also: (c, stage) => (stage === 're-add' || (stage !== 'flush' && c.lib.app !== 'website') ? [] : [[png(1)], [png(1), png(2)]].flatMap((pages) => {
+    // the step's states of Alpha — and on the website after it too while the website was busy with Beta as that
+    // check began (c.busy, db.js galleryBusy): it reads another app's generation at a later check then (§8, S26a;
+    // the whole sweep's load showed it at the check, 40 points, each passing alone). Never at the re-add.
+    also: (c, stage) => (stage === 're-add' || (stage !== 'flush' && !c.busy?.has(c.g.beta)) ? [] : [[png(1)], [png(1), png(2)]].flatMap((pages) => {
       const s = { aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', pages), [c.g.beta]: G('A', 'Beta', [png(4)]) } };
       return [s, withTranslation(s, c.g.alpha, 1, png(5))];
     })),
@@ -1184,6 +1201,122 @@ const SCENARIOS = [
         await other.remove(theirs);   // it lets go
       } finally { await other.close(); c.other = null; }
     },
+  },
+  // S31 (review 8): an operation made from a view older than the folder's — the other app, using folder A anyway,
+  // published a new title and a translation of Alpha there; this app takes the folder back and, before any check
+  // reads it, publishes (a title), changes an archived gallery's picture (the website's unpack of it, the desktop
+  // following the website's), or moves the gallery to folder B. The step is the take-back and the operation, faulted
+  // at every point: the folder's version stands throughout — what this app made of Alpha goes on it, or is dropped
+  // (reported) — from the stages' check on only the folder's version shows (with this app's change, where it went
+  // on), and nothing of the other app's is lost. (The website reads another app's work of a gallery it is busy with
+  // at a later check: c.busy, as above.)
+  {
+    name: 'a title published from a view older than the folder\'s, taken back',
+    async setup(c) {
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      await c.lib.flush();
+      await usedThere(c);
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }),
+    also: (c, stage) => (stage === 're-add' || (stage !== 'flush' && !c.busy?.has(c.g.alpha)) ? []
+      : [{ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha here', [png(1), png(2)]) } }, { aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }]),
+    ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A), (s) => s, null, true),
+      op('title', (c) => c.lib.setTitle(c.g.alpha, 'Alpha here'), (s, c) => thereNow(c)), CHECK, FLUSH, SETTLE],
+    noSetupFlush: true,
+  },
+  {
+    name: 'an archived gallery\'s picture changed from a view older than the folder\'s, taken back (the website\'s unpack)',
+    apps: ['website'],
+    sample: 0,
+    async setup(c) {
+      // The desktop made Alpha and archived it, then let the folder go; this app read it there.
+      const other = await otherApp(c);
+      const theirs = await other.add(c.A, { force: true });
+      await other.setDefault(theirs);
+      c.g.alpha = await other.newGallery('Alpha');
+      c.known.add(c.g.alpha);
+      for (const [i, b] of [png(1), png(2)].entries()) await other.putPage(c.g.alpha, i + 1, b);
+      await other.flush();
+      await other.raw.archiveGallery(c.g.alpha);
+      await other.flush();
+      await other.setDefault(other.home);
+      await other.remove(theirs);
+      await c.lib.raw.folderClaim(c.ids.A);
+      await c.lib.scan(c.ids.A);
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      await c.lib.flush();
+      // Then it used the folder anyway: its title of Alpha reaches the archive.
+      await other.scan(await other.add(c.A, { force: true }));
+      await other.setTitle(c.g.alpha, 'Alpha there');
+      await other.flush();
+      await other.close();
+      c.other = null;
+      await sawTaken(c);
+      c.takeBack = true;
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }),
+    // The translation dropped (reported) where the folder's version stood over it as it waited; and this app's
+    // view, with its translation or without, while it was busy with Alpha as the stages' check began (it reads the
+    // other app's generation at a later check: the take-back leaves it busy a moment, §8, S26a).
+    also: (c, stage) => [{ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha there', [png(1), png(2)]) } },
+      ...(stage === 're-add' || (stage !== 'flush' && !c.busy?.has(c.g.alpha)) ? [] : [{ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } },
+        withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }, c.g.alpha, 1, png(8))])],
+    ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A), (s) => s, null, true),
+      op('translation 1', (c) => c.lib.putTranslation(c.g.alpha, 1, png(8)), (s, c) => withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha there', [png(1), png(2)]) } }, c.g.alpha, 1, png(8))),
+      CHECK, FLUSH, SETTLE],
+    noSetupFlush: true,
+  },
+  {
+    name: 'an archived gallery\'s picture changed from a view older than the folder\'s, taken back (the other app unpacked it)',
+    apps: ['desktop'],
+    sample: 0,
+    async setup(c) {
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      await c.lib.flush();
+      await c.lib.raw.archiveGallery(c.g.alpha);
+      await c.lib.flush();
+      // The website used the folder anyway: its translation of Alpha unpacked the archive.
+      const other = await otherApp(c);
+      await other.scan(await other.add(c.A, { force: true }));
+      await other.putTranslation(c.g.alpha, 1, png(7));
+      await publishedThere(other, c.g.alpha, 'translated/');
+      await other.close();
+      c.other = null;
+      await sawTaken(c);
+      c.takeBack = true;
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }),
+    // Page 2 dropped (reported) where the folder's version stood over it as it waited; and, until a check follows
+    // Alpha to the folder the other app unpacked it into, none of its pages read where this app had them (its
+    // archive gone: a gallery with none shows none) but page 2 waiting here.
+    also: (c, stage) => [withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }, c.g.alpha, 1, png(7)),
+      ...(stage === 'flush' ? [{ aIn: true, galleries: {} },
+        /** @type {State} */ ({ aIn: true, galleries: { [c.g.alpha]: /** @type {G} */ (/** @type {any} */ ({ place: 'A', title: 'Alpha', pages: [null, [hex(png(9)), hex(png(9))]] })) } })] : [])],
+    ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A), (s) => s, null, true),
+      op('page 2', (c) => c.lib.putPage(c.g.alpha, 2, png(9)), (s, c) => withPage(withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }, c.g.alpha, 1, png(7)), c.g.alpha, 2, png(9))),
+      CHECK, FLUSH, SETTLE],
+    noSetupFlush: true,
+  },
+  {
+    name: 'a gallery moved to another folder from a view older than the folder\'s, taken back',
+    moves: true,
+    sample: 0,
+    async setup(c) {
+      c.ids.B = await c.lib.add(c.B);
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      await c.lib.flush();
+      await usedThere(c);
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }),
+    // Not moved (a fault before the move, or the folder's version unreadable as it was asked): the folder's version
+    // in A, from the stages' check on.
+    also: (c, stage) => [thereNow(c), ...(stage === 're-add' || (stage !== 'flush' && !c.busy?.has(c.g.alpha)) ? [] : [{ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }])],
+    ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A), (s) => s, null, true),
+      op('move to B', (c) => c.lib.move(c.g.alpha, c.ids.B), (s, c) => allIn(thereNow(c), 'B')), CHECK, FLUSH, SETTLE],
+    noSetupFlush: true,
   },
   {
     // The website without leave to use folder A: pictures wait in this browser, then go to the folder once
@@ -1349,6 +1482,9 @@ async function stages(c, sc, states, done) {
   if (c.wrong?.length) return c.wrong.map(w => `step: ${w}`);
   if (c.takeBack && (await c.lib.list()).some(f => f.id === c.ids.A)) await c.lib.raw.folderClaim(c.ids.A).catch(() => {});
   for (const [stage, work] of steps) {
+    // Which galleries the website is busy with as the stages' check begins (db.js galleryBusy): it reads another
+    // app's work of those at a later check (§8, S26a) — what a scenario's `also` may allow for them alone.
+    if (stage === 'check') c.busy = new Set(c.lib.app === 'website' ? Object.values(c.g).filter(gid => c.lib.raw.galleryBusy(gid)) : []);
     try { await within(stage, work()); } catch (e) { return [`${stage}: ${/** @type {Error} */ (e).message}`]; }
     const wrong = [...await wrongAt(stage, c, validAt(stage), { aInAlways: stage === 're-add' }),
       ...reported.splice(0).filter(p => p.reason === 'duplicate').map(p => `${stage}: a copy of a gallery stays at ${p.path}`)];

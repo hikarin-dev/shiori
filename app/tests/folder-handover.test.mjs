@@ -1877,6 +1877,60 @@ async function until(ready, ms = 5000) {
   }
 }
 
+// S31 gave each publication an id of its own, in its manifest and its token; a manifest from before names none, and
+// keeps the token it had (rule 1). A library and folders S30 wrote (146199d: the desktop-s30 fixture, made by that
+// version's own code) open as they were: each stamp still its place's token, so nothing is read as changed and
+// nothing waiting is dropped — a title waiting for gallery B since its drive was away is published at the check —
+// and a change of each app goes over a manifest naming no publication, the other app reading it: the website's of
+// gallery C (in the third folder, as S30 left it there), the desktop's of B.
+const S30_WRITTEN = {
+  name: 'S31: a library and folders S30 wrote (manifests and stamps naming no publication) open as they were — nothing read as changed, a change waiting published, not dropped — and each app\'s change publishes over them, read by the other',
+  async run({ dir, website }) {
+    const { desktopLibrary: fixture, FIXTURE_GIDS } = await import('./fixtures/storage-fixtures.mjs');
+    const { a: A, b: B, c: C } = FIXTURE_GIDS;
+    const base = path.join(dir, 's30');
+    const { libraryDir } = await fixture('desktop-s30', base);
+    const desktop = await desktopLibrary(base, { own: libraryDir });
+    try {
+      const stamp = (gid) => desktop.raw._s('SELECT stamp FROM stamps WHERE gid = ?').get(gid)?.stamp ?? null;
+      assert.deepEqual([A, B, C].map(g => /^v2:\d+:[^.:]+$/.test(stamp(g) ?? '')), [true, true, true], 'stamps of S30, naming no publication');
+      const byName = async (name) => (await desktop.list()).find(f => path.basename(f.path) === name);
+      const second = (await byName('second')).id, third = (await byName('third')).id;
+      const F = path.join(base, 'second');
+      fs.renameSync(F, `${F}.away`);
+      await desktop.setTitle(B, 'B waited');
+      await desktop.flush();
+      fs.renameSync(`${F}.away`, F);
+      const checks = [];
+      for (const id of [desktop.home, second]) { checks.push(await desktop.scan(id)); await desktop.flush(); }
+      assert.deepEqual(checks.map(r => [r.added, r.problems]), [[0, []], [0, []]], 'the checks find nothing new, report nothing');
+      assert.deepEqual([await desktop.titleOf(A), await desktop.titleOf(B)], ['Fixture A', 'B waited'], 'A as it was; B\'s waiting title published');
+      assert.deepEqual((await desktop.list()).flatMap(f => f.attention ?? []).filter(a => a.reason === 'changed-both'), [], 'nothing dropped');
+      assert.match(stamp(B), /^v2:\d+\.[0-9a-z]+:/, 'B\'s publication names its id');
+      // The website uses the third folder (hidden here) as S30 left it: gallery C read there, its title changed.
+      const there = await website.add(path.join(base, 'third'), { force: true });
+      assert.deepEqual((await website.scan(there)).problems, [], 'the website reads the third folder');
+      assert.equal(await website.titleOf(C), 'Fixture C');
+      await website.setTitle(C, 'C by the website');
+      await website.flush();
+      await website.setDefault(website.home);
+      await website.remove(there);
+      // The desktop shows it again and reads C as the website left it; B read by the website in the second folder.
+      await desktop.show(third);
+      await desktop.raw.folderClaim(third);
+      await desktop.scan(third);
+      await desktop.flush();
+      assert.equal(await desktop.titleOf(C), 'C by the website', 'the website\'s change read here');
+      await desktop.setDefault(desktop.home);
+      await desktop.remove(second);
+      const back = await website.add(F);
+      await website.scan(back);
+      assert.equal(await website.titleOf(B), 'B waited', 'the desktop\'s change read there');
+      assert.deepEqual([namedMissing(F), namedMissing(path.join(base, 'third'))], [[], []], 'every named file there');
+    } finally { await desktop.close(); }
+  },
+};
+
 // These drive both libraries themselves: run against the desktop library (npm run test:desktop),
 // there is nothing more to run.
 const skip = !!globalThis.__desktopLibrary && 'run by npm test';
@@ -1894,7 +1948,7 @@ for (const [direction, apps] of [['website to desktop', ['website', 'desktop']],
     }
     if (apps[0] === 'desktop') {
       for (const h of [ARCHIVED, OLDEST, UNPACKED, CUT_SHORT, EDITED, NOTES_UNREAD, FIRST_FOLDER, NOTED_ARCHIVE, DELETED_ON_TAKE_BACK, KILLED_UNPACK, ARCHIVE_DELETED, BOTH_TRANSLATED, SWAP_LEFT, FOLLOWED,
-        STAGED, STAGED_KILLED, UNPACK_MET, UPGRADED, UNPACKED_STALE]) {
+        STAGED, STAGED_KILLED, UNPACK_MET, UPGRADED, UNPACKED_STALE, S30_WRITTEN]) {
         test(h.name, { skip }, async (t) => {
           const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-handover-'));
           const desktop = await desktopLibrary(path.join(dir, 'desktop'));

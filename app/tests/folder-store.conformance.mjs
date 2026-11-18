@@ -3479,6 +3479,44 @@ export const CASES = [
     },
   },
   {
+    // Review 8 part A (S31, rule 5): the website's gate has the claim read again in the background once its last
+    // read is past the time to live (S29c). A read begun before "Take back" and finished after it set what the
+    // gate knew from the claim it read — another app's — so for one time to live after the take-back every
+    // change was refused. What a read begun before the gate's knowledge was forgotten (this library's own claim
+    // written since: CLAIM_FORGOTTEN) tells of the claim before it, and teaches nothing. The desktop reads a claim
+    // in one synchronous step: it has no such read.
+    name: 'S31: a claim read begun before "Take back" and finished after it teaches the gate nothing — a change after the take-back is accepted',
+    platforms: ['website'],
+    async run({ fx }) {
+      const said = (/** @type {Promise<unknown>} */ p) => p.then(() => 'resolved', (/** @type {any} */ e) => e?.reason || e?.code || String(e));
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Alpha');
+      await fx.lib.putPage(gid, 1, png(1, 1));
+      await fx.lib.flush();
+      await fx.takeOver(ref);
+      await fx.lib.list();   // learned: another app holds it
+      assert.equal(await said(fx.lib.setTitle(gid, 'One')), 'not-owned', 'learned — refused');
+      clockAhead(CLAIM_TTL_MS + 1000);   // the gate's last read aged: the next change has it read again, in the background
+      // "Take back" lands while that read is under way: what the gate knew is forgotten as the read reaches the
+      // claim's text (the take-back's own claim write and its CLAIM_FORGOTTEN, heard in this context at once).
+      const platform = await import(new URL(`../js/platform.js${pageNow() ? `?gen=${pageNow()}` : ''}`, import.meta.url).href);
+      let met = false;
+      const undo = fsa.failNext((c) => {
+        if (!met && c.op === 'getFile' && c.path === '.shiori/owner.json') { met = true; platform.control.send({ type: 'CLAIM_FORGOTTEN', folder: ref.id }); }
+        return false;
+      }, 'NotReadableError', { times: Infinity });
+      try {
+        assert.equal(await said(fx.lib.setTitle(gid, 'Two')), 'not-owned', 'weighed on the last answer, its read begun');
+        await until(() => met);
+        await new Promise(r => setTimeout(r, 100));   // that read ends
+      } finally { undo(); }
+      assert.equal(await said(fx.lib.setTitle(gid, 'Three')), 'resolved', 'what that read told is no knowledge: accepted');
+      assert.equal(await fx.lib.raw.folderClaim(ref.id), 'granted');
+      await fx.lib.setDefault(fx.lib.home);
+      await fx.lib.remove(ref.id);
+    },
+  },
+  {
     // C2's form for an app started again while another app holds a folder (S29c). The desktop reads every
     // folder's claim as it opens. The website's page loaded afresh knows nothing of it yet: its first change
     // is accepted (made before the app has learned of the other: the owner knows, S29a) and has the claim

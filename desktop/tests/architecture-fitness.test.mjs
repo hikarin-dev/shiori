@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { placeWritersOff } from '../../app/tests/stale-view-operations.mjs';
 
 const server = join(dirname(fileURLToPath(import.meta.url)), '..', 'server');
 const read = (f) => readFileSync(join(server, f), 'utf8');
@@ -64,6 +65,17 @@ test('S31: whose version a gallery\'s place holds is weighed in one place — th
   assert.deepEqual([...new Set(calls(/(?<!function\s+)\bplaceIn\s*\(/))].sort(), ['files.js hold', 'folder-store.js folderStore'], 'a place held through the library\'s gateway, and the adapter\'s contract, alone');
   assert.deepEqual(calls(/\b(?:othersSince|_othersThere|_othersIn|_dropOrOver|dropWaiting|_dropWaiting)\b|\b_others\s*\(/), [], 'no per-path check of another app\'s generation left');
   assert.deepEqual(calls(/\bwriterOf\s*\(/), [], 'whose a token is told by the rule alone');
+});
+
+test('S31: every function writing into, moving, unpacking, archiving into or deleting at a gallery\'s place holds it first, and is an operation of the stale-view table — or a step of one, or touches no version another app may have published, and why', () => {
+  // app/tests/stale-view-operations.mjs lists each (PLACE_WRITERS) and the table's operations' code (OPERATIONS);
+  // app/tests/folder-stale-view.test.mjs runs each operation on both apps from every form of older view.
+  assert.deepEqual(placeWritersOff('desktop'), [], 'name each in app/tests/stale-view-operations.mjs');
+  // A function made up to write at a place, and one that stops holding first, each fail it.
+  const madeUp = (f) => read(f) + (f === 'files.js' ? '\nclass Made {\n  async _madeUp(place) {\n    await publishIn(place, {}, {});\n  }\n}\n' : '');
+  assert.deepEqual(placeWritersOff('desktop', { read: madeUp }), ['files.js _madeUp: writes at a place — name it: \'holds\' (and an operation of the table), a step of one, or free (and why)']);
+  const unheld = (f) => read(f).replace('const whose = await this.hold(gid);', 'const whose = await ({ kind: \'ok\' });');
+  assert.deepEqual(placeWritersOff('desktop', { read: unheld }), ['files.js _place: said to hold its place, but never calls the gateway']);
 });
 
 test('no code outside the folder store adapter turns a failed read of a library folder into "nothing there"', () => {

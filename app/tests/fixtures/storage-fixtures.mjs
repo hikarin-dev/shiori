@@ -19,7 +19,7 @@ import { galleryFiles } from '../../js/storage/gallery-files.js';
 import { zipCreate } from '../../js/zip.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-export const DESKTOP_FIXTURES = ['desktop-v1.2.6', 'desktop-kv-roots', 'desktop-roots', 'desktop-unplaced'];
+export const DESKTOP_FIXTURES = ['desktop-v1.2.6', 'desktop-kv-roots', 'desktop-roots', 'desktop-unplaced', 'desktop-s30'];
 export const INDEXEDDB_FIXTURES = ['indexeddb-16', 'indexeddb-18', 'indexeddb-19'];
 // The galleries every captured library holds (capture-storage-fixtures.mjs): A archived with a cover
 // of its own, B a folder, C a folder in a hidden library folder (where the version had folders).

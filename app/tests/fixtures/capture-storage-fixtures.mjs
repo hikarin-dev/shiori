@@ -30,6 +30,8 @@ const SHAPES = [
     about: 'tables roots, places (unmounted a view), stamps' },
   { name: 'desktop-unplaced', kind: 'desktop', commit: '7d774f0', folders: true,
     about: 'as desktop-roots, plus tables unplaced and removed_notes' },
+  { name: 'desktop-s30', kind: 'desktop', commit: '146199d', folders: true,
+    about: 'S30, before S31: manifests naming no publication, stamps of their generation and writer alone' },
   { name: 'indexeddb-16', kind: 'indexeddb', commit: 'd35c9ea', about: 'IndexedDB 16 (released v1.2.6)' },
   { name: 'indexeddb-18', kind: 'indexeddb', commit: '6f2d3d7', about: 'IndexedDB 18: folders and dormant stores' },
   { name: 'indexeddb-19', kind: 'indexeddb', commit: '7d774f0', about: 'IndexedDB 19: the undescribed store' },

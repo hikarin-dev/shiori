@@ -83,7 +83,8 @@ const MAX_COMMANDS = 14;
  * library has folder B (S30: a second library folder), once one added it.
  * @typedef {{ state: 'shown' | 'hidden' | 'away', galleries: Gallery[], deleted: Set<string>, notes: Map<string, Uint8Array>,
  *   restartable: boolean, tag: number, pdfs: string[], app: string, both: boolean,
- *   leaving: { gid: string, dir: string | null, zip?: string }[], gone: Map<string, Gallery>, bApp?: string }} Model */
+ *   leaving: { gid: string, dir: string | null, zip?: string }[], gone: Map<string, Gallery>, bApp?: string,
+ *   copy?: { at: string, app: string, galleries: Gallery[], notes: string } }} Model */
 /** `second`: a second desktop library over the same folders (the desktop app on another computer), made
  * when one first takes folder A over; `B`: folder B's id in the library that has it.
  * @typedef {{ lib: Driver, other: Driver | null, dir: string, A: string, drive: string, id: string, second?: Driver, B?: string }} Real */
@@ -498,8 +499,14 @@ const usedAnyway = command('usedAnyway', fc.record({
       else g.pages[killed.n] = translatedAs(g.pages[killed.n], killed.bytes);
     };
     if (killed && mineOn && await showsKilled(by)) { applyKilled(/** @type {Gallery} */ (base.get(mineOn.gid))); applyKilled(mineOn); }
+    /** @type {{ what: string, k: number, title: string, page: Page } | null} */
+    let inWindow = null;   // the change accepted here in the window, as made
     if (mineOn && mode === 'window') {
-      if (await change(m, r.lib, mineOn, a.mine[1], a.mine[2], true)) mineOn.waits = true;
+      if (await change(m, r.lib, mineOn, a.mine[1], a.mine[2], true)) {
+        mineOn.waits = true;
+        const k = a.mine[2] % mineOn.pages.length;
+        inWindow = { what: a.mine[1], k, title: mineOn.title, page: structuredClone(mineOn.pages[k]) };
+      }
       await r.lib.flush().catch(() => {});
     }
     /** @type {Map<string, Gallery | null>} */
@@ -575,6 +582,15 @@ const usedAnyway = command('usedAnyway', fc.record({
     await r.lib.flush();
     await r.lib.scan(r.id);   // the next check: a deletion dropped where a check met the gallery joins it again then
     checked(m);
+    // S31: a change of this app's accepted here — waiting from the drive's absence, or a deletion owed — that the
+    // folder's version replaced (the other app changed that gallery) is reported dropped, never lost unsaid.
+    const reported = new Set((await r.lib.list()).find(f => f.id === r.id)?.attention?.filter((/** @type {any} */ x) => x.reason === 'changed-both').map((/** @type {any} */ x) => String(x.gid)) ?? []);
+    for (const g of inA) {
+      const t = touched.get(g.gid);
+      if (g === mineOn && t && (mode === 'deletes refused' || (mode === 'away' && g.waits)) && !reported.has(g.gid)) {
+        throw new Error(`gallery ${g.gid}'s ${a.mine?.[1]} here, replaced by the folder's version at the take-back, isn't reported dropped`);
+      }
+    }
     for (const g of inA) {
       const t = touched.get(g.gid), waited = !!g.waits || (!!killed && g === mineOn);
       delete g.waits;
@@ -604,6 +620,16 @@ const usedAnyway = command('usedAnyway', fc.record({
       await pause(250);
       await r.lib.scan(r.id);
     }
+    // S31 (review 8, R8-3): a change accepted here in the window — published at once, or waiting — is at the end in
+    // the folder's version, or reported dropped here; never lost unsaid (the other app's change made from a view
+    // older than the folder's, over it: R8-3, where both apps agreed on losing it).
+    if (inWindow && mineOn && touched.get(mineOn.gid) !== null && m.galleries.includes(mineOn)) {
+      const now = await viewOf(r.lib, mineOn), p = now.pages[inWindow.k];
+      const kept = inWindow.what === 'title' ? now.title === inWindow.title
+        : inWindow.what === 'page' ? same(p?.original, inWindow.page.original) : same(p?.translated, inWindow.page.translated);
+      const dropped = (await r.lib.list()).find(f => f.id === r.id)?.attention?.some((/** @type {any} */ x) => x.reason === 'changed-both' && String(x.gid) === mineOn.gid);
+      if (!kept && !dropped) throw new Error(`gallery ${mineOn.gid}'s ${inWindow.what} accepted here before this app learned of the take-over is neither in the folder's version nor reported dropped`);
+    }
   },
 });
 // A gallery the other app deleted while it used folder A anyway, deleted here too (the person deletes it).
@@ -616,6 +642,132 @@ const forgetGone = command('forgetGone', anyGallery, {
     m.deleted.add(g.gid);
   },
 });
+// ── S31: an index an earlier version left, and a folder put back from an older copy ──
+// This app's stamp of gallery `gid` (the token of the publication it last read or made there), or null; `put`
+// writes it (null: takes it away), as the index keeps it.
+async function stampOf(/** @type {Driver} */ lib, /** @type {string} */ gid) {
+  if (lib.app === 'desktop') return lib.raw._s('SELECT stamp FROM stamps WHERE gid = ?').get(gid)?.stamp ?? null;
+  return (await galleriesStore((store) => store.get(gid)))?.stamp ?? null;
+}
+async function putStamp(/** @type {Driver} */ lib, /** @type {string} */ gid, /** @type {string | null} */ stamp) {
+  if (lib.app === 'desktop') {
+    if (stamp == null) lib.raw._s('DELETE FROM stamps WHERE gid = ?').run(gid);
+    else lib.raw._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(gid, stamp);
+    return;
+  }
+  await galleriesStore((store) => {
+    const got = store.get(gid);
+    got.onsuccess = () => { if (!got.result) return; const { stamp: _, ...rest } = got.result; store.put(stamp == null ? rest : { ...rest, stamp }); };
+    return got;
+  }, 'readwrite');
+}
+// `fn(store)` on the website's galleries store (its stat records), in a transaction of its own: resolves the
+// result of the request it returns.
+async function galleriesStore(/** @type {(store: any) => any} */ fn, mode = 'readonly') {
+  const db = await new Promise((res, rej) => { const q = indexedDB.open('shiori-cache'); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+  try {
+    return await new Promise((res, rej) => {
+      const tx = /** @type {any} */ (db).transaction('galleries', mode);
+      const req = fn(tx.objectStore('galleries'));
+      tx.oncomplete = () => res(req?.result);
+      tx.onerror = () => rej(tx.error);
+    });
+  } finally { /** @type {any} */ (db).close(); }
+}
+// The manifests folder A holds as files (a gallery's folder's, a linked gallery's overlay's): their paths.
+const manifestsIn = (/** @type {string} */ dir) => filesIn(dir).filter(f => /[\\/]\.shiori[\\/](linked[\\/][^\\/]+[\\/])?gallery\.json$/.test(f) && !/[\\/]staging[\\/]/.test(f));
+// The index this app keeps of folder A's galleries as an earlier version left it, the app started from it, and
+// the folder checked: 'S30' (146199d: manifests naming no publication, stamps of their generation and writer alone
+// — a publication's id came with S31, and a manifest without one keeps its token, rule 1) or 'no stamps' (an index
+// from before stamps, with the manifests as they are). Nothing it shows changes, nothing is reported, and the
+// commands after (a take-over among them) go on from there.
+const earlierIndex = command('earlierIndex', fc.constantFrom('S30', 'no stamps'), {
+  check: (m) => m.state === 'shown' && !m.galleries.some(g => g.waits || g.displaced || g.unfollowed) && m.gone.size === 0,
+  async run(m, r, form) {
+    await r.lib.flush();
+    await settledDeletions(m, r);
+    const dropped = async () => (await r.lib.list()).find(f => f.id === r.id)?.attention?.filter((/** @type {any} */ x) => x.reason === 'changed-both') ?? [];
+    const before = (await dropped()).length;
+    const { parseManifest, manifestText, tokenOf } = await import('../js/storage/gallery-manifest.js');
+    for (const file of manifestsIn(r.A)) {
+      const read = parseManifest(fs.readFileSync(file, 'utf8'));
+      if (read.kind !== 'ok') continue;
+      const gid = read.value.galleryId, stamp = await stampOf(r.lib, gid);
+      if (form === 'no stamps') { await putStamp(r.lib, gid, null); continue; }
+      if (stamp !== tokenOf(read.value) || read.value.publication == null) continue;
+      const old = { ...read.value, publication: undefined };
+      fs.writeFileSync(file, manifestText(old));
+      await putStamp(r.lib, gid, tokenOf(old));
+    }
+    if (r.lib.restart) await r.lib.restart();
+    await r.lib.scan(r.id);
+    await r.lib.flush();
+    const reported = await dropped();
+    if (reported.length > before) throw new Error(`the earlier index (${form}) dropped a change: ${JSON.stringify(reported)}`);
+    checked(m);
+  },
+});
+// Folder A copied by the person (`copyA`) and the copy put back in its place later (`putBack`), as one restores
+// a folder from a backup, while this app holds it: what the copy holds is the folder's version — each gallery
+// reads as the copy has it once a check reads it (rule 1: a publication the copy names is never taken for the
+// one this app read since, though its number may come again) — and a change after goes on from there. (Only where
+// the galleries of A are the same ones, as they were — none archived since, no file of the person's added, no
+// PDF — so the copy differs in what galleries say alone.)
+const copyA = command('copyA', fc.constant(null), {
+  check: (m) => m.state === 'shown' && !m.copy && m.pdfs.length === 0,
+  async run(m, r) {
+    await r.lib.flush();
+    await settledDeletions(m, r);
+    const copy = `${r.drive} copy ${++m.tag}`;
+    fs.cpSync(r.drive, copy, { recursive: true, preserveTimestamps: true });
+    m.copy = { at: copy, app: m.app, galleries: structuredClone(m.galleries.filter(g => g.place === 'A')), notes: [...m.notes.keys()].sort().join('\n') };
+  },
+});
+const putBack = command('putBack', fc.constant(null), {
+  check: (m) => {
+    if (m.state !== 'shown' || !m.copy || m.copy.app !== m.app || m.pdfs.length > 0 || m.gone.size > 0) return false;
+    const now = m.galleries.filter(g => g.place === 'A');
+    const then = new Map(m.copy.galleries.map(g => [g.gid, g]));
+    return now.length === then.size && now.every(g => then.has(g.gid) && !!then.get(g.gid)?.archived === !!g.archived && !g.edited && !g.waits && !g.displaced && !g.unfollowed)
+      && [...m.notes.keys()].sort().join('\n') === m.copy.notes;
+  },
+  ms: 30_000,
+  async run(m, r) {
+    const copy = /** @type {NonNullable<Model['copy']>} */ (m.copy);
+    m.copy = undefined;
+    await r.lib.flush();
+    await settledDeletions(m, r);
+    const aside = `${r.drive} newer ${++m.tag}`;
+    if (!(await moveAside(r.drive, aside))) { fs.rmSync(copy.at, { recursive: true, force: true }); return; }
+    fs.renameSync(copy.at, r.drive);
+    fs.rmSync(aside, { recursive: true, force: true });
+    const then = new Map(copy.galleries.map(g => [g.gid, g]));
+    for (const g of m.galleries) {
+      const was = then.get(g.gid);
+      if (g.place === 'A' && was) Object.assign(g, { title: was.title, pages: was.pages });
+    }
+    await r.lib.scan(r.id);
+    await r.lib.flush();
+    checked(m);
+    // The website reads the folder's version of a gallery it is busy with (a change of a moment ago) at a later
+    // check (plan §8, S26a): checked again until it has read every one there — its stamp the copy's publication —
+    // for at most 10 s. (A change of one made before it has is dropped, reported: the folder's version stands.)
+    const { parseManifest, tokenOf } = await import('../js/storage/gallery-manifest.js');
+    const unread = async () => {
+      for (const file of manifestsIn(r.A)) {
+        const read = parseManifest(fs.readFileSync(file, 'utf8'));
+        if (read.kind === 'ok' && m.galleries.some(g => g.gid === read.value.galleryId) && await stampOf(r.lib, read.value.galleryId) !== tokenOf(read.value)) return true;
+      }
+      return false;
+    };
+    for (const end = Date.now() + 10_000; await unread() && Date.now() < end;) {
+      await pause(250);
+      await r.lib.scan(r.id);
+      await r.lib.flush();
+    }
+  },
+});
+
 // A gallery of folder A archived by the desktop (then read in place by the website when it uses the folder).
 const archiveIt = command('archiveIt', anyGallery, {
   check: (m, i) => m.app === 'desktop' && m.state === 'shown' && !!galleryAt(m, i, inFolder),
@@ -1021,6 +1173,9 @@ const OPEN = {
   // or into a second library folder B, and the app's own moves between the two; a link at each place a
   // gallery's folder has.
   takeovers: { both: true, todo: {}, commands: [usedAnyway, usedAnyway, forgetGone, archiveIt, handOver] },
+  // S31's: the index an earlier version left (S30's, or one from before stamps) under the take-over shapes, and
+  // folder A put back from an older copy.
+  earlier: { both: true, todo: {}, commands: [earlierIndex, usedAnyway, usedAnyway, forgetGone, archiveIt, copyA, putBack, handOver] },
   edits: { todo: {}, commands: [movedByHand, checkB, moveTo] },
   links: { todo: {}, commands: [linkPart] },
 };
@@ -1094,6 +1249,25 @@ const REGRESSIONS = [
   // it (S29a's rule 3).
   ...['desktop', 'website'].map(app => ({ app, both: true, name: 'a deletion owed as the other app changes the gallery while it uses the folder anyway is dropped at the take-back',
     steps: [['newGallery', 1], ['usedAnyway', { by: 'other', mine: [0, 'delete', 0, 'away', 1], unseen: false, theirs: [[0, 'title', 0]], tries: [], made: false }]] })),
+  // S31's shapes, each run as written on both apps: the index S30 left (manifests and stamps naming no publication)
+  // or one from before stamps, then the folder used anyway — a title waiting here from the drive's absence is
+  // published where the other app changed nothing of the gallery, dropped and reported where it did; and folder A
+  // put back from an older copy, changed after on both apps.
+  ...['desktop', 'website'].flatMap(app => ['S30', 'no stamps'].flatMap(form => [
+    { app, both: true, name: `S31: from the index ${form === 'S30' ? 'S30 left' : 'of before stamps'}, a title waiting from the drive's absence is published at the take-back where the other app changed nothing of the gallery`,
+      steps: [['newGallery', 1], ['newGallery', 2], ['earlierIndex', form],
+        ['usedAnyway', { by: 'other', mine: [0, 'title', 0, 'away', 1], unseen: false, theirs: [[1, 'title', 0]], tries: [], made: false }]] },
+    { app, both: true, name: `S31: from the index ${form === 'S30' ? 'S30 left' : 'of before stamps'}, a title waiting from the drive's absence is dropped and reported where the other app changed the gallery`,
+      steps: [['newGallery', 1], ['earlierIndex', form],
+        ['usedAnyway', { by: 'other', mine: [0, 'title', 0, 'away', 1], unseen: false, theirs: [[0, 'translation', 0]], tries: [], made: false }]] },
+  ])),
+  // R8-3's shape: the desktop's title of an archived gallery, made in the window, reaches the archive; the website,
+  // which read the folder before it, translates the gallery there (its first change: an unpack). The title is in
+  // the folder's version at the end (or reported dropped on the desktop): never lost on both apps unsaid.
+  { app: 'desktop', both: true, name: 'S31: a title of an archived gallery made in the window, then the other app\'s unpack from its older view: the title is kept or reported',
+    steps: [['newGallery', 1], ['archiveIt', 0], ['usedAnyway', { by: 'other', mine: [0, 'title', 0, 'window', 1], unseen: false, theirs: [[0, 'translation', 0]], tries: [], made: false }]] },
+  ...['desktop', 'website'].map(app => ({ app, both: true, name: 'S31: folder A put back from an older copy reads as the copy has it, and a change after reaches both apps',
+    steps: [['newGallery', 1], ['newGallery', 2], ['copyA', null], ['setTitle', 0], ['putTranslation', [1, 0, false]], ['flush', null], ['putBack', null], ['setTitle', 1], ['flush', null], ['handOver', null], ['setTitle', 0], ['handOver', null]] })),
   ...['desktop', 'website'].map(app => ({ app, name: 'a translation put after a check read a changed source stays: the check made as a ZIP is linked counts',
     steps: [['link', null], ['changeEntry', [0, 1]], ['link', null], ['putTranslation', [0, 1, false]], ['scan', null]] })),
   // S10's situations (the review's F1–F6), each replayed as the commands reach it, on every app it

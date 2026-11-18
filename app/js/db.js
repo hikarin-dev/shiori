@@ -712,9 +712,13 @@ function _forgetFolders() { _foldersRead = null; _grants.clear(); _ours.clear();
 // What the commit gate knew of folder `id`'s claim forgotten, in every context of this browser: this
 // library wrote the claim (claimed the folder, took it back, let it go: _writeClaim), or forgot the folder.
 const _forgetKnown = (id) => platform.control.send({ type: 'CLAIM_FORGOTTEN', folder: id });
+// How many times what the gate knew of each folder was forgotten here: a read of its claim begun before the
+// latest (its claim written since by this library: "Take back") tells of the claim before, and teaches
+// nothing (_access; review 8, S31).
+const _forgotten = new Map();   // folder id → count
 platform.control.on((msg) => {
   if (msg?.type === 'FOLDERS_CHANGED') _forgetFolders();
-  else if (msg?.type === 'CLAIM_FORGOTTEN') _known.delete(msg.folder);
+  else if (msg?.type === 'CLAIM_FORGOTTEN') { _known.delete(msg.folder); _forgotten.set(msg.folder, (_forgotten.get(msg.folder) || 0) + 1); }
 });
 
 // What this context may do with folder `id` now: { state (its permission — or 'other-library': the
@@ -729,12 +733,13 @@ platform.control.on((msg) => {
 // asked again the next time, so one back is used at once (S8: a folder whose drive came back couldn't be
 // checked for five seconds), and one failed read refuses only what it met. Every claim read is what the
 // commit gate knows from then on (`_known`, folder-owner.js knownAfter: one that failed, or a folder out of
-// reach, changes nothing of it). `fresh` (every write, and every
-// check, through the write gate: _rootOf) reads which folder the handle reaches again, as the desktop
-// does: another library put at its path a moment after a write is never written to, nor its galleries
-// adopted (F1, S10).
+// reach, changes nothing of it — nor one begun before what was known was forgotten here: _forgotten).
+// `fresh` (every write, and every check, through the write gate: _rootOf) reads which folder the handle
+// reaches again, as the desktop does: another library put at its path a moment after a write is never
+// written to, nor its galleries adopted (F1, S10).
 async function _access(id, { fresh = false } = {}) {
   if (!id) return { state: 'unavailable', owned: false, claim: null };
+  const since = _forgotten.get(id) || 0;
   const hit = _grants.get(id);
   if (hit && Date.now() - hit.at < GRANT_TTL_MS) {
     if (!fresh) return hit;
@@ -749,8 +754,9 @@ async function _access(id, { fresh = false } = {}) {
   if (state === 'granted') { const here = await folderFiles.identityOf(id, folder.handle); if (here !== 'ok') state = here; }
   const held = state === 'granted' ? await _holds(folder).catch(() => ({ owned: false, claim: readClaim(undefined) })) : { owned: false, claim: null };
   const out = { state, ...held, at: Date.now() };
-  if (state === 'granted' && !held.claim?.unread) _grants.set(id, out); else _grants.delete(id);
-  if (state === 'granted' && held.claim) { const known = knownAfter(_known.get(id), held.claim, held.owned, out.at); if (known) _known.set(id, known); }
+  const current = (_forgotten.get(id) || 0) === since;   // what it read is still the latest this context may know
+  if (state === 'granted' && !held.claim?.unread && current) _grants.set(id, out); else _grants.delete(id);
+  if (state === 'granted' && held.claim && current) { const known = knownAfter(_known.get(id), held.claim, held.owned, out.at); if (known) _known.set(id, known); }
   return out;
 }
 // Whether this context knows another app holds folder `id` — what the commit gate weighs (_logIn): the
@@ -2161,13 +2167,16 @@ export async function moveGallery(galleryId, to, { onProgress = () => {}, series
 // removing — a removal's work, checking a folder, and its PDFs: folder-library.js, built over what
 // this kernel hands it (every record it writes goes through these transactions and their mount check,
 // every folder file through the write gate), and exported here under the names api.js uses.
+// Whether this library has work due for gallery `gid` — its announcement, its size, its publication: a check
+// reads another app's work of it at a later check meanwhile (folder-library.js _catchUp; §8, S26a).
+export const galleryBusy = (gid) => _feedTimers.has(gid) || _sizeTimers.has(gid) || _describeTimers.has(gid);
 const _folderLibrary = createFolderLibrary({
   BROWSER, DEFAULT_FOLDER, REF, PAGE, COVER,
   stores: { STORE, META: META_STORE, GALLERY: GALLERY_STORE, COVER: COVER_STORE, BLOB: BLOB_STORE, UNDESCRIBED: UNDESCRIBED_STORE, DORMANT: DORMANT_STORE, PERSONAL: PERSONAL_STORE },
   // IndexedDB, the change log and the change feed
   openDB, tx: _tx, txError: _txError, logIn: _logIn, deleteIn: _deleteIn, afterDelete: _afterDelete, stash: _stash, keyPage: _keyPage,
   canonicalMeta, importMarksIn: _importMarksIn, publishFeed, muchLater: _muchLater, bulkRun: _bulkRun,
-  busy: (gid) => _feedTimers.has(gid) || _sizeTimers.has(gid) || _describeTimers.has(gid),
+  busy: galleryBusy,
   // the records
   galleryGet, galleryGetAll, metaGet, transferIds, nextGalleryId, rebuildGalleryEntry, refreshSeriesAggregate, putCoverPatch,
   seriesWrite: (...args) => _seriesCommand('write', args),
@@ -2180,7 +2189,7 @@ const _folderLibrary = createFolderLibrary({
   me: _me, myLabel: _myLabel, readClaim: _readClaim, writeClaim: _writeClaim, noteEpoch: _noteEpoch, randomId: _randomId,
   // the pictures' storage in folders
   writing: _writing, replacePages: _replacePages, relocate: _relocate, follow: _follow, unpackedName: _unpackedName, reserveDir: _reserveDir, describe: _describe, cancelDescribe: _cancelDescribe,
-  hold: (gid) => _hold(gid),
+  hold: (gid, view) => _hold(gid, view),
   marked: _marked, patchStat: _patchStat, wantedDescriptions: _wantedDescriptions, textsOf: _textsOf, retireIn: _retireIn,
   archiveOf: _archiveOf, typeOfName: _typeOfName, settleFolders,
 });

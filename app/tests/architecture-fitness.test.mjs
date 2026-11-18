@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { placeWritersOff } from './stale-view-operations.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const appJs = join(repo, 'app', 'js');
@@ -157,6 +158,18 @@ test('S31: whose version a gallery\'s place holds is weighed in one place — th
   assert.deepEqual([...new Set(calls(/(?<!function\s+)\bplaceIn\s*\(/))].sort(), ['db.js _hold', 'storage/folder-store-web.js _root'], 'a place held through the library\'s gateway, and the adapter\'s contract, alone');
   assert.deepEqual(calls(/\b(?:othersSince|_othersThere|_othersIn|_dropOrOver|dropWaiting)\b|\b_others\s*\(/), [], 'no per-path check of another app\'s generation left');
   assert.deepEqual(calls(/\bwriterOf\s*\(/).filter(c => !c.startsWith('storage/gallery-manifest.js')), [], 'whose a token is told by the rule alone');
+});
+
+test('S31: every function writing into, moving, unpacking or deleting at a gallery\'s place holds it first, and is an operation of the stale-view table — or a step of one, or touches no version another app may have published, and why', () => {
+  // stale-view-operations.mjs lists each (PLACE_WRITERS) and the table's operations' code (OPERATIONS);
+  // folder-stale-view.test.mjs runs each operation on both apps from every form of older view. The desktop's
+  // own: desktop/tests/architecture-fitness.test.mjs.
+  assert.deepEqual(placeWritersOff('website'), [], 'name each in stale-view-operations.mjs');
+  // A function made up to write at a place, and one that stops holding first, each fail it.
+  const madeUp = (f) => read(f) + (f === 'db.js' ? '\nasync function _madeUp(found) {\n  await found.dir.publish({ manifest: {}, descriptions: {} });\n}\n' : '');
+  assert.deepEqual(placeWritersOff('website', { read: madeUp }), ['db.js _madeUp: writes at a place — name it: \'holds\' (and an operation of the table), a step of one, or free (and why)']);
+  const unheld = (f) => read(f).replace('const held = await _hold(d.gid, {', 'const held = await ({');
+  assert.deepEqual(placeWritersOff('website', { read: unheld }), ['db.js _deleteOne: said to hold its place, but never calls the gateway']);
 });
 
 test('the app never names a source site or the companion helper', () => {

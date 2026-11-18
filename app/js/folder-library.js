@@ -1562,12 +1562,14 @@ async function _drawnAt(folder, gid, token) {
 // written, then its source.json told how many and the version they were drawn from (`rendered`, last:
 // until then a check doesn't take the pages drawn so far for a gallery) — and the gallery joined to the
 // library, while the folder's lock is held (one at a time with its check). One the library has, drawn
-// again, has its pages replaced in one commit (db.js replacePages), then its marker. Resolves its id;
-// rejects when it couldn't join.
+// again, has its pages replaced in one commit (db.js replacePages), then its marker. Its overlay is held
+// first (db.js hold, S31): where it holds a publication — another app drew the PDF and joined it there since
+// this library read it waiting — the folder's version stands: nothing is drawn over it, the gallery joins as
+// it is there. Resolves its id; rejects when it couldn't join.
 async function addRendered(folder, gid, pages, token) {
   if (!isDrawing(pages)) throw new BackendError('invalid', 'no pages drawn');
   return folderFiles.withLock(FOLDER_LOCK(folder), async () => {
-    const { root, source } = await _drawnAt(folder, gid, token);
+    let { root, source } = await _drawnAt(folder, gid, token);
     const dir = overlayDir(gid);
     const marker = () => folderFiles.writeFile(folder, root, `${dir}/${SOURCE_FILE}`,
       sourceText(gid, { ...source, fingerprint: token, rendered: { pages: pages.length, fingerprint: token }, failed: null }));
@@ -1577,12 +1579,14 @@ async function addRendered(folder, gid, pages, token) {
       await K.patchStat(String(gid), (cur) => (cur.linked ? { ...cur, linked: { ...cur.linked, fingerprint: token } } : cur));
       return String(gid);
     }
-    for (const [i, blob] of pages.entries()) {
-      await folderFiles.writeFile(folder, root, `${dir}/${layoutPath.original(i + 1, extOfType(blob.type) || 'webp')}`, blob);
-    }
-    if (!(await K.rootOf(folder))) throw new BackendError('unavailable', `library folder ${folder} can't be written to`);
-    await _drawnAt(folder, gid, token);
-    await marker();
+    if ((await K.hold(gid, { stat: { folder, dir }, known: null })).kind === 'ok') {
+      for (const [i, blob] of pages.entries()) {
+        await folderFiles.writeFile(folder, root, `${dir}/${layoutPath.original(i + 1, extOfType(blob.type) || 'webp')}`, blob);
+      }
+      if (!(await K.rootOf(folder))) throw new BackendError('unavailable', `library folder ${folder} can't be written to`);
+      await _drawnAt(folder, gid, token);
+      await marker();
+    } else ({ root, source } = await _drawnAt(folder, gid, token));
     const run = { id: folder, root, name: (await K.folderById(folder))?.name || '', stopped: () => false,
       known: new Set(await K.transferIds()), added: [], updated: new Set(), problems: [] };
     if (run.known.has(String(gid))) return String(gid);

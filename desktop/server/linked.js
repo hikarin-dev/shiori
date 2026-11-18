@@ -557,8 +557,10 @@ async function drawnAt(library, root, gid, token) {
 // before the commit too): what an earlier draw left there first cleared, every page written, then — last
 // — its source.json saying how many there are and the version they were drawn from (`rendered`), so a
 // check never takes a draw cut short for a gallery (R11). One the library has, drawn again, has its pages
-// replaced (redrawn), then its marker. Each write goes through the gate. Resolves its id; rejects when
-// it didn't join.
+// replaced (redrawn), then its marker. Each write goes through the gate. Its overlay is held first (files.js
+// hold, S31): where it holds a publication — another app drew the PDF and joined it there since this library
+// read it waiting — the folder's version stands: nothing is drawn over it, the gallery joins as it is there.
+// Resolves its id; rejects when it didn't join.
 export async function addRendered(library, root, gid, pages, token) {
   if (!L.isDrawing(pages)) throw new BackendError('invalid', 'no pages drawn');
   library.folders.assertWritable(root);
@@ -571,20 +573,27 @@ export async function addRendered(library, root, gid, pages, token) {
     library.publishFeed(String(gid));
     return String(gid);
   }
-  const dir = await physicallyIn(library.rootDir(root), path.join(absIn(library, root, L.overlayDir(gid)), 'images'));
-  await disk.rm(dir, { recursive: true, force: true });
-  await disk.mkdir(dir, { recursive: true });
-  for (const [i, blob] of pages.entries()) {
-    const name = layout.layoutPath.original(i + 1, layout.extOfType(blob.type) || 'webp').split('/').pop();
-    const bytes = Buffer.from(await blob.arrayBuffer());
-    library.folders.assertWritable(root);
-    await disk.writeFile(path.join(dir, name), bytes);
-    library.writes.add('pages', bytes.length);
+  let at = null, source = { ...over.source, rendered };
+  if ((await library.files.hold(gid, { rel: library.files._join(root, L.overlayDir(gid)), known: null })).kind === 'ok') {
+    const dir = await physicallyIn(library.rootDir(root), path.join(absIn(library, root, L.overlayDir(gid)), 'images'));
+    await disk.rm(dir, { recursive: true, force: true });
+    await disk.mkdir(dir, { recursive: true });
+    for (const [i, blob] of pages.entries()) {
+      const name = layout.layoutPath.original(i + 1, layout.extOfType(blob.type) || 'webp').split('/').pop();
+      const bytes = Buffer.from(await blob.arrayBuffer());
+      library.folders.assertWritable(root);
+      await disk.writeFile(path.join(dir, name), bytes);
+      library.writes.add('pages', bytes.length);
+    }
+    ({ at } = await drawnAt(library, root, gid, token));
+    await overlayFor(library, root, over.source, gid, at, { rendered, failed: null });
+  } else {
+    const now = await drawnAt(library, root, gid, token);
+    ({ at } = now);
+    source = now.over.source;
   }
-  const { at } = await drawnAt(library, root, gid, token);
-  await overlayFor(library, root, over.source, gid, at, { rendered, failed: null });
   // (A check that ran meanwhile may have joined it already.)
-  const made = await adoptLinked(library, root, { ...over.source, rendered }, { gid: String(gid), at })
+  const made = await adoptLinked(library, root, source, { gid: String(gid), at })
     ?? (library.files._row(gid)?.source ? String(gid) : null);
   if (!made) throw new BackendError('invalid', `the PDF waiting as gallery ${gid} didn't join the library`);
   library.publishFeed(made);
