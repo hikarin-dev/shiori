@@ -110,7 +110,14 @@ async function tab(ctx) {
     const inFolder = async (id) => (await db.galleryGetAll()).filter(g => g.folder === id);
     const { zipCreate } = await import('/app/js/zip.js');
     window.__api = await import('/app/js/api.js');
-    window.__t = { png, folder, ls, file, text, write, raw, holdWrites, sleep, T, remove, move, takeOver, bytes, until, db, inFolder, zipCreate };
+    // Folder `id`'s hand-over (S32) through: the other app's moment passed — its mark aged, rather than
+    // waited out — and its check joined (what the check found).
+    const handedOver = async (id) => {
+      const f = await raw('folders', id);
+      if (f?.handover) await raw('folders', null, { ...f, handover: { ...f.handover, at: f.handover.at - 60000 } });
+      return window.__api.folders.scan(id);
+    };
+    window.__t = { png, folder, ls, file, text, write, raw, holdWrites, sleep, T, remove, move, takeOver, bytes, until, db, inFolder, zipCreate, handedOver };
   });
   return page;
 }
@@ -273,6 +280,7 @@ test('R08: a folder whose claim can\'t be read is read, never written, until it 
       const refused = await api.pages.put(g, 2, await t.png(90)).then(() => 'resolved', (e) => e.reason);
       const meanwhile = { refused, spilled: (await t.raw('galleries', g)).spilled ?? null, files: await t.ls('Lib/Claimed/images'), claim: await t.text('Lib/.shiori/owner.json') };
       const claimed = await api.folders.claim(id);
+      await t.handedOver(id);
       await api.folders.settle();
       return { access: listed.access, owner: listed.owner ?? null, waiting: meanwhile, claimed, files: await t.ls('Lib/Claimed/images'),
         spilled: (await t.raw('galleries', g)).spilled ?? null, page2: (await api.pages.blob(g, 2))?.size ?? null };
@@ -429,6 +437,7 @@ test('A04: a restore keeps where a gallery is kept — pictures waiting in the b
       const refused = await restore(linked).then(() => 'resolved', (e) => e.reason);
       const waiting = { spilled: (await t.raw('galleries', g)).spilled ?? null, folder: (await t.raw('galleries', g)).folder === id };
       await api.folders.claim(id);
+      await t.handedOver(id);
       await restore(linked);
       const restored = { ...waiting, linked: !!(await t.raw('galleries', linked)).linked };
       await api.folders.settle();
@@ -768,7 +777,7 @@ test('R21: a folder added back once another app took it over while its removal w
       await t.takeOver('Lib');
       const refused = await api.folders.add(await t.folder('Lib')).then(() => null, (e) => e.reason);
       const forced = await api.folders.add(await t.folder('Lib'), { force: true });
-      const scan = await api.folders.scan(id);
+      const scan = await t.handedOver(id);
       return { stopped, refused, restored: forced.restored, added: scan.added, pending: (await api.folders.pending()).setAside.length };
     }, id);
     assert.deepEqual(out, { stopped: true, refused: 'claimed', restored: 0, added: 1, pending: 0 });
@@ -792,6 +801,7 @@ test('A10: a removal moving its galleries to a place that can\'t take them now i
     await page.evaluate(async (a, b) => {
       const api = window.__api, t = window.__t;
       await api.folders.claim(b);
+      await t.handedOver(b);
       await api.folders.remove(a, { moveTo: b });
       await t.takeOver('Lib B');   // taken again before the move runs
     }, a, b);

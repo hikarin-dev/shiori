@@ -45,8 +45,19 @@ before(async () => {
       return (await (await dir.getFileHandle(parts.at(-1))).getFile()).text();
     };
     const blobs = async () => (await window.__api.maintenance.integritySnapshot()).images;
+    // Folder `id`'s hand-over (S32): the other app's moment passed — its mark aged — rather than waited out.
+    const passWait = async (id) => {
+      const db = await new Promise((r) => { const q = indexedDB.open('shiori-cache'); q.onsuccess = () => r(q.result); });
+      try {
+        await new Promise((r) => {
+          const tx = db.transaction('folders', 'readwrite'), store = tx.objectStore('folders'), q = store.get(id);
+          q.onsuccess = () => { const f = q.result; if (f?.handover) store.put({ ...f, handover: { ...f.handover, at: f.handover.at - 60000 } }); };
+          tx.oncomplete = r;
+        });
+      } finally { db.close(); }
+    };
     window.__api = await import('/app/js/api.js');
-    window.__t = { png, root, folder, has, text, blobs };
+    window.__t = { png, root, folder, has, text, blobs, passWait };
   });
 });
 
@@ -254,6 +265,7 @@ test('a folder is claimed by the library that adds it: another app asks first, a
     await elsewhere(1);
     const refused = await api.folders.add(x).then(() => null, (e) => ({ reason: e.reason, owner: e.owner }));
     const { id } = await api.folders.add(x, { force: true });
+    await t.passWait(id);
     const forced = await claimOf();
     await api.folders.setDefault(id);
     // A gallery published there before the take-over (its manifest past its reservation's generation 0).
@@ -283,6 +295,7 @@ test('a folder is claimed by the library that adds it: another app asks first, a
       scan: await reason(api.folders.scan(id)), readOnly };
     // Taken back: what waited moves out.
     await api.folders.claim(id);
+    await t.passWait(id);
     const deadline = Date.now() + 10000;
     while (!(await t.has('Lib X', 'Shared/images/0002.png')) && Date.now() < deadline) await new Promise(r => setTimeout(r, 100));
     const back = { owner: (await claimOf()).owner, page2: await t.has('Lib X', 'Shared/images/0002.png') };
@@ -662,6 +675,8 @@ test('Settings → Storage shows where the library is kept, and the overview can
   null, { what: 'the in-use question' });
   assert.deepEqual(inUse, { title: 'Folder in use', body: true, ok: 'Use anyway' });
   await settings.evaluate(() => document.querySelector('.notice-dialog .notice-actions .btn.danger').click());
+  const addedY = await until(settings, async () => (await (await import('/app/js/api.js')).folders.list()).find(f => f.name === 'Lib Y')?.id, null, { what: 'Lib Y listed' });
+  await run((id) => window.__t.passWait(id), addedY);   // its hand-over's moment passed (S32)
   await until(settings, () => [...document.querySelectorAll('#foldersSection .lf-item:not(.busy) .lf-title')].some(e => e.textContent === 'Lib Y'), null, { what: 'Lib Y added' });
   // Taken over by the other app: marked so, with "Take back" (asked first).
   await claimY('a1b2c3d4e5f60708', 5);
@@ -679,6 +694,22 @@ test('Settings → Storage shows where the library is kept, and the overview can
     const r = [...document.querySelectorAll('#foldersSection .lf-item')].find(r => r.querySelector('.lf-title').textContent === 'Lib Y');
     return r && !r.querySelector('[data-act="claim"]');
   }, null, { what: 'Lib Y taken back' });
+  // Taken back, it is this library's, its check reading it first (S32): its row busy with that task, its
+  // removal meanwhile refused. The other app's moment is passed here (its mark aged) rather than waited out.
+  const handing = await settings.evaluate(async () => {
+    const api = await import('/app/js/api.js');
+    const y = (await api.folders.list()).find(f => f.name === 'Lib Y');
+    const row = document.querySelector(`#foldersSection .lf-item[data-folder="${CSS.escape(y.id)}"]`);
+    const refused = await api.folders.remove(y.id).then(() => null, (e) => e.reason);
+    return { id: y.id, granted: y.access, handover: y.handover, busy: !!row?.classList.contains('busy'), refused };
+  });
+  const { id: yId, ...seen } = handing;
+  await run((id) => window.__t.passWait(id), yId);
+  assert.deepEqual(seen, { granted: 'granted', handover: true, busy: true, refused: 'handover' });
+  await until(settings, () => {
+    const r = [...document.querySelectorAll('#foldersSection .lf-item')].find(r => r.querySelector('.lf-title').textContent === 'Lib Y');
+    return r && !r.classList.contains('busy');
+  }, null, { what: 'Lib Y read' });
   await settings.evaluate(async () => {
     const api = await import('/app/js/api.js');
     const y = (await api.folders.list()).find(f => f.name === 'Lib Y');
