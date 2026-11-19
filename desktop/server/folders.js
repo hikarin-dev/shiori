@@ -919,7 +919,7 @@ export class Folders {
     if (this.writable(id, 'removal')) {
       // Their folders first (a series' description names its members' folders), then each written —
       // and one not written (the folder out of reach for a moment) tried once more.
-      for (const gid of required) if (!files._row(gid)) { try { files._claim(gid, lib._metaGet(gid), 'removal'); } catch {} }
+      for (const gid of required) if (!files._row(gid)) await files.claim(gid, lib._metaGet(gid), 'removal').catch(() => {});
       for (const [i, gid] of required.entries()) {
         if (job.stop) return stopped();
         if (await this._writeBack(gid)) saved.add(gid);

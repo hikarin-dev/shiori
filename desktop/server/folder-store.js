@@ -924,8 +924,10 @@ export function folderStore(library) {
         return at;
       },
       // A free directory chosen, made and bound to the gallery by its first generation (files.js _claim:
-      // reserveIn), held as its reservation made it.
+      // reserveIn), held as its reservation made it — once what was under way for a gallery of its id is over
+      // (files.js _over).
       async reserve(hint, gid) {
+        await files._over(gid);
         const row = files._claim(gid, { galleryId: gid, title: { english: hint, japanese: '', pretty: '' } }, null, id);
         const name = files._split(row.path).rest;
         const at = await placeIn(abs(name), String(gid), { known: library._s('SELECT stamp FROM stamps WHERE gid = ?').get(String(gid))?.stamp ?? null, writer: folders._me(), ...look(name) });

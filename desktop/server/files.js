@@ -752,7 +752,7 @@ export class FileLibrary {
     const id = String(gid);
     this.library.folders.assertWritable(this.rootFor(id));
     for (let tries = 0; tries < 3; tries++) {
-      const row = this._row(id) || this._claim(id, meta);
+      const row = await this.claim(id, meta);
       if (row.format !== 'folder') {
         this.library._tx(() => this._toUnpack(id));
         await this.place(id);
@@ -806,6 +806,26 @@ export class FileLibrary {
     lib._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(String(gid), token);
     this._pendOwner(gid);
     return this._row(gid);
+  }
+  // ── One gallery of an id at a time ──
+  // What is under way for the gallery of id `gid` — its publication, and its settle (not with `settle` false:
+  // the settle itself asking) — over, done or failed. A gallery is given its folder only after it (claim, _place,
+  // folder-store.js reserve): one made under the id of a gallery just deleted — an export imported again, a download
+  // asked again — is otherwise taken, by a publication begun for the deleted one, for the gallery it began for:
+  // published into that one's folder, and left with that publication's token as its own, by which its own folder
+  // then read as an older copy put back, and everything it held was dropped (the verification after S33: the gate
+  // is S31's). Work begun for a gallery that is gone finds none and ends; the deleted one's folder waits for it
+  // too (_deleteOne). The website has the same in its gallery lock (db.js _writing, _describe).
+  async _over(gid, { settle = true } = {}) {
+    const id = String(gid);
+    await this._describing.get(id)?.catch(() => {});
+    if (settle) await this._placing.get(id)?.catch(() => {});
+  }
+  // Gallery `gid`'s row, its folder claimed now when it has none (_claim, `how` its arguments) — once what was under
+  // way for a gallery of its id is over (_over).
+  async claim(gid, ...how) {
+    if (!this._row(gid)) await this._over(gid);
+    return this._row(gid) || this._claim(gid, ...how);
   }
   // Folder `abs`, made now, reserved for gallery `gid` (folder-store.js reserveIn) with its metadata as
   // the index has it (or `meta`, when it isn't stored yet): its place, held as the reservation made it
@@ -1066,8 +1086,7 @@ export class FileLibrary {
     // A publication or settle of the gallery begun before its deletion lands first: none starts for
     // a gallery that is gone, so its folder isn't written again once it is deleted (S8: a deleted
     // gallery came back from a manifest its publication under way wrote after the deletion).
-    await this._describing.get(d.gid)?.catch(() => {});
-    await this._placing.get(d.gid)?.catch(() => {});
+    await this._over(d.gid);
     const recorded = d.files == null ? null : JSON.parse(d.files);
     // Met at the other kind of place than its row's — the other app unpacked the archive the gallery was
     // in into a folder beside it (D17), or archived its folder — whose files the row never recorded: done
@@ -1642,6 +1661,7 @@ export class FileLibrary {
     const lib = this.library;
     if (!lib.folders.writable(this.rootFor(gid), work)) return true;
     if (!await this._weighGroup(gid)) return true;   // its series command weighed as one first (S32): it waits, or was dropped
+    if (!this._row(gid)) await this._over(gid, { settle: false });   // made under the id of one just deleted: that one's publication ends first
     let row = this._row(gid), unpacked = false;
     if (row) {
       // A gallery whose folder or archive is gone (moved outside the app, or its drive away), or no

@@ -602,3 +602,51 @@ test('a picture arriving as its gallery\'s folder in staging is being removed wa
   assert.equal(there, false, 'the folder was made again only once its removal had ended');
   assert.deepEqual(fs.readdirSync(dir), ['2-0123456789.png'], 'and the picture is in it');
 });
+
+// The verification after S33: a gallery deleted and made again at once under its id (an export imported again, a
+// download asked again) lost everything it held — its pages too — and was listed as changed in two places; the
+// app's library tests run against the desktop (npm run test:desktop) failed on it in half their runs. A
+// publication begun for the deleted gallery went on for the new one: it published the new gallery into the deleted
+// one's folder and kept that publication's token as the new one's, by which the new gallery's own folder read as an
+// older copy put back (S31's gate), and what the library held of it was dropped. A gallery is given its folder only
+// once what was under way for a gallery of its id is over — by its settle, or by a picture of its own (how an
+// import's pages arrive).
+for (const [how, give] of [['its settle', (library, gid) => library.files.place(gid)], ['a picture of its own', (library, gid) => library.files.home(gid)]]) {
+  test(`a gallery made again under the id of one just deleted is given its folder, by ${how}, once that one's publication is over`, async (t) => {
+    const { tokenOf } = await import('../../app/js/storage/gallery-manifest.js');
+    const library = await open(t);
+    const gid = '1790000000001';
+    await library.metaPut({ galleryId: gid, title: title('First') });
+    await library.pagePut(gid, 1, png(1));
+    await library.files.flush();
+    const old = dirOf(library, gid);
+    await library.metaPut({ galleryId: gid, title: title('First, renamed') });
+    // Its publication held as it opens its folder: the gallery is deleted and made again meanwhile.
+    const opens = library.store.open;
+    let reached, release;
+    const under = new Promise((resolve) => { reached = resolve; }), go = new Promise((resolve) => { release = resolve; });
+    library.store.open = async (...args) => { library.store.open = opens; reached(); await go; return opens(...args); };
+    const published = library.files.describe(gid);
+    await under;
+    await library.deleteGallery(gid);
+    await library.metaPut({ galleryId: gid, title: title('Second') });
+    await library.pagePut(gid, 1, png(2));
+    const given = give(library, gid);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(fileOf(library, gid), undefined, 'no folder yet: the deleted one\'s publication is still under way');
+    release();
+    assert.deepEqual(await published, { ok: false }, 'which finds its gallery gone, and publishes nothing');
+    await given;
+    await library.files.flush();
+    await library.files.applyDeletions();
+    assert.equal(fs.existsSync(old), false, 'the deleted one\'s folder is gone');
+    assert.equal(library.files._stamp(gid), tokenOf(manifestOf(library, gid)), 'the token the new one keeps is its own folder\'s');
+    // Its next change is published — not dropped for a folder taken for an older copy.
+    await library.metaPut({ galleryId: gid, title: title('Second, renamed') });
+    await library.files.flush();
+    assert.equal((await library.metaGet(gid)).title.english, 'Second, renamed');
+    assert.equal(json(library, gid, 'metadata.json').title.english, 'Second, renamed', 'in its folder too');
+    assert.deepEqual(await bytesOf(await library.getPageBlob(gid, 1)), [...pngBytes(2)], 'its page is its own');
+    assert.deepEqual((await library.foldersList())[0].attention, [], 'nothing reported');
+  });
+}
