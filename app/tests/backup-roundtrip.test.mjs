@@ -34,6 +34,10 @@ async function seed(gid) {
   // A measured page size, as the library would keep it (written as stored: the library measures it itself).
   const { stat } = await api.transfer.read(gid);
   await api.transfer.write({ galleryId: gid, stat: { ...stat, medianPage: MEDIAN } });
+  // The desktop library measures a gallery itself a quarter second after its pages change: measured here first,
+  // that measuring changes nothing between a test's reading of the entry and its comparing it with the restored
+  // one (under load it did now and then, and the test failed).
+  await globalThis.__desktopLibrary?.refreshGallerySize(gid);
 }
 
 async function pagesOf(gid) {

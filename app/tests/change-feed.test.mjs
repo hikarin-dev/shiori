@@ -18,6 +18,11 @@ const db = await import('../js/db.js');
 const webp = () => new Blob([new Uint8Array([1, 2, 3])], { type: 'image/webp' });
 const title = (english) => ({ english, japanese: '', pretty: '' });
 const settle = () => new Promise(r => setTimeout(r, 20));
+// The desktop library measures a gallery's size a quarter second after a change of it, and logs what that changed
+// as a change of its own. Measured here first, that measuring finds nothing new — and logs nothing in the middle
+// of what a test looks at, however long the test takes (under load these failed now and then: a gallery of the
+// test before named as changed).
+const measured = async (...gids) => { for (const gid of gids) await globalThis.__desktopLibrary?.refreshGallerySize(gid); };
 
 test('each change is logged once per write, and since() names what changed after a revision', async () => {
   const start = await api.events.revision();
@@ -25,12 +30,14 @@ test('each change is logged once per write, and since() names what changed after
   await api.galleries.create(a, { title: title('A') });
   await api.pages.put(a, 1, webp());
   await api.meta.put({ galleryId: b, title: title('B') });
+  await measured(a, b);
   const mid = await api.events.revision();
   assert.ok(mid > start);
   const all = await api.events.since(start);
   assert.deepEqual(all.gids.sort(), [a, b].sort());
   assert.equal(all.rev, mid);
   await api.derived.putTranslatedImage(a, 1, webp());
+  await measured(a);
   const later = await api.events.since(mid);
   assert.deepEqual(later.gids, [a], 'only what changed after `mid`');
   assert.deepEqual((await api.events.since(later.rev)).gids, [], 'nothing after the newest revision');
@@ -39,6 +46,7 @@ test('each change is logged once per write, and since() names what changed after
 test('a series command logs every gallery it touches', async () => {
   const [o, c] = [api.newGalleryId(), api.newGalleryId()];
   for (const gid of [o, c]) { await api.meta.put({ galleryId: gid, title: title(gid) }); await api.pages.put(gid, 1, webp()); }
+  await measured(o, c);
   const rev = await api.events.revision();
   await api.series.attach(o, c);
   assert.deepEqual((await api.events.since(rev)).gids.sort(), [o, c].sort());
@@ -56,6 +64,7 @@ test('clearing the library tells every window to read everything again', async (
 test('a window further behind than the log reaches resyncs', async () => {
   const gid = api.newGalleryId();
   await api.meta.put({ galleryId: gid, title: title('X') });
+  await measured(gid);
   const old = await api.events.revision();
   await api.galleries.mutate(gid, { title: title('X1') }, { silent: true });
   await api.galleries.mutate(gid, { title: title('X2') }, { silent: true });
