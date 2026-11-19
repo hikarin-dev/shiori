@@ -1487,6 +1487,11 @@ async function stages(c, sc, states, done) {
     }],
   ];
   if (sc.startsAgain && !done) await /** @type {() => Promise<void>} */ (c.lib.restart)();
+  // An add cut short (a kill, the page dying) once its claim was written is finished by the next start (S32: the
+  // hand-over's mark comes before the claim, and its check starts by itself): the folder is this library's, under the
+  // id the cut add never returned. (Cut before its claim, it is listed as the other app's until it is added again:
+  // §8, the hand-over's limit 2 — not this library's folder yet, as the re-add stage finds.)
+  if (!c.ids.A) c.ids.A = (await c.lib.list()).find(f => f.kind === 'folder' && f.name === path.basename(c.A) && f.access === 'granted')?.id;
   if (c.showFirst) await c.lib.show(c.ids.A).catch(() => {});
   if (sc.met && !c.met) { const p = await meet(sc, c); if (p.length) return p; }
   if (c.wrong?.length) return c.wrong.map(w => `step: ${w}`);
