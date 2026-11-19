@@ -416,6 +416,24 @@ const sameView = (/** @type {{ title: string, pages: Page[] }} */ a, /** @type {
   && a.pages.every((p, i) => same(p.original, b.pages[i].original) && (p.translated ? same(p.translated, b.pages[i].translated) : !b.pages[i].translated));
 // The app that uses folder A anyway: the other (the website for the desktop, the desktop for the website), or
 // for the desktop a second desktop library — the desktop app on another computer — made the first time.
+// Folder A's next hand-over read held until the function this resolves is called: the desktop's waits before it reads
+// (folders.js _readBack), the website's for the folder's lock its check takes (folder-library.js; no change of a
+// gallery takes it). Without Web Locks the website's isn't held.
+async function heldRead(/** @type {Real} */ r) {
+  if (r.lib.app === 'desktop') {
+    const f = r.lib.raw.folders, read = f._readBack;
+    /** @type {() => void} */ let open = () => {};
+    const gate = new Promise((resolve) => { open = () => resolve(undefined); });
+    f._readBack = async (/** @type {any[]} */ ...args) => { await gate; return read.apply(f, args); };
+    return () => { open(); delete f._readBack; };
+  }
+  const locks = globalThis.navigator?.locks;
+  if (typeof locks?.request !== 'function') return () => {};
+  /** @type {() => void} */ let release = () => {};
+  const held = new Promise((resolve) => { release = () => resolve(undefined); });
+  await new Promise((acquired) => { locks.request(`shiori:folder:${r.id}`, () => { acquired(undefined); return held; }); });
+  return release;
+}
 async function taker(/** @type {Real} */ r, /** @type {string} */ by) {
   if (by !== 'second desktop' || r.lib.app !== 'desktop') return /** @type {Driver} */ (r.other);
   r.second ??= await desktopLibrary(path.join(r.dir, 'desktop 2'), { me: 'c0ffee00c0ffee00' });
@@ -580,20 +598,26 @@ const usedAnyway = command('usedAnyway', fc.record({
     });
     if (a.unseen) faults.junction(r.drive, r.A);   // the drive back
     if (killed) await /** @type {() => Promise<void>} */ (r.lib.restart)();   // the desktop starts again
-    const back = await r.lib.raw.folderClaim(r.id);   // "Take back"
-    deletesBack();
-    if (back !== 'granted') throw new Error(`folder A taken back: ${back}`);
-    // S32: asked at once, before the hand-over's check has read the folder — refused for now, nothing of it made.
-    for (const [i, what, n] of a.atOnce ?? []) {
-      const g = pick(inA, i, g => m.galleries.includes(g) && !(g.zip && (what === 'page' || what === 'delete')));
-      const with2 = inA.find(x => x !== g && m.galleries.includes(x));
-      if (!g || (what === 'series' && !with2)) continue;
-      const asked = what === 'delete' ? r.lib.deleteGallery(g.gid)
-        : what === 'series' ? r.lib.raw.seriesCommand('write', g.gid, [{ id: g.gid, title: 'One' }, { id: with2?.gid, title: 'Two' }], { seriesTitle: { english: `S${++m.tag}`, japanese: '', pretty: '' } })
-          : change(m, r.lib, structuredClone(g), what, n);
-      const e = await asked.then(() => null, (x) => x);
-      if (e?.reason !== 'handover') throw new Error(`${what} of gallery ${g.gid} asked at once after "Take back": ${e ? e.reason || e.message : 'accepted'}, not refused for now`);
-    }
+    // (The other app let go, so the take-back's hand-over has no window to wait out: its check reads at once, within
+    // milliseconds — under load before a change asked "at once" commits, which is then rightly accepted, the folder
+    // read. So its read is held while they are asked: S33.)
+    const reading = a.atOnce?.length ? await heldRead(r) : () => {};
+    try {
+      const back = await r.lib.raw.folderClaim(r.id);   // "Take back"
+      deletesBack();
+      if (back !== 'granted') throw new Error(`folder A taken back: ${back}`);
+      // S32: asked at once, before the hand-over's check has read the folder — refused for now, nothing of it made.
+      for (const [i, what, n] of a.atOnce ?? []) {
+        const g = pick(inA, i, g => m.galleries.includes(g) && !(g.zip && (what === 'page' || what === 'delete')));
+        const with2 = inA.find(x => x !== g && m.galleries.includes(x));
+        if (!g || (what === 'series' && !with2)) continue;
+        const asked = what === 'delete' ? r.lib.deleteGallery(g.gid)
+          : what === 'series' ? r.lib.raw.seriesCommand('write', g.gid, [{ id: g.gid, title: 'One' }, { id: with2?.gid, title: 'Two' }], { seriesTitle: { english: `S${++m.tag}`, japanese: '', pretty: '' } })
+            : change(m, r.lib, structuredClone(g), what, n);
+        const e = await asked.then(() => null, (x) => x);
+        if (e?.reason !== 'handover') throw new Error(`${what} of gallery ${g.gid} asked at once after "Take back": ${e ? e.reason || e.message : 'accepted'}, not refused for now`);
+      }
+    } finally { reading(); }
     await r.lib.flush();
     await r.lib.scan(r.id);
     await r.lib.flush();
