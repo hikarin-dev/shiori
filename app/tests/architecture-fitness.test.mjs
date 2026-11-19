@@ -201,6 +201,33 @@ test('S32, review 9 A2: the rule that every place-writing function holds reads c
   assert.deepEqual(placeWritersOff('website', { read: blind }), ['folder-library.js _relink: writes at a place — name it: \'holds\' (and an operation of the table), a step of one, or free (and why)']);
 });
 
+test('S33, review 10 A4: the rule places every function — a write in a getter, a one-line method, a signature over two lines, a class field, a top-level let is found, never counted to the function above', () => {
+  const desktop = (f) => readFileSync(join(repo, 'desktop', 'server', f), 'utf8');
+  const named = (key) => [`${key}: writes at a place — name it: 'holds' (and an operation of the table), a step of one, or free (and why)`];
+  // Each made-up write placed right after a function the table names free (files.js cutBack), as review 10's probe did.
+  for (const [what, member] of [['a getter', '  get sneaky() { return disk.rmSync(this.x, { recursive: true }); }'],
+    ['a one-line method', '  sneaky(rel) { return disk.rm(this._abs(rel), { recursive: true, force: true }); }'],
+    ['a signature over two lines', '  async sneaky(gid,\n    rel) { await disk.rm(this._abs(rel), { recursive: true }); }'],
+    ['a class field', '  sneaky = async (a) => { await disk.rm(a, { recursive: true }); };']]) {
+    const read = (f) => (f === 'files.js' ? desktop(f).replace(/\n {2}close\(\) \{/, `\n${member}\n  close() {`) : desktop(f));
+    assert.deepEqual(placeWritersOff('desktop', { read }), named('files.js sneaky'), what);
+  }
+  const letFn = (f) => (f === 'db.js' ? read(f).replace(/\nasync function _deleteDir\(/, '\nlet sneaky = async (id, root) => { await folderFiles.removeFile(id, root, "x"); };\nasync function _deleteDir(') : read(f));
+  assert.deepEqual(placeWritersOff('website', { read: letFn }), named('db.js sneaky'), 'a top-level let');
+  // A class member of a shape it can't place fails the rule.
+  assert.throws(() => functionsOf('class A {\n  [computed]() { return 1; }\n}\n'), /can't place/);
+});
+
+test('S33, review 10 B7: a change refused for now is worded through backend-error.js refusalKey alone — a translation\'s start and a PDF\'s drawing task say it by its key', () => {
+  // A translation's start kept the key only for 'lf.taken_msg' (so "still being scanned" was sent as a raw message), and
+  // the PDF drawing task sent no key at all.
+  assert.deepEqual(modules.filter(f => f !== 'backend-error.js' && !f.startsWith('locales') && /'lf\.taken_msg'/.test(code(read(f)))), [],
+    'no module tells one refusal by a key of its own');
+  for (const [f, fn] of [['jobs-runner.js', 'runTranslate'], ['library-folders.js', 'drawWaitingPdfs']]) {
+    assert.match(functionsOf(read(f)).get(fn), /\brefusalKey\s*\(\s*e\s*\)[\s\S]*\berrorKey\b/, `${f} ${fn}: its error carries the refusal's key`);
+  }
+});
+
 test('the app never names a source site or the companion helper', () => {
   // The app is site-agnostic and must carry no evidence of the companion relationship in
   // user-facing copy. Bridge message names (EXT_*) are the sanctioned contract and stay.

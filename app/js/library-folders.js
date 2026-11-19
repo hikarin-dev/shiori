@@ -592,7 +592,8 @@ export function drawWaitingPdfs() {
           if (e?.stopped) { say({ status: 'cancelled' }); continue; }
           // The PDF couldn't be drawn (the library refusing, or out of reach, is not the PDF's doing).
           if (e?.name !== 'BackendError' && token) await api.folders.pdfFailed(w.folder, w.gid, token).catch(() => {});
-          say({ status: 'error', error: String(e?.message || e) });
+          const key = refusalKey(e);   // a refusal for now, said by its own key (S33)
+          say({ status: 'error', error: String(e?.message || e), ...(key ? { errorKey: key } : {}) });
         } finally { off(); }
       }
     } finally { _drawing = null; }

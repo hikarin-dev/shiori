@@ -68,6 +68,7 @@ const UNMOUNTED = `CREATE VIEW IF NOT EXISTS unmounted AS
   SELECT gid, root FROM places WHERE root NOT IN (SELECT id FROM roots WHERE state = 'shown')`;
 const IDENTITY_TTL = 2000;   // how long which folder a path holds, as read for reading, is taken as it is
 const HANDOVER_POLL_MS = 50;   // how often a hand-over's check looks at the clock while it waits out the other app's window
+const PAUSE = new Int32Array(new SharedArrayBuffer(4));   // a synchronous wait (Atomics.wait on it): the claim's rename tried again
 
 // A moment for the windows' requests: long work on a folder waits for it every so often.
 const breathe = () => new Promise((resolve) => setImmediate(resolve));
@@ -86,6 +87,10 @@ export class Folders {
     this._removed = new Map();   // id → its removed.json's last write (publishRemoved: one at a time)
     this._rescanning = null;     // the check of every folder under way: { stop }
     this._dormant = false;       // whether galleries an earlier version set aside are still kept (`dormant`)
+    this._nudged = new Map();    // id → when its hand-over's check was last started again by itself (handOverSoon)
+    this._rereads = new Map();   // id → the timer reading its claim again, its read having failed during its hand-over
+    this._stopped = new Set();   // ids whose hand-over's check the person stopped: not started again until they act on it
+    this._waited = new Map();    // id → { at, since }: the hand-over this process first waited on, and since when (waitLeft)
   }
   get primaryId() { return this.library.primaryId; }
 
@@ -112,7 +117,11 @@ export class Folders {
     await this._restoreSetAside();
     for (const id of this.ids()) this.probe(id);
   }
-  close() { this._uncontain?.(); }
+  close() {
+    this._uncontain?.();
+    for (const t of this._rereads.values()) clearTimeout(t);
+    this._rereads.clear();
+  }
   // Removals the app was closed in the middle of go on, and notes of removed sources still owed are
   // written.
   resume() {
@@ -305,7 +314,8 @@ export class Folders {
     return claims.readClaim(text);
   }
   // A claim written whole — beside the file, then renamed over it — in a folder that is there: never one
-  // made again where a folder was (a drive away, a folder moved or deleted).
+  // made again where a folder was (a drive away, a folder moved or deleted). The rename is tried again a few
+  // times while Windows refuses it for a moment (the other app reading the file), as replaceFile does (S33).
   _writeClaim(dir, claim) {
     if (!isDir(dir)) throw refusal('unavailable', 'unavailable', `${dir} can't be reached`);
     const file = this._claimFile(dir);
@@ -313,7 +323,12 @@ export class Folders {
     ownDirIn(dir);
     try {
       disk.writeFileSync(temp, claims.claimText(claim));
-      disk.renameSync(temp, file);
+      for (let attempt = 0; ; attempt++) {
+        try { disk.renameSync(temp, file); break; } catch (e) {
+          if (attempt >= 3 || !['EPERM', 'EBUSY', 'EACCES'].includes(e?.code)) throw e;
+          Atomics.wait(PAUSE, 0, 0, 20 * 2 ** attempt);
+        }
+      }
     } catch (e) {
       disk.rmSync(temp, { force: true });
       throw e;
@@ -344,7 +359,14 @@ export class Folders {
       // (A claim of this library's being handed over is no other app's: the gate weighs the hand-over apart, handingOver.)
       const known = claims.knownAfter(this._known.get(row.id), hit.read, hit.access === 'mine' || hit.access === 'handover', hit.at);
       if (known) this._known.set(row.id, known);
+      // Its claim's read failing while it is handed over: read again in a moment, so its check comes back (S33).
+      if (hit.read?.unread && row.handover && !this._rereads.has(row.id)) {
+        const t = setTimeout(() => { this._rereads.delete(row.id); try { if (this.has(row.id)) this.probe(row.id, { fresh: true }); } catch {} }, claims.HANDOVER_RETRY_MS);
+        t.unref?.();
+        this._rereads.set(row.id, t);
+      }
     }
+    if (hit.access === 'handover') this.handOverSoon(row.id);
     return { reachable: true, access: hit.access, read: hit.read, identity };
   }
   // Whether the library knows another app holds folder `id` — what the commit gate weighs (library.js
@@ -352,9 +374,10 @@ export class Folders {
   // naming another app refuses until a later read says otherwise; a read that failed, or the folder out
   // of reach, changes nothing of it. None read yet, or read longer ago than the claim's time to live, it
   // is read again first (probe: at most one read per time to live, none for a change inside it).
-  heldElsewhere(id) {
+  // `read` false: what is known alone, never read again (no file call: the gate of a folder being handed over).
+  heldElsewhere(id, { read = true } = {}) {
     const known = () => claims.heldElsewhere(this._known.get(String(id)));
-    if (known().again) this.probe(String(id), { fresh: true });
+    if (read && known().again) this.probe(String(id), { fresh: true });
     return known().held;
   }
   // Whether folder `id` came (back) to this library and its check hasn't read it since (its mark: handover)
@@ -652,6 +675,21 @@ export class Folders {
     if (row?.state !== 'shown' || !this.handover(id)) return;
     this.scan(id).catch(() => {});
   }
+  // The same where no check of folder `id` is under way (S33, review 10 A1): the folder answered as being handed over
+  // (probe), or the commit gate refused a change for that — so a check that ended without reading it (out of reach, its
+  // claim's read failing, stopped by a hide) comes back by itself once that changes. At most once every
+  // HANDOVER_RETRY_MS, and not while the person keeps its check stopped (stop) — until they act on the folder.
+  handOverSoon(id) {
+    const key = String(id);
+    if (this._jobs.has(key) || this._stopped.has(key)) return;
+    const now = performance.now();
+    if (now - (this._nudged.get(key) ?? -Infinity) < claims.HANDOVER_RETRY_MS) return;
+    this._nudged.set(key, now);
+    setImmediate(() => {
+      if (this._jobs.has(key) || this._stopped.has(key)) return;   // (one started meanwhile — the check that asked, say)
+      try { this.handOver(key); } catch {}   // (the library closed meanwhile)
+    });
+  }
 
   // A folder's state changed — `removal` with it while it is being removed — in a transaction that
   // leaves a trace in the change log, so a window catching up reads everything again (A26).
@@ -673,7 +711,7 @@ export class Folders {
   // library, is let through; nothing else is) — `job.stop` asks it to stop where it is.
   _queue(id, kind, start) {
     const running = this._jobs.get(id);
-    const plan = lifecycle.jobPlan(running?.kind ?? null, kind);
+    const plan = lifecycle.jobPlan(running?.kind ?? null, kind, { stopping: !!running?.stop });
     if (plan === 'join') return running.run;
     if (plan === 'refuse') throw refusal('invalid', 'removing', `library folder ${id} is being removed`);
     const job = { kind, stop: false, cancel: false, phase: null, run: null };
@@ -681,7 +719,10 @@ export class Folders {
     job.run = (async () => {
       await before;
       return this.library.asFolderWork(id, () => start(job));
-    })().finally(() => { if (this._jobs.get(id) === job) this._jobs.delete(id); });
+    })().finally(() => {
+      if (this._jobs.get(id) === job) this._jobs.delete(id);
+      if (job.again) this.handOver(id);   // a hand-over begun once this check had read: a check of its own (scan)
+    });
     this._jobs.set(id, job);
     return job.run;
   }
@@ -736,6 +777,7 @@ export class Folders {
     if (row.state === 'hidden') throw refusal('invalid', 'hidden', `library folder ${id} is hidden`);
     const { reachable, access, identity } = this.probe(id);
     if ((reachable && access !== 'mine' && access !== 'handover') || identity === 'other-library') throw this._refusal(id);
+    this._stopped.delete(String(id));   // asked for: a hand-over's check the person had stopped comes back by itself again
     return this._queue(id, 'scan', (job) => this._announce(id, { labelKey: 'lf.task_checking', doneKey: 'lf.task_done' }, async (progress) => {
       // A folder being handed over is read first (_readBack); it stays to be read where that couldn't be done.
       const back = this.handover(id) ? await this._readBack(id, job, progress) : null;
@@ -746,6 +788,9 @@ export class Folders {
       const unchecked = found.problems.some(p => p.reason === 'unreachable' || p.reason === 'other-library');
       if (!found.stopped && !unchecked) this.noteChecked(id, [...found.problems, ...found.unreferenced.map(u => ({ path: u.path, reason: 'unreferenced', gid: u.gid }))]);
       if (back) await this._settleIn(id);   // then what waited for its galleries goes there, each through its place held
+      // A hand-over begun while this check was past its read ("Take back" again, joined to it): read by one of its own
+      // once this one has ended (S33, review 10 A1).
+      job.again = !found.stopped && !!this.handover(id);
       return { found: found.added.length, updated: found.updated.length, problems: found.problems.length, stopped: found.stopped, result: found };
     }));
   }
@@ -764,7 +809,10 @@ export class Folders {
       const handover = this.handover(id);
       if (!handover) return { read: { moved: [], missing: [], found: [], added: [], updated: [] } };
       let again = false;
-      for (let left; !job.stop && (left = claims.readsFrom(handover) - Date.now()) > 0;) {
+      // (Never longer than the window of this process's own running time, whatever the clock says: waitLeft.)
+      if (this._waited.get(id)?.at !== handover.at) this._waited.set(id, { at: handover.at, since: performance.now() });
+      const since = this._waited.get(id).since;
+      for (let left; !job.stop && (left = claims.waitLeft(handover, Date.now(), performance.now() - since)) > 0;) {
         await new Promise((r) => setTimeout(r, Math.min(left, HANDOVER_POLL_MS)));
         if ((again = this.handover(id)?.at !== handover.at)) break;   // ended, or begun again, meanwhile
       }
@@ -786,12 +834,13 @@ export class Folders {
   }
 
   // Every folder shown that this library may write to checked, each through its own queue, one after
-  // another (a check of one already under way is joined). Resolves what they found, together.
+  // another (a check of one already under way is joined) — and one being handed over, its check being what
+  // makes it this library's (S33). Resolves what they found, together.
   async rescan() {
     const all = { moved: [], missing: [], found: [], added: [], updated: [], removed: 0, problems: [], unreferenced: [], stopped: false };
     const run = this._rescanning = { stop: false };
     try {
-      for (const id of this.activeRoots()) {
+      for (const id of this._rows().filter(r => r.state === 'shown' && (this.writable(r.id) || this.probe(r.id).access === 'handover')).map(r => r.id)) {
         if (run.stop) { all.stopped = true; break; }
         const found = await this.scan(id).catch(() => null);   // hidden or being removed meanwhile: left out
         if (!found) continue;
@@ -807,14 +856,16 @@ export class Folders {
 
   // The work on folder `id` stopped where it is (a removal goes on at the app's next start); 'all': the
   // check of every folder.
+  // A hand-over's check the person stops stays stopped until they act on that folder again (handOverSoon).
   stop(id) {
+    const held = (key, job) => { if (job.kind === 'scan' && this.handover(key)) this._stopped.add(key); };
     if (id === 'all') {
       if (this._rescanning) this._rescanning.stop = true;
-      for (const job of this._jobs.values()) if (job.kind === 'scan') job.stop = true;
+      for (const [key, job] of this._jobs) if (job.kind === 'scan') { job.stop = true; held(key, job); }
       return;
     }
     const job = this._jobs.get(String(id));
-    if (job) job.stop = true;
+    if (job) { job.stop = true; held(String(id), job); }
   }
 
   // ── Removal ──

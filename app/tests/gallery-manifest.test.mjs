@@ -80,3 +80,23 @@ test('S28b: an earlier version\'s gallery of its own whose records name pages it
   assert.equal(await kind({ 'metadata.json': meta, 'image_records.json': '[]' }, []), 'ok', 'no page in its image_records.json');
   assert.equal(await kind({ 'metadata.json': meta, 'image_records.json': records }, [], ''), 'ok', 'a linked gallery\'s overlay: its pages\' pictures are its source\'s');
 });
+
+test('S33, review 10 B1: a publication collects only the stored descriptions it supersedes; this library\'s own publication found replaced is told from one built on', async () => {
+  const { publication, replacedOwn } = await import('../js/storage/gallery-manifest.js');
+  const texts = (title) => ({ 'metadata.json': JSON.stringify({ galleryId: G, title: { english: title, japanese: '', pretty: '' } }) });
+  const first = await publication({ area: '.shiori/', prev: null, next: { ...manifest({}), generation: 1 }, texts: texts('One') });
+  const second = await publication({ area: '.shiori/', prev: first.manifest, next: { ...manifest({}), generation: 1 }, texts: texts('Two') });
+  assert.deepEqual(second.superseded, [first.manifest.descriptions['metadata.json']], 'the description the previous generation named and this one doesn\'t');
+  assert.equal('keep' in second, false, 'no list of what to spare: any other in the folder may be another app\'s publication under way');
+  const same = await publication({ area: '.shiori/', prev: second.manifest, next: { ...manifest({}), generation: 2 }, texts: texts('Two') });
+  assert.deepEqual(same.superseded, [], 'nothing superseded where the description is the same');
+  const t = (n, w, id = 'ab12cd34') => `v2:${n}.${id}:${w}`;
+  assert.equal(replacedOwn(t(2, 'them', 'ffff0000'), t(2, 'me'), 'me'), true, 'another writer\'s at the same generation: replaced, not built on');
+  assert.equal(replacedOwn(t(1, 'them'), t(2, 'me'), 'me'), true, 'another writer\'s at an earlier generation');
+  assert.equal(replacedOwn(t(3, 'them'), t(2, 'me'), 'me'), false, 'a later one on top: the normal case');
+  assert.equal(replacedOwn(t(1, 'me'), t(2, 'me'), 'me'), false, 'this app\'s own earlier one put back by hand');
+  assert.equal(replacedOwn(t(2, 'me'), t(2, 'me'), 'me'), false, 'the same publication');
+  assert.equal(replacedOwn(t(2, 'them', 'ffff0000'), t(2, 'them'), 'me'), false, 'what this library last read was another app\'s: nothing of its own replaced');
+  assert.equal(replacedOwn(null, t(2, 'me'), 'me'), false, 'no manifest there');
+  assert.equal(replacedOwn(t(2, 'them'), null, 'me'), false, 'no stamp here');
+});

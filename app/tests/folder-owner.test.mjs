@@ -90,3 +90,17 @@ test('a folder added back is as this app left it only when no other app claimed 
   assert.equal(unchangedSince(readClaim(null), ME, null), true, 'set aside before claims existed, never claimed');
   assert.equal(unchangedSince(readClaim(null), ME, 6), false, 'its claim was deleted');
 });
+
+test('S33, review 10 A2: a hand-over\'s wait lasts at most its window of this process\'s own running time, whatever the clock says', async () => {
+  const { waitLeft, readsFrom, HANDOVER_MARGIN_MS } = await import('../js/storage/folder-owner.js');
+  const WINDOW = CLAIM_TTL_MS + HANDOVER_MARGIN_MS, now = 1_800_000_000_000;
+  const h = { at: now - 1000, wait: true };
+  assert.equal(waitLeft(h, now, 0), readsFrom(h) - now, 'on a right clock: until readsFrom');
+  assert.equal(waitLeft(h, now + WINDOW, 0), 0, 'its window passed on the clock: it reads');
+  assert.equal(waitLeft(h, now, WINDOW), 0, 'its window passed in this process\'s own time: it reads');
+  const back = { at: now + 3_600_000, wait: true };   // the clock set back an hour since the claim (or ahead as a hand-over a kill cut began)
+  assert.equal(waitLeft(back, now, 0), WINDOW, 'never longer than the window from the first wait');
+  assert.equal(waitLeft(back, now, 2000), WINDOW - 2000);
+  assert.equal(waitLeft(back, now, WINDOW), 0, 'then it reads');
+  assert.equal(waitLeft({ at: now + 3_600_000, wait: false }, now, 0), 0, 'a claim let go: no wait, whatever the clock');
+});

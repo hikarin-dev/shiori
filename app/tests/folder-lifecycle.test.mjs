@@ -111,6 +111,16 @@ test('every pair of jobs on one folder has a plan (A09)', () => {
   assert.throws(() => jobPlan('pdf', 'scan'), TypeError);
 });
 
+test('S33, review 10 A1 and B5: a check is never joined to one that is stopping; the reason a change is refused follows the last claim read', () => {
+  assert.equal(jobPlan('scan', 'scan', { stopping: true }), 'after', 'a check stopped by a hide: one asked after it starts once it has ended');
+  assert.equal(jobPlan('scan', 'scan', { stopping: false }), 'join');
+  assert.equal(jobPlan('removal', 'removal', { stopping: true }), 'join', 'a removal as before');
+  const at = (o) => changeRefusal({ state: 'shown', change: true, held: true, ...o });
+  assert.equal(at({ handover: true }), 'handover', 'still being read after it came back');
+  assert.equal(at({ handover: true, taken: true }), 'not-owned', 'the claim last read names another app: said so, as the folder\'s row says it');
+  assert.equal(at({ taken: true }), 'not-owned');
+});
+
 test('a removal forgets the folder only when everything is saved there, or the person chose to discard (R06)', () => {
   assert.deepEqual(removalOutcome({ required: ['1', '2'], saved: ['1', '2'] }), { forget: true, unsaved: [] });
   assert.deepEqual(removalOutcome({ required: ['1', '2', '3'], saved: ['2'] }), { forget: false, unsaved: ['1', '3'] }, 'kept: back to its state before');

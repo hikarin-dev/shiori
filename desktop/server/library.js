@@ -856,14 +856,17 @@ export class Library {
   // placed there) keeps working: what it gets waits, staged, as for a folder out of reach. Reading it, and
   // the person's own marks, are no change of its folder. A folder that came (back) to this library and whose
   // check hasn't read it since (folders.js handingOver: its hand-over mark) refuses the same, reason 'handover'
-  // (S32): it is to this library as it was while the other app held it.
+  // (S32): it is to this library as it was while the other app held it — but 'not-owned' where the last claim read
+  // names another app (S33: as the folder's row says).
   _heldCheck(gid) {
     const root = this._s('SELECT root FROM places WHERE gid = ?').get(String(gid))?.root;
     if (!root) return;
     const held = format.inFolder(!!this.files._row(gid), this._s('SELECT stamp FROM stamps WHERE gid = ?').get(String(gid))?.stamp);
     const work = root === this._folderWork.getStore();
     const handover = held && !work && this.folders.handingOver(root);   // came (back) to this library, not read yet: no file call (S32)
-    const why = lifecycle.changeRefusal({ state: 'shown', work, change: true, handover, taken: held && !work && !handover && this.folders.heldElsewhere(root), held });
+    // The last claim read naming another app says so whatever the mark (S33) — while handed over, as known: no file call.
+    const why = lifecycle.changeRefusal({ state: 'shown', work, change: true, handover, taken: held && !work && this.folders.heldElsewhere(root, { read: !handover }), held });
+    if (why === 'handover') this.folders.handOverSoon(root);   // its check comes back where it ended without reading (S33)
     if (why) throw Object.assign(new BackendError('unavailable', why === 'handover' ? `gallery ${gid} is in a library folder still being read`
       : `gallery ${gid} is in a library folder another app is using`), { reason: why, folder: root });
   }

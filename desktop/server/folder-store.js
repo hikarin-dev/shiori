@@ -577,7 +577,7 @@ export async function manifestIn(dir, gid = null) {
 // `place` — held (placeIn, or the reservation that made it: reserveIn), `place.abs` its folder — with its
 // descriptions `texts` (name → text): the descriptions the folder's current manifest doesn't store written as
 // new files named by their content, then the manifest replaced in one atomic write — the commit point — then, as
-// a best effort, the stable-named copies brought up to date and the stored descriptions neither generation names
+// a best effort, the stable-named copies brought up to date and the stored descriptions this generation supersedes
 // collected (publication). The sizes it records come from `next.sizes` where the library knew them. `hide(abs)`:
 // called on the .shiori/ folder made for it (the app marks it hidden, D7). Whose version the place holds was
 // weighed as it was held: here it is published only while it still holds that publication (`place.token`) —
@@ -622,9 +622,8 @@ export async function publishIn(place, next, texts, { hide = () => {} } = {}) {
     } catch {}
   }
   try {
-    for (const name of await disk.readdir(within(dir, format.storedDir(area))).catch(() => [])) {
-      const at = `${format.storedDir(area)}/${name}`;
-      if (plan.keep.has(at) || !format.storedHash(at)) continue;
+    for (const at of plan.superseded) {
+      if (!format.storedHash(at)) continue;
       const had = await textOr(within(dir, at)).catch(() => null);
       if (had != null && await format.matches(at, had)) await disk.rm(within(dir, at), { force: true });
     }

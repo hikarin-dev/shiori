@@ -12,7 +12,7 @@ import { slotFiles, tokenOf, generationOf, published, inFolder, nothingToWrite, 
 import { MISSING, unreadable } from './storage/contract.js';
 import { exportSize } from './gallery-export.js';
 import * as folderFiles from './storage/folder-store-web.js';
-import { OWNER_FILE, readClaim, access, nextClaim, claimText, heldElsewhere, knownAfter, handoverIn } from './storage/folder-owner.js';
+import { OWNER_FILE, readClaim, access, nextClaim, claimText, heldElsewhere, knownAfter, handoverIn, HANDOVER_RETRY_MS } from './storage/folder-owner.js';
 import { mounted, writeAllowed, changeRefusal, unfoundEnd } from './storage/folder-lifecycle.js';
 import { galleryIdOf, seriesOf, MANIFEST_FILE } from './storage/folder-content.js';
 import { REMOVED_FILE, ARCHIVE_NAME, overlayDir, parseRemoved, removedText, withRemoved, provenanceOf, pageToken, madeFromPage } from './storage/linked-source.js';
@@ -447,8 +447,9 @@ function _logIn(tx, gid, { mark = true } = {}) {
     // A hand-over's mark (S32), as this transaction reads it, refuses first; else the last claim read decides.
     const handover = !!folder && held && !work && !!place?.handover;
     // Weighed once the change is one its folder would get (marked), and the gate asked only then: a change no
-    // description shows (a size, the person's marks) costs it no read of the claim.
-    entry.held = () => changeRefusal({ state, work, change: true, handover, taken: !!folder && held && !work && !handover && _heldElsewhere(folder), held });
+    // description shows (a size, the person's marks) costs it no read of the claim. The last claim read naming another
+    // app says so whatever the mark (S33) — while handed over, as known: nothing read again.
+    entry.held = () => changeRefusal({ state, work, change: true, handover, taken: !!folder && held && !work && _heldElsewhere(folder, { read: !handover }), held });
     const why = entry.mark ? entry.held() : null;
     if (why) { _refuseIn(tx, id, why, folder); return; }
     if (entry.folder && entry.mark) _markIn(tx, id, entry.rev);
@@ -474,6 +475,7 @@ function _placeStateIn(tx, stat, found) {
 // 'not-owned' / 'handover', in folder `folder`, which another app holds / is still being read (_logIn).
 function _refuseIn(tx, gid, why = 'hidden', folder = null) {
   if (tx._refused) return;
+  if (why === 'handover') _folderLibrary.handOverSoon(folder);   // its check comes back where it ended without reading (S33)
   tx._refused = why === 'not-owned' || why === 'handover'
     ? Object.assign(new BackendError('unavailable', why === 'handover' ? `gallery ${gid} is in a library folder still being read`
       : `gallery ${gid} is in a library folder another app is using`), { reason: why, folder })
@@ -772,9 +774,10 @@ async function _access(id, { fresh = false } = {}) {
 // read again at once in the background (one read under way per folder), so the next change rests on it.
 // No file call for a change inside the time to live.
 const _rereads = new Map();   // folder id → its claim's read under way, asked by the gate
-function _heldElsewhere(id) {
+// `read` false: what is known alone, nothing read again (the gate of a folder being handed over).
+function _heldElsewhere(id, { read = true } = {}) {
   const { held, again } = heldElsewhere(_known.get(id));
-  if (again && !_rereads.has(id)) {
+  if (read && again && !_rereads.has(id)) {
     _grants.delete(id);   // read afresh: a grant of a moment ago may be older than a claim this library wrote since
     _rereads.set(id, _access(id).catch(() => {}).finally(() => _rereads.delete(id)));
   }
@@ -861,8 +864,15 @@ async function _holds(folder) {
     if (access(read, me, held) === 'mine') await _noteEpoch(folder.id, read.epoch);
   }
   const now = access(read, me, held, access(read, me, held) === 'mine' ? await _markOf(folder.id) : null);
+  // Being handed over: its check started where none is under way here; its claim's read failing meanwhile, read again in a
+  // moment — so a check that ended without reading the folder comes back by itself (S33, review 10 A1).
+  if (now === 'handover') _folderLibrary.handOverSoon(folder.id);
+  else if (read.state === 'damaged' && read.unread && folder.handover && !_claimRereads.has(folder.id)) {
+    _claimRereads.set(folder.id, setTimeout(() => { _claimRereads.delete(folder.id); _grants.delete(folder.id); _access(folder.id).catch(() => {}); }, HANDOVER_RETRY_MS));
+  }
   return { owned: now === 'mine', handover: now === 'handover', claim: read };
 }
+const _claimRereads = new Map();   // folder id → the timer reading its claim again (_holds)
 // Folder `id`'s hand-over as its record holds it now (read afresh), or null.
 async function _markOf(id) {
   const db = await openDB();
@@ -1825,13 +1835,15 @@ async function _groupWaiting(gid) {
   return all.filter(r => r.grp === grp && r.gid !== String(gid) && marked.has(r.gid)).map(r => r.gid);
 }
 // Gallery `gid` weighed with its group: each other one waiting holds its place (_hold) — another publication there
-// drops the group; one not held now keeps it waiting. Resolves whether `gid` goes on.
+// drops the group; one not held now, or whose folder can't be written now (another app's, being handed over, out of
+// reach: S33, review 10 B3), keeps it waiting. Resolves whether `gid` goes on.
 async function _weighGroup(gid) {
   const grp = await _groupOf(gid);
   if (!grp) return true;
   if (Date.now() - (_weighedGroups.get(grp) ?? -Infinity) < GROUP_WEIGHED_MS) return true;
   for (const m of await _groupWaiting(gid)) {
-    if ((await _hold(m)).kind !== 'ok' || (await _groupOf(gid)) !== grp) return false;
+    const folder = (await galleryGet(m))?.folder;
+    if ((folder && !(await _usable(folder, { work: PUBLISHING }))) || (await _hold(m)).kind !== 'ok' || (await _groupOf(gid)) !== grp) return false;
   }
   if ((await _groupOf(gid)) !== grp) return false;   // dropped meanwhile, with the group
   _weighedGroups.set(grp, Date.now());
@@ -2027,7 +2039,8 @@ async function _relocateOnce(gid, to, tick, work, w) {
   let home = null;
   if (to !== BROWSER) {
     const root = await _rootOf(to, { work });
-    if (!root) throw new BackendError('unavailable', `library folder ${to} can't be reached`);
+    // (One being handed over says so: S33, review 10 B7.)
+    if (!root) throw Object.assign(new BackendError('unavailable', `library folder ${to} can't be reached`), (await _access(to)).handover ? { reason: 'handover', folder: to } : {});
     const keepDir = same && stat.dir && !packed;
     if (keepDir && !(await _mayWriteDir(to, root, stat.dir, gid))) throw new BackendError('conflict', `the folder of gallery ${gid} names another gallery`);
     const reserved = keepDir ? null : await _reserveDir(gid, to, root, raw.meta, w, packed ? _unpackedName(stat) : null);

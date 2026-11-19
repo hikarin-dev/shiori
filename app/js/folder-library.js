@@ -24,14 +24,14 @@
 import * as platform from './platform.js';
 import * as folderFiles from './storage/folder-store-web.js';
 import { BackendError } from './backend-error.js';
-import { OWNER_FILE, readClaim, nextClaim, releasedClaim, unchangedSince, handoverOf, readsFrom } from './storage/folder-owner.js';
+import { OWNER_FILE, readClaim, nextClaim, releasedClaim, unchangedSince, handoverOf, waitLeft, HANDOVER_RETRY_MS } from './storage/folder-owner.js';
 import { mounted, canHide, nextDefault, removalOutcome, savedAtRemoval, leavesOpen } from './storage/folder-lifecycle.js';
 import { OWN_FILES, MANIFEST_FILE, TEMPORARY, galleryIdOf, classifyFolder, classifyArchive, holdsNothing } from './storage/folder-content.js';
 import { LINKED_DIR, SOURCE_FILE, REMOVED_FILE, IMAGE_NAME, ARCHIVE_NAME, overlayDir, sourceText, parseSource, parseRemoved, isRemoved, chapterRemoved,
   folderPrint, folderContent, crcHex, metaFromName, planTitles, zipTitles, sortPictures, linkedPages, keepsDerived, sameSource, sameProvenance,
   pdfReady, pdfWaits, matchSources, PDF_HEAD, pdfPrint, drawnFrom, isDrawing } from './storage/linked-source.js';
 import { DESCRIPTION_FILES, descriptionStamp, layoutPath, extOfType, describedFiles, derivedRecord } from './storage/gallery-files.js';
-import { PICTURE_DIRS, readGallery, parseManifest, tokenOf, namedPictures, supersedes } from './storage/gallery-manifest.js';
+import { PICTURE_DIRS, readGallery, parseManifest, tokenOf, namedPictures, supersedes, replacedOwn } from './storage/gallery-manifest.js';
 import { withoutPersonal } from './storage/personal.js';
 import { sha256Hex } from './zip-read.js';
 import { uploadDateSeconds } from './gallery-model.js';
@@ -45,7 +45,7 @@ export function createFolderLibrary(kernel) {
   K = kernel;
   return { foldersList, foldersWaiting, folderAdd, folderClaim, folderSetDefault, folderAllow, folderHide, folderShow,
     folderRemove, folderSetAside, foldersPending, folderScan, folderDismiss, pdfsWaiting, pdfSource, addRendered, pdfFailed, leftBehind, fingerprintNow,
-    folderStands, followUnpacked };
+    folderStands, followUnpacked, handOverSoon };
 }
 
 // An item of folder `id`'s Needs attention list ({ reason, path }) put away: a check that finds it
@@ -667,13 +667,30 @@ const _handing = new Map();   // folder id → its hand-over's check under way h
 function _handOver(id) {
   const key = String(id);
   if (!_handing.has(key)) {
-    const run = K.bulkRun(() => folderFiles.withLock(FOLDER_LOCK(key), async () => ((await K.markOf(key)) ? _check(key)
+    let began = null;   // the mark it began on: one of another `at` once it ends was begun past its read (S33)
+    const run = K.bulkRun(() => folderFiles.withLock(FOLDER_LOCK(key), async () => ((began = await K.markOf(key)) ? _check(key)
       : { added: 0, updated: 0, problems: [], stopped: false })))
-      .finally(() => { if (_handing.get(key) === run) _handing.delete(key); });
+      .finally(async () => {
+        if (_handing.get(key) === run) _handing.delete(key);
+        const now = await K.markOf(key).catch(() => null);
+        if (now && now.at !== began?.at) _handOver(key);   // "Take back" again while it was past its read: read by its own
+      });
     run.catch(() => {});
     _handing.set(key, run);
   }
   return _handing.get(key);
+}
+// The same where no check of folder `id` is under way here (S33, review 10 A1): the folder answered as being handed
+// over (db.js _holds), or the commit gate refused a change for that — so a check that ended without reading it (out of
+// reach, its claim's read failing) comes back by itself once that changes. At most once every HANDOVER_RETRY_MS.
+const _nudged = new Map();   // folder id → when its hand-over's check was last started again by itself
+function handOverSoon(id) {
+  const key = String(id);
+  if (_handing.has(key)) return;
+  const now = performance.now();
+  if (now - (_nudged.get(key) ?? -Infinity) < HANDOVER_RETRY_MS) return;
+  _nudged.set(key, now);
+  setTimeout(() => { _handOver(key).catch(() => {}); }, 0);
 }
 // Folder `id` checked. One being handed over is read first (_readBack) — else it stays to be read — then
 // checked as any (what it is owed first; what the read joined counts as joined now), then what waited goes out.
@@ -688,17 +705,21 @@ async function _check(id, opts = {}) {
   await K.settleFolders().catch(() => {});
   return { ...out, added: out.added + back.read.added, updated: out.updated + back.read.updated };
 }
-// A hand-over's read: once the other app's window has passed (readsFrom), the folder read as a check reads it
+// A hand-over's read: once the other app's window has passed (waitLeft), the folder read as a check reads it
 // but writing nothing, carrying out nothing left over, passing over no gallery as busy (_checkOnce `handover`);
 // then its mark cleared, in every context. Begun again meanwhile: read again. Resolves { read }, or { left }
 // where stopped (the mark kept); rejects, the mark kept, where the folder can't be read now.
 const HANDOVER_POLL_MS = 50;
+const _waited = new Map();   // folder id → { at, since }: the hand-over this page first waited on, and since when (waitLeft)
 async function _readBack(id, folder, { onProgress = () => {}, stopped = () => false } = {}) {
   for (;;) {
     const handover = await K.markOf(id);
     if (!handover) return { read: { added: 0, updated: 0 } };
     let again = false;
-    for (let left; !stopped() && (left = readsFrom(handover) - Date.now()) > 0;) {
+    // (Never longer than the window of this page's own running time, whatever the clock says: waitLeft.)
+    if (_waited.get(id)?.at !== handover.at) _waited.set(id, { at: handover.at, since: performance.now() });
+    const since = _waited.get(id).since;
+    for (let left; !stopped() && (left = waitLeft(handover, Date.now(), performance.now() - since)) > 0;) {
       await new Promise((r) => setTimeout(r, Math.min(left, HANDOVER_POLL_MS)));
       if ((again = (await K.markOf(id))?.at !== handover.at)) break;   // ended, or begun again, meanwhile
     }
@@ -1279,9 +1300,16 @@ async function _catchUp(run, stat) {
   }
   try {
     const again = stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid }) : await _adopt(run, where, { replace: gid, manifest: !at.texts });
-    if (again) run.updated.add(gid);
+    if (again) { run.updated.add(gid); await _noteReplaced(stat, gid); }
   } catch (e) { run.problems.push({ path: stat.dir, reason: _failure(e) }); }
   return true;
+}
+// Gallery `gid` read again from its folder: where its stamp before (`was`, its stat record then) was this library's own
+// publication, and the one read now another writer's at that generation or an earlier one (gallery-manifest.js
+// replacedOwn), this library's publication was replaced rather than built on — reported once ('changed-both'), as a
+// change waiting here dropped is; the folder's version stands (S33, review 10 B1).
+async function _noteReplaced(was, gid) {
+  if (replacedOwn((await K.galleryGet(gid))?.stamp, was.stamp, await K.me())) await K.note(was.folder, { reason: 'changed-both', path: was.dir, gid: String(gid) }, { event: true });
 }
 
 // The folder's version of gallery `gid` stands: its place holds a publication this library hasn't read —
@@ -1302,6 +1330,7 @@ async function folderStands(gid) {
   const others = drop ? await K.groupWaiting(gid) : [];
   const stood = !!(stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, drop }) : await _adopt(run, where, { replace: gid, drop, manifest: true }));
   if (stood) for (const m of others) await folderStands(m).catch(() => false);
+  if (stood && !drop) await _noteReplaced(stat, gid);
   return stood;
 }
 // What a gallery's place (`where`: _readFormat's) was last published at, and the gallery it names:

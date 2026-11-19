@@ -69,14 +69,15 @@ export function writeAllowed({ state, owned, reachable, work = null }) {
 // description shows, are not — and a gallery only this library has (made meanwhile, never published
 // there) keeps working: what it gets waits, as for a folder out of reach. `work`: the change is that
 // folder's own work (its check, its removal), never refused. 'handover' (S32): the folder is still to be read
-// after it came back (`handover`, its mark: folder-owner.js) — refused as another app's, said apart.
+// after it came back (`handover`, its mark: folder-owner.js) — refused as another app's, said apart. Where the last
+// claim read names another app as well, that is said ('not-owned'), as the folder's row says it (S33, review 10 B5).
 /** @param {{ state: string | null, work?: boolean, change?: boolean, taken?: boolean, held?: boolean, handover?: boolean }} at
  * @returns {'hidden' | 'not-owned' | 'handover' | null} */
 export function changeRefusal({ state, work = false, change = false, taken = false, held = false, handover = false }) {
   if (work) return null;
   if (!state || !mounted(state)) return 'hidden';
   if (!change || !held) return null;
-  return handover ? 'handover' : taken ? 'not-owned' : null;
+  return taken ? 'not-owned' : handover ? 'handover' : null;
 }
 
 // Why a folder store's open() refuses `purpose` (contract.js Purpose) at a place, or null when it
@@ -104,13 +105,16 @@ export function refusalFor({ state, owned, reachable, here = true, handover = fa
 //   a check; a removal asked again, or resumed, during the removal);
 // - 'after': a removal asked during a check — stop the check, then start the removal;
 // - 'refuse': a check asked during a removal (the folder is leaving).
+// A check asked while the check running is `stopping` (a hide stopped it) is never joined to it: it starts once that
+// one has ended ('after') — S33, review 10 A1.
 export const JOBS = ['scan', 'removal'];
 /** @typedef {'start' | 'join' | 'after' | 'refuse'} JobPlan */
 /** @type {Record<string, Record<string, JobPlan>>} */
 const PLANS = { scan: { scan: 'join', removal: 'after' }, removal: { scan: 'refuse', removal: 'join' } };
-/** @param {string | null} running @param {string} requested @returns {JobPlan} */
-export function jobPlan(running, requested) {
+/** @param {string | null} running @param {string} requested @param {{ stopping?: boolean }} [options] @returns {JobPlan} */
+export function jobPlan(running, requested, { stopping = false } = {}) {
   if (!JOBS.includes(requested) || (running != null && !JOBS.includes(running))) throw new TypeError(`no plan for ${requested} while ${running} runs`);
+  if (stopping && running === 'scan' && requested === 'scan') return 'after';
   return running == null ? 'start' : PLANS[running][requested];
 }
 

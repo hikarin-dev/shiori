@@ -129,8 +129,8 @@ export async function runTranslate({ galleryId, settings, forceFrom = null, page
   try {
     await startTranslation(gid, settings, (m) => platform.jobs.publish({ gid, kind: 'translate', ...m }), { forceFrom, pages, after });
   } catch (e) {
-    const key = jobErrorKey(e);
-    platform.jobs.publish({ gid, kind: 'translate', status: 'error', error: String(e && e.message || e), ...(key === 'lf.taken_msg' ? { errorKey: key } : {}) });
+    const key = refusalKey(e);   // a refusal for now, said by its own key ('handover' too: S33)
+    platform.jobs.publish({ gid, kind: 'translate', status: 'error', error: String(e && e.message || e), ...(key ? { errorKey: key } : {}) });
   }
 }
 

@@ -70,6 +70,10 @@ export function access(read, me, held, handover = null) {
 // last read of the claim is CLAIM_TTL_MS old, and writes what it accepted then a moment later: the check reads
 // nothing until that and HANDOVER_MARGIN_MS have passed since the claim (readsFrom), so it has landed.
 export const HANDOVER_MARGIN_MS = 1000;
+// A hand-over's check that ended without reading the folder (out of reach, its claim's read failing, stopped by a
+// hide) is started again by itself once the folder answers as being handed over and no check of it is under way —
+// at most this often, so a read that keeps failing never spins (S33, review 10 A1).
+export const HANDOVER_RETRY_MS = 2000;
 /** The hand-over this app's claim over `read` begins at `at` (its claim's time), or null for none.
  * @param {ClaimRead} read @param {string} me @param {number | null | undefined} held @param {number} [at] @returns {Handover | null} */
 export function handoverOf(read, me, held, at = Date.now()) {
@@ -79,6 +83,13 @@ export function handoverOf(read, me, held, at = Date.now()) {
 }
 /** When the hand-over's check may read the folder's galleries, in ms. @param {Handover} handover @returns {number} */
 export const readsFrom = (handover) => handover.at + (handover.wait ? CLAIM_TTL_MS + HANDOVER_MARGIN_MS : 0);
+// How long the check still waits before it reads, in ms (0: it reads now): until readsFrom on the computer's clock
+// (`now`), but never longer than the window itself of this process's or page's own running time — `elapsed`, since it
+// first waited on this mark, on a clock that never goes back — whatever the mark's `at` and the computer's clock say: a
+// clock set back during a hand-over, or ahead as one a kill cut short began, never keeps the folder unread (S33, review
+// 10 A2). The claim is older than the window by then, so the other app's window has passed on any clock.
+/** @param {Handover} handover @param {number} now @param {number} elapsed @returns {number} */
+export const waitLeft = (handover, now, elapsed) => Math.max(0, Math.min(readsFrom(handover) - now, readsFrom(handover) - handover.at - elapsed));
 /** A folder's mark as kept (an object or its JSON): the hand-over, or null — anything else is one (fail closed).
  * @param {unknown} kept @returns {Handover | null} */
 export function handoverIn(kept) {

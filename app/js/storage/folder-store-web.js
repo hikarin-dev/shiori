@@ -31,7 +31,7 @@ import { refused, MISSING, unreadable, surelyMissing } from './contract.js';
 import { MANIFEST_FILE, OWN_FILES, LIBRARY_FILE, SWAP_FILE, galleryAt, libraryIdOf } from './folder-content.js';
 import { refusalFor } from './folder-lifecycle.js';
 import { SOURCE_FILE, parseSource } from './linked-source.js';
-import { PICTURE_DIRS, isPictureName, areaOf, manifestPath, storedDir, storedHash, parseManifest, publication, firstGeneration, tokenOf, whoseVersion, sizesOf,
+import { PICTURE_DIRS, isPictureName, areaOf, manifestPath, storedHash, parseManifest, publication, firstGeneration, tokenOf, whoseVersion, sizesOf,
   matches, unchanged, readGallery, galleryDeletion, isOwnDescription } from './gallery-manifest.js';
 
 /** @typedef {import('./contract.js').ReadResult<Uint8Array>} ReadBytes */
@@ -484,7 +484,7 @@ const _shown = (items) => (rel) => {
  * `texts`: the descriptions the current manifest doesn't store written as new files named by their content,
  * then the manifest written whole (createWritable replaces the file only once it is complete: the commit
  * point), then, as a best effort, the stable-named copies brought up to date and the stored descriptions
- * neither generation names collected (gallery-manifest.js publication). Whose version the place holds was
+ * this generation supersedes collected (gallery-manifest.js publication). Whose version the place holds was
  * weighed as it was held: here it is published only while it still holds that publication (`place.token`) —
  * the manifest the folder's own look reads now (galleryIn) — and the place is held at the new one from then
  * on. Resolves { manifest: the one published }. Rejects, nothing written, when the folder no longer names
@@ -519,9 +519,8 @@ export async function publishIn(place, next, texts) {
     } catch {}
   }
   try {
-    for (const e of await list(id, root, _join(dir, storedDir(area)))) {
-      const at = `${storedDir(area)}/${e.name}`;
-      if (e.kind !== 'file' || plan.keep.has(at) || !storedHash(at)) continue;
+    for (const at of plan.superseded) {
+      if (!storedHash(at)) continue;
       const had = await _textNow(id, root, _join(dir, at)).catch(() => null);
       if (had != null && await matches(at, had)) await removeFile(id, root, _join(dir, at));
     }

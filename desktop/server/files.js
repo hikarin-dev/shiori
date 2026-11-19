@@ -1300,7 +1300,8 @@ export class FileLibrary {
   // publication): every other gallery of the group whose change waits here holds its place first (hold) — one
   // whose place holds another publication has the folder's version stand, which drops the whole group (scan.js
   // folderStands: never one's part published while another's is dropped); one whose place can't be held now
-  // keeps the whole group waiting. A group weighed whole is taken as it is for GROUP_WEIGHED_MS (each gallery's
+  // keeps the whole group waiting, as does one whose folder can't be written now — another app's, being handed over, out
+  // of reach (S33, review 10 B3). A group weighed whole is taken as it is for GROUP_WEIGHED_MS (each gallery's
   // own place is still held as it is written). Resolves whether `gid` goes on: false while the group waits, and
   // once it was dropped.
   async _weighGroup(gid) {
@@ -1309,6 +1310,7 @@ export class FileLibrary {
     if (!grp) return true;
     if (Date.now() - (this._weighed.get(grp) ?? -Infinity) < GROUP_WEIGHED_MS) return true;
     for (const m of this.groupWaiting(id)) {
+      if (!this.library.folders.writable(this.rootFor(m), 'publish')) return false;
       const held = await this.hold(m);
       if (held.kind !== 'ok' || this._groupOf(id) !== grp) return false;
     }

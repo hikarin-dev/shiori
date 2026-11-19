@@ -87,8 +87,8 @@ test('S32: whether a library folder is this library\'s is answered in one place 
   const files = readdirSync(server).filter((f) => f.endsWith('.js'));
   const where = (re, src = read) => [...new Set(files.flatMap(f => [...functionsOf(src(f))].filter(([, body]) => re.test(body)).map(([fn]) => `${f} ${fn}`)))].sort();
   assert.deepEqual(where(/\bclaims\.access\s*\(/), ['folders.js _access', 'folders.js _addBack', 'folders.js _claimFor'], 'the claim rule asked in folders.js alone');
-  // (handover(id), a method on one line, reads as part of _claimFor before it.)
-  assert.deepEqual(where(/\bclaims\.handover(?:In|Of)\s*\(/), ['folders.js _access', 'folders.js _claimFor'], 'the hand-over read and begun there alone');
+  // (handover(id), a method on one line, is a function of its own since S33: review 10 A4.)
+  assert.deepEqual(where(/\bclaims\.handover(?:In|Of)\s*\(/), ['folders.js _access', 'folders.js _claimFor', 'folders.js handover'], 'the hand-over read and begun there alone');
   assert.deepEqual(where(/\baccess\s*[!=]==?\s*'(?:mine|handover)'/).filter(w => !w.startsWith('folders.js')), [], 'no other module compares a folder\'s access');
   const madeUp = (f) => read(f) + (f === 'files.js' ? '\nclass Made {\n  _madeUp(read) {\n    return claims.access(read, this.me, null) === \'mine\';\n  }\n}\n' : '');
   assert.deepEqual(where(/\bclaims\.access\s*\(/, madeUp), ['files.js _madeUp', 'folders.js _access', 'folders.js _addBack', 'folders.js _claimFor']);

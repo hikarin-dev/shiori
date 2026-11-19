@@ -550,7 +550,7 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
     if (stopped()) { out.stopped = true; break; }
     try {
       if (files._legacy(row.gid) && !handover) await files.toFormat(row.gid);
-      if (await refreshGallery(library, row, { handover })) { out.updated.push(row.gid); changed.add(row.gid); }
+      if (await refreshGallery(library, row, { handover, stopped })) { out.updated.push(row.gid); changed.add(row.gid); }
     } catch (e) { out.problems.push({ path: files._split(row.path).rest, reason: unreadable(e) }); }
     tick();
     if (done % CHUNK === 0) await breathe();
@@ -626,13 +626,14 @@ async function tokenAt(library, abs, rowFormat, gid) {
 // the index's. Resolves whether it was read again; rejects, its records and token as they were, when any of
 // its files can't be read (F06), is damaged (T08) or misses a file it names (T09). One busy now (a settle,
 // a publication, a write of it under way) is weighed at its next look — but a hand-over's read (`handover`,
-// S32) waits for that to end and reads it: no gallery of a folder that came back is passed over (review 9 B2).
-async function refreshGallery(library, row, { handover = false } = {}) {
+// S32) waits for that to end and reads it: no gallery of a folder that came back is passed over (review 9 B2) —
+// unless the check is stopped meanwhile (`stopped()`: it ends there, S33).
+async function refreshGallery(library, row, { handover = false, stopped = () => false } = {}) {
   const files = library.files;
   const gid = row.gid;
   const busy = () => files._placing.has(gid) || files._describing.has(gid) || files._writing.has(gid);
-  for (let waited = 0; handover && busy() && waited < BUSY_WAIT_MS; waited += 20) await new Promise((r) => setTimeout(r, 20));
-  if (busy() && handover) throw Object.assign(new Error(`${row.path}: still busy`), { reason: 'unreadable' });   // reported, never passed over
+  for (let waited = 0; handover && busy() && !stopped() && waited < BUSY_WAIT_MS; waited += 20) await new Promise((r) => setTimeout(r, 20));
+  if (busy() && handover && !stopped()) throw Object.assign(new Error(`${row.path}: still busy`), { reason: 'unreadable' });   // reported, never passed over
   if (busy()) return false;
   const abs = files._abs(row.path);
   const at = await tokenAt(library, abs, row.format, gid);
@@ -650,8 +651,20 @@ async function refreshGallery(library, row, { handover = false } = {}) {
     return library._s('SELECT stamp FROM stamps WHERE gid = ?').get(gid)?.stamp !== had;
   }
   const src = files.sourceOf(row);
-  if (src) return !!await adoptLinked(library, files._split(row.path).root, src, { replace: gid, guard: () => localChanges(library, gid) });
-  return reread(library, row, { guard: () => localChanges(library, gid), manifest: !at.texts });
+  const again = src ? !!await adoptLinked(library, files._split(row.path).root, src, { replace: gid, guard: () => localChanges(library, gid) })
+    : await reread(library, row, { guard: () => localChanges(library, gid), manifest: !at.texts });
+  if (again) noteReplaced(library, gid, had);
+  return again;
+}
+// Gallery `gid` read again from its folder: where the stamp it had (`was`) was this library's own publication, and the
+// one read now is another writer's at that generation or an earlier one (gallery-manifest.js replacedOwn), this
+// library's publication was replaced rather than built on — reported once ('changed-both'), as a change waiting here
+// dropped is; the folder's version stands (S33, review 10 B1).
+function noteReplaced(library, gid, was) {
+  const row = library.files._row(gid);
+  if (!row || !format.replacedOwn(library.files._stamp(gid), was, library.folders._me())) return;
+  const { root, rest } = library.files._split(row.path);
+  library.folders.note(root, { reason: 'changed-both', path: rest, gid: String(gid) }, { event: true });
 }
 
 // Gallery `row` read again from its folder or archive, its records replaced by what that holds, in one
@@ -725,6 +738,7 @@ export async function folderStands(library, gid) {
   const src = files.sourceOf(row);
   const waits = () => waiting(library, id);
   const drop = waits();
+  const was = files._stamp(id);
   // The other galleries one series command changed with it (files.js groupIn), whose change still waits: dropped
   // with its own — a command is weighed as one, never one gallery's part published and another's dropped (S32,
   // review 9 B1).
@@ -733,6 +747,7 @@ export async function folderStands(library, gid) {
     : await reread(library, row, drop ? { drop: true } : { guard: waits, manifest: true });
   if (!stood) return false;
   if (src && drop) library.folders.note(root, { reason: 'changed-both', path: rest, gid: id }, { event: true });
+  if (!drop) noteReplaced(library, id, was);
   if (drop) library._tx(() => files._ungroup(id));
   for (const m of others) await folderStands(library, m).catch(() => false);
   if (drop) await files._letGo(id).catch(() => {});

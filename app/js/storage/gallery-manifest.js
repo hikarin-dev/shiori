@@ -226,6 +226,15 @@ export const inFolder = (placed, known) => !!placed && (known == null || publish
  * @param {string | null | undefined} now @param {string | null | undefined} known @param {string} writer @returns {'ours' | 'theirs'} */
 export const whoseVersion = (now, known, writer) =>
   (!String(now ?? '').startsWith('v2:') || now === known || (writerOf(now) === writer && generationOf(now) > generationOf(known)) ? 'ours' : 'theirs');
+/** Whether this library's own publication of a gallery was replaced there rather than built on (S33, review 10 B1): the
+ * place holds, at `now`, another writer's publication at the same generation as this library's last one (`known`, of
+ * `writer`, this app) or an earlier one — a publication of the other app that was under way at a take-over landing
+ * after this one. Its change is then gone from the folder, the folder's version standing: reported once
+ * ('changed-both'), as a change waiting here dropped is. Not where the other app published a later generation on top
+ * (the normal case), nor for this app's own earlier publication put back by hand.
+ * @param {string | null | undefined} now @param {string | null | undefined} known @param {string} writer @returns {boolean} */
+export const replacedOwn = (now, known, writer) => String(now ?? '').startsWith('v2:') && now !== known && writerOf(known) === writer
+  && writerOf(now) !== writer && generationOf(now) <= generationOf(known);
 /** Whether a publication of a gallery with nothing of it waiting (a removal's write-back) writes nothing:
  * its folder holds a generation already (its manifest read 'ok': the one last published or read here, or
  * another app's since, which a check reads: D4), or holds none and never held one this library knew of —
@@ -408,9 +417,10 @@ export async function readGallery({ area, archive = false, text, files }) {
  * in order: `writes`, the descriptions stored by content that `prev` doesn't name (new immutable
  * files); then `text`, the manifest (one atomic write: the commit point); then `stable`, each
  * stable-named copy as a best effort — `text` to write where the file's text differs, or null to
- * delete one the gallery no longer has (only when it is still what `prev` stored: `was`). `keep`: the
- * stored descriptions either generation names — any other in the gallery's d/ folder whose content
- * matches its name was Shiori's, and is collected once this one has committed. `texts`: the
+ * delete one the gallery no longer has (only when it is still what `prev` stored: `was`). `superseded`:
+ * the stored descriptions `prev` names and this generation doesn't — collected once this one has
+ * committed, each while its content still matches its name; never one no manifest names, which may be
+ * another app's publication under way at a take-over (S33, review 10 B1). `texts`: the
  * descriptions (DESCRIPTION_FILES name → text; none for one the gallery hasn't); `area`: areaOf its
  * folder. The generation is the next after both `prev`'s and `next`'s own (the one the library last
  * published or read); with no `prev`, `next`'s own (0 for a reservation's, firstGeneration).
@@ -423,7 +433,7 @@ export async function publication({ area, prev, next, texts }) {
   return publicationWith({ area, prev, next, texts, hashOf: (t) => /** @type {string} */ (hashes.get(t)) });
 }
 /** @typedef {{ manifest: Manifest, text: string, writes: { path: string, text: string }[],
- *   stable: { path: string, text: string | null, was: string | null }[], keep: Set<string> }} Publication */
+ *   stable: { path: string, text: string | null, was: string | null }[], superseded: string[] }} Publication */
 /** The same, planned in one synchronous step, given `hashOf(text)` (its hex sha-256): for a caller that
  * must make a gallery's folder and its first generation at once (the desktop's reservation).
  * @param {{ area: string, prev: Manifest | null, next: Omit<Manifest, 'descriptions'>, texts: Record<string, string | null | undefined>,
@@ -449,7 +459,8 @@ export function publicationWith({ area, prev, next, texts, hashOf }) {
   /** @type {{ path: string, text: string | null, was: string | null }[]} */
   const stable = DESCRIPTION_FILES.flatMap(name => (texts[name] != null ? [{ path: name, text: /** @type {string | null} */ (texts[name]), was: /** @type {string | null} */ (null) }]
     : prev?.descriptions[name] ? [{ path: name, text: /** @type {string | null} */ (null), was: /** @type {string | null} */ (prev.descriptions[name]) }] : []));
-  return { manifest, text: manifestText(manifest), writes, stable, keep: new Set([...before, ...Object.values(descriptions)]) };
+  const named = new Set(Object.values(descriptions));
+  return { manifest, text: manifestText(manifest), writes, stable, superseded: [...before].filter(at => !named.has(at)) };
 }
 
 /** The first generation of gallery `galleryId`, which a reservation publishes as it makes the gallery's

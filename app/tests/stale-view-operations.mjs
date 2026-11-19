@@ -205,19 +205,36 @@ export function code(src) {
   }
   return out;
 }
-// What a function's first line looks like (a top-level function, a `const name =`, a class's method two spaces in).
-const DECLARED = /^(?:export\s+)?(?:async\s+)?function\s*\*?\s*([\w$]+)|^(?:export\s+)?const\s+([\w$]+)\s*=|^ {2}(?:async |static )?(?!(?:if|for|while|switch|catch|return)\b)([A-Za-z_$][\w$]*)\s*\(.*\)\s*\{\s*$/;
+// What a function's first line looks like (a top-level function, a `const`, `let` or `var` name given a value, a
+// class's method two spaces in).
+const DECLARED = /^(?:export\s+)?(?:async\s+)?function\s*\*?\s*([\w$]+)|^(?:export\s+)?(?:const|let|var)\s+([\w$]+)\s*=|^ {2}(?:async |static )?(?!(?:if|for|while|switch|catch|return)\b)([A-Za-z_$][\w$]*)\s*\(.*\)\s*\{\s*$/;
+// Inside a class, every member two spaces in, whatever its shape (S33, review 10 A4): a method whose body is on its
+// first line or whose signature runs over several, a getter or setter, a field (an arrow among them).
+const MEMBER = /^ {2}(?:static\s+)?(?:async\s+)?(?:(?:get|set)\s+(?=[A-Za-z_$#]))?\*?([A-Za-z_$#][\w$]*)\s*[(=;]/;
+const CLASS = /^(?:export\s+)?(?:default\s+)?class\b.*\{\s*$/;   // a class whose body runs over the lines below
+// A statement at the top level that opens a function without declaring one (`platform.control.on((msg) => { … })`, an
+// `else` handing one on): placed under TOP_LEVEL, never counted to the function above it.
+export const TOP_LEVEL = '(top level)';
 // Each function of `src` and its code. Throws where a declaration the source shows is hidden once its comments are
-// out (a range the rule didn't read: review 9 A2).
+// out (a range the rule didn't read: review 9 A2), and where a class's member two spaces in has a shape it can't place,
+// so no code is ever counted to the function above it (S33, review 10 A4).
 export function functionsOf(src) {
   const out = new Map();
-  let at = null;
+  let at = null, inClass = false;
   const lines = code(src).split('\n');
   const shown = src.split('\n').filter(l => DECLARED.test(l)).length, read = lines.filter(l => DECLARED.test(l)).length;
   if (read < shown) throw new Error(`${shown - read} of ${shown} declarations aren't read as code: a range of the file is hidden`);
-  for (const line of lines) {
-    const m = DECLARED.exec(line);
-    if (m) { at = m[1] ?? m[2] ?? m[3]; if (!out.has(at)) out.set(at, []); }
+  for (const [i, line] of lines.entries()) {
+    let name = null;
+    if (CLASS.test(line)) inClass = true;
+    else if (inClass && /^\}/.test(line)) inClass = false;
+    else if (inClass) {
+      if (/^ {2}[^\s}\])]/.test(line) && !(name = MEMBER.exec(line)?.[1])) throw new Error(`line ${i + 1} opens a class member the rule can't place: ${line.trim()}`);
+    } else {
+      const m = DECLARED.exec(line);
+      name = m ? m[1] ?? m[2] ?? m[3] : /^[A-Za-z_$]/.test(line) && /=>|\bfunction\b/.test(line) ? TOP_LEVEL : null;
+    }
+    if (name) { at = name; if (!out.has(at)) out.set(at, []); }
     if (at) out.get(at).push(line);
   }
   return new Map([...out].map(([name, lines]) => [name, lines.join('\n')]));
