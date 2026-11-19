@@ -109,6 +109,11 @@ const ADD = (options = {}) => op('add A', async (c) => { c.ids.A = await c.lib.a
 // A check of folder A that reads what the other app published there since (D4): every check from it on
 // shows it, so it counts as a check that joins.
 const CATCH_UP = (/** @type {(s: State, c: Ctx) => State} */ apply) => op('check', (c) => c.lib.scan(c.ids.A), apply, null, true);
+// A change asked at once after "Take back", before the hand-over's check has read the folder (S32): refused for now,
+// nothing of it made — accepted, it is a finding.
+const AT_ONCE = (/** @type {string} */ name, /** @type {(c: Ctx) => Promise<unknown>} */ run) => op(`${name} at once`, async (c) => {
+  if (await run(c).then(() => true, () => false)) (c.wrong ??= []).push(`${name} asked at once after "Take back" was accepted before the folder was read`);
+});
 /** @param {State} s @param {string} gid @param {string[]} ids */
 const withChapters = (s, gid, ids) => { const t = clone(s); t.galleries[gid].chapters = ids; return t; };
 /** @param {State} s @param {string} to */
@@ -1209,12 +1214,12 @@ const SCENARIOS = [
   },
   // S31 (review 8): an operation made from a view older than the folder's — the other app, using folder A anyway,
   // published a new title and a translation of Alpha there; this app takes the folder back and, before any check
-  // reads it, publishes (a title), changes an archived gallery's picture (the website's unpack of it, the desktop
-  // following the website's), or moves the gallery to folder B. The step is the take-back and the operation, faulted
-  // at every point: the folder's version stands throughout — what this app made of Alpha goes on it, or is dropped
-  // (reported) — from the stages' check on only the folder's version shows (with this app's change, where it went
-  // on), and nothing of the other app's is lost. (The website reads another app's work of a gallery it is busy with
-  // at a later check: c.busy, as above.)
+  // reads it, asks to publish (a title), change an archived gallery's picture (the website's unpack of it, the desktop
+  // following the website's), or move the gallery to folder B. Since S32 that is refused for now (AT_ONCE), and the
+  // hand-over's check reads the folder first: the step is the take-back, the operation asked, and the hand-over's
+  // read with the work left over, faulted at every point — the folder's version stands throughout, from the stages'
+  // check on only it shows, and nothing of the other app's is lost. (The website reads another app's work of a
+  // gallery it is busy with at a later check: c.busy, as above.)
   {
     name: 'a title published from a view older than the folder\'s, taken back',
     async setup(c) {
@@ -1227,7 +1232,7 @@ const SCENARIOS = [
     also: (c, stage) => (stage === 're-add' || (stage !== 'flush' && !c.busy?.has(c.g.alpha)) ? []
       : [{ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha here', [png(1), png(2)]) } }, { aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }]),
     ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A), (s) => s, null, true),
-      op('title', (c) => c.lib.setTitle(c.g.alpha, 'Alpha here'), (s, c) => thereNow(c)), CHECK, FLUSH, SETTLE],
+      AT_ONCE('title', (c) => c.lib.setTitle(c.g.alpha, 'Alpha here')), CATCH_UP((s, c) => thereNow(c)), FLUSH, SETTLE],
     noSetupFlush: true,
   },
   {
@@ -1268,8 +1273,8 @@ const SCENARIOS = [
       ...(stage === 're-add' || (stage !== 'flush' && !c.busy?.has(c.g.alpha)) ? [] : [{ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } },
         withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }, c.g.alpha, 1, png(8))])],
     ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A), (s) => s, null, true),
-      op('translation 1', (c) => c.lib.putTranslation(c.g.alpha, 1, png(8)), (s, c) => withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha there', [png(1), png(2)]) } }, c.g.alpha, 1, png(8))),
-      CHECK, FLUSH, SETTLE],
+      AT_ONCE('translation 1', (c) => c.lib.putTranslation(c.g.alpha, 1, png(8))),
+      CATCH_UP((s, c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha there', [png(1), png(2)]) } })), FLUSH, SETTLE],
     noSetupFlush: true,
   },
   {
@@ -1300,8 +1305,8 @@ const SCENARIOS = [
       ...(stage === 'flush' ? [{ aIn: true, galleries: {} },
         /** @type {State} */ ({ aIn: true, galleries: { [c.g.alpha]: /** @type {G} */ (/** @type {any} */ ({ place: 'A', title: 'Alpha', pages: [null, [hex(png(9)), hex(png(9))]] })) } })] : [])],
     ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A), (s) => s, null, true),
-      op('page 2', (c) => c.lib.putPage(c.g.alpha, 2, png(9)), (s, c) => withPage(withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }, c.g.alpha, 1, png(7)), c.g.alpha, 2, png(9))),
-      CHECK, FLUSH, SETTLE],
+      AT_ONCE('page 2', (c) => c.lib.putPage(c.g.alpha, 2, png(9))),
+      CATCH_UP((s, c) => withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }, c.g.alpha, 1, png(7))), FLUSH, SETTLE],
     noSetupFlush: true,
   },
   {
@@ -1320,7 +1325,7 @@ const SCENARIOS = [
     // in A, from the stages' check on.
     also: (c, stage) => [thereNow(c), ...(stage === 're-add' || (stage !== 'flush' && !c.busy?.has(c.g.alpha)) ? [] : [{ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }])],
     ops: [op('take A back', (c) => c.lib.raw.folderClaim(c.ids.A), (s) => s, null, true),
-      op('move to B', (c) => c.lib.move(c.g.alpha, c.ids.B), (s, c) => allIn(thereNow(c), 'B')), CHECK, FLUSH, SETTLE],
+      AT_ONCE('move to B', (c) => c.lib.move(c.g.alpha, c.ids.B)), CATCH_UP((s, c) => thereNow(c)), FLUSH, SETTLE],
     noSetupFlush: true,
   },
   {
