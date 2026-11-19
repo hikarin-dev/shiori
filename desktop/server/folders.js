@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS roots (
   first INTEGER NOT NULL DEFAULT 0,
   added_at REAL NOT NULL,
   epoch INTEGER,
-  removal TEXT
+  removal TEXT,
+  handover TEXT
 );
 CREATE TABLE IF NOT EXISTS places (gid TEXT PRIMARY KEY, root TEXT NOT NULL) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS places_root ON places (root);
@@ -52,7 +53,9 @@ CREATE TABLE IF NOT EXISTS attention (root TEXT NOT NULL, reason TEXT NOT NULL, 
 // at (folder-owner.js: to tell, once it is added back, whether another app had it meanwhile);
 // `removal` while it is being removed: { moveTo, discard, before } — where its galleries go first, whether
 // the person chose to lose what can't be written there, and the state it goes back to should the
-// removal be kept. `removed_notes`: a linked gallery let go (deleted, or moved out as the library's
+// removal be kept; `handover` while it came (back) to this library and its check hasn't read it since
+// (folder-owner.js handoverOf: { at, wait }, written before the claim, cleared once the check has read it).
+// `removed_notes`: a linked gallery let go (deleted, or moved out as the library's
 // own) whose source's note in its folder's removed.json is still owed (publishRemoved) — written by the
 // transaction that let it go, so the note is never lost, and its overlay (`overlay`, its path as
 // files.js keeps it) deleted once the note is there. `attention`: what a folder's "Needs attention"
@@ -64,6 +67,7 @@ CREATE TABLE IF NOT EXISTS attention (root TEXT NOT NULL, reason TEXT NOT NULL, 
 const UNMOUNTED = `CREATE VIEW IF NOT EXISTS unmounted AS
   SELECT gid, root FROM places WHERE root NOT IN (SELECT id FROM roots WHERE state = 'shown')`;
 const IDENTITY_TTL = 2000;   // how long which folder a path holds, as read for reading, is taken as it is
+const HANDOVER_POLL_MS = 50;   // how often a hand-over's check looks at the clock while it waits out the other app's window
 
 // A moment for the windows' requests: long work on a folder waits for it every so often.
 const breathe = () => new Promise((resolve) => setImmediate(resolve));
@@ -95,6 +99,8 @@ export class Folders {
     // weighed as one made before S29a: removedIn).
     const noted = new Set(lib._db.prepare('PRAGMA table_info(removed_notes)').all().map(c => c.name));
     for (const [name, type] of [['stamp', 'TEXT'], ['epoch', 'INTEGER']]) if (!noted.has(name)) lib._db.exec(`ALTER TABLE removed_notes ADD COLUMN ${name} ${type}`);
+    // An index made before S32: its folders' hand-over marks (none — no folder of it is being handed over).
+    if (!lib._db.prepare('PRAGMA table_info(roots)').all().some(c => c.name === 'handover')) lib._db.exec('ALTER TABLE roots ADD COLUMN handover TEXT');
     lib._tx(() => this._migrateIn());
     lib._db.exec(UNMOUNTED);
     lib._stmts.clear();
@@ -112,6 +118,8 @@ export class Folders {
   resume() {
     for (const r of this._rows()) if (r.state === 'removing') this._remove(r.id).catch(() => {});
     for (const { root } of this.library._s('SELECT DISTINCT root FROM removed_notes').all()) this.publishRemoved(root).catch(() => {});
+    // A hand-over the app was closed (or killed) in the middle of: its check starts again by itself.
+    for (const r of this._rows()) if (r.handover) this.handOver(r.id);
   }
 
   // The folders and places earlier versions kept, inside one transaction: the folders listed in the
@@ -246,7 +254,7 @@ export class Folders {
       return here === 'ok' ? { status: 'ok', at: row.path } : contract.refused(here);
     }
     const { identity, access } = this.probe(id, { fresh });
-    const why = identity !== 'ok' ? identity : lifecycle.refusalFor({ state: row.state, owned: access === 'mine', reachable: true }, purpose);
+    const why = identity !== 'ok' ? identity : lifecycle.refusalFor({ state: row.state, owned: access === 'mine', handover: access === 'handover', reachable: true }, purpose);
     return why ? contract.refused(why) : { status: 'ok', at: row.path };
   }
   // Which folder folder `row`'s path holds now: 'ok' (its .shiori/library.json names it — written once,
@@ -333,7 +341,8 @@ export class Folders {
     if (fresh || !hit || Date.now() - hit.at >= claims.CLAIM_TTL_MS) {
       hit = { ...this._access(row), at: Date.now() };
       if (hit.read?.unread) this._probes.delete(row.id); else this._probes.set(row.id, hit);
-      const known = claims.knownAfter(this._known.get(row.id), hit.read, hit.access === 'mine', hit.at);
+      // (A claim of this library's being handed over is no other app's: the gate weighs the hand-over apart, handingOver.)
+      const known = claims.knownAfter(this._known.get(row.id), hit.read, hit.access === 'mine' || hit.access === 'handover', hit.at);
       if (known) this._known.set(row.id, known);
     }
     return { reachable: true, access: hit.access, read: hit.read, identity };
@@ -348,6 +357,9 @@ export class Folders {
     if (known().again) this.probe(String(id), { fresh: true });
     return known().held;
   }
+  // Whether folder `id` came (back) to this library and its check hasn't read it since (its mark: handover)
+  // — the commit gate weighs it first (library.js _heldCheck), from the index alone: no file call.
+  handingOver(id) { return !!this._row(id)?.handover; }
   // What the library knew of folder `id`'s claim forgotten — the claim as last read, and what the commit
   // gate knows: this library claimed it, let it go, or forgot the folder.
   _forgetClaim(id) {
@@ -358,29 +370,45 @@ export class Folders {
   _here(row) { return this._identity(row, { fresh: true }) === 'ok'; }
   _access(row) {
     const me = this._me();
+    const handover = claims.handoverIn(row.handover);   // read with the row: the mark is written before the claim
     const read = this._readClaim(row.path);
-    const access = claims.access(read, me, row.epoch);
+    const access = claims.access(read, me, row.epoch, handover);
     if (access !== 'free') return { read, access };
     const { claim } = claims.nextClaim(read, me, this._label(), { held: row.epoch });
     try { this._writeClaim(row.path, claim); } catch {}
     const back = this._readClaim(row.path);
-    const now = claims.access(back, me, claim.epoch);
-    if (now !== 'mine') return { read: back, access: now === 'free' ? 'unknown' : now };
+    const now = claims.access(back, me, claim.epoch, handover);
+    if (now !== 'mine' && now !== 'handover') return { read: back, access: now === 'free' ? 'unknown' : now };
     this._setEpoch(row.id, claim.epoch);
-    return { read: back, access: 'mine' };
+    return { read: back, access: now };
   }
   // Folder `dir` claimed by this library (nextClaim): written, then read back. Another app's claim, or
   // one that can't be checked, is refused — reason 'claimed', `owner` who — unless `force` (the person
-  // chose to take it over). Returns the claim.
-  _claimFor(dir, { force = false, held = null } = {}) {
+  // chose to take it over). `before(claim, handover)` runs once it is decided, before the claim file is
+  // written: `handover` the hand-over it begins (folder-owner.js handoverOf: the claim replaced wasn't this
+  // library's), null for none — the caller records it there, so a kill after it leaves the folder to be read.
+  // Returns { claim, handover }.
+  _claimFor(dir, { force = false, held = null, before = () => {} } = {}) {
     const me = this._me();
     const claimed = (read) => Object.assign(refusal('invalid', 'claimed', `${dir} is in use by another app`), { owner: this._ownerOf(read) });
-    const got = claims.nextClaim(this._readClaim(dir), me, this._label(), { held, force });
+    const read = this._readClaim(dir);
+    const now = Date.now();
+    const got = claims.nextClaim(read, me, this._label(), { held, force, now });
     if (got.refused) throw claimed(got.refused);
+    const handover = got.changed ? claims.handoverOf(read, me, held, now) : null;
+    before(got.claim, handover);
     if (got.changed) this._writeClaim(dir, got.claim);
     const back = this._readClaim(dir);
     if (claims.access(back, me, got.claim.epoch) !== 'mine') throw claimed(back);
-    return got.claim;
+    return { claim: got.claim, handover };
+  }
+  // Folder `id`'s hand-over (folder-owner.js), as its row keeps it: null for none.
+  handover(id) { return claims.handoverIn(this._row(id)?.handover); }
+  // Folder `id`'s hand-over recorded (`handover`), or ended (null) — what was known of its claim forgotten, so
+  // every gate weighs it from now on (probe).
+  _setHandover(id, handover) {
+    this.library._s('UPDATE roots SET handover = ? WHERE id = ?').run(handover ? JSON.stringify(handover) : null, String(id));
+    this._probes.delete(String(id));
   }
 
   // ── The gate ──
@@ -405,7 +433,8 @@ export class Folders {
     const state = this.state(id);
     if (!state) return new BackendError('not-found', `no library folder ${id}`);
     if (state !== 'shown') return refusal('invalid', 'hidden', `library folder ${id} is hidden or being removed`);
-    const { reachable, identity } = this.probe(id);
+    const { reachable, identity, access } = this.probe(id);
+    if (reachable && access === 'handover') return refusal('unavailable', 'handover', `library folder ${id} is being read after it came back`);
     if (reachable) return refusal('unavailable', 'taken', `library folder ${id} is in use by another app`);
     return identity === 'other-library' ? refusal('unavailable', 'other-library', `another library folder is at library folder ${id}'s path`)
       : refusal('unavailable', 'unavailable', `library folder ${id} can't be reached`);
@@ -424,11 +453,12 @@ export class Folders {
     const defaultId = this.defaultRoot();
     return this._rows().filter(r => r.state !== 'removing').map((r) => {
       const { reachable, access, read, identity } = this.probe(r.id, { fresh: true });
-      const taken = reachable && access !== 'mine';
+      // One being handed over is this library's, its check reading it (shown as granted, its task running).
+      const taken = reachable && access !== 'mine' && access !== 'handover';
       return { id: r.id, kind: 'folder', name: path.basename(r.path) || r.path, path: r.path, isDefault: r.id === defaultId,
         access: !reachable ? identity : taken ? 'taken' : 'granted', removable: !r.first, attention: this.attention(r.id),
         ...(tally.get(r.id) || { galleries: 0, size: 0 }), ...(r.state === 'hidden' ? { hidden: true } : {}),
-        ...(taken ? { owner: this._ownerOf(read) } : {}) };
+        ...(taken ? { owner: this._ownerOf(read) } : {}), ...(reachable && access === 'handover' ? { handover: true } : {}) };
     });
   }
 
@@ -444,6 +474,12 @@ export class Folders {
     if (!(await disk.stat(abs).then(st => st.isDirectory(), () => false))) throw new BackendError('invalid', `${abs} is not a folder`);
     const known = this._rows().find(r => samePath(r.path, abs));
     if (known?.state === 'hidden') return this.show(known.id);
+    // One listed with its hand-over's mark whose claim was never written (the app killed between the two) is
+    // claimed now, as that add would have: refused as an add is where another app holds it, unless `force`.
+    if (known?.state === 'shown' && known.handover && this._here(known) && !['mine', 'handover'].includes(this.probe(known.id, { fresh: true }).access)) {
+      await this._takeBack(known.id, { force });
+      return { id: known.id, restored: 0 };
+    }
     if (known?.state === 'shown') return { id: known.id, restored: 0, existed: true };
     if (known) return this._addBack(known, { force });
     for (const root of [...this.paths(), lib.dataDir]) {
@@ -451,14 +487,30 @@ export class Folders {
     }
     const id = libraryId(abs);
     if (this.has(id)) throw refusal('invalid', 'copy', `${abs} is a copy of one of the library's folders`);
-    const claim = this._claimFor(abs, { force });
-    lib._s(`INSERT INTO roots (id, path, state, first, added_at, epoch) VALUES (?, ?, 'shown', 0, ?, ?)`).run(id, abs, Date.now(), claim.epoch);
+    // A folder another app had (its claim, active or let go, or one that can't be checked) is handed over: the
+    // folder is listed with its mark before the claim is written, and read before anything else is done there.
+    // One this library let go itself, untouched since (`released`: the claim's counter it left), is its own again.
+    const insert = (claim, handover) => lib._s(`INSERT INTO roots (id, path, state, first, added_at, epoch, handover) VALUES (?, ?, 'shown', 0, ?, ?, ?)`)
+      .run(id, abs, Date.now(), claim.epoch, handover ? JSON.stringify(handover) : null);
+    let listed = false;
+    let got;
+    try {
+      got = this._claimFor(abs, { force, held: this._released(id), before: (claim, handover) => { if (handover) { insert(claim, handover); listed = true; } } });
+    } catch (e) {
+      if (listed) lib._s('DELETE FROM roots WHERE id = ?').run(id);
+      throw e;
+    }
+    if (!listed) insert(got.claim, null);
     this._paths = null;
     this._forgetClaim(id);
     try { lib._hide(path.join(abs, '.shiori')); } catch {}
     lib._push('control', { type: 'FOLDERS_CHANGED' });
+    if (got.handover) this.handOver(id);
     return { id, restored: 0 };
   }
+  // The claim's counter this library left on folder `id` as it let it go and forgot it (_release), or null:
+  // added again untouched since, the folder is its own (no hand-over).
+  _released(id) { return this.library._kvGet('releasedEpochs')?.[id] ?? null; }
 
   // Folder `row`, being removed, added back (P7). Its claim is read first: another app's, or one that
   // can't be checked, is refused unless forced (R21). Unchanged since this library held it, and before
@@ -501,6 +553,9 @@ export class Folders {
     const row = this._row(id);
     if (!row) throw new BackendError('not-found', `no library folder ${id}`);
     if (row.first) throw new BackendError('invalid', 'the first library folder stays');
+    // One being handed over is removed once its check has read it (its write-back from what was read, S32):
+    // refused for now ('handover') while it can be reached and read.
+    if (row.state !== 'removing' && this.probe(id).access === 'handover') throw this._refusal(id);
     if (row.state !== 'removing') {
       if (moveTo != null) {
         if (moveTo === id) throw new BackendError('invalid', 'not a place to move to');
@@ -549,32 +604,53 @@ export class Folders {
     if (!lifecycle.canShow(row)) return { id, restored: 0 };
     this._setState(id, 'shown');
     this.library.files.resume();
+    this.handOver(id);   // one hidden in the middle of its hand-over is read now
     return { id, restored: this.galleriesIn(id).length };
   }
 
-  // Where new galleries go: a folder shown, held and reachable (else refused, as _refusal says).
+  // Where new galleries go: a folder shown, held and reachable (else refused, as _refusal says) — one being
+  // handed over too (S32): what is made there meanwhile waits staged until its check has read it, as a
+  // gallery only this library has.
   async setDefault(id) {
     this.path(id);
-    if (!lifecycle.canSetDefault(this._facts(id))) throw this._refusal(id);
+    const facts = this._facts(id);
+    if (!lifecycle.canSetDefault({ ...facts, owned: facts.owned || this.probe(id).access === 'handover' })) throw this._refusal(id);
     this.library._kvSet('defaultRoot', id === this.primaryId ? null : id);
     this.library._push('control', { type: 'FOLDERS_CHANGED' });
   }
 
   // Folder `id`, taken over by another app (or its claim unreadable), held by this library again — from
-  // a click, the person told what that risks: what waited for it meanwhile is settled into it, and every
-  // change is allowed at once (what the commit gate knew of the other app is forgotten).
-  async claim(id) {
+  // a click, the person told what that risks. The claim replaced wasn't this library's, so this is a
+  // hand-over (folder-owner.js): its mark recorded before the claim is written, the folder's check started
+  // (handOver) — what the other app did there is read before anything is changed or written here, then what
+  // waited for it meanwhile is settled into it. A claim that was this library's already settles at once.
+  async claim(id) { return this._takeBack(id, { force: true }); }
+  // Folder `id` of the library's claimed by it again — over another app's claim only with `force` (refused as an add
+  // is, reason 'claimed', else). Resolves 'granted'.
+  async _takeBack(id, { force }) {
     const row = this._row(id);
     if (!row) throw new BackendError('not-found', `no library folder ${id}`);
     if (!this._here(row)) throw this._refusal(id);   // out of reach, or another folder at its path
-    const claim = this._claimFor(row.path, { force: true, held: row.epoch });
+    const { claim, handover } = this._claimFor(row.path, { force, held: row.epoch, before: (_, h) => { if (h) this._setHandover(id, h); } });
     this._setEpoch(id, claim.epoch);
     this._forgetClaim(id);
     this.library._push('control', { type: 'FOLDERS_CHANGED' });
+    if (handover || this.handover(id)) this.handOver(id);
+    else this._settleIn(id).catch(() => {});
+    return 'granted';
+  }
+  // What waited for folder `id`'s galleries settled into it (each through its place held). Resolves once done.
+  _settleIn(id) {
     const files = this.library.files;
     files.resume();
-    for (const gid of this.galleriesIn(id)) files.settle(gid).catch(() => {});
-    return 'granted';
+    return Promise.all(this.galleriesIn(id).map(gid => files.settle(gid).catch(() => {})));
+  }
+  // Folder `id`'s hand-over carried on, where it has one: its check started (scan), as a task the windows
+  // list — joined by a check a window asks for. At the claim, the app's start (resume), and once it is shown.
+  handOver(id) {
+    const row = this._row(id);
+    if (row?.state !== 'shown' || !this.handover(id)) return;
+    this.scan(id).catch(() => {});
   }
 
   // A folder's state changed — `removal` with it while it is being removed — in a transaction that
@@ -659,14 +735,54 @@ export class Folders {
     if (!row || row.state === 'removing') throw new BackendError('not-found', `no library folder ${id}`);
     if (row.state === 'hidden') throw refusal('invalid', 'hidden', `library folder ${id} is hidden`);
     const { reachable, access, identity } = this.probe(id);
-    if ((reachable && access !== 'mine') || identity === 'other-library') throw this._refusal(id);
+    if ((reachable && access !== 'mine' && access !== 'handover') || identity === 'other-library') throw this._refusal(id);
     return this._queue(id, 'scan', (job) => this._announce(id, { labelKey: 'lf.task_checking', doneKey: 'lf.task_done' }, async (progress) => {
-      const found = await this.library._bulkRun(() => scanLibrary(this.library, { roots: [id], stopped: () => job.stop, onProgress: progress }));
+      // A folder being handed over is read first (_readBack); it stays to be read where that couldn't be done.
+      const back = this.handover(id) ? await this._readBack(id, job, progress) : null;
+      if (back && !back.read) return back.left;
+      const found = await this.library._bulkRun(() => scanLibrary(this.library, { roots: [id], stopped: () => job.stop, onProgress: progress, joined: new Set(back?.read.added ?? []) }));
+      if (back) for (const k of ['moved', 'missing', 'found', 'added', 'updated']) found[k] = [...new Set([...back.read[k], ...found[k]])];
       // What it found for the folder's Needs attention list — not when it couldn't look at it, or stopped.
       const unchecked = found.problems.some(p => p.reason === 'unreachable' || p.reason === 'other-library');
       if (!found.stopped && !unchecked) this.noteChecked(id, [...found.problems, ...found.unreferenced.map(u => ({ path: u.path, reason: 'unreferenced', gid: u.gid }))]);
+      if (back) await this._settleIn(id);   // then what waited for its galleries goes there, each through its place held
       return { found: found.added.length, updated: found.updated.length, problems: found.problems.length, stopped: found.stopped, result: found };
     }));
+  }
+
+  // Folder `id`'s hand-over read (folder-owner.js), inside its check: once the other app's window has passed
+  // (readsFrom, on the app's clock; nothing of the folder read or written meanwhile), every gallery this library
+  // keeps there read against its place, and what the folder holds walked, as a check does — but nothing written
+  // or deleted there, no work left over from before carried out, and no gallery passed over as busy (scan.js
+  // scanLibrary `handover`); then its mark cleared, so the folder is this library's from then on — the rest of
+  // the check (what it owes the folder first) and what waited for its galleries following. A hand-over begun
+  // again meanwhile ("Take back" once more) is read again from its own start. Resolves { read } (what the read
+  // found), or { left } where the folder couldn't be read whole now (stopped, out of reach): the mark stays,
+  // the folder to be read by its next check (the next start, the person's "Check now", its showing).
+  async _readBack(id, job, progress) {
+    for (;;) {
+      const handover = this.handover(id);
+      if (!handover) return { read: { moved: [], missing: [], found: [], added: [], updated: [] } };
+      let again = false;
+      for (let left; !job.stop && (left = claims.readsFrom(handover) - Date.now()) > 0;) {
+        await new Promise((r) => setTimeout(r, Math.min(left, HANDOVER_POLL_MS)));
+        if ((again = this.handover(id)?.at !== handover.at)) break;   // ended, or begun again, meanwhile
+      }
+      if (again) continue;
+      // Its claim not this library's (another app's since, or the claim never written): no hand-over under way —
+      // nothing read, the mark kept for the next "Take back".
+      if (!job.stop && this.probe(id, { fresh: true }).access !== 'handover') {
+        return { left: { found: 0, updated: 0, problems: 0, stopped: false, result: { moved: [], missing: [], found: [], added: [], updated: [], removed: 0, problems: [], unreferenced: [], stopped: false } } };
+      }
+      const read = job.stop ? { moved: [], missing: [], found: [], added: [], updated: [], removed: 0, problems: [], unreferenced: [], stopped: true }
+        : await this.library._bulkRun(() => scanLibrary(this.library, { roots: [id], handover: true, stopped: () => job.stop, onProgress: progress }));
+      const unchecked = read.problems.some(p => p.reason === 'unreachable' || p.reason === 'other-library');
+      if (read.stopped || unchecked) return { left: { found: read.added.length, updated: read.updated.length, problems: read.problems.length, stopped: !!read.stopped, result: read } };
+      if (this.handover(id)?.at !== handover.at) continue;
+      this._setHandover(id, null);
+      this.library._push('control', { type: 'FOLDERS_CHANGED' });
+      return { read };
+    }
   }
 
   // Every folder shown that this library may write to checked, each through its own queue, one after
@@ -824,7 +940,12 @@ export class Folders {
     const row = this._row(id);
     if (!row || !this._here(row)) return;
     const next = claims.releasedClaim(this._readClaim(row.path), this._me());
-    if (next) try { this._writeClaim(row.path, next); } catch {}
+    if (next) {
+      try {
+        this._writeClaim(row.path, next);
+        this.library._kvSet('releasedEpochs', { ...(this.library._kvGet('releasedEpochs') || {}), [id]: next.epoch });
+      } catch {}
+    }
     this._forgetClaim(id);
   }
 

@@ -27,7 +27,9 @@ const shell = [
 const isCode = (u) => /\.(js|html|css|webmanifest)$/.test(u);
 const bytes = (files) => files.reduce((n, f) => n + (existsSync(join(repo, f)) ? statSync(join(repo, f)).size : 0), 0);
 
-const BOOT_BUDGET = 3 * 1024 * 1024;   // generous headroom over today's ~1 MB of code
+// Headroom over today's code (about 3.0 MB since the library-storage work; ~1 MB when this was written), far under the
+// ~10 MB the regression above awaited: raised from 3 MB at S32 (2026-11-19), whose hand-over rules took the last of it.
+const BOOT_BUDGET = 3.25 * 1024 * 1024;
 
 test('install blocks on code only, within a sane byte budget', () => {
   const boot = shell.filter(isCode);

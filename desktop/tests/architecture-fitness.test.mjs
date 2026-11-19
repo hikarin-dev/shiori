@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { placeWritersOff } from '../../app/tests/stale-view-operations.mjs';
+import { placeWritersOff, functionsOf } from '../../app/tests/stale-view-operations.mjs';
 
 const server = join(dirname(fileURLToPath(import.meta.url)), '..', 'server');
 const read = (f) => readFileSync(join(server, f), 'utf8');
@@ -76,6 +76,22 @@ test('S31: every function writing into, moving, unpacking, archiving into or del
   assert.deepEqual(placeWritersOff('desktop', { read: madeUp }), ['files.js _madeUp: writes at a place — name it: \'holds\' (and an operation of the table), a step of one, or free (and why)']);
   const unheld = (f) => read(f).replace('const whose = await this.hold(gid);', 'const whose = await ({ kind: \'ok\' });');
   assert.deepEqual(placeWritersOff('desktop', { read: unheld }), ['files.js _place: said to hold its place, but never calls the gateway']);
+});
+
+test('S32: whether a library folder is this library\'s is answered in one place — folders.js, the hand-over in it', () => {
+  // A folder that comes (back) to an app is read before it is that app's (app/js/storage/folder-owner.js). The claim rule
+  // (claims.access: 'mine', 'handover', …) and the folder's mark read into a hand-over (claims.handoverIn) are asked in
+  // folders.js alone — its probe is the one answer every gate asks (writable, reach, the commit gate's handingOver and
+  // heldElsewhere, the list) — and only its add and take-back decide that a claim begins a hand-over. No other module
+  // compares a folder's access itself.
+  const files = readdirSync(server).filter((f) => f.endsWith('.js'));
+  const where = (re, src = read) => [...new Set(files.flatMap(f => [...functionsOf(src(f))].filter(([, body]) => re.test(body)).map(([fn]) => `${f} ${fn}`)))].sort();
+  assert.deepEqual(where(/\bclaims\.access\s*\(/), ['folders.js _access', 'folders.js _addBack', 'folders.js _claimFor'], 'the claim rule asked in folders.js alone');
+  // (handover(id), a method on one line, reads as part of _claimFor before it.)
+  assert.deepEqual(where(/\bclaims\.handover(?:In|Of)\s*\(/), ['folders.js _access', 'folders.js _claimFor'], 'the hand-over read and begun there alone');
+  assert.deepEqual(where(/\baccess\s*[!=]==?\s*'(?:mine|handover)'/).filter(w => !w.startsWith('folders.js')), [], 'no other module compares a folder\'s access');
+  const madeUp = (f) => read(f) + (f === 'files.js' ? '\nclass Made {\n  _madeUp(read) {\n    return claims.access(read, this.me, null) === \'mine\';\n  }\n}\n' : '');
+  assert.deepEqual(where(/\bclaims\.access\s*\(/, madeUp), ['files.js _madeUp', 'folders.js _access', 'folders.js _addBack', 'folders.js _claimFor']);
 });
 
 test('no code outside the folder store adapter turns a failed read of a library folder into "nothing there"', () => {

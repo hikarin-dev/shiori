@@ -45,14 +45,48 @@ export const claimText = (claim) => JSON.stringify({ format: 'shiori-owner', ver
 // What app `me` may do with a folder of its library it holds at epoch `held` (its own last claim's),
 // claimed as `read` (readClaim's): 'mine' (it holds it: it writes), 'free' (no claim, or the one it
 // let go itself, untouched since: it claims it, reads the claim back, then writes), 'taken' (another
-// app holds it, or held it since: nothing is written until it is taken back by hand) or 'unknown' (the
-// claim is damaged or unreadable: the same).
-/** @param {ClaimRead} read @param {string} me @param {number | null | undefined} held @returns {'mine' | 'free' | 'taken' | 'unknown'} */
-export function access(read, me, held) {
+// app holds it, or held it since: nothing is written until it is taken back by hand), 'unknown' (the
+// claim is damaged or unreadable: the same) or 'handover' (its claim, but its hand-over's check hasn't
+// read it yet — `handover`, the folder's mark — so it is as the other app's still: below).
+/** @param {ClaimRead} read @param {string} me @param {number | null | undefined} held @param {Handover | null} [handover]
+ * @returns {'mine' | 'free' | 'taken' | 'unknown' | 'handover'} */
+export function access(read, me, held, handover = null) {
   if (read.state === 'absent') return 'free';
   if (read.state !== 'claim') return 'unknown';
-  if (read.owner === me) return 'mine';
+  if (read.owner === me) return handover ? 'handover' : 'mine';
   return read.owner == null && held != null && read.epoch === held ? 'free' : 'taken';
+}
+
+// ── A hand-over (S32) ──
+// A folder that comes (back) to an app is read before it is that app's. Its claim written over one that wasn't
+// its own — another app's, active or let go, or one that couldn't be checked ("Take back", "Use anyway", adding
+// a folder another app had) — begins a hand-over; this app's check having read the folder since ends it.
+// Meanwhile the folder is to it as the other app's still, but for the check's own reading (access 'handover').
+// Its mark ({ at, wait }) is kept with the folder's record, written before the claim file and cleared by the
+// check, so a kill between any two steps leaves the folder to be read: the check starts by itself at the claim
+// and at the next start. A claim that was this app's (or none) begins nothing: one app alone never meets one.
+/** @typedef {{ at: number, wait: boolean }} Handover */
+// `wait`: the claim replaced was held (or couldn't be checked). That app takes the folder for its own until its
+// last read of the claim is CLAIM_TTL_MS old, and writes what it accepted then a moment later: the check reads
+// nothing until that and HANDOVER_MARGIN_MS have passed since the claim (readsFrom), so it has landed.
+export const HANDOVER_MARGIN_MS = 1000;
+/** The hand-over this app's claim over `read` begins at `at` (its claim's time), or null for none.
+ * @param {ClaimRead} read @param {string} me @param {number | null | undefined} held @param {number} [at] @returns {Handover | null} */
+export function handoverOf(read, me, held, at = Date.now()) {
+  const was = access(read, me, held);
+  if (was === 'mine' || was === 'free') return null;
+  return { at, wait: !(read.state === 'claim' && read.owner == null) };
+}
+/** When the hand-over's check may read the folder's galleries, in ms. @param {Handover} handover @returns {number} */
+export const readsFrom = (handover) => handover.at + (handover.wait ? CLAIM_TTL_MS + HANDOVER_MARGIN_MS : 0);
+/** A folder's mark as kept (an object or its JSON): the hand-over, or null — anything else is one (fail closed).
+ * @param {unknown} kept @returns {Handover | null} */
+export function handoverIn(kept) {
+  if (kept == null || kept === '') return null;
+  /** @type {any} */
+  let o = kept;
+  if (typeof o === 'string') { try { o = JSON.parse(o); } catch { o = null; } }
+  return { at: Number.isFinite(o?.at) ? o.at : 0, wait: o?.wait !== false };
 }
 
 // How long a claim, as read, is taken as it is: what an app weighs it by meanwhile, without reading it

@@ -50,7 +50,7 @@
 // are still as written (`retiring`, principle 4). An archive holds its manifest too, appended with the
 // descriptions it names.
 
-import { disk, physicallyIn, containedWhole, replaceFile, tempBeside, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, whoseIn, placeIn, reserveIn, publishIn, undescribedAt, bindIn, ioFailures, gone, holdsFile, filesIn, ownedIn, textsIn, statIn, statNow, entriesIn, textIn, ownDirIn } from './folder-store.js';
+import { disk, physicallyIn, containedWhole, replaceFile, tempBeside, writeNewIn, deleteNamedIn, deleteGalleryIn, galleryIn, whoseIn, placeIn, reserveIn, publishIn, undescribedAt, bindIn, ioFailures, gone, holdsFile, filesIn, ownedIn, textsIn, statIn, statNow, entriesIn, textIn, ownDirIn, manifestIn } from './folder-store.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
@@ -90,7 +90,17 @@ CREATE TABLE IF NOT EXISTS deleting (
   gid TEXT NOT NULL,
   files TEXT
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS together (
+  gid TEXT PRIMARY KEY,
+  grp TEXT NOT NULL
+) WITHOUT ROWID;
 `;
+// `together` (S32, review 9 B1): the galleries one series command changed together (library.js seriesCommand),
+// while a change of any of them waits to be published — weighed as one before anything of them is written at
+// their places (_weighGroup): never one's part published while another's is dropped. A gallery leaves it once
+// published (describe), dropped (scan.js folderStands) or deleted. `retiring.held` (S32, review 9 A3): for a
+// folder an archiving let go, { gid, token } — the gallery and the publication the folder held then; its files
+// go only while it still holds that one (_retire).
 // `files`: one row per gallery with a place in the library folder; `state` 'packed' when it is
 // there, 'missing' when it was found gone; `pending` when its folder lacks changes the index has (its
 // next publication: describe); `unpack` when pictures were removed from its archive (its next settle
@@ -143,8 +153,12 @@ const REGROUP_RETRY = 10_000;  // how soon a folder Windows wouldn't move is tri
 const PUBLISH_EVERY = 20;      // pages stored before a gallery being downloaded is published (D12)
 const NAMED_TTL = 2000;        // how long a gallery's folder found to name it is taken to, for reads (_namesIt)
 const COLUMNS = { files: { unpack: 'INTEGER NOT NULL DEFAULT 0', used_at: 'REAL', tail: 'REAL', source: 'TEXT', zip_size: 'INTEGER', zip_mtime: 'REAL', moving: 'TEXT',
-  converting: 'INTEGER NOT NULL DEFAULT 0' }, deleting: { unfound: 'INTEGER NOT NULL DEFAULT 0', misses: 'INTEGER NOT NULL DEFAULT 0', stamp: 'TEXT', epoch: 'INTEGER' } };
+  converting: 'INTEGER NOT NULL DEFAULT 0' }, deleting: { unfound: 'INTEGER NOT NULL DEFAULT 0', misses: 'INTEGER NOT NULL DEFAULT 0', stamp: 'TEXT', epoch: 'INTEGER' },
+  retiring: { held: 'TEXT' } };
 const HOUR = 60 * 60_000, DAY = 24 * HOUR;
+// How long a series command's group weighed whole is taken as it is (_weighGroup): its galleries settle and
+// publish one after another a moment later, each weighing the rest.
+const GROUP_WEIGHED_MS = 2000;
 // Files Windows puts in a folder on its own: not the gallery's, and not worth keeping it a folder for.
 const WINDOWS_FILES = new Set(['desktop.ini', 'thumbs.db']);
 const TYPE_OF_EXT = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif' };
@@ -429,6 +443,7 @@ export class FileLibrary {
     this._unpacks = 0;                 // unpacks done (_unpack): a settle or flush that made one waits for its archive's deletion
     this._before = new Set();          // galleries with files staged before S29b, found at the start (resume)
     this.keep = new Set();             // galleries being forgotten: deleted from the index, their files kept
+    this._weighed = new Map();         // group → when it was last weighed whole (_weighGroup)
   }
 
   // The tables (the library's folders are read next: folders.js), then — start — what was left to do.
@@ -560,9 +575,9 @@ export class FileLibrary {
   // '' for `dir` itself, an archive) to delete as `recorded` ({ size, mtime }: as Shiori wrote it) —
   // once gallery `gid` has published a generation that no longer names it, or (`gid` null) at the
   // next retirement (_retire).
-  _retireIn(dir, name, recorded, gid) {
-    this.library._s('INSERT OR REPLACE INTO retiring (dir, name, size, mtime, gid) VALUES (?, ?, ?, ?, ?)')
-      .run(dir, name, recorded?.size ?? null, recorded?.mtime ?? null, gid == null ? null : String(gid));
+  _retireIn(dir, name, recorded, gid, held = null) {
+    this.library._s('INSERT OR REPLACE INTO retiring (dir, name, size, mtime, gid, held) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(dir, name, recorded?.size ?? null, recorded?.mtime ?? null, gid == null ? null : String(gid), held ? JSON.stringify(held) : null);
   }
 
   // Inside the caller's transaction: every reference gallery `gid`'s records hold to its own file
@@ -971,6 +986,7 @@ export class FileLibrary {
     if (row && !keep && !linked) this._deletingIn(row);
     const stamp = this._stamp(id);   // what its overlay's deletion is weighed by (folders.js removedIn)
     lib._s('DELETE FROM stamps WHERE gid = ?').run(id);
+    this._ungroup(id);
     lib._s('DELETE FROM retiring WHERE gid = ?').run(id);   // those of its folder go with it; the rest stay with what holds them
     if (!row) return;
     lib._s('DELETE FROM files WHERE gid = ?').run(id);
@@ -1258,6 +1274,49 @@ export class FileLibrary {
     const again = stood ? await asked({ known: this._stamp(id) }) : null;
     return again && again.kind !== 'theirs' ? again : contract.unreadable(`the folder's version of gallery ${id} can't be read now`);
   }
+  // ── A series command weighed as one (S32, review 9 B1) ──
+  // Inside the command's transaction (library.js seriesCommand): the galleries it changed that have a place in a
+  // library folder (`gids`) made one group — with every gallery of a group one of them is in already, so two
+  // commands sharing a gallery are weighed together.
+  groupIn(gids) {
+    const lib = this.library;
+    const placed = [...new Set(gids.map(String))].filter(g => this._row(g));
+    if (placed.length < 2) return;
+    const grp = crypto.randomBytes(6).toString('hex');
+    for (const old of new Set(placed.map(g => this._groupOf(g)).filter(Boolean))) {
+      for (const { gid } of lib._s('SELECT gid FROM together WHERE grp = ?').all(old)) placed.push(gid);
+    }
+    for (const g of new Set(placed)) lib._s('INSERT OR REPLACE INTO together (gid, grp) VALUES (?, ?)').run(g, grp);
+  }
+  _groupOf(gid) { return this.library._s('SELECT grp FROM together WHERE gid = ?').get(String(gid))?.grp ?? null; }
+  // Inside a transaction: gallery `gid` out of its group (published, dropped, deleted).
+  _ungroup(gid) { this.library._s('DELETE FROM together WHERE gid = ?').run(String(gid)); }
+  // The other galleries of gallery `gid`'s group whose change still waits here.
+  groupWaiting(gid) {
+    const grp = this._groupOf(gid);
+    return grp ? this.library._s('SELECT t.gid FROM together t JOIN files f ON f.gid = t.gid WHERE t.grp = ? AND t.gid <> ? AND f.pending = 1').all(grp, String(gid)).map(r => r.gid) : [];
+  }
+  // Gallery `gid`, of a group, weighed with it before anything of it is written at its place (its settle, its
+  // publication): every other gallery of the group whose change waits here holds its place first (hold) — one
+  // whose place holds another publication has the folder's version stand, which drops the whole group (scan.js
+  // folderStands: never one's part published while another's is dropped); one whose place can't be held now
+  // keeps the whole group waiting. A group weighed whole is taken as it is for GROUP_WEIGHED_MS (each gallery's
+  // own place is still held as it is written). Resolves whether `gid` goes on: false while the group waits, and
+  // once it was dropped.
+  async _weighGroup(gid) {
+    const id = String(gid);
+    const grp = this._groupOf(id);
+    if (!grp) return true;
+    if (Date.now() - (this._weighed.get(grp) ?? -Infinity) < GROUP_WEIGHED_MS) return true;
+    for (const m of this.groupWaiting(id)) {
+      const held = await this.hold(m);
+      if (held.kind !== 'ok' || this._groupOf(id) !== grp) return false;
+    }
+    if (this._groupOf(id) !== grp) return false;   // dropped meanwhile, with the group
+    this._weighed.set(grp, Date.now());
+    return true;
+  }
+
   // The folder's version of gallery `gid` stands (scan.js folderStands): what waited here for it dropped,
   // reported once — or, nothing of it waiting, the gallery read again from there. Resolves true when that is
   // done, false when it can't be now (its place can't be read now: tried again later) — or { damaged }, its
@@ -1279,7 +1338,7 @@ export class FileLibrary {
     const lib = this.library;
     const rows = lib._s('SELECT * FROM files').all();
     for (const r of rows) if (!r.source) this._deletingIn(r);
-    for (const table of ['files', 'staged_own', 'retiring']) lib._s(`DELETE FROM ${table}`).run();
+    for (const table of ['files', 'staged_own', 'retiring', 'together']) lib._s(`DELETE FROM ${table}`).run();
     lib._afterCommit(() => {
       for (const r of rows) {
         this._forget(r.path);
@@ -1580,6 +1639,7 @@ export class FileLibrary {
   async _place(gid, work = null) {
     const lib = this.library;
     if (!lib.folders.writable(this.rootFor(gid), work)) return true;
+    if (!await this._weighGroup(gid)) return true;   // its series command weighed as one first (S32): it waits, or was dropped
     let row = this._row(gid), unpacked = false;
     if (row) {
       // A gallery whose folder or archive is gone (moved outside the app, or its drive away), or no
@@ -2038,6 +2098,7 @@ export class FileLibrary {
       if (!row.pending && !all) return true;
       if (!lib.folders.writable(this.rootFor(id), may) || !await this._writesIn(row)) return false;
       if (!disk.existsSync(this._abs(row.path))) return false;
+      if (!await this._weighGroup(id)) return false;   // its series command weighed as one first (S32): it waits, or was dropped
       this._touched.delete(id);
       const upTo = lib._s('SELECT max(rowid) AS n FROM retiring WHERE gid = ?').get(id)?.n ?? 0;
       const token = row.format === 'folder' ? await this._publish(id, row, may) : await this._describeArchive(id, row);
@@ -2045,7 +2106,7 @@ export class FileLibrary {
       await this._describeSeries(id);
       lib._tx(() => {
         lib._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(id, token);
-        if (!this._touched.has(id)) lib._s('UPDATE files SET pending = 0, packed_at = ? WHERE gid = ?').run(Date.now(), id);
+        if (!this._touched.has(id)) { lib._s('UPDATE files SET pending = 0, packed_at = ? WHERE gid = ?').run(Date.now(), id); this._ungroup(id); }
       });
       this._changes.delete(id);
       await this._letGo(id, upTo, may);
@@ -2674,6 +2735,8 @@ export class FileLibrary {
     if ((await this.hold(id)).kind !== 'ok') return false;
     const row = this._row(id);
     if (!this._idle(id, row)) return false;
+    // The publication the folder holds as it is let go: its files retire only while it still holds that one (_retire).
+    const held = { gid: id, token: this._stamp(id) };
     const archiveFormat = this.archiveFormat === 'cbz' ? 'cbz' : 'zip';
     const dir = this._abs(row.path);
     const signature = this._signature(id);
@@ -2713,7 +2776,7 @@ export class FileLibrary {
       lib._tx(() => {
         lib._s('UPDATE files SET path = ?, format = ?, zip_size = ?, zip_mtime = ? WHERE gid = ?').run(rel, archiveFormat, st.size, st.mtimeMs, id);
         lib._s(`DELETE FROM retiring WHERE dir = ? AND name = ''`).run(rel);
-        for (const f of leaving) this._retireIn(row.path, f.name, f, null);
+        for (const f of leaving) this._retireIn(row.path, f.name, f, null, held.token ? held : null);
         lib._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(id, token);
         lib._logIn(id);
       });
@@ -2739,7 +2802,7 @@ export class FileLibrary {
   async _retire({ work = null } = {}) {
     const lib = this.library;
     const byDir = new Map();
-    for (const r of lib._s('SELECT rowid AS seq, dir, name, size, mtime FROM retiring WHERE gid IS NULL').all()) {
+    for (const r of lib._s('SELECT rowid AS seq, dir, name, size, mtime, held FROM retiring WHERE gid IS NULL').all()) {
       if (!byDir.has(r.dir)) byDir.set(r.dir, []);
       byDir.get(r.dir).push(r);
     }
@@ -2750,6 +2813,11 @@ export class FileLibrary {
         lib._tx(() => { for (const r of rows) lib._s('DELETE FROM retiring WHERE rowid = ?').run(r.seq); });
         continue;
       }
+      // A folder an archiving let go is deleted from only while it holds the publication it held then (S32, review
+      // 9 A3): another one there since — another app used the folder while this one was down, and published the
+      // gallery there — is not this library's to delete; the check weighs it as any folder naming that gallery
+      // (scan.js: the later publication stands). One that can't be read now waits.
+      if (await this._retiredOver(rel, rows) !== false) continue;
       const whole = rows.find(r => r.name === '');
       if (whole && this._reading.get(abs)) continue;
       const list = whole ? [{ name: path.basename(abs), size: whole.size, mtime: whole.mtime }] : rows.map(r => ({ name: r.name, size: r.size, mtime: r.mtime }));
@@ -2768,6 +2836,30 @@ export class FileLibrary {
       this._forgetRetired(rel, rows, kept);
     }
   }
+  // Whether retiring folder `rel` (`rows`: its rows) holds another publication of the gallery its archiving let go
+  // than the one it held then (S32, review 9 A3): true — marked so on its rows (`held.over`), for the check to weigh —
+  // false (the same, none at all, or none recorded), null where it can't be told now.
+  async _retiredOver(rel, rows) {
+    const held = rows.map(r => r.held && JSON.parse(r.held)).find(Boolean);
+    if (!held) return false;
+    if (held.over) return true;
+    const at = await manifestIn(this._abs(rel), held.gid);
+    if (at.kind === 'unreadable' || at.kind === 'corrupt') return null;
+    if (at.kind !== 'ok' || format.tokenOf(at.value) === held.token) return false;
+    this.library._tx(() => this.library._s('UPDATE retiring SET held = ? WHERE dir = ? AND gid IS NULL').run(JSON.stringify({ ...held, over: true }), rel));
+    return true;
+  }
+  // The folders of library folder `root` an archiving let go that hold another publication of their gallery since
+  // (_retiredOver): Map path → the gallery's id.
+  retiredOver(root) {
+    const out = new Map();
+    for (const r of this.library._s(`SELECT DISTINCT dir, held FROM retiring WHERE gid IS NULL AND held IS NOT NULL`).all()) {
+      const held = JSON.parse(r.held);
+      if (held.over && this._split(r.dir).root === root) out.set(r.dir, String(held.gid));
+    }
+    return out;
+  }
+
   // Gallery `gid`'s files that waited for its publication (recorded up to `retiring` row `upTo`; all of
   // them by default, one having committed since), deleted from its folder by name while each is still
   // as written — while the folder may be written to (`work`) — a row kept only for one that couldn't be

@@ -7,6 +7,7 @@
 
 import * as platform from './platform.js';
 import { capabilities, galleries } from './api.js';
+import { refusalKey } from './backend-error.js';
 import { importCbzBuffer } from './import-cbz.js';
 import { galleryLog } from './import-log.js';
 import { startTranslation, pollTranslation, cancelTranslate } from './translate.js';
@@ -114,9 +115,10 @@ function _importFailed(gid, e, say) {
   const key = jobErrorKey(e);
   say({ gid, kind: 'upload', status: 'error', error: String(e && e.message || e), ...(key ? { errorKey: key } : {}) });
 }
-// What a job's failure `e` says, by its key: a change the library refused because another app is using
-// its gallery's folder (reason 'not-owned' as it commits, 'taken' for a folder's own work) says so.
-export const jobErrorKey = (e) => (e && ['not-owned', 'taken'].includes(e.reason) ? 'lf.taken_msg' : e && e.code ? `err.${e.code}` : null);
+// What a job's failure `e` says, by its key: a change the library refused for now — another app is using
+// its gallery's folder (reason 'not-owned' as it commits, 'taken' for a folder's own work), or the folder is
+// still being scanned after it came back ('handover') — says so (backend-error.js refusalKey).
+export const jobErrorKey = (e) => refusalKey(e) ?? (e && e.code ? `err.${e.code}` : null);
 
 // Start a gallery translation: upload the not-yet-translated pages and create the server-owned job.
 // Returns once it's created; the poll ticks (runPoll) drive it. Resumable: re-running only uploads

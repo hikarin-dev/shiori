@@ -48,6 +48,13 @@ async function whole(library) {
 // The work running on folder `id` (its check, its removal), once it has ended.
 const settled = (library, id) => library.folders.job(id)?.catch(() => {});
 const reason = (p) => p.then(() => 'resolved', (e) => e.reason || e.code);
+// Folder `id`'s hand-over (S32: a folder that comes back is read before it is the library's) carried through: its
+// wait for the other app's window passed at once (its mark aged: no test sleeps it), its check joined or run.
+async function handedOver(library, id) {
+  const h = library.folders.handover(id);
+  if (h) library.folders._setHandover(id, { ...h, at: h.at - 60_000 });
+  await library.folderScan(id);
+}
 const heardJobs = (library) => {
   const heard = [];
   library.onPush((channel, msg) => { if (channel === 'jobs' && msg.kind === 'folder') heard.push(msg); });
@@ -433,6 +440,7 @@ test('a folder is claimed by the app that adds it: another app asks first, the a
   assert.equal(claimOf().owner, library.folders._me());
   assert.equal(claimOf().epoch, 2);
   assert.equal(library.folders.probe(library.primaryId).access, 'mine', 'the first folder is claimed as the library opens');
+  await handedOver(library, id);   // (S32: "Use anyway" is a hand-over — the folder read first)
   await library.folderSetDefault(id);
   const gid = await gallery(library, 'Shared', 2);
   await library.files.describe(gid);
@@ -455,6 +463,8 @@ test('a folder is claimed by the app that adds it: another app asks first, the a
   await library.folderClaim(id);
   assert.equal(claimOf().owner, library.folders._me());
   assert.equal(claimOf().epoch, 4, 'past every claim known');
+  assert.equal(await reason(library.pagePut(gid, 3, png(3, 7))), 'handover', 'S32: until its check has read it, refused for now');
+  await handedOver(library, id);
   await library.files.place(fresh);
   assert.ok(fs.existsSync(path.join(other, 'Made Meanwhile', 'images', '0001.png')));
   await library.pagePut(gid, 3, png(3, 7));
@@ -505,11 +515,13 @@ test('a check of a folder reads again the galleries another app changed there �
     await second.pagePut(gid, 3, png(3, 9));
     await second.files.settle(gid);
     await second.files.describe(gid, { all: true });
-    // Taken back here: the take-back's settle holds the gallery's place and reads it again as the folder has
-    // it now (files.js hold, S31) — a check after it finds nothing more to read.
+    // Taken back here: the hand-over's check (S32) reads the gallery again as the folder has it now — the check
+    // asked for joins it — and a check after it finds nothing more to read.
     await library.folderClaim(id);
+    const h = library.folders.handover(id);
+    library.folders._setHandover(id, { ...h, at: h.at - 60_000 });   // its wait passed at once
+    assert.deepEqual(await library.folderScan(id), { added: 0, updated: 1, problems: [], stopped: false });
     await library.files.flush();
-    assert.deepEqual(await library.folderScan(id), { added: 0, updated: 0, problems: [], stopped: false });
     const back = await library.getGallery(gid);
     assert.equal(back.title.english, 'Shared, Renamed');
     assert.equal(back.count, 3);
@@ -517,15 +529,18 @@ test('a check of a folder reads again the galleries another app changed there �
     assert.equal((await library.folderScan(id)).updated, 0, 'read once: the next check finds nothing new');
     // Changed there again, and changed here too, not yet written: one app changes a folder's galleries at a
     // time (the owner's rule, 2026-11-15) — the folder's version stands, this app's change is dropped,
-    // reported once, and nothing is published over it.
+    // reported once, and nothing is published over it. (S32: this app's change is made in the moment before it
+    // has read the other app's claim — accepted, its publication refused as the store reads the claim — since one
+    // made after its "Take back" waits for the hand-over's read.)
     second.folders._probes.clear();
     await second.folderClaim(id);
+    await handedOver(second, id);
     await second.metaPut({ ...(await second.metaGet(gid)), title: title('Their Title') });
     await second.files.describe(gid, { all: true });
-    await library.folderClaim(id);
     await library.metaPut({ ...(await library.metaGet(gid)), title: title('My Title') });
-    await library.files.flush();   // its publication meets that generation (or the check after it would)
-    await library.folderScan(id);
+    await library.files.flush();   // its publication refused: the folder is the other app's now
+    await library.folderClaim(id);
+    await handedOver(library, id);   // the hand-over's read meets that generation
     assert.equal((await library.getGallery(gid)).title.english, 'Their Title');
     await library.files.describe(gid);
     assert.equal(JSON.parse(fs.readFileSync(path.join(other, 'Shared', 'metadata.json'), 'utf8')).title.english, 'Their Title');

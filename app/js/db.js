@@ -12,7 +12,7 @@ import { slotFiles, tokenOf, generationOf, published, inFolder, nothingToWrite, 
 import { MISSING, unreadable } from './storage/contract.js';
 import { exportSize } from './gallery-export.js';
 import * as folderFiles from './storage/folder-store-web.js';
-import { OWNER_FILE, readClaim, access, nextClaim, claimText, heldElsewhere, knownAfter } from './storage/folder-owner.js';
+import { OWNER_FILE, readClaim, access, nextClaim, claimText, heldElsewhere, knownAfter, handoverIn } from './storage/folder-owner.js';
 import { mounted, writeAllowed, changeRefusal, unfoundEnd } from './storage/folder-lifecycle.js';
 import { galleryIdOf, seriesOf, MANIFEST_FILE } from './storage/folder-content.js';
 import { REMOVED_FILE, ARCHIVE_NAME, overlayDir, parseRemoved, removedText, withRemoved, provenanceOf, pageToken, madeFromPage } from './storage/linked-source.js';
@@ -418,7 +418,8 @@ function _logIn(tx, gid, { mark = true } = {}) {
   if (seen) {
     if (mark && !seen.mark) {
       seen.mark = true;
-      if (seen.held?.()) _refuseIn(tx, id, 'not-owned', seen.folder);
+      const why = seen.held?.();
+      if (why) _refuseIn(tx, id, why, seen.folder);
       else if (seen.folder) _markIn(tx, id, seen.rev);
     }
     return;
@@ -437,16 +438,19 @@ function _logIn(tx, gid, { mark = true } = {}) {
   };
   if (id === '*') return;
   const stat = tx.objectStore(GALLERY_STORE).get(id);
-  stat.onsuccess = () => _placeStateIn(tx, stat.result, (state) => {
+  stat.onsuccess = () => _placeStateIn(tx, stat.result, (state, place) => {
     const folder = stat.result?.folder || null;
     const work = !!_workOn(tx._work, folder || BROWSER);
     if (changeRefusal({ state, work })) { _refuseIn(tx, id); return; }
     entry.folder = folder;
     const held = inFolder(!!stat.result?.dir, stat.result?.stamp);
+    // A hand-over's mark (S32), as this transaction reads it, refuses first; else the last claim read decides.
+    const handover = !!folder && held && !work && !!place?.handover;
     // Weighed once the change is one its folder would get (marked), and the gate asked only then: a change no
     // description shows (a size, the person's marks) costs it no read of the claim.
-    entry.held = () => !!changeRefusal({ state, work, change: true, taken: !!folder && held && !work && _heldElsewhere(folder), held });
-    if (entry.mark && entry.held()) { _refuseIn(tx, id, 'not-owned', folder); return; }
+    entry.held = () => changeRefusal({ state, work, change: true, handover, taken: !!folder && held && !work && !handover && _heldElsewhere(folder), held });
+    const why = entry.mark ? entry.held() : null;
+    if (why) { _refuseIn(tx, id, why, folder); return; }
     if (entry.folder && entry.mark) _markIn(tx, id, entry.rev);
   });
 }
@@ -462,16 +466,17 @@ const _workOn = (work, folder) => (work && (work.folder === folder || work.folde
 // `found`: its folder's, or this browser's — 'shown' for one with no stat, null for a folder the
 // library doesn't know.
 function _placeStateIn(tx, stat, found) {
-  if (!stat) { found('shown'); return; }
+  if (!stat) { found('shown', null); return; }
   const req = tx.objectStore(FOLDER_STORE).get(stat.folder || BROWSER);
-  req.onsuccess = () => found(req.result ? req.result.state || 'shown' : stat.folder ? null : 'shown');
+  req.onsuccess = () => found(req.result ? req.result.state || 'shown' : stat.folder ? null : 'shown', req.result ?? null);
 }
 // `tx` aborted: gallery `gid` is out of the library, its place hidden or removed — or, `why`
-// 'not-owned', in folder `folder`, which another app holds (_logIn).
+// 'not-owned' / 'handover', in folder `folder`, which another app holds / is still being read (_logIn).
 function _refuseIn(tx, gid, why = 'hidden', folder = null) {
   if (tx._refused) return;
-  tx._refused = why === 'not-owned'
-    ? Object.assign(new BackendError('unavailable', `gallery ${gid} is in a library folder another app is using`), { reason: why, folder })
+  tx._refused = why === 'not-owned' || why === 'handover'
+    ? Object.assign(new BackendError('unavailable', why === 'handover' ? `gallery ${gid} is in a library folder still being read`
+      : `gallery ${gid} is in a library folder another app is using`), { reason: why, folder })
     : Object.assign(new BackendError('invalid', `gallery ${gid} is in a hidden library folder`), { reason: 'hidden' });
   try { tx.abort(); } catch {}
 }
@@ -756,7 +761,7 @@ async function _access(id, { fresh = false } = {}) {
   const out = { state, ...held, at: Date.now() };
   const current = (_forgotten.get(id) || 0) === since;   // what it read is still the latest this context may know
   if (state === 'granted' && !held.claim?.unread && current) _grants.set(id, out); else _grants.delete(id);
-  if (state === 'granted' && held.claim && current) { const known = knownAfter(_known.get(id), held.claim, held.owned, out.at); if (known) _known.set(id, known); }
+  if (state === 'granted' && held.claim && current) { const known = knownAfter(_known.get(id), held.claim, held.owned || !!held.handover, out.at); if (known) _known.set(id, known); }
   return out;
 }
 // Whether this context knows another app holds folder `id` — what the commit gate weighs (_logIn): the
@@ -801,7 +806,7 @@ export const folderStore = folderFiles.folderStore(async (id) => {
   _grants.delete(id);
   const a = await _access(id);
   const here = a.state !== 'other-library';
-  return { handle: folder.handle, state: folder.state, owned: a.owned, permission: here ? a.state : 'granted', here, writer: await _me() };
+  return { handle: folder.handle, state: folder.state, owned: a.owned, handover: !!a.handover, permission: here ? a.state : 'granted', here, writer: await _me() };
 });
 
 // ── Which app keeps a folder (folder-owner.js) ──
@@ -842,8 +847,10 @@ const _noteEpoch = (id, epoch) => _folderWrite((store) => {
   const req = store.get(id);
   req.onsuccess = () => { if (req.result && req.result.epoch !== epoch) store.put({ ...req.result, epoch }); };
 });
-// Whether this library holds folder `folder`'s claim: { owned, claim (as read) }. One no app holds is
-// claimed now, and is this library's only if the claim read back says so.
+// Whether this library holds folder `folder`'s claim: { owned, handover, claim (as read) }. One no app holds is
+// claimed now, and is this library's only if the claim read back says so. `handover`: its claim, its hand-over's
+// check yet to read it (folder-owner.js): not `owned`. The mark is read afresh after the claim (it is written
+// before it), so no context takes the folder for its own before the read.
 async function _holds(folder) {
   const me = await _me();
   const held = folder.epoch ?? null;
@@ -853,7 +860,45 @@ async function _holds(folder) {
     read = await _readClaim(folder.id, folder.handle);
     if (access(read, me, held) === 'mine') await _noteEpoch(folder.id, read.epoch);
   }
-  return { owned: access(read, me, held) === 'mine', claim: read };
+  const now = access(read, me, held, access(read, me, held) === 'mine' ? await _markOf(folder.id) : null);
+  return { owned: now === 'mine', handover: now === 'handover', claim: read };
+}
+// Folder `id`'s hand-over as its record holds it now (read afresh), or null.
+async function _markOf(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = _tx(db, FOLDER_STORE, 'readonly');
+    const req = tx.objectStore(FOLDER_STORE).get(id);
+    tx.oncomplete = () => resolve(handoverIn(req.result?.handover));
+    tx.onerror = () => reject(_txError(tx));
+  });
+}
+// The claim's counter this library let folder `id` go at (folder-library.js _release): added again untouched
+// since, it is its own (no hand-over). Kept apart from the folder's record, which its removal forgets.
+const _releasedKey = (id) => `$released:${id}`;
+const _noteReleased = (id, epoch) => _recordsWrite((store) => store.put({ id: _releasedKey(id), epoch }));
+async function _releasedOf(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = _tx(db, FOLDER_STORE, 'readonly');
+    const req = tx.objectStore(FOLDER_STORE).get(_releasedKey(id));
+    tx.oncomplete = () => resolve(Number.isSafeInteger(req.result?.epoch) ? req.result.epoch : null);
+    tx.onerror = () => reject(_txError(tx));
+  });
+}
+// Folder `id`'s hand-over recorded (`handover`) or ended (null). Resolves whether the record was there.
+async function _setHandover(id, handover) {
+  let there = false;
+  await _folderWrite((store) => {
+    const req = store.get(id);
+    req.onsuccess = () => {
+      if (!req.result) return;
+      there = true;
+      const { handover: was, ...rest } = req.result;
+      store.put(handover ? { ...rest, handover } : rest);
+    };
+  });
+  return there;
 }
 
 // A stat record without its home (what travels with a gallery to another library doesn't), and its
@@ -1304,6 +1349,12 @@ async function _applyDeletions(folder = null, work = null) {
   }
   return !(await _deletions(folder)).some(d => !d.unfound);
 }
+// Deletion `d` weighed at `dir` of folder `folder`, a place a hand-over's read met naming its gallery: held as the
+// deletion recorded it (_hold, S29a's rule 3), nothing deleted. Resolves the answer's kind ('dropped': reported).
+async function _deletionHeld(d, folder, dir) {
+  const place = { folder, dir, packed: ARCHIVE_NAME.test(dir) ? { inner: '' } : null };
+  return (await _hold(d.gid, { stat: place, known: d.stamp ?? null, deletion: { epoch: d.epoch ?? null, forget: (store) => store.delete(d.id) } })).kind;
+}
 // Deletion `d` done at `at` ({ folder, dir }: where its record has it, or where a check met its gallery's
 // folder), under lock shiori:deleting:<its folder>.
 async function _deleteOne(d, at, work) {
@@ -1660,6 +1711,7 @@ async function _describe(gid, { work = null } = {}) {
     let read = await _wantedDescriptions(gid);
     if (read?.stat.packed && read.rev == null) return { ok: true };   // its archive describes it as read
     const root = read && await _rootOf(read.stat.folder, { work: as });
+    if (root && read.rev != null && !(await _weighGroup(gid))) return { ok: false };   // its series command weighed as one first (S32)
     if (root && read.stat.packed) {
       if ((await _hold(gid)).kind !== 'ok') return { ok: false };
       read = await _wantedDescriptions(gid);
@@ -1736,6 +1788,55 @@ async function _hold(gid, { stat = null, known, deletion = null, ask = null } = 
   const again = stood ? await asked({ known: await stamp() }) : null;
   return again && again.kind !== 'theirs' ? again : unreadable(new Error(`the folder's version of gallery ${id} can't be read now`));
 }
+// ── A series command weighed as one (S32, review 9 B1) ──
+// The galleries one series command changed ('$group:<gid>': { gid, grp }) are weighed as one before any is
+// published (_weighGroup); folder-library.js folderStands drops the rest with one. Left once published or deleted.
+const GROUP = '$group:';
+const GROUP_WEIGHED_MS = 2000;   // a group weighed whole is taken as it is this long
+const _weighedGroups = new Map();   // group → when it was last weighed whole
+// Inside the command's transaction: `gids` one group, merged with any group one of them is in.
+function _groupIn(tx, gids) {
+  const ids = [...new Set(gids.map(String))];
+  if (ids.length < 2) return;
+  const store = tx.objectStore(FOLDER_STORE);
+  const all = store.getAll(IDBKeyRange.bound(GROUP, `${GROUP}￿`));
+  all.onsuccess = () => {
+    const old = new Set((all.result || []).filter(r => ids.includes(r.gid)).map(r => r.grp));
+    const grp = _randomId();
+    for (const gid of new Set([...ids, ...(all.result || []).filter(r => old.has(r.grp)).map(r => r.gid)])) store.put({ id: `${GROUP}${gid}`, gid, grp });
+  };
+}
+const _ungroupIn = (tx, gid) => tx.objectStore(FOLDER_STORE).delete(`${GROUP}${gid}`);
+async function _groupRecords() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const req = _tx(db, FOLDER_STORE, 'readonly').objectStore(FOLDER_STORE).getAll(IDBKeyRange.bound(GROUP, `${GROUP}￿`));
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+const _groupOf = async (gid) => (await _groupRecords()).find(r => r.gid === String(gid))?.grp ?? null;
+// The other galleries of gallery `gid`'s group whose change still waits here.
+async function _groupWaiting(gid) {
+  const all = await _groupRecords();
+  const grp = all.find(r => r.gid === String(gid))?.grp;
+  if (!grp) return [];
+  const marked = await _marked();
+  return all.filter(r => r.grp === grp && r.gid !== String(gid) && marked.has(r.gid)).map(r => r.gid);
+}
+// Gallery `gid` weighed with its group: each other one waiting holds its place (_hold) — another publication there
+// drops the group; one not held now keeps it waiting. Resolves whether `gid` goes on.
+async function _weighGroup(gid) {
+  const grp = await _groupOf(gid);
+  if (!grp) return true;
+  if (Date.now() - (_weighedGroups.get(grp) ?? -Infinity) < GROUP_WEIGHED_MS) return true;
+  for (const m of await _groupWaiting(gid)) {
+    if ((await _hold(m)).kind !== 'ok' || (await _groupOf(gid)) !== grp) return false;
+  }
+  if ((await _groupOf(gid)) !== grp) return false;   // dropped meanwhile, with the group
+  _weighedGroups.set(grp, Date.now());
+  return true;
+}
 // The text of the manifest of the gallery whose folder in the archive at `path` is `inner` ('' for an archive of
 // its own), read where it lies (_archiveOf): null for none, undefined when no archive is there.
 async function _archiveManifest(folder, root, path, inner) {
@@ -1770,7 +1871,7 @@ async function _described(gid, rev, stamp) {
     const tx = _tx(db, [GALLERY_STORE, UNDESCRIBED_STORE], 'readwrite');
     const marks = tx.objectStore(UNDESCRIBED_STORE), stats = tx.objectStore(GALLERY_STORE);
     const mark = marks.get(gid), stat = stats.get(gid);
-    mark.onsuccess = () => { if (mark.result && mark.result.rev === rev) marks.delete(gid); };
+    mark.onsuccess = () => { if (mark.result && mark.result.rev === rev) { marks.delete(gid); _ungroupIn(tx, gid); } };
     stat.onsuccess = () => { if (stat.result && stat.result.stamp !== stamp) stats.put({ ...stat.result, stamp }); };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(_txError(tx));
@@ -1911,7 +2012,8 @@ async function _relocateOnce(gid, to, tick, work, w) {
   // now ('changed': what waits in this browser goes there).
   if (packed && await _folderLibrary.followUnpacked(stat)) return 'changed';
   if (from !== BROWSER && !(await _usable(from, { work }))) {
-    throw Object.assign(new BackendError('unavailable', `library folder ${from} can't be reached`), _heldElsewhere(from) ? { reason: 'taken', folder: from } : {});
+    const why = (await _access(from)).handover ? 'handover' : _heldElsewhere(from) ? 'taken' : null;
+    throw Object.assign(new BackendError('unavailable', `library folder ${from} can't be reached`), why ? { reason: why, folder: from } : {});
   }
   const before = _picturesOf(raw.pages, raw.cover);
   const pages = await getGalleryImageRecords(gid);
@@ -2186,7 +2288,9 @@ const _folderLibrary = createFolderLibrary({
   placeOf: _placeOf, placeKey: _placeKey, access: _access, rootOf: _rootOf, usable: _usable, readRootOf: _readRootOf,
   removedNotes: _removedNotes, publishRemoved: _publishRemoved,
   deletions: _deletions, applyDeletions: _applyDeletions, forgetDeletions: _forgetDeletions, deletedFound: _deletedFound, endUnfound: _endUnfound,
+  deletionHeld: _deletionHeld,
   me: _me, myLabel: _myLabel, readClaim: _readClaim, writeClaim: _writeClaim, noteEpoch: _noteEpoch, randomId: _randomId,
+  markOf: _markOf, setHandover: _setHandover, noteReleased: _noteReleased, releasedOf: _releasedOf, groupWaiting: _groupWaiting,
   // the pictures' storage in folders
   writing: _writing, replacePages: _replacePages, relocate: _relocate, follow: _follow, unpackedName: _unpackedName, reserveDir: _reserveDir, describe: _describe, cancelDescribe: _cancelDescribe,
   hold: (gid, view) => _hold(gid, view),
@@ -3935,6 +4039,7 @@ function _deleteIn(tx, gid, done = () => {}) {
       if (folder && !tx._keepFiles) { const at = tx.objectStore(FOLDER_STORE).get(folder); at.onsuccess = () => goneLater(at.result?.epoch ?? null); } else goneLater(null);
       stats.delete(gid);
       tx.objectStore(UNDESCRIBED_STORE).delete(gid);
+      _ungroupIn(tx, gid);
     };
     _logIn(tx, gid, { mark: false });
     const covers = tx.objectStore(COVER_STORE);
@@ -4061,6 +4166,7 @@ async function _seriesCommand(name, args, { keepFiles = false } = {}) {
     const apply = () => {
       const gone = new Set(plan.deletes.map(String));
       const writes = [...plan.writes].filter(([gid]) => !gone.has(gid));
+      _groupIn(tx, writes.map(([gid]) => gid));   // weighed as one before any of it is published (S32, review 9 B1)
       const marks = tx.objectStore(PERSONAL_STORE);
       if (plan.favorite) {
         const { from, to } = plan.favorite;

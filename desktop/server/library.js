@@ -832,14 +832,18 @@ export class Library {
   // website's _logIn alike). Asked only of a change that would be weighed (no file call for the folder's own
   // work, nor for a gallery with no place there). A gallery only this library has (made meanwhile, never
   // placed there) keeps working: what it gets waits, staged, as for a folder out of reach. Reading it, and
-  // the person's own marks, are no change of its folder.
+  // the person's own marks, are no change of its folder. A folder that came (back) to this library and whose
+  // check hasn't read it since (folders.js handingOver: its hand-over mark) refuses the same, reason 'handover'
+  // (S32): it is to this library as it was while the other app held it.
   _heldCheck(gid) {
     const root = this._s('SELECT root FROM places WHERE gid = ?').get(String(gid))?.root;
     if (!root) return;
     const held = format.inFolder(!!this.files._row(gid), this._s('SELECT stamp FROM stamps WHERE gid = ?').get(String(gid))?.stamp);
     const work = root === this._folderWork.getStore();
-    const why = lifecycle.changeRefusal({ state: 'shown', work, change: true, taken: held && !work && this.folders.heldElsewhere(root), held });
-    if (why) throw Object.assign(new BackendError('unavailable', `gallery ${gid} is in a library folder another app is using`), { reason: why, folder: root });
+    const handover = held && !work && this.folders.handingOver(root);   // came (back) to this library, not read yet: no file call (S32)
+    const why = lifecycle.changeRefusal({ state: 'shown', work, change: true, handover, taken: held && !work && !handover && this.folders.heldElsewhere(root), held });
+    if (why) throw Object.assign(new BackendError('unavailable', why === 'handover' ? `gallery ${gid} is in a library folder still being read`
+      : `gallery ${gid} is in a library folder another app is using`), { reason: why, folder: root });
   }
 
   // Inside a transaction about to commit: the galleries it changed (`logged`) placed. A gallery has a
@@ -1529,6 +1533,9 @@ export class Library {
       for (const oid of new Set(out.totals.map(String))) {
         if (!gone.has(oid) && this._aggregateIn(oid)) written.add(oid);
       }
+      // What it changed of several galleries is weighed as one before any of it is written at their places
+      // (files.js groupIn, _weighGroup: S32, review 9 B1).
+      this.files.groupIn([...written]);
       return out;
     });
     const totalled = new Set(plan.totals.map(String));

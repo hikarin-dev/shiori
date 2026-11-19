@@ -17,6 +17,7 @@
 // signatures, not certified against the bytes that were saved.
 
 import { isValidGalleryId } from './sanitize.js';
+import { refusedForNow as forNow } from './backend-error.js';
 import { BUBBLE_EXTRA_FIELDS } from './storage/gallery-files.js';
 import { marksOf } from './storage/personal.js';
 
@@ -682,10 +683,13 @@ export async function verifyArchive(archive, inspection, { onProgress = () => {}
 
 // Whether a library's refusal of a gallery's write is for now and that gallery alone: its library folder
 // is in use by another app (BackendError 'unavailable', reason 'not-owned' — one app changes a folder's
-// galleries at a time — or 'taken'). A restore passes over such a gallery and lists it with what it
-// couldn't restore (reason 'not-owned'); "Take back", then the restore again, brings it in (S31, review 8
-// R8-5). Any other 'unavailable' is the library gone, which stops a restore.
-export const refusedForNow = (e) => e?.code === 'unavailable' && ['not-owned', 'taken'].includes(e?.reason);
+// galleries at a time — or 'taken'), or came back and is still being scanned ('handover', S32) —
+// backend-error.js refusedForNow. A restore passes over such a gallery and lists it with what it couldn't
+// restore (reason 'not-owned', or 'handover': forNowReason); "Take back" (or the scan's end), then the restore
+// again, brings it in (S31, review 8 R8-5). Any other 'unavailable' is the library gone, which stops a restore.
+export const refusedForNow = (e) => e?.code === 'unavailable' && forNow(e);
+// The reason a gallery passed over so is listed with.
+export const forNowReason = (e) => (e?.reason === 'handover' ? 'handover' : 'not-owned');
 
 // Restore the galleries `inspection` found restorable into `library` — { write(bundle) → { pages },
 // exists(gid), recount(gid), putIcon(icon), refreshSeries(ownerId), announce(gid) } — except those
@@ -734,7 +738,7 @@ export async function restoreArchive(archive, inspection, library, { skip = new 
         const code = e?.code;
         if (code === 'quota') throw Object.assign(new BackupError('quota', String(e?.message || e)), { written });
         if (code === 'unavailable' && !refusedForNow(e)) throw Object.assign(new BackupError('unavailable', String(e?.message || e)), { written });
-        problems.push({ gid: g.gid, title: g.title, reason: e instanceof GalleryProblem ? e.reason : refusedForNow(e) ? 'not-owned' : (code === 'conflict' ? 'conflict' : 'failed'),
+        problems.push({ gid: g.gid, title: g.title, reason: e instanceof GalleryProblem ? e.reason : refusedForNow(e) ? forNowReason(e) : (code === 'conflict' ? 'conflict' : 'failed'),
           detail: e?.detail || String(e?.message || e) });
       }
       done++;

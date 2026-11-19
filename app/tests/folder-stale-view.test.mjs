@@ -35,6 +35,11 @@ const png = (...tag) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, ...tag]);
 const same = (a, b) => !!a && !!b && a.length === b.length && a.every((x, i) => x === b[i]);
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const THEIR_TITLE = 'By the other app', THEIRS = png(0, 77), MY_TITLE = 'By this app', MINE = png(0, 66);
+const WINDOW_TITLE = 'By the other app, in its window';
+// When this app asks for the operation (S32, the hand-over table): at once after "Take back" (its check waiting out
+// the other app's window), while its check reads the folder, or once the check has read it. ("Before the claim" is
+// the rows whose change was made before: a change waiting from the drive's absence, a deletion owed, a start.)
+const MOMENTS = ['at once after the claim', 'while its check reads', 'once its check has read'];
 const named = (english) => ({ english, japanese: '', pretty: '' });
 
 // ── The galleries ──
@@ -176,12 +181,14 @@ async function unstamp(lib, gid) {
     });
   } finally { db.close(); }
 }
-// The other app uses folder F anyway, `change`s it there and lets it go.
-async function useAnyway(c, change) {
+// The other app uses folder F anyway, `change`s it there and lets it go — or, `keep`, keeps it (this app's
+// "Take back" then replaces a claim that is held: its hand-over waits out the other app's window).
+async function useAnyway(c, change, { keep = false } = {}) {
   const id = await c.B.add(c.F, { force: true });
   await c.B.scan(id);
   await change();
   await c.B.flush();
+  if (keep) { c.idB = id; return; }
   await c.B.setDefault(c.B.home);
   await c.B.remove(id);
   clockAhead(CLAIM_TTL_MS + 1000);
@@ -219,8 +226,23 @@ const namesIt = (F, gid) => fs.existsSync(F) && fs.readdirSync(F, { recursive: t
   .some(e => /(^|[\\/])(\.shiori[\\/]gallery\.json|\.shiori[\\/]linked[\\/][^\\/]+[\\/]gallery\.json)$/.test(e)
     && JSON.parse(fs.readFileSync(path.join(F, e), 'utf8')).galleryId === String(gid));
 
-// One row: operation `op` on app `A`, gallery kind `kind`, this app's older view in form `form`.
-async function row({ dir, A, B, op: name, kind, form }) {
+// Whether a change of gallery `gid` waits in app `lib` for its folder (not published there yet).
+async function waits(lib, gid) {
+  if (lib.app === 'desktop') return !!lib.raw.files._row(String(gid))?.pending;
+  const db = await new Promise((res, rej) => { const r = indexedDB.open('shiori-cache'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  try {
+    return await new Promise((res, rej) => {
+      const tx = db.transaction('undescribed', 'readonly');
+      const got = tx.objectStore('undescribed').get(String(gid));
+      tx.oncomplete = () => res(!!got.result);
+      tx.onerror = () => rej(tx.error);
+    });
+  } finally { db.close(); }
+}
+
+// One row: operation `op` on app `A`, gallery kind `kind`, this app's older view in form `form`, asked at `moment`
+// of the hand-over (S32: MOMENTS) — the other app keeping the folder and publishing once more in its window.
+async function row({ dir, A, B, op: name, kind, form, moment = MOMENTS[0] }) {
   const op = OPS[name];
   const c = { A, B, F: path.join(dir, 'F'), F2: path.join(dir, 'F2'), kind, idA: '', idA2: '', gid: '', owner: '', undo: () => {}, removed: false };
   await KINDS[kind](c);
@@ -238,20 +260,35 @@ async function row({ dir, A, B, op: name, kind, form }) {
     if (form === 'no stamp') await unstamp(A, c.gid);
   }
   // The other app publishes a generation naming a new picture and a new title — the same number again, after the
-  // older copy: it reads that copy as it uses the folder.
-  await useAnyway(c, async () => { await B.setTitle(c.gid, THEIR_TITLE); await B.putTranslation(c.gid, 1, THEIRS); });
+  // older copy: it reads that copy as it uses the folder — and keeps the folder.
+  await useAnyway(c, async () => { await B.setTitle(c.gid, THEIR_TITLE); await B.putTranslation(c.gid, 1, THEIRS); }, { keep: true });
   c.undo();
   if (op.restart) await A.restart();
   assert.equal(await A.raw.folderClaim(c.idA), 'granted', 'taken back');
-  const refused = await Promise.resolve().then(() => op.run(c)).then(() => null, (e) => e?.reason || e?.code || String(e));
+  // The other app's window (S32): it hasn't read this app's claim yet, and publishes once more — at once, on the
+  // folder's version — before this app's hand-over has waited that window out and read the folder.
+  await B.setTitle(c.gid, WINDOW_TITLE).catch(() => {});
+  await B.flush();
+  const their = (await waits(B, c.gid)) ? THEIR_TITLE : WINDOW_TITLE;   // what it published last (it learned of the claim: its change waits)
+  // The operation asked at `moment` of the hand-over: at once after the claim, while its check reads, or once it has
+  // read. Before the read's end it is refused (or waits); then it is asked again — done from the folder's version.
+  const ask = () => Promise.resolve().then(() => op.run(c)).then(() => null, (e) => e?.reason || e?.code || String(e));
+  let refused = null;
+  if (moment === MOMENTS[0]) refused = await ask();
+  else if (moment === MOMENTS[1]) { const reading = A.scan(c.idA).catch(() => null); refused = await ask(); await reading; }
+  if (moment !== MOMENTS[2]) assert.ok(refused == null || refused === 'handover', `asked before the read's end: refused for now, or waiting (refused: ${refused})`);
+  await A.scan(c.idA);   // the hand-over's check (joined, or done already)
+  if (moment !== MOMENTS[2] && !op.restart) await ask();   // then asked again, once the folder is read
+  else if (moment === MOMENTS[2]) refused = await ask();
   await A.flush();
   // This app's checks of the folders it still has (wherever the gallery is now: an operation refused leaves it
   // where it was, the other app may have unpacked it beside its archive) until it reads the other app's work.
   // A dropped deletion's gallery joins again at the check after the one that met it (S29a's rule 3); the person's
   // deletion is judged once it is done (a check tries one owed again).
   const held = async () => (await A.list()).filter(f => f.id === c.idA || f.id === c.idA2).map(f => f.id);
+  const titles = [their, ...(op.mine === titled ? [MY_TITLE] : [])];   // the other app's last, or this app's own made on it
   const settled = async () => (op.deletes ? !namesIt(c.F, c.gid)
-    : (await A.galleries()).includes(c.gid) && await A.titleOf(c.gid) === THEIR_TITLE);
+    : (await A.galleries()).includes(c.gid) && titles.includes(await A.titleOf(c.gid)));
   for (let i = 0; i < 10 && (await held()).length && !await settled(); i++) {
     for (const id of await held()) await A.scan(id);
     await A.flush();
@@ -259,17 +296,23 @@ async function row({ dir, A, B, op: name, kind, form }) {
   }
   const attention = (await A.list()).flatMap(f => f.attention ?? []).filter(a => a.reason === 'changed-both');
   const kept = (await A.galleries()).includes(c.gid);
+  const shown = kept ? await A.titleOf(c.gid) : null;
   if (op.deletes) assert.ok(!kept, 'the person\'s deletion takes it here');
   else if (kept) {
-    assert.deepEqual([await A.titleOf(c.gid), same(await A.read(c.gid, 1, 'translated'), THEIRS)], [THEIR_TITLE, true], 'the other app\'s work reads here');
+    assert.deepEqual([titles.includes(shown), same(await A.read(c.gid, 1, 'translated'), THEIRS)], [true, true], `the other app's work reads here (${shown})`);
     if (op.mine) assert.ok(await op.mine(c) || attention.some(a => String(a.gid) === String(c.gid)) || refused != null,
       `this app's change is on the folder's version, reported dropped, or refused (refused: ${refused})`);
   } else assert.ok(c.removed || name === 'a removal moving its galleries', 'only a folder\'s removal lets it go here');
   for (const f of [c.F, c.F2]) assert.deepEqual(namedMissing(f), [], `every file a manifest names is in ${path.basename(f)}`);
-  // The other app adds the folders the gallery may be in: what it published reads in the one it is in — none of
-  // it deleted; nothing of it, where the person deleted it here.
+  // The other app adds the folders the gallery may be in afresh: what it published reads in the one it is in —
+  // none of it deleted; nothing of it, where the person deleted it here; this app's own change made on it after the
+  // read reads there too. (It lets the folder it kept go first, with what waited there of its window change: one
+  // waiting for a gallery this app deleted or moved out since stays listed there until the person deletes it — S30's
+  // rule for a gallery whose place is gone, §8.)
   await A.setDefault(A.home);
   for (const id of await held()) await A.remove(id).catch(() => A.remove(id, { discard: true }));
+  await B.setDefault(B.home);
+  if (c.idB) await B.remove(c.idB, { discard: true });
   const seen = [];
   for (const at of [c.F, c.F2].filter(f => fs.existsSync(f))) {
     const id = await B.add(at, { force: true });
@@ -278,8 +321,9 @@ async function row({ dir, A, B, op: name, kind, form }) {
     await B.setDefault(B.home);
     await B.remove(id);
   }
+  const theirs = [shown ?? their];
   if (op.deletes) assert.deepEqual(seen, [], 'deleted there too');
-  else if (op.where !== 'home' || !kept) assert.deepEqual(seen, [[THEIR_TITLE, true]], 'the other app reads its work where the gallery is');
+  else if (op.where !== 'home' || !kept) assert.ok(seen.length === 1 && theirs.includes(seen[0][0]) && seen[0][1], `the other app reads its work where the gallery is (${JSON.stringify(seen)})`);
 }
 
 // The rows: every operation, on each app it applies to, for each kind it applies to, in each form — in npm test
@@ -297,18 +341,22 @@ test('the table runs every operation stale-view-operations.mjs names, on the app
   assert.deepEqual(Object.keys(OPERATIONS).sort(), [...Object.keys(OPS), PDF].sort());
   for (const [name, op] of Object.entries(OPS)) assert.deepEqual(Object.keys(OPERATIONS[name]).sort(), [...(op.apps ?? ['desktop', 'website'])].sort(), name);
 });
+// (S32: the stale-view table is the hand-over table too — each row asked at a moment of the hand-over, MOMENTS,
+// the other app publishing in its window. npm test runs one form and one moment a row, taking turns.)
 describe('the stale-view table', () => {
   ROWS.forEach((r, i) => {
     for (const [f, form] of FORMS.entries()) {
-      if (!ALL && f !== i % FORMS.length) continue;
-      test(`${r.op} — on the ${r.app}, ${r.kind}, ${form}`, { skip }, async (t) => {
-        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-stale-'));
-        const desktop = await desktopLibrary(path.join(dir, 'desktop'));
-        const website = await webLibrary();
-        t.after(async () => { faults.reset(); fsa.reset(); await desktop.close(); fs.rmSync(dir, { recursive: true, force: true }); });
-        const [A, B] = r.app === 'desktop' ? [desktop, website] : [website, desktop];
-        await row({ dir, A, B, op: r.op, kind: r.kind, form });
-      });
+      for (const [m, moment] of MOMENTS.entries()) {
+        if (!ALL && (f !== i % FORMS.length || m !== Math.floor(i / FORMS.length) % MOMENTS.length)) continue;
+        test(`${r.op} — on the ${r.app}, ${r.kind}, ${form}, ${moment}`, { skip }, async (t) => {
+          const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-stale-'));
+          const desktop = await desktopLibrary(path.join(dir, 'desktop'));
+          const website = await webLibrary();
+          t.after(async () => { faults.reset(); fsa.reset(); await desktop.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+          const [A, B] = r.app === 'desktop' ? [desktop, website] : [website, desktop];
+          await row({ dir, A, B, op: r.op, kind: r.kind, form, moment });
+        });
+      }
     }
   });
 });

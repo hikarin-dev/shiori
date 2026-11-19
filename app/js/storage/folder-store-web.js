@@ -793,10 +793,11 @@ function _root(id, root, purpose, writer) {
 }
 
 /** Folder `id` as the library has it: its handle, its state (folder-lifecycle.js), whether this library
- * holds its claim, this page's permission for it (permission()), whether the folder its handle reaches
+ * holds its claim (`owned`; `handover`: its claim, but the folder is still to be read after it came back,
+ * folder-owner.js), this page's permission for it (permission()), whether the folder its handle reaches
  * is it (`here`: its library.json names `id`, principle 1), and the library's own id (`writer`) — null
  * for one it doesn't have.
- * @typedef {(id: string) => Promise<{ handle: FileSystemDirectoryHandle, state: string, owned: boolean,
+ * @typedef {(id: string) => Promise<{ handle: FileSystemDirectoryHandle, state: string, owned: boolean, handover?: boolean,
  *   permission: string, here: boolean, writer: string } | null>} Gate */
 /** The adapter over the library's gate.
  * @param {Gate} gate @returns {import('./contract.js').FolderStore<FileSystemDirectoryHandle>} */
@@ -807,7 +808,7 @@ export function folderStore(gate) {
       const f = await gate(ref.id);
       if (!f || f.permission === 'unavailable') return refused('unavailable');
       if (f.permission !== 'granted') return refused('no-permission');
-      const why = refusalFor({ state: f.state, owned: f.owned, reachable: true, here: f.here }, purpose);
+      const why = refusalFor({ state: f.state, owned: f.owned, handover: !!f.handover, reachable: true, here: f.here }, purpose);
       return why ? refused(why) : { status: 'ok', root: _root(ref.id, f.handle, purpose, f.writer) };
     },
   };

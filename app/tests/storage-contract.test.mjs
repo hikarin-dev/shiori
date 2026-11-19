@@ -4,9 +4,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PURPOSES, REFUSALS, MISSING, refused, unreadable, corrupt, mayChangeState, parsed, surelyMissing, surelyMissingNow } from '../js/storage/contract.js';
 
-test('a root is opened for one of five purposes, and refused for one of five reasons', () => {
+test('a root is opened for one of five purposes, and refused for one of six reasons', () => {
   assert.deepEqual([...PURPOSES], ['read', 'write', 'publish', 'removal', 'claim']);
-  assert.deepEqual([...REFUSALS], ['unavailable', 'other-library', 'no-permission', 'not-owned', 'hidden']);
+  // 'handover' (S32): the folder came (back) to this library and its check hasn't read it yet.
+  assert.deepEqual([...REFUSALS], ['unavailable', 'other-library', 'no-permission', 'not-owned', 'handover', 'hidden']);
   assert.deepEqual(refused('other-library', 'Shelf'), { status: 'other-library', detail: 'Shelf' });
   assert.deepEqual(refused('unavailable'), { status: 'unavailable', detail: null });
 });

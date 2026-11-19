@@ -37,6 +37,9 @@ const MAX_DEPTH = 6;
 // A moment for the app's process to answer its windows, every so many galleries.
 const breathe = () => new Promise((resolve) => setImmediate(resolve));
 const CHUNK = 20;
+// How long a hand-over's read waits for work under way on a gallery (a settle, a publication: refused at the
+// folder's gate meanwhile, so they end at once) before it reads it.
+const BUSY_WAIT_MS = 30_000;
 // The temporary files and folders the app writes beside what they become (folder-content.js TEMPORARY):
 // `<name>.shiori-tmp` (a file replaced whole; `<name>.<hex>.shiori-tmp`, a gallery moved, unpacked or
 // archived), `<name>.<hex>.shiori-new` (a picture written beside its folder's), and -old.
@@ -136,7 +139,10 @@ async function findGalleries(root, { skip = new Set(), onTop = () => {}, stopped
 async function readGallery(g) {
   const abs = g.abs;
   if (g.format === 'folder' && g.layout) {
-    const { read, files } = await loadGallery(abs);
+    // (A folder an archiving let go that another app published into since — `over` — is read as that publication
+    // names it, a picture the retirement cut short took among it: `missing`, reported. S32, review 9 A3.)
+    const { read, files, missing } = await loadGallery(abs, { missing: !!g.over });
+    if (missing) g.missing = missing;
     return formatRead(readable(read, g.rel), files);
   }
   if (g.format === 'folder') {
@@ -228,8 +234,15 @@ async function unpackSeries(library, g, removed) {
 // reason }]: what couldn't be read or joined, its path in its folder), stopped }. The folders are gone
 // through one thing at their top at a time — `onProgress(done, total, added, step)` as it goes — and
 // the walk ends once `stopped()`: what it found so far joins the library, and nothing is marked missing
-// (the rest wasn't looked at).
-export async function scanLibrary(library, { roots = library.activeRoots(), onProgress = () => {}, stopped = () => false } = {}) {
+// (the rest wasn't looked at). `handover` (S32: the folder came (back) to this library — folders.js
+// _readBack): the check's reading alone — every gallery the index keeps there read against its place (none
+// passed over as busy: what waits for it weighed as its place is held, files.js hold), what the folder holds
+// walked, followed and joined in the index — and nothing written or deleted in the folder (none of the work
+// left over from before: retirements, leftover sweeps, deletions owed, the settling of what waited; nor a
+// series export unpacked, a linked title's overlay made, an earlier format converted: the check after it does
+// those). `joined`: galleries that read joined a moment ago, as this check would have (another place of one
+// beside it isn't reported as a copy yet).
+export async function scanLibrary(library, { roots = library.activeRoots(), onProgress = () => {}, stopped = () => false, handover = false, joined = new Set() } = {}) {
   const out = { moved: [], missing: [], found: [], added: [], updated: [], removed: 0, problems: [], unreferenced: [], stopped: false };
   const files = library.files;
   // A folder is checked only where its path holds it (folders.js reach, principle 1): another library
@@ -250,9 +263,9 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   // again, whole or half deleted (N2, N4). Nor are those still waiting to retire, a gallery's no more
   // (an archived gallery's old folder: a file whose deletion answered "not found" stays recorded, F9),
   // which go first where they can.
-  await files._retire().catch(() => {});
+  if (!handover) await files._retire().catch(() => {});
   for (const id of reachable) {
-    if (!library.folders.writable(id)) continue;
+    if (handover || !library.folders.writable(id)) continue;
     out.removed += await sweepLeftovers(library, id);
     await files.applyDeletions({ root: id }).catch(() => {});
   }
@@ -285,13 +298,18 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   // the walk found it, and whatever it read and found damaged, are no deleted gallery's (review 7 A1).
   const partial = new Set();
   const place = (id, g) => ({ ...g, abs: path.join(library.rootDir(id), ...g.rel.split('/')), rel: files._join(id, g.rel), root: id, inRoot: g.rel });
+  // A folder an archiving let go that another app published its gallery into since (files.js _retiredOver: S32, review
+  // 9 A3) is no leftover: it is looked into as any folder naming that gallery, and the later publication stands.
+  const overAt = new Map();   // gid → that folder (a path as `files` has them)
+  for (const id of reachable) for (const [dir, gid] of files.retiredOver(id)) overAt.set(gid, dir);
+  const overDirs = new Set(overAt.values());
   for (const id of reachable) {
-    const skip = new Set([...known.filter(r => present.has(r.gid) && files._split(r.path).root === id), ...files.deletingIn(id), ...files.retiringIn(id)]
+    const skip = new Set([...known.filter(r => present.has(r.gid) && files._split(r.path).root === id), ...files.deletingIn(id), ...files.retiringIn(id).filter(r => !overDirs.has(r.dir))]
       .map(r => files._split(r.path ?? r.dir).rest));
     const base = galleries.length;
     const onTop = (n) => onProgress(Math.min(++done, total), total, base + n, step);
     const walked = await findGalleries(library.rootDir(id), { skip, onTop, stopped, problems: out.problems });
-    for (const g of walked.found) galleries.push(place(id, g));
+    for (const g of walked.found) { const at = place(id, g); if (overDirs.has(at.rel)) at.over = true; galleries.push(at); }
     loose.set(id, { files: walked.files, own: [...walked.own, ...skip] });
     if (!walked.whole) partial.add(id);
   }
@@ -304,6 +322,20 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
       g.unreadable = true;
       if (g.id == null && lifecycle.leavesOpen(problem)) partial.add(g.root);
     }
+  }
+  // A folder an archiving let go that another app published its gallery into since (overDirs): the later publication
+  // stands (followed below); what of it the retirement cut short took is reported, and the gallery's archive is
+  // retired only where it holds no picture the folder's version lacks — else kept beside it (reported as a copy).
+  const keepArchive = new Set();
+  for (const g of unknown.filter(g => g.over && g.read?.kind === 'gallery')) {
+    const id = String(g.read.described?.id ?? '');
+    // (Kept on the folder's Needs attention list until dismissed: later checks don't see it again.)
+    if (g.missing) library.folders.note(g.root, { reason: 'missing-file', path: g.inRoot, gid: id }, { event: true });
+    const row = files._row(id);
+    if (!row || row.format === 'folder') continue;
+    const dir = await files._directory(files._abs(row.path)).catch(() => null);
+    const has = g.read.derived?.files ?? new Map();
+    if (!dir || [...archivePictures(dir)].some(([name, e]) => !has.get(name)?.size || has.get(name).size !== e.size)) keepArchive.add(id);
   }
   // Each library folder's removed.json as the check weighs it (linked.js removedOf), read once, when an
   // archive of Shiori's asks: null, reported, while it can't be read now — nothing it may note joins then,
@@ -318,7 +350,7 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   // A series export joins as its folder would (unpackSeries): its chapters are read from there — those
   // its removed.json notes as removed left out (review 7 A5) — and the archive goes once they all joined.
   const exports = [];
-  for (const g of unknown.filter(g => g.read?.kind === 'series' && !out.stopped)) {
+  for (const g of unknown.filter(g => g.read?.kind === 'series' && !out.stopped && !handover)) {
     try {
       const notes = await removedIn(g.root);
       if (!notes) continue;
@@ -388,6 +420,10 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   library._tx(() => {
     for (const row of known) {
       const beside = byId.get(row.gid);
+      if (present.has(row.gid) && row.format !== 'folder' && !row.source && beside?.format === 'folder' && beside.over && overAt.get(row.gid) === beside.rel) {
+        unpackedTo(row, beside, !keepArchive.has(row.gid));   // the folder its archiving let go, published into since (S32, review 9 A3)
+        continue;
+      }
       if (present.has(row.gid) && row.format !== 'folder' && !row.source && beside?.format === 'folder'
         && format.supersedes(beside.read.token, library._s('SELECT stamp FROM stamps WHERE gid = ?').get(row.gid)?.stamp)) { unpackedTo(row, beside, true); continue; }
       if (present.has(row.gid)) {
@@ -414,17 +450,26 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   // (F6). A copy of a gallery the library keeps (its place still naming it, or not to be told now: in
   // another folder, out of reach or out of the library — not followed above) is reported, and left (O3,
   // review 7 B3) — not the old folder of a gallery archived since, retiring.
-  const unfound = new Map(files._deletingRows().filter(d => d.unfound).map(d => [String(d.gid), d]));
+  // A hand-over's read (S32) deletes nothing — the check after it does — but weighs every deletion owed that it
+  // meets at a place naming its gallery (not only one whose place was gone): its place held as the deletion
+  // recorded it (files.js hold, S29a's rule 3), where another app published the gallery there since the deletion
+  // is dropped (reported once) and the gallery joins as the folder has it; else the deletion stands, done next.
+  const unfound = new Map(files._deletingRows().filter(d => d.unfound || handover).map(d => [String(d.gid), d]));
   const met = new Set();
   for (const g of unknown.filter(g => !g.claimed && (g.read?.kind === 'gallery' || g.unreadable))) {
     const id = g.read ? (g.read.described?.id ? String(g.read.described.id) : null) : g.id ?? null;
     const row = id && files._row(id);
-    if (!row && unfound.has(id)) {
+    if (!row && unfound.has(id) && handover) {
+      const d = unfound.get(id);
+      const whose = await files.hold(d.gid, { rel: g.rel, known: d.stamp ?? null,
+        deletion: { epoch: d.epoch ?? null, forget: () => library._s('DELETE FROM deleting WHERE dir = ?').run(d.dir) } });
+      if (whose.kind !== 'dropped') { g.claimed = true; if (d.unfound) met.add(d.dir); }
+    } else if (!row && unfound.has(id)) {
       g.claimed = true;
       const d = unfound.get(id);
       met.add(d.dir);
       await files.deletedFound(d, g.rel, null, g.format === 'folder');
-    } else if (g.read && row && !row.source && (!checked.has(files._split(row.path).root) || present.has(id))
+    } else if (g.read && row && !row.source && (!checked.has(files._split(row.path).root) || present.has(id)) && !joined.has(id)
       && !library._s('SELECT 1 FROM retiring WHERE dir = ? LIMIT 1').get(g.rel)) {
       out.problems.push({ path: g.inRoot, reason: 'duplicate', gid: id });
     }
@@ -469,7 +514,7 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
       if (Object.keys(covers).length) library._tx(() => library._coverPatchIn(gid, covers, { mark: false }));
       // One in the desktop's oldest format brought to the gallery format once it is in the library whole:
       // a conversion cut short (a failed call, a kill) is picked up by the next check (review 6 F12).
-      if (g.format === 'folder' && !g.layout) await files.toFormat(gid).catch(() => out.problems.push({ path: g.inRoot, reason: 'unreadable' }));
+      if (g.format === 'folder' && !g.layout && !handover) await files.toFormat(gid).catch(() => out.problems.push({ path: g.inRoot, reason: 'unreadable' }));
       out.added.push(gid);
       changed.add(gid);
       tick();
@@ -480,8 +525,9 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   for (const { archive, chapters } of exports) {
     if (chapters.every(c => c.read?.described?.id && files._row(String(c.read.described.id)))) await files._remove(archive.rel);
   }
-  // What each library folder holds that Shiori didn't make: linked galleries (linked.js).
-  for (const id of reachable) {
+  // What each library folder holds that Shiori didn't make: linked galleries (linked.js) — joined by the check
+  // after a hand-over's read (a new title's overlay is written as it joins).
+  for (const id of handover ? [] : reachable) {
     if (stopped()) { out.stopped = true; break; }
     const archives = unknown.filter(g => g.root === id && g.format !== 'folder' && (g.read?.kind === 'linked' || g.unreadable))
       .map(g => ({ path: g.inRoot, entries: g.read?.entries ?? null }));
@@ -503,17 +549,23 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   for (const row of kept) {
     if (stopped()) { out.stopped = true; break; }
     try {
-      if (files._legacy(row.gid)) await files.toFormat(row.gid);
-      if (await refreshGallery(library, row)) { out.updated.push(row.gid); changed.add(row.gid); }
+      if (files._legacy(row.gid) && !handover) await files.toFormat(row.gid);
+      if (await refreshGallery(library, row, { handover })) { out.updated.push(row.gid); changed.add(row.gid); }
     } catch (e) { out.problems.push({ path: files._split(row.path).rest, reason: unreadable(e) }); }
     tick();
     if (done % CHUNK === 0) await breathe();
   }
   // A deletion whose gallery's folder the check didn't meet is forgotten (F4) — not when it was stopped;
   // in a folder it couldn't read whole, once a few such checks didn't (review 6 F6, review 7 A1).
-  if (!out.stopped) for (const id of reachable) files.endUnfound(id, met, !partial.has(id));
-  library._tidyLinks([...out.added, ...out.updated]);
+  if (!out.stopped && !handover) for (const id of reachable) files.endUnfound(id, met, !partial.has(id));
+  // The series links of what joined or was read again tidied — the members of a series read again among them, so a
+  // gallery kept whose series no longer lists it (the other app dissolved the series; its own place gone) is kept
+  // outside it: listed, and deletable (S32, review 9 B3).
+  const tidied = [...out.added, ...out.updated];
+  for (const gid of [...tidied]) for (const r of library._s('SELECT gid FROM stats WHERE parent_key = ?').all(String(gid))) tidied.push(String(r.gid));
+  library._tidyLinks([...new Set(tidied)]);
   for (const gid of changed) library.publishFeed(gid);
+  if (handover) return out;
   out.removed += await removeOrphans(library, out.unreferenced, checked);
   library.files.resume();   // galleries found again settle what waited for them
   return out;
@@ -572,11 +624,15 @@ async function tokenAt(library, abs, rowFormat, gid) {
 // is this app's own, what waits is published over it, in due course. One whose files no longer name it is
 // left. A v1 folder stamped before stamps existed counts as changed only when its descriptions differ from
 // the index's. Resolves whether it was read again; rejects, its records and token as they were, when any of
-// its files can't be read (F06), is damaged (T08) or misses a file it names (T09).
-async function refreshGallery(library, row) {
+// its files can't be read (F06), is damaged (T08) or misses a file it names (T09). One busy now (a settle,
+// a publication, a write of it under way) is weighed at its next look — but a hand-over's read (`handover`,
+// S32) waits for that to end and reads it: no gallery of a folder that came back is passed over (review 9 B2).
+async function refreshGallery(library, row, { handover = false } = {}) {
   const files = library.files;
   const gid = row.gid;
   const busy = () => files._placing.has(gid) || files._describing.has(gid) || files._writing.has(gid);
+  for (let waited = 0; handover && busy() && waited < BUSY_WAIT_MS; waited += 20) await new Promise((r) => setTimeout(r, 20));
+  if (busy() && handover) throw Object.assign(new Error(`${row.path}: still busy`), { reason: 'unreadable' });   // reported, never passed over
   if (busy()) return false;
   const abs = files._abs(row.path);
   const at = await tokenAt(library, abs, row.format, gid);
@@ -669,10 +725,16 @@ export async function folderStands(library, gid) {
   const src = files.sourceOf(row);
   const waits = () => waiting(library, id);
   const drop = waits();
+  // The other galleries one series command changed with it (files.js groupIn), whose change still waits: dropped
+  // with its own — a command is weighed as one, never one gallery's part published and another's dropped (S32,
+  // review 9 B1).
+  const others = drop ? files.groupWaiting(id) : [];
   const stood = src ? !!await adoptLinked(library, root, src, { replace: id, guard: drop ? () => false : waits })
     : await reread(library, row, drop ? { drop: true } : { guard: waits, manifest: true });
   if (!stood) return false;
   if (src && drop) library.folders.note(root, { reason: 'changed-both', path: rest, gid: id }, { event: true });
+  if (drop) library._tx(() => files._ungroup(id));
+  for (const m of others) await folderStands(library, m).catch(() => false);
   if (drop) await files._letGo(id).catch(() => {});
   return true;
 }

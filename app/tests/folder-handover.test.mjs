@@ -646,7 +646,9 @@ const CASES = [
     // folder's manifest: the other app's translation deleted from the disk, never copied, nothing reported. A
     // gallery's place is written from the folder's version (S31): the move carries the gallery as the folder has
     // it. Nothing of it waited here, so nothing is reported dropped either (rule 5: the desktop noted
-    // 'changed-both' for it).
+    // 'changed-both' for it). Since S32 the move (or the removal) asked at once after "Take back" is refused
+    // for now ('handover': the folder is read before it is this app's), then asked again once the hand-over's
+    // check has read it.
     name: 'R8-4: a gallery moved out right after "Take back", before this app read it again, carries the other app\'s work wherever it goes — nothing deleted, nothing reported dropped',
     async run({ dir, from, to }) {
       for (const form of ['to another folder', 'into this library\'s own place', 'by the removal of its folder', 'after a check that met one failed read']) {
@@ -665,16 +667,21 @@ const CASES = [
         await to.remove(theirs);   // and lets it go
         clockAhead(CLAIM_TTL_MS + 1000);
         assert.equal(await from.raw.folderClaim(id), 'granted', `${form}: taken back`);
+        const moveOut = async () => {
+          if (form === 'by the removal of its folder') { await from.setDefault(id2); await from.remove(id, { moveTo: id2 }); }
+          else await from.move(gid, form.startsWith('into') ? from.home : id2);
+        };
+        // At once, before the hand-over's check has read the folder: refused for now (S32).
+        await assert.rejects(moveOut(), (e) => e?.reason === 'handover', `${form}: refused until the folder is read`);
         if (form.startsWith('after')) {
           const once = (when) => { let n = 0; return (c) => when(c) && ++n === 1; };
           const manifest = (c) => /Alpha[\\/]\.shiori[\\/]gallery\.json$/.test(String(c.path));
           if (from.app === 'website') fsa.failNext(once((c) => manifest(c) && /getFile/.test(c.op)), 'NotReadableError', { times: 1e6 });
           else faults.failNext(once((c) => manifest(c) && c.op === 'readFile'), 'EIO', { times: 1e6 });
-          await from.scan(id);   // meets the failed read: the gallery reported, read at no check yet
-          faults.reset(); fsa.reset();
         }
-        if (form === 'by the removal of its folder') { await from.setDefault(id2); await from.remove(id, { moveTo: id2 }); }
-        else await from.move(gid, form.startsWith('into') ? from.home : id2);
+        await from.scan(id);   // the hand-over's check (the form 'after…': its read meets one failed read of the gallery)
+        faults.reset(); fsa.reset();
+        await moveOut();
         await from.flush();
         assert.ok(same(await from.read(gid, 1, 'translated'), png(0, 71)), `${form}: the other app's translation reads here`);
         assert.equal(await from.titleOf(gid), 'Alpha', `${form}: its title`);
@@ -1040,6 +1047,9 @@ const DELETED_ON_TAKE_BACK = {
       assert.ok(fs.existsSync(path.join(shared, 'Archived', '.shiori', 'gallery.json')), `${form}: unpacked beside the archive`);
       await website.remove(back);
       await desktop.raw.folderClaim(id);
+      // S32: at once, before the hand-over's check has read the folder, refused for now; then deleted after it.
+      await assert.rejects(desktop.deleteGallery(gid), (e) => e?.reason === 'handover', `${form}: refused until the folder is read`);
+      await desktop.scan(id);
       await desktop.deleteGallery(gid);
       await desktop.flush();
       await new Promise(r => setTimeout(r, 300));
@@ -1069,6 +1079,8 @@ const DELETED_ON_TAKE_BACK = {
       await desktop.setDefault(desktop.home);
       await desktop.remove(id);
       assert.equal(await website.raw.folderClaim(back), 'granted');
+      await assert.rejects(website.deleteGallery(gid), (e) => e?.reason === 'handover', `${form}: refused until the folder is read (S32)`);
+      await website.scan(back);
       await website.deleteGallery(gid);
       await website.flush();
       await new Promise(r => setTimeout(r, 400));
@@ -1097,6 +1109,8 @@ const DELETED_ON_TAKE_BACK = {
       assert.deepEqual((await other.raw.archiveGallery(gid)).archived, [gid]);
       await other.setDefault(other.home);
       await other.remove(theirs);
+      // (Another desktop library of this computer and person shares this one's claim — §8, review 9 A4: its claim let
+      // go is this library's own, untouched since, so no hand-over begins here.)
       await desktop.raw.folderClaim(id);
       await desktop.deleteGallery(gid);
       await desktop.flush();
@@ -1300,7 +1314,7 @@ const FOLLOWED = {
       await website.flush();
       await awayTranslated(website, F, gid, 1, pngOf(7));   // waits in this browser
       const theirs = [await desktop.add(F, { force: true }), ...(two ? [await desktop.add(G, { force: true })] : [])];   // "Use anyway"
-      await desktop.scan(theirs[0]);
+      for (const f of theirs) await desktop.scan(f);   // each a hand-over (S32): read before a gallery is moved into it
       if (form === 'archived') assert.deepEqual((await desktop.raw.archiveGallery(gid)).archived, [gid], form);
       if (two) await desktop.move(gid, theirs[1]);
       if (form.startsWith('renamed')) { fs.renameSync(path.join(F, 'Alpha'), path.join(F, 'Alpha by hand')); await desktop.scan(theirs[0]); }
@@ -1711,15 +1725,21 @@ const UNPACK_MET = {
         await website.restart();   // the page closed: its claim stays
         assert.equal(await lib.raw.folderClaim(id), 'granted', `${form}: the desktop takes it back`);
         if (form === 'at a check') assert.deepEqual(copies((await lib.scan(id)).problems), [], `${form}: no copy`);
+        else {
+          // S32: the change made before any check is refused for now — the folder is read first (its check takes
+          // the folder the website published beside the archive), and the change is made on it after.
+          await assert.rejects(lib.putTranslation(g, 3, png(0, 6)), (e) => e?.reason === 'handover', `${form}: refused until the folder is read`);
+          assert.deepEqual(copies((await lib.scan(id)).problems), [], `${form}: no copy`);
+        }
         await lib.putTranslation(g, 3, png(0, 6));
         await lib.flush();
         await sleep(300);
         for (let i = 0; i < 2; i++) { assert.deepEqual(copies((await lib.scan(id)).problems), [], `${form}: its check ${i + 1}, no copy`); await lib.flush(); }
         assert.deepEqual(held(F), ['Alpha'], `${form}: it took the folder, the archive deleted — never a second copy`);
         assert.deepEqual(namedMissing(F), [], `${form}: the folder holds every file it names`);
-        // A change made before any check finds the website's generation there: the folder's version stands
-        // (one app changes a folder's galleries at a time), that change dropped and reported once.
-        const dropped = form === 'at its unpack';
+        // (Before S32 a change made before any check met the website's generation there at its unpack and was
+        // dropped, reported once; since S32 no change is made before the folder is read: nothing dropped.)
+        const dropped = false;
         assert.equal(same(await lib.read(g, 3, 'translated'), png(0, 6)), !dropped, `${form}: its translation ${dropped ? 'dropped' : 'read'}`);
         assert.equal((await lib.list()).find(f => f.id === id).attention.filter(a => a.reason === 'changed-both').length, dropped ? 1 : 0, `${form}: reported ${dropped ? 'once' : 'never'}`);
         await lib.setDefault(lib.home);
@@ -1814,11 +1834,16 @@ const UNPACKED_STALE = {
         await website.setDefault(website.home);   // the website keeps the folder: listed as used elsewhere from now on
         clockAhead(CLAIM_TTL_MS + 1000);
         assert.equal(await desktop.raw.folderClaim(id), 'granted', `${form}: the desktop takes it back`);
+        // S32: a change before the hand-over's check has read the folder is refused for now, on each app.
+        await assert.rejects(desktop.setTitle(gid, 'Alpha by the desktop'), (e) => e?.reason === 'handover', `${form}: the desktop's change waits for its read`);
+        await desktop.scan(id);
         await desktop.setTitle(gid, 'Alpha by the desktop');
         await desktop.flush();
         await desktop.setDefault(desktop.home);
         clockAhead(CLAIM_TTL_MS + 1000);
         assert.equal(await website.raw.folderClaim(theirs), 'granted', `${form}: the website takes it back`);   // and changes it before any check
+        await assert.rejects(website.putTranslation(gid, 2, png(0, 92)), (e) => e?.reason === 'handover', `${form}: the website's change waits for its read`);
+        await website.scan(theirs);
       }
       clockAhead(2000);
       await website.putTranslation(gid, 2, png(0, 92));

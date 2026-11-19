@@ -10,6 +10,7 @@ import { t } from './i18n.js';
 import { formatBytes, formatCount } from './format.js';
 import { ask, showProgress } from './notice.js';
 import * as api from './api.js';
+import { refusedForNow } from './backend-error.js';
 
 // { pages, converted, remaining, bytes }: bytes estimates what converting the rest writes.
 export async function storageEstimate() {
@@ -107,9 +108,10 @@ export async function classifyNow() {
       const { id, source } = pending[next++];
       const res = await request({ type: 'EXT_DERIVE_META', galleryId: id, source }, 15000);
       if (!res) { stop = true; break; }   // nothing answered — don't walk the rest into timeouts
-      // A gallery whose folder can't be changed now (hidden, or in use by another app: one app changes a
-      // folder's galleries at a time) is passed over, still pending: a later run updates it.
-      if (res.ok) await _applyClassTags(id, res.tags).catch((e) => { if (e?.reason !== 'not-owned' && e?.reason !== 'hidden') throw e; });
+      // A gallery whose folder can't be changed now (hidden, in use by another app — one app changes a
+      // folder's galleries at a time — or still being scanned after it came back: backend-error.js
+      // refusedForNow) is passed over, still pending: a later run updates it.
+      if (res.ok) await _applyClassTags(id, res.tags).catch((e) => { if (!refusedForNow(e) && e?.reason !== 'hidden') throw e; });
       done++;
       modal.update(done, pending.length, t('classify.progress', { done: formatCount(done), total: formatCount(pending.length) }));
     }

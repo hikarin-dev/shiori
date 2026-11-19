@@ -24,7 +24,7 @@
 import * as platform from './platform.js';
 import * as folderFiles from './storage/folder-store-web.js';
 import { BackendError } from './backend-error.js';
-import { OWNER_FILE, readClaim, nextClaim, releasedClaim, unchangedSince } from './storage/folder-owner.js';
+import { OWNER_FILE, readClaim, nextClaim, releasedClaim, unchangedSince, handoverOf, readsFrom } from './storage/folder-owner.js';
 import { mounted, canHide, nextDefault, removalOutcome, savedAtRemoval, leavesOpen } from './storage/folder-lifecycle.js';
 import { OWN_FILES, MANIFEST_FILE, TEMPORARY, galleryIdOf, classifyFolder, classifyArchive, holdsNothing } from './storage/folder-content.js';
 import { LINKED_DIR, SOURCE_FILE, REMOVED_FILE, IMAGE_NAME, ARCHIVE_NAME, overlayDir, sourceText, parseSource, parseRemoved, isRemoved, chapterRemoved,
@@ -99,11 +99,11 @@ async function foldersList() {
   const out = [{ id: K.BROWSER, kind: 'browser', name: '', isDefault: !defaultId, access: 'granted', removable: false, ...counts(browser) }];
   for (const f of [...byId.values()].sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0))) {
     K.forgetGrant(f.id);
-    const { state, owned, claim } = await K.access(f.id);
-    const taken = state === 'granted' && !owned;
+    const { state, owned, handover, claim } = await K.access(f.id);
+    const taken = state === 'granted' && !owned && !handover;
     out.push({ id: f.id, kind: 'folder', name: f.name, isDefault: f.id === defaultId,
       access: taken ? 'taken' : state === 'denied' ? 'prompt' : state, removable: true, ...counts(f),
-      attention: await K.attentionOf(f.id).catch(() => []), ...(taken ? { owner: _ownerOf(claim) } : {}) });
+      attention: await K.attentionOf(f.id).catch(() => []), ...(taken ? { owner: _ownerOf(claim) } : {}), ...(handover ? { handover: true } : {}) });
   }
   return out;
 }
@@ -163,26 +163,42 @@ async function folderAdd(handle, { force = false } = {}) {
   if (await folderFiles.permission(handle) !== 'granted') throw new BackendError('unavailable', 'the folder can\'t be used');
   const { id, fresh } = await _folderIdOf(handle);
   const listed = await _listedAs(id, handle);
+  // Listed with a hand-over's mark but its claim never written (the page closed between): claimed now.
+  if (listed?.existed && (await K.markOf(id)) && !(await K.access(id)).handover) { await _takeBack(id, { force }); return { id, restored: 0 }; }
   if (listed) return listed;
   const me = await K.me();
   const read = fresh ? await _pickedClaim(handle) : await K.readClaim(id, handle);
   const leaving = (await K.folders()).removing.get(id) || null;
-  const got = nextClaim(read, me, K.myLabel(), { held: leaving?.epoch ?? null, force });
+  // (The counter this library let it go at, being removed or forgotten since: untouched, it is its own again.)
+  const held = leaving?.epoch ?? (await K.releasedOf(id)) ?? null;
+  const now = Date.now();
+  const got = nextClaim(read, me, K.myLabel(), { held, force, now });
   if (got.refused) _refuse('claimed', 'the folder is in use by another app', { owner: _ownerOf(got.refused) });
   if (leaving && unchangedSince(read, me, leaving.epoch ?? null)) {
     if (got.changed) await K.writeClaim(id, handle, got.claim);
     if (await _callOffRemoval({ ...leaving, name: handle.name, handle, epoch: got.claim.epoch })) return { id, restored: (await _placedIn(id)).length };
     // Its removal is past its point of no return (F11): once it has ended, the folder is added afresh.
   }
-  return folderFiles.withLock(FOLDER_LOCK(id), async () => {
+  // One another app had is handed over (folder-owner.js): listed with its mark before the claim is written.
+  const handover = got.changed ? handoverOf(read, me, held, now) : null;
+  const added = await folderFiles.withLock(FOLDER_LOCK(id), async () => {
     const f = await K.folders();
     if (f.byId.has(id)) return _listedAs(id, handle);   // its removal was kept
     if (f.removing.has(id)) await _forget(id);           // stopped half way: what it had is out of date
     if (fresh) await folderFiles.writeFile(id, handle, LIBRARY_FILE, JSON.stringify({ format: 'shiori-library', version: 1, id }, null, 2));
-    if (got.changed) await K.writeClaim(id, handle, got.claim);
-    await _putPlace({ id, name: handle.name, handle, addedAt: Date.now(), epoch: got.claim.epoch }, 'shown');
+    const record = { id, name: handle.name, handle, addedAt: Date.now(), epoch: got.claim.epoch, ...(handover ? { handover } : {}) };
+    if (handover) await _putPlace(record, 'shown');
+    try {
+      if (got.changed) await K.writeClaim(id, handle, got.claim);
+    } catch (e) {
+      if (handover) await K.folderWrite((store, tx) => { store.delete(id); K.logIn(tx, '*'); }).catch(() => {});   // not added after all
+      throw e;
+    }
+    if (!handover) await _putPlace(record, 'shown');
     return { id, restored: 0 };
   });
+  if (handover) _handOver(id);
+  return added;
 }
 // Folder `record.id`'s removal called off, the folder shown again as `record` has it — in a
 // transaction that finds it still being removed and short of its point of no return (`removal.phase`
@@ -238,21 +254,32 @@ async function _listedAs(id, handle) {
 }
 
 // Folder `id`, taken over by another app, held by this library again (from a click — the person told
-// what that risks): what waited in this browser for it moves out. Resolves its access.
+// what that risks): a hand-over (folder-owner.js), its check started; what waited goes out after it.
+// Resolves its access.
 async function folderClaim(id) {
+  return (await _takeBack(id, { force: true })).access;
+}
+// Folder `id` claimed again — another app's claim only with `force`. Resolves { access }.
+async function _takeBack(id, { force }) {
   const folder = (await K.folders()).byId.get(id);
   if (!folder) throw _notFound(id);
   K.forgetGrant(id);
   const { state } = await K.access(id);   // never another library folder at its path (principle 1)
   if (state === 'other-library') throw Object.assign(new BackendError('unavailable', `another library folder is at library folder ${id}'s path`), { reason: 'other-library' });
   if (state !== 'granted') throw new BackendError('unavailable', `library folder ${id} can't be reached`);
-  const { claim, changed } = nextClaim(await K.readClaim(id, folder.handle), await K.me(), K.myLabel(), { held: folder.epoch ?? null, force: true });
+  const read = await K.readClaim(id, folder.handle), me = await K.me(), now = Date.now();
+  const got = nextClaim(read, me, K.myLabel(), { held: folder.epoch ?? null, force, now });
+  if (got.refused) _refuse('claimed', 'the folder is in use by another app', { owner: _ownerOf(got.refused) });
+  const { claim, changed } = got;
+  const handover = changed ? handoverOf(read, me, folder.epoch ?? null, now) : null;
+  if (handover) await K.setHandover(id, handover);   // before the claim
   if (changed) await K.writeClaim(id, folder.handle, claim);
   await K.noteEpoch(id, claim.epoch);
   K.forgetGrant(id);
-  const { owned } = await K.access(id);   // read back: this library's only if the claim now says so
-  if (owned) K.settleFolders().catch(() => {});
-  return owned ? 'granted' : 'taken';
+  const { owned, handover: reading } = await K.access(id);   // read back
+  if (reading) _handOver(id);
+  else if (owned) K.settleFolders().catch(() => {});
+  return { access: owned || reading ? 'granted' : 'taken' };
 }
 
 // Where new galleries go: folder `id`, or this browser (BROWSER) — a place shown, and not a folder
@@ -263,8 +290,9 @@ async function folderSetDefault(id) {
   if (!place) throw _notFound(folder);
   if (hidden) _refuse('hidden', 'a hidden place is never the default');
   if (folder) {
+    // (One being handed over may be: what is made there meanwhile waits in this browser.)
     const a = await K.access(folder);
-    if (a.state === 'granted' && !a.owned) _refuse('taken', 'a folder another app keeps is never the default');
+    if (a.state === 'granted' && !a.owned && !a.handover) _refuse('taken', 'a folder another app keeps is never the default');
   }
   await K.folderWrite((store) => store.put({ id: K.DEFAULT_FOLDER, folder }));
 }
@@ -313,6 +341,7 @@ async function folderShow(id) {
   if (!hidden) return { id: key, restored: 0 };
   await _putPlace(place, 'shown');
   K.settleFolders().catch(() => {});
+  if (place.handover) _handOver(key);   // one hidden in the middle of its hand-over is read now
   const f = await K.folders();
   return { id: key, restored: (await K.galleryGetAll()).filter(g => _keptIn(key, g, f)).length };
 }
@@ -348,6 +377,7 @@ async function folderRemove(id, { moveTo = null, discard = false } = {}) {
   }
   const galleries = (await _placedIn(id)).length;
   const now = await K.access(id);
+  if (now.state === 'granted' && now.handover) throw Object.assign(new BackendError('unavailable', `library folder ${id} is still being read after it came back`), { reason: 'handover', folder: id });
   if (!discard && !(now.state === 'granted' && now.owned)) {   // its removal couldn't write back, nor delete what it owes
     const n = (await _unsavedIn(id)).length + (await K.deletions(id)).length;
     if (n) _refuse('unsaved', `${n} galleries have changes not saved to library folder ${id}`, { galleries: n });
@@ -489,7 +519,10 @@ async function _release(id) {
   K.forgetGrant(id);
   if (!folder || (await K.access(id)).state !== 'granted') return;
   const next = releasedClaim(await K.readClaim(id, folder.handle), await K.me());
-  if (next) await K.writeClaim(id, folder.handle, next);
+  if (next) {
+    await K.writeClaim(id, folder.handle, next);
+    await K.noteReleased(id, next.epoch).catch(() => {});   // added again untouched since, it is this library's own (folderAdd)
+  }
 }
 // Folder `id` forgotten: every record of its galleries gone (their files stay — the folder has what
 // the library had of them), and the folder with them, a trace in the change log: added again, it is
@@ -535,8 +568,12 @@ async function foldersPending() {
   await _unsetAside().catch(() => {});
   for (const id of new Set((await K.removedNotes().catch(() => [])).map(n => n.folder))) K.publishRemoved(id);
   K.applyDeletions().catch(() => {});
-  const { removing } = await K.folders();
-  return { setAside: [...removing.values()].map(f => ({ id: f.id, name: f.name || '', moving: !!f.removal?.moveTo })) };
+  const { byId, removing } = await K.folders();
+  // A hand-over a page was closed in: its check starts again (listed, for its task).
+  const handover = [...byId.values()].filter(f => f.handover && f.state === 'shown');
+  for (const f of handover) _handOver(f.id);
+  return { setAside: [...removing.values()].map(f => ({ id: f.id, name: f.name || '', moving: !!f.removal?.moveTo })),
+    handover: handover.map(f => ({ id: f.id, name: f.name || '' })) };
 }
 async function _unsetAside() {
   const db = await K.openDB();
@@ -620,32 +657,84 @@ async function _restoreDormant(folder) {
 // couldn't be read ('unreadable': a folder or file; 'corrupt': an archive; 'unsupported': a format
 // this library doesn't read; 'adopt-failed': a gallery that couldn't join) — stopped }.
 async function folderScan(id, opts = {}) {
-  return K.bulkRun(() => folderFiles.withLock(FOLDER_LOCK(id), () => _check(String(id), opts)));
+  const key = String(id);
+  if (_handing.has(key)) return _handing.get(key);   // its hand-over's check, under way here: joined
+  return K.bulkRun(() => folderFiles.withLock(FOLDER_LOCK(key), () => _check(key, opts)));
 }
-async function _check(id, { onProgress = () => {}, stopped = () => false } = {}) {
+// A folder's hand-over (S32) carried on: its check, started by itself (at the claim, a page's start, its
+// showing) under the folder's lock — a context finding the mark gone does nothing.
+const _handing = new Map();   // folder id → its hand-over's check under way here
+function _handOver(id) {
+  const key = String(id);
+  if (!_handing.has(key)) {
+    const run = K.bulkRun(() => folderFiles.withLock(FOLDER_LOCK(key), async () => ((await K.markOf(key)) ? _check(key)
+      : { added: 0, updated: 0, problems: [], stopped: false })))
+      .finally(() => { if (_handing.get(key) === run) _handing.delete(key); });
+    run.catch(() => {});
+    _handing.set(key, run);
+  }
+  return _handing.get(key);
+}
+// Folder `id` checked. One being handed over is read first (_readBack) — else it stays to be read — then
+// checked as any (what it is owed first; what the read joined counts as joined now), then what waited goes out.
+async function _check(id, opts = {}) {
   const folder = await K.folderById(id);
   if (!folder) throw _notFound(id);
   if (folder.state !== 'shown') _refuse(folder.state === 'hidden' ? 'hidden' : 'removing', `library folder ${id} is ${folder.state}`);
-  const root = await K.rootOf(id);
+  const back = (await K.markOf(id)) ? await _readBack(id, folder, opts) : null;
+  if (back && !back.read) return back.left;
+  const out = await _checkOnce(id, folder, opts, { joined: new Set(back?.read.joined ?? []) });
+  if (!back) return out;
+  await K.settleFolders().catch(() => {});
+  return { ...out, added: out.added + back.read.added, updated: out.updated + back.read.updated };
+}
+// A hand-over's read: once the other app's window has passed (readsFrom), the folder read as a check reads it
+// but writing nothing, carrying out nothing left over, passing over no gallery as busy (_checkOnce `handover`);
+// then its mark cleared, in every context. Begun again meanwhile: read again. Resolves { read }, or { left }
+// where stopped (the mark kept); rejects, the mark kept, where the folder can't be read now.
+const HANDOVER_POLL_MS = 50;
+async function _readBack(id, folder, { onProgress = () => {}, stopped = () => false } = {}) {
+  for (;;) {
+    const handover = await K.markOf(id);
+    if (!handover) return { read: { added: 0, updated: 0 } };
+    let again = false;
+    for (let left; !stopped() && (left = readsFrom(handover) - Date.now()) > 0;) {
+      await new Promise((r) => setTimeout(r, Math.min(left, HANDOVER_POLL_MS)));
+      if ((again = (await K.markOf(id))?.at !== handover.at)) break;   // ended, or begun again, meanwhile
+    }
+    if (again) continue;
+    if (stopped()) return { left: { added: 0, updated: 0, problems: [], stopped: true } };
+    // Its claim not this library's (the page closed before writing it; another app's since): nothing read.
+    K.forgetGrant(id);
+    if (!(await K.access(id)).handover) return { left: { added: 0, updated: 0, problems: [], stopped: false } };
+    const read = await _checkOnce(id, folder, { onProgress, stopped }, { handover: true });
+    if (read.stopped) return { left: read };
+    if ((await K.markOf(id))?.at !== handover.at) continue;
+    await K.setHandover(id, null);
+    return { read };
+  }
+}
+async function _checkOnce(id, folder, { onProgress = () => {}, stopped = () => false } = {}, { handover = false, joined = new Set() } = {}) {
+  const root = handover ? await K.readRootOf(id) : await K.rootOf(id);
   if (!root) {
     // Another library folder at its place is never read as it, nor its galleries adopted (T01).
     if ((await K.access(id)).state === 'other-library') throw Object.assign(new BackendError('unavailable', `another library folder is at library folder ${id}'s place`), { reason: 'other-library' });
     throw new BackendError('unavailable', `library folder ${id} can't be reached`);
   }
   const run = { id, root, name: folder.name || '', stopped, known: new Set(await K.transferIds()), marked: await K.marked(), added: [], updated: new Set(),
-    problems: [], unreferenced: [], followed: false };
+    problems: [], unreferenced: [], followed: false, handover, joined };
   const kept = (await _placedIn(id)).filter(g => g.dir);
   const step = _steps(run, onProgress);
 
   step.begin('lf.task_checking', 0);
   // Galleries' folders a deletion let go are deleted first; one still waiting isn't looked into: never
-  // adopted again, whole or half deleted (N2, N4).
-  await K.applyDeletions(id).catch(() => {});
+  // adopted again, whole or half deleted (N2, N4). (Not by a hand-over's read.)
+  if (!handover) await K.applyDeletions(id).catch(() => {});
   const deletions = await K.deletions().catch(() => []);
   const deleting = deletions.filter(d => d.folder === id && !d.unfound).map(d => d.dir);
   // A deleted gallery whose folder wasn't where its deletion had it (renamed or moved by hand): its
   // folder, met here, is deleted, never adopted (F4, S10) — its deletion `met`, kept until it is done.
-  run.deleted = new Map(deletions.filter(d => d.unfound).map(d => [String(d.gid), d]));
+  run.deleted = new Map(deletions.filter(d => d.unfound || (handover && d.folder === id)).map(d => [String(d.gid), d]));
   run.met = new Set();
   // Places the library keeps galleries at aren't looked into — but a series export is read again: a chapter
   // of it that couldn't be read when the others joined joins now (S26a).
@@ -670,23 +759,26 @@ async function _check(id, { onProgress = () => {}, stopped = () => false } = {})
     await _joinOwn(run, own, kept);
     step.tick();
   }
-  for (const c of plan.changed) {
+  for (const c of handover ? [] : plan.changed) {
     if (stopped()) break;
     await _relink(run, c.title, c.gid);
     step.tick();
   }
-  await _linkNew(run, plan.new, step);
+  if (!handover) await _linkNew(run, plan.new, step);
   if (!stopped()) await _markMissing(run, kept, plan);
 
   step.begin('lf.task_comparing', kept.length);
   for (const stat of kept) {
     if (stopped()) break;
-    if (await _catchUp(run, stat)) await _leftovers(run, stat);
+    if (await _catchUp(run, stat) && !handover) await _leftovers(run, stat);
     step.tick();
   }
   const changed = [...run.added, ...run.updated];
-  await _tidySeriesLinks(changed, run.id);
+  // A series' members tidied with it, unpublished: one kept whose series no longer lists it is listed (review 9 B3).
+  const members = (await K.galleryGetAll()).filter(g => g.parentId && changed.includes(String(g.parentId)) && !changed.includes(String(g.galleryId))).map(g => String(g.galleryId));
+  await _tidySeriesLinks([...changed, ...members], run.id, { quiet: new Set(members) });
   for (const gid of changed) K.publishFeed(gid);
+  if (handover) return { added: run.added.length, updated: run.updated.size, problems: run.problems, stopped: !!stopped(), joined: run.added };
   // What it found, for the folder's Needs attention list (D15), and a deletion whose gallery's folder it
   // didn't meet forgotten — not when it was stopped part way; when its walk couldn't read everything, once
   // a few such looks didn't (review 6 F6, review 7 A1).
@@ -870,8 +962,10 @@ async function _joinOwn(run, found, kept) {
       { path: found.path, inner: found.inner, fingerprint: (await K.archiveOf(run.id, run.root, found.path))?.fingerprint ?? null })))) return;
     if (!run.known.has(found.id)) {
       const deleted = run.deleted.get(found.id);
-      if (deleted) {
-        if (!found.inner) { run.met.add(deleted.id); await K.deletedFound(deleted, run.id, found.path); }
+      // A hand-over's read deletes nothing, but weighs the deletion there (S29a's rule 3): dropped, the gallery joins.
+      const dropped = deleted && run.handover && !found.inner && (await K.deletionHeld(deleted, run.id, found.path)) === 'dropped';
+      if (deleted && !dropped) {
+        if (!found.inner) { if (deleted.unfound) run.met.add(deleted.id); if (!run.handover) await K.deletedFound(deleted, run.id, found.path); }
         return;
       }
       if (found.kind === 'zip' && !found.inner && (!run.removed || (run.removed.length
@@ -880,8 +974,9 @@ async function _joinOwn(run, found, kept) {
       if (gid) { run.known.add(gid); run.added.push(gid); }
       return;
     }
-    const joined = kept.some(g => String(g.galleryId) === found.id) ? null : await _joinedHere(run, found.id);
-    const was = kept.find(g => String(g.galleryId) === found.id && !g.linked) ?? await _keptElsewhere(run, found.id) ?? joined;
+    // (One a hand-over's read joined a moment ago is as one this check joined: run.joined.)
+    const joined = kept.some(g => String(g.galleryId) === found.id) && !run.joined?.has(found.id) ? null : await _joinedHere(run, found.id);
+    const was = (run.joined?.has(found.id) ? joined : null) ?? kept.find(g => String(g.galleryId) === found.id && !g.linked) ?? await _keptElsewhere(run, found.id) ?? joined;
     if (!was || _samePlace(run, was, found)) return;
     // Kept at another of this folder's places — one this check joined a moment ago, or an archive kept from
     // before — and named here at a later generation (gallery-manifest.js supersedes): the unpack of it
@@ -901,9 +996,9 @@ async function _joinOwn(run, found, kept) {
   } catch (e) { run.problems.push({ path: `${found.path}${found.inner ? `/${found.inner}` : ''}`, reason: _failure(e) }); }
 }
 // Gallery `gid`'s stat record where this check joined it a moment ago from another of folder `run.id`'s
-// places (`run.added`), else null.
+// places (`run.added`; or a hand-over's read before it, `run.joined`), else null.
 async function _joinedHere(run, gid) {
-  if (!run.added.includes(gid)) return null;
+  if (!run.added.includes(gid) && !run.joined?.has(gid)) return null;
   const stat = await K.galleryGet(gid);
   return stat?.folder === run.id && stat.dir ? stat : null;
 }
@@ -1166,7 +1261,8 @@ async function _catchUp(run, stat) {
     if (whose.kind === 'unreadable') run.problems.push({ path: stat.dir, reason: 'unreadable' });
     if (whose.kind !== 'ok') return false;
   }
-  if (K.busy(gid)) return true;
+  // Busy a moment: read at a later check (§8, S26a) — but a hand-over's read passes none over (review 9 B2).
+  if (K.busy(gid) && !run.handover) return true;
   const where = stat.packed ? { kind: 'zip', path: stat.dir, inner: stat.packed.inner || '', id: gid } : { kind: 'dir', path: stat.dir, id: gid };
   let at;
   try { at = await _tokenAt(run, where, gid); } catch (e) { run.problems.push({ path: stat.dir, reason: e?.reason === 'corrupt' ? 'corrupt' : 'unreadable' }); return true; }
@@ -1202,7 +1298,11 @@ async function folderStands(gid) {
   const run = { id: stat.folder, root, name: (await K.folderById(stat.folder))?.name || '', stopped: () => false, known: new Set(), added: [], updated: new Set(), problems: [] };
   const where = stat.packed ? { kind: 'zip', path: stat.dir, inner: stat.packed.inner || '', id: gid } : { kind: 'dir', path: stat.dir, id: gid };
   const drop = !!stat.spilled || (await K.marked()).has(String(gid));
-  return !!(stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, drop }) : await _adopt(run, where, { replace: gid, drop, manifest: true }));
+  // What its series command changed of others, still waiting, dropped with it (review 9 B1).
+  const others = drop ? await K.groupWaiting(gid) : [];
+  const stood = !!(stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, drop }) : await _adopt(run, where, { replace: gid, drop, manifest: true }));
+  if (stood) for (const m of others) await folderStands(m).catch(() => false);
+  return stood;
 }
 // What a gallery's place (`where`: _readFormat's) was last published at, and the gallery it names:
 // { token, id, texts } — by its manifest (gallery-manifest.js tokenOf; `texts` null), else, format v1,
@@ -1426,6 +1526,8 @@ async function _overlayFor(run, title, gid, at = null) {
   if (had && !mine) throw Object.assign(new BackendError('conflict', `the overlay at ${dir} names another gallery`), { reason: 'conflict' });
   const want = sourceText(gid, { kind: title.kind, path: title.path, ...(title.inner ? { inner: title.inner } : {}), size: at?.size ?? title.size ?? null,
     fingerprint, ...(mine ? { rendered: had.source.rendered, failed: had.source.failed } : {}) });
+  // A hand-over's read writes nothing: a title whose overlay is to change is read by the check after it.
+  if (text !== want && run.handover) throw Object.assign(new BackendError('unavailable', `${dir}: read once the folder is this library's`), { reason: 'unreadable' });
   if (text !== want) await folderFiles.writeFile(run.id, run.root, path, want);
   return { dir, was: mine ? had.source : null };
 }
@@ -1573,6 +1675,8 @@ async function addRendered(folder, gid, pages, token) {
     const dir = overlayDir(gid);
     const marker = () => folderFiles.writeFile(folder, root, `${dir}/${SOURCE_FILE}`,
       sourceText(gid, { ...source, fingerprint: token, rendered: { pages: pages.length, fingerprint: token }, failed: null }));
+    // Drawn from this very version already (by the other app, read here since): nothing changes.
+    if (await K.galleryGet(gid) && source.rendered?.fingerprint === token) return String(gid);
     if (await K.galleryGet(gid)) {
       await K.replacePages(String(gid), pages, { before: () => _drawnAt(folder, gid, token) });
       await marker();
@@ -1610,8 +1714,9 @@ async function pdfFailed(folder, gid, token) {
 // A series' links among galleries just read back from folder `folder`: a link to a gallery the library
 // doesn't have (yet — its folder may be checked later, or hidden) is kept; one a present gallery
 // contradicts is dropped — a chapter listed whose record names another series, a chapter naming a
-// series whose list leaves it out. The series that remain have their totals worked out.
-async function _tidySeriesLinks(gids, folder) {
+// series whose list leaves it out. The series that remain have their totals worked out. `quiet`: galleries not read
+// back now, tidied in the library alone (nothing of it to publish).
+async function _tidySeriesLinks(gids, folder, { quiet = new Set() } = {}) {
   if (!gids.length) return;
   const owners = new Set();
   for (const gid of gids) {
@@ -1650,7 +1755,7 @@ async function _tidySeriesLinks(gids, folder) {
         const req = stats.get(gid);
         req.onsuccess = () => { if (req.result) { const { parentId, ...rest } = req.result; stats.put(rest); } };
       }
-      K.logIn(tx, gid);
+      K.logIn(tx, gid, { mark: !quiet.has(gid) });
     });
   }
   for (const oid of owners) await K.refreshSeriesAggregate(oid, { silent: true }).catch(() => {});

@@ -566,6 +566,10 @@ export async function addRendered(library, root, gid, pages, token) {
   library.folders.assertWritable(root);
   const { over } = await drawnAt(library, root, gid, token);
   const rendered = { pages: pages.length, fingerprint: token };
+  // One the library has whose overlay was drawn from this very version already (the other app drew it, and this
+  // library has read it since: S32's hand-over reads before a drawing asked from the older view goes on) changes
+  // nothing: the pages there, and what was made from them, stand.
+  if (library.files._row(gid) && over.source.rendered?.fingerprint === token) return String(gid);
   if (library.files._row(gid)) {
     let at = null;
     await redrawn(library, String(gid), pages, async () => { ({ at } = await drawnAt(library, root, gid, token)); });

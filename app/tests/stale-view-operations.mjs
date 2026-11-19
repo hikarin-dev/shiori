@@ -116,6 +116,8 @@ export const PLACE_WRITERS = {
     'folder-library.js folderAdd': { free: 'the library\'s id file in the folder (library.json): no gallery\'s place' },
     'folder-library.js addRendered': 'holds',
     'folder-library.js pdfFailed': { free: MARKER },
+    // (Hidden from the rule until S32 by a `/*` inside a line comment above it: review 9 A2.)
+    'folder-library.js _overlayFor': { free: MARKER },
   },
 };
 
@@ -136,14 +138,84 @@ export const SCAN = {
   },
 };
 
-// Strip comments so prose never counts as code (line count kept).
-const code = (src) => src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, '')).replace(/(^|[^:])\/\/.*$/gm, '$1');
-// Each function of `src` (a top-level function, a `const name =`, a class's method two spaces in) and its code.
+// Comments taken out of `src` as JavaScript reads it, so prose never counts as code (line count kept): a `/*` or
+// `//` inside a string, a template or a regular expression opens nothing, and a `/*` inside a line comment neither
+// (review 9 A2: one there hid 210 lines of folder-library.js). Throws where the source ends inside a comment, a
+// string or a template: a range the rule can't read is a failure, never a blind spot.
+export function code(src) {
+  let out = '', i = 0, prev = '';   // `prev`: the last character of code, telling a regular expression from a division
+  const n = src.length, braces = [];   // in a template's ${…}: the brace depth it opened at
+  let depth = 0;
+  const regexMayStart = () => !prev || /[(,=:[!&|?{};+\-*%<>~^]/.test(prev) || /\b(?:return|typeof|case|do|else|in|of|void|yield|await|throw|delete)\s*$/.test(out);
+  const fail = (what) => { throw new Error(`${what} not closed (line ${src.slice(0, i).split('\n').length})`); };
+  const template = () => {   // from just after a backtick (or a ${…}'s closing brace) to its end, or a ${
+    for (;;) {
+      if (i >= n) fail('a template');
+      const c = src[i];
+      if (c === '\\') { out += src.slice(i, i + 2); i += 2; continue; }
+      if (c === '`') { out += c; i++; prev = '`'; return; }
+      if (c === '$' && src[i + 1] === '{') { out += '${'; i += 2; braces.push(depth); depth++; prev = '{'; return; }
+      out += c; i++;
+    }
+  };
+  while (i < n) {
+    const c = src[i], d = src[i + 1];
+    if (c === '/' && d === '/') { while (i < n && src[i] !== '\n') i++; continue; }
+    if (c === '/' && d === '*') {
+      const end = src.indexOf('*/', i + 2);
+      if (end < 0) fail('a comment');
+      out += src.slice(i, end + 2).replace(/[^\n]/g, '');
+      i = end + 2;
+      continue;
+    }
+    if (c === '\'' || c === '"') {
+      const start = i++;
+      while (i < n && src[i] !== c) { if (src[i] === '\n') fail('a string'); i += src[i] === '\\' ? 2 : 1; }
+      if (i >= n) fail('a string');
+      out += src.slice(start, ++i);
+      prev = c;
+      continue;
+    }
+    if (c === '`') { out += c; i++; template(); continue; }
+    if (c === '/' && regexMayStart()) {
+      const start = i++;
+      let inClass = false;
+      for (; i < n; i++) {
+        const x = src[i];
+        if (x === '\n') fail('a regular expression');
+        if (x === '\\') { i++; continue; }
+        if (inClass) { if (x === ']') inClass = false; } else if (x === '[') inClass = true; else if (x === '/') break;
+      }
+      if (i >= n) fail('a regular expression');
+      i++;
+      while (i < n && /[a-z]/i.test(src[i])) i++;
+      out += src.slice(start, i);
+      prev = '/';
+      continue;
+    }
+    if (c === '{') depth++;
+    if (c === '}') {
+      depth--;
+      if (braces.length && depth === braces[braces.length - 1]) { braces.pop(); out += c; i++; template(); continue; }
+    }
+    out += c;
+    if (!/\s/.test(c)) prev = c;
+    i++;
+  }
+  return out;
+}
+// What a function's first line looks like (a top-level function, a `const name =`, a class's method two spaces in).
+const DECLARED = /^(?:export\s+)?(?:async\s+)?function\s*\*?\s*([\w$]+)|^(?:export\s+)?const\s+([\w$]+)\s*=|^ {2}(?:async |static )?(?!(?:if|for|while|switch|catch|return)\b)([A-Za-z_$][\w$]*)\s*\(.*\)\s*\{\s*$/;
+// Each function of `src` and its code. Throws where a declaration the source shows is hidden once its comments are
+// out (a range the rule didn't read: review 9 A2).
 export function functionsOf(src) {
   const out = new Map();
   let at = null;
-  for (const line of code(src).split('\n')) {
-    const m = /^(?:export\s+)?(?:async\s+)?function\s*\*?\s*([\w$]+)|^(?:export\s+)?const\s+([\w$]+)\s*=|^ {2}(?:async |static )?(?!(?:if|for|while|switch|catch|return)\b)([A-Za-z_$][\w$]*)\s*\(.*\)\s*\{\s*$/.exec(line);
+  const lines = code(src).split('\n');
+  const shown = src.split('\n').filter(l => DECLARED.test(l)).length, read = lines.filter(l => DECLARED.test(l)).length;
+  if (read < shown) throw new Error(`${shown - read} of ${shown} declarations aren't read as code: a range of the file is hidden`);
+  for (const line of lines) {
+    const m = DECLARED.exec(line);
     if (m) { at = m[1] ?? m[2] ?? m[3]; if (!out.has(at)) out.set(at, []); }
     if (at) out.get(at).push(line);
   }

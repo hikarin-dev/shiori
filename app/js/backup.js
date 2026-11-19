@@ -18,7 +18,7 @@ import * as api from './api.js';
 import { isValidGalleryId } from './sanitize.js';
 import { withMarks } from './storage/personal.js';
 import { makeArchive, openArchive, inspectArchive, restoreArchive, probeBackup, snapshotSettings, restoreSettings,
-  footer, mapLimit, sha256, localDate, refusedForNow, BackupError } from './backup-core.js';
+  footer, mapLimit, sha256, localDate, refusedForNow, forNowReason, BackupError } from './backup-core.js';
 
 export { probeBackup, BackupError };
 
@@ -243,7 +243,7 @@ async function restoreMetadata({ entries }, { onProgress = () => {}, signal = nu
       ...(nextMeta.parentId ? { parentId: String(nextMeta.parentId) } : {}),
     } }, { silent: true }).then(() => true, (e) => {
       if (!refusedForNow(e)) throw e;
-      problems.push({ gid, title: nextMeta.title ?? null, reason: 'not-owned', detail: String(e?.message || e) });
+      problems.push({ gid, title: nextMeta.title ?? null, reason: forNowReason(e), detail: String(e?.message || e) });
       return false;
     });
     if (wrote) {

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { placeWritersOff } from './stale-view-operations.mjs';
+import { placeWritersOff, functionsOf, code as asCode } from './stale-view-operations.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const appJs = join(repo, 'app', 'js');
@@ -170,6 +170,35 @@ test('S31: every function writing into, moving, unpacking or deleting at a galle
   assert.deepEqual(placeWritersOff('website', { read: madeUp }), ['db.js _madeUp: writes at a place — name it: \'holds\' (and an operation of the table), a step of one, or free (and why)']);
   const unheld = (f) => read(f).replace('const held = await _hold(d.gid, {', 'const held = await ({');
   assert.deepEqual(placeWritersOff('website', { read: unheld }), ['db.js _deleteOne: said to hold its place, but never calls the gateway']);
+});
+
+test('S32: whether a library folder is this library\'s is answered in one place — the adapter\'s claim answer, the hand-over in it', () => {
+  // A folder that comes (back) to an app is read before it is that app's (storage/folder-owner.js). The rule — the claim
+  // read (access: 'mine', 'handover', …) and the folder's mark turned into a hand-over (handoverIn) — is asked in the
+  // website library's one answer alone (db.js _holds, _markOf), which every gate asks (_access: the write gate, the
+  // folder store, the lists); the commit gate reads the mark in its own transaction (_logIn). Only an add and a take-back
+  // decide that a claim begins a hand-over (handoverOf). No other place decides "this folder is ours".
+  const where = (re, src = read) => [...new Set(modules.filter(f => !f.startsWith('storage/'))
+    .flatMap(f => [...functionsOf(src(f))].filter(([, body]) => re.test(body)).map(([fn]) => `${f} ${fn}`)))].sort();
+  assert.deepEqual(where(/(?<![\w.$])access\s*\(\s*(?:read|back)\b/), ['db.js _holds'], 'the claim rule asked in the one answer alone');
+  assert.deepEqual(where(/\bhandoverIn\s*\(/), ['db.js _markOf'], 'the mark read into a hand-over there alone');
+  assert.deepEqual(where(/\bhandoverOf\s*\(/), ['folder-library.js _takeBack', 'folder-library.js folderAdd'], 'a hand-over begun by an add and a take-back alone');
+  // One decided anywhere else fails it.
+  const madeUp = (f) => read(f) + (f === 'folder-library.js' ? '\nasync function _madeUp(read, me) {\n  return access(read, me, null) === \'mine\';\n}\n' : '');
+  assert.deepEqual(where(/(?<![\w.$])access\s*\(\s*(?:read|back)\b/, madeUp), ['db.js _holds', 'folder-library.js _madeUp']);
+});
+
+test('S32, review 9 A2: the rule that every place-writing function holds reads code as code — a range of a module it can\'t read fails it', () => {
+  // A `/*` inside a line comment hid 210 lines of folder-library.js from it (_overlayFor's write among them).
+  assert.equal(asCode('a(); // see .shiori/linked/*/x\nb(); /* c */ d();').split('\n').length, 2);
+  assert.match(asCode('a(); // see .shiori/linked/*/x\nb();'), /b\(\);/, 'a `/*` in a line comment opens nothing');
+  assert.match(asCode('s = "/*"; t = `//${x}`; r = /\\/\\*/g; u();'), /u\(\);/, 'nor in a string, a template or a regular expression');
+  assert.throws(() => asCode('a(); /* never closed\nb();'), /not closed/, 'a comment never closed is a failure');
+  assert.throws(() => functionsOf('/* x */ const y = 1;\n/*\nfunction hidden() {}\n'), /not closed/);
+  // The blind range of review 9 A2: a made-up deletion in it is found now.
+  const blind = (f) => (f === 'folder-library.js' ? read(f).replace('async function _relink(run, title, gid) {\n  try {',
+    'async function _relink(run, title, gid) {\n  try {\n    await folderFiles.removeDir(run.id, run.root, title.path);') : read(f));
+  assert.deepEqual(placeWritersOff('website', { read: blind }), ['folder-library.js _relink: writes at a place — name it: \'holds\' (and an operation of the table), a step of one, or free (and why)']);
 });
 
 test('the app never names a source site or the companion helper', () => {

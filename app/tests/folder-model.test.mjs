@@ -439,6 +439,9 @@ const usedAnyway = command('usedAnyway', fc.record({
   theirs: fc.array(fc.tuple(anyGallery, fc.constantFrom('title', 'page', 'translation', 'delete', 'new'), fc.nat(1)), { maxLength: 3 }),
   tries: fc.array(fc.tuple(anyGallery, fc.constantFrom('title', 'page', 'translation', 'delete'), fc.nat(1), fc.constantFrom('at once', 'a quiet moment', 'the claim unreadable', 'the drive away')), { maxLength: 2 }),
   made: fc.boolean(),
+  // S32: changes and series commands asked at once after "Take back", before its hand-over's check has read the
+  // folder — each refused for now ('handover').
+  atOnce: fc.array(fc.tuple(anyGallery, fc.constantFrom('title', 'page', 'translation', 'delete', 'series'), fc.nat(1)), { maxLength: 2 }),
 }), {
   check: (m) => m.both && m.state === 'shown',
   ms: 60_000,
@@ -577,6 +580,17 @@ const usedAnyway = command('usedAnyway', fc.record({
     const back = await r.lib.raw.folderClaim(r.id);   // "Take back"
     deletesBack();
     if (back !== 'granted') throw new Error(`folder A taken back: ${back}`);
+    // S32: asked at once, before the hand-over's check has read the folder — refused for now, nothing of it made.
+    for (const [i, what, n] of a.atOnce ?? []) {
+      const g = pick(inA, i, g => m.galleries.includes(g) && !(g.zip && (what === 'page' || what === 'delete')));
+      const with2 = inA.find(x => x !== g && m.galleries.includes(x));
+      if (!g || (what === 'series' && !with2)) continue;
+      const asked = what === 'delete' ? r.lib.deleteGallery(g.gid)
+        : what === 'series' ? r.lib.raw.seriesCommand('write', g.gid, [{ id: g.gid, title: 'One' }, { id: with2?.gid, title: 'Two' }], { seriesTitle: { english: `S${++m.tag}`, japanese: '', pretty: '' } })
+          : change(m, r.lib, structuredClone(g), what, n);
+      const e = await asked.then(() => null, (x) => x);
+      if (e?.reason !== 'handover') throw new Error(`${what} of gallery ${g.gid} asked at once after "Take back": ${e ? e.reason || e.message : 'accepted'}, not refused for now`);
+    }
     await r.lib.flush();
     await r.lib.scan(r.id);
     await r.lib.flush();
@@ -1261,6 +1275,11 @@ const REGRESSIONS = [
       steps: [['newGallery', 1], ['earlierIndex', form],
         ['usedAnyway', { by: 'other', mine: [0, 'title', 0, 'away', 1], unseen: false, theirs: [[0, 'translation', 0]], tries: [], made: false }]] },
   ])),
+  // S32's shape: a take-over followed at once by changes and a series command — each refused for now, the folder read
+  // first; then what waited here weighed as the read finds it.
+  ...['desktop', 'website'].map(app => ({ app, both: true, name: 'S32: changes and a series command asked at once after "Take back" are refused for now, and the folder read first',
+    steps: [['newGallery', 1], ['newGallery', 2], ['usedAnyway', { by: 'other', mine: [0, 'title', 0, 'away', 1], unseen: false, theirs: [[0, 'title', 0], [1, 'translation', 0]], tries: [], made: true,
+      atOnce: [[0, 'title', 0], [1, 'series', 0]] }]] })),
   // R8-3's shape: the desktop's title of an archived gallery, made in the window, reaches the archive; the website,
   // which read the folder before it, translates the gallery there (its first change: an unpack). The title is in
   // the folder's version at the end (or reported dropped on the desktop): never lost on both apps unsaid.

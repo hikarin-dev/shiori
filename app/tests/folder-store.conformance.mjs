@@ -3465,9 +3465,15 @@ export const CASES = [
         }
         assert.equal(await fx.lib.titleOf(gid), 'Alpha', `${form}: nothing of it changed here`);
         assert.equal(await fx.lib.raw.folderClaim(ref.id), 'granted', `${form}: taken back`);
+        // S32: at once after "Take back" each is refused for now ('handover') — the folder is read first — then
+        // accepted once the hand-over's check has read it.
+        const first = [];
+        for (const [, tried] of tries) first.push(await said(tried()));
+        assert.deepEqual(first, Array(4).fill('handover'), `${form}: at once after "Take back", each refused until the folder is read`);
+        await fx.lib.scan(ref.id);
         const after = [];
         for (const [, tried] of tries) after.push(await said(tried()));
-        assert.deepEqual(after, Array(4).fill('resolved'), `${form}: after "Take back" each accepted at once`);
+        assert.deepEqual(after, Array(4).fill('resolved'), `${form}: once the hand-over's check has read it, each accepted`);
         await fx.lib.flush();
         await until(() => !fs.existsSync(gone));
         const manifest = JSON.parse(fs.readFileSync(path.join(at, '.shiori', 'gallery.json'), 'utf8'));
@@ -3512,6 +3518,7 @@ export const CASES = [
       } finally { undo(); }
       assert.equal(await said(fx.lib.setTitle(gid, 'Three')), 'resolved', 'what that read told is no knowledge: accepted');
       assert.equal(await fx.lib.raw.folderClaim(ref.id), 'granted');
+      await fx.lib.scan(ref.id);   // (S32: removed once the hand-over's check has read it)
       await fx.lib.setDefault(fx.lib.home);
       await fx.lib.remove(ref.id);
     },

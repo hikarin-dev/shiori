@@ -228,6 +228,10 @@ test('R08: a claim that can\'t be read, or isn\'t one, leaves the folder read-on
   fs.writeFileSync(path.join(other, '.shiori', 'owner.json'), damaged);
   await library.folderClaim(id);
   assert.ok(claimOf(other).epoch > Math.max(held, 7) + 1);
+  // (S32: a hand-over — the folder read before it is this library's; its wait passed at once, its check run.)
+  const h = library.folders.handover(id);
+  library.folders._setHandover(id, { ...h, at: h.at - 60_000 });
+  await library.folderScan(id);
   await library.metaPut({ ...(await library.metaGet(gid)), title: title('Written While Unknown') });
   await library.files.describe(gid);
   assert.equal(JSON.parse(fs.readFileSync(meta, 'utf8')).title.english, 'Written While Unknown', 'changed and written once it is held again');

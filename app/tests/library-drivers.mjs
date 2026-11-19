@@ -86,6 +86,25 @@ export function clockAhead(ms) {
   ahead += ms;
 }
 
+// ── A hand-over's wait (S32) ──
+// A folder that came (back) to a library is read by its check once the other app's window has passed
+// (folder-owner.js readsFrom: the claim's time to live and a margin after the claim). The drivers' `scan` and
+// `flush` pass that wait at once — the folder's mark aged by what is left of it, so no test sleeps it and
+// nothing else of the clock moves (file ages, other claims) — then join the check (`scan`) or wait for it
+// (`flush`). A test about that window drives it itself: it calls the library (`raw`) and clockAhead.
+// `marks()`: [{ id, handover }] of the library's folders; `age(id, handover)`: that mark put back.
+async function passWaits(marks, age, ids = null) {
+  const { readsFrom } = await import('../js/storage/folder-owner.js');
+  const out = [];
+  for (const { id, handover } of await marks()) {
+    if (!handover || (ids && !ids.includes(id))) continue;
+    const left = readsFrom(handover) - Date.now();
+    if (left > 0) await age(id, { ...handover, at: handover.at - left });
+    out.push(id);
+  }
+  return out;
+}
+
 // The windows' channel, heard by nobody here (Node's own would keep the process alive, and tell other
 // test files' libraries nothing they should hear).
 const Quiet = class { postMessage() {} close() {} };
@@ -153,6 +172,8 @@ export async function desktopLibrary(base, { me, own = path.join(base, 'own') } 
   const where = { dataDir: path.join(base, 'data'), libraryDir: own, placeDelay: 0, describeDelay: 600_000 };
   const made = () => { const l = new Library(where); if (me) l.folders._instance = me; return l; };
   let lib = await made().open();
+  const marks = async () => lib.folders.ids().map(id => ({ id, handover: lib.folders.handover(id) }));
+  const age = async (id, h) => lib.folders._setHandover(id, h);
   return {
     app: 'desktop',
     get raw() { return lib; },
@@ -163,7 +184,7 @@ export async function desktopLibrary(base, { me, own = path.join(base, 'own') } 
     async show(id) { await lib.folderShow(id); },
     // The removal's write-back runs as a job; one that can't finish rejects (the folder stays).
     async remove(id, opts) { await lib.folderRemove(id, opts); await lib.folders.job(id); },
-    scan: (id) => lib.folderScan(id),
+    async scan(id) { await passWaits(marks, age, [id]); return lib.folderScan(id); },
     list: () => lib.foldersList(),
     dismiss: (id, item) => lib.folderDismiss(id, item),
     async newGallery(name, gid = String(lib.nextGalleryId())) { await lib.metaPut({ galleryId: gid, title: title(name) }); return gid; },
@@ -187,7 +208,10 @@ export async function desktopLibrary(base, { me, own = path.join(base, 'own') } 
     titleOf: async (gid) => (await lib.metaGet(gid))?.title?.english ?? null,
     galleries: () => lib.galleryIdsSorted({ sort: 'id' }),
     dirOf: async (gid) => lib.files.folderOf(gid),
-    async flush() { await lib.files.flush(); },
+    async flush() {
+      for (const id of await passWaits(marks, age)) await lib.folderScan(id).catch(() => {});   // a hand-over's check, and what waited after it
+      await lib.files.flush();
+    },
     // A start that fails lets go of what it opened (the app's process ends then), and one after it starts afresh.
     async restart() {
       try { lib.close(); } catch {}
@@ -241,6 +265,17 @@ export async function webLibrary() {
     webFolders.clear();
   }
   let db = web;
+  // The folders' records as the library keeps them (db.js FOLDER_STORE 'folders'), read and put back here.
+  const folderRecords = async (fn) => { const idb = await db.openDB(); return new Promise((resolve, reject) => {
+    const tx = idb.transaction('folders', 'readwrite');
+    let out;
+    Promise.resolve(fn(tx.objectStore('folders'))).then((v) => { out = v; }, reject);
+    tx.oncomplete = () => resolve(out);
+    tx.onerror = () => reject(tx.error);
+  }); };
+  const marks = async () => { const all = await folderRecords((s) => new Promise((r) => { const q = s.getAll(); q.onsuccess = () => r(q.result || []); }));
+    return all.filter(f => !String(f.id).startsWith('$') && f.handover).map(f => ({ id: f.id, handover: f.handover })); };
+  const age = (id, h) => folderRecords((s) => { const q = s.get(id); q.onsuccess = () => { if (q.result) s.put({ ...q.result, handover: h }); }; });
   return {
     app: 'website',
     home: db.BROWSER,
@@ -254,7 +289,7 @@ export async function webLibrary() {
     async hide(id) { await db.folderHide(id); },
     async show(id) { await db.folderShow(id); },
     async remove(id, opts) { await db.folderRemove(id, opts); await db.folderSetAside(id); },
-    scan: (id) => db.folderScan(id),
+    async scan(id) { await passWaits(marks, age, [id]); return db.folderScan(id); },
     list: () => db.foldersList(),
     dismiss: (id, item) => db.folderDismiss(id, item),
     async newGallery(name, gid = String(db.nextGalleryId())) { await db.metaPut({ galleryId: gid, title: title(name) }); return gid; },
@@ -287,7 +322,10 @@ export async function webLibrary() {
       const root = stat?.folder && webFolders.get(stat.folder);
       return root && stat.dir && !stat.packed ? path.join(root, ...stat.dir.split('/')) : null;
     },
-    async flush() { await db.settleFolders(); },
+    async flush() {
+      for (const id of await passWaits(marks, age)) await db.folderScan(id).catch(() => {});   // a hand-over's check, and what waited after it
+      await db.settleFolders();
+    },
     // The page loaded again (above): what it had scheduled never runs; what it had under way ends.
     restart: generation < RESTARTS_AT_MOST ? async () => {
       closePage(generation);

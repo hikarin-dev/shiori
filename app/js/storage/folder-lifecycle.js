@@ -68,30 +68,33 @@ export function writeAllowed({ state, owned, reachable, work = null }) {
 // `change` reaching the folder is weighed for 'not-owned' — the person's own marks, a size or a total no
 // description shows, are not — and a gallery only this library has (made meanwhile, never published
 // there) keeps working: what it gets waits, as for a folder out of reach. `work`: the change is that
-// folder's own work (its check, its removal), never refused.
-/** @param {{ state: string | null, work?: boolean, change?: boolean, taken?: boolean, held?: boolean }} at
- * @returns {'hidden' | 'not-owned' | null} */
-export function changeRefusal({ state, work = false, change = false, taken = false, held = false }) {
+// folder's own work (its check, its removal), never refused. 'handover' (S32): the folder is still to be read
+// after it came back (`handover`, its mark: folder-owner.js) — refused as another app's, said apart.
+/** @param {{ state: string | null, work?: boolean, change?: boolean, taken?: boolean, held?: boolean, handover?: boolean }} at
+ * @returns {'hidden' | 'not-owned' | 'handover' | null} */
+export function changeRefusal({ state, work = false, change = false, taken = false, held = false, handover = false }) {
   if (work) return null;
   if (!state || !mounted(state)) return 'hidden';
-  return change && taken && held ? 'not-owned' : null;
+  if (!change || !held) return null;
+  return handover ? 'handover' : taken ? 'not-owned' : null;
 }
 
 // Why a folder store's open() refuses `purpose` (contract.js Purpose) at a place, or null when it
 // doesn't: 'unavailable' (it can't be reached), 'other-library' (its path holds another library folder,
 // or a folder naming none: `here` false — principle 1: never read, scanned, adopted or written as it),
 // 'hidden' (its state allows no change: hidden — but for a publication — or being removed, where only
-// its removal's write-back may write) or 'not-owned' (another app holds its claim, or it can't be
-// checked). Reading needs it reachable and here alone; every other purpose is weighed as a write
-// (writeAllowed), the claim file's own too.
-/** @param {Place & { here?: boolean }} place @param {string} purpose @returns {'unavailable' | 'other-library' | 'hidden' | 'not-owned' | null} */
-export function refusalFor({ state, owned, reachable, here = true }, purpose) {
+// its removal's write-back may write), 'not-owned' (another app holds its claim, or it can't be
+// checked) or 'handover' (its claim is this library's, but it came (back) to it and its check hasn't read
+// it since: folder-owner.js access 'handover'). Reading needs it reachable and here alone; every other
+// purpose is weighed as a write (writeAllowed), the claim file's own too.
+/** @param {Place & { here?: boolean, handover?: boolean }} place @param {string} purpose @returns {'unavailable' | 'other-library' | 'hidden' | 'not-owned' | 'handover' | null} */
+export function refusalFor({ state, owned, reachable, here = true, handover = false }, purpose) {
   if (!reachable) return 'unavailable';
   if (!here) return 'other-library';
   if (purpose === 'read') return null;
   const allowed = state === 'shown' || (state === 'removing' && purpose === 'removal') || (state === 'hidden' && purpose === 'publish');
   if (!allowed) return 'hidden';
-  return owned ? null : 'not-owned';
+  return owned ? null : handover ? 'handover' : 'not-owned';
 }
 
 // What a folder's queue does with a job asked for (`requested`: 'scan' or 'removal') while another

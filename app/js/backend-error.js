@@ -13,3 +13,11 @@ export class BackendError extends Error {
     this.code = code;
   }
 }
+
+// A change refused for now by which app may change its gallery's folder: `reason` 'not-owned' (another app holds
+// it), 'taken' (the same, for a folder's own work) or 'handover' (it came back and is still being read). Every
+// place that weighs one asks here, and words it by refusalKey.
+export const REFUSED_FOR_NOW = ['not-owned', 'taken', 'handover'];
+export const refusedForNow = (e) => REFUSED_FOR_NOW.includes(e?.reason);
+// The locale key such a refusal is said by, or null for any other failure.
+export const refusalKey = (e) => (e?.reason === 'handover' ? 'lf.handover_msg' : refusedForNow(e) ? 'lf.taken_msg' : null);

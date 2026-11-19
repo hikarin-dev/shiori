@@ -33,11 +33,12 @@ export const PURPOSES = Object.freeze(['read', 'write', 'publish', 'removal', 'c
 /** Why open() refused. 'unavailable': the folder can't be reached (its drive gone, no such path);
  * 'other-library': another library folder is at the path (another id in its library.json, or none);
  * 'no-permission': the website hasn't the person's permission for it now; 'not-owned': another app
- * holds its claim, or its claim can't be checked; 'hidden': its state doesn't allow the purpose
- * (hidden, or being removed).
- * @typedef {'unavailable' | 'other-library' | 'no-permission' | 'not-owned' | 'hidden'} Refusal */
+ * holds its claim, or its claim can't be checked; 'handover': it came (back) to this library and its
+ * check hasn't read it since (folder-owner.js: nothing is written there meanwhile but the claim);
+ * 'hidden': its state doesn't allow the purpose (hidden, or being removed).
+ * @typedef {'unavailable' | 'other-library' | 'no-permission' | 'not-owned' | 'handover' | 'hidden'} Refusal */
 /** @type {readonly Refusal[]} */
-export const REFUSALS = Object.freeze(['unavailable', 'other-library', 'no-permission', 'not-owned', 'hidden']);
+export const REFUSALS = Object.freeze(['unavailable', 'other-library', 'no-permission', 'not-owned', 'handover', 'hidden']);
 
 /** A library folder as the library registered it: its id, and where it is (a path on the desktop, a
  * directory handle on the website).

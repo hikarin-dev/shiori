@@ -166,6 +166,8 @@ export const startFolderRemoval = (id, opts) => startFolderJob('remove', id, opt
 // A page of a browser library carrying on what was cut short: folders removed whose task hasn't
 // ended (foldersPending) — one moving its galleries still says so.
 export async function resumeFolderWork() {
-  const { setAside } = await folders.pending();
+  const { setAside, handover = [] } = await folders.pending();
   for (const f of setAside) startFolderRemoval(f.id, { name: f.name, moving: !!f.moving }).catch(() => {});
+  // A folder still being read after it came back (its check started again as the page opened): its task.
+  for (const f of handover) startFolderScan(f.id, { name: f.name }).catch(() => {});
 }

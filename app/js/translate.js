@@ -14,6 +14,7 @@
 // ARCHITECTURE.md and the translator patches noted in the project memory.
 
 import * as api from './api.js';
+import { refusedForNow, refusalKey } from './backend-error.js';
 import {
   decodePageData, encodePageData, planPage, translationGroups, keptConfig, referencedTranslations, contextBefore,
 } from './page-data.js';
@@ -585,9 +586,10 @@ export async function pollTranslation(galleryId, send = () => {}) {
 
     let meta = null, summary = null, errMsg = null, off = 0, refused = null;
     // A page's result the library refuses to store — its gallery can't be changed now: its folder is
-    // hidden, or in use by another app (one app changes a folder's galleries at a time) — ends the job,
-    // failed, saying why, rather than asking for the same pages at every tick.
-    const store = (write) => write().catch((e) => { if (e?.reason === 'not-owned' || e?.reason === 'hidden') { refused = e; return null; } throw e; });
+    // hidden, in use by another app (one app changes a folder's galleries at a time) or still being scanned
+    // after it came back (backend-error.js refusedForNow) — ends the job, failed, saying why, rather than
+    // asking for the same pages at every tick.
+    const store = (write) => write().catch((e) => { if (refusedForNow(e) || e?.reason === 'hidden') { refused = e; return null; } throw e; });
     while (!refused && buf.length - off >= 5) {
       const st = buf[off];
       const size = ((buf[off + 1] << 24) | (buf[off + 2] << 16) | (buf[off + 3] << 8) | buf[off + 4]) >>> 0;
@@ -657,7 +659,7 @@ export async function pollTranslation(galleryId, send = () => {}) {
         const entry = _controllers.get(gid);
         if (!entry || entry.jobToken === token) _controllers.delete(gid);
         await jobsPending.remove(`${gid}:translate`);
-        send({ status: 'error', error: String(refused.message || refused), ...(refused.reason === 'not-owned' ? { errorKey: 'lf.taken_msg' } : {}) });
+        send({ status: 'error', error: String(refused.message || refused), ...(refusalKey(refused) ? { errorKey: refusalKey(refused) } : {}) });
       }
       return;
     }

@@ -20,6 +20,7 @@
 // page's permission (promptFolderAccess).
 import * as api from './api.js';
 import * as platform from './platform.js';
+import { refusalKey } from './backend-error.js';
 import { t, applyTranslations } from './i18n.js';
 import { formatBytes, formatCount } from './format.js';
 import { ask, showProgress, confirmDialog, alertDialog, showToast, toggleDialog } from './notice.js';
@@ -86,15 +87,17 @@ async function moveAll(ids, to, { series = true } = {}) {
   return { failed, error };
 }
 
-// What a change the library refused because another app is using its gallery's folder says (one app
+// What a change the library refused for now says — another app is using its gallery's folder (one app
 // changes a folder's galleries at a time: reason 'not-owned' as it commits, 'taken' for a folder's own
-// work), or null for any other failure.
-export const refusalText = (err) => (['not-owned', 'taken'].includes(err?.reason) ? t('lf.taken_msg') : null);
+// work), or the folder came back and is still being scanned ('handover') — or null for any other failure
+// (backend-error.js refusalKey).
+export const refusalText = (err) => { const key = refusalKey(err); return key ? t(key) : null; };
 
 // A deletion the library refused because its gallery's folder can't be changed now (BackendError
 // 'unavailable' with the folder's refusal as its `reason`: out of reach, another library's folder at
-// its place, another app's, or this page without leave), said in a dialog. Resolves whether it was one.
-const DELETE_REFUSED = { 'not-owned': 'dlg.del_refused_taken', 'no-permission': 'dlg.del_refused_permission' };
+// its place, another app's, still being scanned after it came back, or this page without leave), said in
+// a dialog. Resolves whether it was one.
+const DELETE_REFUSED = { 'not-owned': 'dlg.del_refused_taken', handover: 'lf.handover_msg', 'no-permission': 'dlg.del_refused_permission' };
 export async function deleteRefused(err) {
   if (err?.code !== 'unavailable' || !err.reason) return false;
   await alertDialog({ title: t('dlg.del_refused_title'), body: t(DELETE_REFUSED[err.reason] || 'dlg.del_refused_unavailable'), tone: 'error' });
@@ -326,8 +329,8 @@ export async function initLibraryFolders() {
   const failed = (e) => {
     const reason = e?.reason;
     status(reason === 'nested' ? t('lf.nested') : reason === 'copy' ? t('lf.copy') : reason === 'default' ? t('lf.default_stays')
-      : reason === 'taken' ? t('lf.taken_msg') : reason === 'move-to' ? t('lf.denied') : reason === 'other-library' ? t('lf.other_library_tip')
-      : String(e?.message || e), 'err');
+      : refusalText(e) ?? (reason === 'move-to' ? t('lf.denied') : reason === 'other-library' ? t('lf.other_library_tip')
+      : String(e?.message || e)), 'err');
   };
 
   // What is under way for each folder: its task, as it says.

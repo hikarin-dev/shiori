@@ -412,12 +412,14 @@ export async function textsIn(dir, items, names) {
 // exclusively, so it is never written over a file (principle 3). Never flushed on its own: only the
 // small manifest and descriptions are (power loss is outside the fault model; a crash or kill doesn't
 // need it, and a flush per picture costs a bulk import minutes). The gallery's folder must be there: a
-// folder gone meanwhile is never made again by a write into it (ENOENT). Resolves { name, size, mtime }
-// as written: what the library records, and deletion checks it against.
+// folder gone meanwhile is never made again by a write into it (ENOENT) — the picture's folder is made a level
+// at a time inside it (mkdirIn), never the gallery's own (review 9 A1: a regroup renaming it between the look and
+// the write). Resolves { name, size, mtime } as written: what the library records, and deletion checks it against.
 export async function writeNewIn(dir, slot, ext, bytes) {
   const st = await disk.stat(dir);
   if (!st.isDirectory()) throw Object.assign(new Error(`${dir} is not a gallery's folder`), { code: 'ENOTDIR' });
-  await disk.mkdir(path.dirname(within(dir, slot)), { recursive: true });
+  const sub = path.posix.dirname(String(slot).replace(/\\/g, '/'));
+  if (sub && sub !== '.') await mkdirIn(dir, sub);
   for (let attempt = 0; ; attempt++) {
     const name = attempt ? `${slot}-${crypto.randomBytes(5).toString('hex')}.${ext}` : `${slot}.${ext}`;
     const file = within(dir, name);
@@ -836,11 +838,18 @@ export async function picturesIn(dir, items = null) {
 // else by format v1's rules — with the picture files it holds (`files`, picturesIn), each description
 // looked for where the folder's listing shows it, under the rule. Rejects when something in it can't be
 // read now.
-export async function loadGallery(dir) {
+export async function loadGallery(dir, { missing = false } = {}) {
   const items = (await entriesIn(dir)) ?? [];
   const files = await picturesIn(dir, items);
   const shown = shownIn(dir, items);
   const read = await format.readGallery({ area: format.areaOf(dir.split(path.sep).join('/')), text: (rel) => (shown(rel) ? textIn(within(dir, rel)) : null), files });
+  // `missing`: read as its publication names it, pictures not there among it (S32, review 9 A3: a folder another app
+  // published into while this app's retirement of it was cut short) — those named as none ({ size: 0 }), `missing`
+  // listing them; a description not there still fails it.
+  if (missing && read.kind === 'missing-file' && read.files.every(f => format.isPicturePath(f))) {
+    const all = new Map([...files, ...read.files.map(f => [f, { size: 0 }])]);
+    return { read: await format.readGallery({ area: format.areaOf(dir.split(path.sep).join('/')), text: (rel) => (shown(rel) ? textIn(within(dir, rel)) : null), files: all }), files: all, missing: read.files };
+  }
   return { read, files };
 }
 
