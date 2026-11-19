@@ -84,7 +84,7 @@ const MAX_COMMANDS = 14;
  * @typedef {{ state: 'shown' | 'hidden' | 'away', galleries: Gallery[], deleted: Set<string>, notes: Map<string, Uint8Array>,
  *   restartable: boolean, tag: number, pdfs: string[], app: string, both: boolean,
  *   leaving: { gid: string, dir: string | null, zip?: string }[], gone: Map<string, Gallery>, bApp?: string,
- *   copy?: { at: string, app: string, galleries: Gallery[], notes: string } }} Model */
+ *   copy?: { at: string, app: string, galleries: Gallery[], notes: string, unpublished: string[] } }} Model */
 /** `second`: a second desktop library over the same folders (the desktop app on another computer), made
  * when one first takes folder A over; `B`: folder B's id in the library that has it.
  * @typedef {{ lib: Driver, other: Driver | null, dir: string, A: string, drive: string, id: string, second?: Driver, B?: string }} Real */
@@ -753,7 +753,9 @@ const earlierIndex = command('earlierIndex', fc.constantFrom('S30', 'no stamps')
 // reads as the copy has it once a check reads it (rule 1: a publication the copy names is never taken for the
 // one this app read since, though its number may come again) — and a change after goes on from there. (Only where
 // the galleries of A are the same ones, as they were — none archived since, no file of the person's added, no
-// PDF — so the copy differs in what galleries say alone.)
+// PDF — so the copy differs in what galleries say alone. Nor where a linked gallery whose overlay held no
+// publication yet when the copy was made — `unpublished` — was changed since: the copy holds no version of it, so
+// the library's stands, published again at its next change or its folder's removal: plan §8, S33.)
 const copyA = command('copyA', fc.constant(null), {
   check: (m) => m.state === 'shown' && !m.copy && m.pdfs.length === 0,
   async run(m, r) {
@@ -761,7 +763,9 @@ const copyA = command('copyA', fc.constant(null), {
     await settledDeletions(m, r);
     const copy = `${r.drive} copy ${++m.tag}`;
     fs.cpSync(r.drive, copy, { recursive: true, preserveTimestamps: true });
-    m.copy = { at: copy, app: m.app, galleries: structuredClone(m.galleries.filter(g => g.place === 'A')), notes: [...m.notes.keys()].sort().join('\n') };
+    const inA = m.galleries.filter(g => g.place === 'A');
+    m.copy = { at: copy, app: m.app, galleries: structuredClone(inA), notes: [...m.notes.keys()].sort().join('\n'),
+      unpublished: inA.filter(g => g.zip && !fs.existsSync(path.join(r.A, ...overlayDir(g.gid).split('/'), 'gallery.json'))).map(g => g.gid) };
   },
 });
 const putBack = command('putBack', fc.constant(null), {
@@ -769,7 +773,9 @@ const putBack = command('putBack', fc.constant(null), {
     if (m.state !== 'shown' || !m.copy || m.copy.app !== m.app || m.pdfs.length > 0 || m.gone.size > 0) return false;
     const now = m.galleries.filter(g => g.place === 'A');
     const then = new Map(m.copy.galleries.map(g => [g.gid, g]));
-    return now.length === then.size && now.every(g => then.has(g.gid) && !!then.get(g.gid)?.archived === !!g.archived && !g.edited && !g.waits && !g.displaced && !g.unfollowed)
+    const unpublished = new Set(m.copy.unpublished);
+    return now.length === then.size && now.every(g => then.has(g.gid) && !!then.get(g.gid)?.archived === !!g.archived && !g.edited && !g.waits && !g.displaced && !g.unfollowed
+      && (!unpublished.has(g.gid) || sameView(g, /** @type {Gallery} */ (then.get(g.gid)))))
       && [...m.notes.keys()].sort().join('\n') === m.copy.notes;
   },
   ms: 30_000,
