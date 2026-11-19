@@ -243,6 +243,14 @@ export function desktopKilled(base, work, args = {}) {
 
 let web = null;          // db.js, once imported (the page's generation's)
 let webWritten = null;   // its folder store adapter's write counts
+// fake-indexeddb keeps every transaction a process has made, finished or not, and looks at all of them as each new one
+// is scheduled (lib/Database.js processTransactions), so a process's IndexedDB work slows with the square of what it
+// did before — the sweeps' long processes most. Nothing reads a finished one again: they are dropped as a library is
+// handed out and as a page loads.
+async function dropFinished() {
+  const raw = (await web.openDB())._rawDatabase;
+  if (Array.isArray(raw?.transactions)) raw.transactions = raw.transactions.filter((tx) => tx._state !== 'finished');
+}
 const webFolders = new Map();   // folder id → its path, for the folders the website's library was handed
 // The page's app modules, of generation `generation`.
 async function loadPage() {
@@ -264,6 +272,7 @@ export async function webLibrary() {
     await web.clearAll({ folders: true });
     webFolders.clear();
   }
+  await dropFinished();
   let db = web;
   // The folders' records as the library keeps them (db.js FOLDER_STORE 'folders'), read and put back here.
   const folderRecords = async (fn) => { const idb = await db.openDB(); return new Promise((resolve, reject) => {
@@ -331,6 +340,7 @@ export async function webLibrary() {
       closePage(generation);
       generation++;
       await loadPage();
+      await dropFinished();
       db = web;
       await db.foldersPending();
       await db.settleFolders();

@@ -585,10 +585,13 @@ const usedAnyway = command('usedAnyway', fc.record({
       const g = pick(inA, i, g => m.galleries.includes(g) && !(g.zip && (what === 'page' || what === 'delete')));
       const with2 = inA.find(x => x !== g && m.galleries.includes(x));
       if (!g || (what === 'series' && !with2)) continue;
-      const asked = what === 'delete' ? r.lib.deleteGallery(g.gid)
+      const ask = () => (what === 'delete' ? r.lib.deleteGallery(g.gid)
         : what === 'series' ? r.lib.raw.seriesCommand('write', g.gid, [{ id: g.gid, title: 'One' }, { id: with2?.gid, title: 'Two' }], { seriesTitle: { english: `S${++m.tag}`, japanese: '', pretty: '' } })
-          : change(m, r.lib, structuredClone(g), what, n);
-      const e = await asked.then(() => null, (x) => x);
+          : change(m, r.lib, structuredClone(g), what, n)).then(() => null, (x) => x);
+      // (Windows, under the suites' load, may refuse a picture's write into the desktop's own staging for a moment —
+      // EPERM, EBUSY — before the change reaches the gate: asked again then.)
+      let e = await ask();
+      if (['EPERM', 'EBUSY'].includes(e?.code)) e = await ask();
       if (e?.reason !== 'handover') throw new Error(`${what} of gallery ${g.gid} asked at once after "Take back": ${e ? e.reason || e.message : 'accepted'}, not refused for now`);
     }
     await r.lib.flush();
