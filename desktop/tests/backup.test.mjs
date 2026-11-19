@@ -165,6 +165,10 @@ test('a gallery changed while the backup is made is saved as it now is, its pict
     for (const n of [1, 2]) await lib.pagePut(gid, n, big(n));
   }
   await lib.files.flush();
+  // Their sizes measured now: else the measuring that follows a page by a quarter of a second (publishFeed) logs
+  // a change of the second gallery while the backup is made — between its two looks for changes, now and then,
+  // which then names it as still changing.
+  for (const gid of ids) await lib.refreshGallerySize(gid);
   const plainBytes = (await exportArchive(lib, fileIn('unchanged.shioridb'))).bytes;
   const made = await exportArchive(lib, fileIn('changed.shioridb'), { onProgress: ({ done }) => {
     if (done === 1) lib.metaPut({ galleryId: ids[0], title: title('Renamed meanwhile'), tags: [], numPages: 2 });
