@@ -1995,6 +1995,8 @@ async function _relocateOnce(gid, to, tick, work, w) {
   // version, never this library's older view of it; one that can't be held now is refused, tried again.
   const was = await galleryGet(gid);
   if (was?.folder && was.dir) {
+    // One whose folder came back and is still being read (S32) waits for that read before its place is looked at.
+    if ((await _access(was.folder)).handover) throw Object.assign(new BackendError('unavailable', `library folder ${was.folder} is still being read after it came back`), { reason: 'handover', folder: was.folder });
     const held = await _hold(gid, { stat: was });
     if (held.kind !== 'ok') throw Object.assign(new BackendError(held.kind === 'conflict' ? 'conflict' : 'unavailable', `the place of gallery ${gid} can't be held now (${held.kind})`), { reason: held.kind });
   }
