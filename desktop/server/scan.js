@@ -931,7 +931,7 @@ async function removeOrphans(library, unreferenced = [], checked = new Set()) {
         await disk.rm(file, { force: true }).catch(() => {});
         removed++;
       }
-      disk.rmdir(path.join(dir, gid)).catch(() => {});
+      library._clearStaging(path.join(dir, gid)).catch(() => {});   // once empty — never as a page is on its way into it
     }
   }
   // Pictures in a gallery's folder that no record refers to and that aren't waiting to retire: reported

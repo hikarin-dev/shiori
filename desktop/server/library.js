@@ -108,6 +108,8 @@ CREATE TABLE IF NOT EXISTS personal (gid TEXT PRIMARY KEY, record TEXT NOT NULL)
 const MOUNTED = 'gid NOT IN (SELECT gid FROM unmounted)';
 // A file staged in the library's own staging (staging/ beside the index), not a folder's.
 const DATA_STAGED = '~data/';
+// Whether folder `dir` is folder `inner`, or holds it.
+const holds = (dir, inner) => inner === dir || inner.startsWith(dir + path.sep);
 
 // A page's number is the one its key ends in ("…/12.webp"), as in db.js.
 const PAGE_URL = /\/(\d+)\.(webp|jpg|jpeg|png|gif|avif)$/i;
@@ -336,6 +338,8 @@ export class Library {
     this._inTx = null;
     this._stmts = new Map();
     this._dirs = new Set();
+    this._stagingIn = new Map();    // a folder in staging → how many files are on their way into it (_writeStaged)
+    this._stagingOut = new Map();   // a folder in staging → its removal under way, a promise (_clearStaging)
     this.reading = new Map();   // gid → how many readers show it (server.js 'reading'): never archived meanwhile
     this._transfers = new Map();   // a gallery arriving in parts: transfer id → what its parts wrote so far (transferWrite)
     this.writes = new WriteMeter(path.join(this.dataDir, 'writes.json'));
@@ -674,7 +678,9 @@ export class Library {
 
   // `bytes` written to staging as `file` (_stagedName), counted as `kind` (writes.js). A library
   // folder's staging is made only inside the folder as it is there — never the folder made again
-  // where one was (a drive away, a folder moved).
+  // where one was (a drive away, a folder moved). Its folder there isn't removed while the file is on its
+  // way in, and a removal of it under way is over before it is made again (_clearStaging): a file opened
+  // in a folder being removed answers EPERM on Windows, not "not found".
   async _writeStaged(file, bytes, kind) {
     const abs = this._staged(file);
     const dir = path.dirname(abs);
@@ -683,18 +689,34 @@ export class Library {
       if (!disk.existsSync(root)) throw new BackendError('unavailable', `${root} can't be reached`);
       await this._mkdir(dir);
     };
+    this._stagingIn.set(dir, (this._stagingIn.get(dir) || 0) + 1);
     try {
-      await mkdir();
-      await disk.writeFile(abs, bytes);
-    } catch (e) {
-      if (e.code !== 'ENOENT') throw e;
-      // Its folder (or the library's own in the folder's staging) was cleared just now, emptied by a
-      // gallery's last settle (files.js _unstage), as it was being made or written into.
-      this._dirs.delete(dir);
-      await mkdir();
-      await disk.writeFile(abs, bytes);
+      for (let out; (out = [...this._stagingOut].find(([d]) => holds(d, dir)));) await out[1];
+      try {
+        await mkdir();
+        await disk.writeFile(abs, bytes);
+      } catch (e) {
+        if (e.code !== 'ENOENT') throw e;
+        // Its folder (or the library's own in the folder's staging) went as it was being made or written
+        // into: deleted outside the app.
+        this._dirs.delete(dir);
+        await mkdir();
+        await disk.writeFile(abs, bytes);
+      }
+    } finally {
+      const left = this._stagingIn.get(dir) - 1;
+      if (left) this._stagingIn.set(dir, left); else this._stagingIn.delete(dir);
     }
     this.writes.add(kind, bytes.length);
+  }
+  // Folder `dir` in staging, empty, removed — unless a file is on its way into it or below it (_writeStaged),
+  // which it then stays for. Rejects as rmdir does (one not empty after all).
+  async _clearStaging(dir) {
+    if ([...this._stagingIn.keys()].some(d => holds(dir, d))) return;
+    this._dirs.delete(dir);
+    let over;
+    this._stagingOut.set(dir, new Promise((resolve) => { over = resolve; }));
+    try { await disk.rmdir(dir); } finally { this._stagingOut.delete(dir); over(); }
   }
 
   // ── Records ──

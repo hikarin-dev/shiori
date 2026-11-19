@@ -91,6 +91,7 @@ export const PLACE_WRITERS = {
     'library.js _writeOwn': { after: 'files.js home' },
     'library.js _externalize': { free: MADE },
     'library.js _writeStaged': { free: OWN },
+    'library.js _clearStaging': { free: OWN },
     'library.js _derive': { free: MADE },
     'library.js coverThumbnailPut': { free: MADE },
     'library.js _transferPage': { after: 'files.js home' },

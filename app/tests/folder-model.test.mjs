@@ -366,7 +366,9 @@ async function archived(/** @type {Real} */ r, /** @type {Gallery} */ g) {
   return r.lib.raw.files._abs(r.lib.raw._s('SELECT path FROM files WHERE gid = ?').get(g.gid).path);
 }
 // Folder A taken over by the website ("Use anyway") while the desktop holds it, `work(web)` done there,
-// then given back: the website removes it (its write-back), and the desktop holds it again.
+// then given back: the website removes it (its write-back), and the desktop holds it again — its hand-over's
+// check, which starts by itself (S32), let end: a check a later command asks for joins one under way (the
+// desktop's queue), and would then miss what that command had just put in the folder.
 async function takenOverBriefly(/** @type {Real} */ r, /** @type {(web: Driver) => Promise<void>} */ work) {
   const web = /** @type {Driver} */ (r.other);
   const id = await web.add(r.A, { force: true });
@@ -375,6 +377,7 @@ async function takenOverBriefly(/** @type {Real} */ r, /** @type {(web: Driver) 
     await web.setDefault(web.home);
     await web.remove(id);
     await r.lib.raw.folderClaim(r.id);
+    await r.lib.raw.folders.job(r.id)?.catch(() => {});
   }
 }
 
@@ -585,13 +588,10 @@ const usedAnyway = command('usedAnyway', fc.record({
       const g = pick(inA, i, g => m.galleries.includes(g) && !(g.zip && (what === 'page' || what === 'delete')));
       const with2 = inA.find(x => x !== g && m.galleries.includes(x));
       if (!g || (what === 'series' && !with2)) continue;
-      const ask = () => (what === 'delete' ? r.lib.deleteGallery(g.gid)
+      const asked = what === 'delete' ? r.lib.deleteGallery(g.gid)
         : what === 'series' ? r.lib.raw.seriesCommand('write', g.gid, [{ id: g.gid, title: 'One' }, { id: with2?.gid, title: 'Two' }], { seriesTitle: { english: `S${++m.tag}`, japanese: '', pretty: '' } })
-          : change(m, r.lib, structuredClone(g), what, n)).then(() => null, (x) => x);
-      // (Windows, under the suites' load, may refuse a picture's write into the desktop's own staging for a moment —
-      // EPERM, EBUSY — before the change reaches the gate: asked again then.)
-      let e = await ask();
-      if (['EPERM', 'EBUSY'].includes(e?.code)) e = await ask();
+          : change(m, r.lib, structuredClone(g), what, n);
+      const e = await asked.then(() => null, (x) => x);
       if (e?.reason !== 'handover') throw new Error(`${what} of gallery ${g.gid} asked at once after "Take back": ${e ? e.reason || e.message : 'accepted'}, not refused for now`);
     }
     await r.lib.flush();

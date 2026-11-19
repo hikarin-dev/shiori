@@ -554,3 +554,51 @@ test('a publication whose gallery folder is moved away after its place was held 
   assert.equal(fs.existsSync(dir), false, 'nothing made at the old name');
   assert.equal(JSON.parse(fs.readFileSync(path.join(to, '.shiori', 'gallery.json'), 'utf8')).generation, m.generation, 'the gallery\'s own publication as it was');
 });
+
+// S32's verification: the "EPERM … staging" the fault sweeps and the model met under load (S31's and S32's
+// close-outs) was the app's own race, not Windows': a gallery's folder in staging, empty, removed as its settle
+// or publication ended (_unstage) while a picture was on its way into it. A write finding the folder gone made
+// it again; one finding its removal under way failed — on Windows a file opened in a folder being removed
+// answers EPERM, not "not found". A folder in staging isn't removed while a picture is on its way into it, and
+// a picture arriving while one is being removed waits for that.
+test('a gallery\'s folder in staging is not removed while a picture is on its way into it', async (t) => {
+  const faults = await import('./fs-faults.mjs');
+  const library = await open(t);
+  t.after(() => faults.reset());
+  await library.metaPut({ galleryId: 'g1', title: title('One') });
+  const dir = stagedAt(library, 'g1'), at = dir.split(path.sep).join('/');
+  const calls = [];
+  faults.failNext((c) => { if (c.path === at) calls.push(c.op); return false; }, 'EIO', { times: Infinity });
+  // The folder made for the picture, its file not written yet: the gallery's staging is cleared just then.
+  const mkdir = library._mkdir.bind(library);
+  let cleared = false;
+  library._mkdir = async (d) => { await mkdir(d); if (d === dir && !cleared) { cleared = true; await library.files._unstage('g1'); } };
+  await library.pagePut('g1', 1, png(1));
+  assert.ok(cleared, 'cleared as the picture arrived');
+  assert.deepEqual(calls.filter(op => op === 'rmdir'), [], 'its folder in staging was not removed under the picture');
+  assert.equal(calls.filter(op => op === 'mkdir').length, 1, 'nor made a second time');
+  assert.equal(staged(library, 'g1'), 1, 'the picture is staged');
+});
+
+test('a picture arriving as its gallery\'s folder in staging is being removed waits for the removal', async (t) => {
+  const faults = await import('./fs-faults.mjs');
+  const library = await open(t);
+  t.after(() => faults.reset());
+  await library.metaPut({ galleryId: 'g1', title: title('One') });
+  const dir = stagedAt(library, 'g1'), at = dir.split(path.sep).join('/');
+  fs.mkdirSync(dir, { recursive: true });   // left empty, as by a page placed before
+  library._dirs.add(dir);
+  // As the folder's removal is asked for, a picture arrives: was the folder still there as its folders began to
+  // be made for it (a folder below a library folder is made a level at a time)?
+  let arrived = false, write = null, there = null;
+  faults.failNext((c) => {
+    if (c.op === 'rmdir' && c.path === at && !arrived) { arrived = true; write = library._writeStaged(library._stagedName('g1', '2-0123456789.png'), pngBytes(2), 'pages'); }
+    else if (c.op === 'mkdir' && arrived && there == null) there = fs.existsSync(dir);
+    return false;
+  }, 'EIO', { times: Infinity });
+  await library.files._unstage('g1');
+  assert.ok(write, 'a picture arrived as the folder was removed');
+  await write;
+  assert.equal(there, false, 'the folder was made again only once its removal had ended');
+  assert.deepEqual(fs.readdirSync(dir), ['2-0123456789.png'], 'and the picture is in it');
+});

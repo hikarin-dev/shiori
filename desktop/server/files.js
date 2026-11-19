@@ -2132,7 +2132,8 @@ export class FileLibrary {
   // meanwhile is never lost with it (it makes the folder again: library.js _stage). Then this library's
   // own folder in that staging, once nothing is left in it either: a check looks into every folder of
   // .shiori/ (scan.js sweepLeftovers), which would cost it a look each (a page being staged as it goes
-  // makes it again: library.js _writeStaged).
+  // makes it again: library.js _writeStaged). Neither folder goes while a file is on its way into it: each
+  // is removed through library.js _clearStaging.
   async _unstage(gid) {
     const lib = this.library;
     const own = lib.stagingDirs();
@@ -2146,9 +2147,8 @@ export class FileLibrary {
         // by the second.
         if (!await empty()) continue;
         if (!await empty()) continue;
-        lib._dirs.delete(dir);
-        await disk.rmdir(dir);
-        if (own.includes(staging) && staging !== lib.dataStagingDir && await emptyIn(staging)) await disk.rmdir(staging);
+        await lib._clearStaging(dir);
+        if (own.includes(staging) && staging !== lib.dataStagingDir && await emptyIn(staging)) await lib._clearStaging(staging);
       } catch {}
     }
     if (before.length && !this._staged(gid).length && !this._stagedOwn(gid).length) this._before.delete(String(gid));
