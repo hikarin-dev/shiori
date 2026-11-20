@@ -8435,7 +8435,8 @@ const foldersCopy = {
   en: {
     'lf.title': 'Library folders',
     'lf.desc': 'New galleries are saved to the default location.',
-    'lf.unsupported': 'Folders aren’t supported in this browser. Use Chrome or Edge on a computer.',
+    'lf.unsupported': 'Folders aren’t supported in this browser. Use a Chromium-based browser or install the Shiori Desktop app.',
+    'lf.unsupported_flag': 'To use folders, enable the File System Access API in your browser’s flags (chrome://flags).',
     'lf.add': 'Add folder…', 'lf.adding': 'Adding…',
     'lf.existed': '{name} is already added.',
     'lf.nested': 'This folder is inside a library folder or contains one.',
@@ -8514,7 +8515,8 @@ const foldersCopy = {
   ja: {
     'lf.title': 'ライブラリフォルダー',
     'lf.desc': '新しいギャラリーは既定の場所に保存されます。',
-    'lf.unsupported': 'このブラウザーはフォルダーに対応していません。パソコンの Chrome または Edge を使用してください。',
+    'lf.unsupported': 'このブラウザーはフォルダーに対応していません。Chromium ベースのブラウザーを使用するか、Shiori Desktop アプリをインストールしてください。',
+    'lf.unsupported_flag': 'フォルダーを使用するには、ブラウザーの試験運用機能（chrome://flags）で File System Access API を有効にしてください。',
     'lf.add': 'フォルダーを追加…', 'lf.adding': '追加中…',
     'lf.existed': '{name} は追加済みです。',
     'lf.nested': 'このフォルダーはライブラリフォルダーの中にあるか、ライブラリフォルダーを含んでいます。',
@@ -8593,7 +8595,8 @@ const foldersCopy = {
   de: {
     'lf.title': 'Bibliotheksordner',
     'lf.desc': 'Neue Galerien werden am Standardort gespeichert.',
-    'lf.unsupported': 'Ordner werden in diesem Browser nicht unterstützt. Verwende Chrome oder Edge auf einem Computer.',
+    'lf.unsupported': 'Ordner werden in diesem Browser nicht unterstützt. Verwende einen Chromium-basierten Browser oder installiere die Shiori-Desktop-App.',
+    'lf.unsupported_flag': 'Um Ordner zu verwenden, aktiviere die File System Access API in den Flags deines Browsers (chrome://flags).',
     'lf.add': 'Ordner hinzufügen…', 'lf.adding': 'Wird hinzugefügt…',
     'lf.existed': '{name} ist bereits hinzugefügt.',
     'lf.nested': 'Dieser Ordner liegt in einem Bibliotheksordner oder enthält einen.',
@@ -8672,7 +8675,8 @@ const foldersCopy = {
   fr: {
     'lf.title': 'Dossiers de la bibliothèque',
     'lf.desc': 'Les nouvelles galeries sont enregistrées à l’emplacement par défaut.',
-    'lf.unsupported': 'Les dossiers ne sont pas pris en charge dans ce navigateur. Utilisez Chrome ou Edge sur ordinateur.',
+    'lf.unsupported': 'Les dossiers ne sont pas pris en charge dans ce navigateur. Utilisez un navigateur basé sur Chromium ou installez l’application Shiori Desktop.',
+    'lf.unsupported_flag': 'Pour utiliser les dossiers, activez l’API File System Access dans les fonctionnalités expérimentales de votre navigateur (chrome://flags).',
     'lf.add': 'Ajouter un dossier…', 'lf.adding': 'Ajout…',
     'lf.existed': '{name} est déjà ajouté.',
     'lf.nested': 'Ce dossier se trouve dans un dossier de la bibliothèque ou en contient un.',
@@ -8751,7 +8755,8 @@ const foldersCopy = {
   'zh-CN': {
     'lf.title': '图库文件夹',
     'lf.desc': '新画廊会保存到默认位置。',
-    'lf.unsupported': '此浏览器不支持文件夹。请在电脑上使用 Chrome 或 Edge。',
+    'lf.unsupported': '此浏览器不支持文件夹。请使用基于 Chromium 的浏览器，或安装 Shiori Desktop 应用。',
+    'lf.unsupported_flag': '要使用文件夹，请在浏览器的实验性功能（chrome://flags）中启用 File System Access API。',
     'lf.add': '添加文件夹…', 'lf.adding': '正在添加…',
     'lf.existed': '{name} 已添加。',
     'lf.nested': '此文件夹位于图库文件夹内，或包含图库文件夹。',
@@ -8830,7 +8835,8 @@ const foldersCopy = {
   ko: {
     'lf.title': '라이브러리 폴더',
     'lf.desc': '새 갤러리는 기본 위치에 저장됩니다.',
-    'lf.unsupported': '이 브라우저는 폴더를 지원하지 않습니다. 컴퓨터에서 Chrome 또는 Edge를 사용하세요.',
+    'lf.unsupported': '이 브라우저는 폴더를 지원하지 않습니다. Chromium 기반 브라우저를 사용하거나 Shiori Desktop 앱을 설치하세요.',
+    'lf.unsupported_flag': '폴더를 사용하려면 브라우저의 실험 기능(chrome://flags)에서 File System Access API를 사용 설정하세요.',
     'lf.add': '폴더 추가…', 'lf.adding': '추가 중…',
     'lf.existed': '{name}은(는) 이미 추가되어 있습니다.',
     'lf.nested': '이 폴더는 라이브러리 폴더 안에 있거나 라이브러리 폴더를 포함합니다.',
@@ -8909,7 +8915,8 @@ const foldersCopy = {
   'zh-TW': {
     'lf.title': '圖庫資料夾',
     'lf.desc': '新畫廊會儲存到預設位置。',
-    'lf.unsupported': '此瀏覽器不支援資料夾。請在電腦上使用 Chrome 或 Edge。',
+    'lf.unsupported': '此瀏覽器不支援資料夾。請使用以 Chromium 為基礎的瀏覽器，或安裝 Shiori Desktop 應用程式。',
+    'lf.unsupported_flag': '若要使用資料夾，請在瀏覽器的實驗性功能（chrome://flags）中啟用 File System Access API。',
     'lf.add': '新增資料夾…', 'lf.adding': '正在新增…',
     'lf.existed': '{name} 已新增。',
     'lf.nested': '此資料夾位於圖庫資料夾內，或包含圖庫資料夾。',
@@ -8988,7 +8995,8 @@ const foldersCopy = {
   es: {
     'lf.title': 'Carpetas de la biblioteca',
     'lf.desc': 'Las galerías nuevas se guardan en la ubicación predeterminada.',
-    'lf.unsupported': 'Este navegador no admite carpetas. Usa Chrome o Edge en un ordenador.',
+    'lf.unsupported': 'Este navegador no admite carpetas. Usa un navegador basado en Chromium o instala la aplicación Shiori Desktop.',
+    'lf.unsupported_flag': 'Para usar carpetas, activa la API File System Access en las funciones experimentales de tu navegador (chrome://flags).',
     'lf.add': 'Añadir carpeta…', 'lf.adding': 'Añadiendo…',
     'lf.existed': '{name} ya está añadida.',
     'lf.nested': 'Esta carpeta está dentro de una carpeta de la biblioteca o contiene una.',
@@ -9067,7 +9075,8 @@ const foldersCopy = {
   'pt-BR': {
     'lf.title': 'Pastas da biblioteca',
     'lf.desc': 'Novas galerias são salvas no local padrão.',
-    'lf.unsupported': 'Este navegador não oferece suporte a pastas. Use o Chrome ou o Edge em um computador.',
+    'lf.unsupported': 'Este navegador não oferece suporte a pastas. Use um navegador baseado no Chromium ou instale o app Shiori Desktop.',
+    'lf.unsupported_flag': 'Para usar pastas, ative a API File System Access nos recursos experimentais do navegador (chrome://flags).',
     'lf.add': 'Adicionar pasta…', 'lf.adding': 'Adicionando…',
     'lf.existed': '{name} já foi adicionada.',
     'lf.nested': 'Esta pasta está dentro de uma pasta da biblioteca ou contém uma.',
@@ -9146,7 +9155,8 @@ const foldersCopy = {
   ru: {
     'lf.title': 'Папки библиотеки',
     'lf.desc': 'Новые галереи сохраняются в папку по умолчанию.',
-    'lf.unsupported': 'Этот браузер не поддерживает папки. Используйте Chrome или Edge на компьютере.',
+    'lf.unsupported': 'Этот браузер не поддерживает папки. Используйте браузер на основе Chromium или установите приложение Shiori Desktop.',
+    'lf.unsupported_flag': 'Чтобы использовать папки, включите File System Access API в экспериментальных функциях браузера (chrome://flags).',
     'lf.add': 'Добавить папку…', 'lf.adding': 'Добавление…',
     'lf.existed': '{name} уже добавлена.',
     'lf.nested': 'Эта папка находится внутри папки библиотеки или содержит её.',
@@ -9225,7 +9235,8 @@ const foldersCopy = {
   vi: {
     'lf.title': 'Thư mục thư viện',
     'lf.desc': 'Bộ truyện mới được lưu vào vị trí mặc định.',
-    'lf.unsupported': 'Trình duyệt này không hỗ trợ thư mục. Hãy dùng Chrome hoặc Edge trên máy tính.',
+    'lf.unsupported': 'Trình duyệt này không hỗ trợ thư mục. Hãy dùng trình duyệt dựa trên Chromium hoặc cài ứng dụng Shiori Desktop.',
+    'lf.unsupported_flag': 'Để dùng thư mục, hãy bật File System Access API trong phần tính năng thử nghiệm của trình duyệt (chrome://flags).',
     'lf.add': 'Thêm thư mục…', 'lf.adding': 'Đang thêm…',
     'lf.existed': '{name} đã được thêm.',
     'lf.nested': 'Thư mục này nằm trong một thư mục thư viện hoặc chứa một thư mục như vậy.',
@@ -9304,7 +9315,8 @@ const foldersCopy = {
   id: {
     'lf.title': 'Folder pustaka',
     'lf.desc': 'Galeri baru disimpan di lokasi bawaan.',
-    'lf.unsupported': 'Browser ini tidak mendukung folder. Gunakan Chrome atau Edge di komputer.',
+    'lf.unsupported': 'Browser ini tidak mendukung folder. Gunakan browser berbasis Chromium atau pasang aplikasi Shiori Desktop.',
+    'lf.unsupported_flag': 'Untuk menggunakan folder, aktifkan File System Access API di fitur eksperimental browser (chrome://flags).',
     'lf.add': 'Tambah folder…', 'lf.adding': 'Menambahkan…',
     'lf.existed': '{name} sudah ditambahkan.',
     'lf.nested': 'Folder ini ada di dalam folder pustaka atau memuatnya.',

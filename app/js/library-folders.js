@@ -32,6 +32,12 @@ const shell = (action, ...args) => globalThis.shioriDesktop.shell(action, ...arg
 const desktop = () => api.capabilities.desktopWindow;
 const TERMINAL = new Set(['done', 'error', 'cancelled']);
 const QUIET_MS = 20000;   // a folder's task says it is running every 5 s: one silent this long has ended
+// What a browser that can't pick folders is told: a Chromium one on a computer has the picker
+// switched off (its flags switch it on); any other has none.
+const unsupportedKey = () => {
+  const ua = navigator.userAgentData;
+  return ua && !ua.mobile && ua.brands.some((b) => b.brand === 'Chromium') ? 'lf.unsupported_flag' : 'lf.unsupported';
+};
 
 const SVG = (body) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 const ICON = {
@@ -211,7 +217,7 @@ export async function initLibraryFolders() {
         <div class="lf-head"><span class="lf-head-title" data-i18n="lf.title"></span><span class="lf-head-hint" data-i18n="lf.desc"></span></div>
         <div class="lf-list" id="lfRows"></div>
         ${manage ? `<button class="lf-add" id="lfAdd" type="button">${ICON.plus}<span data-i18n="lf.add"></span></button>`
-          : '<div class="lf-note" data-i18n="lf.unsupported"></div>'}
+          : `<div class="lf-note" data-i18n="${unsupportedKey()}"></div>`}
       </div>`}
       <div class="status-msg hidden" id="lfStatus" role="status" aria-live="polite"></div>
     </div>`;

@@ -162,6 +162,28 @@ test('settings open, and a full backup restores the library it was taken from', 
   await finish(page);
 });
 
+test('settings tell a browser that can\'t pick folders what can: its flags in a Chromium browser on a computer, a Chromium-based browser or the desktop app anywhere else', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  // The folders card's note in a browser without the folder picker: this Chrome ('chromium'), a
+  // phone's Chromium browser ('phone'), or one that isn't Chromium ('other').
+  const note = async (kind) => {
+    const page = await openPage(browser, origin);
+    await page.evaluateOnNewDocument((kind) => {
+      delete globalThis.showDirectoryPicker;
+      if (kind !== 'chromium') Object.defineProperty(Navigator.prototype, 'userAgentData',
+        { get: () => (kind === 'phone' ? { brands: [{ brand: 'Chromium' }], mobile: true } : undefined) });
+    }, kind);
+    await page.goto(`${origin}/app/settings.html`, { waitUntil: 'load' });
+    const text = await until(page, () => document.querySelector('#foldersSection .lf-note')?.textContent, null, { what: 'the folders card\'s note' });
+    await finish(page);
+    return text;
+  };
+  assert.equal(await note('chromium'), 'To use folders, enable the File System Access API in your browser’s flags (chrome://flags).');
+  const elsewhere = 'Folders aren’t supported in this browser. Use a Chromium-based browser or install the Shiori Desktop app.';
+  assert.equal(await note('phone'), elsewhere, 'a phone\'s browser has no such flag');
+  assert.equal(await note('other'), elsewhere);
+});
+
 test('a series lists its volumes apart, the choice is remembered, and a volume reads on its own', async (t) => {
   const page = await visit(`/app/overview.html?g=${G.a}`, t);
   if (!page) return;
