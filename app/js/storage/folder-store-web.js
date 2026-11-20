@@ -594,7 +594,7 @@ export async function deleteGalleryIn(id, root, dir, gid, named) {
       /** @param {string} rel */
       const drop = async (rel) => {
         const at = _join(dir, rel), text = await readText(id, root, at);
-        if (text != null && await isOwnDescription(rel, text, gid, area)) await removeFile(id, root, at);
+        if (text != null && await isOwnDescription(rel, text, gid, area, now.kind === 'ok' ? now.value : null)) await removeFile(id, root, at);
       };
       for (const rel of plan.descriptions) await drop(rel);
       for (const e of await list(id, root, _join(dir, plan.stored))) if (e.kind === 'file') await drop(`${plan.stored}/${e.name}`);

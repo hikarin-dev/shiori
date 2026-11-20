@@ -1357,8 +1357,9 @@ const SCENARIOS = [
   // ── S34: work under way for a gallery as it is deleted and made again under its id (kind 'made again') ──
   // Every operation that works on a gallery across awaits (plan §7, S34's row), each the step of one: what waited
   // for its folder settled and published, its first pages settled, an archived gallery's settle and publication, an
-  // unpack, an archiving, a move, a series command, a check of its folder, the folder's removal writing back — and a
-  // translation stored as its gallery is deleted (deleted only), and a check joining a copy of it under its id.
+  // unpack, an archiving, a move, a series command (its members regrouped at the flush), a check of its folder, the
+  // folder's removal writing back — and a translation stored as its gallery is deleted (deleted only), a check joining
+  // a copy of it under its id, a linked gallery read again by a check, and the website's unpack of an archived gallery.
   {
     name: 'what waited for its folder settled and published',
     kinds: ['made again'],
@@ -1539,6 +1540,51 @@ const SCENARIOS = [
     ops: [FLUSH],
     noSetupFlush: true,
   },
+  {
+    // A linked gallery read again by a check: its ZIP changed in place (linked.js linkRoot, folder-library.js _relink).
+    name: 'a linked ZIP changed in place, read again by a check under way',
+    kinds: ['made again'],
+    again: { key: 'pack' },
+    async setup(c) {
+      const zip = path.join(c.A, 'Pack.zip');
+      fs.writeFileSync(zip, zipCreate([{ name: '001.png', data: png(1) }, { name: '002.png', data: png(2) }]));
+      await c.lib.scan(c.ids.A);
+      c.g.pack = (await c.lib.galleries()).map(String)[0];
+      c.known.add(c.g.pack);
+      await c.lib.putTranslation(c.g.pack, 1, png(3));
+      await c.lib.flush();
+      fs.writeFileSync(zip, zipCreate([{ name: '001.png', data: png(1) }, { name: '002.png', data: png(4) }]));
+      theirs(c, zip);
+    },
+    state: (c) => withTranslation({ aIn: true, galleries: { [c.g.pack]: G('A', 'Pack', [png(1), png(4)]) } }, c.g.pack, 1, png(3)),
+    ops: [CHECK],
+  },
+  {
+    // The website's unpack of an archived gallery (the desktop archived it, then let the folder go).
+    name: 'an archived gallery\'s unpack under way (the website\'s)',
+    apps: ['website'],
+    kinds: ['made again'],
+    again: { key: 'alpha' },
+    async setup(c) {
+      const other = await otherApp(c);
+      const there = await other.add(c.A, { force: true });
+      await other.setDefault(there);
+      c.g.alpha = await other.newGallery('Alpha');
+      c.known.add(c.g.alpha);
+      for (const [i, b] of [png(1), png(2)].entries()) await other.putPage(c.g.alpha, i + 1, b);
+      await other.flush();
+      await other.raw.archiveGallery(c.g.alpha);
+      await other.flush();
+      await other.setDefault(other.home);
+      await other.remove(there);
+      await other.close();
+      c.other = null;
+      await c.lib.raw.folderClaim(c.ids.A);
+      await c.lib.scan(c.ids.A);
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }),
+    ops: [op('translation 1', (c) => c.lib.putTranslation(c.g.alpha, 1, png(8)), (s, c) => withTranslation(s, c.g.alpha, 1, png(8))), FLUSH, SETTLE],
+  },
 ];
 
 const BLIPS = ['drive blip 1', 'drive blip 2', 'drive blip 3', 'drive blip 5'];
@@ -1554,14 +1600,7 @@ const sweeps = (/** @type {string} */ app, /** @type {string} */ kind) => SCENAR
 
 // Scenarios a later step's finding fails on (plan §7), by app, kind and scenario.
 /** @type {Record<string, string>} */
-const TODO = {
-  ...Object.fromEntries(['what waited for its folder settled and published', 'its first pages settled', 'an archived gallery\'s settle under way',
-    'an archived gallery\'s publication under way', 'an unpack under way', 'an archiving under way', 'a move to another folder under way',
-    'a series made with it under way', 'a translation of it being stored (deleted only)', 'its publication under way, a copy joined under its id']
-    .map(name => [`desktop made again: ${name}`, 'S34'])),
-  ...Object.fromEntries(['its first pages settled', 'a move to another folder under way', 'a series made with it under way', 'a translation of it being stored (deleted only)']
-    .map(name => [`website made again: ${name}`, 'S34'])),
-};
+const TODO = {};
 // The website's page can be loaded again only so many times in one process (library-drivers.mjs).
 const NO_LOAD_LEFT = 'no restart left in this process: run fewer points per process (SHIORI_SWEEP_SHARD)';
 
@@ -1988,6 +2027,10 @@ async function againWrong(/** @type {string} */ stage, c) {
   if (stage !== 'flush') {
     if (old && fs.existsSync(old) && !(now && path.resolve(now) === path.resolve(old))) problems.push(`the deleted one's ${path.basename(old)} is still there`);
     for (const dir of foldersNaming(c, gid)) if (!now || path.resolve(dir) !== path.resolve(now)) problems.push(`${short(dir.split(path.sep).join('/'))} names gallery ${gid}, which the library ${now ? 'has elsewhere' : 'hasn\'t'}`);
+    for (const root of [c.A, c.B]) {   // nor an overlay of a linked gallery
+      const overlay = path.join(root, '.shiori', 'linked', gid);
+      if (fs.existsSync(overlay) && !(now && path.resolve(now) === path.resolve(overlay))) problems.push(`${short(overlay.split(path.sep).join('/'))} is gallery ${gid}'s overlay, which the library ${now ? 'has elsewhere' : 'hasn\'t'}`);
+    }
   }
   for (const f of await c.lib.list()) {
     for (const a of f.attention ?? []) if (String(a.gid ?? '') === gid || (old && path.basename(old) === path.basename(String(a.path)))) problems.push(`Needs attention lists "${a.reason} ${a.path}"`);

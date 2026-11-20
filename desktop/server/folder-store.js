@@ -715,7 +715,7 @@ export async function deleteGalleryIn(dir, gid, named) {
       const past = (e) => { if (throughLink(e)) return null; throw e; };
       const drop = async (rel) => {
         const file = within(dir, rel), text = await textIn(file).catch(past);
-        if (text != null && await format.isOwnDescription(rel, text, String(gid), area)) await disk.rm(file);
+        if (text != null && await format.isOwnDescription(rel, text, String(gid), area, now.kind === 'ok' ? now.value : null)) await disk.rm(file);
       };
       for (const rel of plan.descriptions) await drop(rel);
       for (const e of (await entriesIn(within(dir, plan.stored)).catch(past)) ?? []) await drop(`${plan.stored}/${e.name}`);
@@ -933,10 +933,8 @@ export function folderStore(library) {
         return at;
       },
       // A free directory chosen, made and bound to the gallery by its first generation (files.js _claim:
-      // reserveIn), held as its reservation made it — once what was under way for a gallery of its id is over
-      // (files.js _over).
+      // reserveIn), held as its reservation made it.
       async reserve(hint, gid) {
-        await files._over(gid);
         const row = files._claim(gid, { galleryId: gid, title: { english: hint, japanese: '', pretty: '' } }, null, id);
         const name = files._split(row.path).rest;
         const at = await placeIn(abs(name), String(gid), { known: library._s('SELECT stamp FROM stamps WHERE gid = ?').get(String(gid))?.stamp ?? null, writer: folders._me(), ...look(name) });

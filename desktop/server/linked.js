@@ -218,10 +218,12 @@ async function overlayPages(library, root, gid) {
 // Gallery `gid`'s overlay's source.json, saying that its source is `title` (as it is now: `at`,
 // titleAt's, when it could be read) — and what it said of a PDF's pages, unless `marks` says it anew:
 // how many are drawn (`rendered`), or that drawing them failed (`failed`). Written only when that
-// changes it. Resolves the overlay's path in the library (files.js: `@<root>/…` beyond the first
-// folder) and the source as source.json had it (null: a new overlay).
-async function overlayFor(library, root, title, gid, at, marks = {}) {
+// changes it — and not once `ended()` (its gallery ended as it was read: adoptLinked). Resolves the overlay's path
+// in the library (files.js: `@<root>/…` beyond the first folder) and the source as source.json had it (null: a new
+// overlay).
+async function overlayFor(library, root, title, gid, at, marks = {}, ended = () => false) {
   const { file, text, was, other } = await sourceJson(library, root, gid);
+  if (ended()) return { rel: library.files._join(root, L.overlayDir(gid)), was };
   // An overlay naming another gallery is never made this one's (principle 2): left, and refused.
   if (other) throw Object.assign(new BackendError('conflict', `the overlay at ${L.overlayDir(gid)} names another gallery`), { reason: 'conflict' });
   const want = L.sourceText(gid, { kind: title.kind, path: title.path, inner: title.inner,
@@ -264,11 +266,14 @@ async function embeddedMeta(library, root, title, at) {
 // made from, by name and size (linked-source.js keepsDerived), and is otherwise dropped, its files too,
 // never attached to another picture (R19, F07). `guard()`: whether the gallery has changes of its own
 // not yet written to its overlay — checked again as the rows are replaced; they win, and it isn't read
-// again (A14). `at`: the title as titleAt read it, when the caller has. Resolves its id; null when it
-// has no pages yet (a PDF waiting) or `guard` held it back.
-export async function adoptLinked(library, root, title, { gid: given = null, replace = null, guard = null, at = null } = {}) {
+// again (A14). `at`: the title as titleAt read it, when the caller has. `life`: for one read again, the gallery
+// it is (files.js life; its caller's, else as it begins) — once that gallery has ended (deleted, or another made
+// under its id) nothing more is read or written for it (S34). Resolves its id; null when it has no pages yet (a
+// PDF waiting), `guard` held it back or its gallery ended.
+export async function adoptLinked(library, root, title, { gid: given = null, replace = null, guard = null, at = null, life = replace ? library.files.life(replace) : null } = {}) {
+  const ended = () => !!life && !library.files.still(life);
   at = at || await titleAt(library, root, title);
-  if (!at) return null;
+  if (!at || ended()) return null;
   const embedded = title.kind === 'zip' && !title.inner ? await embeddedMeta(library, root, title, at) : null;
   const taken = (id) => !!library._s('SELECT 1 FROM meta WHERE gid = ?').get(id) || !!library._s('SELECT 1 FROM files WHERE gid = ?').get(id);
   const gid = replace || given || (embedded && !taken(embedded.galleryId) ? embedded.galleryId : null) || library.nextGalleryId();
@@ -286,6 +291,7 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
   // Its overlay read back (gallery-manifest.js readGallery): by its manifest — whose pages of its own
   // alone are its own — else by format v1's rules; damaged, or missing a file it names, it isn't read.
   const { read, files: listed } = await loadGallery(overlay);
+  if (ended()) return null;
   if (read.kind !== 'ok') throw Object.assign(new Error(`the overlay of gallery ${gid} ${read.kind === 'corrupt' ? read.detail : 'misses files it names'}`), { reason: read.kind });
   const { meta, records } = read;
   const listedAs = read.manifest ? new Set(read.pictures.pages.values()) : layout.describedFiles(records, read.covers);
@@ -312,7 +318,9 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
   const covers = coverPatch(derived);
   let held = false, stale = false;   // stale: a page's source picture isn't the one its overlay recorded
   library._tx(() => {
-    if (guard?.()) { held = true; return; }
+    // (A new one's id — an overlay's, given — taken by a gallery made meanwhile is that one's: never joined over; one
+    // read again is read only while it is still the gallery it began for, S34.)
+    if (ended() || guard?.() || (!replace && taken(gid))) { held = true; return; }
     const had = new Map();   // the pictures of its own its records referred to, and those it read
     if (replace) {
       for (const r of library._pageRows(gid)) ownRefs(parse(r.record), had);
@@ -355,7 +363,8 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
     if (Object.keys(covers).length) library._coverPatchIn(gid, covers, { mark: false });
   });
   if (held) return null;
-  if (replace) await overlayFor(library, root, title, gid, at);
+  if (replace) await overlayFor(library, root, title, gid, at, {}, ended);
+  if (ended()) return gid;   // read again, its gallery ended since: nothing more for it
   // Its overlay describes it again, in due course, when a page's source picture isn't the one it recorded
   // (what was made from it dropped, or recorded before content signals were), or its description carries a
   // favorite (an earlier version's: no description does now). One merely joined is described at its first
@@ -387,6 +396,10 @@ export async function linkRoot(library, root, { files = [], own = [], archives =
   const lf = library.files;
   const kept = library._s('SELECT gid, path, source FROM files WHERE source IS NOT NULL').all()
     .filter(r => lf._split(r.path).root === root).map(r => ({ gid: r.gid, source: lf.sourceOf(r) })).filter(k => k.source);
+  // A gallery kept here is compared and read again only while it is still the one read here now (files.js life):
+  // never one deleted meanwhile, nor a gallery made again under its id (S34).
+  const lives = new Map(kept.map(k => [k.gid, lf.life(k.gid)]));
+  const gone = (gid) => !lf.still(lives.get(gid));
   const keptAt = new Set(kept.map(k => L.sourceKey(k.source)));
   const planned = L.planTitles(files, path.basename(library.rootDir(root)), own).filter(t => t.kind !== 'zip');
   let step = 'lf.task_checking', total = planned.length + archives.length, done = 0;
@@ -446,7 +459,7 @@ export async function linkRoot(library, root, { files = [], own = [], archives =
   const keptSource = new Map(kept.map(k => [k.gid, k.source]));
   for (const s of plan.same) {
     const was = keptSource.get(s.gid);
-    if (was && was.content == null && s.title.content) library._s('UPDATE files SET source = ? WHERE gid = ?').run(JSON.stringify({ ...was, content: s.title.content }), s.gid);
+    if (was && was.content == null && s.title.content && !gone(s.gid)) library._s('UPDATE files SET source = ? WHERE gid = ?').run(JSON.stringify({ ...was, content: s.title.content }), s.gid);
   }
   const failed = (title, e) => problems.push({ path: title.path, reason: ['outside', 'unreadable'].includes(e?.reason) ? e.reason : e?.syscall ? 'unreadable' : 'adopt-failed' });
   const link = async (title, gid) => {
@@ -467,9 +480,9 @@ export async function linkRoot(library, root, { files = [], own = [], archives =
       // What the library changed of it and hasn't written yet is published first: read again, it keeps
       // those changes, and only what was made from a picture that changed goes (S8: a source changed in
       // place while a change waited kept a translation of its old picture over the new one).
-      if (localChanges(library, c.gid)) await library.files.place(c.gid).then(() => library.files.describe(c.gid)).catch(() => {});
-      if (await adoptLinked(library, root, c.title, { replace: c.gid, guard: () => localChanges(library, c.gid), at: atOf(c.title) })) out.updated.push(c.gid);
-    } catch (e) { failed(c.title, e); }
+      if (!gone(c.gid) && localChanges(library, c.gid)) await library.files.place(c.gid).then(() => library.files.describe(c.gid)).catch(() => {});
+      if (!gone(c.gid) && await adoptLinked(library, root, c.title, { replace: c.gid, life: lives.get(c.gid), guard: () => localChanges(library, c.gid), at: atOf(c.title) })) out.updated.push(c.gid);
+    } catch (e) { if (!gone(c.gid)) failed(c.title, e); }
     done++;
     say();
   }
@@ -571,8 +584,10 @@ export async function addRendered(library, root, gid, pages, token) {
   // nothing: the pages there, and what was made from them, stand.
   if (library.files._row(gid) && over.source.rendered?.fingerprint === token) return String(gid);
   if (library.files._row(gid)) {
+    const life = library.files.life(gid);   // the gallery drawn again: nothing of the drawing for another of its id (S34)
     let at = null;
-    await redrawn(library, String(gid), pages, async () => { ({ at } = await drawnAt(library, root, gid, token)); });
+    await redrawn(library, String(gid), pages, async () => { ({ at } = await drawnAt(library, root, gid, token)); }, life);
+    if (!library.files.still(life)) throw new BackendError('not-found', `gallery ${gid} is gone`);
     await overlayFor(library, root, over.source, gid, at, { rendered, failed: null });
     library.publishFeed(String(gid));
     return String(gid);
@@ -608,9 +623,11 @@ export async function addRendered(library, root, gid, pages, token) {
 // it commits, what was made from them dropped with them (each page shows another picture now: library.js
 // _pageDrop) — and the new ones put in its overlay as it settles (files.js), the old files going then.
 // `still()`: rejects when the drawing is no longer for the file as it is (drawnAt), asked once they are
-// staged, before the commit: the staged pages are then let go, and nothing is replaced.
-async function redrawn(library, gid, pages, still) {
+// staged, before the commit: the staged pages are then let go, and nothing is replaced — as when the gallery
+// (`life`: files.js) is no longer the id's.
+async function redrawn(library, gid, pages, still, life) {
   const staged = [];
+  const letGo = async () => { for (const p of staged) await disk.rm(library._staged(p.orig.file), { force: true }).catch(() => {}); };
   try {
     for (const [i, blob] of pages.entries()) {
       const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -619,12 +636,15 @@ async function redrawn(library, gid, pages, still) {
     }
     await still();
   } catch (e) {
-    for (const p of staged) await disk.rm(library._staged(p.orig.file), { force: true }).catch(() => {});
+    await letGo();
     throw e;
   }
   const now = Date.now();
+  if (!library.files._row(gid) || !library.files.still(life)) {
+    await letGo();
+    throw new BackendError('not-found', `gallery ${gid} is gone`);
+  }
   library._tx(() => {
-    if (!library.files._row(gid)) throw new BackendError('not-found', `gallery ${gid} is gone`);
     for (const row of library._pageRows(gid)) library._pageDrop(row);
     for (const p of staged) {
       const key = `local://${gid}/${p.n}.${layout.extOfType(p.type) || 'webp'}`;
@@ -634,6 +654,7 @@ async function redrawn(library, gid, pages, still) {
     library._logIn(gid);
   });
   await library.rebuildGalleryEntry(gid, { silent: true });
+  if (!library.files.still(life)) return;
   library._push('control', { type: 'COVER_INVALIDATED', galleryId: gid });
   library.files.describeLater(gid);
   await library.files.settle(gid);

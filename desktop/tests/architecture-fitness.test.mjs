@@ -160,7 +160,7 @@ test('no code outside the folder store adapter turns a failed read of a library 
     ['files.js', 'const foreign = new Set(await this._foreignIn(file, dir).catch(() => [...dir.keys()]));',
       'an archive whose own manifest can\'t be read now keeps every entry as the person\'s: nothing is dropped from it (principle 4)'],
     ['files.js', 'const stat = disk.statSync(path.join(dir, ...name.split(\'/\')), { throwIfNoEntry: false });', ARCHIVING],
-    ['files.js', 'const made = await this._archiveEntries(id, dir, archiveFormat).catch(() => null);', ARCHIVING],
+    ['files.js', 'const made = await this._archiveEntries(id, dir, archiveFormat, life).catch(() => null);', ARCHIVING],
     ['files.js', 'const held = await holdsFile(abs).catch(() => null);',
       'a retirement whose folder can\'t be listed now keeps its rows, tried again at the next sweep (it ends once the folder can be listed, or with the folder\'s removal)'],
     ['folders.js', 'const there = !b.files || disk.existsSync(lib.files._abs(b.files.path));', 'galleries an unreleased build set aside (§8, review 4 O5)'],

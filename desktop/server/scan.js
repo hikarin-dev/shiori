@@ -255,8 +255,18 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
     else out.problems.push({ path: '', reason: opened.status === 'other-library' ? 'other-library' : 'unreachable' });
   }
   const checked = new Set(reachable);
-  const known = library._s('SELECT * FROM files').all().filter(r => checked.has(files._split(r.path).root));
+  const rows = library._s('SELECT * FROM files').all().filter(r => checked.has(files._split(r.path).root));
+  // A folder claimed for a gallery the library hasn't (files.js stray: what v1.3.0 could leave, review 11 A5) is let go
+  // as a deletion lets one go — deleted by name below, one holding anything else left and reported.
+  const strays = handover ? [] : rows.filter(r => files.stray(r));
+  if (strays.length) library._tx(() => { for (const r of strays) files.deleteIn(r.gid, { refuse: false }); });
+  const known = rows.filter(r => !strays.includes(r));
   const byPath = new Map(known.map(r => [r.path, r]));
+  // A row the check read at its start is compared, followed or read again only while it is still the one it read —
+  // its gallery's (files.js life: not one deleted meanwhile, nor a later gallery of the id), at the place it read —
+  // never a gallery made again under the id from its predecessor's folder (S34, review 11 A3).
+  const lives = new Map(known.map(r => [r.gid, files.life(r.gid)]));
+  const current = (row) => !!lives.get(row.gid) && files.still(lives.get(row.gid)) && files._row(row.gid)?.path === row.path;
 
   // Leftovers of interrupted writes, and galleries' folders a deletion let go, in the folders the
   // library may write to. Those still waiting to be deleted aren't looked into (`skip`): never adopted
@@ -419,6 +429,7 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   };
   library._tx(() => {
     for (const row of known) {
+      if (!current(row)) continue;
       const beside = byId.get(row.gid);
       if (present.has(row.gid) && row.format !== 'folder' && !row.source && beside?.format === 'folder' && beside.over && overAt.get(row.gid) === beside.rel) {
         unpackedTo(row, beside, !keepArchive.has(row.gid));   // the folder its archiving let go, published into since (S32, review 9 A3)
@@ -469,8 +480,10 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
       const d = unfound.get(id);
       met.add(d.dir);
       await files.deletedFound(d, g.rel, null, g.format === 'folder');
-    } else if (g.read && row && !row.source && (!checked.has(files._split(row.path).root) || present.has(id)) && !joined.has(id)
+    } else if (g.read && row && !row.source && row.path !== g.rel && (!checked.has(files._split(row.path).root) || present.has(id)) && !joined.has(id)
       && !library._s('SELECT 1 FROM retiring WHERE dir = ? LIMIT 1').get(g.rel)) {
+      // (Not its own place — a gallery made again under the id during the check, at a place the check didn't read
+      // at its start: S34.)
       out.problems.push({ path: g.inRoot, reason: 'duplicate', gid: id });
     }
   }
@@ -549,9 +562,9 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   for (const row of kept) {
     if (stopped()) { out.stopped = true; break; }
     try {
-      if (files._legacy(row.gid) && !handover) await files.toFormat(row.gid);
-      if (await refreshGallery(library, row, { handover, stopped })) { out.updated.push(row.gid); changed.add(row.gid); }
-    } catch (e) { out.problems.push({ path: files._split(row.path).rest, reason: unreadable(e) }); }
+      if (current(row) && files._legacy(row.gid) && !handover) await files.toFormat(row.gid);
+      if (current(row) && await refreshGallery(library, row, { handover, stopped, current })) { out.updated.push(row.gid); changed.add(row.gid); }
+    } catch (e) { if (current(row)) out.problems.push({ path: files._split(row.path).rest, reason: unreadable(e) }); }
     tick();
     if (done % CHUNK === 0) await breathe();
   }
@@ -627,17 +640,19 @@ async function tokenAt(library, abs, rowFormat, gid) {
 // its files can't be read (F06), is damaged (T08) or misses a file it names (T09). One busy now (a settle,
 // a publication, a write of it under way) is weighed at its next look — but a hand-over's read (`handover`,
 // S32) waits for that to end and reads it: no gallery of a folder that came back is passed over (review 9 B2) —
-// unless the check is stopped meanwhile (`stopped()`: it ends there, S33).
-async function refreshGallery(library, row, { handover = false, stopped = () => false } = {}) {
+// unless the check is stopped meanwhile (`stopped()`: it ends there, S33). `current(row)`: whether the row is still
+// the one the check read (scanLibrary): after every await, nothing more is done once it isn't.
+async function refreshGallery(library, row, { handover = false, stopped = () => false, current = () => true } = {}) {
   const files = library.files;
   const gid = row.gid;
   const busy = () => files._placing.has(gid) || files._describing.has(gid) || files._writing.has(gid);
   for (let waited = 0; handover && busy() && !stopped() && waited < BUSY_WAIT_MS; waited += 20) await new Promise((r) => setTimeout(r, 20));
+  if (!current(row)) return false;
   if (busy() && handover && !stopped()) throw Object.assign(new Error(`${row.path}: still busy`), { reason: 'unreadable' });   // reported, never passed over
   if (busy()) return false;
   const abs = files._abs(row.path);
   const at = await tokenAt(library, abs, row.format, gid);
-  if (at.id !== gid) return false;
+  if (at.id !== gid || !current(row)) return false;
   const had = library._s('SELECT stamp FROM stamps WHERE gid = ?').get(gid)?.stamp;
   if (at.token === had) return false;
   if (!had && at.texts && descriptionStampOf(files._descriptions(gid)) === at.token) {
@@ -647,12 +662,14 @@ async function refreshGallery(library, row, { handover = false, stopped = () => 
   if (localChanges(library, gid)) {
     if (!waiting(library, gid)) return false;   // under way for it now: weighed at its next look
     const held = await files.hold(gid);
+    if (!current(row)) return false;
     if (held.damaged) throw Object.assign(new Error(`${row.path}: the publication there is damaged`), { reason: held.damaged });
     return library._s('SELECT stamp FROM stamps WHERE gid = ?').get(gid)?.stamp !== had;
   }
   const src = files.sourceOf(row);
-  const again = src ? !!await adoptLinked(library, files._split(row.path).root, src, { replace: gid, guard: () => localChanges(library, gid) })
-    : await reread(library, row, { guard: () => localChanges(library, gid), manifest: !at.texts });
+  const guard = () => !current(row) || localChanges(library, gid);
+  const again = src ? !!await adoptLinked(library, files._split(row.path).root, src, { replace: gid, guard })
+    : await reread(library, row, { guard, manifest: !at.texts });
   if (again) noteReplaced(library, gid, had);
   return again;
 }
@@ -732,6 +749,7 @@ function entryIn(library, gid, g) {
 export async function folderStands(library, gid) {
   const files = library.files;
   const id = String(gid);
+  const life = files.life(id);
   const row = files._row(id);
   if (!row) return false;
   const { root, rest } = files._split(row.path);
@@ -743,14 +761,17 @@ export async function folderStands(library, gid) {
   // with its own — a command is weighed as one, never one gallery's part published and another's dropped (S32,
   // review 9 B1).
   const others = drop ? files.groupWaiting(id) : [];
-  const stood = src ? !!await adoptLinked(library, root, src, { replace: id, guard: drop ? () => false : waits })
-    : await reread(library, row, drop ? { drop: true } : { guard: waits, manifest: true });
-  if (!stood) return false;
+  // Only the gallery whose place this is, as it read it (files.js life): never a later one of the id.
+  const gone = () => !files.still(life) || files._row(id)?.path !== row.path;
+  const guard = drop ? gone : () => gone() || waits();
+  const stood = src ? !!await adoptLinked(library, root, src, { replace: id, life, guard })
+    : await reread(library, row, drop ? { drop: true, guard } : { guard, manifest: true });
+  if (!stood || !files.still(life)) return false;
   if (src && drop) library.folders.note(root, { reason: 'changed-both', path: rest, gid: id }, { event: true });
   if (!drop) noteReplaced(library, id, was);
   if (drop) library._tx(() => files._ungroup(id));
   for (const m of others) await folderStands(library, m).catch(() => false);
-  if (drop) await files._letGo(id).catch(() => {});
+  if (drop) await files._letGo(id, undefined, null, life).catch(() => {});
   return true;
 }
 // Whether something of gallery `gid` waits here for its folder or archive — a change not published there, an
@@ -792,11 +813,13 @@ function followTo(library, row, g, { left = false } = {}) {
 // now (rejects when it can't be read now: tried again later).
 export async function followUnpacked(library, gid, rel) {
   const files = library.files;
+  const life = files.life(gid);
   const row = files._row(gid);
   const { root, rest } = files._split(rel);
   if (!row || row.format === 'folder' || row.source) return false;
   const g = { rel, root, inRoot: rest, abs: files._abs(rel), format: 'folder', layout: true };
   g.read = await readGallery(g);
+  if (!files.still(life)) return false;
   const had = library._s('SELECT stamp FROM stamps WHERE gid = ?').get(gid)?.stamp;
   if (g.read.kind !== 'gallery' || String(g.read.described?.id) !== String(gid) || !format.supersedes(g.read.token, had)) return false;
   library.asFolderWork(root, () => library._tx(() => { if (files._row(gid)?.path === row.path) followTo(library, row, g, { left: true }); }));

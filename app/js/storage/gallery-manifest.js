@@ -568,10 +568,15 @@ export function foreignEntries(entries, manifest, { met = false } = {}) {
  * the gallery's descriptions as Shiori writes them, which its deletion takes: one stored by content
  * whose content matches its name; its manifest, naming it; an overlay's source.json, naming it; a
  * metadata.json, or an earlier version's shiori.json, naming it; another description under its usual
- * name, of its shape. Anything else at those names isn't known to be Shiori's, and is left.
- * @param {string} path @param {string} text @param {string} galleryId @param {string} area @returns {Promise<boolean>} */
-export async function isOwnDescription(path, text, galleryId, area) {
+ * name, of its shape — or one the folder's manifest (`manifest`, as read there) names, whatever it says, as long as
+ * it is the very text the manifest stored for it (D24's copy beside the manifest: a gallery with no metadata had
+ * "null" there, S34). Anything else at those names isn't known to be Shiori's, and is left.
+ * @param {string} path @param {string} text @param {string} galleryId @param {string} area
+ * @param {Manifest | null} [manifest] @returns {Promise<boolean>} */
+export async function isOwnDescription(path, text, galleryId, area, manifest = null) {
   if (storedHash(path) != null) return matches(path, text);
+  const stored = manifest?.descriptions?.[path];
+  if (stored && await matches(stored, text)) return true;
   if (path === manifestPath(area)) return parseManifest(text, { galleryId }).kind === 'ok';
   if (path === SOURCE_FILE && area === '') return parseSource(text)?.galleryId === String(galleryId);
   if (path === 'metadata.json' || path === LEGACY_FILE) {

@@ -1263,7 +1263,7 @@ const OPEN = {
   edits: { todo: {}, commands: [movedByHand, checkB, moveTo] },
   links: { todo: {}, commands: [linkPart] },
   // S34 (review 11): a gallery deleted and made again under its id at once (madeAgain).
-  again: { todo: { desktop: 'S34' }, commands: [madeAgain] },
+  again: { todo: {}, commands: [madeAgain] },
 };
 
 // What each long run found and S8 fixed, replayed as it was found (fast-check's counterexample, its
@@ -1361,6 +1361,13 @@ const REGRESSIONS = [
     steps: [['newGallery', 1], ['newGallery', 2], ['copyA', null], ['setTitle', 0], ['putTranslation', [1, 0, false]], ['flush', null], ['putBack', null], ['setTitle', 1], ['flush', null], ['handOver', null], ['setTitle', 0], ['handOver', null]] })),
   ...['desktop', 'website'].map(app => ({ app, name: 'a translation put after a check read a changed source stays: the check made as a ZIP is linked counts',
     steps: [['link', null], ['changeEntry', [0, 1]], ['link', null], ['putTranslation', [0, 1, false]], ['scan', null]] })),
+  // S34 (review 11): a gallery deleted and made again under its id at once while work for it is under way — a
+  // translation of it being stored (desktop seed 1 on v1.3.0: the deleted one's translation landed on the new one's
+  // page; 3 of 3 replays there), a change of it being published, a page of it being settled (both held on v1.3.0 in
+  // these replays: kept as guards).
+  ...['desktop', 'website'].flatMap(app => [['translation', 0], ['title', 0], ['page', 1]].map(([what, ms]) => ({ app,
+    name: `S34: a gallery deleted and made again under its id as a ${what} of it is under way holds what it was given`,
+    steps: [['newGallery', 2], ['madeAgain', [0, what, ms]], ['setTitle', 0], ['flush', null]] }))),
   // S10's situations (the review's F1–F6), each replayed as the commands reach it, on every app it
   // concerns (`both`: the other app's library there too, for the hand-over).
   ...['desktop', 'website'].flatMap(app => [

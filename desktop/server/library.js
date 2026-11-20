@@ -503,14 +503,18 @@ export class Library {
   // write it is for not commit. A gallery kept in an archive in the gallery format, or whose folder
   // can't be written to now, has it staged instead ({ ref, temp, staged, gid, rel }), to be added to its
   // archive or moved into its folder when it settles (files.js). `meta`: the gallery's metadata when it
-  // isn't stored yet.
-  async _writeOwn(gid, rel, blob, meta) {
+  // isn't stored yet; `life`, the gallery the write is for (files.js life), by default the id's as it begins.
+  async _writeOwn(gid, rel, blob, meta, life = this.files.life(gid)) {
     const staged = await this.files.stageOwn(gid, rel, blob);
+    if (staged && !this.files.still(life)) {
+      await disk.rm(this._staged(staged), { force: true }).catch(() => {});
+      throw new BackendError('aborted', `gallery ${gid} was deleted meanwhile`);
+    }
     if (staged) {
       const name = this.files.stagedName(gid, rel);
       return { ref: { $own: name, size: blob.size, type: blob.type || '' }, temp: this._staged(staged), staged, gid: String(gid), rel: name };
     }
-    const dir = await this.files.home(gid, meta);
+    const dir = await this.files.home(gid, meta, life);
     const [, slot, ext] = /^(.*)\.([^./]+)$/.exec(rel);
     const made = await writeNewIn(dir, slot, ext, new Uint8Array(await blob.arrayBuffer()));
     this.writes.add('pictures', made.size);
@@ -534,12 +538,12 @@ export class Library {
   // (`fresh` the files written, deleted again should the write they were for fail). With `own`, the
   // Blobs are the gallery's own and go into its folder instead, each where `place(keys, blob)` says
   // (keys: its path in `value`), noted with the gallery as it is recorded (`moves`, _commitOwn).
-  async _externalize(value, gid, label, { own = false, meta, place } = {}) {
+  async _externalize(value, gid, label, { own = false, meta, place, life } = {}) {
     const fresh = [], moves = [];
     const walk = async (v, keys) => {
       if (v instanceof Blob) {
         if (own) {
-          const made = await this._writeOwn(gid, place(keys, v), v, meta);
+          const made = await this._writeOwn(gid, place(keys, v), v, meta, life);
           fresh.push(made.temp);
           moves.push(made);
           return made.ref;
@@ -1641,13 +1645,14 @@ export class Library {
   // Page `n` of a gallery, under `key` (which must carry that number) or `local://<gid>/<n>.<type>`.
   async pagePut(galleryId, pageNum, image, { key, mediaId, meta } = {}) {
     const gid = String(galleryId);
+    const life = this.files.life(gid);
     const n = pageNum == null && key != null ? keyPage(key) : Number(pageNum);
     if (!Number.isSafeInteger(n) || n < 1) throw new BackendError('invalid', `not a page number: ${pageNum ?? key}`);
     const blob = await imageToBlob(image);
     if (!blob) throw new BackendError('invalid', 'no image');
     const url = key ?? `local://${gid}/${n}.${EXT_OF_TYPE[blob.type] || 'jpg'}`;
     if (keyPage(url) !== n) throw new BackendError('invalid', `key ${url} is not page ${n}`);
-    await this._dbPut(url, blob, mediaId ?? gid, gid, meta ? { meta } : {});
+    await this._dbPut(url, blob, mediaId ?? gid, gid, { ...(meta ? { meta } : {}), life });
     return n;
   }
 
@@ -1657,12 +1662,15 @@ export class Library {
     const gid = String(galleryId || mediaId);
     const meta = opts.meta ? canonicalMeta({ ...opts.meta, galleryId: gid }) : null;
     const n = keyPage(url);
+    // The gallery it is for (files.js life): a page put as its gallery is deleted goes to none made again since (S34).
+    const life = opts.life ?? this.files.life(gid);
     const bytes = new Uint8Array(await blob.arrayBuffer());
     const size = bytes.length, type = blob.type || '', cachedAt = Date.now();
     const dims = measure(bytes);
     const orig = await this._stage(gid, n, bytes, type);
     let coverChanged = false, aggParent = null, aggSelf = null, movedFrom = null, aggMovedParent = null;
     this._tx(() => {
+      if (!this.files.still(life)) throw new BackendError('aborted', `gallery ${gid} was deleted while its page ${n} was stored`);
       if (meta) this._metaPutRaw(meta);
       const prev = this._pageRowByKey(url);
       const sameGallery = !!prev && prev.gid === gid;
@@ -1737,25 +1745,33 @@ export class Library {
   // A page record changed by `change(rec, stored, row)` (true when it changed it), with `value`'s Blobs
   // written to the gallery's folder first — once `ready(row)` (its row as it is) says to write at all.
   // Resolves whether the page was there and changed.
+  // The page's gallery is the one it began for (files.js life): one deleted meanwhile takes nothing, nor does a
+  // gallery made again under its id since — and its folder is deleted only once what was written for it is gone
+  // again (files.js ownWrite).
   async _derive(at, value, change, { size = true, ready = () => true } = {}) {
     const found = this._pageAt(at);
     if (!found || !ready(found)) return false;
-    const { value: stored, fresh, moves } = await this._externalize(value, found.gid, `p${found.n}`,
-      { own: true, place: (keys, blob) => pageFileFor(keys, found.n, blob.type) });
-    let changed = false;
-    this._tx(() => {
-      const row = this._pageAt(at);
-      if (!row || row.gid !== found.gid || row.n !== found.n) return;   // gone, or moved meanwhile
-      const rec = this._rowRecord(row);
-      if (change(rec, stored, row) === false) return;
-      this._pageRewrite(row, rec);
-      this._logIn(row.gid);
-      this._commitOwn(moves);
-      changed = row.gid;
-    }, fresh);
-    if (!changed) { for (const file of fresh) disk.rm(file, { force: true }).catch(() => {}); return false; }
-    if (size) this.scheduleGallerySize(changed);
-    return true;
+    const life = this.files.life(found.gid);
+    return this.files.ownWrite(found.gid, (async () => {
+      const made = await this._externalize(value, found.gid, `p${found.n}`, { own: true, life, place: (keys, blob) => pageFileFor(keys, found.n, blob.type) })
+        .catch((e) => { if (this.files.still(life)) throw e; return null; });   // its gallery deleted meanwhile: nothing changed
+      if (!made) return false;
+      const { value: stored, fresh, moves } = made;
+      let changed = false;
+      this._tx(() => {
+        const row = this._pageAt(at);
+        if (!row || row.gid !== found.gid || row.n !== found.n || !this.files.still(life)) return;   // gone, or moved meanwhile
+        const rec = this._rowRecord(row);
+        if (change(rec, stored, row) === false) return;
+        this._pageRewrite(row, rec);
+        this._logIn(row.gid);
+        this._commitOwn(moves);
+        changed = row.gid;
+      }, fresh);
+      if (!changed) { await Promise.all(fresh.map(file => disk.rm(file, { force: true }).catch(() => {}))); return false; }
+      if (size) this.scheduleGallerySize(changed);
+      return true;
+    })());
   }
 
   // `source`: the page's source token the translation was made from (pageSources); one the page no

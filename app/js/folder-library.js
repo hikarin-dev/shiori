@@ -549,7 +549,7 @@ async function _dropRecords(folder) {
       const tx = K.tx(db, [S.STORE, S.META, S.GALLERY, S.COVER, S.BLOB], 'readwrite');
       tx._keepFiles = true;
       tx._work = { kind: 'forget', folder };
-      tx.oncomplete = () => resolve();
+      tx.oncomplete = () => { for (const [gid] of gone) K.ended(gid); resolve(); };   // a gallery joined again under its id is another (db.js _life)
       tx.onerror = () => reject(K.txError(tx));
       for (const gid of gids.slice(at, at + 50)) K.deleteIn(tx, gid, (meta) => gone.push([gid, meta]));
     });
@@ -742,8 +742,11 @@ async function _checkOnce(id, folder, { onProgress = () => {}, stopped = () => f
     if ((await K.access(id)).state === 'other-library') throw Object.assign(new BackendError('unavailable', `another library folder is at library folder ${id}'s place`), { reason: 'other-library' });
     throw new BackendError('unavailable', `library folder ${id} can't be reached`);
   }
+  // The galleries kept here, as read now: each compared and read again only while it is still that gallery (db.js
+  // _life) — never one deleted meanwhile, nor a gallery made again under its id (S34).
+  const began = K.life('*');
   const run = { id, root, name: folder.name || '', stopped, known: new Set(await K.transferIds()), marked: await K.marked(), added: [], updated: new Set(),
-    problems: [], unreferenced: [], followed: false, handover, joined };
+    problems: [], unreferenced: [], followed: false, handover, joined, life: (gid) => ({ ...began, gid: String(gid) }) };
   const kept = (await _placedIn(id)).filter(g => g.dir);
   const step = _steps(run, onProgress);
 
@@ -1151,10 +1154,12 @@ const _entriesOf = (records) => new Map((Array.isArray(records) ? records : []).
 // they lie — an archive's as its entries (`packed`: it stays an archive until its first change unpacks
 // it). Its page numbers are its pictures' (sparse ones kept) and its records its description's.
 // `replace`: a gallery the library keeps, read again from there; `read`, what was read of it there just
-// now; `drop`, what waits of it here dropped for that (_storeAdopted). Resolves its id, or null when there
-// is nothing to read (or it wasn't read again: _storeAdopted).
-async function _adopt(run, found, { replace = null, read = null, drop = false, manifest = false } = {}) {
+// now; `drop`, what waits of it here dropped for that (_storeAdopted); `life`, the gallery it is (db.js _life:
+// nothing is read again once that one has ended). Resolves its id, or null when there is nothing to read (or it
+// wasn't read again: _storeAdopted).
+async function _adopt(run, found, { replace = null, read = null, drop = false, manifest = false, life = null } = {}) {
   read ??= await _readFormat(run.id, run.root, found);
+  if (life && !K.still(life)) return null;
   const gid = replace || found.id;
   const dropping = (drop || manifest) && _droppedFor(read, found.path);
   if (galleryIdOf(read.texts['metadata.json']) !== gid) return null;   // described as another gallery now
@@ -1167,7 +1172,7 @@ async function _adopt(run, found, { replace = null, read = null, drop = false, m
       cachedAt: entry?.cachedAt || now, size: read.files.get(path).size, ...derivedRecord(read.pictures, read.bubbles, n, entry, read.ref) } };
   });
   return _storeAdopted({ folder: run.id, dir: found.path, gid, record: { ...read.meta, galleryId: gid }, pages, ownCover: _ownCovers(read),
-    stamp: read.token, replace, drop: drop && dropping, extra: found.kind === 'zip' ? { packed: { inner: found.inner || '' } } : {} });
+    stamp: read.token, replace, drop: drop && dropping, life, extra: found.kind === 'zip' ? { packed: { inner: found.inner || '' } } : {} });
 }
 // What a drop rests on (_storeAdopted `drop`) — and a re-read that a manifest's token asked for
 // (`manifest`: _catchUp): the folder's version as its manifest (format v2) names it, `{ files }` — never
@@ -1190,8 +1195,9 @@ function _droppedFor(read, at) {
 // pictures in this browser — and the files of its own its records named in its folder that the folder's
 // records don't (written here, never published) retire, deleted by its next publication while each is
 // as written (db.js _retireIn); the case is reported once ('changed-both', noted in that transaction:
-// a kill after it never loses the report). Resolves its id, or null when it wasn't read again.
-async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, stamp = null, replace = null, drop = false, stale = false, extra = {} }) {
+// a kill after it never loses the report). `life`: the gallery read again (db.js _life), only while it is still
+// the id's. Resolves its id, or null when it wasn't read again.
+async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, stamp = null, replace = null, drop = false, stale = false, life = null, extra = {} }) {
   const now = Date.now();
   const db = await K.openDB();
   const S = K.stores;
@@ -1223,11 +1229,18 @@ async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, s
       }
       K.logIn(tx, gid, { mark: stale || personal });   // its folder describes it as read — unless `stale`: to be published again
     };
-    if (!replace) { put(); return; }
+    if (!replace) {
+      // A gallery made under its id since the check knew the folder's galleries is another: never joined over (S34).
+      const stat = tx.objectStore(S.GALLERY).get(gid), meta = tx.objectStore(S.META).get(gid);
+      meta.onsuccess = () => { if (stat.result || meta.result) { waits = true; tx.abort(); return; } put(); };
+      return;
+    }
     tx._keepFiles = true;
     const mark = tx.objectStore(S.UNDESCRIBED).get(gid);
     const stat = tx.objectStore(S.GALLERY).get(gid);
     stat.onsuccess = () => {
+      // Only the gallery kept at the place it was read from: never one made again under its id since (S34).
+      if ((life && !K.still(life)) || stat.result?.folder !== folder || stat.result?.dir !== dir) { waits = true; tx.abort(); return; }
       if (mark.result || stat.result?.spilled) {
         if (!drop) { waits = true; tx.abort(); return; }
         K.retireIn(tx, folder, dir, leaving);
@@ -1275,9 +1288,11 @@ async function _leftHere(gid, folder, dir, pages, ownCover, drop) {
 // is reported ('conflict') and never read as it. Resolves whether its folder is its own now.
 async function _catchUp(run, stat) {
   const gid = String(stat.galleryId);
+  const life = run.life(gid), gone = () => !K.still(life);   // `stat`'s gallery deleted since, or another made under its id
   if (run.updated.has(gid)) return false;   // followed or read again by this check: `stat` is its place before
   if (!stat.packed) {
     const whose = await folderFiles.galleryIn(run.id, run.root, stat.dir, gid);
+    if (gone()) return false;
     if (whose.kind === 'conflict') run.problems.push({ path: stat.dir, reason: 'conflict', gid });
     if (whose.kind === 'unreadable') run.problems.push({ path: stat.dir, reason: 'unreadable' });
     if (whose.kind !== 'ok') return false;
@@ -1286,23 +1301,31 @@ async function _catchUp(run, stat) {
   if (K.busy(gid) && !run.handover) return true;
   const where = stat.packed ? { kind: 'zip', path: stat.dir, inner: stat.packed.inner || '', id: gid } : { kind: 'dir', path: stat.dir, id: gid };
   let at;
-  try { at = await _tokenAt(run, where, gid); } catch (e) { run.problems.push({ path: stat.dir, reason: e?.reason === 'corrupt' ? 'corrupt' : 'unreadable' }); return true; }
+  try { at = await _tokenAt(run, where, gid); } catch (e) {
+    if (gone()) return false;
+    run.problems.push({ path: stat.dir, reason: e?.reason === 'corrupt' ? 'corrupt' : 'unreadable' });
+    return true;
+  }
+  if (gone()) return false;
   if (at.id !== gid || at.token === stat.stamp) return true;
   if (!stat.stamp && at.texts) {
     const mine = await K.wantedDescriptions(gid);
-    if (mine && descriptionStamp(K.textsOf(mine.wanted)) === at.token) { await K.patchStat(gid, (cur) => ({ ...cur, stamp: at.token })); return true; }
+    if (gone()) return false;
+    if (mine && descriptionStamp(K.textsOf(mine.wanted)) === at.token) { await K.patchStat(gid, (cur) => (K.still(life) ? { ...cur, stamp: at.token } : cur)); return true; }
   }
   if (!!stat.spilled || run.marked.has(gid)) {
     const held = await K.hold(gid);
+    if (gone()) return false;
     if (held.kind === 'unreadable' || held.damaged) run.problems.push({ path: stat.dir, reason: held.damaged ?? 'unreadable' });
     if ((await K.galleryGet(gid))?.stamp !== stat.stamp) run.updated.add(gid);
     return true;
   }
   try {
-    const again = stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid }) : await _adopt(run, where, { replace: gid, manifest: !at.texts });
+    const again = stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, life }) : await _adopt(run, where, { replace: gid, manifest: !at.texts, life });
+    if (gone()) return false;
     if (again) { run.updated.add(gid); await _noteReplaced(stat, gid); }
-  } catch (e) { run.problems.push({ path: stat.dir, reason: _failure(e) }); }
-  return true;
+  } catch (e) { if (!gone()) run.problems.push({ path: stat.dir, reason: _failure(e) }); }
+  return !gone();
 }
 // Gallery `gid` read again from its folder: where its stamp before (`was`, its stat record then) was this library's own
 // publication, and the one read now another writer's at that generation or an earlier one (gallery-manifest.js
@@ -1320,6 +1343,7 @@ async function _noteReplaced(was, gid) {
 // done; rejects, nothing changed, when its place can't be read whole now (weighed again at the next
 // publication or check) — `reason` 'corrupt' or 'missing-file' where that publication is damaged.
 async function folderStands(gid) {
+  const life = K.life(gid);   // the gallery it is for (S34)
   const stat = await K.galleryGet(gid);
   const root = stat?.folder && stat.dir ? await K.readRootOf(stat.folder) : null;   // read where it lies (its own work's write, the adoption, is the library's)
   if (!root) return false;
@@ -1328,7 +1352,7 @@ async function folderStands(gid) {
   const drop = !!stat.spilled || (await K.marked()).has(String(gid));
   // What its series command changed of others, still waiting, dropped with it (review 9 B1).
   const others = drop ? await K.groupWaiting(gid) : [];
-  const stood = !!(stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, drop }) : await _adopt(run, where, { replace: gid, drop, manifest: true }));
+  const stood = !!(stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, drop, life }) : await _adopt(run, where, { replace: gid, drop, manifest: true, life }));
   if (stood) for (const m of others) await folderStands(m).catch(() => false);
   if (stood && !drop) await _noteReplaced(stat, gid);
   return stood;
@@ -1525,30 +1549,34 @@ async function _link(run, title, gid) {
 // notes the file as it is now, so its pages are drawn again (pdfsWaiting) — the gallery keeping the old
 // ones meanwhile (F10).
 async function _relink(run, title, gid) {
+  const life = run.life(gid), gone = () => !K.still(life);   // its gallery deleted since the check read it, or another made under its id
   try {
     // What the library changed of it and hasn't published yet is published first: read again, it keeps
     // those changes, and only what was made from a picture that changed goes (S8: a source changed in
     // place while a change waited kept a translation of its old picture over the new one).
+    if (gone()) return;
     if (run.marked.has(gid)) await K.describe(gid).catch(() => {});
     if (title.kind === 'pdf') {
       const over = await _overlayOf(run.id, run.root, gid);
+      if (gone()) return;
       if (over && over.source.fingerprint !== title.fingerprint) await _overlayFor(run, title, gid);
       if (!over || over.source.fingerprint !== title.fingerprint || !pdfReady(over.source, over.images)) return;
     }
-    if (await _adoptLinked(run, title, { replace: gid })) run.updated.add(gid);
-  } catch (e) { run.problems.push({ path: title.path, reason: _failure(e) }); }
+    if (await _adoptLinked(run, title, { replace: gid, life })) run.updated.add(gid);
+  } catch (e) { if (!gone()) run.problems.push({ path: title.path, reason: _failure(e) }); }
 }
 
 // Title `title`'s overlay, made as gallery `gid`'s: its source.json written as `title` is now (`at`:
 // its pictures read, else `title`'s own) — a PDF's markers kept, each saying the version of the file it
 // is for (its pages drawn from, or drawing them failed: pdfWaits). One that can't be read is never
 // written over: the error is thrown (F06); nor is one naming another gallery (principle 2: reason
-// 'conflict'). Resolves { dir: the overlay's folder, was: the source its source.json named before (null:
-// none) }.
-async function _overlayFor(run, title, gid, at = null) {
+// 'conflict'). Nothing is written once `ended()` (its gallery ended as it was read: _adoptLinked). Resolves { dir:
+// the overlay's folder, was: the source its source.json named before (null: none) }.
+async function _overlayFor(run, title, gid, at = null, ended = () => false) {
   const dir = overlayDir(gid);
   const path = `${dir}/${SOURCE_FILE}`;
   const text = await folderFiles.readText(run.id, run.root, path);
+  if (ended()) return { dir, was: null };
   const had = parseSource(text ?? '');
   const fingerprint = at?.fingerprint ?? title.fingerprint ?? null;
   const mine = had?.galleryId === String(gid);
@@ -1569,18 +1597,23 @@ async function _overlayFor(run, title, gid, at = null) {
 // the page shows the source picture it was made from (keepsDerived); the files of what is dropped stay
 // in the overlay, never read back: its description ties them to that picture.
 // `replace`: a gallery the library keeps, read again (from its overlay, its files where `title` says
-// now). Resolves its id, or null when it has no pages (or wasn't read again: _storeAdopted).
-async function _adoptLinked(run, title, { gid: given = null, replace = null, drop = false } = {}) {
+// now), `life` the gallery it is (db.js _life: nothing more is read or written for it once that one has ended).
+// Resolves its id, or null when it has no pages (or wasn't read again: _storeAdopted).
+async function _adoptLinked(run, title, { gid: given = null, replace = null, drop = false, life = null } = {}) {
+  const ended = () => !!life && !K.still(life);
   const at = title.pictures ? title : await _titlePictures(run, title);
-  if (!at) return null;
+  if (!at || ended()) return null;
   const gid = replace || given || K.nextGalleryId();
   if (!replace && run.known.has(gid)) return null;
   const kept = replace ? (await K.galleryGet(gid))?.linked : null;
-  const { dir, was } = await _overlayFor(run, title, gid, at);
+  if (ended()) return null;
+  const { dir, was } = await _overlayFor(run, title, gid, at, ended);
+  if (ended()) return null;
   // Whether its source is as the library was last told of it (the source it keeps, for one read again;
   // else its overlay's source.json): what a page recorded before content signals were may keep.
   const unchanged = sameSource(replace ? kept : was, at);
   const read = await _readFormat(run.id, run.root, { kind: 'dir', path: dir });
+  if (ended()) return null;
   const entries = _entriesOf(read.records);
   const now = Date.now();
   const overlay = [...read.files].filter(([p]) => /^images\/[^/]+$/.test(p)).map(([p, f]) => ({ name: p.slice('images/'.length), size: f.size }));
@@ -1609,7 +1642,7 @@ async function _adoptLinked(run, title, { gid: given = null, replace = null, dro
   // for the folder's claim, and one waiting here never goes over another app's generation of its overlay
   // (S30: an overlay with no description yet left it unstamped — "only this app's" to the commit gate).
   return _storeAdopted({ folder: run.id, dir, gid, record, pages, ownCover: _ownCovers(read),
-    stamp: read.token, replace, drop: drop && _droppedFor(read, dir), stale, extra: { linked } });
+    stamp: read.token, replace, drop: drop && _droppedFor(read, dir), stale, life, extra: { linked } });
 }
 // What a title's name and folders say of it: an archive's chapter is named after its folder in it,
 // its tags the archive's.

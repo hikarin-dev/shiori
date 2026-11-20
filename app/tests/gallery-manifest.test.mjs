@@ -34,6 +34,12 @@ test('a description is the gallery\'s only when Shiori wrote it so: stored by it
   const m = JSON.stringify(manifest({}));
   assert.equal(await isOwnDescription('.shiori/gallery.json', m, G, '.shiori/'), true);
   assert.equal(await isOwnDescription('.shiori/gallery.json', m, '1700000000002', '.shiori/'), false);
+  // S34: a copy beside the manifest is the gallery's while it is the very text the folder's manifest stored for it —
+  // a gallery with no metadata published "null" there (what v1.3.0 left for a gallery already gone: review 11 A5).
+  const stored = { ...manifest({}), descriptions: { 'metadata.json': `.shiori/d/${await sha256Hex('null')}.json` } };
+  assert.equal(await isOwnDescription('metadata.json', 'null', G, '.shiori/'), false, 'naming no gallery, alone');
+  assert.equal(await isOwnDescription('metadata.json', 'null', G, '.shiori/', /** @type {any} */ (stored)), true, 'as its manifest stored it');
+  assert.equal(await isOwnDescription('metadata.json', '{"title":"edited"}', G, '.shiori/', /** @type {any} */ (stored)), false, 'changed since');
 });
 
 test('a folder never described may take its gallery\'s identity only holding no description and exactly the pictures recorded', () => {

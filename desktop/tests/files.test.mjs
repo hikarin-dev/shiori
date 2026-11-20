@@ -608,11 +608,12 @@ test('a picture arriving as its gallery\'s folder in staging is being removed wa
 // app's library tests run against the desktop (npm run test:desktop) failed on it in half their runs. A
 // publication begun for the deleted gallery went on for the new one: it published the new gallery into the deleted
 // one's folder and kept that publication's token as the new one's, by which the new gallery's own folder read as an
-// older copy put back (S31's gate), and what the library held of it was dropped. A gallery is given its folder only
-// once what was under way for a gallery of its id is over — by its settle, or by a picture of its own (how an
-// import's pages arrive).
+// older copy put back (S31's gate), and what the library held of it was dropped. What is under way for the deleted
+// gallery acts on nothing of the one made again (S34: files.js life), which is given its folder at once — by its
+// settle, or by a picture of its own (how an import's pages arrive) — never waiting for that work (review 11 A4: on a
+// drive that stops answering, for ever).
 for (const [how, give] of [['its settle', (library, gid) => library.files.place(gid)], ['a picture of its own', (library, gid) => library.files.home(gid)]]) {
-  test(`a gallery made again under the id of one just deleted is given its folder, by ${how}, once that one's publication is over`, async (t) => {
+  test(`a gallery made again under the id of one just deleted is given its folder, by ${how}, at once, and keeps what it holds`, async (t) => {
     const { tokenOf } = await import('../../app/js/storage/gallery-manifest.js');
     const library = await open(t);
     const gid = '1790000000001';
@@ -632,11 +633,11 @@ for (const [how, give] of [['its settle', (library, gid) => library.files.place(
     await library.metaPut({ galleryId: gid, title: title('Second') });
     await library.pagePut(gid, 1, png(2));
     const given = give(library, gid);
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(fileOf(library, gid), undefined, 'no folder yet: the deleted one\'s publication is still under way');
+    const first = await Promise.race([given.then(() => 'given'), new Promise((resolve) => setTimeout(() => resolve('waited'), 2000))]);
+    assert.equal(first, 'given', 'given its folder while the deleted one\'s publication is still under way');
+    assert.ok(fileOf(library, gid), 'its folder');
     release();
     assert.deepEqual(await published, { ok: false }, 'which finds its gallery gone, and publishes nothing');
-    await given;
     await library.files.flush();
     await library.files.applyDeletions();
     assert.equal(fs.existsSync(old), false, 'the deleted one\'s folder is gone');

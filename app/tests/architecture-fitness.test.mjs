@@ -9,6 +9,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { placeWritersOff, functionsOf, code as asCode } from './stale-view-operations.mjs';
+import { livesOff } from './gallery-lives.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const appJs = join(repo, 'app', 'js');
@@ -196,8 +197,8 @@ test('S32, review 9 A2: the rule that every place-writing function holds reads c
   assert.throws(() => asCode('a(); /* never closed\nb();'), /not closed/, 'a comment never closed is a failure');
   assert.throws(() => functionsOf('/* x */ const y = 1;\n/*\nfunction hidden() {}\n'), /not closed/);
   // The blind range of review 9 A2: a made-up deletion in it is found now.
-  const blind = (f) => (f === 'folder-library.js' ? read(f).replace('async function _relink(run, title, gid) {\n  try {',
-    'async function _relink(run, title, gid) {\n  try {\n    await folderFiles.removeDir(run.id, run.root, title.path);') : read(f));
+  const blind = (f) => (f === 'folder-library.js' ? read(f).replace(/(\nasync function _relink\(run, title, gid\) \{\n(?:.*\n)*?  try \{)/,
+    '$1\n    await folderFiles.removeDir(run.id, run.root, title.path);') : read(f));
   assert.deepEqual(placeWritersOff('website', { read: blind }), ['folder-library.js _relink: writes at a place — name it: \'holds\' (and an operation of the table), a step of one, or free (and why)']);
 });
 
@@ -216,6 +217,21 @@ test('S33, review 10 A4: the rule places every function — a write in a getter,
   assert.deepEqual(placeWritersOff('website', { read: letFn }), named('db.js sneaky'), 'a top-level let');
   // A class member of a shape it can't place fails the rule.
   assert.throws(() => functionsOf('class A {\n  [computed]() { return 1; }\n}\n'), /can't place/);
+});
+
+test('S34, review 11: every function working on a gallery across an await asks whether the gallery it began for is still the id\'s — or is a step of one that does, or works on no gallery begun before, and why', () => {
+  // gallery-lives.mjs lists each (WORK); the sweeps' 'made again' (folder-sweep.test.mjs) runs every operation at every
+  // file call with the gallery deleted and made again meanwhile.
+  assert.deepEqual(livesOff('desktop'), [], 'name each in gallery-lives.mjs');
+  assert.deepEqual(livesOff('website'), [], 'name each in gallery-lives.mjs');
+  const desktop = (f) => readFileSync(join(repo, 'desktop', 'server', f), 'utf8');
+  // A function made up to read by id after an await, and one that stops asking, each fail it — on both apps.
+  const madeUp = (f) => desktop(f).replace(/\n {2}close\(\) \{/, '\n  async sneaky(gid) { await disk.stat(this._abs(this._row(gid).path)); return this._stagedOwn(gid); }\n  close() {');
+  assert.deepEqual(livesOff('desktop', { read: madeUp }), ['files.js sneaky: works on a gallery by id across an await — name it: \'asks\', a step of one that does, or free (and why)']);
+  const silent = (f) => desktop(f).replace(/\n {2}async _unpack\([\s\S]*?\n {2}\}\n/, (m) => m.replace(/this\.still\(life\)/g, 'true'));
+  assert.deepEqual(livesOff('desktop', { read: silent }), ['files.js _unpack: said to ask, but never does']);
+  const unnamed = (f) => (f === 'db.js' ? read(f).replace(/(export async function coverPut\([\s\S]*?\n\}\n)/, (m) => m.replace('      tx._write = w;\n', '')) : read(f));
+  assert.deepEqual(livesOff('website', { read: unnamed }), ['db.js coverPut: writes a gallery\'s pictures under its lock without naming the write in its commit (tx._write = w) — name it a step or free (and why)']);
 });
 
 test('S33, review 10 B7: a change refused for now is worded through backend-error.js refusalKey alone — a translation\'s start and a PDF\'s drawing task say it by its key', () => {

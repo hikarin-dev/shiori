@@ -444,6 +444,11 @@ export class FileLibrary {
     this._before = new Set();          // galleries with files staged before S29b, found at the start (resume)
     this.keep = new Set();             // galleries being forgotten: deleted from the index, their files kept
     this._weighed = new Map();         // group → when it was last weighed whole (_weighGroup)
+    this._ends = new Map();            // gid → galleries of that id ended in this process (life)
+    this._era = 0;                     // the library cleared, so many times (life)
+    this._endedWork = new Map();       // gid → what was under way for galleries of that id that ended (_end)
+    this._ownWrites = new Map();       // gid → writes of pictures of its own under way (ownWrite)
+    this._deletions = new Map();       // library folder → its deletions under way (_queued)
   }
 
   // The tables (the library's folders are read next: folders.js), then — start — what was left to do.
@@ -559,15 +564,17 @@ export class FileLibrary {
   // couldn't be looked at now (tried again at the next start).
   async _bindUndescribed(row) {
     const lib = this.library;
+    const life = this.life(row.gid);   // (a gallery deleted meanwhile, or made again since, is no longer bound here)
+    const ours = () => this.still(life) && this._row(row.gid)?.path === row.path;
     const abs = this._abs(row.path);
     const named = new Map([...recordedFiles(lib._pageRows(row.gid), lib._coverGet(row.gid))].map(([name, [size, mtime]]) => [name, { size, mtime }]));
     for (const r of this._retiring(row.gid)) if (r.dir === row.path && r.name) named.set(r.name, { size: r.size, mtime: r.mtime });
     const found = await undescribedAt(abs, row.gid, named);
     if (found === 'unreadable') return false;
-    if (found !== 'match') return true;
+    if (found !== 'match' || !ours()) return true;
     const { next, texts } = this._generation(row.gid);
     const token = await bindIn(abs, next, texts, { hide: (dir) => lib._hide(dir) });
-    lib._tx(() => lib._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(row.gid, token));
+    if (ours()) lib._tx(() => lib._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(row.gid, token));
     return true;
   }
 
@@ -638,10 +645,12 @@ export class FileLibrary {
   cutBack() {
     const lib = this.library;
     return Promise.all(lib._s('SELECT gid FROM files WHERE tail IS NOT NULL').all().map(({ gid }) => this._exclusive(gid, async () => {
+      const life = this.life(gid);
       const r = lib._s('SELECT path, tail FROM files WHERE gid = ? AND tail IS NOT NULL').get(gid);
       if (!r || !lib.folders.writable(this._split(r.path).root)) return;
       const file = this._abs(r.path);
       try { if ((await disk.stat(file)).size > r.tail && await directoryEnd(file) === r.tail) disk.truncateSync(file, r.tail); } catch {}
+      if (!this.still(life)) return;
       lib._s('UPDATE files SET tail = NULL, pending = 1 WHERE gid = ?').run(gid);
       this.scheduleDescribe(gid);
     })));
@@ -665,12 +674,13 @@ export class FileLibrary {
     const lib = this.library;
     for (const row of lib._s('SELECT * FROM files WHERE moving IS NOT NULL').all()) {
       try {
+        const life = this.life(row.gid);
         const here = await this._whose(row.path, row.gid);
         const renamed = here.kind === 'missing' && (await this._whose(row.moving, row.gid)).kind === 'ok';
         if (here.kind !== 'ok' && !renamed) continue;
         lib._ownTx(() => {
           const now = this._row(row.gid);
-          if (now?.path !== row.path || now.moving !== row.moving) return;   // changed meanwhile
+          if (!this.still(life) || now?.path !== row.path || now.moving !== row.moving) return;   // changed meanwhile
           if (!renamed) lib._s('UPDATE files SET moving = NULL WHERE gid = ?').run(row.gid);
           else { lib._logIn(row.gid); this._renamedIn(row, row.moving); }
         });
@@ -747,20 +757,26 @@ export class FileLibrary {
   // stageOwn). A gallery whose folder is gone, or can't be written to now, has nowhere to write; nor
   // has one whose folder no longer names it (principle 2: a folder put at its place by hand —
   // refused, reason 'conflict', and reported). Its place is held first (hold): where another app's
-  // publication is there, the folder's version stands, and the file is written on it.
-  async home(gid, meta) {
+  // publication is there, the folder's version stands, and the file is written on it. `life`: the gallery the
+  // write is for (its caller's, taken before its own awaits), which none is given once it has ended.
+  async home(gid, meta, life = this.life(gid)) {
     const id = String(gid);
+    const gone = () => new BackendError('aborted', `gallery ${id} was deleted meanwhile`);
+    if (!this.still(life)) throw gone();
     this.library.folders.assertWritable(this.rootFor(id));
     for (let tries = 0; tries < 3; tries++) {
-      const row = await this.claim(id, meta);
+      const row = this.claim(id, meta);
       if (row.format !== 'folder') {
         this.library._tx(() => this._toUnpack(id));
         await this.place(id);
+        if (!this.still(life)) throw gone();
         continue;
       }
       const dir = this._abs(row.path);
       if (!await this._writesIn(row)) throw Object.assign(new BackendError('invalid', `the overlay of gallery ${id} leads out of its library folder`), { reason: 'outside' });
+      if (!this.still(life)) throw gone();
       const whose = await this.hold(id);
+      if (!this.still(life)) throw gone();
       if (whose.kind === 'ok') return dir;
       if (whose.kind === 'conflict') throw this._conflict(row);
       if (whose.kind === 'missing') await this._seen(row, false);
@@ -807,25 +823,66 @@ export class FileLibrary {
     this._pendOwner(gid);
     return this._row(gid);
   }
-  // ── One gallery of an id at a time ──
-  // What is under way for the gallery of id `gid` — its publication, and its settle (not with `settle` false:
-  // the settle itself asking) — over, done or failed. A gallery is given its folder only after it (claim, _place,
-  // folder-store.js reserve): one made under the id of a gallery just deleted — an export imported again, a download
-  // asked again — is otherwise taken, by a publication begun for the deleted one, for the gallery it began for:
-  // published into that one's folder, and left with that publication's token as its own, by which its own folder
-  // then read as an older copy put back, and everything it held was dropped (the verification after S33: the gate
-  // is S31's). Work begun for a gallery that is gone finds none and ends; the deleted one's folder waits for it
-  // too (_deleteOne). The website has the same in its gallery lock (db.js _writing, _describe).
-  async _over(gid, { settle = true } = {}) {
-    const id = String(gid);
-    await this._describing.get(id)?.catch(() => {});
-    if (settle) await this._placing.get(id)?.catch(() => {});
+  // Gallery `gid`'s row, its folder claimed now when it has none (_claim, `how` its arguments: the metadata to
+  // name it by first) — only for a gallery the library has, or is given with it (a picture written for a gallery
+  // that is gone claims nothing: review 11 A5).
+  claim(gid, ...how) {
+    const lib = this.library;
+    if (this._row(gid)) return this._row(gid);
+    if (!how[0] && !lib._metaGet(gid) && !lib._statGet(gid)) throw new BackendError('not-found', `gallery ${gid} isn't in the library`);
+    return this._claim(gid, ...how);
   }
-  // Gallery `gid`'s row, its folder claimed now when it has none (_claim, `how` its arguments) — once what was under
-  // way for a gallery of its id is over (_over).
-  async claim(gid, ...how) {
-    if (!this._row(gid)) await this._over(gid);
-    return this._row(gid) || this._claim(gid, ...how);
+
+  // ── Which gallery of an id (S34, review 11) ──
+  // A gallery deleted — or forgotten with its folder — and made again under its id (an export imported again, a
+  // download asked again, a backup restored) is another gallery with the same key, and everything the index holds of
+  // either is keyed by that id: rows, pages, staging, pictures staged, descriptions, stamps, what retires. So work
+  // that runs across an await for a gallery knows which gallery of the id it began for — its life, taken as it begins
+  // (life) and handed to the steps it calls — and after every await, before it reads or writes anything by id, asks
+  // whether that one is still the id's (still), ending otherwise, having written nothing more. A row's being there is
+  // no answer (a later gallery of the id has one), nor its place alone (a later one can be given the same). A
+  // gallery's lives are counted in this process, ended as its deletion or forgetting commits (_end; a clearing of the
+  // library ends every one) — after a restart nothing is under way. What is under way for the gallery (its settle,
+  // publication, a write to its archive: `_placing`, `_describing`, `_writing`) is the id's only while that gallery is:
+  // its end sets it aside (`_endedWork`), so a gallery made again never joins it nor waits for it, on whatever drive
+  // it hangs — only the deleted one's own folder does, before it is deleted (_deleteOne, underWay). The website has the
+  // same rule in its gallery lock (db.js _describe, _described).
+  life(gid) { const id = String(gid); return { gid: id, n: this._ends.get(id) ?? 0, era: this._era }; }
+  still(life) { return life.era === this._era && (this._ends.get(life.gid) ?? 0) === life.n; }
+  // Inside the transaction deleting or forgetting gallery `gid`: its life ends as that commits.
+  _end(gid) {
+    const id = String(gid);
+    this.library._afterCommit(() => { this._ends.set(id, (this._ends.get(id) ?? 0) + 1); this._setAside(id); });
+  }
+  // What is under way for the gallery of id `id`, which has ended, set aside until it is over.
+  _setAside(id) {
+    for (const runs of [this._placing, this._describing, this._writing]) {
+      const run = runs.get(id);
+      if (!run) continue;
+      runs.delete(id);
+      this._endedWork.set(id, [...(this._endedWork.get(id) ?? []), run]);
+      run.catch(() => {}).then(() => {
+        const left = (this._endedWork.get(id) ?? []).filter(r => r !== run);
+        if (left.length) this._endedWork.set(id, left); else this._endedWork.delete(id);
+      });
+    }
+  }
+  // A write of pictures of gallery `gid`'s own under way (`run`: library.js _derive), as long as it is: what it
+  // leaves in the gallery's folder — a picture written that it couldn't record, the gallery deleted meanwhile — is gone
+  // before that folder is deleted (_underWay). Resolves as `run` does.
+  ownWrite(gid, run) {
+    const id = String(gid);
+    const runs = this._ownWrites.get(id) ?? new Set();
+    this._ownWrites.set(id, runs.add(run));
+    run.catch(() => {}).then(() => { runs.delete(run); if (!runs.size && this._ownWrites.get(id) === runs) this._ownWrites.delete(id); });
+    return run;
+  }
+  // Everything under way for galleries of id `gid` — the one the id has now, and those that ended — over, done or
+  // failed: a deleted gallery's folder or archive, or the place a gallery left, is deleted only after it.
+  async _underWay(gid) {
+    const id = String(gid);
+    await Promise.all([this._placing.get(id), this._describing.get(id), this._writing.get(id), ...(this._endedWork.get(id) ?? []),
+      ...(this._ownWrites.get(id) ?? [])].filter(Boolean).map(r => r.catch(() => {})));
   }
   // Folder `abs`, made now, reserved for gallery `gid` (folder-store.js reserveIn) with its metadata as
   // the index has it (or `meta`, when it isn't stored yet): its place, held as the reservation made it
@@ -1000,6 +1057,7 @@ export class FileLibrary {
         throw Object.assign(new BackendError('unavailable', `the library folder of gallery ${id} can't be written to now`), { reason: opened.status, folder: root });
       }
     }
+    if (!keep) this._end(id);   // a gallery forgotten with its folder ends there too (folders.js _forget); one read again doesn't
     for (const s of this._stagedOwn(id)) lib._dropStaged(s.file);
     lib._s('DELETE FROM staged_own WHERE gid = ?').run(id);
     const linked = !keep && !!row?.source;
@@ -1017,6 +1075,16 @@ export class FileLibrary {
       if (linked) lib.folders.publishRemoved(root).catch(() => {});
       else if (!keep) this.applyDeletions({ root }).catch(() => {});
     });
+  }
+
+  // Whether `row` is a folder claimed for a gallery the library hasn't — no metadata, stat record, page or picture of
+  // it — with nothing under way for it, nor a gallery arriving under its id (a transfer claims first): what a picture
+  // of its own written as its gallery was deleted claimed before S34 (review 11 A5: "Gallery <id>", its descriptions
+  // only), which a check lets go as a deletion does (scan.js).
+  stray(row) {
+    const lib = this.library, id = String(row.gid);
+    return !row.source && !lib._metaGet(id) && !lib._statGet(id) && !lib._pageCount(id) && !this._stagedOwn(id).length
+      && ![this._placing, this._describing, this._writing, this._ownWrites].some(m => m.has(id)) && ![...lib._transfers.values()].some(s => s.gid === id);
   }
 
   // Inside the caller's transaction: gallery `row`'s own folder or archive (as `files` has it) recorded
@@ -1065,16 +1133,27 @@ export class FileLibrary {
   // forgetUnfound; scan.js finishUnfound); one that
   // can't be done now stays — tried again at the next start, when its folder is shown or taken back, at
   // its folder's next check, and by its removal, which doesn't forget a folder still owed one. Resolves
-  // whether none of `root`'s waits.
+  // whether none of `root`'s waits. One at a time in each library folder (_queued): a deletion waiting for its
+  // gallery's work there (_deleteOne) keeps no other folder's deletions waiting, nor a check of another folder
+  // (S34: never on the deleted gallery's drive).
   applyDeletions({ root = null, work = null } = {}) {
-    const run = (this._deletions || Promise.resolve()).then(() => this._applyDeletions(root, work));
-    this._deletions = run.catch(() => {});
-    return run;
+    const roots = root != null ? [root] : [...new Set([...this._deletions.keys(), ...this._deletingRows().map(d => this._split(d.dir).root)])];
+    return Promise.all(roots.map(r => this._queued(r, () => this._applyDeletions(r, work)))).then(done => done.every(Boolean));
   }
   async _applyDeletions(root, work) {
     for (const d of this._deletingRows(root)) await this._deleteOne(d, d.dir, work);
     return !this.deletingIn(root).length;
   }
+  // `fn` once the deletions under way in library folder `root` are over, and the next of them meanwhile.
+  _queued(root, fn) {
+    const run = (this._deletions.get(root) ?? Promise.resolve()).then(fn);
+    const settled = run.catch(() => {});
+    this._deletions.set(root, settled);
+    settled.then(() => { if (this._deletions.get(root) === settled) this._deletions.delete(root); });
+    return run;
+  }
+  // Every deletion under way, over.
+  async _deleted() { await Promise.all(this._deletions.values()); }
   // Deletion `d` (its `deleting` row) done at `rel` (a path as `files` has them: where the row has it, or
   // where a check met a folder or archive naming its gallery — `folder`: whether that is a folder), while
   // that library folder may be written to.
@@ -1083,10 +1162,20 @@ export class FileLibrary {
     const at = this._split(rel).root;
     const abs = lib.folders.writable(at, work) && this._at(rel);
     if (!abs) return;
-    // A publication or settle of the gallery begun before its deletion lands first: none starts for
-    // a gallery that is gone, so its folder isn't written again once it is deleted (S8: a deleted
-    // gallery came back from a manifest its publication under way wrote after the deletion).
-    await this._over(d.gid);
+    // A publication or settle of the gallery begun before its deletion lands first: what was under way
+    // for it ends at its next question (still), so its folder isn't written again once it is deleted (S8: a
+    // deleted gallery came back from a manifest its publication under way wrote after the deletion).
+    await this._underWay(d.gid);
+    // Its record as it is once that is over: a write of the gallery's own that landed after the deletion recorded
+    // the archive recorded what it left there (_wroteArchive).
+    d = this._deletingRows().find(r => r.dir === d.dir);
+    if (!d) return;
+    // Never the place a gallery's row points at now: that is the gallery's (S34; review 11 A3 had a check under way
+    // point a gallery made again at its deleted predecessor's folder) — the deletion recorded there is let go.
+    if (lib._s('SELECT 1 FROM files WHERE path = ?').get(rel)) {
+      if (rel === d.dir) lib._s('DELETE FROM deleting WHERE dir = ?').run(d.dir);
+      return;
+    }
     const recorded = d.files == null ? null : JSON.parse(d.files);
     // Met at the other kind of place than its row's — the other app unpacked the archive the gallery was
     // in into a folder beside it (D17), or archived its folder — whose files the row never recorded: done
@@ -1138,9 +1227,7 @@ export class FileLibrary {
   // met one naming the gallery (F4; `folder`: whether it is a folder): deleted as it would have been where
   // it was, never adopted.
   deletedFound(d, rel, work, folder) {
-    const run = (this._deletions || Promise.resolve()).then(() => this._deleteOne(d, rel, work, folder));
-    this._deletions = run.catch(() => {});
-    return run;
+    return this._queued(this._split(rel).root, () => this._deleteOne(d, rel, work, folder));
   }
   // What waited `unfound` in library folder `root` once a look at it ended (a check, or its removal's:
   // scan.js finishUnfound), as folder-lifecycle.js unfoundEnd weighs each: those it met (`met`: their
@@ -1192,9 +1279,14 @@ export class FileLibrary {
     return !!st && format.unchanged({ size: r.zip_size, mtime: r.zip_mtime }, { size: st.size, mtime: st.mtimeMs });
   }
   // An archive's size and modification time noted as Shiori has just written it (F6; `st`: as read
-  // before a rename that put it in place).
-  _wroteArchive(gid, file, st = disk.statSync(file)) {
-    this.library._s('UPDATE files SET zip_size = ?, zip_mtime = ? WHERE gid = ?').run(st.size, st.mtimeMs, String(gid));
+  // before a rename that put it in place): on its gallery's row (`row`, as the write read it) — or, that gallery
+  // deleted while the write was under way (`life`), on its deletion's, which waits for the write (_deleteOne): the
+  // archive it deletes is as Shiori left it.
+  _wroteArchive(gid, row, life, st = disk.statSync(this._abs(row.path))) {
+    const lib = this.library;
+    if (this.still(life)) { lib._s('UPDATE files SET zip_size = ?, zip_mtime = ? WHERE gid = ?').run(st.size, st.mtimeMs, String(gid)); return; }
+    const was = JSON.parse(lib._s('SELECT files FROM deleting WHERE dir = ? AND gid = ?').get(row.path, String(gid))?.files ?? 'null');
+    if (was && !Array.isArray(was) && !was.unpacked) lib._s('UPDATE deleting SET files = ? WHERE dir = ?').run(JSON.stringify({ size: st.size, mtime: st.mtimeMs }), row.path);
   }
   // What a deletion left in its gallery's folder or archive (`d`, its `deleting` row, or `{ gid: null }`
   // for a folder a retirement left: _retire; `rel`, where it was done, in library folder `root`) — files
@@ -1228,6 +1320,8 @@ export class FileLibrary {
   // app's, before which the gallery was let go — stays, reported.
   async _removeOwn(rel, gid, work = null, { stamp = null, epoch = null } = {}) {
     const whose = await this.hold(gid, { rel, known: stamp, deletion: { epoch, forget: () => {} } });
+    // Never the place a gallery's row points at now (one joined from it again meanwhile: S34).
+    if (this.library._s('SELECT 1 FROM files WHERE path = ?').get(rel)) return;
     if (whose.kind === 'ok' && !whose.place.undescribed) await this._remove(rel, work);
   }
   // Whose `rel` (a gallery's folder or archive, as the index keeps it) is now, by what it holds (principle
@@ -1273,11 +1367,13 @@ export class FileLibrary {
   async hold(gid, { rel = this._row(gid)?.path, known, deletion = null, ask = null } = {}) {
     const lib = this.library;
     const id = String(gid);
+    const life = this.life(id);
     const abs = rel != null && this._at(rel);
     if (!abs) return contract.unreadable('its library folder can\'t be reached as itself');
     const asked = ask ?? ((view) => placeIn(abs, id, { ...view, writer: lib.folders._me(), ...this._looks(rel) }));
     const at = await asked({ known: known === undefined ? this._stamp(id) : known });
     if (at.kind !== 'theirs') return at;
+    if (!deletion && !this.still(life)) return contract.unreadable(`gallery ${id} was deleted meanwhile`);
     if (deletion) {
       const { root, rest } = this._split(rel);
       const before = deletion.epoch != null && deletion.epoch !== lib._s('SELECT epoch FROM roots WHERE id = ?').get(root)?.epoch;
@@ -1289,6 +1385,7 @@ export class FileLibrary {
       return { kind: 'dropped' };
     }
     const stood = await this._stands(id).catch(() => false);
+    if (!this.still(life)) return contract.unreadable(`gallery ${id} was deleted meanwhile`);
     if (stood?.damaged) return { ...await asked({ known: this._stamp(id), over: at.token }), damaged: stood.damaged };
     const again = stood ? await asked({ known: this._stamp(id) }) : null;
     return again && again.kind !== 'theirs' ? again : contract.unreadable(`the folder's version of gallery ${id} can't be read now`);
@@ -1361,6 +1458,8 @@ export class FileLibrary {
     for (const r of rows) if (!r.source) this._deletingIn(r);
     for (const table of ['files', 'staged_own', 'retiring', 'together']) lib._s(`DELETE FROM ${table}`).run();
     lib._afterCommit(() => {
+      this._era++;   // every gallery's life ends (life)
+      for (const id of new Set([...this._placing.keys(), ...this._describing.keys(), ...this._writing.keys()])) this._setAside(id);
       for (const r of rows) {
         this._forget(r.path);
         if (r.source) this._removeOwn(r.path, r.gid).catch(() => {});
@@ -1551,6 +1650,7 @@ export class FileLibrary {
   // 6: only what is found not there changes what the index has). Only a change is written.
   async _seen(row, readable) {
     if (readable ? row.state !== 'missing' : row.state === 'missing') return;
+    const life = this.life(row.gid);
     if (!readable) {
       if (!this._at(row.path) || !await gone(row.source ? this._sourceAbs(row) : this._abs(row.path))) return;
     }
@@ -1558,7 +1658,7 @@ export class FileLibrary {
     const state = readable ? 'packed' : 'missing';
     const changed = lib.asFolderWork(this.rootFor(row.gid), () => lib._tx(() => {
       const now = this._row(row.gid);
-      if (!now || now.path !== row.path || now.state === state) return false;   // moved or unpacked meanwhile
+      if (!this.still(life) || !now || now.path !== row.path || now.state === state) return false;   // moved, unpacked or deleted meanwhile
       lib._s('UPDATE files SET state = ? WHERE gid = ?').run(state, row.gid);
       lib._logIn(row.gid);
       return true;
@@ -1615,7 +1715,7 @@ export class FileLibrary {
     for (const { gid } of this.library._s('SELECT gid FROM files WHERE pending = 1').all()) {
       await this.describe(gid).catch(() => {});
     }
-    if (this._unpacks !== unpacks) await this._deletions;   // the archives its unpacks let go deleted too
+    if (this._unpacks !== unpacks) await this._deleted();   // the archives its unpacks let go deleted too
   }
 
   // Gallery `gid` settled: what waits in staging moved into its folder (_place) — when its library
@@ -1635,7 +1735,7 @@ export class FileLibrary {
       console.warn(`[shiori] saving gallery ${id} to the library folder failed (${n}):`, String(e?.message || e));
       if (n < 6) this.schedule(id, Math.min(60000, 2000 * 2 ** n));
     }).finally(() => {
-      this._placing.delete(id);
+      if (this._placing.get(id) === run) this._placing.delete(id);   // (not a settle of a gallery made again since: _end)
       if (this._again.delete(id)) this.schedule(id);
     });
     this._placing.set(id, run);
@@ -1655,13 +1755,14 @@ export class FileLibrary {
   }
 
   // One settle of gallery `gid`. Resolves true when done (or nothing was needed, or its library folder
-  // can't be written to now: what waits stays staged until it can), false when its archive's pages
-  // changed while it was being unpacked.
+  // can't be written to now: what waits stays staged until it can — or the gallery it began for was deleted
+  // meanwhile: life), false when its archive's pages changed while it was being unpacked.
   async _place(gid, work = null) {
     const lib = this.library;
+    const life = this.life(gid);
     if (!lib.folders.writable(this.rootFor(gid), work)) return true;
     if (!await this._weighGroup(gid)) return true;   // its series command weighed as one first (S32): it waits, or was dropped
-    if (!this._row(gid)) await this._over(gid, { settle: false });   // made under the id of one just deleted: that one's publication ends first
+    if (!this.still(life)) return true;
     let row = this._row(gid), unpacked = false;
     if (row) {
       // A gallery whose folder or archive is gone (moved outside the app, or its drive away), or no
@@ -1672,30 +1773,33 @@ export class FileLibrary {
       // what this settle does next (a placement, an unpack, an addition to an archive, a regroup) is done
       // from that version.
       const whose = await this.hold(gid);
+      if (!this.still(life)) return true;
       if (whose.kind === 'conflict') this._conflict(row);
       if (whose.kind === 'ok' || whose.kind === 'missing') await this._seen(row, whose.kind === 'ok');
-      if (whose.kind !== 'ok') return true;
+      if (whose.kind !== 'ok' || !this.still(life)) return true;
       row = this._row(gid);
-      if (!row) return true;   // deleted meanwhile
-      if (!await this._writesIn(row)) return true;
+      if (!await this._writesIn(row) || !this.still(life)) return true;
       if (row.format !== 'folder' && (row.unpack || this._staged(gid).length || this._stagedOwn(gid).length)) {
         const inFormat = await this._inFormat(row);
-        if (inFormat == null) return true;   // its archive can't be read now: what waits stays staged, tried again
+        if (inFormat == null || !this.still(life)) return true;   // its archive can't be read now: what waits stays staged, tried again
         // A folder beside the archive naming the gallery at a later generation — the other app's unpack of
         // it, published before its records took it (review 7 B6) — is where it is now: taken (scan.js
         // followUnpacked), never a second copy unpacked beside them; what waits settles there next.
-        if (await this._unpackedBeside(gid, row)) return false;
-        const how = inFormat ? await this._settleArchive(gid, row) : 'unpack';
+        const beside = await this._unpackedBeside(gid, row);
+        if (!this.still(life)) return true;
+        if (beside) return false;
+        const how = inFormat ? await this._settleArchive(gid, row, life) : 'unpack';
+        if (!this.still(life)) return true;
         if (how === 'unpack') {
-          if (!await this._unpack(gid, row, !inFormat || whose.place.undescribed)) return false;
+          const done = await this._unpack(gid, row, !inFormat || whose.place.undescribed, life);
+          if (!this.still(life)) return true;
+          if (!done) return false;
           unpacked = true;
         }
-        row = this._row(gid);
-        if (!row) return true;
       }
       if (this._regroupWanted.delete(gid)) await this._regroup(gid);
+      if (!this.still(life)) return true;
       row = this._row(gid);
-      if (!row) return true;
       if (row.format !== 'folder' || (!this._staged(gid).length && !this._stagedOwn(gid).length)) {
         if (unpacked) await this.describe(gid);
         else if (row.pending) this.scheduleDescribe(gid);
@@ -1707,10 +1811,9 @@ export class FileLibrary {
     }
     const dir = this._abs(row.path);
     await disk.mkdir(path.join(dir, 'images'), { recursive: true });
-    for (const r of this._staged(gid)) await this._moveIn(gid, dir, r);
-    await this._moveOwnIn(gid, dir);
-
-    if (!this._row(gid)) return true;   // deleted meanwhile
+    if (!this.still(life)) return true;
+    for (const r of this._staged(gid)) if (!await this._moveIn(gid, dir, r, life)) return true;
+    if (!await this._moveOwnIn(gid, dir, life) || !this.still(life)) return true;
     this._pend(gid);   // its pages changed: its descriptions follow, in due course
     // — at once after an unpack: what it moved in published before the archive it took them from goes
     // (its deletion waits for this settle: _deleteOne), so a kill between leaves nothing of it waiting.
@@ -1736,16 +1839,19 @@ export class FileLibrary {
   // of the size its row records has only its row brought up to date, as _moveIn does (review 6 F12).
   async toFormat(gid) {
     const lib = this.library, id = String(gid);
+    const life = this.life(id);
     const row = this._row(id);
     if (!this._legacy(id) || !lib.folders.writable(this.rootFor(id))) return false;
-    if ((await this.hold(id)).kind !== 'ok' || !this._legacy(id)) return false;   // its folder doesn't name it now (principle 2), or another app's version of it is there
+    if ((await this.hold(id)).kind !== 'ok' || !this.still(life) || !this._legacy(id)) return false;   // its folder doesn't name it now (principle 2), or another app's version of it is there
     const dir = this._abs(row.path);
     lib._s('UPDATE files SET converting = 1 WHERE gid = ?').run(id);
     await disk.mkdir(path.join(dir, 'images'), { recursive: true });
+    if (!this.still(life)) return false;
     for (const r of lib._pageRows(id)) {
       const orig = parse(r.orig);
       if (orig.at !== 'p' || orig.entry.includes('/')) continue;
       const from = path.join(dir, orig.entry), was = await statIn(from), there = !!was?.isFile();
+      if (!this.still(life)) return false;
       const name = this._nameFor(id, r, orig, dir, there);
       const to = path.join(dir, ...name.split('/'));
       const st = !there ? disk.statSync(to) : moveSync(from, to) ? disk.statSync(to) : was;   // copied across drives: as it is now
@@ -1764,21 +1870,23 @@ export class FileLibrary {
   // images/ under a name no file has (_nameFor) and its row pointed at it, with the size and
   // modification time it has there (movedInto). A page replaced or removed meanwhile is left alone (its
   // staged file goes with its row). One already renamed before an interruption only has its row brought
-  // up to date.
-  async _moveIn(gid, dir, r) {
+  // up to date. Resolves false, nothing moved, when the gallery of the settle's `life` was deleted meanwhile.
+  async _moveIn(gid, dir, r, life) {
     const lib = this.library;
     const orig = parse(r.orig);
     const from = lib._staged(orig.file);
     const was = await stagedNow(from);
+    if (!this.still(life)) return false;
     const now = lib._pageRow(gid, r.n);
-    if (!now || now.orig !== r.orig) return;
+    if (!now || now.orig !== r.orig) return true;
     const name = this._nameFor(gid, r, orig, dir, !!was);
     const moved = movedInto(from, was, path.join(dir, ...name.split('/')));
     if (moved?.copied) lib.writes.add('pages', orig.size);
-    if (!was && moved?.size !== orig.size) { this._stagedMissing(gid, `page ${r.n}`); return; }
+    if (!was && moved?.size !== orig.size) { this._stagedMissing(gid, `page ${r.n}`); return true; }
     lib._tx(() => {
       lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify({ at: 'p', entry: name, size: orig.size, type: orig.type, mtime: moved.mtime }), gid, r.n);
     });
+    return true;
   }
 
   // Pictures of its own staged while the gallery was kept in an archive (unpacked since), or while its
@@ -1787,11 +1895,14 @@ export class FileLibrary {
   // another its records are pointed at (_retarget) — never over a file; one staged again meanwhile waits
   // for the next settle. One already moved before an interruption only has its records brought up to
   // date (review 7 A4: one parted from its records that way showed the other app's picture as its own).
-  async _moveOwnIn(gid, dir) {
+  // Resolves false as _moveIn does.
+  async _moveOwnIn(gid, dir, life) {
     const lib = this.library;
+    if (!this.still(life)) return false;
     for (const s of this._stagedOwn(gid)) {
       const from = lib._staged(s.file);
       const was = await stagedNow(from);
+      if (!this.still(life)) return false;
       if (lib._s('SELECT file FROM staged_own WHERE gid = ? AND rel = ?').get(gid, s.rel)?.file !== s.file) continue;
       const name = this._ownNameFor(s, dir, !!was);
       const to = path.join(dir, ...name.split('/'));
@@ -1804,6 +1915,7 @@ export class FileLibrary {
         lib._s('DELETE FROM staged_own WHERE gid = ? AND rel = ?').run(gid, s.rel);
       });
     }
+    return true;
   }
   // A picture staged for gallery `gid` (`what`: its page, or its own picture's name), never placed, found
   // gone from staging as it was to be (by the shared rule: stagedNow) — deleted outside Shiori, or, staged
@@ -1941,13 +2053,16 @@ export class FileLibrary {
   // put there beside them (_earlierOwn) — and deleted whole while it is still so and holds nothing else
   // (S16); one holding anything else, a file the person put in it, is left and reported (review 5 F1).
   // Its descriptions are written afresh. Resolves false when its pages changed meanwhile (tried again once
-  // they settle).
-  async _unpack(gid, row, byHand = false) {
+  // they settle), or the gallery of its settle's `life` was deleted (nothing of it left).
+  async _unpack(gid, row, byHand = false, life = this.life(gid)) {
     const lib = this.library;
     const archived = () => lib._pageRows(gid).filter(r => parse(r.orig).at === 'p').sort((a, b) => a.n - b.n);
     const before = archived();
     const signature = JSON.stringify(before.map(r => [r.n, r.orig]));
     const read = byHand ? await disk.stat(this._abs(row.path)) : null;
+    if (!this.still(life)) return false;
+    const ended = new Error('the gallery was deleted meanwhile');
+    const ask = () => { if (!this.still(life)) throw ended; };
     const rel = this._freePath(String(row.path).replace(/\.(cbz|zip)$/i, ''));
     const target = this._abs(rel);
     const temp = tempBeside(target);
@@ -1968,21 +2083,27 @@ export class FileLibrary {
         out.push({ n: r.n, orig: { at: 'p', entry, size: data.length, type: orig.type || TYPE_OF_EXT[ext] || '' } });
         took.push(orig.entry);
       }
+      ask();
       const own = ownFiles(lib._coverGet(gid), ownFiles(before.map(r => parse(r.record))));
       const staged = new Set(this._stagedOwn(gid).map(s => s.rel));   // moved in after, as they are
       // A picture its records name that the archive doesn't hold is passed over; one it holds that can't
       // be read now fails the unpack, tried again — never left behind in an archive about to go (S21).
       const entries = await this._directory(this._abs(row.path));
+      const copied = new Map();   // a picture of its own copied out → its size and time as written (its records take them)
       for (const rel of own.keys()) {
         if (staged.has(rel) || !entries.has(rel)) continue;
         const data = await this._read(row, rel);
         if (!data) throw new Error(`${rel} can't be read from ${row.path}`);
-        await disk.mkdir(path.dirname(path.join(temp, ...rel.split('/'))), { recursive: true });
-        await disk.writeFile(path.join(temp, ...rel.split('/')), data);
+        const file = path.join(temp, ...rel.split('/'));
+        await disk.mkdir(path.dirname(file), { recursive: true });
+        await disk.writeFile(file, data);
         lib.writes.add('pictures', data.length);
+        const st = await disk.stat(file);
+        copied.set(rel, { size: st.size, mtime: st.mtimeMs });
         took.push(rel);
       }
       if (byHand) took.push(...await this._earlierOwn(row, gid, entries));
+      ask();
       // Published there, whole — naming what it holds as the index has it, the pictures of its own still
       // staged left out (they move in after, as they are: _moveOwnIn) — before it takes the archive's
       // place: whatever a kill stops, what comes into place is a gallery any reader takes for this one's,
@@ -1993,6 +2114,7 @@ export class FileLibrary {
       const done = await publishIn(place, { ...next, sizes: {} }, texts, { hide: (d) => lib._hide(d) });
       lib.writes.add('descriptions', done.bytes);
       // One synchronous step from here.
+      ask();
       if (JSON.stringify(archived().map(r => [r.n, r.orig])) !== signature || this._row(gid)?.path !== row.path) {
         await disk.rm(temp, { recursive: true, force: true });
         return false;
@@ -2002,6 +2124,8 @@ export class FileLibrary {
       lib.asFolderWork(this.rootFor(gid), () => lib._tx(() => {
         this._deletingIn(this._row(gid), read && { size: read.size, mtime: read.mtimeMs, took });
         for (const p of out) lib._s('UPDATE pages SET orig = ? WHERE gid = ? AND n = ?').run(JSON.stringify(p.orig), gid, p.n);
+        // Its pictures of its own as written here (a deletion takes them by name, size and time: principle 4).
+        for (const [rel, f] of copied) this._retarget(gid, rel, { $own: rel, ...f });
         lib._s(`UPDATE files SET path = ?, format = 'folder', pending = ?, unpack = 0, used_at = ? WHERE gid = ?`).run(rel, this._touched.has(gid) ? 1 : 0, Date.now(), gid);
         lib._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(String(gid), format.tokenOf(done.manifest));
         lib._logIn(gid);
@@ -2013,6 +2137,7 @@ export class FileLibrary {
       return true;
     } catch (e) {
       await disk.rm(temp, { recursive: true, force: true }).catch(() => {});
+      if (e === ended) return false;
       throw e;
     } finally {
       this._reserved.delete(rel);
@@ -2080,7 +2205,7 @@ export class FileLibrary {
     await this.describe(id);
     const owner = this._ownerOf(id);
     if (owner) await this.describe(owner.galleryId);
-    if (this._unpacks !== unpacks) await this._deletions;   // the archive its unpack let go, once what it held is published (_place)
+    if (this._unpacks !== unpacks) await this._deleted();   // the archive its unpack let go, once what it held is published (_place)
   }
 
   // In due course, when nothing settles the gallery sooner: once it has been left alone a while — at
@@ -2114,24 +2239,26 @@ export class FileLibrary {
     this._describeTimers.delete(id);
     const lib = this.library;
     const may = work ?? 'publish';
+    const life = this.life(id);
     const run = (async () => {
       const row = this._row(id);
       if (!row || row.unpack) return false;
       if (!row.pending && !all) return true;
-      if (!lib.folders.writable(this.rootFor(id), may) || !await this._writesIn(row)) return false;
+      if (!lib.folders.writable(this.rootFor(id), may) || !await this._writesIn(row) || !this.still(life)) return false;
       if (!disk.existsSync(this._abs(row.path))) return false;
-      if (!await this._weighGroup(id)) return false;   // its series command weighed as one first (S32): it waits, or was dropped
+      if (!await this._weighGroup(id) || !this.still(life)) return false;   // its series command weighed as one first (S32): it waits, or was dropped
       this._touched.delete(id);
       const upTo = lib._s('SELECT max(rowid) AS n FROM retiring WHERE gid = ?').get(id)?.n ?? 0;
-      const token = row.format === 'folder' ? await this._publish(id, row, may) : await this._describeArchive(id, row);
-      if (!token) return false;
+      const token = row.format === 'folder' ? await this._publish(id, row, may, life) : await this._describeArchive(id, row, life);
+      if (!token || !this.still(life)) return false;
       await this._describeSeries(id);
+      if (!this.still(life)) return false;
       lib._tx(() => {
         lib._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(id, token);
         if (!this._touched.has(id)) { lib._s('UPDATE files SET pending = 0, packed_at = ? WHERE gid = ?').run(Date.now(), id); this._ungroup(id); }
       });
       this._changes.delete(id);
-      await this._letGo(id, upTo, may);
+      await this._letGo(id, upTo, may, life);
       return true;
     })();
     this._describing.set(id, run);
@@ -2140,9 +2267,9 @@ export class FileLibrary {
       ok = await run;
     } catch (e) {
       console.warn(`[shiori] describing gallery ${id} in the library folder failed:`, String(e?.message || e));
-      this.scheduleDescribe(id);
+      if (this.still(life)) this.scheduleDescribe(id);
     } finally {
-      this._describing.delete(id);
+      if (this._describing.get(id) === run) this._describing.delete(id);   // (not a publication of a gallery made again since: _end)
     }
     await this._unstage(id);
     return { ok };
@@ -2236,18 +2363,24 @@ export class FileLibrary {
   // published only where the folder's manifest is lost or damaged. Its place is held through the folder store
   // (hold, its Root.gallery): another app's publication there stands — what waited here for it is dropped,
   // reported, and nothing of this library's is published over it.
-  async _publish(gid, row, work) {
+  // Only the gallery whose place it held (`life`, its publication's) is published there: one deleted meanwhile
+  // isn't — its deletion, waiting for this, takes the folder — nor a gallery made again under its id since.
+  async _publish(gid, row, work, life) {
     const lib = this.library;
     const { root, rest } = this._split(row.path);
     const opened = await lib.store.open({ id: root, location: lib.rootDir(root) }, { purpose: work === 'removal' ? 'removal' : 'publish' });
-    if (opened.status !== 'ok') return null;
+    if (opened.status !== 'ok' || !this.still(life)) return null;
     const found = await this.hold(gid, { rel: row.path, ask: (view) => opened.root.gallery(rest, gid, view) });
+    if (!this.still(life)) return null;
     if (found.kind === 'conflict') this._conflict(row);
     if (found.kind !== 'ok') return null;
     const now = this._row(gid);
-    if (!now) return null;   // deleted meanwhile: its deletion, waiting for this, takes the folder
     const had = this._stamp(gid);
-    if (!now.pending && format.nothingToWrite(had, (await found.dir.manifest()).kind)) return had;
+    if (!now.pending) {
+      const there = (await found.dir.manifest()).kind;
+      if (!this.still(life)) return null;
+      if (format.nothingToWrite(had, there)) return had;
+    }
     // Pictures of its own still staged (not moved in yet, or not in staging: _stagedMissing) named by none.
     const { next, texts } = this._generation(gid, { without: new Set(this._stagedOwn(gid).map(s => s.rel)) });
     const done = await found.dir.publish({ manifest: next, descriptions: texts });
@@ -2260,26 +2393,33 @@ export class FileLibrary {
   // nothing else in it is written again), the length it had kept first, so an addition the app didn't
   // finish is cut off again (resume). An archive not in the gallery format (added by hand) is left as
   // it is: resolves null (its descriptions are only the index's), else the token it is published at.
-  async _describeArchive(gid, row) {
-    return this._exclusive(gid, () => this._describeArchiveNow(gid, row));
+  async _describeArchive(gid, row, life) {
+    return this._exclusive(gid, () => this._describeArchiveNow(gid, row, life));
   }
-  async _describeArchiveNow(gid, row) {
+  async _describeArchiveNow(gid, row, life) {
     const lib = this.library;
+    if (!this.still(life)) return null;
     const file = this._abs(row.path);
     // Its place held (hold): a generation another app appended there since stands — what waited here for it
     // dropped — and nothing of this library's is added over it (one damaged is: T08).
     const had = this._stamp(gid);
-    if ((await this.hold(gid, { rel: row.path })).kind !== 'ok') return null;
+    const held = await this.hold(gid, { rel: row.path });
+    if (held.kind !== 'ok' || !this.still(life)) return null;
     if (this._stamp(gid) !== had) return this._stamp(gid);   // the archive's version read here: nothing of this library's to add
     const dir = await this._directory(file);
-    if (!this._formatted(dir)) return null;
-    const { add, drop, token } = await this._archiveChanges(gid, row, dir);
+    if (!this.still(life) || !this._formatted(dir)) return null;
+    const changes = await this._archiveChanges(gid, row, dir, { life });
+    if (!changes) return null;
+    const { add, drop, token } = changes;
     if (!add.length && !drop.length) return token;
-    lib._s('UPDATE files SET tail = ? WHERE gid = ?').run((await disk.stat(file)).size, gid);
+    const { size } = await disk.stat(file);
+    if (!this.still(life)) return null;
+    lib._s('UPDATE files SET tail = ? WHERE gid = ?').run(size, gid);
     lib.writes.addArchive(await appendZip(file, add, { drop }));
-    this._wroteArchive(gid, file);
-    lib._s('UPDATE files SET tail = NULL WHERE gid = ?').run(gid);
+    this._wroteArchive(gid, row, life);
     this._dirs.delete(file);
+    if (!this.still(life)) return null;
+    lib._s('UPDATE files SET tail = NULL WHERE gid = ?').run(gid);
     return token;
   }
   // Whether an archive's directory (`dir`) is in the gallery format: it describes itself.
@@ -2294,15 +2434,17 @@ export class FileLibrary {
   // a generation of their own — one replacing an entry by its name changes no description, yet the archive holds
   // another picture, which a generation must say (S30: none was, so no app saw the change, and its recorded size
   // was the old picture's).
-  async _archiveChanges(gid, row, dir, { placing = null, without = new Set(this._stagedOwn(gid).map(s => s.rel)), adding = new Map() } = {}) {
+  // `life`: the gallery of the publication or settle asking — resolves null, nothing to add, once it was deleted.
+  async _archiveChanges(gid, row, dir, { placing = null, without = new Set(this._stagedOwn(gid).map(s => s.rel)), adding = new Map(), life } = {}) {
     const file = this._abs(row.path);
     const differs = async (name, data) => { const e = dir.get(name); return !e || e.size !== data.length || !(await readEntry(file, e)).equals(data); };
     const listed = this._descriptions(gid, { comicInfo: row.format === 'cbz', placing, without });
+    const { next, texts } = this._generation(gid, { placing, without });
     const add = [];
     for (const f of listed) if (await differs(f.name, f.data)) add.push(f);
     const drop = DESCRIPTIONS.filter(name => dir.has(name) && !listed.some(f => f.name === name));
-    const { next, texts } = this._generation(gid, { placing, without });
     const had = dir.get(content.MANIFEST_FILE) ? format.parseManifest(String(await readEntry(file, dir.get(content.MANIFEST_FILE))), { galleryId: gid, archive: true }) : null;
+    if (!this.still(life)) return null;
     const prev = had?.kind === 'ok' ? had.value : null;
     const fresh = format.archiveManifest({ ...next, generation: Math.max(next.generation, (prev?.generation ?? 0) + 1) }, texts);
     const same = prev && JSON.stringify([prev.files, prev.descriptions, prev.sources ?? null]) === JSON.stringify([fresh.files, fresh.descriptions, fresh.sources ?? null]);
@@ -2329,12 +2471,14 @@ export class FileLibrary {
   // they move in by renaming, so it writes least); with none, it is rewritten as a fresh archive — never
   // one holding the person's files (_foreignIn: F6), which keep their place in its directory, nor one
   // changed since Shiori last wrote it (_asRecorded: S14), which is added to as it is.
-  // Resolves 'done' or 'unpack'.
-  async _settleArchive(gid, row) {
+  // Resolves 'done' or 'unpack' — 'done', nothing more written, once the gallery of the settle's `life` was deleted.
+  async _settleArchive(gid, row, life) {
     return this._exclusive(gid, async () => {
       const lib = this.library;
+      if (!this.still(life)) return 'done';
       const file = this._abs(row.path);
       const dir = await this._directory(file);
+      if (!this.still(life)) return 'done';
       const rows = lib._pageRows(gid);
       // What waits staged that isn't in staging is reported (_stagedMissing) and left out of this addition,
       // still waiting, named by none; a look that fails fails the settle, tried again (principle 6).
@@ -2342,6 +2486,7 @@ export class FileLibrary {
       for (const f of [...rows.map(r => parse(r.orig)).filter(o => o.at === 's').map(o => o.file), ...this._stagedOwn(gid).map(s => s.file)]) {
         if (!await stagedNow(lib._staged(f))) absent.add(f);
       }
+      if (!this.still(life)) return 'done';
       const live = new Map();       // name → { size, from? (staging), data? (a description) }
       const placing = new Map();    // page number → { name, row } staged pages to add
       for (const r of rows) {
@@ -2366,12 +2511,14 @@ export class FileLibrary {
       // it changed.
       const names = new Map([...placing].map(([n, p]) => [n, p.name]));
       const adding = new Map([...live].filter(([, v]) => v.from).map(([name, v]) => [name, v.size]));
-      const described = await this._archiveChanges(gid, row, dir, { placing: names, without: left, adding });
+      const described = await this._archiveChanges(gid, row, dir, { placing: names, without: left, adding, life });
+      if (!described || !this.still(life)) return 'done';
       for (const d of this._descriptions(gid, { comicInfo: row.format === 'cbz', placing: names, without: left })) live.set(d.name, { size: d.data.length });
       if (dir.has(content.MANIFEST_FILE)) live.set(content.MANIFEST_FILE, { size: dir.get(content.MANIFEST_FILE).size });
       for (const d of described.add) { live.delete(d.name); live.set(d.name, { size: d.data.length, data: d.data }); }
       const add = [...live].filter(([, v]) => v.from || v.data).map(([name, v]) => (v.from ? { name, from: v.from } : { name, data: v.data }));
       const foreign = new Set(await this._foreignIn(file, dir).catch(() => [...dir.keys()]));
+      if (!this.still(life)) return 'done';
       const drop = [...dir.keys()].filter(name => !live.has(name) && !foreign.has(name));
       // Its rows pointed at what it now holds; the staging files that held it deleted at once after
       // (so the gallery's folder in staging can go when it is next described).
@@ -2400,6 +2547,7 @@ export class FileLibrary {
       if (!add.length && !drop.length) { finish(); return 'done'; }
       // How much of it would be unused once added to: all it would hold, but what it then lists.
       const { size } = await disk.stat(file);
+      if (!this.still(life)) return 'done';
       const head = (name) => 30 + Buffer.byteLength(name);
       const directory = [...live.keys()].reduce((sum, name) => sum + 46 + Buffer.byteLength(name), 22);
       const after = size + add.reduce((sum, e) => sum + head(e.name) + live.get(e.name).size, 0) + directory;
@@ -2407,15 +2555,16 @@ export class FileLibrary {
       if (!foreign.size && (after - used) / after > UNUSED_AT_MOST) {
         if (placing.size || stagedOwn.length) return 'unpack';
         if (this._asRecorded(gid, file)) {
-          await this._compact(gid, row, live, dir);
-          finish();
+          await this._compact(gid, row, live, dir, life);
+          if (this.still(life)) finish();
           return 'done';
         }
       }
       lib._s('UPDATE files SET tail = ? WHERE gid = ?').run(size, gid);
       lib.writes.addArchive(await appendZip(file, add, { drop }));
-      this._wroteArchive(gid, file);
+      this._wroteArchive(gid, row, life);
       this._dirs.delete(file);
+      if (!this.still(life)) return 'done';
       finish();
       lib.publishFeed(gid);
       return 'done';
@@ -2424,8 +2573,9 @@ export class FileLibrary {
 
   // An archive with too much of it unused and nothing waiting in staging, written whole once as a
   // fresh archive of what it holds (`live`, as _settleArchive lists it), which takes its place — unless
-  // it changed while that was written (the person's edit is never replaced: S14), when it rejects.
-  async _compact(gid, row, live, dir) {
+  // it changed while that was written (the person's edit is never replaced: S14), when it rejects — or the
+  // gallery of the settle's `life` was deleted meanwhile, when it is left as it was.
+  async _compact(gid, row, live, dir, life) {
     const lib = this.library;
     const file = this._abs(row.path), temp = `${file}.shiori-tmp`;
     const entries = [...live].map(([name, v]) => (v.data ? { name, data: v.data } : { name, read: () => readEntry(file, dir.get(name)) }));
@@ -2436,9 +2586,10 @@ export class FileLibrary {
       // One synchronous step from here: its size and time, which the rename keeps, recorded as soon as it
       // is in place, with no file call between that a kill could stop in.
       const st = disk.statSync(temp);
+      if (!this.still(life)) { await disk.rm(temp, { force: true }).catch(() => {}); return; }
       if (this._row(gid)?.path !== row.path || !this._asRecorded(gid, file)) throw new Error('moved or changed meanwhile');
       disk.renameSync(temp, file);
-      this._wroteArchive(gid, file, st);
+      this._wroteArchive(gid, row, life, st);
       this._dirs.delete(file);
     } catch (e) {
       await disk.rm(temp, { force: true }).catch(() => {});
@@ -2478,6 +2629,7 @@ export class FileLibrary {
   async moveTo(gid, root, { work = null } = {}) {
     const lib = this.library;
     const id = String(gid);
+    const life = this.life(id);   // a move asked for a gallery deleted meanwhile moves none made again since (review 11 B7)
     lib.folders.dir(root);
     const leaving = this.rootFor(id);
     if (leaving === root) return false;
@@ -2485,14 +2637,17 @@ export class FileLibrary {
     lib.folders.assertWritable(leaving, work);
     for (let attempt = 0; attempt < 3; attempt++) {
       await this.place(id, { work });
+      if (!this.still(life)) return false;
       // The settle a settle that joined this one set going again isn't wanted: this one has just settled
       // the gallery, and the move would only find it busy again (each attempt the same).
       clearTimeout(this._timers.get(id));
       this._timers.delete(id);
       await this._describing.get(id)?.catch(() => {});   // descriptions being written land first
+      if (!this.still(life)) return false;
       // Its place held (hold): another app's publication there since this library read it stands — what
       // waited here for it dropped, reported — and the move carries the gallery as the folder has it.
       const held = this._row(id) && this._row(id).state !== 'missing' ? await this.hold(id) : contract.MISSING;
+      if (!this.still(life)) return false;
       const row = this._row(id);
       if (!row) {
         if (!lib._s('SELECT 1 FROM places WHERE gid = ?').get(id)) return false;
@@ -2547,6 +2702,7 @@ export class FileLibrary {
         try {
           await disk.mkdir(path.dirname(to), { recursive: true });
           renamed = await this._exclusive(id, () => {
+            if (!this.still(life)) return 'gone';
             if (signature() !== before || this._placing.has(id) || this._describing.has(id)) return 'changed';
             this._moving(id, rel);
             try { disk.renameSync(from, to); } catch (e) {
@@ -2560,6 +2716,7 @@ export class FileLibrary {
         } catch (e) { this._reserved.delete(rel); throw e; }
       }
       if (renamed !== 'copy') this._reserved.delete(rel);
+      if (renamed === 'gone') return false;
       if (renamed === 'changed') continue;
       if (renamed === 'moved') {
         this._forget(row.path);
@@ -2590,7 +2747,7 @@ export class FileLibrary {
         } else if (row.format === 'folder') await disk.cp(from, temp, { ...copy, filter: taken });
         else await disk.copyFile(from, temp, disk.constants.COPYFILE_EXCL);
         // A linked gallery's pages in its source: written into it as the gallery format puts them.
-        if (row.source) {
+        if (row.source && this.still(life)) {
           for (const r of lib._pageRows(id)) {
             const orig = parse(r.orig);
             if (orig.at !== 'x') continue;
@@ -2606,7 +2763,11 @@ export class FileLibrary {
         // while it was copied — the copy recorded first, each file as written, to retire (_retire) should
         // the app stop before the switch (F8) — and deleted again should the switch be refused, the
         // gallery left where it was.
-        if (signature() !== before) { await disk.rm(temp, { recursive: true, force: true }); continue; }
+        if (!this.still(life) || signature() !== before) {
+          await disk.rm(temp, { recursive: true, force: true });
+          if (!this.still(life)) return false;
+          continue;
+        }
         lib._tx(() => { for (const f of copied) this._retireIn(rel, f.name, f, null); });
         disk.renameSync(temp, to);
       } catch (e) {
@@ -2709,7 +2870,7 @@ export class FileLibrary {
   // Its own .shiori/ (the folder's manifest and stored descriptions) is Shiori's, and not copied: the
   // archive's manifest takes its place; so are the browser's swap files a website write left (SWAP_FILE),
   // which go with the folder.
-  async _archiveEntries(gid, dir, archiveFormat) {
+  async _archiveEntries(gid, dir, archiveFormat, life) {
     const lib = this.library;
     const rows = lib._pageRows(gid).sort((a, b) => a.n - b.n);
     const pictures = new Map();   // name → size
@@ -2725,6 +2886,7 @@ export class FileLibrary {
     for (const name of await filesIn(dir)) {
       if (!named.has(name) && !name.startsWith('.shiori/') && !WINDOWS_FILES.has(name.toLowerCase()) && !content.SWAP_FILE.test(name)) return null;
     }
+    if (!this.still(life)) return null;
     const sizes = {};
     for (const [name, size] of pictures) {
       const stat = disk.statSync(path.join(dir, ...name.split('/')), { throwIfNoEntry: false });
@@ -2751,10 +2913,11 @@ export class FileLibrary {
   async archive(gid) {
     const id = String(gid);
     const lib = this.library;
+    const life = this.life(id);
     if (!this._idle(id, this._row(id)) || !lib.folders.writable(this.rootFor(id))) return false;
     // Its place held (hold): its folder must name it (principle 2), and another app's publication there since
     // this library read it stands — read here first, so what is archived is the folder's version.
-    if ((await this.hold(id)).kind !== 'ok') return false;
+    if ((await this.hold(id)).kind !== 'ok' || !this.still(life)) return false;
     const row = this._row(id);
     if (!this._idle(id, row)) return false;
     // The publication the folder holds as it is let go: its files retire only while it still holds that one (_retire).
@@ -2762,12 +2925,14 @@ export class FileLibrary {
     const archiveFormat = this.archiveFormat === 'cbz' ? 'cbz' : 'zip';
     const dir = this._abs(row.path);
     const signature = this._signature(id);
-    const made = await this._archiveEntries(id, dir, archiveFormat).catch(() => null);
+    const made = await this._archiveEntries(id, dir, archiveFormat, life).catch(() => null);
+    if (!this.still(life)) return false;
     if (!made) {   // left as a folder: looked at again after another while
       lib._s('UPDATE files SET used_at = ? WHERE gid = ?').run(Date.now(), id);
       return false;
     }
     const { entries, token } = made;
+    const recorded = this._recorded(id);   // what its folder lets go (below), as the gallery has it now
     const rel = this._freePath(row.path, `.${archiveFormat}`);
     const file = this._abs(rel), temp = tempBeside(file);
     this._reserved.add(rel);
@@ -2781,14 +2946,14 @@ export class FileLibrary {
       // statNow — a look that fails stops the archiving, tried again later, never leaving that file to be
       // reported as the person's) — never a file the person put there, before or while the archive was
       // written (review 4 F4), which stays, and is reported (_retire).
-      const leaving = await ownedIn(dir, id, this._recorded(id));
+      const leaving = await ownedIn(dir, id, recorded);
       for (const name of (await disk.readdir(dir)).filter(n => WINDOWS_FILES.has(n.toLowerCase()))) {
         const st = statNow(path.join(dir, name));
         if (st?.isFile()) leaving.push({ name, size: st.size, mtime: st.mtimeMs });
       }
       // One synchronous step from here.
       const now = this._row(id);
-      if (now?.path !== row.path || !this._idle(id, now) || this._signature(id) !== signature) {
+      if (!this.still(life) || now?.path !== row.path || !this._idle(id, now) || this._signature(id) !== signature) {
         await disk.rm(temp, { force: true });
         return false;
       }
@@ -2887,12 +3052,14 @@ export class FileLibrary {
   // as written — while the folder may be written to (`work`) — a row kept only for one that couldn't be
   // deleted now (tried again after its next publication, or at the next start). Rows of a folder it has
   // left (moved by a copy, whose old folder went) are forgotten.
-  async _letGo(gid, upTo = Number.MAX_SAFE_INTEGER, work = null) {
+  // `life`: the gallery the files were let go by (its publication's) — none of one made again since.
+  async _letGo(gid, upTo = Number.MAX_SAFE_INTEGER, work = null, life = this.life(gid)) {
     const lib = this.library;
+    if (!this.still(life)) return;
     const row = this._row(gid);
     const rows = lib._s('SELECT rowid AS seq, dir, name, size, mtime FROM retiring WHERE gid = ? AND rowid <= ?').all(String(gid), upTo);
     if (!rows.length || !row || !lib.folders.writable(this._split(row.path).root, work)) return;
-    if ((await this.hold(gid)).kind !== 'ok') return;   // its folder doesn't name it now, or holds a version not read here yet: they wait
+    if ((await this.hold(gid)).kind !== 'ok' || !this.still(life)) return;   // its folder doesn't name it now, or holds a version not read here yet: they wait
     const here = rows.filter(r => r.dir === row.path);
     const { kept } = await deleteNamedIn(this._abs(row.path), here.map(r => ({ name: r.name, size: r.size, mtime: r.mtime })));
     this._forgetRetired(row.path, here, kept);
