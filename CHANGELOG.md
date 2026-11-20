@@ -1,5 +1,32 @@
 # Changelog
 
+## v1.3.0 — 2026-11-20
+
+### Added
+
+- **Library folders** (**Settings → Storage → Library storage**): your library can live in folders you choose. In a browser, **Add folder…** picks a folder on your computer and Shiori keeps galleries there as files, beside the ones in the browser's own storage (Chrome or Edge on a computer; other browsers and phones keep browser storage). In Shiori Desktop, one library can now span several folders, on different drives.
+- New galleries are saved to the location marked **Default**; **Set as default** on another one changes that. Each location shows how many galleries it holds and their size.
+- A gallery moves to another library folder from its overview (**Move to…**). In Shiori Desktop a move within one drive is done at once, with no picture written again.
+- **Remove** takes a folder out of the library: its galleries leave the library, their files stay where they are, and adding the folder again brings them back. It can move the galleries to another location first. **Hide** keeps the folder in the list and leaves its galleries out of the library until **Show**.
+- ZIP and CBZ archives, folders of pictures and PDFs you put into a library folder join the library and are read where they are. Shiori doesn't change or delete them: translations and other additions are kept beside them, and deleting such a gallery only removes it from the library.
+- **Rescan** finds galleries added, moved or deleted outside Shiori, in one folder or in all of them. Adding, scanning and removing a folder show as tasks on the tasks page. A folder on a drive that was away is read again once the drive is back.
+- Shiori Desktop and a browser can use the same folder, one at a time. Adding a folder another app uses asks first (**Use anyway**); the app it was taken from marks it **Used elsewhere**, still reads its galleries but refuses changes to them, and **Take back** returns it once the folder has been scanned.
+- **Needs attention** on a folder lists what Shiori found and left alone: a file it couldn't read, a damaged or missing file, a copy of a gallery, files it didn't make, or a gallery changed in both apps.
+- The reader opens a gallery where you left off; **Read from start** in the overview opens its first page.
+- When a translation ends, it says how many pages it skipped because their picture had changed.
+
+### Changed
+
+- In Shiori Desktop, the library folder's settings moved from **System** to **Storage**, and **Change…** made way for **Add folder…**: the library keeps its folder and gains others. A library from an earlier version carries over at the first start.
+- Favorites and where you stopped reading belong to your library and aren't written into a gallery's folder, so a folder handed to another app carries none; backups and exports still include them.
+- Deleting a gallery whose library folder can't be reached, or is in use by another app, is refused and says why; nothing changes until the folder is back.
+- On the tasks page, the tooltip of the tag saying where a job runs is shorter: it says what stops the job.
+
+### Fixed
+
+- Shiori Desktop no longer deletes a file you put into a gallery's folder, a series' folder or an archive yourself when it archives, unpacks or deletes that gallery: your file stays, and the folder is listed under **Needs attention**.
+- A backup made while a picture can't be read names it among the pictures it couldn't read, instead of leaving it out without saying so.
+
 ## v1.2.6 — 2026-10-26
 
 ### Added
