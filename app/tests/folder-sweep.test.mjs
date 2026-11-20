@@ -1940,10 +1940,12 @@ if (process.env.SHIORI_SWEEP_CHILD) await child(JSON.parse(process.env.SHIORI_SW
 // holds exactly what it was given, in the folder it was made in; once a check has run the deleted one's folder or
 // archive is gone, and no folder in A or B names the id but the place the library has it at (none, for one deleted
 // only: `gone`); nothing names it on a folder's Needs attention list; and the making again waited for nothing begun
-// for the deleted one (AGAIN_WAIT_MS: a drive that stops answering would hold it for ever, review 11 A4) — on the
-// website but for the gallery's lock (Web Locks: one write of a gallery at a time, across the site's pages), which
-// lets the held call go on at once.
-const AGAIN_WAIT_MS = 1000;
+// for the deleted one: it ends while the call is still held (AGAIN_WAIT_MS: one waiting for what was under way never
+// does — a drive that stops answering would hold it for ever, review 11 A4; under the whole sweep's load a making again
+// that takes some 40 ms alone took over a second, finishing while still held: S34's close-out) — on the website but
+// for the gallery's lock (Web Locks: one write of a gallery at a time, across the site's pages), which lets the held
+// call go on at once. A call it rightly waits for (`mayWait`) is let go after a second.
+const AGAIN_WAIT_MS = 10_000;
 const big = (/** @type {number} */ n) => { const b = new Uint8Array(2048); b.set(png(n)); return b; };   // large next to an archive's descriptions: added to it, not unpacked
 const MADE = { title: 'Again', pages: [big(91), big(92)], translation: big(93) };
 /** @param {Ctx} c @param {string} gid */
@@ -1998,7 +2000,7 @@ async function remakeHeld(c, sc, /** @type {string} */ gid, /** @type {string | 
     c.again = again;
     if (sc.again.gone) c.deleted.add(gid); else await (sc.again.make ?? remake)(c, gid);
   }, (e) => { if (['unavailable', 'hidden', 'not-owned', 'handover'].includes(e?.reason)) refused = true; else throw e; });
-  const first = go ? await Promise.race([work.then(() => 'done', () => 'done'), waiting.then(() => 'locked'), sleep(AGAIN_WAIT_MS).then(() => 'waited')]) : 'done';
+  const first = go ? await Promise.race([work.then(() => 'done', () => 'done'), waiting.then(() => 'locked'), sleep(mayWait ? 1000 : AGAIN_WAIT_MS).then(() => 'waited')]) : 'done';
   lockWaited = null;
   go?.();
   const failed = await within('the making again', work).then(() => null, (e) => e);
