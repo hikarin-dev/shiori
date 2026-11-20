@@ -30,9 +30,10 @@ after(async () => {
 });
 
 // The library page in a new tab of `ctx` (a profile of its own: its own IndexedDB and OPFS), with
-// helpers for the tests in window.__t.
-async function tab(ctx) {
+// helpers for the tests in window.__t. `first(...args)` runs in the page before any of its scripts.
+async function tab(ctx, first = null, ...args) {
   const page = await openPage(ctx, origin);
+  if (first) await page.evaluateOnNewDocument(first, ...args);
   await page.goto(`${origin}/app/library.html`, { waitUntil: 'load' });
   await page.evaluate(async () => {
     const png = async (hue, w = 30, h = 40) => {
@@ -1025,15 +1026,15 @@ test('A24: a hidden folder never asks for leave, and what waits for the other fo
       await api.pages.put(gy, 1, await t.png(40));
       return { x, gy };
     });
-    // This visit, both folders wait for leave: a new page of Y's gallery waits in the browser.
+    // This visit, both folders wait for leave: a new page of Y's gallery waits in the browser. They ask from
+    // the page's first script on, as a folder does: the page asks as it loads, and takes a leave it was
+    // given as it stands for two seconds (db.js GRANT_TTL_MS).
     const asking = (names) => { const proto = FileSystemDirectoryHandle.prototype, q = proto.__q ||= proto.queryPermission;
       proto.queryPermission = async function (o) { return names.includes(this.name) ? 'prompt' : q.call(this, o); }; };
-    page = await tab(ctx);
-    await page.evaluate(asking, ['X', 'Y']);
+    page = await tab(ctx, asking, ['X', 'Y']);
     const spilled = await page.evaluate(async (gy) => { await window.__api.pages.put(gy, 2, await window.__t.png(80)); return (await window.__t.raw('galleries', gy)).spilled; }, gy);
     // Next visit Y may be used, X still asks.
-    page = await tab(ctx);
-    await page.evaluate(asking, ['X']);
+    page = await tab(ctx, asking, ['X']);
     const out = await page.evaluate(async ({ x, gy }) => {
       const api = window.__api, t = window.__t;
       const waiting = (await api.folders.waiting()).map(f => f.id);
