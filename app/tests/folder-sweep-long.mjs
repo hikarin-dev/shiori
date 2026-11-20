@@ -16,8 +16,8 @@ import { ownTemp } from './long-temp.mjs';
 const [which = 'both', atOnce = '12'] = process.argv.slice(2);
 const BLIPS = ['drive blip 1', 'drive blip 2', 'drive blip 3', 'drive blip 5'];
 const KINDS = {
-  desktop: ['kill', 'EIO', 'EPERM', 'ENOENT', 'EXDEV', 'drive away', ...BLIPS],
-  website: ['page death', 'NoModificationAllowedError', 'NotFoundError', 'NotAllowedError', 'drive away', ...BLIPS],
+  desktop: ['kill', 'EIO', 'EPERM', 'ENOENT', 'EXDEV', 'drive away', ...BLIPS, 'made again'],
+  website: ['page death', 'NoModificationAllowedError', 'NotFoundError', 'NotAllowedError', 'drive away', ...BLIPS, 'made again'],
 };
 const SHARDS = { desktop: 5, website: 32 };
 const PROCESS_MS = 40 * 60_000;   // a shard took at most about 15 min (S30, S31)

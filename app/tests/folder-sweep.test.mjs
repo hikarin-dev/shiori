@@ -17,7 +17,8 @@
 //   review 5), and the drive blip (away from the k-th call, back at the m-th call after it, inside the
 //   step: m = 1, 2, 3 or 5; review 6).
 // "Not found" (ENOENT, NotFoundError) is among them: a drive away answers so for what is there, for a
-// moment (S11) or for as long as it is away (S18).
+// moment (S11) or for as long as it is away (S18). And, both apps, the gallery made again (S34, review 11): the k-th
+// file call held while the step's gallery is deleted and made again under its id (madeAgainAt).
 //
 // A step may be a check (review 6: "a check as the step", "a folder's first check as the step"): the
 // galleries a folder holds read back with one fault in the check, everything then reading as it does with
@@ -67,16 +68,20 @@ import { v1Gallery, legacyGallery, seriesExport } from './fixtures/storage-fixtu
  * the galleries a first check is to join (`want`, by `g`'s key, as a stage shows them), the series
  * owners whose chapters a stage shows (`series`), the other app (`other`, made in the setup alone), and
  * what the step itself found wrong (`wrong`: refusedFor), and whether the other app met the folder already
- * (`met`).
+ * (`met`). `again`: the gallery a run of kind 'made again' deleted and made again under its id (`gid`), the folder
+ * it was made in (`place`), and where the deleted one was (`old`: its folder or archive), or that it was deleted only
+ * (`gone`).
  * @typedef {{ lib: Driver, base: string, A: string, B: string, ids: Record<string, string>, g: Record<string, string>,
  *   titles: Record<string, string>, known: Set<string>, deleted: Set<string>, plants: Map<string, string>, discard?: boolean,
  *   showFirst?: boolean, takeBack?: boolean, want?: Record<string, G>, series?: string[], other?: Driver | null, wrong?: string[], met?: boolean,
- *   busy?: Set<string> }} Ctx */
+ *   busy?: Set<string>, again?: { gid: string, place: 'A' | 'B' | 'home', old: string | null, gone: boolean } }} Ctx */
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const png = (n) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, n >> 8, n & 255, 1, 2, 3]);
 const webp = (n) => new Uint8Array([0x52, 0x49, 0x46, 0x46, n >> 8, n & 255, 9, 8, 7]);
-const hex = (b) => (b ? Buffer.from(b).toString('hex') : null);
+// A picture as a stage shows it: its bytes as hex — a larger one (the gallery made again's) by its first eight bytes
+// and its length, which tell each apart.
+const hex = (b) => (!b ? null : b.length > 32 ? `${Buffer.from(b.subarray(0, 8)).toString('hex')}…${b.length}` : Buffer.from(b).toString('hex'));
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const MAX_PAGES = 4;
 // A file call's path, from its run's folder (the website's are so already).
@@ -235,10 +240,12 @@ const unfollowed = (/** @type {Ctx} */ c, /** @type {'A' | 'B'} */ place) => /**
  * the step is a start, and one that failed is made again before the stages (the person opening the app
  * again); `met`: what the other app does once the step has ended, wherever the fault stopped it, before
  * the stages (with no fault: it uses folder A anyway, works there and lets it go) — `metFirst`: after a kill
- * or the page's death, before this app is opened again.
+ * or the page's death, before this app is opened again. `again`: swept as 'made again' (S34) — the gallery of
+ * `g` it deletes and makes again (`key`), and how where not as `remake` does it (`make`; the gallery it then is:
+ * `as`), or that it is deleted only (`gone`).
  * @type {{ name: string, apps?: string[], kinds?: string[], moves?: boolean, sample?: number, noA?: boolean, noSetupFlush?: boolean, startsAgain?: boolean,
  *   also?(c: Ctx, stage: string): State[], setup(c: Ctx): Promise<void>, state(c: Ctx): State, ops: ReturnType<typeof op>[], met?(c: Ctx): Promise<void>,
- *   metFirst?: boolean }[]} */
+ *   metFirst?: boolean, again?: { key: string, gone?: boolean, make?(c: Ctx, gid: string): Promise<void>, as?(c: Ctx): G } }[]} */
 const SCENARIOS = [
   {
     name: 'a gallery\'s first writes',
@@ -1347,21 +1354,214 @@ const SCENARIOS = [
     ops: [op('allowed', (c) => c.lib.raw.folderAllow(c.ids.A)), FLUSH, SETTLE],
     noSetupFlush: true,
   },
+  // ── S34: work under way for a gallery as it is deleted and made again under its id (kind 'made again') ──
+  // Every operation that works on a gallery across awaits (plan §7, S34's row), each the step of one: what waited
+  // for its folder settled and published, its first pages settled, an archived gallery's settle and publication, an
+  // unpack, an archiving, a move, a series command, a check of its folder, the folder's removal writing back — and a
+  // translation stored as its gallery is deleted (deleted only), and a check joining a copy of it under its id.
+  {
+    name: 'what waited for its folder settled and published',
+    kinds: ['made again'],
+    again: { key: 'alpha' },
+    async setup(c) {
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
+      await c.lib.flush();
+      await awayFor(c, async () => {   // waiting for the drive: a page and a translation staged, a title not published
+        await c.lib.putPage(c.g.alpha, 3, png(3));
+        await c.lib.putTranslation(c.g.alpha, 1, png(5));
+        await c.lib.setTitle(c.g.alpha, 'Alpha 2');
+      });
+    },
+    state: (c) => withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha 2', [png(1), png(2), png(3)]) } }, c.g.alpha, 1, png(5)),
+    ops: [FLUSH, SETTLE],
+    noSetupFlush: true,
+  },
+  {
+    name: 'its first pages settled',
+    kinds: ['made again'],
+    again: { key: 'alpha' },
+    async setup(c) {
+      c.g.alpha = await c.lib.newGallery('Alpha');
+      c.known.add(c.g.alpha);
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', []) } }),
+    ops: [
+      op('page 1', (c) => c.lib.putPage(c.g.alpha, 1, png(1)), (s, c) => withPage(s, c.g.alpha, 1, png(1))),
+      op('page 2', (c) => c.lib.putPage(c.g.alpha, 2, png(2)), (s, c) => withPage(s, c.g.alpha, 2, png(2))),
+      op('translation 1', (c) => c.lib.putTranslation(c.g.alpha, 1, png(3)), (s, c) => withTranslation(s, c.g.alpha, 1, png(3))),
+      FLUSH,
+    ],
+  },
+  {
+    name: 'an archived gallery\'s settle under way',
+    apps: ['desktop'],
+    kinds: ['made again'],
+    again: { key: 'alpha' },
+    async setup(c) {
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2), png(3)]);
+      await c.lib.flush();
+      await c.lib.raw.archiveGallery(c.g.alpha);
+      await sleep(300);
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2), png(3)]) } }),
+    ops: [op('page 4', (c) => c.lib.putPage(c.g.alpha, 4, png(4)), (s, c) => withPage(s, c.g.alpha, 4, png(4))), FLUSH, SETTLE],
+  },
+  {
+    name: 'an archived gallery\'s publication under way',
+    apps: ['desktop'],
+    kinds: ['made again'],
+    again: { key: 'alpha' },
+    async setup(c) {
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2), png(3)]);
+      await c.lib.flush();
+      await c.lib.raw.archiveGallery(c.g.alpha);
+      await sleep(300);
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2), png(3)]) } }),
+    ops: [op('retitle', (c) => c.lib.setTitle(c.g.alpha, 'Alpha 2'), (s, c) => { const t = clone(s); t.galleries[c.g.alpha].title = 'Alpha 2'; return t; }), FLUSH, SETTLE],
+  },
+  {
+    name: 'an unpack under way',
+    apps: ['desktop'],
+    kinds: ['made again'],
+    again: { key: 'alpha' },
+    async setup(c) {
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2), png(3)]);
+      await c.lib.putTranslation(c.g.alpha, 1, png(5));
+      await c.lib.flush();
+      await c.lib.raw.archiveGallery(c.g.alpha);
+      await sleep(300);
+    },
+    state: (c) => withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2), png(3)]) } }, c.g.alpha, 1, png(5)),
+    ops: [op('translation 2', (c) => c.lib.putTranslation(c.g.alpha, 2, png(4)), (s, c) => withTranslation(s, c.g.alpha, 2, png(4))), FLUSH, SETTLE],
+  },
+  {
+    name: 'an archiving under way',
+    apps: ['desktop'],
+    kinds: ['made again'],
+    again: { key: 'alpha' },
+    async setup(c) {
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2), png(3)]);
+      await c.lib.putTranslation(c.g.alpha, 1, png(5));
+    },
+    state: (c) => withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2), png(3)]) } }, c.g.alpha, 1, png(5)),
+    ops: [op('archive', (c) => c.lib.raw.archiveGallery(c.g.alpha)), SETTLE],
+  },
+  {
+    name: 'a move to another folder under way',
+    kinds: ['made again'],
+    again: { key: 'alpha' },
+    async setup(c) {
+      c.ids.B = await c.lib.add(c.B);
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
+      await c.lib.putTranslation(c.g.alpha, 1, png(3));
+    },
+    state: (c) => withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]) } }, c.g.alpha, 1, png(3)),
+    ops: [op('to B', (c) => c.lib.move(c.g.alpha, c.ids.B), (s, c) => { const t = clone(s); t.galleries[c.g.alpha].place = 'B'; return t; }), FLUSH, SETTLE],
+  },
+  {
+    name: 'a series made with it under way',
+    kinds: ['made again'],
+    again: { key: 'two' },
+    async setup(c) {
+      for (const [key, title, n] of [['one', 'One', 1], ['two', 'Two', 2]]) c.g[/** @type {string} */ (key)] = await made(c, /** @type {string} */ (title), [png(/** @type {number} */ (n))]);
+      c.series = [c.g.one];
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.one]: G('A', 'One', [png(1)]), [c.g.two]: G('A', 'Two', [png(2)]) } }),
+    ops: [
+      op('made', (c) => c.lib.raw.seriesCommand('write', c.g.one, [{ id: c.g.one, title: 'One' }, { id: c.g.two, title: 'Two' }],
+        { seriesTitle: { english: 'Saga', japanese: '', pretty: '' } }), (s, c) => withChapters(s, c.g.one, [c.g.one, c.g.two])),
+      FLUSH, SETTLE,
+    ],
+  },
+  {
+    name: 'a check of its folder under way',
+    kinds: ['made again'],
+    again: { key: 'alpha' },
+    async setup(c) {
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
+      c.g.beta = await made(c, 'Beta', [png(4)]);
+      await c.lib.putTranslation(c.g.alpha, 1, png(3));
+    },
+    state: (c) => withTranslation({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1), png(2)]), [c.g.beta]: G('A', 'Beta', [png(4)]) } }, c.g.alpha, 1, png(3)),
+    ops: [CHECK],
+  },
+  {
+    name: 'the folder\'s removal writing it back',
+    kinds: ['made again'],
+    again: { key: 'alpha' },
+    async setup(c) {
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
+      await c.lib.flush();
+      await c.lib.putPage(c.g.alpha, 3, png(3));    // committed, not yet published
+      await c.lib.setTitle(c.g.alpha, 'Alpha 2');
+      await c.lib.setDefault(c.lib.home);   // the gallery made again goes there: folder A is being removed
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha 2', [png(1), png(2), png(3)]) } }),
+    ops: [op('remove A', (c) => c.lib.remove(c.ids.A), (s) => ({ ...clone(s), aIn: false }))],
+    noSetupFlush: true,
+  },
+  {
+    name: 'a translation of it being stored (deleted only)',
+    kinds: ['made again'],
+    again: { key: 'alpha', gone: true },
+    async setup(c) {
+      c.g.alpha = await c.lib.newGallery('Alpha');
+      c.known.add(c.g.alpha);
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', []) } }),
+    ops: [
+      op('page 1', (c) => c.lib.putPage(c.g.alpha, 1, png(1)), (s, c) => withPage(s, c.g.alpha, 1, png(1))),
+      op('translation 1', (c) => c.lib.putTranslation(c.g.alpha, 1, png(3)), (s, c) => withTranslation(s, c.g.alpha, 1, png(3))),
+      FLUSH,
+    ],
+  },
+  {
+    // 11A2: made again by a check joining a copy of it (another library folder's) under its id, then changed.
+    name: 'its publication under way, a copy joined under its id',
+    kinds: ['made again'],
+    again: {
+      key: 'alpha',
+      async make(c, gid) {
+        c.ids.B = await c.lib.add(c.B);
+        await c.lib.scan(c.ids.B);
+        await c.lib.setTitle(gid, 'Joined');
+      },
+      as: () => G('B', 'Joined', [png(1), png(2)]),
+    },
+    async setup(c) {
+      c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);
+      await c.lib.flush();
+      fs.cpSync(await dirOf(c, c.g.alpha), path.join(c.B, 'Alpha (copy)'), { recursive: true });
+      await c.lib.setTitle(c.g.alpha, 'Alpha 2');   // to publish
+    },
+    state: (c) => ({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha 2', [png(1), png(2)]) } }),
+    ops: [FLUSH],
+    noSetupFlush: true,
+  },
 ];
 
 const BLIPS = ['drive blip 1', 'drive blip 2', 'drive blip 3', 'drive blip 5'];
+const AGAIN = 'made again';
 const KINDS = {
-  desktop: ['kill', 'EIO', 'EPERM', 'ENOENT', 'EXDEV', 'drive away', ...BLIPS],
-  website: ['page death', 'NoModificationAllowedError', 'NotFoundError', 'NotAllowedError', 'drive away', ...BLIPS],
+  desktop: ['kill', 'EIO', 'EPERM', 'ENOENT', 'EXDEV', 'drive away', ...BLIPS, AGAIN],
+  website: ['page death', 'NoModificationAllowedError', 'NotFoundError', 'NotAllowedError', 'drive away', ...BLIPS, AGAIN],
 };
 // Where each kind runs: EXDEV on the moves alone; EPERM and NotAllowedError without the linked ZIP (as
-// the review swept them); a blip wherever the drive away does.
+// the review swept them); a blip wherever the drive away does; the gallery made again where a scenario names one.
 const sweeps = (/** @type {string} */ app, /** @type {string} */ kind) => SCENARIOS.filter(s => (!s.apps || s.apps.includes(app))
-  && (kind === 'EXDEV' ? s.moves : !s.kinds || s.kinds.includes(BLIPS.includes(kind) ? 'drive away' : kind)));
+  && (kind === AGAIN ? !!s.again : kind === 'EXDEV' ? s.moves : !s.kinds || s.kinds.includes(BLIPS.includes(kind) ? 'drive away' : kind)));
 
 // Scenarios a later step's finding fails on (plan §7), by app, kind and scenario.
 /** @type {Record<string, string>} */
-const TODO = {};
+const TODO = {
+  ...Object.fromEntries(['what waited for its folder settled and published', 'its first pages settled', 'an archived gallery\'s settle under way',
+    'an archived gallery\'s publication under way', 'an unpack under way', 'an archiving under way', 'a move to another folder under way',
+    'a series made with it under way', 'a translation of it being stored (deleted only)', 'its publication under way, a copy joined under its id']
+    .map(name => [`desktop made again: ${name}`, 'S34'])),
+  ...Object.fromEntries(['its first pages settled', 'a move to another folder under way', 'a series made with it under way', 'a translation of it being stored (deleted only)']
+    .map(name => [`website made again: ${name}`, 'S34'])),
+};
 // The website's page can be loaded again only so many times in one process (library-drivers.mjs).
 const NO_LOAD_LEFT = 'no restart left in this process: run fewer points per process (SHIORI_SWEEP_SHARD)';
 
@@ -1507,7 +1707,8 @@ async function stages(c, sc, states, done) {
     if (stage === 'check') c.busy = new Set(c.lib.app === 'website' ? Object.values(c.g).filter(gid => c.lib.raw.galleryBusy(gid)) : []);
     try { await within(stage, work()); } catch (e) { return [`${stage}: ${/** @type {Error} */ (e).message}`]; }
     const wrong = [...await wrongAt(stage, c, validAt(stage), { aInAlways: stage === 're-add' }),
-      ...reported.splice(0).filter(p => p.reason === 'duplicate').map(p => `${stage}: a copy of a gallery stays at ${p.path}`)];
+      ...reported.splice(0).filter(p => p.reason === 'duplicate').map(p => `${stage}: a copy of a gallery stays at ${p.path}`),
+      ...(c.again ? await againWrong(stage, c) : [])];
     if (wrong.length) return wrong;
   }
   return [];
@@ -1552,6 +1753,8 @@ function pageDied(/** @type {number | null} */ page) {
   }
 }
 let locksShadowed = false;
+/** @type {(() => void) | null} told when a lock is asked for while another holds it (a 'made again' run's making again) */
+let lockWaited = null;
 function shadowLocks() {
   if (locksShadowed) return;
   locksShadowed = true;
@@ -1567,7 +1770,7 @@ function shadowLocks() {
     const q = lockQueues.get(name) ?? [];
     lockQueues.set(name, q);
     q.push(entry);
-    if (q.length === 1) grantNext(name);
+    if (q.length === 1) grantNext(name); else lockWaited?.();
   });
   Object.defineProperty(globalThis.navigator, 'locks', { value: { request }, configurable: true });
 }
@@ -1592,6 +1795,7 @@ async function finish(/** @type {Ctx} */ c) {
 /** One run: scenario `sc` with fault `kind` at the k-th file call of its step. Resolves what was wrong. */
 async function once(app, kind, sc, k) {
   if (kind === 'kill') return killed(sc, k);
+  if (kind === AGAIN) return madeAgainAt(app, sc, k);
   const c = await setUp(app, sc);
   const states = statesOf(sc, c);
   try {
@@ -1686,6 +1890,147 @@ async function child({ scenario, base, k }) {
   process.exit(0);
 }
 if (process.env.SHIORI_SWEEP_CHILD) await child(JSON.parse(process.env.SHIORI_SWEEP_CHILD));
+
+// ── The gallery deleted and made again under its id (S34, review 11) ──
+// Kind 'made again': the k-th file call of the step is held — the first at or after it that can wait (the desktop's
+// synchronous calls can't: then its next promised one) — and meanwhile the scenario's gallery (`again`) is deleted and
+// made again under its id, as an export imported again, a download asked again or a backup restored make it
+// (`remake`: a title, two pages, a translation of its own; or the scenario's `make`); then the call goes on, the
+// step's operation under way ends, and none after it runs. A gallery's id is not the gallery: what began for the
+// deleted one acts on nothing of the one made again. So at every stage (stages, againWrong) the gallery made again
+// holds exactly what it was given, in the folder it was made in; once a check has run the deleted one's folder or
+// archive is gone, and no folder in A or B names the id but the place the library has it at (none, for one deleted
+// only: `gone`); nothing names it on a folder's Needs attention list; and the making again waited for nothing begun
+// for the deleted one (AGAIN_WAIT_MS: a drive that stops answering would hold it for ever, review 11 A4) — on the
+// website but for the gallery's lock (Web Locks: one write of a gallery at a time, across the site's pages), which
+// lets the held call go on at once.
+const AGAIN_WAIT_MS = 1000;
+const big = (/** @type {number} */ n) => { const b = new Uint8Array(2048); b.set(png(n)); return b; };   // large next to an archive's descriptions: added to it, not unpacked
+const MADE = { title: 'Again', pages: [big(91), big(92)], translation: big(93) };
+/** @param {Ctx} c @param {string} gid */
+async function remake(c, gid) {
+  await c.lib.newGallery(MADE.title, gid);
+  for (const [i, b] of MADE.pages.entries()) await c.lib.putPage(gid, i + 1, b);
+  await c.lib.putTranslation(gid, 2, MADE.translation);
+}
+// Where gallery `gid`'s folder or archive is, as the library has it now (null: it has none).
+async function placeOf(/** @type {Ctx} */ c, /** @type {string} */ gid) {
+  if (c.lib.app === 'desktop') {
+    const files = c.lib.raw.files, row = files._row(gid);
+    return row ? files._at(row.path) : null;
+  }
+  const stat = await c.lib.raw.galleryGet(gid);
+  const root = !stat?.folder || !stat.dir ? null : stat.folder === c.ids.A ? c.A : stat.folder === c.ids.B ? c.B : null;
+  return root && path.join(root, ...stat.dir.split('/'));
+}
+const inside = (/** @type {string} */ dir, /** @type {string} */ abs) => abs.toLowerCase().startsWith(`${dir.toLowerCase()}${path.sep}`);
+const letterOf = (/** @type {Ctx} */ c, /** @type {string | null} */ abs) => (abs && inside(c.A, abs) ? 'A' : abs && inside(c.B, abs) ? 'B' : 'home');
+// The folders in A and B (a series' members a level down) whose manifest names gallery `gid`.
+function foldersNaming(/** @type {Ctx} */ c, /** @type {string} */ gid) {
+  const out = [];
+  const look = (/** @type {string} */ dir, /** @type {number} */ depth) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!e.isDirectory() || e.name === '.shiori') continue;
+      const at = path.join(dir, e.name);
+      try { if (String(JSON.parse(fs.readFileSync(path.join(at, '.shiori', 'gallery.json'), 'utf8')).galleryId) === gid) out.push(at); } catch {}
+      if (depth) look(at, depth - 1);
+    }
+  };
+  for (const root of [c.A, c.B]) if (fs.existsSync(root)) look(root, 1);
+  return out;
+}
+// A held call that a page staged rightly waits for: its staging folder's removal under way (desktop library.js
+// _writeStaged — a page is never written into a folder being removed; one call or two, on the drive the page goes to).
+const STAGING_CLEARED = (/** @type {{ op: string, path: string }} */ call) => ['rmdir', 'rm'].includes(call.op) && /\/staging\//.test(call.path);
+/** The making again, with the step's call held (`go` lets it on; null: none was, the step has ended; `mayWait`: the
+ * held call is one it rightly waits for; `def`: the default folder's id, read before the step — nothing read here
+ * makes a file call the held one could keep waiting). Resolves what was wrong: { waited, failed } — the making again
+ * waited for what was under way (the stages still look), or it couldn't be done (they don't). @param {Ctx} c */
+async function remakeHeld(c, sc, /** @type {string} */ gid, /** @type {string | undefined} */ def, /** @type {(() => void) | null} */ go, mayWait = false) {
+  const again = { gid, place: sc.again.as?.(c).place ?? (def === c.ids.A ? 'A' : def === c.ids.B ? 'B' : 'home'), old: await placeOf(c, gid), gone: !!sc.again.gone };
+  let locked = () => {};
+  const waiting = new Promise((resolve) => { locked = resolve; });
+  lockWaited = locked;
+  // A deletion the library refuses now (its folder hidden, being removed, out of reach, another app's: plan D3) leaves
+  // the gallery as it was, and one the library no longer has (forgotten with its folder's removal) none to delete:
+  // nothing is made again then.
+  let refused = !(await c.lib.meta(gid));
+  const work = (refused ? Promise.reject(Object.assign(new Error('not in the library'), { reason: 'unavailable' })) : c.lib.deleteGallery(gid)).then(async () => {
+    c.again = again;
+    if (sc.again.gone) c.deleted.add(gid); else await (sc.again.make ?? remake)(c, gid);
+  }, (e) => { if (['unavailable', 'hidden', 'not-owned', 'handover'].includes(e?.reason)) refused = true; else throw e; });
+  const first = go ? await Promise.race([work.then(() => 'done', () => 'done'), waiting.then(() => 'locked'), sleep(AGAIN_WAIT_MS).then(() => 'waited')]) : 'done';
+  lockWaited = null;
+  go?.();
+  const failed = await within('the making again', work).then(() => null, (e) => e);
+  return { waited: first === 'waited' && !mayWait && !refused ? [`the gallery made again waited ${AGAIN_WAIT_MS} ms and more for what was under way for the deleted one`] : [],
+    failed: failed ? [`the gallery couldn't be made again: ${failed.message}`] : [] };
+}
+// A step's state, as it is once gallery `c.again.gid` was deleted and made again: that gallery as it was made (or
+// none, deleted only), and gone from a series' chapters (a series left with one is none).
+function againIn(/** @type {State} */ s, /** @type {Ctx} */ c, sc) {
+  const t = clone(s), { gid, place } = /** @type {NonNullable<Ctx['again']>} */ (c.again);
+  for (const g of Object.values(t.galleries)) {
+    if (g.chapters) g.chapters = g.chapters.filter(id => id !== gid);
+    if (g.chapters && g.chapters.length < 2) delete g.chapters;
+  }
+  if (c.again?.gone) delete t.galleries[gid];
+  else t.galleries[gid] = sc.again.as?.(c) ?? withTranslation({ aIn: true, galleries: { [gid]: G(place === 'A' ? 'A' : 'B', MADE.title, MADE.pages) } }, gid, 2, MADE.translation).galleries[gid];
+  return t;
+}
+/** What is wrong at `stage` of the gallery made again (or deleted only), besides what wrongAt sees. @param {Ctx} c */
+async function againWrong(/** @type {string} */ stage, c) {
+  const { gid, place, old, gone } = /** @type {NonNullable<Ctx['again']>} */ (c.again);
+  const problems = [];
+  const now = await placeOf(c, gid);
+  if (!gone && letterOf(c, now) !== place) problems.push(`the gallery made again is ${now ? `at ${short(now.split(path.sep).join('/'))}` : 'in no folder'}, not in ${place}`);
+  if (gone && now) problems.push(`the gallery deleted keeps a place, ${short(now.split(path.sep).join('/'))}`);
+  if (stage !== 'flush') {
+    if (old && fs.existsSync(old) && !(now && path.resolve(now) === path.resolve(old))) problems.push(`the deleted one's ${path.basename(old)} is still there`);
+    for (const dir of foldersNaming(c, gid)) if (!now || path.resolve(dir) !== path.resolve(now)) problems.push(`${short(dir.split(path.sep).join('/'))} names gallery ${gid}, which the library ${now ? 'has elsewhere' : 'hasn\'t'}`);
+  }
+  for (const f of await c.lib.list()) {
+    for (const a of f.attention ?? []) if (String(a.gid ?? '') === gid || (old && path.basename(old) === path.basename(String(a.path)))) problems.push(`Needs attention lists "${a.reason} ${a.path}"`);
+  }
+  if (problems.length && process.env.SHIORI_SWEEP_TREE) problems.push(`the folders hold: ${fs.readdirSync(c.base, { recursive: true }).filter(f => /^[AB][\\/]/.test(String(f))).join(', ')}`);
+  return problems.map(p => `${stage}: ${p}`);
+}
+/** One run of kind 'made again': scenario `sc`, its gallery `sc.again.key` deleted and made again while the k-th file
+ * call of its step is held. Resolves what was wrong. */
+async function madeAgainAt(/** @type {string} */ app, sc, /** @type {number} */ k) {
+  const c = await setUp(app, sc);
+  const gid = c.g[sc.again.key];
+  try {
+    const def = (await c.lib.list()).find(f => f.isDefault)?.id;   // where the gallery made again goes
+    let n = 0, met = '', armed = false, held = false;
+    /** @type {Promise<{ waited: string[], failed: string[] }> | null} */
+    let remade = null;
+    const count = (/** @type {{ op: string, path: string }} */ call) => { if (++n === k) { armed = true; met = `${call.op} ${short(call.path)}`; } return false; };
+    const hold = (/** @type {{ op: string, path: string }} */ call) => {
+      if (!armed || held) return null;
+      held = true;
+      let go = () => {};
+      const waits = new Promise((resolve) => { go = () => resolve(undefined); });
+      remade = remakeHeld(c, sc, gid, def, go, STAGING_CLEARED(call));
+      return waits;
+    };
+    const undo = app === 'desktop' ? [faults.failNext(count, 'EIO', { times: Infinity }), faults.holdIn(hold)]
+      : [fsa.failNext(count, 'EIO', { times: Infinity }), fsa.hold(hold)];
+    let done = 0;
+    for (const o of sc.ops) {
+      const ended = await within(o.name, o.run(c)).then(() => true, () => false);
+      if (ended) done++;
+      if (held || !ended) break;
+    }
+    for (const u of undo) u();
+    // The k-th call was the step's last, or one that couldn't wait: made again once the step has ended.
+    const { waited, failed } = await (remade ?? remakeHeld(c, sc, gid, def, null));
+    faults.reset(); fsa.reset();
+    if (app === 'website') stillDead();
+    const states = statesOf(sc, c).map(s => (c.again ? againIn(s, c, sc) : s));
+    return [...waited, ...failed].map(p => `step: ${p}`).concat(failed.length ? [] : await stages(c, sc, states, done)).map(p => `(${met || 'no call'}) ${p}`);
+  } finally { await finish(c); }
+}
 
 // ── The tests ──
 const EVERY = Number(process.env.SHIORI_SWEEP_EVERY) || 0;   // 0: the sample

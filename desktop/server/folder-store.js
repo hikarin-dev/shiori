@@ -53,7 +53,14 @@ export function failNext(when, code = 'EIO', { times = 1 } = {}) {
   faults.push(f);
   return () => { faults = faults.filter(x => x !== f); };
 }
-export function resetFaults() { faults = []; }
+export function resetFaults() { faults = []; holds = []; }
+// holdIn(when): a promised call `when(call)` answers with a promise waits for it, then is made (a synchronous one
+// can't wait: it is never asked) — the sweeps' "made again", done while a call of the step is held there. Returns a
+// function that takes it back.
+/** @type {((call: { op: string, path: string }) => Promise<unknown> | null)[]} */
+let holds = [];
+export function holdIn(when) { holds.push(when); return () => { holds = holds.filter(x => x !== when); }; }
+const heldFor = (op, args) => { for (const when of holds) { const p = when({ op, path: norm(args[0]) }); if (p) return p; } return null; };
 
 // ── What is written, by kind ──
 // A file's kind by its name, a temporary name (`<name>.shiori-tmp`, `<name>.<hex>.shiori-new`) read as
@@ -196,6 +203,8 @@ function checked(op, args) {
 const promised = (op, after = null) => async (...args) => {
   try {
     fault(op, args);
+    const held = holds.length ? heldFor(op, args) : null;
+    if (held) await held;
     checked(op, args);
     const out = await fsp[op](...args);
     if (after) await after(args, out);

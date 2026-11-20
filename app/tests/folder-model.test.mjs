@@ -894,6 +894,43 @@ const linkPart = command('linkPart', fc.tuple(anyGallery, fc.constantFrom('image
     checked(m);
   },
 });
+// S34 (review 11): a gallery deleted and made again under its id at once — an export imported again, a download asked
+// again — while work for the one deleted is under way: a translation of it being stored, or a change of it committed
+// and being settled and published (the library flushing it), let go on after `ms`. Its id is not the gallery: that
+// work acts on nothing of the one made again, which holds exactly its title, pages and translation from then on; the
+// deleted one's folder goes (`leaving`).
+const madeAgain = command('madeAgain', fc.tuple(anyGallery, fc.constantFrom('title', 'page', 'translation'), fc.nat(4)), {
+  check: (m, [i]) => m.state === 'shown' && !!galleryAt(m, i, inFolder),
+  async run(m, r, [i, what, ms]) {
+    const g = /** @type {Gallery} */ (galleryAt(m, i, inFolder));
+    await r.lib.flush();   // its folder made
+    const dir = await r.lib.dirOf(g.gid);
+    let work;
+    if (what === 'translation') work = r.lib.putTranslation(g.gid, 1, png(++m.tag));
+    else {
+      await (what === 'title' ? r.lib.setTitle(g.gid, `T${++m.tag}`) : r.lib.putPage(g.gid, 1, png(++m.tag)));
+      work = r.lib.flush();
+    }
+    const ended = work.catch(() => {});   // done for the deleted one, refused or failed: none of it is the new one's
+    if (ms) await pause(ms);
+    await r.lib.deleteGallery(g.gid);
+    /** @type {Gallery} */
+    const made = { gid: g.gid, place: 'A', app: m.app, title: `G${++m.tag}`, pages: [] };
+    await r.lib.newGallery(made.title, g.gid);
+    for (const n of [1, 2]) {
+      const bytes = png(++m.tag);
+      await r.lib.putPage(g.gid, n, bytes);
+      made.pages.push({ original: bytes, translated: null });
+    }
+    const bytes = png(++m.tag);
+    await r.lib.putTranslation(g.gid, 2, bytes);
+    made.pages[1] = translatedAs(made.pages[1], bytes);
+    await ended;
+    m.galleries = m.galleries.map(x => (x === g ? made : x));
+    for (const end = Date.now() + 3000; dir && fs.existsSync(dir) && Date.now() < end;) await pause(25);
+    if (dir && fs.existsSync(dir)) throw new Error(`the deleted gallery's folder ${path.basename(dir)} is still there: ${filesIn(dir).map(f => path.relative(dir, f)).join(', ')}`);
+  },
+});
 
 /** The commands that aren't in the base run yet: the person's or the disk's doing, and the desktop's
  * restart. `todo`, per app, where the fixed seeds find something today's code gets wrong: the step
@@ -1225,6 +1262,8 @@ const OPEN = {
   earlier: { both: true, todo: {}, commands: [earlierIndex, usedAnyway, usedAnyway, forgetGone, archiveIt, copyA, putBack, handOver] },
   edits: { todo: {}, commands: [movedByHand, checkB, moveTo] },
   links: { todo: {}, commands: [linkPart] },
+  // S34 (review 11): a gallery deleted and made again under its id at once (madeAgain).
+  again: { todo: { desktop: 'S34' }, commands: [madeAgain] },
 };
 
 // What each long run found and S8 fixed, replayed as it was found (fast-check's counterexample, its

@@ -29,6 +29,8 @@
 //   entries, getFile, createWritable, write or close, `path` the target's path relative to the folder
 //   picked, '/'-separated (for removeEntry and the get…Handle calls, the entry's);
 // - hang(when): every call `when(call)` matches never returns, as a page that died (the sweeps);
+// - hold(when): a call `when(call)` answers with a promise waits for it, then is made (the sweeps' "made
+//   again": what is done while a call of the step is held there);
 // - setPermission(path, state, { onRequest }): what queryPermission answers for the folder picked at
 //   `path` and everything in it ('granted', 'prompt', 'denied'), and what requestPermission turns it
 //   into; a call without permission fails with NotAllowedError;
@@ -62,7 +64,7 @@ export function failNext(when, name = 'NotReadableError', { times = 1 } = {}) {
   return () => { faults = faults.filter(f => f !== fault); };
 }
 /** No faults, every folder permitted, nobody listening, no call left hanging, links followed from now on. */
-export function reset() { faults = []; permissions.clear(); listeners.clear(); hangs.clear(); hidden = false; }
+export function reset() { faults = []; permissions.clear(); listeners.clear(); hangs.clear(); holds.clear(); hidden = false; }
 /** Links hidden (`on`) or followed from now on. @param {boolean} [on] */
 export function hideLinks(on = true) { hidden = on; }
 // Whether `abs` is a link hidden now (hideLinks).
@@ -79,19 +81,27 @@ const hangs = new Set();
  * function that takes it back. */
 export function hang(when) { hangs.add(when); return () => hangs.delete(when); }
 const NEVER = new Promise(() => {});
+/** @type {Set<(call: { op: string, path: string }) => Promise<unknown> | null>} */
+const holds = new Set();
+/** A call `when(call)` answers with a promise waits for it, then is made. Returns a function that takes it back. */
+export function hold(when) { holds.add(when); return () => holds.delete(when); }
 
 const stateOf = (root) => permissions.get(root)?.state ?? 'granted';
 // Call `op` on `abs` (under folder `root`) about to run: heard by the listeners, refused without
-// permission, failed by a fault. Returns true when it is never to return (hang): its caller awaits NEVER.
+// permission, failed by a fault. Returns what its caller waits for before making it — NEVER when it is
+// never to return (hang), a hold's promise — or null.
 function call(root, abs, op) {
   const heard = { op, path: path.relative(root, abs).split(path.sep).filter(Boolean).join('/') };
   for (const fn of listeners) fn(heard);
-  for (const when of hangs) if (when(heard)) return true;
+  for (const when of hangs) if (when(heard)) return NEVER;
   if (stateOf(root) !== 'granted') throw domError('NotAllowedError', `no permission for ${root}`);
   const fault = faults.find(f => f.when(heard));
-  if (!fault) return false;
-  if (--fault.times <= 0) faults = faults.filter(f => f !== fault);
-  throw domError(fault.name, `${fault.name}: injected, ${op} '${heard.path}'`);
+  if (fault) {
+    if (--fault.times <= 0) faults = faults.filter(f => f !== fault);
+    throw domError(fault.name, `${fault.name}: injected, ${op} '${heard.path}'`);
+  }
+  for (const when of holds) { const held = when(heard); if (held) return held; }
+  return null;
 }
 function childName(name) {
   if (typeof name !== 'string' || !name || name === '.' || name === '..' || /[\\/]/.test(name)) throw new TypeError(`Name is not allowed: '${name}'`);
@@ -132,7 +142,8 @@ class DirectoryHandle extends Handle {
   constructor(root, abs) { super(root, abs, 'directory'); }
   async #child(name, op, kind, create) {
     const abs = path.join(this._at.abs, childName(name));
-    if (call(this._at.root, abs, op)) await NEVER;
+    const wait = call(this._at.root, abs, op);
+    if (wait) await wait;
     try {
       if (!(await statOf(this._at.abs))?.isDirectory()) throw domError('NotFoundError', `${this._at.abs} is gone`);
       if (await hiddenLink(abs)) throw domError('NotFoundError', `${abs} is a link, hidden`);
@@ -152,7 +163,8 @@ class DirectoryHandle extends Handle {
   /** @param {string} name @param {{ recursive?: boolean }} [options] */
   async removeEntry(name, { recursive = false } = {}) {
     const abs = path.join(this._at.abs, childName(name));
-    if (call(this._at.root, abs, 'removeEntry')) await NEVER;
+    const wait = call(this._at.root, abs, 'removeEntry');
+    if (wait) await wait;
     try {
       if (await hiddenLink(abs)) throw domError('NotFoundError', `${abs} is a link, hidden`);
       const st = await fsp.lstat(abs);
@@ -166,7 +178,8 @@ class DirectoryHandle extends Handle {
   // as they are handed out takes none away (S30: a look at each as it was handed out cut a listing short with
   // no error). A link's kind is its target's (followed), and one hidden (hideLinks) or leading nowhere is left out.
   async *entries() {
-    if (call(this._at.root, this._at.abs, 'entries')) await NEVER;
+    const wait = call(this._at.root, this._at.abs, 'entries');
+    if (wait) await wait;
     /** @type {[string, boolean][]} */
     const items = [];
     try {
@@ -199,7 +212,8 @@ class FileHandle extends Handle {
   /** @param {string} root @param {string} abs */
   constructor(root, abs) { super(root, abs, 'file'); }
   async getFile() {
-    if (call(this._at.root, this._at.abs, 'getFile')) await NEVER;
+    const wait = call(this._at.root, this._at.abs, 'getFile');
+    if (wait) await wait;
     try {
       const [bytes, st] = await Promise.all([fsp.readFile(this._at.abs), fsp.stat(this._at.abs)]);
       return new File([bytes], this.name, { type: typeOf(this.name), lastModified: Math.floor(st.mtimeMs) });
@@ -208,7 +222,8 @@ class FileHandle extends Handle {
   /** @param {{ keepExistingData?: boolean }} [options] */
   async createWritable({ keepExistingData = false } = {}) {
     const { root, abs } = this._at;
-    if (call(root, abs, 'createWritable')) await NEVER;
+    const wait = call(root, abs, 'createWritable');
+    if (wait) await wait;
     const swap = abs + SWAP;
     try {
       if (!(await statOf(abs))) throw domError('NotFoundError', `${abs} is not there`);
@@ -226,7 +241,8 @@ class WritableFileStream {
   /** @param {any} data a Blob, BufferSource or string, or { type: 'write' | 'seek' | 'truncate', … } */
   async write(data) {
     this.#open();
-    if (call(this.#root, this.#abs, 'write')) await NEVER;
+    const wait = call(this.#root, this.#abs, 'write');
+    if (wait) await wait;
     try {
       if (data && typeof data === 'object' && 'type' in data && !(data instanceof Blob)) {
         if (data.type === 'seek') { this.#at = data.position; return; }
@@ -248,7 +264,8 @@ class WritableFileStream {
   truncate(size) { return this.write({ type: 'truncate', size }); }
   async close() {
     this.#open();
-    if (call(this.#root, this.#abs, 'close')) await NEVER;
+    const wait = call(this.#root, this.#abs, 'close');
+    if (wait) await wait;
     this.#done = true;
     try { await fsp.rename(this.#swap, this.#abs); } catch (e) { await fsp.rm(this.#swap, { force: true }).catch(() => {}); throw asDom(e, 'close'); }
   }

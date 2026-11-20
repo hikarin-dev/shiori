@@ -8,13 +8,14 @@
 //   { op, path, to? }: `op` the fs method's name without Sync ('rename', 'rm', 'readFile'…), `path` its
 //   first argument as an absolute path ('/'-separated), `to` the second for rename, copyFile and cp.
 //   Returns a function that takes the fault back (taken back by itself once used up).
-// - reset(): every fault taken back.
+// - holdIn(when): a promised call `when(call)` answers with a promise waits for it, then is made.
+// - reset(): every fault and hold taken back.
 // - junction(target, at): a junction at `at` leading to folder `target` (no admin rights needed;
 //   a directory symbolic link off Windows).
 import fs from 'node:fs';
 import path from 'node:path';
 
-export { failNext, resetFaults as reset } from '../server/folder-store.js';
+export { failNext, holdIn, resetFaults as reset } from '../server/folder-store.js';
 
 /** @param {string} target @param {string} at */
 export function junction(target, at) {
