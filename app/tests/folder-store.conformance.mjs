@@ -213,6 +213,60 @@ export const CASES = [
     },
   },
   {
+    // S36 (S35's trace, its fifth passing replay): the website looked at a name, found it free, and made "its" folder
+    // there a moment after another writer's folder had taken the name (the other app's unpack coming into place) — File
+    // System Access makes a folder only where none is by handing back the one there — and wrote its reservation into it,
+    // its manifest over the other's. A reservation keeps a folder it made only while it lists empty right after the
+    // making: one with anything in it is someone else's, left as it is, and the next name is taken. (The desktop makes
+    // its folder exclusively: refused there, its reservation fails or takes another name.)
+    name: 'S36: a folder put at a name between a reservation\'s look and its making is never the reservation\'s, and is left as it is',
+    todo: { website: 'S36' },
+    async run({ dir, store, fx, platform }) {
+      const root = await opened(store, await fx.register('A'));
+      const at = path.join(dir, 'A', 'Taken');
+      const putThere = () => {
+        fs.mkdirSync(path.join(at, '.shiori'), { recursive: true });
+        fs.writeFileSync(path.join(at, '.shiori', 'gallery.json'), '{"theirs":true}');
+        fs.writeFileSync(path.join(at, '0001.png'), 'theirs');
+      };
+      // The look (one answering "not found" looked at twice, as the shared rule takes it), then the making: the other
+      // writer's folder put there just before the making.
+      let looks = 0;
+      const undo = platform === 'desktop'
+        ? faults.failNext((c) => { if (c.op === 'mkdir' && c.path.endsWith('/A/Taken') && !fs.existsSync(at)) putThere(); return false; }, 'EIO', { times: Infinity })
+        : fsa.onCall((c) => { if (c.op === 'getDirectoryHandle' && c.path === 'Taken' && ++looks === 3) putThere(); });
+      const g = await root.reserve('Taken', '1700000000001', null).catch(() => null);
+      undo();
+      assert.notEqual(g?.name, 'Taken', 'never the folder put there');
+      assert.deepEqual(fs.readdirSync(at).sort(), ['.shiori', '0001.png'], 'left as it is');
+      assert.deepEqual(fs.readdirSync(path.join(at, '.shiori')), ['gallery.json']);
+      assert.equal(fs.readFileSync(path.join(at, '.shiori', 'gallery.json'), 'utf8'), '{"theirs":true}');
+      if (g) assert.equal((await root.gallery(g.name, '1700000000001')).kind, 'ok', 'the reservation names its gallery where it is');
+    },
+  },
+  {
+    // S36: the same shape for a picture — writeNew found a name free, and wrote the picture over a file another writer
+    // put at that name a moment later. A file made there is kept only while it is empty right after the making.
+    name: 'S36: a file put at a name between writeNew\'s look and its making is never written over',
+    todo: { website: 'S36' },
+    async run({ dir, store, fx, platform }) {
+      const root = await opened(store, await fx.register('A'));
+      const g = await root.reserve('Pictures', '1700000000001', null);
+      const at = path.join(dir, 'A', ...g.name.split('/'), 'translated', '0001.png');
+      const putThere = () => { fs.mkdirSync(path.dirname(at), { recursive: true }); fs.writeFileSync(at, 'theirs'); };
+      let made = false;
+      const undo = platform === 'desktop'
+        ? faults.failNext((c) => { if (c.op === 'open' && c.path.endsWith('/translated/0001.png') && !made) { made = true; putThere(); } return false; }, 'EIO', { times: Infinity })
+        : fsa.onCall((c) => { if (c.op === 'getFileHandle' && c.path === `${g.name}/translated/0001.png` && !made) { made = true; putThere(); } });
+      const written = await g.writeNew('translated/0001', 'png', png(1)).catch(() => null);
+      undo();
+      assert.ok(made, 'the file put there as the picture was about to be made');
+      assert.equal(fs.readFileSync(at, 'utf8'), 'theirs', 'never written over');
+      assert.notEqual(written?.name, 'translated/0001.png');
+      if (written) assert.deepEqual((await g.read(written.name)).data, png(1), 'the picture under a name of its own');
+    },
+  },
+  {
     name: 'a directory that is another gallery\'s is never this one\'s',
     async run({ store, fx }) {
       const root = await opened(store, await fx.register('A'));

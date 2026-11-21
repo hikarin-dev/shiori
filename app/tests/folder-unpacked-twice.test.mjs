@@ -9,6 +9,10 @@
 // the desktop's check listing the other as a copy ('duplicate') at every check, nothing lost — until the copy is
 // deleted by hand, after which nothing is listed. (The other order, the website's folder chosen first: the desktop's
 // folder can't take its place there, and it follows the website's unpack — one gallery, as the sweeps' passing replays.)
+// And the narrowest order (S36; S35's trace, its fifth passing replay): the website's choosing looked at Alpha and
+// found it free, the desktop's folder took the name, then the website made "its" folder there — File System Access hands
+// back the one there — and wrote its unpack into the desktop's. A reservation keeps a folder it made only while that
+// lists empty as made, so this order too leaves the two copies, never one folder written by both.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -24,7 +28,7 @@ const skip = !!globalThis.__desktopLibrary && 'run by npm test';
 const gate = () => { let open; const at = new Promise((resolve) => { open = resolve; }); return { at, open }; };
 const writer = (dir) => JSON.parse(fs.readFileSync(path.join(dir, '.shiori', 'gallery.json'), 'utf8')).writer;
 
-test('two apps unpacking one archive in the same moment leave a copy beside it, each app\'s change in its own, listed until deleted (a limit)', { skip }, async (t) => {
+for (const order of ['its folder chosen after the desktop\'s took the name', 'the desktop\'s folder taking the name between its look and its making']) test(`two apps unpacking one archive in the same moment leave a copy beside it, each app's change in its own, listed until deleted (a limit; the website's ${order})`, { skip, todo: order.startsWith('the desktop') ? 'S36' : undefined }, async (t) => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-twice-'));
   const A = path.join(base, 'A');
   const D = await desktopLibrary(path.join(base, 'desktop'));
@@ -40,25 +44,27 @@ test('two apps unpacking one archive in the same moment leave a copy beside it, 
   await D.flush();
   // The desktop's unpack (its change: a translation of page 2) held at its last call before its folder takes its place,
   // and its deletion of the archive once it has; the website's unpack (its change: page 3's) held as it chooses its
-  // folder, past its look beside the archive and its read of it.
+  // folder, past its look beside the archive and its read of it — at its look at the name, or (the narrowest order) once
+  // it has looked (a name answering "not found" is looked at twice, as the shared rule takes it) as it makes the folder.
   const unpacking = gate(), placed = gate(), choosing = gate(), chosen = gate(), deleting = gate(), webDone = gate();
-  let webArmed = false, looked = false, read = false;
+  const at = order.startsWith('its folder chosen') ? 1 : 3;
+  let webArmed = false, looked = false, read = false, calls = 0;
   faults.holdIn((call) => {
     if (/\/A\/Alpha\.[0-9a-f]+\.shiori-tmp\/image_records\.json\.shiori-tmp$/.test(call.path) && call.op === 'rename') { unpacking.open(); return placed.at; }
     if (call.op === 'rm' && call.path.endsWith('/A/Alpha.zip')) { deleting.open(); return webDone.at; }
     return null;
   });
+  await D.putTranslation(gid, 2, png(4));
+  const flushed = D.flush();   // an archived gallery's change settles at its flush: the unpack
+  await unpacking.at;
+  W = await webLibrary();   // (handed out again, the website's library takes back every hold: the website's is put after)
   fsa.hold((call) => {
     if (!webArmed) return null;
     if (call.op === 'getDirectoryHandle' && call.path === 'Alpha' && !read) { looked = true; return null; }
     if (call.op === 'getFile' && call.path === 'Alpha.zip' && looked) { read = true; return null; }
-    if (call.op === 'getDirectoryHandle' && call.path === 'Alpha' && read) { webArmed = false; choosing.open(); return chosen.at; }
+    if (call.op === 'getDirectoryHandle' && call.path === 'Alpha' && read && ++calls === at) { webArmed = false; choosing.open(); return chosen.at; }
     return null;
   });
-  await D.putTranslation(gid, 2, png(4));
-  const flushed = D.flush();   // an archived gallery's change settles at its flush: the unpack
-  await unpacking.at;
-  W = await webLibrary();
   const w = await W.add(A, { force: true });   // "Use anyway"
   await W.scan(w);
   webArmed = true;
