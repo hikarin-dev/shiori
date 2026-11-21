@@ -137,4 +137,66 @@ for (const app of /** @type {const} */ (['desktop', 'website'])) {
       assert.deepEqual((await L.list()).flatMap(f => f.attention ?? []).map(x => `${x.reason} ${x.path}`), [], `${stage}: nothing reported`);
     }
   });
+
+  // S35: the same check, its gallery deleted and made again while it writes the overlay's source.json again (the
+  // sweeps' 'made again' met it under load alone, website, call 18). The deleted one's overlay is deleted once that
+  // write is over, and takes what it wrote with it. Held here in the order that left it: the write in its midst (the
+  // website's past its look at the file, as it writes; the desktop's as it makes the overlay's folder), the deletion's
+  // removal of the overlay let run as far as it goes meanwhile — on the website to its last file, once it has deleted
+  // the source.json the write replaces — then the write let go, then the deletion. Before S35 the website's write put
+  // its source.json back after the deletion had deleted it, and the deletion, finding the overlay named, left it (its
+  // note in removed.json, nothing to take it up again); the desktop's made the overlay's folder again over the deletion.
+  test(`${app}: a deleted linked gallery's overlay goes once a check's write of it under way is over, with what it wrote`, { skip, todo: 'S35' }, async (t) => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-again-'));
+    const L = app === 'desktop' ? await desktopLibrary(path.join(base, 'desktop')) : await webLibrary();
+    t.after(async () => { faults.reset(); fsa.reset(); await L.close(); fs.rmSync(base, { recursive: true, force: true }); });
+    const A = path.join(base, 'A'), zip = path.join(A, 'Pack.zip');
+    fs.mkdirSync(A, { recursive: true });
+    fs.writeFileSync(zip, zipCreate([{ name: '001.png', data: png(1) }, { name: '002.png', data: png(2) }]));
+    const a = await L.add(A);
+    await L.setDefault(a);
+    await L.scan(a);
+    const gid = String((await L.galleries())[0]);
+    const overlay = path.join(A, '.shiori', 'linked', gid), source = path.join(overlay, 'source.json');
+    await L.putTranslation(gid, 1, png(3));
+    await L.flush();
+    fs.writeFileSync(zip, zipCreate([{ name: '001.png', data: png(1) }, { name: '002.png', data: png(4) }]));
+    const sleep = (/** @type {number} */ ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const until = async (/** @type {() => boolean} */ ok, ms = 3000) => { for (let i = 0; i < ms / 20 && !ok(); i++) await sleep(20); };
+    const written = gate(), write = gate(), reached = gate(), last = gate();
+    let armed = true;
+    const holds = (/** @type {{ op: string, path: string }} */ call) => {
+      const at = call.path.split('\\').join('/');
+      if (armed && (app === 'website' ? call.op === 'write' && at === `.shiori/linked/${gid}/source.json` : call.op === 'mkdir' && at.endsWith(`/.shiori/linked/${gid}`))) {
+        armed = false;
+        written.open();
+        return write.at;
+      }
+      if (app === 'website' && call.op === 'removeEntry' && at === `.shiori/linked/${gid}/gallery.json`) { reached.open(); return last.at; }
+      return null;
+    };
+    const undo = app === 'desktop' ? faults.holdIn(holds) : fsa.hold(holds);
+    t.after(undo);
+    const checked = L.scan(a);
+    await written.at;
+    await L.deleteGallery(gid);
+    const remade = (async () => { await L.newGallery('Again', gid); await L.putPage(gid, 1, png(9)); })();
+    // The deletion's removal as far as it goes while the write is held — or, as it waits for the write, a moment.
+    await Promise.race([app === 'website' ? reached.at : until(() => !fs.existsSync(overlay)), sleep(1500)]);
+    write.open();
+    if (app === 'website') { await until(() => !fs.existsSync(`${source}.crswap`)); last.open(); }   // the write over, its file in place
+    await remade;
+    await checked;
+    for (const stage of ['flushed', 'after a restart']) {
+      if (stage === 'flushed') { await L.flush(); if (app === 'desktop') await L.raw.files.applyDeletions(); }
+      else await /** @type {() => Promise<void>} */ (L.restart)();
+      await until(() => !fs.existsSync(overlay));
+      assert.equal(fs.existsSync(overlay), false, `${stage}: the deleted one's overlay is gone, ${fs.existsSync(overlay) ? fs.readdirSync(overlay, { recursive: true }).join(', ') : ''}`);
+      assert.equal(await L.titleOf(gid), 'Again', `${stage}: the gallery made again`);
+      assert.ok(same(await L.read(gid, 1), png(9)), `${stage}: its page`);
+      const dir = path.resolve(/** @type {string} */ (await L.dirOf(gid)));
+      assert.ok(dir.startsWith(A) && !dir.includes('.shiori'), `${stage}: in a folder of its own, ${dir}`);
+      assert.deepEqual((await L.list()).flatMap(f => f.attention ?? []).map(x => `${x.reason} ${x.path}`), [], `${stage}: nothing reported`);
+    }
+  });
 }
