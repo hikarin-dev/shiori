@@ -200,3 +200,73 @@ for (const app of /** @type {const} */ (['desktop', 'website'])) {
     }
   });
 }
+
+// S36 (S35's "found by looking"): the website deletes a deleted gallery's folder once that gallery's own work there is
+// over also when the id has a gallery again — before, only while it had none: with a copy joined under the id (11A2's
+// making again) the deleted one's folder was deleted while its publication under way still wrote there, and what that
+// publication wrote stayed, naming the gallery, its deletion recorded to be done at a later check or page opening.
+// Held here in the order that leaves it: the publication in its midst (its descriptions written, as it writes its
+// manifest); the deletion's own deletion of the folder waiting for the folder's deletions until a check of another
+// folder has joined a copy under the id; then that deletion let run as far as it goes, held where it deletes the
+// manifest; the publication let go, whole; then the deletion.
+test('website: a deleted gallery\'s folder goes once its publication under way is over, also with a copy joined under its id meanwhile — nothing left for a later check', { skip, todo: 'S36' }, async (t) => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-again-'));
+  const L = await webLibrary();
+  t.after(async () => { fsa.reset(); await L.close(); fs.rmSync(base, { recursive: true, force: true }); });
+  const A = path.join(base, 'A'), C = path.join(base, 'C'), copy = path.join(C, 'Kept (copy)');
+  const a = await L.add(A);
+  await L.setDefault(a);
+  const gid = '1790000003640';
+  await L.newGallery('Kept', gid);
+  await L.putPage(gid, 1, png(1));
+  await L.flush();
+  const old = /** @type {string} */ (await L.dirOf(gid));
+  const rel = path.relative(A, old).split(path.sep).join('/');
+  fs.cpSync(old, copy, { recursive: true });   // the person's copy, in a folder not the library's yet
+  await L.setTitle(gid, 'Kept, renamed');
+  const sleep = (/** @type {number} */ ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const until = async (/** @type {() => boolean} */ ok, ms = 5000) => { for (let i = 0; i < ms / 20 && !ok(); i++) await sleep(20); };
+  const manifest = `${rel}/.shiori/gallery.json`;
+  const written = gate(), write = gate(), reached = gate(), last = gate();
+  let publishing = true, deleting = false;
+  const undo = fsa.hold((call) => {
+    if (publishing && call.op === 'createWritable' && call.path === manifest) { publishing = false; written.open(); return write.at; }
+    if (deleting && call.op === 'removeEntry' && call.path === manifest) { deleting = false; reached.open(); return last.at; }
+    return null;
+  });
+  t.after(undo);
+  const published = L.raw.settleFolders();
+  await written.at;
+  // The folder's deletions held (lock shiori:deleting:<folder>) from before the gallery's deletion.
+  const held = gate(), letGo = gate();
+  navigator.locks.request(`shiori:deleting:${a}`, () => { held.open(); return letGo.at; });
+  await held.at;
+  await L.deleteGallery(gid);
+  await L.scan(await L.add(C));
+  assert.equal(await L.titleOf(gid), 'Kept', 'the copy joined under its id');
+  deleting = true;
+  letGo.open();
+  // The deletion as far as it goes while the publication is held — or, as it waits for it, a moment.
+  await Promise.race([reached.at, sleep(1500)]);
+  write.open();
+  await published;
+  last.open();
+  await until(() => !fs.existsSync(old));
+  const idb = await L.raw.openDB();
+  const owed = await new Promise((resolve, reject) => {
+    const req = idb.transaction('folders', 'readonly').objectStore('folders').getAllKeys();
+    req.onsuccess = () => resolve(req.result.filter((/** @type {string} */ k) => String(k).startsWith('$deleting:')));
+    req.onerror = () => reject(req.error);
+  });
+  const left = fs.existsSync(old) ? fs.readdirSync(old, { recursive: true }).join(', ') : '';
+  assert.deepEqual(owed, [], `nothing left recorded for a later check (the folder holding ${left || 'nothing'})`);
+  assert.equal(fs.existsSync(old), false, `the deleted one's folder is gone, ${left}`);
+  for (const stage of ['checked', 'after a restart']) {
+    if (stage === 'checked') { await L.scan(a); await L.flush(); } else await /** @type {() => Promise<void>} */ (L.restart)();
+    assert.equal(await L.titleOf(gid), 'Kept', `${stage}: the gallery joined`);
+    assert.ok(same(await L.read(gid, 1), png(1)), `${stage}: its page`);
+    assert.equal(path.resolve(/** @type {string} */ (await L.dirOf(gid))), path.resolve(copy), `${stage}: in its own folder`);
+    assert.equal(fs.existsSync(old), false, `${stage}: the deleted one's folder is gone`);
+    assert.deepEqual((await L.list()).flatMap(f => f.attention ?? []).map(x => `${x.reason} ${x.path}`), [], `${stage}: nothing reported`);
+  }
+});
