@@ -97,7 +97,7 @@ const WAYS = {
 };
 for (const [way, { apps, run }] of Object.entries(WAYS)) {
   for (const app of apps) {
-    test(`S37 F1: ${app}: ${way}, a series command over a linked gallery changed in place and a gallery another app published since, ends — and the gallery takes a write again`, { skip, todo: app === 'website' ? 'S37' : undefined }, async (t) => {
+    test(`S37 F1: ${app}: ${way}, a series command over a linked gallery changed in place and a gallery another app published since, ends — and the gallery takes a write again`, { skip }, async (t) => {
       const c = await made(t, app);
       assert.equal(await within(run(c), 12000), 'ended', `${way}: ended`);
       assert.equal(await within(c.L.putTranslation(c.x, 2, png(9)), 10000), 'ended', 'a later write of the linked gallery ends');
@@ -120,7 +120,7 @@ for (const [way, { apps, run }] of Object.entries(WAYS)) {
 // publications under way at once — each held where it holds its own gallery's lock and is about to ask for the
 // other's (its read of the other's overlay), let go once both are there.
 for (const app of ['desktop', 'website']) {
-  test(`S37 F2: ${app}: the two publications of one series command, each meeting the other's place another writer's, both end — and each gallery takes a write again`, { skip, todo: app === 'website' ? 'S37' : undefined }, async (t) => {
+  test(`S37 F2: ${app}: the two publications of one series command, each meeting the other's place another writer's, both end — and each gallery takes a write again`, { skip }, async (t) => {
     const c = await made(t, app, { both: true });
     const there = gate(), go = gate();
     const reached = new Set();
@@ -151,7 +151,7 @@ for (const app of ['desktop', 'website']) {
 // published alone: it stands by the folder's version under its own lock before anything of it is.
 for (const app of ['desktop', 'website']) {
   for (const why of ['its overlay unreadable for a moment', ...(app === 'website' ? ['its lock held by a write of its own'] : [])]) {
-    test(`S37: ${app}: a series command's drop is whole — the other gallery, ${why} as the first stands, isn't published alone`, { skip, todo: 'S37' }, async (t) => {
+    test(`S37: ${app}: a series command's drop is whole — the other gallery, ${why} as the first stands, isn't published alone`, { skip }, async (t) => {
       // The own gallery another writer published (its work meets that); the linked one, changed in place, the other.
       const c = await made(t, app);
       const own = c.m, linked = c.x;

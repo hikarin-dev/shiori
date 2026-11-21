@@ -98,7 +98,9 @@ CREATE TABLE IF NOT EXISTS together (
 // `together` (S32, review 9 B1): the galleries one series command changed together (library.js seriesCommand),
 // while a change of any of them waits to be published — weighed as one before anything of them is written at
 // their places (_weighGroup): never one's part published while another's is dropped. A gallery leaves it once
-// published (describe), dropped (scan.js folderStands) or deleted. `retiring.held` (S32, review 9 A3): for a
+// published (describe), dropped (scan.js folderStands) or deleted; `dropped` (S37): its group's drop left it to stand by
+// the folder's version, it couldn't be read again as the first stood — it stands at its next settle or publication,
+// before anything of it is written (hold), never published with its part of the command. `retiring.held` (S32, review 9 A3): for a
 // folder an archiving let go, { gid, token } — the gallery and the publication the folder held then; its files
 // go only while it still holds that one (_retire).
 // `files`: one row per gallery with a place in the library folder; `state` 'packed' when it is
@@ -154,7 +156,7 @@ const PUBLISH_EVERY = 20;      // pages stored before a gallery being downloaded
 const NAMED_TTL = 2000;        // how long a gallery's folder found to name it is taken to, for reads (_namesIt)
 const COLUMNS = { files: { unpack: 'INTEGER NOT NULL DEFAULT 0', used_at: 'REAL', tail: 'REAL', source: 'TEXT', zip_size: 'INTEGER', zip_mtime: 'REAL', moving: 'TEXT',
   converting: 'INTEGER NOT NULL DEFAULT 0' }, deleting: { unfound: 'INTEGER NOT NULL DEFAULT 0', misses: 'INTEGER NOT NULL DEFAULT 0', stamp: 'TEXT', epoch: 'INTEGER' },
-  retiring: { held: 'TEXT' } };
+  retiring: { held: 'TEXT' }, together: { dropped: 'INTEGER' } };
 const HOUR = 60 * 60_000, DAY = 24 * HOUR;
 // How long a series command's group weighed whole is taken as it is (_weighGroup): its galleries settle and
 // publish one after another a moment later, each weighing the rest.
@@ -1376,7 +1378,8 @@ export class FileLibrary {
     if (!abs) return contract.unreadable('its library folder can\'t be reached as itself');
     const asked = ask ?? ((view) => placeIn(abs, id, { ...view, writer: lib.folders._me(), ...this._looks(rel) }));
     const at = await asked({ known: known === undefined ? this._stamp(id) : known });
-    if (at.kind !== 'theirs') return at;
+    // One its series command's drop left to stand (S37: dropIn) stands by the folder's version first, whatever its place holds.
+    if (at.kind !== 'theirs' && !(at.kind === 'ok' && !deletion && this._dropped(id))) return at;
     if (!deletion && !this.still(life)) return contract.unreadable(`gallery ${id} was deleted meanwhile`);
     if (deletion) {
       const { root, rest } = this._split(rel);
@@ -1406,9 +1409,16 @@ export class FileLibrary {
     for (const old of new Set(placed.map(g => this._groupOf(g)).filter(Boolean))) {
       for (const { gid } of lib._s('SELECT gid FROM together WHERE grp = ?').all(old)) placed.push(gid);
     }
-    for (const g of new Set(placed)) lib._s('INSERT OR REPLACE INTO together (gid, grp) VALUES (?, ?)').run(g, grp);
+    // (One its group's drop left to stand keeps that: `dropped`.)
+    for (const g of new Set(placed)) lib._s('INSERT OR REPLACE INTO together (gid, grp, dropped) VALUES (?, ?, (SELECT dropped FROM together WHERE gid = ?))').run(g, grp, g);
   }
   _groupOf(gid) { return this.library._s('SELECT grp FROM together WHERE gid = ?').get(String(gid))?.grp ?? null; }
+  // A series command's drop is whole (S37). Inside the transaction that drops a gallery's waiting change for the
+  // folder's version (scan.js folderStands): every other gallery of its group still waiting (`gids`) left to stand by
+  // the folder's version too — read again then, or, where it can't be now, at its next settle or publication (hold).
+  dropIn(gids) { for (const g of gids) this.library._s('UPDATE together SET dropped = 1 WHERE gid = ?').run(String(g)); }
+  // Whether gallery `gid` was left to stand so.
+  _dropped(gid) { return !!this.library._s('SELECT dropped FROM together WHERE gid = ?').get(String(gid))?.dropped; }
   // Inside a transaction: gallery `gid` out of its group (published, dropped, deleted).
   _ungroup(gid) { this.library._s('DELETE FROM together WHERE gid = ?').run(String(gid)); }
   // The other galleries of gallery `gid`'s group whose change still waits here.
@@ -1427,7 +1437,7 @@ export class FileLibrary {
   async _weighGroup(gid) {
     const id = String(gid);
     const grp = this._groupOf(id);
-    if (!grp) return true;
+    if (!grp || this._dropped(id)) return true;   // left to stand by its group's drop: its own place held next stands it (hold)
     if (Date.now() - (this._weighed.get(grp) ?? -Infinity) < GROUP_WEIGHED_MS) return true;
     for (const m of this.groupWaiting(id)) {
       if (!this.library.folders.writable(this.rootFor(m), 'publish')) return false;

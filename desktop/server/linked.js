@@ -274,9 +274,10 @@ async function embeddedMeta(library, root, title, at) {
 // not yet written to its overlay — checked again as the rows are replaced; they win, and it isn't read
 // again (A14). `at`: the title as titleAt read it, when the caller has. `life`: for one read again, the gallery
 // it is (files.js life; its caller's, else as it begins) — once that gallery has ended (deleted, or another made
-// under its id) nothing more is read or written for it (S34). Resolves its id; null when it has no pages yet (a
-// PDF waiting), `guard` held it back or its gallery ended.
-export async function adoptLinked(library, root, title, { gid: given = null, replace = null, guard = null, at = null, life = replace ? library.files.life(replace) : null } = {}) {
+// under its id) nothing more is read or written for it (S34). `group`: for one read again as its series command's
+// drop, the rest of the command left to stand with it, in the same transaction (files.js dropIn, S37). Resolves its
+// id; null when it has no pages yet (a PDF waiting), `guard` held it back or its gallery ended.
+export async function adoptLinked(library, root, title, { gid: given = null, replace = null, guard = null, at = null, life = replace ? library.files.life(replace) : null, group = [] } = {}) {
   const ended = () => !!life && !library.files.still(life);
   at = at || await titleAt(library, root, title);
   if (!at || ended()) return null;
@@ -332,6 +333,7 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
       for (const r of library._pageRows(gid)) ownRefs(parse(r.record), had);
       files.keep.add(gid);
       try { library._deleteIn(gid); } finally { files.keep.delete(gid); }
+      files.dropIn(group);   // the rest of its series command left to stand with it (scan.js folderStands, S37)
     }
     library._metaPutRaw(record);
     if (!replace) library._importMarks(gid, record);   // an earlier version's favorite, as the gallery joins (scan.js addGallery)

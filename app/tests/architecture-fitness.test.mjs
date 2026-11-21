@@ -246,8 +246,8 @@ test('S35: a linked gallery\'s overlay is its gallery\'s own — its source.json
   const site = new Map([...functionsOf(read('folder-library.js')), ...functionsOf(read('db.js'))].map(([name, body]) => [name, asCode(body)]));
   assert.deepEqual([...site].filter(([, body]) => /\bSOURCE_FILE\b/.test(body) && /\bwriteFile\s*\(/.test(body)).map(([name]) => name), ['_writeSource']);
   // (Under the lock its caller holds where it is the gallery's own work's re-read: `held`, S36.)
-  assert.match(site.get('_writeSource') ?? '', /\bended\s*\(\s*\)[\s\S]*\bwriteFile\s*\([\s\S]*\bheld \? write\(\) : K\.locked\s*\(\s*gid\s*,\s*write\s*\)/);
-  assert.match(site.get('_deleteOverlay') ?? '', /\b_galleryLocked\s*\(\s*gid\b/);
+  assert.match(site.get('_writeSource') ?? '', /\bended\s*\(\s*\)[\s\S]*\bwriteFile\s*\([\s\S]*\bK\.galleryWork\s*\(\s*gid\s*,\s*held\s*,\s*write\s*\)/);
+  assert.match(site.get('_deleteOverlay') ?? '', /\b_galleryWork\s*\(\s*gid\s*,\s*held\b/);
   const linked = new Map([...functionsOf(desktop('linked.js'))].map(([name, body]) => [name, asCode(body)]));
   assert.deepEqual([...linked].filter(([name, body]) => name !== 'writeIn' && /\bwriteIn\s*\(/.test(body)).map(([name]) => name), ['overlayFor']);
   assert.match(linked.get('overlayFor') ?? '', /\bownWrite\s*\([\s\S]*\.still\s*\(\s*life\s*\)[\s\S]*\bwriteIn\s*\(/);
@@ -307,7 +307,7 @@ test('S36: the website\'s locks are taken in one order, stated where they are na
   const site = new Map([...functionsOf(read('db.js'))].map(([name, body]) => [name, asCode(body)]));
   const orderOff = (fns) => {
     const out = [];
-    if (!/\bconst run = \(\) => folderFiles\.withLock\(`shiori:deleting:[\s\S]*\b_galleryLocked\s*\(\s*d\.gid\s*,\s*run\s*\)/.test(fns.get('_deletion') ?? '')) out.push('_deletion: the gallery\'s lock first, then the folder\'s deletion lock');
+    if (!/\bconst run = \(\) => folderFiles\.withLock\(`shiori:deleting:[\s\S]*\b_galleryWork\s*\(\s*d\.gid\s*,\s*held\s*,\s*run\s*\)/.test(fns.get('_deletion') ?? '')) out.push('_deletion: the gallery\'s lock first, then the folder\'s deletion lock');
     if (/\b_galleryLocked\s*\(|\bwithLock\s*\(/.test(fns.get('_deleteOne') ?? '')) out.push('_deleteOne: no lock waited for within the folder\'s deletion lock');
     if (!/withLock\(`shiori:removed:[\s\S]*going\.push\([\s\S]*_deleteOverlay\([\s\S]*\}\)\.catch\([\s\S]*await Promise\.all\(going/.test(fns.get('_publishRemoved') ?? '')) out.push('_publishRemoved: its overlays\' deletions waited for once its lock is let go');
     return out;
@@ -317,6 +317,38 @@ test('S36: the website\'s locks are taken in one order, stated where they are na
   const inside = new Map(site);
   inside.set('_deleteOne', `${site.get('_deleteOne')}\nawait _galleryLocked(d.gid, () => {});`);
   assert.deepEqual(orderOff(inside), ['_deleteOne: no lock waited for within the folder\'s deletion lock']);
+});
+
+test('S37: a gallery\'s lock is never waited for while one is held — every holder says which gallery\'s lock it holds, down to every place that asks for one', () => {
+  // S35 put a lock on a path that runs under that lock; S36 passed a boolean `held` down one branch, and the series
+  // command's weighing reached the same lock through another (review 12 F1), or another gallery's (F2). Now: `held` is a
+  // gallery's id, and _galleryWork takes a gallery's lock by the rule the comment at _galleryLocked states.
+  const db = read('db.js'), lib = read('folder-library.js');
+  const site = new Map([...functionsOf(db), ...functionsOf(lib)].map(([name, body]) => [name, asCode(body)]));
+  const order = db.match(/\/\/ The website's locks [\s\S]*?\nconst _galleryLocked = /)?.[0]?.replace(/\s*\/\/\s*/g, ' ') ?? '';
+  assert.match(order, /A gallery's lock is never waited for while a gallery's lock is held/, 'the rule, stated with the order');
+  // _galleryWork's three forms: its own inline, none waited for, another's only if free (else busy: 'unreadable').
+  assert.match(site.get('_galleryWork') ?? '', /held != null && String\(held\) === String\(gid\)\) return Promise\.resolve\(\)\.then\(fn\)[\s\S]*if \(held == null\) return _galleryLocked\(gid, fn\)[\s\S]*ifFree: true[\s\S]*busy: true/);
+  // No boolean form left, nor a lock asked for a gallery but through _galleryWork (or by its holder, _writing/_describe).
+  const both = asCode(db) + asCode(lib);
+  assert.deepEqual([...both.matchAll(/\bheld\s*(?:=|:)\s*(?:true|false)\b|\blocked\s*(?:=|:)\s*(?:true|false)\b|\bK\.locked\b/g)].map(m => m[0]), [], 'no boolean held');
+  const asking = [...site].filter(([name, body]) => /\b_galleryLocked\s*\(/.test(body)).map(([name]) => name).sort();
+  assert.deepEqual(asking, ['_describe', '_galleryWork', '_writing'], 'a gallery\'s lock waited for only by its holders and _galleryWork');
+  // Every call down the chains from a holder to a place that asks passes `held`.
+  const offPath = (fns) => {
+    const out = [];
+    const must = [['_weighGroup', /\b_hold\s*\(\s*m\s*,\s*\{\s*held:\s*String\(gid\)\s*\}/], ['_hold', /\b_stands\s*\(\s*id\s*,\s*held\b/],
+      ['_stands', /\bfolderStands\s*\(\s*String\(gid\)\s*,\s*\{\s*held\b/], ['folderStands', /\b_adoptLinked\s*\([^)]*\bheld\b/], ['folderStands', /\bfolderStands\s*\(\s*m\s*,\s*\{\s*held\b/],
+      ['_adoptLinked', /\b_overlayFor\s*\([^)]*\bheld\s*\)/], ['_overlayFor', /\b_writeSource\s*\([^)]*\bheld\s*\)/], ['_followTo', /\bK\.follow\s*\([^;]*\{\s*leave,\s*held\s*\}[\s\S]*\bK\.hold\s*\(\s*found\.id\s*,\s*\{\s*held\b/],
+      ['_deletion', /\b_galleryWork\s*\(\s*d\.gid\s*,\s*held\b/], ['_follow', /\b_galleryWork\s*\(\s*gid\s*,\s*held\b/], ['_deleteOverlay', /\b_galleryWork\s*\(\s*gid\s*,\s*held\b/]];
+    for (const [fn, shape] of must) if (!shape.test(fns.get(fn) ?? '')) out.push(`${fn}: passes held`);
+    return out;
+  };
+  assert.deepEqual(offPath(site), []);
+  // A made-up call that drops `held` on a path under a gallery's lock (folderStands' others loop, review 12's F1) fails it.
+  const dropped = new Map(site);
+  dropped.set('folderStands', (site.get('folderStands') ?? '').replace(/folderStands\(m, \{ held \}\)/, 'folderStands(m)'));
+  assert.deepEqual(offPath(dropped), ['folderStands: passes held']);
 });
 
 test('S37: the net that holds the website\'s lock order at run time weighs the order the comment states', () => {

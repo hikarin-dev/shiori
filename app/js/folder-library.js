@@ -1034,15 +1034,16 @@ async function _joinedHere(run, gid) {
 // there, review 7 B5), then read again there — or, something of it waiting, its place held there (K.hold):
 // where another app published the gallery there since, the folder's version stands, what waited dropped
 // (one app changes a folder's galleries at a time); else what waits is published there in due course.
-// `leave`: the archive it leaves, still there, deleted as this app's unpack deletes it; `locked`: the
-// gallery's lock is the caller's. Resolves whether it was followed.
-async function _followTo(run, found, was, read, { leave = false, locked = false } = {}) {
+// `leave`: the archive it leaves, still there, deleted as this app's unpack deletes it; `held`: the gallery whose
+// lock the caller holds (db.js _galleryWork: its own, an unpack about to be made; null for a check's). Resolves
+// whether it was followed.
+async function _followTo(run, found, was, read, { leave = false, held = null } = {}) {
   if (galleryIdOf(read.texts['metadata.json']) !== found.id) return false;   // described as another gallery now
   const here = { folder: run.id, dir: found.path, inner: found.kind === 'zip' ? found.inner || '' : null };
-  if (!(await K.follow(found.id, _keptAt(was), here, read.ref, { leave, locked }))) return false;   // its record changed meanwhile
+  if (!(await K.follow(found.id, _keptAt(was), here, read.ref, { leave, held }))) return false;   // its record changed meanwhile
   run.updated.add(found.id);
   run.followed = true;
-  if (!!was.spilled || run.marked.has(found.id)) await K.hold(found.id, { held: locked });
+  if (!!was.spilled || run.marked.has(found.id)) await K.hold(found.id, { held });
   else await _adopt(run, found, { replace: found.id, read });
   return true;
 }
@@ -1067,7 +1068,7 @@ async function followUnpacked(stat) {
     const read = await _readFormat(stat.folder, root, found);
     if (!supersedes(read.token, stat.stamp)) continue;
     const run = { id: stat.folder, root, name: '', stopped: () => false, known: new Set(), marked: await K.marked(), added: [], updated: new Set(), problems: [], followed: false };
-    return _followTo(run, found, stat, read, { leave: true, locked: true });
+    return _followTo(run, found, stat, read, { leave: true, held: gid });
   }
 }
 // Gallery `gid`'s stat record where the library keeps it in another of its folders (one being removed
@@ -1158,9 +1159,9 @@ const _entriesOf = (records) => new Map((Array.isArray(records) ? records : []).
 // it). Its page numbers are its pictures' (sparse ones kept) and its records its description's.
 // `replace`: a gallery the library keeps, read again from there; `read`, what was read of it there just
 // now; `drop`, what waits of it here dropped for that (_storeAdopted); `life`, the gallery it is (db.js _life:
-// nothing is read again once that one has ended). Resolves its id, or null when there is nothing to read (or it
-// wasn't read again: _storeAdopted).
-async function _adopt(run, found, { replace = null, read = null, drop = false, manifest = false, life = null } = {}) {
+// nothing is read again once that one has ended); `group`, the rest of its series command left to stand with that
+// drop (_storeAdopted). Resolves its id, or null when there is nothing to read (or it wasn't read again: _storeAdopted).
+async function _adopt(run, found, { replace = null, read = null, drop = false, manifest = false, life = null, group = [] } = {}) {
   read ??= await _readFormat(run.id, run.root, found);
   if (life && !(await K.stillNow(life))) return null;
   const gid = replace || found.id;
@@ -1175,7 +1176,7 @@ async function _adopt(run, found, { replace = null, read = null, drop = false, m
       cachedAt: entry?.cachedAt || now, size: read.files.get(path).size, ...derivedRecord(read.pictures, read.bubbles, n, entry, read.ref) } };
   });
   return _storeAdopted({ folder: run.id, dir: found.path, gid, record: { ...read.meta, galleryId: gid }, pages, ownCover: _ownCovers(read),
-    stamp: read.token, replace, drop: drop && dropping, life, extra: found.kind === 'zip' ? { packed: { inner: found.inner || '' } } : {} });
+    stamp: read.token, replace, drop: drop && dropping, life, group, extra: found.kind === 'zip' ? { packed: { inner: found.inner || '' } } : {} });
 }
 // What a drop rests on (_storeAdopted `drop`) — and a re-read that a manifest's token asked for
 // (`manifest`: _catchUp): the folder's version as its manifest (format v2) names it, `{ files }` — never
@@ -1198,9 +1199,10 @@ function _droppedFor(read, at) {
 // pictures in this browser — and the files of its own its records named in its folder that the folder's
 // records don't (written here, never published) retire, deleted by its next publication while each is
 // as written (db.js _retireIn); the case is reported once ('changed-both', noted in that transaction:
-// a kill after it never loses the report). `life`: the gallery read again (db.js _life), only while it is still
-// the id's. Resolves its id, or null when it wasn't read again.
-async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, stamp = null, replace = null, drop = false, stale = false, life = null, extra = {} }) {
+// a kill after it never loses the report) — and every other gallery of its series command still waiting (`group`)
+// is left to stand by the folder's version too (db.js _groupDropIn, S37: the command's drop is whole). `life`: the
+// gallery read again (db.js _life), only while it is still the id's. Resolves its id, or null when it wasn't read again.
+async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, stamp = null, replace = null, drop = false, stale = false, life = null, group = [], extra = {} }) {
   const now = Date.now();
   const db = await K.openDB();
   const S = K.stores;
@@ -1249,6 +1251,7 @@ async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, s
         if (!drop) { waits = true; tx.abort(); return; }
         K.retireIn(tx, folder, dir, leaving);
         K.noteIn(tx, folder, { reason: 'changed-both', path: dir, gid: String(gid) });
+        K.groupDropIn(tx, group);
       }
       K.deleteIn(tx, gid, () => put(stat.result));
     };
@@ -1346,9 +1349,15 @@ async function _noteReplaced(was, gid) {
 // it (its mark, its pictures in this browser) goes in the same transaction, reported once (_storeAdopted
 // `drop`); with nothing of it waiting it is only read again, nothing reported. Resolves whether that was
 // done; rejects, nothing changed, when its place can't be read whole now (weighed again at the next
-// publication or check) — `reason` 'corrupt' or 'missing-file' where that publication is damaged. `held`: the caller
-// holds the gallery's lock (its own work meeting that publication: db.js _hold), under which the re-read writes (S36).
-async function folderStands(gid, { held = false } = {}) {
+// publication or check) — `reason` 'corrupt' or 'missing-file' where that publication is damaged. `held`: the gallery
+// whose lock the caller holds (db.js _hold), under which the re-reads write (_writeSource: inline under its own,
+// another's only while it is free — S37).
+// What its series command changed of others, still waiting, is dropped with it — whole (S37): each other is read again
+// now, and the transaction dropping this one's leaves every other to stand by the folder's version (db.js
+// _groupDropIn), so one that can't be read again now stands at its next publication — due a moment later — never
+// published with its part of the command. Where this one's own lock is busy (another gallery's work asking, its own
+// under way) the command's drop is recorded all the same, this one standing at its own next publication.
+async function folderStands(gid, { held = null } = {}) {
   const began = K.now();
   const stat = await K.galleryGet(gid);
   const life = K.lifeOf(began, gid, stat);   // the gallery it is for (S34, S36)
@@ -1359,10 +1368,21 @@ async function folderStands(gid, { held = false } = {}) {
   const drop = !!stat.spilled || (await K.marked()).has(String(gid));
   // What its series command changed of others, still waiting, dropped with it (review 9 B1).
   const others = drop ? await K.groupWaiting(gid) : [];
-  const stood = !!(stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, drop, life, held }) : await _adopt(run, where, { replace: gid, drop, manifest: true, life }));
-  if (stood) for (const m of others) await folderStands(m).catch(() => false);
+  let stood;
+  try {
+    stood = !!(stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, drop, life, held, group: others })
+      : await _adopt(run, where, { replace: gid, drop, manifest: true, life, group: others }));
+  } catch (e) {
+    if (!e?.busy || !others.length) throw e;
+    await K.groupDrop([gid, ...others]);
+    K.describeSoon(gid);
+    stood = null;
+  }
+  if (stood !== false) {
+    for (const m of others) if (!(await folderStands(m, { held }).catch(() => false))) K.describeSoon(m);
+  }
   if (stood && !drop) await _noteReplaced(stat, gid);
-  return stood;
+  return !!stood;
 }
 // What a gallery's place (`where`: _readFormat's) was last published at, and the gallery it names:
 // { token, id, texts } — by its manifest (gallery-manifest.js tokenOf; `texts` null), else, format v1,
@@ -1579,9 +1599,9 @@ async function _relink(run, title, gid) {
 // is for (its pages drawn from, or drawing them failed: pdfWaits). One that can't be read is never
 // written over: the error is thrown (F06); nor is one naming another gallery (principle 2: reason
 // 'conflict'). Nothing is written once `ended()` resolves true (its gallery ended as it was read: _adoptLinked).
-// `held`: the caller holds the gallery's lock (_writeSource). Resolves { dir: the overlay's folder, was: the source its
-// source.json named before (null: none) }.
-async function _overlayFor(run, title, gid, at = null, ended = async () => false, held = false) {
+// `held`: the gallery whose lock the caller holds (_writeSource). Resolves { dir: the overlay's folder, was: the source
+// its source.json named before (null: none) }.
+async function _overlayFor(run, title, gid, at = null, ended = async () => false, held = null) {
   const dir = overlayDir(gid);
   const path = `${dir}/${SOURCE_FILE}`;
   const text = await folderFiles.readText(run.id, run.root, path);
@@ -1601,10 +1621,13 @@ async function _overlayFor(run, title, gid, at = null, ended = async () => false
 // the gallery's lock, and only while the gallery the work began for is still the id's (`ended()`, asked once the lock
 // is held: db.js _life, its record read there): its overlay is deleted under that lock too (db.js _deleteOverlay), so a
 // write begun for a gallery deleted since — in any page — lands before that deletion and goes with it, and none comes
-// after it (S35). `held`: the caller holds the gallery's lock (a re-read the gallery's own work made: folderStands).
-function _writeSource(folder, root, gid, text, ended = async () => false, held = false) {
+// after it (S35). `held`: the gallery whose lock the caller holds (db.js _galleryWork, S37) — this one's: written
+// inline, under it (a re-read its own work made: folderStands); none (a check, a first link, a PDF drawn): its lock
+// waited for; another's (its series command weighed by that one's publication): taken only while it is free, else it
+// rejects, 'unreadable' (`busy`), nothing written.
+function _writeSource(folder, root, gid, text, ended = async () => false, held = null) {
   const write = async () => { if (!(await ended())) await folderFiles.writeFile(folder, root, `${overlayDir(gid)}/${SOURCE_FILE}`, text); };
-  return held ? write() : K.locked(gid, write);
+  return K.galleryWork(gid, held, write);
 }
 
 // Title `title` of the folder (linked-source.js: an archive, a folder of pictures, a PDF) joined to the
@@ -1616,9 +1639,9 @@ function _writeSource(folder, root, gid, text, ended = async () => false, held =
 // in the overlay, never read back: its description ties them to that picture.
 // `replace`: a gallery the library keeps, read again (from its overlay, its files where `title` says
 // now), `life` the gallery it is (db.js _life: nothing more is read or written for it once that one has ended), `held`:
-// the caller holds the gallery's lock (_writeSource). Resolves its id, or null when it has no pages (or wasn't read
-// again: _storeAdopted).
-async function _adoptLinked(run, title, { gid: given = null, replace = null, drop = false, life = null, held = false } = {}) {
+// the gallery whose lock the caller holds (_writeSource), `group` as _adopt's. Resolves its id, or null when it has no
+// pages (or wasn't read again: _storeAdopted).
+async function _adoptLinked(run, title, { gid: given = null, replace = null, drop = false, life = null, held = null, group = [] } = {}) {
   const ended = async () => !!life && !(await K.stillNow(life));
   const at = title.pictures ? title : await _titlePictures(run, title);
   if (!at || await ended()) return null;
@@ -1661,7 +1684,7 @@ async function _adoptLinked(run, title, { gid: given = null, replace = null, dro
   // for the folder's claim, and one waiting here never goes over another app's generation of its overlay
   // (S30: an overlay with no description yet left it unstamped — "only this app's" to the commit gate).
   return _storeAdopted({ folder: run.id, dir, gid, record, pages, ownCover: _ownCovers(read),
-    stamp: read.token, replace, drop: drop && _droppedFor(read, dir), stale, life, extra: { linked } });
+    stamp: read.token, replace, drop: drop && _droppedFor(read, dir), stale, life, group, extra: { linked } });
 }
 // What a title's name and folders say of it: an archive's chapter is named after its folder in it,
 // its tags the archive's.

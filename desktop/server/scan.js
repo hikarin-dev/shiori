@@ -689,8 +689,9 @@ function noteReplaced(library, gid, was) {
 // transaction — unless `guard()` says otherwise as it commits — the pictures of its own staged for it
 // going with them (files.js deleteIn), and with `drop` (folderStands) its pages staged too, and its own
 // files the folder's generation doesn't name, the case noted on the folder's Needs attention list in the
-// same transaction. Resolves whether it was; rejects as readGallery does.
-async function reread(library, row, { guard = () => false, drop = false, manifest = false } = {}) {
+// same transaction — and with it the rest of its series command waiting (`group`) left to stand (files.js dropIn).
+// Resolves whether it was; rejects as readGallery does.
+async function reread(library, row, { guard = () => false, drop = false, manifest = false, group = [] } = {}) {
   const files = library.files;
   const gid = row.gid;
   const g = { abs: files._abs(row.path), rel: row.path, format: row.format, layout: row.format === 'folder' };
@@ -716,6 +717,7 @@ async function reread(library, row, { guard = () => false, drop = false, manifes
     const named = new Set(files._recorded(gid).map(f => f.name));
     for (const f of had) if (!named.has(f.name)) files._retireIn(row.path, f.name, f, gid);
     if (drop) { const { root, rest } = files._split(row.path); library.folders.note(root, { reason: 'changed-both', path: rest, gid }, { event: true }); }
+    if (drop) files.dropIn(group);   // the rest of its series command left to stand with it (folderStands)
     entryIn(library, gid, g);
     read = true;
   });
@@ -765,13 +767,15 @@ export async function folderStands(library, gid) {
   // Only the gallery whose place this is, as it read it (files.js life): never a later one of the id.
   const gone = () => !files.still(life) || files._row(id)?.path !== row.path;
   const guard = drop ? gone : () => gone() || waits();
-  const stood = src ? !!await adoptLinked(library, root, src, { replace: id, life, guard })
-    : await reread(library, row, drop ? { drop: true, guard } : { guard, manifest: true });
+  // (Whole, S37: the transaction reading it again leaves every other to stand too — files.js dropIn — so one that
+  // can't be read again below stands at its next settle or publication, due a moment later.)
+  const stood = src ? !!await adoptLinked(library, root, src, { replace: id, life, guard, group: others })
+    : await reread(library, row, drop ? { drop: true, guard, group: others } : { guard, manifest: true });
   if (!stood || !files.still(life)) return false;
   if (src && drop) library.folders.note(root, { reason: 'changed-both', path: rest, gid: id }, { event: true });
   if (!drop) noteReplaced(library, id, was);
   if (drop) library._tx(() => files._ungroup(id));
-  for (const m of others) await folderStands(library, m).catch(() => false);
+  for (const m of others) if (!(await folderStands(library, m).catch(() => false))) files.scheduleDescribe(m);
   if (drop) await files._letGo(id, undefined, null, life).catch(() => {});
   return true;
 }

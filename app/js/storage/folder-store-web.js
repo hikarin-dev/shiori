@@ -299,11 +299,17 @@ async function _taken(id, root, path) {
 /** @type {Map<string, Promise<void>>} name → the end of its queue, for the in-context fallback */
 const _queues = new Map();
 /** `fn` run while lock `name` is held: across every tab and the service worker of the site (Web
- * Locks), or — where they are missing (Node) — within this context. Resolves what `fn` does.
- * @template T @param {string} name @param {() => T | Promise<T>} fn @returns {Promise<T>} */
-export function withLock(name, fn) {
+ * Locks), or — where they are missing (Node) — within this context. Resolves what `fn` does. `ifFree`: only if
+ * nobody holds or waits for the lock at that moment, never waited for — else it rejects, `name` 'LockBusy'.
+ * @template T @param {string} name @param {() => T | Promise<T>} fn @param {{ ifFree?: boolean }} [options] @returns {Promise<T>} */
+export function withLock(name, fn, { ifFree = false } = {}) {
   const locks = globalThis.navigator?.locks;
-  if (typeof locks?.request === 'function') return locks.request(name, { mode: 'exclusive' }, () => fn());
+  const busy = () => Object.assign(new Error(`lock ${name} is held`), { name: 'LockBusy' });
+  if (typeof locks?.request === 'function') {
+    return ifFree ? locks.request(name, { mode: 'exclusive', ifAvailable: true }, (lock) => (lock ? fn() : Promise.reject(busy())))
+      : locks.request(name, { mode: 'exclusive' }, () => fn());
+  }
+  if (ifFree && _queues.has(name)) return Promise.reject(busy());
   const run = (_queues.get(name) || Promise.resolve()).then(() => fn());
   const end = run.then(() => {}, () => {});
   _queues.set(name, end);
