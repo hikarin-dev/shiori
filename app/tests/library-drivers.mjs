@@ -258,6 +258,18 @@ async function loadPage() {
   web = await import(`${APP_JS}db.js${q}`);
   webWritten = (await import(`${APP_JS}storage/folder-store-web.js${q}`)).written;
 }
+// Another page of the website open on the same library (S36: a second tab, or the service worker, which runs the
+// browser's imports): a copy of every app module of its own, as each page loads the site's code, over the same
+// IndexedDB, folders and Web Locks (Node's, shared by every module of the process as a browser's are by its pages),
+// the page loaded now staying open. Its generations are apart from the restarts'.
+const OTHER_PAGES = 100000;
+let others = 0;
+/** @returns {Promise<{ db: any, close: () => void }>} its db.js, and close(): every timer it set cleared (the page closed) */
+export async function otherPage() {
+  if (!web) throw new Error('the website\'s library first (webLibrary)');
+  const gen = OTHER_PAGES + ++others;
+  return { db: await import(`${APP_JS}db.js?gen=${gen}`), close: () => closePage(gen) };
+}
 /** The website's library, with no folders or galleries but those added from now on.
  * @returns {Promise<Driver>} */
 export async function webLibrary() {
