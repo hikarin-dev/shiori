@@ -26,6 +26,23 @@ export const ASKED_THERE = ['shiori:removed:', 'shiori:gallery:'];
 
 /** Every violation seen in this process: { kind, held, asked, stack }. */
 export const violations = [];
+const watchers = new Set();
+/** The violations seen from now until `stop()`, collected for the caller to fail on rather than thrown: for a test whose
+ * product code is known to break the order until a step fixes it (a regression marked todo), which a throw would cut
+ * short, and whose other chain's violation would then land after the test ended. The test fails on what it collected
+ * as it ends (`netWatched`, below): nothing passes unseen.
+ * @returns {{ seen: typeof violations, stop: () => void }} */
+export function watch() {
+  const w = { seen: [], stop: () => watchers.delete(w) };
+  watchers.add(w);
+  return w;
+}
+/** Test `t`'s run watched (watch), failing as it ends on every violation seen meanwhile. */
+export function netWatched(t, assert) {
+  const w = watch();
+  t.after(() => { w.stop(); assert.deepEqual(w.seen.map(v => `${v.kind}: holds ${v.held}, waits for ${v.asked}`), [], 'the lock order held'); });
+  return w;
+}
 
 const kindOf = (name) => {
   const s = String(name);
@@ -60,6 +77,7 @@ if (!globalThis.__shioriLockNet && typeof locks?.request === 'function') {
     violations.push(v);
     const err = new Error(`lock net (S37): ${kind}: holds ${held}, waits for ${asked}\n    ${v.stack}`);
     try { fs.writeSync(2, `\n${err.message}\n`); } catch {}
+    if (watchers.size) { for (const w of watchers) w.seen.push(v); return; }
     undelivered.add(err);
     setImmediate(() => { undelivered.delete(err); throw err; });
   };

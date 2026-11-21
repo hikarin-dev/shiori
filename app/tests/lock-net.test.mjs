@@ -32,10 +32,11 @@ function run(body) {
     const file = path.join(dir, 'probe.test.mjs');
     fs.writeFileSync(file, [
       `import test from 'node:test';`,
-      `import ${JSON.stringify(pathToFileURL(path.join(import.meta.dirname, 'lock-net.mjs')).href)};`,
+      `import assert from 'node:assert/strict';`,
+      `import { netWatched } from ${JSON.stringify(pathToFileURL(path.join(import.meta.dirname, 'lock-net.mjs')).href)};`,
       `const sleep = (ms) => new Promise((r) => setTimeout(r, ms));`,
       `const L = navigator.locks;`,
-      `test('product code', async () => { ${body} });`,
+      `test('product code', async (t) => { ${body} });`,
     ].join('\n'));
     const { NODE_TEST_CONTEXT, NODE_OPTIONS, ...env } = process.env;   // a run of its own, not a child of this one
     const out = spawnSync(process.execPath, ['--test', '--test-force-exit', file], { encoding: 'utf8', timeout: 30000, env });
@@ -59,6 +60,15 @@ test('S37: a made-up second gallery\'s lock waited for under one fails the run, 
   }).catch(() => {}); await sleep(50);`);
   assert.notEqual(r.status, 0, r.text);
   assert.match(r.text, /holds shiori:gallery:1, waits for shiori:gallery:2/);
+});
+
+test('S37: a test that collects what the net sees (a regression marked todo) fails as it ends on each violation, though it ran on', () => {
+  const r = run(`netWatched(t, assert);
+    await L.request('shiori:gallery:1', async () => { await L.request('shiori:gallery:2', () => {}); });
+    await L.request('shiori:gallery:2', async () => { await L.request('shiori:gallery:1', () => {}); });`);
+  assert.notEqual(r.status, 0, r.text);
+  assert.match(r.text, /the lock order held/);
+  assert.match(r.text, /holds shiori:gallery:1, waits for shiori:gallery:2[\s\S]*holds shiori:gallery:2, waits for shiori:gallery:1/);
 });
 
 test('S37: the order\'s own forms pass: down the order, another gallery\'s lock only if free, asked under removed.json\'s and waited for after, a timer\'s work', () => {
