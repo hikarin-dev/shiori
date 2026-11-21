@@ -1413,12 +1413,30 @@ export class FileLibrary {
     for (const g of new Set(placed)) lib._s('INSERT OR REPLACE INTO together (gid, grp, dropped) VALUES (?, ?, (SELECT dropped FROM together WHERE gid = ?))').run(g, grp, g);
   }
   _groupOf(gid) { return this.library._s('SELECT grp FROM together WHERE gid = ?').get(String(gid))?.grp ?? null; }
-  // A series command's drop is whole (S37). Inside the transaction that drops a gallery's waiting change for the
-  // folder's version (scan.js folderStands): every other gallery of its group still waiting (`gids`) left to stand by
-  // the folder's version too — read again then, or, where it can't be now, at its next settle or publication (hold).
-  dropIn(gids) { for (const g of gids) this.library._s('UPDATE together SET dropped = 1 WHERE gid = ?').run(String(g)); }
+  // A series command's drop is whole (S37). Inside the transaction that drops gallery `first`'s waiting change for the
+  // folder's version (scan.js folderStands), before its own row goes: every other gallery of its group still waiting
+  // (`gids`) left to stand by the folder's version too — read again then, or, where it can't be now, at its next
+  // settle, publication or check (hold; scan.js refreshGallery holds every one left so). Only one still of `first`'s
+  // group as the transaction reads it (S38): one published since and grouped again by a new command is that command's
+  // (a group merged by a later command is `first`'s still, and stands with it).
+  dropIn(gids, first) {
+    for (const g of gids) this.library._s('UPDATE together SET dropped = 1 WHERE gid = ? AND grp = (SELECT grp FROM together WHERE gid = ?)').run(String(g), String(first));
+  }
   // Whether gallery `gid` was left to stand so.
   _dropped(gid) { return !!this.library._s('SELECT dropped FROM together WHERE gid = ?').get(String(gid))?.dropped; }
+  // Gallery `gid`, left to stand with no version there to stand by (S38: gallery-manifest.js dropBasis 'none' — an
+  // earlier version's folder never republished, an overlay never described), settled: out of its group, its flag with
+  // it, its series links and those of the galleries it links tidied against the galleries as they now stand (library.js
+  // _tidyLinks), and what waits of it published as any change to its place is — in due course, and at once by the work
+  // under way that held it.
+  settleLeft(gid) {
+    const id = String(gid);
+    const meta = this.library._metaGet(id);
+    const links = [...(meta?.parentId ? [String(meta.parentId)] : []), ...(Array.isArray(meta?.chapters) ? meta.chapters.map(c => String(c?.id ?? '')) : [])];
+    this.library._tx(() => this._ungroup(id));
+    this.library._tidyLinks([id, ...links.filter(g => g && g !== id)], { publish: true });
+    this.scheduleDescribe(id);
+  }
   // Inside a transaction: gallery `gid` out of its group (published, dropped, deleted).
   _ungroup(gid) { this.library._s('DELETE FROM together WHERE gid = ?').run(String(gid)); }
   // The other galleries of gallery `gid`'s group whose change still waits here.

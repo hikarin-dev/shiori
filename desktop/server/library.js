@@ -1471,9 +1471,11 @@ export class Library {
   // Series links among galleries just joined, read again or brought back (a folder's check, galleries
   // an earlier version set aside) that a gallery the library has contradicts — a chapter that names
   // another series, an owner that doesn't list its chapter — dropped (db.js _tidySeriesLinks). A link
-  // to a gallery the library doesn't have is kept (R15): it may be in a folder not added back yet.
-  _tidyLinks(gids) {
-    const owners = new Set();
+  // to a gallery the library doesn't have is kept (R15): it may be in a folder not added back yet. `publish`: each one
+  // changed is published in due course (S38: a gallery settled, or the galleries a drop's change linked — files.js
+  // settleLeft, scan.js folderStands); a check's are read back, nothing of them to publish. Returns the ids changed.
+  _tidyLinks(gids, { publish = false } = {}) {
+    const owners = new Set(), changed = [];
     for (const gid of gids) {
       const meta = this._metaGet(gid);
       if (!meta) continue;
@@ -1496,9 +1498,12 @@ export class Library {
         this._metaPutRaw(next);
         if (!next.parentId) { const stat = this._statGet(gid); if (stat?.parentId) { delete stat.parentId; this._statPut(stat); } }
         this._logIn(gid);
+        if (publish) this.files.metaChanged(gid, { grouping: true });
       });
+      changed.push(gid);
     }
     for (const oid of owners) this.refreshSeriesAggregate(oid, { silent: true }).catch(() => {});
+    return changed;
   }
 
   async seriesResolve(galleryId) {

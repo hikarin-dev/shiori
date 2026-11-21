@@ -655,13 +655,16 @@ async function refreshGallery(library, row, { handover = false, stopped = () => 
   const at = await tokenAt(library, abs, row.format, gid);
   if (at.id !== gid || !current(row)) return false;
   const had = library._s('SELECT stamp FROM stamps WHERE gid = ?').get(gid)?.stamp;
-  if (at.token === had) return false;
-  if (!had && at.texts && descriptionStampOf(files._descriptions(gid)) === at.token) {
+  // One its series command's drop left to stand (S37) is held here whatever its place holds: it stands, or, with no
+  // version there to stand by, is settled (S38: files.js hold).
+  const left = files._dropped(gid);
+  if (at.token === had && !left) return false;
+  if (!had && at.texts && !left && descriptionStampOf(files._descriptions(gid)) === at.token) {
     library._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(gid, at.token);
     return false;
   }
-  if (localChanges(library, gid)) {
-    if (!waiting(library, gid)) return false;   // under way for it now: weighed at its next look
+  if (localChanges(library, gid) || left) {
+    if (!waiting(library, gid) && !left) return false;   // under way for it now: weighed at its next look
     const held = await files.hold(gid);
     if (!current(row)) return false;
     if (held.damaged) throw Object.assign(new Error(`${row.path}: the publication there is damaged`), { reason: held.damaged });
@@ -699,8 +702,11 @@ async function reread(library, row, { guard = () => false, drop = false, manifes
   // A drop — and a re-read a manifest's token asked for (`manifest`) — rests on the folder's version as its
   // manifest names it: never a read by an earlier version's rules, which a "not found" judged once the drive
   // was back from a moment away could have made of nothing. Such a read replaces and drops nothing: it
-  // waits for a later look that tells.
-  if ((drop || manifest) && !String(g.read.token ?? '').startsWith('v2:')) throw Object.assign(new Error(`${row.path}: the folder's version can't be told now`), { reason: 'unreadable' });
+  // waits for a later look that tells. Told by this library's stamp of it (gallery-manifest.js dropBasis): none there
+  // and none it ever knew is no version to drop for at all — `unversioned` (S38: folderStands settles it).
+  const basis = drop || manifest ? format.dropBasis(g.read.token, files._stamp(gid)) : 'version';
+  if (basis === 'none') throw Object.assign(new Error(`${row.path}: no version there to stand by`), { reason: 'unversioned' });
+  if (basis === 'unreadable') throw Object.assign(new Error(`${row.path}: the folder's version can't be told now`), { reason: 'unreadable' });
   if (g.read.kind !== 'gallery' || (!g.read.pages.length && !g.read.described?.meta)) return false;
   let read = false;
   library._ownTx(() => {
@@ -710,6 +716,7 @@ async function reread(library, row, { guard = () => false, drop = false, manifes
     // staging, whose name there may be another's file by now.
     const waiting = new Set(files._stagedOwn(gid).map(s => s.rel));
     const had = drop && row.format === 'folder' ? files._recorded(gid).filter(f => f.mtime && !waiting.has(f.name)) : [];
+    if (drop) files.dropIn(group, gid);   // the rest of its series command left to stand with it (folderStands), as its group is now
     files.keep.add(gid);
     try { library._deleteIn(gid); } finally { files.keep.delete(gid); }
     addGallery(library, gid, g);
@@ -717,7 +724,6 @@ async function reread(library, row, { guard = () => false, drop = false, manifes
     const named = new Set(files._recorded(gid).map(f => f.name));
     for (const f of had) if (!named.has(f.name)) files._retireIn(row.path, f.name, f, gid);
     if (drop) { const { root, rest } = files._split(row.path); library.folders.note(root, { reason: 'changed-both', path: rest, gid }, { event: true }); }
-    if (drop) files.dropIn(group);   // the rest of its series command left to stand with it (folderStands)
     entryIn(library, gid, g);
     read = true;
   });
@@ -768,17 +774,33 @@ export async function folderStands(library, gid) {
   const gone = () => !files.still(life) || files._row(id)?.path !== row.path;
   const guard = drop ? gone : () => gone() || waits();
   // (Whole, S37: the transaction reading it again leaves every other to stand too — files.js dropIn — so one that
-  // can't be read again below stands at its next settle or publication, due a moment later.)
-  const stood = src ? !!await adoptLinked(library, root, src, { replace: id, life, guard, group: others })
-    : await reread(library, row, drop ? { drop: true, guard, group: others } : { guard, manifest: true });
+  // can't be read again below stands at its next settle or publication, due a moment later. S38: only those still of
+  // its group then; once it stands, the galleries its dropped change linked it to are tidied against the galleries as
+  // they now stand, one changed published in due course; and one whose place holds no version to stand by —
+  // gallery-manifest.js dropBasis 'none' — is settled, its change standing: files.js settleLeft.)
+  const linked = seriesLinks(library._metaGet(id));
+  let stood;
+  try {
+    stood = src ? !!await adoptLinked(library, root, src, { replace: id, life, guard, group: others, drop })
+      : await reread(library, row, drop ? { drop: true, guard, group: others } : { guard, manifest: true });
+  } catch (e) {
+    if (e?.reason === 'unversioned') { files.settleLeft(id); return true; }
+    // (A damaged place has no version to stand by either: what waits is published over it, T08 — as settled.)
+    if (['corrupt', 'missing-file'].includes(e?.reason) && files._dropped(id)) files.settleLeft(id);
+    throw e;
+  }
   if (!stood || !files.still(life)) return false;
   if (src && drop) library.folders.note(root, { reason: 'changed-both', path: rest, gid: id }, { event: true });
   if (!drop) noteReplaced(library, id, was);
   if (drop) library._tx(() => files._ungroup(id));
-  for (const m of others) if (!(await folderStands(library, m).catch(() => false))) files.scheduleDescribe(m);
+  if (drop) library._tidyLinks([...linked, ...seriesLinks(library._metaGet(id))].filter(g => g !== id), { publish: true });
+  for (const m of others) if (files._dropped(m) && !(await folderStands(library, m).catch(() => false))) files.scheduleDescribe(m);
   if (drop) await files._letGo(id, undefined, null, life).catch(() => {});
   return true;
 }
+// The galleries record `meta` links in a series: its owner, its chapters but itself.
+const seriesLinks = (meta) => [...(meta?.parentId ? [String(meta.parentId)] : []), ...(Array.isArray(meta?.chapters) ? meta.chapters.map(c => String(c?.id ?? '')) : [])]
+  .filter(g => g && g !== String(meta?.galleryId));
 // Whether something of gallery `gid` waits here for its folder or archive — a change not published there, an
 // unpack, pages or pictures staged, an addition to its archive cut short — whatever is running for it now
 // (localChanges counts that too).

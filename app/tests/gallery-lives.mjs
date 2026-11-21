@@ -44,6 +44,7 @@ export const WORK = {
     'scan.js scanLibrary': 'asks',
     'scan.js refreshGallery': 'asks',
     'scan.js followUnpacked': 'asks',
+    'scan.js folderStands': 'asks',
     'scan.js reread': { step: 'scan.js refreshGallery' },
     'linked.js adoptLinked': 'asks',
     'linked.js linkRoot': 'asks',

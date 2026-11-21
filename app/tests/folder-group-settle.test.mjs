@@ -1,7 +1,7 @@
 // folder-group-settle.test.mjs — S38 (review 13): a gallery left to stand by its series command's drop (S37: the
 // group's record `drop` on the website, `together.dropped` on the desktop) is never held for good. One whose place holds
 // no version to stand by — no manifest there, and none this library ever read or wrote there (an earlier version's
-// folder, the oldest format, a linked gallery whose overlay was never described) — is settled: its flag and group go,
+// folder, a linked gallery whose overlay was never described) — is settled: its flag and group go,
 // its series links are tidied against the galleries as they stand, and what waits of it is published. Where this
 // library's stamp names a manifest and none is found for a moment (the drive back), nothing is published over it: it
 // stands once it is back. A gallery that stands by a drop has the galleries its dropped change linked tidied, so none
@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { desktopLibrary, webLibrary } from './library-drivers.mjs';
-import { v1Gallery, legacyGallery } from './fixtures/storage-fixtures.mjs';
+import { v1Gallery } from './fixtures/storage-fixtures.mjs';
 import { zipCreate } from '../js/zip.js';
 import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
@@ -75,8 +75,8 @@ function unreadable(L, A, dir) {
     : faults.failNext((call) => { const r = `${rel(A, call.path)}/`; return r.startsWith(p) && !r.startsWith('..'); }, 'EIO', { times: Infinity });
 }
 
-/** Folder A, the default, with gallery `o` of kind `kind` (no version: 'an earlier version\'s folder', 'the oldest
- * format', 'a linked gallery never described'; or 'of this version', published), and an own gallery `m`. */
+/** Folder A, the default, with gallery `o` of kind `kind` (no version: 'an earlier version\'s folder', 'a linked
+ * gallery never described'; or 'of this version', published), and an own gallery `m`. */
 async function made(t, app, kind) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-s38-'));
   const L = app === 'desktop' ? await desktopLibrary(path.join(base, 'desktop')) : await webLibrary();
@@ -86,7 +86,6 @@ async function made(t, app, kind) {
   fs.mkdirSync(A, { recursive: true });
   let o = null, linked = false;
   if (kind === 'an earlier version\'s folder') o = String((await v1Gallery(path.join(A, 'Old'), { files: true })).gid);
-  if (kind === 'the oldest format') o = String(legacyGallery(path.join(A, 'Oldest')).gid);
   if (kind === 'a linked gallery never described') { fs.writeFileSync(path.join(A, 'Pack.zip'), zipCreate([{ name: '001.png', data: png(1) }, { name: '002.png', data: png(2) }])); linked = true; }
   const a = await L.add(A);
   await L.setDefault(a);
@@ -100,12 +99,14 @@ async function made(t, app, kind) {
   return { L, a, A, o, m, linked, place, base };
 }
 
-const NO_VERSION = { desktop: ['an earlier version\'s folder', 'the oldest format', 'a linked gallery never described'], website: ['an earlier version\'s folder', 'a linked gallery never described'] };
+// (The oldest format isn't one: the desktop's check converts it to format v2 as it joins — stamped — and the website
+// doesn't read it.)
+const NO_VERSION = ['an earlier version\'s folder', 'a linked gallery never described'];
 
 // (a) The reviewer's case.
 for (const app of ['desktop', 'website']) {
-  for (const kind of NO_VERSION[app]) {
-    test(`S38 (a): ${app}: a series command over ${kind} and a gallery another writer published since — the one with no version to stand by is settled, never held for good`, { skip, todo: 'S38' }, async (t) => {
+  for (const kind of NO_VERSION) {
+    test(`S38 (a): ${app}: a series command over ${kind} and a gallery another writer published since — the one with no version to stand by is settled, never held for good`, { skip }, async (t) => {
       const c = await made(t, app, kind);
       const { L, a, o, m } = c;
       // A change of its own made just before the command (a page translated), not published yet: settled, it stays.
@@ -141,7 +142,7 @@ for (const app of ['desktop', 'website']) {
 
 // (b) Three galleries: one another writer's, one with no version, one unreadable for a while and then back.
 for (const app of ['desktop', 'website']) {
-  test(`S38 (b): ${app}: a command over three — another writer's, one with no version, one unreadable a while — the settled one takes a write meanwhile, and once the third stands no link is left contradicted`, { skip, todo: 'S38' }, async (t) => {
+  test(`S38 (b): ${app}: a command over three — another writer's, one with no version, one unreadable a while — the settled one takes a write meanwhile, and once the third stands no link is left contradicted`, { skip }, async (t) => {
     const c = await made(t, app, 'an earlier version\'s folder');
     const { L, A, o, m } = c;
     const u = await L.newGallery('Away');
@@ -200,7 +201,7 @@ for (const app of ['desktop', 'website']) {
 // (d) A flag is its own command's: a gallery listed for a drop, published and grouped again by a new command before the
 // drop's transaction, isn't left to stand for the old command.
 for (const app of ['desktop', 'website']) {
-  test(`S38 (d): ${app}: a gallery published and grouped again by a new command as its old command's drop lands isn't left to stand by it`, { skip, todo: 'S38' }, async (t) => {
+  test(`S38 (d): ${app}: a gallery published and grouped again by a new command as its old command's drop lands isn't left to stand by it`, { skip }, async (t) => {
     const c = await made(t, app, 'of this version');
     const { L, A, o: y, m: first } = c;
     const z = await L.newGallery('New');

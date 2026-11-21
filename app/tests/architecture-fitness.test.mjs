@@ -351,6 +351,35 @@ test('S37: a gallery\'s lock is never waited for while one is held — every hol
   assert.deepEqual(offPath(dropped), ['folderStands: passes held']);
 });
 
+test('S38: a gallery left to stand is never held for good — what a drop rests on is one rule, and one with no version to stand by is settled, on both apps', () => {
+  // S37's flag held a gallery for good where its place held no manifest (an earlier version's folder, an overlay never
+  // described): every hold of it answered 'unreadable' (review 13 F1). Now gallery-manifest.js dropBasis says what a
+  // drop rests on, beside each app's drop (website _droppedFor; desktop reread and adoptLinked), and the stand reached
+  // from a flagged gallery's hold settles one that has none.
+  const desktop = (f) => readFileSync(join(repo, 'desktop', 'server', f), 'utf8');
+  assert.match(read('storage/gallery-manifest.js'), /export const dropBasis = \(now, known\) =>/);
+  const site = new Map([...functionsOf(read('folder-library.js')), ...functionsOf(read('db.js'))].map(([name, body]) => [name, asCode(body)]));
+  const scan = new Map([...functionsOf(desktop('scan.js'))].map(([name, body]) => [name, asCode(body)]));
+  const linked = new Map([...functionsOf(desktop('linked.js'))].map(([name, body]) => [name, asCode(body)]));
+  const files = new Map([...functionsOf(desktop('files.js'))].map(([name, body]) => [name, asCode(body)]));
+  const off = (s) => {
+    const out = [];
+    if (!/\bdropBasis\s*\(\s*read\.token\s*,\s*known\s*\)\s*===\s*'none'[\s\S]*reason: 'unversioned'/.test(s.site.get('_droppedFor') ?? '')) out.push('website _droppedFor: dropBasis');
+    if (!/\b_adoptLinked\s*\([^;]*\bknown\b[\s\S]*\b_adopt\s*\([^;]*\bknown\b[\s\S]*reason === 'unversioned'\) \{ await _settle\(/.test(s.site.get('folderStands') ?? '')) out.push('website folderStands: known, and settled');
+    if (!/\bleft = !deletion && first\.kind === 'ok' && await _groupDropped\(id\)[\s\S]*_stands\(id, held, handover\)/.test(s.site.get('_hold') ?? '')) out.push('website _hold: a gallery left to stand stands');
+    if (!/format\.dropBasis\s*\(\s*g\.read\.token\s*,\s*files\._stamp\(gid\)\s*\)/.test(s.scan.get('reread') ?? '') || /startsWith\('v2:'\)/.test(s.scan.get('reread') ?? '')) out.push('desktop reread: dropBasis');
+    if (!/format\.dropBasis\s*\(\s*read\.token\s*,\s*library\.files\._stamp\(gid\)\s*\)/.test(s.linked.get('adoptLinked') ?? '')) out.push('desktop adoptLinked: dropBasis');
+    if (!/reason === 'unversioned'\) \{ files\.settleLeft\(id\)/.test(s.scan.get('folderStands') ?? '')) out.push('desktop folderStands: settled');
+    if (!/at\.kind === 'ok' && !deletion && this\._dropped\(id\)/.test(s.files.get('hold') ?? '')) out.push('desktop hold: a gallery left to stand stands');
+    return out;
+  };
+  assert.deepEqual(off({ site, scan, linked, files }), []);
+  // A made-up stand that forgets this library's stamp fails it.
+  const forgot = new Map(site);
+  forgot.set('folderStands', (site.get('folderStands') ?? '').replace(/group: others, known \}\)\);/, 'group: others }));'));
+  assert.deepEqual(off({ site: forgot, scan, linked, files }), ['website folderStands: known, and settled']);
+});
+
 test('S37: the net that holds the website\'s lock order at run time weighs the order the comment states', () => {
   // The tests' net (app/tests/lock-net.mjs) fails a run on a lock waited for against the order; its list is the order
   // as stated once, at db.js _galleryLocked — the locks named there in the order they come, the one taken within any last.

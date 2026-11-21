@@ -19,7 +19,7 @@ import { disk, physicallyIn, replaceFile, loadGallery, textIn, entriesIn, statIn
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { readDirectory, readEntry } from './zip.js';
-import { linked as L, files as layout, content, personal, BackendError } from './shared.js';
+import { linked as L, files as layout, content, personal, manifest as format, BackendError } from './shared.js';
 import { derivedOf, derivedRecord, coverPatch, localChanges, startEntry } from './scan.js';
 const { withoutPersonal } = personal;
 
@@ -277,7 +277,7 @@ async function embeddedMeta(library, root, title, at) {
 // under its id) nothing more is read or written for it (S34). `group`: for one read again as its series command's
 // drop, the rest of the command left to stand with it, in the same transaction (files.js dropIn, S37). Resolves its
 // id; null when it has no pages yet (a PDF waiting), `guard` held it back or its gallery ended.
-export async function adoptLinked(library, root, title, { gid: given = null, replace = null, guard = null, at = null, life = replace ? library.files.life(replace) : null, group = [] } = {}) {
+export async function adoptLinked(library, root, title, { gid: given = null, replace = null, guard = null, at = null, life = replace ? library.files.life(replace) : null, group = [], drop = false } = {}) {
   const ended = () => !!life && !library.files.still(life);
   at = at || await titleAt(library, root, title);
   if (!at || ended()) return null;
@@ -300,6 +300,12 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
   const { read, files: listed } = await loadGallery(overlay);
   if (ended()) return null;
   if (read.kind !== 'ok') throw Object.assign(new Error(`the overlay of gallery ${gid} ${read.kind === 'corrupt' ? read.detail : 'misses files it names'}`), { reason: read.kind });
+  // A drop rests on the overlay's version as its manifest names it (S38, gallery-manifest.js dropBasis, as scan.js
+  // reread): none there and none this library knew is no version to drop for ('unversioned': settled); none there
+  // though this library knew one is not found for a moment, nothing concluded.
+  const basis = replace && drop ? format.dropBasis(read.token, library.files._stamp(gid)) : 'version';
+  if (basis === 'none') throw Object.assign(new Error(`the overlay of gallery ${gid}: no version there to stand by`), { reason: 'unversioned' });
+  if (basis === 'unreadable') throw Object.assign(new Error(`the overlay of gallery ${gid}: its version can't be told now`), { reason: 'unreadable' });
   const { meta, records } = read;
   const listedAs = read.manifest ? new Set(read.pictures.pages.values()) : layout.describedFiles(records, read.covers);
   const pages = L.linkedPages(at.pictures, read.manifest ? own.filter(f => listedAs.has(`images/${f.name}`)) : own, listedAs);
@@ -331,9 +337,9 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
     const had = new Map();   // the pictures of its own its records referred to, and those it read
     if (replace) {
       for (const r of library._pageRows(gid)) ownRefs(parse(r.record), had);
+      files.dropIn(group, gid);   // the rest of its series command left to stand with it, as its group is now (scan.js folderStands, S37)
       files.keep.add(gid);
       try { library._deleteIn(gid); } finally { files.keep.delete(gid); }
-      files.dropIn(group);   // the rest of its series command left to stand with it (scan.js folderStands, S37)
     }
     library._metaPutRaw(record);
     if (!replace) library._importMarks(gid, record);   // an earlier version's favorite, as the gallery joins (scan.js addGallery)

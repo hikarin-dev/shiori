@@ -1892,9 +1892,10 @@ async function _describe(gid, { work = null } = {}) {
 // and a place a gallery left (a move's old folder or archive: the gallery still in the library) that holds a
 // publication made since the move read it is never deleted ('dropped'). A gallery its series command's drop left to
 // stand (S37, _groupDropped: the command's other gallery couldn't be read again as the first stood) stands by the
-// folder's version here first, whatever its place holds. `held`: the gallery whose lock the caller holds (its id;
-// null for none: the gallery's own write, publication or move — or another's, weighing its series command), under
-// which the folder's version is read (_galleryWork: a linked gallery's re-read writes its overlay's source.json —
+// folder's version here first, whatever its place holds — or, with no version there to stand by, is settled (S38).
+// `held`: the gallery whose lock the caller holds — its own (its write, publication or move), another's (a publication
+// weighing its series command), or null for none (a check, a deletion's weighing) — under which the folder's version
+// is read (_galleryWork: a linked gallery's re-read writes its overlay's source.json —
 // inline under its own lock, under another's only while its own is free); `handover`: asked by a hand-over's read,
 // which writes nothing in the folder (S37: the re-read's own read writes nothing either).
 async function _hold(gid, { stat = null, known, deletion = null, ask = null, held = null, handover = false } = {}) {
@@ -1947,19 +1948,32 @@ function _groupIn(tx, gids) {
 // place unreadable for a moment, its lock busy) is left to stand: its group's record says so (`drop`), written in the
 // transaction that drops the first one's — so it is never published with its part of the command. It stands by the
 // folder's version under its own lock before anything of it is published, moved or written at its place (_hold), at its
-// next publication — due a moment later (_describeSoon) — or the folder's next check; its record goes with it.
-// Galleries `gids` of a group left to stand, in the folders store `store` — inside `tx` (_groupDropIn), or in a
-// transaction of its own where the first one couldn't be read again itself (its lock busy: _groupDrop).
-function _dropIn(store, gids) {
-  for (const gid of new Set(gids.map(String))) {
-    const req = store.get(`${GROUP}${gid}`);
-    req.onsuccess = () => { if (req.result && !req.result.drop) store.put({ ...req.result, drop: true }); };
-  }
+// next publication — due a moment later (_describeSoon) — or the folder's next check (folder-library.js _catchUp holds
+// every gallery left so); its record goes with it. One whose place holds no version to stand by is settled instead
+// (S38: folder-library.js folderStands, gallery-manifest.js dropBasis) — never left to stand for good.
+// Galleries `gids` of the group of gallery `first` (the one whose drop this is) left to stand, in the folders store
+// `store` — inside `tx` (_groupDropIn), or in a transaction of its own where the first one couldn't be read again itself
+// (its lock busy: _groupDrop). Only one still of that group as the transaction reads it (S38): one published since and
+// grouped again by a new command is that command's, not left to stand for this one (a group merged by a later command
+// is the first one's still, and stands with it).
+function _dropIn(store, gids, first) {
+  const at = store.get(`${GROUP}${first}`);
+  at.onsuccess = () => {
+    const grp = at.result?.grp;
+    if (!grp) return;
+    for (const gid of new Set(gids.map(String))) {
+      const req = store.get(`${GROUP}${gid}`);
+      req.onsuccess = () => { if (req.result?.grp === grp && !req.result.drop) store.put({ ...req.result, drop: true }); };
+    }
+  };
 }
-const _groupDropIn = (tx, gids) => _dropIn(tx.objectStore(FOLDER_STORE), gids);
-const _groupDrop = (gids) => _recordsWrite((store) => _dropIn(store, gids));
-// Whether gallery `gid` was left to stand by its group's drop.
+const _groupDropIn = (tx, gids, first) => _dropIn(tx.objectStore(FOLDER_STORE), gids, first);
+const _groupDrop = (gids, first) => _recordsWrite((store) => _dropIn(store, gids, first));
+// Whether gallery `gid` was left to stand by its group's drop; every gallery left so.
 const _groupDropped = async (gid) => !!(await _groupRecords()).find(r => r.gid === String(gid))?.drop;
+const _groupLeft = async () => (await _groupRecords()).filter(r => r.drop).map(r => r.gid);
+// Gallery `gid` out of its group: settled with no version to stand by (S38).
+const _ungroup = (gid) => _recordsWrite((store) => store.delete(`${GROUP}${gid}`));
 const _ungroupIn = (tx, gid) => tx.objectStore(FOLDER_STORE).delete(`${GROUP}${gid}`);
 async function _groupRecords() {
   const db = await openDB();
@@ -2467,7 +2481,8 @@ const _folderLibrary = createFolderLibrary({
   me: _me, myLabel: _myLabel, readClaim: _readClaim, writeClaim: _writeClaim, noteEpoch: _noteEpoch, randomId: _randomId,
   markOf: _markOf, setHandover: _setHandover, noteReleased: _noteReleased, releasedOf: _releasedOf, groupWaiting: _groupWaiting,
   // the pictures' storage in folders
-  writing: _writing, galleryWork: _galleryWork, groupDropIn: _groupDropIn, groupDrop: _groupDrop, describeSoon: _describeSoon, replacePages: _replacePages, relocate: _relocate, follow: _follow, unpackedName: _unpackedName, reserveDir: _reserveDir, describe: _describe, cancelDescribe: _cancelDescribe,
+  writing: _writing, galleryWork: _galleryWork, groupDropIn: _groupDropIn, groupDrop: _groupDrop, groupDropped: _groupDropped, groupLeft: _groupLeft,
+  ungroup: _ungroup, describeSoon: _describeSoon, replacePages: _replacePages, relocate: _relocate, follow: _follow, unpackedName: _unpackedName, reserveDir: _reserveDir, describe: _describe, cancelDescribe: _cancelDescribe,
   hold: (gid, view) => _hold(gid, view),
   marked: _marked, patchStat: _patchStat, wantedDescriptions: _wantedDescriptions, textsOf: _textsOf, retireIn: _retireIn,
   archiveOf: _archiveOf, typeOfName: _typeOfName, settleFolders,
