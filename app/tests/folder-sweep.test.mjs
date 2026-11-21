@@ -50,6 +50,7 @@ import { desktopLibrary, webLibrary, pageNow, pageCalling, clockAhead } from './
 import { CLAIM_TTL_MS } from '../js/storage/folder-owner.js';
 import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
+import { netted, detached } from './lock-net.mjs';
 import { zipCreate } from '../js/zip.js';
 import { v1Gallery, legacyGallery, seriesExport } from './fixtures/storage-fixtures.mjs';
 
@@ -1183,6 +1184,43 @@ const SCENARIOS = [
     noSetupFlush: true,
   },
   {
+    // S37 (review 12): a series command over a linked ZIP (Pack, its owner) and a gallery of the library's own (Alpha),
+    // made while the drive was away (it waits); Alpha's place then holds another writer's later publication (as one of
+    // the other app's lands there: its manifest's generation, publication and writer), and the ZIP is changed in place
+    // (its page 2). The step settles what waits and checks the folder: Pack's publication weighs the command, meets
+    // Alpha's place another writer's, and the folder's version stands for the whole command — neither is in a series —
+    // Pack reading its ZIP as it now is and keeping the translation of the page that didn't change. On the website that
+    // weighing re-read Pack under the lock its own publication held (F1: it waited for itself, for good, before S37).
+    name: 'a series command over a linked ZIP changed in place and a gallery another writer published since, settled and checked',
+    sample: 0,
+    async setup(c) {
+      const zip = path.join(c.A, 'Pack.zip');
+      fs.writeFileSync(zip, zipCreate([{ name: '001.png', data: png(61) }, { name: '002.png', data: png(62) }]));
+      theirs(c, zip);
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      await c.lib.scan(c.ids.A);   // Pack first: its publication is the one that weighs the command
+      c.g.pack = String((await c.lib.galleries())[0]);
+      c.known.add(c.g.pack);
+      await c.lib.putTranslation(c.g.pack, 1, png(49));
+      c.g.alpha = await made(c, 'Alpha', [png(4)]);
+      await c.lib.flush();
+      await awayFor(c, () => c.lib.raw.seriesCommand('attach', c.g.pack, c.g.alpha));
+      c.series = [c.g.pack];
+      const manifest = path.join(await dirOf(c, c.g.alpha), '.shiori', 'gallery.json');
+      const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+      fs.writeFileSync(manifest, JSON.stringify({ ...m, generation: m.generation + 1, publication: 'f0e1d2c3b4a59687', writer: 'b1b2c3d4e5f60708' }, null, 2));
+      fs.writeFileSync(zip, zipCreate([{ name: '001.png', data: png(61) }, { name: '002.png', data: png(63) }]));
+      theirs(c, zip);
+    },
+    // (Pack's pages are read from its ZIP as it is: its page 2 the new one at once.)
+    state: (c) => withChapters(withTranslation({ aIn: true, galleries: { [c.g.pack]: G('A', 'Pack', [png(61), png(63)]), [c.g.alpha]: G('A', 'Alpha', [png(4)]) } },
+      c.g.pack, 1, png(49)), c.g.pack, [c.g.pack, c.g.alpha]),
+    ops: [op('settle', (c) => (c.lib.app === 'website' ? c.lib.raw.settleFolders() : c.lib.flush()), (s, c) => withTranslation({ aIn: true,
+      galleries: { [c.g.pack]: G('A', 'Pack', [png(61), png(63)]), [c.g.alpha]: G('A', 'Alpha', [png(4)]) } }, c.g.pack, 1, png(49))),
+      CHECK, FLUSH, SETTLE],
+    noSetupFlush: true,
+  },
+  {
     // A page and a translation written, faulted at every point — a kill, a failed call, the page dying, the drive
     // away — then met by the other app before this app starts again (`metFirst`: after a kill or the page's
     // death, before it is opened again): it uses folder A anyway, retitles Beta there and lets the folder go.
@@ -1801,9 +1839,12 @@ let lockWaited = null;
 function shadowLocks() {
   if (locksShadowed) return;
   locksShadowed = true;
-  const request = (/** @type {string} */ name, /** @type {any} */ options, /** @type {() => unknown} */ fn = options) => new Promise((resolve, reject) => {
+  // (As Web Locks do: `ifAvailable` takes the lock only while nobody holds or waits for it, else `fn(null)` at once; `fn`
+  // is given the lock. And followed by the tests' lock net, as the page's own locks are: lock-net.mjs, S37.)
+  const request = netted((/** @type {string} */ name, /** @type {any} */ options, /** @type {(lock: object | null) => unknown} */ fn = options) => new Promise((resolve, reject) => {
+    if (options?.ifAvailable && lockQueues.get(name)?.length) { Promise.resolve().then(() => fn(null)).then(resolve, reject); return; }
     const entry = { page: pageCalling(), start: () => {
-      Promise.resolve().then(() => fn()).then(resolve, reject).finally(() => {
+      Promise.resolve().then(() => fn({ name })).then(resolve, reject).finally(() => {
         const q = lockQueues.get(name);
         if (q?.[0] !== entry) return;   // let go when its page died
         q.shift();
@@ -1814,7 +1855,7 @@ function shadowLocks() {
     lockQueues.set(name, q);
     q.push(entry);
     if (q.length === 1) grantNext(name); else lockWaited?.();
-  });
+  }));
   Object.defineProperty(globalThis.navigator, 'locks', { value: { request }, configurable: true });
 }
 
@@ -2000,10 +2041,11 @@ async function remakeHeld(c, sc, /** @type {string} */ gid, /** @type {string | 
   // the gallery as it was, and one the library no longer has (forgotten with its folder's removal) none to delete:
   // nothing is made again then.
   let refused = !(await c.lib.meta(gid));
-  const work = (refused ? Promise.reject(Object.assign(new Error('not in the library'), { reason: 'unavailable' })) : c.lib.deleteGallery(gid)).then(async () => {
+  // (The person's work, not the held step's: no part of its chain for the lock net — lock-net.mjs detached.)
+  const work = detached(() => (refused ? Promise.reject(Object.assign(new Error('not in the library'), { reason: 'unavailable' })) : c.lib.deleteGallery(gid)).then(async () => {
     c.again = again;
     if (sc.again.gone) c.deleted.add(gid); else await (sc.again.make ?? remake)(c, gid);
-  }, (e) => { if (['unavailable', 'hidden', 'not-owned', 'handover'].includes(e?.reason)) refused = true; else throw e; });
+  }, (e) => { if (['unavailable', 'hidden', 'not-owned', 'handover'].includes(e?.reason)) refused = true; else throw e; }));
   const first = go ? await Promise.race([work.then(() => 'done', () => 'done'), waiting.then(() => 'locked'), sleep(mayWait ? 1000 : AGAIN_WAIT_MS).then(() => 'waited')]) : 'done';
   lockWaited = null;
   go?.();

@@ -67,23 +67,21 @@ export function offence(held, asked) {
 const stackNow = () => String(new Error().stack).split('\n').slice(3).map(l => l.trim())
   .filter(l => /[\\/]app[\\/](js|tests)[\\/]|[\\/]desktop[\\/]/.test(l) && !l.includes('lock-net.mjs')).slice(0, 14).join('\n    ');
 
-const locks = globalThis.navigator?.locks;
-if (!globalThis.__shioriLockNet && typeof locks?.request === 'function') {
-  const als = new AsyncLocalStorage();
-  globalThis.__shioriLockNet = { violations, als };
-  const undelivered = new Set();
-  const fail = (kind, held, asked) => {
-    const v = { kind, held, asked, stack: stackNow() };
-    violations.push(v);
-    const err = new Error(`lock net (S37): ${kind}: holds ${held}, waits for ${asked}\n    ${v.stack}`);
-    try { fs.writeSync(2, `\n${err.message}\n`); } catch {}
-    if (watchers.size) { for (const w of watchers) w.seen.push(v); return; }
-    undelivered.add(err);
-    setImmediate(() => { undelivered.delete(err); throw err; });
-  };
-  const proto = Object.getPrototypeOf(locks);
-  const request = proto.request;
-  proto.request = function (name, a, b) {
+const als = new AsyncLocalStorage();
+const undelivered = new Set();
+const fail = (kind, held, asked) => {
+  const v = { kind, held, asked, stack: stackNow() };
+  violations.push(v);
+  const err = new Error(`lock net (S37): ${kind}: holds ${held}, waits for ${asked}\n    ${v.stack}`);
+  try { fs.writeSync(2, `\n${err.message}\n`); } catch {}
+  if (watchers.size) { for (const w of watchers) w.seen.push(v); return; }
+  undelivered.add(err);
+  setImmediate(() => { undelivered.delete(err); throw err; });
+};
+/** Lock requests made through `request` (a LockManager's, or a stand-in's: the sweeps' shadow of the page's locks)
+ * followed by the net. */
+export function netted(request) {
+  return function (name, a, b) {
     const cb = typeof a === 'function' ? a : b;
     const opts = typeof a === 'function' ? undefined : a;
     const chain = (als.getStore() || []).filter(h => h.live);
@@ -97,6 +95,17 @@ if (!globalThis.__shioriLockNet && typeof locks?.request === 'function') {
     const wrapped = (lock) => als.run([...chain, entry], async () => { try { return await cb(lock); } finally { entry.live = false; } });
     return opts === undefined ? request.call(this, name, wrapped) : request.call(this, name, opts, wrapped);
   };
+}
+
+/** `fn` run as no part of the chain that calls it: a test's own work started from inside a held call (the sweeps'
+ * 'made again': the person deleting and making a gallery again while the step's call is held) — never the product's. */
+export const detached = (fn) => als.exit(fn);
+
+const locks = globalThis.navigator?.locks;
+if (!globalThis.__shioriLockNet && typeof locks?.request === 'function') {
+  globalThis.__shioriLockNet = { violations, als };
+  const proto = Object.getPrototypeOf(locks);
+  proto.request = netted(proto.request);
   // A timer's callback runs outside the locks of the chain that set it.
   for (const set of ['setTimeout', 'setInterval']) {
     const original = globalThis[set];
