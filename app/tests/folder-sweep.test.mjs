@@ -1221,6 +1221,72 @@ const SCENARIOS = [
     noSetupFlush: true,
   },
   {
+    // S38 (review 13): the same with the command's owner an earlier version's gallery (format v1, never republished:
+    // no manifest there, none this library knows), the linked ZIP's overlay given another writer's later generation and
+    // its ZIP changed in place. Pack stands by the folder's version; Old, left to stand with no version to stand by, is
+    // settled — its series links tidied against Pack as it stands (none left), its change published. Before S38 Old was
+    // left to stand for good.
+    name: 'a series command over an earlier version\'s gallery and a linked ZIP another writer published since, changed in place, settled and checked',
+    sample: 0,
+    async setup(c) {
+      const zip = path.join(c.A, 'Pack.zip');
+      fs.writeFileSync(zip, zipCreate([{ name: '001.png', data: png(61) }, { name: '002.png', data: png(62) }]));
+      theirs(c, zip);
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      const at = path.join(c.A, 'Old one'), old = await v1Gallery(at, { files: true });
+      c.g.old = old.gid;
+      c.known.add(old.gid);
+      c.want = { old: shownAs(at, 'Version one', [[old.current[1], 'translated/0001.png'], ['images/0002.webp', null]]) };
+      await c.lib.scan(c.ids.A);
+      c.g.pack = String((await c.lib.galleries()).map(String).find(g => g !== c.g.old));
+      c.known.add(c.g.pack);
+      await c.lib.putTranslation(c.g.pack, 1, png(49));
+      await c.lib.flush();
+      await awayFor(c, () => c.lib.raw.seriesCommand('attach', c.g.old, c.g.pack));
+      c.series = [c.g.old];
+      const manifest = path.join(c.A, '.shiori', 'linked', c.g.pack, 'gallery.json');
+      const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+      fs.writeFileSync(manifest, JSON.stringify({ ...m, generation: m.generation + 1, publication: 'f0e1d2c3b4a59687', writer: 'b1b2c3d4e5f60708' }, null, 2));
+      fs.writeFileSync(zip, zipCreate([{ name: '001.png', data: png(61) }, { name: '002.png', data: png(63) }]));
+      theirs(c, zip);
+    },
+    state: (c) => withChapters(withTranslation({ aIn: true, galleries: { [c.g.pack]: G('A', 'Pack', [png(61), png(63)]),
+      [c.g.old]: /** @type {Record<string, G>} */ (c.want).old } }, c.g.pack, 1, png(49)), c.g.old, [c.g.old, c.g.pack]),
+    ops: [op('settle', (c) => (c.lib.app === 'website' ? c.lib.raw.settleFolders() : c.lib.flush()), (s, c) => withTranslation({ aIn: true,
+      galleries: { [c.g.pack]: G('A', 'Pack', [png(61), png(63)]), [c.g.old]: /** @type {Record<string, G>} */ (c.want).old } }, c.g.pack, 1, png(49))),
+      CHECK, FLUSH, SETTLE],
+    noSetupFlush: true,
+  },
+  {
+    // S38 (review 13): a series command over a linked ZIP whose overlay was never described (no change of its own
+    // published) and a gallery another writer published since. Alpha stands by the folder's version; Pack, left to
+    // stand with no version to stand by, is settled — the same outcome on both apps (before S38 the desktop read it
+    // again, the website left it to stand for good).
+    name: 'a series command over a linked ZIP never described and a gallery another writer published since, settled and checked',
+    sample: 0,
+    async setup(c) {
+      const zip = path.join(c.A, 'Pack.zip');
+      fs.writeFileSync(zip, zipCreate([{ name: '001.png', data: png(61) }, { name: '002.png', data: png(62) }]));
+      theirs(c, zip);
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      await c.lib.scan(c.ids.A);
+      c.g.pack = String((await c.lib.galleries())[0]);
+      c.known.add(c.g.pack);
+      c.g.alpha = await made(c, 'Alpha', [png(4)]);
+      await c.lib.flush();
+      await awayFor(c, () => c.lib.raw.seriesCommand('attach', c.g.pack, c.g.alpha));
+      c.series = [c.g.pack];
+      const manifest = path.join(await dirOf(c, c.g.alpha), '.shiori', 'gallery.json');
+      const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+      fs.writeFileSync(manifest, JSON.stringify({ ...m, generation: m.generation + 1, publication: 'f0e1d2c3b4a59687', writer: 'b1b2c3d4e5f60708' }, null, 2));
+    },
+    state: (c) => withChapters({ aIn: true, galleries: { [c.g.pack]: G('A', 'Pack', [png(61), png(62)]), [c.g.alpha]: G('A', 'Alpha', [png(4)]) } }, c.g.pack, [c.g.pack, c.g.alpha]),
+    ops: [op('settle', (c) => (c.lib.app === 'website' ? c.lib.raw.settleFolders() : c.lib.flush()), (s, c) => ({ aIn: true,
+      galleries: { [c.g.pack]: G('A', 'Pack', [png(61), png(62)]), [c.g.alpha]: G('A', 'Alpha', [png(4)]) } })),
+      CHECK, FLUSH, SETTLE],
+    noSetupFlush: true,
+  },
+  {
     // A page and a translation written, faulted at every point — a kill, a failed call, the page dying, the drive
     // away — then met by the other app before this app starts again (`metFirst`: after a kill or the page's
     // death, before it is opened again): it uses folder A anyway, retitles Beta there and lets the folder go.
