@@ -195,6 +195,42 @@ test('a check begun before a gallery was deleted and made again reads the new on
   await isAgain(s, gid, old);
 });
 
+// S35 (the sweeps' 'made again' met it under load: a linked ZIP read again, its overlay mid-removal): a check's look at
+// the places of the galleries it read at its start, one of them deleted and made again as it looks there, its old
+// place found holding a folder that names no gallery — as the deleted one's folder or overlay does while it is being
+// deleted (a file of it still there, its description gone; made so here once the deletion is over). Before S35 the
+// check reported that place ('conflict') for the gallery made again, which has its own folder elsewhere.
+test('a check\'s look at a place read at its start reports nothing for a gallery deleted and made again meanwhile', { todo: 'S35' }, async (t) => {
+  const s = await open(t);
+  const gid = '1790000003408';
+  await made(s.library, gid, 'Old', [big(1), big(2)]);
+  const old = placeOf(s.library, gid), oldRel = s.library.files._row(gid).path;
+  const files = s.library.files, root = s.library.primaryId;
+  // The check's look at the old place held, once it is past its deletions owed (as 11A3's).
+  let past, reached, go;
+  const passed = new Promise((resolve) => { past = resolve; }), held = new Promise((resolve) => { reached = resolve; }), released = new Promise((resolve) => { go = resolve; });
+  const apply = files.applyDeletions.bind(files), whose = files._whose.bind(files);
+  files.applyDeletions = (o = {}) => { const p = apply(o); if (o.root === root) { files.applyDeletions = apply; p.finally(past); } return p; };
+  let armed = false;
+  files._whose = async (rel, id) => { if (armed && rel === oldRel) { armed = false; reached(); await released; } return whose(rel, id); };
+  const checked = s.library.folderScan(root);
+  await passed;
+  armed = true;
+  await held;
+  noWait(await remake(s.library, gid, { release: () => {} }));
+  await files.flush();
+  await files.applyDeletions();
+  assert.equal(fs.existsSync(old), false, 'the deleted one\'s folder deleted');
+  fs.mkdirSync(old);
+  fs.writeFileSync(path.join(old, 'notes.txt'), 'left there');
+  go();
+  const found = await checked;
+  fs.rmSync(old, { recursive: true, force: true });   // the deletion over
+  files._whose = whose;
+  assert.deepEqual(found.problems.filter(p => p.gid === gid || p.path === path.basename(old)), [], 'the check reports nothing of the old place');
+  await isAgain(s, gid, old);
+});
+
 // 11B7: a move asked for the deleted gallery, trying again once it saw it changed: it moved the gallery made again.
 test('a move asked for a gallery deleted meanwhile moves none made again under its id (11B7)', async (t) => {
   const s = await open(t, { withB: true });
