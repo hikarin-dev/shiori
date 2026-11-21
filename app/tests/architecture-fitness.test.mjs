@@ -347,7 +347,7 @@ test('S37: a gallery\'s lock is never waited for while one is held — every hol
   assert.deepEqual(offPath(site), []);
   // A made-up call that drops `held` on a path under a gallery's lock (folderStands' others loop, review 12's F1) fails it.
   const dropped = new Map(site);
-  dropped.set('folderStands', (site.get('folderStands') ?? '').replace(/folderStands\(m, \{ held \}\)/, 'folderStands(m)'));
+  dropped.set('folderStands', (site.get('folderStands') ?? '').replace(/folderStands\(m, \{ held\b[^}]*\}\)/, 'folderStands(m)'));
   assert.deepEqual(offPath(dropped), ['folderStands: passes held']);
 });
 

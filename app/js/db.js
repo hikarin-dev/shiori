@@ -1895,8 +1895,9 @@ async function _describe(gid, { work = null } = {}) {
 // folder's version here first, whatever its place holds. `held`: the gallery whose lock the caller holds (its id;
 // null for none: the gallery's own write, publication or move — or another's, weighing its series command), under
 // which the folder's version is read (_galleryWork: a linked gallery's re-read writes its overlay's source.json —
-// inline under its own lock, under another's only while its own is free).
-async function _hold(gid, { stat = null, known, deletion = null, ask = null, held = null } = {}) {
+// inline under its own lock, under another's only while its own is free); `handover`: asked by a hand-over's read,
+// which writes nothing in the folder (S37: the re-read's own read writes nothing either).
+async function _hold(gid, { stat = null, known, deletion = null, ask = null, held = null, handover = false } = {}) {
   const id = String(gid);
   const at = stat ?? await galleryGet(id);
   if (!at?.folder || !at.dir) return MISSING;
@@ -1914,7 +1915,7 @@ async function _hold(gid, { stat = null, known, deletion = null, ask = null, hel
     await _recordsWrite((store) => { deletion.forget(store); store.put(_attentionRecord(at.folder, { reason: 'changed-both', path: at.dir, gid: id }, true)); });
     return { kind: 'dropped' };
   }
-  const stood = await _stands(id, held).catch(() => false);
+  const stood = await _stands(id, held, handover).catch(() => false);
   if (stood?.damaged) return { ...await asked({ known: await stamp(), over: first.token }), damaged: stood.damaged };
   const again = stood ? await asked({ known: await stamp() }) : null;
   return again && again.kind !== 'theirs' ? again : unreadable(new Error(`the folder's version of gallery ${id} can't be read now`));
@@ -2008,9 +2009,9 @@ async function _archiveManifest(folder, root, path, inner) {
 // that is done, false when it can't be now (its place can't be read now: tried again later) — or { damaged },
 // its reason ('corrupt', 'missing-file'), when the publication there was read and is damaged (a description
 // that doesn't parse, a file it names not there): no version to stand, so what waits is published over it, as
-// a change to a damaged folder always was (T08), never left waiting for good. `held`: _hold's.
-async function _stands(gid, held = null) {
-  try { return await _folderLibrary.folderStands(String(gid), { held }); } catch (e) {
+// a change to a damaged folder always was (T08), never left waiting for good. `held`, `handover`: _hold's.
+async function _stands(gid, held = null, handover = false) {
+  try { return await _folderLibrary.folderStands(String(gid), { held, handover }); } catch (e) {
     if (['corrupt', 'missing-file'].includes(e?.reason)) return { damaged: e.reason };
     throw e;
   }

@@ -35,7 +35,7 @@ async function markOf(lib, id) {
 }
 
 for (const app of ['website', 'desktop']) {
-  test(`S37: ${app}: a hand-over's read meeting the other app's publication of a linked gallery with a change waiting, its ZIP changed in place, writes nothing in the folder — the check after it does`, { skip, todo: app === 'website' ? 'S37' : undefined }, async (t) => {
+  test(`S37: ${app}: a hand-over's read meeting the other app's publication of a linked gallery with a change waiting, its ZIP changed in place, writes nothing in the folder — the check after it does`, { skip }, async (t) => {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-s37h-'));
     const from = app === 'desktop' ? await desktopLibrary(path.join(base, 'desktop')) : await webLibrary();
     const to = app === 'desktop' ? await webLibrary() : await desktopLibrary(path.join(base, 'desktop'));

@@ -1043,7 +1043,7 @@ async function _followTo(run, found, was, read, { leave = false, held = null } =
   if (!(await K.follow(found.id, _keptAt(was), here, read.ref, { leave, held }))) return false;   // its record changed meanwhile
   run.updated.add(found.id);
   run.followed = true;
-  if (!!was.spilled || run.marked.has(found.id)) await K.hold(found.id, { held });
+  if (!!was.spilled || run.marked.has(found.id)) await K.hold(found.id, { held, handover: !!run.handover });
   else await _adopt(run, found, { replace: found.id, read });
   return true;
 }
@@ -1322,7 +1322,7 @@ async function _catchUp(run, stat) {
     if (mine && descriptionStamp(K.textsOf(mine.wanted)) === at.token) { await K.patchStat(gid, (cur) => (K.still(life, cur) ? { ...cur, stamp: at.token } : cur)); return true; }
   }
   if (!!stat.spilled || run.marked.has(gid)) {
-    const held = await K.hold(gid);
+    const held = await K.hold(gid, { handover: !!run.handover });   // (a hand-over's read writes nothing in the folder)
     if (await gone()) return false;
     if (held.kind === 'unreadable' || held.damaged) run.problems.push({ path: stat.dir, reason: held.damaged ?? 'unreadable' });
     if ((await K.galleryGet(gid))?.stamp !== stat.stamp) run.updated.add(gid);
@@ -1351,19 +1351,20 @@ async function _noteReplaced(was, gid) {
 // done; rejects, nothing changed, when its place can't be read whole now (weighed again at the next
 // publication or check) — `reason` 'corrupt' or 'missing-file' where that publication is damaged. `held`: the gallery
 // whose lock the caller holds (db.js _hold), under which the re-reads write (_writeSource: inline under its own,
-// another's only while it is free — S37).
+// another's only while it is free — S37); `handover`: asked by a hand-over's read, which writes nothing in the folder
+// (its re-reads' run says so: _overlayFor).
 // What its series command changed of others, still waiting, is dropped with it — whole (S37): each other is read again
 // now, and the transaction dropping this one's leaves every other to stand by the folder's version (db.js
 // _groupDropIn), so one that can't be read again now stands at its next publication — due a moment later — never
 // published with its part of the command. Where this one's own lock is busy (another gallery's work asking, its own
 // under way) the command's drop is recorded all the same, this one standing at its own next publication.
-async function folderStands(gid, { held = null } = {}) {
+async function folderStands(gid, { held = null, handover = false } = {}) {
   const began = K.now();
   const stat = await K.galleryGet(gid);
   const life = K.lifeOf(began, gid, stat);   // the gallery it is for (S34, S36)
   const root = stat?.folder && stat.dir ? await K.readRootOf(stat.folder) : null;   // read where it lies (its own work's write, the adoption, is the library's)
   if (!root) return false;
-  const run = { id: stat.folder, root, name: (await K.folderById(stat.folder))?.name || '', stopped: () => false, known: new Set(), added: [], updated: new Set(), problems: [] };
+  const run = { id: stat.folder, root, name: (await K.folderById(stat.folder))?.name || '', stopped: () => false, known: new Set(), added: [], updated: new Set(), problems: [], handover };
   const where = stat.packed ? { kind: 'zip', path: stat.dir, inner: stat.packed.inner || '', id: gid } : { kind: 'dir', path: stat.dir, id: gid };
   const drop = !!stat.spilled || (await K.marked()).has(String(gid));
   // What its series command changed of others, still waiting, dropped with it (review 9 B1).
@@ -1379,7 +1380,7 @@ async function folderStands(gid, { held = null } = {}) {
     stood = null;
   }
   if (stood !== false) {
-    for (const m of others) if (!(await folderStands(m, { held }).catch(() => false))) K.describeSoon(m);
+    for (const m of others) if (!(await folderStands(m, { held, handover }).catch(() => false))) K.describeSoon(m);
   }
   if (stood && !drop) await _noteReplaced(stat, gid);
   return !!stood;
