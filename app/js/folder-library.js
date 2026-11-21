@@ -1559,7 +1559,7 @@ async function _relink(run, title, gid) {
     if (title.kind === 'pdf') {
       const over = await _overlayOf(run.id, run.root, gid);
       if (gone()) return;
-      if (over && over.source.fingerprint !== title.fingerprint) await _overlayFor(run, title, gid);
+      if (over && over.source.fingerprint !== title.fingerprint) await _overlayFor(run, title, gid, null, gone);
       if (!over || over.source.fingerprint !== title.fingerprint || !pdfReady(over.source, over.images)) return;
     }
     if (await _adoptLinked(run, title, { replace: gid, life })) run.updated.add(gid);
@@ -1585,8 +1585,15 @@ async function _overlayFor(run, title, gid, at = null, ended = () => false) {
     fingerprint, ...(mine ? { rendered: had.source.rendered, failed: had.source.failed } : {}) });
   // A hand-over's read writes nothing: a title whose overlay is to change is read by the check after it.
   if (text !== want && run.handover) throw Object.assign(new BackendError('unavailable', `${dir}: read once the folder is this library's`), { reason: 'unreadable' });
-  if (text !== want) await folderFiles.writeFile(run.id, run.root, path, want);
+  if (text !== want) await _writeSource(run.id, run.root, gid, want, ended);
   return { dir, was: mine ? had.source : null };
+}
+// Gallery `gid`'s overlay's source.json in folder `folder` written as `text` — every write of one goes here — under
+// the gallery's lock, and only while the gallery the work began for is still the id's (`ended()`, asked once the lock
+// is held: db.js _life): its overlay is deleted under that lock too (db.js _deleteOverlay), so a write begun for a
+// gallery deleted since lands before that deletion and goes with it, and none comes after it (S35).
+function _writeSource(folder, root, gid, text, ended = () => false) {
+  return K.locked(gid, async () => { if (!ended()) await folderFiles.writeFile(folder, root, `${overlayDir(gid)}/${SOURCE_FILE}`, text); });
 }
 
 // Title `title` of the folder (linked-source.js: an archive, a folder of pictures, a PDF) joined to the
@@ -1732,11 +1739,12 @@ async function _drawnAt(folder, gid, token) {
 // it is there. Resolves its id; rejects when it couldn't join.
 async function addRendered(folder, gid, pages, token) {
   if (!isDrawing(pages)) throw new BackendError('invalid', 'no pages drawn');
+  const life = K.life(gid);   // the gallery drawn (or to be joined): nothing of the drawing for another of its id
   return folderFiles.withLock(FOLDER_LOCK(folder), async () => {
     let { root, source } = await _drawnAt(folder, gid, token);
     const dir = overlayDir(gid);
-    const marker = () => folderFiles.writeFile(folder, root, `${dir}/${SOURCE_FILE}`,
-      sourceText(gid, { ...source, fingerprint: token, rendered: { pages: pages.length, fingerprint: token }, failed: null }));
+    const marker = () => _writeSource(folder, root, gid,
+      sourceText(gid, { ...source, fingerprint: token, rendered: { pages: pages.length, fingerprint: token }, failed: null }), () => !K.still(life));
     // Drawn from this very version already (by the other app, read here since): nothing changes.
     if (await K.galleryGet(gid) && source.rendered?.fingerprint === token) return String(gid);
     if (await K.galleryGet(gid)) {
@@ -1768,8 +1776,9 @@ async function addRendered(folder, gid, pages, token) {
 // on every page until the file changes (linked-source.js drawFailed) — only while the file is still that
 // version (_drawnAt): a failure to draw an earlier one notes nothing.
 async function pdfFailed(folder, gid, token) {
+  const life = K.life(gid);
   const { root, source } = await _drawnAt(folder, gid, token);
-  await folderFiles.writeFile(folder, root, `${overlayDir(gid)}/${SOURCE_FILE}`, sourceText(gid, { ...source, failed: { fingerprint: token, at: Date.now() } }));
+  await _writeSource(folder, root, gid, sourceText(gid, { ...source, failed: { fingerprint: token, at: Date.now() } }), () => !K.still(life));
 }
 
 // ── Series links among galleries read back ──

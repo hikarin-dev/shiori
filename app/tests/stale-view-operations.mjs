@@ -116,9 +116,9 @@ export const PLACE_WRITERS = {
     'db.js clearAll': { free: 'the person\'s clearing of the library: their own deletion of every gallery, made now, which takes each whatever its place holds (S29a\'s rule 3)' },
     'folder-library.js folderAdd': { free: 'the library\'s id file in the folder (library.json): no gallery\'s place' },
     'folder-library.js addRendered': 'holds',
-    'folder-library.js pdfFailed': { free: MARKER },
-    // (Hidden from the rule until S32 by a `/*` inside a line comment above it: review 9 A2.)
-    'folder-library.js _overlayFor': { free: MARKER },
+    // Every write of one since S35 (_overlayFor's, a PDF's markers); _overlayFor's was hidden from the rule until S32 by
+    // a `/*` inside a line comment above it (review 9 A2).
+    'folder-library.js _writeSource': { free: MARKER },
   },
 };
 

@@ -218,19 +218,25 @@ async function overlayPages(library, root, gid) {
 // Gallery `gid`'s overlay's source.json, saying that its source is `title` (as it is now: `at`,
 // titleAt's, when it could be read) — and what it said of a PDF's pages, unless `marks` says it anew:
 // how many are drawn (`rendered`), or that drawing them failed (`failed`). Written only when that
-// changes it — and not once `ended()` (its gallery ended as it was read: adoptLinked). Resolves the overlay's path
-// in the library (files.js: `@<root>/…` beyond the first folder) and the source as source.json had it (null: a new
-// overlay).
-async function overlayFor(library, root, title, gid, at, marks = {}, ended = () => false) {
-  const { file, text, was, other } = await sourceJson(library, root, gid);
-  if (ended()) return { rel: library.files._join(root, L.overlayDir(gid)), was };
-  // An overlay naming another gallery is never made this one's (principle 2): left, and refused.
-  if (other) throw Object.assign(new BackendError('conflict', `the overlay at ${L.overlayDir(gid)} names another gallery`), { reason: 'conflict' });
-  const want = L.sourceText(gid, { kind: title.kind, path: title.path, inner: title.inner,
-    size: at?.size ?? was?.size ?? null, fingerprint: at?.fingerprint ?? was?.fingerprint ?? null,
-    rendered: 'rendered' in marks ? marks.rendered : was?.rendered, failed: 'failed' in marks ? marks.failed : was?.failed });
-  if (text !== want) await writeIn(library, root, file, want);
-  return { rel: library.files._join(root, L.overlayDir(gid)), was };
+// changes it — and only while the gallery the work began for (`life`: files.js life; by default as this begins) is
+// still the id's, asked once it has been read. Every write of an overlay's source.json is this one, a write into the
+// gallery's own under way (files.js ownWrite) as long as it lasts, which the overlay's deletion waits for (files.js
+// _removeOwn): so one begun for a gallery deleted since lands before that deletion and goes with it, and none comes
+// after it (S35). Resolves the overlay's path in the library (files.js: `@<root>/…` beyond the first folder) and the
+// source as source.json had it (null: a new overlay).
+function overlayFor(library, root, title, gid, at, marks = {}, life = library.files.life(gid)) {
+  return library.files.ownWrite(gid, (async () => {
+    const { file, text, was, other } = await sourceJson(library, root, gid);
+    const rel = library.files._join(root, L.overlayDir(gid));
+    if (!library.files.still(life)) return { rel, was };
+    // An overlay naming another gallery is never made this one's (principle 2): left, and refused.
+    if (other) throw Object.assign(new BackendError('conflict', `the overlay at ${L.overlayDir(gid)} names another gallery`), { reason: 'conflict' });
+    const want = L.sourceText(gid, { kind: title.kind, path: title.path, inner: title.inner,
+      size: at?.size ?? was?.size ?? null, fingerprint: at?.fingerprint ?? was?.fingerprint ?? null,
+      rendered: 'rendered' in marks ? marks.rendered : was?.rendered, failed: 'failed' in marks ? marks.failed : was?.failed });
+    if (text !== want) await writeIn(library, root, file, want);
+    return { rel, was };
+  })());
 }
 // Gallery `gid`'s overlay's source.json: where it is, its text, the source it names (`was`, null when
 // there is none, or it names another gallery: `other`). Rejects when it can't be read: never written
@@ -363,7 +369,7 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
     if (Object.keys(covers).length) library._coverPatchIn(gid, covers, { mark: false });
   });
   if (held) return null;
-  if (replace) await overlayFor(library, root, title, gid, at, {}, ended);
+  if (replace) await overlayFor(library, root, title, gid, at, {}, life);
   if (ended()) return gid;   // read again, its gallery ended since: nothing more for it
   // Its overlay describes it again, in due course, when a page's source picture isn't the one it recorded
   // (what was made from it dropped, or recorded before content signals were), or its description carries a
@@ -588,7 +594,7 @@ export async function addRendered(library, root, gid, pages, token) {
     let at = null;
     await redrawn(library, String(gid), pages, async () => { ({ at } = await drawnAt(library, root, gid, token)); }, life);
     if (!library.files.still(life)) throw new BackendError('not-found', `gallery ${gid} is gone`);
-    await overlayFor(library, root, over.source, gid, at, { rendered, failed: null });
+    await overlayFor(library, root, over.source, gid, at, { rendered, failed: null }, life);
     library.publishFeed(String(gid));
     return String(gid);
   }
@@ -664,6 +670,7 @@ async function redrawn(library, gid, pages, still, life) {
 // until the file changes (A23) — only while the file is still that version (drawnAt): a failure to draw
 // an earlier one notes nothing.
 export async function pdfFailed(library, root, gid, token) {
+  const life = library.files.life(gid);
   const { over, at } = await drawnAt(library, root, gid, token);
-  await overlayFor(library, root, over.source, gid, at, { failed: { fingerprint: token, at: Date.now() } });
+  await overlayFor(library, root, over.source, gid, at, { failed: { fingerprint: token, at: Date.now() } }, life);
 }

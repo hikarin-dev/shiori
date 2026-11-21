@@ -146,7 +146,7 @@ for (const app of /** @type {const} */ (['desktop', 'website'])) {
   // the source.json the write replaces — then the write let go, then the deletion. Before S35 the website's write put
   // its source.json back after the deletion had deleted it, and the deletion, finding the overlay named, left it (its
   // note in removed.json, nothing to take it up again); the desktop's made the overlay's folder again over the deletion.
-  test(`${app}: a deleted linked gallery's overlay goes once a check's write of it under way is over, with what it wrote`, { skip, todo: 'S35' }, async (t) => {
+  test(`${app}: a deleted linked gallery's overlay goes once a check's write of it under way is over, with what it wrote`, { skip }, async (t) => {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-again-'));
     const L = app === 'desktop' ? await desktopLibrary(path.join(base, 'desktop')) : await webLibrary();
     t.after(async () => { faults.reset(); fsa.reset(); await L.close(); fs.rmSync(base, { recursive: true, force: true }); });

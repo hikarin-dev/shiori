@@ -234,6 +234,24 @@ test('S34, review 11: every function working on a gallery across an await asks w
   assert.deepEqual(livesOff('website', { read: unnamed }), ['db.js coverPut: writes a gallery\'s pictures under its lock without naming the write in its commit (tx._write = w) — name it a step or free (and why)']);
 });
 
+test('S35: a linked gallery\'s overlay is its gallery\'s own — its source.json written by one writer that asks there, deleted once what was under way for the gallery is over', () => {
+  // A check's write of the overlay under way as its gallery was deleted landed after the deletion had deleted the file
+  // (the website: the deletion then left the overlay; the desktop: the write made its folder again). The website writes
+  // every overlay's source.json in folder-library.js _writeSource, under the gallery's lock, asking there, and deletes
+  // the overlay under that lock (db.js _deleteOverlay); the desktop writes every one in linked.js overlayFor, a write
+  // into the gallery's own under way (files.js ownWrite) that asks its life, and deletes it once that is over
+  // (files.js _removeOwn, _underWay) — as a deleted gallery's folder is (S34).
+  const desktop = (f) => readFileSync(join(repo, 'desktop', 'server', f), 'utf8');
+  const site = new Map([...functionsOf(read('folder-library.js')), ...functionsOf(read('db.js'))].map(([name, body]) => [name, asCode(body)]));
+  assert.deepEqual([...site].filter(([, body]) => /\bSOURCE_FILE\b/.test(body) && /\bwriteFile\s*\(/.test(body)).map(([name]) => name), ['_writeSource']);
+  assert.match(site.get('_writeSource') ?? '', /\bK\.locked\s*\(\s*gid\b[\s\S]*\bended\s*\(\s*\)[\s\S]*\bwriteFile\s*\(/);
+  assert.match(site.get('_deleteOverlay') ?? '', /\b_galleryLocked\s*\(\s*gid\b/);
+  const linked = new Map([...functionsOf(desktop('linked.js'))].map(([name, body]) => [name, asCode(body)]));
+  assert.deepEqual([...linked].filter(([name, body]) => name !== 'writeIn' && /\bwriteIn\s*\(/.test(body)).map(([name]) => name), ['overlayFor']);
+  assert.match(linked.get('overlayFor') ?? '', /\bownWrite\s*\([\s\S]*\.still\s*\(\s*life\s*\)[\s\S]*\bwriteIn\s*\(/);
+  assert.match(asCode(functionsOf(desktop('files.js')).get('_removeOwn') ?? ''), /\bawait this\._underWay\s*\(\s*gid\s*\)[\s\S]*\bthis\._remove\s*\(/);
+});
+
 test('S33, review 10 B7: a change refused for now is worded through backend-error.js refusalKey alone — a translation\'s start and a PDF\'s drawing task say it by its key', () => {
   // A translation's start kept the key only for 'lf.taken_msg' (so "still being scanned" was sent as a raw message), and
   // the PDF drawing task sent no key at all.

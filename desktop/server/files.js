@@ -867,9 +867,10 @@ export class FileLibrary {
       });
     }
   }
-  // A write of pictures of gallery `gid`'s own under way (`run`: library.js _derive), as long as it is: what it
-  // leaves in the gallery's folder — a picture written that it couldn't record, the gallery deleted meanwhile — is gone
-  // before that folder is deleted (_underWay). Resolves as `run` does.
+  // A write of pictures of gallery `gid`'s own under way (`run`: library.js _derive), or of its overlay's source.json
+  // (linked.js overlayFor), as long as it is: what it leaves in the gallery's folder or overlay — a picture written
+  // that it couldn't record, the gallery deleted meanwhile — is gone before that folder or overlay is deleted
+  // (_underWay). Resolves as `run` does.
   ownWrite(gid, run) {
     const id = String(gid);
     const runs = this._ownWrites.get(id) ?? new Set();
@@ -878,7 +879,7 @@ export class FileLibrary {
     return run;
   }
   // Everything under way for galleries of id `gid` — the one the id has now, and those that ended — over, done or
-  // failed: a deleted gallery's folder or archive, or the place a gallery left, is deleted only after it.
+  // failed: a deleted gallery's folder, archive or overlay, or the place a gallery left, is deleted only after it.
   async _underWay(gid) {
     const id = String(gid);
     await Promise.all([this._placing.get(id), this._describing.get(id), this._writing.get(id), ...(this._endedWork.get(id) ?? []),
@@ -1315,10 +1316,13 @@ export class FileLibrary {
   // what it holds: never one another gallery's description names, or none does — a folder put at the
   // gallery's old place by hand, or another library's on a drive given the same letter (F01). A linked
   // gallery's overlay its removal note owes (`note`: { stamp, epoch }, as the deletion or move recorded it),
-  // and a linked gallery's left as the library is cleared (no note: the person's, whatever it holds). Its
+  // and a linked gallery's left as the library is cleared (no note: the person's, whatever it holds) — once what was
+  // under way for its gallery is over (_underWay: a check writing its overlay's source.json, a publication, a picture
+  // of its own), as a deleted gallery's folder is (_deleteOne), so what that wrote goes with it (S35). Its
   // place held as that recorded it (hold, S29a's rule 3): one holding a publication made since — another
   // app's, before which the gallery was let go — stays, reported.
   async _removeOwn(rel, gid, work = null, { stamp = null, epoch = null } = {}) {
+    await this._underWay(gid);
     const whose = await this.hold(gid, { rel, known: stamp, deletion: { epoch, forget: () => {} } });
     // Never the place a gallery's row points at now (one joined from it again meanwhile: S34).
     if (this.library._s('SELECT 1 FROM files WHERE path = ?').get(rel)) return;
