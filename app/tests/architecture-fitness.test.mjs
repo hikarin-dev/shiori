@@ -10,6 +10,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { placeWritersOff, functionsOf, code as asCode } from './stale-view-operations.mjs';
 import { livesOff } from './gallery-lives.mjs';
+import { ORDER, WITHIN, ASKED_THERE } from './lock-net.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const appJs = join(repo, 'app', 'js');
@@ -316,6 +317,19 @@ test('S36: the website\'s locks are taken in one order, stated where they are na
   const inside = new Map(site);
   inside.set('_deleteOne', `${site.get('_deleteOne')}\nawait _galleryLocked(d.gid, () => {});`);
   assert.deepEqual(orderOff(inside), ['_deleteOne: no lock waited for within the folder\'s deletion lock']);
+});
+
+test('S37: the net that holds the website\'s lock order at run time weighs the order the comment states', () => {
+  // The tests' net (app/tests/lock-net.mjs) fails a run on a lock waited for against the order; its list is the order
+  // as stated once, at db.js _galleryLocked — the locks named there in the order they come, the one taken within any last.
+  const order = read('db.js').match(/\/\/ The website's locks [\s\S]*?\nconst _galleryLocked = /)?.[0] ?? '';
+  const stated = (text) => [...new Set([...text.matchAll(/\b(shiori:[a-z-]+:)</g)].map(m => m[1]))];
+  assert.deepEqual(stated(order), [...ORDER, WITHIN]);
+  assert.match(order, new RegExp(`${WITHIN}<folder>[^\\n]*\\n?[^\\n]*within`), 'the lock taken within any, said so');
+  assert.ok(order.includes(ASKED_THERE[0]) && /asked for there and waited for once that one is let go/.test(order.replace(/\s*\/\/\s*/g, ' ')),
+    'the one lock asked where a later one is held, said so');
+  // A comment putting two of them the other way round fails it.
+  assert.notDeepEqual(stated(order.replace('shiori:deleting:<folder>', 'shiori:@').replace('shiori:removed:<folder>', 'shiori:deleting:<folder>').replace('shiori:@', 'shiori:removed:<folder>')), [...ORDER, WITHIN]);
 });
 
 test('S33, review 10 B7: a change refused for now is worded through backend-error.js refusalKey alone — a translation\'s start and a PDF\'s drawing task say it by its key', () => {

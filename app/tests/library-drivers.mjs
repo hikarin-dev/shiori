@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { registerHooks } from 'node:module';
+import './lock-net.mjs';   // the website's lock order held at run time (S37): first, so it sees every timer the page sets
 import * as fsa from './fsa-node.mjs';
 import { written as desktopWritten } from '../../desktop/server/folder-store.js';
 
