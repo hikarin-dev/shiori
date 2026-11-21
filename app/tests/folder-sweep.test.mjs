@@ -1287,6 +1287,64 @@ const SCENARIOS = [
     noSetupFlush: true,
   },
   {
+    // S39 (review 14): a series command over two galleries of the library's own (Alpha its owner, Beta its chapter) made
+    // while the drive was away; Beta's place then holds another writer's later publication, and Alpha's manifest is lost
+    // for good (deleted; its other files there). Beta stands by the folder's version; Alpha, with no manifest there and
+    // none seen by the look that asked, is settled — its series links tidied against Beta as it stands (none left), its
+    // place published again. Before S39 Alpha was left to stand for good (this library's stamp named a manifest).
+    name: 'a series command over a gallery whose manifest is lost and a gallery another writer published since, settled and checked',
+    sample: 0,
+    async setup(c) {
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      c.g.alpha = await made(c, 'Alpha', [png(1)]);
+      c.g.beta = await made(c, 'Beta', [png(4)]);
+      await c.lib.flush();
+      await awayFor(c, () => c.lib.raw.seriesCommand('attach', c.g.alpha, c.g.beta));
+      c.series = [c.g.alpha];
+      const manifest = path.join(await dirOf(c, c.g.beta), '.shiori', 'gallery.json');
+      const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+      fs.writeFileSync(manifest, JSON.stringify({ ...m, generation: m.generation + 1, publication: 'f0e1d2c3b4a59687', writer: 'b1b2c3d4e5f60708' }, null, 2));
+      fs.rmSync(path.join(await dirOf(c, c.g.alpha), '.shiori', 'gallery.json'));
+    },
+    state: (c) => withChapters({ aIn: true, galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1)]), [c.g.beta]: G('A', 'Beta', [png(4)]) } }, c.g.alpha, [c.g.alpha, c.g.beta]),
+    ops: [op('settle', (c) => (c.lib.app === 'website' ? c.lib.raw.settleFolders() : c.lib.flush()), (s, c) => ({ aIn: true,
+      galleries: { [c.g.alpha]: G('A', 'Alpha', [png(1)]), [c.g.beta]: G('A', 'Beta', [png(4)]) } })),
+      CHECK, FLUSH, SETTLE],
+    noSetupFlush: true,
+  },
+  {
+    // S39 (review 14): a series across two folders — Owner in A, Chapter in B — whose command was made while A's drive was
+    // away; Chapter's place then holds another writer's later publication, and A is hidden. The step settles what waits,
+    // shows A and checks it: Chapter stands by the folder's version while A is hidden — the tidy for Owner, whose folder
+    // can't be written then, fails nothing — and Owner stands once A is back. Neither is in a series at the end. Before
+    // S39 the desktop's Chapter never stood while A was hidden (its tidy refused, every hold of it 'unreadable').
+    name: 'a series across two folders, its owner\'s folder hidden as its chapter stands by another writer\'s publication, settled, shown and checked',
+    sample: 0,
+    async setup(c) {
+      c.ids.B = await c.lib.add(c.B);
+      plant(c, 'A/mine.txt', 'the person\'s own file');
+      plant(c, 'B/mine.txt', 'another of the person\'s files');
+      c.g.owner = await made(c, 'Owner', [png(1)]);
+      await c.lib.setDefault(c.ids.B);
+      c.g.chapter = await made(c, 'Chapter', [png(2)]);
+      await c.lib.setDefault(c.ids.A);
+      await c.lib.flush();
+      await awayFor(c, () => c.lib.raw.seriesCommand('attach', c.g.owner, c.g.chapter));
+      c.series = [c.g.owner];
+      const manifest = path.join(await dirOf(c, c.g.chapter), '.shiori', 'gallery.json');
+      const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+      fs.writeFileSync(manifest, JSON.stringify({ ...m, generation: m.generation + 1, publication: 'f0e1d2c3b4a59687', writer: 'b1b2c3d4e5f60708' }, null, 2));
+      await c.lib.setDefault(c.lib.home);
+      await c.lib.hide(c.ids.A);
+      c.showFirst = true;   // a kill before the step shows it leaves it hidden
+    },
+    state: (c) => withChapters({ aIn: true, galleries: { [c.g.owner]: G('A', 'Owner', [png(1)]), [c.g.chapter]: G('B', 'Chapter', [png(2)]) } }, c.g.owner, [c.g.owner, c.g.chapter]),
+    ops: [op('settle', (c) => (c.lib.app === 'website' ? c.lib.raw.settleFolders() : c.lib.flush()), (s, c) => ({ aIn: true,
+      galleries: { [c.g.owner]: G('A', 'Owner', [png(1)]), [c.g.chapter]: G('B', 'Chapter', [png(2)]) } })),
+      op('show A', (c) => c.lib.show(c.ids.A)), CHECK, FLUSH, SETTLE],
+    noSetupFlush: true,
+  },
+  {
     // A page and a translation written, faulted at every point — a kill, a failed call, the page dying, the drive
     // away — then met by the other app before this app starts again (`metFirst`: after a kill or the page's
     // death, before it is opened again): it uses folder A anyway, retitles Beta there and lets the folder go.
