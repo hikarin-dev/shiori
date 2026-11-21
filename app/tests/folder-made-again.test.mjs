@@ -225,7 +225,6 @@ test('website: a deleted gallery\'s folder goes once its publication under way i
   fs.cpSync(old, copy, { recursive: true });   // the person's copy, in a folder not the library's yet
   await L.setTitle(gid, 'Kept, renamed');
   const sleep = (/** @type {number} */ ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const until = async (/** @type {() => boolean} */ ok, ms = 5000) => { for (let i = 0; i < ms / 20 && !ok(); i++) await sleep(20); };
   const manifest = `${rel}/.shiori/gallery.json`;
   const written = gate(), write = gate(), reached = gate(), last = gate();
   let publishing = true, deleting = false;
@@ -251,13 +250,16 @@ test('website: a deleted gallery\'s folder goes once its publication under way i
   write.open();
   await published;
   last.open();
-  await until(() => !fs.existsSync(old));
+  // The deletion over: its folder gone, then its record (db.js _deleteOne forgets it once the folder is) — waited for,
+  // not timed: under npm test's whole load the record's own write came after a fixed look (S38: 1 of 4 runs).
   const idb = await L.raw.openDB();
-  const owed = await new Promise((resolve, reject) => {
+  const deletions = () => new Promise((resolve, reject) => {
     const req = idb.transaction('folders', 'readonly').objectStore('folders').getAllKeys();
     req.onsuccess = () => resolve(req.result.filter((/** @type {string} */ k) => String(k).startsWith('$deleting:')));
     req.onerror = () => reject(req.error);
   });
+  for (let i = 0; i < 1000 && (fs.existsSync(old) || /** @type {string[]} */ (await deletions()).length); i++) await sleep(20);
+  const owed = await deletions();
   const left = fs.existsSync(old) ? fs.readdirSync(old, { recursive: true }).join(', ') : '';
   assert.deepEqual(owed, [], `nothing left recorded for a later check (the folder holding ${left || 'nothing'})`);
   assert.equal(fs.existsSync(old), false, `the deleted one's folder is gone, ${left}`);
