@@ -285,11 +285,12 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   // can't be read now isn't concluded gone) — a folder put at its place by hand is not it: reported, the
   // gallery looked for elsewhere, else missing (T02) — and, a linked one, while its source is (its
   // overlay alone doesn't make it so): gone as the shared rule takes it (statIn), a look that fails
-  // leaving it as the index has it.
+  // leaving it as the index has it. A place is reported only for a gallery still the one read here (`current`: one
+  // deleted as it was looked at, its folder or overlay being deleted, is no one's to report — S35).
   const sourceThere = (row) => !row.source || statIn(files._sourceAbs(row)).then(Boolean, () => row.state !== 'missing');
   for (const row of known) {
     const whose = await files._whose(row.path, row.gid);
-    if (whose.kind === 'conflict') out.problems.push({ path: files._split(row.path).rest, reason: 'conflict', gid: row.gid });
+    if (whose.kind === 'conflict' && current(row)) out.problems.push({ path: files._split(row.path).rest, reason: 'conflict', gid: row.gid });
     if ((whose.kind === 'ok' || whose.kind === 'unreadable') && await sourceThere(row)) present.add(row.gid);
   }
   const tops = await Promise.all(reachable.map(async (id) => (await disk.readdir(library.rootDir(id)).catch(() => []))

@@ -200,7 +200,7 @@ test('a check begun before a gallery was deleted and made again reads the new on
 // place found holding a folder that names no gallery — as the deleted one's folder or overlay does while it is being
 // deleted (a file of it still there, its description gone; made so here once the deletion is over). Before S35 the
 // check reported that place ('conflict') for the gallery made again, which has its own folder elsewhere.
-test('a check\'s look at a place read at its start reports nothing for a gallery deleted and made again meanwhile', { todo: 'S35' }, async (t) => {
+test('a check\'s look at a place read at its start reports nothing for a gallery deleted and made again meanwhile', async (t) => {
   const s = await open(t);
   const gid = '1790000003408';
   await made(s.library, gid, 'Old', [big(1), big(2)]);
