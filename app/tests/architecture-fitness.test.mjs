@@ -252,6 +252,48 @@ test('S35: a linked gallery\'s overlay is its gallery\'s own — its source.json
   assert.match(asCode(functionsOf(desktop('files.js')).get('_removeOwn') ?? ''), /\bawait this\._underWay\s*\(\s*gid\s*\)[\s\S]*\bthis\._remove\s*\(/);
 });
 
+// The website's asks whether a gallery is still the one work began for (db.js _still, K.still), as `src`'s code has them:
+// each { at, args: how many arguments it passes }.
+function stillAsks(src) {
+  const text = code(src), out = [];
+  for (const m of text.matchAll(/\b(?:_still|K\.still)\s*\(/g)) {
+    let depth = 0, args = 1, i = m.index + m[0].length - 1;
+    for (; i < text.length; i++) {
+      const ch = text[i];
+      if ('([{'.includes(ch)) depth++;
+      else if (')]}'.includes(ch) && --depth === 0) break;
+      else if (ch === ',' && depth === 1) args++;
+    }
+    if (/^\s*\)/.test(text.slice(m.index + m[0].length))) args = 0;
+    const end = text.indexOf('\n', m.index);
+    out.push({ at: text.slice(text.lastIndexOf('\n', m.index) + 1, end < 0 ? undefined : end).trim(), args });
+  }
+  return out;
+}
+test('S36: the website decides whether a gallery is still the one work began for as its stat record is read where the decision holds — so a deletion in any of its pages ends it', () => {
+  // A gallery's life in a page (db.js _life) told a deletion made in another page (a tab, the service worker) by
+  // nothing: a write of its pictures under way there committed into a gallery made again under the id meanwhile
+  // (app/tests/pages-made-again.test.mjs). The stat record carries a mark made with the gallery (`born`, db.js _born);
+  // every ask passes the record as the transaction or the lock it holds in reads it, and compares the mark.
+  const site = new Map([...functionsOf(read('db.js')), ...functionsOf(read('folder-library.js'))].map(([name, body]) => [name, asCode(body)]));
+  const asks = [...stillAsks(read('db.js')), ...stillAsks(read('folder-library.js'))];
+  assert.ok(asks.length >= 8, 'the asks are found');
+  assert.deepEqual(asks.filter(a => a.args !== 2).map(a => a.at), [], 'every ask passes the life and the stat record as read where it holds');
+  const db = code(read('db.js'));
+  assert.match(db, /const _still = \(life, stat\) => [^\n]*_bornOf\(stat\) === life\.born/, 'an ask compares the mark');
+  assert.match(site.get('_life') ?? '', /\bgalleryGet\s*\(/, 'a life takes the mark its stat record has');
+  assert.match(site.get('_logIn') ?? '', /stat\.onsuccess[\s\S]*_still\s*\(\s*tx\._write\.life\s*,\s*stat\.result\s*\)/, 'a write is asked in its commit');
+  // Every stat record made where none was is made with a mark, and the mark never leaves this browser.
+  for (const fn of ['dbPut', 'rebuildGalleryEntry', 'transferWrite', 'galleryPut', '_mutateIn', '_storeAdopted', '_restoreDormant']) {
+    assert.match(site.get(fn) ?? '', /\b(?:_born|K\.born)\s*\(/, `${fn} makes a stat record with its mark`);
+  }
+  assert.match(db, /const _forTransfer = [^\n]*\{ born, \.\.\.rest \}/, 'a stat record travels without its mark');
+  for (const fn of ['transferRead', 'transferWrite']) assert.match(site.get(fn) ?? '', /\b_forTransfer\s*\(/, `${fn}: the bundle's stat record without the mark`);
+  // A made-up ask that passes no record fails the rule.
+  const madeUp = stillAsks(read('folder-library.js').replace(/(\nasync function folderStands\(gid\) \{\n)/, '$1  if (!K.still(life)) return false;\n'));
+  assert.deepEqual(madeUp.filter(a => a.args !== 2).map(a => a.at), ['if (!K.still(life)) return false;']);
+});
+
 test('S33, review 10 B7: a change refused for now is worded through backend-error.js refusalKey alone — a translation\'s start and a PDF\'s drawing task say it by its key', () => {
   // A translation's start kept the key only for 'lf.taken_msg' (so "still being scanned" was sent as a raw message), and
   // the PDF drawing task sent no key at all.

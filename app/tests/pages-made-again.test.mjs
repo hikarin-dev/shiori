@@ -50,7 +50,7 @@ async function asV130(db, gid) {
   });
 }
 
-test('a page stored in one page as another deletes its gallery and makes it again: nothing of it in the gallery made again, nor in the deleted one\'s folder (a library folder)', { skip, todo: 'S36' }, async (t) => {
+test('a page stored in one page as another deletes its gallery and makes it again: nothing of it in the gallery made again, nor in the deleted one\'s folder (a library folder)', { skip }, async (t) => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-pages-'));
   const L = await webLibrary();
   const other = await otherPage();
@@ -97,7 +97,7 @@ test('a page stored in one page as another deletes its gallery and makes it agai
 });
 
 for (const made of ['by this code', 'by v1.3.0']) {
-  test(`a page stored in one page as another deletes its gallery and makes it again: nothing of it in the gallery made again (the browser's own storage; the gallery made ${made})`, { skip, todo: 'S36' }, async (t) => {
+  test(`a page stored in one page as another deletes its gallery and makes it again: nothing of it in the gallery made again (the browser's own storage; the gallery made ${made})`, { skip }, async (t) => {
     const L = await webLibrary();
     const other = await otherPage();
     t.after(async () => { other.close(); await L.close(); });
@@ -125,6 +125,52 @@ for (const made of ['by this code', 'by v1.3.0']) {
     }
   });
 }
+
+// The mark is this browser's own (db.js _born): what its folder's files say of the gallery, and what a backup or a library
+// moved carries (transferRead, transferWrite), never has it; what writes the gallery again — its size measured, a
+// publication, a move to another folder, a restore over it — keeps it; a gallery made again (restored after its
+// deletion, joined from a copy by a check) is made with another.
+test('the mark a gallery is made with is this browser\'s own: never in its folder\'s files or a bundle, kept by what writes it again, another for a gallery made again', { skip }, async (t) => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-pages-'));
+  const L = await webLibrary();
+  t.after(async () => { await L.close(); fs.rmSync(base, { recursive: true, force: true }); });
+  const [A, B, C] = ['A', 'B', 'C'].map((d) => path.join(base, d));
+  const a = await L.add(A), b = await L.add(B);
+  await L.setDefault(a);
+  const gid = '1790000003630';
+  await L.newGallery('Own', gid);
+  await L.putPage(gid, 1, png(1));
+  await L.flush();
+  const mark = async () => (await L.raw.galleryGet(gid))?.born;
+  const born = await mark();
+  assert.match(String(born), /^[0-9a-f]{16}$/, 'made with a mark');
+  const files = (dir) => fs.readdirSync(dir, { recursive: true, withFileTypes: true }).filter(e => e.isFile()).map(e => path.join(e.parentPath, e.name));
+  const carrying = () => [A, B].filter(d => fs.existsSync(d)).flatMap(files).filter(f => fs.readFileSync(f).includes(String(born)));
+  assert.deepEqual(carrying(), [], 'no file of its folder has it');
+  assert.equal('born' in (await L.raw.transferRead(gid, { pages: false })).stat, false, 'a bundle has it not');
+  await L.raw.refreshGallerySize(gid);
+  assert.equal(await mark(), born, 'its size measured');
+  await L.setTitle(gid, 'Own, renamed');
+  await L.flush();
+  assert.equal(await mark(), born, 'published');
+  await L.move(gid, b);
+  await L.flush();
+  assert.equal(await mark(), born, 'moved to another folder');
+  assert.deepEqual(carrying(), [], 'no file of its folder has it, moved');
+  await L.raw.transferWrite(await L.raw.transferRead(gid), { silent: true });
+  assert.equal(await mark(), born, 'restored over itself');
+  const copy = path.join(C, 'Own (copy)');
+  fs.cpSync(/** @type {string} */ (await L.dirOf(gid)), copy, { recursive: true });
+  const whole = await L.raw.transferRead(gid);
+  await L.deleteGallery(gid);
+  await L.raw.transferWrite(whole, { silent: true });
+  const restored = await mark();
+  assert.ok(restored && restored !== born, 'restored once deleted: made again, with another mark');
+  await L.deleteGallery(gid);
+  await L.scan(await L.add(C));
+  const joined = await mark();
+  assert.ok(joined && joined !== born && joined !== restored, 'joined from a copy by a check: another');
+});
 
 // Nothing deleted: a write in each page, one waiting for the other — every page lands, the gallery made by this code or
 // as v1.3.0 made it (its record without the mark), in a library folder or the browser's own storage.

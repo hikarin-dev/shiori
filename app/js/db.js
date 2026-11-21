@@ -411,13 +411,13 @@ const _txError = (tx) => tx._refused || tx.error || new BackendError('aborted', 
 // refused there. A gallery only this library has (made meanwhile, never placed there) keeps working: its
 // pictures wait in this browser (`spilled`).
 // A write of a gallery's pictures (_writing: `tx._write` its `w`) is refused too once the gallery it began for has
-// ended — deleted or forgotten since (_life, S34): BackendError 'aborted', reason 'gone' — so nothing of it lands in
-// a gallery made again under the id meanwhile, and what it wrote goes again (_discard).
+// ended — deleted or forgotten since, in any page (_life, S34, S36), as this transaction reads its stat record:
+// BackendError 'aborted', reason 'gone' — so nothing of it lands in a gallery made again under the id meanwhile, and
+// what it wrote goes again (_discard).
 const CHANGES_KEPT = 20000;
 let _lastRev = 0;   // the newest revision this window has written
 function _logIn(tx, gid, { mark = true } = {}) {
   const id = String(gid);
-  if (tx._write?.gid === id && !_still(tx._write.life)) { _refuseIn(tx, id, 'gone'); return; }
   const seen = (tx._logged ||= new Map()).get(id);
   if (seen) {
     if (mark && !seen.mark) {
@@ -443,6 +443,7 @@ function _logIn(tx, gid, { mark = true } = {}) {
   if (id === '*') return;
   const stat = tx.objectStore(GALLERY_STORE).get(id);
   stat.onsuccess = () => _placeStateIn(tx, stat.result, (state, place) => {
+    if (tx._write?.gid === id && !_still(tx._write.life, stat.result)) { _refuseIn(tx, id, 'gone'); return; }
     const folder = stat.result?.folder || null;
     const work = !!_workOn(tx._work, folder || BROWSER);
     if (changeRefusal({ state, work })) { _refuseIn(tx, id); return; }
@@ -924,6 +925,9 @@ async function _setHandover(id, handover) {
 const HOME_FIELDS = ['folder', 'dir', 'spilled', 'stamp', 'linked', 'packed', 'missing'];
 const _withoutHome = (stat) => { if (!stat) return stat; const { undescribed, ...rest } = stat; for (const k of HOME_FIELDS) delete rest[k]; return rest; };
 const _homeOf = (stat) => Object.fromEntries(HOME_FIELDS.filter(k => stat?.[k] != null).map(k => [k, stat[k]]));
+// A stat record as it travels to another library (a backup, a library moved: transferRead, transferWrite) — without its
+// home, nor the mark it was made with here (`born`, this browser's own: _born).
+const _forTransfer = (stat) => { if (!stat) return stat; const { born, ...rest } = _withoutHome(stat); return rest; };
 
 // Where gallery `gid`'s pictures go: null for one kept in this browser, else { folder, dir, root,
 // claimed } — `root` the folder's handle when this context may write there (the gate, _rootOf; null:
@@ -1157,9 +1161,10 @@ function _noteHomeIn(tx, gid, home, left) {
 // them (`w.kept` false: the page went meanwhile, its translation was replaced). So a record never
 // refers to bytes another write put there, and no two writes to one gallery interleave (a page stored
 // while the gallery moves, two tabs, a page and the service worker). Its records commit only for the gallery it
-// began for (`life`, as its caller began: _life) — each commit's transaction names the write (`tx._write = w`),
-// which the mount check refuses once that gallery has ended (_logIn).
-async function _writing(gid, fn, life = _life(gid)) {
+// began for (`life`, as its caller began: _life; as it is called, by default) — each commit's transaction names the
+// write (`tx._write = w`), which the mount check refuses once that gallery has ended (_logIn).
+async function _writing(gid, fn, life = null) {
+  life ??= await _life(gid);
   return _galleryLocked(gid, async () => {
     const w = { gid: String(gid), life, made: [], kept: true, committed: false };
     try { return await fn(w); } finally { if (!w.committed || !w.kept) await _discard(w.made); }
@@ -1170,23 +1175,43 @@ async function _writing(gid, fn, life = _life(gid)) {
 // or overlay (_deleteOne, _deleteOverlay).
 const _galleryLocked = (gid, fn) => folderFiles.withLock(`shiori:gallery:${gid}`, fn);
 
-// ── Which gallery of an id (S34, review 11) ──
+// ── Which gallery of an id (S34, review 11; S36) ──
 // A gallery deleted — or forgotten with its folder — and made again under its id (an export imported again, a
 // download asked again, a backup restored) is another gallery with the same key. Work on a gallery runs under its
 // lock (one at a time, across the site's tabs and its service worker: _writing, _describe), but its deletion takes
-// no lock, so the work knows which gallery of the id it began for — its life in this page (ended as a deletion or
-// forgetting commits here, _ended) and, for one in a library folder, its place — and asks after its awaits before it
+// no lock, so the work knows which gallery of the id it began for — its life — and asks after its awaits before it
 // writes anything by id (_logIn for a write's records; _describe, _described for a publication; _seriesCommand for a
-// command over several; folder-library.js _storeAdopted for a check reading one again), ending otherwise. A deletion
-// made in another page is told by a gallery's place alone, where it has one: a write under way here for a gallery
-// another page deleted and made again meanwhile is the limit (plan §8).
+// command over several; folder-library.js _storeAdopted for a check reading one again), ending otherwise. A life is
+// told two ways, so that whichever page ended the gallery ends it: in this page, by its deletion or forgetting as it
+// commits here (_ended; the library cleared here, _era) — and in any page, the site's tabs and its service worker
+// alike, by the mark its stat record was made with (`born`, a field of that record alone: _born), which a gallery
+// made again under the id has another of. The mark is asked as the stat record is read where the decision holds —
+// in the transaction that commits the work, or under the gallery's lock — never before it.
+// A gallery being made has no stat record yet (`born` null): whichever record its making makes is its own — one made
+// in another page in that moment, deleted and made again before this page's first write of it, is the limit (plan
+// §8). A gallery an earlier version made has a record with no mark ('') — it is the id's while its record has none.
 let _ends = 0;                // galleries ended in this page so far
 const _endedAt = new Map();   // gid → when the last gallery of that id ended here (its count in _ends)
 let _era = 0;                 // the library cleared here, so many times: every gallery ended
-// Gallery `gid` as it is now (its life), and whether that gallery is still the id's; `at` alone: every gallery as it
-// is now (a command over several: _seriesCommand).
-const _life = (gid) => ({ gid: String(gid), at: _ends, era: _era });
-const _still = (life) => life.era === _era && (_endedAt.get(life.gid) ?? 0) <= life.at;
+// Every gallery as it is now in this page (a command over several, a check: what each is is read since).
+const _now = () => ({ at: _ends, era: _era });
+// The mark of the gallery whose stat record is `stat`: its `born`, '' for a record an earlier version made, null for none.
+const _bornOf = (stat) => (stat ? stat.born ?? '' : null);
+// A stat record's mark, made with it: the field a record made where none was takes (`cur`: the record it replaces, read
+// in the same transaction — whose mark it keeps, the same gallery written again).
+const _born = (cur = null) => (cur ? (cur.born != null ? { born: cur.born } : {}) : { born: _randomId() });
+// Gallery `gid`'s life from `began` (_now: as it was then), its stat record read since being `stat`.
+const _lifeOf = (began, gid, stat) => ({ gid: String(gid), at: began.at, era: began.era, born: _bornOf(stat) });
+// Gallery `gid` as it is now (its life): as this page has it at the call, its mark as its stat record is read.
+async function _life(gid) {
+  const began = _now();
+  return _lifeOf(began, gid, await galleryGet(gid));
+}
+// Whether gallery life `life` is still the id's, its stat record now being `stat` (as the transaction or the lock the
+// decision holds in reads it).
+const _still = (life, stat) => life.era === _era && (_endedAt.get(life.gid) ?? 0) <= life.at && (life.born == null || _bornOf(stat) === life.born);
+// The same, its stat record read now (a step that writes nothing before its next ask).
+const _stillNow = async (life) => _still(life, await galleryGet(life.gid));
 const _ended = (gid) => { _endedAt.set(String(gid), ++_ends); };
 // What a write made, deleted: its files, and a folder it reserved by name (folderFiles.deleteGalleryIn:
 // the files the write put there and those a failed write left there, then what its reservation wrote),
@@ -1769,7 +1794,7 @@ const _textsOf = (wanted) => Object.fromEntries(DESCRIPTIONS.map(name => [name, 
 // nothing of this library's is published over it, nor unpacked out of its archive.
 async function _describe(gid, { work = null } = {}) {
   const as = work ?? PUBLISHING;
-  const life = _life(gid);
+  const life = await _life(gid);
   return _galleryLocked(gid, async () => {
     _cancelDescribe(String(gid));   // this publication is that one: a change from now on asks for the next
     let read = await _wantedDescriptions(gid);
@@ -1795,7 +1820,7 @@ async function _describe(gid, { work = null } = {}) {
     // the place it held: one deleted meanwhile isn't, nor a gallery of the id made again since — kept elsewhere (a
     // check joined a copy of it: S34, review 11 A2) or nowhere yet — and nothing of either is published here.
     read = await _wantedDescriptions(gid);
-    if (!read || !_still(life) || !_samePlace(read.stat, place)) return { ok: false };
+    if (!read || !_still(life, read.stat) || !_samePlace(read.stat, place)) return { ok: false };
     const { stat, wanted, next, rev, retiring } = read;
     if (rev == null && nothingToWrite(stat.stamp, (await found.dir.manifest()).kind)) return { ok: true };
     const { token } = await found.dir.publish({ manifest: next, descriptions: _textsOf(wanted) });
@@ -1944,7 +1969,7 @@ async function _described(gid, rev, stamp, place, life) {
     const stat = stats.get(gid);
     let ours = false;
     stat.onsuccess = () => {
-      if (!stat.result || !_still(life) || !_samePlace(stat.result, place)) return;
+      if (!stat.result || !_still(life, stat.result) || !_samePlace(stat.result, place)) return;
       ours = true;
       if (stat.result.stamp !== stamp) stats.put({ ...stat.result, stamp });
       const mark = marks.get(gid);
@@ -2044,7 +2069,7 @@ async function _relocateLocked(gid, to, tick, work, w) {
 // (_ownsDir) — _relocateOnce to the folder it is in. Its descriptions are written there afresh (the
 // change marks it).
 async function _unpackLocked(gid, work = null) {
-  const w = { gid: String(gid), life: _life(gid), made: [], kept: true, committed: false };
+  const w = { gid: String(gid), life: await _life(gid), made: [], kept: true, committed: false };
   try {
     const stat = await galleryGet(gid);
     if (stat?.packed) await _relocateLocked(gid, stat.folder, () => {}, work, w);
@@ -2360,7 +2385,8 @@ const _folderLibrary = createFolderLibrary({
   BROWSER, DEFAULT_FOLDER, REF, PAGE, COVER,
   stores: { STORE, META: META_STORE, GALLERY: GALLERY_STORE, COVER: COVER_STORE, BLOB: BLOB_STORE, UNDESCRIBED: UNDESCRIBED_STORE, DORMANT: DORMANT_STORE, PERSONAL: PERSONAL_STORE },
   // IndexedDB, the change log and the change feed
-  openDB, tx: _tx, txError: _txError, logIn: _logIn, deleteIn: _deleteIn, afterDelete: _afterDelete, ended: _ended, life: _life, still: _still, stash: _stash, keyPage: _keyPage,
+  openDB, tx: _tx, txError: _txError, logIn: _logIn, deleteIn: _deleteIn, afterDelete: _afterDelete, ended: _ended,
+  now: _now, life: _life, lifeOf: _lifeOf, still: _still, stillNow: _stillNow, born: _born, stash: _stash, keyPage: _keyPage,
   canonicalMeta, importMarksIn: _importMarksIn, publishFeed, muchLater: _muchLater, bulkRun: _bulkRun,
   busy: galleryBusy,
   // the records
@@ -2404,7 +2430,7 @@ export async function dbGet(url) {
 // `opts.meta`, when given, is the gallery's metadata, written in the same transaction as the page:
 // a gallery's first page and its metadata land together or not at all.
 export async function dbPut(url, src, mediaId, galleryId, opts = {}) {
-  const life = _life(galleryId || mediaId);   // the gallery it is for (_writing)
+  const life = await _life(galleryId || mediaId);   // the gallery it is for (_writing)
   const db = await openDB();
   const gid = String(galleryId || mediaId);
   const meta = opts.meta ? canonicalMeta({ ...opts.meta, galleryId: gid }) : null;
@@ -2495,7 +2521,7 @@ export async function dbPut(url, src, mediaId, galleryId, opts = {}) {
                 galleryId: gid, count: 1, size, latestAt: cachedAt,
                 addedAt: Number(gid) || cachedAt, coverPage: pageNum,
                 uploadDate: Number(metaReq.result?.uploadDate) || 0,
-                ..._homeFields(home, left),
+                ..._homeFields(home, left), ..._born(),
               });
               _logIn(tx, gid);   // after its record is made: the folder it takes is checked
             };
@@ -2523,9 +2549,10 @@ export async function dbPut(url, src, mediaId, galleryId, opts = {}) {
 // ones, then one transaction replacing every page record — what was made from the old pages
 // (translations, study layers) going with them, since each page shows another picture now — and the old
 // files deleted once it has committed. Until then the old pages are read. `before()`: asked once the new
-// pictures are written, just before the commit; when it rejects, nothing is replaced and they go again.
-async function _replacePages(gid, blobs, { before = async () => {} } = {}) {
-  const life = _life(gid);
+// pictures are written, just before the commit; when it rejects, nothing is replaced and they go again. `life`: the
+// gallery the drawing began for (_life), as it is called by default.
+async function _replacePages(gid, blobs, { before = async () => {}, life = null } = {}) {
+  life ??= await _life(gid);
   const db = await openDB();
   await _writing(gid, async (w) => {
     const home = await _home(gid, null, w);
@@ -2717,13 +2744,15 @@ export async function galleryGet(galleryId) {
   });
 }
 
+// The record's mark is its own (_born): kept as it is, or made with a record where none was — never the entry's.
 export async function galleryPut(entry) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     // Resolve on commit, not request success — a resolved write must not still be able to abort.
     const tx = _tx(db, GALLERY_STORE, 'readwrite');
-    tx.objectStore(GALLERY_STORE).put(entry);
-    _logIn(tx, entry.galleryId);
+    const store = tx.objectStore(GALLERY_STORE);
+    const cur = store.get(String(entry.galleryId));
+    cur.onsuccess = () => { const { born, ...rest } = entry; store.put({ ...rest, ..._born(cur.result) }); _logIn(tx, entry.galleryId); };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(_txError(tx));
   });
@@ -2865,7 +2894,7 @@ export async function coverPut(galleryId, cover, opts = {}) {
   const role = opts === 'series' ? 'series' : opts.role;
   const silent = opts !== 'series' && !!opts.silent;
   const field = role === 'series' ? 'seriesCover' : 'cover';
-  const life = _life(gid);
+  const life = await _life(gid);
   const db = await openDB();
   await _writing(gid, async (w) => {
     const home = await _home(gid, null, w);
@@ -3086,7 +3115,7 @@ export async function rebuildGalleryEntry(galleryId, opts = {}) {
         if (pn < coverPage) { coverPage = pn; first = r; }
       }
       const uploadDate = prev?.uploadDate ?? (Number(meta?.uploadDate) || 0);
-      gals.put({ ...prev, galleryId: gid, count, size, latestAt, addedAt: prev?.addedAt ?? (Number(gid) || latestAt), coverPage, uploadDate });
+      gals.put({ ...prev, galleryId: gid, count, size, latestAt, addedAt: prev?.addedAt ?? (Number(gid) || latestAt), coverPage, uploadDate, ..._born(prev) });
       // The cover points at the first page's stored image rather than copying it. Silent: this
       // repair path publishes its own feed beacon below.
       if (_isRef(first?.blob) && (first.blob[REF] === `${first.url}|page` || _isPath(first.blob))) putCoverPatch(tx, gid, { cover: first.blob }, { mark });
@@ -3364,7 +3393,7 @@ export async function transferRead(galleryId, { pages: withPages = true, unread 
     const meta = tx.objectStore(META_STORE).get(gid);
     meta.onsuccess = () => { out.meta = meta.result || null; };
     const stat = tx.objectStore(GALLERY_STORE).get(gid);
-    stat.onsuccess = () => { out.stat = _withoutHome(stat.result) || null; };
+    stat.onsuccess = () => { out.stat = _forTransfer(stat.result) || null; };
     if (withPages) {
       const pages = tx.objectStore(STORE).index('galleryId').getAll(IDBKeyRange.only(gid));
       pages.onsuccess = () => { out.pages = pages.result || []; _loadPages(tx, out.pages); };
@@ -3379,8 +3408,9 @@ export async function transferRead(galleryId, { pages: withPages = true, unread 
 // Write one gallery's records as given (a restore), in one transaction: its metadata, its stat
 // record (sort times kept; the published date filled from the metadata when the record predates
 // it), its pages and its cover's images — all of it, or nothing. Where the gallery is kept, and what
-// only this library knows of it there (`folder`, `dir`, `spilled`, `stamp`, `linked`), stay as the
-// record it replaces has them: a bundle never carries them. Its pictures go to its folder first (the
+// only this library knows of it there (`folder`, `dir`, `spilled`, `stamp`, `linked`) and its mark (`born`),
+// stay as the record it replaces has them — a gallery with none is made with a mark of its own: a bundle never
+// carries them. Its pictures go to its folder first (the
 // commit protocol: _writing). Sizes are brought up to date afterwards. Refused before anything is
 // written: a page with no page number or no picture, and a page whose key another gallery's page is
 // stored under (`conflict`: it would be taken from that gallery — checked again as it commits).
@@ -3394,7 +3424,7 @@ export async function transferWrite({ galleryId = null, meta = null, stat = null
     if (_keyPage(rec?.url) == null) throw new BackendError('invalid', 'a page to restore has no page number');
     if (!(rec.blob instanceof Blob) && typeof rec.dataUrl !== 'string') throw new BackendError('invalid', `page ${_keyPage(rec.url)} to restore has no picture`);
   }
-  const life = _life(gid);
+  const life = await _life(gid);
   const db = await openDB();
   await _writing(gid, async (w) => {
     const taken = await _pageOfAnother(gid, pages.map(r => r.url));
@@ -3432,8 +3462,8 @@ export async function transferWrite({ galleryId = null, meta = null, stat = null
         if (stat) {
           const cur = stats.get(gid);
           cur.onsuccess = () => {
-            stats.put({ ..._withoutHome(stat), galleryId: gid, uploadDate: uploadDateSeconds(stat.uploadDate ?? (Number(meta?.uploadDate) || 0)),
-              ..._homeOf(cur.result), ..._homeFields(home, left || !!cur.result?.spilled) });
+            stats.put({ ..._forTransfer(stat), galleryId: gid, uploadDate: uploadDateSeconds(stat.uploadDate ?? (Number(meta?.uploadDate) || 0)),
+              ..._homeOf(cur.result), ..._homeFields(home, left || !!cur.result?.spilled), ..._born(cur.result) });
             _logIn(tx, gid);
           };
         } else {
@@ -3491,7 +3521,7 @@ async function _pageOfAnother(gid, urls) {
 // stat records from the archive itself). Use dbPut for normal page writes.
 export async function imageRecordPut(rec) {
   const gid = rec?.galleryId != null ? String(rec.galleryId) : null;
-  const life = gid ? _life(gid) : null;
+  const life = gid ? await _life(gid) : null;
   const db = await openDB();
   const put = async (w) => {
     const home = gid ? await _home(gid, null, w) : null;
@@ -4007,7 +4037,7 @@ function _mutateIn(tx, gid, patch, { touch = true, onlyIfExists = false, ensureS
       // A new gallery goes where new galleries go, as this transaction reads it.
       const now = Date.now();
       _defaultIn(tx, (folder) => write({ galleryId: gid, count: 0, size: 0, latestAt: now, addedAt: Number(gid) || now,
-        uploadDate: Number(merged?.uploadDate) || 0, ...(folder ? { folder } : {}) }));
+        uploadDate: Number(merged?.uploadDate) || 0, ...(folder ? { folder } : {}), ..._born() }));
     };
   };
 }
@@ -4207,19 +4237,67 @@ async function _writeGates() {
   }
   return out;
 }
-// `keepFiles`: galleries it deletes keep their files in their library folder (forgotten, not deleted).
-async function _seriesCommand(name, args, { keepFiles = false } = {}) {
-  const planOf = _SERIES_PLANS[name];
-  if (!planOf) throw new BackendError('invalid', `no series command ${name}`);
-  const began = _life('*');   // the galleries it is asked for, as they are now
-  const metas = new Map(), stats = new Map(), children = new Map();
+// Series command `name`'s plan over `args`, read in `tx` (which holds META_STORE and GALLERY_STORE): what the plan asks
+// for loaded into `read` ({ metas, stats, children }) and planned again, until it plans — then the stat record of every
+// gallery it writes or deletes that it hasn't read, so each gallery it reads or changes is read there — `done(plan)`;
+// `fail(e)` when it refuses (or asks again for what it has).
+function _planIn(tx, name, args, { metas, stats, children }, fail, done) {
   const s = {
     meta: (id) => metas.get(String(id)),
     stat: (id) => stats.get(String(id)),
     children: (id) => children.get(String(id)),
     need: (ids = [], childrenOf = []) => ({ need: { ids: ids.map(String), childrenOf: childrenOf.map(String) } }),
   };
+  // Load what the plan asked for, then plan again.
+  const load = ({ ids, childrenOf }, next) => {
+    const gets = [];
+    for (const id of ids) {
+      if (!metas.has(id)) gets.push([META_STORE, id, metas]);
+      if (!stats.has(id)) gets.push([GALLERY_STORE, id, stats]);
+    }
+    const kids = childrenOf.filter(id => !children.has(id));
+    if (!gets.length && !kids.length) { fail(new BackendError('aborted', `series plan ${name} asked again for what it has`)); return; }
+    let left = gets.length + kids.length;
+    const one = () => { if (!--left) next(); };
+    for (const [store, id, into] of gets) {
+      const req = tx.objectStore(store).get(id);
+      req.onsuccess = () => { into.set(id, req.result || null); one(); };
+    }
+    for (const id of kids) {
+      const req = tx.objectStore(GALLERY_STORE).index('parentId').getAllKeys(IDBKeyRange.only(id));
+      req.onsuccess = () => { children.set(id, (req.result || []).map(String)); one(); };
+    }
+  };
+  const step = () => {
+    let out;
+    try { out = _SERIES_PLANS[name](s, ...args); } catch (e) { fail(e); return; }
+    if (out?.need) { load(out.need, step); return; }
+    const unread = [...new Set([...[...out.writes].map(([gid]) => String(gid)), ...out.deletes.map(String)])].filter(id => !stats.has(id));
+    let left = unread.length;
+    if (!left) { done(out); return; }
+    for (const id of unread) {
+      const req = tx.objectStore(GALLERY_STORE).get(id);
+      req.onsuccess = () => { stats.set(id, req.result || null); if (!--left) done(out); };
+    }
+  };
+  step();
+}
+// `keepFiles`: galleries it deletes keep their files in their library folder (forgotten, not deleted).
+async function _seriesCommand(name, args, { keepFiles = false } = {}) {
+  if (!_SERIES_PLANS[name]) throw new BackendError('invalid', `no series command ${name}`);
+  const began = _now();   // the galleries it is asked for, as they are now
   const db = await openDB();
+  // Each as its stat record is read now (_life, S36): the command planned once as the library is, nothing written —
+  // the galleries it reads or changes, and their marks.
+  const first = await new Promise((resolve) => {
+    const read = { metas: new Map(), stats: new Map(), children: new Map() };
+    const tx = _tx(db, [META_STORE, GALLERY_STORE], 'readonly');
+    _planIn(tx, name, args, read, () => {}, () => {});
+    tx.oncomplete = () => resolve(read.stats);
+    tx.onerror = () => resolve(read.stats);
+  });
+  const lifeOf = (id) => _lifeOf(began, id, first.get(id));   // one it hadn't read then: none known of it before
+  const metas = new Map(), stats = new Map(), children = new Map();
   // A command that may delete galleries weighs the folders they are in first: a deletion is refused
   // where its gallery's folder can't take it now (_deleteIn).
   const deletable = !keepFiles && DELETING_PLANS.has(name) ? await _writeGates() : null;
@@ -4233,27 +4311,6 @@ async function _seriesCommand(name, args, { keepFiles = false } = {}) {
     tx.onerror = () => reject(refused || _txError(tx));
     tx.onabort = () => reject(refused || _txError(tx));
     const fail = (e) => { refused = e; tx.abort(); };
-
-    // Load what the plan asked for, then plan again.
-    const load = ({ ids, childrenOf }, next) => {
-      const gets = [];
-      for (const id of ids) {
-        if (!metas.has(id)) gets.push([META_STORE, id, metas]);
-        if (!stats.has(id)) gets.push([GALLERY_STORE, id, stats]);
-      }
-      const kids = childrenOf.filter(id => !children.has(id));
-      if (!gets.length && !kids.length) { fail(new BackendError('aborted', `series plan ${name} asked again for what it has`)); return; }
-      let left = gets.length + kids.length;
-      const one = () => { if (!--left) next(); };
-      for (const [store, id, into] of gets) {
-        const req = tx.objectStore(store).get(id);
-        req.onsuccess = () => { into.set(id, req.result || null); one(); };
-      }
-      for (const id of kids) {
-        const req = tx.objectStore(GALLERY_STORE).index('parentId').getAllKeys(IDBKeyRange.only(id));
-        req.onsuccess = () => { children.set(id, (req.result || []).map(String)); one(); };
-      }
-    };
 
     // Writes first (a new head's favorite with them), then deletions — a gallery deleted takes the
     // person's marks along; one only forgotten keeps them — then the totals, each issued once the step
@@ -4294,19 +4351,14 @@ async function _seriesCommand(name, args, { keepFiles = false } = {}) {
       }
     };
 
-    const step = () => {
-      let out;
-      try { out = planOf(s, ...args); } catch (e) { fail(e); return; }
-      if (out?.need) { load(out.need, step); return; }
-      // Every gallery it read or changes the one it began for: one deleted meanwhile (made again under its id, perhaps)
-      // refuses it.
-      const gone = [...metas.keys(), ...stats.keys(), ...[...out.writes].map(([gid]) => String(gid)), ...out.deletes.map(String)]
-        .find(id => !_still({ ...began, gid: id }));
+    _planIn(tx, name, args, { metas, stats, children }, fail, (out) => {
+      // Every gallery it read or changes the one it began for, as this transaction reads it: one deleted meanwhile, in
+      // any page (made again under its id, perhaps), refuses it.
+      const gone = [...metas.keys(), ...stats.keys()].find(id => !_still(lifeOf(id), stats.get(id)));
       if (gone) { fail(Object.assign(new BackendError('aborted', `gallery ${gone} was deleted meanwhile`), { reason: 'gone' })); return; }
       plan = out;
       apply();
-    };
-    step();
+    });
   });
   for (const [gid, info] of mutated) _afterMutate(gid, info);
   const totalled = new Set(plan.totals.map(String));
@@ -4581,7 +4633,7 @@ async function _pageWrite(at, fields, apply, ready = () => true) {
   const n = typeof at === 'string' ? _keyPage(at) : Number(at.pageNum);
   const gid = typeof at === 'string' ? (await _pageRaw(at))?.galleryId : at.galleryId;
   if (gid == null) return;
-  const life = _life(gid);   // the gallery it is for (_writing)
+  const life = await _life(gid);   // the gallery it is for (_writing)
   const db = await openDB();
   await _writing(String(gid), async (w) => {
     const page = typeof at === 'string' ? at : { galleryId: String(gid), pageNum: n };
