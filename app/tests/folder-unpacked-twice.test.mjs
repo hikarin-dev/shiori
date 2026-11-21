@@ -28,7 +28,7 @@ const skip = !!globalThis.__desktopLibrary && 'run by npm test';
 const gate = () => { let open; const at = new Promise((resolve) => { open = resolve; }); return { at, open }; };
 const writer = (dir) => JSON.parse(fs.readFileSync(path.join(dir, '.shiori', 'gallery.json'), 'utf8')).writer;
 
-for (const order of ['its folder chosen after the desktop\'s took the name', 'the desktop\'s folder taking the name between its look and its making']) test(`two apps unpacking one archive in the same moment leave a copy beside it, each app's change in its own, listed until deleted (a limit; the website's ${order})`, { skip, todo: order.startsWith('the desktop') ? 'S36' : undefined }, async (t) => {
+for (const order of ['its folder chosen after the desktop\'s took the name', 'the desktop\'s folder taking the name between its look and its making']) test(`two apps unpacking one archive in the same moment leave a copy beside it, each app's change in its own, listed until deleted (a limit; the website's ${order})`, { skip }, async (t) => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-twice-'));
   const A = path.join(base, 'A');
   const D = await desktopLibrary(path.join(base, 'desktop'));

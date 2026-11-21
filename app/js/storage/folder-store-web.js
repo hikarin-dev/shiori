@@ -139,19 +139,23 @@ export const written = () => ({ ..._totals });
 
 /** `data` written whole to `path` inside the folder — the file it replaces stays as it was until the
  * new one is complete. `within`: a folder on the way that must be there already (a gallery's own:
- * one gone meanwhile is never made again by a write into it — NotFoundError). Resolves the file as
- * written. A failure once the file was put in place whole (its look after) is thrown with `whole` set.
+ * one gone meanwhile is never made again by a write into it — NotFoundError). `fresh`: a file made at a
+ * name found free (writeNew) — kept only while it is empty as made: File System Access makes a file only
+ * where none is by handing back the one there, so one another writer put at the name since the look is
+ * theirs, left as it is, thrown `theirs` (S36). Resolves the file as written. A failure once the file was
+ * put in place whole (its look after) is thrown with `whole` set.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @param {Blob | string} data
- * @param {{ within?: string }} [options] @param {boolean} [retried] @returns {Promise<File>} */
-export async function writeFile(id, root, path, data, { within = '' } = {}, retried = false) {
+ * @param {{ within?: string, fresh?: boolean }} [options] @param {boolean} [retried] @returns {Promise<File>} */
+export async function writeFile(id, root, path, data, { within = '', fresh = false } = {}, retried = false) {
   const [dir, name] = _split(path);
   let handle;
   try { handle = await (await _dir(id, root, dir, true, false, _parts(within).length)).getFileHandle(name, { create: true }); } catch (e) {
     // A folder remembered here was deleted meanwhile: looked up (and made, but for `within`) again.
     if (_nameOf(e) !== 'NotFoundError' || retried) throw e;
     _forget(id, dir);
-    return writeFile(id, root, path, data, { within }, true);
+    return writeFile(id, root, path, data, { within, fresh }, true);
   }
+  if (fresh && (await handle.getFile()).size) throw Object.assign(new DOMException(`${path}: another writer's file is there`, 'InvalidModificationError'), { theirs: true });
   const stream = await handle.createWritable();
   /** @type {any} */ (stream).__shioriKind = 'folder';   // disk-writes.js counts it as the folder's
   try { await stream.write(data); await stream.close(); } catch (e) { try { await stream.abort(); } catch {} throw e; }
@@ -307,6 +311,16 @@ export function withLock(name, fn) {
   return run;
 }
 
+/** Folder `path`, looked at and found free, made — and whether it is the one made: File System Access makes a folder
+ * only where none is by handing back the one there, so one another writer put at the name since the look (the other
+ * app's folder coming into place) is handed back as made. It is this context's only while it lists empty as made;
+ * else it is someone else's, left as it is (S36).
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} path @returns {Promise<boolean>} */
+async function _madeHere(id, root, path) {
+  await _dir(id, root, path, true);
+  return !(await list(id, root, path)).length;
+}
+
 /** A folder of its own for new gallery `gid` at `base` in the folder (a path: its top, or a series'
  * folder) — or "base (2)" and so on when that is taken — made and bound to the gallery at once, while
  * lock shiori:dirs:<folder> is held, so no two galleries, in any tab or the service worker, are given
@@ -319,14 +333,15 @@ export function withLock(name, fn) {
  * failed writes left it }), for the caller to keep recorded as a deletion (review 6 F9 b). The only way
  * a folder becomes a gallery's (contract.js reserve; principle 2). `taken`: names passed over though
  * nothing may be there (a deletion still waits on them: a new folder there would be taken for the one it
- * deletes). Resolves its place, held from its first moment as placeIn holds one (`dir` its name, `token`
- * the reservation's publication).
+ * deletes). A name found free whose folder, once made, isn't empty is another writer's (_madeHere): left as
+ * it is, and the next name taken. Resolves its place, held from its first moment as placeIn holds one
+ * (`dir` its name, `token` the reservation's publication).
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} base @param {string} metadata
  * @param {{ gid: string, writer: string, taken?: Set<string> }} gallery @returns {Promise<Place>} */
 export function reserveDir(id, root, base, metadata, { gid, writer, taken = new Set() }) {
   return withLock(`shiori:dirs:${id}`, async () => {
     let name = base;
-    for (let i = 2; taken.has(name) || await _taken(id, root, name); i++) name = `${base} (${i})`;
+    for (let i = 2; taken.has(name) || await _taken(id, root, name) || !(await _madeHere(id, root, name)); i++) name = `${base} (${i})`;
     const plan = await publication({ area: '.shiori/', prev: null, next: firstGeneration(gid, writer), texts: { 'metadata.json': metadata } });
     const writes = [...plan.writes, { path: manifestPath('.shiori/'), text: plan.text }];
     let at = 0;
@@ -353,16 +368,29 @@ export function reserveDir(id, root, base, metadata, { gid, writer, taken = new 
 /** `data` written to `path` in folder `dir` of the folder under a name no file has: `path` itself when
  * nothing is there, else `path` with a random part added before its extension (images/0001.webp →
  * images/0001-3fa2c9e1.webp: gallery-files.js pageNumberOf reads both), so a file something refers to
- * is never written over. `dir` (a gallery's own folder) must be there: one gone meanwhile is never
+ * is never written over — nor one another writer put at a name after it was found free (writeFile `fresh`:
+ * left as it is, another name taken). `dir` (a gallery's own folder) must be there: one gone meanwhile is never
  * made again (NotFoundError). Resolves { path, file }: where it went (in `dir`), and the file as
  * written. Rejects with the write's error — with `left` ({ name, size, mtime }: in `dir`) when it may have
  * left a file that couldn't be deleted now (below), for the caller to keep recorded and delete later.
  * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @param {string} path
  * @param {Blob | string} data @returns {Promise<{ path: string, file: File }>} */
 export async function writeNew(id, root, dir, path, data) {
+  const another = () => path.replace(/(\.[^./]*)?$/, (ext) => `-${_randomPart()}${ext}`);
   let at = path;
-  while (await _taken(id, root, `${dir}/${at}`)) at = path.replace(/(\.[^./]*)?$/, (ext) => `-${_randomPart()}${ext}`);
-  try { return { path: at, file: await writeFile(id, root, `${dir}/${at}`, data, { within: dir }) }; } catch (e) {
+  for (;;) {
+    while (await _taken(id, root, `${dir}/${at}`)) at = another();
+    const written = await _writeNew(id, root, dir, at, data);
+    if (written) return written;
+    at = another();
+  }
+}
+/** writeNew's write at name `at`, found free: { path, file }, or null where another writer's file is there now.
+ * @param {string} id @param {FileSystemDirectoryHandle} root @param {string} dir @param {string} at
+ * @param {Blob | string} data @returns {Promise<{ path: string, file: File } | null>} */
+async function _writeNew(id, root, dir, at, data) {
+  try { return { path: at, file: await writeFile(id, root, `${dir}/${at}`, data, { within: dir, fresh: true }) }; } catch (e) {
+    if (/** @type {any} */ (e)?.theirs) return null;
     // A write that failed can leave a file at that name, where nothing was: the empty one
     // getFileHandle({ create }) made, or the one written whole before a later call failed (`whole`).
     // Deleted too while it is one of those (empty, or as long as what was written), so nothing unrecorded

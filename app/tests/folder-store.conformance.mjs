@@ -220,7 +220,6 @@ export const CASES = [
     // making: one with anything in it is someone else's, left as it is, and the next name is taken. (The desktop makes
     // its folder exclusively: refused there, its reservation fails or takes another name.)
     name: 'S36: a folder put at a name between a reservation\'s look and its making is never the reservation\'s, and is left as it is',
-    todo: { website: 'S36' },
     async run({ dir, store, fx, platform }) {
       const root = await opened(store, await fx.register('A'));
       const at = path.join(dir, 'A', 'Taken');
@@ -248,7 +247,6 @@ export const CASES = [
     // S36: the same shape for a picture — writeNew found a name free, and wrote the picture over a file another writer
     // put at that name a moment later. A file made there is kept only while it is empty right after the making.
     name: 'S36: a file put at a name between writeNew\'s look and its making is never written over',
-    todo: { website: 'S36' },
     async run({ dir, store, fx, platform }) {
       const root = await opened(store, await fx.register('A'));
       const g = await root.reserve('Pictures', '1700000000001', null);
