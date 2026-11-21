@@ -209,7 +209,7 @@ for (const app of /** @type {const} */ (['desktop', 'website'])) {
 // manifest); the deletion's own deletion of the folder waiting for the folder's deletions until a check of another
 // folder has joined a copy under the id; then that deletion let run as far as it goes, held where it deletes the
 // manifest; the publication let go, whole; then the deletion.
-test('website: a deleted gallery\'s folder goes once its publication under way is over, also with a copy joined under its id meanwhile — nothing left for a later check', { skip, todo: 'S36' }, async (t) => {
+test('website: a deleted gallery\'s folder goes once its publication under way is over, also with a copy joined under its id meanwhile — nothing left for a later check', { skip }, async (t) => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-again-'));
   const L = await webLibrary();
   t.after(async () => { fsa.reset(); await L.close(); fs.rmSync(base, { recursive: true, force: true }); });

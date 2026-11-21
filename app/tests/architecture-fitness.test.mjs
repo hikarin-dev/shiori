@@ -294,6 +294,29 @@ test('S36: the website decides whether a gallery is still the one work began for
   assert.deepEqual(madeUp.filter(a => a.args !== 2).map(a => a.at), ['if (!K.still(life)) return false;']);
 });
 
+test('S36: the website\'s locks are taken in one order, stated where they are named — a deleted gallery\'s folder is deleted under its gallery\'s lock, taken before the folder\'s deletion lock', () => {
+  // A deletion waited for its gallery's lock only while the id had no gallery, and then inside the folder's deletion
+  // lock, which a gallery made again under the id, being moved, holds its gallery's lock waiting for: with a gallery made
+  // again the deleted one's folder was deleted while its publication still wrote there (app/tests/folder-made-again.test.mjs).
+  const order = read('db.js').match(/\/\/ The website's locks [\s\S]*?\nconst _galleryLocked = /)?.[0] ?? '';
+  const named = new Set(modules.flatMap(f => [...code(read(f)).matchAll(/`(shiori:[a-z-]+:)\$\{/g)].map(m => m[1])));
+  assert.ok(named.size >= 6, 'the locks are found');
+  assert.deepEqual([...named].filter(n => !order.includes(n)), [], 'every lock is in the order');
+  const site = new Map([...functionsOf(read('db.js'))].map(([name, body]) => [name, asCode(body)]));
+  const orderOff = (fns) => {
+    const out = [];
+    if (!/\bconst run = \(\) => folderFiles\.withLock\(`shiori:deleting:[\s\S]*\b_galleryLocked\s*\(\s*d\.gid\s*,\s*run\s*\)/.test(fns.get('_deletion') ?? '')) out.push('_deletion: the gallery\'s lock first, then the folder\'s deletion lock');
+    if (/\b_galleryLocked\s*\(|\bwithLock\s*\(/.test(fns.get('_deleteOne') ?? '')) out.push('_deleteOne: no lock waited for within the folder\'s deletion lock');
+    if (!/withLock\(`shiori:removed:[\s\S]*going\.push\([\s\S]*_deleteOverlay\([\s\S]*\}\)\.catch\([\s\S]*await Promise\.all\(going/.test(fns.get('_publishRemoved') ?? '')) out.push('_publishRemoved: its overlays\' deletions waited for once its lock is let go');
+    return out;
+  };
+  assert.deepEqual(orderOff(site), []);
+  // The gallery's lock waited for inside the folder's deletion lock again fails the rule.
+  const inside = new Map(site);
+  inside.set('_deleteOne', `${site.get('_deleteOne')}\nawait _galleryLocked(d.gid, () => {});`);
+  assert.deepEqual(orderOff(inside), ['_deleteOne: no lock waited for within the folder\'s deletion lock']);
+});
+
 test('S33, review 10 B7: a change refused for now is worded through backend-error.js refusalKey alone — a translation\'s start and a PDF\'s drawing task say it by its key', () => {
   // A translation's start kept the key only for 'lf.taken_msg' (so "still being scanned" was sent as a raw message), and
   // the PDF drawing task sent no key at all.

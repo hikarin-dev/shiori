@@ -1172,7 +1172,16 @@ async function _writing(gid, fn, life = null) {
 }
 // `fn` while gallery `gid`'s lock is held: a write of its pictures (_writing), its publication (_describe), its place
 // followed (_follow), a write of its overlay's source.json (folder-library.js _writeSource), the deletion of its folder
-// or overlay (_deleteOne, _deleteOverlay).
+// or overlay (_deletion, _deleteOverlay).
+// The website's locks (Web Locks: across the site's tabs and its service worker) are taken in one order, each waited
+// for only while those before it, never one after it, are held (S36):
+//   shiori:folder-job:<folder> (folder-scan.js: a folder's task) → shiori:folder:<folder> (folder-library.js: its check,
+//   its removal, its adding, a PDF drawn into it) → shiori:gallery:<gid> (here: a gallery's work) →
+//   shiori:deleting:<folder> (_deletion: a deletion of its galleries' folders) → shiori:removed:<folder> (_publishRemoved:
+//   its removed.json); and shiori:dirs:<folder> (folder-store-web.js reserveDir: a new gallery's folder named), within
+//   which nothing is waited for.
+// A gallery's lock wanted where a later one is held — an overlay's deletion its removal note owes (_publishRemoved) —
+// is asked for there and waited for once that one is let go.
 const _galleryLocked = (gid, fn) => folderFiles.withLock(`shiori:gallery:${gid}`, fn);
 
 // ── Which gallery of an id (S34, review 11; S36) ──
@@ -1352,18 +1361,19 @@ function _goneLater(tx, folder, dir, gid, linked = null, inner = null, made = {}
   _afterFiles(tx).dirs.push({ folder, dir, gid: String(gid), linked });
   if (chapter) _afterFiles(tx).dirs.push({ folder, dir: null, gid: String(gid), linked: chapter });
 }
-// `tx._unlinked` settles once they are gone (at once for a transaction that didn't commit).
+// `tx._unlinked` settles once they are gone (at once for a transaction that didn't commit). `tx._held`: the gallery
+// whose lock the transaction's caller holds as it awaits that, where it names no write (_follow).
 function _afterFiles(tx) {
   if (!tx._afterFiles) {
     const after = tx._afterFiles = { dirs: [] };
     let done;
     tx._unlinked = new Promise((resolve) => { done = resolve; });
-    tx.addEventListener('complete', () => { (tx._keepFiles ? Promise.resolve() : _unlink(after, tx._work, tx._write?.gid ?? null)).catch(() => {}).then(done); });
+    tx.addEventListener('complete', () => { (tx._keepFiles ? Promise.resolve() : _unlink(after, tx._work, tx._write?.gid ?? tx._held ?? null)).catch(() => {}).then(done); });
     tx.addEventListener('abort', () => done());
   }
   return tx._afterFiles;
 }
-// `held`: the gallery whose lock the transaction's writer holds, awaiting this (_writing: a move).
+// `held`: the gallery whose lock the transaction's writer holds, awaiting this (_writing: a move; _follow).
 async function _unlink({ dirs }, work, held = null) {
   // The places this transaction let go, only — never another deletion of the folder, which may wait for a gallery's
   // lock its writer holds, awaiting this (a gallery deleted while it is moved: S34). A linked gallery's overlay goes
@@ -1402,23 +1412,34 @@ async function _deletions(folder = null) {
   });
 }
 // What waits to be deleted (of folder `folder` alone, when given) deleted, each while the write gate
-// lets this context change its folder (`work` as _rootOf), one context at a time (lock
-// shiori:deleting:<folder>): a gallery's folder by name (folderFiles.deleteGalleryIn: the files it
-// recorded writing, its descriptions, what names it last, then the folders left empty); an archive, or
-// one of its own another library describes it by, whole while it is the gallery's (_ownsDir). A record
-// goes, with its files' notes, once that is done, or once the folder is found gone, or another's or no
-// one's (nothing deleted then); one that can't be done now stays. What a deletion leaves in a gallery's
-// folder — files Shiori didn't make, or changed since it wrote them — stays the person's, never joining
-// the library as a gallery of its own: every title a check would find there is noted as removed in the
-// folder's removed.json, as it is now (folder-library.js leftBehind), and the folder is reported once on
-// its Needs attention list ('left', kept until dismissed) before its record goes. Resolves whether none
-// of `folder`'s waits. `only`: those records alone (their ids); `held`: the gallery whose lock the caller holds.
+// lets this context change its folder (`work` as _rootOf), weighed one context at a time (lock
+// shiori:deleting:<folder>) and deleted under its gallery's lock (_deletion): a gallery's folder by name
+// (folderFiles.deleteGalleryIn: the files it recorded writing, its descriptions, what names it last, then
+// the folders left empty); an archive, or one of its own another library describes it by, whole while it
+// is the gallery's (_ownsDir). A record goes, with its files' notes, once that is done, or once the folder
+// is found gone, or another's or no one's (nothing deleted then); one that can't be done now stays. What a
+// deletion leaves in a gallery's folder — files Shiori didn't make, or changed since it wrote them — stays
+// the person's, never joining the library as a gallery of its own: every title a check would find there is
+// noted as removed in the folder's removed.json, as it is now (folder-library.js leftBehind), and the folder
+// is reported once on its Needs attention list ('left', kept until dismissed) before its record goes.
+// Resolves whether none of `folder`'s waits. `only`: those records alone (their ids); `held`: the gallery
+// whose lock the caller holds.
 async function _applyDeletions(folder = null, work = null, only = null, held = null) {
   for (const d of await _deletions(folder)) {
     if (only && !only.has(d.id)) continue;
-    await folderFiles.withLock(`shiori:deleting:${d.folder}`, () => _deleteOne(d, { folder: d.folder, dir: d.dir }, work, held)).catch(() => {});
+    await _deletion(d, { folder: d.folder, dir: d.dir }, work, held);
   }
   return !(await _deletions(folder)).some(d => !d.unfound);
+}
+// Deletion `d` done at `at` ({ folder, dir }: where its record has it, or where a check met its gallery's folder),
+// under its gallery's lock — unless the caller holds that (`held`) — then lock shiori:deleting:<its folder>, in that
+// order (the lock order: _galleryLocked), whether or not the id has a gallery again: what is under way for the
+// gallery (its publication begun before the deletion) lands first and goes with its folder, and its folder isn't
+// written again once deleted (S8; S36 — a deletion waited for its gallery's work only while the id had none). Never
+// rejects.
+async function _deletion(d, at, work, held = null) {
+  const run = () => folderFiles.withLock(`shiori:deleting:${d.folder}`, () => _deleteOne(d, at, work));
+  await (String(d.gid) === held ? run() : _galleryLocked(d.gid, run)).catch(() => {});
 }
 // Deletion `d` weighed at `dir` of folder `folder`, a place a hand-over's read met naming its gallery: held as the
 // deletion recorded it (_hold, S29a's rule 3), nothing deleted. Resolves the answer's kind ('dropped': reported).
@@ -1426,16 +1447,11 @@ async function _deletionHeld(d, folder, dir) {
   const place = { folder, dir, packed: ARCHIVE_NAME.test(dir) ? { inner: '' } : null };
   return (await _hold(d.gid, { stat: place, known: d.stamp ?? null, deletion: { epoch: d.epoch ?? null, forget: (store) => store.delete(d.id) } })).kind;
 }
-// Deletion `d` done at `at` ({ folder, dir }: where its record has it, or where a check met its gallery's
-// folder), under lock shiori:deleting:<its folder> — and its gallery's, unless the caller holds that (`held`).
-async function _deleteOne(d, at, work, held = null) {
+// Deletion `d` done at `at`, under its gallery's lock and lock shiori:deleting:<its folder> (_deletion).
+async function _deleteOne(d, at, work) {
   if (!(await _deletions(d.folder)).some(x => x.id === d.id)) return;   // done meanwhile, in another context
   const root = await _rootOf(at.folder, { work }).catch(() => null);
   const named = async () => (await _retiringOf(d.folder, d.dir)).map(r => ({ name: r.path, size: r.size, mtime: r.mtime }));
-  // A deleted gallery's folder is deleted under the gallery's lock, so a publication of it begun
-  // before the deletion lands first (none starts for a gallery that is gone: _describe) and its
-  // folder isn't written again once deleted (S8). A gallery still there (one moved away: the folder it
-  // left) is no longer published there, and its mover may hold the lock, awaiting this.
   const gone = !(await galleryGet(d.gid));
   // Its place held at the token the deletion recorded (_hold, S29a's rule 3): one made before another app
   // took the folder over (its claim held at another counter since), which published the gallery there since
@@ -1460,8 +1476,7 @@ async function _deleteOne(d, at, work, held = null) {
       return;
     }
   }
-  const deleteDir = () => _deleteDir(at.folder, root, at.dir, d.gid, named, at.dir !== d.dir ? ARCHIVE_NAME.test(d.dir) : null);
-  const done = root && await (gone && String(d.gid) !== held ? _galleryLocked(d.gid, deleteDir) : deleteDir());
+  const done = root && await _deleteDir(at.folder, root, at.dir, d.gid, named, at.dir !== d.dir ? ARCHIVE_NAME.test(d.dir) : null);
   if (!done) return;
   // Gone for a gallery still in the library — the place it left (an archive it was unpacked from, whose
   // other app may have deleted it first: review 7 B6) — is done: only a deleted gallery's is looked for.
@@ -1471,7 +1486,7 @@ async function _deleteOne(d, at, work, held = null) {
   }
   if (done === 'left') {
     const titles = await _folderLibrary.leftBehind(at.folder, root, at.dir);
-    if (titles.length && !await _publishRemoved(at.folder, work, titles, { held, others: false })) return;
+    if (titles.length && !await _publishRemoved(at.folder, work, titles, { held: String(d.gid), others: false })) return;
     await _note(at.folder, { reason: 'left', path: at.dir, gid: d.gid }, { event: true });
     platform.control.send({ type: 'FOLDERS_CHANGED' });
   }
@@ -1480,7 +1495,7 @@ async function _deleteOne(d, at, work, held = null) {
 }
 // Deletion `d`, its gallery's folder not where its record has it, finished at `dir` in folder `folder`,
 // where a check met a folder naming its gallery (F4): deleted as it would have been where it was.
-const _deletedFound = (d, folder, dir, work = null) => folderFiles.withLock(`shiori:deleting:${d.folder}`, () => _deleteOne(d, { folder, dir }, work));
+const _deletedFound = (d, folder, dir, work = null) => _deletion(d, { folder, dir }, work);
 // What waited `unfound` in folder `folder` once a look at it ended (a check, or its removal's:
 // folder-library.js _finishUnfound), as folder-lifecycle.js unfoundEnd weighs each: those it met (`met`:
 // their ids) kept until they are done where it met them; the rest forgotten when it ruled them out
@@ -2236,6 +2251,7 @@ async function _follow(gid, from, to, refAt, { leave = false, locked = false } =
     await new Promise((resolve, reject) => {
       tx = _tx(db, [STORE, GALLERY_STORE, COVER_STORE], 'readwrite');
       tx._work = { kind: 'adopt', folder: to.folder };
+      tx._held = String(gid);   // its lock held as it awaits the archive it left (_unlink)
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(_txError(tx));
       const stats = tx.objectStore(GALLERY_STORE), images = tx.objectStore(STORE), covers = tx.objectStore(COVER_STORE);
