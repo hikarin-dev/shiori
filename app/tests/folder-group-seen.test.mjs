@@ -230,6 +230,13 @@ for (const app of ['desktop', 'website']) {
       const c = await L.newGallery('Chapter');
       await L.putPage(c, 1, png(2));
       await L.flush();
+      // (The desktop: every hold of the chapter from here on recorded — its own publication's, the check's.)
+      const answers = [];
+      if (app === 'desktop') {
+        const files = L.raw.files, hold = files.hold.bind(files);
+        files.hold = async (gid, ...rest) => { const r = await hold(gid, ...rest); if (String(gid) === c) answers.push(r.kind); return r; };
+        t.after(() => { delete files.hold; });
+      }
       await L.raw.seriesCommand('attach', o, c);
       theirs(/** @type {string} */ (await L.dirOf(c)));
       if (away === 'hidden') await L.hide(a);
@@ -241,11 +248,10 @@ for (const app of ['desktop', 'website']) {
         }
       }
       if (app === 'desktop') {
-        // The chapter stands at B's check (its hold answers recorded): never 'unreadable' for the tidy's sake.
-        const files = L.raw.files, hold = files.hold.bind(files), answers = [];
-        files.hold = async (gid, ...rest) => { const r = await hold(gid, ...rest); if (String(gid) === c) answers.push(r.kind); return r; };
+        // The chapter stands — at its own publication or B's check, whichever holds it first: never 'unreadable' for the
+        // tidy's sake.
         assert.equal(await within(L.scan(b), 15000), 'ended', 'B\'s check ends');
-        delete files.hold;
+        assert.equal(await within(L.flush(), 15000), 'ended', 'what waits of it settled');
         assert.ok(answers.length && !answers.includes('unreadable'), `the chapter's holds: ${answers.join(', ')}`);
         const r = await records(L);
         assert.ok(!(await L.meta(c))?.parentId, 'the chapter stood by its folder\'s version');
