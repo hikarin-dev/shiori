@@ -1046,9 +1046,13 @@ const SCENARIOS = [
     // folder anyway, translates page 3 and lets it go (`met`), and taken back. One gallery whatever the point:
     // never a second copy beside the first (a check reporting 'duplicate' is a finding), both apps' work read
     // — this app's translation 2 unless it still waited when the other app changed the gallery (then dropped:
-    // one app changes a folder's galleries at a time).
+    // one app changes a folder's galleries at a time). After a kill or the page's death the other app meets the
+    // folder as the unpack left it, before this app starts again (`metFirst`): started first, this app takes the
+    // unpack up at its start, and the other app unpacking the same archive in that moment is two apps writing the
+    // folder at once — a limit (§8, S35; folder-unpacked-twice.test.mjs), which a kill at call 40 met in most replays.
     name: 'an unpack cut short, met by the other app using the folder anyway',
     sample: 0,
+    metFirst: true,
     async setup(c) {
       plant(c, 'A/mine.txt', 'the person\'s own file');
       const by = c.lib.app === 'desktop' ? c.lib : await otherApp(c);   // the desktop archives it
