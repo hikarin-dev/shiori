@@ -275,11 +275,18 @@ async function embeddedMeta(library, root, title, at) {
 // again (A14). `at`: the title as titleAt read it, when the caller has. `life`: for one read again, the gallery
 // it is (files.js life; its caller's, else as it begins) — once that gallery has ended (deleted, or another made
 // under its id) nothing more is read or written for it (S34). `group`: for one read again as its series command's
-// drop, the rest of the command left to stand with it, in the same transaction (files.js dropIn, S37). Resolves its
-// id; null when it has no pages yet (a PDF waiting), `guard` held it back or its gallery ended.
-export async function adoptLinked(library, root, title, { gid: given = null, replace = null, guard = null, at = null, life = replace ? library.files.life(replace) : null, group = [], drop = false } = {}) {
+// drop, the rest of the command left to stand with it, in the same transaction (files.js dropIn, S37); `seen`, whether
+// the look that asked for that drop saw a manifest at the overlay a moment ago (scan.js folderStands). Resolves its
+// id; null when it has no pages yet (a PDF waiting), `guard` held it back or its gallery ended. One read again by a stand
+// its drop alone asked for (`seen` false) with nothing to read its pages from now — its source not there, no pages in
+// it, a PDF not drawn — has no version to drop for: rejects `unversioned` (S39: settled, as one not left to stand in
+// that state is published).
+export async function adoptLinked(library, root, title, { gid: given = null, replace = null, guard = null, at = null, life = replace ? library.files.life(replace) : null, group = [], drop = false, seen = true } = {}) {
   const ended = () => !!life && !library.files.still(life);
+  const bare = () => Object.assign(new Error(`gallery ${replace}: no pages there to stand by`), { reason: 'unversioned' });
+  const settles = () => !!replace && !seen && !ended();
   at = at || await titleAt(library, root, title);
+  if (!at && settles()) throw bare();
   if (!at || ended()) return null;
   const embedded = title.kind === 'zip' && !title.inner ? await embeddedMeta(library, root, title, at) : null;
   const taken = (id) => !!library._s('SELECT 1 FROM meta WHERE gid = ?').get(id) || !!library._s('SELECT 1 FROM files WHERE gid = ?').get(id);
@@ -294,22 +301,22 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
   const unchanged = L.sameSource(replace ? library.files.sourceOf(library.files._row(gid)) : was, at);
   const overlay = library.files._abs(rel);
   const own = await overlayPages(library, root, gid);
-  if (title.kind === 'pdf' && !L.pdfReady({ ...title, rendered: was?.rendered }, own)) return null;
+  if (title.kind === 'pdf' && !L.pdfReady({ ...title, rendered: was?.rendered }, own)) { if (settles()) throw bare(); return null; }
   // Its overlay read back (gallery-manifest.js readGallery): by its manifest — whose pages of its own
   // alone are its own — else by format v1's rules; damaged, or missing a file it names, it isn't read.
   const { read, files: listed } = await loadGallery(overlay);
   if (ended()) return null;
   if (read.kind !== 'ok') throw Object.assign(new Error(`the overlay of gallery ${gid} ${read.kind === 'corrupt' ? read.detail : 'misses files it names'}`), { reason: read.kind });
   // A drop rests on the overlay's version as its manifest names it (S38, gallery-manifest.js dropBasis, as scan.js
-  // reread): none there and none this library knew is no version to drop for ('unversioned': settled); none there
-  // though this library knew one is not found for a moment, nothing concluded.
-  const basis = replace && drop ? format.dropBasis(read.token, library.files._stamp(gid)) : 'version';
+  // reread): none there, the look that asked having seen none, is no version to drop for ('unversioned': settled);
+  // none there though that look saw one is not found for a moment, nothing concluded (S39: what the place shows decides).
+  const basis = replace && drop ? format.dropBasis(read.token, seen) : 'version';
   if (basis === 'none') throw Object.assign(new Error(`the overlay of gallery ${gid}: no version there to stand by`), { reason: 'unversioned' });
   if (basis === 'unreadable') throw Object.assign(new Error(`the overlay of gallery ${gid}: its version can't be told now`), { reason: 'unreadable' });
   const { meta, records } = read;
   const listedAs = read.manifest ? new Set(read.pictures.pages.values()) : layout.describedFiles(records, read.covers);
   const pages = L.linkedPages(at.pictures, read.manifest ? own.filter(f => listedAs.has(`images/${f.name}`)) : own, listedAs);
-  if (!pages.length) return null;
+  if (!pages.length) { if (settles()) throw bare(); return null; }
   const derived = derivedOf(listed, read);
   const entryOf = new Map((Array.isArray(records) ? records : []).map(r => [keyPage(r?.url), r]).filter(([n]) => n != null));
   // What its name and folders say: an archive's chapter is named after its folder in it, its tags the

@@ -201,14 +201,17 @@ export const writerOf = (token) => /^v2:\d+(?:\.[0-9a-z]+)?:(.+)$/.exec(String(t
  * @param {string | null | undefined} token @returns {boolean} */
 export const published = (token) => !!token && (!String(token).startsWith('v2:') || generationOf(token) > 0);
 /** What a drop — the folder's version of a gallery standing, what waited of it here dropped (S32, S37) — rests on at a
- * place read at `now` (its token there: a manifest's, or an earlier version's descriptions' stamp, or none), this
- * library knowing it at `known` (its stamp): 'version' — a manifest there, the version stands; 'unreadable' — none
- * there, yet this library read or wrote one (its stamp names a manifest): not found for a moment (a drive just back),
- * nothing concluded, read again later; 'none' — none there and none ever known (an earlier version's folder never
- * republished, a linked gallery's overlay never described): no version to drop for, so what waits here stands — the
- * gallery is settled (S38), as a damaged place has none to stand by either (T08). One rule, both apps.
- * @param {string | null | undefined} now @param {string | null | undefined} known @returns {'version' | 'unreadable' | 'none'} */
-export const dropBasis = (now, known) => (String(now ?? '').startsWith('v2:') ? 'version' : String(known ?? '').startsWith('v2:') ? 'unreadable' : 'none');
+ * place read at `now` (its token there: a manifest's, or an earlier version's descriptions' stamp, or none), the look
+ * that asked for it having `seen` a manifest there a moment ago (a hold whose first answer was another writer's
+ * publication; a check whose token read named one): 'version' — a manifest there, the version stands; 'unreadable' —
+ * none there now, though that look saw one: not found for a moment, nothing concluded, read again at the next look;
+ * 'none' — none there and none seen (the hold came for its drop alone): no version to drop for, so what waits here
+ * stands — the gallery is settled (S38), as a damaged place has none to stand by either (T08). What the place shows
+ * decides, never this library's stamp (S39): a place showing no manifest is published over, for a gallery left to stand
+ * as for any other since S31 — so a manifest another app wrote that can't be seen at that moment is replaced; only one
+ * seen a moment before and then not found holds things back. One rule, both apps.
+ * @param {string | null | undefined} now @param {boolean} seen @returns {'version' | 'unreadable' | 'none'} */
+export const dropBasis = (now, seen) => (String(now ?? '').startsWith('v2:') ? 'version' : seen ? 'unreadable' : 'none');
 /** Whether a gallery is the folder's for the read-only gate (folder-lifecycle.js changeRefusal `held`): it
  * has a place in a library folder (`placed`: a folder or archive the library keeps it at — not one made
  * meanwhile and never placed) that isn't a reservation of this library's no publication made whole

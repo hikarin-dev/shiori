@@ -578,6 +578,10 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   const tidied = [...out.added, ...out.updated];
   for (const gid of [...tidied]) for (const r of library._s('SELECT gid FROM stats WHERE parent_key = ?').all(String(gid))) tidied.push(String(r.gid));
   library._tidyLinks([...new Set(tidied)]);
+  // And every other gallery it keeps with series links, tidied against the galleries as they now stand, one it changed
+  // published in due course: a tidy a stand elsewhere passed over while this folder couldn't be written (S39) is done.
+  const read = new Set(tidied);
+  library._tidyLinks(kept.map(r => String(r.gid)).filter(gid => !read.has(gid) && files._row(gid) && seriesLinks(library._metaGet(gid)).length), { publish: true });
   for (const gid of changed) library.publishFeed(gid);
   if (handover) return out;
   out.removed += await removeOrphans(library, out.unreferenced, checked);
@@ -694,7 +698,7 @@ function noteReplaced(library, gid, was) {
 // files the folder's generation doesn't name, the case noted on the folder's Needs attention list in the
 // same transaction — and with it the rest of its series command waiting (`group`) left to stand (files.js dropIn).
 // Resolves whether it was; rejects as readGallery does.
-async function reread(library, row, { guard = () => false, drop = false, manifest = false, group = [] } = {}) {
+async function reread(library, row, { guard = () => false, drop = false, manifest = false, group = [], seen = true } = {}) {
   const files = library.files;
   const gid = row.gid;
   const g = { abs: files._abs(row.path), rel: row.path, format: row.format, layout: row.format === 'folder' };
@@ -702,9 +706,11 @@ async function reread(library, row, { guard = () => false, drop = false, manifes
   // A drop — and a re-read a manifest's token asked for (`manifest`) — rests on the folder's version as its
   // manifest names it: never a read by an earlier version's rules, which a "not found" judged once the drive
   // was back from a moment away could have made of nothing. Such a read replaces and drops nothing: it
-  // waits for a later look that tells. Told by this library's stamp of it (gallery-manifest.js dropBasis): none there
-  // and none it ever knew is no version to drop for at all — `unversioned` (S38: folderStands settles it).
-  const basis = drop || manifest ? format.dropBasis(g.read.token, files._stamp(gid)) : 'version';
+  // waits for a later look that tells — where the look that asked saw a manifest there a moment ago (`seen`: a
+  // check's token read, a stand whose hold met another writer's publication). One that saw none (a stand its drop
+  // alone asked for) is told by gallery-manifest.js dropBasis: no version there to drop for — `unversioned` (S38, S39:
+  // folderStands settles it). What the place shows decides, never this library's stamp.
+  const basis = drop || manifest ? format.dropBasis(g.read.token, seen) : 'version';
   if (basis === 'none') throw Object.assign(new Error(`${row.path}: no version there to stand by`), { reason: 'unversioned' });
   if (basis === 'unreadable') throw Object.assign(new Error(`${row.path}: the folder's version can't be told now`), { reason: 'unreadable' });
   if (g.read.kind !== 'gallery' || (!g.read.pages.length && !g.read.described?.meta)) return false;
@@ -754,8 +760,11 @@ function entryIn(library, gid, g) {
 // adoptLinked). A kill or a failed call leaves it as it was or stood, never in part: the next settle,
 // publication or check that meets that publication does it then. Resolves whether it was done; rejects,
 // nothing changed, when its place can't be read whole now — `reason` 'corrupt' or 'missing-file' where that
-// publication was read and is damaged (no version to stand: files.js _stands).
-export async function folderStands(library, gid) {
+// publication was read and is damaged (no version to stand: files.js _stands). `seen`: whether the look that asked saw
+// a publication there (files.js hold: its first answer another writer's), not a gallery left to stand alone — then a
+// re-read finding no manifest is a read failing now, nothing concluded (S39: gallery-manifest.js dropBasis). What the
+// stand does for other galleries (the tidy, the others' stands, letting go what it retired) never fails it.
+export async function folderStands(library, gid, { seen = false } = {}) {
   const files = library.files;
   const id = String(gid);
   const life = files.life(id);
@@ -781,12 +790,13 @@ export async function folderStands(library, gid) {
   const linked = seriesLinks(library._metaGet(id));
   let stood;
   try {
-    stood = src ? !!await adoptLinked(library, root, src, { replace: id, life, guard, group: others, drop })
-      : await reread(library, row, drop ? { drop: true, guard, group: others } : { guard, manifest: true });
+    stood = src ? !!await adoptLinked(library, root, src, { replace: id, life, guard, group: others, drop, seen })
+      : await reread(library, row, drop ? { drop: true, guard, group: others, seen } : { guard, manifest: true, seen });
   } catch (e) {
     if (e?.reason === 'unversioned') { files.settleLeft(id); return true; }
-    // (A damaged place has no version to stand by either: what waits is published over it, T08 — as settled.)
-    if (['corrupt', 'missing-file'].includes(e?.reason) && files._dropped(id)) files.settleLeft(id);
+    // (A damaged place has no version to stand by either: what waits is published over it, T08 — as settled; its
+    // reason kept whatever the settlement meets.)
+    if (['corrupt', 'missing-file'].includes(e?.reason) && files._dropped(id)) { try { files.settleLeft(id); } catch {} }
     throw e;
   }
   if (!stood || !files.still(life)) return false;
@@ -794,8 +804,12 @@ export async function folderStands(library, gid) {
   if (!drop) noteReplaced(library, id, was);
   if (drop) library._tx(() => files._ungroup(id));
   if (drop) library._tidyLinks([...linked, ...seriesLinks(library._metaGet(id))].filter(g => g !== id), { publish: true });
-  for (const m of others) if (files._dropped(m) && !(await folderStands(library, m).catch(() => false))) files.scheduleDescribe(m);
-  if (drop) await files._letGo(id, undefined, null, life).catch(() => {});
+  // (One whose stand is under way — another asker's — is stood by that one: files.js _standOnce.)
+  for (const m of others) {
+    if (!files._dropped(m)) continue;
+    if (files._standing.has(String(m)) || !(await files._stands(m).catch(() => false))) files.scheduleDescribe(m);
+  }
+  if (drop) await files._letGo(id, undefined, null, life, true).catch(() => {});
   return true;
 }
 // The galleries record `meta` links in a series: its owner, its chapters but itself.

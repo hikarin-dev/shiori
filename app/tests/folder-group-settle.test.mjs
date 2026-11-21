@@ -177,7 +177,7 @@ for (const app of ['desktop', 'website']) {
 // not this library's stamp. (The guard that remains — a manifest the same look saw a moment ago, not found by its
 // re-read — is held by folder-group-seen.test.mjs.)
 for (const app of ['desktop', 'website']) {
-  test(`S38 (c), S39: ${app}: a gallery left to stand whose manifest is lost is settled — its change stands, its links tidied, its place published again, a later write lands`, { skip, todo: 'S39' }, async (t) => {
+  test(`S38 (c), S39: ${app}: a gallery left to stand whose manifest is lost is settled — its change stands, its links tidied, its place published again, a later write lands`, { skip }, async (t) => {
     const c = await made(t, app, 'of this version');
     const { L, o, m } = c;
     await L.setTitle(o, 'Kept, retitled');   // a change of its own, waiting with the command

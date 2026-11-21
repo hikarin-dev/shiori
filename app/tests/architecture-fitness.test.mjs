@@ -355,29 +355,74 @@ test('S38: a gallery left to stand is never held for good — what a drop rests 
   // S37's flag held a gallery for good where its place held no manifest (an earlier version's folder, an overlay never
   // described): every hold of it answered 'unreadable' (review 13 F1). Now gallery-manifest.js dropBasis says what a
   // drop rests on, beside each app's drop (website _droppedFor; desktop reread and adoptLinked), and the stand reached
-  // from a flagged gallery's hold settles one that has none.
+  // from a flagged gallery's hold settles one that has none. (S39: what it rests on is what the asking look saw — `seen`
+  // — not this library's stamp: the S39 rule below.)
   const desktop = (f) => readFileSync(join(repo, 'desktop', 'server', f), 'utf8');
-  assert.match(read('storage/gallery-manifest.js'), /export const dropBasis = \(now, known\) =>/);
+  assert.match(read('storage/gallery-manifest.js'), /export const dropBasis = \(now, seen\) =>/);
   const site = new Map([...functionsOf(read('folder-library.js')), ...functionsOf(read('db.js'))].map(([name, body]) => [name, asCode(body)]));
   const scan = new Map([...functionsOf(desktop('scan.js'))].map(([name, body]) => [name, asCode(body)]));
   const linked = new Map([...functionsOf(desktop('linked.js'))].map(([name, body]) => [name, asCode(body)]));
   const files = new Map([...functionsOf(desktop('files.js'))].map(([name, body]) => [name, asCode(body)]));
   const off = (s) => {
     const out = [];
-    if (!/\bdropBasis\s*\(\s*read\.token\s*,\s*known\s*\)\s*===\s*'none'[\s\S]*reason: 'unversioned'/.test(s.site.get('_droppedFor') ?? '')) out.push('website _droppedFor: dropBasis');
-    if (!/\b_adoptLinked\s*\([^;]*\bknown\b[\s\S]*\b_adopt\s*\([^;]*\bknown\b[\s\S]*reason === 'unversioned'\) \{ await _settle\(/.test(s.site.get('folderStands') ?? '')) out.push('website folderStands: known, and settled');
-    if (!/\bleft = !deletion && first\.kind === 'ok' && await _groupDropped\(id\)[\s\S]*_stands\(id, held, handover\)/.test(s.site.get('_hold') ?? '')) out.push('website _hold: a gallery left to stand stands');
-    if (!/format\.dropBasis\s*\(\s*g\.read\.token\s*,\s*files\._stamp\(gid\)\s*\)/.test(s.scan.get('reread') ?? '') || /startsWith\('v2:'\)/.test(s.scan.get('reread') ?? '')) out.push('desktop reread: dropBasis');
-    if (!/format\.dropBasis\s*\(\s*read\.token\s*,\s*library\.files\._stamp\(gid\)\s*\)/.test(s.linked.get('adoptLinked') ?? '')) out.push('desktop adoptLinked: dropBasis');
+    if (!/\bdropBasis\s*\(\s*read\.token\s*,\s*seen\s*\)\s*===\s*'none'[\s\S]*reason: 'unversioned'/.test(s.site.get('_droppedFor') ?? '')) out.push('website _droppedFor: dropBasis');
+    if (!/\b_adoptLinked\s*\([^;]*\bseen\b[\s\S]*\b_adopt\s*\([^;]*\bseen\b[\s\S]*reason === 'unversioned'\) \{ await _settle\(/.test(s.site.get('folderStands') ?? '')) out.push('website folderStands: seen, and settled');
+    if (!/\bleft = !deletion && first\.kind === 'ok' && await _groupDropped\(id\)[\s\S]*_stands\(id, held, handover, first\.kind === 'theirs'\)/.test(s.site.get('_hold') ?? '')) out.push('website _hold: a gallery left to stand stands');
+    if (!/format\.dropBasis\s*\(\s*g\.read\.token\s*,\s*seen\s*\)/.test(s.scan.get('reread') ?? '') || /startsWith\('v2:'\)/.test(s.scan.get('reread') ?? '')) out.push('desktop reread: dropBasis');
+    if (!/format\.dropBasis\s*\(\s*read\.token\s*,\s*seen\s*\)/.test(s.linked.get('adoptLinked') ?? '')) out.push('desktop adoptLinked: dropBasis');
     if (!/reason === 'unversioned'\) \{ files\.settleLeft\(id\)/.test(s.scan.get('folderStands') ?? '')) out.push('desktop folderStands: settled');
     if (!/at\.kind === 'ok' && !deletion && this\._dropped\(id\)/.test(s.files.get('hold') ?? '')) out.push('desktop hold: a gallery left to stand stands');
     return out;
   };
   assert.deepEqual(off({ site, scan, linked, files }), []);
-  // A made-up stand that forgets this library's stamp fails it.
+  // A made-up stand that forgets what its look saw fails it.
   const forgot = new Map(site);
-  forgot.set('folderStands', (site.get('folderStands') ?? '').replace(/group: others, known \}\)\);/, 'group: others }));'));
-  assert.deepEqual(off({ site: forgot, scan, linked, files }), ['website folderStands: known, and settled']);
+  forgot.set('folderStands', (site.get('folderStands') ?? '').replace(/group: others, seen \}\)\);/, 'group: others }));'));
+  assert.deepEqual(off({ site: forgot, scan, linked, files }), ['website folderStands: seen, and settled']);
+});
+
+test('S39: a gallery left to stand is never worse off than one that isn\'t — what the place shows decides, a tidy fails no stand, one stand at a time', () => {
+  // Review 14: a drop's 'unreadable' rested on this library's stamp (S38), so a gallery whose manifest was lost for good
+  // was held for good though one not left to stand is published over; a linked gallery left to stand with nothing to read
+  // was held for good; the tidy after a stand could fail it; the website's tidy put fields it had read earlier back; and
+  // the desktop could stand one gallery twice at once. The shapes that hold each, on both apps.
+  const desktop = (f) => readFileSync(join(repo, 'desktop', 'server', f), 'utf8');
+  const site = new Map([...functionsOf(read('folder-library.js')), ...functionsOf(read('db.js'))].map(([name, body]) => [name, asCode(body)]));
+  const scan = new Map([...functionsOf(desktop('scan.js'))].map(([name, body]) => [name, asCode(body)]));
+  const linked = new Map([...functionsOf(desktop('linked.js'))].map(([name, body]) => [name, asCode(body)]));
+  const files = new Map([...functionsOf(desktop('files.js'))].map(([name, body]) => [name, asCode(body)]));
+  const lib = new Map([...functionsOf(desktop('library.js'))].map(([name, body]) => [name, asCode(body)]));
+  const off = (s) => {
+    const out = [];
+    // 1. What the look saw, never the stamp: no stamp read where a drop is weighed.
+    for (const [where, body] of [['website _droppedFor', s.site.get('_droppedFor')], ['website folderStands', s.site.get('folderStands')], ['desktop reread', s.scan.get('reread')], ['desktop adoptLinked', s.linked.get('adoptLinked')]]) {
+      if (/dropBasis\s*\([^)]*(_stamp|stamp\b|known)/.test(body ?? '')) out.push(`${where}: the stamp weighed`);
+    }
+    if (!/_stands\(id, at\.kind === 'theirs'\)/.test(s.files.get('hold') ?? '')) out.push('desktop hold: what it saw');
+    // 2. A linked gallery with nothing to read, asked for its drop alone, settled.
+    if (!/!at && replace && !seen[\s\S]*throw bare\(\)[\s\S]*if \(!pages\.length\) \{ if \(replace && !seen\) throw bare\(\)/.test(s.site.get('_adoptLinked') ?? '')) out.push('website _adoptLinked: nothing to read, settled');
+    if (!/!at && settles\(\)\) throw bare\(\)[\s\S]*pdfReady[^;]*\{ if \(settles\(\)\) throw bare\(\)[\s\S]*if \(!pages\.length\) \{ if \(settles\(\)\) throw bare\(\)/.test(s.linked.get('adoptLinked') ?? '')) out.push('desktop adoptLinked: nothing to read, settled');
+    // 3. The tidy fails nothing: refused galleries passed over, publication scheduled first; the check tidies the rest.
+    if (!/\.catch\(\(\) => new Set\(\)\)/.test(s.site.get('_tidyAround') ?? '')) out.push('website _tidyAround: never rejects');
+    if (!/K\.describeSoon\(gid\);\s*await _tidyAround\(/.test(s.site.get('_settle') ?? '')) out.push('website _settle: published whatever the tidy meets');
+    if (!/try \{\s*this\._tx\([\s\S]*\} catch \{ continue; \}/.test(s.lib.get('_tidyLinks') ?? '')) out.push('desktop _tidyLinks: a refusal passed over');
+    if (!/this\.scheduleDescribe\(id\);\s*this\.library\._tidyLinks\(/.test(s.files.get('settleLeft') ?? '')) out.push('desktop settleLeft: published whatever the tidy meets');
+    if (!/_seriesLinks\(await K\.metaGet\(gid\)\)\.length\) linked\.push\(gid\)/.test(s.site.get('_checkOnce') ?? '')) out.push('website _checkOnce: every gallery kept with series links tidied');
+    if (!/seriesLinks\(library\._metaGet\(gid\)\)\.length\), \{ publish: true \}\)/.test(s.scan.get('scanLibrary') ?? '')) out.push('desktop scanLibrary: every gallery kept with series links tidied');
+    // 4. The website's tidy takes out of the record as its writing transaction reads it, and puts nothing for one gone.
+    const tidy = s.site.get('_tidySeriesLinks') ?? '';
+    if (!/metas\.get\(gid\)[\s\S]*stats\.get\(gid\)[\s\S]*if \(!cur\.result \|\| !K\.still\(life, stat\.result\)\) return;[\s\S]*const next = \{ \.\.\.cur\.result \}/.test(tidy) || /\{ \.\.\.meta \}/.test(tidy)) out.push('website _tidySeriesLinks: the record as its transaction reads it');
+    // 5. One stand of a desktop gallery at a time, never waiting for itself.
+    if (!/return this\._standOnce\(id,/.test(s.files.get('_stands') ?? '')) out.push('desktop _stands: one at a time');
+    if (!/if \(standing\) return contract\.unreadable/.test(s.files.get('hold') ?? '')) out.push('desktop hold: a stand never waits for itself');
+    if (!/_letGo\(id, undefined, null, life, true\)/.test(s.scan.get('folderStands') ?? '') || /await folderStands\(library, m\)/.test(s.scan.get('folderStands') ?? '')) out.push('desktop folderStands: its own holds and its others');
+    return out;
+  };
+  assert.deepEqual(off({ site, scan, linked, files, lib }), []);
+  // A made-up tidy that writes back the record it read before its transaction fails it.
+  const stale = new Map(site);
+  stale.set('_tidySeriesLinks', (site.get('_tidySeriesLinks') ?? '').replace('const next = { ...cur.result }', 'const next = { ...meta }'));
+  assert.deepEqual(off({ site: stale, scan, linked, files, lib }), ['website _tidySeriesLinks: the record as its transaction reads it']);
 });
 
 test('S37: the net that holds the website\'s lock order at run time weighs the order the comment states', () => {

@@ -893,8 +893,8 @@ export class Library {
 
   // The folder's version of gallery `gid` stands, its place holding a publication this library hasn't read
   // (scan.js folderStands: what waited here dropped, reported — else the gallery read again). Resolves
-  // whether that was done.
-  _folderStands(gid) { return folderStands(this, gid); }
+  // whether that was done. `seen`: scan.js folderStands'.
+  _folderStands(gid, { seen = false } = {}) { return folderStands(this, gid, { seen }); }
   // Archived gallery `gid` followed to the folder at `rel` beside its archive, naming it at a later
   // generation (scan.js followUnpacked: an unpack cut short, review 7 B6). Resolves whether it was.
   _followUnpacked(gid, rel) { return followUnpacked(this, gid, rel); }
@@ -1473,7 +1473,10 @@ export class Library {
   // another series, an owner that doesn't list its chapter — dropped (db.js _tidySeriesLinks). A link
   // to a gallery the library doesn't have is kept (R15): it may be in a folder not added back yet. `publish`: each one
   // changed is published in due course (S38: a gallery settled, or the galleries a drop's change linked — files.js
-  // settleLeft, scan.js folderStands); a check's are read back, nothing of them to publish. Returns the ids changed.
+  // settleLeft, scan.js folderStands); a check's are read back, nothing of them to publish. One whose change is refused
+  // (its folder may not be written now: another app's, hidden) is passed over, the rest go on — it is tidied once its
+  // folder is read back, by that folder's check (scan.js scanLibrary tidies every gallery it keeps with series links;
+  // S39: a tidy fails no stand, no settlement). Returns the ids changed.
   _tidyLinks(gids, { publish = false } = {}) {
     const owners = new Set(), changed = [];
     for (const gid of gids) {
@@ -1494,12 +1497,14 @@ export class Library {
         else if (owner) owners.add(String(meta.parentId));
       }
       if (JSON.stringify(next) === JSON.stringify(meta)) continue;
-      this._tx(() => {
-        this._metaPutRaw(next);
-        if (!next.parentId) { const stat = this._statGet(gid); if (stat?.parentId) { delete stat.parentId; this._statPut(stat); } }
-        this._logIn(gid);
-        if (publish) this.files.metaChanged(gid, { grouping: true });
-      });
+      try {
+        this._tx(() => {
+          this._metaPutRaw(next);
+          if (!next.parentId) { const stat = this._statGet(gid); if (stat?.parentId) { delete stat.parentId; this._statPut(stat); } }
+          this._logIn(gid);
+          if (publish) this.files.metaChanged(gid, { grouping: true });
+        });
+      } catch { continue; }   // refused: passed over
       changed.push(gid);
     }
     for (const oid of owners) this.refreshSeriesAggregate(oid, { silent: true }).catch(() => {});

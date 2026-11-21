@@ -107,7 +107,7 @@ async function library(t, app) {
 // concludes nothing — whatever this library's stamp says; the manifest back, it stands and its command drops whole.
 for (const app of ['desktop', 'website']) {
   for (const stamp of ['a manifest\'s', 'an earlier version\'s']) {
-    test(`S39 1: ${app}: a hold that saw another writer's publication, its re-read finding no manifest a moment later, concludes nothing — this library's stamp ${stamp}`, { skip, todo: stamp === 'an earlier version\'s' ? 'S39' : undefined }, async (t) => {
+    test(`S39 1: ${app}: a hold that saw another writer's publication, its re-read finding no manifest a moment later, concludes nothing — this library's stamp ${stamp}`, { skip }, async (t) => {
       const { L, base } = await library(t, app);
       const A = path.join(base, 'A');
       fs.mkdirSync(A, { recursive: true });
@@ -153,7 +153,7 @@ for (const app of ['desktop', 'website']) {
 
 // 1, the desktop's check: its re-read of a gallery whose token read named a manifest, finding none, answers 'unreadable'
 // — never 'unversioned'.
-test('S39 1: desktop: a check\'s re-read finding no manifest where its token read named one answers \'unreadable\', never \'unversioned\'', { skip, todo: 'S39' }, async (t) => {
+test('S39 1: desktop: a check\'s re-read finding no manifest where its token read named one answers \'unreadable\', never \'unversioned\'', { skip }, async (t) => {
   const { L, base } = await library(t, 'desktop');
   const A = path.join(base, 'A');
   fs.mkdirSync(A, { recursive: true });
@@ -181,7 +181,7 @@ test('S39 1: desktop: a check\'s re-read finding no manifest where its token rea
 // 2. A linked gallery left to stand with nothing to read its pages from (its ZIP gone as the drop lands) is settled, as
 // one not left to stand in that state is published: never held for good, nor a later command over it with it.
 for (const app of ['desktop', 'website']) {
-  test(`S39 2: ${app}: a linked gallery left to stand whose ZIP is gone isn't held for good — a later series command over it and a healthy gallery is published`, { skip, todo: 'S39' }, async (t) => {
+  test(`S39 2: ${app}: a linked gallery left to stand whose ZIP is gone isn't held for good — a later series command over it and a healthy gallery is published`, { skip }, async (t) => {
     const { L, base } = await library(t, app);
     const A = path.join(base, 'A'), zip = path.join(A, 'Pack.zip');
     fs.mkdirSync(A, { recursive: true });
@@ -217,7 +217,7 @@ for (const app of ['desktop', 'website']) {
 // with A there; once A is back and checked, nothing left to stand, nothing waiting, no link contradicted.
 for (const app of ['desktop', 'website']) {
   for (const away of ['hidden', 'another app\'s']) {
-    test(`S39 3: ${app}: a chapter standing while its series' owner's folder is ${away} — the tidy can't fail its stand, and the end is the same once the folder is back`, { skip, todo: 'S39' }, async (t) => {
+    test(`S39 3: ${app}: a chapter standing while its series' owner's folder is ${away} — the tidy can't fail its stand, and the end is the same once the folder is back`, { skip }, async (t) => {
       const { L, base } = await library(t, app);
       const A = path.join(base, 'A'), B = path.join(base, 'B');
       fs.mkdirSync(A, { recursive: true });
@@ -279,7 +279,7 @@ for (const app of ['desktop', 'website']) {
 
 // 5. The desktop stands one gallery once at a time: two holds of one gallery whose place is another writer's at once (a
 // check's, and another gallery's weighing of its command) — one stand; a change the person makes once it stood stays.
-test('S39 5: desktop: two holds of one gallery another writer published, at once, stand it once — a change made once it stood isn\'t dropped', { skip, todo: 'S39' }, async (t) => {
+test('S39 5: desktop: two holds of one gallery another writer published, at once, stand it once — a change made once it stood isn\'t dropped', { skip }, async (t) => {
   const { L, base } = await library(t, 'desktop');
   const A = path.join(base, 'A');
   fs.mkdirSync(A, { recursive: true });

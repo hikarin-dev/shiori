@@ -1916,7 +1916,7 @@ async function _hold(gid, { stat = null, known, deletion = null, ask = null, hel
     await _recordsWrite((store) => { deletion.forget(store); store.put(_attentionRecord(at.folder, { reason: 'changed-both', path: at.dir, gid: id }, true)); });
     return { kind: 'dropped' };
   }
-  const stood = await _stands(id, held, handover).catch(() => false);
+  const stood = await _stands(id, held, handover, first.kind === 'theirs').catch(() => false);
   if (stood?.damaged) return { ...await asked({ known: await stamp(), over: first.token }), damaged: stood.damaged };
   const again = stood ? await asked({ known: await stamp() }) : null;
   return again && again.kind !== 'theirs' ? again : unreadable(new Error(`the folder's version of gallery ${id} can't be read now`));
@@ -2023,9 +2023,11 @@ async function _archiveManifest(folder, root, path, inner) {
 // that is done, false when it can't be now (its place can't be read now: tried again later) — or { damaged },
 // its reason ('corrupt', 'missing-file'), when the publication there was read and is damaged (a description
 // that doesn't parse, a file it names not there): no version to stand, so what waits is published over it, as
-// a change to a damaged folder always was (T08), never left waiting for good. `held`, `handover`: _hold's.
-async function _stands(gid, held = null, handover = false) {
-  try { return await _folderLibrary.folderStands(String(gid), { held, handover }); } catch (e) {
+// a change to a damaged folder always was (T08), never left waiting for good. `held`, `handover`: _hold's; `seen`:
+// whether the look that asked saw a publication there (its first answer 'theirs'), not a gallery left to stand alone
+// (S39: what the place shows decides — gallery-manifest.js dropBasis).
+async function _stands(gid, held = null, handover = false, seen = false) {
+  try { return await _folderLibrary.folderStands(String(gid), { held, handover, seen }); } catch (e) {
     if (['corrupt', 'missing-file'].includes(e?.reason)) return { damaged: e.reason };
     throw e;
   }

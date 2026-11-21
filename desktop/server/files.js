@@ -446,6 +446,7 @@ export class FileLibrary {
     this._before = new Set();          // galleries with files staged before S29b, found at the start (resume)
     this.keep = new Set();             // galleries being forgotten: deleted from the index, their files kept
     this._weighed = new Map();         // group → when it was last weighed whole (_weighGroup)
+    this._standing = new Map();        // gid → its stand under way (_standOnce)
     this._ends = new Map();            // gid → galleries of that id ended in this process (life)
     this._era = 0;                     // the library cleared, so many times (life)
     this._endedWork = new Map();       // gid → what was under way for galleries of that id that ended (_end)
@@ -1369,8 +1370,10 @@ export class FileLibrary {
   // meets a publication made there since is dropped ('dropped': nothing deleted, reported once, the gallery joins
   // again as the folder has it); one made since the take-back takes the gallery whatever its place holds; and a
   // place a gallery left (a move's old folder, archive or overlay: the gallery still in the library) that holds a
-  // publication made since the move read it is never deleted ('dropped').
-  async hold(gid, { rel = this._row(gid)?.path, known, deletion = null, ask = null } = {}) {
+  // publication made since the move read it is never deleted ('dropped'). `standing`: asked by the gallery's own stand
+  // under way (scan.js folderStands, letting go what it retired) — where the folder's version would stand again, it
+  // answers 'unreadable' instead: a stand never waits for itself (S39: _standOnce).
+  async hold(gid, { rel = this._row(gid)?.path, known, deletion = null, ask = null, standing = false } = {}) {
     const lib = this.library;
     const id = String(gid);
     const life = this.life(id);
@@ -1391,7 +1394,8 @@ export class FileLibrary {
       });
       return { kind: 'dropped' };
     }
-    const stood = await this._stands(id).catch(() => false);
+    if (standing) return contract.unreadable(`gallery ${id} is standing by its folder's version now`);
+    const stood = await this._stands(id, at.kind === 'theirs').catch(() => false);
     if (!this.still(life)) return contract.unreadable(`gallery ${id} was deleted meanwhile`);
     if (stood?.damaged) return { ...await asked({ known: this._stamp(id), over: at.token }), damaged: stood.damaged };
     const again = stood ? await asked({ known: this._stamp(id) }) : null;
@@ -1428,14 +1432,15 @@ export class FileLibrary {
   // earlier version's folder never republished, an overlay never described), settled: out of its group, its flag with
   // it, its series links and those of the galleries it links tidied against the galleries as they now stand (library.js
   // _tidyLinks), and what waits of it published as any change to its place is — in due course, and at once by the work
-  // under way that held it.
+  // under way that held it. Its publication is due whatever the tidy meets (S39: one gallery's tidy refused is passed
+  // over, never failing the settlement).
   settleLeft(gid) {
     const id = String(gid);
     const meta = this.library._metaGet(id);
     const links = [...(meta?.parentId ? [String(meta.parentId)] : []), ...(Array.isArray(meta?.chapters) ? meta.chapters.map(c => String(c?.id ?? '')) : [])];
     this.library._tx(() => this._ungroup(id));
-    this.library._tidyLinks([id, ...links.filter(g => g && g !== id)], { publish: true });
     this.scheduleDescribe(id);
+    this.library._tidyLinks([id, ...links.filter(g => g && g !== id)], { publish: true });
   }
   // Inside a transaction: gallery `gid` out of its group (published, dropped, deleted).
   _ungroup(gid) { this.library._s('DELETE FROM together WHERE gid = ?').run(String(gid)); }
@@ -1472,12 +1477,28 @@ export class FileLibrary {
   // done, false when it can't be now (its place can't be read now: tried again later) — or { damaged }, its
   // reason ('corrupt', 'missing-file'), when the publication there was read and is damaged (a description that
   // doesn't parse, a file it names not there): no version to stand, so what waits is published over it, as a
-  // change to a damaged folder always was (T08), never left waiting for good.
-  async _stands(gid) {
-    try { return await this.library._folderStands(gid); } catch (e) {
-      if (['corrupt', 'missing-file'].includes(e?.reason)) return { damaged: e.reason };
-      throw e;
-    }
+  // change to a damaged folder always was (T08), never left waiting for good. `seen`: whether the hold asking saw
+  // another writer's publication there (hold: its first answer 'theirs'), not a gallery left to stand alone (S39).
+  _stands(gid, seen = false) {
+    const id = String(gid);
+    return this._standOnce(id, async () => {
+      try { return await this.library._folderStands(id, { seen }); } catch (e) {
+        if (['corrupt', 'missing-file'].includes(e?.reason)) return { damaged: e.reason };
+        throw e;
+      }
+    });
+  }
+  // One stand of gallery `id` at a time (S39): where one is under way — a check's hold and another gallery's weighing
+  // of its command at once — the second asker takes the first's answer instead of standing it again (a second stand,
+  // a moment later, could drop a change the person made once the first stood). A stand never waits for itself: its
+  // own holds (_letGo) are `standing`, and the others it stands with it pass over one whose stand is under way
+  // (scan.js folderStands).
+  _standOnce(id, stand) {
+    const under = this._standing.get(id);
+    if (under) return under;
+    const p = stand().finally(() => { if (this._standing.get(id) === p) this._standing.delete(id); });
+    this._standing.set(id, p);
+    return p;
   }
 
   // Inside the transaction clearing the library (library.js clearAll), before its pages and covers go:
@@ -3084,14 +3105,15 @@ export class FileLibrary {
   // as written — while the folder may be written to (`work`) — a row kept only for one that couldn't be
   // deleted now (tried again after its next publication, or at the next start). Rows of a folder it has
   // left (moved by a copy, whose old folder went) are forgotten.
-  // `life`: the gallery the files were let go by (its publication's) — none of one made again since.
-  async _letGo(gid, upTo = Number.MAX_SAFE_INTEGER, work = null, life = this.life(gid)) {
+  // `life`: the gallery the files were let go by (its publication's) — none of one made again since. `standing`: let go
+  // by the gallery's own stand (scan.js folderStands), whose hold never stands it again (hold).
+  async _letGo(gid, upTo = Number.MAX_SAFE_INTEGER, work = null, life = this.life(gid), standing = false) {
     const lib = this.library;
     if (!this.still(life)) return;
     const row = this._row(gid);
     const rows = lib._s('SELECT rowid AS seq, dir, name, size, mtime FROM retiring WHERE gid = ? AND rowid <= ?').all(String(gid), upTo);
     if (!rows.length || !row || !lib.folders.writable(this._split(row.path).root, work)) return;
-    if ((await this.hold(gid)).kind !== 'ok' || !this.still(life)) return;   // its folder doesn't name it now, or holds a version not read here yet: they wait
+    if ((await this.hold(gid, { standing })).kind !== 'ok' || !this.still(life)) return;   // its folder doesn't name it now, or holds a version not read here yet: they wait
     const here = rows.filter(r => r.dir === row.path);
     const { kept } = await deleteNamedIn(this._abs(row.path), here.map(r => ({ name: r.name, size: r.size, mtime: r.mtime })));
     this._forgetRetired(row.path, here, kept);

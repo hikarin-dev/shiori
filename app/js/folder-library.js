@@ -803,8 +803,16 @@ async function _checkOnce(id, folder, { onProgress = () => {}, stopped = () => f
   const changed = [...run.added, ...run.updated];
   // A series' members tidied with it, unpublished: one kept whose series no longer lists it is listed (review 9 B3).
   const members = (await K.galleryGetAll()).filter(g => g.parentId && changed.includes(String(g.parentId)) && !changed.includes(String(g.galleryId))).map(g => String(g.galleryId));
-  await _tidySeriesLinks([...changed, ...members], run.id, { quiet: new Set(members) });
+  // And every other gallery kept here with series links, tidied against the galleries as they now stand, one it changed
+  // published in due course: a tidy a stand elsewhere passed over while this folder couldn't be written (S39) is done.
+  const linked = [];
+  for (const g of kept) {
+    const gid = String(g.galleryId);
+    if (!changed.includes(gid) && !members.includes(gid) && _seriesLinks(await K.metaGet(gid)).length) linked.push(gid);
+  }
+  const tidied = await _tidySeriesLinks([...changed, ...members, ...linked], run.id, { quiet: new Set(members) });
   for (const gid of changed) K.publishFeed(gid);
+  for (const gid of linked) if (tidied.has(gid)) K.describeSoon(gid);
   if (handover) return { added: run.added.length, updated: run.updated.size, problems: run.problems, stopped: !!stopped(), joined: run.added };
   // What it found, for the folder's Needs attention list (D15), and a deletion whose gallery's folder it
   // didn't meet forgotten — not when it was stopped part way; when its walk couldn't read everything, once
@@ -1160,13 +1168,13 @@ const _entriesOf = (records) => new Map((Array.isArray(records) ? records : []).
 // `replace`: a gallery the library keeps, read again from there; `read`, what was read of it there just
 // now; `drop`, what waits of it here dropped for that (_storeAdopted); `life`, the gallery it is (db.js _life:
 // nothing is read again once that one has ended); `group`, the rest of its series command left to stand with that
-// drop (_storeAdopted); `known`, this library's stamp of it, for what a drop rests on (_droppedFor). Resolves its id, or
-// null when there is nothing to read (or it wasn't read again: _storeAdopted).
-async function _adopt(run, found, { replace = null, read = null, drop = false, manifest = false, life = null, group = [], known = undefined } = {}) {
+// drop (_storeAdopted); `seen`, whether the look that asked saw a manifest there a moment ago, for what a drop rests on
+// (_droppedFor). Resolves its id, or null when there is nothing to read (or it wasn't read again: _storeAdopted).
+async function _adopt(run, found, { replace = null, read = null, drop = false, manifest = false, life = null, group = [], seen = true } = {}) {
   read ??= await _readFormat(run.id, run.root, found);
   if (life && !(await K.stillNow(life))) return null;
   const gid = replace || found.id;
-  const dropping = (drop || manifest) && _droppedFor(read, found.path, known);
+  const dropping = (drop || manifest) && _droppedFor(read, found.path, seen);
   if (galleryIdOf(read.texts['metadata.json']) !== gid) return null;   // described as another gallery now
   const entries = _entriesOf(read.records);
   const now = Date.now();
@@ -1183,12 +1191,14 @@ async function _adopt(run, found, { replace = null, read = null, drop = false, m
 // (`manifest`: _catchUp): the folder's version as its manifest (format v2) names it, `{ files }` — never
 // a read by an earlier version's rules, which a "not found" judged once the drive was back from a moment
 // away could have made of nothing (no page — and, for a drop, every file of the gallery's left to
-// retire): such a read replaces and drops nothing, thrown as unreadable, read again by a later look. Told by this
-// library's stamp of it (`known`, where the caller weighs a drop: folderStands) — gallery-manifest.js dropBasis: none
-// there and none it ever knew is no version to drop for at all, thrown `unversioned` (S38: the gallery is settled).
-function _droppedFor(read, at, known = undefined) {
+// retire): such a read replaces and drops nothing, thrown as unreadable, read again by a later look — where the look that
+// asked saw a manifest there a moment ago (`seen`: a stand whose hold first met another writer's publication; a check's
+// token read). One that saw none (`seen` false: a stand its drop alone asked for) is told by gallery-manifest.js
+// dropBasis: no version there to drop for, thrown `unversioned` (S38, S39: the gallery is settled) — what the place
+// shows decides, as for any gallery, never this library's stamp.
+function _droppedFor(read, at, seen = true) {
   if (read.generation) return { files: read.generation.files };
-  if (known !== undefined && dropBasis(read.token, known) === 'none') throw Object.assign(new BackendError('invalid', `${at}: no version there to stand by`), { reason: 'unversioned' });
+  if (dropBasis(read.token, seen) === 'none') throw Object.assign(new BackendError('invalid', `${at}: no version there to stand by`), { reason: 'unversioned' });
   throw Object.assign(new BackendError('unavailable', `${at}: the folder's version can't be told now`), { reason: 'unreadable' });
 }
 
@@ -1369,9 +1379,13 @@ async function _noteReplaced(was, gid) {
 // Whole in what the person sees too (S38): once it stands, the galleries its dropped change linked it to (its series'
 // owner and chapters, as its record named them before and names them now) are tidied against the galleries as they now
 // stand, and one changed by that is published in due course — none is held back for it. And one whose place holds no
-// version to stand by (gallery-manifest.js dropBasis 'none': an earlier version's folder, an overlay never described)
-// has none to drop for: it is settled (_settle), its change standing. Resolves true once it stood or was settled.
-async function folderStands(gid, { held = null, handover = false } = {}) {
+// version to stand by has none to drop for: it is settled (_settle), its change standing. Which it is, the place's read
+// shows (gallery-manifest.js dropBasis): `seen`, whether the look that asked for this stand saw a manifest there a
+// moment ago (db.js _hold: its first answer another writer's publication) — then a re-read finding none is a read
+// failing now, nothing concluded; asked for the drop alone (and each other here), one finding none — or, a linked
+// gallery, nothing to read its pages from — is settled (S39). What the stand does for other galleries (the tidy, the
+// others' stands) never fails it. Resolves true once it stood or was settled.
+async function folderStands(gid, { held = null, handover = false, seen = false } = {}) {
   const began = K.now();
   const stat = await K.galleryGet(gid);
   const life = K.lifeOf(began, gid, stat);   // the gallery it is for (S34, S36)
@@ -1383,15 +1397,14 @@ async function folderStands(gid, { held = null, handover = false } = {}) {
   // What its series command changed of others, still waiting, dropped with it (review 9 B1).
   const others = drop ? await K.groupWaiting(gid) : [];
   const linked = _seriesLinks(await K.metaGet(gid));
-  const known = stat.stamp ?? null;
   let stood;
   try {
-    stood = !!(stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, drop, life, held, group: others, known })
-      : await _adopt(run, where, { replace: gid, drop, manifest: true, life, group: others, known }));
+    stood = !!(stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, drop, life, held, group: others, seen })
+      : await _adopt(run, where, { replace: gid, drop, manifest: true, life, group: others, seen }));
   } catch (e) {
     if (e?.reason === 'unversioned') { await _settle(gid, stat.folder); return true; }
     // (A damaged place has no version to stand by either: what waits is published over it, T08 — as settled.)
-    if (['corrupt', 'missing-file'].includes(e?.reason) && await K.groupDropped(gid)) await _settle(gid, stat.folder);
+    if (['corrupt', 'missing-file'].includes(e?.reason) && await K.groupDropped(gid).catch(() => false)) await _settle(gid, stat.folder).catch(() => {});   // (its reason kept)
     if (!e?.busy || !others.length) throw e;
     await K.groupDrop([gid, ...others], gid);
     K.describeSoon(gid);
@@ -1400,7 +1413,7 @@ async function folderStands(gid, { held = null, handover = false } = {}) {
   if (stood && drop) await _tidyAround([...linked, ..._seriesLinks(await K.metaGet(gid))], gid, stat.folder);
   if (stood !== false) {
     for (const m of others) {
-      if (await K.groupDropped(m) && !(await folderStands(m, { held, handover }).catch(() => false))) K.describeSoon(m);
+      if (await K.groupDropped(m).catch(() => false) && !(await folderStands(m, { held, handover }).catch(() => false))) K.describeSoon(m);
     }
   }
   if (stood && !drop) await _noteReplaced(stat, gid);
@@ -1410,19 +1423,20 @@ async function folderStands(gid, { held = null, handover = false } = {}) {
 const _seriesLinks = (meta) => [...(meta?.parentId ? [String(meta.parentId)] : []), ...(Array.isArray(meta?.chapters) ? meta.chapters.map(c => String(c?.id ?? '')) : [])]
   .filter(id => id && id !== String(meta?.galleryId));
 // Galleries `gids` (but `gid`) tidied against the galleries as they now stand (_tidySeriesLinks), each it changed
-// published in due course (db.js _describeSoon). One out of the library now (its folder hidden) is tidied when it is
-// read back, by its check.
+// published in due course (db.js _describeSoon). One whose folder may not be written now (hidden, another app's) is
+// passed over, the rest go on: it is tidied once its folder is read back, by that folder's check (_checkOnce tidies
+// every gallery it keeps with series links). Never rejects: a tidy fails no stand, no settlement (S39).
 async function _tidyAround(gids, gid, folder) {
   const changed = await _tidySeriesLinks([...new Set(gids)].filter(id => id !== String(gid)), folder).catch(() => new Set());
   for (const id of changed) K.describeSoon(id);
 }
 // Gallery `gid`, left to stand with no version there to stand by (S38), settled: out of its group — its flag with it —
-// its series links and those of the galleries it links tidied against the galleries as they now stand, and what waits
-// of it published as any change to its place is, in due course (and at once by the work under way that held it).
+// what waits of it published as any change to its place is, in due course (and at once by the work under way that held
+// it), and its series links and those of the galleries it links tidied against the galleries as they now stand.
 async function _settle(gid, folder) {
   await K.ungroup(gid);
-  await _tidyAround([gid, ..._seriesLinks(await K.metaGet(gid))], null, folder);
   K.describeSoon(gid);
+  await _tidyAround([gid, ..._seriesLinks(await K.metaGet(gid))], null, folder);
 }
 // What a gallery's place (`where`: _readFormat's) was last published at, and the gallery it names:
 // { token, id, texts } — by its manifest (gallery-manifest.js tokenOf; `texts` null), else, format v1,
@@ -1679,11 +1693,15 @@ function _writeSource(folder, root, gid, text, ended = async () => false, held =
 // in the overlay, never read back: its description ties them to that picture.
 // `replace`: a gallery the library keeps, read again (from its overlay, its files where `title` says
 // now), `life` the gallery it is (db.js _life: nothing more is read or written for it once that one has ended), `held`:
-// the gallery whose lock the caller holds (_writeSource), `group` and `known` as _adopt's. Resolves its id, or null when
-// it has no pages (or wasn't read again: _storeAdopted).
-async function _adoptLinked(run, title, { gid: given = null, replace = null, drop = false, life = null, held = null, group = [], known = undefined } = {}) {
+// the gallery whose lock the caller holds (_writeSource), `group` and `seen` as _adopt's. Resolves its id, or null when
+// it has no pages (or wasn't read again: _storeAdopted). A gallery read again by a stand its drop alone asked for (`seen`
+// false) with nothing to read its pages from now — its source not there, or no pages in it, a PDF not drawn — has no
+// version to drop for: thrown `unversioned` (S39: settled, as one not left to stand in that state is published).
+async function _adoptLinked(run, title, { gid: given = null, replace = null, drop = false, life = null, held = null, group = [], seen = true } = {}) {
   const ended = async () => !!life && !(await K.stillNow(life));
+  const bare = () => Object.assign(new BackendError('invalid', `${title.path}: no pages there to stand by`), { reason: 'unversioned' });
   const at = title.pictures ? title : await _titlePictures(run, title);
+  if (!at && replace && !seen && !(await ended())) throw bare();
   if (!at || await ended()) return null;
   const gid = replace || given || K.nextGalleryId();
   if (!replace && run.known.has(gid)) return null;
@@ -1714,7 +1732,7 @@ async function _adoptLinked(run, title, { gid: given = null, replace = null, dro
     return { url, n: p.n, record: { url, blob: p.from === 'overlay' ? read.ref(`images/${p.name}`) : source(p), mediaId: String(entry?.mediaId ?? gid),
       galleryId: gid, cachedAt: entry?.cachedAt || now, size: p.size, ...made } };
   });
-  if (!pages.length) return null;
+  if (!pages.length) { if (replace && !seen) throw bare(); return null; }
   const record = galleryIdOf(read.texts['metadata.json']) === gid ? { ...read.meta, galleryId: gid }
     : { galleryId: gid, ...(await _namedMeta(run, title, gid)), numPages: pages.length, isLocalImport: true, source: '' };
   const linked = { kind: title.kind, path: title.path, ...(title.inner ? { inner: title.inner } : {}), ...(at.fingerprint ? { fingerprint: at.fingerprint } : {}),
@@ -1724,7 +1742,7 @@ async function _adoptLinked(run, title, { gid: given = null, replace = null, dro
   // for the folder's claim, and one waiting here never goes over another app's generation of its overlay
   // (S30: an overlay with no description yet left it unstamped — "only this app's" to the commit gate).
   return _storeAdopted({ folder: run.id, dir, gid, record, pages, ownCover: _ownCovers(read),
-    stamp: read.token, replace, drop: drop && _droppedFor(read, dir, known), stale, life, group, extra: { linked } });
+    stamp: read.token, replace, drop: drop && _droppedFor(read, dir, seen), stale, life, group, extra: { linked } });
 }
 // What a title's name and folders say of it: an archive's chapter is named after its folder in it,
 // its tags the archive's.
@@ -1861,49 +1879,64 @@ async function pdfFailed(folder, gid, token) {
 // doesn't have (yet — its folder may be checked later, or hidden) is kept; one a present gallery
 // contradicts is dropped — a chapter listed whose record names another series, a chapter naming a
 // series whose list leaves it out. The series that remain have their totals worked out. `quiet`: galleries not read
-// back now, tidied in the library alone (nothing of it to publish). Resolves the galleries it changed.
+// back now, tidied in the library alone (nothing of it to publish). Each gallery's links are judged as the records read
+// now; what is taken out — the parent judged, the chapters judged contradicted — is taken out of its record as the
+// transaction writing it reads it (S39: a change made in between stays), and nothing is put for a gallery deleted
+// meanwhile or made again under its id since (its life: db.js _life). One whose folder may not be written now (hidden,
+// another app's: refused as it commits) is passed over, the rest go on — tidied once its folder is read back, by that
+// folder's check (_checkOnce). Resolves the galleries it changed.
 async function _tidySeriesLinks(gids, folder, { quiet = new Set() } = {}) {
   const owners = new Set(), changed = new Set();
   if (!gids.length) return changed;
   for (const gid of gids) {
+    const life = await K.life(gid);
     const meta = await K.metaGet(gid);
     if (!meta) continue;
-    const patch = {};
+    const contradicted = new Set();
+    let parent = null;
     if (Array.isArray(meta.chapters)) {
-      const kept = [];
+      let kept = 0;
       for (const c of meta.chapters) {
         const id = String(c?.id ?? '');
         const member = id === gid ? meta : await K.metaGet(id);
-        if (!member || id === gid || String(member.parentId || '') === gid) kept.push(c);
+        if (!member || id === gid || String(member.parentId || '') === gid) kept++; else contradicted.add(id);
       }
-      if (kept.length !== meta.chapters.length) patch.chapters = kept.length > 1 ? kept : undefined;
-      if (kept.length > 1) owners.add(gid);
+      if (kept > 1) owners.add(gid);
     }
     if (meta.parentId) {
       const owner = await K.metaGet(String(meta.parentId));
       const listed = Array.isArray(owner?.chapters) && owner.chapters.some(c => String(c?.id) === gid);
-      if (owner && !listed) patch.parentId = undefined;
+      if (owner && !listed) parent = String(meta.parentId);
       else if (owner) owners.add(String(meta.parentId));
     }
-    if (!Object.keys(patch).length) continue;
+    if (!contradicted.size && !parent) continue;
     const S = K.stores;
     const db = await K.openDB();
-    await new Promise((resolve, reject) => {
+    const wrote = await new Promise((resolve) => {
       const tx = K.tx(db, [S.META, S.GALLERY], 'readwrite');
       tx._work = { kind: 'adopt', folder };   // galleries just read back there, or brought back still out of the library
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(K.txError(tx));
-      const next = { ...meta };
-      for (const [k, v] of Object.entries(patch)) { if (v === undefined) delete next[k]; else next[k] = v; }
-      tx.objectStore(S.META).put(K.canonicalMeta(next));
-      if ('parentId' in patch) {
-        const stats = tx.objectStore(S.GALLERY);
-        const req = stats.get(gid);
-        req.onsuccess = () => { if (req.result) { const { parentId, ...rest } = req.result; stats.put(rest); } };
-      }
-      K.logIn(tx, gid, { mark: !quiet.has(gid) });
+      let put = false;
+      tx.oncomplete = () => resolve(put);
+      tx.onerror = () => resolve(false);   // refused (its folder may not be written now): passed over
+      const metas = tx.objectStore(S.META), stats = tx.objectStore(S.GALLERY);
+      const cur = metas.get(gid), stat = stats.get(gid);
+      stat.onsuccess = () => {
+        if (!cur.result || !K.still(life, stat.result)) return;   // deleted meanwhile, or another gallery of the id now
+        const next = { ...cur.result };
+        const unparented = !!parent && String(next.parentId ?? '') === parent;
+        if (unparented) delete next.parentId;
+        if (contradicted.size && Array.isArray(next.chapters)) {
+          const left = next.chapters.filter(c => !contradicted.has(String(c?.id ?? '')));
+          if (left.length !== next.chapters.length) { if (left.length > 1) next.chapters = left; else delete next.chapters; }
+        }
+        if (JSON.stringify(next) === JSON.stringify(cur.result)) return;
+        metas.put(K.canonicalMeta(next));
+        if (unparented && stat.result?.parentId) { const { parentId, ...rest } = stat.result; stats.put(rest); }
+        K.logIn(tx, gid, { mark: !quiet.has(gid) });
+        put = true;
+      };
     });
-    changed.add(gid);
+    if (wrote) changed.add(gid);
   }
   for (const oid of owners) await K.refreshSeriesAggregate(oid, { silent: true }).catch(() => {});
   return changed;
