@@ -170,8 +170,15 @@ test('a gallery changed while the backup is made is saved as it now is, its pict
   // which then names it as still changing.
   for (const gid of ids) await lib.refreshGallerySize(gid);
   const plainBytes = (await exportArchive(lib, fileIn('unchanged.shioridb'))).bytes;
+  // The rename as the first gallery is read, and its size measured with it — what its announcement does a moment later
+  // (publishFeed, within a quarter of a second: a measuring landing between the backup's looks for changes named it as
+  // still changing): the second gallery's read waits for both, so those looks find the rename alone, and the
+  // announcement's measuring finds nothing new.
+  let renamed = null;
+  const read = lib.transferRead.bind(lib);
+  lib.transferRead = async (gid, ...rest) => { if (gid === ids[1] && renamed) await renamed; return read(gid, ...rest); };
   const made = await exportArchive(lib, fileIn('changed.shioridb'), { onProgress: ({ done }) => {
-    if (done === 1) lib.metaPut({ galleryId: ids[0], title: title('Renamed meanwhile'), tags: [], numPages: 2 });
+    if (done === 1) renamed = lib.metaPut({ galleryId: ids[0], title: title('Renamed meanwhile'), tags: [], numPages: 2 }).then(() => lib.refreshGallerySize(ids[0]));
   } });
   assert.deepEqual(made.changed, [], 'read again, it is saved as it now is');
   assert.ok(made.bytes - plainBytes < 20000, `only its details again (${made.bytes - plainBytes} bytes more)`);

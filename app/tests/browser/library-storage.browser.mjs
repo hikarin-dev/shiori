@@ -751,13 +751,21 @@ test('R20: a removal asked during a check stops the check, then runs; a check as
       const jobs = await import('/app/js/folder-scan.js');
       for (let i = 0; i < 40; i++) await t.write(`R20/T${i}/1.png`, await t.png(i * 9));
       const { id } = await api.folders.add(await t.folder('R20'));
-      const held = async (kind) => (await navigator.locks.query()).held.some(l => l.name === `shiori:folder-job:${id}:${kind}`);
+      const held = async (name) => (await navigator.locks.query()).held.some(l => l.name === name);
       const checking = jobs.runFolderScan(id, { name: 'R20' });
-      await t.until(() => held('scan'));
+      // The check under way, reading the folder (it holds the folder's lock) — and the folder's lock asked for here
+      // behind it, so the removal, once it runs after the check, waits for it holding its job's lock: a check is asked
+      // during the removal, whatever the removal's speed (one done between two looks at the locks was never seen
+      // running, and a check asked after it read a folder gone: traced under six Chromes, S36).
+      await t.until(async () => await held(`shiori:folder-job:${id}:scan`) && held(`shiori:folder:${id}`));
+      let letGo;
+      const folderHeld = new Promise((r) => navigator.locks.request(`shiori:folder:${id}`, () => { r(); return new Promise((g) => { letGo = g; }); }));
       await api.folders.remove(id);
       const removing = jobs.runFolderJob('remove', id, { name: 'R20' });
-      await t.until(() => held('removal'));
+      await folderHeld;
+      await t.until(() => held(`shiori:folder-job:${id}:removal`));
       const refused = await jobs.runFolderScan(id, { name: 'R20' });
+      letGo();
       const [check, removal] = await Promise.all([checking, removing]);
       return { check: check.stopped, removal: removal && !removal.stopped, refused, left: (await api.folders.pending()).setAside.length, listed: (await api.folders.list()).some(f => f.id === id) };
     });
@@ -806,10 +814,14 @@ test('A10: a removal moving its galleries to a place that can\'t take them now i
       await api.folders.remove(a, { moveTo: b });
       await t.takeOver('Lib B');   // taken again before the move runs
     }, a, b);
-    page = await tab(ctx);
+    // A page opening carries on a removal cut short (folder-scan.js resumeFolderWork): the folder's job lock held from
+    // this page's first script on, so the removal asked here is the one that runs (traced under six Chromes, S36: the
+    // page's own had run it first, and this one found it done) — the page's runs after it, finding nothing to do.
+    page = await tab(ctx, (a) => { navigator.locks.request(`shiori:folder-job:${a}`, () => new Promise((r) => { window.__letJobsGo = r; })); }, a);
     const out = await page.evaluate(async (a, gid) => {
       const api = window.__api, t = window.__t;
       const r = await api.folders.setAside(a);
+      window.__letJobsGo();
       return { r, gone: !(await api.galleries.get(gid)), files: await t.ls('Lib A/Kept/images'), moved: await t.ls('Lib B') };
     }, a, gid);
     assert.equal(refused, 'move-to');

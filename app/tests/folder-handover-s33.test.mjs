@@ -304,7 +304,11 @@ describe('S33: review 10 B1 — an in-flight write of the other app', () => {
         const m = JSON.parse(fs.readFileSync(file, 'utf8'));
         fs.writeFileSync(file, JSON.stringify({ ...m, generation: m.generation + step, publication: 'f0e1d2c3b4a59687', writer: 'b1b2c3d4e5f60708' }, null, 2));
       }
-      await sleep(1200);   // (the website's size timer of the last change gone: a gallery with work due is read at a later check)
+      // The galleries' sizes measured now, and what the website has due for them over (db.js galleryBusy: their
+      // announcement, size, publication) — a check reads a gallery with work due at a later check (§8, S26a); measured,
+      // what is due measures nothing new and sets nothing going. (The desktop has nothing due once flushed.)
+      for (const gid of Object.values(ids)) await A.raw.refreshGallerySize(gid);
+      while (app === 'website' && Object.values(ids).some((gid) => A.raw.galleryBusy(gid))) await sleep(20);
       await A.scan(a);
       assert.deepEqual(await changedBoth(A), [ids.Same], 'replaced, not built on: reported; a later one on top: not');
       assert.equal(await A.titleOf(ids.Same), 'Same 2', 'the folder\'s version stands');
