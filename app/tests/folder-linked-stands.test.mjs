@@ -20,7 +20,7 @@ const same = (a, b) => !!a && Buffer.from(a).equals(Buffer.from(b));
 const within = (p, ms) => Promise.race([p.then(() => 'ended', (e) => `failed: ${e?.message || e}`), new Promise((r) => setTimeout(() => r(`still waiting after ${ms} ms`), ms))]);
 
 for (const work of ['its publication', 'a translation of it stored']) {
-  test(`website: ${work}, meeting another app's generation of its overlay after its ZIP changed in place, ends — never waiting for its own lock`, { skip, todo: 'S36' }, async (t) => {
+  test(`website: ${work}, meeting another app's generation of its overlay after its ZIP changed in place, ends — never waiting for its own lock`, { skip }, async (t) => {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-stands-'));
     const L = await webLibrary();
     t.after(async () => { await L.close(); fs.rmSync(base, { recursive: true, force: true }); });

@@ -1108,7 +1108,7 @@ async function _place(home, slots, w) {
     if (!asked) {
       asked = true;
       const ours = home.claimed || home.held ? await _mayWriteDir(home.folder, home.root, home.dir, home.gid, { fresh: true }).catch(() => false)
-        : await _hold(home.gid).then(at => { if (at.kind === 'conflict') _note(home.folder, { reason: 'conflict', path: home.dir, gid: home.gid }).catch(() => {}); return at.kind === 'ok'; });
+        : await _hold(home.gid, { held: true }).then(at => { if (at.kind === 'conflict') _note(home.folder, { reason: 'conflict', path: home.dir, gid: home.gid }).catch(() => {}); return at.kind === 'ok'; });
       if (!ours) {
         home.root = null;
         left = true;
@@ -1817,7 +1817,7 @@ async function _describe(gid, { work = null } = {}) {
     const root = read && await _rootOf(read.stat.folder, { work: as });
     if (root && read.rev != null && !(await _weighGroup(gid))) return { ok: false };   // its series command weighed as one first (S32)
     if (root && read.stat.packed) {
-      if ((await _hold(gid)).kind !== 'ok') return { ok: false };
+      if ((await _hold(gid, { held: true })).kind !== 'ok') return { ok: false };
       read = await _wantedDescriptions(gid);
       if (read?.stat.packed && read.rev == null) return { ok: true };   // what waited dropped: the archive's version stands
       if (read?.stat.packed) await _unpackLocked(gid, as);
@@ -1828,7 +1828,7 @@ async function _describe(gid, { work = null } = {}) {
     const opened = await folderStore.open({ id: read.stat.folder, location: root }, { purpose: as.kind === 'removal' ? 'removal' : 'publish' });
     if (opened.status !== 'ok') return { ok: false };
     const place = read.stat;
-    const found = await _hold(gid, { stat: place, ask: (view) => opened.root.gallery(place.dir, gid, view) });
+    const found = await _hold(gid, { stat: place, ask: (view) => opened.root.gallery(place.dir, gid, view), held: true });
     if (found.kind === 'conflict') await _note(place.folder, { reason: 'conflict', path: place.dir, gid: String(gid) });
     if (found.kind !== 'ok') return { ok: false };
     // As it now is (what waited dropped, where the folder's version stood) — and only the gallery it began for, at
@@ -1873,8 +1873,10 @@ async function _describe(gid, { work = null } = {}) {
 // that meets a publication made there since is dropped ('dropped': nothing deleted, reported once, the gallery
 // joins again as the folder has it); one made since the take-back takes the gallery whatever its place holds;
 // and a place a gallery left (a move's old folder or archive: the gallery still in the library) that holds a
-// publication made since the move read it is never deleted ('dropped').
-async function _hold(gid, { stat = null, known, deletion = null, ask = null } = {}) {
+// publication made since the move read it is never deleted ('dropped'). `held`: the caller holds the gallery's lock
+// (its write, publication or move), under which the folder's version is read (S36: a linked gallery's re-read writes
+// its overlay's source.json under that lock, which it would otherwise wait for).
+async function _hold(gid, { stat = null, known, deletion = null, ask = null, held = false } = {}) {
   const id = String(gid);
   const at = stat ?? await galleryGet(id);
   if (!at?.folder || !at.dir) return MISSING;
@@ -1891,7 +1893,7 @@ async function _hold(gid, { stat = null, known, deletion = null, ask = null } = 
     await _recordsWrite((store) => { deletion.forget(store); store.put(_attentionRecord(at.folder, { reason: 'changed-both', path: at.dir, gid: id }, true)); });
     return { kind: 'dropped' };
   }
-  const stood = await _stands(id).catch(() => false);
+  const stood = await _stands(id, held).catch(() => false);
   if (stood?.damaged) return { ...await asked({ known: await stamp(), over: first.token }), damaged: stood.damaged };
   const again = stood ? await asked({ known: await stamp() }) : null;
   return again && again.kind !== 'theirs' ? again : unreadable(new Error(`the folder's version of gallery ${id} can't be read now`));
@@ -1960,9 +1962,9 @@ async function _archiveManifest(folder, root, path, inner) {
 // that is done, false when it can't be now (its place can't be read now: tried again later) — or { damaged },
 // its reason ('corrupt', 'missing-file'), when the publication there was read and is damaged (a description
 // that doesn't parse, a file it names not there): no version to stand, so what waits is published over it, as
-// a change to a damaged folder always was (T08), never left waiting for good.
-async function _stands(gid) {
-  try { return await _folderLibrary.folderStands(String(gid)); } catch (e) {
+// a change to a damaged folder always was (T08), never left waiting for good. `held`: the caller holds its lock (_hold).
+async function _stands(gid, held = false) {
+  try { return await _folderLibrary.folderStands(String(gid), { held }); } catch (e) {
     if (['corrupt', 'missing-file'].includes(e?.reason)) return { damaged: e.reason };
     throw e;
   }
@@ -2117,7 +2119,7 @@ async function _relocateOnce(gid, to, tick, work, w) {
   if (was?.folder && was.dir) {
     // One whose folder came back and is still being read (S32) waits for that read before its place is looked at.
     if ((await _access(was.folder)).handover) throw Object.assign(new BackendError('unavailable', `library folder ${was.folder} is still being read after it came back`), { reason: 'handover', folder: was.folder });
-    const held = await _hold(gid, { stat: was });
+    const held = await _hold(gid, { stat: was, held: true });   // its lock is the move's (_writing)
     if (held.kind !== 'ok') throw Object.assign(new BackendError(held.kind === 'conflict' ? 'conflict' : 'unavailable', `the place of gallery ${gid} can't be held now (${held.kind})`), { reason: held.kind });
   }
   const raw = await _rawGallery(gid);

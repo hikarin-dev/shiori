@@ -1042,7 +1042,7 @@ async function _followTo(run, found, was, read, { leave = false, locked = false 
   if (!(await K.follow(found.id, _keptAt(was), here, read.ref, { leave, locked }))) return false;   // its record changed meanwhile
   run.updated.add(found.id);
   run.followed = true;
-  if (!!was.spilled || run.marked.has(found.id)) await K.hold(found.id);
+  if (!!was.spilled || run.marked.has(found.id)) await K.hold(found.id, { held: locked });
   else await _adopt(run, found, { replace: found.id, read });
   return true;
 }
@@ -1346,8 +1346,9 @@ async function _noteReplaced(was, gid) {
 // it (its mark, its pictures in this browser) goes in the same transaction, reported once (_storeAdopted
 // `drop`); with nothing of it waiting it is only read again, nothing reported. Resolves whether that was
 // done; rejects, nothing changed, when its place can't be read whole now (weighed again at the next
-// publication or check) — `reason` 'corrupt' or 'missing-file' where that publication is damaged.
-async function folderStands(gid) {
+// publication or check) — `reason` 'corrupt' or 'missing-file' where that publication is damaged. `held`: the caller
+// holds the gallery's lock (its own work meeting that publication: db.js _hold), under which the re-read writes (S36).
+async function folderStands(gid, { held = false } = {}) {
   const began = K.now();
   const stat = await K.galleryGet(gid);
   const life = K.lifeOf(began, gid, stat);   // the gallery it is for (S34, S36)
@@ -1358,7 +1359,7 @@ async function folderStands(gid) {
   const drop = !!stat.spilled || (await K.marked()).has(String(gid));
   // What its series command changed of others, still waiting, dropped with it (review 9 B1).
   const others = drop ? await K.groupWaiting(gid) : [];
-  const stood = !!(stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, drop, life }) : await _adopt(run, where, { replace: gid, drop, manifest: true, life }));
+  const stood = !!(stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, drop, life, held }) : await _adopt(run, where, { replace: gid, drop, manifest: true, life }));
   if (stood) for (const m of others) await folderStands(m).catch(() => false);
   if (stood && !drop) await _noteReplaced(stat, gid);
   return stood;
@@ -1578,8 +1579,9 @@ async function _relink(run, title, gid) {
 // is for (its pages drawn from, or drawing them failed: pdfWaits). One that can't be read is never
 // written over: the error is thrown (F06); nor is one naming another gallery (principle 2: reason
 // 'conflict'). Nothing is written once `ended()` resolves true (its gallery ended as it was read: _adoptLinked).
-// Resolves { dir: the overlay's folder, was: the source its source.json named before (null: none) }.
-async function _overlayFor(run, title, gid, at = null, ended = async () => false) {
+// `held`: the caller holds the gallery's lock (_writeSource). Resolves { dir: the overlay's folder, was: the source its
+// source.json named before (null: none) }.
+async function _overlayFor(run, title, gid, at = null, ended = async () => false, held = false) {
   const dir = overlayDir(gid);
   const path = `${dir}/${SOURCE_FILE}`;
   const text = await folderFiles.readText(run.id, run.root, path);
@@ -1592,16 +1594,17 @@ async function _overlayFor(run, title, gid, at = null, ended = async () => false
     fingerprint, ...(mine ? { rendered: had.source.rendered, failed: had.source.failed } : {}) });
   // A hand-over's read writes nothing: a title whose overlay is to change is read by the check after it.
   if (text !== want && run.handover) throw Object.assign(new BackendError('unavailable', `${dir}: read once the folder is this library's`), { reason: 'unreadable' });
-  if (text !== want) await _writeSource(run.id, run.root, gid, want, ended);
+  if (text !== want) await _writeSource(run.id, run.root, gid, want, ended, held);
   return { dir, was: mine ? had.source : null };
 }
 // Gallery `gid`'s overlay's source.json in folder `folder` written as `text` — every write of one goes here — under
 // the gallery's lock, and only while the gallery the work began for is still the id's (`ended()`, asked once the lock
 // is held: db.js _life, its record read there): its overlay is deleted under that lock too (db.js _deleteOverlay), so a
 // write begun for a gallery deleted since — in any page — lands before that deletion and goes with it, and none comes
-// after it (S35).
-function _writeSource(folder, root, gid, text, ended = async () => false) {
-  return K.locked(gid, async () => { if (!(await ended())) await folderFiles.writeFile(folder, root, `${overlayDir(gid)}/${SOURCE_FILE}`, text); });
+// after it (S35). `held`: the caller holds the gallery's lock (a re-read the gallery's own work made: folderStands).
+function _writeSource(folder, root, gid, text, ended = async () => false, held = false) {
+  const write = async () => { if (!(await ended())) await folderFiles.writeFile(folder, root, `${overlayDir(gid)}/${SOURCE_FILE}`, text); };
+  return held ? write() : K.locked(gid, write);
 }
 
 // Title `title` of the folder (linked-source.js: an archive, a folder of pictures, a PDF) joined to the
@@ -1612,9 +1615,10 @@ function _writeSource(folder, root, gid, text, ended = async () => false) {
 // the page shows the source picture it was made from (keepsDerived); the files of what is dropped stay
 // in the overlay, never read back: its description ties them to that picture.
 // `replace`: a gallery the library keeps, read again (from its overlay, its files where `title` says
-// now), `life` the gallery it is (db.js _life: nothing more is read or written for it once that one has ended).
-// Resolves its id, or null when it has no pages (or wasn't read again: _storeAdopted).
-async function _adoptLinked(run, title, { gid: given = null, replace = null, drop = false, life = null } = {}) {
+// now), `life` the gallery it is (db.js _life: nothing more is read or written for it once that one has ended), `held`:
+// the caller holds the gallery's lock (_writeSource). Resolves its id, or null when it has no pages (or wasn't read
+// again: _storeAdopted).
+async function _adoptLinked(run, title, { gid: given = null, replace = null, drop = false, life = null, held = false } = {}) {
   const ended = async () => !!life && !(await K.stillNow(life));
   const at = title.pictures ? title : await _titlePictures(run, title);
   if (!at || await ended()) return null;
@@ -1622,7 +1626,7 @@ async function _adoptLinked(run, title, { gid: given = null, replace = null, dro
   if (!replace && run.known.has(gid)) return null;
   const kept = replace ? (await K.galleryGet(gid))?.linked : null;
   if (await ended()) return null;
-  const { dir, was } = await _overlayFor(run, title, gid, at, ended);
+  const { dir, was } = await _overlayFor(run, title, gid, at, ended, held);
   if (await ended()) return null;
   // Whether its source is as the library was last told of it (the source it keeps, for one read again;
   // else its overlay's source.json): what a page recorded before content signals were may keep.

@@ -244,7 +244,8 @@ test('S35: a linked gallery\'s overlay is its gallery\'s own — its source.json
   const desktop = (f) => readFileSync(join(repo, 'desktop', 'server', f), 'utf8');
   const site = new Map([...functionsOf(read('folder-library.js')), ...functionsOf(read('db.js'))].map(([name, body]) => [name, asCode(body)]));
   assert.deepEqual([...site].filter(([, body]) => /\bSOURCE_FILE\b/.test(body) && /\bwriteFile\s*\(/.test(body)).map(([name]) => name), ['_writeSource']);
-  assert.match(site.get('_writeSource') ?? '', /\bK\.locked\s*\(\s*gid\b[\s\S]*\bended\s*\(\s*\)[\s\S]*\bwriteFile\s*\(/);
+  // (Under the lock its caller holds where it is the gallery's own work's re-read: `held`, S36.)
+  assert.match(site.get('_writeSource') ?? '', /\bended\s*\(\s*\)[\s\S]*\bwriteFile\s*\([\s\S]*\bheld \? write\(\) : K\.locked\s*\(\s*gid\s*,\s*write\s*\)/);
   assert.match(site.get('_deleteOverlay') ?? '', /\b_galleryLocked\s*\(\s*gid\b/);
   const linked = new Map([...functionsOf(desktop('linked.js'))].map(([name, body]) => [name, asCode(body)]));
   assert.deepEqual([...linked].filter(([name, body]) => name !== 'writeIn' && /\bwriteIn\s*\(/.test(body)).map(([name]) => name), ['overlayFor']);
@@ -290,7 +291,7 @@ test('S36: the website decides whether a gallery is still the one work began for
   assert.match(db, /const _forTransfer = [^\n]*\{ born, \.\.\.rest \}/, 'a stat record travels without its mark');
   for (const fn of ['transferRead', 'transferWrite']) assert.match(site.get(fn) ?? '', /\b_forTransfer\s*\(/, `${fn}: the bundle's stat record without the mark`);
   // A made-up ask that passes no record fails the rule.
-  const madeUp = stillAsks(read('folder-library.js').replace(/(\nasync function folderStands\(gid\) \{\n)/, '$1  if (!K.still(life)) return false;\n'));
+  const madeUp = stillAsks(read('folder-library.js').replace(/(\nasync function folderStands\(.*\) \{\n)/, '$1  if (!K.still(life)) return false;\n'));
   assert.deepEqual(madeUp.filter(a => a.args !== 2).map(a => a.at), ['if (!K.still(life)) return false;']);
 });
 
