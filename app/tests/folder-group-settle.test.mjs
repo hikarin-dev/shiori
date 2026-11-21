@@ -2,9 +2,10 @@
 // group's record `drop` on the website, `together.dropped` on the desktop) is never held for good. One whose place holds
 // no version to stand by — no manifest there, and none this library ever read or wrote there (an earlier version's
 // folder, a linked gallery whose overlay was never described) — is settled: its flag and group go,
-// its series links are tidied against the galleries as they stand, and what waits of it is published. Where this
-// library's stamp names a manifest and none is found for a moment (the drive back), nothing is published over it: it
-// stands once it is back. A gallery that stands by a drop has the galleries its dropped change linked tidied, so none
+// its series links are tidied against the galleries as they stand, and what waits of it is published — so too where its
+// manifest is lost, whatever this library's stamp says (S39: what the place shows decides, as for any gallery; the one
+// guard left, a manifest the same look saw a moment ago and doesn't find now, is folder-group-seen.test.mjs's).
+// A gallery that stands by a drop has the galleries its dropped change linked tidied, so none
 // keeps a link the standing versions contradict. A flag is its own command's. And a later command over a gallery still
 // left to stand is dropped with it until that gallery's folder is back (§8). Both apps through the drivers.
 import test from 'node:test';
@@ -171,30 +172,34 @@ for (const app of ['desktop', 'website']) {
   });
 }
 
-// (c) The guard: this library's stamp names a manifest, which isn't found for a moment — nothing is published over it.
+// (c) Restated (S39): a gallery left to stand whose manifest this library knows is lost — its place shows none — is
+// settled, as a gallery not left to stand in that state is published over (since S31): what the place shows decides,
+// not this library's stamp. (The guard that remains — a manifest the same look saw a moment ago, not found by its
+// re-read — is held by folder-group-seen.test.mjs.)
 for (const app of ['desktop', 'website']) {
-  test(`S38 (c): ${app}: a gallery left to stand whose manifest this library knows isn't found for a moment — nothing is published over it, and it stands once it is back`, { skip }, async (t) => {
+  test(`S38 (c), S39: ${app}: a gallery left to stand whose manifest is lost is settled — its change stands, its links tidied, its place published again, a later write lands`, { skip, todo: 'S39' }, async (t) => {
     const c = await made(t, app, 'of this version');
     const { L, o, m } = c;
+    await L.setTitle(o, 'Kept, retitled');   // a change of its own, waiting with the command
     await L.raw.seriesCommand('attach', m, o);
     theirs(await c.place(m));
-    const dir = await c.place(o), file = /** @type {string} */ (manifestAt(dir)), away = `${file}.away`;
-    const before = fs.readFileSync(path.join(dir, 'metadata.json'), 'utf8');
-    fs.renameSync(file, away);   // not found, for a moment
+    const dir = await c.place(o), file = /** @type {string} */ (manifestAt(dir));
+    fs.rmSync(file);   // lost, for good
+    for (let round = 0; round < 2; round++) {
+      assert.equal(await within(L.flush(), 15000), 'ended');
+      if (app === 'website') await sleep(6500);
+      assert.equal(await within(L.scan(c.a), 15000), 'ended', 'a check');
+      assert.equal(await within(L.flush(), 15000), 'ended');
+    }
+    const r = await records(L);
+    assert.deepEqual(r.flagged, [], 'nothing left to stand');
+    assert.ok(!r.waiting.includes(o), 'nothing of it waits');
+    assert.equal(await L.titleOf(o), 'Kept, retitled', 'its own change stands');
+    assert.ok(fs.existsSync(file), 'a manifest written again');
+    assert.deepEqual(await contradicted(L, [o, m]), [], 'its links tidied against the galleries as they stand');
+    assert.equal(await within(L.putTranslation(o, 1, png(21)), 10000), 'ended', 'a later write of it');
     assert.equal(await within(L.flush(), 15000), 'ended');
-    if (app === 'website') await sleep(6500);
-    assert.equal(await within(L.flush(), 15000), 'ended');
-    assert.ok(!fs.existsSync(file), 'no manifest published over it');
-    assert.equal(fs.readFileSync(path.join(dir, 'metadata.json'), 'utf8'), before, 'nor its descriptions');
-    assert.ok((await records(L)).flagged.includes(o), 'still left to stand');
-    fs.renameSync(away, file);
-    assert.equal(await within(L.scan(c.a), 15000), 'ended', 'a check, the manifest back');
-    assert.equal(await within(L.flush(), 15000), 'ended');
-    if (app === 'website') await sleep(6500);
-    assert.equal(await within(L.flush(), 15000), 'ended');
-    assert.deepEqual((await records(L)).flagged, [], 'it stood');
-    assert.ok(!(await L.meta(o))?.parentId, 'by the folder\'s version: its part of the command dropped');
-    assert.deepEqual(await contradicted(L, [o, m]), []);
+    assert.ok(same(await L.read(o, 1, 'translated'), png(21)), 'lands');
   });
 }
 
