@@ -446,8 +446,37 @@ test('S41: each rule of the step where it has its one place, on both apps', () =
   if (!/kind: 'ok', token: at\.place\.token/.test(read('storage/folder-store-web.js')) || !/kind: 'ok', token: at\.place\.token/.test(desktop('folder-store.js'))) off.push('F: gallery() answers its token');
   // G: the stand's transaction checks the stamp it began with.
   if (!/began !== undefined && \(stat\.result\?\.stamp \?\? null\) !== began/.test(site.get('_storeAdopted') ?? '') || !/began !== undefined && files\._stamp\(gid\) !== began/.test(scan.get('reread') ?? '')) off.push('G: the stamp a stand began with');
+  // (S42 E: and the desktop's linked gallery's stand, linked.js adoptLinked, in its transaction.)
+  if (!/_tx\([\s\S]*replace && began !== undefined && files\._stamp\(gid\) !== began/.test(asCode(new Map([...functionsOf(desktop('linked.js'))]).get('adoptLinked') ?? ''))) off.push('G: the stamp a linked stand began with (desktop adoptLinked)');
   // A: the window opens after the weigher's own hold.
   if (/_weighedGroups\.set/.test(site.get('_weighGroup') ?? '') || /_weighed\.set/.test(files.get('_weighGroup') ?? '')) off.push('A: the weighing alone opens the window');
+  assert.deepEqual(off, []);
+});
+
+test('S42: each rule of the step where it has its one place, on both apps', () => {
+  // Review 17 of S41: a settle that weighed no group acted for a command made since (and the window it opened was
+  // carried forward from member to member); a check waited on every other folder's drive; a folder's removal gave its
+  // not-found deletions up; a publication dropped as it landed left the folder and the library apart for good.
+  const desktop = (f) => readFileSync(join(repo, 'desktop', 'server', f), 'utf8');
+  const site = new Map([...functionsOf(read('folder-library.js')), ...functionsOf(read('db.js'))].map(([name, body]) => [name, asCode(body)]));
+  const scan = new Map([...functionsOf(desktop('scan.js'))].map(([name, body]) => [name, asCode(body)]));
+  const files = new Map([...functionsOf(desktop('files.js'))].map(([name, body]) => [name, asCode(body)]));
+  const off = [];
+  // A: every caller of the weighing acts only while its group is the one weighed, and the window opens only for a real weighing.
+  if (!/_weighedStill\(gid, weighed\)[\s\S]*found\.dir\.publish/.test(site.get('_describe') ?? '')) off.push('A: website _describe acts only for what it weighed');
+  for (const fn of ['_place', '_publish', '_describeArchiveNow']) if (!/_weighedStill\(gid, weighed\)/.test(files.get(fn) ?? '')) off.push(`A: desktop ${fn} acts only for what it weighed`);
+  if (!/weighed\.how !== 'weighed'/.test(site.get('_groupWeighed') ?? '') || !/weighed\.how === 'weighed'/.test(files.get('_groupWeighed') ?? '')) off.push('A: only a real weighing opens the window');
+  // B: a check looks through no other folder's staging (the unfound end: 'S41' E above).
+  if (/activeRoots\(\)/.test(scan.get('removeOrphans') ?? '') || !/library\.files\.resume\(\{ roots: checked \}\)/.test(scan.get('scanLibrary') ?? '')
+    || /stagingDirs\(\)/.test(files.get('_unstage') ?? '')) off.push('B: a check or a publication looks through another folder\'s staging');
+  // C: no removal gives a deletion up, and forgetting a folder keeps its deletions not found.
+  if (/removal/.test(`${site.get('_endUnfound')}${files.get('endUnfound')}`)) off.push('C: an unfound end says removal');
+  if (!/if \(!d\.unfound\) store\.delete/.test(read('db.js')) || !/for \(const d of this\.deletingIn\(root\)\)/.test(files.get('forgetDeletionsIn') ?? '')) off.push('C: forgetting a folder keeps its deletions not found');
+  // D: a publication dropped as it landed leaves the gallery waiting.
+  if (!/else if \(rev != null && !mark\.result\) \{ _markIn\(tx, gid, rev\); dropped = true; \}/.test(site.get('_described') ?? '')
+    || !/dropped = waited && !this\._row\(id\)\?\.pending;\s*if \(dropped\) lib\._s\('UPDATE files SET pending = 1/.test(files.get('describe') ?? '')) off.push('D: a publication dropped as it landed is published again');
+  // E: a linked source read and damaged is 'corrupt' on the desktop's check too.
+  if (!/contract\.readDamaged\(e\) \? 'corrupt'/.test(desktop('linked.js'))) off.push('E: the desktop reports a damaged linked archive corrupt');
   assert.deepEqual(off, []);
 });
 
