@@ -788,14 +788,16 @@ function _root(id, root, purpose, writer) {
     list: (rel) => _list(id, root, rel),
     // The directory, while it names the gallery (galleryIn) — or, with the library's view of it (`view`:
     // { known: the token it last published or read there, or null; over: a damaged version it may publish
-    // over }), its place held (placeIn: 'ok', or 'theirs' with the token of the publication there).
+    // over }), its place held (placeIn: 'ok', or 'theirs' with the token of the publication there). With a view, what
+    // the look found of a manifest there is said either way (`token`: the publication there, null for none — S41: the
+    // hold asking through the contract knows what its first look saw).
     async gallery(name, gid, view = null) {
       if (!view) {
         const found = await galleryIn(id, root, name, String(gid));
         return found.kind === 'ok' ? { kind: 'ok', dir: galleryDir(name, String(gid)) } : found;
       }
       const at = await placeIn(id, root, name, String(gid), { ...view, writer });
-      if (at.kind === 'ok') return { kind: 'ok', dir: galleryDir(name, String(gid), at.place) };
+      if (at.kind === 'ok') return { kind: 'ok', token: at.place.token ?? null, dir: galleryDir(name, String(gid), at.place) };
       if (at.kind === 'theirs') return { kind: 'theirs', token: at.token, dir: galleryDir(name, String(gid), at.place) };
       return at;
     },

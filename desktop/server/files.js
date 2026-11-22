@@ -1403,7 +1403,8 @@ export class FileLibrary {
     }
     if (standing) return contract.unreadable(`gallery ${id} is standing by its folder's version now`);
     // What the first look saw (S40): a manifest at the place, whoever's (`seen`), and whether another writer's (`theirs`).
-    const look = { seen: at.kind === 'theirs' || !!at.place?.token, theirs: at.kind === 'theirs' };
+    // (Asked through the folder store contract — a publication — the answer carries the token itself: S41.)
+    const look = { seen: at.kind === 'theirs' || !!at.place?.token || !!at.token, theirs: at.kind === 'theirs' };
     const stood = await this._stands(id, look).catch(() => false);
     if (!this.still(life)) return contract.unreadable(`gallery ${id} was deleted meanwhile`);
     if (stood?.damaged) return { ...await asked({ known: this._stamp(id), over: at.token }), damaged: stood.damaged };
@@ -1411,7 +1412,7 @@ export class FileLibrary {
     // A hold whose first look saw a manifest never goes on over a place that shows none when it asks again, whoever's
     // stand answered it (S40: a second asker takes the first stand's answer, _standOnce, though that stand may have seen
     // less).
-    if (again?.kind === 'ok' && look.seen && again.place && !again.place.token) return contract.unreadable(`the manifest of gallery ${id} seen a moment ago isn't found now`);
+    if (again?.kind === 'ok' && look.seen && (again.place ? !again.place.token : again.token === null)) return contract.unreadable(`the manifest of gallery ${id} seen a moment ago isn't found now`);
     return again && again.kind !== 'theirs' ? again : contract.unreadable(`the folder's version of gallery ${id} can't be read now`);
   }
   // ── A series command weighed as one (S32, review 9 B1) ──

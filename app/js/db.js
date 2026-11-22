@@ -1931,7 +1931,8 @@ async function _hold(gid, { stat = null, known, deletion = null, ask = null, hel
     return { kind: 'dropped' };
   }
   // What the first look saw (S40): a manifest at the place, whoever's (`seen`), and whether another writer's (`theirs`).
-  const look = { seen: first.kind === 'theirs' || first.place?.token != null, theirs: first.kind === 'theirs' };
+  // (Asked through the folder store contract — a publication — the answer carries the token itself: S41.)
+  const look = { seen: first.kind === 'theirs' || first.place?.token != null || first.token != null, theirs: first.kind === 'theirs' };
   const stood = await _stands(id, held, handover, look).catch(() => false);
   if (stood?.damaged) return { ...await asked({ known: await stamp(), over: first.token }), damaged: stood.damaged };
   const again = stood ? await asked({ known: await stamp() }) : null;
