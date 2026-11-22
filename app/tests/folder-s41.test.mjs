@@ -82,6 +82,8 @@ async function quiet(L) {
     await sleep(1000);
   }
 }
+// Every library folder this app can check now but `except` (the desktop's own first folder too).
+const checkable = async (L, ...except) => (await L.list()).filter(f => !['hidden', 'removing'].includes(f.state) && !f.hidden && !(L.app === 'website' && f.id === L.home) && !except.includes(f.id)).map(f => f.id);
 async function until(cond, ms = 10000) { for (let i = 0; i < ms / 50 && !(await cond()); i++) await sleep(50); return cond(); }
 async function rounds(L, ids, n = 2) {
   for (let i = 0; i < n; i++) {
@@ -169,7 +171,7 @@ for (const app of APPS) {
 // A gallery moved by hand into folder B and deleted, folder A (its own) checked first: never listed again, the folder in
 // B deleted at B's check.
 for (const app of APPS) {
-  test(`S41 E: ${app}: moved by hand into B, deleted, A checked first — never listed again, the folder in B deleted at B's check`, { skip, todo: 'S41' }, async (t) => {
+  test(`S41 E: ${app}: moved by hand into B, deleted, A checked first — never listed again, the folder in B deleted at B's check`, { skip }, async (t) => {
     const { L, base } = await library(t, app);
     const f = await folders(L, base, 'A', 'B');
     await L.setDefault(f.a);
@@ -189,7 +191,7 @@ for (const app of APPS) {
     assert.deepEqual(await owed(L), [], 'nothing owed');
   });
   // A restart between A's check and B's: what the deletion needs remembered survives it.
-  test(`S41 E: ${app}: the same with the app started again between A's check and B's`, { skip, todo: 'S41' }, async (t) => {
+  test(`S41 E: ${app}: the same with the app started again between A's check and B's`, { skip }, async (t) => {
     const { L, base } = await library(t, app);
     if (!L.restart) { t.skip('no restart left in this process'); return; }
     const f = await folders(L, base, 'A', 'B');
@@ -219,7 +221,7 @@ for (const app of APPS) {
     await L.deleteGallery(g);
     await until(async () => (await owed(L)).some(o => o.unfound));
     await L.hide(f.b);
-    assert.equal(await within(L.scan(f.a), 15000), 'ended');
+    for (const id of await checkable(L)) assert.equal(await within(L.scan(id), 15000), 'ended');
     assert.deepEqual(await owed(L), [], 'given up');
     await L.show(f.b);
     assert.equal(await within(L.scan(f.b), 15000), 'ended');
@@ -237,8 +239,7 @@ for (const app of APPS) {
     fs.renameSync(/** @type {string} */ (await L.dirOf(g)), aside);
     await L.deleteGallery(g);
     await until(async () => (await owed(L)).some(o => o.unfound));
-    assert.equal(await within(L.scan(f.a), 15000), 'ended');
-    assert.equal(await within(L.scan(f.b), 15000), 'ended');
+    for (const id of await checkable(L)) assert.equal(await within(L.scan(id), 15000), 'ended');
     assert.deepEqual(await owed(L), [], 'ruled out everywhere, given up');
     fs.renameSync(aside, path.join(f.B, 'put back'));
     assert.equal(await within(L.scan(f.b), 15000), 'ended');

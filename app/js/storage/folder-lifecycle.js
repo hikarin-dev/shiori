@@ -159,11 +159,22 @@ export const UNFOUND_LOOKS = 3;
 export const leavesOpen = (problem) => problem.reason === 'unreadable';
 // What a look's end does with a deletion waiting `unfound`: `met` — it met the gallery's folder or archive
 // (deleted there: kept until that is done); `whole` — nothing it walked leaves the question open; `misses`
-// — the looks it waited through already that couldn't rule it out. Resolves 'keep', 'forget', or the
-// deletion's count of such looks from now on.
-/** @param {{ met: boolean, whole: boolean, misses?: number | null }} look @returns {'keep' | 'forget' | number} */
-export function unfoundEnd({ met, whole, misses = 0 }) {
+// — the looks of its own folder it waited through already that couldn't rule it out; `own` — whether the look was of
+// the deletion's own folder; `at` — the folder looked in; `ruledOut` — the folders whose whole looks since it was marked
+// didn't meet it; `need` — every folder it could be in now (its own, and each other this app can check now: shown,
+// this app's, in reach — S41: the gallery's folder may have been moved by hand into another). Resolves 'keep',
+// 'forget', the deletion's count of its own folder's open looks from now on, or `{ ruledOut }`, the folders ruling it
+// out from now on. Given up only once every folder of `need` ruled it out (or its own folder's open looks reach
+// UNFOUND_LOOKS); a folder that can't be checked now isn't in `need`, so it keeps nothing waiting (plan §8).
+/** @param {{ met: boolean, whole: boolean, misses?: number | null, own?: boolean, at?: string | null, ruledOut?: string[], need?: string[] }} look
+ * @returns {'keep' | 'forget' | number | { ruledOut: string[] }} */
+export function unfoundEnd({ met, whole, misses = 0, own = true, at = null, ruledOut = [], need = [] }) {
   if (met) return 'keep';
-  const next = (misses ?? 0) + 1;
-  return whole || next >= UNFOUND_LOOKS ? 'forget' : next;
+  if (!whole) {
+    if (!own) return 'keep';
+    const next = (misses ?? 0) + 1;
+    return next >= UNFOUND_LOOKS ? 'forget' : next;
+  }
+  const out = [...new Set([...(ruledOut ?? []), ...(at != null ? [String(at)] : [])])];
+  return need.every(f => out.includes(String(f))) ? 'forget' : { ruledOut: out };
 }

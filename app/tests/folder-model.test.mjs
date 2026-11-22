@@ -1399,7 +1399,7 @@ const REGRESSIONS = [
     steps: [['newGallery', 1], ['movedByHand', [0, 'B', 'none', 0]], ['deleteGallery', 0], ['checkB', null]] })),
   // S41 E: the same with the gallery's own folder checked first — its whole check gave the deletion up and B's check
   // then joined the folder (both apps; 1.3.0 too).
-  ...['website', 'desktop'].map(app => ({ app, todo: 'S41', name: 'a gallery moved by hand into another folder and deleted stays deleted when its own folder is checked first',
+  ...['website', 'desktop'].map(app => ({ app, name: 'a gallery moved by hand into another folder and deleted stays deleted when its own folder is checked first',
     steps: [['newGallery', 1], ['movedByHand', [0, 'B', 'none', 0]], ['deleteGallery', 0], ['scan', null], ['checkB', null]] })),
   // S41 C (the 10-minute run of S40's close-out, website seed 163385648, 'with drawing'; since 286a839, S35): a PDF's
   // gallery deleted, a check, the PDF drawn again — the new file came back under the deleted gallery's id.

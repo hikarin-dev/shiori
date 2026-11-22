@@ -1516,10 +1516,15 @@ const _deletedFound = (d, folder, dir, work = null) => _deletion(d, { folder, di
 // their ids) kept until they are done where it met them; the rest forgotten when it ruled them out
 // (`whole`), else counted (`misses`, kept with the deletion), and given up after a few such looks (review
 // 7 A1).
+// Every deletion waiting `unfound` is weighed at every folder's look (S41): another folder's whole look that didn't
+// meet it rules that folder out (`ruled`, kept with the deletion: a field of its record), and it is given up only once
+// its own folder and every other this app can check now (_checkable) ruled it out.
 async function _endUnfound(folder, met, whole) {
-  for (const d of await _deletions(folder)) {
+  const need = await _checkable();
+  for (const d of await _deletions()) {
     if (!d.unfound) continue;
-    const end = unfoundEnd({ met: met.has(d.id), whole, misses: d.misses });
+    const own = d.folder === folder;
+    const end = unfoundEnd({ met: met.has(d.id), whole, misses: d.misses, own, at: folder, ruledOut: d.ruled ?? [], need: [...new Set([d.folder, ...need])] });
     if (end === 'keep') continue;
     if (end === 'forget') {
       await _forgetRetiring(d.folder, d.dir);
@@ -1527,10 +1532,19 @@ async function _endUnfound(folder, met, whole) {
     } else {
       await _recordsWrite((store) => {
         const now = store.get(d.id);   // as it is now: one done meanwhile stays done
-        now.onsuccess = () => { if (now.result?.unfound) store.put({ ...now.result, misses: end }); };
+        now.onsuccess = () => { if (now.result?.unfound) store.put({ ...now.result, ...(typeof end === 'number' ? { misses: end } : { ruled: end.ruledOut }) }); };
       });
     }
   }
+}
+// The library folders this app can check now: shown, this app's, in reach (their root to be had now).
+async function _checkable() {
+  const out = [];
+  for (const f of (await _folders()).byId.values()) {
+    if (f.state !== 'shown') continue;
+    if (await _usable(f.id).catch(() => false)) out.push(String(f.id));
+  }
+  return out;
 }
 // Gallery `gid`'s own folder `dir` (in folder `folder`, its handle `root`) deleted: an archive whole
 // while it is the gallery's (_ownsDir) and holds nothing but what Shiori put there (_archiveOnlyOwn); a
