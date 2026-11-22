@@ -44,6 +44,45 @@ function run(body) {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
+// S41: the IndexedDB stand-in starts a waiting transaction from another chain's task; the net follows each transaction's
+// own chain. `idb`: the stand-in loaded and a database with one store opened, its opening's tasks let pass.
+const idb = `await import(${JSON.stringify(pathToFileURL(path.join(import.meta.dirname, '..', '..', 'node_modules', 'fake-indexeddb', 'auto', 'index.mjs')).href)});
+    const db = await new Promise((resolve, reject) => { const q = indexedDB.open('net', 1); q.onupgradeneeded = () => q.result.createObjectStore('s');
+      q.onsuccess = () => resolve(q.result); q.onerror = () => reject(q.error); });
+    for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));`;
+
+test('S41: a lock asked from a transaction\'s handler is the chain\'s that made the transaction — not one holding a lock whose task started it', { todo: 'S41' }, () => {
+  // Chain A holds a gallery's lock and makes tx1; chain B, holding nothing, makes tx2 behind it (started as tx1 ends, in
+  // A's task) and asks another gallery's lock from tx2's 'complete': B holds nothing — nothing reported.
+  const r = run(`${idb}
+    let release, made, asked; const held = new Promise((x) => { release = x; }), txMade = new Promise((x) => { made = x; }), done = new Promise((x) => { asked = x; });
+    const a = L.request('shiori:gallery:A', async () => { const tx1 = db.transaction('s', 'readwrite'); tx1.objectStore('s').put(1, 'a'); made(); await held; });
+    await txMade;
+    const tx2 = db.transaction('s', 'readwrite');
+    tx2.objectStore('s').put(2, 'b');
+    tx2.addEventListener('complete', () => { L.request('shiori:gallery:B', async () => {}).then(asked); });
+    await done; release(); await a;`);
+  assert.equal(r.status, 0, r.text);
+  assert.doesNotMatch(r.text, /lock net/);
+});
+
+test('S41: a holder\'s transaction started by a chain that holds nothing — its handler asking a second gallery\'s lock is reported', { todo: 'S41' }, () => {
+  // Chain N, holding nothing, makes txN; chain H holds gallery 1's lock and makes txH behind it (started as txN ends, in
+  // N's task), and asks gallery 2's lock from txH's 'complete' while it still holds gallery 1's. If the hook the net rests
+  // on is gone (the stand-in's classes changed), this goes unreported and the test fails.
+  const r = run(`${idb}
+    const txN = db.transaction('s', 'readwrite'); txN.objectStore('s').put(0, 'n');
+    let asked; const done = new Promise((x) => { asked = x; });
+    await L.request('shiori:gallery:1', async () => {
+      const txH = db.transaction('s', 'readwrite'); txH.objectStore('s').put(1, 'h');
+      txH.addEventListener('complete', () => { L.request('shiori:gallery:2', async () => {}).catch(() => {}).then(asked); });
+      await done;
+    }).catch(() => {});
+    await sleep(50);`);
+  assert.notEqual(r.status, 0, r.text);
+  assert.match(r.text, /holds shiori:gallery:1, waits for shiori:gallery:2/);
+});
+
 test('S37: a made-up wait for its own gallery\'s lock fails the run, though the code swallows it', () => {
   const r = run(`await L.request('shiori:gallery:1', async () => {
     const again = L.request('shiori:gallery:1', () => {}).catch(() => {});
