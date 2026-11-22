@@ -1511,6 +1511,12 @@ async function _deleteOne(d, at, work) {
 // Deletion `d`, its gallery's folder not where its record has it, finished at `dir` in folder `folder`,
 // where a check met a folder naming its gallery (F4): deleted as it would have been where it was.
 const _deletedFound = (d, folder, dir, work = null) => _deletion(d, { folder, dir }, work);
+// Deletion `d`, not yet marked `unfound`, tried at its own place by a check of another folder that met a place naming
+// its gallery (S40: folder-library.js _deletionMet) — as its own folder's check would, under its gallery's lock and
+// lock shiori:deleting:<its folder>, but only while its gallery's lock is free: one whose gallery's work (or its own
+// deletion) is under way is busy, left for a later look. Never rejects.
+const _deletionTried = (d) => folderFiles.withLock(`shiori:gallery:${d.gid}`, () => folderFiles.withLock(`shiori:deleting:${d.folder}`,
+  () => _deleteOne(d, { folder: d.folder, dir: d.dir }, null)), { ifFree: true }).catch(() => {});
 // What waited `unfound` in folder `folder` once a look at it ended (a check, or its removal's:
 // folder-library.js _finishUnfound), as folder-lifecycle.js unfoundEnd weighs each: those it met (`met`:
 // their ids) kept until they are done where it met them; the rest forgotten when it ruled them out
@@ -2478,7 +2484,7 @@ const _folderLibrary = createFolderLibrary({
   note: _note, noteIn: _noteIn, noteChecked: _noteChecked, attentionOf: _attentionOf, dismiss: _dismiss, forgetAttention: _forgetAttention,
   placeOf: _placeOf, placeKey: _placeKey, access: _access, rootOf: _rootOf, usable: _usable, readRootOf: _readRootOf,
   removedNotes: _removedNotes, publishRemoved: _publishRemoved,
-  deletions: _deletions, applyDeletions: _applyDeletions, forgetDeletions: _forgetDeletions, deletedFound: _deletedFound, endUnfound: _endUnfound,
+  deletions: _deletions, applyDeletions: _applyDeletions, forgetDeletions: _forgetDeletions, deletedFound: _deletedFound, deletionTried: _deletionTried, endUnfound: _endUnfound,
   deletionHeld: _deletionHeld,
   me: _me, myLabel: _myLabel, readClaim: _readClaim, writeClaim: _writeClaim, noteEpoch: _noteEpoch, randomId: _randomId,
   markOf: _markOf, setHandover: _setHandover, noteReleased: _noteReleased, releasedOf: _releasedOf, groupWaiting: _groupWaiting,

@@ -763,8 +763,8 @@ async function _checkOnce(id, folder, { onProgress = () => {}, stopped = () => f
   const deletions = await K.deletions().catch(() => []);
   const deleting = deletions.filter(d => d.folder === id && !d.unfound).map(d => d.dir);
   // A deleted gallery whose folder wasn't where its deletion had it (renamed or moved by hand): its
-  // folder, met here, is deleted, never adopted (F4, S10) — its deletion `met`, kept until it is done.
-  run.deleted = new Map(deletions.filter(d => d.unfound || (handover && d.folder === id)).map(d => [String(d.gid), d]));
+  // folder, met here, is deleted, never adopted (F4, S10) — its deletion `met`, kept until it is done; the
+  // deletions read as each place is met (_deletionMet, S40).
   run.met = new Set();
   // Places the library keeps galleries at aren't looked into — but a series export is read again: a chapter
   // of it that couldn't be read when the others joined joins now (S26a).
@@ -982,6 +982,23 @@ const _entryText = async (entry) => new TextDecoder().decode(await entry.read())
 // removed.json can't be read (`run.removed` null: review 6 F4), till a check reads it. A chapter of a
 // series export whose removal removed.json notes (its own note, or the archive's: db.js _goneLater) is no
 // gallery's — never joined, nor taken for a copy of one it left for a folder (review 7 A5).
+// The deletion a place naming gallery `gid` (one the library doesn't have) meets, read as the place is met — never once
+// as the check began (S40: one recorded meanwhile, or owed in another folder and not tried yet, counts): one marked
+// `unfound` (its gallery's folder wasn't where it had it), or — a hand-over's read — one of this folder's, as it is;
+// one not marked is tried first at its own place, as its own folder's check would (db.js deletionTried), and the
+// records read again: marked now → as `unfound`; gone (done there) → null: what was met is a copy, and joins; still
+// owed (its folder out of reach, not to be written by this app now, its gallery busy) → undefined: passed over.
+// null where none is owed. (A hand-over's read deletes nothing and weighs only its own folder's, S29a's rule 3.)
+async function _deletionMet(run, gid) {
+  const of = async () => (await K.deletions()).find(d => String(d.gid) === String(gid)) ?? null;
+  let d = await of().catch(() => undefined);
+  if (d === undefined) return undefined;
+  if (!d || d.unfound) return d;
+  if (run.handover) return d.folder === run.id ? d : null;
+  await K.deletionTried(d);
+  d = await of().catch(() => undefined);
+  return d && !d.unfound ? undefined : d;
+}
 async function _joinOwn(run, found, kept) {
   if (found.legacy) { run.problems.push({ path: found.path, reason: 'unsupported' }); return; }
   if (found.series) {
@@ -992,7 +1009,8 @@ async function _joinOwn(run, found, kept) {
     if (found.inner && (!run.removed || (run.removed.some(r => r.path === found.path) && chapterRemoved(run.removed,
       { path: found.path, inner: found.inner, fingerprint: (await K.archiveOf(run.id, run.root, found.path))?.fingerprint ?? null })))) return;
     if (!run.known.has(found.id)) {
-      const deleted = run.deleted.get(found.id);
+      const deleted = await _deletionMet(run, found.id);
+      if (deleted === undefined) return;   // still owed, not to be tried or told now: passed over, the next check tries again
       // A hand-over's read deletes nothing, but weighs the deletion there (S29a's rule 3): dropped, the gallery joins.
       const dropped = deleted && run.handover && !found.inner && (await K.deletionHeld(deleted, run.id, found.path)) === 'dropped';
       if (deleted && !dropped) {

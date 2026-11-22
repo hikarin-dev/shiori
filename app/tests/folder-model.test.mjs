@@ -1395,7 +1395,7 @@ const REGRESSIONS = [
   // tried at its own place — a check deleted where it met only a deletion already marked `unfound`. Now a check that
   // meets a place naming a gallery whose deletion is still owed tries that deletion first (website folder-library.js
   // _joinOwn, desktop scan.js scanLibrary). The desktop passed by timing.
-  ...['website', 'desktop'].map(app => ({ app, todo: app === 'website' ? 'S40' : undefined, name: 'a gallery moved by hand into another folder and deleted stays deleted at that folder\'s check',
+  ...['website', 'desktop'].map(app => ({ app, name: 'a gallery moved by hand into another folder and deleted stays deleted at that folder\'s check',
     steps: [['newGallery', 1], ['movedByHand', [0, 'B', 'none', 0]], ['deleteGallery', 0], ['checkB', null]] })),
 ];
 

@@ -264,7 +264,7 @@ for (const app of ['desktop', 'website']) {
 // folder the person moved by hand into B, deleted, its deletion's first file call held open, so B's check meets the
 // folder with the deletion not yet tried — the gallery is never listed again, its folder in B goes, nothing is owed.
 for (const app of ['desktop', 'website']) {
-  test(`S40 B: ${app}: a gallery moved by hand into another folder and deleted, that folder checked before the deletion is tried — never listed again`, { skip, todo: 'S40' }, async (t) => {
+  test(`S40 B: ${app}: a gallery moved by hand into another folder and deleted, that folder checked before the deletion is tried — never listed again`, { skip }, async (t) => {
     const { L, base } = await library(t, app);
     const { A, B, a, b } = await twoFolders(L, base);
     const g = await L.newGallery('Kept');
@@ -282,11 +282,13 @@ for (const app of ['desktop', 'website']) {
     const listed = async () => (await L.galleries()).map(String).includes(String(g));
     assert.equal(await listed(), false, 'not listed after B\'s check');
     go.open();
+    // (B first: a whole check of A that doesn't meet the gallery's folder gives its deletion up once it is marked
+    // `unfound` — F4's own rule, plan §8 — and a folder naming it met after that is taken for the person's copy.)
     for (let i = 0; i < 2; i++) {
       assert.equal(await within(L.flush(), 15000), 'ended');
       if (app === 'website') await sleep(6500);
-      assert.equal(await within(L.scan(a), 15000), 'ended');
       assert.equal(await within(L.scan(b), 15000), 'ended');
+      assert.equal(await within(L.scan(a), 15000), 'ended');
       assert.equal(await within(L.flush(), 15000), 'ended');
       assert.equal(await listed(), false, `not listed after round ${i + 1}`);
     }
@@ -295,10 +297,9 @@ for (const app of ['desktop', 'website']) {
     assert.equal(fs.readdirSync(A).filter(n => !n.startsWith('.')).length, 0, 'nothing of it in A');
   });
   // The neighbour that stays: a copy made by hand in B, the gallery then deleted at its own folder, B checked — once
-  // the deletion is done, as today; and at once, the deletion still owed (tried first at its own folder: done there,
-  // what B's check met is the copy — before S40 it joined and the deletion, then finding the id's gallery again, left
-  // the gallery's own folder in A).
-  for (const when of ['once the deletion is done', 'at once']) test(`S40 B: ${app}: a copy made by hand in another folder joins at that folder's check, the gallery deleted — B checked ${when}`, { skip, todo: when === 'at once' ? 'S40' : undefined }, async (t) => {
+  // the deletion is done, as today; and at once, the deletion still owed: tried first at its own folder (or, under way
+  // there, passed over by that check and the copy joining at the next). Both green before S40 and after.
+  for (const when of ['once the deletion is done', 'at once']) test(`S40 B: ${app}: a copy made by hand in another folder joins at that folder's check, the gallery deleted — B checked ${when}`, { skip }, async (t) => {
     const { L, base } = await library(t, app);
     const { B, b } = await twoFolders(L, base);
     const g = await L.newGallery('Copied');
@@ -311,6 +312,9 @@ for (const app of ['desktop', 'website']) {
     if (when !== 'at once') assert.deepEqual(await owed(L), [], 'the deletion done');
     assert.equal(await within(L.scan(b), 15000), 'ended');
     assert.equal(await within(L.flush(), 15000), 'ended');
+    for (let i = 0; i < 200 && (await owed(L)).length; i++) await sleep(50);
+    assert.deepEqual(await owed(L), [], 'the deletion done');
+    if (!(await L.galleries()).map(String).includes(String(g))) assert.equal(await within(L.scan(b), 15000), 'ended', 'B checked again');
     assert.ok(!fs.existsSync(at), 'its own folder deleted');
     assert.ok((await L.galleries()).map(String).includes(String(g)), 'the copy joined');
     assert.equal(await L.dirOf(g), path.join(B, 'copy'));

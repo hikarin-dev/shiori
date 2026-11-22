@@ -466,19 +466,19 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   // meets at a place naming its gallery (not only one whose place was gone): its place held as the deletion
   // recorded it (files.js hold, S29a's rule 3), where another app published the gallery there since the deletion
   // is dropped (reported once) and the gallery joins as the folder has it; else the deletion stands, done next.
-  const unfound = new Map(files._deletingRows().filter(d => d.unfound || handover).map(d => [String(d.gid), d]));
+  // The deletions are read as each place is met (deletionMet, S40): one owed and not tried yet is tried first.
   const met = new Set();
   for (const g of unknown.filter(g => !g.claimed && (g.read?.kind === 'gallery' || g.unreadable))) {
     const id = g.read ? (g.read.described?.id ? String(g.read.described.id) : null) : g.id ?? null;
     const row = id && files._row(id);
-    if (!row && unfound.has(id) && handover) {
-      const d = unfound.get(id);
+    const d = !row && id ? await deletionMet(library, id, handover) : null;
+    if (d === undefined) g.claimed = true;   // still owed, not to be tried or told now: passed over, the next check tries again
+    else if (d && handover) {
       const whose = await files.hold(d.gid, { rel: g.rel, known: d.stamp ?? null,
         deletion: { epoch: d.epoch ?? null, forget: () => library._s('DELETE FROM deleting WHERE dir = ?').run(d.dir) } });
       if (whose.kind !== 'dropped') { g.claimed = true; if (d.unfound) met.add(d.dir); }
-    } else if (!row && unfound.has(id)) {
+    } else if (d) {
       g.claimed = true;
-      const d = unfound.get(id);
       met.add(d.dir);
       await files.deletedFound(d, g.rel, null, g.format === 'folder');
     } else if (g.read && row && !row.source && row.path !== g.rel && (!checked.has(files._split(row.path).root) || present.has(id)) && !joined.has(id)
@@ -584,6 +584,19 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   out.removed += await removeOrphans(library, out.unreferenced, checked);
   library.files.resume();   // galleries found again settle what waited for them
   return out;
+}
+
+// The deletion a place naming gallery `id` (one the index doesn't have) meets, read as the place is met — never once
+// as the check began (S40: one recorded meanwhile, or owed in another library folder and not tried yet, counts): one
+// marked `unfound`, or — a hand-over's read, which deletes nothing and weighs it (S29a's rule 3) — any; one not marked
+// is tried first at its own place, as its own folder's check would (files.js deletionTried), and the rows read again:
+// marked now → it (deleted where it was met); gone (done there) → null: what was met is a copy, and joins; still owed
+// (its folder out of reach, not to be written now, a deletion of it under way) → undefined: passed over. null where none.
+async function deletionMet(library, id, handover) {
+  const d = library.files._deletingRows().find(r => String(r.gid) === String(id)) ?? null;
+  if (!d || d.unfound || handover) return d;
+  const now = await library.files.deletionTried(d);
+  return now && !now.unfound ? undefined : now;
 }
 
 // Deletions waiting `unfound` in library folder `root` (their gallery's folder or archive wasn't where the

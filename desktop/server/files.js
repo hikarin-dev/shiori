@@ -1233,6 +1233,15 @@ export class FileLibrary {
   deletedFound(d, rel, work, folder) {
     return this._queued(this._split(rel).root, () => this._deleteOne(d, rel, work, folder));
   }
+  // Deletion `d`, not marked `unfound`, tried at its own place by a check of another library folder that met a place
+  // naming its gallery (S40: scan.js deletionMet) — as its own folder's check would, unless a deletion of that folder is
+  // under way (busy: left for a later look, never waited for by a check of another folder). Resolves its row as it is
+  // then (null: done).
+  async deletionTried(d) {
+    const root = this._split(d.dir).root;
+    if (!this._deletions.has(root)) await this._queued(root, () => this._deleteOne(d, d.dir, null)).catch(() => {});
+    return this._deletingRows().find(r => r.dir === d.dir) ?? null;
+  }
   // What waited `unfound` in library folder `root` once a look at it ended (a check, or its removal's:
   // scan.js finishUnfound), as folder-lifecycle.js unfoundEnd weighs each: those it met (`met`: their
   // `dir`s) kept until they are done where it met them; the rest forgotten when it ruled them out
