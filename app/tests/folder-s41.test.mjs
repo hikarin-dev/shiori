@@ -149,12 +149,16 @@ for (const app of APPS) {
     const to = path.join(f.B, 'moved');
     fs.renameSync(/** @type {string} */ (await L.dirOf(g)), to);
     const go = gate();
-    // (The gallery's own place in A, 'Kept', is what A's deletion looks at and B's check never needs: held on both apps —
-    // the website's calls name a path in the folder picked. Not all of A: the desktop's check of any folder looks at the
-    // library's staging folder, which lives in the default folder, A here.)
+    // The gallery's own place in A, 'Kept', held as the deletion is recorded (it is what A's deletion looks at); then, the
+    // deletion owed, all of A's drive: B's check makes no call on another folder's drive, on either app (S42 B — before
+    // S42 only 'Kept' was held all through: the desktop's check looked through every active folder's staging, the
+    // website's end read every shown folder's library.json).
     if (app === 'website') fsa.hold((call) => (call.path === 'Kept' || call.path.startsWith('Kept/') ? go.at : null));
     else faults.holdIn((call) => (path.resolve(call.path).startsWith(path.resolve(f.A, 'Kept')) ? go.at : null));
     const deleting = L.deleteGallery(g);
+    assert.ok(await until(async () => (await owed(L)).some(d => d.gid === String(g))), 'its deletion owed');
+    if (app === 'website') fsa.hold((call, root) => (path.resolve(root) === path.resolve(f.A) ? go.at : null));
+    else faults.holdIn((call) => (path.resolve(call.path).startsWith(path.resolve(f.A) + path.sep) ? go.at : null));
     assert.equal(await within(L.scan(f.b), 15000), 'ended', 'B\'s check ends');
     assert.equal(await listed(L, g), false, 'passed over');
     assert.ok(fs.existsSync(to), 'nothing deleted at B yet');

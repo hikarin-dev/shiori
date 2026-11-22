@@ -613,8 +613,10 @@ export class FileLibrary {
   // are settled now, and out-of-date descriptions written in due course. Folders in staging nothing
   // is staged in any more (the app closed before clearing them) go. Again whenever a folder can be
   // written to again (shown, taken back) — what waited for it then goes there, a move it was in
-  // finished.
-  resume() {
+  // finished. `roots`: after a check of those folders (scan.js), whose staging alone is looked through — a check of
+  // one folder makes no call on another's drive (S42 B); the galleries' work is each its own folder's, in the
+  // background, as ever.
+  resume({ roots = null } = {}) {
     const lib = this.library;
     this.finishMoves().catch(() => {});
     this.cutBack().catch(() => {});
@@ -634,9 +636,9 @@ export class FileLibrary {
         await this._retire();
         await this.applyDeletions();
       }).catch(() => {});
-    for (const dir of lib.stagingDirs()) {
+    for (const dir of roots ? lib.stagingDirs([...roots]) : lib.stagingDirs()) {
       disk.readdir(dir).then(async (names) => {
-        for (const name of names) if (!ids.has(name)) await this._unstage(name);
+        for (const name of names) if (!ids.has(name)) await this._unstage(name, [dir]);
       }).catch(() => {});
     }
   }
@@ -1238,14 +1240,16 @@ export class FileLibrary {
   // `dir`s) kept until they are done where it met them; the rest forgotten when it ruled them out
   // (`whole`), else counted, and given up after a few such looks (review 7 A1).
   // Every deletion waiting `unfound` is weighed at every folder's look (S41): another folder's whole look that didn't meet
-  // it rules that folder out (`ruled`, kept with the deletion's row), and it is given up only once its own folder and every
-  // other this app can check now (activeRoots: shown, this app's, in reach) ruled it out.
+  // it rules that folder out (`ruled`, kept with the deletion's row, written only when it changes), and it is given up only
+  // once its own folder and every other it may still be in ruled it out — which those are is told without a call on any
+  // of them (folders.js unfoundMayBeIn, S42 B), and only when one waits so.
   // (A folder's removal — `removal`: its look before it leaves the library, scan.js finishUnfound — gives its own
   // deletions up by its own whole look, as before S41: a removal never waits on other folders' checks.)
   endUnfound(root, met, whole, { removal = false } = {}) {
-    const need = removal ? [] : this.library.activeRoots().map(String);
-    for (const d of this._deletingRows(removal ? root : null)) {
-      if (!d.unfound) continue;
+    const waiting = this._deletingRows(removal ? root : null).filter(d => d.unfound);
+    if (!waiting.length) return;
+    const need = removal ? [] : this.library.folders.unfoundMayBeIn().map(String);
+    for (const d of waiting) {
       const own = this._split(d.dir).root === root;
       const end = lifecycle.unfoundEnd({ met: met.has(d.dir), whole, misses: d.misses, own, at: root, ruledOut: d.ruled ? JSON.parse(d.ruled) : [],
         need: [...new Set([String(this._split(d.dir).root), ...need])] });
@@ -2377,10 +2381,13 @@ export class FileLibrary {
   // own folder in that staging, once nothing is left in it either: a check looks into every folder of
   // .shiori/ (scan.js sweepLeftovers), which would cost it a look each (a page being staged as it goes
   // makes it again: library.js _writeStaged). Neither folder goes while a file is on its way into it: each
-  // is removed through library.js _clearStaging.
-  async _unstage(gid) {
+  // is removed through library.js _clearStaging. Looked for in the library's own staging and its own in the gallery's
+  // folder — where its pages are staged (library.js _stagedName) — or `where` (the staging folders a start lists):
+  // never another folder's, so a publication makes no call on another folder's drive (S42 B; one left there is that
+  // folder's check's to clear, scan.js removeOrphans).
+  async _unstage(gid, where = null) {
     const lib = this.library;
-    const own = lib.stagingDirs();
+    const own = where ?? lib.stagingDirs([this.rootFor(gid)]);
     const before = this._before.has(String(gid)) ? lib.folders.ids().filter(id => lib.folders.writable(id)).map(id => lib._stagingOf(id)) : [];
     const emptyIn = async (dir) => (await disk.readdir(dir).catch(() => null))?.length === 0;
     for (const staging of [...own, ...before]) {

@@ -291,6 +291,13 @@ export class Folders {
   }
   // The folders shown that this library may write to: what a check of every folder looks into.
   activeRoots() { return this._rows().filter(r => r.state === 'shown' && this.writable(r.id)).map(r => r.id); }
+  // The folders a deletion not found may still be in (folder-lifecycle.js unfoundMayBeIn), told from what the library
+  // already knows of each — its row's state, the last claim read of it (heldElsewhere, nothing read again), which folder
+  // its path was last found to hold (_identity's) — with no call on any folder (S42 B: a look at one folder never waits
+  // on another's drive; before, activeRoots read each one's library.json at the end of every check).
+  unfoundMayBeIn() {
+    return this._rows().filter(r => lifecycle.unfoundMayBeIn({ state: r.state, taken: this.heldElsewhere(r.id, { read: false }), reach: this._ids.get(r.id)?.status ?? null })).map(r => r.id);
+  }
   // Folder `id` as folder-lifecycle.js weighs it: { id, state, isDefault, owned, reachable }.
   _facts(id) {
     const { reachable, access } = this.probe(id);

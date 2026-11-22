@@ -226,7 +226,7 @@ for (const app of APPS) {
 // check and a publication in A, with no call on B — with nothing waiting `unfound`, and with a deletion waiting so.
 for (const app of APPS) {
   for (const waiting of [false, true]) {
-    test(`S42 B: ${app}: folder B's drive not answering — A's checks and a publication in A end with no call on B${waiting ? ', a deletion waiting unfound' : ''}`, { skip, todo: 'S42' }, async (t) => {
+    test(`S42 B: ${app}: folder B's drive not answering — A's checks and a publication in A end with no call on B${waiting ? ', a deletion waiting unfound' : ''}`, { skip }, async (t) => {
       const { L, base } = await library(t, app);
       const f = await folders(L, base, 'A', 'B');
       await L.setDefault(f.a);
@@ -256,7 +256,7 @@ for (const app of APPS) {
 // The cost held: an idle check of A, B answering, makes no call on B's drive — counted, with and without a deletion
 // waiting unfound.
 for (const app of APPS) {
-  test(`S42 B: ${app}: an idle check of A makes no call on B's drive, with and without a deletion waiting`, { skip, todo: 'S42' }, async (t) => {
+  test(`S42 B: ${app}: an idle check of A makes no call on B's drive, with and without a deletion waiting`, { skip }, async (t) => {
     const { L, base } = await library(t, app);
     const f = await folders(L, base, 'A', 'B');
     await L.setDefault(f.a);
@@ -282,7 +282,7 @@ for (const app of APPS) {
 // Website: a gallery moved by hand from A into B and deleted (its deletion waiting unfound) as A is checked with B's
 // permission waiting to be asked again (after a reload, say): B still counts — kept — and B's check deletes it where it
 // meets it, once granted.
-test('S42 B: website: a deletion waiting unfound as A is checked, B\'s permission waiting to be asked — kept, then deleted where B\'s check meets it', { skip, todo: 'S42' }, async (t) => {
+test('S42 B: website: a deletion waiting unfound as A is checked, B\'s permission waiting to be asked — kept, then deleted where B\'s check meets it', { skip }, async (t) => {
   const { L, base } = await library(t, 'website');
   const f = await folders(L, base, 'A', 'B');
   await L.setDefault(f.a);

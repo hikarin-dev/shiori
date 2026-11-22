@@ -436,7 +436,10 @@ test('S41: each rule of the step where it has its one place, on both apps', () =
   if (/deletionTried|deletionThere/.test(`${site.get('_deletionMet')}${scan.get('deletionMet')}`)) off.push('D: a check tries another folder\'s deletion');
   // E: given up only once every folder that can be checked ruled it out — one rule, folder-lifecycle.js.
   if (!/need\.every\(/.test(read('storage/folder-lifecycle.js'))) off.push('E: unfoundEnd weighs every folder');
-  if (!/_checkable\(\)/.test(site.get('_endUnfound') ?? '') || !/activeRoots\(\)/.test(files.get('endUnfound') ?? '')) off.push('E: both apps ask which folders can be checked');
+  // (S42 B: which folders those are is told without a call on any — both apps asking folder-lifecycle.js unfoundMayBeIn,
+  // never the write gate, which reads each folder's library.json: _checkable / activeRoots were that.)
+  if (!/_unfoundMayBeIn\(\)/.test(site.get('_endUnfound') ?? '') || !/unfoundMayBeIn\(\)/.test(files.get('endUnfound') ?? '')
+    || /_checkable\(|_usable\(|_rootOf\(|_access\(/.test(site.get('_endUnfound') ?? '') || /activeRoots\(|writable\(|probe\(/.test(files.get('endUnfound') ?? '')) off.push('E: both apps tell which folders may hold it, with no call on them');
   // C: a removed source's overlay never offered as a title's own.
   if (!/isRemoved\(removed, o\.source\)/.test(read('storage/linked-source.js'))) off.push('C: matchSources leaves a removed source\'s overlay');
   // F: the contract says the token on 'ok', both adapters.

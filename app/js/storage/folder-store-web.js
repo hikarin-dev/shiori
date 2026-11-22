@@ -60,15 +60,16 @@ export const supported = () => typeof (/** @type {any} */ (globalThis)).showDire
 
 /** What this page may do with the folder: 'granted', 'prompt' (one click lets it), 'denied', or
  * 'unavailable' (no such folder any more, or a handle this browser can't use). `ask` asks the person
- * when it would otherwise be 'prompt' — only from a click.
- * @param {Folder | null | undefined} handle @param {{ ask?: boolean }} [options]
+ * when it would otherwise be 'prompt' — only from a click. `look` false: as the browser says it, nothing read — a
+ * folder whose drive is away still says 'granted' (S42 B: told without a call on its drive).
+ * @param {Folder | null | undefined} handle @param {{ ask?: boolean, look?: boolean }} [options]
  * @returns {Promise<PermissionState | 'unavailable'>} */
-export async function permission(handle, { ask = false } = {}) {
+export async function permission(handle, { ask = false, look = true } = {}) {
   if (!handle || typeof handle.queryPermission !== 'function') return 'unavailable';
   try {
     let state = await handle.queryPermission({ mode: 'readwrite' });
     if (state === 'prompt' && ask && typeof handle.requestPermission === 'function') state = await handle.requestPermission({ mode: 'readwrite' });
-    if (state !== 'granted') return state;
+    if (state !== 'granted' || !look) return state;
     await handle.keys().next();   // still there (a drive taken away answers NotFoundError)
     return 'granted';
   } catch (e) {

@@ -168,6 +168,7 @@ export const leavesOpen = (problem) => problem.reason === 'unreadable';
 // UNFOUND_LOOKS); a folder that can't be checked now isn't in `need`, so it keeps nothing waiting (plan §8).
 /** @param {{ met: boolean, whole: boolean, misses?: number | null, own?: boolean, at?: string | null, ruledOut?: string[], need?: string[] }} look
  * @returns {'keep' | 'forget' | number | { ruledOut: string[] }} */
+// (S42 E: 'keep' too where the look ruled out no folder that hadn't been already — nothing to write again.)
 export function unfoundEnd({ met, whole, misses = 0, own = true, at = null, ruledOut = [], need = [] }) {
   if (met) return 'keep';
   if (!whole) {
@@ -175,6 +176,17 @@ export function unfoundEnd({ met, whole, misses = 0, own = true, at = null, rule
     const next = (misses ?? 0) + 1;
     return next >= UNFOUND_LOOKS ? 'forget' : next;
   }
-  const out = [...new Set([...(ruledOut ?? []), ...(at != null ? [String(at)] : [])])];
-  return need.every(f => out.includes(String(f))) ? 'forget' : { ruledOut: out };
+  const out = [...new Set([...(ruledOut ?? []).map(String), ...(at != null ? [String(at)] : [])])];
+  if (need.every(f => out.includes(String(f)))) return 'forget';
+  return out.length === new Set((ruledOut ?? []).map(String)).size ? 'keep' : { ruledOut: out };
 }
+// Whether a library folder is one a deletion not found may still be in (unfoundEnd's `need`), told from what the library
+// already knows of it, with no call on its drive (S42 B: a look at one folder never waits on another's): `state` its
+// record's — 'shown' (a hidden folder, one being removed, is out of the library: it keeps nothing waiting); `taken` —
+// the last claim read of it names another app (folder-owner.js heldElsewhere: no read for this); `permission` — as the
+// browser says it without a read ('granted', or 'prompt': waiting to be asked again, after a reload — both count;
+// 'denied' doesn't; the desktop has none); `reach` — as last found: 'other-library' (its path held another library's
+// folder: never checked as it) doesn't count, a drive away does — the deletion waits for it (plan §8).
+/** @param {{ state: string, taken?: boolean, permission?: string, reach?: string | null }} folder @returns {boolean} */
+export const unfoundMayBeIn = ({ state, taken = false, permission = 'granted', reach = null }) =>
+  state === 'shown' && !taken && (permission === 'granted' || permission === 'prompt') && reach !== 'other-library';

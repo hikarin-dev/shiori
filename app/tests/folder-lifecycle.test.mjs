@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { STATES, mounted, canHide, canShow, canSetDefault, canMoveTo, nextDefault, writeAllowed, JOBS, jobPlan, removalOutcome,
-  UNFOUND_LOOKS, leavesOpen, unfoundEnd, changeRefusal } from '../js/storage/folder-lifecycle.js';
+  UNFOUND_LOOKS, leavesOpen, unfoundEnd, unfoundMayBeIn, changeRefusal } from '../js/storage/folder-lifecycle.js';
 import { published, inFolder, whoseVersion, writerOf, generationOf, tokenOf } from '../js/storage/gallery-manifest.js';
 
 test('S29a: one app changes a folder\'s galleries at a time — the commit gate refuses a change reaching a gallery the folder holds while another app holds it, never the person\'s marks nor one only this app has', () => {
@@ -138,6 +138,20 @@ test('review 7 A1: a deletion waiting for its gallery\'s folder ends: met, it wa
   assert.equal(UNFOUND_LOOKS, 3);
   assert.equal(unfoundEnd({ met: false, whole: false, misses: 2 }), 'forget', 'the third such look gives it up');
   assert.equal(unfoundEnd({ met: false, whole: false, misses: null }), 1, 'a deletion recorded before the count (none) starts at none');
+  // S41 E, S42: every folder it may still be in rules it out first; what is remembered is written only when it changes.
+  assert.deepEqual(unfoundEnd({ met: false, whole: true, own: false, at: 'b', ruledOut: [], need: ['a', 'b'] }), { ruledOut: ['b'] }, 'another folder ruled out: remembered');
+  assert.equal(unfoundEnd({ met: false, whole: true, own: false, at: 'b', ruledOut: ['b'], need: ['a', 'b'] }), 'keep', 'ruled out again: nothing to write');
+  assert.equal(unfoundEnd({ met: false, whole: true, own: true, at: 'a', ruledOut: ['b'], need: ['a', 'b'] }), 'forget', 'the last one: given up');
+});
+
+test('S42 B: which folders a deletion not found may still be in is told without a call on any', () => {
+  assert.equal(unfoundMayBeIn({ state: 'shown' }), true, 'shown, nothing else known: it may');
+  assert.deepEqual(['hidden', 'removing'].map(state => unfoundMayBeIn({ state })), [false, false], 'out of the library');
+  assert.equal(unfoundMayBeIn({ state: 'shown', taken: true }), false, 'another app\'s, by the last claim read');
+  assert.deepEqual(['granted', 'prompt', 'denied', 'unavailable'].map(permission => unfoundMayBeIn({ state: 'shown', permission })), [true, true, false, false],
+    'its permission as the browser says it: waiting to be asked again counts');
+  assert.deepEqual(['ok', 'unavailable', 'other-library'].map(reach => unfoundMayBeIn({ state: 'shown', reach })), [true, true, false],
+    'its reach as last found: a drive away still counts (the deletion waits for it), another library\'s folder at its path doesn\'t');
   assert.deepEqual(['unreadable', 'corrupt', 'missing-file', 'adopt-failed'].map(reason => leavesOpen({ reason })), [true, false, false, false],
     'only what couldn\'t be read at all may be the deleted gallery\'s: what was read, damaged or not, isn\'t');
 });

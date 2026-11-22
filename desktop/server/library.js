@@ -1041,8 +1041,9 @@ export class Library {
   // the same however often its index is made again, never another library's.
   _ownStagingOf(id) { return path.join(this._stagingOf(id), this.primaryId); }
   // Where pages this library stages wait as they arrive: its own staging, and its own in each folder it
-  // may write to (_ownStagingOf) — never another library's there.
-  stagingDirs() { return [this.dataStagingDir, ...this.folders.ids().filter(id => this.folders.writable(id)).map(id => this._ownStagingOf(id))]; }
+  // may write to (_ownStagingOf) — never another library's there. `ids`: of those folders alone (S42 B: a check's, a
+  // gallery's own — no call on another folder's drive).
+  stagingDirs(ids = null) { return [this.dataStagingDir, ...(ids ?? this.folders.ids()).filter(id => this.folders.writable(id)).map(id => this._ownStagingOf(id))]; }
   // Whether gallery `gid` is out of the library (placed in a folder hidden or being removed): nothing
   // reads it meanwhile — pages, counts, search, tags, stats, series — nor writes to it (_logIn); it
   // still counts as one the library has (a source it came from, an import of it).

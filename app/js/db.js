@@ -13,7 +13,7 @@ import { MISSING, unreadable } from './storage/contract.js';
 import { exportSize } from './gallery-export.js';
 import * as folderFiles from './storage/folder-store-web.js';
 import { OWNER_FILE, readClaim, access, nextClaim, claimText, heldElsewhere, knownAfter, handoverIn, HANDOVER_RETRY_MS } from './storage/folder-owner.js';
-import { mounted, writeAllowed, changeRefusal, unfoundEnd } from './storage/folder-lifecycle.js';
+import { mounted, writeAllowed, changeRefusal, unfoundEnd, unfoundMayBeIn } from './storage/folder-lifecycle.js';
 import { galleryIdOf, seriesOf, MANIFEST_FILE } from './storage/folder-content.js';
 import { REMOVED_FILE, ARCHIVE_NAME, overlayDir, parseRemoved, removedText, withRemoved, provenanceOf, pageToken, madeFromPage } from './storage/linked-source.js';
 import { withoutPersonal, marksOf, withMarks, importMarks, favoriteMoved } from './storage/personal.js';
@@ -682,6 +682,7 @@ let _foldersRead = null;
 const _grants = new Map();     // folder id → { state, owned, claim, at }: what it allows, asked at most every few seconds
 const GRANT_TTL_MS = 2000;     // as the desktop's (folders.js IDENTITY_TTL): the window a read may lag a folder swapped by hand
 const _known = new Map();      // folder id → the last claim this context read of it: what the commit gate knows (folder-owner.js knownAfter)
+const _reached = new Map();    // folder id → which folder its handle was last found to reach (identityOf: 'ok', 'other-library'…), for _unfoundMayBeIn
 const _fileOf = new WeakMap(); // a picture read from or written to a gallery's folder → its reference
 
 // A folder record as IndexedDB 18 kept it (flags `hidden`, `dormant`, `settingAside`, `claimEpoch`…),
@@ -758,13 +759,14 @@ async function _access(id, { fresh = false } = {}) {
     if (!fresh) return hit;
     const folder = await _folderById(id);
     const here = folder ? await folderFiles.identityOf(id, folder.handle) : 'unavailable';
+    _reached.set(id, here);
     if (here === 'ok') return hit;
     _grants.delete(id);
     return { state: here, owned: false, claim: null };
   }
   const folder = await _folderById(id);
   let state = folder ? await folderFiles.permission(folder.handle) : 'unavailable';
-  if (state === 'granted') { const here = await folderFiles.identityOf(id, folder.handle); if (here !== 'ok') state = here; }
+  if (state === 'granted') { const here = await folderFiles.identityOf(id, folder.handle); _reached.set(id, here); if (here !== 'ok') state = here; }
   const held = state === 'granted' ? await _holds(folder).catch(() => ({ owned: false, claim: readClaim(undefined) })) : { owned: false, claim: null };
   const out = { state, ...held, at: Date.now() };
   const current = (_forgotten.get(id) || 0) === since;   // what it read is still the latest this context may know
@@ -1517,14 +1519,16 @@ const _deletedFound = (d, folder, dir, work = null) => _deletion(d, { folder, di
 // (`whole`), else counted (`misses`, kept with the deletion), and given up after a few such looks (review
 // 7 A1).
 // Every deletion waiting `unfound` is weighed at every folder's look (S41): another folder's whole look that didn't
-// meet it rules that folder out (`ruled`, kept with the deletion: a field of its record), and it is given up only once
-// its own folder and every other this app can check now (_checkable) ruled it out.
+// meet it rules that folder out (`ruled`, kept with the deletion: a field of its record, written only when it changes),
+// and it is given up only once its own folder and every other it may still be in ruled it out — which those are is told
+// without a call on any of them (_unfoundMayBeIn, S42 B), and only when one waits so.
 // (A folder's removal — `removal`: its look before it leaves the library, folder-library.js _finishUnfound — gives its own
 // deletions up by its own whole look, as before S41: the folder goes, and a removal never waits on other folders' checks.)
 async function _endUnfound(folder, met, whole, { removal = false } = {}) {
-  const need = removal ? [] : await _checkable();
-  for (const d of await _deletions(removal ? folder : null)) {
-    if (!d.unfound) continue;
+  const waiting = (await _deletions(removal ? folder : null)).filter(d => d.unfound);
+  if (!waiting.length) return;
+  const need = removal ? [] : await _unfoundMayBeIn();
+  for (const d of waiting) {
     const own = d.folder === folder;
     const end = unfoundEnd({ met: met.has(d.id), whole, misses: d.misses, own, at: folder, ruledOut: d.ruled ?? [], need: [...new Set([d.folder, ...need])] });
     if (end === 'keep') continue;
@@ -1539,12 +1543,16 @@ async function _endUnfound(folder, met, whole, { removal = false } = {}) {
     }
   }
 }
-// The library folders this app can check now: shown, this app's, in reach (their root to be had now).
-async function _checkable() {
+// The library folders a deletion not found may still be in (folder-lifecycle.js unfoundMayBeIn), told from what the
+// library already knows of each — its record, the last claim read of it (_heldElsewhere, nothing read again), its
+// permission as the browser says it without a read, which folder its handle was last found to reach (_reached) — with
+// no call on any folder (S42 B: a look at one folder never waits on another's drive; before, each shown folder's
+// library.json was read at the end of every check).
+async function _unfoundMayBeIn() {
   const out = [];
   for (const f of (await _folders()).byId.values()) {
-    if (f.state !== 'shown') continue;
-    if (await _usable(f.id).catch(() => false)) out.push(String(f.id));
+    const permission = await folderFiles.permission(f.handle, { look: false }).catch(() => 'unavailable');
+    if (unfoundMayBeIn({ state: f.state, taken: _heldElsewhere(f.id, { read: false }), permission, reach: _reached.get(f.id) ?? null })) out.push(String(f.id));
   }
   return out;
 }

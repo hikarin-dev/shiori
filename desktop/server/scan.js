@@ -582,7 +582,7 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   for (const gid of changed) library.publishFeed(gid);
   if (handover) return out;
   out.removed += await removeOrphans(library, out.unreferenced, checked);
-  library.files.resume();   // galleries found again settle what waited for them
+  library.files.resume({ roots: checked });   // galleries found again settle what waited for them (S42 B: the staging of the folders checked alone)
   return out;
 }
 
@@ -1011,9 +1011,11 @@ async function sweepLeftovers(library, id) {
 
 // Staged pages and cache files no record refers to (a write that failed half way, or the app closed in
 // the middle of one): gone once ORPHAN_AGE_MS old — staging is looked through in the library's own
-// (under its data folder) and in its own in each library folder it may write to (library.js
-// _ownStagingOf; another's, a hidden one's and one out of reach are left alone: what its galleries set
-// aside may wait there). Never another library's there, nor what was staged there before S29b (at the
+// (under its data folder) and in its own in each library folder checked (`checked`) that it may write to
+// (library.js _ownStagingOf; another's, a hidden one's and one out of reach are left alone: what its galleries
+// set aside may wait there) — never another folder's: a check of one folder makes no call on another's drive
+// (S42 B; before, every active folder's staging was looked through, and each one's library.json read). Never
+// another library's there, nor what was staged there before S29b (at the
 // top of the folder's staging, whose library can't be told): only the library that wrote a staged file
 // knows whether it is a leftover (review 7 B1: another desktop library's check deleted what one had
 // staged for a gallery both have). A gallery's pictures no
@@ -1031,7 +1033,7 @@ async function removeOrphans(library, unreferenced = [], checked = new Set()) {
   for (const r of library._s('SELECT record FROM covers').all()) collect(parse(r.record), (ref) => keep.add(path.join(library.cacheDir, ref)));
   for (const r of library._s('SELECT file FROM staged_own').all()) keep.add(library._stagedKey(r.file));   // pictures waiting for their archive
   let removed = 0;
-  for (const dir of [library.dataStagingDir, library.cacheDir, ...library.activeRoots().map(id => library._ownStagingOf(id))]) {
+  for (const dir of [library.dataStagingDir, library.cacheDir, ...[...checked].filter(id => library.folders.writable(id)).map(id => library._ownStagingOf(id))]) {
     for (const gid of await disk.readdir(dir).catch(() => [])) {
       for (const name of await disk.readdir(path.join(dir, gid)).catch(() => [])) {
         const file = path.join(dir, gid, name);
