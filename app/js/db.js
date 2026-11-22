@@ -1848,7 +1848,10 @@ async function _describe(gid, { work = null } = {}) {
     let read = await _wantedDescriptions(gid);
     if (read?.stat.packed && read.rev == null) return { ok: true };   // its archive describes it as read
     const root = read && await _rootOf(read.stat.folder, { work: as });
-    if (root && read.rev != null && !(await _weighGroup(gid))) return { ok: false };   // its series command weighed as one first (S32)
+    // Its series command weighed as one first (S32) — with nothing waiting, it is of none (a publication's transaction
+    // ungroups the gallery it clears, as a stand's does).
+    const weighed = !root ? null : read.rev != null ? await _weighGroup(gid) : { go: true, grp: null, how: 'none' };
+    if (weighed && !weighed.go) return { ok: false };
     if (root && read.stat.packed) {
       if ((await _hold(gid, { held: String(gid) })).kind !== 'ok') return { ok: false };
       read = await _wantedDescriptions(gid);
@@ -1864,12 +1867,16 @@ async function _describe(gid, { work = null } = {}) {
     const found = await _hold(gid, { stat: place, ask: (view) => opened.root.gallery(place.dir, gid, view), held: String(gid) });
     if (found.kind === 'conflict') await _note(place.folder, { reason: 'conflict', path: place.dir, gid: String(gid) });
     if (found.kind !== 'ok') return { ok: false };
-    if (read.rev != null) await _groupWeighed(gid);   // its own place held 'ok': only now is its command taken as weighed whole (S41 A)
     // As it now is (what waited dropped, where the folder's version stood) — and only the gallery it began for, at
     // the place it held: one deleted meanwhile isn't, nor a gallery of the id made again since — kept elsewhere (a
     // check joined a copy of it: S34, review 11 A2) or nowhere yet — and nothing of either is published here.
     read = await _wantedDescriptions(gid);
     if (!read || !_still(life, read.stat) || !_samePlace(read.stat, place)) return { ok: false };
+    // And only for the command it weighed (S42 A), its group read after what it publishes: a series command made since
+    // its weighing is none of this publication's — nothing of it published here, the gallery asked again (its next
+    // publication weighs it). Only now, its own place held 'ok', is its command taken as weighed whole (S41 A).
+    if (!(await _weighedStill(gid, weighed))) { _describeSoon(gid); return { ok: false }; }
+    await _groupWeighed(gid, weighed);
     const { stat, wanted, next, rev, retiring } = read;
     if (rev == null && nothingToWrite(stat.stamp, (await found.dir.manifest()).kind)) return { ok: true };
     const { token } = await found.dir.publish({ manifest: next, descriptions: _textsOf(wanted) });
@@ -2021,25 +2028,37 @@ async function _groupWaiting(gid) {
 // drops the group; one not held now, or whose folder can't be written now (another app's, being handed over, out of
 // reach: S33, review 10 B3), keeps it waiting — each held under `gid`'s lock, which the publication weighing it holds
 // (_hold `held`: another gallery's lock is taken only while it is free, S37). One its group's drop left to stand isn't
-// weighed: its own place is held next, where it stands (_hold). Resolves whether `gid` goes on. The group is taken as
-// weighed whole (for GROUP_WEIGHED_MS) only once the weigher's own place was held 'ok' too (_groupWeighed, by _describe:
-// S41 A) — never by the weighing of the others alone: a gallery whose own place holds another writer's publication
-// lets no other part of its command through meanwhile.
+// weighed: its own place is held next, where it stands (_hold). Resolves what the weighing did (S42 A): { go — whether
+// `gid` goes on; grp — the group it was about (null: none); how — 'weighed' (every other gallery of it waiting held
+// 'ok' by this weighing itself), 'window' (passed through the window a weighing of the group opened), 'none' (no
+// group to weigh) or 'left' (left to stand) }. The group is taken as weighed whole (for GROUP_WEIGHED_MS) only by a
+// weighing that weighed it whole itself and then held the weigher's own place 'ok' (_groupWeighed, by _describe: S41
+// A, S42 A) — never by the weighing of the others alone, nor by a gallery that passed through the window (2 seconds
+// from a real weighing, never carried forward from member to member): a gallery whose own place holds another writer's
+// publication lets no other part of its command through meanwhile.
 async function _weighGroup(gid) {
   const record = (await _groupRecords()).find(r => r.gid === String(gid));
-  const grp = record?.grp;
-  if (!grp || record.drop) return true;
-  if (Date.now() - (_weighedGroups.get(grp) ?? -Infinity) < GROUP_WEIGHED_MS) return true;
+  const grp = record?.grp ?? null;
+  if (!grp) return { go: true, grp, how: 'none' };
+  if (record.drop) return { go: true, grp, how: 'left' };
+  if (Date.now() - (_weighedGroups.get(grp) ?? -Infinity) < GROUP_WEIGHED_MS) return { go: true, grp, how: 'window' };
   for (const m of await _groupWaiting(gid)) {
     const folder = (await galleryGet(m))?.folder;
-    if ((folder && !(await _usable(folder, { work: PUBLISHING }))) || (await _hold(m, { held: String(gid) })).kind !== 'ok' || (await _groupOf(gid)) !== grp) return false;
+    if ((folder && !(await _usable(folder, { work: PUBLISHING }))) || (await _hold(m, { held: String(gid) })).kind !== 'ok' || (await _groupOf(gid)) !== grp) return { go: false, grp, how: 'weighed' };
   }
-  return (await _groupOf(gid)) === grp;   // (dropped meanwhile, with the group: false)
+  return { go: (await _groupOf(gid)) === grp, grp, how: 'weighed' };   // (dropped meanwhile, with the group: no)
 }
-// Gallery `gid`'s group taken as weighed whole from now on — its weighing done and its own place held 'ok' (S41 A).
-async function _groupWeighed(gid) {
+// Whether gallery `gid`, its own place held 'ok', acts for what its weighing `weighed` (_weighGroup's answer) was about
+// (S42 A): its group now the one weighed — that group still, or still none. A series command made since the weighing
+// (a group formed or changed in between: each command groups its galleries afresh, _groupIn) is none of this work's.
+// One left to stand goes on: its own hold stood or settled it, and what it then is, it is.
+const _weighedStill = async (gid, weighed) => weighed.how === 'left' || (await _groupOf(gid)) === weighed.grp;
+// Gallery `gid`'s group taken as weighed whole from now on — weighed whole by this weighing itself (`weighed`), its own
+// place held 'ok', the group still that one (S41 A, S42 A).
+async function _groupWeighed(gid, weighed) {
+  if (weighed.how !== 'weighed') return;
   const record = (await _groupRecords()).find(r => r.gid === String(gid));
-  if (record?.grp && !record.drop) _weighedGroups.set(record.grp, Date.now());
+  if (record?.grp === weighed.grp && !record.drop) _weighedGroups.set(weighed.grp, Date.now());
 }
 // The text of the manifest of the gallery whose folder in the archive at `path` is `inner` ('' for an archive of
 // its own), read where it lies (_archiveOf): null for none, undefined when no archive is there.

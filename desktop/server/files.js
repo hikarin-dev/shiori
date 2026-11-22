@@ -1471,25 +1471,37 @@ export class FileLibrary {
   // folderStands: never one's part published while another's is dropped); one whose place can't be held now
   // keeps the whole group waiting, as does one whose folder can't be written now — another app's, being handed over, out
   // of reach (S33, review 10 B3). A group weighed whole is taken as it is for GROUP_WEIGHED_MS (each gallery's
-  // own place is still held as it is written). Resolves whether `gid` goes on: false while the group waits, and
-  // once it was dropped.
+  // own place is still held as it is written) — opened only by a weighing that weighed it whole itself, once the
+  // weigher's own place was held 'ok' (_groupWeighed: S41 A, S42 A), never by one that passed through it (2 seconds from
+  // a real weighing, never carried forward from member to member). Resolves what the weighing did (S42 A): { go —
+  // whether `gid` goes on: false while the group waits, and once it was dropped; grp — the group it was about (null:
+  // none); how — 'weighed' (every other gallery of it waiting held 'ok' by this weighing itself), 'window' (passed
+  // through the window), 'none' (no group to weigh) or 'left' (left to stand by its group's drop: its own place held
+  // next stands it, hold) }.
   async _weighGroup(gid) {
     const id = String(gid);
-    const grp = this._groupOf(id);
-    if (!grp || this._dropped(id)) return true;   // left to stand by its group's drop: its own place held next stands it (hold)
-    if (Date.now() - (this._weighed.get(grp) ?? -Infinity) < GROUP_WEIGHED_MS) return true;
+    const grp = this._groupOf(id) ?? null;
+    if (!grp) return { go: true, grp, how: 'none' };
+    if (this._dropped(id)) return { go: true, grp, how: 'left' };
+    if (Date.now() - (this._weighed.get(grp) ?? -Infinity) < GROUP_WEIGHED_MS) return { go: true, grp, how: 'window' };
     for (const m of this.groupWaiting(id)) {
-      if (!this.library.folders.writable(this.rootFor(m), 'publish')) return false;
+      if (!this.library.folders.writable(this.rootFor(m), 'publish')) return { go: false, grp, how: 'weighed' };
       const held = await this.hold(m);
-      if (held.kind !== 'ok' || this._groupOf(id) !== grp) return false;
+      if (held.kind !== 'ok' || this._groupOf(id) !== grp) return { go: false, grp, how: 'weighed' };
     }
-    return this._groupOf(id) === grp;   // (dropped meanwhile, with the group: false)
+    return { go: this._groupOf(id) === grp, grp, how: 'weighed' };   // (dropped meanwhile, with the group: no)
   }
-  // Gallery `gid`'s group taken as weighed whole from now on — its weighing done and its own place held 'ok' by its
-  // caller (S41 A: never by the weighing of the others alone).
-  _groupWeighed(gid) {
-    const id = String(gid), grp = this._groupOf(id);
-    if (grp && !this._dropped(id)) this._weighed.set(grp, Date.now());
+  // Whether gallery `gid`, its own place held 'ok', acts for what its weighing `weighed` (_weighGroup's answer) was about
+  // (S42 A): its group now the one weighed — that group still, or still none. A series command made since the weighing
+  // (a group formed or changed in between: each command groups its galleries afresh, groupIn) is none of this work's:
+  // it does nothing more of it, and the gallery is asked again. One left to stand goes on: its own hold stood or settled
+  // it, and what it then is, it is.
+  _weighedStill(gid, weighed) { return weighed.how === 'left' || (this._groupOf(String(gid)) ?? null) === weighed.grp; }
+  // Gallery `gid`'s group taken as weighed whole from now on — weighed whole by this weighing itself (`weighed`), its
+  // own place held 'ok' by its caller, the group still that one (S41 A, S42 A).
+  _groupWeighed(gid, weighed) {
+    const id = String(gid);
+    if (weighed.how === 'weighed' && this._groupOf(id) === weighed.grp && !this._dropped(id)) this._weighed.set(weighed.grp, Date.now());
   }
 
   // The folder's version of gallery `gid` stands (scan.js folderStands): what waited here for it dropped,
@@ -1834,7 +1846,8 @@ export class FileLibrary {
     const lib = this.library;
     const life = this.life(gid);
     if (!lib.folders.writable(this.rootFor(gid), work)) return true;
-    if (!await this._weighGroup(gid)) return true;   // its series command weighed as one first (S32): it waits, or was dropped
+    const weighed = await this._weighGroup(gid);
+    if (!weighed.go) return true;   // its series command weighed as one first (S32): it waits, or was dropped
     if (!this.still(life)) return true;
     let row = this._row(gid), unpacked = false;
     if (row) {
@@ -1850,7 +1863,11 @@ export class FileLibrary {
       if (whose.kind === 'conflict') this._conflict(row);
       if (whose.kind === 'ok' || whose.kind === 'missing') await this._seen(row, whose.kind === 'ok');
       if (whose.kind !== 'ok' || !this.still(life)) return true;
-      this._groupWeighed(gid);   // its own place held 'ok': only now is its command taken as weighed whole (S41 A)
+      // Only for the command it weighed (S42 A): one made since its weighing is none of this settle's — nothing of it
+      // done here (its regroup), asked again, when its next settle weighs it. Only now, its own place held 'ok', is its
+      // command taken as weighed whole (S41 A).
+      if (!this._weighedStill(gid, weighed)) return false;
+      this._groupWeighed(gid, weighed);
       row = this._row(gid);
       if (!await this._writesIn(row) || !this.still(life)) return true;
       if (row.format !== 'folder' && (row.unpack || this._staged(gid).length || this._stagedOwn(gid).length)) {
@@ -1871,7 +1888,10 @@ export class FileLibrary {
           unpacked = true;
         }
       }
-      if (this._regroupWanted.delete(gid)) await this._regroup(gid);
+      // (A command made since the hold, the same: its regroup waits for a settle that weighs it — what this one placed or
+      // unpacked goes on as ever, published by a publication that weighs for itself.)
+      if (this._regroupWanted.has(gid) && !this._weighedStill(gid, weighed)) this.schedule(gid, 1000);
+      else if (this._regroupWanted.delete(gid)) await this._regroup(gid);
       if (!this.still(life)) return true;
       row = this._row(gid);
       if (row.format !== 'folder' || (!this._staged(gid).length && !this._stagedOwn(gid).length)) {
@@ -2320,10 +2340,11 @@ export class FileLibrary {
       if (!row.pending && !all) return true;
       if (!lib.folders.writable(this.rootFor(id), may) || !await this._writesIn(row) || !this.still(life)) return false;
       if (!disk.existsSync(this._abs(row.path))) return false;
-      if (!await this._weighGroup(id) || !this.still(life)) return false;   // its series command weighed as one first (S32): it waits, or was dropped
+      const weighed = await this._weighGroup(id);
+      if (!weighed.go || !this.still(life)) return false;   // its series command weighed as one first (S32): it waits, or was dropped
       this._touched.delete(id);
       const upTo = lib._s('SELECT max(rowid) AS n FROM retiring WHERE gid = ?').get(id)?.n ?? 0;
-      const token = row.format === 'folder' ? await this._publish(id, row, may, life) : await this._describeArchive(id, row, life);
+      const token = row.format === 'folder' ? await this._publish(id, row, may, life, weighed) : await this._describeArchive(id, row, life, weighed);
       if (!token || !this.still(life)) return false;
       await this._describeSeries(id);
       if (!this.still(life)) return false;
@@ -2438,14 +2459,15 @@ export class FileLibrary {
   // (hold, its Root.gallery): another app's publication there stands — what waited here for it is dropped,
   // reported, and nothing of this library's is published over it.
   // Only the gallery whose place it held (`life`, its publication's) is published there: one deleted meanwhile
-  // isn't — its deletion, waiting for this, takes the folder — nor a gallery made again under its id since.
-  async _publish(gid, row, work, life) {
+  // isn't — its deletion, waiting for this, takes the folder — nor a gallery made again under its id since. And only for
+  // the command its weighing was about (`weighed`, _weighGroup's answer: S42 A): one made since is none of this
+  // publication's — nothing published, the gallery asked again.
+  async _publish(gid, row, work, life, weighed) {
     const lib = this.library;
     const { root, rest } = this._split(row.path);
     const opened = await lib.store.open({ id: root, location: lib.rootDir(root) }, { purpose: work === 'removal' ? 'removal' : 'publish' });
     if (opened.status !== 'ok' || !this.still(life)) return null;
     const found = await this.hold(gid, { rel: row.path, ask: (view) => opened.root.gallery(rest, gid, view) });
-    if (found.kind === 'ok') this._groupWeighed(gid);   // its own place held 'ok': only now its command weighed whole (S41 A)
     if (!this.still(life)) return null;
     if (found.kind === 'conflict') this._conflict(row);
     if (found.kind !== 'ok') return null;
@@ -2456,6 +2478,10 @@ export class FileLibrary {
       if (!this.still(life)) return null;
       if (format.nothingToWrite(had, there)) return had;
     }
+    // Its group as its generation is read (one synchronous step to the write): only now, its own place held 'ok', is its
+    // command taken as weighed whole (S41 A).
+    if (!this._weighedStill(gid, weighed)) { this.scheduleDescribe(gid); return null; }
+    this._groupWeighed(gid, weighed);
     // Pictures of its own still staged (not moved in yet, or not in staging: _stagedMissing) named by none.
     const { next, texts } = this._generation(gid, { without: new Set(this._stagedOwn(gid).map(s => s.rel)) });
     const done = await found.dir.publish({ manifest: next, descriptions: texts });
@@ -2468,10 +2494,11 @@ export class FileLibrary {
   // nothing else in it is written again), the length it had kept first, so an addition the app didn't
   // finish is cut off again (resume). An archive not in the gallery format (added by hand) is left as
   // it is: resolves null (its descriptions are only the index's), else the token it is published at.
-  async _describeArchive(gid, row, life) {
-    return this._exclusive(gid, () => this._describeArchiveNow(gid, row, life));
+  // (`weighed`: as _publish's.)
+  async _describeArchive(gid, row, life, weighed) {
+    return this._exclusive(gid, () => this._describeArchiveNow(gid, row, life, weighed));
   }
-  async _describeArchiveNow(gid, row, life) {
+  async _describeArchiveNow(gid, row, life, weighed) {
     const lib = this.library;
     if (!this.still(life)) return null;
     const file = this._abs(row.path);
@@ -2480,12 +2507,14 @@ export class FileLibrary {
     const had = this._stamp(gid);
     const held = await this.hold(gid, { rel: row.path });
     if (held.kind !== 'ok' || !this.still(life)) return null;
-    this._groupWeighed(gid);   // (S41 A, as _publish)
     if (this._stamp(gid) !== had) return this._stamp(gid);   // the archive's version read here: nothing of this library's to add
     const dir = await this._directory(file);
     if (!this.still(life) || !this._formatted(dir)) return null;
     const changes = await this._archiveChanges(gid, row, dir, { life });
     if (!changes) return null;
+    // Its group once what it adds is read (S42 A, as _publish's) — and its command taken as weighed whole (S41 A).
+    if (!this._weighedStill(gid, weighed)) { this.scheduleDescribe(gid); return null; }
+    this._groupWeighed(gid, weighed);
     const { add, drop, token } = changes;
     if (!add.length && !drop.length) return token;
     const { size } = await disk.stat(file);

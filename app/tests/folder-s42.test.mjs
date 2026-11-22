@@ -123,13 +123,18 @@ function madeAtTop(L, dir) {
 }
 // The galleries' ids in the order the website's settle publishes them (its marks' keys) — the desktop's alike.
 const inOrder = (ids) => [...ids].map(String).sort();
-// The desktop's settles after a series command over (they move its members into the series' folder: files.js _regroup),
-// and the window their weighing opened past by the drivers' clock: what follows weighs afresh. (The website keeps a
-// series' members where they are.)
-async function regrouped(L) {
-  if (L.app !== 'desktop') return;
+// Series command `args` made with the settles the desktop asks for at once put off (library.js seriesCommand settles every
+// gallery it wrote, publishing them): the test publishes the galleries itself, one at a time, as those settles would. Its
+// members' moves into the series' folder (files.js _regroup, at the settle each change of a series asks for) are let
+// end, and the window their weighing opened passed by the drivers' clock: what follows weighs afresh. (The website
+// publishes a moment later, as its settle does, and keeps a series' members where they are.)
+async function command(L, ...args) {
+  if (L.app !== 'desktop') return L.raw.seriesCommand(...args);
+  const settle = L.raw.settle;
+  L.raw.settle = () => {};
+  try { await L.raw.seriesCommand(...args); } finally { L.raw.settle = settle; }
   const files = L.raw.files;
-  assert.ok(await until(async () => !files._placing.size && !files._regroupWanted.size && !files._timers.size, 15000), 'the command\'s settles over');
+  assert.ok(await until(async () => !files._placing.size && !files._timers.size, 15000), 'its members\' moves over');
   clockAhead(2500);
 }
 
@@ -139,7 +144,7 @@ async function regrouped(L) {
 // command is placed, moved or published by that settle, at any moment (the folder's names and manifests read as the gate
 // opens and at the end): asked again, it weighs, Owner stands, the command drops whole — both in no series at the end.
 for (const app of APPS) {
-  test(`S42 A: ${app}: a command made between a settle's weighing and its own hold is none of that settle's — nothing of it placed, moved or published`, { skip, todo: 'S42' }, async (t) => {
+  test(`S42 A: ${app}: a command made between a settle's weighing and its own hold is none of that settle's — nothing of it placed, moved or published`, { skip }, async (t) => {
     const { L, base } = await library(t, app);
     const f = await folders(L, base, 'A');
     await L.setDefault(f.a);
@@ -187,7 +192,7 @@ for (const app of APPS) {
 // member 2 passed — member 3's publication weighs again: member 4 stands, the command drops, member 3's part never
 // published.
 for (const app of APPS) {
-  test(`S42 A: ${app}: the weighed-whole window is never carried forward from member to member`, { skip, todo: 'S42' }, async (t) => {
+  test(`S42 A: ${app}: the weighed-whole window is never carried forward from member to member`, { skip }, async (t) => {
     const { L, base } = await library(t, app);
     const f = await folders(L, base, 'A');
     await L.setDefault(f.a);
@@ -195,9 +200,8 @@ for (const app of APPS) {
     for (const name of ['Saga', 'One', 'Two', 'Three']) { const g = await L.newGallery(name); await L.putPage(g, 1, png(ids.length + 1)); ids.push(g); }
     await quiet(L);
     const [owner] = ids;
-    await L.raw.seriesCommand('write', owner, ids.map((id, i) => ({ id, title: `Part ${i}` })), { seriesTitle: { english: 'Saga', japanese: '', pretty: '' } });
+    await command(L, 'write', owner, ids.map((id, i) => ({ id, title: `Part ${i}` })), { seriesTitle: { english: 'Saga', japanese: '', pretty: '' } });
     const [m1, m2, m3, m4] = inOrder(ids);
-    await regrouped(L);
     const dirs = Object.fromEntries(await Promise.all(ids.map(async (g) => [g, /** @type {string} */ (await L.dirOf(g))])));
     const before = genAt(dirs[m3]);
     // As member 1's manifest is written: member 4's place another writer's, and 1.5 s on; as member 2's is: 1 s more.
@@ -360,12 +364,10 @@ for (const app of APPS) {
     await L.putPage(c, 1, png(2));
     await quiet(L);
     const odir = /** @type {string} */ (await L.dirOf(o)), cdir = /** @type {string} */ (await L.dirOf(c));
-    // (The desktop moves a series' members into its folder at their settle, files.js _regroup — and back out once they
-    // stand, which would move Owner's folder from under its publication: the folders kept where they are here, as
-    // Windows keeps one an Explorer window shows, the move tried again later.)
+    // (The desktop would move the two into the series' folder — and back out once they stand, Owner's from under its
+    // publication: kept where they are here, as Windows keeps a folder an Explorer window shows, the move tried later.)
     if (app === 'desktop') faults.failNext((call) => call.op === 'rename' && [odir, cdir].includes(path.resolve(call.path)), 'EBUSY', { times: Infinity });
-    await L.raw.seriesCommand('attach', o, c);
-    if (app === 'desktop') { assert.ok(await until(async () => !L.raw.files._placing.size && !L.raw.files._timers.size, 15000)); clockAhead(2500); }
+    await command(L, 'attach', o, c);
     const reached = gate(), go = gate();
     let done = false;
     const target = `${rel(f.A, odir)}/.shiori/gallery.json`;

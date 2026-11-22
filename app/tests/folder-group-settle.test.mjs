@@ -178,7 +178,7 @@ for (const app of ['desktop', 'website']) {
 // re-read — is held by folder-group-seen.test.mjs.) And nothing of the dropped command is ever carried out (S42 A): its
 // series' folder never made — the settle its retitling asked for, begun before the command, weighed no group.
 for (const app of ['desktop', 'website']) {
-  test(`S38 (c), S39: ${app}: a gallery left to stand whose manifest is lost is settled — its change stands, its links tidied, its place published again, a later write lands`, { skip, todo: app === 'desktop' && 'S42' }, async (t) => {
+  test(`S38 (c), S39: ${app}: a gallery left to stand whose manifest is lost is settled — its change stands, its links tidied, its place published again, a later write lands`, { skip }, async (t) => {
     const c = await made(t, app, 'of this version');
     const { L, A, o, m } = c;
     // The top-level folders made in A from now on (the desktop moves a series' members into its folder: files.js _regroup).
