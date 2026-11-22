@@ -426,6 +426,28 @@ test('S39: a gallery left to stand is never worse off than one that isn\'t — w
   assert.deepEqual(off({ site: stale, scan, linked, files, lib }), ['website _tidySeriesLinks: the record as its transaction reads it']);
 });
 
+test('S41: each rule of the step where it has its one place, on both apps', () => {
+  const desktop = (f) => readFileSync(join(repo, 'desktop', 'server', f), 'utf8');
+  const site = new Map([...functionsOf(read('folder-library.js')), ...functionsOf(read('db.js'))].map(([name, body]) => [name, asCode(body)]));
+  const scan = new Map([...functionsOf(desktop('scan.js'))].map(([name, body]) => [name, asCode(body)]));
+  const files = new Map([...functionsOf(desktop('files.js'))].map(([name, body]) => [name, asCode(body)]));
+  const off = [];
+  // D: nothing tried or told by the check itself — an owed deletion left to its folder.
+  if (/deletionTried|deletionThere/.test(`${site.get('_deletionMet')}${scan.get('deletionMet')}`)) off.push('D: a check tries another folder\'s deletion');
+  // E: given up only once every folder that can be checked ruled it out — one rule, folder-lifecycle.js.
+  if (!/need\.every\(/.test(read('storage/folder-lifecycle.js'))) off.push('E: unfoundEnd weighs every folder');
+  if (!/_checkable\(\)/.test(site.get('_endUnfound') ?? '') || !/activeRoots\(\)/.test(files.get('endUnfound') ?? '')) off.push('E: both apps ask which folders can be checked');
+  // C: a removed source's overlay never offered as a title's own.
+  if (!/isRemoved\(removed, o\.source\)/.test(read('storage/linked-source.js'))) off.push('C: matchSources leaves a removed source\'s overlay');
+  // F: the contract says the token on 'ok', both adapters.
+  if (!/kind: 'ok', token: at\.place\.token/.test(read('storage/folder-store-web.js')) || !/kind: 'ok', token: at\.place\.token/.test(desktop('folder-store.js'))) off.push('F: gallery() answers its token');
+  // G: the stand's transaction checks the stamp it began with.
+  if (!/began !== undefined && \(stat\.result\?\.stamp \?\? null\) !== began/.test(site.get('_storeAdopted') ?? '') || !/began !== undefined && files\._stamp\(gid\) !== began/.test(scan.get('reread') ?? '')) off.push('G: the stamp a stand began with');
+  // A: the window opens after the weigher's own hold.
+  if (/_weighedGroups\.set/.test(site.get('_weighGroup') ?? '') || /_weighed\.set/.test(files.get('_weighGroup') ?? '')) off.push('A: the weighing alone opens the window');
+  assert.deepEqual(off, []);
+});
+
 test('S40: totals written only when changed, deletions read as the place is met, the drop guarded in its transaction, seen as the look saw it — both apps', () => {
   // Review 15 and the coordinator after S39: an idle check wrote a revision per series (the website put its totals
   // unconditionally); a check adopted a place naming a gallery whose deletion was still owed (it read only `unfound`
