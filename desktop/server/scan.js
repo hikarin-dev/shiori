@@ -707,7 +707,8 @@ function noteReplaced(library, gid, was) {
 // going with them (files.js deleteIn), and with `drop` (folderStands) its pages staged too, and its own
 // files the folder's generation doesn't name, the case noted on the folder's Needs attention list in the
 // same transaction — and with it the rest of its series command waiting (`group`) left to stand (files.js dropIn).
-// Resolves whether it was; rejects as readGallery does.
+// Resolves whether it was — 'overtaken' for a drop whose reason no longer held as its transaction read the gallery
+// (nothing written); rejects as readGallery does.
 async function reread(library, row, { guard = () => false, drop = false, manifest = false, group = [], seen = true } = {}) {
   const files = library.files;
   const gid = row.gid;
@@ -724,9 +725,14 @@ async function reread(library, row, { guard = () => false, drop = false, manifes
   if (basis === 'none') throw Object.assign(new Error(`${row.path}: no version there to stand by`), { reason: 'unversioned' });
   if (basis === 'unreadable') throw Object.assign(new Error(`${row.path}: the folder's version can't be told now`), { reason: 'unreadable' });
   if (g.read.kind !== 'gallery' || (!g.read.pages.length && !g.read.described?.meta)) return false;
-  let read = false;
+  let read = false, overtaken = false;
   library._ownTx(() => {
     if (guard()) return;   // changed here meanwhile: its own changes are weighed again later
+    // A drop only while its reason still holds as this transaction reads the gallery (S40): the version read at its
+    // place not the one this library keeps of it already, or the gallery still left to stand. Else another stand stood
+    // that version first, and what waits was made since, on top of it: nothing dropped, reported or retired, its group
+    // untouched (the hold that asked asks the place again).
+    if (drop && g.read.token && files._stamp(gid) === g.read.token && !files._dropped(gid)) { overtaken = true; return; }
     const staged = drop ? files._staged(gid).map(r => JSON.parse(r.orig).file) : [];
     // Its own files in the folder: written there, their time recorded — not a picture still waiting in
     // staging, whose name there may be another's file by now.
@@ -743,6 +749,7 @@ async function reread(library, row, { guard = () => false, drop = false, manifes
     entryIn(library, gid, g);
     read = true;
   });
+  if (overtaken) return 'overtaken';
   if (!read) return false;
   library._push('control', { type: 'COVER_INVALIDATED', galleryId: gid });
   return true;
@@ -800,8 +807,10 @@ export async function folderStands(library, gid, { seen = false } = {}) {
   const linked = seriesLinks(library._metaGet(id));
   let stood;
   try {
-    stood = src ? !!await adoptLinked(library, root, src, { replace: id, life, guard, group: others, drop, seen })
+    stood = src ? await adoptLinked(library, root, src, { replace: id, life, guard, group: others, drop, seen })
       : await reread(library, row, drop ? { drop: true, guard, group: others, seen } : { guard, manifest: true, seen });
+    if (stood === 'overtaken') return true;   // another stand stood that version first: nothing more of this one (S40)
+    stood = !!stood;
   } catch (e) {
     if (e?.reason === 'unversioned') { files.settleLeft(id); return true; }
     // (A damaged place has no version to stand by either: what waits is published over it, T08 — as settled; its

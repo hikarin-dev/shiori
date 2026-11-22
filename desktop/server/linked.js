@@ -277,7 +277,8 @@ async function embeddedMeta(library, root, title, at) {
 // under its id) nothing more is read or written for it (S34). `group`: for one read again as its series command's
 // drop, the rest of the command left to stand with it, in the same transaction (files.js dropIn, S37); `seen`, whether
 // the look that asked for that drop saw a manifest at the overlay a moment ago (scan.js folderStands). Resolves its
-// id; null when it has no pages yet (a PDF waiting), `guard` held it back or its gallery ended. One read again by a stand
+// id; null when it has no pages yet (a PDF waiting), `guard` held it back or its gallery ended; 'overtaken' for a drop
+// whose reason no longer held as its transaction read the gallery (S40: nothing written). One read again by a stand
 // its drop alone asked for (`seen` false) with nothing to read its pages from now — its source not there, no pages in
 // it, a PDF not drawn — has no version to drop for: rejects `unversioned` (S39: settled, as one not left to stand in
 // that state is published).
@@ -336,11 +337,13 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
     : { galleryId: gid, ...named, numPages: pages.length, isLocalImport: true, source: '' };
   const files = library.files;
   const covers = coverPatch(derived);
-  let held = false, stale = false;   // stale: a page's source picture isn't the one its overlay recorded
+  let held = false, stale = false, overtaken = false;   // stale: a page's source picture isn't the one its overlay recorded
   library._tx(() => {
     // (A new one's id — an overlay's, given — taken by a gallery made meanwhile is that one's: never joined over; one
     // read again is read only while it is still the gallery it began for, S34.)
     if (ended() || guard?.() || (!replace && taken(gid))) { held = true; return; }
+    // A drop only while its reason still holds as this transaction reads the gallery (S40, as scan.js reread).
+    if (replace && drop && read.token && files._stamp(gid) === read.token && !files._dropped(gid)) { overtaken = true; return; }
     const had = new Map();   // the pictures of its own its records referred to, and those it read
     if (replace) {
       for (const r of library._pageRows(gid)) ownRefs(parse(r.record), had);
@@ -383,6 +386,7 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
     library.rebuildGalleryEntry(gid, { silent: true, mark: false });   // its transaction runs inside this one
     if (Object.keys(covers).length) library._coverPatchIn(gid, covers, { mark: false });
   });
+  if (overtaken) return 'overtaken';
   if (held) return null;
   if (replace) await overlayFor(library, root, title, gid, at, {}, life);
   if (ended()) return gid;   // read again, its gallery ended since: nothing more for it

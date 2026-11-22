@@ -1238,9 +1238,9 @@ async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, s
   const stored = await new Promise((resolve, reject) => {
     const tx = K.tx(db, [S.STORE, S.META, S.GALLERY, S.COVER, S.BLOB, S.PERSONAL], 'readwrite');
     tx._work = { kind: 'adopt', folder };
-    let waits = false;
+    let waits = false, overtaken = false;
     tx.oncomplete = () => resolve(true);
-    tx.onerror = () => (waits ? resolve(false) : reject(K.txError(tx)));
+    tx.onerror = () => (overtaken ? resolve('overtaken') : waits ? resolve(false) : reject(K.txError(tx)));
     // A description an earlier version wrote may carry the person's favorite (storage/personal.js): taken
     // into this library's marks when the gallery joins it — never when it is read again — and the
     // description published again without it.
@@ -1275,15 +1275,23 @@ async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, s
     stat.onsuccess = () => {
       // Only the gallery kept at the place it was read from: never one made again under its id since (S34).
       if ((life && !K.still(life, stat.result)) || stat.result?.folder !== folder || stat.result?.dir !== dir) { waits = true; tx.abort(); return; }
-      if (mark.result || stat.result?.spilled) {
-        if (!drop) { waits = true; tx.abort(); return; }
+      if (!(mark.result || stat.result?.spilled)) { K.deleteIn(tx, gid, () => put(stat.result)); return; }
+      if (!drop) { waits = true; tx.abort(); return; }
+      // A drop only while its reason still holds as this transaction reads the gallery (S40): the version read at its
+      // place not the one this library keeps of it already, or the gallery still left to stand. Else another stand —
+      // another publication's weighing, a check's, another tab's — stood that version first, and what waits was made
+      // since, on top of it: nothing dropped, reported or retired, its group untouched (the hold that asked asks the
+      // place again).
+      K.groupDroppedIn(tx, gid, (left) => {
+        if (stamp && stat.result?.stamp === stamp && !left) { overtaken = true; tx.abort(); return; }
         K.retireIn(tx, folder, dir, leaving);
         K.noteIn(tx, folder, { reason: 'changed-both', path: dir, gid: String(gid) });
         K.groupDropIn(tx, group, gid);
-      }
-      K.deleteIn(tx, gid, () => put(stat.result));
+        K.deleteIn(tx, gid, () => put(stat.result));
+      });
     };
   });
+  if (stored === 'overtaken') return gid;
   if (!stored) return null;
   if (replace) platform.control.send({ type: 'COVER_INVALIDATED', galleryId: gid });
   const work = { kind: 'adopt', folder };   // what it was read from: that folder's own work, as its records' transaction

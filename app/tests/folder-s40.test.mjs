@@ -327,7 +327,7 @@ for (const app of ['desktop', 'website']) {
 // person's change made once the first stood: the second drops nothing, the change stays and is published, one
 // 'changed-both'.
 for (const where of ['one page', 'two pages']) {
-  test(`S40 C: website: two stands of one gallery at once (${where}) — a change made once the first stood stays`, { skip, todo: 'S40' }, async (t) => {
+  test(`S40 C: website: two stands of one gallery at once (${where}) — a change made once the first stood stays`, { skip }, async (t) => {
     const { L, base } = await library(t, 'website');
     const A = path.join(base, 'A');
     fs.mkdirSync(A, { recursive: true });

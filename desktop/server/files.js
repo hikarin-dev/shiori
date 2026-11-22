@@ -1408,6 +1408,10 @@ export class FileLibrary {
     if (!this.still(life)) return contract.unreadable(`gallery ${id} was deleted meanwhile`);
     if (stood?.damaged) return { ...await asked({ known: this._stamp(id), over: at.token }), damaged: stood.damaged };
     const again = stood ? await asked({ known: this._stamp(id) }) : null;
+    // A hold whose first look saw another writer's manifest never goes on over a place that shows none when it asks
+    // again, whoever's stand answered it (S40: a second asker takes the first stand's answer, _standOnce, though that
+    // stand may have seen less).
+    if (again?.kind === 'ok' && at.kind === 'theirs' && again.place && !again.place.token) return contract.unreadable(`the manifest of gallery ${id} seen a moment ago isn't found now`);
     return again && again.kind !== 'theirs' ? again : contract.unreadable(`the folder's version of gallery ${id} can't be read now`);
   }
   // ── A series command weighed as one (S32, review 9 B1) ──

@@ -1974,6 +1974,11 @@ function _dropIn(store, gids, first) {
   };
 }
 const _groupDropIn = (tx, gids, first) => _dropIn(tx.objectStore(FOLDER_STORE), gids, first);
+// Inside `tx`: whether gallery `gid` is left to stand by its group's drop, as `tx` reads it — `then(left)`.
+function _groupDroppedIn(tx, gid, then) {
+  const q = tx.objectStore(FOLDER_STORE).get(`${GROUP}${gid}`);
+  q.onsuccess = () => then(!!q.result?.drop);
+}
 const _groupDrop = (gids, first) => _recordsWrite((store) => _dropIn(store, gids, first));
 // Whether gallery `gid` was left to stand by its group's drop; every gallery left so.
 const _groupDropped = async (gid) => !!(await _groupRecords()).find(r => r.gid === String(gid))?.drop;
@@ -2489,7 +2494,7 @@ const _folderLibrary = createFolderLibrary({
   me: _me, myLabel: _myLabel, readClaim: _readClaim, writeClaim: _writeClaim, noteEpoch: _noteEpoch, randomId: _randomId,
   markOf: _markOf, setHandover: _setHandover, noteReleased: _noteReleased, releasedOf: _releasedOf, groupWaiting: _groupWaiting,
   // the pictures' storage in folders
-  writing: _writing, galleryWork: _galleryWork, groupDropIn: _groupDropIn, groupDrop: _groupDrop, groupDropped: _groupDropped, groupLeft: _groupLeft,
+  writing: _writing, galleryWork: _galleryWork, groupDropIn: _groupDropIn, groupDroppedIn: _groupDroppedIn, groupDrop: _groupDrop, groupDropped: _groupDropped, groupLeft: _groupLeft,
   ungroup: _ungroup, describeSoon: _describeSoon, replacePages: _replacePages, relocate: _relocate, follow: _follow, unpackedName: _unpackedName, reserveDir: _reserveDir, describe: _describe, cancelDescribe: _cancelDescribe,
   hold: (gid, view) => _hold(gid, view),
   marked: _marked, patchStat: _patchStat, wantedDescriptions: _wantedDescriptions, textsOf: _textsOf, retireIn: _retireIn,
