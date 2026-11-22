@@ -90,17 +90,19 @@ const stateOf = (root) => permissions.get(root)?.state ?? 'granted';
 // Call `op` on `abs` (under folder `root`) about to run: heard by the listeners, refused without
 // permission, failed by a fault. Returns what its caller waits for before making it — NEVER when it is
 // never to return (hang), a hold's promise — or null.
+// (Each `when` and listener is also handed the folder picked, `root`, its absolute path: a test telling one library
+// folder's calls from another's — S42, a drive not answering.)
 function call(root, abs, op) {
   const heard = { op, path: path.relative(root, abs).split(path.sep).filter(Boolean).join('/') };
-  for (const fn of listeners) fn(heard);
-  for (const when of hangs) if (when(heard)) return NEVER;
+  for (const fn of listeners) fn(heard, root);
+  for (const when of hangs) if (when(heard, root)) return NEVER;
   if (stateOf(root) !== 'granted') throw domError('NotAllowedError', `no permission for ${root}`);
-  const fault = faults.find(f => f.when(heard));
+  const fault = faults.find(f => f.when(heard, root));
   if (fault) {
     if (--fault.times <= 0) faults = faults.filter(f => f !== fault);
     throw domError(fault.name, `${fault.name}: injected, ${op} '${heard.path}'`);
   }
-  for (const when of holds) { const held = when(heard); if (held) return held; }
+  for (const when of holds) { const held = when(heard, root); if (held) return held; }
   return null;
 }
 function childName(name) {

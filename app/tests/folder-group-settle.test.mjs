@@ -175,11 +175,17 @@ for (const app of ['desktop', 'website']) {
 // (c) Restated (S39): a gallery left to stand whose manifest this library knows is lost — its place shows none — is
 // settled, as a gallery not left to stand in that state is published over (since S31): what the place shows decides,
 // not this library's stamp. (The guard that remains — a manifest the same look saw a moment ago, not found by its
-// re-read — is held by folder-group-seen.test.mjs.)
+// re-read — is held by folder-group-seen.test.mjs.) And nothing of the dropped command is ever carried out (S42 A): its
+// series' folder never made — the settle its retitling asked for, begun before the command, weighed no group.
 for (const app of ['desktop', 'website']) {
-  test(`S38 (c), S39: ${app}: a gallery left to stand whose manifest is lost is settled — its change stands, its links tidied, its place published again, a later write lands`, { skip }, async (t) => {
+  test(`S38 (c), S39: ${app}: a gallery left to stand whose manifest is lost is settled — its change stands, its links tidied, its place published again, a later write lands`, { skip, todo: app === 'desktop' && 'S42' }, async (t) => {
     const c = await made(t, app, 'of this version');
-    const { L, o, m } = c;
+    const { L, A, o, m } = c;
+    // The top-level folders made in A from now on (the desktop moves a series' members into its folder: files.js _regroup).
+    const madeTop = new Set();
+    const seen = (abs) => { const r = rel(A, abs); if (r && !r.startsWith('..')) { const top = r.split('/')[0]; if (!fs.existsSync(path.join(A, top))) madeTop.add(top); } };
+    if (app === 'website') fsa.onCall((call, root) => { if (path.resolve(root) === path.resolve(A) && call.op === 'getDirectoryHandle') seen(path.join(A, ...call.path.split('/'))); });
+    else faults.failNext((call) => { if (call.op === 'mkdir') seen(call.path); if (call.op === 'rename' && call.to) seen(call.to); return false; }, 'EIO', { times: Infinity });
     await L.setTitle(o, 'Kept, retitled');   // a change of its own, waiting with the command
     await L.raw.seriesCommand('attach', m, o);
     theirs(await c.place(m));
@@ -196,6 +202,7 @@ for (const app of ['desktop', 'website']) {
     assert.ok(!r.waiting.includes(o), 'nothing of it waits');
     assert.equal(await L.titleOf(o), 'Kept, retitled', 'its own change stands');
     assert.ok(fs.existsSync(file), 'a manifest written again');
+    assert.deepEqual([...madeTop], [], 'the dropped series\' folder never made');
     assert.deepEqual(await contradicted(L, [o, m]), [], 'its links tidied against the galleries as they stand');
     assert.equal(await within(L.putTranslation(o, 1, png(21)), 10000), 'ended', 'a later write of it');
     assert.equal(await within(L.flush(), 15000), 'ended');
