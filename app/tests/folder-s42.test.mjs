@@ -9,7 +9,8 @@
 //      publication in A end, with no call on B — with and without a deletion waiting `unfound`; on the website a folder
 //      whose permission waits to be asked again still counts for such a deletion;
 //   C. a folder's removal gives no deletion up: it rules its own folder out, as its whole look does, and no more;
-//   D. a publication dropped as it landed is published again: the folder says what the library says.
+//   D. a publication dropped as it landed is published again: the folder says what the library says;
+//   E. a linked gallery's archive found damaged is reported alike by both apps' checks ('corrupt').
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -17,6 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { desktopLibrary, webLibrary, clockAhead } from './library-drivers.mjs';
 import { tokenOf } from '../js/storage/gallery-manifest.js';
+import { zipCreate } from '../js/zip.js';
 import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
 import { netWatched } from './lock-net.mjs';
@@ -387,5 +389,25 @@ for (const app of APPS) {
     await rounds(L, [f.a], 1);
     assert.deepEqual([linksOf(await L.meta(o)), linksOf(await L.meta(c))], [[], []], 'after a check neither is in a series');
     assert.deepEqual([linksOf(metaThere(odir)), linksOf(metaThere(cdir))], [[], []], 'nor in their folders');
+  });
+}
+
+// ── E ──
+// A linked gallery's ZIP replaced by bytes that are no ZIP (read, and damaged): both apps' checks report it 'corrupt'.
+// (Green before S42 too: the desktop's walk of linked titles reports it first. Review 17's 'adopt-failed' — linked.js's
+// report of an adoption that failed, which took a read-and-damaged error for one — is fixed by reading; no damage made
+// here reached it: s42-notes.md.)
+for (const app of APPS) {
+  test(`S42 E: ${app}: a linked gallery's archive found damaged is reported 'corrupt' by the check`, { skip }, async (t) => {
+    const { L, base } = await library(t, app);
+    const f = await folders(L, base, 'A');
+    await L.setDefault(f.a);
+    const zip = path.join(f.A, 'Pack.zip');
+    fs.writeFileSync(zip, zipCreate([{ name: '001.png', data: png(1) }, { name: '002.png', data: png(2) }]));
+    await L.scan(f.a);
+    assert.equal((await L.galleries()).length, 1, 'it joined');
+    fs.writeFileSync(zip, 'not a zip at all, just bytes');
+    const r = await L.scan(f.a);
+    assert.deepEqual(r.problems.map(p => `${p.reason} ${p.path}`), ['corrupt Pack.zip']);
   });
 }

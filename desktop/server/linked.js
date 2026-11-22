@@ -495,7 +495,9 @@ export async function linkRoot(library, root, { files = [], own = [], archives =
     const was = keptSource.get(s.gid);
     if (was && was.content == null && s.title.content && !gone(s.gid)) library._s('UPDATE files SET source = ? WHERE gid = ?').run(JSON.stringify({ ...was, content: s.title.content }), s.gid);
   }
-  const failed = (title, e) => problems.push({ path: title.path, reason: ['outside', 'unreadable'].includes(e?.reason) ? e.reason : e?.syscall ? 'unreadable' : 'adopt-failed' });
+  // (Read and damaged — its archive no archive, a description that doesn't parse — 'corrupt', as the website's check
+  // reports it: contract.js readDamaged, S42 E.)
+  const failed = (title, e) => problems.push({ path: title.path, reason: ['outside', 'unreadable'].includes(e?.reason) ? e.reason : contract.readDamaged(e) ? 'corrupt' : e?.syscall ? 'unreadable' : 'adopt-failed' });
   const link = async (title, gid) => {
     try {
       const made = await adoptLinked(library, root, title, { gid, at: atOf(title) });

@@ -18,6 +18,7 @@ import * as fsa from './fsa-node.mjs';
 import * as faults from '../../desktop/tests/fs-faults.mjs';
 import { desktopLibrary, webLibrary, desktopKilled, pageNow, pageCalling, clockAhead } from './library-drivers.mjs';
 import { CLAIM_TTL_MS } from '../js/storage/folder-owner.js';
+import { tokenOf } from '../js/storage/gallery-manifest.js';
 import { v1Gallery, legacyGallery, seriesExport } from './fixtures/storage-fixtures.mjs';
 import { loadGallery as desktopLoad } from '../../desktop/server/folder-store.js';
 import { loadGallery as websiteLoad, forgetFolder } from '../js/storage/folder-store-web.js';
@@ -282,6 +283,27 @@ export const CASES = [
       fs.mkdirSync(at);
       fs.writeFileSync(path.join(at, 'personal-notes.txt'), 'mine');
       assert.deepEqual(await root.gallery(g.name, '1700000000001'), { kind: 'conflict', found: null });
+    },
+  },
+  {
+    // S41 F (asserted here since S42): asked with the library's view of the place, gallery() says what its look found
+    // of a manifest there either way — 'ok' carries `token`, the publication there, or null where none is — so a hold
+    // asked through the contract knows what its first look saw, on both adapters.
+    name: 'S41 F: gallery() asked with a view answers \'ok\' with the token of the publication there, or null where none is',
+    async run({ dir, store, fx }) {
+      const ref = await fx.register('A');
+      const gid = await fx.lib.newGallery('Viewed');
+      await fx.lib.putPage(gid, 1, png(1));
+      await fx.lib.flush();
+      const at = /** @type {string} */ (await fx.lib.dirOf(gid)), name = path.relative(path.join(dir, 'A'), at).split(path.sep).join('/');
+      const file = [path.join(at, '.shiori', 'gallery.json'), path.join(at, 'gallery.json')].find(f => fs.existsSync(f)) ?? '';
+      const token = tokenOf(JSON.parse(fs.readFileSync(file, 'utf8')));
+      const root = await opened(store, ref, 'publish');
+      const there = await root.gallery(name, gid, { known: token });
+      assert.deepEqual([there.kind, there.token], ['ok', token], 'the publication there');
+      fs.rmSync(file);   // lost
+      const none = await root.gallery(name, gid, { known: token });
+      assert.deepEqual([none.kind, none.token], ['ok', null], 'none there');
     },
   },
   // ── Files: writeNew, typed reads, deleteNamed ──
