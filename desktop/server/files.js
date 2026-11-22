@@ -1243,16 +1243,19 @@ export class FileLibrary {
   // it rules that folder out (`ruled`, kept with the deletion's row, written only when it changes), and it is given up only
   // once its own folder and every other it may still be in ruled it out — which those are is told without a call on any
   // of them (folders.js unfoundMayBeIn, S42 B), and only when one waits so.
-  // (A folder's removal — `removal`: its look before it leaves the library, scan.js finishUnfound — gives its own
-  // deletions up by its own whole look, as before S41: a removal never waits on other folders' checks.)
-  endUnfound(root, met, whole, { removal = false } = {}) {
-    const waiting = this._deletingRows(removal ? root : null).filter(d => d.unfound);
+  // A folder's removal looks as a check does (scan.js finishUnfound) and rules its own folder out as its whole look
+  // does, and no more (S42 C; S41's removal gave its own folder's deletions up by that look alone, and a deleted gallery
+  // moved by hand into another folder came back at that folder's check): one every other folder it may be in ruled out
+  // is forgotten, any other stays recorded — the removal doesn't wait for it, its folder leaves the library — and is
+  // weighed by the other folders' looks, its own folder counted only while it is the library's.
+  endUnfound(root, met, whole) {
+    const waiting = this._deletingRows().filter(d => d.unfound);
     if (!waiting.length) return;
-    const need = removal ? [] : this.library.folders.unfoundMayBeIn().map(String);
+    const need = this.library.folders.unfoundMayBeIn().map(String);
     for (const d of waiting) {
-      const own = this._split(d.dir).root === root;
+      const at = this._split(d.dir).root, own = at === root;
       const end = lifecycle.unfoundEnd({ met: met.has(d.dir), whole, misses: d.misses, own, at: root, ruledOut: d.ruled ? JSON.parse(d.ruled) : [],
-        need: [...new Set([String(this._split(d.dir).root), ...need])] });
+        need: [...new Set([...(this.library.folders.has(at) ? [String(at)] : []), ...need])] });
       if (end === 'forget') this.library._s('DELETE FROM deleting WHERE dir = ?').run(d.dir);
       else if (typeof end === 'number') this.library._s('UPDATE deleting SET misses = ? WHERE dir = ?').run(end, d.dir);
       else if (end !== 'keep') this.library._s('UPDATE deleting SET ruled = ? WHERE dir = ?').run(JSON.stringify(end.ruledOut), d.dir);
@@ -1323,9 +1326,11 @@ export class FileLibrary {
     lib._push('control', { type: 'FOLDERS_CHANGED' });
     return true;
   }
-  // Inside the transaction forgetting library folder `root`: what waited to be deleted there stays.
+  // Inside the transaction forgetting library folder `root`: what waited to be deleted there stays — but a deletion
+  // waiting `unfound`, which stays recorded: the gallery's folder may be in another library folder, whose looks weigh it
+  // (S42 C).
   forgetDeletionsIn(root) {
-    for (const d of this._deletingRows(root)) this.library._s('DELETE FROM deleting WHERE dir = ?').run(d.dir);
+    for (const d of this.deletingIn(root)) this.library._s('DELETE FROM deleting WHERE dir = ?').run(d.dir);
   }
 
   // Folder or archive `rel` deleted for gallery `gid` (_remove) only when it is the gallery's own by

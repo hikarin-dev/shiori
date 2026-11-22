@@ -1984,7 +1984,10 @@ export const CASES = [
     // folder reported what the deletion left at every check, for good — or, a gallery of one page, or a
     // folder the removal didn't read, the deleted gallery joined again. A removal that couldn't finish a
     // deletion it owes is refused like unsaved work (the card's "Remove anyway"); a check then finishes it,
-    // and the removal goes through. "Remove anyway" leaves the folder as it is.
+    // and the removal goes through. "Remove anyway" leaves the folder as it is. (S42 C: only one its look met and
+    // couldn't finish holds it up — a deletion not found there, the folder unread or out of reach, holds no removal up:
+    // the removal goes on, the deletion stays recorded, and the folder added again has it deleted where its check meets
+    // it. Those two forms restated so; before, their removals were refused.)
     name: 'S25b: a folder\'s removal that couldn\'t finish a deletion it owes is refused, and the deleted gallery never comes back',
     async run({ dir, fx, platform }) {
       const [failure, busy] = platform === 'desktop' ? ['EIO', 'EBUSY'] : ['NotReadableError', 'NoModificationAllowedError'];
@@ -2006,16 +2009,25 @@ export const CASES = [
         const deletion = (/** @type {{ op: string, path: string }} */ c) => (platform === 'desktop' ? ['rm', 'unlink'].includes(c.op) && c.path.includes(`/${name}/Alpha by hand/`)
           : c.op === 'removeEntry' && c.path.startsWith('Alpha by hand/'));
         const inject = platform === 'desktop' ? faults : fsa;
-        if (form === 'out of reach') {
-          fs.renameSync(A, `${A} away`);
-          await fx.lib.list();
-          await assert.rejects(fx.lib.remove(ref.id), (e) => /** @type {any} */ (e).reason === 'unsaved', 'refused at once, as with unsaved work');
-          fs.renameSync(`${A} away`, A);
-          await fx.lib.list();
-        } else {
+        if (form === 'out of reach' || form === 'a listing failing') {
           let n = 0;
-          const undo = form === 'a listing failing' ? inject.failNext((c) => listing(c) && ++n === 1, failure, { times: Infinity })
-            : inject.failNext(deletion, busy, { times: form === 'Remove anyway' ? Infinity : 1 });
+          const undo = form === 'a listing failing' ? inject.failNext((c) => listing(c) && ++n === 1, failure, { times: Infinity }) : () => {};
+          if (form === 'out of reach') { fs.renameSync(A, `${A} away`); await fx.lib.list(); }
+          await fx.lib.remove(ref.id);   // (S42 C: not found there, it holds the removal up no more)
+          undo();
+          if (form === 'out of reach') fs.renameSync(`${A} away`, A);
+          assert.ok(!(await fx.lib.list()).some(f => f.id === ref.id), `removed (${form})`);
+          const again = await fx.lib.add(A);
+          for (let k = 0; k < 2; k++) {
+            const r = await fx.lib.scan(again);
+            assert.deepEqual([r.added, (await fx.lib.galleries()).includes(gid)], [0, false], `the deleted gallery never comes back (${form})`);
+          }
+          assert.equal(fs.existsSync(renamed), false, `its folder is deleted where the check of the folder added again meets it (${form})`);
+          await fx.lib.setDefault(fx.lib.home);
+          await fx.lib.remove(again);
+          continue;
+        } else {
+          const undo = inject.failNext(deletion, busy, { times: form === 'Remove anyway' ? Infinity : 1 });
           await assert.rejects(fx.lib.remove(ref.id), (e) => /** @type {any} */ (e).errorKey === 'lf.task_kept', `refused (${form})`);
           if (form === 'Remove anyway') {
             const was = snapshot(renamed);
@@ -3046,9 +3058,10 @@ export const CASES = [
     // list) may hold the gallery's folder, so a check that couldn't read it can't rule the deletion out — and
     // such a folder is never read, so the deletion waited for good. It is given up after three looks that
     // couldn't read everything (a check's, or a removal's, which looks as a check does), counted with the
-    // deletion across a restart; until then the removal is refused as with unsaved work. A folder that turns
-    // up later is the person's copy, which joins (plan §8).
-    name: 'review 7 A1: a deletion a check can\'t rule out is given up after three looks that couldn\'t read everything, the removal refused only till then',
+    // deletion across a restart. A folder that turns up later is the person's copy, which joins (plan §8). (S42 C:
+    // the removal is no longer refused meanwhile — a deletion not found holds no removal up, its record staying for
+    // the other folders' looks — so the second look here is a check, where it was the refused removal's.)
+    name: 'review 7 A1: a deletion a check can\'t rule out is given up after three looks that couldn\'t read everything',
     async run({ dir, fx, platform }) {
       const A = path.join(dir, 'A');
       fs.mkdirSync(path.join(A, 'Locked'), { recursive: true });
@@ -3072,7 +3085,7 @@ export const CASES = [
         const unread = (/** @type {{ problems: { path: string, reason: string }[] }} */ r) => r.problems.some(p => p.reason === 'unreadable' && p.path === 'Locked');
         assert.ok(unread(await fx.lib.scan(ref.id)), 'the first look: a check that can\'t read Locked');
         await restart();
-        await assert.rejects(fx.lib.remove(ref.id), (e) => /** @type {any} */ (e).errorKey === 'lf.task_kept', 'the second, the removal\'s: refused, the deletion still owed');
+        assert.ok(unread(await fx.lib.scan(ref.id)), 'the second');
         await restart();
         assert.ok(unread(await fx.lib.scan(ref.id)), 'the third');
         fs.renameSync(path.join(outside, 'Alpha'), path.join(A, 'Alpha'));   // later, the person moves it back

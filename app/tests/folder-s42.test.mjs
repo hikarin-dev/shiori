@@ -308,7 +308,7 @@ test('S42 B: website: a deletion waiting unfound as A is checked, B\'s permissio
 // from the library before B is checked: the removal goes through, the deletion stays recorded, and B's check deletes the
 // folder where it meets it — the gallery never listed again.
 for (const app of APPS) {
-  test(`S42 C: ${app}: moved by hand into B, deleted, A removed before B is checked — never listed again, the folder in B deleted at B's check`, { skip, todo: 'S42' }, async (t) => {
+  test(`S42 C: ${app}: moved by hand into B, deleted, A removed before B is checked — never listed again, the folder in B deleted at B's check`, { skip }, async (t) => {
     const { L, base } = await library(t, app);
     const f = await folders(L, base, 'A', 'B');
     await L.setDefault(f.a);

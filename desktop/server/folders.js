@@ -600,7 +600,7 @@ export class Folders {
       }
       const { reachable, access } = this.probe(id);
       if (!discard && !(reachable && access === 'mine')) {
-        const n = this._unsavedIn(id).length + this._dormantIn(id) + lib.files._deletingRows(id).length;
+        const n = this._unsavedIn(id).length + this._dormantIn(id) + lib.files.deletingIn(id).length;   // (one not found holds nothing up: S42 C)
         if (n) throw Object.assign(refusal('invalid', 'unsaved', `${n} galleries have changes not saved to library folder ${id}`), { galleries: n });
       }
       if (next) lib._kvSet('defaultRoot', next === this.primaryId ? null : next);
@@ -940,13 +940,15 @@ export class Folders {
     if (job.stop) return stopped();
     // The notes of linked sources let go from it (deleted before, or moved out above) written there, and
     // the folders of galleries deleted from it (or moved out by a copy) deleted — those not where their
-    // deletion had them looked for, as a check would (finishUnfound): one still owed — not finished where
-    // it was met, or perhaps in what couldn't be read — is as unsaved as a gallery (forgotten, the folder
-    // would add its source, or the gallery, again).
+    // deletion had them looked for, as a check would (finishUnfound): one still owed at a place — where it was
+    // recorded, or where that look met the gallery's folder and couldn't finish deleting it (S25b) — is as unsaved
+    // as a gallery (forgotten, the folder would add its source, or the gallery, again). One not found there —
+    // perhaps in what couldn't be read, or in another folder — holds the removal up no more (S42 C): it stays
+    // recorded, for the other folders' looks (files.js endUnfound), and the folder leaves.
     await this.publishRemoved(id, { work: 'removal' });
     await files.applyDeletions({ root: id, work: 'removal' }).catch(() => {});
-    await finishUnfound(lib, id, 'removal').catch(() => {});
-    const owed = [...lib._s('SELECT gid FROM removed_notes WHERE root = ?').all(id), ...files._deletingRows(id)].map(r => r.gid);
+    const met = await finishUnfound(lib, id, 'removal').catch(() => new Set());
+    const owed = [...lib._s('SELECT gid FROM removed_notes WHERE root = ?').all(id), ...files._deletingRows(id).filter(d => !d.unfound || met.has(d.dir))].map(r => r.gid);
     const { forget, unsaved } = lifecycle.removalOutcome({ required: [...required, ...owed], saved, discard });
     if (!forget) {
       this._setState(id, before);
@@ -1029,7 +1031,7 @@ export class Folders {
     lib._tx(() => {
       lib._s('DELETE FROM roots WHERE id = ?').run(id);
       lib._s('DELETE FROM removed_notes WHERE root = ?').run(id);   // written, or lost by the person's choice
-      lib.files.forgetDeletionsIn(id);                              // likewise
+      lib.files.forgetDeletionsIn(id);                              // likewise (but those not found: S42 C)
       lib._s('DELETE FROM attention WHERE root = ?').run(id);
       if (this._dormant) lib._s('DELETE FROM dormant WHERE root = ?').run(id);
       if (lib._kvGet('defaultRoot') === id) lib._kvSet('defaultRoot', null);

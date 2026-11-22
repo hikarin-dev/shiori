@@ -609,12 +609,13 @@ function deletionMet(library, id, handover) {
 // index had it: F4) finished before the folder is let go (folders.js, its removal): its galleries looked
 // for as a check finds them, one naming such a gallery deleted where it is (`work` as files.js
 // deletedFound) — once the folder is forgotten, nothing would keep the next library adding it from
-// adopting it again. Then it ends as a check's does (files.js endUnfound: review 6 F6, review 7 A1); what
-// is still recorded is owed, and the removal refused while it is.
+// adopting it again. Then it ends as a check's does (files.js endUnfound: review 6 F6, review 7 A1) — ruling this
+// folder out, and no more (S42 C): what is still recorded stays, weighed by the other folders' looks. Resolves the
+// deletions it met (their rows' `dir`s: one not finished where met is still owed there, S25b).
 export async function finishUnfound(library, root, work) {
   const files = library.files;
   const unfound = new Map(files._deletingRows(root).filter(d => d.unfound).map(d => [String(d.gid), d]));
-  if (!unfound.size || library.folders.reach(root, 'read', { fresh: true }).status !== 'ok') return;
+  if (!unfound.size || library.folders.reach(root, 'read', { fresh: true }).status !== 'ok') return new Set();
   const walked = await findGalleries(library.rootDir(root), { problems: [] });
   let whole = walked.whole;
   const met = new Set();
@@ -626,7 +627,8 @@ export async function finishUnfound(library, root, work) {
     const d = id && !files._row(id) && unfound.get(id);
     if (d) { met.add(d.dir); await files.deletedFound(d, g.rel, work, g.format === 'folder'); }
   }
-  files.endUnfound(root, met, whole, { removal: true });
+  files.endUnfound(root, met, whole);
+  return met;
 }
 
 // The token gallery files  were last published at (a folder, or an archive in the gallery format:

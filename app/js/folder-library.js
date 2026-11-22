@@ -383,7 +383,7 @@ async function folderRemove(id, { moveTo = null, discard = false } = {}) {
   const now = await K.access(id);
   if (now.state === 'granted' && now.handover) throw Object.assign(new BackendError('unavailable', `library folder ${id} is still being read after it came back`), { reason: 'handover', folder: id });
   if (!discard && !(now.state === 'granted' && now.owned)) {   // its removal couldn't write back, nor delete what it owes
-    const n = (await _unsavedIn(id)).length + (await K.deletions(id)).length;
+    const n = (await _unsavedIn(id)).length + (await K.deletions(id)).filter(d => !d.unfound).length;   // (one not found holds nothing up: S42 C)
     if (n) _refuse('unsaved', `${n} galleries have changes not saved to library folder ${id}`, { galleries: n });
   }
   await K.folderWrite((store, tx) => {
@@ -458,13 +458,15 @@ async function _setAside(id, { onProgress = () => {}, stopped = () => false } = 
   if (end) return end;
   // The notes of linked sources let go from it (deleted before, or moved out above) written there, and
   // the folders of galleries deleted from it (or moved out) deleted — those not where their deletion had
-  // them looked for, as a check would (_finishUnfound): one still owed — not finished where it was met,
-  // or perhaps in what couldn't be read — is as unsaved as a gallery (forgotten, the folder would add its
-  // source, or the gallery, again).
+  // them looked for, as a check would (_finishUnfound): one still owed at a place — where it was recorded, or where
+  // that look met the gallery's folder and couldn't finish deleting it (S25b) — is as unsaved as a gallery (forgotten,
+  // the folder would add its source, or the gallery, again). One not found there — perhaps in what couldn't be read, or
+  // in another folder — holds the removal up no more (S42 C): it stays recorded, for the other folders' looks (db.js
+  // endUnfound), and its folder leaves the library.
   await K.publishRemoved(id, work);
   await K.applyDeletions(id, work).catch(() => {});
-  await _finishUnfound(id, work).catch(() => {});
-  const owed = [...await K.removedNotes(id), ...await K.deletions(id)].map(n => n.gid);
+  const met = await _finishUnfound(id, work).catch(() => new Set());
+  const owed = [...await K.removedNotes(id), ...(await K.deletions(id)).filter(d => !d.unfound || met.has(d.id))].map(n => n.gid);
   const place = await still();
   const { forget, unsaved } = removalOutcome({ required: [...required.map(g => String(g.galleryId)), ...owed], saved, discard: !!place.removal?.discard });
   if (!forget) {
@@ -536,7 +538,7 @@ async function _forget(id) {
   const owed = await K.removedNotes(id);   // written, or lost by the person's choice
   await K.folderWrite((store, tx) => { store.delete(id); for (const n of owed) store.delete(n.id); K.logIn(tx, '*'); });
   await K.forgetRetiring(id).catch(() => {});   // files it would have deleted there stay with the folder
-  await K.forgetDeletions(id).catch(() => {});  // and galleries' folders likewise
+  await K.forgetDeletions(id).catch(() => {});  // and galleries' folders likewise (but those not found: S42 C)
   await K.forgetAttention(id).catch(() => {});
   folderFiles.forgetFolder(id);
   K.forgetKnown(id);   // what the commit gate knew of its claim
@@ -855,19 +857,21 @@ async function _leftovers(run, stat) {
 // finished before the folder is let go (its removal: `work`): its galleries looked for as a check finds
 // them, one naming such a gallery deleted where it is (db.js deletedFound) — once the folder is forgotten,
 // nothing would keep the next library adding it from adopting it again. Then it ends as a check's does
-// (db.js endUnfound: review 6 F6, review 7 A1); what is still recorded is owed, and the removal refused
-// while it is.
+// (db.js endUnfound: review 6 F6, review 7 A1) — ruling this folder out, and no more (S42 C): what is still recorded
+// stays, weighed by the other folders' looks. Resolves the deletions it met (their record's ids: one not finished
+// where met is still owed there, S25b).
 async function _finishUnfound(id, work) {
   const unfound = new Map((await K.deletions(id)).filter(d => d.unfound).map(d => [String(d.gid), d]));
   const root = unfound.size ? await K.rootOf(id, { work }) : null;
-  if (!root) return;
+  if (!root) return new Set();
   const found = await _walk({ id, root, name: '', stopped: () => false, problems: [] }, new Set());
   const known = new Set(await K.transferIds()), met = new Set();
   for (const own of found.own) {
     const d = !own.series && !known.has(own.id) && unfound.get(own.id);
     if (d) { met.add(d.id); await K.deletedFound(d, id, own.path, work); }
   }
-  await K.endUnfound(id, met, found.whole, { removal: true });
+  await K.endUnfound(id, met, found.whole);
+  return met;
 }
 // A check's progress, step by step (each counted on its own).
 function _steps(run, onProgress) {

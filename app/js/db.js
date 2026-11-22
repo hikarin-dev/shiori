@@ -1412,8 +1412,9 @@ async function _unlink({ dirs }, work, held = null) {
 // hand before the deletion: F4, S10) is kept, `unfound`, until a look at its folder ends it: a check
 // meeting a folder that names its gallery deletes that by name instead of adopting it (_deletedFound);
 // one that didn't rules it out, or counts it (`misses`) towards giving it up (_endUnfound), and the
-// folder's removal looks for it first, as a check would (folder-library.js _finishUnfound), refused while
-// it is still owed (it waits for no one else).
+// folder's removal looks for it first, as a check would (folder-library.js _finishUnfound) — never refused for it
+// (S42 C: a removal waits only for what is still owed at its place), the record staying while another folder may
+// hold the gallery's folder.
 const DELETING = '$deleting:';
 const _deletingKey = (folder, dir) => `${DELETING}${folder}\u0000${dir}`;
 // The folders waiting to be deleted (of folder `folder` alone, when given): [{ id, folder, dir, gid,
@@ -1522,15 +1523,20 @@ const _deletedFound = (d, folder, dir, work = null) => _deletion(d, { folder, di
 // meet it rules that folder out (`ruled`, kept with the deletion: a field of its record, written only when it changes),
 // and it is given up only once its own folder and every other it may still be in ruled it out — which those are is told
 // without a call on any of them (_unfoundMayBeIn, S42 B), and only when one waits so.
-// (A folder's removal — `removal`: its look before it leaves the library, folder-library.js _finishUnfound — gives its own
-// deletions up by its own whole look, as before S41: the folder goes, and a removal never waits on other folders' checks.)
-async function _endUnfound(folder, met, whole, { removal = false } = {}) {
-  const waiting = (await _deletions(removal ? folder : null)).filter(d => d.unfound);
+// A folder's removal looks as a check does (folder-library.js _finishUnfound) and rules its own folder out as its whole
+// look does, and no more (S42 C; S41's removal gave its own folder's deletions up by that look alone, and a deleted
+// gallery moved by hand into another folder came back at that folder's check): one every other folder it may be in
+// ruled out is forgotten, any other stays recorded — the removal doesn't wait for it, its folder leaves the library —
+// and is weighed by the other folders' looks, its own folder counted only while it is the library's.
+async function _endUnfound(folder, met, whole) {
+  const waiting = (await _deletions()).filter(d => d.unfound);
   if (!waiting.length) return;
-  const need = removal ? [] : await _unfoundMayBeIn();
+  const need = await _unfoundMayBeIn();
+  const { byId, removing } = await _folders();
   for (const d of waiting) {
     const own = d.folder === folder;
-    const end = unfoundEnd({ met: met.has(d.id), whole, misses: d.misses, own, at: folder, ruledOut: d.ruled ?? [], need: [...new Set([d.folder, ...need])] });
+    const mine = byId.has(d.folder) || removing.has(d.folder) ? [d.folder] : [];
+    const end = unfoundEnd({ met: met.has(d.id), whole, misses: d.misses, own, at: folder, ruledOut: d.ruled ?? [], need: [...new Set([...mine, ...need])] });
     if (end === 'keep') continue;
     if (end === 'forget') {
       await _forgetRetiring(d.folder, d.dir);
@@ -1590,7 +1596,11 @@ async function _retiringOf(folder, dir) {
   });
 }
 // Folder `folder` forgotten: what waited to be deleted there stays.
-const _forgetDeletions = (folder) => _recordsWrite((store) => store.delete(IDBKeyRange.bound(`${DELETING}${folder}\u0000`, `${DELETING}${folder}\u0000￿`)));
+// (One waiting `unfound` stays: the gallery's folder may be in another library folder, whose looks weigh it — S42 C.)
+const _forgetDeletions = (folder) => _recordsWrite((store) => {
+  const q = store.getAll(IDBKeyRange.bound(`${DELETING}${folder}\u0000`, `${DELETING}${folder}\u0000￿`));
+  q.onsuccess = () => { for (const d of q.result || []) if (!d.unfound) store.delete(d.id); };
+});
 // The notes of files of gallery folder `dir` (in folder `folder`; every gallery folder's there, with no
 // `dir`: the folder forgotten) waiting to retire, forgotten (only those of `paths`, when given).
 async function _forgetRetiring(folder, dir = null, paths = null) {
