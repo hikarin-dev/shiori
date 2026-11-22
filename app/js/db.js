@@ -2109,21 +2109,31 @@ function _retireIn(tx, folder, dir, files) {
 // Inside one transaction, while gallery `gid` is still the one its publication began for (`life`), kept at
 // `place` (the place it held: none of a gallery made again under its id meanwhile): its mark cleared when it is
 // still the one of revision `rev` (compare-and-clear), and its stamp kept. Resolves whether it was.
+// Dropped as it landed (S42 D): published from what waited (`rev`), it finds the mark gone — a stand dropped what
+// waited after this publication read it (the others of a dropped command are stood by the stand that drops it, not
+// under this gallery's lock: folder-library.js folderStands), its record read again from the folder's version before
+// this one landed. The stamp kept is still the token of what is in the folder (this publication), and the gallery
+// waits again (its mark put back): the library's record as it stands is published next, so the folder says what the
+// library says. (Before, it ended as if nothing happened: the library kept the stood record, the folder this
+// publication, the stamps equal — no check read it again.)
 async function _described(gid, rev, stamp, place, life) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = _tx(db, [GALLERY_STORE, UNDESCRIBED_STORE], 'readwrite');
     const marks = tx.objectStore(UNDESCRIBED_STORE), stats = tx.objectStore(GALLERY_STORE);
     const stat = stats.get(gid);
-    let ours = false;
+    let ours = false, dropped = false;
     stat.onsuccess = () => {
       if (!stat.result || !_still(life, stat.result) || !_samePlace(stat.result, place)) return;
       ours = true;
       if (stat.result.stamp !== stamp) stats.put({ ...stat.result, stamp });
       const mark = marks.get(gid);
-      mark.onsuccess = () => { if (mark.result && mark.result.rev === rev) { marks.delete(gid); _ungroupIn(tx, gid); } };
+      mark.onsuccess = () => {
+        if (mark.result && mark.result.rev === rev) { marks.delete(gid); _ungroupIn(tx, gid); }
+        else if (rev != null && !mark.result) { _markIn(tx, gid, rev); dropped = true; }
+      };
     };
-    tx.oncomplete = () => resolve(ours);
+    tx.oncomplete = () => { if (dropped) _describeSoon(gid); resolve(ours && !dropped); };
     tx.onerror = () => reject(_txError(tx));
   });
 }

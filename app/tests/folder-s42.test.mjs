@@ -354,7 +354,7 @@ for (const app of APPS) {
 // the same of its links, the stamp kept is the token of the manifest there, nothing left waiting — and after a check
 // neither is in a series.
 for (const app of APPS) {
-  test(`S42 D: ${app}: a publication dropped as it landed is published again — the folder says what the library says`, { skip, todo: 'S42' }, async (t) => {
+  test(`S42 D: ${app}: a publication dropped as it landed is published again — the folder says what the library says`, { skip }, async (t) => {
     const { L, base } = await library(t, app);
     const f = await folders(L, base, 'A');
     await L.setDefault(f.a);

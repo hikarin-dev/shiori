@@ -2353,14 +2353,26 @@ export class FileLibrary {
       if (!weighed.go || !this.still(life)) return false;   // its series command weighed as one first (S32): it waits, or was dropped
       this._touched.delete(id);
       const upTo = lib._s('SELECT max(rowid) AS n FROM retiring WHERE gid = ?').get(id)?.n ?? 0;
-      const token = row.format === 'folder' ? await this._publish(id, row, may, life, weighed) : await this._describeArchive(id, row, life, weighed);
-      if (!token || !this.still(life)) return false;
+      const done = row.format === 'folder' ? await this._publish(id, row, may, life, weighed) : await this._describeArchive(id, row, life, weighed);
+      if (!done?.token || !this.still(life)) return false;
+      const { token, waited } = done;
       await this._describeSeries(id);
       if (!this.still(life)) return false;
+      // Dropped as it landed (S42 D): written from what waited here (`waited`), it finds nothing waiting — a stand dropped
+      // what waited after this publication read it (the others of a dropped command are stood by the stand that drops
+      // it, scan.js folderStands, which doesn't wait for this publication), its rows read again from the folder's
+      // version before this one landed (a change since would have left it waiting: _pend). The stamp kept is still the
+      // token of what is in the folder (this publication), and the gallery waits again: its record as it stands is
+      // published next, so the folder says what the library says. (Before, the stamp was written and nothing waited:
+      // the library kept the stood rows, the folder this publication, the stamps equal — no check read it again.)
+      let dropped = false;
       lib._tx(() => {
         lib._s('INSERT OR REPLACE INTO stamps (gid, stamp) VALUES (?, ?)').run(id, token);
-        if (!this._touched.has(id)) { lib._s('UPDATE files SET pending = 0, packed_at = ? WHERE gid = ?').run(Date.now(), id); this._ungroup(id); }
+        dropped = waited && !this._row(id)?.pending;
+        if (dropped) lib._s('UPDATE files SET pending = 1 WHERE gid = ?').run(id);
+        else if (!this._touched.has(id)) { lib._s('UPDATE files SET pending = 0, packed_at = ? WHERE gid = ?').run(Date.now(), id); this._ungroup(id); }
       });
+      if (dropped) { this.scheduleDescribe(id); return false; }
       this._changes.delete(id);
       await this._letGo(id, upTo, may, life);
       return true;
@@ -2462,8 +2474,8 @@ export class FileLibrary {
 
   // Gallery `gid`'s generation published in its folder (`row`) through the folder store (folder-store.js:
   // the folder opened for `work` — a removal's write-back, else 'publish' — and the gallery's directory
-  // there): resolves the token it is published at (gallery-manifest.js tokenOf), or null when the
-  // folder can't take it now. A gallery with nothing waiting (a removal's write-back) writes nothing
+  // there): resolves { token: the one it is published at (gallery-manifest.js tokenOf), waited: whether it wrote
+  // a generation of what waited here (describe: S42 D) }, or null when the folder can't take it now. A gallery with nothing waiting (a removal's write-back) writes nothing
   // where its folder has a generation already — the one last published or read here, or another app's
   // since, which a check reads (D4) — nor where none was ever published that this library knew of
   // (gallery-manifest.js nothingToWrite: an earlier version's folder, an overlay not described yet), and is
@@ -2488,24 +2500,25 @@ export class FileLibrary {
     if (!now.pending) {
       const there = (await found.dir.manifest()).kind;
       if (!this.still(life)) return null;
-      if (format.nothingToWrite(had, there)) return had;
+      if (format.nothingToWrite(had, there)) return { token: had, waited: false };
     }
     // Its group as its generation is read (one synchronous step to the write): only now, its own place held 'ok', is its
     // command taken as weighed whole (S41 A).
     if (!this._weighedStill(gid, weighed)) { this.scheduleDescribe(gid); return null; }
     this._groupWeighed(gid, weighed);
+    const waited = !!this._row(gid)?.pending;
     // Pictures of its own still staged (not moved in yet, or not in staging: _stagedMissing) named by none.
     const { next, texts } = this._generation(gid, { without: new Set(this._stagedOwn(gid).map(s => s.rel)) });
     const done = await found.dir.publish({ manifest: next, descriptions: texts });
     lib.writes.add('descriptions', done.bytes);
-    return done.token;
+    return { token: done.token, waited };
   }
 
   // An archive's changes published: the descriptions that changed and its manifest (format v2, naming
   // the entries it is appended with) added at its end with one new directory (zip.js appendZip —
   // nothing else in it is written again), the length it had kept first, so an addition the app didn't
   // finish is cut off again (resume). An archive not in the gallery format (added by hand) is left as
-  // it is: resolves null (its descriptions are only the index's), else the token it is published at.
+  // it is: resolves null (its descriptions are only the index's), else { token, waited } as _publish does.
   // (`weighed`: as _publish's.)
   async _describeArchive(gid, row, life, weighed) {
     return this._exclusive(gid, () => this._describeArchiveNow(gid, row, life, weighed));
@@ -2519,7 +2532,7 @@ export class FileLibrary {
     const had = this._stamp(gid);
     const held = await this.hold(gid, { rel: row.path });
     if (held.kind !== 'ok' || !this.still(life)) return null;
-    if (this._stamp(gid) !== had) return this._stamp(gid);   // the archive's version read here: nothing of this library's to add
+    if (this._stamp(gid) !== had) return { token: this._stamp(gid), waited: false };   // the archive's version read here: nothing of this library's to add
     const dir = await this._directory(file);
     if (!this.still(life) || !this._formatted(dir)) return null;
     const changes = await this._archiveChanges(gid, row, dir, { life });
@@ -2527,8 +2540,9 @@ export class FileLibrary {
     // Its group once what it adds is read (S42 A, as _publish's) — and its command taken as weighed whole (S41 A).
     if (!this._weighedStill(gid, weighed)) { this.scheduleDescribe(gid); return null; }
     this._groupWeighed(gid, weighed);
+    const waited = !!this._row(gid)?.pending;
     const { add, drop, token } = changes;
-    if (!add.length && !drop.length) return token;
+    if (!add.length && !drop.length) return { token, waited: false };
     const { size } = await disk.stat(file);
     if (!this.still(life)) return null;
     lib._s('UPDATE files SET tail = ? WHERE gid = ?').run(size, gid);
@@ -2537,7 +2551,7 @@ export class FileLibrary {
     this._dirs.delete(file);
     if (!this.still(life)) return null;
     lib._s('UPDATE files SET tail = NULL WHERE gid = ?').run(gid);
-    return token;
+    return { token, waited };
   }
   // Whether an archive's directory (`dir`) is in the gallery format: it describes itself.
   _formatted(dir) { return dir.has(content.MANIFEST_FILE) || dir.has('metadata.json') || dir.has('image_records.json'); }
