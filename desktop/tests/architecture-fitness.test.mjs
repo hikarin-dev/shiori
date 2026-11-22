@@ -171,8 +171,6 @@ test('no code outside the folder store adapter turns a failed read of a library 
     ['library.js', 'if (e.code !== \'ENOENT\') throw e;', 'a staged write whose folder was cleared meanwhile: the folder made again (a write, not a read)'],
     ['library.js', 'disk.access(this._staged(o.file)).then(() => true, () => false)', CHECKED],
     ['library.js', 'for (const name of await disk.readdir(dir).catch(() => [])) await disk.rm(', NOTHING],
-    ['linked.js', 'const dir = directory || await readDirectory(abs).catch(async (e) => {',
-      'an archive whose directory can\'t be read now has no title read: none joins or is read again from it (adoptLinked: null), a note takes no fingerprint — but a stand that may settle on what it finds reads it strictly: null only for an archive not there as the shared rule takes it (S40)'],
     ['linked.js', 'fingerprint: await zipFingerprint(abs).catch(() => null),\n      size:', UNKNOWN],
     ['linked.js', 'return (await titleAt(library, root, source).catch(() => null))?.fingerprint ?? null;',
       'a source\'s fingerprint, unknown (null) when it can\'t be read now: a note made with it holds whatever the place holds (isRemoved), and one recorded before is kept (folders.js _publishRemoved)'],
