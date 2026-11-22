@@ -402,8 +402,12 @@ export function matchSources({ found, kept = [], overlays = [], known = new Set(
   const out = { same: [], changed: [], new: [], missing: [], skipped: [] };
   const keptAt = new Map(kept.map(k => [sourceKey(k.source), { ...k, gid: String(k.gid) }]));
   const keptIds = new Set([...keptAt.values()].map(k => k.gid));
-  // An overlay of a gallery the library keeps here says nothing the library doesn't know.
-  const overAt = new Map((overlays ?? []).filter(o => !keptIds.has(o.galleryId)).map(o => [sourceKey(o.source), o]));
+  // An overlay of a gallery the library keeps here says nothing the library doesn't know — and one standing for a source
+  // whose removal is noted or owed (the deleted gallery's, its removal not done yet: its own source as it recorded it
+  // is the one removed) is never taken for a title's own (S41): a source at that path now, changed or replaced, is a new
+  // gallery under a new id, nothing of the deleted one's overlay read for it.
+  const overAt = new Map((overlays ?? []).filter(o => !keptIds.has(o.galleryId) && !(removed && o.source?.fingerprint && isRemoved(removed, o.source)))
+    .map(o => [sourceKey(o.source), o]));
   const foundKeys = new Set(found.map(sourceKey));
   for (const title of found) {
     const k = keptAt.get(sourceKey(title));

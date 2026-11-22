@@ -1828,7 +1828,8 @@ async function pdfsWaiting() {
         if (!file) continue;
         const joined = known.has(over.galleryId);
         const print = joined ? over.source.fingerprint : await _pdfPrint(file);
-        if (!joined && isRemoved(removed, { ...over.source, fingerprint: print })) continue;
+        // (Nor the overlay of a removed source as it recorded it — the deleted gallery's, its file replaced since: S41.)
+        if (!joined && (isRemoved(removed, { ...over.source, fingerprint: print }) || (over.source.fingerprint && isRemoved(removed, over.source)))) continue;
         if (!pdfWaits(over.source, (await _overlayOf(f.id, root, over.galleryId))?.images, print)) continue;
         out.push({ folder: f.id, gid: over.galleryId, path: over.source.path, name: over.source.path.split('/').pop() });
       } catch { /* not offered */ }

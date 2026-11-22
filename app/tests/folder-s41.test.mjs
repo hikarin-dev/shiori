@@ -253,7 +253,7 @@ for (const app of APPS) {
 for (const app of APPS) {
   for (const kind of ['a PDF', 'a ZIP']) {
     for (const wait of [false, true]) {
-      test(`S41 C: ${app}: ${kind}'s gallery deleted, its file replaced — a new gallery under a new id${wait ? ', after a settle' : ''}`, { skip, todo: app === 'website' && !wait ? 'S41' : undefined }, async (t) => {
+      test(`S41 C: ${app}: ${kind}'s gallery deleted, its file replaced — a new gallery under a new id${wait ? ', after a settle' : ''}`, { skip }, async (t) => {
         const { L, base } = await library(t, app);
         const f = await folders(L, base, 'A');
         await L.setDefault(f.a);
@@ -268,6 +268,7 @@ for (const app of APPS) {
           await L.addRendered(w.folder, w.gid, [png(Math.floor(Math.random() * 60000)), png(7)], token);
           return String(w.gid);
         };
+        await L.scan(f.a);
         write(1);
         await L.scan(f.a);
         const g = kind === 'a PDF' ? await draw() : String((await L.galleries())[0]);

@@ -1403,7 +1403,7 @@ const REGRESSIONS = [
     steps: [['newGallery', 1], ['movedByHand', [0, 'B', 'none', 0]], ['deleteGallery', 0], ['scan', null], ['checkB', null]] })),
   // S41 C (the 10-minute run of S40's close-out, website seed 163385648, 'with drawing'; since 286a839, S35): a PDF's
   // gallery deleted, a check, the PDF drawn again — the new file came back under the deleted gallery's id.
-  ...['website', 'desktop'].map(app => ({ app, todo: app === 'website' ? 'S41' : undefined, name: 'a deleted PDF\'s gallery never comes back under its id when the PDF is drawn again',
+  ...['website', 'desktop'].map(app => ({ app, name: 'a deleted PDF\'s gallery never comes back under its id when the PDF is drawn again',
     steps: [['drawPdf', [true, 0, 'drawn']], ['deleteGallery', 0], ['link', null], ['drawPdf', [false, 0, 'drawn']]] })),
 ];
 
