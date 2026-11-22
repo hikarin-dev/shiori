@@ -1242,6 +1242,15 @@ export class FileLibrary {
     if (!this._deletions.has(root)) await this._queued(root, () => this._deleteOne(d, d.dir, null)).catch(() => {});
     return this._deletingRows().find(r => r.dir === d.dir) ?? null;
   }
+  // Whether deletion `d`'s own place still holds its gallery, as it is now (whoseIn): true; false — nothing there, as
+  // the shared rule takes it; null — can't be told now. (A place met elsewhere naming the gallery while its own is
+  // there is a copy: S40, scan.js deletionMet.)
+  async deletionThere(d) {
+    const abs = this._at(d.dir);
+    if (!abs) return null;
+    const whose = await whoseIn(abs, d.gid).catch(() => null);
+    return whose?.kind === 'ok' ? true : whose?.kind === 'missing' ? false : null;
+  }
   // What waited `unfound` in library folder `root` once a look at it ended (a check, or its removal's:
   // scan.js finishUnfound), as folder-lifecycle.js unfoundEnd weighs each: those it met (`met`: their
   // `dir`s) kept until they are done where it met them; the rest forgotten when it ruled them out

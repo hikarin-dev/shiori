@@ -987,7 +987,8 @@ const _entryText = async (entry) => new TextDecoder().decode(await entry.read())
 // `unfound` (its gallery's folder wasn't where it had it), or — a hand-over's read — one of this folder's, as it is;
 // one not marked is tried first at its own place, as its own folder's check would (db.js deletionTried), and the
 // records read again: marked now → as `unfound`; gone (done there) → null: what was met is a copy, and joins; still
-// owed (its folder out of reach, not to be written by this app now, its gallery busy) → undefined: passed over.
+// owed (its folder out of reach, not to be written by this app now, its gallery busy) → told by its own place: still
+// holding the gallery → null, a copy, which joins (its own place deleted in due course); else undefined: passed over.
 // null where none is owed. (A hand-over's read deletes nothing and weighs only its own folder's, S29a's rule 3.)
 async function _deletionMet(run, gid) {
   const of = async () => (await K.deletions()).find(d => String(d.gid) === String(gid)) ?? null;
@@ -997,7 +998,9 @@ async function _deletionMet(run, gid) {
   if (run.handover) return d.folder === run.id ? d : null;
   await K.deletionTried(d);
   d = await of().catch(() => undefined);
-  return d && !d.unfound ? undefined : d;
+  if (d === undefined) return undefined;
+  if (!d || d.unfound) return d;
+  return (await K.deletionThere(d)) === true ? null : undefined;
 }
 async function _joinOwn(run, found, kept) {
   if (found.legacy) { run.problems.push({ path: found.path, reason: 'unsupported' }); return; }

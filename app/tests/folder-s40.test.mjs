@@ -278,6 +278,8 @@ for (const app of ['desktop', 'website']) {
     if (app === 'website') fsa.hold(hold); else faults.holdIn(hold);
     await L.deleteGallery(g);
     assert.equal(await within(reached.at, 15000), 'ended', 'the deletion under way');
+    // B's check begun while the deletion is held passes it over (the deletion under way: its gallery's lock busy, a
+    // deletion of A queued; its own place not there to tell a copy by).
     assert.equal(await within(L.scan(b), 15000), 'ended', 'B\'s check ends');
     const listed = async () => (await L.galleries()).map(String).includes(String(g));
     assert.equal(await listed(), false, 'not listed after B\'s check');

@@ -167,7 +167,19 @@ test('the mark a gallery is made with is this browser\'s own: never in its folde
   const restored = await mark();
   assert.ok(restored && restored !== born, 'restored once deleted: made again, with another mark');
   await L.deleteGallery(gid);
-  await L.scan(await L.add(C));
+  const c = await L.add(C);
+  await L.scan(c);
+  // (S40: a check meeting a place that names a gallery whose deletion is still owed tries that deletion first; one under
+  // way — its gallery's lock busy, its own place going — passes the copy over to the next check.)
+  if (!(await mark())) {
+    const owed = async () => { const idb = await L.raw.openDB(); return new Promise((resolve) => {
+      const tx = idb.transaction(['folders'], 'readonly');
+      const q = tx.objectStore('folders').getAllKeys(IDBKeyRange.bound('$deleting:', '$deleting:￿'));
+      tx.oncomplete = () => resolve(q.result.length);
+    }); };
+    for (let i = 0; i < 200 && await owed(); i++) await new Promise((r) => setTimeout(r, 50));
+    await L.scan(c);
+  }
   const joined = await mark();
   assert.ok(joined && joined !== born && joined !== restored, 'joined from a copy by a check: another');
 });

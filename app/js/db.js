@@ -1513,10 +1513,23 @@ async function _deleteOne(d, at, work) {
 const _deletedFound = (d, folder, dir, work = null) => _deletion(d, { folder, dir }, work);
 // Deletion `d`, not yet marked `unfound`, tried at its own place by a check of another folder that met a place naming
 // its gallery (S40: folder-library.js _deletionMet) — as its own folder's check would, under its gallery's lock and
-// lock shiori:deleting:<its folder>, but only while its gallery's lock is free: one whose gallery's work (or its own
-// deletion) is under way is busy, left for a later look. Never rejects.
+// lock shiori:deleting:<its folder>, but only while its gallery's lock is free: a check of another folder never waits
+// for work under way on the gallery (its publication on another drive: 11A2), the deletion is then told by its own
+// place (_deletionThere) or left for a later look. Never rejects.
 const _deletionTried = (d) => folderFiles.withLock(`shiori:gallery:${d.gid}`, () => folderFiles.withLock(`shiori:deleting:${d.folder}`,
   () => _deleteOne(d, { folder: d.folder, dir: d.dir }, null)), { ifFree: true }).catch(() => {});
+// Whether deletion `d`'s own place still holds its gallery, as it is now: true; false — nothing there, as the shared
+// rule takes it; null — can't be told now. (A place met elsewhere naming the gallery while its own is there is a copy:
+// S40, folder-library.js _deletionMet.)
+async function _deletionThere(d) {
+  const root = await _readRootOf(d.folder).catch(() => null);
+  if (!root) return null;
+  if (ARCHIVE_NAME.test(d.dir)) {
+    try { return !!(await folderFiles.readFile(d.folder, root, d.dir)); } catch { return null; }   // (not read: not told)
+  }
+  const whose = await folderFiles.galleryIn(d.folder, root, d.dir, d.gid);   // typed: 'unreadable' is not told
+  return whose.kind === 'ok' ? true : whose.kind === 'missing' ? false : null;
+}
 // What waited `unfound` in folder `folder` once a look at it ended (a check, or its removal's:
 // folder-library.js _finishUnfound), as folder-lifecycle.js unfoundEnd weighs each: those it met (`met`:
 // their ids) kept until they are done where it met them; the rest forgotten when it ruled them out
@@ -2491,7 +2504,7 @@ const _folderLibrary = createFolderLibrary({
   note: _note, noteIn: _noteIn, noteChecked: _noteChecked, attentionOf: _attentionOf, dismiss: _dismiss, forgetAttention: _forgetAttention,
   placeOf: _placeOf, placeKey: _placeKey, access: _access, rootOf: _rootOf, usable: _usable, readRootOf: _readRootOf,
   removedNotes: _removedNotes, publishRemoved: _publishRemoved,
-  deletions: _deletions, applyDeletions: _applyDeletions, forgetDeletions: _forgetDeletions, deletedFound: _deletedFound, deletionTried: _deletionTried, endUnfound: _endUnfound,
+  deletions: _deletions, applyDeletions: _applyDeletions, forgetDeletions: _forgetDeletions, deletedFound: _deletedFound, deletionTried: _deletionTried, deletionThere: _deletionThere, endUnfound: _endUnfound,
   deletionHeld: _deletionHeld,
   me: _me, myLabel: _myLabel, readClaim: _readClaim, writeClaim: _writeClaim, noteEpoch: _noteEpoch, randomId: _randomId,
   markOf: _markOf, setHandover: _setHandover, noteReleased: _noteReleased, releasedOf: _releasedOf, groupWaiting: _groupWaiting,

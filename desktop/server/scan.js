@@ -591,12 +591,15 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
 // marked `unfound`, or — a hand-over's read, which deletes nothing and weighs it (S29a's rule 3) — any; one not marked
 // is tried first at its own place, as its own folder's check would (files.js deletionTried), and the rows read again:
 // marked now → it (deleted where it was met); gone (done there) → null: what was met is a copy, and joins; still owed
-// (its folder out of reach, not to be written now, a deletion of it under way) → undefined: passed over. null where none.
+// (its folder out of reach, not to be written now, a deletion of it under way) → told by its own place: still holding
+// the gallery → null, a copy, which joins (its own place deleted in due course); else undefined: passed over. null
+// where none.
 async function deletionMet(library, id, handover) {
   const d = library.files._deletingRows().find(r => String(r.gid) === String(id)) ?? null;
   if (!d || d.unfound || handover) return d;
   const now = await library.files.deletionTried(d);
-  return now && !now.unfound ? undefined : now;
+  if (!now || now.unfound) return now;
+  return (await library.files.deletionThere(now)) === true ? null : undefined;
 }
 
 // Deletions waiting `unfound` in library folder `root` (their gallery's folder or archive wasn't where the
