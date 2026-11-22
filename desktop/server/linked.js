@@ -19,7 +19,7 @@ import { disk, physicallyIn, replaceFile, loadGallery, textIn, entriesIn, statIn
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { readDirectory, readEntry } from './zip.js';
-import { linked as L, files as layout, content, personal, manifest as format, BackendError } from './shared.js';
+import { linked as L, files as layout, content, personal, manifest as format, contract, BackendError } from './shared.js';
 import { derivedOf, derivedRecord, coverPatch, localChanges, startEntry } from './scan.js';
 const { withoutPersonal } = personal;
 
@@ -101,7 +101,8 @@ async function titleAt(library, root, title, directory = null, { strict = false 
     // (`strict`: a stand that may settle on what it finds — adoptLinked — takes null only for an archive not there as
     // the shared rule takes it; a read of it failing rejects, S40.)
     const dir = directory || await readDirectory(abs).catch(async (e) => {
-      if (strict && (await notFound(abs, e)).kind !== 'missing') throw e;
+      // (Read and damaged — no archive — has nothing to read pages from, as one not there: S41 H, contract.js readDamaged.)
+      if (strict && !contract.readDamaged(e) && (await notFound(abs, e)).kind !== 'missing') throw e;
       return null;
     });
     if (!dir) return null;
@@ -289,7 +290,7 @@ async function embeddedMeta(library, root, title, at) {
 // for: rejects `unversioned` (S39: settled, as one not left to stand in that state is published). Its source is then
 // read strictly (S40): a read of it failing rejects — an error reading now, held and tried again — never taken for a
 // source not there.
-export async function adoptLinked(library, root, title, { gid: given = null, replace = null, guard = null, at = null, life = replace ? library.files.life(replace) : null, group = [], drop = false, seen = true, theirs = true } = {}) {
+export async function adoptLinked(library, root, title, { gid: given = null, replace = null, guard = null, at = null, life = replace ? library.files.life(replace) : null, group = [], drop = false, seen = true, theirs = true, began = undefined } = {}) {
   const ended = () => !!life && !library.files.still(life);
   const bare = () => Object.assign(new Error(`gallery ${replace}: no pages there to stand by`), { reason: 'unversioned' });
   const settles = () => !!replace && !theirs && !ended();
@@ -351,6 +352,7 @@ export async function adoptLinked(library, root, title, { gid: given = null, rep
     if (ended() || guard?.() || (!replace && taken(gid))) { held = true; return; }
     // A drop only while its reason still holds as this transaction reads the gallery (S40, as scan.js reread).
     if (replace && drop && read.token && files._stamp(gid) === read.token && !files._dropped(gid)) { overtaken = true; return; }
+    if (replace && began !== undefined && files._stamp(gid) !== began) { overtaken = true; return; }   // (S41 G, as scan.js reread)
     const had = new Map();   // the pictures of its own its records referred to, and those it read
     if (replace) {
       for (const r of library._pageRows(gid)) ownRefs(parse(r.record), had);

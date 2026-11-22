@@ -34,6 +34,7 @@ import { DESCRIPTION_FILES, descriptionStamp, layoutPath, extOfType, describedFi
 import { PICTURE_DIRS, readGallery, parseManifest, tokenOf, namedPictures, supersedes, replacedOwn, dropBasis } from './storage/gallery-manifest.js';
 import { withoutPersonal } from './storage/personal.js';
 import { judgeLinks, linksOff, linksTidied } from './series-plan.js';
+import { readDamaged } from './storage/contract.js';
 import { sha256Hex } from './zip-read.js';
 import { uploadDateSeconds } from './gallery-model.js';
 
@@ -1186,7 +1187,7 @@ const _entriesOf = (records) => new Map((Array.isArray(records) ? records : []).
 // nothing is read again once that one has ended); `group`, the rest of its series command left to stand with that
 // drop (_storeAdopted); `seen`, whether the look that asked saw a manifest there a moment ago, for what a drop rests on
 // (_droppedFor). Resolves its id, or null when there is nothing to read (or it wasn't read again: _storeAdopted).
-async function _adopt(run, found, { replace = null, read = null, drop = false, manifest = false, life = null, group = [], seen = true } = {}) {
+async function _adopt(run, found, { replace = null, read = null, drop = false, manifest = false, life = null, group = [], seen = true, began = undefined } = {}) {
   read ??= await _readFormat(run.id, run.root, found);
   if (life && !(await K.stillNow(life))) return null;
   const gid = replace || found.id;
@@ -1201,7 +1202,7 @@ async function _adopt(run, found, { replace = null, read = null, drop = false, m
       cachedAt: entry?.cachedAt || now, size: read.files.get(path).size, ...derivedRecord(read.pictures, read.bubbles, n, entry, read.ref) } };
   });
   return _storeAdopted({ folder: run.id, dir: found.path, gid, record: { ...read.meta, galleryId: gid }, pages, ownCover: _ownCovers(read),
-    stamp: read.token, replace, drop: drop && dropping, life, group, extra: found.kind === 'zip' ? { packed: { inner: found.inner || '' } } : {} });
+    stamp: read.token, replace, drop: drop && dropping, life, group, began, extra: found.kind === 'zip' ? { packed: { inner: found.inner || '' } } : {} });
 }
 // What a drop rests on (_storeAdopted `drop`) — and a re-read that a manifest's token asked for
 // (`manifest`: _catchUp): the folder's version as its manifest (format v2) names it, `{ files }` — never
@@ -1232,7 +1233,9 @@ function _droppedFor(read, at, seen = true) {
 // a kill after it never loses the report) — and every other gallery of its series command still waiting (`group`)
 // is left to stand by the folder's version too (db.js _groupDropIn, S37: the command's drop is whole). `life`: the
 // gallery read again (db.js _life), only while it is still the id's. Resolves its id, or null when it wasn't read again.
-async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, stamp = null, replace = null, drop = false, stale = false, life = null, group = [], extra = {} }) {
+// What _storeAdopted resolves for a stand overtaken (S40 C, S41 G): nothing written, the hold that asked asks again.
+const OVERTAKEN = Symbol('overtaken');
+async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, stamp = null, replace = null, drop = false, stale = false, life = null, group = [], began = undefined, extra = {} }) {
   const now = Date.now();
   const db = await K.openDB();
   const S = K.stores;
@@ -1277,6 +1280,10 @@ async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, s
     stat.onsuccess = () => {
       // Only the gallery kept at the place it was read from: never one made again under its id since (S34).
       if ((life && !K.still(life, stat.result)) || stat.result?.folder !== folder || stat.result?.dir !== dir) { waits = true; tx.abort(); return; }
+      // A stand goes on only from the stamp it began with (S41 G, `began`: the stamp the library kept of the gallery as
+      // the stand began), on both branches: another hold stood it and this library published on top since — the
+      // version this stand read is no longer the library's, nothing of it is put.
+      if (began !== undefined && (stat.result?.stamp ?? null) !== began) { overtaken = true; tx.abort(); return; }
       if (!(mark.result || stat.result?.spilled)) { K.deleteIn(tx, gid, () => put(stat.result)); return; }
       if (!drop) { waits = true; tx.abort(); return; }
       // A drop only while its reason still holds as this transaction reads the gallery (S40): the version read at its
@@ -1293,7 +1300,7 @@ async function _storeAdopted({ folder, dir, gid, record, pages, ownCover = {}, s
       });
     };
   });
-  if (stored === 'overtaken') return gid;
+  if (stored === 'overtaken') return OVERTAKEN;
   if (!stored) return null;
   if (replace) platform.control.send({ type: 'COVER_INVALIDATED', galleryId: gid });
   const work = { kind: 'adopt', folder };   // what it was read from: that folder's own work, as its records' transaction
@@ -1425,8 +1432,11 @@ async function folderStands(gid, { held = null, handover = false, seen = false, 
   const linked = _seriesLinks(await K.metaGet(gid));
   let stood;
   try {
-    stood = !!(stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, drop, life, held, group: others, seen, theirs })
-      : await _adopt(run, where, { replace: gid, drop, manifest: true, life, group: others, seen }));
+    const began = stat.stamp ?? null;   // the stamp this stand began with (S41 G)
+    const got = stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, drop, life, held, group: others, seen, theirs, began })
+      : await _adopt(run, where, { replace: gid, drop, manifest: true, life, group: others, seen, began });
+    if (got === OVERTAKEN) return true;   // another stand, or this library's own publication since, overtook it: nothing more (S41 H)
+    stood = !!got;
   } catch (e) {
     if (e?.reason === 'unversioned') { await _settle(gid, stat.folder); return true; }
     // (A damaged place has no version to stand by either: what waits is published over it, T08 — as settled.)
@@ -1573,8 +1583,10 @@ async function _titlePictures(run, title, { strict = false } = {}) {
     if (!file) return null;
     return { pictures: [], fingerprint: await _pdfPrint(file), size: file.size };
   } catch (e) {
-    if (strict) throw e;
-    run.problems.push({ path: title.path, reason: 'unreadable' });
+    // (Strict: a read that failed rejects; one that read the source and found it damaged — its archive no archive — has
+    // nothing to read pages from, as a source not there: S41 H, contract.js readDamaged.)
+    if (strict && !readDamaged(e)) throw e;
+    run.problems.push({ path: title.path, reason: readDamaged(e) ? 'corrupt' : 'unreadable' });
     return null;
   }
 }
@@ -1742,7 +1754,7 @@ function _writeSource(folder, root, gid, text, ended = async () => false, held =
 // there, or read and holding no page, a PDF not drawn — has no version to drop for: thrown `unversioned` (S39: settled,
 // as one not left to stand in that state is published). Its source is then read strictly (S40): a read of it failing
 // rejects — an error reading now, held and tried again — never taken for a source not there.
-async function _adoptLinked(run, title, { gid: given = null, replace = null, drop = false, life = null, held = null, group = [], seen = true, theirs = true } = {}) {
+async function _adoptLinked(run, title, { gid: given = null, replace = null, drop = false, life = null, held = null, group = [], seen = true, theirs = true, began = undefined } = {}) {
   const ended = async () => !!life && !(await K.stillNow(life));
   const settles = !!replace && !theirs;
   const bare = () => Object.assign(new BackendError('invalid', `${title.path}: no pages there to stand by`), { reason: 'unversioned' });
@@ -1788,7 +1800,7 @@ async function _adoptLinked(run, title, { gid: given = null, replace = null, dro
   // for the folder's claim, and one waiting here never goes over another app's generation of its overlay
   // (S30: an overlay with no description yet left it unstamped — "only this app's" to the commit gate).
   return _storeAdopted({ folder: run.id, dir, gid, record, pages, ownCover: _ownCovers(read),
-    stamp: read.token, replace, drop: drop && _droppedFor(read, dir, seen), stale, life, group, extra: { linked } });
+    stamp: read.token, replace, drop: drop && _droppedFor(read, dir, seen), stale, life, group, began, extra: { linked } });
 }
 // What a title's name and folders say of it: an archive's chapter is named after its folder in it,
 // its tags the archive's.

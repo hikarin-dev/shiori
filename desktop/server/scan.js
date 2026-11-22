@@ -715,7 +715,7 @@ function noteReplaced(library, gid, was) {
 // same transaction — and with it the rest of its series command waiting (`group`) left to stand (files.js dropIn).
 // Resolves whether it was — 'overtaken' for a drop whose reason no longer held as its transaction read the gallery
 // (nothing written); rejects as readGallery does.
-async function reread(library, row, { guard = () => false, drop = false, manifest = false, group = [], seen = true } = {}) {
+async function reread(library, row, { guard = () => false, drop = false, manifest = false, group = [], seen = true, began = undefined } = {}) {
   const files = library.files;
   const gid = row.gid;
   const g = { abs: files._abs(row.path), rel: row.path, format: row.format, layout: row.format === 'folder' };
@@ -739,6 +739,9 @@ async function reread(library, row, { guard = () => false, drop = false, manifes
     // that version first, and what waits was made since, on top of it: nothing dropped, reported or retired, its group
     // untouched (the hold that asked asks the place again).
     if (drop && g.read.token && files._stamp(gid) === g.read.token && !files._dropped(gid)) { overtaken = true; return; }
+    // And only from the stamp it began with (S41 G, `began`), on both branches: another hold stood the gallery and this
+    // library published on top since — what this stand read is no longer the library's version.
+    if (began !== undefined && files._stamp(gid) !== began) { overtaken = true; return; }
     const staged = drop ? files._staged(gid).map(r => JSON.parse(r.orig).file) : [];
     // Its own files in the folder: written there, their time recorded — not a picture still waiting in
     // staging, whose name there may be another's file by now.
@@ -814,8 +817,8 @@ export async function folderStands(library, gid, { seen = false, theirs = false 
   const linked = seriesLinks(library._metaGet(id));
   let stood;
   try {
-    stood = src ? await adoptLinked(library, root, src, { replace: id, life, guard, group: others, drop, seen, theirs })
-      : await reread(library, row, drop ? { drop: true, guard, group: others, seen } : { guard, manifest: true, seen });
+    stood = src ? await adoptLinked(library, root, src, { replace: id, life, guard, group: others, drop, seen, theirs, began: was })
+      : await reread(library, row, drop ? { drop: true, guard, group: others, seen, began: was } : { guard, manifest: true, seen, began: was });
     if (stood === 'overtaken') return true;   // another stand stood that version first: nothing more of this one (S40)
     stood = !!stood;
   } catch (e) {

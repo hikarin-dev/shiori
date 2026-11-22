@@ -188,7 +188,7 @@ async function lastDirectory(file) {
       }
       if (from === 0) break;
     }
-    throw new Error('not a zip archive');
+    throw Object.assign(new Error('not a zip archive'), { reason: 'corrupt' });   // read, and damaged (contract.js readDamaged)
   } finally {
     await handle.close();
   }

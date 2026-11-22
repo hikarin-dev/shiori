@@ -360,7 +360,7 @@ for (const app of APPS) {
 // A linked gallery left to stand whose ZIP is replaced by bytes that are no ZIP (read, and damaged): settled; a later
 // series command over it and a healthy gallery is published.
 for (const app of APPS) {
-  test(`S41 H: ${app}: a linked gallery left to stand whose ZIP is replaced by bytes that are no ZIP — settled, a later command's healthy gallery published`, { skip, todo: 'S41' }, async (t) => {
+  test(`S41 H: ${app}: a linked gallery left to stand whose ZIP is replaced by bytes that are no ZIP — settled, a later command's healthy gallery published`, { skip }, async (t) => {
     const { L, base } = await library(t, app);
     const f = await folders(L, base, 'A');
     await L.setDefault(f.a);
