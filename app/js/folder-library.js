@@ -33,6 +33,7 @@ import { LINKED_DIR, SOURCE_FILE, REMOVED_FILE, IMAGE_NAME, ARCHIVE_NAME, overla
 import { DESCRIPTION_FILES, descriptionStamp, layoutPath, extOfType, describedFiles, derivedRecord } from './storage/gallery-files.js';
 import { PICTURE_DIRS, readGallery, parseManifest, tokenOf, namedPictures, supersedes, replacedOwn, dropBasis } from './storage/gallery-manifest.js';
 import { withoutPersonal } from './storage/personal.js';
+import { judgeLinks, linksOff, linksTidied } from './series-plan.js';
 import { sha256Hex } from './zip-read.js';
 import { uploadDateSeconds } from './gallery-model.js';
 
@@ -333,13 +334,15 @@ async function folderHide(id) {
 }
 
 // Hidden place `id` shown again: its galleries are back in the library at once, and what waited while
-// it was hidden is written there. Resolves { id, restored }.
+// it was hidden is written there — its series links tidied first, as a check of it would (_tidyFolder: a tidy
+// passed over while it was hidden is done, S40). Resolves { id, restored }.
 async function folderShow(id) {
   const key = String(id);
   const { place, hidden } = await K.placeOf(key);
   if (!place) throw _notFound(key);
   if (!hidden) return { id: key, restored: 0 };
   await _putPlace(place, 'shown');
+  if (key !== K.BROWSER) _tidyFolder(key).catch(() => {});
   K.settleFolders().catch(() => {});
   if (place.handover) _handOver(key);   // one hidden in the middle of its hand-over is read now
   const f = await K.folders();
@@ -803,16 +806,9 @@ async function _checkOnce(id, folder, { onProgress = () => {}, stopped = () => f
   const changed = [...run.added, ...run.updated];
   // A series' members tidied with it, unpublished: one kept whose series no longer lists it is listed (review 9 B3).
   const members = (await K.galleryGetAll()).filter(g => g.parentId && changed.includes(String(g.parentId)) && !changed.includes(String(g.galleryId))).map(g => String(g.galleryId));
-  // And every other gallery kept here with series links, tidied against the galleries as they now stand, one it changed
-  // published in due course: a tidy a stand elsewhere passed over while this folder couldn't be written (S39) is done.
-  const linked = [];
-  for (const g of kept) {
-    const gid = String(g.galleryId);
-    if (!changed.includes(gid) && !members.includes(gid) && _seriesLinks(await K.metaGet(gid)).length) linked.push(gid);
-  }
-  const tidied = await _tidySeriesLinks([...changed, ...members, ...linked], run.id, { quiet: new Set(members) });
+  // And every other gallery kept here whose links another contradicts (_tidyFolder).
+  await _tidyFolder(run.id, { kept, also: [...changed, ...members], quiet: new Set(members) });
   for (const gid of changed) K.publishFeed(gid);
-  for (const gid of linked) if (tidied.has(gid)) K.describeSoon(gid);
   if (handover) return { added: run.added.length, updated: run.updated.size, problems: run.problems, stopped: !!stopped(), joined: run.added };
   // What it found, for the folder's Needs attention list (D15), and a deletion whose gallery's folder it
   // didn't meet forgotten — not when it was stopped part way; when its walk couldn't read everything, once
@@ -1423,12 +1419,27 @@ async function folderStands(gid, { held = null, handover = false, seen = false }
 const _seriesLinks = (meta) => [...(meta?.parentId ? [String(meta.parentId)] : []), ...(Array.isArray(meta?.chapters) ? meta.chapters.map(c => String(c?.id ?? '')) : [])]
   .filter(id => id && id !== String(meta?.galleryId));
 // Galleries `gids` (but `gid`) tidied against the galleries as they now stand (_tidySeriesLinks), each it changed
-// published in due course (db.js _describeSoon). One whose folder may not be written now (hidden, another app's) is
-// passed over, the rest go on: it is tidied once its folder is read back, by that folder's check (_checkOnce tidies
-// every gallery it keeps with series links). Never rejects: a tidy fails no stand, no settlement (S39).
+// published in due course (db.js _describeSoon). One whose change fails (its folder may not be written now: hidden,
+// another app's, being handed over — or anything else) is passed over, the rest go on: it is tidied by its folder's
+// tidy (_tidyFolder), which follows every such reason — a hidden folder shown again, the take-back's and the
+// hand-over's checks, any later check. Never rejects: a tidy fails no stand, no settlement (S39).
 async function _tidyAround(gids, gid, folder) {
   const changed = await _tidySeriesLinks([...new Set(gids)].filter(id => id !== String(gid)), folder).catch(() => new Set());
   for (const id of changed) K.describeSoon(id);
+}
+// Folder `id`'s series links tidied, by its check (`kept`: the galleries it kept as it began; `also`: those it joined
+// or read again, and their series' members — `quiet` those, tidied in the library alone) and when it is shown again
+// (S40): the galleries it keeps whose links another gallery contradicts are told from the records read once — no
+// transaction per gallery — and only those go to _tidySeriesLinks with `also`, which judges again and writes; one of
+// them it changed is published in due course. A folder whose links all agree costs two reads, and writes nothing.
+async function _tidyFolder(id, { kept = null, also = [], quiet = new Set() } = {}) {
+  const ids = (kept ?? await _placedIn(id)).map(g => String(g.galleryId));
+  const read = new Set(also.map(String));
+  const metas = new Map((await K.metaGetAll()).map(m => [String(m.galleryId), m]));
+  const off = ids.filter(gid => !read.has(gid) && metas.has(gid) && linksOff(judgeLinks(gid, metas.get(gid), (x) => metas.get(x))));
+  const changed = await _tidySeriesLinks([...read, ...off], id, { quiet });
+  for (const gid of off) if (changed.has(gid)) K.describeSoon(gid);
+  return changed;
 }
 // Gallery `gid`, left to stand with no version there to stand by (S38), settled: out of its group — its flag with it —
 // what waits of it published as any change to its place is, in due course (and at once by the work under way that held
@@ -1883,8 +1894,8 @@ async function pdfFailed(folder, gid, token) {
 // now; what is taken out — the parent judged, the chapters judged contradicted — is taken out of its record as the
 // transaction writing it reads it (S39: a change made in between stays), and nothing is put for a gallery deleted
 // meanwhile or made again under its id since (its life: db.js _life). One whose folder may not be written now (hidden,
-// another app's: refused as it commits) is passed over, the rest go on — tidied once its folder is read back, by that
-// folder's check (_checkOnce). Resolves the galleries it changed.
+// another app's: refused as it commits — or failing otherwise) is passed over, the rest go on — tidied by its folder's
+// tidy later (_tidyFolder). Resolves the galleries it changed.
 async function _tidySeriesLinks(gids, folder, { quiet = new Set() } = {}) {
   const owners = new Set(), changed = new Set();
   if (!gids.length) return changed;
@@ -1892,24 +1903,11 @@ async function _tidySeriesLinks(gids, folder, { quiet = new Set() } = {}) {
     const life = await K.life(gid);
     const meta = await K.metaGet(gid);
     if (!meta) continue;
-    const contradicted = new Set();
-    let parent = null;
-    if (Array.isArray(meta.chapters)) {
-      let kept = 0;
-      for (const c of meta.chapters) {
-        const id = String(c?.id ?? '');
-        const member = id === gid ? meta : await K.metaGet(id);
-        if (!member || id === gid || String(member.parentId || '') === gid) kept++; else contradicted.add(id);
-      }
-      if (kept > 1) owners.add(gid);
-    }
-    if (meta.parentId) {
-      const owner = await K.metaGet(String(meta.parentId));
-      const listed = Array.isArray(owner?.chapters) && owner.chapters.some(c => String(c?.id) === gid);
-      if (owner && !listed) parent = String(meta.parentId);
-      else if (owner) owners.add(String(meta.parentId));
-    }
-    if (!contradicted.size && !parent) continue;
+    const linked = new Map();
+    for (const id of _seriesLinks(meta)) linked.set(id, await K.metaGet(id));
+    const judged = judgeLinks(gid, meta, (id) => linked.get(id));
+    for (const oid of judged.owners) owners.add(oid);
+    if (!linksOff(judged)) continue;
     const S = K.stores;
     const db = await K.openDB();
     const wrote = await new Promise((resolve) => {
@@ -1922,16 +1920,10 @@ async function _tidySeriesLinks(gids, folder, { quiet = new Set() } = {}) {
       const cur = metas.get(gid), stat = stats.get(gid);
       stat.onsuccess = () => {
         if (!cur.result || !K.still(life, stat.result)) return;   // deleted meanwhile, or another gallery of the id now
-        const next = { ...cur.result };
-        const unparented = !!parent && String(next.parentId ?? '') === parent;
-        if (unparented) delete next.parentId;
-        if (contradicted.size && Array.isArray(next.chapters)) {
-          const left = next.chapters.filter(c => !contradicted.has(String(c?.id ?? '')));
-          if (left.length !== next.chapters.length) { if (left.length > 1) next.chapters = left; else delete next.chapters; }
-        }
-        if (JSON.stringify(next) === JSON.stringify(cur.result)) return;
+        const next = linksTidied(cur.result, judged);   // of the record as this transaction reads it
+        if (!next) return;
         metas.put(K.canonicalMeta(next));
-        if (unparented && stat.result?.parentId) { const { parentId, ...rest } = stat.result; stats.put(rest); }
+        if (cur.result.parentId && !next.parentId && stat.result?.parentId) { const { parentId, ...rest } = stat.result; stats.put(rest); }
         K.logIn(tx, gid, { mark: !quiet.has(gid) });
         put = true;
       };

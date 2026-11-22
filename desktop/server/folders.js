@@ -620,12 +620,14 @@ export class Folders {
   }
 
   // Hidden folder `id` shown again: its galleries are back in the library at once, and what waited for
-  // the folder is written there. Resolves { id, restored }.
+  // the folder is written there — its series links tidied first, as a check of it would (library.js _tidyFolder: a
+  // tidy passed over while it was hidden is done, S40). Resolves { id, restored }.
   async show(id) {
     const row = this._row(id);
     if (!row) throw new BackendError('not-found', `no library folder ${id}`);
     if (!lifecycle.canShow(row)) return { id, restored: 0 };
     this._setState(id, 'shown');
+    try { this.library._tidyFolder([id]); } catch {}
     this.library.files.resume();
     this.handOver(id);   // one hidden in the middle of its hand-over is read now
     return { id, restored: this.galleriesIn(id).length };

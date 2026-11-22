@@ -577,11 +577,8 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   // outside it: listed, and deletable (S32, review 9 B3).
   const tidied = [...out.added, ...out.updated];
   for (const gid of [...tidied]) for (const r of library._s('SELECT gid FROM stats WHERE parent_key = ?').all(String(gid))) tidied.push(String(r.gid));
-  library._tidyLinks([...new Set(tidied)]);
-  // And every other gallery it keeps with series links, tidied against the galleries as they now stand, one it changed
-  // published in due course: a tidy a stand elsewhere passed over while this folder couldn't be written (S39) is done.
-  const read = new Set(tidied);
-  library._tidyLinks(kept.map(r => String(r.gid)).filter(gid => !read.has(gid) && files._row(gid) && seriesLinks(library._metaGet(gid)).length), { publish: true });
+  // And every other gallery kept in the folders checked whose links another contradicts (library.js _tidyFolder).
+  library._tidyFolder([...checked], { also: [...new Set(tidied)] });
   for (const gid of changed) library.publishFeed(gid);
   if (handover) return out;
   out.removed += await removeOrphans(library, out.unreferenced, checked);

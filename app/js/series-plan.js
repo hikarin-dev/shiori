@@ -332,3 +332,44 @@ export function planRelink(s, gid, patch, { touch = true, onlyIfExists = false, 
   }
   return plan;
 }
+
+// ── A gallery's series links tidied against the galleries as they stand (both apps' tidies: S38–S40) ──
+// What tidying gallery `gid`'s links (its record `meta`) against the galleries as they stand (`get(id)`: a gallery's
+// record, or none) judges: the chapters it lists that a present gallery contradicts — one naming another series, or
+// none — and the owner it names that doesn't list it (`parent`); a link to a gallery not there is kept (R15: its folder
+// may be added back later). `owners`: the series whose totals rest on it (its own, still listing chapters; the one it
+// names, listing it).
+export function judgeLinks(gid, meta, get) {
+  const id = _id(gid);
+  const contradicted = new Set(), owners = [];
+  let parent = null;
+  if (Array.isArray(meta?.chapters)) {
+    let kept = 0;
+    for (const c of meta.chapters) {
+      const cid = _id(c?.id ?? '');
+      const member = cid === id ? meta : get(cid);
+      if (!member || cid === id || _id(member.parentId || '') === id) kept++; else contradicted.add(cid);
+    }
+    if (kept > 1) owners.push(id);
+  }
+  if (meta?.parentId) {
+    const owner = get(_id(meta.parentId));
+    const listed = Array.isArray(owner?.chapters) && owner.chapters.some(c => _id(c?.id) === id);
+    if (owner && !listed) parent = _id(meta.parentId);
+    else if (owner) owners.push(_id(meta.parentId));
+  }
+  return { contradicted, parent, owners };
+}
+// Whether a judgement (judgeLinks) takes anything out.
+export const linksOff = (judged) => judged.contradicted.size > 0 || judged.parent != null;
+// Record `meta` with what `judged` takes out of it taken out — the owner it names only while it is still the one
+// judged, the chapters judged contradicted (a list left with one entry goes) — or null where that leaves it as it is.
+export function linksTidied(meta, judged) {
+  const next = { ...meta };
+  if (judged.parent != null && _id(next.parentId ?? '') === judged.parent) delete next.parentId;
+  if (judged.contradicted.size && Array.isArray(next.chapters)) {
+    const left = next.chapters.filter(c => !judged.contradicted.has(_id(c?.id ?? '')));
+    if (left.length !== next.chapters.length) { if (left.length > 1) next.chapters = left; else delete next.chapters; }
+  }
+  return JSON.stringify(next) === JSON.stringify(meta) ? null : next;
+}

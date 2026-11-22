@@ -407,11 +407,12 @@ test('S39: a gallery left to stand is never worse off than one that isn\'t — w
     if (!/K\.describeSoon\(gid\);\s*await _tidyAround\(/.test(s.site.get('_settle') ?? '')) out.push('website _settle: published whatever the tidy meets');
     if (!/try \{\s*this\._tx\([\s\S]*\} catch \{ continue; \}/.test(s.lib.get('_tidyLinks') ?? '')) out.push('desktop _tidyLinks: a refusal passed over');
     if (!/this\.scheduleDescribe\(id\);\s*this\.library\._tidyLinks\(/.test(s.files.get('settleLeft') ?? '')) out.push('desktop settleLeft: published whatever the tidy meets');
-    if (!/_seriesLinks\(await K\.metaGet\(gid\)\)\.length\) linked\.push\(gid\)/.test(s.site.get('_checkOnce') ?? '')) out.push('website _checkOnce: every gallery kept with series links tidied');
-    if (!/seriesLinks\(library\._metaGet\(gid\)\)\.length\), \{ publish: true \}\)/.test(s.scan.get('scanLibrary') ?? '')) out.push('desktop scanLibrary: every gallery kept with series links tidied');
+    // (S40: the folder's tidy, one function each app, picks those whose links another contradicts.)
+    if (!/await _tidyFolder\(run\.id, \{ kept, also:/.test(s.site.get('_checkOnce') ?? '')) out.push('website _checkOnce: its folder\'s tidy');
+    if (!/library\._tidyFolder\(\[\.\.\.checked\], \{ also:/.test(s.scan.get('scanLibrary') ?? '')) out.push('desktop scanLibrary: its folders\' tidy');
     // 4. The website's tidy takes out of the record as its writing transaction reads it, and puts nothing for one gone.
     const tidy = s.site.get('_tidySeriesLinks') ?? '';
-    if (!/metas\.get\(gid\)[\s\S]*stats\.get\(gid\)[\s\S]*if \(!cur\.result \|\| !K\.still\(life, stat\.result\)\) return;[\s\S]*const next = \{ \.\.\.cur\.result \}/.test(tidy) || /\{ \.\.\.meta \}/.test(tidy)) out.push('website _tidySeriesLinks: the record as its transaction reads it');
+    if (!/metas\.get\(gid\)[\s\S]*stats\.get\(gid\)[\s\S]*if \(!cur\.result \|\| !K\.still\(life, stat\.result\)\) return;[\s\S]*const next = linksTidied\(cur\.result, judged\)/.test(tidy) || /linksTidied\(meta\b|\{ \.\.\.meta \}/.test(tidy)) out.push('website _tidySeriesLinks: the record as its transaction reads it');
     // 5. One stand of a desktop gallery at a time, never waiting for itself.
     if (!/return this\._standOnce\(id,/.test(s.files.get('_stands') ?? '')) out.push('desktop _stands: one at a time');
     if (!/if \(standing\) return contract\.unreadable/.test(s.files.get('hold') ?? '')) out.push('desktop hold: a stand never waits for itself');
@@ -421,7 +422,7 @@ test('S39: a gallery left to stand is never worse off than one that isn\'t — w
   assert.deepEqual(off({ site, scan, linked, files, lib }), []);
   // A made-up tidy that writes back the record it read before its transaction fails it.
   const stale = new Map(site);
-  stale.set('_tidySeriesLinks', (site.get('_tidySeriesLinks') ?? '').replace('const next = { ...cur.result }', 'const next = { ...meta }'));
+  stale.set('_tidySeriesLinks', (site.get('_tidySeriesLinks') ?? '').replace('linksTidied(cur.result, judged)', 'linksTidied(meta, judged)'));
   assert.deepEqual(off({ site: stale, scan, linked, files, lib }), ['website _tidySeriesLinks: the record as its transaction reads it']);
 });
 

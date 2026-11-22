@@ -163,7 +163,7 @@ async function series(L, n, chapters, tag = 0) {
 // 1, 2. Two checks in a row of folders keeping a series within A and one across A and B, nothing changed: the library's
 // change revision is the same, every record byte for byte, the folders' files as they were.
 for (const app of ['desktop', 'website']) {
-  test(`S40 A: ${app}: two idle checks of folders keeping series write nothing — no revision, no record, no file`, { skip, todo: app === 'website' ? 'S40' : undefined }, async (t) => {
+  test(`S40 A: ${app}: two idle checks of folders keeping series write nothing — no revision, no record, no file`, { skip }, async (t) => {
     const { L, base } = await library(t, app);
     const { A, B, a, b } = await twoFolders(L, base);
     const within1 = await series(L, 1, 3);
@@ -225,7 +225,7 @@ async function idleCost(app, n) {
   } finally { await L.close(); fs.rmSync(base, { recursive: true, force: true }); }
 }
 for (const app of ['desktop', 'website']) {
-  test(`S40 A: ${app}: an idle check's cost grows with the galleries in series no faster than before S39`, { skip, todo: 'S40' }, async (t) => {
+  test(`S40 A: ${app}: an idle check's cost grows with the galleries in series no faster than before S39`, { skip }, async (t) => {
     netWatched(t, assert);
     const two = await idleCost(app, 2), four = await idleCost(app, 4);
     assert.ok(four - two <= IDLE_PER_GALLERY[app] * 6 + 6, `${app === 'website' ? 'transactions' : 'statements'}: 2 series ${two}, 4 series ${four}`);

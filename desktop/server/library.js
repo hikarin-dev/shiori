@@ -1473,30 +1473,20 @@ export class Library {
   // another series, an owner that doesn't list its chapter — dropped (db.js _tidySeriesLinks). A link
   // to a gallery the library doesn't have is kept (R15): it may be in a folder not added back yet. `publish`: each one
   // changed is published in due course (S38: a gallery settled, or the galleries a drop's change linked — files.js
-  // settleLeft, scan.js folderStands); a check's are read back, nothing of them to publish. One whose change is refused
-  // (its folder may not be written now: another app's, hidden) is passed over, the rest go on — it is tidied once its
-  // folder is read back, by that folder's check (scan.js scanLibrary tidies every gallery it keeps with series links;
-  // S39: a tidy fails no stand, no settlement). Returns the ids changed.
+  // settleLeft, scan.js folderStands); a check's are read back, nothing of them to publish. One whose change fails (its
+  // folder may not be written now: another app's, hidden, being handed over — or anything else) is passed over, the
+  // rest go on — it is tidied by its folder's tidy (_tidyFolder), which follows every such reason: a hidden folder shown
+  // again, the take-back's and the hand-over's checks, any later check (S39: a tidy fails no stand, no settlement).
+  // The judgement is series-plan.js judgeLinks, both apps'. Returns the ids changed.
   _tidyLinks(gids, { publish = false } = {}) {
     const owners = new Set(), changed = [];
     for (const gid of gids) {
       const meta = this._metaGet(gid);
       if (!meta) continue;
-      const next = { ...meta };
-      if (Array.isArray(meta.chapters)) {
-        const kept = meta.chapters.filter(c => {
-          const chapter = String(c?.id) === gid ? null : this._metaGet(c?.id);
-          return !chapter || String(chapter.parentId || '') === gid;
-        });
-        if (kept.length !== meta.chapters.length) { if (kept.length > 1) next.chapters = kept; else delete next.chapters; }
-        if (kept.length > 1) owners.add(gid);
-      }
-      if (meta.parentId) {
-        const owner = this._metaGet(meta.parentId);
-        if (owner && !owner.chapters?.some(c => String(c?.id) === gid)) delete next.parentId;
-        else if (owner) owners.add(String(meta.parentId));
-      }
-      if (JSON.stringify(next) === JSON.stringify(meta)) continue;
+      const judged = plans.judgeLinks(String(gid), meta, (id) => this._metaGet(id));
+      for (const oid of judged.owners) owners.add(oid);
+      const next = plans.linksTidied(meta, judged);
+      if (!next) continue;
       try {
         this._tx(() => {
           this._metaPutRaw(next);
@@ -1509,6 +1499,18 @@ export class Library {
     }
     for (const oid of owners) this.refreshSeriesAggregate(oid, { silent: true }).catch(() => {});
     return changed;
+  }
+  // Library folders `roots`' series links tidied, by their check (`also`: the galleries it joined or read again and
+  // their series' members, tidied as read back) and when one is shown again (S40): the galleries they keep whose links
+  // another gallery contradicts are told in one pass over the records, each parsed once, and only those are tidied
+  // (published in due course). Folders whose links all agree cost two statements, and nothing is written.
+  _tidyFolder(roots, { also = [] } = {}) {
+    const read = new Set(also.map(String)), at = new Set(roots);
+    if (read.size) this._tidyLinks([...read]);
+    const metas = new Map(this._s('SELECT gid, record FROM meta').all().map(r => [String(r.gid), parse(r.record)]));
+    const here = this._s('SELECT gid, path FROM files').all().filter(r => at.has(this.files._split(r.path).root)).map(r => String(r.gid));
+    const off = here.filter(gid => !read.has(gid) && metas.has(gid) && plans.linksOff(plans.judgeLinks(gid, metas.get(gid), (id) => metas.get(String(id)))));
+    if (off.length) this._tidyLinks(off, { publish: true });
   }
 
   async seriesResolve(galleryId) {

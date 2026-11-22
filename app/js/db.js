@@ -2471,7 +2471,7 @@ const _folderLibrary = createFolderLibrary({
   canonicalMeta, importMarksIn: _importMarksIn, publishFeed, muchLater: _muchLater, bulkRun: _bulkRun,
   busy: galleryBusy,
   // the records
-  galleryGet, galleryGetAll, metaGet, transferIds, nextGalleryId, rebuildGalleryEntry, refreshSeriesAggregate, putCoverPatch,
+  galleryGet, galleryGetAll, metaGet, metaGetAll, transferIds, nextGalleryId, rebuildGalleryEntry, refreshSeriesAggregate, putCoverPatch,
   seriesWrite: (...args) => _seriesCommand('write', args),
   // the places, the write gate, the claims
   folders: _folders, folderById: _folderById, folderWrite: _folderWrite, forgetGrant: (id) => _grants.delete(id), forgetKnown: _forgetKnown, forgetRetiring: _forgetRetiring,
@@ -4166,7 +4166,13 @@ export async function refreshSeriesAggregate(ownerId, opts = {}) {
   if (changed && !silent) publishFeed(oid);
 }
 
-// refreshSeriesAggregate's work inside `tx` (META_STORE + GALLERY_STORE); `done(changed)`.
+// Whether records `a` and `b` hold the same fields with the same values (in any order).
+const _sameRecord = (a, b) => {
+  const ka = Object.keys(a), kb = Object.keys(b);
+  return ka.length === kb.length && ka.every(k => k in b && JSON.stringify(a[k]) === JSON.stringify(b[k]));
+};
+// refreshSeriesAggregate's work inside `tx` (META_STORE + GALLERY_STORE); `done(changed)` — the owner's stat record
+// put and logged only where a total differs from what it holds (S40: as the desktop's _statPut).
 function _aggregateIn(tx, oid, done = () => {}) {
   const gals = tx.objectStore(GALLERY_STORE);
   const metaReq = tx.objectStore(META_STORE).get(oid);
@@ -4202,7 +4208,10 @@ function _aggregateIn(tx, oid, done = () => {}) {
           ? s.pageSizes.map(([w, h, n]) => ({ w, h, n }))
           : [{ ...s.medianPage, n: s.count }])));
         const { aggMedianPage: _, ...base } = owner;
-        gals.put({ ...base, chapterCount: chapters.length, aggPages, aggSize, aggOrig, ...(aggMedianPage ? { aggMedianPage } : {}) });
+        const next = { ...base, chapterCount: chapters.length, aggPages, aggSize, aggOrig, ...(aggMedianPage ? { aggMedianPage } : {}) };
+        // Totals that haven't changed aren't written (S40): nothing put, nothing logged.
+        if (_sameRecord(next, owner)) { done(false); return; }
+        gals.put(next);
         _logIn(tx, oid, { mark: false });
         done(true);
       };
