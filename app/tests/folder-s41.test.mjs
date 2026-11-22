@@ -268,8 +268,13 @@ for (const app of APPS) {
         const draw = async () => {
           const w = (await L.pdfsWaiting()).find(x => x.name === name);
           if (!w) return null;
-          const { token } = await L.pdfSource(w.folder, w.gid);
-          await L.addRendered(w.folder, w.gid, [png(Math.floor(Math.random() * 60000)), png(7)], token);
+          // (Asked again a moment later, as a page drawing PDFs does: Windows answers EPERM for a read of a file whose delete
+          // is pending — the deleted gallery's overlay going in the background — and that one read fails.)
+          let source;
+          for (let i = 1; ; i++) {
+            try { source = await L.pdfSource(w.folder, w.gid); break; } catch (e) { if (i >= 5) throw e; await sleep(100); }
+          }
+          await L.addRendered(w.folder, w.gid, [png(Math.floor(Math.random() * 60000)), png(7)], source.token);
           return String(w.gid);
         };
         await L.scan(f.a);
