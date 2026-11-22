@@ -426,6 +426,35 @@ test('S39: a gallery left to stand is never worse off than one that isn\'t — w
   assert.deepEqual(off({ site: stale, scan, linked, files, lib }), ['website _tidySeriesLinks: the record as its transaction reads it']);
 });
 
+test('S40: totals written only when changed, deletions read as the place is met, the drop guarded in its transaction, seen as the look saw it — both apps', () => {
+  // Review 15 and the coordinator after S39: an idle check wrote a revision per series (the website put its totals
+  // unconditionally); a check adopted a place naming a gallery whose deletion was still owed (it read only `unfound`
+  // deletions, once, as it began); a stand overtaken by another dropped a change made since; a manifest seen by the
+  // first look and gone at the re-read settled a gallery left to stand. Each rule held where it has its one place.
+  const desktop = (f) => readFileSync(join(repo, 'desktop', 'server', f), 'utf8');
+  const site = new Map([...functionsOf(read('folder-library.js')), ...functionsOf(read('db.js'))].map(([name, body]) => [name, asCode(body)]));
+  const scan = new Map([...functionsOf(desktop('scan.js'))].map(([name, body]) => [name, asCode(body)]));
+  const linked = new Map([...functionsOf(desktop('linked.js'))].map(([name, body]) => [name, asCode(body)]));
+  const files = new Map([...functionsOf(desktop('files.js'))].map(([name, body]) => [name, asCode(body)]));
+  const off = (s) => {
+    const out = [];
+    if (!/if \(_sameRecord\(next, owner\)\) \{ done\(false\); return; \}\s*gals\.put\(next\)/.test(s.site.get('_aggregateIn') ?? '')) out.push('website _aggregateIn: totals written only when changed');
+    if (!/await _deletionMet\(run, found\.id\)/.test(s.site.get('_joinOwn') ?? '') || /run\.deleted/.test(s.site.get('_checkOnce') ?? '')) out.push('website _joinOwn: deletions read as the place is met');
+    if (!/await deletionMet\(library, id, handover\)/.test(s.scan.get('scanLibrary') ?? '') || /d\.unfound \|\| handover/.test(s.scan.get('scanLibrary') ?? '')) out.push('desktop scanLibrary: deletions read as the place is met');
+    if (!/K\.groupDroppedIn\(tx, gid, \(left\) => \{\s*if \(stamp && stat\.result\?\.stamp === stamp && !left\)/.test(s.site.get('_storeAdopted') ?? '')) out.push('website _storeAdopted: the drop guarded in its transaction');
+    if (!/_ownTx\([\s\S]*if \(drop && g\.read\.token && files\._stamp\(gid\) === g\.read\.token && !files\._dropped\(gid\)\)/.test(s.scan.get('reread') ?? '')) out.push('desktop reread: the drop guarded in its transaction');
+    if (!/_tx\([\s\S]*if \(replace && drop && read\.token && files\._stamp\(gid\) === read\.token && !files\._dropped\(gid\)\)/.test(s.linked.get('adoptLinked') ?? '')) out.push('desktop adoptLinked: the drop guarded in its transaction');
+    if (!/seen: first\.kind === 'theirs' \|\| first\.place\?\.token != null/.test(s.site.get('_hold') ?? '')) out.push('website _hold: seen as the look saw it');
+    if (!/seen: at\.kind === 'theirs' \|\| !!at\.place\?\.token/.test(s.files.get('hold') ?? '')) out.push('desktop hold: seen as the look saw it');
+    return out;
+  };
+  assert.deepEqual(off({ site, scan, linked, files }), []);
+  // A made-up hold that takes 'theirs' alone for what it saw fails it.
+  const theirsOnly = new Map(site);
+  theirsOnly.set('_hold', (site.get('_hold') ?? '').replace(" || first.place?.token != null", ''));
+  assert.deepEqual(off({ site: theirsOnly, scan, linked, files }), ['website _hold: seen as the look saw it']);
+});
+
 test('S37: the net that holds the website\'s lock order at run time weighs the order the comment states', () => {
   // The tests' net (app/tests/lock-net.mjs) fails a run on a lock waited for against the order; its list is the order
   // as stated once, at db.js _galleryLocked — the locks named there in the order they come, the one taken within any last.
