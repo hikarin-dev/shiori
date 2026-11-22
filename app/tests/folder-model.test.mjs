@@ -1390,6 +1390,13 @@ const REGRESSIONS = [
   { app: 'desktop', both: true, name: 'F6: an archive the person added a file to is left whole by its gallery\'s deletion, in either app',
     steps: [['newGallery', 1], ['newGallery', 1], ['editArchive', 0], ['editArchive', 1], ['deleteGallery', 0], ['scan', null],
       ['handOver', null], ['deleteGallery', 0], ['scan', null], ['handOver', null], ['scan', null]] },
+  // S40 (the 10-minute run of S39's close-out, website seed 1112213852, 'with edits'; in 1.3.0 too): a gallery whose
+  // folder was moved by hand into folder B, then deleted, came back at B's check begun before the deletion was first
+  // tried at its own place — a check deleted where it met only a deletion already marked `unfound`. Now a check that
+  // meets a place naming a gallery whose deletion is still owed tries that deletion first (website folder-library.js
+  // _joinOwn, desktop scan.js scanLibrary). The desktop passed by timing.
+  ...['website', 'desktop'].map(app => ({ app, todo: app === 'website' ? 'S40' : undefined, name: 'a gallery moved by hand into another folder and deleted stays deleted at that folder\'s check',
+    steps: [['newGallery', 1], ['movedByHand', [0, 'B', 'none', 0]], ['deleteGallery', 0], ['checkB', null]] })),
 ];
 
 /** `both`: the other app's library there too, for the hand-over.
@@ -1441,7 +1448,7 @@ for (const app of APPS) {
         { endOnFailure: !!todo, numRuns: todo ? FINDING_RUNS : NUM_RUNS, both: !!(/** @type {{ both?: boolean }} */ (open).both) }));
     }
     for (const reg of REGRESSIONS.filter(x => x.app === app)) {
-      test(`regression: ${reg.name}`, { skip }, async () => {
+      test(`regression: ${reg.name}`, { skip, todo: /** @type {{ todo?: string }} */ (reg).todo }, async () => {
         const s = await setup(app, { both: !!reg.both });
         try {
           for (const [name, a] of reg.steps) {
