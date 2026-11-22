@@ -101,6 +101,8 @@ export function netted(request) {
  * 'made again': the person deleting and making a gallery again while the step's call is held) — never the product's. */
 export const detached = (fn) => als.exit(fn);
 
+/** Where a stand-in IndexedDB transaction keeps the chain that made it (followTransactions). */
+export const CHAIN = Symbol.for('shiori lock-net chain');
 const locks = globalThis.navigator?.locks;
 if (!globalThis.__shioriLockNet && typeof locks?.request === 'function') {
   globalThis.__shioriLockNet = { violations, als };
@@ -116,4 +118,35 @@ if (!globalThis.__shioriLockNet && typeof locks?.request === 'function') {
     try { fs.writeSync(2, `\nlock net (S37): ${undelivered.size} violation(s) not reported to a test before the exit\n`); } catch {}
     process.exitCode = 1;
   });
+  await followTransactions();
+}
+
+/** The IndexedDB stand-in's transactions followed by the chain that made them (S41): fake-indexeddb starts a waiting
+ * transaction from whichever task of its own runs next — one another chain's `db.transaction()` or another chain's
+ * transaction completing queued — and every event of it then runs in that chain's async context. So each transaction
+ * keeps the chain of the call that made it, and every event dispatched at it, or at one of its requests, runs under that
+ * chain's locks as they are then. The stand-in's classes are patched where every importer shares them (the package's
+ * own modules: the drivers', a test's own `fake-indexeddb/auto`, npm test's preload); if what the hook rests on is gone,
+ * lock-net.test.mjs fails. */
+async function followTransactions() {
+  let FDBDatabase, FDBTransaction;
+  try {
+    FDBDatabase = (await import('fake-indexeddb/lib/FDBDatabase')).default;
+    FDBTransaction = (await import('fake-indexeddb/lib/FDBTransaction')).default;
+  } catch { return; }   // (no stand-in where this runs: nothing to follow)
+  if (FDBDatabase.prototype.transaction.__followed) return;
+  const make = FDBDatabase.prototype.transaction;
+  FDBDatabase.prototype.transaction = function (...args) {
+    const tx = make.apply(this, args);
+    tx[CHAIN] = als.getStore() || [];
+    return tx;
+  };
+  FDBDatabase.prototype.transaction.__followed = true;
+  const target = Object.getPrototypeOf(FDBTransaction.prototype);
+  const dispatch = target.dispatchEvent;
+  target.dispatchEvent = function (event) {
+    const tx = this instanceof FDBTransaction ? this : this?.transaction instanceof FDBTransaction ? this.transaction : null;
+    const chain = tx?.[CHAIN];
+    return chain === undefined ? dispatch.call(this, event) : als.run(chain, () => dispatch.call(this, event));
+  };
 }

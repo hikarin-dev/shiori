@@ -51,7 +51,7 @@ const idb = `await import(${JSON.stringify(pathToFileURL(path.join(import.meta.d
       q.onsuccess = () => resolve(q.result); q.onerror = () => reject(q.error); });
     for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));`;
 
-test('S41: a lock asked from a transaction\'s handler is the chain\'s that made the transaction — not one holding a lock whose task started it', { todo: 'S41' }, () => {
+test('S41: a lock asked from a transaction\'s handler is the chain\'s that made the transaction — not one holding a lock whose task started it', () => {
   // Chain A holds a gallery's lock and makes tx1; chain B, holding nothing, makes tx2 behind it (started as tx1 ends, in
   // A's task) and asks another gallery's lock from tx2's 'complete': B holds nothing — nothing reported.
   const r = run(`${idb}
@@ -66,7 +66,7 @@ test('S41: a lock asked from a transaction\'s handler is the chain\'s that made 
   assert.doesNotMatch(r.text, /lock net/);
 });
 
-test('S41: a holder\'s transaction started by a chain that holds nothing — its handler asking a second gallery\'s lock is reported', { todo: 'S41' }, () => {
+test('S41: a holder\'s transaction started by a chain that holds nothing — its handler asking a second gallery\'s lock is reported', () => {
   // Chain N, holding nothing, makes txN; chain H holds gallery 1's lock and makes txH behind it (started as txN ends, in
   // N's task), and asks gallery 2's lock from txH's 'complete' while it still holds gallery 1's. If the hook the net rests
   // on is gone (the stand-in's classes changed), this goes unreported and the test fails.
