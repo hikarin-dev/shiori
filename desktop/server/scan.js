@@ -626,7 +626,7 @@ export async function finishUnfound(library, root, work) {
     const d = id && !files._row(id) && unfound.get(id);
     if (d) { met.add(d.dir); await files.deletedFound(d, g.rel, work, g.format === 'folder'); }
   }
-  files.endUnfound(root, met, whole);
+  files.endUnfound(root, met, whole, { removal: true });
 }
 
 // The token gallery files  were last published at (a folder, or an archive in the gallery format:

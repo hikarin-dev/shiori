@@ -867,7 +867,7 @@ async function _finishUnfound(id, work) {
     const d = !own.series && !known.has(own.id) && unfound.get(own.id);
     if (d) { met.add(d.id); await K.deletedFound(d, id, own.path, work); }
   }
-  await K.endUnfound(id, met, found.whole);
+  await K.endUnfound(id, met, found.whole, { removal: true });
 }
 // A check's progress, step by step (each counted on its own).
 function _steps(run, onProgress) {

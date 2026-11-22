@@ -377,7 +377,7 @@ test('S38: a gallery left to stand is never held for good — what a drop rests 
   assert.deepEqual(off({ site, scan, linked, files }), []);
   // A made-up stand that forgets what its look saw fails it.
   const forgot = new Map(site);
-  forgot.set('folderStands', (site.get('folderStands') ?? '').replace(/group: others, seen \}\)\);/, 'group: others }));'));
+  forgot.set('folderStands', (site.get('folderStands') ?? '').replace(/group: others, seen, began \}\);/, 'group: others, began });'));
   assert.deepEqual(off({ site: forgot, scan, linked, files }), ['website folderStands: seen, and settled']);
 });
 

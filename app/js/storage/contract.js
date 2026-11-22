@@ -106,12 +106,6 @@ export const mayChangeState = (result) => result.kind === 'ok' || result.kind ==
  * (`error`): nothing is concluded from it, and it is tried again later.
  * @param {{ home: () => Promise<boolean>, there: () => Promise<boolean> }} look @param {unknown} error
  * @returns {Promise<Missing | Unreadable>} */
-/** Whether a read failed because what it read is damaged — its bytes were read and don't parse (an archive that is no
- * archive: the website's zip reader's 'cbz_parse', the desktop's `reason` 'corrupt') — rather than because they couldn't
- * be read (the drive, a permission, a busy file). One rule for both apps (S41 H): a source read and damaged has no pages
- * to stand by; only a read that failed is held and tried again.
- * @param {unknown} error @returns {boolean} */
-export const readDamaged = (error) => /** @type {any} */ (error)?.reason === 'corrupt' || /** @type {any} */ (error)?.code === 'cbz_parse';
 export async function surelyMissing({ home, there }, error) {
   try { return !(await home()) || (await there()) ? unreadable(error) : MISSING; } catch (e) { return unreadable(e); }
 }
@@ -122,6 +116,12 @@ export async function surelyMissing({ home, there }, error) {
 export function surelyMissingNow({ home, there }, error) {
   try { return !home() || there() ? unreadable(error) : MISSING; } catch (e) { return unreadable(e); }
 }
+/** Whether a read failed because what it read is damaged — its bytes were read and don't parse (an archive that is no
+ * archive: the website's zip reader's 'cbz_parse', the desktop's `reason` 'corrupt') — rather than because they couldn't
+ * be read (the drive, a permission, a busy file). One rule for both apps (S41 H): a source read and damaged has no pages
+ * to stand by; only a read that failed is held and tried again.
+ * @param {unknown} error @returns {boolean} */
+export const readDamaged = (error) => /** @type {any} */ (error)?.reason === 'corrupt' || /** @type {any} */ (error)?.code === 'cbz_parse';
 
 /** A text read parsed by `parse` (which returns the value, or null for text that isn't one): the
  * read's own 'missing' or 'unreadable' kept, text that doesn't parse 'corrupt'.

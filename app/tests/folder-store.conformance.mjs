@@ -3029,6 +3029,9 @@ export const CASES = [
           assert.ok(!(await fx.lib.list()).some(f => f.id === ref.id), 'the removal goes through');
           continue;
         }
+        // (S41 E: a deletion not found is given up only once every folder the app can check now was looked in — the
+        // desktop's own first folder too: each checked, as a Rescan does.)
+        for (const f of await fx.lib.list()) if (f.id !== ref.id && !(fx.lib.app === 'website' && f.id === fx.lib.home)) await fx.lib.scan(f.id).catch(() => {});
         await /** @type {() => Promise<void>} */ (fx.lib.restart)();
         fs.renameSync(path.join(outside, 'Alpha'), path.join(A, 'Alpha'));   // later, the person moves it back
         await fx.lib.scan(ref.id);

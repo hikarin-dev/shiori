@@ -1240,9 +1240,11 @@ export class FileLibrary {
   // Every deletion waiting `unfound` is weighed at every folder's look (S41): another folder's whole look that didn't meet
   // it rules that folder out (`ruled`, kept with the deletion's row), and it is given up only once its own folder and every
   // other this app can check now (activeRoots: shown, this app's, in reach) ruled it out.
-  endUnfound(root, met, whole) {
-    const need = this.library.activeRoots().map(String);
-    for (const d of this._deletingRows()) {
+  // (A folder's removal — `removal`: its look before it leaves the library, scan.js finishUnfound — gives its own
+  // deletions up by its own whole look, as before S41: a removal never waits on other folders' checks.)
+  endUnfound(root, met, whole, { removal = false } = {}) {
+    const need = removal ? [] : this.library.activeRoots().map(String);
+    for (const d of this._deletingRows(removal ? root : null)) {
       if (!d.unfound) continue;
       const own = this._split(d.dir).root === root;
       const end = lifecycle.unfoundEnd({ met: met.has(d.dir), whole, misses: d.misses, own, at: root, ruledOut: d.ruled ? JSON.parse(d.ruled) : [],
@@ -1481,9 +1483,13 @@ export class FileLibrary {
       const held = await this.hold(m);
       if (held.kind !== 'ok' || this._groupOf(id) !== grp) return false;
     }
-    if (this._groupOf(id) !== grp) return false;   // dropped meanwhile, with the group
-    this._weighed.set(grp, Date.now());
-    return true;
+    return this._groupOf(id) === grp;   // (dropped meanwhile, with the group: false)
+  }
+  // Gallery `gid`'s group taken as weighed whole from now on — its weighing done and its own place held 'ok' by its
+  // caller (S41 A: never by the weighing of the others alone).
+  _groupWeighed(gid) {
+    const id = String(gid), grp = this._groupOf(id);
+    if (grp && !this._dropped(id)) this._weighed.set(grp, Date.now());
   }
 
   // The folder's version of gallery `gid` stands (scan.js folderStands): what waited here for it dropped,
@@ -1844,6 +1850,7 @@ export class FileLibrary {
       if (whose.kind === 'conflict') this._conflict(row);
       if (whose.kind === 'ok' || whose.kind === 'missing') await this._seen(row, whose.kind === 'ok');
       if (whose.kind !== 'ok' || !this.still(life)) return true;
+      this._groupWeighed(gid);   // its own place held 'ok': only now is its command taken as weighed whole (S41 A)
       row = this._row(gid);
       if (!await this._writesIn(row) || !this.still(life)) return true;
       if (row.format !== 'folder' && (row.unpack || this._staged(gid).length || this._stagedOwn(gid).length)) {
@@ -2438,6 +2445,7 @@ export class FileLibrary {
     const opened = await lib.store.open({ id: root, location: lib.rootDir(root) }, { purpose: work === 'removal' ? 'removal' : 'publish' });
     if (opened.status !== 'ok' || !this.still(life)) return null;
     const found = await this.hold(gid, { rel: row.path, ask: (view) => opened.root.gallery(rest, gid, view) });
+    if (found.kind === 'ok') this._groupWeighed(gid);   // its own place held 'ok': only now its command weighed whole (S41 A)
     if (!this.still(life)) return null;
     if (found.kind === 'conflict') this._conflict(row);
     if (found.kind !== 'ok') return null;
@@ -2472,6 +2480,7 @@ export class FileLibrary {
     const had = this._stamp(gid);
     const held = await this.hold(gid, { rel: row.path });
     if (held.kind !== 'ok' || !this.still(life)) return null;
+    this._groupWeighed(gid);   // (S41 A, as _publish)
     if (this._stamp(gid) !== had) return this._stamp(gid);   // the archive's version read here: nothing of this library's to add
     const dir = await this._directory(file);
     if (!this.still(life) || !this._formatted(dir)) return null;

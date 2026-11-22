@@ -1519,9 +1519,11 @@ const _deletedFound = (d, folder, dir, work = null) => _deletion(d, { folder, di
 // Every deletion waiting `unfound` is weighed at every folder's look (S41): another folder's whole look that didn't
 // meet it rules that folder out (`ruled`, kept with the deletion: a field of its record), and it is given up only once
 // its own folder and every other this app can check now (_checkable) ruled it out.
-async function _endUnfound(folder, met, whole) {
-  const need = await _checkable();
-  for (const d of await _deletions()) {
+// (A folder's removal — `removal`: its look before it leaves the library, folder-library.js _finishUnfound — gives its own
+// deletions up by its own whole look, as before S41: the folder goes, and a removal never waits on other folders' checks.)
+async function _endUnfound(folder, met, whole, { removal = false } = {}) {
+  const need = removal ? [] : await _checkable();
+  for (const d of await _deletions(removal ? folder : null)) {
     if (!d.unfound) continue;
     const own = d.folder === folder;
     const end = unfoundEnd({ met: met.has(d.id), whole, misses: d.misses, own, at: folder, ruledOut: d.ruled ?? [], need: [...new Set([d.folder, ...need])] });
@@ -1862,6 +1864,7 @@ async function _describe(gid, { work = null } = {}) {
     const found = await _hold(gid, { stat: place, ask: (view) => opened.root.gallery(place.dir, gid, view), held: String(gid) });
     if (found.kind === 'conflict') await _note(place.folder, { reason: 'conflict', path: place.dir, gid: String(gid) });
     if (found.kind !== 'ok') return { ok: false };
+    if (read.rev != null) await _groupWeighed(gid);   // its own place held 'ok': only now is its command taken as weighed whole (S41 A)
     // As it now is (what waited dropped, where the folder's version stood) — and only the gallery it began for, at
     // the place it held: one deleted meanwhile isn't, nor a gallery of the id made again since — kept elsewhere (a
     // check joined a copy of it: S34, review 11 A2) or nowhere yet — and nothing of either is published here.
@@ -2018,7 +2021,10 @@ async function _groupWaiting(gid) {
 // drops the group; one not held now, or whose folder can't be written now (another app's, being handed over, out of
 // reach: S33, review 10 B3), keeps it waiting — each held under `gid`'s lock, which the publication weighing it holds
 // (_hold `held`: another gallery's lock is taken only while it is free, S37). One its group's drop left to stand isn't
-// weighed: its own place is held next, where it stands (_hold). Resolves whether `gid` goes on.
+// weighed: its own place is held next, where it stands (_hold). Resolves whether `gid` goes on. The group is taken as
+// weighed whole (for GROUP_WEIGHED_MS) only once the weigher's own place was held 'ok' too (_groupWeighed, by _describe:
+// S41 A) — never by the weighing of the others alone: a gallery whose own place holds another writer's publication
+// lets no other part of its command through meanwhile.
 async function _weighGroup(gid) {
   const record = (await _groupRecords()).find(r => r.gid === String(gid));
   const grp = record?.grp;
@@ -2028,9 +2034,12 @@ async function _weighGroup(gid) {
     const folder = (await galleryGet(m))?.folder;
     if ((folder && !(await _usable(folder, { work: PUBLISHING }))) || (await _hold(m, { held: String(gid) })).kind !== 'ok' || (await _groupOf(gid)) !== grp) return false;
   }
-  if ((await _groupOf(gid)) !== grp) return false;   // dropped meanwhile, with the group
-  _weighedGroups.set(grp, Date.now());
-  return true;
+  return (await _groupOf(gid)) === grp;   // (dropped meanwhile, with the group: false)
+}
+// Gallery `gid`'s group taken as weighed whole from now on — its weighing done and its own place held 'ok' (S41 A).
+async function _groupWeighed(gid) {
+  const record = (await _groupRecords()).find(r => r.gid === String(gid));
+  if (record?.grp && !record.drop) _weighedGroups.set(record.grp, Date.now());
 }
 // The text of the manifest of the gallery whose folder in the archive at `path` is `inner` ('' for an archive of
 // its own), read where it lies (_archiveOf): null for none, undefined when no archive is there.
