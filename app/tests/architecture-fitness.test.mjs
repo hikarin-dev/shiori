@@ -367,7 +367,7 @@ test('S38: a gallery left to stand is never held for good — what a drop rests 
     const out = [];
     if (!/\bdropBasis\s*\(\s*read\.token\s*,\s*seen\s*\)\s*===\s*'none'[\s\S]*reason: 'unversioned'/.test(s.site.get('_droppedFor') ?? '')) out.push('website _droppedFor: dropBasis');
     if (!/\b_adoptLinked\s*\([^;]*\bseen\b[\s\S]*\b_adopt\s*\([^;]*\bseen\b[\s\S]*reason === 'unversioned'\) \{ await _settle\(/.test(s.site.get('folderStands') ?? '')) out.push('website folderStands: seen, and settled');
-    if (!/\bleft = !deletion && first\.kind === 'ok' && await _groupDropped\(id\)[\s\S]*_stands\(id, held, handover, first\.kind === 'theirs'\)/.test(s.site.get('_hold') ?? '')) out.push('website _hold: a gallery left to stand stands');
+    if (!/\bleft = !deletion && first\.kind === 'ok' && await _groupDropped\(id\)[\s\S]*_stands\(id, held, handover, look\)/.test(s.site.get('_hold') ?? '')) out.push('website _hold: a gallery left to stand stands');
     if (!/format\.dropBasis\s*\(\s*g\.read\.token\s*,\s*seen\s*\)/.test(s.scan.get('reread') ?? '') || /startsWith\('v2:'\)/.test(s.scan.get('reread') ?? '')) out.push('desktop reread: dropBasis');
     if (!/format\.dropBasis\s*\(\s*read\.token\s*,\s*seen\s*\)/.test(s.linked.get('adoptLinked') ?? '')) out.push('desktop adoptLinked: dropBasis');
     if (!/reason === 'unversioned'\) \{ files\.settleLeft\(id\)/.test(s.scan.get('folderStands') ?? '')) out.push('desktop folderStands: settled');
@@ -398,9 +398,9 @@ test('S39: a gallery left to stand is never worse off than one that isn\'t — w
     for (const [where, body] of [['website _droppedFor', s.site.get('_droppedFor')], ['website folderStands', s.site.get('folderStands')], ['desktop reread', s.scan.get('reread')], ['desktop adoptLinked', s.linked.get('adoptLinked')]]) {
       if (/dropBasis\s*\([^)]*(_stamp|stamp\b|known)/.test(body ?? '')) out.push(`${where}: the stamp weighed`);
     }
-    if (!/_stands\(id, at\.kind === 'theirs'\)/.test(s.files.get('hold') ?? '')) out.push('desktop hold: what it saw');
+    if (!/_stands\(id, look\)/.test(s.files.get('hold') ?? '')) out.push('desktop hold: what it saw');
     // 2. A linked gallery with nothing to read, asked for its drop alone, settled.
-    if (!/!at && replace && !seen[\s\S]*throw bare\(\)[\s\S]*if \(!pages\.length\) \{ if \(replace && !seen\) throw bare\(\)/.test(s.site.get('_adoptLinked') ?? '')) out.push('website _adoptLinked: nothing to read, settled');
+    if (!/!at && settles && [\s\S]*throw bare\(\)[\s\S]*if \(!pages\.length\) \{ if \(settles\) throw bare\(\)/.test(s.site.get('_adoptLinked') ?? '')) out.push('website _adoptLinked: nothing to read, settled');
     if (!/!at && settles\(\)\) throw bare\(\)[\s\S]*pdfReady[^;]*\{ if \(settles\(\)\) throw bare\(\)[\s\S]*if \(!pages\.length\) \{ if \(settles\(\)\) throw bare\(\)/.test(s.linked.get('adoptLinked') ?? '')) out.push('desktop adoptLinked: nothing to read, settled');
     // 3. The tidy fails nothing: refused galleries passed over, publication scheduled first; the check tidies the rest.
     if (!/\.catch\(\(\) => new Set\(\)\)/.test(s.site.get('_tidyAround') ?? '')) out.push('website _tidyAround: never rejects');

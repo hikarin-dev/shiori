@@ -15,7 +15,7 @@
 // written (absIn), and as the disk resolves it (folder-store.js physicallyIn: no link out of it is
 // followed).
 
-import { disk, physicallyIn, replaceFile, loadGallery, textIn, entriesIn, statIn, throughLink } from './folder-store.js';
+import { disk, physicallyIn, replaceFile, loadGallery, textIn, entriesIn, statIn, throughLink, notFound } from './folder-store.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { readDirectory, readEntry } from './zip.js';
@@ -95,10 +95,15 @@ const pdfPrintOf = (size, head) => L.pdfPrint(size, sha256(head));
 // as the shared rule takes it (folder-store.js entriesIn, statIn) — a picture whose look answers "not
 // found" while the drive is away for a moment is never left out, which would read the title with a page
 // fewer and drop what was made from it, its files too (review 6 F1).
-async function titleAt(library, root, title, directory = null) {
+async function titleAt(library, root, title, directory = null, { strict = false } = {}) {
   const abs = await sourceIn(library, root, title.path);
   if (title.kind === 'zip') {
-    const dir = directory || await readDirectory(abs).catch(() => null);
+    // (`strict`: a stand that may settle on what it finds — adoptLinked — takes null only for an archive not there as
+    // the shared rule takes it; a read of it failing rejects, S40.)
+    const dir = directory || await readDirectory(abs).catch(async (e) => {
+      if (strict && (await notFound(abs, e)).kind !== 'missing') throw e;
+      return null;
+    });
     if (!dir) return null;
     const mine = L.zipTitles([...dir.keys()]).find(z => z.inner === (title.inner || ''));
     if (!mine) return null;
@@ -279,14 +284,16 @@ async function embeddedMeta(library, root, title, at) {
 // the look that asked for that drop saw a manifest at the overlay a moment ago (scan.js folderStands). Resolves its
 // id; null when it has no pages yet (a PDF waiting), `guard` held it back or its gallery ended; 'overtaken' for a drop
 // whose reason no longer held as its transaction read the gallery (S40: nothing written). One read again by a stand
-// its drop alone asked for (`seen` false) with nothing to read its pages from now — its source not there, no pages in
-// it, a PDF not drawn — has no version to drop for: rejects `unversioned` (S39: settled, as one not left to stand in
-// that state is published).
-export async function adoptLinked(library, root, title, { gid: given = null, replace = null, guard = null, at = null, life = replace ? library.files.life(replace) : null, group = [], drop = false, seen = true } = {}) {
+// whose look didn't come for another writer's publication (`theirs` false: scan.js folderStands) with nothing to read
+// its pages from now — its source not there, or read and holding no page, a PDF not drawn — has no version to drop
+// for: rejects `unversioned` (S39: settled, as one not left to stand in that state is published). Its source is then
+// read strictly (S40): a read of it failing rejects — an error reading now, held and tried again — never taken for a
+// source not there.
+export async function adoptLinked(library, root, title, { gid: given = null, replace = null, guard = null, at = null, life = replace ? library.files.life(replace) : null, group = [], drop = false, seen = true, theirs = true } = {}) {
   const ended = () => !!life && !library.files.still(life);
   const bare = () => Object.assign(new Error(`gallery ${replace}: no pages there to stand by`), { reason: 'unversioned' });
-  const settles = () => !!replace && !seen && !ended();
-  at = at || await titleAt(library, root, title);
+  const settles = () => !!replace && !theirs && !ended();
+  at = at || await titleAt(library, root, title, null, { strict: !!replace && !theirs });
   if (!at && settles()) throw bare();
   if (!at || ended()) return null;
   const embedded = title.kind === 'zip' && !title.inner ? await embeddedMeta(library, root, title, at) : null;

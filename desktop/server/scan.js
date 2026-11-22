@@ -777,11 +777,12 @@ function entryIn(library, gid, g) {
 // adoptLinked). A kill or a failed call leaves it as it was or stood, never in part: the next settle,
 // publication or check that meets that publication does it then. Resolves whether it was done; rejects,
 // nothing changed, when its place can't be read whole now — `reason` 'corrupt' or 'missing-file' where that
-// publication was read and is damaged (no version to stand: files.js _stands). `seen`: whether the look that asked saw
-// a publication there (files.js hold: its first answer another writer's), not a gallery left to stand alone — then a
-// re-read finding no manifest is a read failing now, nothing concluded (S39: gallery-manifest.js dropBasis). What the
-// stand does for other galleries (the tidy, the others' stands, letting go what it retired) never fails it.
-export async function folderStands(library, gid, { seen = false } = {}) {
+// publication was read and is damaged (no version to stand: files.js _stands). `seen`: whether the look that asked found
+// a manifest there, whoever's (files.js hold, S40) — then a re-read finding none is a read failing now, nothing
+// concluded (S39: gallery-manifest.js dropBasis); `theirs`: whether it came for another writer's publication (a linked
+// gallery with nothing to read is settled only where it didn't: linked.js adoptLinked). What the stand does for other
+// galleries (the tidy, the others' stands, letting go what it retired) never fails it.
+export async function folderStands(library, gid, { seen = false, theirs = false } = {}) {
   const files = library.files;
   const id = String(gid);
   const life = files.life(id);
@@ -807,7 +808,7 @@ export async function folderStands(library, gid, { seen = false } = {}) {
   const linked = seriesLinks(library._metaGet(id));
   let stood;
   try {
-    stood = src ? await adoptLinked(library, root, src, { replace: id, life, guard, group: others, drop, seen })
+    stood = src ? await adoptLinked(library, root, src, { replace: id, life, guard, group: others, drop, seen, theirs })
       : await reread(library, row, drop ? { drop: true, guard, group: others, seen } : { guard, manifest: true, seen });
     if (stood === 'overtaken') return true;   // another stand stood that version first: nothing more of this one (S40)
     stood = !!stood;

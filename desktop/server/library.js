@@ -893,8 +893,8 @@ export class Library {
 
   // The folder's version of gallery `gid` stands, its place holding a publication this library hasn't read
   // (scan.js folderStands: what waited here dropped, reported — else the gallery read again). Resolves
-  // whether that was done. `seen`: scan.js folderStands'.
-  _folderStands(gid, { seen = false } = {}) { return folderStands(this, gid, { seen }); }
+  // whether that was done. `seen`, `theirs`: scan.js folderStands'.
+  _folderStands(gid, { seen = false, theirs = false } = {}) { return folderStands(this, gid, { seen, theirs }); }
   // Archived gallery `gid` followed to the folder at `rel` beside its archive, naming it at a later
   // generation (scan.js followUnpacked: an unpack cut short, review 7 B6). Resolves whether it was.
   _followUnpacked(gid, rel) { return followUnpacked(this, gid, rel); }

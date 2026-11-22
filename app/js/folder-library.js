@@ -1402,12 +1402,14 @@ async function _noteReplaced(was, gid) {
 // owner and chapters, as its record named them before and names them now) are tidied against the galleries as they now
 // stand, and one changed by that is published in due course — none is held back for it. And one whose place holds no
 // version to stand by has none to drop for: it is settled (_settle), its change standing. Which it is, the place's read
-// shows (gallery-manifest.js dropBasis): `seen`, whether the look that asked for this stand saw a manifest there a
-// moment ago (db.js _hold: its first answer another writer's publication) — then a re-read finding none is a read
-// failing now, nothing concluded; asked for the drop alone (and each other here), one finding none — or, a linked
-// gallery, nothing to read its pages from — is settled (S39). What the stand does for other galleries (the tidy, the
-// others' stands) never fails it. Resolves true once it stood or was settled.
-async function folderStands(gid, { held = null, handover = false, seen = false } = {}) {
+// shows (gallery-manifest.js dropBasis): `seen`, whether the look that asked for this stand found a manifest there a
+// moment ago, whoever's (db.js _hold, S40) — then a re-read finding none is a read failing now, nothing concluded; one
+// whose look found none (and each other here) finding none is settled (S39). A linked gallery with nothing to read its
+// pages from — its source not there, or read and holding no page, a PDF not drawn; never a read of it failing — is
+// settled where the look didn't come for another writer's publication (`theirs`: S39 part 2; two facts of the look,
+// S40). What the stand does for other galleries (the tidy, the others' stands) never fails it. Resolves true once it
+// stood or was settled.
+async function folderStands(gid, { held = null, handover = false, seen = false, theirs = false } = {}) {
   const began = K.now();
   const stat = await K.galleryGet(gid);
   const life = K.lifeOf(began, gid, stat);   // the gallery it is for (S34, S36)
@@ -1421,7 +1423,7 @@ async function folderStands(gid, { held = null, handover = false, seen = false }
   const linked = _seriesLinks(await K.metaGet(gid));
   let stood;
   try {
-    stood = !!(stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, drop, life, held, group: others, seen })
+    stood = !!(stat.linked ? await _adoptLinked(run, stat.linked, { replace: gid, drop, life, held, group: others, seen, theirs })
       : await _adopt(run, where, { replace: gid, drop, manifest: true, life, group: others, seen }));
   } catch (e) {
     if (e?.reason === 'unversioned') { await _settle(gid, stat.folder); return true; }
@@ -1544,8 +1546,9 @@ const _zipPictures = (names, archive) => names.map(name => ({ name, size: archiv
 // A title's pictures where they are, in order — [{ name (in its folder, or the archive), size, crc (an
 // archive's) | mtime (a folder's) }] — its size and fingerprint (a PDF's: its size and its first
 // megabyte's hash; it has no pictures of its own; a folder's: its `content` too, folderContent hashed).
-// Null, reported, when they can't be read.
-async function _titlePictures(run, title) {
+// Null, reported, when they can't be read — or, `strict` (a stand that may settle on what it finds: _adoptLinked),
+// rejects: only a source not there as the shared rule takes it is null then (S40).
+async function _titlePictures(run, title, { strict = false } = {}) {
   try {
     if (title.kind === 'zip') {
       const archive = await K.archiveOf(run.id, run.root, title.path);
@@ -1567,7 +1570,8 @@ async function _titlePictures(run, title) {
     const file = await folderFiles.readFile(run.id, run.root, title.path);
     if (!file) return null;
     return { pictures: [], fingerprint: await _pdfPrint(file), size: file.size };
-  } catch {
+  } catch (e) {
+    if (strict) throw e;
     run.problems.push({ path: title.path, reason: 'unreadable' });
     return null;
   }
@@ -1731,14 +1735,17 @@ function _writeSource(folder, root, gid, text, ended = async () => false, held =
 // `replace`: a gallery the library keeps, read again (from its overlay, its files where `title` says
 // now), `life` the gallery it is (db.js _life: nothing more is read or written for it once that one has ended), `held`:
 // the gallery whose lock the caller holds (_writeSource), `group` and `seen` as _adopt's. Resolves its id, or null when
-// it has no pages (or wasn't read again: _storeAdopted). A gallery read again by a stand its drop alone asked for (`seen`
-// false) with nothing to read its pages from now — its source not there, or no pages in it, a PDF not drawn — has no
-// version to drop for: thrown `unversioned` (S39: settled, as one not left to stand in that state is published).
-async function _adoptLinked(run, title, { gid: given = null, replace = null, drop = false, life = null, held = null, group = [], seen = true } = {}) {
+// it has no pages (or wasn't read again: _storeAdopted). A gallery read again by a stand whose look didn't come for
+// another writer's publication (`theirs` false: folderStands) with nothing to read its pages from now — its source not
+// there, or read and holding no page, a PDF not drawn — has no version to drop for: thrown `unversioned` (S39: settled,
+// as one not left to stand in that state is published). Its source is then read strictly (S40): a read of it failing
+// rejects — an error reading now, held and tried again — never taken for a source not there.
+async function _adoptLinked(run, title, { gid: given = null, replace = null, drop = false, life = null, held = null, group = [], seen = true, theirs = true } = {}) {
   const ended = async () => !!life && !(await K.stillNow(life));
+  const settles = !!replace && !theirs;
   const bare = () => Object.assign(new BackendError('invalid', `${title.path}: no pages there to stand by`), { reason: 'unversioned' });
-  const at = title.pictures ? title : await _titlePictures(run, title);
-  if (!at && replace && !seen && !(await ended())) throw bare();
+  const at = title.pictures ? title : await _titlePictures(run, title, { strict: settles });
+  if (!at && settles && !(await ended())) throw bare();
   if (!at || await ended()) return null;
   const gid = replace || given || K.nextGalleryId();
   if (!replace && run.known.has(gid)) return null;
@@ -1769,7 +1776,7 @@ async function _adoptLinked(run, title, { gid: given = null, replace = null, dro
     return { url, n: p.n, record: { url, blob: p.from === 'overlay' ? read.ref(`images/${p.name}`) : source(p), mediaId: String(entry?.mediaId ?? gid),
       galleryId: gid, cachedAt: entry?.cachedAt || now, size: p.size, ...made } };
   });
-  if (!pages.length) { if (replace && !seen) throw bare(); return null; }
+  if (!pages.length) { if (settles) throw bare(); return null; }
   const record = galleryIdOf(read.texts['metadata.json']) === gid ? { ...read.meta, galleryId: gid }
     : { galleryId: gid, ...(await _namedMeta(run, title, gid)), numPages: pages.length, isLocalImport: true, source: '' };
   const linked = { kind: title.kind, path: title.path, ...(title.inner ? { inner: title.inner } : {}), ...(at.fingerprint ? { fingerprint: at.fingerprint } : {}),

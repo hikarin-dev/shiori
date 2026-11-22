@@ -371,7 +371,7 @@ for (const where of ['one page', 'two pages']) {
 // A linked gallery left to stand whose ZIP can't be read for a moment (its reads failing, the ZIP there): held while
 // that lasts — flagged, of its group still — and stood once readable, its command dropped whole.
 for (const app of ['desktop', 'website']) {
-  test(`S40 D: ${app}: a linked gallery left to stand whose ZIP can't be read for a moment is held, then stands`, { skip, todo: 'S40' }, async (t) => {
+  test(`S40 D: ${app}: a linked gallery left to stand whose ZIP can't be read for a moment is held, then stands`, { skip }, async (t) => {
     const { L, base } = await library(t, app);
     const A = path.join(base, 'A'), zip = path.join(A, 'Pack.zip');
     fs.mkdirSync(A, { recursive: true });
@@ -419,7 +419,7 @@ async function flag(L, gid) {
   });
 }
 for (const app of ['desktop', 'website']) {
-  test(`S40 D: ${app}: a gallery left to stand whose own manifest the first look saw, not found by the re-read, concludes nothing`, { skip, todo: 'S40' }, async (t) => {
+  test(`S40 D: ${app}: a gallery left to stand whose own manifest the first look saw, not found by the re-read, concludes nothing`, { skip }, async (t) => {
     const { L, base } = await library(t, app);
     const A = path.join(base, 'A');
     fs.mkdirSync(A, { recursive: true });

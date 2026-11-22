@@ -1404,14 +1404,16 @@ export class FileLibrary {
       return { kind: 'dropped' };
     }
     if (standing) return contract.unreadable(`gallery ${id} is standing by its folder's version now`);
-    const stood = await this._stands(id, at.kind === 'theirs').catch(() => false);
+    // What the first look saw (S40): a manifest at the place, whoever's (`seen`), and whether another writer's (`theirs`).
+    const look = { seen: at.kind === 'theirs' || !!at.place?.token, theirs: at.kind === 'theirs' };
+    const stood = await this._stands(id, look).catch(() => false);
     if (!this.still(life)) return contract.unreadable(`gallery ${id} was deleted meanwhile`);
     if (stood?.damaged) return { ...await asked({ known: this._stamp(id), over: at.token }), damaged: stood.damaged };
     const again = stood ? await asked({ known: this._stamp(id) }) : null;
-    // A hold whose first look saw another writer's manifest never goes on over a place that shows none when it asks
-    // again, whoever's stand answered it (S40: a second asker takes the first stand's answer, _standOnce, though that
-    // stand may have seen less).
-    if (again?.kind === 'ok' && at.kind === 'theirs' && again.place && !again.place.token) return contract.unreadable(`the manifest of gallery ${id} seen a moment ago isn't found now`);
+    // A hold whose first look saw a manifest never goes on over a place that shows none when it asks again, whoever's
+    // stand answered it (S40: a second asker takes the first stand's answer, _standOnce, though that stand may have seen
+    // less).
+    if (again?.kind === 'ok' && look.seen && again.place && !again.place.token) return contract.unreadable(`the manifest of gallery ${id} seen a moment ago isn't found now`);
     return again && again.kind !== 'theirs' ? again : contract.unreadable(`the folder's version of gallery ${id} can't be read now`);
   }
   // ── A series command weighed as one (S32, review 9 B1) ──
@@ -1490,12 +1492,12 @@ export class FileLibrary {
   // done, false when it can't be now (its place can't be read now: tried again later) — or { damaged }, its
   // reason ('corrupt', 'missing-file'), when the publication there was read and is damaged (a description that
   // doesn't parse, a file it names not there): no version to stand, so what waits is published over it, as a
-  // change to a damaged folder always was (T08), never left waiting for good. `seen`: whether the hold asking saw
-  // another writer's publication there (hold: its first answer 'theirs'), not a gallery left to stand alone (S39).
-  _stands(gid, seen = false) {
+  // change to a damaged folder always was (T08), never left waiting for good. `look`: what the hold asking saw (S39,
+  // S40) — `seen`, a manifest there, whoever's; `theirs`, another writer's publication.
+  _stands(gid, { seen = false, theirs = false } = {}) {
     const id = String(gid);
     return this._standOnce(id, async () => {
-      try { return await this.library._folderStands(id, { seen }); } catch (e) {
+      try { return await this.library._folderStands(id, { seen, theirs }); } catch (e) {
         if (['corrupt', 'missing-file'].includes(e?.reason)) return { damaged: e.reason };
         throw e;
       }
