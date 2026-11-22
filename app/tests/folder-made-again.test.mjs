@@ -22,8 +22,19 @@ const skip = !!globalThis.__desktopLibrary && 'run by npm test';
 const gate = () => { let open; const at = new Promise((resolve) => { open = resolve; }); return { at, open }; };
 const manifestOf = (dir) => JSON.parse(fs.readFileSync(path.join(dir, '.shiori', 'gallery.json'), 'utf8'));
 
+// How many deletions the library still owes.
+async function owedOf(L) {
+  if (L.app === 'desktop') return L.raw._s('SELECT count(*) AS n FROM deleting').get().n;
+  const idb = await L.raw.openDB();
+  return new Promise((resolve) => {
+    const tx = idb.transaction(['folders'], 'readonly');
+    const q = tx.objectStore('folders').getAllKeys(IDBKeyRange.bound('$deleting:', '$deleting:￿'));
+    tx.oncomplete = () => resolve(q.result.length);
+  });
+}
+
 for (const app of /** @type {const} */ (['desktop', 'website'])) {
-  test(`${app}: a copy joined under a deleted gallery's id while that one's publication is under way keeps its own change (11A2)`, { skip }, async (t) => {
+  test(`${app}: a copy of a gallery deleted while its publication is under way joins under its id once that is over, and keeps its own change (11A2, S41)`, { skip }, async (t) => {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), 'shiori-again-'));
     const L = app === 'desktop' ? await desktopLibrary(path.join(base, 'desktop')) : await webLibrary();
     t.after(async () => { faults.reset(); await L.close(); fs.rmSync(base, { recursive: true, force: true }); });
@@ -64,11 +75,17 @@ for (const app of /** @type {const} */ (['desktop', 'website'])) {
     const published = app === 'desktop' ? L.raw.files.describe(gid) : L.raw.settleFolders();
     await reached.at;
     await L.deleteGallery(gid);
+    // (S41 D: a check meeting a place that names a gallery whose deletion is still owed passes it over — the copy doesn't
+    // join while the deleted one's publication and deletion are under way; it joins whole at the check after. So the
+    // check no longer reaches "made again while the old one's work is under way": the import does, its tests unchanged.)
     if (app === 'desktop') { walk?.open(); await checked; } else await L.scan(c);
-    assert.equal(await L.titleOf(gid), 'Kept', 'the copy joined under its id');
-    await L.setTitle(gid, 'Joined, renamed');
+    assert.equal(await L.titleOf(gid), null, 'passed over while its deletion is owed');
     go.open();
     await published;
+    for (let i = 0; i < 200 && await owedOf(L); i++) await new Promise((r) => setTimeout(r, 50));
+    await L.scan(c);
+    assert.equal(await L.titleOf(gid), 'Kept', 'the copy joined under its id at the check after');
+    await L.setTitle(gid, 'Joined, renamed');
     for (const stage of ['flushed', 'after a restart']) {
       if (stage === 'flushed') { await L.flush(); if (app === 'desktop') await L.raw.files.applyDeletions(); }
       else await /** @type {() => Promise<void>} */ (L.restart)();
@@ -241,8 +258,11 @@ test('website: a deleted gallery\'s folder goes once its publication under way i
   navigator.locks.request(`shiori:deleting:${a}`, () => { held.open(); return letGo.at; });
   await held.at;
   await L.deleteGallery(gid);
-  await L.scan(await L.add(C));
-  assert.equal(await L.titleOf(gid), 'Kept', 'the copy joined under its id');
+  const c = await L.add(C);
+  await L.scan(c);
+  // (S41 D: the check meeting the copy while the deleted gallery's deletion is owed passes it over; it joins at the
+  // check after the deletion is done — below.)
+  assert.equal(await L.titleOf(gid), null, 'passed over while its deletion is owed');
   deleting = true;
   letGo.open();
   // The deletion as far as it goes while the publication is held — or, as it waits for it, a moment.
@@ -264,7 +284,7 @@ test('website: a deleted gallery\'s folder goes once its publication under way i
   assert.deepEqual(owed, [], `nothing left recorded for a later check (the folder holding ${left || 'nothing'})`);
   assert.equal(fs.existsSync(old), false, `the deleted one's folder is gone, ${left}`);
   for (const stage of ['checked', 'after a restart']) {
-    if (stage === 'checked') { await L.scan(a); await L.flush(); } else await /** @type {() => Promise<void>} */ (L.restart)();
+    if (stage === 'checked') { await L.scan(c); await L.scan(a); await L.flush(); } else await /** @type {() => Promise<void>} */ (L.restart)();
     assert.equal(await L.titleOf(gid), 'Kept', `${stage}: the gallery joined`);
     assert.ok(same(await L.read(gid, 1), png(1)), `${stage}: its page`);
     assert.equal(path.resolve(/** @type {string} */ (await L.dirOf(gid))), path.resolve(copy), `${stage}: in its own folder`);

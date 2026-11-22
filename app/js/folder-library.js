@@ -982,25 +982,24 @@ const _entryText = async (entry) => new TextDecoder().decode(await entry.read())
 // removed.json can't be read (`run.removed` null: review 6 F4), till a check reads it. A chapter of a
 // series export whose removal removed.json notes (its own note, or the archive's: db.js _goneLater) is no
 // gallery's — never joined, nor taken for a copy of one it left for a folder (review 7 A5).
-// The deletion a place naming gallery `gid` (one the library doesn't have) meets, read as the place is met — never once
-// as the check began (S40: one recorded meanwhile, or owed in another folder and not tried yet, counts): one marked
-// `unfound` (its gallery's folder wasn't where it had it), or — a hand-over's read — one of this folder's, as it is;
-// one not marked is tried first at its own place, as its own folder's check would (db.js deletionTried), and the
-// records read again: marked now → as `unfound`; gone (done there) → null: what was met is a copy, and joins; still
-// owed (its folder out of reach, not to be written by this app now, its gallery busy) → told by its own place: still
-// holding the gallery → null, a copy, which joins (its own place deleted in due course); else undefined: passed over.
-// null where none is owed. (A hand-over's read deletes nothing and weighs only its own folder's, S29a's rule 3.)
+// What a place naming gallery `gid` (one the library doesn't have) meets of its deletions, every record naming the id
+// read as the place is met — never once as the check began (S40, S41: its deletion's, and any place a move of it left):
+// one marked `unfound` (its gallery's folder wasn't where it had it) → that one: deleted where met, whatever else is
+// owed; none marked, one still owed → undefined: passed over at this check — nothing adopted, nothing deleted — and the
+// owed deletions left to the folders they belong to (db.js applyDeletions, begun on a timer of its own: this check
+// neither waits for another folder's locks nor reads another folder's drive); the next check decides — marked by then,
+// deleted where met; done, what was met is the person's copy, and joins; none → null: joins. A hand-over's read keeps
+// its rule (S29a's rule 3: it deletes nothing, and weighs only one marked or one of its own folder's).
 async function _deletionMet(run, gid) {
-  const of = async () => (await K.deletions()).find(d => String(d.gid) === String(gid)) ?? null;
-  let d = await of().catch(() => undefined);
-  if (d === undefined) return undefined;
-  if (!d || d.unfound) return d;
-  if (run.handover) return d.folder === run.id ? d : null;
-  await K.deletionTried(d);
-  d = await of().catch(() => undefined);
-  if (d === undefined) return undefined;
-  if (!d || d.unfound) return d;
-  return (await K.deletionThere(d)) === true ? null : undefined;
+  const all = await K.deletions().catch(() => undefined);
+  if (all === undefined) return undefined;   // the records can't be read now: nothing concluded
+  const mine = all.filter(d => String(d.gid) === String(gid));
+  if (run.handover) return mine.find(d => d.unfound || d.folder === run.id) ?? null;
+  const unfound = mine.find(d => d.unfound);
+  if (unfound) return unfound;
+  if (!mine.length) return null;
+  for (const folder of new Set(mine.map(d => d.folder))) setTimeout(() => { K.applyDeletions(folder).catch(() => {}); }, 0);
+  return undefined;
 }
 async function _joinOwn(run, found, kept) {
   if (found.legacy) { run.problems.push({ path: found.path, reason: 'unsupported' }); return; }

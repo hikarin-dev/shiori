@@ -1684,17 +1684,23 @@ const SCENARIOS = [
     ],
   },
   {
-    // 11A2: made again by a check joining a copy of it (another library folder's) under its id, then changed.
-    name: 'its publication under way, a copy joined under its id',
+    // 11A2, restated by S41 D: a check of another library folder meets a copy of it under its id while its deletion is
+    // owed (the step's call held): passed over — never made again by a check while the old one's work is under way (the
+    // import still makes one again then: its scenarios stay) — and the copy is taken away by the person, so the gallery
+    // ends deleted.
+    name: 'its publication under way, a copy met under its id by a check of another folder: passed over',
     kinds: ['made again'],
     again: {
       key: 'alpha',
       async make(c, gid) {
         c.ids.B = await c.lib.add(c.B);
         await c.lib.scan(c.ids.B);
-        await c.lib.setTitle(gid, 'Joined');
+        if ((await c.lib.galleries()).map(String).includes(String(gid))) (c.wrong ??= []).push('a copy joined under a deleted gallery\'s id while its deletion was owed');
+        fs.rmSync(path.join(c.B, 'Alpha (copy)'), { recursive: true, force: true });
+        // Nothing made again: the gallery deleted only.
+        /** @type {any} */ (c.again).gone = true;
+        c.deleted.add(gid);
       },
-      as: () => G('B', 'Joined', [png(1), png(2)]),
     },
     async setup(c) {
       c.g.alpha = await made(c, 'Alpha', [png(1), png(2)]);

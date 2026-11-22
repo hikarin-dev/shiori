@@ -99,7 +99,7 @@ async function rounds(L, ids, n = 2) {
 for (const app of APPS) {
   for (const order of ['the move\'s first', 'the deletion\'s first']) {
     for (const form of ['moved into another folder', 'renamed beside itself']) {
-      test(`S41 D: ${app}: two records of one deleted gallery (${order}, ${form}) — never listed again, the folder met deleted`, { skip, todo: app === 'desktop' || order === 'the move\'s first' ? 'S41' : undefined }, async (t) => {
+      test(`S41 D: ${app}: two records of one deleted gallery (${order}, ${form}) — never listed again, the folder met deleted`, { skip }, async (t) => {
         const { L, base } = await library(t, app);
         const f = await folders(L, base, 'P', 'Q', 'C');
         // A sorts first among the folders' ids (its records are met first); `order` puts the move's old place there or not.
@@ -127,13 +127,17 @@ for (const app of APPS) {
         faults.reset(); fsa.reset();
         await rounds(L, [f.c, a, b]);
         assert.equal(await listed(L, x), false, 'never listed again');
-        assert.ok(!fs.existsSync(to), 'the folder met deleted');
+        // (The desktop deletes a folder emptied of what it named with Windows' own delete, which may end a moment later. Its
+        // move by copy — the EXDEV here — can leave a picture whose time isn't the one the deletion recorded: kept as the
+        // person's, the folder with it, but nothing naming the gallery: s41-notes.md.)
+        if (app === 'desktop') assert.ok(await until(async () => !fs.existsSync(to) || (!manifestAt(to) && !fs.existsSync(path.join(to, 'metadata.json')))), 'nothing there names the gallery');
+        else assert.ok(await until(async () => !fs.existsSync(to)), 'the folder met deleted');
       });
     }
   }
   // Folder A's drive not answering as folder B's check meets a place naming a gallery whose deletion A owes: B's check
   // ends, the place passed over; once A answers, the deletion is done and the place met deleted.
-  test(`S41 D: ${app}: folder A's drive not answering as B's check meets a gallery A's deletion owes — B's check ends, the place passed over`, { skip, todo: app === 'desktop' ? 'S41' : undefined }, async (t) => {
+  test(`S41 D: ${app}: folder A's drive not answering as B's check meets a gallery A's deletion owes — B's check ends, the place passed over`, { skip }, async (t) => {
     const { L, base } = await library(t, app);
     const f = await folders(L, base, 'A', 'B');
     await L.setDefault(f.a);
@@ -143,10 +147,11 @@ for (const app of APPS) {
     const to = path.join(f.B, 'moved');
     fs.renameSync(/** @type {string} */ (await L.dirOf(g)), to);
     const go = gate();
-    // (The website's calls name a path in the folder picked, not the folder: the gallery's own place in A, 'Kept', is
-    // what A's deletion looks at and B's check never does.)
+    // (The gallery's own place in A, 'Kept', is what A's deletion looks at and B's check never needs: held on both apps —
+    // the website's calls name a path in the folder picked. Not all of A: the desktop's check of any folder looks at the
+    // library's staging folder, which lives in the default folder, A here.)
     if (app === 'website') fsa.hold((call) => (call.path === 'Kept' || call.path.startsWith('Kept/') ? go.at : null));
-    else faults.holdIn((call) => (path.resolve(call.path).startsWith(path.resolve(f.A)) ? go.at : null));
+    else faults.holdIn((call) => (path.resolve(call.path).startsWith(path.resolve(f.A, 'Kept')) ? go.at : null));
     const deleting = L.deleteGallery(g);
     assert.equal(await within(L.scan(f.b), 15000), 'ended', 'B\'s check ends');
     assert.equal(await listed(L, g), false, 'passed over');

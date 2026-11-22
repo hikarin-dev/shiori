@@ -586,20 +586,23 @@ export async function scanLibrary(library, { roots = library.activeRoots(), onPr
   return out;
 }
 
-// The deletion a place naming gallery `id` (one the index doesn't have) meets, read as the place is met — never once
-// as the check began (S40: one recorded meanwhile, or owed in another library folder and not tried yet, counts): one
-// marked `unfound`, or — a hand-over's read, which deletes nothing and weighs it (S29a's rule 3) — any; one not marked
-// is tried first at its own place, as its own folder's check would (files.js deletionTried), and the rows read again:
-// marked now → it (deleted where it was met); gone (done there) → null: what was met is a copy, and joins; still owed
-// (its folder out of reach, not to be written now, a deletion of it under way) → told by its own place: still holding
-// the gallery → null, a copy, which joins (its own place deleted in due course); else undefined: passed over. null
-// where none.
-async function deletionMet(library, id, handover) {
-  const d = library.files._deletingRows().find(r => String(r.gid) === String(id)) ?? null;
-  if (!d || d.unfound || handover) return d;
-  const now = await library.files.deletionTried(d);
-  if (!now || now.unfound) return now;
-  return (await library.files.deletionThere(now)) === true ? null : undefined;
+// What a place naming gallery `id` (one the index doesn't have) meets of its deletions, every row naming the id read
+// as the place is met — never once as the check began (S40, S41: its deletion's, and any place a move by copy left):
+// one marked `unfound` → that one: deleted where met, whatever else is owed; none marked, one still owed → undefined:
+// passed over at this check — nothing adopted, nothing deleted — and the owed deletions asked for in the folders they
+// belong to (files.js applyDeletions, not waited for: each folder's own queue; this check neither waits for another
+// folder's deletions nor reads another folder's drive); the next check decides — marked by then, deleted where met;
+// done, what was met is the person's copy, and joins; none → null: joins. A hand-over's read, which deletes nothing and
+// weighs the deletion (S29a's rule 3), takes one marked, else any.
+function deletionMet(library, id, handover) {
+  const files = library.files;
+  const rows = files._deletingRows().filter(r => String(r.gid) === String(id));
+  const unfound = rows.find(r => r.unfound);
+  if (handover) return unfound ?? rows[0] ?? null;
+  if (unfound) return unfound;
+  if (!rows.length) return null;
+  for (const root of new Set(rows.map(r => files._split(r.dir).root))) files.applyDeletions({ root }).catch(() => {});
+  return undefined;
 }
 
 // Deletions waiting `unfound` in library folder `root` (their gallery's folder or archive wasn't where the
