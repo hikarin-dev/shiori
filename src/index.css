@@ -1,105 +1,16 @@
+/* index.css — the new UI's one stylesheet: Tailwind's theme and utilities (not its base styles: the
+   document's defaults are today's, styles/document.css), shadcn's own rules, Shiori's tokens. */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
 /* Class names are looked for in the UI's own sources only: the repo's root also holds the pages not
    ported yet, whose scripts are full of words that read as class names. */
-@import "tailwindcss" source(none);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
 @source ".";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import "./styles/shadcn.css";
+@import "./styles/tokens.css";
+@import "./styles/document.css";
 
 /* One theme, the dark one: <html class="dark"> never changes, and is there so the components'
    dark: rules apply. */
 @custom-variant dark (&:is(.dark *));
-
-@theme inline {
-    /* The UI font's faces are declared by app/font-init.js, from app/fonts/. */
-    --font-sans: 'JetBrains Mono', monospace;
-    --font-mono: 'JetBrains Mono', monospace;
-    --font-heading: var(--font-sans);
-    --color-ring: var(--ring);
-    --color-input: var(--input);
-    --color-border: var(--border);
-    --color-destructive: var(--destructive);
-    --color-accent-foreground: var(--accent-foreground);
-    --color-accent: var(--accent);
-    --color-muted-foreground: var(--muted-foreground);
-    --color-muted: var(--muted);
-    --color-secondary-foreground: var(--secondary-foreground);
-    --color-secondary: var(--secondary);
-    --color-primary-foreground: var(--primary-foreground);
-    --color-primary: var(--primary);
-    --color-popover-foreground: var(--popover-foreground);
-    --color-popover: var(--popover);
-    --color-card-foreground: var(--card-foreground);
-    --color-card: var(--card);
-    --color-foreground: var(--foreground);
-    --color-background: var(--background);
-    --color-surface-subtle: var(--surface-subtle);
-    --color-muted-dim: var(--muted-dim);
-    --color-accent2: var(--accent2);
-    --color-success: var(--success);
-    --color-debug: var(--debug);
-    --color-backdrop: var(--backdrop);
-    --radius-sm: calc(var(--radius) * 0.6);
-    --radius-md: calc(var(--radius) * 0.8);
-    --radius-lg: var(--radius);
-    --radius-xl: calc(var(--radius) * 1.4);
-    --radius-2xl: calc(var(--radius) * 1.8);
-    --radius-3xl: calc(var(--radius) * 2.2);
-    --radius-4xl: calc(var(--radius) * 2.6);
-}
-
-/* Shiori's palette (app/base.css) under the component library's names. Two names mean something
-   else there than in base.css, and must not be mixed up:
-     --accent  here is the hover surface;   Shiori's --accent (the brand colour) is --primary.
-     --muted   here is a subdued surface;   Shiori's --muted (secondary text) is --muted-foreground. */
-:root {
-    --background: #0d0d0f;            /* --bg */
-    --foreground: #f4f4f5;            /* --text */
-    --card: #16161a;                  /* --surface */
-    --card-foreground: #f4f4f5;
-    --popover: #16161a;               /* --surface */
-    --popover-foreground: #f4f4f5;
-    --primary: #ed2754;               /* --accent */
-    --primary-foreground: #fff;
-    --secondary: #1c1c21;             /* --surface-raised */
-    --secondary-foreground: #f4f4f5;
-    --muted: #1c1c21;                 /* --surface-raised */
-    --muted-foreground: #a1a1aa;      /* --muted */
-    --accent: #1c1c21;                /* --surface-raised */
-    --accent-foreground: #f4f4f5;
-    --destructive: #ff4040;           /* --danger */
-    --border: #2a2a30;                /* --border */
-    --input: #3f3f48;                 /* --border-strong */
-    --ring: #fb7185;                  /* --ring */
-    --radius: 0.625rem;
-
-    /* Shiori's own, under the names they have in base.css. */
-    --surface-subtle: #111114;
-    --muted-dim: #7c7c8c;
-    --accent2: #ffd166;
-    --success: #06d6a0;
-    --debug: #2f7cf6;
-    --backdrop: rgba(0, 0, 0, .65);
-    --scrollbar-track: #171717;
-    --scrollbar-thumb: #959595;
-    --scrollbar-thumb-active: #787878;
-    --scrollbar-inner-thumb: #52525c;
-    --page-scrollbar-width: 0px;
-    --page-scrollbar-gap: 0px;
-}
-
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-    }
-  body {
-    @apply bg-background text-foreground;
-    font-size: 13px;
-    }
-  html {
-    @apply font-sans;
-    }
-  /* The UI font's code ligatures redraw runs like the "//" in a URL: text shows as typed. */
-  body, input, textarea, select, button {
-    font-variant-ligatures: none;
-    }
-}

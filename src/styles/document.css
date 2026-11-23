@@ -1,0 +1,73 @@
+/* document.css — the document's defaults: how an element computes where nothing else gives it a
+   style. They are today's — app/base.css and the browser's own — not Tailwind's base styles, which
+   this app does not load. So a bare element on the one page computes as it did on a 1.3 page (line
+   height normal, a heading's size and weight, a link's colour, a list's markers, an image inline).
+   Where this file takes something else, it says why. */
+
+@layer base {
+  /* base.css's reset: elements only, so ::before and ::after keep the browser's content box. */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  /* One theme, the dark one: what the browser draws itself (a checkbox, a native scrollbar, a
+     select's list) is dark in every browser. (1.3 set it in Chromium only, with scrollbar.js's class.) */
+  :root { color-scheme: dark; }
+
+  body {
+    min-height: 100vh;
+    /* The room a page scrollbar takes, kept while there is none (scrollbar.js), so nothing moves when
+       one comes or goes. */
+    padding-right: var(--page-scrollbar-gap);
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: var(--text-13);
+  }
+
+  /* A control takes the text around it — its font and colour — and has no ground, border or rounding
+     of its own until a component gives it one. Not today's: on a 1.3 page a bare button is the
+     browser's (Arial 13.3px in Chromium, the system's dialog font in Firefox, a grey ground), the
+     difference §5.3 A2 signs off to remove; and the components are written against this. */
+  button, input, select, optgroup, textarea, ::file-selector-button {
+    font: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+    background-color: transparent;
+    border: 0 solid;
+    border-radius: 0;
+    opacity: 1;
+  }
+
+  /* The UI font's code ligatures redraw runs like the "//" in a URL: text shows as typed. */
+  body, input, textarea, select, button { font-variant-ligatures: none; }
+
+  /* A text box's placeholder: a step dimmer than secondary text, in every box. */
+  ::placeholder { color: var(--muted-dim); opacity: 1; }
+
+  /* What is marked hidden stays hidden, whatever display a class gives it. Not the browser's plain
+     rule (which a class's display overrides): the component library marks a closed panel this way,
+     and 1.3's Settings page had the same rule for the same reason. */
+  [hidden]:where(:not([hidden="until-found"])) { display: none !important; }
+
+  /* The one keyboard-focus ring of a control: Chromium's own ring as it draws it on the dark theme,
+     the one the switches show today (a 2px light band over the control's edge), drawn here so every
+     browser shows the same. Keyboard focus only; text boxes keep the browser's. (Chromium also puts a
+     1px near-black rim outside the band, which on this dark ground is all but invisible: left out.) */
+  :where(button, select, summary, a[href],
+    input:is([type="checkbox"], [type="radio"], [type="range"], [type="button"], [type="submit"], [type="reset"], [type="color"], [type="file"]),
+    [role="button"], [role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="slider"]):focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: -1px;
+  }
+
+  /* Less motion for anyone whose system asks for it. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      scroll-behavior: auto !important;
+      transition-duration: .01ms !important;
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
+}

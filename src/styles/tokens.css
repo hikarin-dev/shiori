@@ -1,0 +1,219 @@
+/* tokens.css — Shiori's design tokens: every colour, type size, radius, shadow, layer, duration and
+   easing the new UI may use, and the Tailwind utilities made from them.
+
+   How they are named, once for the whole file:
+   - Colours are custom properties on :root under shadcn's names where shadcn has one (--background,
+     --primary, --muted-foreground…), under a name of their own otherwise (--warning, --muted-dim…).
+     Each is mapped to Tailwind below (bg-primary, text-muted-foreground, border-input…).
+     Two names mean something else than in app/base.css, and must not be mixed up:
+       Shiori's --accent (the brand colour)    is --primary here; --accent here is the hover surface.
+       Shiori's --muted (secondary text)       is --muted-foreground here; --muted here is a surface.
+   - Every other token is a Tailwind theme variable, named by its Tailwind namespace and its value or
+     role: --text-13 (13px; utility text-13), --radius-6 (rounded-6), --shadow-dialog (shadow-dialog),
+     --z-index-dialog (z-dialog), --transition-duration-fast (duration-fast), --ease-standard
+     (ease-standard). They exist as custom properties on :root too, for plain CSS.
+   - Sizes are px, as today: the body is 13px, and nothing leans on the root's font size. Spacing has
+     no scale of its own: a component writes today's exact value (p-[7px_14px]).
+   - Tailwind's own scales (its palette, text-sm, rounded-lg, shadow-md, leading-normal = 1.5…) are
+     cleared, so a stock class can't stand in for one of these without anyone noticing. */
+
+/* ── Colours ── */
+:root {
+    /* shadcn's names */
+    --background: #0d0d0f;            /* the page; base.css --bg */
+    --foreground: #f4f4f5;            /* text; --text */
+    --card: #16161a;                  /* cards, panels, the header; --surface */
+    --card-foreground: #f4f4f5;
+    --popover: #16161a;               /* menus, lists, dialogs; --surface */
+    --popover-foreground: #f4f4f5;
+    --primary: #ed2754;               /* the brand colour; base.css --accent */
+    --primary-foreground: #fff;       /* text on it */
+    --secondary: #1c1c21;             /* a raised surface; --surface-raised (absorbs #1e1e28, #22222a) */
+    --secondary-foreground: #f4f4f5;
+    --muted: #1c1c21;                 /* a subdued surface; --surface-raised */
+    --muted-foreground: #a1a1aa;      /* secondary text; base.css --muted */
+    --accent: #1c1c21;                /* the hover surface; --surface-raised */
+    --accent-foreground: #f4f4f5;
+    --destructive: #ff4040;           /* --danger */
+    --destructive-foreground: #fff;
+    --border: #2a2a30;
+    --input: #3f3f48;                 /* controls and dialog frames; --border-strong (absorbs #3a3a44) */
+    --ring: #fb7185;                  /* a focused text box's border */
+    --focus-ring: #eee;               /* a control's keyboard-focus ring (document.css) */
+
+    /* Shiori's own */
+    --surface-subtle: #111114;        /* fields and insets on a surface */
+    --border-hover: #52525c;          /* a control's border under the pointer */
+    --warning: #ffd166;               /* base.css --accent2 */
+    --warning-foreground: #111;       /* text on it */
+    --muted-dim: #7c7c8c;             /* a step dimmer than secondary text; placeholders */
+    --muted-faint: #6b6b80;           /* a card's deepest grey */
+    --success: #06d6a0;
+    --debug: #2f7cf6;                 /* debug views */
+    --backdrop: rgba(0, 0, 0, .65);   /* behind a dialog */
+    --overlay-ground: rgba(13, 13, 15, .82);   /* badges over a cover */
+    --image-ground: #111;             /* behind a cover or thumbnail */
+    --reader-background: #0a0a0c;     /* the reader's page */
+    --primary-line: #4a1a26;          /* a border in the brand's tone */
+    --warning-line: #3a3a20;          /* a border in the warning's tone */
+    /* A ground tinted with a tone, 8% (absorbs .06 and .07). Written out: as color-mix() the build
+       would split this rule around a fallback no supported browser needs. */
+    --primary-tint: rgb(237 39 84 / 8%);
+    --warning-tint: rgb(255 209 102 / 8%);
+    --success-tint: rgb(6 214 160 / 8%);
+    --destructive-tint: rgb(255 64 64 / 8%);
+    --switch-track: #303038;
+    --switch-track-border: #4a4a55;
+    --switch-knob: #b3b3bf;
+    --tip-background: #222;           /* the tooltip */
+    --tip-foreground: #eee;
+    --tip-border: #555;
+    --tip-muted: #9a9aac;
+    --chart-original: #7b8cff;        /* page properties' bar */
+    --scrollbar-track: #171717;       /* the drawn scrollbars (scrollbar.js) */
+    --scrollbar-thumb: #959595;
+    --scrollbar-thumb-active: #787878;
+    --scrollbar-inner-thumb: var(--border-hover);
+
+    /* Written by scrollbar.js on <html>: the page scrollbar's width, and the room the body keeps
+       for it while there is none, so nothing moves when it comes or goes. */
+    --page-scrollbar-width: 0px;
+    --page-scrollbar-gap: 0px;
+}
+
+@theme inline {
+    --color-*: initial;
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+    --color-focus-ring: var(--focus-ring);
+    --color-surface-subtle: var(--surface-subtle);
+    --color-border-hover: var(--border-hover);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
+    --color-muted-dim: var(--muted-dim);
+    --color-muted-faint: var(--muted-faint);
+    --color-success: var(--success);
+    --color-debug: var(--debug);
+    --color-backdrop: var(--backdrop);
+    --color-overlay-ground: var(--overlay-ground);
+    --color-image-ground: var(--image-ground);
+    --color-reader-background: var(--reader-background);
+    --color-primary-line: var(--primary-line);
+    --color-warning-line: var(--warning-line);
+    --color-primary-tint: var(--primary-tint);
+    --color-warning-tint: var(--warning-tint);
+    --color-success-tint: var(--success-tint);
+    --color-destructive-tint: var(--destructive-tint);
+    --color-switch-track: var(--switch-track);
+    --color-switch-track-border: var(--switch-track-border);
+    --color-switch-knob: var(--switch-knob);
+    --color-tip-background: var(--tip-background);
+    --color-tip-foreground: var(--tip-foreground);
+    --color-tip-border: var(--tip-border);
+    --color-tip-muted: var(--tip-muted);
+    --color-chart-original: var(--chart-original);
+    --color-scrollbar-track: var(--scrollbar-track);
+    --color-scrollbar-thumb: var(--scrollbar-thumb);
+    --color-scrollbar-thumb-active: var(--scrollbar-thumb-active);
+    --color-scrollbar-inner-thumb: var(--scrollbar-inner-thumb);
+}
+
+/* ── Everything else ── */
+@theme static {
+    /* The UI font. Its faces are declared by app/font-init.js, from app/fonts/. */
+    --font-*: initial;
+    --font-sans: 'JetBrains Mono', monospace;
+    --font-mono: 'JetBrains Mono', monospace;
+
+    /* Type sizes, px. No line height comes with them: a box's line is its own (body: normal). */
+    --text-*: initial;
+    --text-8: 8px;
+    --text-9: 9px;                    /* absorbs 8.5 and 9.5 */
+    --text-10: 10px;
+    --text-10\.5: 10.5px;
+    --text-11: 11px;                  /* tooltips, details */
+    --text-11\.5: 11.5px;
+    --text-12: 12px;
+    --text-12\.5: 12.5px;             /* dialog buttons */
+    --text-13: 13px;                  /* the body */
+    --text-14: 14px;
+    --text-15: 15px;                  /* the brand, dialog titles */
+    --text-16: 16px;                  /* the reader's body; absorbs 17 */
+    --text-20: 20px;
+    --text-18: 18px;                  /* glyphs: the drop overlay */
+    --text-32: 32px;                  /* glyphs: emoji placeholders */
+    --text-34: 34px;
+    --text-48: 48px;
+
+    /* Line height: only `normal`, the document's own (Tailwind's leading-normal is 1.5). */
+    --leading-*: initial;
+    --leading-normal: normal;
+
+    /* Radii, px: each one in use today, not multiples of one radius. */
+    --radius-*: initial;
+    --radius-2: 2px;                  /* tiny marks */
+    --radius-3: 3px;                  /* tags, key caps, thumbnails */
+    --radius-4: 4px;                  /* chips, badges, the tooltip */
+    --radius-5: 5px;                  /* menu items; inside an 8px track with 3px padding */
+    --radius-6: 6px;                  /* controls */
+    --radius-8: 8px;                  /* panels, lists, menus; absorbs 7 and 9 */
+    --radius-10: 10px;                /* cards, the toast, Settings' sections */
+    --radius-12: 12px;                /* dialogs */
+    --radius-pill: 999px;             /* pills, the switch */
+    --radius-circle: 50%;             /* knobs, spinners */
+
+    /* Shadows. */
+    --shadow-*: initial;
+    --shadow-popover: 0 8px 24px rgba(0, 0, 0, .45);     /* menus, lists, the status pill */
+    --shadow-toast: 0 10px 30px rgba(0, 0, 0, .45);
+    --shadow-dialog: 0 20px 50px rgba(0, 0, 0, .5);      /* every dialog */
+    --shadow-lift: 0 10px 28px rgba(0, 0, 0, .45);       /* a row being dragged */
+    --shadow-knob: 0 1px 2px rgba(0, 0, 0, .4);          /* a switch's knob, a slider's thumb */
+
+    /* Layers, bottom to top. Stacking inside one component (a card, a row) stays its own: -1 … 10.
+       The reader's chrome keeps its own layers (150–220) in its stylesheet. */
+    --z-index-header: 30;             /* the sticky page header */
+    --z-index-page-menu: 200;         /* the header's burger menu */
+    --z-index-page-overlay: 300;      /* search suggestions, go-to-top, loading and empty screens, the drawn page scrollbar */
+    --z-index-dialog: 400;
+    --z-index-dialog-raised: 410;     /* reader settings */
+    --z-index-status: 420;            /* the reader's status pill */
+    --z-index-status-menu: 430;       /* its picker, the reader's page menu */
+    --z-index-menu: 900;              /* context menus (folder, re-run) */
+    --z-index-drop: 1000;             /* the file drop overlay */
+    --z-index-tooltip: 9999;
+    --z-index-toast: 10000;
+    --z-index-notice: 10001;          /* notice dialogs, over the toast */
+
+    /* Durations. The card's grow and shrink (.3s/.5s), a spinner (.8s) and a bar with no figure yet
+       (1.2s) keep theirs in their components. */
+    --transition-duration-fast: 120ms;  /* colour changes; absorbs .1s */
+    --transition-duration-base: 150ms;  /* switches, header buttons, borders */
+    --transition-duration-open: 180ms;  /* unrolling, rotating; absorbs .16s */
+    --transition-duration-move: 200ms;  /* panels; absorbs .22s */
+    --transition-duration-slow: 250ms;  /* fades, a progress bar's width */
+
+    /* Easings. */
+    --ease-*: initial;
+    --ease-standard: ease;
+    --ease-out: ease-out;
+    --ease-emphasis: cubic-bezier(.4, 0, .2, 1);   /* a sliding indicator */
+    --ease-settle: cubic-bezier(.2, .8, .2, 1);    /* a row settling after a reorder */
+}
