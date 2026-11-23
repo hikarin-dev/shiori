@@ -54,7 +54,7 @@
      1px near-black rim outside the band, which on this dark ground is all but invisible: left out.) */
   :where(button, select, summary, a[href],
     input:is([type="checkbox"], [type="radio"], [type="range"], [type="button"], [type="submit"], [type="reset"], [type="color"], [type="file"]),
-    [role="button"], [role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="slider"]):focus-visible {
+    [role="button"], [role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="slider"]):is(:focus-visible, [data-force~="focus-visible"]) {
     outline: 2px solid var(--focus-ring);
     outline-offset: -1px;
   }

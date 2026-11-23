@@ -1,7 +1,8 @@
 // The components page: the design tokens and each shared component, as the new UI draws them. The
-// tokens are read from the stylesheet itself (styles/tokens.css), so every one shows, by its name.
+// tokens are read from the stylesheet itself (styles/tokens.css), so every one shows, by its name;
+// each component shows every shape, variant and state it has (specimens/, the parity check's subjects).
 import { useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { ButtonSpecimens } from './specimens/button';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -51,8 +52,6 @@ function tokens() {
 
 // A token as CSS refers to it: a name such as --text-10.5 is written escaped.
 const ref = (name: string) => `var(--${CSS.escape(name.slice(2))})`;
-
-const BUTTONS = ['default', 'outline', 'secondary', 'ghost', 'destructive', 'link'] as const;
 
 // The app's pages by name, in the language chosen (useT follows a change of it).
 const PAGE_NAMES = ['nav.library', 'nav.overview', 'nav.reader', 'nav.settings', 'tasks.title'];
@@ -104,12 +103,7 @@ export default function Components() {
         </ul>
       </section>
 
-      <section className="flex flex-col gap-[12px]">
-        <h2 className="text-13 font-semibold text-muted-foreground">Button</h2>
-        <div className="flex flex-wrap items-center gap-[12px]">
-          {BUTTONS.map((variant) => <Button key={variant} variant={variant}>{variant}</Button>)}
-        </div>
-      </section>
+      <ButtonSpecimens />
     </main>
   );
 }

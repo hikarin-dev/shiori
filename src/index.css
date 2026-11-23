@@ -17,3 +17,10 @@
 /* One theme, the dark one: <html class="dark"> never changes, and is there so the components'
    dark: rules apply. */
 @custom-variant dark (&:is(.dark *));
+
+/* The pointer and keyboard states, as the app's stylesheets had them: a hover whatever the device
+   (Tailwind's own asks for (hover: hover) first), never on a disabled control. Each also answers to
+   data-force="<state>", which is how /components shows a state still; nothing else sets it. */
+@custom-variant hover (&:is(:hover, [data-force~="hover"]):not(:disabled, [data-disabled]));
+@custom-variant active (&:is(:active, [data-force~="active"]):not(:disabled, [data-disabled]));
+@custom-variant focus-visible (&:is(:focus-visible, [data-force~="focus-visible"]));
