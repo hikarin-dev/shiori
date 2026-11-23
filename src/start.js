@@ -1,0 +1,53 @@
+// start.js — the one page's first script, run in its head before anything is drawn: a classic script
+// served as the file it is (the page's policy allows no inline script; built as dist/start.js, with
+// the data the build writes on the START line: build/start.mjs).
+//
+// It reads the address as the entry (src/entry.ts) will, and does what has to be done before the
+// first paint:
+//   - the common header's frame, which index.html holds, shows on the routes that have that header
+//     (html[data-frame="header"]); never where this page is about to hand the visitor on to another
+//     file, nor where it says "Not found.";
+//   - every module the page will run to draw the address is asked for at once (<link rel=modulepreload>),
+//     so they arrive together instead of in waves; and the UI font's faces (app/font-init.js declares
+//     them) right after the first frame, so they are there when the app draws its text, which
+//     otherwise would ask for them only once drawn, and move when they came (by the font API: preload
+//     links for them let Chromium hold the first paint until they arrive); none of it where the page
+//     hands the visitor on;
+//   - the bundle's entry is started (it decides, and draws or hands on).
+(function () {
+  const START = null;   // written by the build (build/start.mjs)
+  const html = document.documentElement;
+  const root = new URL('.', location.href).pathname;
+  let segment = location.pathname.slice(root.length);
+  // Opened by its own file name: 404.html may have kept the address it was asked for (src/entry.ts
+  // puts it back, and takes it away).
+  if (segment === START.appPage) {
+    let kept = null;
+    try { kept = sessionStorage.getItem('shiori-route'); } catch {}
+    const asked = kept == null ? null : kept.split(/[?#]/)[0];
+    segment = asked != null && Object.hasOwn(START.pages, asked) ? asked : '';
+  }
+  const file = Object.hasOwn(START.pages, segment) ? START.pages[segment] : null;
+  const drawn = file === null || file === START.appPage;   // an address the app doesn't have is drawn here too
+  const route = drawn ? START.routes[segment] : undefined;
+  if (route && route.header) html.dataset.frame = 'header';
+
+  const add = (tag, attributes) => {
+    const el = document.createElement(tag);
+    for (const name in attributes) el.setAttribute(name, attributes[name]);
+    document.head.append(el);
+  };
+  if (drawn) {
+    for (const path of START.start.concat(route ? route.preload : [])) {
+      if (path.endsWith('.css')) add('link', { rel: 'preload', as: 'style', href: root + path });
+      else add('link', { rel: 'modulepreload', href: root + path });
+    }
+    // Once the first frame is out: Chromium holds a first paint while a face is on its way, even one
+    // the paint has no text in (measured: 40 ms against 84 ms, and they still come long before the
+    // app draws).
+    requestAnimationFrame(() => setTimeout(() => {
+      for (const face of document.fonts) if (face.family.replace(/["']/g, '') === 'JetBrains Mono') face.load().catch(() => {});
+    }));
+  }
+  if (START.entry) add('script', { type: 'module', src: root + START.entry });
+})();

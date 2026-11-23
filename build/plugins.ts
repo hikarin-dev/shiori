@@ -10,7 +10,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Plugin } from 'vite';
 import { APP_PAGE, pageFile } from '../app/js/pages.js';
+import { ROUTES } from '../src/routes.ts';
 import { writeShell } from './shell.mjs';
+import { startData, startScript } from './start.mjs';
 
 export const ROOT = path.resolve(import.meta.dirname, '..');
 
@@ -51,6 +53,39 @@ export function contentSecurityPolicy(): Plugin {
       const at = '<title>';
       if (!html.includes(at)) throw new Error('index.html has no <title> to write the policy before');
       return html.replace(at, `<meta http-equiv="Content-Security-Policy" content="${CSP}">\n  ${at}`);
+    },
+  };
+}
+
+// The one page's first paint. Vite writes the entry into the built page as a module script with its
+// imports preloaded; here they come out of the page again, and the page's first script, start.js,
+// gets them instead, with the whole preload list (build/start.mjs): it asks for them only when the page
+// is the one to draw its address, and asks for every module that drawing runs, at once. The
+// stylesheet stays in the page, first in its head, where it holds the first paint until it is there,
+// as every page's did.
+const ENTRY_TAGS = /\s*<script type="module"[^>]*><\/script>|\s*<link rel="modulepreload"[^>]*>/g;
+const STYLESHEET = /\s*<link rel="stylesheet"[^>]*href="\.\/assets\/[^"]+\.css"[^>]*>/;
+
+export function firstPaint(): Plugin {
+  return {
+    name: 'shiori:first-paint',
+    apply: 'build',
+    generateBundle(_, bundle) {
+      this.emitFile({ type: 'asset', fileName: 'start.js', source: startScript(startData({ bundle, routes: ROUTES })) });
+    },
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, { chunk }) {
+        const entry = chunk?.fileName;
+        const tags = html.match(ENTRY_TAGS) ?? [];
+        if (!tags.some((tag) => tag.includes(`src="./${entry}"`))) throw new Error(`the built page doesn't load the entry ${entry} as expected`);
+        const style = html.match(STYLESHEET)?.[0];
+        if (!style) throw new Error('the built page has no stylesheet in its head');
+        // The stylesheet before the head's scripts: asked for first, ahead of everything start.js asks
+        // for, it is there for the first paint sooner (and the scripts wait for it, as they did on
+        // every page).
+        return html.replace(ENTRY_TAGS, '').replace(style, '').replace(/\n(\s*)<script /, `\n$1${style.trim()}\n$1<script `);
+      },
     },
   };
 }
@@ -111,6 +146,12 @@ export function devPages(): Plugin {
         const { pathname, search } = new URL(req.url ?? '/', 'http://dev');
         if (pathname === '/sw.js') {
           res.writeHead(200, { 'Content-Type': 'text/javascript', 'Cache-Control': 'no-store' }).end(NO_WORKER);
+          return;
+        }
+        // The page's first script, with the map and the routes' headers, and nothing to preload or
+        // start: the dev server's page starts its entry itself.
+        if (pathname === '/start.js') {
+          res.writeHead(200, { 'Content-Type': 'text/javascript', 'Cache-Control': 'no-cache' }).end(startScript(startData({ routes: ROUTES })));
           return;
         }
         const file = pageFile(pathname.replace(/^\/+|\/+$/g, ''));

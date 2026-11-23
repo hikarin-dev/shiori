@@ -22,7 +22,7 @@ async function serve(t) {
     fs.writeFileSync(path.join(webRoot, rel), text);
   };
   for (const file of new Set(Object.values(PAGES))) put(file);
-  for (const file of ['assets/app-abc12345.js', 'assets/app-abc12345.css', 'icons/icon32.png', 'vendor/x.js', 'CHANGELOG.md', 'shell-files.js',
+  for (const file of ['assets/app-abc12345.js', 'assets/app-abc12345.css', 'icons/icon32.png', 'vendor/x.js', 'CHANGELOG.md', 'shell-files.js', 'start.js',
     'sw.js', '404.html', 'app/tests/x.test.mjs', 'package.json']) put(file);
   const library = await new Library({ dataDir: path.join(dir, 'data'), libraryDir: path.join(dir, 'library') }).open();
   const server = await startServer({ library, token: 'window-token-0123456789abcdef', webRoot });
@@ -47,7 +47,8 @@ test('each of the app\'s addresses is answered with the file the app\'s map name
 test('the bundle and what the pages load are served; the rest of the web root is not', async (t) => {
   const get = await serve(t);
   for (const [pathname, type] of [['/assets/app-abc12345.js', /^text\/javascript/], ['/assets/app-abc12345.css', /^text\/css/],
-    ['/icons/icon32.png', /^image\/png/], ['/vendor/x.js', /^text\/javascript/], ['/CHANGELOG.md', /^text\/markdown/], ['/shell-files.js', /^text\/javascript/]]) {
+    ['/icons/icon32.png', /^image\/png/], ['/vendor/x.js', /^text\/javascript/], ['/CHANGELOG.md', /^text\/markdown/], ['/shell-files.js', /^text\/javascript/],
+    ['/start.js', /^text\/javascript/]]) {
     const res = await get(pathname);
     assert.equal(res.status, 200, pathname);
     assert.match(res.headers.get('content-type'), type, pathname);

@@ -52,12 +52,13 @@ test('no page carries a CRLF line ending, which would change every hash', () => 
 });
 
 test('the entry page has no inline script at all', () => {
-  // index.html is the one page: its script is the bundle, an external file, so its CSP is a plain
-  // script-src 'self' — no hash to drift in the first place. Neither the page as written nor the
-  // page as built may gain one.
+  // index.html is the one page: its scripts are files — its first, start.js, which starts the
+  // bundle — so its CSP is a plain script-src 'self', no hash to drift in the first place. Neither
+  // the page as written nor the page as built may gain one.
   assert.deepEqual(inlineScripts(readFileSync(join(repo, 'index.html'), 'utf8')), []);
   assert.deepEqual(inlineScripts(builtPage()), []);
-  assert.match(builtPage(), /<script type="module"[^>]* src="\.\/assets\/[^"]+\.js">/, 'the built page loads its bundle');
+  assert.match(builtPage(), /<script src="start\.js"\s*><\/script>/, 'the built page starts with start.js');
+  assert.match(readFileSync(join(builtSite(), 'start.js'), 'utf8'), /"entry":"assets\/[^"]+\.js"/, 'which starts the bundle');
 });
 
 test('the built one page carries the policy of the app\'s other pages', () => {

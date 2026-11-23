@@ -25,7 +25,7 @@ const appModules = () => filesUnder('app/js').filter((f) => f.endsWith('.js'));
 const shellFiles = async () => (await import(pathToFileURL(built('shell-files.js')).href)).SHELL;
 
 test('the runtime root files are present', () => {
-  for (const required of ['index.html', '404.html', 'sw.js', 'shell-files.js', 'CHANGELOG.md']) {
+  for (const required of ['index.html', 'start.js', '404.html', 'sw.js', 'shell-files.js', 'CHANGELOG.md']) {
     assert.ok(existsSync(built(required)), `${required} is missing from the built site`);
   }
 });
@@ -137,9 +137,18 @@ test('the one page resolves its assets from the site\'s root, at every address i
   const html = readFileSync(built('index.html'), 'utf8');
   assert.doesNotMatch(html, /<base\b/);
   const urls = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map((m) => m[1]);
-  assert.ok(urls.some((u) => /^\.\/assets\/.+\.js$/.test(u)), 'it loads its bundle');
+  assert.ok(urls.includes('start.js'), 'its first script, which starts the bundle');
+  assert.ok(urls.some((u) => /^\.\/assets\/.+\.css$/.test(u)), 'its stylesheet');
   for (const url of urls) {
     assert.doesNotMatch(url, /^(?:[a-z]+:|\/)/i, `${url} must be relative, for a site under a folder`);
     assert.ok(existsSync(built(url.replace(/^\.\//, ''))), `index.html references ${url}, which is missing`);
+  }
+  // start.js names the files it adds as paths from the site's root, which it puts its root before.
+  const start = JSON.parse(readFileSync(built('start.js'), 'utf8').match(/const START = (\{.*\});/)[1]);
+  const named = [start.entry, ...start.start, ...Object.values(start.routes).flatMap((r) => r.preload)];
+  assert.ok(named.length > 40, 'the bundle, the start-up, the routes');
+  for (const file of named) {
+    assert.doesNotMatch(file, /^(?:[a-z]+:|\/|\.)/i, `${file}: a path from the site's root`);
+    assert.ok(existsSync(built(file)), `start.js names ${file}, which is missing`);
   }
 });

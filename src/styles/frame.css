@@ -1,0 +1,31 @@
+/* frame.css — the common header's band and the brand, as 1.3's pages draw them (library.css's header,
+   base.css's brand). index.html paints them before any script has run, on the routes that have the
+   header (start.js sets html[data-frame]); React draws the same markup in its place (src/frame.tsx),
+   on the same pixels. */
+@layer components {
+  :root:not([data-frame="header"]) .app-header { display: none; }
+
+  .app-header {
+    position: sticky; top: 0; z-index: var(--z-index-header);
+    display: flex; align-items: center; gap: 16px;
+    height: 54px; padding: 0 20px;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    /* Reaching the window's edge where no page scrollbar is: the room the body keeps for one
+       (scrollbar.js) is taken back, and the controls keep the body's width. */
+    margin-right: calc(-1 * var(--page-scrollbar-gap));
+    padding-right: calc(20px + var(--page-scrollbar-gap));
+  }
+  .app-header .header-left { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
+
+  .brand-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; text-decoration: none; }
+  .brand-wrap:hover { opacity: .8; }
+  .brand-icon { width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: var(--radius-6); }
+  .brand-icon img { display: block; width: 100%; height: 100%; }
+  /* Its line height is the 20px JetBrains Mono's own line has at 15px, set outright: until the font
+     has come, the fallback's taller or shorter line would move the word when it came. */
+  .brand-text {
+    color: var(--primary); font-size: var(--text-15); font-weight: 700; letter-spacing: -0.3px;
+    line-height: 20px; white-space: nowrap;
+  }
+}

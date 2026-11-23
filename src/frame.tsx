@@ -19,8 +19,30 @@ function useAppMeta(page: string | null) {
   }, [page]);
 }
 
+// html[data-frame]: which frame the page shows (start.js sets it for the first one, before any paint).
+function useFrame(frame: 'header' | null) {
+  useLayoutEffect(() => {
+    if (frame) document.documentElement.dataset.frame = frame;
+    else delete document.documentElement.dataset.frame;
+  }, [frame]);
+}
+
+// The common header's band and the brand: index.html's frame, the same markup (a test holds the two
+// equal), drawn in its place on the same pixels. The header's controls come with its component.
+function Header() {
+  return (
+    <header className="app-header"><div className="header-left"><a className="brand-wrap" href="./"><div className="brand-icon"><img alt="" src="icons/shiori-logo.svg" /></div><span className="brand-text">Shiori</span></a></div></header>
+  );
+}
+
 export default function Frame() {
   const route = useMatches().at(-1)?.handle as Route | undefined;
   useAppMeta(route?.app ? route.page : null);
-  return <Outlet />;
+  useFrame(route?.header ? 'header' : null);
+  return (
+    <>
+      {route?.header && <Header />}
+      <Outlet />
+    </>
+  );
 }

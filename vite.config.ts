@@ -2,13 +2,13 @@ import path from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { ROOT, servedModules, contentSecurityPolicy, siteFiles, devPages } from './build/plugins.ts';
+import { ROOT, servedModules, contentSecurityPolicy, firstPaint, siteFiles, devPages } from './build/plugins.ts';
 
 export default defineConfig({
   // Relative, so the built site works at a domain's root and under a folder alike.
   base: './',
   publicDir: false,
-  plugins: [servedModules(), react(), tailwindcss(), contentSecurityPolicy(), siteFiles(), devPages()],
+  plugins: [servedModules(), react(), tailwindcss(), contentSecurityPolicy(), firstPaint(), siteFiles(), devPages()],
   resolve: {
     alias: {
       '@': path.join(ROOT, 'src'),

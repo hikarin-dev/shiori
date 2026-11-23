@@ -77,3 +77,16 @@ test('/sw.js is a worker that never installs, and takes a registration left at t
   assert.doesNotMatch(answer.body, /skipWaiting|addEventListener\('(?:activate|fetch|message)'|\bimport\b/, 'it does nothing else');
   assert.match(readFileSync(join(repo, 'app', 'js', 'submit-job.js'), 'utf8'), /_swActive = reg\.active/, 'the app still keeps the active worker it saw (else this rule can go)');
 });
+
+test('/start.js is the page\'s first script with the map and the routes\' frames, and starts nothing', () => {
+  // The dev server's page starts its entry itself, and has nothing built to preload.
+  const answer = ask('/start.js');
+  assert.equal(answer.passedOn, false);
+  assert.match(answer.headers['Content-Type'], /^text\/javascript/);
+  const data = JSON.parse(answer.body.match(/const START = (\{.*\});/)[1]);
+  assert.deepEqual(data.pages, { ...PAGES });
+  assert.equal(data.entry, null);
+  assert.deepEqual(data.start, []);
+  for (const route of Object.values(data.routes)) assert.deepEqual(route.preload, []);
+  assert.equal(data.appPage, APP_PAGE);
+});

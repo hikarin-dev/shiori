@@ -4,7 +4,6 @@ import { createRoot } from 'react-dom/client';
 import { createBrowserRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { initTooltips } from '@lib/tooltip.js';
-import './index.css';
 import { siteRoot } from './entry';
 import Frame from './frame';
 import { keepLinksInApp } from './lib/links';

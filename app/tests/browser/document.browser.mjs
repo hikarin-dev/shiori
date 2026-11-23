@@ -110,7 +110,7 @@ test('a control\'s focus ring is the one ring, and for the keyboard only', async
     for (const [id, tag] of [['next', 'button'], ['probe', 'button']]) {
       const b = document.body.insertBefore(document.createElement(tag), document.body.firstChild);
       b.id = id; b.textContent = id;
-      Object.assign(b.style, { position: 'fixed', left: id === 'probe' ? '10px' : '100px', top: '10px', width: '80px', height: '30px' });
+      Object.assign(b.style, { position: 'fixed', zIndex: '99999', left: id === 'probe' ? '10px' : '100px', top: '10px', width: '80px', height: '30px' });
     }
   });
   await page.click('#probe');
