@@ -31,3 +31,6 @@ desktop/ui/
 desktop/build/
 desktop/dist/
 desktop/dist-dev/
+
+# The built site (npm run build)
+dist/

@@ -11,12 +11,21 @@ import { fileURLToPath } from 'node:url';
 import { placeWritersOff, functionsOf, code as asCode } from './stale-view-operations.mjs';
 import { livesOff } from './gallery-lives.mjs';
 import { ORDER, WITHIN, ASKED_THERE } from './lock-net.mjs';
+import { builtSite } from '../../build/built.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const appJs = join(repo, 'app', 'js');
 // Every module of the app, as its path in app/js ('db.js', 'storage/folder-owner.js').
 const modules = readdirSync(appJs, { recursive: true }).map((f) => f.replace(/\\/g, '/')).filter((f) => f.endsWith('.js'));
 const read = (f) => readFileSync(join(appJs, f), 'utf8');
+// The UI drawn by the one page: its sources (src/**), and the bundle built from them with the
+// libraries it uses (dist/assets/* — asking for it throws, saying so, when there is no build or a
+// source changed since). Each as [name, text]. What holds for the app's modules holds there too.
+const filesIn = (dir) => readdirSync(dir, { recursive: true, withFileTypes: true }).filter((f) => f.isFile())
+  .map((f) => join(f.parentPath, f.name));
+const named = (files) => files.map((f) => [f.slice(repo.length + 1).replace(/\\/g, '/'), readFileSync(f, 'utf8')]);
+const uiSources = () => named(filesIn(join(repo, 'src')));
+const uiBundle = () => named(filesIn(join(builtSite(), 'assets')));
 
 // Strip comments so prose about a rule never trips the rule itself.
 const code = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
@@ -541,6 +550,7 @@ test('the app never names a source site or the companion helper', () => {
   for (const f of readdirSync(join(repo, 'app')).filter((x) => /\.(html|css)$/.test(x))) {
     if (banned.test(readFileSync(join(repo, 'app', f), 'utf8'))) offenders.push(`app/${f}`);
   }
+  for (const [f, text] of [...uiSources(), ...uiBundle()]) if (banned.test(text)) offenders.push(f);
   assert.deepEqual(offenders, [], 'source-site names must exist only in the private companion');
 });
 
@@ -548,22 +558,37 @@ test('the app never opens the browser\'s own confirm / alert / prompt boxes', ()
   // notice.js has the app's styled replacements (confirmDialog / alertDialog / promptDialog).
   const native = /(^|[^.\w])(?:window\.)?(?:confirm|alert|prompt)\s*\(/m;
   const offenders = modules.filter((f) => native.test(code(read(f))));
+  for (const [f, text] of uiSources()) if (native.test(code(text))) offenders.push(f);
+  // The bundle is read as it is: it has no comments, and its lines are too long to strip any from.
+  for (const [f, text] of uiBundle()) if (native.test(text)) offenders.push(f);
   assert.deepEqual(offenders, [], 'use notice.js dialogs instead of window.confirm/alert/prompt');
 });
 
 test('no third-party acquisition URLs are constructed in the app', () => {
   const offenders = [];
+  const outside = (src) => [...src.matchAll(/https?:\/\/[^\s'"`)]+/g)]
+    .map((m) => m[0])
+    // The user-configured translation server default is local and explicitly user-owned.
+    .filter((u) => !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(u))
+    // Namespace/spec URLs are not network acquisition (SVG xmlns and friends).
+    .filter((u) => !/w3\.org|schema\.org/.test(u))
+    // This project's own release downloads are its own artifacts, not a content source.
+    .filter((u) => !/^https:\/\/github\.com\/hikarin-dev\/shiori\//.test(u));
   for (const f of modules) {
-    const src = code(read(f));
-    const hits = [...src.matchAll(/https?:\/\/[^\s'"`)]+/g)]
-      .map((m) => m[0])
-      // The user-configured translation server default is local and explicitly user-owned.
-      .filter((u) => !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(u))
-      // Namespace/spec URLs are not network acquisition (SVG xmlns and friends).
-      .filter((u) => !/w3\.org|schema\.org/.test(u))
-      // This project's own release downloads are its own artifacts, not a content source.
-      .filter((u) => !/^https:\/\/github\.com\/hikarin-dev\/shiori\//.test(u));
+    const hits = outside(code(read(f)));
     if (hits.length) offenders.push(`app/js/${f}: ${hits.join(', ')}`);
+  }
+  for (const [f, text] of uiSources()) {
+    const hits = outside(code(text));
+    if (hits.length) offenders.push(`${f}: ${hits.join(', ')}`);
+  }
+  // The bundle also holds the libraries the UI is built on, whose messages name their own
+  // documentation: text for a developer's console, nothing the app requests. Each such host is
+  // named here, so an address that is neither one of these nor allowed above fails.
+  const libraryDocs = /^https:\/\/(?:react\.dev|reactrouter\.com|base-ui\.com|tailwindcss\.com)(?:\/|$)/;
+  for (const [f, text] of uiBundle()) {
+    const hits = [...new Set(outside(text).filter((u) => !libraryDocs.test(u)))];
+    if (hits.length) offenders.push(`${f}: ${hits.join(', ')}`);
   }
   assert.deepEqual(offenders, [], 'the app must not know where external content comes from');
 });

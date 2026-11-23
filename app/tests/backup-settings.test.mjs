@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import 'fake-indexeddb/auto';
+import { builtSite } from '../../build/built.mjs';
 
 class SilentBroadcastChannel {
   constructor(name) { this.name = name; this.onmessage = null; }
@@ -116,16 +117,27 @@ const DEVICE_SETTINGS = new Set([
   'agentPairSecret', 'apiKey', 'cacheEnabled',                                             // pairing and an integration's own state
   'readerDebugLoaded',                                                                     // a debug view of this device's reader
 ]);
-const DEVICE_DASH = new Set(['shiori-ext-status', 'shiori-font', 'shiori-covers', 'shiori-sw-retry']);
+const DEVICE_DASH = new Set(['shiori-ext-status', 'shiori-font', 'shiori-covers', 'shiori-sw-retry',
+  'shiori-route']);   // an address on its way from 404.html to the one page, within one tab
 
+// Read in: the app's modules, the sources of the UI the one page draws (src/**), and the bundle built
+// from them (dist/assets — asking for it throws, saying so, when there is no build or a source changed
+// since). A name is quoted any of the three ways: the bundle's quotes are not the sources'.
 function storedKeys() {
-  const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'js');
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.join(here, '..', 'js');
+  const under = (root) => fs.readdirSync(root, { recursive: true, withFileTypes: true }).filter(f => f.isFile()).map(f => path.join(f.parentPath, f.name));
+  const files = [
+    ...fs.readdirSync(dir).filter(f => f.endsWith('.js')).map(f => path.join(dir, f)),
+    ...under(path.join(here, '..', '..', 'src')).filter(f => /\.tsx?$/.test(f)),
+    ...under(path.join(builtSite(), 'assets')).filter(f => f.endsWith('.js')),
+  ];
   const kv = new Set(), dash = new Set();
-  for (const name of fs.readdirSync(dir).filter(f => f.endsWith('.js'))) {
-    const src = fs.readFileSync(path.join(dir, name), 'utf8');
-    const consts = new Map([...src.matchAll(/const\s+(\w+)\s*=\s*'([\w:-]+)'/g)].map(m => [m[1], m[2].replace(/^shiori:/, '')]));
-    for (const m of src.matchAll(/'shiori:(\w+)'/g)) kv.add(m[1]);
-    for (const m of src.matchAll(/kv\.get\(\[([^\]]*)\]/g)) for (const k of m[1].matchAll(/'(\w+)'/g)) kv.add(k[1]);
+  for (const file of files) {
+    const src = fs.readFileSync(file, 'utf8');
+    const consts = new Map([...src.matchAll(/const\s+(\w+)\s*=\s*['"`]([\w:-]+)['"`]/g)].map(m => [m[1], m[2].replace(/^shiori:/, '')]));
+    for (const m of src.matchAll(/['"`]shiori:(\w+)['"`]/g)) kv.add(m[1]);
+    for (const m of src.matchAll(/kv\.get\(\[([^\]]*)\]/g)) for (const k of m[1].matchAll(/['"`](\w+)['"`]/g)) kv.add(k[1]);
     for (const m of src.matchAll(/kv\.get\((\w+)\)/g)) if (consts.has(m[1])) kv.add(consts.get(m[1]));
     for (const m of src.matchAll(/kv\.set\(\{/g)) {
       // The object literal's own keys (depth 0): `name:`, a shorthand `name`, or `[CONST]:`.
@@ -145,7 +157,7 @@ function storedKeys() {
         if (!inValue) token += c;
       }
     }
-    for (const m of src.matchAll(/(?:localStorage|sessionStorage)\.(?:getItem|setItem|removeItem)\('(shiori-[\w-]+)'/g)) dash.add(m[1]);
+    for (const m of src.matchAll(/(?:localStorage|sessionStorage)\.(?:getItem|setItem|removeItem)\(['"`](shiori-[\w-]+)['"`]/g)) dash.add(m[1]);
   }
   for (const k of [...kv]) if (!/^[a-z]\w*$/i.test(k)) kv.delete(k);
   return { kv, dash };

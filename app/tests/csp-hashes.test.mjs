@@ -4,12 +4,16 @@
 // LF, so the browser's hash did not match, the entry script was blocked, and the page hung on its
 // loading text forever. `.gitattributes` now checks these files out as LF (matching what any
 // static host serves) and this test recomputes every hash from disk so drift fails here instead.
+//
+// The one page (index.html) has no inline script at all, and gets its policy when it is built: the
+// built page is read here too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { builtSite } from '../../build/built.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -17,16 +21,18 @@ const pages = [
   ...['index.html', '404.html'].filter((f) => existsSync(join(repo, f))),
   ...readdirSync(join(repo, 'app')).filter((f) => f.endsWith('.html')).map((f) => `app/${f}`),
 ];
+// The built one page (throws, saying so, when there is no build or a source changed since).
+const builtPage = () => readFileSync(join(builtSite(), 'index.html'), 'utf8');
 
 // Inline = a <script> with no src attribute.
 const inlineScripts = (html) => [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
 const sha256 = (s) => 'sha256-' + createHash('sha256').update(s, 'utf8').digest('base64');
+const policyOf = (html) => html.match(/http-equiv="Content-Security-Policy"[^>]*content="([^"]*)"/)?.[1];
 
 test('every inline script is covered by its own page CSP hash', () => {
   const problems = [];
-  for (const page of pages) {
-    const html = readFileSync(join(repo, page), 'utf8');
-    const csp = html.match(/http-equiv="Content-Security-Policy"[^>]*content="([^"]*)"/)?.[1];
+  for (const [page, html] of [...pages.map((p) => [p, readFileSync(join(repo, p), 'utf8')]), ['dist/index.html', builtPage()]]) {
+    const csp = policyOf(html);
     const scripts = inlineScripts(html);
     if (!scripts.length) continue;
     if (!csp) { problems.push(`${page}: has an inline script but no CSP`); continue; }
@@ -41,21 +47,35 @@ test('every inline script is covered by its own page CSP hash', () => {
 
 test('no page carries a CRLF line ending, which would change every hash', () => {
   const offenders = pages.filter((p) => readFileSync(join(repo, p)).includes(0x0d));
+  if (readFileSync(join(builtSite(), 'index.html')).includes(0x0d)) offenders.push('dist/index.html');
   assert.deepEqual(offenders, [], 'pages must be stored/served with LF (see .gitattributes)');
 });
 
 test('the entry page has no inline script at all', () => {
-  // index.html is always served from the deployment root, so its bootstrap is an external file
-  // and its CSP is a plain script-src 'self' — no hash to drift in the first place.
-  const html = readFileSync(join(repo, 'index.html'), 'utf8');
-  assert.deepEqual(inlineScripts(html), []);
-  assert.match(html, /<script src="boot-root\.js">/);
+  // index.html is the one page: its script is the bundle, an external file, so its CSP is a plain
+  // script-src 'self' — no hash to drift in the first place. Neither the page as written nor the
+  // page as built may gain one.
+  assert.deepEqual(inlineScripts(readFileSync(join(repo, 'index.html'), 'utf8')), []);
+  assert.deepEqual(inlineScripts(builtPage()), []);
+  assert.match(builtPage(), /<script type="module"[^>]* src="\.\/assets\/[^"]+\.js">/, 'the built page loads its bundle');
+});
+
+test('the built one page carries the policy of the app\'s other pages', () => {
+  // The same policy as a page with a file of its own, less that page's hash (the build writes it:
+  // the dev server's page needs inline scripts, so the page as written has none).
+  const own = policyOf(readFileSync(join(repo, 'app', 'library.html'), 'utf8'));
+  assert.match(own, / 'sha256-[^']+'/, 'a page with an inline script pins it');
+  const policy = policyOf(builtPage());
+  assert.equal(policy, own.replace(/ 'sha256-[^']+'/, ''));
+  assert.match(policy, /(?:^|; )script-src 'self'(?:;|$)/, 'scripts from the site only');
+  // It must come before the first script it is to hold.
+  assert.ok(builtPage().indexOf('Content-Security-Policy') < builtPage().indexOf('<script'), 'the policy precedes every script');
 });
 
 test('service-worker waits are bounded so a failed install cannot strand a page', () => {
   // Install is fail-fast on critical assets; without a timeout, navigator.serviceWorker.ready
-  // simply never settles and the visitor sits on the loading text.
-  for (const f of ['boot-root.js', '404.html']) {
+  // simply never settles and the visitor sits on a blank page.
+  for (const f of ['src/entry.ts', '404.html']) {
     const src = readFileSync(join(repo, f), 'utf8');
     assert.match(src, /serviceWorker\.ready/, `${f} should await the worker`);
     assert.match(src, /Promise\.race/, `${f} must bound that wait`);

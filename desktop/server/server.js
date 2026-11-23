@@ -60,7 +60,7 @@ const MAX_FRAME = 1 << 30;
 const PAGES = { '/': 'app/library.html', '/library': 'app/library.html', '/settings': 'app/settings.html',
   '/reader': 'app/reader.html', '/overview': 'app/overview.html', '/tasks': 'app/tasks.html' };
 // What of the web root is served: the app and the assets its pages load, nothing else.
-const PUBLIC = new Set(['app', 'icons', 'vendor', 'index.html', 'boot-root.js', 'CHANGELOG.md']);
+const PUBLIC = new Set(['app', 'icons', 'vendor', 'index.html', 'CHANGELOG.md']);
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.webmanifest': 'application/manifest+json',

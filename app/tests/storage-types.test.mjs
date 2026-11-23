@@ -12,7 +12,9 @@ import { fileURLToPath } from 'node:url';
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const storage = join(repo, 'app', 'js', 'storage');
 const tsc = join(dirname(createRequire(import.meta.url).resolve('typescript/package.json')), 'bin', 'tsc');
-const OPTIONS = ['--allowJs', '--checkJs', '--noEmit', '--strict', '--target', 'es2023', '--module', 'esnext',
+// The files and options are given here: the repo's tsconfig.json is the UI's (src/), and tsc
+// refuses files on its command line while one is in reach unless told to leave it.
+const OPTIONS = ['--ignoreConfig', '--allowJs', '--checkJs', '--noEmit', '--strict', '--target', 'es2023', '--module', 'esnext',
   '--moduleResolution', 'bundler', '--lib', 'es2023,dom,dom.asynciterable'];
 
 test('the storage module type-checks', () => {

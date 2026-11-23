@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { builtSite } from '../../build/built.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const sw = readFileSync(join(repo, 'sw.js'), 'utf8');
@@ -25,7 +26,9 @@ const shell = [
     .map((m) => `app/flags/${m[1]}.svg`),
 ];
 const isCode = (u) => /\.(js|html|css|webmanifest)$/.test(u);
-const bytes = (files) => files.reduce((n, f) => n + (existsSync(join(repo, f)) ? statSync(join(repo, f)).size : 0), 0);
+// Sizes as served: the built site's (asking for it throws, saying so, when there is no build or a
+// source changed since).
+const bytes = (files, site = builtSite()) => files.reduce((n, f) => n + (existsSync(join(site, f)) ? statSync(join(site, f)).size : 0), 0);
 
 // Headroom over today's code (about 3.0 MB since the library-storage work; ~1 MB when this was written), far under the
 // ~10 MB the regression above awaited: raised from 3 MB at S32 (2026-11-19), whose hand-over rules took the last of it.
@@ -59,12 +62,12 @@ test('deferred assets are still precached eventually, and cached on demand meanw
 });
 
 test('a first visit is not held behind the worker install at all', () => {
-  // With nothing installed yet, waiting for the worker means a blank loading screen for the
-  // length of the precache. The entry page must detect that case and go straight to the real
-  // page instead; boot.js registers the worker from there, so installation still happens.
-  const src = readFileSync(join(repo, 'boot-root.js'), 'utf8');
+  // With nothing installed yet, waiting for the worker means a blank screen for the length of the
+  // precache. The one page's entry must detect that case and go straight to the real page
+  // instead; boot.js registers the worker from there, so installation still happens.
+  const src = readFileSync(join(repo, 'src', 'entry.ts'), 'utf8');
   assert.match(src, /getRegistration\(\)/, 'the entry page must check for an existing worker');
-  assert.match(src, /if \(!existing \|\| !existing\.active\) return toLibrary\(\)/,
+  assert.match(src, /if \(!existing \|\| !existing\.active\) return toFile\(\)/,
     'no active worker must mean an immediate hand-off, not an await on install');
   // The wait that remains (worker already installed) still has to be bounded.
   assert.match(src, /Promise\.race/, 'the remaining wait must be bounded');

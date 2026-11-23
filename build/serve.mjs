@@ -1,0 +1,77 @@
+// serve.mjs — a static server for the built site, as a host serves it: the app's pages at their
+// clean addresses (app/js/pages.js), 404.html for whatever is not there, and each file with the
+// date and tag the app's service worker checks its copy against (an unchanged file is answered 304).
+// The tests' browser and `npm run preview` both get the site from here.
+import { createServer } from 'node:http';
+import { readFile, stat } from 'node:fs/promises';
+import { join, extname, normalize, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { pageFile } from '../app/js/pages.js';
+
+const TYPES = {
+  '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css',
+  '.json': 'application/json', '.md': 'text/markdown', '.webmanifest': 'application/manifest+json',
+  '.png': 'image/png', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf', '.wasm': 'application/wasm',
+  '.map': 'application/json', '.txt': 'text/plain',
+};
+
+const _stat = async (path) => { try { const s = await stat(path); return s.isFile() ? s : null; } catch { return null; } };
+
+// Serves the folder `root` on `port` (0: any free one) at each of `hosts`. Resolves
+// { server, servers, origin, port }: `server` and `origin` are the first host's.
+export async function startServer({ root, port = 0, hosts = ['127.0.0.1'] }) {
+  root = resolve(root);
+  const handler = async (req, res) => {
+    try {
+      if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405).end(); return; }
+      const path = decodeURIComponent(new URL(req.url, 'http://site').pathname);
+      let full = normalize(join(root, pageFile(path.replace(/^\/+|\/+$/g, '')) ?? path.slice(1)));
+      if (!full.startsWith(root + sep)) { res.writeHead(403).end(); return; }
+      let file = await _stat(full);
+      if (!file && !extname(full)) { full += '.html'; file = await _stat(full); }
+      if (!file) {   // what a static host does: its 404 page, which finds the way to the app
+        const page = await readFile(join(root, '404.html')).catch(() => null);
+        res.writeHead(404, page ? { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' } : {}).end(page ?? undefined);
+        return;
+      }
+      const modified = new Date(Math.floor(file.mtimeMs / 1000) * 1000);
+      const etag = `"${file.size.toString(16)}-${modified.getTime().toString(16)}"`;
+      const headers = { 'Cache-Control': 'no-cache', 'Last-Modified': modified.toUTCString(), ETag: etag };
+      // The tag decides where one is sent; the date only where none is.
+      const tags = req.headers['if-none-match'];
+      const since = Date.parse(req.headers['if-modified-since']);
+      if (tags ? tags.split(',').some((t) => t.trim().replace(/^W\//, '') === etag) : modified.getTime() <= since) {
+        res.writeHead(304, headers).end();
+        return;
+      }
+      res.writeHead(200, { ...headers, 'Content-Type': TYPES[extname(full).toLowerCase()] || 'application/octet-stream', 'Content-Length': file.size });
+      res.end(req.method === 'HEAD' ? undefined : await readFile(full));
+    } catch { res.writeHead(500).end(); }
+  };
+  const servers = [];
+  try {
+    for (const host of hosts) {
+      const server = createServer(handler);
+      await new Promise((done, failed) => { server.once('error', failed); server.listen(port, host, done); });
+      port = server.address().port;
+      servers.push(server);
+    }
+  } catch (e) {
+    for (const server of servers) server.close();
+    throw e;
+  }
+  return { server: servers[0], servers, port, origin: `http://${hosts[0].includes(':') ? `[${hosts[0]}]` : hosts[0]}:${port}` };
+}
+
+// `node build/serve.mjs [--port N]`: the built site at localhost, on both of its addresses — bound
+// to 127.0.0.1 alone, every connection to `localhost` stalls about two seconds on Windows, where
+// the name is tried as ::1 first. (A computer without ::1 gets 127.0.0.1 alone.)
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const { builtSite } = await import('./built.mjs');
+  const at = process.argv.indexOf('--port');
+  const site = { root: builtSite(), port: at > 0 ? Number(process.argv[at + 1]) : 5500 };
+  const { port } = await startServer({ ...site, hosts: ['127.0.0.1', '::1'] })
+    .catch((e) => (['EADDRNOTAVAIL', 'EAFNOSUPPORT'].includes(e.code) ? startServer(site) : Promise.reject(e)));
+  console.log(`Shiori at http://localhost:${port}/`);
+}

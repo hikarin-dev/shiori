@@ -1,15 +1,14 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self'; object-src 'none'; base-uri 'self'">
   <title>Shiori</title>
-  <link rel="icon" href="icons/icon32.png">
-  <style>html,body{margin:0;height:100%;background:#111;color:#888;font:14px system-ui,sans-serif;display:flex;align-items:center;justify-content:center}</style>
+  <link rel="icon" href="icons/icon32.png" vite-ignore>
+  <script src="app/font-init.js" vite-ignore></script>
 </head>
 <body>
-  Loading Shiori…
-  <script src="boot-root.js"></script>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>

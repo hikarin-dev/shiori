@@ -9,7 +9,7 @@ const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const repo = path.resolve(desktop, '..');
 const out = path.join(desktop, 'ui');
 
-const COPY = ['app', 'icons', 'vendor', 'index.html', 'boot-root.js', 'CHANGELOG.md'];
+const COPY = ['app', 'icons', 'vendor', 'index.html', 'CHANGELOG.md'];
 const SKIP = new Set([path.join(repo, 'app', 'tests')]);
 
 fs.rmSync(out, { recursive: true, force: true });
