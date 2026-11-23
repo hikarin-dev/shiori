@@ -11,6 +11,7 @@ import { ToggleGroupSpecimens } from './specimens/toggle-group';
 import { TabsSpecimens } from './specimens/tabs';
 import { SelectSpecimens } from './specimens/select';
 import { InputSpecimens } from './specimens/input';
+import { SliderSpecimens } from './specimens/slider';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -120,6 +121,7 @@ export default function Components() {
       <TabsSpecimens />
       <SelectSpecimens />
       <InputSpecimens />
+      <SliderSpecimens />
     </main>
   );
 }
