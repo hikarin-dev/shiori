@@ -22,6 +22,7 @@ import { BadgeSpecimens } from './specimens/badge';
 import { StatSpecimens } from './specimens/stat';
 import { TextSpecimens } from './specimens/text';
 import { CardSpecimens } from './specimens/card';
+import { SettingRowSpecimens } from './specimens/setting-row';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -142,6 +143,7 @@ export default function Components() {
       <StatSpecimens />
       <TextSpecimens />
       <CardSpecimens />
+      <SettingRowSpecimens />
     </main>
   );
 }
