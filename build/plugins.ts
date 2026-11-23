@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Plugin } from 'vite';
+import { APP_PAGE, pageFile } from '../app/js/pages.js';
 import { writeShell } from './shell.mjs';
 
 export const ROOT = path.resolve(import.meta.dirname, '..');
@@ -77,6 +78,46 @@ export function siteFiles(): Plugin {
         });
       }
       writeShell(outDir, fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
+    },
+  };
+}
+
+// Under the dev server (`npm run dev`): a page that still has a file of its own is sent as that
+// file, at its clean address and as it is — Vite's own handling would rewrite it, and its policy
+// pins its one inline script by hash. An address the one page answers goes on to Vite as a request
+// for index.html, which Vite serves its own way (left to guess, Vite takes an address without an
+// extension for a module when asked by anything but a navigation — and finds one: /components is
+// also the name of components.json at the root).
+//
+// And there is no service worker there: it would keep copies of the dev server's modules, and the
+// app runs its jobs in the tab when it has none. /sw.js answers with a worker whose install fails:
+// a registration made for it alone is dropped with it, and one a built site left at this address
+// is taken away (asked for before the install fails, done after it: waited for inside the install
+// it would wait for the install). Never installed, not installed-then-removed: a worker that was
+// active even for a moment is one the app hands its jobs to.
+const NO_WORKER = `// No service worker under the dev server (build/plugins.ts).
+self.addEventListener('install', (event) => {
+  self.registration.unregister();
+  event.waitUntil(Promise.reject(new Error('no service worker under the dev server')));
+});
+`;
+
+export function devPages(): Plugin {
+  return {
+    name: 'shiori:dev-pages',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const { pathname, search } = new URL(req.url ?? '/', 'http://dev');
+        if (pathname === '/sw.js') {
+          res.writeHead(200, { 'Content-Type': 'text/javascript', 'Cache-Control': 'no-store' }).end(NO_WORKER);
+          return;
+        }
+        const file = pageFile(pathname.replace(/^\/+|\/+$/g, ''));
+        if (!file) { next(); return; }
+        if (file === APP_PAGE) { req.url = `/${APP_PAGE}${search}`; next(); return; }
+        res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' }).end(fs.readFileSync(path.join(ROOT, file)));
+      });
     },
   };
 }
