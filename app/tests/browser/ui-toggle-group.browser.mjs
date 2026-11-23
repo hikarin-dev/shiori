@@ -5,7 +5,7 @@
 // own) and follows a resize at once, without gliding; no box moves when the choice changes.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startServer, chromePath, launch } from './harness.mjs';
+import { startServer, chromePath, launch, until } from './harness.mjs';
 import { componentsPage, centreOf, textMotion } from './specimens.mjs';
 
 let server, origin, browser;
@@ -29,6 +29,13 @@ const read = (page) => page.$eval(DEMO, (g) => {
 // The highlight's place is worked out in CSS, a grid column's by layout: equal to a 64th of a pixel.
 const near = (a, b, what) => a.forEach((v, i) => assert.ok(Math.abs(v - b[i]) < 0.05, `${what}: ${a} against ${b}`));
 const settled = (page) => page.evaluate(() => new Promise((done) => setTimeout(done, 400)));
+// The highlight's slide finished, under the chosen one (a busy machine can take longer than its .18s).
+const landed = (page, root) => until(page, ({ root, hl, on }) => {
+  const g = document.querySelector(root), h = g.querySelector(`[data-slot="${hl}"]`), c = g.querySelector(on);
+  if (!h || !c || h.getAnimations().length) return false;
+  const a = h.getBoundingClientRect(), b = c.getBoundingClientRect();
+  return Math.abs(a.left - b.left) < 0.05 && Math.abs(a.width - b.width) < 0.05;
+}, { root, hl: 'toggle-group-highlight', on: '[aria-pressed="true"]' }, { what: 'the highlight settled under the chosen one', timeout: 5000 });
 
 test('segmented: pressed state, arrows and Space, the chosen one kept, the highlight under it', async (t) => {
   const page = await componentsPage(t, browser, origin);
@@ -43,7 +50,7 @@ test('segmented: pressed state, arrows and Space, the chosen one kept, the highl
   await page.keyboard.press('ArrowRight');
   assert.equal((await read(page)).focused, 1);
   await page.keyboard.press('Space');
-  await settled(page);
+  await landed(page, DEMO);
   s = await read(page);
   assert.deepEqual(s.pressed, ['false', 'true']);
   near(s.highlight, s.under, 'it slid under the chosen one');
@@ -54,7 +61,7 @@ test('segmented: pressed state, arrows and Space, the chosen one kept, the highl
   // A click on the first.
   const at = await centreOf(page, `${DEMO} [data-slot="toggle-group-item"]`);
   await page.mouse.click(at.x, at.y);
-  await settled(page);
+  await landed(page, DEMO);
   s = await read(page);
   assert.deepEqual(s.pressed, ['true', 'false']);
   near(s.highlight, s.under, 'back under the first');

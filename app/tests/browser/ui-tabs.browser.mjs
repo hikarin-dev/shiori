@@ -5,7 +5,7 @@
 // segmented highlight under the shown tab.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startServer, chromePath, launch } from './harness.mjs';
+import { startServer, chromePath, launch, until } from './harness.mjs';
 import { componentsPage, centreOf, textMotion } from './specimens.mjs';
 
 let server, origin, browser;
@@ -34,6 +34,13 @@ const read = (page) => page.$eval(DEMO, (root) => {
 // The highlight's place is worked out in CSS, a grid column's by layout: equal to a 64th of a pixel.
 const near = (a, b, what) => a.forEach((v, i) => assert.ok(Math.abs(v - b[i]) < 0.05, `${what}: ${a} against ${b}`));
 const settled = (page) => page.evaluate(() => new Promise((done) => setTimeout(done, 400)));
+// The highlight's slide finished, under the chosen one (a busy machine can take longer than its .18s).
+const landed = (page, root) => until(page, ({ root, hl, on }) => {
+  const g = document.querySelector(root), h = g.querySelector(`[data-slot="${hl}"]`), c = g.querySelector(on);
+  if (!h || !c || h.getAnimations().length) return false;
+  const a = h.getBoundingClientRect(), b = c.getBoundingClientRect();
+  return Math.abs(a.left - b.left) < 0.05 && Math.abs(a.width - b.width) < 0.05;
+}, { root, hl: 'tabs-highlight', on: '[aria-selected="true"]' }, { what: 'the highlight settled under the chosen one', timeout: 5000 });
 
 test('segmented tabs over panels: one size whichever is shown, hidden panels inert, the highlight under the tab', async (t) => {
   const page = await componentsPage(t, browser, origin);
@@ -47,7 +54,7 @@ test('segmented tabs over panels: one size whichever is shown, hidden panels ine
   await page.focus(`${DEMO} [role="tab"][aria-selected="true"]`);
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
-  await settled(page);
+  await landed(page, DEMO);
   const second = await read(page);
   assert.deepEqual([second.selected, second.shown], [['false', 'true', 'false'], [false, true, false]]);
   near(second.highlight, second.under, 'the highlight slid under the shown tab');
