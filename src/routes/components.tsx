@@ -21,6 +21,7 @@ import { TagSpecimens } from './specimens/tag';
 import { BadgeSpecimens } from './specimens/badge';
 import { StatSpecimens } from './specimens/stat';
 import { TextSpecimens } from './specimens/text';
+import { CardSpecimens } from './specimens/card';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -140,6 +141,7 @@ export default function Components() {
       <BadgeSpecimens />
       <StatSpecimens />
       <TextSpecimens />
+      <CardSpecimens />
     </main>
   );
 }
