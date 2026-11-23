@@ -12,7 +12,8 @@
 // dropdown.css): hung straight off the box at the box's width, the two one outline with a faint seam,
 // at most eight rows, unrolling from the box, the chevron turned; it opens upward only when just the
 // space above can hold it. The same in every browser. On a touch screen it is a native <select>
-// drawn closed the same, so the system's picker opens (T15).
+// drawn closed the same, so the system's picker opens (T15); so it is in a browser without CSS
+// anchor positioning, which the drawn list is placed by (T18).
 //
 // Placement is CSS's (rule 10): the box is an anchor (anchor-name) and the list is placed against it
 // with anchor positioning, at the box's bottom edge and width, in the same frame as any scroll or
@@ -95,6 +96,8 @@ const INSET: Record<Variant, Partial<Record<Size, string>>> = {
 const coarseQuery = typeof matchMedia === 'function' ? matchMedia('(pointer: coarse)') : null;
 const subscribe = (changed: () => void) => { coarseQuery?.addEventListener('change', changed); return () => coarseQuery?.removeEventListener('change', changed); };
 const isCoarse = () => !!coarseQuery?.matches;
+// Whether the browser places a box by CSS anchor positioning; without it the drawn list has no place.
+const ANCHORS = typeof CSS !== 'undefined' && CSS.supports('anchor-name: --a');
 
 type Props = {
   options: SelectOption[];
@@ -109,6 +112,7 @@ type Props = {
   id?: string;
   className?: string;
   // The system's picker (true) or the drawn list (false); by default, the system's on a touch screen.
+  // A browser without anchor positioning always gets the system's.
   native?: boolean;
   'aria-label'?: string;
   'aria-labelledby'?: string;
@@ -144,7 +148,7 @@ function Select({ options, value, defaultValue, onValueChange, variant = 'field'
   const boxClass = cn(box({ variant, size: s, width: w }), TEXT[s], cursor, cursor === 'cursor-pointer' && 'disabled:cursor-default data-disabled:cursor-default', BOX_STATES, OPEN_EDGE[variant], className);
   const trigger = useRef<HTMLButtonElement>(null);
 
-  if (native ?? coarse) {
+  if (!ANCHORS || (native ?? coarse)) {
     // The system's picker, over a box drawn as the other's.
     return (
       <span data-slot="select" className={cn('relative inline-grid min-w-0', w === 'fill' && 'w-full')}>

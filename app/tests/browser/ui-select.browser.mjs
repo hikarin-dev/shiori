@@ -6,7 +6,7 @@
 // is the system's select, drawn closed the same.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startServer, chromePath, launch, until } from './harness.mjs';
+import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 import { componentsPage, spec, centreOf, textMotion } from './specimens.mjs';
 
 let server, origin, browser;
@@ -124,4 +124,21 @@ test('under a coarse pointer it is the system\'s select, drawn closed as the oth
   assert.deepEqual(box, ['select', 38, 'rgb(17, 17, 20)', 'rgb(63, 63, 72)', 'none', 12]);
   await page.select(FIELD, 'fr');
   assert.equal(await page.$eval(FIELD, (el) => el.value), 'fr');
+});
+
+test('in a browser without CSS anchor positioning it is the system\'s select, as under a coarse pointer', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const page = await openPage(browser, origin);
+  t.after(() => page.close());
+  // Before the page's scripts run, the browser is told to know no anchor positioning.
+  await page.evaluateOnNewDocument(() => {
+    const supports = CSS.supports.bind(CSS);
+    CSS.supports = (...args) => (/anchor/.test(args.join(' ')) ? false : supports(...args));
+  });
+  await page.goto(`${origin}/components`, { waitUntil: 'load' });
+  await until(page, () => !!document.querySelector('[data-specimen]'), undefined, { what: 'the components page' });
+  const box = await page.$eval(FIELD, (el) => { const r = el.getBoundingClientRect(), s = getComputedStyle(el); return [el.localName, r.height, s.backgroundColor, s.borderTopColor, el.options.length]; });
+  assert.deepEqual(box, ['select', 38, 'rgb(17, 17, 20)', 'rgb(63, 63, 72)', 12]);
+  assert.equal(await page.$$eval('[data-slot="select-trigger"]', (els) => els.length), 0, 'no drawn list anywhere');
+  assert.deepEqual(page.problems, []);
 });
