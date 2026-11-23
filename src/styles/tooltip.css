@@ -1,0 +1,24 @@
+/* tooltip.css — the app's one tooltip (app/js/tooltip.js, started once by the app): one line, or a
+   first line with dimmer lines under it; "label  value" rows, and a short badge that can open the tip
+   or a row. Carried over from app/base.css as it is, on the new token names. */
+@layer components {
+  .shiori-tip {
+    position: fixed; left: 0; top: 0; z-index: var(--z-index-tooltip);
+    display: none;
+    max-width: min(360px, calc(100vw - 20px));
+    padding: 3px 7px;
+    background: var(--tip-background); color: var(--tip-foreground);
+    border: 1px solid var(--tip-border); border-radius: var(--radius-4);
+    font-size: var(--text-11); white-space: pre-wrap;
+    pointer-events: none;
+  }
+  .shiori-tip-sub { margin-top: 2px; color: var(--tip-muted); }
+  .shiori-tip-pair { display: flex; justify-content: space-between; gap: 14px; }
+  .shiori-tip-pair + .shiori-tip-pair { margin-top: 2px; }
+  .shiori-tip-value { color: var(--tip-muted); }
+  .shiori-tip-badge {
+    display: inline-block; margin-right: 6px; padding: 0 5px;
+    background: var(--foreground); color: var(--background);
+    border-radius: var(--radius-3); font-weight: 700; line-height: 15px;
+  }
+}

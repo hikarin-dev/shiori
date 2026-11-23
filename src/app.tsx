@@ -3,6 +3,7 @@ import { StrictMode, type ComponentType } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createBrowserRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
+import { initTooltips } from '@lib/tooltip.js';
 import './index.css';
 import { siteRoot } from './entry';
 import Frame from './frame';
@@ -33,6 +34,9 @@ export async function mount(root: HTMLElement) {
     });
   }
   keepLinksInApp((to) => router.navigate(to));
+  // The app's modules that work on any markup, started once for the page's life: the one tooltip
+  // (T10). (The page's scrollbars, scrollbar.js, start with the rest of the start-up: boot-core.js.)
+  initTooltips();
   createRoot(root).render(
     <StrictMode>
       <RouterProvider router={router} />
