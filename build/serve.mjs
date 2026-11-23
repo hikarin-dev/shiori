@@ -2,6 +2,7 @@
 // clean addresses (app/js/pages.js), 404.html for whatever is not there, and each file with the
 // date and tag the app's service worker checks its copy against (an unchanged file is answered 304).
 // The tests' browser and `npm run preview` both get the site from here.
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { join, extname, normalize, resolve, sep } from 'node:path';
@@ -17,6 +18,18 @@ const TYPES = {
 };
 
 const _stat = async (path) => { try { const s = await stat(path); return s.isFile() ? s : null; } catch { return null; } };
+
+// A file's tag: a hash of what is in it, taken once for each version of the file (its size and date
+// tell a new one). A file the same in two builds keeps its tag whatever its date, and a changed one
+// gets a new tag even where its size and its date, to the second, are the same.
+const _tags = new Map();
+async function tagOf(path, file) {
+  const known = _tags.get(path);
+  if (known?.size === file.size && known.mtimeMs === file.mtimeMs) return known.tag;
+  const tag = `"${createHash('sha1').update(await readFile(path)).digest('base64url')}"`;
+  _tags.set(path, { size: file.size, mtimeMs: file.mtimeMs, tag });
+  return tag;
+}
 
 // Serves the folder `root` on `port` (0: any free one) at each of `hosts`. Resolves
 // { server, servers, origin, port }: `server` and `origin` are the first host's.
@@ -36,7 +49,7 @@ export async function startServer({ root, port = 0, hosts = ['127.0.0.1'] }) {
         return;
       }
       const modified = new Date(Math.floor(file.mtimeMs / 1000) * 1000);
-      const etag = `"${file.size.toString(16)}-${modified.getTime().toString(16)}"`;
+      const etag = await tagOf(full, file);
       const headers = { 'Cache-Control': 'no-cache', 'Last-Modified': modified.toUTCString(), ETag: etag };
       // The tag decides where one is sent; the date only where none is.
       const tags = req.headers['if-none-match'];

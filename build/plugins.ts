@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Plugin } from 'vite';
+import { writeShell } from './shell.mjs';
 
 export const ROOT = path.resolve(import.meta.dirname, '..');
 
@@ -58,10 +59,13 @@ export function contentSecurityPolicy(): Plugin {
 const COPIED = ['app', 'icons', 'vendor', 'sw.js', '404.html', 'CHANGELOG.md'];
 const NOT_COPIED = new Set([path.join(ROOT, 'app', 'tests')]);
 
-export function copiedFiles(): Plugin {
+// Once the bundle is written: the copies beside it, then what the service worker keeps of it all
+// (shell.mjs: shell-files.js, with the id every file counts in, and the same id at the end of the
+// built sw.js).
+export function siteFiles(): Plugin {
   let outDir = '';
   return {
-    name: 'shiori:copied-files',
+    name: 'shiori:site-files',
     apply: 'build',
     configResolved(config) { outDir = path.resolve(config.root, config.build.outDir); },
     closeBundle() {
@@ -72,6 +76,7 @@ export function copiedFiles(): Plugin {
           filter: (src) => !NOT_COPIED.has(src),
         });
       }
+      writeShell(outDir, fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
     },
   };
 }

@@ -9,32 +9,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { builtSite } from '../../build/built.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const sw = readFileSync(join(repo, 'sw.js'), 'utf8');
 
-const listOf = (name) => {
-  const block = sw.match(new RegExp(`const ${name} = \\[([\\s\\S]*?)\\];`));
-  assert.ok(block, `sw.js must define ${name}`);
-  return [...block[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
-};
-const shell = [
-  ...listOf('SHELL'),
-  ...[...sw.match(/const FLAGS = \[([\s\S]*?)\]\s*\n?\s*\.map/)[1].matchAll(/'([A-Z]{2})'/g)]
-    .map((m) => `app/flags/${m[1]}.svg`),
-];
+// The list the worker installs from is the one the build wrote (shell-files.js): every file of the
+// built site it keeps. Asking for the built site throws, saying so, when there is none or a source
+// changed since (npm run build).
+const { SHELL: shell } = await import(pathToFileURL(join(builtSite(), 'shell-files.js')).href);
 const isCode = (u) => /\.(js|html|css|webmanifest)$/.test(u);
-// Sizes as served: the built site's (asking for it throws, saying so, when there is no build or a
-// source changed since).
+// Sizes as served: the built site's.
 const bytes = (files, site = builtSite()) => files.reduce((n, f) => n + (existsSync(join(site, f)) ? statSync(join(site, f)).size : 0), 0);
 
 // Headroom over today's code (about 3.0 MB since the library-storage work; ~1 MB when this was written), far under the
 // ~10 MB the regression above awaited: raised from 3 MB at S32 (2026-11-19), whose hand-over rules took the last of it.
-const BOOT_BUDGET = 3.25 * 1024 * 1024;
+// 4 MB while the UI is ported to the one page (from 2026-11-23): until then the built site carries both UIs — the pages
+// not ported yet with their scripts, and the new bundle — so the code installed first is larger than either alone.
+// Nothing is released in that state; each ported page deletes its old scripts in the same step, and at the cutover the
+// budget goes back to 3.25 MB or lower (the figure measured then, plus headroom).
+const BOOT_BUDGET = 4 * 1024 * 1024;
 
 test('install blocks on code only, within a sane byte budget', () => {
+  // The split the sizes below are taken by is the worker's own.
+  assert.match(sw, /const isCode = \(u\) => \/\\\.\(js\|html\|css\|webmanifest\)\$\/\.test\(u\);/);
+  assert.match(sw, /const BOOT = SHELL\.filter\(isCode\);\r?\nconst DEFERRED = SHELL\.filter\(\(u\) => !isCode\(u\)\);/);
   const boot = shell.filter(isCode);
   const size = bytes(boot);
   assert.ok(size <= BOOT_BUDGET,

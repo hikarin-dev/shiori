@@ -4,7 +4,9 @@
 // plainly, the same worker still takes jobs and replays the ones left pending.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
 import 'fake-indexeddb/auto';
+import { builtSite } from '../../build/built.mjs';
 
 class SilentBroadcastChannel {
   constructor(name) { this.name = name; this.onmessage = null; }
@@ -18,7 +20,11 @@ Object.defineProperty(globalThis, 'navigator', {
 });
 globalThis.caches = { keys: async () => [], delete: async () => true, open: async () => ({}) };
 
-const platform = await import('../js/platform.js');
+// The worker as it is served: the built site's, beside the list of files the build wrote for it
+// (asking for the built site throws, saying so, when there is none or a source changed since: npm
+// run build). The platform module is the copy it imports there, so the test sees the worker's own.
+const site = pathToFileURL(builtSite() + '/').href;
+const platform = await import(new URL('app/js/platform.js', site).href);
 
 // sw.js evaluated in a worker scope registered at `href`: the listeners it adds.
 async function worker(href, instance) {
@@ -29,7 +35,7 @@ async function worker(href, instance) {
     clients: { claim: async () => {} },
     skipWaiting() {},
   };
-  await import(`../../sw.js?${instance}`);
+  await import(`${new URL('sw.js', site).href}?${instance}`);
   return listeners;
 }
 

@@ -1,7 +1,7 @@
 // sw.js — root-scoped service worker. The app's files live under /app/, but its pages are served
 // at clean URLs (the library at the scope root, plus /settings and /reader). This worker maps
-// those clean navigations to the real app/*.html files, caches the shell for offline, and runs
-// the durable background jobs.
+// those clean navigations to the file that answers each (app/js/pages.js: a page's own app/*.html,
+// or index.html, the one page), caches the shell for offline, and runs the durable background jobs.
 //
 // It has to live at the repo root: a worker under /app/ can only control /app/*, and GitHub Pages
 // can't grant a wider scope via the Service-Worker-Allowed header. Same two roles as before —
@@ -16,6 +16,10 @@ import * as platform from './app/js/platform.js';
 import { RUNNERS, cancelJobRun, runPoll } from './app/js/jobs-runner.js';
 import { enqueue, busy as importsBusy } from './app/js/import-queue.js';
 import { runFolderJob, scanning } from './app/js/folder-scan.js';
+import { pageFile } from './app/js/pages.js';
+// Written by the build (build/shell.mjs): every file of the built site this worker keeps, and their
+// id — a hash over all of them.
+import { SHELL, SHELL_ID } from './shell-files.js';
 
 // The scope root: http://localhost:5500/ locally, https://…/shiori/ on GitHub Pages.
 const ROOT = new URL('./', self.location.href);
@@ -25,9 +29,18 @@ const FILES_ONLY = new URL(self.location.href).searchParams.get('library') === '
 // this origin must keep its caches). The shell revision is deliberately independent from the
 // user-facing app version: precached code can change outside a release, and changing this value
 // makes the browser install every BOOT asset into a fresh cache.
+//
+// So does any change to any file of the built site. The rule: a build whose files differ in any
+// way is a new worker with its own complete cache, and it installs whole before it takes over. The
+// build gives the files one id (a hash over each one's path and bytes), which ends this cache's
+// name and the built copy of this file — a browser replaces a worker when the worker's own file
+// changed, not reliably when only a module it imports did. So the worker never runs modules older
+// than the files it serves, and the page it answers with never asks for a bundle file its cache
+// lacks. (The per-file checks below go on as they were: they bring a changed file in for as long
+// as the worker in charge is still the one from before.)
 const CACHE_PREFIX = `shiori${ROOT.pathname.replace(/\//g, '_')}`;
 const SHELL_CACHE_REVISION = 69;
-const CACHE_NAME = `${CACHE_PREFIX}-shell-v${SHELL_CACHE_REVISION}`;
+const CACHE_NAME = `${CACHE_PREFIX}-shell-v${SHELL_CACHE_REVISION}-${SHELL_ID}`;
 function cacheName() {
   return CACHE_NAME;
 }
@@ -35,34 +48,6 @@ function isStaleShellCache(key, current) {
   return (key.startsWith(`${CACHE_PREFIX}-shell-v`) && key !== current)
     || /^shiori-shell-v\d+$/.test(key);
 }
-// Clean navigation path (relative to the root) → which app page serves it.
-const PAGES = { '': 'library', 'library': 'library', 'settings': 'settings', 'reader': 'reader', 'overview': 'overview', 'tasks': 'tasks' };
-
-const FLAGS = ['BR','CN','DE','ES','FR','GB','ID','IT','JP','KR','NL','PL','PT','RU','TH','TW','UA','US','VN']
-  .map((c) => `app/flags/${c}.svg`);
-const SHELL = [
-  'app/library.html', 'app/reader.html', 'app/settings.html', 'app/agent.html', 'app/overview.html', 'app/runner.html', 'app/tasks.html',
-  'index.html', 'app/manifest.webmanifest', 'app/font-init.js', 'app/reader-init.js',
-  'app/base.css', 'app/library.css', 'app/reader.css', 'app/settings.css', 'app/overview.css', 'app/dropdown.css', 'app/tasks.css',
-  'app/fonts/ccvictoryspeech.ttf', 'app/fonts/KiwiMaru-Regular.ttf', 'app/fonts/YasashisaAntique.otf',
-  'app/fonts/JetBrainsMono-Regular.woff2', 'app/fonts/JetBrainsMono-SemiBold.woff2', 'app/fonts/JetBrainsMono-Bold.woff2',
-  'app/fonts/LICENSE-Kiwi-Maru-OFL.txt', 'app/fonts/LICENSE-YasashisaAntique-IPA.txt',
-  'app/fonts/LICENSE-YasashisaAntique-MPLUS.txt', 'app/fonts/LICENSE-JetBrainsMono-OFL.txt', 'app/fonts/README.md',
-  'app/js/platform.js', 'app/js/disk-writes.js', 'app/js/notice.js', 'app/js/app-update.js', 'app/js/storage-upgrade.js', 'app/notice.css', 'app/js/db.js', 'app/js/storage/folder-store-web.js', 'app/js/storage/folder-owner.js', 'app/js/storage/folder-content.js', 'app/js/storage/folder-lifecycle.js', 'app/js/folder-library.js', 'app/js/zip-read.js', 'app/js/storage/linked-source.js', 'app/js/backend-error.js', 'app/js/library-check.js', 'app/js/storage/gallery-files.js', 'app/js/storage/contract.js', 'app/js/storage/gallery-manifest.js', 'app/js/storage/personal.js', 'app/js/gallery-export.js', 'app/js/api.js', 'app/js/desktop-backend.js', 'app/js/desktop-wire.js', 'app/js/desktop-shell.js', 'app/js/desktop-settings.js', 'app/js/library-location.js', 'app/js/library-folders.js', 'app/js/folder-scan.js', 'app/js/library-move.js', 'app/js/desktop-link.js', 'app/js/store.js', 'app/js/series.js', 'app/js/series-plan.js', 'app/js/gallery-model.js', 'app/js/sanitize.js', 'app/js/sites.js', 'app/js/image-util.js', 'app/js/page-size.js', 'app/js/migrations.js',
-  'app/js/import-cbz.js', 'app/js/import-files.js', 'app/js/import-log.js', 'app/js/import-batch.js', 'app/js/import-queue.js', 'app/js/import-tracker.js', 'app/js/runner-tag.js', 'app/js/translate.js', 'app/js/translate-config.js', 'app/js/capabilities.js', 'app/js/page-data.js', 'app/js/page-image.js', 'app/js/backup.js', 'app/js/backup-core.js', 'app/js/backup-ui.js',
-  'app/js/benchmark.js', 'app/js/benchmark-core.js', 'app/js/benchmark-ui.js', 'app/benchmark.css',
-  'app/js/feedback.js', 'app/js/reader-feedback.js', 'app/js/reader-properties.js', 'app/js/reader-page-menu.js', 'app/js/zip.js',
-  'app/js/jobs-runner.js', 'app/js/submit-job.js', 'app/js/services.js', 'app/js/ext-bridge.js', 'app/js/boot.js', 'app/js/boot-core.js', 'app/js/pages.js',
-  'app/js/i18n.js', 'app/js/locales.js', 'app/js/page-nav.js', 'app/js/tooltip.js', 'app/js/scrollbar.js', 'app/js/dropdown.js', 'app/js/rerun-menu.js', 'app/js/titles.js', 'app/js/format.js', 'app/js/thumb-worker.js', 'app/js/tag-editor.js', 'app/js/search-field.js',
-  'app/js/library.js', 'app/js/reader.js', 'app/js/reader-study.js', 'app/js/settings.js', 'app/js/agent.js', 'app/js/overview.js', 'app/js/runner.js', 'app/js/tasks.js',
-  ...FLAGS,
-  'icons/icon16.png', 'icons/icon32.png', 'icons/icon48.png', 'icons/icon128.png',
-  'icons/icon192.png', 'icons/icon512.png', 'icons/shiori-logo.svg',
-  'vendor/marked.min.js', 'CHANGELOG.md',
-  'vendor/overlayscrollbars/overlayscrollbars.mjs', 'vendor/overlayscrollbars/overlayscrollbars.min.css',
-  'vendor/pdfjs/pdf.min.mjs', 'vendor/pdfjs/pdf.worker.min.mjs',
-  'vendor/pdfjs/jbig2.wasm', 'vendor/pdfjs/openjpeg.wasm', 'vendor/pdfjs/qcms_bg.wasm',
-];
 
 // What must be cached before the worker takes over, versus what can arrive later. The first
 // visit waits on this install (index.html holds the loading screen until the worker is ready),
@@ -176,9 +161,11 @@ self.addEventListener('activate', (e) => {
 
 // Stale-while-revalidate (cached copy answers instantly; background fetch refreshes; a hard reload
 // goes network-first). Clean page navigations (root → library, /settings, /reader) are mapped to
-// the real app/*.html file — for both the cache key and the network fetch — so the address bar
-// stays clean while the served document (whose <base> resolves to the app folder) loads its assets from
-// /app/. Everything else (the /app/* assets, /icons/*, the agent iframe) is cached by pathname.
+// the file that answers them (app/js/pages.js) — for both the cache key and the network fetch — so
+// the address bar stays clean while the served document loads its assets from where they are (a
+// page's own file through its <base>, which resolves to the app folder; the one page from the
+// root, every address being one segment under it). Everything else (the /app/* assets, /icons/*,
+// the bundle, the agent iframe) is cached by pathname.
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
@@ -193,8 +180,8 @@ self.addEventListener('fetch', (e) => {
   let navFile = null;
   if (req.mode === 'navigate') {
     const rel = url.pathname.slice(ROOT.pathname.length).replace(/\/$/, '').replace(/\.html$/, '');
-    const page = PAGES[rel];
-    if (page) { navFile = new URL(`app/${page}.html`, ROOT).pathname; key = url.origin + navFile; }
+    const file = pageFile(rel);
+    if (file) { navFile = new URL(file, ROOT).pathname; key = url.origin + navFile; }
   }
 
   e.respondWith((async () => {

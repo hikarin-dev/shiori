@@ -8,7 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { builtSite } from '../../build/built.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -21,32 +21,39 @@ const filesUnder = (dir, root = repo) => readdirSync(join(root, dir), { recursiv
 // Every app/js module, its subfolders' too.
 const appModules = () => filesUnder('app/js').filter((f) => f.endsWith('.js'));
 
-function shellFiles() {
-  const sw = read('sw.js');
-  const shellBlock = sw.match(/const SHELL = \[([\s\S]*?)\];/);
-  assert.ok(shellBlock, 'sw.js must define SHELL');
-  const files = [...shellBlock[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
-  const flagsBlock = sw.match(/const FLAGS = \[([\s\S]*?)\]\s*\n?\s*\.map/);
-  assert.ok(flagsBlock, 'sw.js must define FLAGS');
-  const flags = [...flagsBlock[1].matchAll(/'([A-Z]{2})'/g)].map((x) => `app/flags/${x[1]}.svg`);
-  return [...files, ...flags];
-}
+// The files the worker precaches: the list the build wrote into the built site, which sw.js imports.
+const shellFiles = async () => (await import(pathToFileURL(built('shell-files.js')).href)).SHELL;
 
 test('the runtime root files are present', () => {
-  for (const required of ['index.html', '404.html', 'sw.js', 'CHANGELOG.md']) {
+  for (const required of ['index.html', '404.html', 'sw.js', 'shell-files.js', 'CHANGELOG.md']) {
     assert.ok(existsSync(built(required)), `${required} is missing from the built site`);
   }
 });
 
-test('every precached SHELL file exists', () => {
-  const missing = shellFiles().filter((f) => !existsSync(built(f)));
+test('every precached SHELL file exists', async () => {
+  const missing = (await shellFiles()).filter((f) => !existsSync(built(f)));
   assert.deepEqual(missing, [], 'SHELL lists files that are not in the built site');
 });
 
-test('every app/js module is precached in SHELL', () => {
-  const shell = new Set(shellFiles());
+test('every app/js module is precached in SHELL', async () => {
+  const shell = new Set(await shellFiles());
   const missing = appModules().filter((f) => !shell.has(f));
   assert.deepEqual(missing, [], 'app/js modules not listed in the SHELL cache');
+});
+
+test('SHELL is the whole built site, less what a worker must not keep', async () => {
+  // The worker and its list are what the browser checks for a newer version: taken from the
+  // worker's own cache they would never change. 404.html is a host's answer for an address it
+  // doesn't have, never the worker's. A source map is nothing a page runs.
+  const shell = await shellFiles();
+  for (const f of ['sw.js', 'shell-files.js', '404.html']) assert.ok(!shell.includes(f), `${f} must not be in the list`);
+  assert.deepEqual(shell.filter((f) => f.endsWith('.map')), []);
+  const site = filesUnder('', builtSite()).filter((f) => !['sw.js', 'shell-files.js', '404.html'].includes(f) && !f.endsWith('.map'));
+  assert.deepEqual(shell.toSorted(), site.toSorted(), 'every other file of the built site is listed, and nothing that isn\'t there');
+  assert.equal(new Set(shell).size, shell.length, 'no file twice');
+  // What the one page loads is among it: the page, and each file of its bundle.
+  assert.ok(shell.includes('index.html'));
+  assert.deepEqual(filesUnder('assets', builtSite()).filter((f) => !shell.includes(f)), []);
 });
 
 test('the built site carries every app/js and vendor file as the file it is', () => {
