@@ -1,0 +1,8 @@
+/* motion.css — the keyframes of the components' own motions (Tailwind's spin aside). */
+
+/* A bar with no figure yet (Progress, §5.3 F22): its block travels from just off the start to just
+   off the end. 290% of a block 35% wide is a little over the bar's whole width. */
+@keyframes progress-travel {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(290%); }
+}

@@ -9,6 +9,7 @@
 @import "tw-animate-css";
 @import "./styles/shadcn.css";
 @import "./styles/tokens.css";
+@import "./styles/motion.css";
 @import "./styles/document.css";
 @import "./styles/scrollbars.css";
 @import "./styles/tooltip.css";

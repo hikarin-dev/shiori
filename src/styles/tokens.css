@@ -67,6 +67,7 @@
     --switch-knob: #b3b3bf;
     --check-border: #858585;          /* a checkbox's or radio's frame, as Chromium draws it on the dark theme */
     --check-ground: #3b3b3b;          /* its ground, unchecked */
+    --meter-fill: #74b374;            /* a meter's value, as Chromium draws it on the dark theme */
     --tip-background: #222;           /* the tooltip */
     --tip-foreground: #eee;
     --tip-border: #555;
@@ -128,6 +129,7 @@
     --color-switch-knob: var(--switch-knob);
     --color-check-border: var(--check-border);
     --color-check-ground: var(--check-ground);
+    --color-meter-fill: var(--meter-fill);
     --color-tip-background: var(--tip-background);
     --color-tip-foreground: var(--tip-foreground);
     --color-tip-border: var(--tip-border);

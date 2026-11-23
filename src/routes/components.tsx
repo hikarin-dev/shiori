@@ -16,6 +16,7 @@ import { NumberFieldSpecimens } from './specimens/number-field';
 import { SeparatorSpecimens } from './specimens/separator';
 import { KbdSpecimens } from './specimens/kbd';
 import { SpinnerSpecimens } from './specimens/spinner';
+import { ProgressSpecimens } from './specimens/progress';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -130,6 +131,7 @@ export default function Components() {
       <SeparatorSpecimens />
       <KbdSpecimens />
       <SpinnerSpecimens />
+      <ProgressSpecimens />
     </main>
   );
 }
