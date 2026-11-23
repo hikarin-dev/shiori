@@ -24,6 +24,7 @@ import { TextSpecimens } from './specimens/text';
 import { CardSpecimens } from './specimens/card';
 import { SettingRowSpecimens } from './specimens/setting-row';
 import { OptionCardSpecimens } from './specimens/option-card';
+import { EmptyStateSpecimens } from './specimens/empty-state';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -146,6 +147,7 @@ export default function Components() {
       <CardSpecimens />
       <SettingRowSpecimens />
       <OptionCardSpecimens />
+      <EmptyStateSpecimens />
     </main>
   );
 }
