@@ -2,6 +2,7 @@
 // tokens are read from the stylesheet itself (styles/tokens.css), so every one shows, by its name.
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
 // The page's style rules for :root, in its stylesheets' order.
@@ -53,8 +54,12 @@ const ref = (name: string) => `var(--${CSS.escape(name.slice(2))})`;
 
 const BUTTONS = ['default', 'outline', 'secondary', 'ghost', 'destructive', 'link'] as const;
 
+// The app's pages by name, in the language chosen (useT follows a change of it).
+const PAGE_NAMES = ['nav.library', 'nav.overview', 'nav.reader', 'nav.settings', 'tasks.title'];
+
 export default function Components() {
   useTitle('Components');
+  const t = useT();
   const [{ colours, groups, value }] = useState(tokens);
   return (
     <main className="flex flex-col gap-[32px] p-[20px]">
@@ -91,6 +96,13 @@ export default function Components() {
           </ul>
         </section>
       ))}
+
+      <section className="flex flex-col gap-[12px]">
+        <h2 className="text-13 font-semibold text-muted-foreground">Text</h2>
+        <ul className="flex flex-wrap gap-[16px]" id="pageNames">
+          {PAGE_NAMES.map((key) => <li key={key} data-key={key}>{t(key)}</li>)}
+        </ul>
+      </section>
 
       <section className="flex flex-col gap-[12px]">
         <h2 className="text-13 font-semibold text-muted-foreground">Button</h2>

@@ -37,13 +37,24 @@ test('404.html names the same addresses as the map', () => {
   assert.deepEqual(known.toSorted(), Object.keys(PAGES).filter(Boolean).toSorted());
 });
 
-test('the one page draws exactly the addresses the map gives it', () => {
-  // A page's address moves to the one page in the step that ports it: a route with no entry in the
-  // map is never reached, and an entry with no route draws "Not found".
-  const routes = [...read('src/app.tsx').matchAll(/\bpath:\s*'\/([^'*]*)'/g)].map((m) => m[1]);
+test('the one page draws exactly the addresses the map gives it', async () => {
+  // A page's address moves to the one page in the step that ports it, with its route: a route with no
+  // entry in the map is never reached, and an entry with no route draws "Not found".
+  const { ROUTES } = await import('../../src/routes.ts');
   const given = Object.keys(PAGES).filter((segment) => PAGES[segment] === APP_PAGE);
-  assert.ok(routes.length, 'the routes are read from src/app.tsx');
-  assert.deepEqual(routes.toSorted(), given.toSorted());
+  assert.ok(given.length, 'the map gives the one page an address');
+  assert.deepEqual(Object.keys(ROUTES).toSorted(), given.toSorted());
+  // Each route is drawn by its own module, and the router makes a route of each entry.
+  for (const { page } of Object.values(ROUTES)) assert.ok(existsSync(join(repo, 'src', 'routes', `${page}.tsx`)), `src/routes/${page}.tsx`);
+  assert.match(read('src/app.tsx'), /Object\.entries\(ROUTES\)\.map\(/);
+});
+
+test('the shiori-app meta names the app\'s own pages only', async () => {
+  const { ROUTES } = await import('../../src/routes.ts');
+  const own = new Set(['library', 'overview', 'reader', 'settings', 'tasks']);
+  for (const [segment, route] of Object.entries(ROUTES)) {
+    assert.equal(route.app, own.has(route.page), `/${segment}: the meta is there exactly on the app's own pages`);
+  }
 });
 
 test('the one page\'s entry and 404.html hand an address over the same way', () => {
