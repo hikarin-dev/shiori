@@ -15,8 +15,10 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-// The app's pages: the repository's in development, the packaged copy in an installed build.
-const UI_ROOT = app.isPackaged ? path.join(process.resourcesPath, 'ui') : path.resolve(here, '..');
+// The app's pages: the packaged copy in an installed build; in development the built site (dist/ at
+// the repository's root), which refuses to start on a build that is missing or older than its
+// sources — `npm run build` there first.
+const UI_ROOT = app.isPackaged ? path.join(process.resourcesPath, 'ui') : (await import('../build/built.mjs')).builtSite();
 process.env.SHIORI_UI_DIR = path.join(UI_ROOT, 'app');
 // Where this run keeps its settings (overridable, so a test run never touches a person's own).
 if (process.env.SHIORI_USER_DATA) app.setPath('userData', path.resolve(process.env.SHIORI_USER_DATA));

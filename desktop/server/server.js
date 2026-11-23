@@ -21,7 +21,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
-import { wire, BackendError, UI_DIR } from './shared.js';
+import { wire, BackendError, UI_DIR, pages } from './shared.js';
 
 export const PROTOCOL = 1;
 
@@ -56,11 +56,10 @@ const RUN_KINDS = new Set(['translate', 'poll']);
 const JOB_ENDED = new Set(['done', 'error', 'cancelled']);
 const MAX_FRAME = 1 << 30;
 
-// The app's pages at their clean addresses (the app's service worker and dev server map them alike).
-const PAGES = { '/': 'app/library.html', '/library': 'app/library.html', '/settings': 'app/settings.html',
-  '/reader': 'app/reader.html', '/overview': 'app/overview.html', '/tasks': 'app/tasks.html' };
-// What of the web root is served: the app and the assets its pages load, nothing else.
-const PUBLIC = new Set(['app', 'icons', 'vendor', 'index.html', 'CHANGELOG.md']);
+// What of the web root is served: the app (its pages, the one page with its bundle in assets/) and
+// what its pages load, nothing else. The root is the built site; its service worker (sw.js) is not
+// among it — a page this server serves has the files at hand, and no worker.
+const PUBLIC = new Set(['app', 'assets', 'icons', 'vendor', 'index.html', 'shell-files.js', 'CHANGELOG.md']);
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.webmanifest': 'application/manifest+json',
@@ -112,7 +111,9 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
   const allowed = () => new Set([...served(), ...origins]);
 
   async function serveFile(req, res, pathname) {
-    const page = PAGES[pathname.replace(/\/+$/, '') || '/'];
+    // The app's pages at their clean addresses, by the app's own map (app/js/pages.js: its service
+    // worker, its dev server and its preview answer them alike).
+    const page = pages.pageFile(pathname.replace(/^\/+|\/+$/g, ''));
     const rel = page || decodeURIComponent(pathname).replace(/^\/+/, '');
     const parts = rel.split('/');
     if (!PUBLIC.has(parts[0]) || parts.some(p => p === '..' || p === '') || (parts[0] === 'app' && parts[1] === 'tests')) {
