@@ -1,18 +1,20 @@
 // Tag — a gallery's tag, or a filter in the search box: a small framed word.
 //
-//   size     xs 14 (a library card's: 10px on one line, cut short past 100px) or sm 22 (the
-//            overview's tags and the search box's filters: 12px, wrapping where the overview's may);
+//   size     xs 14 (a library card's: 10px on one line, cut short past 100px), sm 22 (the search
+//            box's filters: 12px on a 20px line, never wrapping) or md 24 (the overview's tags: 12px
+//            on an 18px line, wrapping where it must);
 //   variant  neutral; artist and category (a card's, in their tones); add (the "+" that adds a tag);
 //            ghost (the overview's editable details in edit mode: no frame until hovered, set over
 //            the text it stands in so nothing shifts);
 //   count    a slot after a divider: how many library entries carry the tag (the overview's);
-//   filterKey  the search box's filter: its key, muted, before the value, which is then semibold.
+//   filterKey  the search box's filter: its key, muted, before the value, which is then semibold
+//            (the filter sits on the search box's line, at its middle).
 // A tag that does something (`href`: a link, `onClick`: a button) answers the pointer; one that only
 // shows (a filter in the search box) does not. With `removable`, while Shift is held (the page sets
 // `shift-held` on the body) its hover previews the removal in the delete colour.
 //
-// §5.3 F19: the overview's tags 24 → 22px, the search filter's height, and one side padding (8px,
-// the overview's: the filter +4px wide). F10: a card tag's ground #1e1e28 → the raised surface.
+// Three sizes as 1.3 has them, each in its own place (the owner: sizes outside Settings and the
+// dialogs are as intended; F19 withdrawn). F10: a card tag's ground #1e1e28 → the raised surface.
 import type { ComponentProps, MouseEventHandler, ReactNode } from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
@@ -22,7 +24,8 @@ const tagVariants = cva('group/tag border border-solid no-underline', {
     variant: { neutral: '', artist: '', category: '', add: 'justify-center font-bold', ghost: '' },
     size: {
       xs: 'inline-block max-w-[100px] truncate rounded-3 px-[6px] py-[1px] text-10 leading-none',
-      sm: 'inline-flex rounded-4 px-[8px] py-[1px] text-12 leading-[18px] [overflow-wrap:anywhere]',
+      sm: 'inline-block rounded-4 px-[6px] py-0 align-middle text-12 leading-[20px]',
+      md: 'inline-flex rounded-4 px-[8px] py-[2px] text-12 leading-[18px] [overflow-wrap:anywhere]',
     },
     interactive: { true: 'cursor-pointer transition-[color,background-color,border-color] duration-fast ease-standard', false: 'cursor-default' },
   },
@@ -33,8 +36,8 @@ const tagVariants = cva('group/tag border border-solid no-underline', {
     { size: 'xs', variant: 'category', class: 'border-primary-line text-primary' },
     { size: 'xs', variant: 'add', class: 'inline-flex items-center px-[7px]' },
     // The overview's and the search box's: the raised ground, the strong frame, the text colour.
-    { size: 'sm', variant: ['neutral', 'add'], class: 'border-input bg-secondary text-foreground' },
-    { size: 'sm', variant: 'add', class: 'text-muted-foreground' },
+    { size: ['sm', 'md'], variant: ['neutral', 'add'], class: 'border-input bg-secondary text-foreground' },
+    { size: ['sm', 'md'], variant: 'add', class: 'text-muted-foreground' },
     // Under the pointer: the muted frame and the text colour; artist and category frame in their tone;
     // "+" turns to the second accent.
     // (A card's grey is its own, a step deeper: its hover frame too.)
@@ -48,7 +51,7 @@ const tagVariants = cva('group/tag border border-solid no-underline', {
     // and frame drawn into the margin.
     { variant: 'ghost', class: '-mx-[7px] -my-[3px] inline-flex items-center gap-[6px] rounded-4 border-transparent bg-transparent px-[6px] py-[2px]' },
   ],
-  defaultVariants: { variant: 'neutral', size: 'sm' },
+  defaultVariants: { variant: 'neutral', size: 'md' },
 });
 
 // While Shift is held, a removable tag's hover is the delete preview (its count's divider fades to
@@ -70,10 +73,11 @@ type Props = Common & (
   | ({ href?: undefined; onClick?: MouseEventHandler<HTMLButtonElement> } & Omit<ComponentProps<'button'>, 'className' | 'children'>)
 );
 
-function Tag({ variant = 'neutral', size = 'sm', count, filterKey, removable, className, children, ...props }: Props) {
+function Tag({ variant = 'neutral', size, count, filterKey, removable, className, children, ...props }: Props) {
   const interactive = props.href !== undefined || props.onClick !== undefined;
   const classes = cn(
-    tagVariants({ variant, size: variant === 'ghost' ? null : size, interactive }),
+    // A filter is sm, a tag md, unless told; the editable detail takes the text around it.
+    tagVariants({ variant, size: variant === 'ghost' ? null : size ?? (filterKey !== undefined ? 'sm' : 'md'), interactive }),
     removable && variant !== 'add' && (variant === 'ghost' ? REMOVING.ghost : REMOVING.fill),
     filterKey !== undefined && 'font-semibold whitespace-pre',
     className,

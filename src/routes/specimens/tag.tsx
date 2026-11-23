@@ -24,16 +24,16 @@ export function TagSpecimens() {
           <Line label="Shift held" states={['hover']} render={(state) => <Removing><Tag size="xs" removable onClick={noop} {...tag('card-tag', 'removing', state)}>mystery</Tag></Removing>} />
         </div>
       </Shape>
-      <Shape id="ov-chip" name="Overview tag" used="The overview's tag table: each a link to the library's search, with how many entries carry it; '+' in edit mode (F19: 24 → 22px).">
+      <Shape id="ov-chip" name="Overview tag" used="The overview's tag table: each a link to the library's search, with how many entries carry it; '+' in edit mode (24px, as today).">
         <div className="flex flex-col gap-[8px]">
-          <Line label="neutral · sm, count" states={HOVER} render={(state) => <Tag href="#tag" count={4} removable {...tag('ov-chip', 'neutral', state)}>sea</Tag>} />
+          <Line label="neutral · md, count" states={HOVER} render={(state) => <Tag href="#tag" count={4} removable {...tag('ov-chip', 'neutral', state)}>sea</Tag>} />
           <Line label="no count" states={['rest']} render={(state) => <Tag href="#tag" removable {...tag('ov-chip', 'plain', state)}>aoki ren</Tag>} />
-          <Line label="add · sm" states={HOVER} render={(state) => <Tag variant="add" aria-label="Add a tag" onClick={noop} {...tag('ov-chip', 'add', state)}>+</Tag>} />
+          <Line label="add · md" states={HOVER} render={(state) => <Tag variant="add" aria-label="Add a tag" onClick={noop} {...tag('ov-chip', 'add', state)}>+</Tag>} />
           <Line label="Shift held" states={['hover']} render={(state) => <Removing><Tag href="#tag" count={4} removable {...tag('ov-chip', 'removing', state)}>sea</Tag></Removing>} />
           <Line label="wrapping" states={['rest']} render={(state) => <div className="w-[120px]"><Tag href="#tag" count={12} {...tag('ov-chip', 'wrap', state)}>reader fixture with a long name</Tag></div>} />
         </div>
       </Shape>
-      <Shape id="search-chip" name="Search filter" used="The library's search box and its suggestions: a finished filter, its key muted (F19: one side padding, 8px).">
+      <Shape id="search-chip" name="Search filter" used="The library's search box and its suggestions: a finished filter, its key muted (22px, as today).">
         <Line label="neutral · sm, key" states={['rest']} render={(state) => <Tag filterKey="category" {...tag('search-chip', 'filter', state)}>manga</Tag>} />
       </Shape>
       <Shape id="ov-meta-item" name="Editable detail" used="The overview's category and rating in edit mode: framed under the pointer, opening the tag editor.">

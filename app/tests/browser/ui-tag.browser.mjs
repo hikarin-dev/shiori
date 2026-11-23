@@ -1,5 +1,6 @@
 // ui-tag.browser.mjs — Tag (src/components/ui/tag.tsx) as /components shows it: a tag that does
-// something is a button or a link (reached by Tab), one that only shows is neither; a card's tag is
+// something is a button or a link (reached by Tab), one that only shows is neither; three sizes as
+// 1.3 has them (a card's 14, a search filter's 22, an overview tag's 24); a card's tag is
 // cut short at 100px, an overview tag wraps; hovers in each tone (a card's grey is its own, a step
 // deeper); with Shift held a removable tag previews its removal in the delete colour, its count's
 // divider at half white; the editable detail stands over its text so nothing shifts; no text fades
@@ -28,7 +29,7 @@ test('what a tag is: a button or a link when it does something, a plain word whe
   const card = await look(page, spec('card-tag', 'neutral'));
   assert.deepEqual([card.tag, card.tab, card.box[1]], ['button', 0, 14]);
   const ov = await look(page, spec('ov-chip', 'neutral'));
-  assert.deepEqual([ov.tag, ov.tab, ov.box[1]], ['a', 0, 22]);
+  assert.deepEqual([ov.tag, ov.tab, ov.box[1]], ['a', 0, 24]);
   assert.equal(await page.$eval(spec('ov-chip', 'neutral'), (el) => el.getAttribute('href')), '#tag');
   const chip = await look(page, spec('search-chip', 'filter'));
   assert.deepEqual([chip.tag, chip.tab, chip.box[1]], ['span', -1, 22]);
@@ -45,7 +46,7 @@ test('a card\'s tag is cut short at 100px on one line; an overview tag wraps in 
   const long = await page.$eval(spec('card-tag', 'long'), (el) => [el.getBoundingClientRect().width, el.getBoundingClientRect().height, getComputedStyle(el).textOverflow, el.scrollWidth > el.clientWidth]);
   assert.deepEqual(long, [100, 14, 'ellipsis', true]);
   const wrap = await look(page, spec('ov-chip', 'wrap'));
-  assert.ok(wrap.box[0] <= 120 && wrap.box[1] >= 22 + 18, `wraps onto more lines of 18px (${wrap.box})`);
+  assert.ok(wrap.box[0] <= 120 && wrap.box[1] >= 24 + 18, `wraps onto more lines of 18px (${wrap.box})`);
 });
 
 test('hovers in each tone; with Shift held, the removal preview; nothing moves', async (t) => {
