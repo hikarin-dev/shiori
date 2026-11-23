@@ -23,6 +23,7 @@ import { StatSpecimens } from './specimens/stat';
 import { TextSpecimens } from './specimens/text';
 import { CardSpecimens } from './specimens/card';
 import { SettingRowSpecimens } from './specimens/setting-row';
+import { OptionCardSpecimens } from './specimens/option-card';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -144,6 +145,7 @@ export default function Components() {
       <TextSpecimens />
       <CardSpecimens />
       <SettingRowSpecimens />
+      <OptionCardSpecimens />
     </main>
   );
 }
