@@ -21,8 +21,8 @@ test('a button is a button: Tab reaches each in order, Enter and Space press it,
   const order = await page.evaluate(() => {
     window.__pressed = [];
     const all = [...document.querySelectorAll('[data-section="button"] [data-specimen]')];
-    for (const el of all) el.addEventListener('click', (e) => { e.preventDefault(); window.__pressed.push(el.dataset.specimen + '/' + el.dataset.variant + '/' + el.dataset.state); });
-    return all.filter((el) => !el.matches(':disabled')).map((el) => el.dataset.specimen + '/' + el.dataset.variant + '/' + el.dataset.state);
+    for (const el of all) el.addEventListener('click', (e) => { e.preventDefault(); window.__pressed.push(el.dataset.specimen + '/' + el.dataset.variant + '/' + el.dataset.specimenState); });
+    return all.filter((el) => !el.matches(':disabled')).map((el) => el.dataset.specimen + '/' + el.dataset.variant + '/' + el.dataset.specimenState);
   });
   // Every button specimen is a native button but the link, which is an <a href>.
   const kinds = await page.evaluate(() => [...new Set([...document.querySelectorAll('[data-section="button"] [data-specimen]')].map((el) => `${el.localName}${el.getAttribute('role') ? `[role=${el.getAttribute('role')}]` : ''}`))]);
@@ -32,7 +32,7 @@ test('a button is a button: Tab reaches each in order, Enter and Space press it,
   const seen = [];
   for (let i = 0; i < order.length; i++) {
     await page.keyboard.press('Tab');
-    seen.push(await page.evaluate(() => { const el = document.activeElement; return `${el.dataset.specimen}/${el.dataset.variant}/${el.dataset.state}`; }));
+    seen.push(await page.evaluate(() => { const el = document.activeElement; return `${el.dataset.specimen}/${el.dataset.variant}/${el.dataset.specimenState}`; }));
   }
   assert.deepEqual(seen, order, 'Tab follows the page order and skips disabled buttons');
   // Enter and Space press a button; Enter follows a link.
@@ -55,7 +55,7 @@ test('a button is a button: Tab reaches each in order, Enter and Space press it,
 test('an on button says so (aria-pressed), an open one aria-expanded', async (t) => {
   const page = await componentsPage(t, browser, origin);
   if (!page) return;
-  const on = await page.$$eval('[data-section="button"] [data-state="on"]', (els) => els.map((el) => [el.dataset.specimen, el.getAttribute('aria-pressed') ?? el.getAttribute('aria-expanded') ?? (el.dataset.specimen === 'card-btn' ? 'done' : null)]));
+  const on = await page.$$eval('[data-section="button"] [data-specimen-state="on"]', (els) => els.map((el) => [el.dataset.specimen, el.getAttribute('aria-pressed') ?? el.getAttribute('aria-expanded') ?? (el.dataset.specimen === 'card-btn' ? 'done' : null)]));
   assert.ok(on.length >= 8);
   for (const [shape, value] of on) assert.ok(['true', 'done'].includes(value), `${shape}: on is announced (${value})`);
   // The on look comes from the attribute: a quiet button pressed takes its pressed tone.
@@ -77,7 +77,7 @@ test('the keyboard ring shows after a key, never after a click', async (t) => {
 test('hover, press and focus change no box, and no text fades or moves', async (t) => {
   const page = await componentsPage(t, browser, origin);
   if (!page) return;
-  const rests = await page.$$eval('[data-section="button"] [data-state="rest"]', (els) => els.map((el) => `[data-specimen="${el.dataset.specimen}"][data-variant="${el.dataset.variant}"][data-state="rest"]`));
+  const rests = await page.$$eval('[data-section="button"] [data-specimen-state="rest"]', (els) => els.map((el) => `[data-specimen="${el.dataset.specimen}"][data-variant="${el.dataset.variant}"][data-specimen-state="rest"]`));
   for (const sel of rests) {
     const [before] = await boxes(page, sel);
     const at = await centreOf(page, sel);

@@ -1,5 +1,5 @@
 // specimens.mjs — what the component tests share: /components opened in Chrome, a specimen found by
-// its tags (data-specimen, data-variant, data-state: src/routes/specimens/), and the layout checks
+// its tags (data-specimen, data-variant, data-specimen-state: src/routes/specimens/), and the layout checks
 // every component is held to.
 import { openPage, until } from './harness.mjs';
 
@@ -14,7 +14,7 @@ export async function componentsPage(t, browser, origin, viewport) {
   return page;
 }
 
-export const spec = (shape, variant, state = 'rest') => `[data-specimen="${shape}"][data-variant="${variant}"][data-state="${state}"]`;
+export const spec = (shape, variant, state = 'rest') => `[data-specimen="${shape}"][data-variant="${variant}"][data-specimen-state="${state}"]`;
 
 // Puts a specimen in the middle of the window and gives its centre.
 export async function centreOf(page, selector) {

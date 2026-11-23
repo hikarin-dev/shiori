@@ -1,7 +1,7 @@
 // What every section of /components is made of: a section per component, a row per shape of the
 // design inventory (its id, where today's app uses it), and a specimen per state. A specimen is the
 // component itself, its measured element tagged data-specimen (the inventory's shape id),
-// data-variant and data-state, which is what the parity check (plans/frontend-react-probes/parity)
+// data-variant and data-specimen-state, which is what the parity check (plans/frontend-react-probes/parity)
 // and the browser tests find it by. Hover, press and keyboard focus are shown still through
 // data-force (index.css); disabled, on and invalid are the component's own props.
 import type { ReactNode } from 'react';
@@ -12,7 +12,7 @@ const FORCED: Partial<Record<State, string>> = { hover: 'hover', active: 'active
 
 // The data attributes a specimen's measured element carries.
 export function tag(shape: string, variant: string, state: State): Record<string, string> {
-  const out: Record<string, string> = { 'data-specimen': shape, 'data-variant': variant, 'data-state': state };
+  const out: Record<string, string> = { 'data-specimen': shape, 'data-variant': variant, 'data-specimen-state': state };
   if (FORCED[state]) out['data-force'] = FORCED[state]!;
   return out;
 }

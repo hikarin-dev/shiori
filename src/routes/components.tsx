@@ -6,6 +6,7 @@ import { ButtonSpecimens } from './specimens/button';
 import { PaginationSpecimens } from './specimens/pagination';
 import { SwitchSpecimens } from './specimens/switch';
 import { CheckboxSpecimens } from './specimens/checkbox';
+import { TriStateSpecimens } from './specimens/tri-state-toggle';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -110,6 +111,7 @@ export default function Components() {
       <PaginationSpecimens />
       <SwitchSpecimens />
       <CheckboxSpecimens />
+      <TriStateSpecimens />
     </main>
   );
 }
