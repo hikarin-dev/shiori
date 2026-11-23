@@ -1,0 +1,10 @@
+/* scroll-box.css — ScrollBox, a class (T6: not shadcn's ScrollArea): a box whose content scrolls
+   inside it (a dialog's body, a list, a panel). It scrolls on its own, a wheel or swipe at its end
+   not passing on to the page, and is what scrollbar.js looks for when Settings → Experimental draws
+   the scrollbars: a block that scrolls vertically. Its bar is the browser's otherwise, thin and in the
+   app's colours for every box inside the page (scrollbars.css). Its height is its place's. */
+@utility scroll-box {
+    display: block;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}

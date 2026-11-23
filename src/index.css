@@ -12,6 +12,7 @@
 @import "./styles/motion.css";
 @import "./styles/document.css";
 @import "./styles/scrollbars.css";
+@import "./styles/scroll-box.css";
 @import "./styles/tooltip.css";
 @import "./styles/frame.css";
 
