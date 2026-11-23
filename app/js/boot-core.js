@@ -131,5 +131,7 @@ if ('serviceWorker' in navigator && (desktopHosted() || capabilities.desktopWind
     }
   }).catch(() => {});
   const worker = capabilities.browserLibrary ? '../../sw.js' : '../../sw.js?library=desktop';
-  navigator.serviceWorker.register(new URL(worker, import.meta.url), { type: 'module' }).catch(() => {});
+  // Its imports are asked for past the browser's HTTP cache, as its own file always is: a host
+  // that lets files be kept for a while would otherwise hand a new worker the old list and modules.
+  navigator.serviceWorker.register(new URL(worker, import.meta.url), { type: 'module', updateViaCache: 'none' }).catch(() => {});
 }

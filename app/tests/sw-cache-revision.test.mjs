@@ -96,6 +96,13 @@ test('any change to any file the worker keeps is another id: its bytes, its name
   assert.equal(shellFiles(copy).id, before);
 });
 
+test('a new worker reads its imports past the HTTP cache, so it never starts with an old list', () => {
+  const boot = readFileSync(join(repo, 'app', 'js', 'boot-core.js'), 'utf8');
+  const calls = boot.match(/serviceWorker\.register\([^\n]*/g) ?? [];
+  assert.equal(calls.length, 1, 'the worker is registered in one place');
+  assert.match(calls[0], /updateViaCache: 'none'/);
+});
+
 test('the independent revision refreshes both agent entry points during install', () => {
   assert.ok(shell.includes('app/agent.html'), 'agent.html must be part of the precached shell');
   assert.ok(shell.includes('app/js/agent.js'), 'agent.js must be part of the precached shell');
