@@ -27,6 +27,7 @@ import { OptionCardSpecimens } from './specimens/option-card';
 import { EmptyStateSpecimens } from './specimens/empty-state';
 import { AlertSpecimens } from './specimens/alert';
 import { InfoTipSpecimens } from './specimens/info-tip';
+import { CollapsibleSpecimens } from './specimens/collapsible';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -152,6 +153,7 @@ export default function Components() {
       <EmptyStateSpecimens />
       <AlertSpecimens />
       <InfoTipSpecimens />
+      <CollapsibleSpecimens />
     </main>
   );
 }
