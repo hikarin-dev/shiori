@@ -8,6 +8,7 @@ import { SwitchSpecimens } from './specimens/switch';
 import { CheckboxSpecimens } from './specimens/checkbox';
 import { TriStateSpecimens } from './specimens/tri-state-toggle';
 import { ToggleGroupSpecimens } from './specimens/toggle-group';
+import { TabsSpecimens } from './specimens/tabs';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -66,7 +67,7 @@ export default function Components() {
   const t = useT();
   const [{ colours, groups, value }] = useState(tokens);
   return (
-    <main className="flex flex-col gap-[32px] p-[20px]">
+    <main className="flex flex-col gap-[32px] overflow-x-clip p-[20px]">
       <h1 className="text-16 font-semibold">Components</h1>
 
       <section className="flex flex-col gap-[12px]">
@@ -114,6 +115,7 @@ export default function Components() {
       <CheckboxSpecimens />
       <TriStateSpecimens />
       <ToggleGroupSpecimens />
+      <TabsSpecimens />
     </main>
   );
 }

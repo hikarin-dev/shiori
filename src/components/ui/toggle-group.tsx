@@ -18,10 +18,23 @@ import { cn } from '@/lib/utils';
 type Variant = 'segmented' | 'cards' | 'pill';
 type Size = 'default' | 'sm' | 'stack';
 
+// The segmented track and its highlight, shared with Tabs' segmented list (one recipe, F12). The
+// track gives each item an equal column; the group sets --seg-n (how many) and --seg-i (which one
+// is chosen) on it.
+export const SEGMENTED_TRACK = 'grid auto-cols-[minmax(0,1fr)] grid-flow-col gap-[3px] rounded-8 border border-solid border-input bg-surface-subtle p-[3px]';
+export const SEGMENTED_HIGHLIGHT = cn(
+  'pointer-events-none absolute top-[3px] bottom-[3px] rounded-5 border border-solid border-input bg-secondary',
+  'left-[calc(3px+var(--seg-i)*((100%-6px-(var(--seg-n)-1)*3px)/var(--seg-n)+3px))] w-[calc((100%-6px-(var(--seg-n)-1)*3px)/var(--seg-n))]',
+  // F12 (owner): it slides. Today's jump would be this line taken out.
+  'transition-[left] duration-open ease-standard',
+);
+// An item over the highlight: the chosen one only changes its text colour (the highlight is its ground).
+export const SEGMENTED_ITEM = 'z-[1] flex items-center justify-center gap-[6px] rounded-5 border-transparent bg-transparent text-11 leading-[1.35] font-semibold hover:text-foreground disabled:cursor-default disabled:opacity-45 [&_span]:min-w-0 [&_span]:[overflow-wrap:anywhere] [&_svg]:size-[16px]';
+
 const group = cva('relative min-w-0', {
   variants: {
     variant: {
-      segmented: 'grid auto-cols-[minmax(0,1fr)] grid-flow-col gap-[3px] rounded-8 border border-solid border-input bg-surface-subtle p-[3px]',
+      segmented: SEGMENTED_TRACK,
       cards: 'grid auto-cols-[minmax(0,1fr)] grid-flow-col gap-[8px]',
       pill: 'flex flex-wrap gap-[6px]',
     },
@@ -35,8 +48,7 @@ const item = cva(
   {
     variants: {
       variant: {
-        // Over the highlight; the chosen one only changes its text colour (the highlight is its ground).
-        segmented: 'z-[1] flex items-center justify-center gap-[6px] rounded-5 border-transparent bg-transparent text-11 leading-[1.35] font-semibold hover:text-foreground data-pressed:text-foreground disabled:cursor-default disabled:opacity-45 [&_span]:min-w-0 [&_span]:[overflow-wrap:anywhere] [&_svg]:size-[16px]',
+        segmented: `${SEGMENTED_ITEM} data-pressed:text-foreground`,
         cards: 'flex items-center justify-center gap-[7px] rounded-8 border-border bg-surface-subtle text-11 leading-[1.3] font-semibold hover:not-data-pressed:border-input hover:not-data-pressed:text-foreground data-pressed:border-input data-pressed:bg-secondary data-pressed:text-foreground disabled:cursor-default [&_span]:min-w-0 [&_span]:[overflow-wrap:anywhere]',
         pill: 'inline-flex h-[24px] items-center rounded-pill border-border bg-transparent px-[9px] text-11 tabular-nums hover:border-muted-foreground hover:text-foreground data-pressed:border-muted-foreground data-pressed:bg-secondary data-pressed:text-foreground pointer-coarse:h-[36px]',
       },
@@ -87,12 +99,7 @@ function ToggleGroup({ variant = 'segmented', size = 'default', value, defaultVa
           aria-hidden
           data-slot="toggle-group-highlight"
           hidden={at < 0}
-          className={cn(
-            'pointer-events-none absolute top-[3px] bottom-[3px] rounded-5 border border-solid border-input bg-secondary',
-            'left-[calc(3px+var(--seg-i)*((100%-6px-(var(--seg-n)-1)*3px)/var(--seg-n)+3px))] w-[calc((100%-6px-(var(--seg-n)-1)*3px)/var(--seg-n))]',
-            // F12 (owner): it slides. Today's jump would be this line taken out.
-            'transition-[left] duration-open ease-standard',
-          )}
+          className={SEGMENTED_HIGHLIGHT}
         />
       )}
       <Look.Provider value={{ variant, size }}>{children}</Look.Provider>
