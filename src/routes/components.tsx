@@ -29,6 +29,7 @@ import { AlertSpecimens } from './specimens/alert';
 import { InfoTipSpecimens } from './specimens/info-tip';
 import { CollapsibleSpecimens } from './specimens/collapsible';
 import { ScrollBoxSpecimens } from './specimens/scroll-box';
+import { DragHandleSpecimens } from './specimens/drag-handle';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -156,6 +157,7 @@ export default function Components() {
       <InfoTipSpecimens />
       <CollapsibleSpecimens />
       <ScrollBoxSpecimens />
+      <DragHandleSpecimens />
     </main>
   );
 }
