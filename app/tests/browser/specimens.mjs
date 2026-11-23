@@ -35,7 +35,8 @@ export const boxes = (page, selector) => page.evaluate((sel) => [...document.que
   return [r.left, r.top, r.width, r.height];
 }), selector);
 
-// Rule 11: nothing that holds text fades or moves by opacity or transform. Every element under
+// Rule 11: nothing that holds text fades or moves by opacity or transform (or a filter, which lifts it
+// onto a layer as they do). Every element under
 // `root` (selector) that has text of its own: the properties it transitions or animates.
 export const textMotion = (page, selector) => page.evaluate((sel) => {
   const bad = [];
@@ -47,7 +48,7 @@ export const textMotion = (page, selector) => page.evaluate((sel) => {
         const s = getComputedStyle(node);
         const props = s.transitionProperty.split(',').map((p) => p.trim());
         const durations = s.transitionDuration.split(',').map((d) => parseFloat(d));
-        props.forEach((p, i) => { if ((p === 'all' || p === 'opacity' || p === 'transform' || p === 'translate' || p === 'scale') && (durations[i] ?? durations[0]) > 0) bad.push(`${node.localName}.${node.className}: ${p}`); });
+        props.forEach((p, i) => { if ((p === 'all' || p === 'opacity' || p === 'transform' || p === 'translate' || p === 'scale' || p === 'filter') && (durations[i] ?? durations[0]) > 0) bad.push(`${node.localName}.${node.className}: ${p}`); });
         if (s.animationName !== 'none') bad.push(`${node.localName}.${node.className}: animation ${s.animationName}`);
       }
     }

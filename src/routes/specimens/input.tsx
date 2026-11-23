@@ -32,8 +32,8 @@ export function InputSpecimens() {
       <Shape id="add-search" name="Add-chapter search" used="The overview's add-chapter bar.">
         <Line label="inset · xl" states={STATES} render={(state) => <div className="w-[480px]"><Input variant="inset" size="xl" defaultValue="shelf" aria-label="Search" disabled={state === 'disabled'} {...tag('add-search', 'inset-xl', state)} /></div>} />
       </Shape>
-      <Shape id="notice-input" name="Prompt dialog field" used="The prompt dialog: a source link, a rename (F15: radius 6, 40px).">
-        <Line label="dialog · xl" states={STATES} render={(state) => <div className="w-[394px]"><Input variant="dialog" defaultValue="https://example.org/g/48213" aria-label="Source" disabled={state === 'disabled'} {...tag('notice-input', 'dialog', state)} /></div>} />
+      <Shape id="notice-input" name="Prompt dialog field" used="The prompt dialog: a link, a new name (F15: radius 6, 40px).">
+        <Line label="dialog · xl" states={STATES} render={(state) => <div className="w-[394px]"><Input variant="dialog" defaultValue="Harbor Lights, chapter 2" aria-label="Name" disabled={state === 'disabled'} {...tag('notice-input', 'dialog', state)} /></div>} />
       </Shape>
       <Shape id="tcfg-textarea" name="Advanced options, several lines" used="Settings → Translation → Advanced settings: a server's multi-line options.">
         <Line label="field" states={STATES} render={(state) => <div className="w-[340px]"><Textarea aria-label="Options" disabled={state === 'disabled'} {...tag('tcfg-textarea', 'field', state)} /></div>} />

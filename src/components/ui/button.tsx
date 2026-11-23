@@ -138,7 +138,9 @@ const MOTION: Partial<Record<Variant, string>> = {
   tint: 'transition-[color,background-color,border-color] duration-base',
   quiet: 'transition-[color,background-color,border-color] duration-base',
 };
-const MOTION_DEFAULT = 'transition-[color,background-color,border-color,filter] duration-fast ease-standard';
+// Colours only: a primary's brightness on hover changes at once (a filter that eased would lift its label
+// onto a layer of its own while it ran, as rule 11 warns of opacity and transform).
+const MOTION_DEFAULT = 'transition-[color,background-color,border-color] duration-fast ease-standard';
 
 type Variant = NonNullable<VariantProps<typeof buttonVariants>['variant']>;
 type Size = NonNullable<VariantProps<typeof buttonVariants>['size']>;

@@ -6,7 +6,7 @@
 // is the system's select, drawn closed the same.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startServer, chromePath, launch } from './harness.mjs';
+import { startServer, chromePath, launch, until } from './harness.mjs';
 import { componentsPage, spec, centreOf, textMotion } from './specimens.mjs';
 
 let server, origin, browser;
@@ -45,8 +45,9 @@ test('a combobox and its listbox: opened, moved through and chosen by the keyboa
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
   await settled(page);
-  // Reached by the keyboard, an option shows it (the raised ground).
-  assert.equal(await page.evaluate(() => getComputedStyle(document.activeElement).backgroundColor), 'rgb(28, 28, 33)');
+  // Reached by the keyboard, an option shows it (the raised ground, once its colour has eased in).
+  await until(page, () => document.activeElement?.getAttribute('role') === 'option' && getComputedStyle(document.activeElement).backgroundColor === 'rgb(28, 28, 33)', undefined, { what: 'the option reached by the keyboard lit', timeout: 5000 });
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Deutsch');
   await page.keyboard.press('Enter');
   await settled(page);
   assert.deepEqual(await aria(), ['combobox', 'false', 'Deutsch']);

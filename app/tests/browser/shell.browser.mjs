@@ -58,21 +58,22 @@ async function fresh(t, { answers = null, site = origin } = {}) {
   return page;
 }
 
-const drawn = () => document.title === 'Shiori — Components' && document.querySelectorAll('main button').length;
+// Drawn: the button section's shapes (src/routes/specimens/button.tsx), each with its specimens.
+const drawn = () => document.title === 'Shiori — Components' && document.querySelectorAll('[data-section="button"] [data-shape]').length;
 const address = () => location.pathname + location.search + location.hash;
 
-test('the one page draws /components: tokens, a button of each kind, the UI font, nothing refused', async (t) => {
+test('the one page draws /components: tokens, every button shape, the UI font, nothing refused', async (t) => {
   const page = await fresh(t);
   if (!page) return;
   const fonts = [];
   page.on('requestfinished', (r) => { if (/\.(woff2?|ttf|otf)$/.test(r.url())) fonts.push(new URL(r.url()).pathname); });
   await page.goto(`${origin}/components`, { waitUntil: 'load' });
-  assert.equal(await until(page, drawn, undefined, { what: 'the components page' }), 6, 'one button of each variant');
+  assert.equal(await until(page, drawn, undefined, { what: 'the components page' }), 21, 'every button shape of the inventory');
   const seen = await page.evaluate(async () => {
     await document.fonts.ready;
     const body = getComputedStyle(document.body);
     return { path: location.pathname, family: body.fontFamily, size: body.fontSize, background: body.backgroundColor,
-      primary: getComputedStyle(document.querySelector('main button')).backgroundColor,
+      primary: getComputedStyle(document.querySelector('[data-specimen="btn"][data-variant="primary"][data-specimen-state="rest"]')).backgroundColor,
       swatches: document.querySelectorAll('[data-token]').length,
       policy: document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content || '' };
   });
@@ -113,7 +114,7 @@ test('on a host that knows no clean addresses, 404.html brings /components to th
   const page = await fresh(t, { answers: '404.html' });
   if (!page) return;
   await page.goto(`${origin}/components?from=reload#buttons`).catch(() => {});   // the 404 page leaves at once
-  assert.equal(await until(page, drawn, undefined, { what: 'the components page' }), 6);
+  assert.equal(await until(page, drawn, undefined, { what: 'the components page' }), 21);
   assert.equal(await page.evaluate(address), '/components?from=reload#buttons', 'the address is the one asked for');
   assert.equal(await page.evaluate(() => sessionStorage.getItem('shiori-route')), null, 'the kept address is used once');
   assert.deepEqual(page.problems, []);
@@ -153,7 +154,7 @@ test('with the worker installed and the server gone, the library and the one pag
   assert.equal(await page.evaluate(address), '/');
 
   await page.goto(`${site.origin}/components`, { waitUntil: 'load' });
-  assert.equal(await until(page, drawn, undefined, { what: 'the components page, offline' }), 6);
+  assert.equal(await until(page, drawn, undefined, { what: 'the components page, offline' }), 21);
   assert.equal(await page.evaluate(address), '/components');
   assert.match(await page.evaluate(async () => { await document.fonts.ready; return [...document.fonts].filter((f) => f.status === 'loaded').map((f) => f.family).join(); }),
     /JetBrains Mono/, 'the UI font comes from the worker too');
