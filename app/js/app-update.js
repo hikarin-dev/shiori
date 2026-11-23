@@ -51,7 +51,7 @@ export async function applyUpdate() {
 
 if ('serviceWorker' in navigator) {
   // A worker replacing the one this page started with means newer code is live — unless it is the
-  // other kind (the site's library moved between this browser and the desktop app; boot.js).
+  // other kind (the site's library moved between this browser and the desktop app; boot-core.js).
   const startedWith = navigator.serviceWorker.controller?.scriptURL;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (startedWith && navigator.serviceWorker.controller?.scriptURL === startedWith) offer();

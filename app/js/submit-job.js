@@ -150,7 +150,7 @@ function _recoverPendingInTab(entries) {
 // Poll tick: collect the latest chunks for every in-flight translation and broadcast them. Prefer
 // the service worker — one short __shioriPoll event keeps it warm (no single long event to hit the
 // ~5-min cap) and it keeps running across navigations; fall back to polling in this tab when there's
-// no worker. A cheap no-op when nothing is translating. Called on a short timer from boot.js, this
+// no worker. A cheap no-op when nothing is translating. Called on a short timer from boot-core.js, this
 // is the heartbeat that drives a server-owned translation to completion and survives SW recycling
 // — and that keeps the worker awake while it imports a batch (handBatchToWorker), from any page.
 export async function pollActiveTranslations() {
@@ -158,7 +158,7 @@ export async function pollActiveTranslations() {
   let pending = [];
   try { records = await platform.translateResume.all(); } catch {}
   try { pending = await platform.jobsPending.all(); } catch {}
-  if (!records.length && !pending.length && !await platform.jobs.workerImporting()) return false;   // idle — boot.js backs its timer off
+  if (!records.length && !pending.length && !await platform.jobs.workerImporting()) return false;   // idle — boot-core.js backs its timer off
   // A window of the desktop app keeps its jobs where the app's runner does: the runner collects
   // them (polled here too, every result would be stored twice).
   if (capabilities.desktopWindow && (await keeperJobs.run('poll'))?.ok) return true;

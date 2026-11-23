@@ -26,7 +26,7 @@ const FILES_ONLY = new URL(self.location.href).searchParams.get('library') === '
 // user-facing app version: precached code can change outside a release, and changing this value
 // makes the browser install every BOOT asset into a fresh cache.
 const CACHE_PREFIX = `shiori${ROOT.pathname.replace(/\//g, '_')}`;
-const SHELL_CACHE_REVISION = 68;
+const SHELL_CACHE_REVISION = 69;
 const CACHE_NAME = `${CACHE_PREFIX}-shell-v${SHELL_CACHE_REVISION}`;
 function cacheName() {
   return CACHE_NAME;
@@ -52,7 +52,7 @@ const SHELL = [
   'app/js/import-cbz.js', 'app/js/import-files.js', 'app/js/import-log.js', 'app/js/import-batch.js', 'app/js/import-queue.js', 'app/js/import-tracker.js', 'app/js/runner-tag.js', 'app/js/translate.js', 'app/js/translate-config.js', 'app/js/capabilities.js', 'app/js/page-data.js', 'app/js/page-image.js', 'app/js/backup.js', 'app/js/backup-core.js', 'app/js/backup-ui.js',
   'app/js/benchmark.js', 'app/js/benchmark-core.js', 'app/js/benchmark-ui.js', 'app/benchmark.css',
   'app/js/feedback.js', 'app/js/reader-feedback.js', 'app/js/reader-properties.js', 'app/js/reader-page-menu.js', 'app/js/zip.js',
-  'app/js/jobs-runner.js', 'app/js/submit-job.js', 'app/js/services.js', 'app/js/ext-bridge.js', 'app/js/boot.js', 'app/js/pages.js',
+  'app/js/jobs-runner.js', 'app/js/submit-job.js', 'app/js/services.js', 'app/js/ext-bridge.js', 'app/js/boot.js', 'app/js/boot-core.js', 'app/js/pages.js',
   'app/js/i18n.js', 'app/js/locales.js', 'app/js/page-nav.js', 'app/js/tooltip.js', 'app/js/scrollbar.js', 'app/js/dropdown.js', 'app/js/rerun-menu.js', 'app/js/titles.js', 'app/js/format.js', 'app/js/thumb-worker.js', 'app/js/tag-editor.js', 'app/js/search-field.js',
   'app/js/library.js', 'app/js/reader.js', 'app/js/reader-study.js', 'app/js/settings.js', 'app/js/agent.js', 'app/js/overview.js', 'app/js/runner.js', 'app/js/tasks.js',
   ...FLAGS,
@@ -85,7 +85,7 @@ self.addEventListener('install', (e) => {
   })());
 });
 
-// Pull in the deferred assets once the app is up and idle (boot.js asks for this from its
+// Pull in the deferred assets once the app is up and idle (boot-core.js asks for this from its
 // maintenance window). Anything still missing when it is first needed is cached on demand by
 // the fetch handler below, so offline completeness fills in either way — this just gets there
 // without a user waiting on it. Already-cached entries are skipped, making re-runs cheap.
@@ -282,7 +282,7 @@ async function pollLoop() {
 // ── Imports handed over by a page (submit-job.js handBatchToWorker), and checks of a library
 // folder (folder-scan.js startFolderScan) ──
 // A batch of titles runs here (import-queue.js), its files read where they are (nothing copied), for
-// as long as any app page is open: each page's poll tick (boot.js) nudges this worker while an import
+// as long as any app page is open: each page's poll tick (boot-core.js) nudges this worker while an import
 // runs, and every nudge holds it awake up to HOLD_MS — longer than a background tab's throttled
 // minute between ticks — so it is never idle long enough to be stopped.
 const HOLD_MS = 4 * 60 * 1000;

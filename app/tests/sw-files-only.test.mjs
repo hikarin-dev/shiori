@@ -1,5 +1,5 @@
 // sw-files-only.test.mjs — a site whose library the desktop app keeps registers the worker as
-// sw.js?library=desktop (boot.js). That worker keeps the app's files and runs no jobs: a worker
+// sw.js?library=desktop (boot-core.js). That worker keeps the app's files and runs no jobs: a worker
 // can't tell which library its site uses, and would run them against this browser's. Registered
 // plainly, the same worker still takes jobs and replays the ones left pending.
 import test from 'node:test';

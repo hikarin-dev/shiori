@@ -55,7 +55,7 @@ test('the heavy assets are deferred, not awaited during install', () => {
 test('deferred assets are still precached eventually, and cached on demand meanwhile', () => {
   assert.match(sw, /__shioriWarmShell/, 'a warm-up entry point must exist');
   assert.match(sw, /async function warmDeferredShell/, 'the warm-up must cover the deferred set');
-  const boot = readFileSync(join(repo, 'app', 'js', 'boot.js'), 'utf8');
+  const boot = readFileSync(join(repo, 'app', 'js', 'boot-core.js'), 'utf8');
   assert.match(boot, /__shioriWarmShell/, 'the app must ask for the warm-up once idle');
   // The fetch handler is the safety net for anything not yet warmed.
   assert.match(sw, /cache\.put\(key, resp\.clone\(\)\)/, 'responses should still be cached on demand');
@@ -64,14 +64,14 @@ test('deferred assets are still precached eventually, and cached on demand meanw
 test('a first visit is not held behind the worker install at all', () => {
   // With nothing installed yet, waiting for the worker means a blank screen for the length of the
   // precache. The one page's entry must detect that case and go straight to the real page
-  // instead; boot.js registers the worker from there, so installation still happens.
+  // instead; boot-core.js registers the worker from there, so installation still happens.
   const src = readFileSync(join(repo, 'src', 'entry.ts'), 'utf8');
   assert.match(src, /getRegistration\(\)/, 'the entry page must check for an existing worker');
   assert.match(src, /if \(!existing \|\| !existing\.active\) return toFile\(\)/,
     'no active worker must mean an immediate hand-off, not an await on install');
   // The wait that remains (worker already installed) still has to be bounded.
   assert.match(src, /Promise\.race/, 'the remaining wait must be bounded');
-  const boot = readFileSync(join(repo, 'app', 'js', 'boot.js'), 'utf8');
+  const boot = readFileSync(join(repo, 'app', 'js', 'boot-core.js'), 'utf8');
   assert.match(boot, /serviceWorker\.register/, 'the app page must register the worker');
 });
 

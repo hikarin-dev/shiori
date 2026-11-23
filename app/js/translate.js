@@ -238,7 +238,7 @@ const _staged = new Map();   // job token → Map(page index → { record, masks
 // long stream can't survive in a service worker (Chrome kills any single event at its ~5-min cap);
 // a series of short polls never lets one event approach the cap, so a translation survives a
 // navigation, a tab close+reopen, and repeated SW recycling — driven by whichever page is open
-// (the poll tick lives in boot.js → submit-job.js's pollActiveTranslations).
+// (the poll tick lives in boot-core.js → submit-job.js's pollActiveTranslations).
 //
 // Poll frames reuse the worker's envelope: status(1)+size(4 BE)+data. status 9 = a page's pipeline
 // data (tokenLen(1)+token+idx(4 BE)+container), 5 = the finished page (…+image), 6 = its study

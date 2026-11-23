@@ -12,11 +12,11 @@
 //
 //   First visit — nothing is installed yet, and installing means fetching the app's whole code
 //   shell. Waiting for that is a blank screen for several seconds, so it is skipped entirely: the
-//   page goes straight to the real file. The app registers the worker from there (boot.js), so
+//   page goes straight to the real file. The app registers the worker from there (boot-core.js), so
 //   installation still happens, just with the page already on screen. The address bar shows
 //   app/<page>.html for that one visit; every later visit is served by the worker at the clean one.
 //
-// The retry flag (cleared by the app once it boots, in boot.js) stops a worker that cannot take
+// The retry flag (cleared by the app once it boots, in boot-core.js) stops a worker that cannot take
 // over from bouncing the page in a loop.
 //
 // All of it is bundled code rather than an inline script, so the page's policy is a plain

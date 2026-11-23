@@ -67,6 +67,24 @@ test('the built site carries every app/js and vendor file as the file it is', ()
   }
 });
 
+test('the app\'s start-up is a served file, never part of the bundle: it finds the worker from its own address', () => {
+  // boot-core.js takes the app's folder to be the one above its own (to retire a worker a previous
+  // layout registered there) and registers sw.js two folders up. Both hold only while it is the
+  // file app/js/boot-core.js: carried in a chunk under assets/, the folder above is the site's root,
+  // and every page load would unregister the live worker.
+  const core = read('app/js/boot-core.js');
+  assert.match(core, /const _appDir = new URL\('\.\.', import\.meta\.url\)\.pathname;/);
+  assert.match(core, /serviceWorker\.register\(new URL\(worker, import\.meta\.url\)/);
+  assert.match(core, /'\.\.\/\.\.\/sw\.js'/);
+  // The one page starts with it, by its address in app/js.
+  assert.match(read('src/main.tsx'), /import\('@lib\/boot-core\.js'\)/);
+  const chunks = filesUnder('assets', builtSite()).filter((f) => f.endsWith('.js')).map((f) => readFileSync(built(f), 'utf8'));
+  assert.ok(chunks.some((text) => /import\(["'`]\.\.\/app\/js\/boot-core\.js["'`]\)/.test(text)), 'the bundle imports boot-core.js by address');
+  for (const text of chunks) {
+    assert.doesNotMatch(text, /serviceWorker\.register\(|__shioriWarmShell|getRegistrations\(\)/, 'no chunk carries the start-up\'s own code');
+  }
+});
+
 test('the UI font is served locally — no hosted-font URLs anywhere in the app', () => {
   const offenders = [];
   const hosted = /fonts\.googleapis|fonts\.gstatic/;
