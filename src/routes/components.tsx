@@ -12,6 +12,7 @@ import { TabsSpecimens } from './specimens/tabs';
 import { SelectSpecimens } from './specimens/select';
 import { InputSpecimens } from './specimens/input';
 import { SliderSpecimens } from './specimens/slider';
+import { NumberFieldSpecimens } from './specimens/number-field';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -122,6 +123,7 @@ export default function Components() {
       <SelectSpecimens />
       <InputSpecimens />
       <SliderSpecimens />
+      <NumberFieldSpecimens />
     </main>
   );
 }

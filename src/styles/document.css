@@ -55,8 +55,10 @@
   :where(button, select, summary, a[href],
     input:is([type="checkbox"], [type="radio"], [type="range"], [type="button"], [type="submit"], [type="reset"], [type="color"], [type="file"]),
     [role="button"], [role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="slider"]):is(:focus-visible, [data-force~="focus-visible"]),
-  /* A slider's knob, whose focus is its hidden range input's. */
-  [data-slot="slider-thumb"]:is(:has(:focus-visible), [data-force~="focus-visible"]) {
+  /* A slider's knob, whose focus is its hidden range input's; a number field's track, whose focus is
+     its value's. */
+  [data-slot="slider-thumb"]:is(:has(:focus-visible), [data-force~="focus-visible"]),
+  [data-slot="number-field-group"]:is(:has(input:focus-visible), [data-force~="focus-visible"]) {
     outline: 2px solid var(--focus-ring);
     outline-offset: -1px;
   }
