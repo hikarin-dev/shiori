@@ -3,6 +3,8 @@
 // each component shows every shape, variant and state it has (specimens/, the parity check's subjects).
 import { useState } from 'react';
 import { ButtonSpecimens } from './specimens/button';
+import { PaginationSpecimens } from './specimens/pagination';
+import { SwitchSpecimens } from './specimens/switch';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -104,6 +106,8 @@ export default function Components() {
       </section>
 
       <ButtonSpecimens />
+      <PaginationSpecimens />
+      <SwitchSpecimens />
     </main>
   );
 }
