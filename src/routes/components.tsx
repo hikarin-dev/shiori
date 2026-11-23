@@ -9,6 +9,7 @@ import { CheckboxSpecimens } from './specimens/checkbox';
 import { TriStateSpecimens } from './specimens/tri-state-toggle';
 import { ToggleGroupSpecimens } from './specimens/toggle-group';
 import { TabsSpecimens } from './specimens/tabs';
+import { SelectSpecimens } from './specimens/select';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -116,6 +117,7 @@ export default function Components() {
       <TriStateSpecimens />
       <ToggleGroupSpecimens />
       <TabsSpecimens />
+      <SelectSpecimens />
     </main>
   );
 }

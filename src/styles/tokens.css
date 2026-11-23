@@ -205,6 +205,7 @@
     --z-index-tooltip: 9999;
     --z-index-toast: 10000;
     --z-index-notice: 10001;          /* notice dialogs, over the toast */
+    --z-index-select: 10002;          /* a select's open list, over whatever it opens from, as the browser's own list was */
 
     /* Durations. The card's grow and shrink (.3s/.5s), a spinner (.8s) and a bar with no figure yet
        (1.2s) keep theirs in their components. */

@@ -1,0 +1,244 @@
+// Select — a choice from a list, drawn closed as a box with a chevron (Settings' fields, the library's
+// sort, the tag editor's type, reader settings' font, the header's page menu).
+//
+//   variant  field (Settings, reader settings: on the subtle ground, the strong frame), inset (in a
+//            dialog: on the page's ground, the plain frame), toolbar (the library's sort, on the
+//            surface), ghost (the header's page menu: no frame until hovered).
+//   size     xs 26 · sm 30 · default 34 · lg 38.
+//   width    fill (its place), widest (held at its widest option, so it never jumps between picks:
+//            every label sits in one grid cell, the others invisible — CSS, no measuring) or content.
+//
+// With a pointer it opens the app's list (Base UI's select, drawn as 1.3's Chromium list was:
+// dropdown.css): hung straight off the box at the box's width, the two one outline with a faint seam,
+// at most eight rows, unrolling from the box, the chevron turned; it opens upward only when just the
+// space above can hold it. The same in every browser. On a touch screen it is a native <select>
+// drawn closed the same, so the system's picker opens (T15).
+//
+// Placement is CSS's (rule 10): the box is an anchor (anchor-name) and the list is placed against it
+// with anchor positioning, at the box's bottom edge and width, in the same frame as any scroll or
+// resize. Base UI's positioner still wraps the list (its popup needs it) but its computed place is
+// overridden. The one decision made in script is which way to open, taken once as it opens, as
+// dropdown.js did: a fact the stylesheet reads (data-up).
+import { useId, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
+import { Select as SelectPrimitive } from '@base-ui/react/select';
+import { ChevronDown } from 'lucide-react';
+import { cva } from 'class-variance-authority';
+import { cn } from '@/lib/utils';
+import { FOCUS_BOX } from './focus';
+
+export type SelectOption = { value: string; label: string; className?: string };
+type Variant = 'field' | 'inset' | 'toolbar' | 'ghost';
+type Size = 'xs' | 'sm' | 'default' | 'lg';
+
+const ROW = 28;        // an option's row, roughly: only to judge whether the list fits below
+const MAX_ROWS = 8;    // the list shows at most this many and scrolls the rest
+
+// The box. Its ground at rest is also the open list's (they read as one).
+const GROUND: Record<Variant, string> = { field: 'bg-surface-subtle', inset: 'bg-background', toolbar: 'bg-card', ghost: 'bg-card' };
+// The pointer over it, as each had it: Settings' and the dialogs' the arrow, the toolbar's, the
+// header's and reader settings' the hand. Its list's options take the same.
+const CURSOR: Record<Variant, Partial<Record<Size, string>>> = {
+  field: { sm: 'cursor-pointer', default: 'cursor-auto', lg: 'cursor-auto' },
+  inset: { default: 'cursor-auto', sm: 'cursor-auto', lg: 'cursor-auto' },
+  toolbar: { default: 'cursor-pointer' },
+  ghost: { xs: 'cursor-pointer' },
+};
+const box = cva(
+  'inline-flex min-w-0 items-center gap-[8px] rounded-6 border border-solid text-left whitespace-nowrap text-foreground select-none transition-[background-color,border-color,border-radius,box-shadow] duration-fast ease-standard',
+  {
+    variants: {
+      variant: {
+        field: `border-input bg-surface-subtle ${FOCUS_BOX}`,
+        inset: `border-border bg-background ${FOCUS_BOX} disabled:opacity-60 data-disabled:opacity-60`,
+        toolbar: `border-border bg-card ${FOCUS_BOX}`,
+        // The header's page menu: the shared keyboard ring, as the header's other controls.
+        ghost: 'border-transparent bg-transparent text-muted-foreground hover:text-foreground',
+      },
+      size: {
+        xs: 'h-[26px] px-[6px]',
+        sm: 'h-[30px] px-[10px]',
+        default: 'min-h-[34px] px-[10px] py-[8px]',
+        lg: 'min-h-[38px] px-[11px] py-[8px]',
+      },
+      width: { fill: 'w-full', widest: '', content: '' },
+    },
+    compoundVariants: [
+      { variant: 'toolbar', size: 'default', class: 'px-[12px]' },
+      { variant: 'ghost', class: 'gap-[5px]' },
+    ],
+  },
+);
+// The box's type, which its list shares (the list's eight rows are eight of its lines).
+const TEXT: Record<Size, string> = { xs: 'text-13', sm: 'text-11', default: 'text-12', lg: 'text-12 leading-[1.4]' };
+
+// Hovered (not open): the raised ground and the hover frame. Open: its resting ground, the hover
+// frame, the corners by the list squared.
+const BOX_STATES = [
+  'hover:not-data-popup-open:bg-secondary hover:not-data-popup-open:border-border-hover',
+  'data-popup-open:border-border-hover',
+].join(' ');
+const OPEN_EDGE: Record<Variant, string> = {
+  field: 'data-popup-open:not-data-up:rounded-b-none data-popup-open:data-up:rounded-t-none',
+  inset: 'data-popup-open:not-data-up:rounded-b-none data-popup-open:data-up:rounded-t-none',
+  toolbar: 'data-popup-open:not-data-up:rounded-b-none data-popup-open:data-up:rounded-t-none',
+  ghost: '',   // its list stands 4px off it, with corners of its own
+};
+
+// The list's options line up with the box's text: their side padding is the box's.
+const INSET: Record<Variant, Partial<Record<Size, string>>> = {
+  field: { sm: 'px-[10px]', default: 'px-[10px]', lg: 'px-[11px]' },
+  inset: { default: 'px-[10px]', sm: 'px-[10px]', lg: 'px-[11px]' },
+  toolbar: { default: 'px-[12px]' },
+  ghost: { xs: 'px-[10px]' },
+};
+
+const coarseQuery = typeof matchMedia === 'function' ? matchMedia('(pointer: coarse)') : null;
+const subscribe = (changed: () => void) => { coarseQuery?.addEventListener('change', changed); return () => coarseQuery?.removeEventListener('change', changed); };
+const isCoarse = () => !!coarseQuery?.matches;
+
+type Props = {
+  options: SelectOption[];
+  value?: string;
+  defaultValue?: string;
+  onValueChange?: (value: string) => void;
+  variant?: Variant;
+  size?: Size;
+  width?: 'fill' | 'widest' | 'content';
+  disabled?: boolean;
+  name?: string;
+  id?: string;
+  className?: string;
+  // The system's picker (true) or the drawn list (false); by default, the system's on a touch screen.
+  native?: boolean;
+  'aria-label'?: string;
+  'aria-labelledby'?: string;
+} & { [data: `data-${string}`]: string | undefined };
+
+function Chevron({ className }: { className?: string }) {
+  return <ChevronDown aria-hidden strokeWidth={2} className={cn('ml-auto size-[11px] shrink-0 text-muted-dim transition-[rotate,color] duration-open ease-standard', className)} />;
+}
+
+// The chosen label, or every label in one cell with only the chosen one showing (width widest).
+function Label({ options, value, width }: { options: SelectOption[]; value: string | undefined; width: Props['width'] }) {
+  const chosen = options.find((o) => o.value === value);
+  if (width !== 'widest') return <span className={cn('min-w-0 truncate', chosen?.className)}>{chosen?.label ?? ''}</span>;
+  return (
+    <span className="grid min-w-0">
+      {options.map((o) => (
+        <span key={o.value} aria-hidden={o.value !== value} className={cn('[grid-area:1/1] truncate', o.value !== value && 'invisible', o.className)}>{o.label}</span>
+      ))}
+    </span>
+  );
+}
+
+function Select({ options, value, defaultValue, onValueChange, variant = 'field', size, width, disabled, name, id, className, native, ...rest }: Props) {
+  const s: Size = size ?? (variant === 'field' ? 'lg' : variant === 'ghost' ? 'xs' : 'default');
+  const w = width ?? (variant === 'toolbar' ? 'widest' : variant === 'ghost' ? 'content' : 'fill');
+  const coarse = useSyncExternalStore(subscribe, isCoarse, () => false);
+  const [own, setOwn] = useState(defaultValue ?? options[0]?.value);
+  const current = value ?? own;
+  const choose = (v: string) => { setOwn(v); onValueChange?.(v); };
+  const anchor = `--select-${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
+  const [up, setUp] = useState(false);
+  const cursor = CURSOR[variant][s] ?? 'cursor-auto';
+  const boxClass = cn(box({ variant, size: s, width: w }), TEXT[s], cursor, cursor === 'cursor-pointer' && 'disabled:cursor-default data-disabled:cursor-default', BOX_STATES, OPEN_EDGE[variant], className);
+  const trigger = useRef<HTMLButtonElement>(null);
+
+  if (native ?? coarse) {
+    // The system's picker, over a box drawn as the other's.
+    return (
+      <span data-slot="select" className={cn('relative inline-grid min-w-0', w === 'fill' && 'w-full')}>
+        <select
+          id={id} name={name} disabled={disabled} value={current} onChange={(e) => choose(e.target.value)}
+          className={cn(boxClass, 'appearance-none pr-[30px] [grid-area:1/1]')}
+          {...rest}
+        >
+          {options.map((o) => <option key={o.value} value={o.value} className={o.className}>{o.label}</option>)}
+        </select>
+        <Chevron className="pointer-events-none absolute top-1/2 right-[11px] -translate-y-1/2" />
+      </span>
+    );
+  }
+
+  return (
+    <SelectPrimitive.Root
+      value={current}
+      onValueChange={(v) => { if (typeof v === 'string') choose(v); }}
+      onOpenChange={(open) => {
+        // Which way it opens, settled as it opens: down, unless only the space above can hold it.
+        if (open && trigger.current) {
+          const r = trigger.current.getBoundingClientRect(), below = innerHeight - r.bottom;
+          setUp(variant !== 'ghost' && below < Math.min(options.length, MAX_ROWS) * ROW + 10 && r.top > below);
+        }
+      }}
+      items={options}
+      modal={false}
+      disabled={disabled}
+      name={name}
+    >
+      <SelectPrimitive.Trigger
+        id={id}
+        ref={trigger}
+        data-slot="select-trigger"
+        data-variant={variant}
+        data-up={up ? '' : undefined}
+        style={{ anchorName: anchor } as CSSProperties}
+        className={cn(boxClass, '[&[data-popup-open]_svg]:rotate-180 [&:is(:hover,[data-popup-open])_svg]:text-muted-foreground')}
+        {...rest}
+      >
+        <Label options={options} value={current} width={w} />
+        <Chevron />
+      </SelectPrimitive.Trigger>
+      <SelectPrimitive.Portal>
+        <SelectPrimitive.Positioner
+          alignItemWithTrigger={false}
+          data-slot="select-positioner"
+          data-up={up ? '' : undefined}
+          style={{ positionAnchor: anchor } as CSSProperties}
+          className={cn(
+            // Placed by CSS against the box, whatever the positioner computed.
+            'z-select fixed! inset-auto! m-0! transform-none!',
+            variant === 'ghost'
+              ? 'top-[calc(anchor(bottom)+4px)]! left-[anchor(left)]! w-max! min-w-[anchor-size(width)]!'
+              : up ? 'bottom-[calc(anchor(top)-1px)]! left-[anchor(left)]! w-[anchor-size(width)]!' : 'top-[calc(anchor(bottom)-1px)]! left-[anchor(left)]! w-[anchor-size(width)]!',
+          )}
+        >
+          <SelectPrimitive.Popup
+            data-slot="select-list"
+            className={cn(
+              'box-border max-h-[calc(8*(1lh+12px)+10px)] overflow-y-auto border border-solid border-border-hover py-[4px] text-foreground shadow-popover outline-none [scrollbar-color:var(--scrollbar-inner-thumb)_transparent] [scrollbar-width:thin]',
+              GROUND[variant],
+              TEXT[s],
+              variant === 'ghost' ? 'rounded-6' : up ? 'rounded-t-6 border-b-border' : 'rounded-b-6 border-t-border',
+              // It unrolls away from the box (a clip, not a fade: rule 11).
+              'transition-[clip-path] duration-open ease-out',
+              up ? '[clip-path:inset(-24px_-24px_0_-24px)] data-starting-style:[clip-path:inset(100%_-24px_0_-24px)] data-ending-style:[clip-path:inset(100%_-24px_0_-24px)]'
+                : '[clip-path:inset(0_-24px_-24px_-24px)] data-starting-style:[clip-path:inset(0_-24px_100%_-24px)] data-ending-style:[clip-path:inset(0_-24px_100%_-24px)]',
+            )}
+          >
+            <SelectPrimitive.List>
+              {options.map((o) => (
+                <SelectPrimitive.Item
+                  key={o.value}
+                  value={o.value}
+                  data-slot="select-option"
+                  className={cn(
+                    'py-[6px] whitespace-normal text-muted-foreground outline-none transition-[background-color,color] duration-fast ease-standard', cursor,
+                    // Under the pointer, or reached by the keyboard (not merely the one the list
+                    // opened on), as 1.3's list showed it.
+                    'data-[selected]:font-semibold data-[selected]:text-foreground hover:bg-secondary hover:text-foreground focus-visible:bg-secondary focus-visible:text-foreground',
+                    INSET[variant][s] ?? 'px-[10px]', o.className,
+                  )}
+                >
+                  <SelectPrimitive.ItemText>{o.label}</SelectPrimitive.ItemText>
+                </SelectPrimitive.Item>
+              ))}
+            </SelectPrimitive.List>
+          </SelectPrimitive.Popup>
+        </SelectPrimitive.Positioner>
+      </SelectPrimitive.Portal>
+    </SelectPrimitive.Root>
+  );
+}
+
+export { Select };

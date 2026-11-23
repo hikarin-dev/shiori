@@ -9,7 +9,7 @@ export const TOKENS = {
   radius: ['2', '3', '4', '5', '6', '8', '10', '12', 'pill', 'circle'],
   shadow: ['popover', 'toast', 'dialog', 'lift', 'knob'],
   ease: ['standard', 'out', 'emphasis', 'settle'],
-  z: ['header', 'page-menu', 'page-overlay', 'dialog', 'dialog-raised', 'status', 'status-menu', 'menu', 'drop', 'tooltip', 'toast', 'notice'],
+  z: ['header', 'page-menu', 'page-overlay', 'dialog', 'dialog-raised', 'status', 'status-menu', 'menu', 'drop', 'tooltip', 'toast', 'notice', 'select'],
   duration: ['fast', 'base', 'open', 'move', 'slow'],
 };
 
