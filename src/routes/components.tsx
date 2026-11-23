@@ -18,6 +18,7 @@ import { KbdSpecimens } from './specimens/kbd';
 import { SpinnerSpecimens } from './specimens/spinner';
 import { ProgressSpecimens } from './specimens/progress';
 import { TagSpecimens } from './specimens/tag';
+import { BadgeSpecimens } from './specimens/badge';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -134,6 +135,7 @@ export default function Components() {
       <SpinnerSpecimens />
       <ProgressSpecimens />
       <TagSpecimens />
+      <BadgeSpecimens />
     </main>
   );
 }
