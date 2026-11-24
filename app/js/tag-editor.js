@@ -98,13 +98,14 @@ const SUGGEST_MAX = 8;
 const $ = (id) => document.getElementById(id);
 
 // The values a type is picked from, or null when its value is typed.
-function _choices(type) {
+export function tagChoices(type) {
   if (type === 'language') return LANG_OPTIONS.map((o) => ({ value: o.name, label: langDisplayName(o.code) }));
   if (TAG_VALUES[type]) return TAG_VALUES[type].map((v) => ({ value: v, label: v }));
   return null;
 }
-// The value a gallery has for a category or rating.
-const _currentSingle = (type) => (SINGLE.has(type) && _state.have.find((tg) => tg.type === type)?.name) || '';
+// The value a gallery whose tags are `have` has for a category or rating.
+export const singleValue = (type, have) => (SINGLE.has(type) && have.find((tg) => tg.type === type)?.name) || '';
+const _currentSingle = (type) => singleValue(type, _state.have);
 
 function _build() {
   _el = document.createElement('div');
@@ -186,7 +187,7 @@ function _texts() {
 // Show the value control the selected type takes, holding `value` (undefined keeps what's typed).
 function _syncValue(value) {
   const type = $('tagEdType').value;
-  const choices = _choices(type);
+  const choices = tagChoices(type);
   const pick = $('tagEdPick');
   pick.style.display = choices ? '' : 'none';
   $('tagEdField').style.display = choices ? 'none' : '';
@@ -205,36 +206,46 @@ function _syncValue(value) {
   _loadSuggestions(type);
 }
 
-// The library's tags of one type, most used first, for the suggestion list.
+// The library's tags of one type, most used first: [{ name, n }].
+export async function tagSuggestions(type) {
+  const prefix = `${type}:`;
+  const all = [];
+  for (const [key, n] of await api.galleries.tagCounts({ prefix })) {
+    const name = key.slice(prefix.length);
+    if (type === 'tag' && /^(fe)?male:/.test(name)) continue;   // female/male tags share the prefix
+    all.push({ name, n });
+  }
+  return all.sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
+}
+
+// The suggestions for what's typed (`term`) out of `all` (tagSuggestions' of `type`): names starting
+// with it, then names containing it, leaving out the tags of that type the gallery has (`have`).
+export function suggestionsFor(all, term, have, type) {
+  term = term.trim().toLowerCase();
+  const had = new Set(have.filter((tg) => tg.type === type).map((tg) => String(tg.name).toLowerCase()));
+  const starts = [], within = [];
+  for (const s of all) {
+    if (had.has(s.name) || s.name === term) continue;
+    if (s.name.startsWith(term)) starts.push(s);
+    else if (s.name.includes(term)) within.push(s);
+  }
+  return [...starts, ...within].slice(0, SUGGEST_MAX);
+}
+
+// The library's tags of one type, for the suggestion list.
 async function _loadSuggestions(type) {
   const seq = ++_suggest.seq;
   _suggest.type = type;
   _suggest.all = [];
-  const prefix = `${type}:`;
-  const counts = await api.galleries.tagCounts({ prefix });
+  const all = await tagSuggestions(type);
   if (seq !== _suggest.seq) return;
-  for (const [key, n] of counts) {
-    const name = key.slice(prefix.length);
-    if (type === 'tag' && /^(fe)?male:/.test(name)) continue;   // female/male tags share the prefix
-    _suggest.all.push({ name, n });
-  }
-  _suggest.all.sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
+  _suggest.all = all;
   if (_suggest.live && document.activeElement === $('tagEdValue')) _renderSuggestions();
 }
 
-// Suggestions for what's typed: names starting with it, then names containing it — leaving out
-// the tags this gallery already has.
 function _renderSuggestions() {
   if (!_state) return;
-  const term = $('tagEdValue').value.trim().toLowerCase();
-  const have = new Set(_state.have.filter((tg) => tg.type === _suggest.type).map((tg) => String(tg.name).toLowerCase()));
-  const starts = [], within = [];
-  for (const s of _suggest.all) {
-    if (have.has(s.name) || s.name === term) continue;
-    if (s.name.startsWith(term)) starts.push(s);
-    else if (s.name.includes(term)) within.push(s);
-  }
-  _suggest.shown = [...starts, ...within].slice(0, SUGGEST_MAX);
+  _suggest.shown = suggestionsFor(_suggest.all, $('tagEdValue').value, _state.have, _suggest.type);
   _suggest.sel = -1;
   $('tagEdList').innerHTML = _suggest.shown.map((s, i) =>
     `<div class="tag-ed-opt" role="option" id="tagEdOpt${i}" data-i="${i}" aria-selected="false"><span class="tag-ed-opt-name">${escHtml(s.name)}</span><span class="tag-ed-opt-n">${formatCompact(s.n)}</span></div>`).join('');
@@ -270,15 +281,13 @@ function _choose(i) {
   _openList(false);
 }
 
-async function _save() {
-  const { gid, edit, beforeWrite } = _state;
-  const type = edit ? edit.type : $('tagEdType').value;
-  const name = (_choices(type) ? $('tagEdPick').value : $('tagEdValue').value).trim().toLowerCase();
-  if (!name) { $('tagEdValue').focus(); return; }
+// Give the gallery `gid` the tag `type`:`name` (already trimmed and lower-cased), or set the value of
+// the tag `edit` it has. Resolves with whether its tags changed.
+export function writeTag(gid, type, name, { edit = null, beforeWrite = null } = {}) {
   // What the new value replaces: the edited tag, or the category / rating the gallery had.
   const replaced = edit ? _standsFor(edit) : SINGLE.has(type) ? (tg) => tg.type === type : () => false;
   const same = (tg) => tg.type === type && String(tg.name).toLowerCase() === name;
-  const written = await updateTags(gid, (tags) => {
+  return updateTags(gid, (tags) => {
     const out = [];
     // Already there under another tag: the replaced ones just go.
     let placed = tags.some((tg) => same(tg) && !replaced(tg));
@@ -289,6 +298,14 @@ async function _save() {
     if (!placed) out.push({ type, name, url: '' });
     return out;
   }, beforeWrite);
+}
+
+async function _save() {
+  const { gid, edit, beforeWrite } = _state;
+  const type = edit ? edit.type : $('tagEdType').value;
+  const name = (tagChoices(type) ? $('tagEdPick').value : $('tagEdValue').value).trim().toLowerCase();
+  if (!name) { $('tagEdValue').focus(); return; }
+  const written = await writeTag(gid, type, name, { edit, beforeWrite });
   if (!edit) _addType = type;
   _done(written);
 }
@@ -321,7 +338,7 @@ export async function openTagEditor(gid, { tag = null, beforeWrite = null } = {}
     _syncValue(tag ? tag.name : _currentSingle(typeSel.value));
     _el.classList.add('show');
     setTimeout(() => {
-      const target = _choices(typeSel.value) ? $('tagEdPick') : $('tagEdValue');
+      const target = tagChoices(typeSel.value) ? $('tagEdPick') : $('tagEdValue');
       target.focus();
       if (tag && target.select) target.select();
     }, 30);
