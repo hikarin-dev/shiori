@@ -190,8 +190,9 @@ async function open(t, path, { library = true, storage = {}, before: early, view
 }
 async function shownStorage(page) {
   await until(page, () => !!document.getElementById('navStorage') && !!document.getElementById('clearAllBtn'), null, { what: 'the Storage panel' });
-  await page.evaluate(() => document.getElementById('navStorage').click());   // (a question may stand over the page)
-  await until(page, () => document.getElementById('panelStorage').classList.contains('active'), null, { what: 'Storage shown' });
+  // (Pressed again until it shows: 1.3's markup is there before its script listens. A question may
+  // stand over the page: pressed by script.)
+  await until(page, () => { const panel = document.getElementById('panelStorage'); if (!panel.classList.contains('active')) document.getElementById('navStorage').click(); return panel.classList.contains('active'); }, null, { what: 'Storage shown' });
 }
 
 const run = (page, fn, arg) => page.evaluate(fn, arg);
