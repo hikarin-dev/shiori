@@ -69,12 +69,14 @@ for (const scale of [1, 1.25, 1.5]) {
       const del = await boxes(page, '[data-notice="dialog"]');
       inside(`${name}: the delete question`, del);
       assert.equal(del.cw, scrollbar, `${name}: the page's scrollbar left where it is`);
-      await page.keyboard.press('Escape'); await sleep(300);
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.querySelector('[data-notice="dialog"]'), { timeout: 10000 });
       // The series' window.
       await page.evaluate((sel) => document.querySelector(sel).scrollIntoView({ block: 'center' }), `#grid > .card[data-gallery-id="${base + PARTS.S}"]`);
       await press(page, base, 'S', 'tr');
       inside(`${name}: the series' window`, await boxes(page, '#seriesTranslateModal'));
-      await page.keyboard.press('Escape'); await sleep(300);
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.querySelector('#seriesTranslateModal'), { timeout: 10000 });
       // The tag editor, its suggestions open.
       await press(page, base, 'P', 'add');
       inside(`${name}: the tag editor`, await boxes(page, '#tagEditor'));

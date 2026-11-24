@@ -158,6 +158,7 @@ test('galleries added and removed in another context: the page follows, as 1.3\'
     await page.bringToFront();
     await until(page, (gid) => document.querySelector('#grid > .card')?.dataset.galleryId === gid, add, { what: `${path}: the added gallery first` });
     await covered(page);
+    await sleep(1200);   // the totals, read again 800 ms after the last change (as the removal's below)
     const added = await page.evaluate(() => [document.querySelectorAll('#grid > .card').length, document.getElementById('hTotalGalleries').textContent]);
     await other.evaluate(async (gid) => (await import('/app/js/store.js')).remove(gid), add);
     await page.bringToFront();
