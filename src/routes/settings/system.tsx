@@ -114,9 +114,10 @@ export function SystemPanel() {
 
       <Section title={t('set.desk_updates')}>
         {row(<span id="deskUpdateStatus">{update.text}</span>, null, (
-          <span className="desk-actions inline-flex gap-[8px]">
-            <Button id="deskInstallUpdate" variant="solid" hidden={!update.ready} onClick={() => ask('installUpdate')}>{t('set.desk_restart_update')}</Button>
-            <Button id="deskCheckUpdates" variant="subtle" size="sm" disabled={update.busy}
+          // (Its buttons give room as 1.3's did, their words wrapping, so a narrow panel holds both.)
+          <span className="desk-actions inline-flex min-w-0 gap-[8px]">
+            <Button id="deskInstallUpdate" variant="solid" className="shrink" hidden={!update.ready} onClick={() => ask('installUpdate')}>{t('set.desk_restart_update')}</Button>
+            <Button id="deskCheckUpdates" variant="subtle" size="sm" className="shrink" disabled={update.busy}
               onClick={async () => { const next = await ask('checkUpdates') as State; if (!live.current) return; setState(next); followCheck(); }}>{t('set.desk_check')}</Button>
           </span>
         ))}

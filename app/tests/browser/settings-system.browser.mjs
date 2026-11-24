@@ -294,11 +294,19 @@ test('System shows in the desktop app\'s window alone, its nav item before Stora
   assert.deepEqual(navs[0], ['navLibrary', 'navReader', 'navTranslation', 'navDesktop', 'navStorage']);
 });
 
-test('the phone form: nothing runs past the cards or the screen; a long path wraps', async (t) => {
+test('the phone form, an update ready: nothing runs past the cards or the screen; a long path wraps', async (t) => {
   if (skip(t)) return;
   const seen = [];
+  // (Ready: Restart to update beside Check, the row's widest.)
+  const ready = () => {
+    const shell = window.shioriDesktop.shell;
+    window.shioriDesktop.shell = async (action, ...args) => {
+      const out = await shell(action, ...args);
+      return action === 'state' ? { ...out, update: { status: 'ready', version: '1.4.1' } } : out;
+    };
+  };
   for (const [, path] of PAGES) {
-    const page = await open(t, path, { viewport: { width: 390, height: 844, isMobile: true, hasTouch: true } });
+    const page = await open(t, path, { viewport: { width: 390, height: 844, isMobile: true, hasTouch: true }, early: ready });
     await settle(page);
     seen.push(await run(page, () => {
       const out = [];
