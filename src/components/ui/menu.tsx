@@ -44,17 +44,25 @@ const popup = cva(cn(FLOATING, 'border-border shadow-popover'), {
 });
 
 // Closes the menu when the page scrolls or the window is resized, as 1.3's menus did (Base UI's
-// would follow what opened it).
+// would follow what opened it). Only from the frame after it opened: a scroll's event comes at the
+// next frame, so a scroll made just before (the page brought the button into view as Tab reached
+// it, or a script's focus did) would otherwise close the menu its press had just opened.
 function useCloseOnMove() {
   const actions = useRef<MenuPrimitive.Root.Actions | null>(null);
   const open = useRef(false);
+  const armed = useRef(0);
   useEffect(() => {
-    const close = () => { if (open.current) actions.current?.close(); };
+    const close = () => { if (open.current && armed.current === -1) actions.current?.close(); };
     window.addEventListener('scroll', close, true);
     window.addEventListener('resize', close);
-    return () => { window.removeEventListener('scroll', close, true); window.removeEventListener('resize', close); };
+    return () => { window.removeEventListener('scroll', close, true); window.removeEventListener('resize', close); cancelAnimationFrame(armed.current); };
   }, []);
-  return { actions, track: (o: boolean) => { open.current = o; } };
+  const track = (o: boolean) => {
+    open.current = o;
+    cancelAnimationFrame(armed.current);
+    armed.current = o ? requestAnimationFrame(() => { armed.current = -1; }) : 0;
+  };
+  return { actions, track };
 }
 
 function Menu({ onOpenChange, ...props }: MenuPrimitive.Root.Props) {

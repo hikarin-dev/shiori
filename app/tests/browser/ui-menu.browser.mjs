@@ -2,11 +2,13 @@
 // 1.3's sizes (items, a title, a detail line, a key cap, a danger item, the menu's separator, the
 // checklist's options), one floating shadow and layer; and working: under its button or at the
 // pointer, the page's scrollbar kept, the keyboard of a menu (arrows, Home, End, a letter, Enter,
-// Escape, focus back to the button), closed by a scroll; a right-click's menu slid back inside the window
-// at its edge; a checklist's ticks leave it open. (The
+// Escape, focus back to the button; opened from its button reached by Tab, in Chrome and Firefox), closed by a
+// scroll; a right-click's menu slid back inside the window at its edge; a checklist's ticks leave it open. (The
 // pointer is moved to a right-click's place first: puppeteer's click alone is not taken as one there.)
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import puppeteer from 'puppeteer-core';
 import { startServer, chromePath, launch, until } from './harness.mjs';
 import { componentsPage, spec, centreOf, textMotion } from './specimens.mjs';
 
@@ -85,6 +87,7 @@ test('a menu under its button: the keyboard of a menu, focus back, the scrollbar
   // A scroll closes it, as 1.3's.
   await page.mouse.click(at.x, at.y);
   await page.waitForSelector(menu);
+  await frame(page);   // a scroll once it is open (one in the frame it opened in is the one before it)
   await page.evaluate(() => window.scrollBy(0, -40));
   await until(page, (m) => !document.querySelector(m), menu, { what: 'the menu closed by a scroll' });
   assert.deepEqual(page.problems, []);
@@ -151,3 +154,65 @@ test('a right-click menu at the pointer, and a checklist that stays open', async
   assert.deepEqual(page.problems, []);
 });
 
+// A keyboard user who tabs to a menu's button opens it with Enter, Space or ArrowDown (the first item
+// lit and focused) or ArrowUp (the last), as the menu-button pattern has it; in Chrome and, where it
+// is installed, in Firefox. (Reached by Tab from a button put just before it: the page is long. The page
+// is scrolled to it just before, as a Tab that brings a button into view does: that scroll's event,
+// which comes a frame later, once closed the menu the key had just opened.)
+const firefoxPath = [process.env.FIREFOX_PATH, 'C:/Program Files/Mozilla Firefox/firefox.exe',
+  '/Applications/Firefox.app/Contents/MacOS/firefox', '/usr/bin/firefox'].find((p) => p && existsSync(p));
+
+async function openedByKeys(page) {
+  const seen = [];
+  for (const key of ['Enter', ' ', 'ArrowDown', 'ArrowUp']) {
+    await page.evaluate(() => {
+      const button = document.querySelector('[data-specimen-open="menu"]');
+      document.getElementById('before-menu')?.remove();
+      const start = Object.assign(document.createElement('button'), { id: 'before-menu', textContent: '·' });
+      button.before(start);
+      start.scrollIntoView({ block: 'center', behavior: 'instant' });
+      start.focus();
+    });
+    await page.keyboard.press('Tab');
+    const reached = await page.evaluate(() => document.activeElement?.dataset.specimenOpen ?? null);
+    await page.keyboard.press(key);
+    // Lit, then focused (Base UI moves focus to it in a later frame).
+    await until(page, () => { const lit = document.querySelector('[data-specimen-menu="folder"] [data-highlighted]'); return !!lit && document.activeElement === lit; }, undefined, { what: `the menu opened by ${JSON.stringify(key)}, an item focused` });
+    seen.push(await page.evaluate((key) => {
+      const menu = document.querySelector('[data-specimen-menu="folder"]');
+      const lit = menu.querySelector('[data-highlighted]');
+      return [key, document.querySelector('[data-specimen-open="menu"]').getAttribute('aria-expanded'), lit.textContent, document.activeElement === lit];
+    }, key).then((r) => [reached, ...r]));
+    await page.keyboard.press('Escape');
+    await until(page, () => !document.querySelector('[data-specimen-menu="folder"]') && document.activeElement?.dataset.specimenOpen === 'menu', undefined, { what: 'closed, focus back on its button' });
+  }
+  return seen;
+}
+
+const BY_KEYS = [
+  ['menu', 'Enter', 'true', 'Open folder', true],
+  ['menu', ' ', 'true', 'Open folder', true],
+  ['menu', 'ArrowDown', 'true', 'Open folder', true],
+  ['menu', 'ArrowUp', 'true', 'Remove', true],
+];
+
+test('a menu\'s button reached by Tab opens by Enter, Space and the arrows, an item focused (Chrome)', async (t) => {
+  const page = await componentsPage(t, browser, origin);
+  if (!page) return;
+  assert.deepEqual(await openedByKeys(page), BY_KEYS);
+  assert.deepEqual(page.problems, []);
+});
+
+test('a menu\'s button reached by Tab opens by Enter, Space and the arrows, an item focused (Firefox)', { skip: !firefoxPath && 'Firefox not found (set FIREFOX_PATH)' }, async (t) => {
+  if (!origin) { t.skip('Chrome not found (the server starts with it)'); return; }
+  const firefox = await puppeteer.launch({ browser: 'firefox', executablePath: firefoxPath, headless: true });
+  t.after(() => firefox.close());
+  const page = await firefox.newPage();
+  await page.setViewport({ width: 1280, height: 900 });
+  const problems = [];
+  page.on('pageerror', (e) => problems.push(`uncaught: ${e?.message || e}`));
+  await page.goto(`${origin}/components`, { waitUntil: 'load' });
+  await until(page, () => document.title === 'Shiori — Components' && !!document.querySelector('[data-specimen-open="menu"]'), undefined, { what: 'the components page' });
+  assert.deepEqual(await openedByKeys(page), BY_KEYS);
+  assert.deepEqual(problems, []);
+});
