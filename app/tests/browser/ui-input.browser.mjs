@@ -23,7 +23,7 @@ const settled = (page) => page.evaluate(() => new Promise((done) => setTimeout(d
 test('text boxes: Tab reaches them, they take typing, one focused look by Tab or by click, nothing moves', async (t) => {
   const page = await componentsPage(t, browser, origin);
   if (!page) return;
-  for (const sel of [spec('field-input', 'field'), spec('modal-input', 'inset'), spec('add-search', 'inset-xl'), spec('notice-input', 'dialog'), spec('feedback-textarea', 'inset'), spec('tcfg-textarea', 'field')]) {
+  for (const sel of [spec('field-input', 'field'), spec('modal-input', 'inset'), spec('add-search', 'inset-xl'), spec('notice-input', 'inset'), spec('feedback-textarea', 'inset'), spec('tcfg-textarea', 'field')]) {
     const rest = await look(page, sel);
     assert.notEqual(rest.border, RING, `${sel}: not focused at rest`);
     await page.evaluate((sel) => { const b = document.createElement('button'); b.className = 'probe'; document.querySelector(sel).closest('div').before(b); b.focus(); }, sel);
@@ -58,7 +58,7 @@ test('a field with a joined button: the pair one frame, the button a button, its
     const sa = getComputedStyle(input), sb = getComputedStyle(button);
     return { joined: Math.abs(a.right - b.left) < 0.01, height: [a.height, b.height], corners: [sa.borderTopRightRadius, sb.borderTopLeftRadius, sb.borderTopRightRadius], seam: sb.borderLeftWidth, role: button.localName, label: button.getAttribute('aria-label') };
   });
-  assert.deepEqual(pair, { joined: true, height: [38, 38], corners: ['0px', '0px', '6px'], seam: '0px', role: 'button', label: 'Check connection' });
+  assert.deepEqual(pair, { joined: true, height: [36, 36], corners: ['0px', '0px', '6px'], seam: '0px', role: 'button', label: 'Check connection' });
   const busy = await page.$eval('[aria-busy="true"] svg', (svg) => getComputedStyle(svg).animationName);
   assert.equal(busy, 'spin');
 });
