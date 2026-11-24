@@ -4,9 +4,12 @@ import './boot.js';
 import * as api from './api.js';
 import * as platform from './platform.js';
 import { cancelJob } from './submit-job.js';
-import { pingServer, serverUrlFromSettings, hasConfiguredServer, isLocalServer } from './translate.js';
+import { pingServer, serverUrlFromSettings, hasConfiguredServer } from './translate.js';
 import { getCapabilities, cachedCapabilities } from './capabilities.js';
-import { migrateTranslateSettings, settingsModel, GROUP_HEADING_KEYS } from './translate-config.js';
+import { settingsModel, GROUP_HEADING_KEYS } from './translate-config.js';
+import { readTranslateSettings, gatherTranslateSettings as gatherSettings, serverUrlInvalid, SERVER_URL_ERROR, applyControl as applyControlTo,
+  resetTranslateSettings, benchmarkOffered, DEFAULT_PRICES, unavailableChoice, optionLabel as choiceLabel, stepLabel, stepTip,
+  presetChoices, targetLanguageParam, capsNote } from './translate-settings.js';
 import { exportBackup, importBackups, checkBackup, backupRunning, attachNativeBackup } from './backup-ui.js';
 import { t, applyTranslations, getLang, setLang, SUPPORTED, LANG_NAMES } from './i18n.js';
 import { formatBytes, formatCount } from './format.js';
@@ -336,8 +339,7 @@ async function checkTranslatorStatus(settings = null, { auto = false } = {}) {
   const serverUrl = serverUrlFromSettings(translateSettings);
   const online = await pingServer(serverUrl, translateSettings);
   setTranslatorBadge(online ? 'online' : 'offline');
-  // The benchmark is for whoever runs the translation server on this machine.
-  document.getElementById('translationBenchmark').hidden = !(online && isLocalServer(serverUrl));
+  document.getElementById('translationBenchmark').hidden = !benchmarkOffered(online, serverUrl);
 }
 
 document.getElementById('checkTranslateBtn').addEventListener('click', () => {
@@ -351,12 +353,11 @@ checkTranslatorStatus(null, { auto: true });
 // stores the user's picks keyed by the server's parameter names. With no server answer and no
 // cached copy there is nothing to choose from, so the controls stay away and saved picks are kept.
 
-let _settings = migrateTranslateSettings();
+let _settings = readTranslateSettings().settings;
 let _caps = null;            // capabilities document for the configured server (or null)
 let _capsOffline = false;    // true when _caps is a cached copy the server didn't just confirm
 let _capsServer = '';
 
-const DEFAULT_SCREEN_PROMPT_KEY = 'translator.content_screen_prompt';
 // App-owned presentation: which implementation choices span the full modal width, and the icon
 // drawn for each pipeline step (any stage the app doesn't know gets the scan icon).
 const WIDE_STAGES = new Set(['translate', 'ocr']);
@@ -370,13 +371,14 @@ const STEP_ICONS = {
 };
 
 function loadTranslateSettings(stored) {
-  _settings = migrateTranslateSettings(stored);
-  if (stored && stored.schema !== _settings.schema) platform.kv.set({ translateSettings: _settings });  // one-time migration
-  document.getElementById('translateServerInput').value = stored?.serverUrl || '';
-  setChoiceValue('translateTokenInput', _settings.serverToken || '');
-  setChoiceValue('studyModeGeneration', _settings.studyModeGeneration || 'disabled');
-  document.getElementById('translateSaveSnapshots').checked = !!_settings.saveSnapshots;
-  document.getElementById('translateKeepSnapshots').checked = !!_settings.keepSnapshotsOnRevert;
+  const { settings, migrated, fields } = readTranslateSettings(stored);
+  _settings = settings;
+  if (migrated) platform.kv.set({ translateSettings: _settings });  // one-time migration
+  document.getElementById('translateServerInput').value = fields.serverUrl;
+  setChoiceValue('translateTokenInput', fields.serverToken);
+  setChoiceValue('studyModeGeneration', fields.studyModeGeneration);
+  document.getElementById('translateSaveSnapshots').checked = fields.saveSnapshots;
+  document.getElementById('translateKeepSnapshots').checked = fields.keepSnapshotsOnRevert;
   refreshCapabilities({ auto: true });
 }
 
@@ -397,28 +399,24 @@ async function refreshCapabilities({ auto = false } = {}) {
 
 // The page's current settings: stored picks plus the connection/study fields on the panel.
 function gatherTranslateSettings() {
-  const serverUrl = document.getElementById('translateServerInput').value.trim().replace(/\/+$/, '');
-  return {
-    ..._settings,
-    serverUrl: serverUrl || 'http://127.0.0.1:5003',
-    serverToken: document.getElementById('translateTokenInput').value.trim(),
+  return gatherSettings(_settings, {
+    serverUrl: document.getElementById('translateServerInput').value,
+    serverToken: document.getElementById('translateTokenInput').value,
     studyModeGeneration: document.getElementById('studyModeGeneration').value,
     saveSnapshots: document.getElementById('translateSaveSnapshots').checked,
     keepSnapshotsOnRevert: document.getElementById('translateKeepSnapshots').checked,
-  };
+  });
 }
 
-
-const optionLabel = (choice, unavailable) => choice.missing || unavailable
-  ? `${choice.label} — ${t(choice.missing ? 'tm.not_offered' : 'tm.unavailable')}` : choice.label;
+const optionLabel = (choice, unavailable) => choiceLabel(choice, unavailable, t);
 
 function makeSelect(choices, value, { param, stepMirror = false } = {}) {
   const sel = document.createElement('select');
   sel.className = stepMirror ? 'translate-step-select' : 'field-input';
   if (param) sel.dataset.param = param;
   for (const choice of choices) {
-    const unavailable = choice.available === false && !choice.missing;
-    const label = stepMirror ? (choice.short || choice.label.replace(/\s+[(—].*$/, '')) : optionLabel(choice, unavailable);
+    const unavailable = unavailableChoice(choice);
+    const label = stepMirror ? stepLabel(choice) : optionLabel(choice, unavailable);
     const opt = new Option(label, JSON.stringify(choice.value));
     if (stepMirror) opt.title = optionLabel(choice, unavailable);
     else if (choice.version) opt.title = t('tm.version', { version: choice.version });
@@ -513,11 +511,8 @@ function renderTranslateSettings() {
     return;
   }
   document.getElementById('resetTranslateBtn').disabled = false;
-  const notes = [];
-  if (_capsOffline) notes.push(t('tm.caps_cached'));
-  if (model.problems.length) notes.push(t('tm.caps_problem', { names: model.problems.map(p => p.value).join(', ') }));
-  note.textContent = notes.join(' ');
-  note.hidden = !notes.length;
+  note.textContent = capsNote(model, _capsOffline, t);
+  note.hidden = !note.textContent;
 
   const byId = new Map(model.stages.map(s => [s.id, s]));
   const implField = (stage) => field(stage.implLabelKey ? t(stage.implLabelKey) : stage.label,
@@ -531,8 +526,7 @@ function renderTranslateSettings() {
     for (const p of translate.params.filter(p => p.primary && !p.group)) grid.append(paramControl(p));
   }
   if (model.presets.length) {
-    const choices = [...model.presets.map(p => ({ value: p.id, label: p.label })), { value: 'custom', label: t('tm.preset_custom') }];
-    const sel = makeSelect(choices, model.preset);
+    const sel = makeSelect(presetChoices(model, t), model.preset);
     sel.dataset.preset = '1';
     grid.append(field(t('tm.clearing'), sel, { wide: true }));
   }
@@ -574,8 +568,8 @@ function renderTranslateSettings() {
     }
   }
   grid.append(heading(t('tm.cost')),
-    numberField(t('tm.price_in'), 'cfgPriceIn', _settings.priceIn ?? 1.5, { step: 0.01, min: 0 }),
-    numberField(t('tm.price_out'), 'cfgPriceOut', _settings.priceOut ?? 9, { step: 0.01, min: 0 }));
+    numberField(t('tm.price_in'), 'cfgPriceIn', _settings.priceIn ?? DEFAULT_PRICES.priceIn, { step: 0.01, min: 0 }),
+    numberField(t('tm.price_out'), 'cfgPriceOut', _settings.priceOut ?? DEFAULT_PRICES.priceOut, { step: 0.01, min: 0 }));
   setAdvancedCollapsed(_advancedCollapsed);
 }
 
@@ -593,19 +587,6 @@ function setAdvancedCollapsed(collapsed) {
 // version, then the rest of that stage's options, one per line.
 const svgIcon = (cls, d) => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
 
-function stepTip(stage) {
-  const chosen = stage.choices.find(c => c.value === stage.value);
-  const lines = [chosen ? chosen.label + (chosen.version ? ` (${chosen.version})` : '') : String(stage.value)];
-  for (const p of stage.params.filter(p => !p.group)) {
-    const label = p.labelKey ? t(p.labelKey) : p.label;
-    let value = p.value;
-    if (p.type === 'bool') { lines.push(`${value ? '✓' : '✗'} ${label}`); continue; }
-    if (p.choices?.length) value = p.choices.find(c => c.value === value)?.label ?? value;
-    lines.push(`${label}: ${value === '' || value == null ? (p.placeholder || '—') : value}`);
-  }
-  return lines.join('\n');
-}
-
 function renderSummary(model) {
   const el = document.getElementById('translateSummary');
   if (!el) return;
@@ -622,7 +603,7 @@ function renderSummary(model) {
   el.replaceChildren(...stages.flatMap((stage, i) => {
     const step = document.createElement('div');
     step.className = 'translate-step';
-    step.dataset.tip = stepTip(stage);
+    step.dataset.tip = stepTip(stage, t);
     const sel = makeSelect(stage.choices, stage.value, { param: stage.implParam, stepMirror: true });
     sel.id = `step-${stage.id}`;
     step.innerHTML = `<label class="translate-step-head" for="${sel.id}">${svgIcon('translate-step-icon', STEP_ICONS[stage.id] || SCAN_ICON)}<span class="translate-step-name"></span></label>`;
@@ -640,7 +621,7 @@ function renderSummary(model) {
 // nothing is offered.
 function renderLanguage(model) {
   document.getElementById('translateLanguageField')?.remove();
-  const target = model.stages.find(s => s.id === 'translate')?.params.find(p => p.type === 'language');
+  const target = targetLanguageParam(model);
   if (model.offline || !target) return;
   const box = document.createElement('div');
   box.className = 'field';
@@ -658,43 +639,21 @@ function renderLanguage(model) {
   document.getElementById('translateSummary').after(box);
 }
 
-// Read one edited control back into the stored picks.
+// Read one edited control back into the stored picks (translate-settings.js says how).
 function applyControl(el) {
-  if (el.dataset.preset) {
-    const preset = (_caps?.presets || []).find(p => p.id === JSON.parse(el.value));
-    if (preset) Object.assign(_settings.params, preset.values);
-    return;
-  }
-  if (el.dataset.batch) {
-    const n = parseInt(el.value, 10);
-    _settings.batchCaps = { ...(_settings.batchCaps || {}) };
-    if (Number.isFinite(n) && n > 0) _settings.batchCaps[el.dataset.batch] = n;
-    return;
-  }
-  if (el.id === 'cfgPriceIn' || el.id === 'cfgPriceOut') {
-    const n = parseFloat(el.value);
-    if (Number.isFinite(n)) _settings[el.id === 'cfgPriceIn' ? 'priceIn' : 'priceOut'] = n;
-    return;
-  }
-  const key = el.dataset.param;
-  if (!key) return;
-  let value;
-  if (el.type === 'checkbox') value = el.checked;
-  else if (el.tagName === 'SELECT') value = JSON.parse(el.value);
-  else if (el.type === 'number') {
-    const n = el.dataset.integer ? parseInt(el.value, 10) : parseFloat(el.value);
-    if (!Number.isFinite(n)) return;
-    value = n;
-  } else value = el.value;
-  _settings.params = { ..._settings.params, [key]: key === DEFAULT_SCREEN_PROMPT_KEY ? value : (typeof value === 'string' ? value.trim() : value) };
+  const control = el.dataset.preset ? { preset: JSON.parse(el.value) }
+    : el.dataset.batch ? { batch: el.dataset.batch, value: el.value }
+    : el.id === 'cfgPriceIn' || el.id === 'cfgPriceOut' ? { price: el.id === 'cfgPriceIn' ? 'in' : 'out', value: el.value }
+    : { param: el.dataset.param, value: el.value, checked: el.checked, integer: !!el.dataset.integer,
+      type: el.type === 'checkbox' ? 'checkbox' : el.tagName === 'SELECT' ? 'select' : el.type === 'number' ? 'number' : 'text' };
+  _settings = applyControlTo(_settings, _caps, control);
 }
 
 // Saves the whole settings object and says so in `statusId`. Only a server address or token change
 // needs the connection re-checked.
 function saveTranslateSettings(statusId, { recheck = false } = {}) {
-  const serverRaw = document.getElementById('translateServerInput').value.trim();
-  if (serverRaw && !/^https?:\/\//i.test(serverRaw)) {
-    showStatus(statusId, 'Server URL must start with http:// or https://', 'err');
+  if (serverUrlInvalid(document.getElementById('translateServerInput').value)) {
+    showStatus(statusId, SERVER_URL_ERROR, 'err');
     return;
   }
   _settings = gatherTranslateSettings();
@@ -742,7 +701,7 @@ document.getElementById('translateModal').addEventListener('click', (e) => { if 
 // Reset translator behavior to the server's recommendations while keeping the connection details.
 document.getElementById('resetTranslateBtn').addEventListener('click', async () => {
   if (!(await confirmDialog({ title: t('dlg.trreset_title'), body: t('dlg.trreset_body'), ok: t('common.reset') }))) return;
-  _settings = { ...gatherTranslateSettings(), params: {}, batchCaps: {}, priceIn: 1.5, priceOut: 9 };
+  _settings = resetTranslateSettings(gatherTranslateSettings());
   saveTranslateSettings('translateModalStatus');
   renderTranslateSettings();
 });
