@@ -99,10 +99,11 @@ export function LibraryHeader({ t, query, onQueryChange, totals, showTotals }: P
           </div>
         )}
         {/* Import keeps its place at every width: its word wider than 1400px, its icon alone at 1400px or
-            less (28 square on the plain frame, 15px icon; 40 under a finger). */}
+            less (28 square, 15px icon; 40 under a finger). Its frame stays the second accent there: 1.3's
+            narrow rule asked for the plain frame, but its base rule came after it and won. */}
         <Button id="uploadCbzBtn" variant="tint" tone="warning" size="compact" coarse="40" aria-label={t('nav.import')} data-tip={t('nav.import')}
           className={cn('btn-upload gap-[5px]',
-            '[@media(max-width:1400px)]:w-[28px] [@media(max-width:1400px)]:gap-0 [@media(max-width:1400px)]:border-border [@media(max-width:1400px)]:hover:border-border [@media(max-width:1400px)]:px-0',
+            '[@media(max-width:1400px)]:w-[28px] [@media(max-width:1400px)]:gap-0 [@media(max-width:1400px)]:px-0',
             '[@media(pointer:coarse)_and_(max-width:1400px)]:size-[40px]')}>
           <Upload className="btn-upload-icon size-[13px] [@media(max-width:1400px)]:size-[15px]" />
           <span className={cn('btn-upload-label', WIDE_ONLY)}>{t('nav.import')}</span>

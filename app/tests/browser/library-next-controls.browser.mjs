@@ -69,10 +69,13 @@ test('the header and the toolbar: where 1.3 has them, wide and folded at 1400px 
     for (const path of ['/library', '/library-next']) {
       const page = await open(path, size);
       boxes[path] = await page.evaluate((sels, box) => Object.fromEntries(sels.map((s) => [s, new Function(`return (${box})`)()(s)])), HEADER, box.toString());
+      // Import's frame, which 1.3 kept in the second accent at every width.
+      boxes[path].importFrame = await page.evaluate(() => getComputedStyle(document.getElementById('uploadCbzBtn')).borderTopColor);
       assert.deepEqual(page.problems, []);
       await page.close();
     }
     // The page menu: 1.3's select against the drawn one's box, within a pixel; everything else exact.
+    assert.equal(boxes['/library-next'].importFrame, boxes['/library'].importFrame, `Import's frame at ${size.width}`);
     const differ = HEADER.filter((s) => JSON.stringify(boxes['/library'][s]) !== JSON.stringify(boxes['/library-next'][s]))
       .filter((s) => !(Array.isArray(boxes['/library'][s]) && boxes['/library'][s].every((v, i) => Math.abs(v - boxes['/library-next'][s][i]) <= 1)));
     assert.deepEqual(differ.map((s) => [s, boxes['/library'][s], boxes['/library-next'][s]]), [], `at ${size.width}`);
