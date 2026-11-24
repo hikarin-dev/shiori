@@ -326,6 +326,37 @@ test('a done job\'s end reads the page again; an upload that ends with its galle
   assert.deepEqual(out['/library-next'], out['/library']);
 });
 
+// A gallery removed from the library while its job runs. 1.3's code meant to leave the page as it was
+// until the job's end (library.js: `if (!_liveJobs.has(gid)) _scheduleReloadPage()`), and 6c's page
+// did so; but 1.3's page, driven, read the page again at once and its card went. 1.3 is followed.
+test('a gallery removed while its job runs: the page is read again and its card goes, as on 1.3', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const out = {};
+  for (const path of PATHS) {
+    const base = nextBase(1790004000000);
+    const page = await openRun(browser, origin, path, { base });
+    const gid = id(base, 'I');
+    await page.evaluate(async () => {
+      const api = await import('/app/js/api.js');
+      window.__pages = 0;
+      const read = api.galleries.page;
+      api.galleries.page = (...a) => { window.__pages++; return read(...a); };
+    });
+    await publish(page, { gid, kind: 'download', status: 'progress', done: 1, total: 4 });
+    await until(page, (gid) => !!document.querySelector(`#grid > .card[data-gallery-id="${gid}"] .card-btn-dl.cancelling`), gid, { what: 'the job' });
+    await page.evaluate(async (gid) => (await import('/app/js/api.js')).galleries.delete(gid), gid);
+    await sleep(2000);
+    const during = await page.evaluate((gid) => ({ read: window.__pages > 0, card: !!document.querySelector(`#grid > .card[data-gallery-id="${gid}"]`) }), gid);
+    await publish(page, { gid, kind: 'download', status: 'done', done: 4, total: 4 });
+    await sleep(6000);
+    out[path] = { during, after: await page.evaluate((gid) => ({ read: window.__pages > 0, card: !!document.querySelector(`#grid > .card[data-gallery-id="${gid}"]`) }), gid), problems: page.problems };
+    await page.close();
+  }
+  if (process.env.DUMP) console.log(JSON.stringify(out));
+  assert.deepEqual(out['/library-next'], { during: { read: true, card: false }, after: { read: true, card: false }, problems: [] });
+  assert.deepEqual(out['/library-next'], out['/library']);
+});
+
 test('a card\'s job while the page is turned and turned back', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const out = {};

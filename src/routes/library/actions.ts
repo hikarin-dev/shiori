@@ -7,6 +7,9 @@
 // A handler is given the card's gallery id; the gallery is the one the page shows now (its entry in
 // the query cache), as 1.3's handlers read card._g. A series owner shown merged acts as its series.
 //
+// A card dragged onto another (src/lib/card-drag.ts) asks here whether to make them a series
+// (mergeDrop: 1.3's handleMergeDrop).
+//
 // Where 1.3 said one rule twice, it is said once here: the delete question in its four wordings and
 // the delete itself (deleteGallery), a translation started and its button held (startTranslation:
 // the button, a series' chapter and the re-run menu's choice).
@@ -161,11 +164,14 @@ export type ActionDeps = {
   rerunMenu: (id: string, anchor: HTMLElement) => void; // "Re-run from…" under its button
   seriesTranslate: (g: ShownGallery) => void;           // a series' window: one chapter at a time
   tagEditor: (id: string) => void;
+  reread: () => Promise<unknown>;                       // the page and its totals read again
 };
 
 export function cardActions(deps: ActionDeps): Omit<CardHandlers, 'tag' | 'flag' | 'searchFavorite' | 'searchTranslated' | 'searchSource' | 'jobSettled'> & {
   startTranslation(g: ShownGallery, forceFrom?: string): Promise<void>;
   replaceImages(gid: string, files: FileList | File[]): Promise<void>;
+  mergeDrop(targetId: string, sourceId: string): Promise<void>;
+  reread: () => Promise<unknown>;
 } {
   const { client, jobs } = deps;
   const series = (g: ShownGallery) => deps.merged() && !!g.isSeries;
@@ -231,9 +237,29 @@ export function cardActions(deps: ActionDeps): Omit<CardHandlers, 'tag' | 'flag'
     if (!await startImport({ galleryId: gid, buffer, filename: group.name, skipExisting: false })) jobs.note(gid, t('prog.err_stage'));
   }
 
+  // A card dropped on another: asked first, then made the target's next chapter (the target keeps its
+  // id); a refusal told (a library folder's in its own words), else the page and its totals read again.
+  // Each is named by its title as the page shows it.
+  async function mergeDrop(targetId: string, sourceId: string) {
+    const name = (id: string) => { const g = deps.gallery(id); return (g && pickTitle(g as never, getLang())) || `#${id}`; };
+    if (!(await confirmNotice({
+      title: t('dlg.merge_title'), body: t('dlg.merge_body'), detail: [name(sourceId), t('dlg.merge_into', { title: name(targetId) })], ok: t('dlg.merge_ok'),
+    }))) return;
+    try {
+      await (await import('@lib/series.js')).mergeIntoSeries(targetId, sourceId);
+    } catch (err) {
+      const refusal = (await import('@lib/library-folders.js')).refusalText(err) as string | null | undefined;
+      alertNotice({ title: t('dlg.merge_fail_title'), body: t('dlg.merge_fail_body'), detail: refusal ?? (err as Error).message, tone: 'error' });
+      return;
+    }
+    await deps.reread();
+  }
+
   return {
     startTranslation,
     replaceImages,
+    mergeDrop,
+    reread: deps.reread,
 
     favorite: (id) => shown(id, (g) => editGallery(client, g.id, { favorite: !g.favorite }, () => api.personal.favorite(g.id, !g.favorite))),
 

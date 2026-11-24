@@ -5,8 +5,8 @@
 // menu button and Import is its icon alone, 28 square. The totals and the menu button go when
 // Settings turns the totals off.
 //
-// The menu button's list, the pin, Import and Safe Mode are drawn in their place and do nothing yet
-// (they come with the page's later steps).
+// Import opens the page's file picker (onImport). The menu button's list, the pin and Safe Mode are
+// drawn in their place and do nothing yet (they come with the page's later steps).
 import { Eye, Menu, Pin, Settings, Upload } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { TIERS, describePage } from '@lib/page-size.js';
@@ -67,9 +67,10 @@ type Props = {
   onQueryChange: (query: string, how: 'typed' | 'cleared' | 'set') => void;
   totals: Totals | undefined;
   showTotals: boolean;
+  onImport: () => void;
 };
 
-export function LibraryHeader({ t, query, onQueryChange, totals, showTotals }: Props) {
+export function LibraryHeader({ t, query, onQueryChange, totals, showTotals, onImport }: Props) {
   const navigate = useNavigate();
   const avg = totals && totals.stats.totalImages > 0 ? Math.round(totals.stats.totalSize / totals.stats.totalImages) : 0;
   return (
@@ -104,7 +105,7 @@ export function LibraryHeader({ t, query, onQueryChange, totals, showTotals }: P
         <Button id="uploadCbzBtn" variant="tint" tone="warning" size="compact" coarse="40" aria-label={t('nav.import')} data-tip={t('nav.import')}
           className={cn('btn-upload gap-[5px]',
             '[@media(max-width:1400px)]:w-[28px] [@media(max-width:1400px)]:gap-0 [@media(max-width:1400px)]:px-0',
-            '[@media(pointer:coarse)_and_(max-width:1400px)]:size-[40px]')}>
+            '[@media(pointer:coarse)_and_(max-width:1400px)]:size-[40px]')} onClick={onImport}>
           <Upload className="btn-upload-icon size-[13px] [@media(max-width:1400px)]:size-[15px]" />
           <span className={cn('btn-upload-label', WIDE_ONLY)}>{t('nav.import')}</span>
         </Button>

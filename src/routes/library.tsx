@@ -3,8 +3,10 @@
 // toolbar (the sort and the filter), the grid of cards, one page of 30 at a time, and the paging.
 // What a card's buttons do is ./library/actions.ts's (1.3's questions, and its words to the library
 // and to whatever runs things); the jobs on cards are the page's job store's (src/lib/library-jobs.ts),
-// each card reading its own gallery's. Import, the drop, dragging cards together and Safe Mode come
-// with the page's later steps.
+// each card reading its own gallery's. Import (the picker, a drop of files or folders, the tracker of
+// its batches, backups picked or dropped) is src/lib/library-import.ts's and ./library/tracker.tsx's,
+// a card dragged onto another src/lib/card-drag.ts's: each loaded the first time it is needed, so the
+// page's own load takes none of them. Safe Mode comes with the page's later steps.
 //
 // What it shows is data (T4): the page asked for (sort, page, search, filter, merged or not) is read
 // through the app's query cache (./library/data.ts), each card drawn from its gallery's entry there,
@@ -37,6 +39,7 @@ import { canDownload, galleryLink, siteMap, siteName } from '@lib/sites.js';
 import { request as helperRequest } from '@lib/ext-bridge.js';
 import { GalleryCard, cardModes, type CardHandlers } from '@/components/gallery-card';
 import { Button } from '@/components/ui/button';
+import { DropOverlay } from '@/components/ui/drop-overlay';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Pagination } from '@/components/ui/pagination';
 import { Select } from '@/components/ui/select';
@@ -48,6 +51,10 @@ import { useT } from '@/lib/i18n';
 import { dismissSince, noticeMark } from '@/lib/notice-store';
 import { NO_FILTER, filtering, flagToken, sourceToken, stateToken, stepFilter, tagToken, type FilterType, type LibFilter } from '@/lib/library-search';
 import { createLibraryJobs, type LibraryJobs } from '@/lib/library-jobs';
+import type { BatchJob, BatchStore, Reading } from '@/lib/import-batches';
+import type { CardDrag } from '@/lib/card-drag';
+import type { DropItems } from '@/lib/library-import';
+import { attachNativeBackupOnce } from '@/lib/native-backup';
 import { readAgain } from '@/lib/library-query';
 import { useShiftHeld } from '@/lib/modifiers';
 import { createIconStore, type IconStore } from '@/lib/source-icons';
@@ -69,12 +76,28 @@ const seriesWindow = () => import('./library/series-translate');
 const RerunMenu = lazy(() => rerunMenu().then((m) => ({ default: m.RerunMenu })));
 const SeriesTranslateDialog = lazy(() => seriesWindow().then((m) => ({ default: m.SeriesTranslateDialog })));
 const TagEditor = lazy(() => import('@/components/tag-editor').then((m) => ({ default: m.TagEditor })));
+// Import and the card drag, loaded at their first press or drop; the tracker drawn from the first time
+// there is something for it.
+const libraryImport = () => import('@/lib/library-import');
+const cardDrag = () => import('@/lib/card-drag');
+const LibraryTracker = lazy(() => import('./library/tracker').then((m) => ({ default: m.LibraryTracker })));
 
 const SORTS = ['id', 'updated', 'size', 'count', 'uploadDate'] as const;
 const SEARCH_MS = 180;        // the search waits this long after the last key (1.3's)
 const RELOAD_MS = 250;        // the page read again this long after the last word that asks it
 const TOTALS_MS = 800;        // the totals read again this long after the last change
 const REVEAL_EVERY_MS = 5000; // a gallery the page shows no card for is looked for once in this at most
+const LISTING_EVERY_MS = 100; // a drop being read is told this often at most (1.3's)
+
+// A drop's items as the drop event has them, for reading after it (they can only be listed while it
+// lasts): each file's entry, and its file where it is not a folder.
+function dropItems(dt: DataTransfer): DropItems {
+  return { items: [...dt.items].filter((item) => item.kind === 'file').map((item) => {
+    const entry = item.webkitGetAsEntry?.() ?? null;
+    const file = entry?.isDirectory ? null : item.getAsFile();
+    return { kind: 'file', webkitGetAsEntry: () => entry, getAsFile: () => file };
+  }) };
+}
 
 // The address as 1.3 read it (initFromUrl): a page past the first, a search, a sort.
 function fromAddress(search: string) {
@@ -167,6 +190,27 @@ export default function Library() {
   }));
   useEffect(() => { covers.start(); return () => covers.stop(); }, [covers]);
 
+  // ── The tracker of import batches: drawn from the first time there is something for it ──
+  const [tracking, setTracking] = useState(false);
+  // (The words of a batch heard before its store has come are handed to it once it has.)
+  const tracker = useRef<{ store: BatchStore | null; reading: Reading | null; early: BatchJob[] }>({ store: null, reading: null, early: [] });
+  const onTrackerStore = useCallback((store: BatchStore | null) => {
+    tracker.current.store = store;
+    if (!store) return;
+    for (const job of tracker.current.early.splice(0)) store.hear(job);
+    const reading = tracker.current.reading;
+    if (reading) store.listing(reading.name, reading.found);
+  }, []);
+  // A drop being read, told to the tracker (null: read).
+  const listing = useCallback((name: string | null, found = 0) => {
+    tracker.current.reading = name == null ? null : { name, found };
+    if (name != null) setTracking(true);
+    tracker.current.store?.listing(name, found);
+  }, []);
+  // Whether the page has been left (a drop still being read, a picker the address asked for).
+  const left = useRef(false);
+  useEffect(() => { left.current = false; return () => { left.current = true; }; }, []);
+
   // ── The jobs on the cards: started while the page shows ──
   const revealRef = useRef<(gid: string) => void>(() => {});
   const [jobs] = useState(() => createLibraryJobs({
@@ -176,10 +220,18 @@ export default function Library() {
     // An upload's end: its gallery removed if it is still empty.
     dropIfEmpty: (gid) => { (store.load(gid) as Promise<{ count?: number } | null>).then((g) => { if (!g || g.count === 0) store.remove(gid); }).catch(() => {}); },
     reveal: (gid) => revealRef.current(gid),
+    importSeen: (news) => {
+      const store = tracker.current.store;
+      if (store) return;   // (it hears the channel itself)
+      tracker.current.early.push(news as BatchJob);
+      setTracking(true);
+    },
   }));
   useEffect(() => { jobs.start(); return () => jobs.stop(); }, [jobs]);
   // The questions the page asked go with it when it is left.
   useEffect(() => { const mark = noticeMark(); return () => dismissSince(mark); }, []);
+  // A backup the desktop app's window left by a reload: followed again, once a document.
+  useEffect(attachNativeBackupOnce, []);
 
   const { sites, translatorOnline } = useRunners(icons);
 
@@ -271,12 +323,13 @@ export default function Library() {
       if (gid === '*') { reload(); return; }
       if (!idsRef.current.includes(gid)) reveal(String(gid)).catch(() => {});
     });
-    // A gallery of the page gone from the library: the page read again, to fill its place.
+    // A gallery of the page gone from the library: the page read again, to fill its place, a job of
+    // it running or not (1.3's page, driven: its card went at once; its code meant to wait for the
+    // job's end, but its page was read again all the same).
     const offCache = client.getQueryCache().subscribe((event) => {
       if (event.type !== 'updated' || event.action.type !== 'success') return;
       const [kind, gid] = event.query.queryKey as [string, string];
-      // (Not while its job runs: 1.3 left the page as it was until the job's end.)
-      if (kind === 'gallery' && event.query.state.data === null && idsRef.current.includes(gid) && !jobs.live(gid)) reload();
+      if (kind === 'gallery' && event.query.state.data === null && idsRef.current.includes(gid)) reload();
     });
     return () => {
       off();
@@ -323,6 +376,22 @@ export default function Library() {
   const open = (which: keyof typeof opened) => setOpened((was) => (was[which] ? was : { ...was, [which]: true }));
   const replaceInput = useRef<HTMLInputElement>(null);
   const replacing = useRef<string | null>(null);
+  // The card a file picker was opened from: once the window has its focus back, the browser is made to
+  // work out again what is under the pointer, or the card stays grown with nothing over it (1.3's
+  // _operatingOnCard).
+  const operating = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const focus = () => {
+      const card = operating.current;
+      if (!card) return;
+      operating.current = null;
+      card.style.pointerEvents = 'none';
+      void card.offsetHeight;
+      card.style.pointerEvents = '';
+    };
+    window.addEventListener('focus', focus);
+    return () => window.removeEventListener('focus', focus);
+  }, []);
   // The cover a card shows, for a dialog about it. (Safe Mode, 6e: none while it blurs the card's.)
   const coverOf = (id: string) => { const g = galleryOf(id); return (g && covers.get(coverKeyOf(g, mergeRef.current))) || ''; };
   const actions = useMemo(() => cardActions({
@@ -334,12 +403,36 @@ export default function Library() {
     // (What it accepts is import-files.js's, loaded at the press: the page reads none of it.)
     pickFile: (id) => {
       replacing.current = id;
+      operating.current = grid.current?.querySelector<HTMLElement>(`:scope > .card[data-gallery-id="${CSS.escape(id)}"]`) ?? null;
       import('@lib/import-files.js').then(({ IMPORT_ACCEPT }) => { const input = replaceInput.current; if (input) { input.accept = IMPORT_ACCEPT; input.click(); } }, () => {});
     },
     rerunMenu: (id, anchor) => { rerunMenu().then((m) => m.rerunSteps(id, anchor)).then((ask) => { open('rerun'); setRerun(ask); }, (err) => console.error(err)); },
     seriesTranslate: (g) => { seriesWindow().then((m) => m.seriesTranslateAsk(tRef.current, g as never)).then((ask) => { open('series'); setSeriesAsk(ask); }, (err) => console.error(err)); },
     tagEditor: (id) => { open('tags'); setTagging(id); },
+    reread: () => Promise.all([client.invalidateQueries({ queryKey: PAGES }), client.invalidateQueries({ queryKey: TOTALS })]),
   }), [client, jobs, covers]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── A card dragged onto another: a series ──
+  // The drags begun (a copy still flying to its place among them), undone when the page is left.
+  const drags = useRef(new Set<CardDrag>());
+  useEffect(() => () => { for (const drag of drags.current) drag.cancel(); drags.current.clear(); }, []);
+  const coverPointerDown = useCallback((id: string, e: React.PointerEvent<HTMLAnchorElement>) => {
+    const card = e.currentTarget.closest<HTMLElement>('.card');
+    if (!card) return;
+    const start = { x: e.clientX, y: e.clientY };
+    // A press let go before the module has come was a click.
+    let released = false;
+    const up = () => { released = true; };
+    document.addEventListener('pointerup', up, true);
+    document.addEventListener('pointercancel', up, true);
+    cardDrag().then(({ beginCardDrag }) => {
+      document.removeEventListener('pointerup', up, true);
+      document.removeEventListener('pointercancel', up, true);
+      if (released || left.current) return;
+      const drag = beginCardDrag(start, card, id, { onDrop: (target, source) => { actions.mergeDrop(target, source).catch((err) => console.error(err)); }, onDone: () => drags.current.delete(drag) });
+      drags.current.add(drag);
+    }, (err) => console.error(err));
+  }, [actions]);
   const on = useMemo<CardHandlers>(() => ({
     ...actions,
     tag: (_id, tag) => addToken(tagToken(tag.type, String(tag.name).trim())),
@@ -348,7 +441,8 @@ export default function Library() {
     searchTranslated: (id) => { const g = galleryOf(id); if (g) addToken(stateToken('translated', g.translated)); },
     searchSource: (id) => { const g = galleryOf(id); if (g?.source) addToken(sourceToken(g.source)); },
     jobSettled: (id) => jobs.settled(id),
-  }), [actions, addToken, jobs]);   // eslint-disable-line react-hooks/exhaustive-deps
+    coverPointerDown,
+  }), [actions, addToken, jobs, coverPointerDown]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // A step of the re-run menu chosen: asked first, then translated again from that step.
   const rerunFrom = async (id: string, point: string, label: string) => {
@@ -405,6 +499,74 @@ export default function Library() {
     setPage(1);
   };
 
+  // ── Import: the picker, a drop on the page, the address asking for the picker ──
+  // What a pick or a drop holds goes the way 1.3's _handleImportFiles sent it (library-import.ts).
+  const importInput = useRef<HTMLInputElement>(null);
+  const importFiles = useCallback((files: File[], folders: never[] = [], leftOut = 0) => {
+    libraryImport().then((m) => m.handleImportFiles(files, folders, { leftOut, reread: actions.reread })).catch((err) => console.error(err));
+  }, [actions]);
+  // The picker, once what it offers has come (the first press loads it).
+  const pickImport = useCallback(() => {
+    libraryImport().then(({ PICK_ACCEPT }) => {
+      const input = importInput.current;
+      if (!input) return;
+      input.accept = PICK_ACCEPT;
+      input.click();
+    }, (err) => console.error(err));
+  }, []);
+  // ?import=1: the picker opened once the page has loaded (on a change of route to it, at once).
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('import') !== '1') return;
+    const go = () => { if (!left.current) pickImport(); };
+    if (document.readyState === 'complete') go(); else window.addEventListener('load', go, { once: true });
+  }, [location.key]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // Files dragged in from outside the window: the overlay while they are over it (1.3's depth count;
+  // never for a card being dragged, which is no drag of the browser's, or for text), and a drop read
+  // (its folders' lists in full, the tracker telling how far, at most every 100 ms), then imported as a
+  // pick is. Only while the page shows: Tasks and Settings take no drop.
+  const [dragOver, setDragOver] = useState(false);
+  useEffect(() => {
+    let depth = 0, shown = true;
+    const enter = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes('Files')) return;
+      depth++;
+      setDragOver(true);
+    };
+    const leave = () => { if (--depth <= 0) { depth = 0; setDragOver(false); } };
+    const over = (e: DragEvent) => e.preventDefault();
+    const drop = (e: DragEvent) => {
+      e.preventDefault();
+      depth = 0;
+      setDragOver(false);
+      if (!e.dataTransfer) return;
+      const items = dropItems(e.dataTransfer);
+      const name = items.items.map((item) => item.webkitGetAsEntry()?.name).find(Boolean) || '';
+      let toldAt = 0;
+      libraryImport().then(async (m) => {
+        if (!shown) return;
+        const { files, folders, leftOut } = await m.readDrop(items, (found) => {
+          if (!shown || Date.now() - toldAt < LISTING_EVERY_MS) return;
+          toldAt = Date.now();
+          listing(name, found);
+        });
+        listing(null);
+        // (A page left while its drop was read takes the drop with it, as 1.3's did.)
+        if (shown) await m.handleImportFiles(files, folders, { leftOut, reread: actions.reread });
+      }).catch((err) => console.error(err));
+    };
+    document.addEventListener('dragenter', enter);
+    document.addEventListener('dragleave', leave);
+    document.addEventListener('dragover', over);
+    document.addEventListener('drop', drop);
+    return () => {
+      shown = false;
+      document.removeEventListener('dragenter', enter);
+      document.removeEventListener('dragleave', leave);
+      document.removeEventListener('dragover', over);
+      document.removeEventListener('drop', drop);
+    };
+  }, [actions, listing]);
+
   // ── The grid's element: the cards' modes, Shift held ──
   const grid = useRef<HTMLDivElement>(null);
   useShiftHeld(grid);
@@ -412,7 +574,7 @@ export default function Library() {
 
   return (
     <>
-      <LibraryHeader t={t} query={typed} onQueryChange={onQueryChange} totals={totals.data} showTotals={showTotals} />
+      <LibraryHeader t={t} query={typed} onQueryChange={onQueryChange} totals={totals.data} showTotals={showTotals} onImport={pickImport} />
       <main className="library-page">
         <div className="toolbar flex items-center justify-center gap-[12px] px-[24px] py-[12px] [@media(max-width:600px)]:px-[12px] [@media(max-width:600px)]:py-[10px]">
           <Select id="sortSelect" variant="toolbar" size="toolbar" width="widest" className="sort-select"
@@ -423,6 +585,7 @@ export default function Library() {
             <Funnel />
           </Button>
         </div>
+        {tracking && <Suspense fallback={null}><LibraryTracker onStore={onTrackerStore} /></Suspense>}
         <div ref={grid} id="grid" data-card-modes={modes}
           className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] auto-rows-fr items-start gap-[16px] px-[24px] pb-[40px] max-w-[1512px] mx-auto [@media(max-width:600px)]:grid-cols-[repeat(2,minmax(0,1fr))] [@media(max-width:600px)]:gap-[10px] [@media(max-width:600px)]:px-[12px] [@media(max-width:600px)]:pb-[32px]">
           {galleries.map((g) => <LibraryCard key={String(g.id)} g={g} env={env} covers={covers} icons={icons} jobs={jobs} on={on} />)}
@@ -442,6 +605,14 @@ export default function Library() {
           onGo={(gid) => { platform.rpc({ type: 'TRANSLATE_GALLERY', galleryId: gid }); }} />}
         {opened.tags && <TagEditor gid={tagging} onClose={() => setTagging(null)} />}
       </Suspense>
+      <input ref={importInput} type="file" id="cbzFileInput" multiple hidden
+        onChange={(e) => {
+          const files = [...(e.currentTarget.files ?? [])];
+          e.currentTarget.value = '';
+          importFiles(files);
+        }} />
+      {/* (1.3's words for it were its stylesheet's, in English for every language: A6.) */}
+      <DropOverlay shown={dragOver}>Drop to import</DropOverlay>
       <input ref={replaceInput} type="file" id="replaceImgInput" multiple hidden
         onChange={(e) => {
           const files = [...(e.currentTarget.files ?? [])];

@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as api from '@lib/api.js';
 import * as platform from '@lib/platform.js';
-import { attachNativeBackup, checkBackup, exportBackup, importBackups } from '@lib/backup-ui.js';
+import { checkBackup, exportBackup, importBackups } from '@lib/backup-ui.js';
 import {
   DESK_WRITES_EVERY, FACTORY_RELOAD_MS, browserWrites, classifyAll, classifyStatus, clearLibrary, convertLayout, desktopWrites, factoryReset,
   layoutStatus, resetWrites, storageSections,
@@ -28,19 +28,16 @@ import { OptionCard } from '@/components/ui/option-card';
 import { SettingRow } from '@/components/ui/setting-row';
 import { Stat } from '@/components/ui/stat';
 import { useT } from '@/lib/i18n';
+import { attachNativeBackupOnce } from '@/lib/native-backup';
 import { ArchiveSection, FoldersSection } from './folders';
 import { Section, SectionStatus, useStatus } from './parts';
 
 const BACKUP_FILES = '.shi,.shioridb,.crdownload,.crswap,application/octet-stream,application/json';
 
-// A backup the desktop app was making or restoring when its window was reloaded is followed again:
-// asked for once a page load, as 1.3's page asked as it loaded. Asked again when the panel is drawn
-// again, it would take a backup this window itself is making or restoring for one left behind.
-let attached = false;
-
 export function StoragePanel() {
   const [sections] = useState(() => storageSections() as { upgrades: boolean; stats: boolean });
-  useEffect(() => { if (!attached) { attached = true; attachNativeBackup().catch(() => {}); } }, []);
+  // A backup the desktop app's window left by a reload: followed again, once a document.
+  useEffect(attachNativeBackupOnce, []);
   return (
     <>
       <FoldersSection />

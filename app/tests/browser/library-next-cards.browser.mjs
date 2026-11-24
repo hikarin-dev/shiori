@@ -143,6 +143,44 @@ test('the grid\'s only card grows the grid (it has nothing to grow over), as 1.3
   assert.deepEqual(out['/library-next'], out['/library']);
 });
 
+// A file picker opened from a card (Replace: these galleries have no source, so download is Replace)
+// takes the window's focus; the pointer may be anywhere once it closes, while the browser still holds
+// the card under it as hovered (grown). When the window has its focus back, the card is made to drop the
+// pointer for a moment, so what is under the pointer is worked out again (1.3's _operatingOnCard): its
+// pointer-events none, read, and back. Once only: a focus after that does nothing.
+test('a card a file picker was opened from: what is under the pointer worked out again once the window has its focus back', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const out = {};
+  for (const path of ['/library', '/library-next']) {
+    const page = await open(path);
+    const sel = '#grid > .card:nth-child(2)';
+    await page.hover(sel);
+    await sleep(400);
+    await page.evaluate((sel) => {
+      const c = document.querySelector(sel);
+      window.__styles = [];
+      new MutationObserver(() => window.__styles.push(c.style.pointerEvents)).observe(c, { attributes: true, attributeFilter: ['style'] });
+      const read = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight').get;
+      Object.defineProperty(c, 'offsetHeight', { get() { window.__styles.push(`read while ${c.style.pointerEvents || 'auto'}`); return read.call(this); }, configurable: true });
+    }, sel);
+    const [chooser] = await Promise.all([page.waitForFileChooser({ timeout: 8000 }), page.click(`${sel} .card-btn-dl`)]);
+    await chooser.cancel();
+    await sleep(200);
+    const before = await page.evaluate(() => [...window.__styles]);
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await sleep(100);
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await sleep(100);
+    out[path] = { before, after: await page.evaluate(() => window.__styles), problems: page.problems };
+    await page.close();
+  }
+  if (process.env.DUMP) console.log(JSON.stringify(out));
+  // Nothing before the focus came back; then once its pointer-events none, read so, and back.
+  assert.deepEqual(out['/library-next'].before, []);
+  assert.ok(out['/library-next'].after.includes('read while none') && out['/library-next'].after.at(-1) === '', JSON.stringify(out['/library-next']));
+  assert.deepEqual(out['/library-next'], out['/library']);
+});
+
 test('on a touch screen a tap grows nothing', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const out = {};

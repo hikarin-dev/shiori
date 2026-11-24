@@ -6,7 +6,7 @@
 //   - A gallery's job is its latest news, one object a word (its identity is how the card knows a new
 //     word). A job's "done" said again is not a new word. Not the page's: a signal on the jobs channel (it
 //     has a type, or no gallery or no status: a batch telling of a title's end among them) and an
-//     import's words (the tracker's). A title of a batch says its own news as an upload does, and its
+//     import's words (the tracker's: importSeen says one came). A title of a batch says its own news as an upload does, and its
 //     card shows it.
 //   - A gallery the page shows no card for: a running job is kept (its card may come: a page read
 //     again, or a page turned back to) and looked for (reveal: not a translation or a sync, not at its
@@ -54,6 +54,7 @@ export type LibraryJobDeps = {
   reread: () => void;
   dropIfEmpty: (gid: string) => void;
   reveal: (gid: string) => void;
+  importSeen?: (news: JobNews) => void;   // a batch of imports' word, or one under way as the page shows: the tracker's
 };
 
 export function createLibraryJobs(deps: LibraryJobDeps) {
@@ -79,6 +80,7 @@ export function createLibraryJobs(deps: LibraryJobDeps) {
   };
 
   function onJob(news: JobNews | null | undefined) {
+    if (news?.kind === 'import' && !news.type) deps.importSeen?.(news);
     if (!news || news.type || news.gid == null || !news.status || news.kind === 'import') return;
     const gid = String(news.gid);
     // (1.3 kept one "done" a gallery, so the end of a second job said straight after another's was
@@ -124,7 +126,8 @@ export function createLibraryJobs(deps: LibraryJobDeps) {
     const rows = await deps.jobs.current();
     if (mine !== run) return;
     for (const row of rows) {
-      if (row.kind === 'import' || row.gid == null) continue;
+      if (row.kind === 'import') { deps.importSeen?.(row); continue; }
+      if (row.gid == null) continue;
       const gid = String(row.gid);
       if (row.status === 'error' || row.status === 'cancelled') {
         onJob(row);
