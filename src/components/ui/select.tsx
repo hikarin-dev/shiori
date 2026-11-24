@@ -18,7 +18,10 @@
 // at most eight rows, unrolling from the box, the chevron turned; it opens upward only when just the
 // space above can hold it. The same in every browser. On a touch screen it is a native <select>
 // drawn closed the same, so the system's picker opens (T15); so it is in a browser without CSS
-// anchor positioning, which the drawn list is placed by (T18).
+// anchor positioning, which the drawn list is placed by (T18). Its text keeps clear of the chevron
+// drawn over it by its padding: the ghost's 22 is its 6 in, the 5px gap and the 11px chevron, so it
+// is as wide as the drawn one, and as wide as its chosen label where the browser can size it so
+// (field-sizing; elsewhere its widest), as 1.3's page menu was.
 //
 // Placement is CSS's (rule 10): the box is an anchor (anchor-name) and the list is placed against it
 // with anchor positioning, at the box's bottom edge and width, in the same frame as any scroll or
@@ -147,12 +150,12 @@ function Select({ options, value, defaultValue, onValueChange, variant = 'field'
       <span data-slot="select" className={cn('relative inline-grid min-w-0', w === 'fill' && 'w-full')}>
         <select
           id={id} name={name} disabled={disabled} value={current} onChange={(e) => choose(e.target.value)}
-          className={cn(boxClass, 'appearance-none pr-[30px] [grid-area:1/1]')}
+          className={cn(boxClass, 'appearance-none [grid-area:1/1]', variant === 'ghost' ? 'pr-[22px] [field-sizing:content]' : 'pr-[30px]')}
           {...rest}
         >
           {options.map((o) => <option key={o.value} value={o.value} className={o.className}>{o.label}</option>)}
         </select>
-        <Chevron className="pointer-events-none absolute top-1/2 right-[11px] -translate-y-1/2" />
+        <Chevron className={cn('pointer-events-none absolute top-1/2 -translate-y-1/2', variant === 'ghost' ? 'right-[6px]' : 'right-[11px]')} />
       </span>
     );
   }

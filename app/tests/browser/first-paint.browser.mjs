@@ -114,7 +114,19 @@ test('where the page hands the visitor on (the reader\'s address), no frame show
   const scripts = before.filter((r) => r.type === 'script').map((r) => r.url);
   const { entry, start } = START();
   assert.ok(scripts.includes(`/${entry}`), 'the entry ran: it handed on');
-  assert.deepEqual(scripts.filter((url) => start.includes(url.slice(1))).filter((url) => !/preload-helper|pages\.js/.test(url)), [],
+  // What the entry imports statically it needs to run at all (the address map, the code that decides;
+  // the build may put the latter in a chunk of its own when the app shares it).
+  const own = [];
+  const visit = (file) => {
+    for (const [, spec] of readFileSync(join(builtSite(), file), 'utf8').matchAll(/(?:\bfrom|\bimport)\s*["'`](\.{1,2}\/[^"'`]+)["'`]/g)) {
+      const url = new URL(spec, `${origin}/${file}`).pathname;
+      if (!own.includes(url)) { own.push(url); visit(url.slice(1)); }
+    }
+  };
+  visit(entry);
+  assert.ok(own.some((url) => url === '/app/js/pages.js'), 'the entry reads the address map');
+  assert.ok(own.length <= 4, `a few small files: ${own}`);
+  assert.deepEqual(scripts.filter((url) => start.includes(url.slice(1))).filter((url) => !own.includes(url)), [],
     'nothing of the app, the start-up or a route: only what the entry needs to decide');
 });
 
