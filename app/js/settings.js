@@ -20,6 +20,7 @@ import { confirmDialog } from './notice.js';
 import { customScrollbarAvailable, applyScrollbarPreference } from './scrollbar.js';
 import { prefKeys, readPref, writePref } from './settings-prefs.js';
 import { renderChangelog, CHANGELOG_UNAVAILABLE } from './changelog.js';
+import { IS_FIREFOX, OFFER_URL } from './download-offer.js';
 
 initTooltips();
 initDropdowns();
@@ -87,11 +88,8 @@ import('./library-folders.js').then(m => m.initLibraryFolders()).catch(() => {})
 // waiting on anything. If the panel is populated independently it is handed over outright — the
 // card goes and the label is released, leaving whatever arrived in sole possession. One-way by
 // design: the app never asks what is out there, it only notices that the panel stopped being its
-// own. Restores itself if the panel is ever emptied again. Firefox (and browsers built on it) gets
-// its own package, installed a different way; every other browser the one for Chrome. Firefox only
-// lets a page start an add-on install in its own tab — from a new tab it refuses outright.
-const IS_FIREFOX = /\bFirefox\//.test(navigator.userAgent);
-const COMPANION_ZIP_URL = `https://github.com/hikarin-dev/shiori/releases/latest/download/${IS_FIREFOX ? 'extension-firefox.xpi' : 'extension.zip'}`;
+// own. Restores itself if the panel is ever emptied again. Which package, and how it opens, is
+// download-offer.js's.
 
 (function initCompanionPanel() {
   const panel = document.getElementById('panelExtension');
@@ -110,7 +108,7 @@ const COMPANION_ZIP_URL = `https://github.com/hikarin-dev/shiori/releases/latest
             <div class="toggle-name" data-i18n="set.ext_download"></div>
             <div class="toggle-desc" data-i18n="${IS_FIREFOX ? 'set.ext_download_desc_firefox' : 'set.ext_download_desc'}"></div>
           </div>
-          <a class="btn-save" href="${COMPANION_ZIP_URL}"${IS_FIREFOX ? '' : ' target="_blank" rel="noopener"'}
+          <a class="btn-save" href="${OFFER_URL}"${IS_FIREFOX ? '' : ' target="_blank" rel="noopener"'}
              data-i18n="set.ext_download_btn"></a>
         </div>
       </div>`;
