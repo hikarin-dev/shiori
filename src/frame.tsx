@@ -22,12 +22,17 @@ function useAppMeta(page: string | null) {
   }, [page]);
 }
 
-// html[data-frame]: which frame the page shows (start.js sets it for the first one, before any paint).
-function useFrame(frame: 'header' | null) {
+// html[data-frame]: which frame the page shows, and html[data-header-form]: the header's form for the
+// route (start.js sets both for the first one, before any paint; the header's look reads the form
+// there, so the header painted before React and React's are the same markup).
+function useFrame(frame: 'header' | null, form: string | null) {
   useLayoutEffect(() => {
-    if (frame) document.documentElement.dataset.frame = frame;
-    else delete document.documentElement.dataset.frame;
-  }, [frame]);
+    const { dataset } = document.documentElement;
+    if (frame) dataset.frame = frame;
+    else delete dataset.frame;
+    if (frame && form) dataset.headerForm = form;
+    else delete dataset.headerForm;
+  }, [frame, form]);
 }
 
 // The header's two parts a route fills (HeaderSlot), as the header draws them.
@@ -43,7 +48,7 @@ function useHeaderNodes() {
 export default function Frame() {
   const route = useMatches().at(-1)?.handle as Route | undefined;
   useAppMeta(route?.app ? route.page : null);
-  useFrame(route?.header ? 'header' : null);
+  useFrame(route?.header ? 'header' : null, route?.form ?? null);
   const { nodes, slots } = useHeaderNodes();
   return (
     <>

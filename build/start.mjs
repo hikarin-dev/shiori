@@ -51,11 +51,11 @@ function closure(files, chunks, root) {
 }
 
 // The data start.js is written with, from a built bundle (Rollup's output: fileName → chunk) and the
-// route table (src/routes.ts). In the dev server, with no bundle: the map and the header alone.
-/** @param {{ bundle?: Record<string, any> | null, routes: Record<string, { page: string, header: boolean }>, root?: string }} options */
+// route table (src/routes.ts): each route's header and its form, and its preload list. In the dev server, with no bundle: the map and the header alone.
+/** @param {{ bundle?: Record<string, any> | null, routes: Record<string, { page: string, header: boolean, form?: string }>, root?: string }} options */
 export function startData({ bundle = null, routes, root = ROOT }) {
   const data = { appPage: APP_PAGE, pages: PAGES, entry: null, start: [], routes: {} };
-  for (const [segment, route] of Object.entries(routes)) data.routes[segment] = { header: route.header, preload: [] };
+  for (const [segment, route] of Object.entries(routes)) data.routes[segment] = { header: route.header, form: route.form ?? null, preload: [] };
   if (!bundle) return data;
 
   const chunks = Object.fromEntries(Object.values(bundle).filter((c) => c.type === 'chunk').map((c) => [c.fileName, c]));

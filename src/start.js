@@ -6,7 +6,8 @@
 // first paint:
 //   - the common header's frame, which index.html holds, shows on the routes that have that header
 //     (html[data-frame="header"]); never where this page is about to hand the visitor on to another
-//     file, nor where it says "Not found.";
+//     file, nor where it says "Not found."; in the route's own form where it has one
+//     (html[data-header-form], the route table's `form`);
 //   - every module the page will run to draw the address is asked for at once (<link rel=modulepreload>),
 //     so they arrive together instead of in waves; and the UI font's faces (app/font-init.js declares
 //     them) right after the first frame, so they are there when the app draws its text, which
@@ -31,6 +32,7 @@
   const drawn = file === null || file === START.appPage;   // an address the app doesn't have is drawn here too
   const route = drawn ? START.routes[segment] : undefined;
   if (route && route.header) html.dataset.frame = 'header';
+  if (route && route.header && route.form) html.dataset.headerForm = route.form;
 
   const add = (tag, attributes) => {
     const el = document.createElement(tag);
