@@ -556,10 +556,38 @@ test('a folder out of reach keeps new pictures in the browser, and they move out
   assert.ok(out.page > 0);
 });
 
+// Settings as the one page draws it (src/routes/settings/folders.tsx). Its questions are the notice
+// host's: a dialog (role dialog or alertdialog) with its title, its words, its buttons, and for the
+// remove question a switch and a list (the dialog helpers of settings-storage.browser.mjs).
+const SETTINGS = '/settings-next';   // step 5e: '/settings'
+function settingsHelpers() {
+  const shown = (el) => !!el && el.getClientRects().length > 0;
+  const dialogs = () => [...document.querySelectorAll('[role="dialog"], [role="alertdialog"]')].filter(shown);
+  window.__d = {
+    count: () => dialogs().length,
+    nth: (i) => dialogs()[i] ?? null,
+    top: () => dialogs().at(-1) ?? null,
+    // The danger button of dialog `d` (its answer when it asks to remove, use or take back).
+    danger: (d) => d?.querySelector('[data-slot="button"][data-variant="danger"]') ?? null,
+    // Presses the button of the top dialog (or dialog `i`) named `label`; true once pressed.
+    answer: (label, i) => {
+      const d = i == null ? dialogs().at(-1) : dialogs()[i];
+      const b = [...(d?.querySelectorAll('button') || [])].find((x) => shown(x) && x.textContent.trim() === label);
+      b?.click();
+      return !!b;
+    },
+    toggle: () => dialogs()[0]?.querySelector('[role="switch"]') ?? null,
+    on: () => window.__d.toggle()?.getAttribute('aria-checked') === 'true',
+  };
+}
+
 test('Settings → Storage shows where the library is kept, and the overview can move a gallery', { skip: !chromePath() }, async () => {
   const settings = await openPage(browser, origin);
-  await settings.goto(`${origin}/settings`, { waitUntil: 'load' });
-  await settings.click('#navStorage');
+  await settings.evaluateOnNewDocument(settingsHelpers);
+  await settings.goto(`${origin}${SETTINGS}`, { waitUntil: 'load' });
+  // (Pressed until it shows: a press before the page listens is lost.)
+  const showStorage = () => until(settings, () => { const n = document.getElementById('navStorage'); if (!n) return false; if (!document.getElementById('panelStorage').classList.contains('active')) n.click(); return document.getElementById('panelStorage').classList.contains('active'); }, null, { what: 'Storage shown' });
+  await showStorage();
   const rows = await until(settings, () => {
     const list = [...document.querySelectorAll('#foldersSection .lf-item')];
     return list.length >= 3 && list.map(r => ({ name: r.querySelector('.lf-title').textContent, meta: r.querySelector('.lf-meta')?.textContent || '',
@@ -570,31 +598,34 @@ test('Settings → Storage shows where the library is kept, and the overview can
   assert.deepEqual(rows.map(r => r.name).slice(1), ['Lib A', 'Lib B', 'Lib C']);
   assert.ok(rows[3].isDefault);
   assert.ok(rows.every(r => r.menu), 'each place has its menu (one with nothing to do has none)');
-  // A place's menu: what can be done with it.
+  // A place's menu: what can be done with it (the menu that shows: one closing may still be there).
+  const menuItems = () => { const m = [...document.querySelectorAll('.lf-menu')].filter((x) => x.getClientRects().length).at(-1); return m && [...m.querySelectorAll('.ctx-menu-item')].map(b => b.textContent); };
   const menuOf = async (name) => {
+    await until(settings, () => ![...document.querySelectorAll('.lf-menu')].some((x) => x.getClientRects().length), null, { what: 'no menu open' });
     await settings.evaluate((n) => [...document.querySelectorAll('#foldersSection .lf-item')]
       .find(r => r.querySelector('.lf-title').textContent === n).querySelector('.lf-more').click(), name);
-    const items = await until(settings, () => { const m = document.querySelector('.lf-menu'); return m && [...m.querySelectorAll('.ctx-menu-item')].map(b => b.textContent); }, null, { what: 'the menu' });
-    return items;
+    return until(settings, menuItems, null, { what: 'the menu' });
   };
+  const pick = (label) => settings.evaluate((l) => [...[...document.querySelectorAll('.lf-menu')].filter((x) => x.getClientRects().length).at(-1)
+    .querySelectorAll('.ctx-menu-item')].find(b => b.textContent === l).click(), label);
   assert.deepEqual(await menuOf('This browser'), ['Set as default', 'Hide'], 'this browser is never removed');
   await settings.keyboard.press('Escape');
   assert.deepEqual(await menuOf('Lib C'), ['Rescan', 'Remove']);
   await settings.keyboard.press('Escape');
-  // (The location is mounted by a module the card asks for once its rows are drawn.)
-  await until(settings, () => !!document.querySelector('#foldersSection #lfLocation .choice-toggle'), null, { what: 'the location, mounted' });
+  // (The location is drawn once the desktop link has said where the library is.)
+  await until(settings, () => !!document.querySelector('#foldersSection #lfLocation .choice-toggle'), null, { what: 'the location, drawn' });
   const layout = await settings.evaluate(() => {
     const card = document.getElementById('foldersSection');
     const add = document.getElementById('lfAdd'), list = document.getElementById('lfRows');
     return { addBelow: add.getBoundingClientRect().top >= list.getBoundingClientRect().bottom,
-      rescanInHeader: !!card.querySelector('.section-header #lfRescan'), location: !!card.querySelector('#lfLocation .choice-toggle') };
+      rescanInHeader: !!card.querySelector('[data-slot="card-header"] #lfRescan'), location: !!card.querySelector('#lfLocation .choice-toggle') };
   });
   assert.deepEqual(layout, { addBelow: true, rescanInHeader: true, location: true }, 'add under the list, rescan in the header, the location on top');
   assert.equal(await settings.evaluate(() => document.querySelector('#foldersSection').parentElement.id), 'panelStorage');
   // On a phone the card fits the window: nothing runs past it.
   await settings.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });   // the page reloads
-  await until(settings, () => document.getElementById('navStorage'), null, { what: 'the page again' });
-  await settings.click('#navStorage');
+  await until(settings, () => !!document.getElementById('navStorage'), null, { what: 'the page again' });
+  await showStorage();
   const narrow = await until(settings, () => {
     const card = document.getElementById('foldersSection').getBoundingClientRect();
     const out = [...document.querySelectorAll('#foldersSection button, #foldersSection .lf-item, #foldersSection .lf-meta')]
@@ -604,28 +635,39 @@ test('Settings → Storage shows where the library is kept, and the overview can
   }, null, { what: 'the card at phone width' });
   assert.deepEqual(narrow, { scroll: 0, out: [] });
   await settings.setViewport({ width: 1280, height: 900, isMobile: false, hasTouch: false });
-  await until(settings, () => document.getElementById('navStorage'), null, { what: 'the page again' });
-  await settings.click('#navStorage');
+  await until(settings, () => !!document.getElementById('navStorage'), null, { what: 'the page again' });
+  await showStorage();
   await until(settings, () => document.querySelectorAll('#foldersSection .lf-item').length >= 3, null, { what: 'the folders card again' });
   // Make this browser the default again, from its menu.
   await menuOf('This browser');
-  await settings.evaluate(() => document.querySelector('.lf-menu .ctx-menu-item').click());
-  await until(settings, () => document.querySelector('#foldersSection .lf-item')?.querySelector('.key-status-badge:not(.unset)'), null, { what: 'the default to move' });
+  await pick('Set as default');
+  await until(settings, () => !!document.querySelector('#foldersSection .lf-item')?.querySelector('.key-status-badge:not(.unset)'), null, { what: 'the default to move' });
   // Removing asks first: "Remove folder" is the answer; moving the galleries elsewhere is a switch,
   // asked again when turned on. Turned on and then refused, it stays off.
   await menuOf('Lib B');
-  await settings.evaluate(() => [...document.querySelectorAll('.lf-menu .ctx-menu-item')].find(b => b.textContent === 'Remove').click());
-  const dialog = await until(settings, () => { const d = document.querySelector('.notice-dialog'); return d && {
-    ok: d.querySelector('.notice-actions .btn.danger')?.textContent, toggle: d.querySelector('.notice-toggle-text')?.textContent,
-    options: [...d.querySelectorAll('.notice-select option')].map(o => o.textContent) }; }, null, { what: 'the remove question' });
-  assert.deepEqual(dialog, { ok: 'Remove folder', toggle: 'Move galleries to', options: ['This browser (IndexedDB)', 'Lib A', 'Lib C'] });
-  await settings.evaluate(() => document.querySelector('.notice-toggle input').click());
-  const asked = await until(settings, () => document.querySelectorAll('.notice-dialog').length === 2 && document.querySelectorAll('.notice-dialog')[1].querySelector('h2').textContent, null, { what: 'the move question' });
+  await pick('Remove');
+  const dialog = await until(settings, () => { const d = window.__d.top(); return d && window.__d.toggle() && {
+    ok: window.__d.danger(d)?.textContent, toggle: window.__d.toggle().getAttribute('aria-label') }; }, null, { what: 'the remove question' });
+  await settings.evaluate(() => window.__d.toggle().click());
+  const asked = await until(settings, () => window.__d.count() === 2 && window.__d.nth(1).querySelector('h2').textContent, null, { what: 'the move question' });
   assert.equal(asked, 'Move galleries to This browser?');
-  await settings.evaluate(() => document.querySelectorAll('.notice-dialog')[1].querySelector('.notice-actions .btn:not(.danger)').click());
-  assert.equal(await until(settings, () => document.querySelectorAll('.notice-dialog').length === 1 && String(document.querySelector('.notice-toggle input').checked), null, { what: 'the switch to stay off' }), 'false');
-  await settings.evaluate(() => document.querySelector('.notice-dialog .notice-actions .btn:not(.danger)').click());
-  assert.equal(await settings.evaluate(() => !!document.querySelector('.notice-dialog')), false);
+  await until(settings, () => window.__d.answer('Cancel', 1), null, { what: 'the move question\'s Cancel' });
+  assert.equal(await until(settings, () => window.__d.count() === 1 && String(window.__d.on()), null, { what: 'the switch to stay off' }), 'false');
+  // (The list of where to move them is chosen from once the switch is on: turned on and answered Move,
+  // its places are read, then the removal is cancelled.)
+  await settings.evaluate(() => window.__d.toggle().click());
+  await until(settings, () => window.__d.count() === 2, null, { what: 'the move question again' });
+  await until(settings, () => window.__d.answer('Move', 1), null, { what: 'Move' });
+  await until(settings, () => window.__d.count() === 1 && window.__d.on(), null, { what: 'the switch on' });
+  await settings.evaluate(() => window.__d.top().querySelector('[data-slot="select-trigger"]').click());
+  await settings.waitForSelector('[data-slot="select-list"][data-open] [data-slot="select-option"]');
+  const options = await settings.$$eval('[data-slot="select-list"][data-open] [data-slot="select-option"]', (os) => os.map((o) => o.textContent));
+  await new Promise((r) => setTimeout(r, 300));   // (a drawn list takes no press in its first moments)
+  await settings.keyboard.press('Escape');
+  await until(settings, () => !document.querySelector('[data-slot="select-list"][data-open]') && window.__d.count() === 1, null, { what: 'the list closed, the question still there' });
+  assert.deepEqual({ ...dialog, options }, { ok: 'Remove folder', toggle: 'Move galleries to', options: ['This browser (IndexedDB)', 'Lib A', 'Lib C'] });
+  await until(settings, () => window.__d.answer('Cancel'), null, { what: 'the remove question\'s Cancel' });
+  await until(settings, () => window.__d.count() === 0, null, { what: 'no question' });
   // Hiding a place: no question. It stays listed, marked hidden, counting what it hid, and its menu
   // offers to show it again.
   const rowOf = (name) => settings.evaluate((n) => {
@@ -635,10 +677,10 @@ test('Settings → Storage shows where the library is kept, and the overview can
   }, name);
   const shownC = await rowOf('Lib C');
   await menuOf('Lib C');
-  await settings.evaluate(() => [...document.querySelectorAll('.lf-menu .ctx-menu-item')].find(b => b.textContent === 'Hide').click());
+  await pick('Hide');
   const hiddenC = await until(settings, async () => {
     const r = [...document.querySelectorAll('#foldersSection .lf-item')].find(r => r.querySelector('.lf-title').textContent === 'Lib C');
-    return r?.classList.contains('is-hidden') && !r.classList.contains('busy') && !document.querySelector('.notice-dialog') && true;
+    return r?.classList.contains('is-hidden') && !r.classList.contains('busy') && window.__d.count() === 0 && true;
   }, null, { what: 'Lib C hidden' }) && await rowOf('Lib C');
   assert.deepEqual(hiddenC.badges, ['Hidden']);
   assert.equal(hiddenC.meta, shownC.meta, 'it counts the galleries it hid');
@@ -654,15 +696,15 @@ test('Settings → Storage shows where the library is kept, and the overview can
   await overview.evaluate(() => [...document.querySelectorAll('.notice-choice')].find(b => b.textContent.includes('This browser')).click());
   await until(overview, async (g) => (await window.__api?.galleries.get(g))?.folder === 'browser' || (await (await import('/app/js/api.js')).galleries.get(g))?.folder === 'browser', gid, { what: 'the gallery to move' });
   // Shown again from its menu: back as it was, no folder picked.
+  await settings.bringToFront();   // the overview opened over it: the card reads its folders again as it shows
   await menuOf('Lib C');
-  await settings.evaluate(() => [...document.querySelectorAll('.lf-menu .ctx-menu-item')].find(b => b.textContent === 'Show').click());
+  await pick('Show');
   await until(settings, () => {
     const r = [...document.querySelectorAll('#foldersSection .lf-item')].find(r => r.querySelector('.lf-title').textContent === 'Lib C');
     return r && !r.classList.contains('is-hidden') && !r.classList.contains('busy');
   }, null, { what: 'Lib C shown' });
   assert.deepEqual(await rowOf('Lib C'), shownC);
   // Adding a folder another app uses: asked first, naming that app; "Use anyway" adds it.
-  await settings.bringToFront();   // the overview opened over it: the card reads its folders again as it shows
   const claimY = (owner, epoch) => settings.evaluate(async ({ owner, epoch }) => {
     const y = await (await navigator.storage.getDirectory()).getDirectoryHandle('Lib Y', { create: true });
     const w = await (await (await y.getDirectoryHandle('.shiori', { create: true })).getFileHandle('owner.json', { create: true })).createWritable();
@@ -671,12 +713,12 @@ test('Settings → Storage shows where the library is kept, and the overview can
     window.showDirectoryPicker = async () => y;
   }, { owner, epoch });
   await claimY('a1b2c3d4e5f60708', 1);
-  await settings.evaluate(() => document.getElementById('lfAdd').click());   // a tab in the background: no puppeteer click
-  const inUse = await until(settings, () => { const d = document.querySelector('.notice-dialog'); return d && {
-    title: d.querySelector('h2').textContent, body: d.innerText.includes('Shiori Desktop on OTHER-PC'), ok: d.querySelector('.notice-actions .btn.danger')?.textContent }; },
+  await settings.evaluate(() => document.getElementById('lfAdd').click());   // (pressed by script, as a tab in the background is)
+  const inUse = await until(settings, () => { const d = window.__d.top(); return d && {
+    title: d.querySelector('h2').textContent, body: d.innerText.includes('Shiori Desktop on OTHER-PC'), ok: window.__d.danger(d)?.textContent }; },
   null, { what: 'the in-use question' });
   assert.deepEqual(inUse, { title: 'Folder in use', body: true, ok: 'Use anyway' });
-  await settings.evaluate(() => document.querySelector('.notice-dialog .notice-actions .btn.danger').click());
+  await settings.evaluate(() => window.__d.danger(window.__d.top()).click());
   const addedY = await until(settings, async () => (await (await import('/app/js/api.js')).folders.list()).find(f => f.name === 'Lib Y')?.id, null, { what: 'Lib Y listed' });
   await run((id) => window.__t.passWait(id), addedY);   // its hand-over's moment passed (S32)
   await until(settings, () => [...document.querySelectorAll('#foldersSection .lf-item:not(.busy) .lf-title')].some(e => e.textContent === 'Lib Y'), null, { what: 'Lib Y added' });
@@ -690,8 +732,8 @@ test('Settings → Storage shows where the library is kept, and the overview can
   }, null, { what: 'Lib Y taken' });
   assert.deepEqual(takenY, { tip: 'In use by Shiori Desktop on OTHER-PC', button: 'Take back' });
   await settings.evaluate(() => [...document.querySelectorAll('#foldersSection .lf-item')].find(r => r.querySelector('.lf-title').textContent === 'Lib Y').querySelector('[data-act="claim"]').click());
-  assert.equal(await until(settings, () => document.querySelector('.notice-dialog h2')?.textContent, null, { what: 'the take-back question' }), 'Take back Lib Y?');
-  await settings.evaluate(() => document.querySelector('.notice-dialog .notice-actions .btn.danger').click());
+  assert.equal(await until(settings, () => window.__d.top()?.querySelector('h2')?.textContent, null, { what: 'the take-back question' }), 'Take back Lib Y?');
+  await settings.evaluate(() => window.__d.danger(window.__d.top()).click());
   await until(settings, () => {
     const r = [...document.querySelectorAll('#foldersSection .lf-item')].find(r => r.querySelector('.lf-title').textContent === 'Lib Y');
     return r && !r.querySelector('[data-act="claim"]');
