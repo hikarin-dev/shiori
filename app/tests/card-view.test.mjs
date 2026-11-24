@@ -23,7 +23,7 @@ const series = await import('../js/series.js');
 const model = await import('../js/gallery-model.js');
 const sanitize = await import('../js/sanitize.js');
 const tagEditor = await import('../js/tag-editor.js');
-const { cardView, cardTags, LANG_FLAG } = await import('../../src/lib/card-view.ts');
+const { cardView, cardTags, cardJob, JOB_LINGER_MS, LANG_FLAG } = await import('../../src/lib/card-view.ts');
 
 // ── What 1.3's lines read from around them: set per case by `world` ──────────────────────────────────
 let _mergeSeries = true, _bypassOverview = false, _seriesView = 'chapters', _hideAppLangFlag = true;
@@ -424,4 +424,33 @@ test('the table reaches every branch', () => {
     'replace', 'translated', 'favourite', 'missing', 'no pages: no tip', 'a typical page', 'no typical page yet', 'no title', 'rated safe',
     'tag category', 'tag artist', 'tag tag', 'tag tag:female', 'tag tag:male', 'flag', 'add', 'a flag left out'];
   assert.deepEqual(want.filter((b) => !seen.has(b)), []);
+});
+
+// What a job does to a card (cardJob), branch by branch as 1.3's applyJob draws it: whether the job's
+// place shows (applyJob's `downloading`), the bar (its fill, null where it travels with no figure,
+// undefined where an error leaves it as it was), the line (jobView's card form, held to applyJob in
+// job-view.test), the button it holds and what that button is meanwhile, and whether the word lingers.
+test('a job on a card: its place, its bar, the button it holds, its last word', () => {
+  const f = { t: (k, v) => (v ? `${k}${JSON.stringify(v)}` : k), count: (n) => String(n), bytes: (n) => `${n}B` };
+  const pick = (job) => { const v = cardJob(job, f); return v && [v.shown, v.bar, v.done, v.hold, v.form, v.ended]; };
+  assert.equal(JOB_LINGER_MS, 4000, '1.3\'s JOB_MSG_LINGER_MS');
+  // Running: the place shows; a translation's and a download's button is its Stop, an import's is off;
+  // a series' sync holds none.
+  assert.deepEqual(pick({ kind: 'download', status: 'started', total: 4 }), [true, 0, false, 'download', 'cancel', false]);
+  assert.deepEqual(pick({ kind: 'download', status: 'downloading', downloaded: 10 }), [true, null, false, 'download', 'cancel', false]);
+  assert.deepEqual(pick({ kind: 'download', status: 'downloading', downloaded: 10, total: 20, pages: 4 }), [true, 43, false, 'download', 'cancel', false]);
+  assert.deepEqual(pick({ kind: 'download', status: 'extracting' }), [true, 85, false, 'download', 'cancel', false]);
+  assert.deepEqual(pick({ kind: 'download', status: 'progress', done: 1, total: 4 }), [true, 89, false, 'download', 'cancel', false]);
+  assert.deepEqual(pick({ kind: 'translate', status: 'progress', pct: 40 }), [true, 40, false, 'translate', 'cancel', false]);
+  assert.deepEqual(pick({ kind: 'upload', status: 'progress', done: 1, total: 4 }), [true, 25, false, 'download', 'busy', false]);
+  assert.deepEqual(pick({ kind: 'sync', status: 'progress', done: 1, total: 4 }), [true, 25, false, null, 'busy', false]);
+  // Its end: done (the fill in success, a download's button ✓), failed (the bar as it was, the button
+  // back), cancelled (the bar empty, shown only where the job showed): each lingers.
+  assert.deepEqual(pick({ kind: 'download', status: 'done', done: 4, total: 4 }), [true, 100, true, 'download', 'done', true]);
+  assert.deepEqual(pick({ kind: 'translate', status: 'done', done: 4, total: 4 }), [true, 100, true, 'translate', 'done', true]);
+  assert.deepEqual(pick({ kind: 'download', status: 'error', error: 'x' }), [true, undefined, false, 'download', 'rest', true]);
+  assert.deepEqual(pick({ kind: 'translate', status: 'cancelled' }), [false, 0, false, 'translate', 'rest', true]);
+  // News a card doesn't draw.
+  assert.equal(cardJob({ kind: 'download', status: 'queued' }, f), null);
+  assert.equal(cardJob({ kind: 'folder', status: 'progress' }, f), null);
 });

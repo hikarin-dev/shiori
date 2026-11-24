@@ -11,8 +11,8 @@
 //   size     its box: text sizes default 36 and sm 28 (Settings' and the dialogs'), compact 28 (the
 //            pages' own small ones: the header's Import and Stop all, the import tracker's: no
 //            padding above and below, one line) and md 34 (the overview's actions); icon sizes
-//            icon-xs 22 · icon-sm 26 · icon 28 · icon-md 30 (the chapter rows') · toolbar 38×34; and
-//            inline (a link);
+//            icon-2xs 16 (a library card's source logo, no frame) · icon-xs 22 · icon-sm 26 · icon 28 ·
+//            icon-md 30 (the chapter rows') · toolbar 38×34; and inline (a link);
 //   coarse   the size a finger gets, where today's page gives one (36, 40 or 44).
 // Pressed (aria-pressed) shows the on look, in `pressedTone` where it differs from the tone; open
 // (aria-expanded) shows the hover look, as today's "Titles" and "⋯" buttons do.
@@ -100,6 +100,8 @@ const buttonVariants = cva(
         md: 'gap-[7px] rounded-6 px-[14px] py-[8px] text-12 [&_svg:not([class*=size-])]:size-[14px]',
         sm: 'min-h-[28px] gap-[6px] rounded-6 px-[10px] py-[5px] text-11 leading-[1.35] font-semibold whitespace-normal [overflow-wrap:anywhere] [&_svg:not([class*=size-])]:size-[14px]',
         compact: 'h-[28px] gap-[6px] rounded-6 px-[10px] text-11 [&_svg:not([class*=size-])]:size-[13px]',
+        // A library card's source logo: 16px, no frame (its face fills it).
+        'icon-2xs': 'size-[16px] rounded-2 border-0 p-0',
         'icon-xs': 'size-[22px] rounded-4 p-0 [&_svg:not([class*=size-])]:size-[14px]',
         'icon-sm': 'size-[26px] rounded-pill p-0 [&_svg:not([class*=size-])]:size-[14px]',
         icon: 'size-[28px] rounded-6 p-0 [&_svg:not([class*=size-])]:size-[15px]',

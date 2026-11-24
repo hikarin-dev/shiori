@@ -31,7 +31,7 @@ export type CardGallery = {
   aggPages?: number; aggSize?: number; aggOrig?: number;
   medianPage?: PageSize | null; aggMedianPage?: PageSize | null;
   missing?: boolean;
-  chapters?: { id: string; number?: number | string | null; kind?: string }[] | null;
+  chapters?: { id: string; title?: string; number?: number | string | null; kind?: string }[] | null;
   chapterCount?: number;
   source?: string; sourceId?: string | null; sourceUrl?: string;
   isLocalImport?: boolean;
