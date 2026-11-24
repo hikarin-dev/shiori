@@ -8,18 +8,13 @@ import * as platform from './platform.js';
 import { t } from './i18n.js';
 import { formatBytes, formatCount } from './format.js';
 import { confirmDialog, alertDialog, showToast } from './notice.js';
-import { BATCH_CHANNEL, localTitles, runImportBatch, runningHere } from './import-batch.js';
+import { runImportBatch, runningHere } from './import-batch.js';
 import { handImportBatch, handBatchToWorker, workerAvailable } from './submit-job.js';
 import { paintRunnerTag } from './runner-tag.js';
+import { FILTERS, PAINT_EVERY_MS, ROWS_STEP, TITLES_EVERY_MS, batchState, batchView, hasTitles, isLive, titlesSource, titlesView } from './import-batch-view.js';
 
-const QUIET_MS = 2 * 60 * 1000;     // nothing moving this long is said
-const LOST_MS = 20 * 1000;          // a batch silent this long has lost its runner (it says so every 5 s)
-const PAINT_EVERY_MS = 5000;        // time left, quiet and lost are read again this often
-const TITLES_EVERY_MS = 2000;       // an open list asks for its titles again this often
-const ROWS_STEP = 200;              // titles shown at a time
 const STOP_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
 const CLOSE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
-const FILTERS = ['all', 'waiting', 'importing', 'done', 'skipped', 'failed', 'stopped'];
 
 // ── Starting a batch ──
 // Import what a drop or pick holds (`groups`, import-files.js groupImports; `files` and `folders` as
@@ -84,20 +79,7 @@ export function mountImportTracker(host, { onChange = () => {} } = {}) {
   const panels = new Map();     // batch id → panel
   const dismissed = new Set();
   let listingPanel = null;
-  const channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel(BATCH_CHANNEL) : null;
-  const waiting = new Map();    // batch id → resolve of a titles request
-  if (channel) channel.onmessage = ({ data }) => {
-    if (data?.type === 'titles') { waiting.get(data.batch)?.(data.titles); waiting.delete(data.batch); }
-  };
-  const titlesOf = (id) => {
-    const here = localTitles(id);
-    if (here || !channel) return Promise.resolve(here);
-    return new Promise((resolve) => {
-      waiting.set(id, resolve);
-      channel.postMessage({ type: 'titles?', batch: id });
-      setTimeout(() => { if (waiting.get(id) === resolve) { waiting.delete(id); resolve(null); } }, 1500);
-    });
-  };
+  const { titlesOf } = titlesSource();
 
   const sync = () => {
     host.hidden = !panels.size && !listingPanel;
@@ -181,45 +163,30 @@ function makePanel(id, { titlesOf, dismiss }) {
   let job = null, stopping = false;
   const list = { open: false, filter: 'all', shown: ROWS_STEP, titles: null, timer: null };
 
-  const lost = () => job && job.status === 'progress' && !localTitles(id) && Date.now() - (job.at || 0) > LOST_MS;
-  const state = () => (!job ? 'running' : job.status === 'done' ? 'done' : job.status === 'cancelled' ? 'stopped' : lost() ? 'lost'
-    : job.waiting ? 'waiting' : 'running');
-  const live = () => ['running', 'waiting'].includes(state());
+  const state = () => batchState(job, id);
+  const live = () => isLive(state());
 
   function paint() {
     if (!job) return;
     const s = state();
     el.dataset.state = s;
-    const cur = job.current;
-    const curShare = cur?.total ? Math.min(1, cur.done / cur.total) : 0;
-    const bytesIn = (job.bytesDone || 0) + (cur ? (cur.bytes || 0) * curShare : 0);
-    _text($('.ib-name'), job.name || '');
+    const v = batchView(job, s);
+    _text($('.ib-name'), v.name);
     paintRunnerTag($('.run-tag'), job.runner);
-    _text($('.ib-total'), t('imp.ask_total', { n: formatCount(job.total), size: formatBytes(job.bytes) }));
+    _text($('.ib-total'), v.total);
     const fill = $('.prog-fill');
     fill.classList.toggle('done', s === 'done');
-    fill.style.width = `${Math.round(((job.done + curShare) / Math.max(1, job.total)) * 1000) / 10}%`;
-    const tally = s === 'done' ? t('imp.done', { n: formatCount(job.imported) })
-      : s === 'stopped' ? t('imp.stopped', { done: formatCount(job.done), total: formatCount(job.total) })
-      : s === 'lost' ? t('imp.lost', { done: formatCount(job.done), total: formatCount(job.total) })
-      : s === 'waiting' ? t('imp.waiting')
-      : [t('imp.tally', { done: formatCount(job.done), total: formatCount(job.total), bytes: formatBytes(bytesIn), size: formatBytes(job.bytes) }),
-        ..._pace(job, bytesIn)].join(' · ');
-    _text($('.ib-tally'), tally);
-    const quiet = s === 'running' && cur && Date.now() - (job.movedAt || job.at || 0) > QUIET_MS;
-    $('.ib-now').classList.toggle('quiet', !!quiet);
-    _text($('.ib-now'), s !== 'running' || !cur ? ''
-      : quiet ? t('imp.quiet', { n: formatCount(Math.floor((Date.now() - job.movedAt) / 60000)), done: formatCount(cur.done), total: formatCount(cur.total), name: cur.name })
-      : cur.total ? t('imp.now', { name: cur.name, done: formatCount(cur.done), total: formatCount(cur.total) }) : t('imp.now_start', { name: cur.name }));
-    _text($('.ib-issues'), [job.skipped ? t('imp.skipped', { n: formatCount(job.skipped) }) : '',
-      job.failed ? t('imp.failed', { n: formatCount(job.failed) }) : ''].filter(Boolean).join(' · '));
-    $('.ib-issues').classList.toggle('has-failed', job.failed > 0);
+    fill.style.width = v.width;
+    _text($('.ib-tally'), v.tally);
+    $('.ib-now').classList.toggle('quiet', v.quiet);
+    _text($('.ib-now'), v.now);
+    _text($('.ib-issues'), v.issues);
+    $('.ib-issues').classList.toggle('has-failed', v.failed);
     $('.ib-stop').hidden = !live();
     $('.ib-stop').disabled = stopping;
     $('.ib-dismiss').hidden = live();
-    // A batch not begun, or whose page is gone, has no titles to tell.
-    $('.ib-list-btn').hidden = s === 'lost' || s === 'waiting';
-    if ((s === 'lost' || s === 'waiting') && list.open) toggleList(false);
+    $('.ib-list-btn').hidden = !hasTitles(s);
+    if (!hasTitles(s) && list.open) toggleList(false);
   }
 
   async function loadTitles() {
@@ -229,8 +196,7 @@ function makePanel(id, { titlesOf, dismiss }) {
   }
   function paintList() {
     const titles = list.titles;
-    const counts = Object.fromEntries(FILTERS.map((f) => [f, 0]));
-    for (const ti of titles || []) { counts.all++; counts[ti.status] = (counts[ti.status] || 0) + 1; }
+    const { counts, rows: shown, more } = titlesView(titles, list.filter, list.shown);
     const filters = $('.ib-filters');
     for (const f of FILTERS) {
       let btn = filters.querySelector(`[data-filter="${f}"]`);
@@ -246,8 +212,6 @@ function makePanel(id, { titlesOf, dismiss }) {
       _text(btn, `${t(`imp.f_${f}`)} ${formatCount(counts[f])}`);
     }
     const rows = $('.ib-rows');
-    const matching = (titles || []).filter((ti) => list.filter === 'all' || ti.status === list.filter);
-    const shown = matching.slice(0, list.shown);
     for (const [i, ti] of shown.entries()) {
       let row = rows.children[i];
       if (!row) {
@@ -261,7 +225,7 @@ function makePanel(id, { titlesOf, dismiss }) {
       _text(row.children[2], ti.status === 'failed' ? ti.error || '' : '');
     }
     while (rows.children.length > shown.length) rows.lastElementChild.remove();
-    $('.ib-more').hidden = matching.length <= shown.length;
+    $('.ib-more').hidden = !more;
     const note = $('.ib-rows-note');
     note.hidden = !!titles;
     _text(note, titles ? '' : t('imp.no_titles'));
@@ -298,15 +262,4 @@ function makePanel(id, { titlesOf, dismiss }) {
       if (ended && list.open) loadTitles();
     },
   };
-}
-
-// The pace so far and the time left, once there is enough to tell.
-function _pace(job, bytesIn) {
-  const s = (Date.now() - (job.startedAt || Date.now())) / 1000;
-  if (s < 10 || bytesIn <= 0) return [];
-  const rate = bytesIn / s;
-  const left = Math.max(0, job.bytes - bytesIn) / rate;
-  const m = Math.round(left / 60);
-  return [t('imp.rate', { rate: formatBytes(rate) }),
-    left < 60 ? t('imp.eta_s') : m < 60 ? t('imp.eta_m', { m: formatCount(m) }) : t('imp.eta_h', { h: formatCount(Math.floor(m / 60)), m: formatCount(m % 60) })];
 }

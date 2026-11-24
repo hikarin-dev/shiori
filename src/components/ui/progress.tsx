@@ -26,6 +26,8 @@ type ProgressProps = Omit<ProgressPrimitive.Root.Props, 'value' | 'className'> &
   size?: 'thin' | 'thick';
   done?: boolean;
   className?: string;
+  // Classes the fill carries besides its look (a page's own markers: Tasks' .prog-fill).
+  indicatorClassName?: string;
 };
 
 const FILL = {
@@ -39,7 +41,7 @@ const FILL = {
   },
 } as const;
 
-function Progress({ value, tone = 'job', size, done, className, ...props }: ProgressProps) {
+function Progress({ value, tone = 'job', size, done, className, indicatorClassName, ...props }: ProgressProps) {
   const s = size ?? (tone === 'job' ? 'thin' : 'thick');
   const unknown = value == null;
   return (
@@ -58,6 +60,7 @@ function Progress({ value, tone = 'job', size, done, className, ...props }: Prog
         className={cn(
           'block h-full', s === 'thin' ? 'rounded-2' : 'rounded-[inherit]',
           unknown ? cn('w-[35%] animate-[progress-travel_1.2s_linear_infinite]', FILL[tone].unknown) : FILL[tone].known,
+          indicatorClassName,
         )}
       />
     </ProgressPrimitive.Root>

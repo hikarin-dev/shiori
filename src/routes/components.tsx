@@ -39,6 +39,7 @@ import { ListboxSpecimens } from './specimens/listbox';
 import { HeaderSpecimens } from './specimens/header';
 import { InlineEditSpecimens } from './specimens/inline-edit';
 import { DropOverlaySpecimens } from './specimens/drop-overlay';
+import { ImportTrackerSpecimens } from './specimens/import-tracker';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -176,6 +177,7 @@ export default function Components() {
       <HeaderSpecimens />
       <InlineEditSpecimens />
       <DropOverlaySpecimens />
+      <ImportTrackerSpecimens />
     </main>
   );
 }
