@@ -31,7 +31,9 @@ export function launch() {
 // not the refusals of requests that left the test server, which are the harness's own doing.
 // Every load fetches its files whole, the browser's own cache left out: a file kept and only asked
 // about loads sooner, and some tests' steps count on the time a full load takes.
-export async function openPage(browser, origin) {
+// `allow`: other origins a test serves itself (a stand-in translation server). Every refused request
+// is kept in `page.refused`, so a test can say nothing was asked of an address.
+export async function openPage(browser, origin, { allow = [] } = {}) {
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 900 });
   await page.setBypassServiceWorker(true);
@@ -44,13 +46,15 @@ export async function openPage(browser, origin) {
     if (/^Failed to load resource/.test(msg.text()) && !url.startsWith(origin)) return;
     problems.push(`console: ${msg.text()}${url ? ` (${url})` : ''}`);
   });
+  const refused = [];
   await page.setRequestInterception(true);
   page.on('request', (req) => {
     const url = req.url();
-    if (url.startsWith(origin) || url.startsWith('data:') || url.startsWith('blob:')) req.continue();
-    else req.abort();
+    if (url.startsWith(origin) || url.startsWith('data:') || url.startsWith('blob:') || allow.some((other) => url.startsWith(other))) req.continue();
+    else { refused.push(url); req.abort(); }
   });
   page.problems = problems;
+  page.refused = refused;
   return page;
 }
 
