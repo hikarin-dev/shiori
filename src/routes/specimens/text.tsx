@@ -17,7 +17,7 @@ export function TextSpecimens() {
           <Line label="sm · muted" states={['rest']} render={(state) => <div className="w-[646px]"><Eyebrow size="sm" {...tag('eyebrow', 'search-head', state)}>{t('search.filters')}</Eyebrow></div>} />
           <Line label="sm · warning" states={['rest']} render={(state) => <div className="w-[600px]"><Eyebrow as="h3" size="sm" tone="warning" {...tag('eyebrow', 'tcfg', state)}>{t('set.original')}</Eyebrow></div>} />
           <Line label="md · muted" states={['rest']} render={(state) => <div className="w-[940px] max-w-[calc(100vw-200px)]"><Eyebrow as="h2" size="md" {...tag('eyebrow', 'ov-section', state)}>{t('card.pages')}</Eyebrow></div>} />
-          <Line label="md · muted" states={['rest']} render={(state) => <div className="w-[906px] max-w-[calc(100vw-200px)]"><Eyebrow as="h3" size="md" {...tag('eyebrow', 'add-bar', state)}>{t('ov.add_chapter')}</Eyebrow></div>} />
+          <Line label="lg · muted" states={['rest']} render={(state) => <div className="w-[906px] max-w-[calc(100vw-200px)]"><Eyebrow as="h3" size="lg" {...tag('eyebrow', 'add-bar', state)}>{t('ov.add_chapter')}</Eyebrow></div>} />
         </div>
       </Shape>
       <Shape id="titles" name="Card and dialog titles" used="A Settings section's title (13px); every dialog's title (F28: 15px).">
