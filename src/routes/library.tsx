@@ -323,13 +323,13 @@ export default function Library() {
       if (gid === '*') { reload(); return; }
       if (!idsRef.current.includes(gid)) reveal(String(gid)).catch(() => {});
     });
-    // A gallery of the page gone from the library: the page read again, to fill its place, a job of
-    // it running or not (1.3's page, driven: its card went at once; its code meant to wait for the
-    // job's end, but its page was read again all the same).
+    // A gallery of the page gone from the library: the page read again, to fill its place.
     const offCache = client.getQueryCache().subscribe((event) => {
       if (event.type !== 'updated' || event.action.type !== 'success') return;
       const [kind, gid] = event.query.queryKey as [string, string];
-      if (kind === 'gallery' && event.query.state.data === null && idsRef.current.includes(gid)) reload();
+      // (Not while its job runs: 1.3's rule, library.js `if (!_liveJobs.has(gid)) _scheduleReloadPage()`;
+      // its page, driven, did not always keep it: library-next-jobs' case.)
+      if (kind === 'gallery' && event.query.state.data === null && idsRef.current.includes(gid) && !jobs.live(gid)) reload();
     });
     return () => {
       off();

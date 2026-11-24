@@ -137,6 +137,9 @@ test('the tasks page shows a batch running, and one whose page is gone as interr
   const page = await openPage(browser, origin);
   t.after(async () => { await page.close(); assert.deepEqual(page.problems, []); });
   await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
+  // The page drawn, so its tracker listens before the batches say anything: one heard before it
+  // listened comes from what is under way, after the other (the panels are in the order first heard).
+  await page.waitForSelector('#tkEmpty');
   await page.evaluate(async () => {
     const platform = await import('/app/js/platform.js');
     const base = { kind: 'import', status: 'progress', total: 10, done: 4, imported: 3, skipped: 1, failed: 0, bytes: 5e8, bytesDone: 2e8, startedAt: Date.now() - 60000 };
