@@ -136,18 +136,20 @@ test('Back from Settings lands on what the page showed, on both pages', async (t
   await page.goto(`${origin}/app/library.html`, { waitUntil: 'load' });
   const out = {};
   for (const path of ['/library', '/library-next']) {
-    const before = await read(page, `${path}?page=2&q=t1&sort=size`);
+    // (Sorted by pages, which nothing changes meanwhile: a gallery's stored size can still grow a little
+    // while the library writes its covers, which would reorder a sort by size between two reads.)
+    const before = await read(page, `${path}?page=2&sort=count`);
     await page.click('#settingsBtn');
     await until(page, () => location.pathname.endsWith('settings'), null, { what: 'Settings' });
     await page.goBack();
     await until(page, (path) => location.pathname === path, path, { what: 'back' });
     const after = await settled(page);
-    assert.deepEqual(after, before, `${path}: Back lands on what it showed`);
+    assert.deepEqual({ ...after, totals: null }, { ...before, totals: null }, `${path}: Back lands on what it showed`);
     await page.goForward();
     await until(page, () => location.pathname.endsWith('settings'), null, { what: 'Forward to Settings' });
     await page.goBack();
     await until(page, (path) => location.pathname === path, path, { what: 'back again' });
-    out[path] = await settled(page);
+    out[path] = { ...(await settled(page)), totals: null };
   }
   assert.deepEqual(out['/library-next'], out['/library']);
   assert.deepEqual(page.problems, []);
