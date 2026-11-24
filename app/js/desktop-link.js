@@ -2,7 +2,9 @@
 // desktop app serves — its window, or a browser tab at its address — whose library it always is):
 //   • Settings → Storage, the library's card: switching between this browser's library and the
 //     desktop app's (finding the app, asking it to allow this site, offering to move what this
-//     browser holds), moving or deleting what this browser still holds (mountLocation);
+//     browser holds), moving or deleting what this browser still holds: what the location says and
+//     its buttons' flows (locationView, chooseDesktop, chooseBrowser, retryDesktop, moveLeft,
+//     deleteLeft), which Settings' card draws (src/routes/settings/folders.tsx);
 //   • when the desktop app can't be reached: a prompt to open it or continue in this browser alone
 //     for now, a reminder while continuing, and — once the app is back — an offer to move what was
 //     saved meanwhile and switch back; when it runs but no longer lets this site in, a prompt to
@@ -12,7 +14,7 @@
 // The location itself is library-location.js's; every page of the site reloads onto a new one.
 import * as api from './api.js';
 import * as platform from './platform.js';
-import { t, applyTranslations } from './i18n.js';
+import { t } from './i18n.js';
 import { formatCount } from './format.js';
 import { ask, showProgress, confirmDialog, alertDialog, showToast } from './notice.js';
 import { savedLocation, setLocation, fallback, setFallback, findDesktop, pingDesktop, localAccess, requestPairing, desktopHosted } from './library-location.js';
@@ -20,7 +22,6 @@ import { browserGalleries, moveToDesktop, clearBrowserLibrary } from './library-
 
 const OPEN_APP = 'shiori://open';
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 // Every page of the site reloads onto the library it now uses.
 function switchTo(loc, { inBrowserForNow = false } = {}) {
@@ -88,43 +89,6 @@ async function useDesktop(status) {
     if (!(await move(config, ids))) return;
   }
   switchTo(config);
-}
-
-// Settings → Storage: where this site's library is, at the top of the library's card
-// (library-folders.js): this browser or Shiori Desktop, as a choice of the two, and — on the desktop
-// library — what this browser still holds, to move or delete. `el` is the card's place for it;
-// `status(text)` its status line. (Not on a page the desktop app serves.)
-export async function mountLocation(el, status = () => {}) {
-  if (desktopHosted() || !el) return;
-  const render = async () => {
-    const { saved, away, left, descKey, url } = await locationView();
-    const desc = `${esc(t(descKey))}${url ? ` <code>${esc(url)}</code>` : ''}`;
-    el.innerHTML = `
-      <div class="field">
-        <div class="field-label" data-i18n="lf.location"></div>
-        <div class="field-desc">${desc}</div>
-        <div class="choice-toggle lf-loc" role="group">
-          <button type="button" data-loc="browser" class="${saved ? '' : 'active'}" aria-pressed="${!saved}" data-i18n="set.loc_browser"></button>
-          <button type="button" data-loc="desktop" class="${saved ? 'active' : ''}" aria-pressed="${!!saved}" data-i18n="set.loc_desktop"></button>
-        </div>
-      </div>
-      ${away ? '<div class="lf-loc-row"><span></span><button class="btn-mini" id="locRetry" type="button" data-i18n="set.loc_retry"></button></div>' : ''}
-      ${left ? `<div class="lf-loc-row"><span>${esc(t('set.loc_left', { n: formatCount(left) }))}</span>
-        <span class="desk-actions"><button class="btn-mini" id="locMove" type="button" data-i18n="set.loc_move"></button>
-        <button class="btn-mini btn-clear-key" id="locDelete" type="button" data-i18n="set.loc_delete"></button></span></div>` : ''}`;
-    applyTranslations(el);
-    el.querySelector('[data-loc="desktop"]').addEventListener('click', () => chooseDesktop(status));
-    el.querySelector('[data-loc="browser"]').addEventListener('click', () => chooseBrowser());
-    el.querySelector('#locRetry')?.addEventListener('click', () => retryDesktop(saved));
-    el.querySelector('#locMove')?.addEventListener('click', async () => {
-      if (await moveLeft(saved, left, status)) render();
-    });
-    el.querySelector('#locDelete')?.addEventListener('click', async () => {
-      if (await deleteLeft(left)) render();
-    });
-  };
-  await render();
-  window.addEventListener('shiori-lang-change', render);
 }
 
 // What the location says now: `saved` (the desktop library chosen, or null: this browser's), `away`
