@@ -181,6 +181,21 @@
   [data-card-modes~="narrow"] .card-body { padding: 8px; }
   [data-card-modes~="narrow"] .card-id-row { flex-wrap: wrap; row-gap: 6px; }
   [data-card-modes~="narrow"] .card-actions { flex: 1 1 100%; margin-left: 0; gap: 4px; }
+
+  /* A card dragged onto another to make them a series (src/lib/card-drag.ts), as 1.3's: the card
+     dimmed in its place, the card under the pointer ringed (outside the whole card: an inset ring
+     would be hidden by the cover), and a copy following the pointer over everything, which flies to
+     its place when let go. The copy's holder only carries the grid's modes. */
+  .card.drag-source { opacity: 0.3; }
+  .card.merge-target { z-index: 16; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary); }
+  .card-drag-host { display: contents; }
+  .card-drag-clone {
+    position: fixed; z-index: 9999; margin: 0; pointer-events: none;
+    border-color: var(--primary);
+    filter: drop-shadow(0 14px 28px rgba(0, 0, 0, 0.55));
+  }
+  .card-drag-clone.dropping { transition: left .2s ease, top .2s ease, opacity .2s ease; }
+  body.card-dragging { user-select: none; cursor: grabbing; }
 }
 
 /* What the card changes of its pieces: here, beside the pieces' own classes, so it outranks them. */
