@@ -2,7 +2,7 @@
 // a column of sections. Every panel stays mounted and the hidden ones are not displayed, so a panel
 // keeps its controls' state while another shows, and choosing one changes no address (as 1.3's).
 //
-// Drawn as 1.3's page (app/settings.html, settings.css) on Settings' sizes (shadcn's stock scale:
+// Drawn as 1.3's Settings page on Settings' sizes (shadcn's stock scale:
 // §5.3 S01–S21): the column 1120px wide at most, 36px 28px 88px round; the nav 176px wide and 40px
 // from the panels, sticky 82px from the top; at 760px or less 128px and 20 apart (26px 16px 72px
 // round, sticky at 74), at 520px or less 96px and 10 apart (22px 10px 64px, sticky at 68), at 380px

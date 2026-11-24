@@ -1,5 +1,5 @@
 /* changelog.css — CHANGELOG.md in the About dialog (src/routes/settings/about.tsx), as 1.3 drew it
-   (settings.css, #aboutChangelog): a version's heading in the second accent with its date beside it,
+   (its #aboutChangelog): a version's heading in the second accent with its date beside it,
    versions ruled apart, the kinds of change in small capitals, each change a line led by a dash.
    Markup drawn from Markdown (marked), so its look is here rather than on elements the app writes.
    §5.3 F18: the small capitals take the one heading style (600, .1em; 700 and 1px before). */

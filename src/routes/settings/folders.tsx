@@ -11,7 +11,7 @@
 // What a row says, what its menu offers and asks, and the card's flow are app/js/folder-card.js's; the
 // location's, app/js/desktop-link.js's. Every question is notice.js's.
 //
-// Drawn as 1.3's (settings.css .lf-*): the location a field row; the list 16px 20px 18px in (14px 15px
+// Drawn as 1.3's (its .lf-* rows): the location a field row; the list 16px 20px 18px in (14px 15px
 // 16px in a panel of 480px or less), rows 8px apart, each an inset panel (11px 10px 11px 12px; a 32px
 // icon box, 12px gaps); a name 12.5px semibold, what it is 11px muted, the place's location in the
 // browser's code face 10.5px; a task's bar 60–180px wide beside its line (under it, at 480px or less).

@@ -1,5 +1,5 @@
 /* frame.css — the common header (AppHeader, src/components/ui/app-header.tsx), as 1.3's pages draw it
-   (library.css's and settings.css's header, base.css's brand). index.html paints its band and brand
+   (library.css's and 1.3's Settings page's header, base.css's brand). index.html paints its band and brand
    before any script has run, on the routes that have the header (start.js sets html[data-frame]);
    React draws the same markup in its place (src/frame.tsx), on the same pixels. Its forms are here
    too, in plain CSS: they answer the window's width inclusively, as 1.3's did. */

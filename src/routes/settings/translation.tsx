@@ -5,7 +5,7 @@
 // from. What is stored is 1.3's to the byte (app/js/translate-settings.js);
 // the panel's flow is src/lib/translation-store.ts.
 //
-// Drawn as 1.3's (settings.css): the status pill at the server header's end; the pipeline a row of
+// Drawn as 1.3's: the status pill at the server header's end; the pipeline a row of
 // equal steps joined by chevrons (one under the other in a panel of 480px or less), each step's name
 // a small heading over its model's box, its tip the stage's options; the advanced window 760 wide, its
 // options two to a row (one at 520px of window or less), "Pipeline details" folding away all but the

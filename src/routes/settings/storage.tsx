@@ -8,7 +8,7 @@
 // What each says, asks and does is app/js/storage-settings.js's; a backup is
 // backup-ui.js's (its progress window and questions are notice.js's), called as 1.3's page called it.
 //
-// Drawn as 1.3's (settings.css): each a section of rows with a button at the end (under the words, full
+// Drawn as 1.3's: each a section of rows with a button at the end (under the words, full
 // width, in a panel of 480px or less); the total in its framed figure, its tip the split by kind; Reset
 // in a row of its own with its status line before it. The backup choice a dialog of two cards. §5.3
 // S01/S11/S20: the buttons 36 on a 20px line, 12px (11px, 1.35); F17/S17: the choices one option card

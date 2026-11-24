@@ -3,7 +3,7 @@
 // (as an image, or as text in its font, with furigana), and those choices. Each saved as it changes,
 // said so for 2.5 s in the study section's status line (1.3's one line for the panel).
 //
-// The preview is drawn as 1.3's (settings.css: a paper ground with a dot screen, the two bubbles with
+// The preview is drawn as 1.3's (a paper ground with a dot screen, the two bubbles with
 // an arrow between, one under the other in a panel of 480px or less, the controls in one column at
 // 560px or less). §5.3 A5: a bubble drawn as an image is drawn in the face it names, loaded first
 // (1.3 drew it before any face had come, in each browser's own fallback). F24: the text options' radius

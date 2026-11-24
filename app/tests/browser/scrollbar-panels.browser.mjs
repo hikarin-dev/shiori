@@ -21,7 +21,7 @@ async function fresh(t, fixture = false) {
     page.on('request', request => {
       if (request.url() === origin + '/panel-fixture') request.respond({ status: 200, contentType: 'text/html',
         body: '<!doctype html><link rel="icon" href="data:,">' +
-          ['base', 'dropdown', 'library', 'overview', 'settings', 'reader', 'notice']
+          ['base', 'dropdown', 'library', 'overview', 'reader', 'notice']
             .map(name => `<link rel="stylesheet" href="/app/${name}.css">`).join('') +
           '<body><script type="module" src="/app/js/scrollbar.js"></script>' });
       else if (request.url().startsWith(origin) || request.url().startsWith('data:')) request.continue();
