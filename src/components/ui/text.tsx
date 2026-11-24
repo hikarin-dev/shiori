@@ -1,5 +1,5 @@
 // The text styles: Eyebrow (a small heading in capitals), CardTitle (a Settings section's title) and
-// the dialog title's look (DIALOG_TITLE, for the Dialog of a later step).
+// the dialog title's look (DIALOG_TITLE, Dialog's title).
 //
 // Eyebrow — over a group of fields, a list's section, a menu's part:
 //   size  xs 9 (dialogs' field labels, the keys dialog's sections, reader settings' headings, page
@@ -13,7 +13,8 @@
 //   (reader settings' 9.5 → 9). The add bar's keeps its 12px (F18 had made it 11, 2px shorter: the
 //   overview's sizes are 1.3's).
 // CardTitle — 13px bold, drawn a little tight (−.15px), on a 1.35 line.
-// DIALOG_TITLE — §5.3 F28: every dialog's title 15px bold (12, 13, 14 and 20 today).
+// DIALOG_TITLE — §5.3 F28: every dialog's title 15px bold (12, 13, 14 and 20 today), on a 20px line
+// (S16: the notices' inherited 1.55, Settings' 1.4 and the others' normal line before).
 import type { ComponentProps, ElementType } from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
@@ -37,6 +38,6 @@ function CardTitle({ className, ...props }: ComponentProps<'h2'>) {
   return <h2 data-slot="card-title" className={cn('min-w-0 text-13 leading-[1.35] font-bold tracking-[-.15px] text-foreground', className)} {...props} />;
 }
 
-const DIALOG_TITLE = 'text-15 font-bold text-foreground';
+const DIALOG_TITLE = 'text-15 leading-[20px] font-bold text-foreground';
 
 export { Eyebrow, CardTitle, DIALOG_TITLE };
