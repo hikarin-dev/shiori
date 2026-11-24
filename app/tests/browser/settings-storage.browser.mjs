@@ -35,10 +35,8 @@ after(async () => { await browser?.close(); server?.close(); });
 const skip = (t) => { if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return true; } return false; };
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 // A desktop library's address where nothing answers: never one of the desktop app's own ports, where a
-// real one may be running (the harness refuses requests, but a WebSocket goes past it).
+// real one may be running (the harness refuses what a page asks of another address either way).
 const AWAY = 'http://127.0.0.1:9';
-// What a page says when that address doesn't answer its WebSocket (the same on both pages).
-const away = (problems) => problems.filter((p) => !/WebSocket connection to 'ws:\/\/127\.0\.0\.1:9\//.test(p));
 
 // What every page reads and does, the same on both (installed before any script of the page runs).
 function helpers() {
@@ -372,7 +370,7 @@ async function both(t, drive, opts = {}) {
   for (const [, path] of PAGES) {
     const page = await open(t, path, opts);
     seen.push(await drive(page, path));
-    assert.deepEqual(away(page.problems), [], path);
+    assert.deepEqual(page.problems, [], path);
   }
   return seen;
 }

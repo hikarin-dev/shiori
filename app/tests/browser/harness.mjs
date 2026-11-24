@@ -1,7 +1,8 @@
 // harness.mjs — the app in a real browser, for smoke tests: the built site (dist/) from the server a
 // preview uses, at the app's clean addresses (/reader, /overview…), Chrome with a throwaway profile,
-// and pages that record everything the app leaves unhandled. Requests that leave the test server are
-// refused, so a test never reaches a real translation server or the internet.
+// and pages that record everything the app leaves unhandled. Requests and sockets that leave the test
+// server are refused, so a test never reaches a real translation server, an app running on this
+// machine, or the internet.
 import { existsSync } from 'node:fs';
 import puppeteer from 'puppeteer-core';
 import { builtSite } from '../../../build/built.mjs';
@@ -27,6 +28,9 @@ export function launch() {
     args: ['--no-first-run', '--no-default-browser-check', '--disable-extensions'] });
 }
 
+// Where a refused socket is opened instead: a port the browser itself refuses to connect to.
+const NOWHERE = 'ws://127.0.0.1:9/';
+
 // A page that keeps `page.problems`: uncaught errors, unhandled rejections and console errors — but
 // not the refusals of requests that left the test server, which are the harness's own doing.
 // Every load fetches its files whole, the browser's own cache left out: a file kept and only asked
@@ -44,6 +48,7 @@ export async function openPage(browser, origin, { allow = [] } = {}) {
     if (msg.type() !== 'error') return;
     const url = msg.location()?.url || '';
     if (/^Failed to load resource/.test(msg.text()) && !url.startsWith(origin)) return;
+    if (msg.text().startsWith(`WebSocket connection to '${NOWHERE}' failed`)) return;
     problems.push(`console: ${msg.text()}${url ? ` (${url})` : ''}`);
   });
   const refused = [];
@@ -53,6 +58,18 @@ export async function openPage(browser, origin, { allow = [] } = {}) {
     if (url.startsWith(origin) || url.startsWith('data:') || url.startsWith('blob:') || allow.some((other) => url.startsWith(other))) req.continue();
     else { refused.push(url); req.abort(); }
   });
+  // A socket is not a request the interception sees. One a document (or a frame of it) opens to
+  // another address is opened at NOWHERE instead and kept in `page.refused`: nothing is sent, and it
+  // fails as an address nothing answers does.
+  await page.exposeFunction('__harnessRefused', (url) => { refused.push(url); });
+  await page.evaluateOnNewDocument((allowed, nowhere) => {
+    window.WebSocket = new Proxy(window.WebSocket, { construct(Socket, [url, ...rest]) {
+      const asked = String(url).replace(/^ws/, 'http');
+      if (allowed.some((other) => asked.startsWith(other))) return new Socket(url, ...rest);
+      window.__harnessRefused?.(String(url));
+      return new Socket(nowhere, ...rest);
+    } });
+  }, [origin, ...allow], NOWHERE);
   page.problems = problems;
   page.refused = refused;
   return page;
