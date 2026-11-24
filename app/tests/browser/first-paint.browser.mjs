@@ -120,6 +120,53 @@ test('/tasks: the frame painted before the app runs; the page fills it with the 
   assert.deepEqual(page.problems, []);
 });
 
+// The library as the one page draws it (/library-next): the frame painted before the app runs, React's
+// header on its pixels with the page's parts in it, nothing shifting as the page and its cards come.
+test('/library-next: the frame painted before the app runs; the page fills it with the brand where it was, and nothing shifts', async (t) => {
+  const page = await fresh(t);
+  if (!page) return;
+  await page.goto(`${origin}/library-next`, { waitUntil: 'domcontentloaded' });
+  await until(page, async () => { await document.fonts.ready; return document.querySelector('.brand-icon img').complete && document.fonts.check('700 15px "JetBrains Mono"'); },
+    undefined, { what: 'the frame\'s font and icon' });
+  await until(page, () => performance.getEntriesByType('paint').length > 0, undefined, { what: 'a paint' });
+  const painted = await page.evaluate(frame);
+  assert.deepEqual([painted.frame, painted.shown, painted.painted, painted.mounted], ['header', true, true, false], 'the frame shows, painted, before the app');
+  for (const part of ['brand', 'icon', 'text']) assert.deepEqual(painted[part], BRAND[part], `${part}: where 1.3 has it`);
+  page.release();
+  await until(page, () => document.title === 'Shiori — Library' && !!document.getElementById('searchBox') && document.getElementById('hTotalGalleries')?.textContent !== '—', undefined, { what: 'the page drawn' });
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const drawn = await page.evaluate(frame);
+  for (const part of ['brand', 'icon', 'text']) assert.deepEqual(drawn[part], painted[part], `${part}: the same pixels`);
+  assert.deepEqual([drawn.band[0], drawn.band[1], drawn.band[3]], [0, 0, 54], 'the band where it was, as high');
+  assert.deepEqual(await page.evaluate(() => window.__shifts), [], 'nothing shifted');
+  assert.deepEqual(page.problems, []);
+});
+
+test('a hard load of /library-next asks for every module it runs at once, by the list, and for none the list did not name', async (t) => {
+  const page = await fresh(t);
+  if (!page) return;
+  page.release();
+  await page.goto(`${origin}/library-next`, { waitUntil: 'load' });
+  await until(page, () => document.title === 'Shiori — Library' && !!document.getElementById('grid'), undefined, { what: 'the route drawn' });
+  await new Promise((r) => setTimeout(r, 500));
+  const { entry, start, routes } = START();
+  const listed = new Set([entry, ...start, ...routes['library-next'].preload].map((f) => `/${f}`));
+  const classic = new Set(['/app/font-init.js', '/start.js']);
+  const modules = page.asked.filter((r) => r.type === 'script' && !classic.has(r.url)).map((r) => r.url);
+  assert.ok(modules.length > 40, `the page ran its modules (${modules.length})`);
+  assert.deepEqual(modules.filter((url) => !listed.has(url)), [], 'asked for, not on the list');
+  // The route's stylesheets are on its list too (the gallery card's, in a chunk two routes share).
+  const styles = page.asked.filter((r) => r.type === 'stylesheet' && r.url.startsWith('/assets/')).map((r) => r.url);
+  assert.deepEqual(styles.filter((url) => !listed.has(url) && !url.includes('/index-')), [], 'a stylesheet not on the list');
+  const late = await page.evaluate((entry) => {
+    const all = performance.getEntriesByType('resource').filter((e) => /\.m?js$/.test(new URL(e.name).pathname) && !/\/(start|font-init)\.js$/.test(e.name));
+    const first = all.find((e) => e.name.endsWith(`/${entry}`));
+    return all.filter((e) => e.startTime >= first.responseEnd).map((e) => `${new URL(e.name).pathname} at ${Math.round(e.startTime)} ms, the entry arrived at ${Math.round(first.responseEnd)}`);
+  }, entry);
+  assert.deepEqual(late, [], 'asked for later, by an import');
+  assert.deepEqual(page.problems, []);
+});
+
 // 1.3's Settings header (the baseline's settings-library): the brand on Settings' 1.2 line, 12px in at
 // 520px or less.
 const SETTINGS_BRAND = (x) => ({ brand: [x, 14.5, 84.203125, 24], icon: [x, 14.5, 24, 24], text: [x + 32, 17.5, 52.203125, 18] });
