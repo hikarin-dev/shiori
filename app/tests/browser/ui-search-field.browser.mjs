@@ -105,6 +105,54 @@ test('typing: blocks made, the list and its keys, a press picks, the X clears', 
   assert.deepEqual(page.problems, []);
 });
 
+test('an arrow pressed just after typing keeps its row: a list worked out again with the same rows is left as it is', async (t) => {
+  const page = await componentsPage(t, browser, origin);
+  if (!page) return;
+  // The module works the list out again as the caret moves, a frame or more after the typing that
+  // moved it: on a slow machine, after the arrow has landed. (Slowed six times, every run lost its
+  // row while each of those wrote the list again with none active.)
+  const cdp = await page.createCDPSession();
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
+  await page.$eval('#searchClear', (b) => b.click());
+  await until(page, () => !!document.getElementById('searchSuggest'), undefined, { what: 'the list' });
+  await page.keyboard.type('fa');
+  await until(page, () => (document.querySelector('#searchSuggest [role="option"]')?.textContent || '').includes('favorite:'), undefined, { what: 'the filters matching' });
+  await page.keyboard.press('ArrowDown');
+  const active = await page.evaluate(() => new Promise((done) => {
+    const seen = [];
+    const read = () => { seen.push(document.querySelector('#searchSuggest [aria-selected="true"]')?.textContent.includes('favorite:') ?? false); };
+    read();
+    let frames = 0;
+    const step = () => { read(); if (++frames < 12) requestAnimationFrame(step); else done(seen); };
+    requestAnimationFrame(step);
+  }));
+  assert.deepEqual(active, Array(13).fill(true), 'active from the key on, through every frame after');
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+  assert.deepEqual(page.problems, []);
+});
+
+test('Escape closes the list for good: the drawing a key had just asked for is called off', async (t) => {
+  const page = await componentsPage(t, browser, origin);
+  if (!page) return;
+  await page.$eval('#searchClear', (b) => b.click());
+  await until(page, () => !!document.getElementById('searchSuggest'), undefined, { what: 'the list' });
+  // A letter typed, and Escape once the caret's move has been heard (as a key pressed after it is)
+  // but before the next frame, when the module would draw the letter's list.
+  const shown = await page.evaluate((sel) => new Promise((done) => {
+    document.addEventListener('selectionchange', () => {
+      document.querySelector(sel).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      const seen = [];
+      let frames = 0;
+      const step = () => { seen.push(!!document.getElementById('searchSuggest')); if (++frames < 6) requestAnimationFrame(step); else done(seen); };
+      requestAnimationFrame(step);
+    }, { once: true });
+    document.execCommand('insertText', false, 'f');
+  }), BOX);
+  assert.equal(await page.$eval(BOX, (el) => el.textContent), 'f', 'the letter typed');
+  assert.deepEqual(shown, Array(6).fill(false), 'closed, and not drawn again');
+  assert.deepEqual(page.problems, []);
+});
+
 test('on a phone, the library header\'s form: the search on a row of its own under the rest', async (t) => {
   const page = await componentsPage(t, browser, origin, { width: 390, height: 844, isMobile: true, hasTouch: true });
   if (!page) return;

@@ -295,8 +295,10 @@ function _typed(ctx) {
 }
 
 // A filter starts its value (`artist:`); a value finishes the filter as a block. (A host picks a row
-// it was shown by pickSuggestion.)
+// it was shown by pickSuggestion, and closes the list, as Escape does here, by closeSuggestions: a
+// drawing already asked for is called off with it.)
 export function pickSuggestion(row) { _pick(row); }
+export function closeSuggestions() { _close(); }
 function _pick(row) {
   const ctx = _typed(_caretContext());
   if (row.value == null) {

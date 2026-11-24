@@ -23,7 +23,7 @@
 import { Fragment, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { ListFilter, Search, X } from 'lucide-react';
-import { initSearchField, pickSuggestion, searchQuery, setSearchQuery } from '@lib/search-field.js';
+import { closeSuggestions, initSearchField, pickSuggestion, searchQuery, setSearchQuery } from '@lib/search-field.js';
 import { Button } from './button';
 import { FOCUS_BOX } from './focus';
 import { Listbox, ListboxHead, ListboxOption, ListboxSeparator, useCombobox } from './listbox';
@@ -34,6 +34,9 @@ type Row = { row: unknown; key: string; title?: string; hint?: string; label?: s
 type Group = { head: string; rows: Row[] };
 
 const LIST_ID = 'searchSuggest';
+
+// Whether two lists show the same rows (plain data, a few dozen rows at most).
+const sameList = (a: Group[] | null, b: Group[] | null) => JSON.stringify(a) === JSON.stringify(b);
 
 // Under the box, as 1.3's list was placed.
 function place(box: HTMLElement): CSSProperties {
@@ -70,15 +73,21 @@ function SearchField({ placeholder, clearLabel, defaultQuery, onQueryChange, ...
   const rows = groups?.flatMap((g) => g.rows) ?? [];
   const combo = useCombobox({
     id: LIST_ID, count: rows.length, open: !!groups, tabPicks: true,
-    onPick: (i) => pickSuggestion(rows[i].row), onClose: () => setGroups(null),
+    // Closed by the module, which hands back an empty list and calls off a drawing it had asked for.
+    onPick: (i) => pickSuggestion(rows[i].row), onClose: closeSuggestions,
   });
   const { setActive } = combo;
   const { onKeyDown, ...comboAria } = combo.inputProps;
+  // A list that changed starts with no option active, as 1.3's did.
+  const [listed, setListed] = useState(groups);
+  if (listed !== groups) { setListed(groups); setActive(-1); }
 
   useLayoutEffect(() => {
     const el = box.current!;
-    // What the list shows, each time it changes: no option active, as 1.3's started.
-    const stop = initSearchField(el, { show: (next: Group[] | null) => { setGroups(next); setActive(-1); }, chipClass: FILTER_TAG, chipKeyClass: TAG_KEY });
+    // What the list shows, each time the module works it out, which is on every move of the caret
+    // too: handed the rows it already shows, the list is left as it is, its active option kept (1.3
+    // wrote it again with none active, so an arrow pressed just after typing could lose its row).
+    const stop = initSearchField(el, { show: (next: Group[] | null) => setGroups((was) => (sameList(was, next) ? was : next)), chipClass: FILTER_TAG, chipKeyClass: TAG_KEY });
     if (defaultQuery) setSearchQuery(defaultQuery);
     setQuery(searchQuery());
     const typed = () => { const q = searchQuery(); setQuery(q); changed.current?.(q); };
