@@ -1,7 +1,7 @@
 // ui-spinner.browser.mjs — Spinner (src/components/ui/spinner.tsx) as /components shows it, held to
 // 1.3's stylesheet values (nothing of it was captured): the ring 32px with a 3px border (the reader's
 // .spinner, a pending page's marker) and 13px with a 2px one (the status line's), the border's grey
-// with a brand-coloured arc, one turn in .8s at an even pace; an icon given turns, 14px, in the
+// with a brand-coloured arc, one turn in .8s at an even pace; an icon given turns, 16px, in the
 // colour around it. A lone spinner is a status with a name; one beside words is hidden from a screen
 // reader. With less motion asked for, it stands still.
 import test, { before, after } from 'node:test';
@@ -43,7 +43,7 @@ test('the ring in two sizes and an icon, each turning once in .8s; a status when
   const icon = await read(page, spec('spinner-inline', 'icon'));
   assert.deepEqual(icon.animation, TURN);
   assert.deepEqual(await page.$eval(spec('spinner-inline', 'icon'), (el) => { const s = getComputedStyle(el.querySelector('svg')); return [parseFloat(s.width), parseFloat(s.height), s.stroke]; }),
-    [14, 14, 'rgb(161, 161, 170)'], 'the icon, 14px, in the colour around it');
+    [16, 16, 'rgb(161, 161, 170)'], 'the icon, 16px (S13), in the colour around it');
   // It turns about its centre: the centre of its turned box stays where it is through a turn.
   const at = await page.$eval(spec('spinner', 'ring'), (el) => {
     const c = () => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };

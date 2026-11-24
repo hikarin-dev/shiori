@@ -59,8 +59,9 @@ test('a field with a joined button: the pair one frame, the button a button, its
     return { joined: Math.abs(a.right - b.left) < 0.01, height: [a.height, b.height], corners: [sa.borderTopRightRadius, sb.borderTopLeftRadius, sb.borderTopRightRadius], seam: sb.borderLeftWidth, role: button.localName, label: button.getAttribute('aria-label') };
   });
   assert.deepEqual(pair, { joined: true, height: [36, 36], corners: ['0px', '0px', '6px'], seam: '0px', role: 'button', label: 'Check connection' });
-  const busy = await page.$eval('[aria-busy="true"] svg', (svg) => getComputedStyle(svg).animationName);
-  assert.equal(busy, 'spin');
+  // Busy, its icon turns inside a Spinner, the icon's size kept.
+  const busy = await page.$eval('[aria-busy="true"] svg', (svg) => { const s = svg.closest('[data-slot="spinner"]'); return [s && getComputedStyle(s).animationName, getComputedStyle(svg).width]; });
+  assert.deepEqual(busy, ['spin', '16px']);
 });
 
 test('a textarea grows downward by its grip only', async (t) => {
