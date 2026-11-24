@@ -103,6 +103,7 @@ test('a plain link to an address the one page draws is followed inside the app; 
     };
     add('toComponents', 'components?from=link#top');
     add('toTasks', 'tasks');
+    add('toSettings', 'settings');
     add('toBlank', 'components?blank', { target: '_blank' });
     add('toDownload', 'components?file', { download: 'x' });
     window.stayed = true;
@@ -135,9 +136,14 @@ test('a plain link to an address the one page draws is followed inside the app; 
   assert.deepEqual(leftAlone, ['toComponents+ctrl:browser', 'toBlank:browser', 'toDownload:browser', 'toHere:browser']);
   assert.equal(await page.evaluate(() => window.stayed), true);
 
+  // Tasks, which the one page draws too: no page load.
+  await click('toTasks');
+  await until(page, () => document.title === 'Shiori — Tasks' && !!document.getElementById('tkList'), undefined, { what: 'the tasks page' });
+  assert.equal(await page.evaluate(() => window.stayed), true, 'no page load');
+
   // A page that still has a file of its own: loaded as always.
-  await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), click('toTasks')]);
-  await until(page, () => document.title === 'Shiori — Tasks' && !!document.querySelector('header'), undefined, { what: 'the tasks page' });
+  await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), click('toSettings')]);
+  await until(page, () => document.title === 'Shiori — Settings' && !!document.querySelector('header'), undefined, { what: 'the settings page' });
   assert.equal(await page.evaluate(() => window.stayed), undefined, 'a page load');
   assert.deepEqual(page.problems, []);
 });
