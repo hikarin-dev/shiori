@@ -1,7 +1,8 @@
 // TriStateToggle — a filter option with three states: any (it doesn't filter), show only, hide. A
 // press moves it on: any → show only → hide → any. The library's filter dialog's .fopt: a 14px mark
 // (✓ on success, ✕ on danger) before the name, which is struck through while hidden. It keeps
-// data-state (off | include | exclude), which the page and its tests read.
+// data-state (off | include | exclude), which the page and its tests read. §5.3 S10: 36 tall (34
+// before), a dialog's field and button height.
 import { Button as ButtonPrimitive } from '@base-ui/react/button';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -26,7 +27,7 @@ function TriStateToggle({ value, onValueChange, label, className, onClick, ...pr
       aria-label={`${label}: ${t(SAYS[value])}`}
       onClick={(e) => { onClick?.(e); if (!e.defaultPrevented) onValueChange?.(NEXT[value]); }}
       className={cn(
-        'group/tri flex min-w-0 cursor-pointer items-center gap-[8px] rounded-6 border border-solid border-border bg-background px-[10px] py-[8px] text-left text-12 text-muted-foreground',
+        'group/tri flex min-h-[36px] min-w-0 cursor-pointer items-center gap-[8px] rounded-6 border border-solid border-border bg-background px-[10px] py-[8px] text-left text-12 text-muted-foreground',
         'transition-[color,background-color,border-color] duration-fast ease-standard',
         'hover:border-muted-foreground hover:text-foreground',  // a set option keeps its tone's frame under the pointer (below)
         'data-[state=include]:border-success data-[state=include]:bg-success-tint data-[state=include]:text-foreground hover:data-[state=include]:border-success',
