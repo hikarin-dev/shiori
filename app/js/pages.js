@@ -16,9 +16,18 @@ export const PAGES = Object.freeze({
   settings: 'app/settings.html',
   reader: 'app/reader.html',
   overview: 'app/overview.html',
-  tasks: 'app/tasks.html',
+  tasks: APP_PAGE,
   components: APP_PAGE,
 });
+
+// The files of pages the one page now draws, gone with their port, by the address each moved to: a
+// bookmark or link to the old file is sent on to it (the query kept) wherever an address is answered.
+export const MOVED = Object.freeze({
+  'app/tasks.html': 'tasks',
+});
+
+// Where the old file `path` (a path from the site's root, without its first slash) moved to, or null.
+export const movedTo = (path) => (Object.hasOwn(MOVED, path) ? MOVED[path] : null);
 
 // The file that answers `segment` (a path from the site's root, without slashes), or null where the
 // app has no such address.

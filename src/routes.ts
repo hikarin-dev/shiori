@@ -16,4 +16,5 @@ export type Route = { page: string; app: boolean; header: boolean; installed: bo
 export const ROUTES: Readonly<Record<string, Route>> = {
   // The comparison page: no page of the app, and its chunk would be a tenth of what installs.
   components: { page: 'components', app: false, header: true, installed: false },
+  tasks: { page: 'tasks', app: true, header: true, installed: true },
 };

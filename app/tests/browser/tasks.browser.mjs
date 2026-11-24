@@ -105,8 +105,10 @@ test('the tasks page lists every running job, a row per job, live, and stops one
 
   // Stop all, confirmed: every job left — a download nothing runs any more, and an import.
   await page.click('#stopAllBtn');
-  await page.waitForSelector('.notice-actions .btn.danger');
-  await page.click('.notice-actions .btn.danger');
+  // The question is the app's notice host's (T11).
+  const confirmStop = '[data-notice="dialog"] [data-slot="button"][data-variant="danger"]';
+  await page.waitForSelector(confirmStop);
+  await page.click(confirmStop);
   const ended = await rowsUntil(page, (rows) => rows.every((r) => r.ended), 'every job stopped');
   assert.ok(ended.every((r) => r.label === 'Cancelled'), JSON.stringify(ended));
   assert.equal(await page.$eval('#tkCount', (el) => el.textContent), '0');

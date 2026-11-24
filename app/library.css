@@ -626,12 +626,11 @@ body.translator-offline .card-btn-translate { display: none; }
 }
 
 /* A batch of imports (import-tracker.js): a panel per batch, under the library's toolbar (as wide as
-   the grid), above the tasks page's rows, and under a series' add bar. Its badge and buttons are the
-   tasks page's rows' (tasks.css); the bar is a card's. */
+   the grid) and under a series' add bar; the bar is a card's. (Tasks draws it as a component,
+   src/components/import-tracker.tsx.) */
 .ib-host { display: flex; flex-direction: column; gap: 8px; }
 .ib-host[hidden] { display: none; }
 #importTracker { max-width: 1512px; margin: 0 auto 16px; padding: 0 24px; }
-#tkImports { margin-bottom: 8px; }
 #ovImports { margin-top: 16px; }
 .ib {
   display: flex; flex-direction: column; gap: 6px;

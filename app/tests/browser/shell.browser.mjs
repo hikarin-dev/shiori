@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { startServer, chromePath, launch, until } from './harness.mjs';
 import { builtSite } from '../../../build/built.mjs';
+import { MOVED } from '../../js/pages.js';
 // The files the worker keeps, from the list the build wrote (asking for the built site throws, saying
 // so, when there is none or a source changed since: npm run build).
 const { SHELL } = await import(pathToFileURL(join(builtSite(), 'shell-files.js')).href);
@@ -202,4 +203,48 @@ test('with the worker installed, a hard reload of a clean address the host doesn
     assert.equal(await page.evaluate(address), path, 'the address stays clean');
   }
   assert.deepEqual(page.problems, []);
+});
+
+// An old page's file the one page now draws the address of (app/js/pages.js, MOVED): the worker sends a
+// navigation to it on to that address, with the server gone; a host that knows no clean addresses
+// answers it with 404.html, which brings it to the one page at that address.
+
+test('with the worker installed, an old page\'s file opens its page at its clean address, the worker answering', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const site = await startServer();   // a server of its own, whose requests are counted
+  t.after(() => site.server.close());
+  const asked = [];
+  site.server.on('request', (req) => asked.push(req.url));
+  const page = await fresh(t, { site: site.origin });
+  await page.goto(`${site.origin}/`, { waitUntil: 'load' });
+  await workerHoldsAll(page);
+  for (const [old, segment] of Object.entries(MOVED)) {
+    asked.length = 0;
+    await page.goto(`${site.origin}/${old}?g=1`, { waitUntil: 'load' });
+    await until(page, () => !!document.getElementById('root')?.querySelector('main'), undefined, { what: `/${segment}` });
+    assert.equal(await page.evaluate(address), `/${segment}?g=1`);
+    assert.deepEqual(asked.filter((url) => url.startsWith(`/${old}`) || url.startsWith(`/${segment}`)), [], 'the worker sent it on and answered: the server was not asked');
+  }
+  assert.equal(await page.evaluate(() => document.title), 'Shiori — Tasks');
+  assert.deepEqual(page.problems, []);
+});
+
+test('on a host that knows no clean addresses (and no worker yet), 404.html brings an old page\'s file to its page', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const context = await browser.createBrowserContext();
+  t.after(() => context.close());
+  const page = await context.newPage();
+  const body = await readFile(join(builtSite(), '404.html'));
+  await page.setRequestInterception(true);
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname.slice(1);
+    if (request.isNavigationRequest() && Object.hasOwn(MOVED, path)) request.respond({ status: 404, contentType: 'text/html', body });
+    else if (request.url().startsWith(origin)) request.continue();
+    else request.abort();
+  });
+  for (const [old, segment] of Object.entries(MOVED)) {
+    await page.goto(`${origin}/${old}?g=1#x`).catch(() => {});   // the 404 page leaves at once
+    await until(page, () => !!document.getElementById('root')?.querySelector('main'), undefined, { what: `/${segment}` });
+    assert.equal(await page.evaluate(address), `/${segment}?g=1#x`);
+  }
 });

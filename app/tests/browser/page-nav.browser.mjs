@@ -1,4 +1,5 @@
-// page-nav.browser.mjs — the header's page name is a menu of the app's pages (page-nav.js): each page
+// page-nav.browser.mjs — the header's page name is a menu of the app's pages (page-nav.js; on a page
+// the one page draws, PageMenu): each page
 // names itself and offers the others (a gallery's overview only where there is a gallery, the reader
 // only in the reader); picking one goes there. On a phone it stays where the brand's word gives way,
 // and the reader's classic bar still fits.
@@ -54,9 +55,16 @@ test('each page names itself in the menu and offers the others; picking one goes
   const page = await visit(t, '/library');
   assert.deepEqual(await offered(page), ['library*', 'settings', 'tasks'], 'no overview without a gallery, no reader outside it');
   assert.equal((await go(page, 'tasks')).pathname, '/tasks');
-  await until(page, () => document.querySelectorAll('#pageNav option').length > 1, null, { what: 'the tasks page menu' });
-  assert.deepEqual(await offered(page), ['library', 'settings', 'tasks*']);
-  assert.equal((await go(page, 'settings')).pathname, '/settings');
+  // Tasks is drawn by the one page: its menu is the app's (PageMenu, ui-page-menu.browser), a list
+  // drawn under a pointer, not the page's own <select>.
+  await page.waitForSelector('#pageNav[data-page="tasks"]');
+  await page.click('#pageNav');
+  await page.waitForSelector('[data-slot="select-list"] [data-slot="select-option"]');
+  await new Promise((r) => setTimeout(r, 300));   // (a press in the list's first moments is not taken as a choice)
+  assert.deepEqual(await page.$$eval('[data-slot="select-list"] [data-slot="select-option"]', (os) => os.map((o) => `${o.textContent}${o.hasAttribute('data-selected') ? '*' : ''}`)),
+    ['Library', 'Settings', 'Tasks*']);
+  await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), page.click('[data-slot="select-list"] [data-slot="select-option"]:nth-child(2)')]);
+  assert.equal(new URL(page.url()).pathname, '/settings');
 
   const overview = await visit(t, `/overview?g=${GID}`);
   assert.deepEqual(await offered(overview), ['library', 'overview*', 'settings', 'tasks']);

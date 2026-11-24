@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { devPages } from '../../build/plugins.ts';
-import { PAGES, APP_PAGE } from '../js/pages.js';
+import { PAGES, APP_PAGE, MOVED } from '../js/pages.js';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -54,6 +54,15 @@ test('an address the one page answers goes to Vite as its index.html, the query 
   for (const segment of mine) {
     assert.deepEqual(ask(`/${segment}`), { passedOn: true, url: `/${APP_PAGE}`, status: null, headers: {}, body: null });
     assert.equal(ask(`/${segment}?x=1`).url, `/${APP_PAGE}?x=1`);
+  }
+});
+
+test('an old page\'s file, gone since the one page draws its address, is sent on to that address, the query kept', () => {
+  assert.ok(Object.keys(MOVED).length, 'a page has moved');
+  for (const [old, segment] of Object.entries(MOVED)) {
+    assert.equal(PAGES[segment], APP_PAGE, `/${segment} is the one page's`);
+    const answer = ask(`/${old}?g=1#x`);
+    assert.deepEqual([answer.passedOn, answer.status, answer.headers.Location], [false, 301, `/${segment}?g=1`]);
   }
 });
 

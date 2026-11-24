@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Plugin } from 'vite';
-import { APP_PAGE, pageFile } from '../app/js/pages.js';
+import { APP_PAGE, movedTo, pageFile } from '../app/js/pages.js';
 import { ROUTES } from '../src/routes.ts';
 import { writeShell } from './shell.mjs';
 import { notInstalled, startData, startScript } from './start.mjs';
@@ -156,6 +156,9 @@ export function devPages(): Plugin {
           res.writeHead(200, { 'Content-Type': 'text/javascript', 'Cache-Control': 'no-cache' }).end(startScript(startData({ routes: ROUTES })));
           return;
         }
+        // An old page's file, gone since the one page draws its address: sent on to that address.
+        const moved = movedTo(pathname.slice(1));
+        if (moved != null) { res.writeHead(301, { Location: `/${moved}${search}`, 'Cache-Control': 'no-cache' }).end(); return; }
         const file = pageFile(pathname.replace(/^\/+|\/+$/g, ''));
         if (!file) { next(); return; }
         if (file === APP_PAGE) { req.url = `/${APP_PAGE}${search}`; next(); return; }

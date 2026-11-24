@@ -16,7 +16,7 @@ import * as platform from './app/js/platform.js';
 import { RUNNERS, cancelJobRun, runPoll } from './app/js/jobs-runner.js';
 import { enqueue, busy as importsBusy } from './app/js/import-queue.js';
 import { runFolderJob, scanning } from './app/js/folder-scan.js';
-import { pageFile } from './app/js/pages.js';
+import { movedTo, pageFile } from './app/js/pages.js';
 // Written by the build (build/shell.mjs): every file of the built site this worker keeps, and their
 // id — a hash over all of them.
 import { SHELL, SHELL_ID } from './shell-files.js';
@@ -175,6 +175,10 @@ self.addEventListener('fetch', (e) => {
   // Cache keys are pathname-only; a query-carrying non-navigation request is semantically
   // distinct, so it goes straight to the network instead of colliding in the cache.
   if (url.search && req.mode !== 'navigate') return;
+
+  // An old page's file, gone since the one page draws its address: sent on to that address.
+  const moved = req.mode === 'navigate' ? movedTo(url.pathname.slice(ROOT.pathname.length)) : null;
+  if (moved != null) { e.respondWith(Response.redirect(new URL(moved + url.search, ROOT).href, 301)); return; }
 
   let key = url.origin + url.pathname;
   let navFile = null;

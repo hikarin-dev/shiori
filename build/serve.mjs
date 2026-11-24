@@ -7,7 +7,7 @@ import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { join, extname, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pageFile } from '../app/js/pages.js';
+import { movedTo, pageFile } from '../app/js/pages.js';
 
 const TYPES = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css',
@@ -38,7 +38,11 @@ export async function startServer({ root, port = 0, hosts = ['127.0.0.1'] }) {
   const handler = async (req, res) => {
     try {
       if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405).end(); return; }
-      const path = decodeURIComponent(new URL(req.url, 'http://site').pathname);
+      const url = new URL(req.url, 'http://site');
+      const path = decodeURIComponent(url.pathname);
+      // An old page's file, gone since the one page draws its address: sent on to that address.
+      const moved = movedTo(path.slice(1));
+      if (moved != null) { res.writeHead(301, { Location: `/${moved}${url.search}`, 'Cache-Control': 'no-cache' }).end(); return; }
       let full = normalize(join(root, pageFile(path.replace(/^\/+|\/+$/g, '')) ?? path.slice(1)));
       if (!full.startsWith(root + sep)) { res.writeHead(403).end(); return; }
       let file = await _stat(full);

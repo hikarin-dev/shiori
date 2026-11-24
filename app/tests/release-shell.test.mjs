@@ -12,6 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { builtSite } from '../../build/built.mjs';
 import { notInstalled } from '../../build/start.mjs';
 import { ROUTES } from '../../src/routes.ts';
+import { APP_PAGE, MOVED, PAGES } from '../js/pages.js';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (rel) => readFileSync(join(repo, rel), 'utf8');
@@ -134,11 +135,16 @@ test('the bundle carries no font file: the UI font comes from app/fonts/, at the
 });
 
 // Clean-URL segments the service worker / 404.html serve — not files.
-const CLEAN = new Set(['', 'library', 'reader', 'settings', 'overview']);
+const CLEAN = new Set(Object.keys(PAGES));
 
 test('app pages resolve their assets when loaded directly (no service worker)', () => {
-  for (const page of ['library', 'reader', 'settings', 'overview', 'tasks']) {
-    const html = readFileSync(built(`app/${page}.html`), 'utf8');
+  // Every page that still has a file of its own (app/js/pages.js); a page the one page draws has none.
+  const own = [...new Set(Object.values(PAGES))].filter((file) => file !== APP_PAGE);
+  assert.ok(own.length >= 4, `the pages not ported yet: ${own}`);
+  for (const old of Object.keys(MOVED)) assert.ok(!existsSync(built(old)), `${old} moved to /${MOVED[old]}: its file is gone`);
+  for (const file of own) {
+    const page = file.replace(/^app\/|\.html$/g, '');
+    const html = readFileSync(built(file), 'utf8');
     assert.match(html, /document\.querySelector\('base'\)\.href = '\.\/'/,
       `${page}.html lacks the runtime base corrector for direct file loads`);
     for (const [, url] of html.replace(/<base [^>]*>/g, '').matchAll(/(?:src|href)="([^"]+)"/g)) {

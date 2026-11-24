@@ -157,6 +157,9 @@ export async function startServer({ library, token, ports = [0], webRoot = path.
         return;
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405).end(); return; }
+      // An old page's file, gone since the app's one page draws its address: sent on to that address.
+      const moved = pages.movedTo(url.pathname.slice(1));
+      if (moved != null) { res.writeHead(301, { Location: `/${moved}${url.search}`, 'Cache-Control': 'no-cache' }).end(); return; }
       await serveFile(req, res, url.pathname);
     } catch {
       if (!res.headersSent) res.writeHead(500);

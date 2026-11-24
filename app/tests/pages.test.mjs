@@ -8,7 +8,8 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { builtSite } from '../../build/built.mjs';
-import { PAGES, APP_PAGE, pageFile } from '../js/pages.js';
+import { PAGES, APP_PAGE, MOVED, movedTo, pageFile } from '../js/pages.js';
+import { startServer } from '../../build/serve.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (rel) => readFileSync(join(repo, rel), 'utf8');
@@ -66,4 +67,23 @@ test('the one page\'s entry and 404.html hand an address over the same way', () 
   assert.equal(APP_PAGE, 'index.html');
   assert.match(entry, /stored\('shiori-route'\)/);
   assert.match(entry, /sessionStorage\.removeItem\('shiori-route'\)/);
+});
+
+test('an old page\'s file moved to an address the one page draws, and is gone from the built site', () => {
+  for (const [old, segment] of Object.entries(MOVED)) {
+    assert.match(old, /^app\/[a-z]+\.html$/);
+    assert.equal(PAGES[segment], APP_PAGE, `${old} moved to /${segment}, which the one page draws`);
+    assert.ok(!existsSync(join(builtSite(), old)), `${old} is gone`);
+    assert.equal(movedTo(old), segment);
+  }
+  for (const path of ['app/library.html', 'tasks', 'constructor', 'app/tasks.htm']) assert.equal(movedTo(path), null, path);
+});
+
+test('the server the tests and the preview use sends an old page\'s file on to its address, the query kept', async (t) => {
+  const site = await startServer({ root: builtSite() });
+  t.after(() => site.server.close());
+  for (const [old, segment] of Object.entries(MOVED)) {
+    const res = await fetch(`${site.origin}/${old}?g=1`, { redirect: 'manual' });
+    assert.deepEqual([res.status, res.headers.get('location')], [301, `/${segment}?g=1`]);
+  }
 });

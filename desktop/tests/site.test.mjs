@@ -11,7 +11,7 @@ import path from 'node:path';
 globalThis.BroadcastChannel = class { postMessage() {} close() {} };
 const { Library } = await import('../server/library.js');
 const { startServer } = await import('../server/server.js');
-const { PAGES, APP_PAGE } = await import('../../app/js/pages.js');
+const { PAGES, APP_PAGE, MOVED } = await import('../../app/js/pages.js');
 
 // A web root laid out as the built site is: every file the map names, saying which file it is.
 async function serve(t) {
@@ -42,6 +42,16 @@ test('each of the app\'s addresses is answered with the file the app\'s map name
   assert.equal(await (await get('/library?q=x')).text(), `file ${PAGES.library}`, 'whatever the address asks for');
   // A page's own file by its name, too (a direct load).
   assert.equal(await (await get(`/${PAGES.settings}`)).text(), `file ${PAGES.settings}`);
+});
+
+test('an old page\'s file, gone since the one page draws its address, is sent on to that address', async (t) => {
+  const get = await serve(t);
+  assert.ok(Object.keys(MOVED).length, 'a page has moved');
+  const at = new URL((await get('/')).url);
+  for (const [old, segment] of Object.entries(MOVED)) {
+    const res = await fetch(new URL(`/${old}?g=1`, at), { redirect: 'manual' });
+    assert.deepEqual([res.status, res.headers.get('location')], [301, `/${segment}?g=1`], `/${old}`);
+  }
 });
 
 test('the bundle and what the pages load are served; the rest of the web root is not', async (t) => {

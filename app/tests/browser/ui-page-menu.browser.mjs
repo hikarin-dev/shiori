@@ -5,11 +5,8 @@
 // as wide as the drawn box.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { startServer, chromePath, launch, until } from './harness.mjs';
 import { componentsPage, spec } from './specimens.mjs';
-import { builtSite } from '../../../build/built.mjs';
 
 let server, origin, browser;
 before(async () => {
@@ -58,31 +55,15 @@ test('choosing a page that has a file of its own loads it', async (t) => {
 });
 
 test('choosing a page the one page draws is a route change, no load', async (t) => {
-  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  // No page of the app is drawn by the one page yet: the address map is changed on its way to the
-  // page so Tasks counts as one (app/js/pages.js, served as the file it is).
-  const map = (await readFile(join(builtSite(), 'app', 'js', 'pages.js'), 'utf8')).replace("tasks: 'app/tasks.html'", 'tasks: APP_PAGE');
-  assert.match(map, /tasks: APP_PAGE/);
-  const page = await browser.newPage();
-  t.after(() => page.close());
-  await page.setViewport({ width: 1280, height: 900 });
-  await page.setBypassServiceWorker(true);
-  await page.setCacheEnabled(false);
-  await page.setRequestInterception(true);
-  page.on('request', (req) => {
-    if (req.url() === `${origin}/app/js/pages.js`) req.respond({ status: 200, contentType: 'text/javascript', body: map });
-    else if (req.url().startsWith(origin)) req.continue();
-    else req.abort();
-  });
-  await page.goto(`${origin}/components`, { waitUntil: 'load' });
-  await page.waitForSelector(MENU);
+  const page = await componentsPage(t, browser, origin);
+  if (!page) return;
   await page.evaluate(() => { window.stayed = true; });
   await offered(page, MENU);
   await page.click('[data-slot="select-list"] [data-slot="select-option"]:nth-child(3)');
   await until(page, () => location.pathname === '/tasks', undefined, { what: 'the address' });
+  await until(page, () => document.title === 'Shiori — Tasks' && !!document.getElementById('tkList'), undefined, { what: 'the Tasks page drawn' });
   assert.equal(await page.evaluate(() => window.stayed), true, 'no page load');
-  // Nothing draws /tasks in the one page yet: it says so, inside the app.
-  await until(page, () => /Not found\./.test(document.getElementById('root').textContent), undefined, { what: 'the route drawn' });
+  assert.deepEqual(page.problems, []);
 });
 
 test('under a coarse pointer it is the system\'s picker, as wide as the drawn box (its chosen label), and goes as the other', async (t) => {
@@ -97,6 +78,8 @@ test('under a coarse pointer it is the system\'s picker, as wide as the drawn bo
     return c.measureText(el.selectedOptions[0].textContent).width;
   });
   assert.ok(Math.abs(box[1] - 2 - drawn) < 1, `as wide as the drawn box: ${box[1]} vs ${drawn + 2} (the frame)`);
-  await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), page.select(MENU, 'tasks')]);
-  await until(page, () => document.title === 'Shiori — Tasks', undefined, { what: 'the tasks page' });
+  await page.evaluate(() => { window.stayed = true; });
+  await page.select(MENU, 'tasks');
+  await until(page, () => document.title === 'Shiori — Tasks' && !!document.getElementById('tkList'), undefined, { what: 'the tasks page' });
+  assert.equal(await page.evaluate(() => window.stayed), true, 'a route change: Tasks is drawn by the one page');
 });
