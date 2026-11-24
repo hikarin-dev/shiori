@@ -89,7 +89,7 @@ function onCommit(commit: (el: HTMLInputElement | HTMLTextAreaElement) => void) 
 }
 
 // notice.js's confirmation (drawn by the notice host, over this window).
-const confirm = notice.confirmDialog as unknown as (options: { title: string; body: string; ok: string }) => Promise<boolean>;
+const confirmNotice = notice.confirmDialog as unknown as (options: { title: string; body: string; ok: string }) => Promise<boolean>;
 
 type Show = (text: string, tone?: 'ok' | 'err') => void;
 // A save's outcome said in a status line.
@@ -193,7 +193,7 @@ export function TranslationPanel() {
           </DialogBody>
           <DialogFooter>
             <Button id="resetTranslateBtn" disabled={model.offline} onClick={async () => {
-              if (!(await confirm({ title: t('dlg.trreset_title'), body: t('dlg.trreset_body'), ok: t('common.reset') }))) return;
+              if (!(await confirmNotice({ title: t('dlg.trreset_title'), body: t('dlg.trreset_body'), ok: t('common.reset') }))) return;
               say(showModal)(store.reset());
             }}>{t('tm.reset_defaults')}</Button>
             <StatusText id="translateModalStatus" className="modal-status flex-auto max-[520.02px]:order-3 max-[520.02px]:basis-full max-[520.02px]:text-left"

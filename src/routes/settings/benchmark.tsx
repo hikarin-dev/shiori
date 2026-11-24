@@ -51,7 +51,7 @@ const DESC = 'field-desc mb-[12px] min-w-0 text-11.5 leading-[1.6] text-muted-fo
 // callbacks and tables as the page hands and reads them.)
 const runBenchmark = run_ as unknown as (plan: unknown, options: { signal: AbortSignal; onProgress: (p: { message: string }) => void; onReport: (r: Report) => void }) => Promise<Report>;
 const PLAN_NUMBERS = NUMBERS as unknown as [string, string, number, number, number][];
-const confirm = notice.confirmDialog as unknown as (options: { title: string; body: string; ok: string; danger?: boolean }) => Promise<boolean>;
+const confirmNotice = notice.confirmDialog as unknown as (options: { title: string; body: string; ok: string; danger?: boolean }) => Promise<boolean>;
 
 const download = (value: unknown, name: string) => {
   const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }));
@@ -132,7 +132,7 @@ export function BenchmarkSection({ offered }: { offered: boolean }) {
   const blocker = useBlocker(running);
   useEffect(() => {
     if (blocker.state !== 'blocked') return;
-    confirm({ title: 'Stop the benchmark?', body: 'Leaving this page stops the benchmark and cancels the job under way.', ok: 'Leave', danger: true })
+    confirmNotice({ title: 'Stop the benchmark?', body: 'Leaving this page stops the benchmark and cancels the job under way.', ok: 'Leave', danger: true })
       .then((leave) => (leave ? blocker.proceed() : blocker.reset()));
   }, [blocker]);
 
