@@ -22,7 +22,13 @@
 
 /* The pointer and keyboard states, as the app's stylesheets had them: a hover whatever the device
    (Tailwind's own asks for (hover: hover) first), never on a disabled control. Each also answers to
-   data-force="<state>", which is how /components shows a state still; nothing else sets it. */
-@custom-variant hover (&:is(:hover, [data-force~="hover"]):not(:disabled, [data-disabled]));
-@custom-variant active (&:is(:active, [data-force~="active"]):not(:disabled, [data-disabled]));
+   data-force="<state>", which is how /components shows a state still; nothing else sets it.
+   "Never on a disabled control" is inside :where(), so it adds no weight: a hover weighs what a
+   state's variant weighs (aria-pressed:, aria-selected:, data-…:, focus-visible:) and is written
+   before them, so the look of a control that is on, chosen or focused stays under the pointer, as
+   1.3's stylesheets had it by writing a state's rule after its hover rule. (With :not() outside,
+   every hover outweighed every state: the chosen item of Settings' side nav went darker under the
+   pointer, a focused box lost its frame, Safe Mode's button its green.) */
+@custom-variant hover (&:is(:hover, [data-force~="hover"]):where(:not(:disabled, [data-disabled])));
+@custom-variant active (&:is(:active, [data-force~="active"]):where(:not(:disabled, [data-disabled])));
 @custom-variant focus-visible (&:is(:focus-visible, [data-force~="focus-visible"]));

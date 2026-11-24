@@ -249,7 +249,7 @@ body.ch-dragging, body.ch-dragging * { cursor: grabbing !important; user-select:
   width: 30px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
   text-decoration: none; transition: color .12s, border-color .12s, background .12s;
 }
-.ch-ibtn:hover { color: var(--text); border-color: var(--border); background: var(--bg); }
+.ch-ibtn:hover { color: var(--text); border-color: var(--border); background: var(--surface-raised); }
 .ch-ibtn:disabled { opacity: .3; cursor: default; }
 .ch-ibtn.download { color: var(--accent2); }
 .ch-ibtn.download:hover:not(:disabled) { color: #111; border-color: var(--accent2); background: var(--accent2); }
@@ -302,7 +302,7 @@ body.translator-offline .ch-ibtn.translate { display: none; }
   border-bottom: 1px solid var(--border);
 }
 .add-res:last-child { border-bottom: none; }
-.add-res:hover, .add-res.sel { background: var(--bg); }
+.add-res:hover, .add-res.sel { background: var(--surface-raised); }
 .add-res-thumb { position: relative; width: 30px; aspect-ratio: 1 / sqrt(2); border-radius: 4px; overflow: hidden; background: var(--bg); flex-shrink: 0; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
 .add-res-title { flex: 1; min-width: 0; font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .add-res-id { color: var(--muted); font-size: 11px; flex-shrink: 0; }

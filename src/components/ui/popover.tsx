@@ -97,7 +97,7 @@ function PopoverItem({ current, number, className, children, ...props }: Compone
       aria-current={current ? 'true' : undefined}
       className={cn(
         'flex w-full cursor-pointer items-baseline gap-[10px] rounded-8 px-[10px] py-[9px] text-left text-13 text-foreground',
-        'hover:not-disabled:bg-secondary disabled:cursor-default disabled:text-muted-dim',
+        'hover:bg-secondary disabled:cursor-default disabled:text-muted-dim',
         'data-current:bg-[color-mix(in_srgb,var(--primary)_16%,var(--card))] data-current:text-primary',
         className,
       )}

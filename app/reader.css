@@ -1420,7 +1420,7 @@ body.reader-side-nav.sn-pop-open #snChapters { display: flex; }
   border: 0; border-radius: 8px; background: transparent; color: var(--text); cursor: pointer;
   font: inherit; font-size: 13px; text-align: left;
 }
-.sn-ch:hover:not(:disabled) { background: var(--surface-raised); }
+.sn-ch:hover:not(:disabled, .current) { background: var(--surface-raised); }
 .sn-ch.current { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--accent); }
 .sn-ch:disabled { color: var(--muted-dim); cursor: default; }
 .sn-ch-num { flex-shrink: 0; font-weight: 700; }

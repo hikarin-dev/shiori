@@ -54,11 +54,11 @@ const box = cva(
   {
     variants: {
       variant: {
-        field: `border-input bg-surface-subtle ${FOCUS_BOX}`,
-        inset: `border-border bg-background ${FOCUS_BOX} disabled:opacity-60 data-disabled:opacity-60`,
-        toolbar: `border-border bg-card ${FOCUS_BOX}`,
+        field: `border-input bg-surface-subtle data-popup-open:bg-surface-subtle ${FOCUS_BOX}`,
+        inset: `border-border bg-background data-popup-open:bg-background ${FOCUS_BOX} disabled:opacity-60 data-disabled:opacity-60`,
+        toolbar: `border-border bg-card data-popup-open:bg-card ${FOCUS_BOX}`,
         // The header's page menu: the shared keyboard ring, as the header's other controls.
-        ghost: 'border-transparent bg-transparent text-muted-foreground hover:text-foreground',
+        ghost: 'border-transparent bg-transparent text-muted-foreground hover:text-foreground data-popup-open:bg-transparent',
       },
       size: {
         default: 'min-h-[36px] px-[10px] py-[8px]',
@@ -75,12 +75,10 @@ const box = cva(
 // The box's type, which its list shares (the list's eight rows are eight of its lines).
 const TEXT: Record<Size, string> = { default: 'text-12 leading-[1.4]', toolbar: 'text-12', xs: 'text-13' };
 
-// Hovered (not open): the raised ground and the hover frame. Open: its resting ground, the hover
-// frame, the corners by the list squared.
-const BOX_STATES = [
-  'hover:not-data-popup-open:bg-secondary hover:not-data-popup-open:border-border-hover',
-  'data-popup-open:border-border-hover',
-].join(' ');
+// Hovered: the raised ground and the hover frame. Open: its resting ground (each variant's, above),
+// the hover frame, the corners by the list squared. Focused, its frame is the focused one under the
+// pointer too (a hover weighs what focus-visible does and comes before it).
+const BOX_STATES = 'hover:bg-secondary hover:border-border-hover data-popup-open:border-border-hover';
 const OPEN_EDGE: Record<Variant, string> = {
   field: 'data-popup-open:not-data-up:rounded-b-none data-popup-open:data-up:rounded-t-none',
   inset: 'data-popup-open:not-data-up:rounded-b-none data-popup-open:data-up:rounded-t-none',

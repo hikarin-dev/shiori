@@ -23,7 +23,6 @@
   .app-header .header-right:empty { display: none; }
 
   .brand-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; text-decoration: none; }
-  .brand-wrap:hover { opacity: .8; }
   .brand-icon { width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: var(--radius-6); }
   .brand-icon img { display: block; width: 100%; height: 100%; }
   /* Its line height is the 20px JetBrains Mono's own line has at 15px, set outright: until the font

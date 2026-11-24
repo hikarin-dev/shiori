@@ -83,7 +83,8 @@ const buttonVariants = cva(
         ghost: 'border-transparent bg-transparent text-muted-foreground hover:bg-secondary hover:text-foreground aria-expanded:bg-secondary aria-expanded:text-foreground',
         // Over a picture: the card's heart.
         overlay: 'border-border bg-overlay-ground text-muted-foreground hover:border-primary hover:text-primary aria-pressed:text-primary',
-        dashed: 'border-dashed border-input bg-transparent text-muted-foreground hover:border-primary hover:bg-surface-subtle hover:text-foreground',
+        // (Its ground stays under the pointer: 1.3 put the darker inset ground there.)
+        dashed: 'border-dashed border-input bg-transparent text-muted-foreground hover:border-primary hover:text-foreground',
         // §5.3 F07 (owner): a text link hovers to the brand colour, whatever it hovered to before.
         link: 'border-0 bg-transparent whitespace-normal text-inherit hover:text-primary',
       },

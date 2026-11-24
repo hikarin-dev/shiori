@@ -252,9 +252,13 @@ export async function readSeriesWindow(page) {
   let options;
   if (drawn) {
     await page.click('#_serTrSel');
-    await page.waitForSelector('[data-slot="select-list"] [data-slot="select-option"]');
+    // The list is in the document before it opens, and it opens a frame or two after the press (its
+    // focus goes into it about 30 ms after): an Escape pressed before that goes to the window and
+    // closes it. Open and focused first; closed again before the window is read.
+    await page.waitForFunction(() => document.getElementById('_serTrSel')?.getAttribute('aria-expanded') === 'true' && !!document.activeElement?.closest('[data-slot="select-list"]'), { timeout: 3000 });
     options = await page.evaluate(() => [...document.querySelectorAll('[data-slot="select-list"] [data-slot="select-option"]')].map((o) => o.textContent));
     await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.getElementById('_serTrSel')?.getAttribute('aria-expanded') === 'false', { timeout: 3000 });
     await sleep(200);
   } else options = await page.evaluate(() => [...document.getElementById('_serTrSel').options].map((o) => o.textContent));
   return page.evaluate((options) => {
