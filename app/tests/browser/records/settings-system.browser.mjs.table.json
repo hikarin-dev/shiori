@@ -1,0 +1,912 @@
+[
+  {
+    "name": "drawn",
+    "saw": null,
+    "calls": [],
+    "view": {
+      "words": "WindowKeeprunninginthetrayClosingthewindowleavesShioriinthesystemtray,whereimportsandtranslationscarryon.Quitfromthetrayicon.ConnectionLocalserverhttp://127.0.0.1:9/PortUsedfromthenextstart.Automatictries41000,thenthenextnine.OpentootherdevicesLetsphones,tabletsandothercomputersonyournetworkopenyourlibraryinabrowser.Anyoneonyournetworkcanthenreadandchangeit.WindowsmayaskwhethertoletShioriuseyournetwork.ConnectedsitesSitesallowedtousethislibraryfromabrowser.https://a.exampleDisconnecthttp://127.0.0.1:9DisconnectBrowserextensionsExtensionsaddedhereruninsideShioriastheywouldinabrowser.Choosethefolderofanunpackedextension.Add…Add-onOne1.0.0C:\\addons\\oneRemoveC:\\addons\\brokenCouldn’tload:ManifestfileismissingRemoveUpdatesSeewhetheranewerversionofShioriisout.RestarttoupdateCheckforupdatesDevelopermodeTakesupdatesfrombuildsmadeonthiscomputerinsteadofthepublishedreleases:runnpmrundev-updateinthedesktopfolder,andShiorifindsthemathttp://127.0.0.1:9/feed/.AboutShiori1.4.0Thelibraryindex,cacheandsettingsonthiscomputer:C:\\Users\\someonewitharatherlongname\\AppData\\Roaming\\Shiori\\afoldernestedquitedeep\\anddeeperstill\\library-indexOpen",
+      "port": "Automatic",
+      "switches": [
+        false,
+        false,
+        false
+      ],
+      "buttons": [
+        [
+          "",
+          "Disconnect",
+          false
+        ],
+        [
+          "",
+          "Disconnect",
+          false
+        ],
+        [
+          "deskAddExtension",
+          "Add…",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "deskInstallUpdate",
+          "Restart to update",
+          false
+        ],
+        [
+          "deskCheckUpdates",
+          "Check for updates",
+          false
+        ],
+        [
+          "deskOpenData",
+          "Open",
+          false
+        ]
+      ],
+      "code": [
+        "http://127.0.0.1:9/",
+        "https://a.example",
+        "http://127.0.0.1:9",
+        "C:\\addons\\one",
+        "C:\\Users\\someone with a rather long name\\AppData\\Roaming\\Shiori\\a folder nested quite deep\\and deeper still\\library-index"
+      ]
+    },
+    "question": null
+  },
+  {
+    "name": "the tray switched on",
+    "saw": null,
+    "calls": [
+      [
+        "set",
+        "closeToTray",
+        true
+      ]
+    ],
+    "view": {
+      "words": "WindowKeeprunninginthetrayClosingthewindowleavesShioriinthesystemtray,whereimportsandtranslationscarryon.Quitfromthetrayicon.ConnectionLocalserverhttp://127.0.0.1:9/PortUsedfromthenextstart.Automatictries41000,thenthenextnine.OpentootherdevicesLetsphones,tabletsandothercomputersonyournetworkopenyourlibraryinabrowser.Anyoneonyournetworkcanthenreadandchangeit.WindowsmayaskwhethertoletShioriuseyournetwork.ConnectedsitesSitesallowedtousethislibraryfromabrowser.https://a.exampleDisconnecthttp://127.0.0.1:9DisconnectBrowserextensionsExtensionsaddedhereruninsideShioriastheywouldinabrowser.Choosethefolderofanunpackedextension.Add…Add-onOne1.0.0C:\\addons\\oneRemoveC:\\addons\\brokenCouldn’tload:ManifestfileismissingRemoveUpdatesSeewhetheranewerversionofShioriisout.RestarttoupdateCheckforupdatesDevelopermodeTakesupdatesfrombuildsmadeonthiscomputerinsteadofthepublishedreleases:runnpmrundev-updateinthedesktopfolder,andShiorifindsthemathttp://127.0.0.1:9/feed/.AboutShiori1.4.0Thelibraryindex,cacheandsettingsonthiscomputer:C:\\Users\\someonewitharatherlongname\\AppData\\Roaming\\Shiori\\afoldernestedquitedeep\\anddeeperstill\\library-indexOpen",
+      "port": "Automatic",
+      "switches": [
+        true,
+        false,
+        false
+      ],
+      "buttons": [
+        [
+          "",
+          "Disconnect",
+          false
+        ],
+        [
+          "",
+          "Disconnect",
+          false
+        ],
+        [
+          "deskAddExtension",
+          "Add…",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "deskInstallUpdate",
+          "Restart to update",
+          false
+        ],
+        [
+          "deskCheckUpdates",
+          "Check for updates",
+          false
+        ],
+        [
+          "deskOpenData",
+          "Open",
+          false
+        ]
+      ],
+      "code": [
+        "http://127.0.0.1:9/",
+        "https://a.example",
+        "http://127.0.0.1:9",
+        "C:\\addons\\one",
+        "C:\\Users\\someone with a rather long name\\AppData\\Roaming\\Shiori\\a folder nested quite deep\\and deeper still\\library-index"
+      ]
+    },
+    "question": null
+  },
+  {
+    "name": "another port chosen: a restart asked, Later",
+    "saw": {
+      "title": "Restart Shiori?",
+      "text": "The new port is used once Shiori restarts.",
+      "buttons": [
+        "Later",
+        "Restart now"
+      ]
+    },
+    "calls": [
+      [
+        "set",
+        "port",
+        41001
+      ]
+    ],
+    "view": {
+      "words": "WindowKeeprunninginthetrayClosingthewindowleavesShioriinthesystemtray,whereimportsandtranslationscarryon.Quitfromthetrayicon.ConnectionLocalserverhttp://127.0.0.1:9/PortUsedfromthenextstart.Automatictries41000,thenthenextnine.OpentootherdevicesLetsphones,tabletsandothercomputersonyournetworkopenyourlibraryinabrowser.Anyoneonyournetworkcanthenreadandchangeit.WindowsmayaskwhethertoletShioriuseyournetwork.ConnectedsitesSitesallowedtousethislibraryfromabrowser.https://a.exampleDisconnecthttp://127.0.0.1:9DisconnectBrowserextensionsExtensionsaddedhereruninsideShioriastheywouldinabrowser.Choosethefolderofanunpackedextension.Add…Add-onOne1.0.0C:\\addons\\oneRemoveC:\\addons\\brokenCouldn’tload:ManifestfileismissingRemoveUpdatesSeewhetheranewerversionofShioriisout.RestarttoupdateCheckforupdatesDevelopermodeTakesupdatesfrombuildsmadeonthiscomputerinsteadofthepublishedreleases:runnpmrundev-updateinthedesktopfolder,andShiorifindsthemathttp://127.0.0.1:9/feed/.AboutShiori1.4.0Thelibraryindex,cacheandsettingsonthiscomputer:C:\\Users\\someonewitharatherlongname\\AppData\\Roaming\\Shiori\\afoldernestedquitedeep\\anddeeperstill\\library-indexOpen",
+      "port": "41001",
+      "switches": [
+        true,
+        false,
+        false
+      ],
+      "buttons": [
+        [
+          "",
+          "Disconnect",
+          false
+        ],
+        [
+          "",
+          "Disconnect",
+          false
+        ],
+        [
+          "deskAddExtension",
+          "Add…",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "deskInstallUpdate",
+          "Restart to update",
+          false
+        ],
+        [
+          "deskCheckUpdates",
+          "Check for updates",
+          false
+        ],
+        [
+          "deskOpenData",
+          "Open",
+          false
+        ]
+      ],
+      "code": [
+        "http://127.0.0.1:9/",
+        "https://a.example",
+        "http://127.0.0.1:9",
+        "C:\\addons\\one",
+        "C:\\Users\\someone with a rather long name\\AppData\\Roaming\\Shiori\\a folder nested quite deep\\and deeper still\\library-index"
+      ]
+    },
+    "question": null
+  },
+  {
+    "name": "the network opened: a restart asked, Later; the addresses shown",
+    "saw": {
+      "title": "Restart Shiori?",
+      "text": "The change applies once Shiori restarts.",
+      "buttons": [
+        "Later",
+        "Restart now"
+      ]
+    },
+    "calls": [
+      [
+        "set",
+        "lan",
+        true
+      ]
+    ],
+    "view": {
+      "words": "WindowKeeprunninginthetrayClosingthewindowleavesShioriinthesystemtray,whereimportsandtranslationscarryon.Quitfromthetrayicon.ConnectionLocalserverhttp://127.0.0.1:9/PortUsedfromthenextstart.Automatictries41000,thenthenextnine.OpentootherdevicesLetsphones,tabletsandothercomputersonyournetworkopenyourlibraryinabrowser.Anyoneonyournetworkcanthenreadandchangeit.WindowsmayaskwhethertoletShioriuseyournetwork.Openonanotherdevicehttp://192.0.2.10:41000/http://[2001:db8::1]:41000/ConnectedsitesSitesallowedtousethislibraryfromabrowser.https://a.exampleDisconnecthttp://127.0.0.1:9DisconnectBrowserextensionsExtensionsaddedhereruninsideShioriastheywouldinabrowser.Choosethefolderofanunpackedextension.Add…Add-onOne1.0.0C:\\addons\\oneRemoveC:\\addons\\brokenCouldn’tload:ManifestfileismissingRemoveUpdatesSeewhetheranewerversionofShioriisout.RestarttoupdateCheckforupdatesDevelopermodeTakesupdatesfrombuildsmadeonthiscomputerinsteadofthepublishedreleases:runnpmrundev-updateinthedesktopfolder,andShiorifindsthemathttp://127.0.0.1:9/feed/.AboutShiori1.4.0Thelibraryindex,cacheandsettingsonthiscomputer:C:\\Users\\someonewitharatherlongname\\AppData\\Roaming\\Shiori\\afoldernestedquitedeep\\anddeeperstill\\library-indexOpen",
+      "port": "41001",
+      "switches": [
+        true,
+        true,
+        false
+      ],
+      "buttons": [
+        [
+          "",
+          "Disconnect",
+          false
+        ],
+        [
+          "",
+          "Disconnect",
+          false
+        ],
+        [
+          "deskAddExtension",
+          "Add…",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "deskInstallUpdate",
+          "Restart to update",
+          false
+        ],
+        [
+          "deskCheckUpdates",
+          "Check for updates",
+          false
+        ],
+        [
+          "deskOpenData",
+          "Open",
+          false
+        ]
+      ],
+      "code": [
+        "http://127.0.0.1:9/",
+        "http://192.0.2.10:41000/",
+        "http://[2001:db8::1]:41000/",
+        "https://a.example",
+        "http://127.0.0.1:9",
+        "C:\\addons\\one",
+        "C:\\Users\\someone with a rather long name\\AppData\\Roaming\\Shiori\\a folder nested quite deep\\and deeper still\\library-index"
+      ]
+    },
+    "question": null
+  },
+  {
+    "name": "this computer on no network",
+    "saw": null,
+    "calls": [
+      [
+        "set",
+        "lan",
+        false
+      ],
+      [
+        "set",
+        "lan",
+        true
+      ]
+    ],
+    "view": {
+      "words": "WindowKeeprunninginthetrayClosingthewindowleavesShioriinthesystemtray,whereimportsandtranslationscarryon.Quitfromthetrayicon.ConnectionLocalserverhttp://127.0.0.1:9/PortUsedfromthenextstart.Automatictries41000,thenthenextnine.OpentootherdevicesLetsphones,tabletsandothercomputersonyournetworkopenyourlibraryinabrowser.Anyoneonyournetworkcanthenreadandchangeit.WindowsmayaskwhethertoletShioriuseyournetwork.Thiscomputerisn’tonanetworkrightnow.ConnectedsitesSitesallowedtousethislibraryfromabrowser.https://a.exampleDisconnecthttp://127.0.0.1:9DisconnectBrowserextensionsExtensionsaddedhereruninsideShioriastheywouldinabrowser.Choosethefolderofanunpackedextension.Add…Add-onOne1.0.0C:\\addons\\oneRemoveC:\\addons\\brokenCouldn’tload:ManifestfileismissingRemoveUpdatesSeewhetheranewerversionofShioriisout.RestarttoupdateCheckforupdatesDevelopermodeTakesupdatesfrombuildsmadeonthiscomputerinsteadofthepublishedreleases:runnpmrundev-updateinthedesktopfolder,andShiorifindsthemathttp://127.0.0.1:9/feed/.AboutShiori1.4.0Thelibraryindex,cacheandsettingsonthiscomputer:C:\\Users\\someonewitharatherlongname\\AppData\\Roaming\\Shiori\\afoldernestedquitedeep\\anddeeperstill\\library-indexOpen",
+      "port": "41001",
+      "switches": [
+        true,
+        true,
+        false
+      ],
+      "buttons": [
+        [
+          "",
+          "Disconnect",
+          false
+        ],
+        [
+          "",
+          "Disconnect",
+          false
+        ],
+        [
+          "deskAddExtension",
+          "Add…",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "deskInstallUpdate",
+          "Restart to update",
+          false
+        ],
+        [
+          "deskCheckUpdates",
+          "Check for updates",
+          false
+        ],
+        [
+          "deskOpenData",
+          "Open",
+          false
+        ]
+      ],
+      "code": [
+        "http://127.0.0.1:9/",
+        "https://a.example",
+        "http://127.0.0.1:9",
+        "C:\\addons\\one",
+        "C:\\Users\\someone with a rather long name\\AppData\\Roaming\\Shiori\\a folder nested quite deep\\and deeper still\\library-index"
+      ]
+    },
+    "question": null
+  },
+  {
+    "name": "a site disconnected",
+    "saw": null,
+    "calls": [
+      [
+        "forgetSite",
+        "https://a.example"
+      ]
+    ],
+    "view": {
+      "words": "WindowKeeprunninginthetrayClosingthewindowleavesShioriinthesystemtray,whereimportsandtranslationscarryon.Quitfromthetrayicon.ConnectionLocalserverhttp://127.0.0.1:9/PortUsedfromthenextstart.Automatictries41000,thenthenextnine.OpentootherdevicesLetsphones,tabletsandothercomputersonyournetworkopenyourlibraryinabrowser.Anyoneonyournetworkcanthenreadandchangeit.WindowsmayaskwhethertoletShioriuseyournetwork.Thiscomputerisn’tonanetworkrightnow.ConnectedsitesSitesallowedtousethislibraryfromabrowser.http://127.0.0.1:9DisconnectBrowserextensionsExtensionsaddedhereruninsideShioriastheywouldinabrowser.Choosethefolderofanunpackedextension.Add…Add-onOne1.0.0C:\\addons\\oneRemoveC:\\addons\\brokenCouldn’tload:ManifestfileismissingRemoveUpdatesSeewhetheranewerversionofShioriisout.RestarttoupdateCheckforupdatesDevelopermodeTakesupdatesfrombuildsmadeonthiscomputerinsteadofthepublishedreleases:runnpmrundev-updateinthedesktopfolder,andShiorifindsthemathttp://127.0.0.1:9/feed/.AboutShiori1.4.0Thelibraryindex,cacheandsettingsonthiscomputer:C:\\Users\\someonewitharatherlongname\\AppData\\Roaming\\Shiori\\afoldernestedquitedeep\\anddeeperstill\\library-indexOpen",
+      "port": "41001",
+      "switches": [
+        true,
+        true,
+        false
+      ],
+      "buttons": [
+        [
+          "",
+          "Disconnect",
+          false
+        ],
+        [
+          "deskAddExtension",
+          "Add…",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "deskInstallUpdate",
+          "Restart to update",
+          false
+        ],
+        [
+          "deskCheckUpdates",
+          "Check for updates",
+          false
+        ],
+        [
+          "deskOpenData",
+          "Open",
+          false
+        ]
+      ],
+      "code": [
+        "http://127.0.0.1:9/",
+        "http://127.0.0.1:9",
+        "C:\\addons\\one",
+        "C:\\Users\\someone with a rather long name\\AppData\\Roaming\\Shiori\\a folder nested quite deep\\and deeper still\\library-index"
+      ]
+    },
+    "question": null
+  },
+  {
+    "name": "every site disconnected",
+    "saw": null,
+    "calls": [
+      [
+        "forgetSite",
+        "http://127.0.0.1:9"
+      ]
+    ],
+    "view": {
+      "words": "WindowKeeprunninginthetrayClosingthewindowleavesShioriinthesystemtray,whereimportsandtranslationscarryon.Quitfromthetrayicon.ConnectionLocalserverhttp://127.0.0.1:9/PortUsedfromthenextstart.Automatictries41000,thenthenextnine.OpentootherdevicesLetsphones,tabletsandothercomputersonyournetworkopenyourlibraryinabrowser.Anyoneonyournetworkcanthenreadandchangeit.WindowsmayaskwhethertoletShioriuseyournetwork.Thiscomputerisn’tonanetworkrightnow.ConnectedsitesSitesallowedtousethislibraryfromabrowser.Nositeisconnected.BrowserextensionsExtensionsaddedhereruninsideShioriastheywouldinabrowser.Choosethefolderofanunpackedextension.Add…Add-onOne1.0.0C:\\addons\\oneRemoveC:\\addons\\brokenCouldn’tload:ManifestfileismissingRemoveUpdatesSeewhetheranewerversionofShioriisout.RestarttoupdateCheckforupdatesDevelopermodeTakesupdatesfrombuildsmadeonthiscomputerinsteadofthepublishedreleases:runnpmrundev-updateinthedesktopfolder,andShiorifindsthemathttp://127.0.0.1:9/feed/.AboutShiori1.4.0Thelibraryindex,cacheandsettingsonthiscomputer:C:\\Users\\someonewitharatherlongname\\AppData\\Roaming\\Shiori\\afoldernestedquitedeep\\anddeeperstill\\library-indexOpen",
+      "port": "41001",
+      "switches": [
+        true,
+        true,
+        false
+      ],
+      "buttons": [
+        [
+          "deskAddExtension",
+          "Add…",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "deskInstallUpdate",
+          "Restart to update",
+          false
+        ],
+        [
+          "deskCheckUpdates",
+          "Check for updates",
+          false
+        ],
+        [
+          "deskOpenData",
+          "Open",
+          false
+        ]
+      ],
+      "code": [
+        "http://127.0.0.1:9/",
+        "C:\\addons\\one",
+        "C:\\Users\\someone with a rather long name\\AppData\\Roaming\\Shiori\\a folder nested quite deep\\and deeper still\\library-index"
+      ]
+    },
+    "question": null
+  },
+  {
+    "name": "an add-on added",
+    "saw": null,
+    "calls": [
+      [
+        "addExtension"
+      ]
+    ],
+    "view": {
+      "words": "WindowKeeprunninginthetrayClosingthewindowleavesShioriinthesystemtray,whereimportsandtranslationscarryon.Quitfromthetrayicon.ConnectionLocalserverhttp://127.0.0.1:9/PortUsedfromthenextstart.Automatictries41000,thenthenextnine.OpentootherdevicesLetsphones,tabletsandothercomputersonyournetworkopenyourlibraryinabrowser.Anyoneonyournetworkcanthenreadandchangeit.WindowsmayaskwhethertoletShioriuseyournetwork.Thiscomputerisn’tonanetworkrightnow.ConnectedsitesSitesallowedtousethislibraryfromabrowser.Nositeisconnected.BrowserextensionsExtensionsaddedhereruninsideShioriastheywouldinabrowser.Choosethefolderofanunpackedextension.Add…Add-onOne1.0.0C:\\addons\\oneRemoveC:\\addons\\brokenCouldn’tload:ManifestfileismissingRemoveAdded2.0D:\\addedRemoveUpdatesSeewhetheranewerversionofShioriisout.RestarttoupdateCheckforupdatesDevelopermodeTakesupdatesfrombuildsmadeonthiscomputerinsteadofthepublishedreleases:runnpmrundev-updateinthedesktopfolder,andShiorifindsthemathttp://127.0.0.1:9/feed/.AboutShiori1.4.0Thelibraryindex,cacheandsettingsonthiscomputer:C:\\Users\\someonewitharatherlongname\\AppData\\Roaming\\Shiori\\afoldernestedquitedeep\\anddeeperstill\\library-indexOpen",
+      "port": "41001",
+      "switches": [
+        true,
+        true,
+        false
+      ],
+      "buttons": [
+        [
+          "deskAddExtension",
+          "Add…",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "deskInstallUpdate",
+          "Restart to update",
+          false
+        ],
+        [
+          "deskCheckUpdates",
+          "Check for updates",
+          false
+        ],
+        [
+          "deskOpenData",
+          "Open",
+          false
+        ]
+      ],
+      "code": [
+        "http://127.0.0.1:9/",
+        "C:\\addons\\one",
+        "D:\\added",
+        "C:\\Users\\someone with a rather long name\\AppData\\Roaming\\Shiori\\a folder nested quite deep\\and deeper still\\library-index"
+      ]
+    },
+    "question": null
+  },
+  {
+    "name": "an add-on removed",
+    "saw": null,
+    "calls": [
+      [
+        "removeExtension",
+        "C:\\addons\\one"
+      ]
+    ],
+    "view": {
+      "words": "WindowKeeprunninginthetrayClosingthewindowleavesShioriinthesystemtray,whereimportsandtranslationscarryon.Quitfromthetrayicon.ConnectionLocalserverhttp://127.0.0.1:9/PortUsedfromthenextstart.Automatictries41000,thenthenextnine.OpentootherdevicesLetsphones,tabletsandothercomputersonyournetworkopenyourlibraryinabrowser.Anyoneonyournetworkcanthenreadandchangeit.WindowsmayaskwhethertoletShioriuseyournetwork.Thiscomputerisn’tonanetworkrightnow.ConnectedsitesSitesallowedtousethislibraryfromabrowser.Nositeisconnected.BrowserextensionsExtensionsaddedhereruninsideShioriastheywouldinabrowser.Choosethefolderofanunpackedextension.Add…C:\\addons\\brokenCouldn’tload:ManifestfileismissingRemoveAdded2.0D:\\addedRemoveUpdatesSeewhetheranewerversionofShioriisout.RestarttoupdateCheckforupdatesDevelopermodeTakesupdatesfrombuildsmadeonthiscomputerinsteadofthepublishedreleases:runnpmrundev-updateinthedesktopfolder,andShiorifindsthemathttp://127.0.0.1:9/feed/.AboutShiori1.4.0Thelibraryindex,cacheandsettingsonthiscomputer:C:\\Users\\someonewitharatherlongname\\AppData\\Roaming\\Shiori\\afoldernestedquitedeep\\anddeeperstill\\library-indexOpen",
+      "port": "41001",
+      "switches": [
+        true,
+        true,
+        false
+      ],
+      "buttons": [
+        [
+          "deskAddExtension",
+          "Add…",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "",
+          "Remove",
+          false
+        ],
+        [
+          "deskInstallUpdate",
+          "Restart to update",
+          false
+        ],
+        [
+          "deskCheckUpdates",
+          "Check for updates",
+          false
+        ],
+        [
+          "deskOpenData",
+          "Open",
+          false
+        ]
+      ],
+      "code": [
+        "http://127.0.0.1:9/",
+        "D:\\added",
+        "C:\\Users\\someone with a rather long name\\AppData\\Roaming\\Shiori\\a folder nested quite deep\\and deeper still\\library-index"
+      ]
+    },
+    "question": null
+  },
+  {
+    "name": "every add-on removed",
+    "saw": null,
+    "calls": [
+      [
+        "removeExtension",
+        "C:\\addons\\broken"
+      ],
+      [
+        "removeExtension",
+        "D:\\added"
+      ]
+    ],
+    "view": {
+      "words": "WindowKeeprunninginthetrayClosingthewindowleavesShioriinthesystemtray,whereimportsandtranslationscarryon.Quitfromthetrayicon.ConnectionLocalserverhttp://127.0.0.1:9/PortUsedfromthenextstart.Automatictries41000,thenthenextnine.OpentootherdevicesLetsphones,tabletsandothercomputersonyournetworkopenyourlibraryinabrowser.Anyoneonyournetworkcanthenreadandchangeit.WindowsmayaskwhethertoletShioriuseyournetwork.Thiscomputerisn’tonanetworkrightnow.ConnectedsitesSitesallowedtousethislibraryfromabrowser.Nositeisconnected.BrowserextensionsExtensionsaddedhereruninsideShioriastheywouldinabrowser.Choosethefolderofanunpackedextension.Add…Noextensionadded.UpdatesSeewhetheranewerversionofShioriisout.RestarttoupdateCheckforupdatesDevelopermodeTakesupdatesfrombuildsmadeonthiscomputerinsteadofthepublishedreleases:runnpmrundev-updateinthedesktopfolder,andShiorifindsthemathttp://127.0.0.1:9/feed/.AboutShiori1.4.0Thelibraryindex,cacheandsettingsonthiscomputer:C:\\Users\\someonewitharatherlongname\\AppData\\Roaming\\Shiori\\afoldernestedquitedeep\\anddeeperstill\\library-indexOpen",
+      "port": "41001",
+      "switches": [
+        true,
+        true,
+        false
+      ],
+      "buttons": [
+        [
+          "deskAddExtension",
+          "Add…",
+          false
+        ],
+        [
+          "deskInstallUpdate",
+          "Restart to update",
+          false
+        ],
+        [
+          "deskCheckUpdates",
+          "Check for updates",
+          false
+        ],
+        [
+          "deskOpenData",
+          "Open",
+          false
+        ]
+      ],
+      "code": [
+        "http://127.0.0.1:9/",
+        "C:\\Users\\someone with a rather long name\\AppData\\Roaming\\Shiori\\a folder nested quite deep\\and deeper still\\library-index"
+      ]
+    },
+    "question": null
+  },
+  {
+    "name": "Check for updates: followed until one is ready",
+    "saw": [
+      "Checking for updates…",
+      "Downloading version 1.4.1… 40%",
+      "Downloading version 1.4.1… 0%",
+      "Version 1.4.1 is ready to install."
+    ],
+    "calls": [
+      [
+        "checkUpdates"
+      ],
+      [
+        "updateState"
+      ],
+      [
+        "updateState"
+      ],
+      [
+        "updateState"
+      ],
+      [
+        "updateState"
+      ]
+    ],
+    "view": {
+      "words": "WindowKeeprunninginthetrayClosingthewindowleavesShioriinthesystemtray,whereimportsandtranslationscarryon.Quitfromthetrayicon.ConnectionLocalserverhttp://127.0.0.1:9/PortUsedfromthenextstart.Automatictries41000,thenthenextnine.OpentootherdevicesLetsphones,tabletsandothercomputersonyournetworkopenyourlibraryinabrowser.Anyoneonyournetworkcanthenreadandchangeit.WindowsmayaskwhethertoletShioriuseyournetwork.Thiscomputerisn’tonanetworkrightnow.ConnectedsitesSitesallowedtousethislibraryfromabrowser.Nositeisconnected.BrowserextensionsExtensionsaddedhereruninsideShioriastheywouldinabrowser.Choosethefolderofanunpackedextension.Add…Noextensionadded.UpdatesVersion1.4.1isreadytoinstall.RestarttoupdateCheckforupdatesDevelopermodeTakesupdatesfrombuildsmadeonthiscomputerinsteadofthepublishedreleases:runnpmrundev-updateinthedesktopfolder,andShiorifindsthemathttp://127.0.0.1:9/feed/.AboutShiori1.4.0Thelibraryindex,cacheandsettingsonthiscomputer:C:\\Users\\someonewitharatherlongname\\AppData\\Roaming\\Shiori\\afoldernestedquitedeep\\anddeeperstill\\library-indexOpen",
+      "port": "41001",
+      "switches": [
+        true,
+        true,
+        false
+      ],
+      "buttons": [
+        [
+          "deskAddExtension",
+          "Add…",
+          false
+        ],
+        [
+          "deskInstallUpdate",
+          "Restart to update",
+          false
+        ],
+        [
+          "deskCheckUpdates",
+          "Check for updates",
+          false
+        ],
+        [
+          "deskOpenData",
+          "Open",
+          false
+        ]
+      ],
+      "code": [
+        "http://127.0.0.1:9/",
+        "C:\\Users\\someone with a rather long name\\AppData\\Roaming\\Shiori\\a folder nested quite deep\\and deeper still\\library-index"
+      ]
+    },
+    "question": null
+  },
+  {
+    "name": "developer mode on: followed until it says there is none",
+    "saw": [
+      "See whether a newer version of Shiori is out.",
+      "Checking for updates…",
+      "Shiori is up to date."
+    ],
+    "calls": [
+      [
+        "set",
+        "devUpdates",
+        true
+      ],
+      [
+        "updateState"
+      ],
+      [
+        "updateState"
+      ]
+    ],
+    "view": {
+      "words": "WindowKeeprunninginthetrayClosingthewindowleavesShioriinthesystemtray,whereimportsandtranslationscarryon.Quitfromthetrayicon.ConnectionLocalserverhttp://127.0.0.1:9/PortUsedfromthenextstart.Automatictries41000,thenthenextnine.OpentootherdevicesLetsphones,tabletsandothercomputersonyournetworkopenyourlibraryinabrowser.Anyoneonyournetworkcanthenreadandchangeit.WindowsmayaskwhethertoletShioriuseyournetwork.Thiscomputerisn’tonanetworkrightnow.ConnectedsitesSitesallowedtousethislibraryfromabrowser.Nositeisconnected.BrowserextensionsExtensionsaddedhereruninsideShioriastheywouldinabrowser.Choosethefolderofanunpackedextension.Add…Noextensionadded.UpdatesShioriisuptodate.RestarttoupdateCheckforupdatesDevelopermodeTakesupdatesfrombuildsmadeonthiscomputerinsteadofthepublishedreleases:runnpmrundev-updateinthedesktopfolder,andShiorifindsthemathttp://127.0.0.1:9/feed/.AboutShiori1.4.0Thelibraryindex,cacheandsettingsonthiscomputer:C:\\Users\\someonewitharatherlongname\\AppData\\Roaming\\Shiori\\afoldernestedquitedeep\\anddeeperstill\\library-indexOpen",
+      "port": "41001",
+      "switches": [
+        true,
+        true,
+        true
+      ],
+      "buttons": [
+        [
+          "deskAddExtension",
+          "Add…",
+          false
+        ],
+        [
+          "deskInstallUpdate",
+          "Restart to update",
+          false
+        ],
+        [
+          "deskCheckUpdates",
+          "Check for updates",
+          false
+        ],
+        [
+          "deskOpenData",
+          "Open",
+          false
+        ]
+      ],
+      "code": [
+        "http://127.0.0.1:9/",
+        "C:\\Users\\someone with a rather long name\\AppData\\Roaming\\Shiori\\a folder nested quite deep\\and deeper still\\library-index"
+      ]
+    },
+    "question": null
+  },
+  {
+    "name": "an update that fails",
+    "saw": [
+      "Checking for updates…",
+      "Couldn’t check for updates: net::ERR_TIMED_OUT"
+    ],
+    "calls": [
+      [
+        "checkUpdates"
+      ],
+      [
+        "updateState"
+      ]
+    ],
+    "view": {
+      "words": "WindowKeeprunninginthetrayClosingthewindowleavesShioriinthesystemtray,whereimportsandtranslationscarryon.Quitfromthetrayicon.ConnectionLocalserverhttp://127.0.0.1:9/PortUsedfromthenextstart.Automatictries41000,thenthenextnine.OpentootherdevicesLetsphones,tabletsandothercomputersonyournetworkopenyourlibraryinabrowser.Anyoneonyournetworkcanthenreadandchangeit.WindowsmayaskwhethertoletShioriuseyournetwork.Thiscomputerisn’tonanetworkrightnow.ConnectedsitesSitesallowedtousethislibraryfromabrowser.Nositeisconnected.BrowserextensionsExtensionsaddedhereruninsideShioriastheywouldinabrowser.Choosethefolderofanunpackedextension.Add…Noextensionadded.UpdatesCouldn’tcheckforupdates:net::ERR_TIMED_OUTRestarttoupdateCheckforupdatesDevelopermodeTakesupdatesfrombuildsmadeonthiscomputerinsteadofthepublishedreleases:runnpmrundev-updateinthedesktopfolder,andShiorifindsthemathttp://127.0.0.1:9/feed/.AboutShiori1.4.0Thelibraryindex,cacheandsettingsonthiscomputer:C:\\Users\\someonewitharatherlongname\\AppData\\Roaming\\Shiori\\afoldernestedquitedeep\\anddeeperstill\\library-indexOpen",
+      "port": "41001",
+      "switches": [
+        true,
+        true,
+        true
+      ],
+      "buttons": [
+        [
+          "deskAddExtension",
+          "Add…",
+          false
+        ],
+        [
+          "deskInstallUpdate",
+          "Restart to update",
+          false
+        ],
+        [
+          "deskCheckUpdates",
+          "Check for updates",
+          false
+        ],
+        [
+          "deskOpenData",
+          "Open",
+          false
+        ]
+      ],
+      "code": [
+        "http://127.0.0.1:9/",
+        "C:\\Users\\someone with a rather long name\\AppData\\Roaming\\Shiori\\a folder nested quite deep\\and deeper still\\library-index"
+      ]
+    },
+    "question": null
+  },
+  {
+    "name": "the data folder opened",
+    "saw": null,
+    "calls": [
+      [
+        "openDataFolder"
+      ]
+    ],
+    "view": {
+      "words": "WindowKeeprunninginthetrayClosingthewindowleavesShioriinthesystemtray,whereimportsandtranslationscarryon.Quitfromthetrayicon.ConnectionLocalserverhttp://127.0.0.1:9/PortUsedfromthenextstart.Automatictries41000,thenthenextnine.OpentootherdevicesLetsphones,tabletsandothercomputersonyournetworkopenyourlibraryinabrowser.Anyoneonyournetworkcanthenreadandchangeit.WindowsmayaskwhethertoletShioriuseyournetwork.Thiscomputerisn’tonanetworkrightnow.ConnectedsitesSitesallowedtousethislibraryfromabrowser.Nositeisconnected.BrowserextensionsExtensionsaddedhereruninsideShioriastheywouldinabrowser.Choosethefolderofanunpackedextension.Add…Noextensionadded.UpdatesCouldn’tcheckforupdates:net::ERR_TIMED_OUTRestarttoupdateCheckforupdatesDevelopermodeTakesupdatesfrombuildsmadeonthiscomputerinsteadofthepublishedreleases:runnpmrundev-updateinthedesktopfolder,andShiorifindsthemathttp://127.0.0.1:9/feed/.AboutShiori1.4.0Thelibraryindex,cacheandsettingsonthiscomputer:C:\\Users\\someonewitharatherlongname\\AppData\\Roaming\\Shiori\\afoldernestedquitedeep\\anddeeperstill\\library-indexOpen",
+      "port": "41001",
+      "switches": [
+        true,
+        true,
+        true
+      ],
+      "buttons": [
+        [
+          "deskAddExtension",
+          "Add…",
+          false
+        ],
+        [
+          "deskInstallUpdate",
+          "Restart to update",
+          false
+        ],
+        [
+          "deskCheckUpdates",
+          "Check for updates",
+          false
+        ],
+        [
+          "deskOpenData",
+          "Open",
+          false
+        ]
+      ],
+      "code": [
+        "http://127.0.0.1:9/",
+        "C:\\Users\\someone with a rather long name\\AppData\\Roaming\\Shiori\\a folder nested quite deep\\and deeper still\\library-index"
+      ]
+    },
+    "question": null
+  },
+  {
+    "name": "in Japanese",
+    "saw": null,
+    "calls": [],
+    "view": {
+      "words": "ウィンドウトレイで動作を続けるウィンドウを閉じてもShioriはシステムトレイに残り、インポートや翻訳は続きます。終了はトレイアイコンから行います。接続ローカルサーバーhttp://127.0.0.1:9/ポート次回の起動から使われます。自動では41000、続いて次の9個のポートを試します。他のデバイスに公開ネットワーク上のスマートフォン、タブレット、他のコンピューターからブラウザーでライブラリを開けるようにします。ネットワーク上の誰でもライブラリを閲覧・変更できるようになります。WindowsがShioriのネットワーク使用を許可するか尋ねることがあります。このコンピューターは現在ネットワークに接続されていません。接続中のサイトブラウザーからこのライブラリを使うことを許可したサイトです。接続中のサイトはありません。ブラウザー拡張機能ここで追加した拡張機能は、ブラウザーと同じようにShioriの中で動作します。展開済みの拡張機能のフォルダーを選んでください。追加…追加された拡張機能はありません。アップデートアップデートを確認できませんでした:net::ERR_TIMED_OUT再起動してアップデートアップデートを確認開発者モード公開リリースの代わりに、このコンピューターで作ったビルドからアップデートします。desktopフォルダーでnpmrundev-updateを実行すると、Shioriはhttp://127.0.0.1:9/feed/でそれを見つけます。情報Shiori1.4.0このコンピューター上のライブラリの索引・キャッシュ・設定:C:\\Users\\someonewitharatherlongname\\AppData\\Roaming\\Shiori\\afoldernestedquitedeep\\anddeeperstill\\library-index開く",
+      "port": "41001",
+      "switches": [
+        true,
+        true,
+        true
+      ],
+      "buttons": [
+        [
+          "deskAddExtension",
+          "追加…",
+          false
+        ],
+        [
+          "deskInstallUpdate",
+          "再起動してアップデート",
+          false
+        ],
+        [
+          "deskCheckUpdates",
+          "アップデートを確認",
+          false
+        ],
+        [
+          "deskOpenData",
+          "開く",
+          false
+        ]
+      ],
+      "code": [
+        "http://127.0.0.1:9/",
+        "C:\\Users\\someone with a rather long name\\AppData\\Roaming\\Shiori\\a folder nested quite deep\\and deeper still\\library-index"
+      ]
+    },
+    "question": null
+  }
+]

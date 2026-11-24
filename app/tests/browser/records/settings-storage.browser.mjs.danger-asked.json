@@ -1,0 +1,65 @@
+{
+  "said": [
+    {
+      "title": "Clear the library?",
+      "text": "Every saved gallery and image is deleted from this browser. Your settings are kept. This can’t be undone.",
+      "busy": false,
+      "choice": null,
+      "buttons": [
+        "Cancel",
+        "Continue"
+      ]
+    },
+    {
+      "title": "Clear the library?",
+      "text": "Every saved gallery and image is deleted from this browser. Your settings are kept. This can’t be undone.",
+      "busy": false,
+      "choice": null,
+      "buttons": [
+        "Cancel",
+        "Continue"
+      ]
+    },
+    {
+      "title": "Delete the entire library?",
+      "text": "Last check — once it’s deleted, the library can’t be recovered.",
+      "busy": false,
+      "choice": null,
+      "buttons": [
+        "Cancel",
+        "Delete library"
+      ]
+    },
+    {
+      "title": "Factory reset?",
+      "text": "The library and every setting are deleted, including your translator credentials. This can’t be undone.",
+      "busy": false,
+      "choice": null,
+      "buttons": [
+        "Cancel",
+        "Continue"
+      ]
+    },
+    {
+      "title": "Factory reset?",
+      "text": "The library and every setting are deleted, including your translator credentials. This can’t be undone.",
+      "busy": false,
+      "choice": null,
+      "buttons": [
+        "Cancel",
+        "Continue"
+      ]
+    },
+    {
+      "title": "Erase everything?",
+      "text": "Last check — everything this app keeps in this browser is erased.",
+      "busy": false,
+      "choice": null,
+      "buttons": [
+        "Cancel",
+        "Erase everything"
+      ]
+    }
+  ],
+  "status": ""
+}

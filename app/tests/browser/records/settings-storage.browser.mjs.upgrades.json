@@ -1,0 +1,38 @@
+{
+  "pending": {
+    "classifyStatus": {
+      "text": "1 galleries can get a category and rating from the source details they already have.",
+      "disabled": false,
+      "tip": ""
+    },
+    "classifyNowBtn": {
+      "text": "Update now",
+      "disabled": false,
+      "tip": ""
+    }
+  },
+  "done": {
+    "classifyStatus": {
+      "text": "Every gallery with source details has a category and rating.",
+      "disabled": false,
+      "tip": ""
+    },
+    "classifyNowBtn": {
+      "text": "Update now",
+      "disabled": true,
+      "tip": ""
+    }
+  },
+  "meta": [
+    {
+      "type": "rating",
+      "name": "safe",
+      "url": ""
+    },
+    {
+      "type": "category",
+      "name": "misc",
+      "url": ""
+    }
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "first": {
+    "choice": [
+      [
+        "browser",
+        "true"
+      ],
+      [
+        "desktop",
+        "false"
+      ]
+    ],
+    "desc": "LocationStoredinthisbrowserandinthefoldersbelow.ThisbrowserShioriDesktop"
+  },
+  "asked1": {
+    "title": "Use Shiori Desktop?",
+    "text": "Your library will be kept as files by the Shiori Desktop app on this computer. Your browser may ask to let this site connect to apps on this device: allow it. The library in this browser stays as it is.",
+    "busy": false,
+    "choice": null,
+    "buttons": [
+      "Cancel",
+      "Continue"
+    ]
+  },
+  "kept": {
+    "location": {
+      "choice": [
+        [
+          "browser",
+          "true"
+        ],
+        [
+          "desktop",
+          "false"
+        ]
+      ],
+      "desc": "LocationStoredinthisbrowserandinthefoldersbelow.ThisbrowserShioriDesktop"
+    },
+    "stored": {
+      "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+      "shiori:storageLayout": "\"done\""
+    }
+  },
+  "asked2": {
+    "title": "Shiori Desktop isn’t running",
+    "text": "Open Shiori Desktop on this computer, then try again.",
+    "busy": false,
+    "choice": null,
+    "buttons": [
+      "Open Shiori Desktop",
+      "Try again",
+      "Cancel"
+    ]
+  },
+  "after": {
+    "choice": [
+      [
+        "browser",
+        "true"
+      ],
+      [
+        "desktop",
+        "false"
+      ]
+    ],
+    "desc": "LocationStoredinthisbrowserandinthefoldersbelow.ThisbrowserShioriDesktop"
+  },
+  "stored": {
+    "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+    "shiori:storageLayout": "\"done\""
+  },
+  "refused": [
+    "127.0.0.1:47153",
+    "127.0.0.1:47154",
+    "127.0.0.1:47155",
+    "127.0.0.1:47156",
+    "127.0.0.1:47157",
+    "127.0.0.1:47158",
+    "127.0.0.1:47159",
+    "127.0.0.1:47160",
+    "127.0.0.1:47161",
+    "127.0.0.1:47162"
+  ]
+}

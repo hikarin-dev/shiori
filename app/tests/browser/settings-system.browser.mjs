@@ -1,25 +1,27 @@
 // settings-system.browser.mjs — Settings → System as the one page draws it (src/routes/settings/
-// system.tsx), held against 1.3's page (desktop-settings.js). The panel is the desktop app's window's
-// alone, so both pages run with a stand-in for the window's bridge (`shioriDesktop.shell`), installed
-// before any script of the page runs: it keeps every call it receives and answers from a state of its
-// own, and reaches nothing (no request, no socket; the harness refuses any other address anyway). The
-// desktop app itself is never started.
+// system.tsx), held to what 1.3's page gave: each table below has its record
+// (records/settings-system.browser.mjs.<table>.json, records.mjs), 1.3's behaviour as measured on
+// 2026-11-24, which a deliberate change edits in the same commit. The panel is the desktop app's
+// window's alone, so the page runs with a stand-in for the window's bridge (`shioriDesktop.shell`),
+// installed before any script of the page runs: it keeps every call it receives and answers from a
+// state of its own, and reaches nothing (no request, no socket; the harness refuses any other address
+// anyway). The desktop app itself is never started.
 //
 //   - Where it shows: only in the desktop app's window, its nav item before Storage.
-//   - One table of actions driven on both pages: after each, the calls the bridge received (in order,
-//     with their arguments), the question asked if any, and the words, switches and buttons on the
-//     panel, the same on both. A restart is asked about and answered Later; Restart now, Restart to
-//     update and anything that would restart or update the app are never pressed.
+//   - One table of actions: after each, the calls the bridge received (in order, with their
+//     arguments), the question asked if any, and the words, switches and buttons on the panel, as 1.3's
+//     page had them. A restart is asked about and answered Later; Restart now, Restart to update and
+//     anything that would restart or update the app are never pressed.
 //   - An update followed every 700 ms while it is under way: each state the line passes through, kept
 //     by an observer in the page as it changes.
 //   - The phone form, and leaving the page five times leaving nothing behind.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
+import { record, normalised } from './records.mjs';
 
 const NEW = '/settings-next';   // step 5e: '/settings'
-const OLD = '/settings';        // 1.3's page, while it answers /settings
-const PAGES = [['1.3\'s page', OLD], ['the new page', NEW]];
+const FILE = 'settings-system.browser.mjs';
 
 let server, origin, browser;
 before(async () => {
@@ -235,77 +237,72 @@ const STEPS = [
   }],
 ];
 
-test('the desktop app\'s window (a stand-in for its bridge): the same calls, questions and words as 1.3\'s page, after each of a table of actions', async (t) => {
+test('the desktop app\'s window (a stand-in for its bridge): the calls, questions and words of 1.3\'s page, after each of a table of actions', async (t) => {
   if (skip(t)) return;
-  const seen = [];
-  for (const [, path] of PAGES) {
-    const page = await open(t, path);
-    // (On no network: the addresses the bridge answers are none.)
-    await run(page, () => {
-      const shell = window.shioriDesktop.shell;
-      window.shioriDesktop.shell = async (action, ...args) => {
-        const out = await shell(action, ...args);
-        return out && window.__noNet && out.lan ? { ...out, lanUrls: [] } : out;
-      };
-    });
+  const page = await open(t, NEW);
+  // (On no network: the addresses the bridge answers are none.)
+  await run(page, () => {
+    const shell = window.shioriDesktop.shell;
+    window.shioriDesktop.shell = async (action, ...args) => {
+      const out = await shell(action, ...args);
+      return out && window.__noNet && out.lan ? { ...out, lanUrls: [] } : out;
+    };
+  });
+  await settle(page);
+  await calls(page);   // (what it asked as it loaded: the state, for System and the archiving card)
+  const steps = [];
+  for (const [name, step] of STEPS) {
+    const saw = await step(page);
     await settle(page);
-    await calls(page);   // (what both asked as they loaded: the state, for System and the archiving card)
-    const steps = [];
-    for (const [name, step] of STEPS) {
-      const saw = await step(page);
-      await settle(page);
-      steps.push({ name, saw: saw ?? null, calls: await calls(page), view: await run(page, view), question: await run(page, () => window.__question()) });
-    }
-    seen.push(steps);
-    assert.deepEqual(page.problems, [], path);
+    steps.push({ name, saw: saw ?? null, calls: await calls(page), view: await run(page, view), question: await run(page, () => window.__question()) });
   }
-  const [old, now] = seen;
+  assert.deepEqual(page.problems, []);
+  const now = normalised(steps);
+  const was = record(FILE, 'table');
+  assert.equal(now.length, was.length);
   for (let i = 0; i < STEPS.length; i++) {
     // 1.3's page showed Restart to update in every state (its .hidden class had no rule): the new page
     // shows it only when an update is ready, as 1.3's code meant (§5.3, new). Compared without it, and
     // held below.
     const drop = (s) => ({ ...s, view: { ...s.view, buttons: s.view.buttons.filter(([id]) => id !== 'deskInstallUpdate') } });
-    assert.deepEqual(drop(now[i]), drop(old[i]), `after "${STEPS[i][0]}"`);
+    assert.deepEqual(drop(now[i]), drop(was[i]), `after "${STEPS[i][0]}"`);
   }
   const byName = (steps, name) => steps.find((s) => s.name === name);
   // The calls, as 1.3's page made them.
-  assert.deepEqual(byName(old, 'the tray switched on').calls, [['set', 'closeToTray', true]]);
-  assert.deepEqual(byName(old, 'another port chosen: a restart asked, Later').calls, [['set', 'port', 41001]]);
-  assert.deepEqual(byName(old, 'another port chosen: a restart asked, Later').saw.buttons, ['Later', 'Restart now']);
-  assert.deepEqual(byName(old, 'the data folder opened').calls, [['openDataFolder']]);
-  assert.deepEqual(byName(old, 'Check for updates: followed until one is ready').saw,
+  assert.deepEqual(byName(was, 'the tray switched on').calls, [['set', 'closeToTray', true]]);
+  assert.deepEqual(byName(was, 'another port chosen: a restart asked, Later').calls, [['set', 'port', 41001]]);
+  assert.deepEqual(byName(was, 'another port chosen: a restart asked, Later').saw.buttons, ['Later', 'Restart now']);
+  assert.deepEqual(byName(was, 'the data folder opened').calls, [['openDataFolder']]);
+  assert.deepEqual(byName(was, 'Check for updates: followed until one is ready').saw,
     ['Checking for updates…', 'Downloading version 1.4.1… 40%', 'Downloading version 1.4.1… 0%', 'Version 1.4.1 is ready to install.']);
-  assert.deepEqual(byName(old, 'Check for updates: followed until one is ready').calls.map((c) => c[0]), ['checkUpdates', 'updateState', 'updateState', 'updateState', 'updateState']);
+  assert.deepEqual(byName(was, 'Check for updates: followed until one is ready').calls.map((c) => c[0]), ['checkUpdates', 'updateState', 'updateState', 'updateState', 'updateState']);
   // Restart to update: only while an update is ready, on the new page.
   const install = (s) => s.view.buttons.some(([id]) => id === 'deskInstallUpdate');
   assert.deepEqual(now.map(install), STEPS.map(([name]) => name === 'Check for updates: followed until one is ready'));
-  assert.ok(old.every(install), '1.3 showed it in every state');
+  assert.ok(was.every(install), '1.3 showed it in every state');
   // Nothing that restarts or updates the app was asked for.
-  for (const steps of seen) for (const s of steps) assert.ok(!s.calls.some((c) => ['restart', 'installUpdate'].includes(c[0])), s.name);
+  for (const steps of [was, now]) for (const s of steps) assert.ok(!s.calls.some((c) => ['restart', 'installUpdate'].includes(c[0])), s.name);
 });
 
 test('System shows in the desktop app\'s window alone, its nav item before Storage', async (t) => {
   if (skip(t)) return;
-  const navs = [];
-  for (const [, path] of PAGES) {
-    const page = await open(t, path);
-    navs.push(await run(page, () => [...document.querySelectorAll('#settingsNav .nav-item')].map((b) => b.id).filter((id) => id !== 'navExtension' && id !== 'navOptional')));
-    const context = await browser.createBrowserContext();
-    t.after(() => context.close().catch(() => {}));
-    const plain = await openPage(context, origin);
-    await plain.goto(`${origin}${path}`, { waitUntil: 'load' });
-    await until(plain, () => !!document.getElementById('navStorage') && !!document.getElementById('clearAllBtn'), null, { what: 'Settings' });
-    await pause(500);
-    assert.deepEqual(await run(plain, () => [!!document.getElementById('navDesktop'), !!document.getElementById('panelDesktop')]), [false, false], `${path}: not in a browser`);
-    assert.deepEqual(plain.problems, []);
-  }
-  assert.deepEqual(navs[1], navs[0]);
-  assert.deepEqual(navs[0], ['navLibrary', 'navReader', 'navTranslation', 'navDesktop', 'navStorage']);
+  const page = await open(t, NEW);
+  const now = await run(page, () => [...document.querySelectorAll('#settingsNav .nav-item')].map((b) => b.id).filter((id) => id !== 'navExtension' && id !== 'navOptional'));
+  const was = record(FILE, 'nav');
+  assert.deepEqual(now, was);
+  assert.deepEqual(was, ['navLibrary', 'navReader', 'navTranslation', 'navDesktop', 'navStorage']);
+  const context = await browser.createBrowserContext();
+  t.after(() => context.close().catch(() => {}));
+  const plain = await openPage(context, origin);
+  await plain.goto(`${origin}${NEW}`, { waitUntil: 'load' });
+  await until(plain, () => !!document.getElementById('navStorage') && !!document.getElementById('clearAllBtn'), null, { what: 'Settings' });
+  await pause(500);
+  assert.deepEqual(await run(plain, () => [!!document.getElementById('navDesktop'), !!document.getElementById('panelDesktop')]), [false, false], 'not in a browser');
+  assert.deepEqual(plain.problems, []);
 });
 
 test('the phone form, an update ready: nothing runs past the cards or the screen; a long path wraps', async (t) => {
   if (skip(t)) return;
-  const seen = [];
   // (Ready: Restart to update beside Check, the row's widest.)
   const ready = () => {
     const shell = window.shioriDesktop.shell;
@@ -314,31 +311,30 @@ test('the phone form, an update ready: nothing runs past the cards or the screen
       return action === 'state' ? { ...out, update: { status: 'ready', version: '1.4.1' } } : out;
     };
   };
-  for (const [, path] of PAGES) {
-    const page = await open(t, path, { viewport: { width: 390, height: 844, isMobile: true, hasTouch: true }, early: ready });
-    await settle(page);
-    seen.push(await run(page, () => {
-      const out = [];
-      for (const card of document.querySelectorAll('#panelDesktop > *')) {
-        const box = card.getBoundingClientRect();
-        if (!box.width) continue;
-        for (const el of card.querySelectorAll('button, code, [id]:not(input)')) {
-          const r = el.getBoundingClientRect();
-          if (r.width && (r.left < box.left - 0.5 || r.right > box.right + 0.5)) out.push(el.id || el.textContent.slice(0, 20));
-        }
+  const page = await open(t, NEW, { viewport: { width: 390, height: 844, isMobile: true, hasTouch: true }, early: ready });
+  await settle(page);
+  const now = await run(page, () => {
+    const out = [];
+    for (const card of document.querySelectorAll('#panelDesktop > *')) {
+      const box = card.getBoundingClientRect();
+      if (!box.width) continue;
+      for (const el of card.querySelectorAll('button, code, [id]:not(input)')) {
+        const r = el.getBoundingClientRect();
+        if (r.width && (r.left < box.left - 0.5 || r.right > box.right + 0.5)) out.push(el.id || el.textContent.slice(0, 20));
       }
-      const data = document.getElementById('deskDataPath').getBoundingClientRect();
-      return { scroll: document.documentElement.scrollWidth - innerWidth, out, wraps: data.height > 20, share: window.__share() };
-    }));
-    assert.deepEqual(page.problems, []);
-  }
-  assert.deepEqual(seen[1], seen[0]);
-  assert.deepEqual(seen[0], { scroll: 0, out: [], wraps: true, share: { shown: ['deskInstallUpdate', 'deskCheckUpdates'], gaps: [0, 8, 0] } }, 'the two fill the row');
+    }
+    const data = document.getElementById('deskDataPath').getBoundingClientRect();
+    return { scroll: document.documentElement.scrollWidth - innerWidth, out, wraps: data.height > 20, share: window.__share() };
+  });
+  assert.deepEqual(page.problems, []);
+  const was = record(FILE, 'phone');
+  assert.deepEqual(now, was);
+  assert.deepEqual(was, { scroll: 0, out: [], wraps: true, share: { shown: ['deskInstallUpdate', 'deskCheckUpdates'], gaps: [0, 8, 0] } }, 'the two fill the row');
   // No update ready: Check alone has the row's width, as every row's one button on the phone form.
   // (The new page only: 1.3's showed Restart to update in every state.)
-  const page = await open(t, NEW, { viewport: { width: 390, height: 844, isMobile: true, hasTouch: true } });
-  await settle(page);
-  assert.deepEqual(await run(page, () => window.__share()), { shown: ['deskCheckUpdates'], gaps: [0, 0] });
+  const idle = await open(t, NEW, { viewport: { width: 390, height: 844, isMobile: true, hasTouch: true } });
+  await settle(idle);
+  assert.deepEqual(await run(idle, () => window.__share()), { shown: ['deskCheckUpdates'], gaps: [0, 0] });
 });
 
 test('leaving the page leaves nothing behind: /settings-next → /tasks → /settings-next, five times, an update followed each time', async (t) => {

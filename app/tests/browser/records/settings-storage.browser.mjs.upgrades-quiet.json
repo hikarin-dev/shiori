@@ -1,0 +1,15 @@
+{
+  "layoutStatus": {
+    "text": "Every page uses the new layout.",
+    "disabled": false,
+    "tip": ""
+  },
+  "convertNowBtn": {
+    "text": "Convert now",
+    "disabled": true,
+    "tip": ""
+  },
+  "classifyRow": false,
+  "classifyStatus": null,
+  "classifyNowBtn": null
+}

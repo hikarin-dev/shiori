@@ -1,0 +1,8 @@
+{
+  "note": "To use folders, enable the File System Access API in your browser’s flags (chrome://flags).",
+  "add": false,
+  "rescan": false,
+  "rows": [
+    "This browser"
+  ]
+}

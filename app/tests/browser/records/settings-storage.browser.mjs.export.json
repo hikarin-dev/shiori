@@ -1,0 +1,13 @@
+{
+  "focus": "backupMetaBtn",
+  "choice": [
+    "Metadata only (.shi) — lightweight",
+    "Full library (.shioridb) — everything, incl. images",
+    "Cancel"
+  ],
+  "back": "exportBackupBtn",
+  "results": {
+    "backupMetaBtn": "Gallery details exported",
+    "backupFullBtn": "Your browser is saving the backup"
+  }
+}

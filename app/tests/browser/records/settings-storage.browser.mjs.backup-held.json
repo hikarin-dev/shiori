@@ -1,0 +1,59 @@
+{
+  "said": [
+    {
+      "title": "A backup is already running",
+      "text": "A backup is being made or restored in another window. Let it finish before clearing the library.",
+      "busy": false,
+      "choice": null,
+      "buttons": [
+        "OK"
+      ]
+    },
+    {
+      "title": "A backup is already running",
+      "text": "A backup is being made or restored in another window. Let it finish before clearing the library.",
+      "busy": false,
+      "choice": null,
+      "buttons": [
+        "OK"
+      ]
+    }
+  ],
+  "library": {
+    "places": [
+      {
+        "name": "(browser)",
+        "hidden": false,
+        "isDefault": true,
+        "access": "granted",
+        "galleries": 1,
+        "removable": false
+      },
+      {
+        "name": "Lib A",
+        "hidden": false,
+        "isDefault": false,
+        "access": "granted",
+        "galleries": 0,
+        "removable": true
+      },
+      {
+        "name": "Lib B",
+        "hidden": false,
+        "isDefault": false,
+        "access": "granted",
+        "galleries": 2,
+        "removable": true
+      }
+    ],
+    "ids": [
+      "1790000000001",
+      "1790000000002",
+      "1790000000003"
+    ]
+  },
+  "stored": {
+    "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+    "shiori:storageLayout": "\"done\""
+  }
+}

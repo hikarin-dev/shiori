@@ -1,0 +1,1636 @@
+{
+  "steps": [
+    {
+      "what": "drawn",
+      "extra": null,
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 1 · 1.7KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          },
+          {
+            "name": "Lib A",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          },
+          {
+            "name": "Lib B",
+            "meta": "Galleries: 2 · 3.4KB",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": ""
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 1,
+            "removable": false
+          },
+          {
+            "name": "Lib A",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 0,
+            "removable": true
+          },
+          {
+            "name": "Lib B",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 2,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "each place's menu",
+      "extra": {
+        "Lib A": [
+          "Set as default",
+          "Rescan",
+          "Hide",
+          "Remove"
+        ],
+        "Lib B": [
+          "Set as default",
+          "Rescan",
+          "Hide",
+          "Remove"
+        ]
+      },
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 1 · 1.7KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          },
+          {
+            "name": "Lib A",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          },
+          {
+            "name": "Lib B",
+            "meta": "Galleries: 2 · 3.4KB",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": ""
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 1,
+            "removable": false
+          },
+          {
+            "name": "Lib A",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 0,
+            "removable": true
+          },
+          {
+            "name": "Lib B",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 2,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "Lib A made the default",
+      "extra": null,
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 1 · 1.7KB",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          },
+          {
+            "name": "Lib A",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          },
+          {
+            "name": "Lib B",
+            "meta": "Galleries: 2 · 3.4KB",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": ""
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 1,
+            "removable": false
+          },
+          {
+            "name": "Lib A",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 0,
+            "removable": true
+          },
+          {
+            "name": "Lib B",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 2,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "This browser the default again",
+      "extra": null,
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 1 · 1.7KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          },
+          {
+            "name": "Lib A",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          },
+          {
+            "name": "Lib B",
+            "meta": "Galleries: 2 · 3.4KB",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": ""
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 1,
+            "removable": false
+          },
+          {
+            "name": "Lib A",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 0,
+            "removable": true
+          },
+          {
+            "name": "Lib B",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 2,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "Lib B hidden (no question)",
+      "extra": null,
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 1 · 1.7KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          },
+          {
+            "name": "Lib A",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          },
+          {
+            "name": "Lib B",
+            "meta": "Galleries: 2 · 3.4KB",
+            "badges": [
+              [
+                "Hidden",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": true,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": ""
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 1,
+            "removable": false
+          },
+          {
+            "name": "Lib A",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 0,
+            "removable": true
+          },
+          {
+            "name": "Lib B",
+            "hidden": true,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 2,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "a hidden place's menu",
+      "extra": [
+        "Show",
+        "Remove"
+      ],
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 1 · 1.7KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          },
+          {
+            "name": "Lib A",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          },
+          {
+            "name": "Lib B",
+            "meta": "Galleries: 2 · 3.4KB",
+            "badges": [
+              [
+                "Hidden",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": true,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": ""
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 1,
+            "removable": false
+          },
+          {
+            "name": "Lib A",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 0,
+            "removable": true
+          },
+          {
+            "name": "Lib B",
+            "hidden": true,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 2,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "Lib B shown again",
+      "extra": null,
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 1 · 1.7KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          },
+          {
+            "name": "Lib A",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          },
+          {
+            "name": "Lib B",
+            "meta": "Galleries: 2 · 3.4KB",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": ""
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 1,
+            "removable": false
+          },
+          {
+            "name": "Lib A",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 0,
+            "removable": true
+          },
+          {
+            "name": "Lib B",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 2,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "a task on Lib A, under way",
+      "extra": null,
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 1 · 1.7KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          },
+          {
+            "name": "Lib A",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [],
+            "busy": true,
+            "hidden": false,
+            "job": "Scanning · 1 / 4 · Found: 2",
+            "button": "",
+            "menu": true,
+            "attention": []
+          },
+          {
+            "name": "Lib B",
+            "meta": "Galleries: 2 · 3.4KB",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": ""
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 1,
+            "removable": false
+          },
+          {
+            "name": "Lib A",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 0,
+            "removable": true
+          },
+          {
+            "name": "Lib B",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 2,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "its task ending, with what it couldn't read",
+      "extra": null,
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 1 · 1.7KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          },
+          {
+            "name": "Lib A",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          },
+          {
+            "name": "Lib B",
+            "meta": "Galleries: 2 · 3.4KB",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": "Lib A · Couldn’t read: 3"
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 1,
+            "removable": false
+          },
+          {
+            "name": "Lib A",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 0,
+            "removable": true
+          },
+          {
+            "name": "Lib B",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 2,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "Remove Lib A asked, then cancelled",
+      "extra": null,
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 1 · 1.7KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          },
+          {
+            "name": "Lib A",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          },
+          {
+            "name": "Lib B",
+            "meta": "Galleries: 2 · 3.4KB",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": "Lib A · Couldn’t read: 3"
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 1,
+            "removable": false
+          },
+          {
+            "name": "Lib A",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 0,
+            "removable": true
+          },
+          {
+            "name": "Lib B",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 2,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "Lib A removed",
+      "extra": null,
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 1 · 1.7KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          },
+          {
+            "name": "Lib B",
+            "meta": "Galleries: 2 · 3.4KB",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": "Lib A · Couldn’t read: 3"
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 1,
+            "removable": false
+          },
+          {
+            "name": "Lib B",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 2,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "Remove Lib B: moving its galleries asked again, refused, the switch off",
+      "extra": {
+        "title": "Move galleries to This browser?",
+        "text": "Galleries: 2. Their files are copied to This browser, then deleted from Lib B. This can’t be undone.",
+        "busy": false,
+        "choice": null,
+        "buttons": [
+          "Cancel",
+          "Move"
+        ]
+      },
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 1 · 1.7KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          },
+          {
+            "name": "Lib B",
+            "meta": "Galleries: 2 · 3.4KB",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": {
+          "title": "Remove Lib B?",
+          "text": "Its galleries (2) will be removed from the library. Files are kept, and adding the folder again restores them.",
+          "busy": false,
+          "choice": "This browser (IndexedDB)",
+          "buttons": [
+            "Cancel",
+            "Remove folder"
+          ]
+        },
+        "status": "Lib A · Couldn’t read: 3"
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 1,
+            "removable": false
+          },
+          {
+            "name": "Lib B",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 2,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "…then the switch on, moving to This browser, and removed",
+      "extra": null,
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 3 · 5.1KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": "Lib A · Couldn’t read: 3"
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 3,
+            "removable": false
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "Lib C added: its row at once, then checked",
+      "extra": null,
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 3 · 5.1KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          },
+          {
+            "name": "Lib C",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": "Lib A · Couldn’t read: 3"
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 3,
+            "removable": false
+          },
+          {
+            "name": "Lib C",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 0,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "Lib C taken over by another app: marked, Take back",
+      "extra": null,
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 3 · 5.1KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          },
+          {
+            "name": "Lib C",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [
+              [
+                "Used elsewhere",
+                true,
+                "In use by Shiori Desktop on OTHER-PC"
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "Take back",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": "Lib A · Couldn’t read: 3"
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 3,
+            "removable": false
+          },
+          {
+            "name": "Lib C",
+            "hidden": false,
+            "isDefault": false,
+            "access": "taken",
+            "galleries": 0,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "Take back asked, then cancelled",
+      "extra": {
+        "title": "Take back Lib C?",
+        "text": "It’s in use by Shiori Desktop on OTHER-PC. Using it in two apps at once can put galleries out of sync.",
+        "busy": false,
+        "choice": null,
+        "buttons": [
+          "Cancel",
+          "Take back"
+        ]
+      },
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 3 · 5.1KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          },
+          {
+            "name": "Lib C",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [
+              [
+                "Used elsewhere",
+                true,
+                "In use by Shiori Desktop on OTHER-PC"
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "Take back",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": "Lib A · Couldn’t read: 3"
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 3,
+            "removable": false
+          },
+          {
+            "name": "Lib C",
+            "hidden": false,
+            "isDefault": false,
+            "access": "taken",
+            "galleries": 0,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "Lib C taken back",
+      "extra": null,
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 3 · 5.1KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          },
+          {
+            "name": "Lib C",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": "Lib A · Couldn’t read: 3"
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 3,
+            "removable": false
+          },
+          {
+            "name": "Lib C",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 0,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "the header's check of every folder",
+      "extra": null,
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 3 · 5.1KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          },
+          {
+            "name": "Lib C",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": "Lib A · Couldn’t read: 3"
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 3,
+            "removable": false
+          },
+          {
+            "name": "Lib C",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 0,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "Lib D added, then out of reach (its folder gone)",
+      "extra": null,
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 3 · 5.1KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          },
+          {
+            "name": "Lib C",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          },
+          {
+            "name": "Lib D",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [
+              [
+                "Unavailable",
+                true,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": "Lib A · Couldn’t read: 3"
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 3,
+            "removable": false
+          },
+          {
+            "name": "Lib C",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 0,
+            "removable": true
+          },
+          {
+            "name": "Lib D",
+            "hidden": false,
+            "isDefault": false,
+            "access": "unavailable",
+            "galleries": 0,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    },
+    {
+      "what": "an out-of-reach place's menu",
+      "extra": [
+        "Hide",
+        "Remove"
+      ],
+      "card": {
+        "rows": [
+          {
+            "name": "This browser",
+            "meta": "IndexedDB · Galleries: 3 · 5.1KB",
+            "badges": [
+              [
+                "Default",
+                false,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": false,
+            "attention": []
+          },
+          {
+            "name": "Lib C",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          },
+          {
+            "name": "Lib D",
+            "meta": "Galleries: 0 · 0B",
+            "badges": [
+              [
+                "Unavailable",
+                true,
+                ""
+              ]
+            ],
+            "busy": false,
+            "hidden": false,
+            "job": null,
+            "button": "",
+            "menu": true,
+            "attention": []
+          }
+        ],
+        "dialog": null,
+        "status": "Lib A · Couldn’t read: 3"
+      },
+      "library": {
+        "places": [
+          {
+            "name": "(browser)",
+            "hidden": false,
+            "isDefault": true,
+            "access": "granted",
+            "galleries": 3,
+            "removable": false
+          },
+          {
+            "name": "Lib C",
+            "hidden": false,
+            "isDefault": false,
+            "access": "granted",
+            "galleries": 0,
+            "removable": true
+          },
+          {
+            "name": "Lib D",
+            "hidden": false,
+            "isDefault": false,
+            "access": "unavailable",
+            "galleries": 0,
+            "removable": true
+          }
+        ],
+        "ids": [
+          "1790000000001",
+          "1790000000002",
+          "1790000000003"
+        ]
+      },
+      "stored": {
+        "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+        "shiori:storageLayout": "\"done\""
+      }
+    }
+  ],
+  "refused": []
+}

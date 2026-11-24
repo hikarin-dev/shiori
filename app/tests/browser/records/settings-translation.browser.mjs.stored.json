@@ -1,0 +1,132 @@
+[
+  [
+    "load",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"deepseek\",\"translator.target_lang\":\"ENG\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.5,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"hayai\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":2048,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":40,\"kernel_size\":7},\"studyModeGeneration\":\"text_only\",\"saveSnapshots\":false,\"keepSnapshotsOnRevert\":false,\"schema\":3}",
+    ""
+  ],
+  [
+    "the server's address (a trailing slash)",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"deepseek\",\"translator.target_lang\":\"ENG\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.5,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"hayai\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":2048,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":40,\"kernel_size\":7},\"studyModeGeneration\":\"text_only\",\"saveSnapshots\":false,\"keepSnapshotsOnRevert\":false,\"schema\":3,\"serverToken\":\"\"}",
+    "Saved."
+  ],
+  [
+    "an address that is not a web address",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"deepseek\",\"translator.target_lang\":\"ENG\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.5,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"hayai\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":2048,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":40,\"kernel_size\":7},\"studyModeGeneration\":\"text_only\",\"saveSnapshots\":false,\"keepSnapshotsOnRevert\":false,\"schema\":3,\"serverToken\":\"\"}",
+    "Server URL must start with http:// or https://"
+  ],
+  [
+    "the address put right",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"deepseek\",\"translator.target_lang\":\"ENG\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.5,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"hayai\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":2048,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":40,\"kernel_size\":7},\"studyModeGeneration\":\"text_only\",\"saveSnapshots\":false,\"keepSnapshotsOnRevert\":false,\"schema\":3,\"serverToken\":\"\"}",
+    ""
+  ],
+  [
+    "the token",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"deepseek\",\"translator.target_lang\":\"ENG\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.5,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"hayai\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":2048,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":40,\"kernel_size\":7},\"studyModeGeneration\":\"text_only\",\"saveSnapshots\":false,\"keepSnapshotsOnRevert\":false,\"schema\":3,\"serverToken\":\"secret\"}",
+    "Saved."
+  ],
+  [
+    "Study data",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"deepseek\",\"translator.target_lang\":\"ENG\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.5,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"hayai\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":2048,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":40,\"kernel_size\":7},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":false,\"keepSnapshotsOnRevert\":false,\"schema\":3,\"serverToken\":\"secret\"}",
+    "Saved."
+  ],
+  [
+    "save snapshots",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"deepseek\",\"translator.target_lang\":\"ENG\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.5,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"hayai\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":2048,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":40,\"kernel_size\":7},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":false,\"schema\":3,\"serverToken\":\"secret\"}",
+    "Saved."
+  ],
+  [
+    "keep snapshots",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"deepseek\",\"translator.target_lang\":\"ENG\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.5,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"hayai\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":2048,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":40,\"kernel_size\":7},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\"}",
+    "Saved."
+  ],
+  [
+    "the pipeline's OCR step",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"deepseek\",\"translator.target_lang\":\"ENG\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.5,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"48px\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":2048,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":40,\"kernel_size\":7},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\"}",
+    "Saved."
+  ],
+  [
+    "the target language",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"deepseek\",\"translator.target_lang\":\"JPN\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.5,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"48px\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":2048,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":40,\"kernel_size\":7},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\"}",
+    "Saved."
+  ],
+  [
+    "the window: the engine",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"gemini\",\"translator.target_lang\":\"JPN\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.5,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"48px\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":2048,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":40,\"kernel_size\":7},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\"}",
+    "Saved."
+  ],
+  [
+    "a clearing preset",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"gemini\",\"translator.target_lang\":\"JPN\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.5,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"48px\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":1024,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":20,\"kernel_size\":3},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\"}",
+    "Saved."
+  ],
+  [
+    "a tick",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"gemini\",\"translator.target_lang\":\"JPN\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.5,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"48px\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":1024,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":20,\"kernel_size\":3,\"translator.content_screen_enabled\":true},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\"}",
+    "Saved."
+  ],
+  [
+    "a screening model",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"gemini\",\"translator.target_lang\":\"JPN\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.5,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"48px\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":1024,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":20,\"kernel_size\":3,\"translator.content_screen_enabled\":true,\"translator.content_screen_translator\":\"qwen2\"},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\"}",
+    "Saved."
+  ],
+  [
+    "the prompt (kept as typed)",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"gemini\",\"translator.target_lang\":\"JPN\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.5,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"48px\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":1024,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":20,\"kernel_size\":3,\"translator.content_screen_enabled\":true,\"translator.content_screen_translator\":\"qwen2\",\"translator.content_screen_prompt\":\"  my prompt  \"},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\"}",
+    "Saved."
+  ],
+  [
+    "a number (the fold opened)",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"gemini\",\"translator.target_lang\":\"JPN\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.35,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"48px\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":1024,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":20,\"kernel_size\":3,\"translator.content_screen_enabled\":true,\"translator.content_screen_translator\":\"qwen2\",\"translator.content_screen_prompt\":\"  my prompt  \"},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\"}",
+    "Saved."
+  ],
+  [
+    "a whole number",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"gemini\",\"translator.target_lang\":\"JPN\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.35,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"48px\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":1024,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":20,\"kernel_size\":9,\"translator.content_screen_enabled\":true,\"translator.content_screen_translator\":\"qwen2\",\"translator.content_screen_prompt\":\"  my prompt  \"},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\"}",
+    "Saved."
+  ],
+  [
+    "a number left empty",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"gemini\",\"translator.target_lang\":\"JPN\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.35,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"48px\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":1024,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":20,\"kernel_size\":9,\"translator.content_screen_enabled\":true,\"translator.content_screen_translator\":\"qwen2\",\"translator.content_screen_prompt\":\"  my prompt  \"},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\"}",
+    ""
+  ],
+  [
+    "a text option (trimmed)",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"gemini\",\"translator.target_lang\":\"JPN\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.35,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"48px\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":1024,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":20,\"kernel_size\":9,\"translator.content_screen_enabled\":true,\"translator.content_screen_translator\":\"qwen2\",\"translator.content_screen_prompt\":\"  my prompt  \",\"render.font_color\":\"#fff\"},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\"}",
+    "Saved."
+  ],
+  [
+    "a stage's model in the fold",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"gemini\",\"translator.target_lang\":\"JPN\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.35,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"48px\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":1024,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"manga2eng\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":20,\"kernel_size\":9,\"translator.content_screen_enabled\":true,\"translator.content_screen_translator\":\"qwen2\",\"translator.content_screen_prompt\":\"  my prompt  \",\"render.font_color\":\"#fff\"},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\"}",
+    "Saved."
+  ],
+  [
+    "an option of a list in the fold",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"gemini\",\"translator.target_lang\":\"JPN\",\"detector.detector\":\"default\",\"detector.detection_size\":1024,\"detector.text_threshold\":0.35,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"48px\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":1024,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"manga2eng\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":20,\"kernel_size\":9,\"translator.content_screen_enabled\":true,\"translator.content_screen_translator\":\"qwen2\",\"translator.content_screen_prompt\":\"  my prompt  \",\"render.font_color\":\"#fff\"},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\"}",
+    "Saved."
+  ],
+  [
+    "a batch cap",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"gemini\",\"translator.target_lang\":\"JPN\",\"detector.detector\":\"default\",\"detector.detection_size\":1024,\"detector.text_threshold\":0.35,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"48px\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":1024,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"manga2eng\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":20,\"kernel_size\":9,\"translator.content_screen_enabled\":true,\"translator.content_screen_translator\":\"qwen2\",\"translator.content_screen_prompt\":\"  my prompt  \",\"render.font_color\":\"#fff\"},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\",\"batchCaps\":{\"gemini\":4}}",
+    "Saved."
+  ],
+  [
+    "a batch cap that is not a number",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"gemini\",\"translator.target_lang\":\"JPN\",\"detector.detector\":\"default\",\"detector.detection_size\":1024,\"detector.text_threshold\":0.35,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"48px\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":1024,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"manga2eng\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":20,\"kernel_size\":9,\"translator.content_screen_enabled\":true,\"translator.content_screen_translator\":\"qwen2\",\"translator.content_screen_prompt\":\"  my prompt  \",\"render.font_color\":\"#fff\"},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\",\"batchCaps\":{\"gemini\":4}}",
+    ""
+  ],
+  [
+    "a price",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"gemini\",\"translator.target_lang\":\"JPN\",\"detector.detector\":\"default\",\"detector.detection_size\":1024,\"detector.text_threshold\":0.35,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"48px\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":1024,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"manga2eng\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":20,\"kernel_size\":9,\"translator.content_screen_enabled\":true,\"translator.content_screen_translator\":\"qwen2\",\"translator.content_screen_prompt\":\"  my prompt  \",\"render.font_color\":\"#fff\"},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\",\"batchCaps\":{\"gemini\":4},\"priceIn\":2.5}",
+    "Saved."
+  ],
+  [
+    "reset, cancelled",
+    "{\"serverUrl\":\"<translator>\",\"params\":{\"translator.translator\":\"gemini\",\"translator.target_lang\":\"JPN\",\"detector.detector\":\"default\",\"detector.detection_size\":1024,\"detector.text_threshold\":0.35,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"48px\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":1024,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"manga2eng\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":20,\"kernel_size\":9,\"translator.content_screen_enabled\":true,\"translator.content_screen_translator\":\"qwen2\",\"translator.content_screen_prompt\":\"  my prompt  \",\"render.font_color\":\"#fff\"},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\",\"batchCaps\":{\"gemini\":4},\"priceIn\":2.5}",
+    "Saved."
+  ],
+  [
+    "reset",
+    "{\"serverUrl\":\"<translator>\",\"params\":{},\"studyModeGeneration\":\"text_and_image\",\"saveSnapshots\":true,\"keepSnapshotsOnRevert\":true,\"schema\":3,\"serverToken\":\"secret\",\"batchCaps\":{},\"priceIn\":1.5,\"priceOut\":9}",
+    "Saved."
+  ]
+]

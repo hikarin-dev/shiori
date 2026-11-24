@@ -1,0 +1,41 @@
+{
+  "first": {
+    "after": "week",
+    "format": "zip",
+    "text": "ArchivingArchivegalleriesleftaloneAgalleryneitheropenednorchangedforthislongispackedintooneuncompressedfileinthelibraryfolder,thesameasitsexport,andreadstraightfromit.Changingitspagesortranslationsunpacksitagain.ArchiveformatZIP,orCBZ,whichaddsComicInfo.xmlsoothercomicreadersopenittoo.Bothkeepthetranslations.",
+    "chosen": [
+      "After 1 week",
+      "ZIP"
+    ],
+    "order": [
+      "foldersSection",
+      "archiveSection",
+      "upgradesSection"
+    ]
+  },
+  "chosen": {
+    "after": "month",
+    "format": "zip",
+    "text": "ArchivingArchivegalleriesleftaloneAgalleryneitheropenednorchangedforthislongispackedintooneuncompressedfileinthelibraryfolder,thesameasitsexport,andreadstraightfromit.Changingitspagesortranslationsunpacksitagain.ArchiveformatZIP,orCBZ,whichaddsComicInfo.xmlsoothercomicreadersopenittoo.Bothkeepthetranslations.",
+    "chosen": [
+      "After 1 month",
+      "ZIP"
+    ],
+    "order": [
+      "foldersSection",
+      "archiveSection",
+      "upgradesSection"
+    ]
+  },
+  "status": "New galleries: 2 · Updated: 1 · Missing: 3",
+  "sets": [
+    [
+      "set",
+      "archiveAfter",
+      "month"
+    ],
+    [
+      "rescan"
+    ]
+  ]
+}

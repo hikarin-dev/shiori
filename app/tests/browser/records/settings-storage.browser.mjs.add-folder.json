@@ -1,0 +1,26 @@
+{
+  "adding": {
+    "name": "Lib E",
+    "meta": "",
+    "badges": [],
+    "busy": true,
+    "hidden": false,
+    "job": "Adding…",
+    "button": "",
+    "menu": false,
+    "attention": []
+  },
+  "kept": true,
+  "addMoved": true,
+  "filled": {
+    "name": "Lib E",
+    "meta": "Galleries: 0 · 0B",
+    "badges": [],
+    "busy": false,
+    "hidden": false,
+    "job": null,
+    "button": "",
+    "menu": true,
+    "attention": []
+  }
+}

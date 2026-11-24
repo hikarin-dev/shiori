@@ -1,0 +1,27 @@
+{
+  "said": {
+    "importBackupBtn": {
+      "title": "This backup can’t be restored",
+      "text": "This file isn’t a Shiori backup.",
+      "busy": false,
+      "choice": null,
+      "buttons": [
+        "OK"
+      ]
+    },
+    "checkBackupBtn": {
+      "title": "The backup has problems",
+      "text": "This file isn’t a Shiori backup.",
+      "busy": false,
+      "choice": null,
+      "buttons": [
+        "OK"
+      ]
+    }
+  },
+  "ids": [
+    "1790000000001",
+    "1790000000002",
+    "1790000000003"
+  ]
+}

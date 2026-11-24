@@ -1,0 +1,18 @@
+{
+  "status": "Factory reset complete.",
+  "kept": {},
+  "reloaded": true,
+  "library": {
+    "places": [
+      {
+        "name": "(browser)",
+        "hidden": false,
+        "isDefault": true,
+        "access": "granted",
+        "galleries": 0,
+        "removable": false
+      }
+    ],
+    "ids": []
+  }
+}

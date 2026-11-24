@@ -1,12 +1,14 @@
 // settings-translation.browser.mjs — Settings → Translation as the one page draws it
-// (src/routes/settings/translation.tsx, benchmark.tsx), held against 1.3's page where both can be
-// driven alike. Every server here is a stand-in on a port of its own (stand-in-translator.mjs); the
-// harness refuses any other address, so nothing reaches a real translation server.
+// (src/routes/settings/translation.tsx, benchmark.tsx). Where 1.3's page was driven alike, what it gave
+// is the record the page is held to (records/settings-translation.browser.mjs.<table>.json,
+// records.mjs): 1.3's behaviour as measured on 2026-11-24, which a deliberate change edits in the same
+// commit. Every server here is a stand-in on a port of its own (stand-in-translator.mjs); the harness
+// refuses any other address, so nothing reaches a real translation server.
 //
 //   - One table of edits (the panel's fields, the pipeline, the language, every kind of option of the
-//     advanced window, a preset, a reset) driven on both pages: the text stored under
-//     translateSettings after each is the same, and so is what the status line says; and the stored
-//     forms read at load (an older schema migrated once) the same.
+//     advanced window, a preset, a reset): the text stored under translateSettings after each, and what
+//     the status line says, as 1.3's page stored and said; and the stored forms read at load (an older
+//     schema migrated once) as 1.3's page read them.
 //   - The status badge through checking, online and offline; nothing contacted before a server is
 //     configured (Check is a request: it asks); the benchmark only for a local server that answers.
 //   - What depends on what: the pipeline and the window's engine, the language, a preset and the
@@ -21,8 +23,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 import { startTranslator, CAPS } from './stand-in-translator.mjs';
+import { record, normalised } from './records.mjs';
 
-const NEW = '/settings-next';   // step 5d: '/settings'
+const NEW = '/settings-next';   // step 5e: '/settings'
+const FILE = 'settings-translation.browser.mjs';
 const OLD = '/settings';        // 1.3's page, while it answers /settings
 const PAGES = [['1.3\'s page', OLD], ['the new page', NEW]];
 
@@ -177,14 +181,15 @@ async function drive(t, path) {
   return seen;
 }
 
-test('the stored settings: every edit stores the same text on 1.3\'s page and the new one, and says the same', async (t) => {
+test('the stored settings: every edit stores the text 1.3\'s page stored, and says what it said', async (t) => {
   if (skip(t)) return;
-  const was = await drive(t, OLD);
-  const now = await drive(t, NEW);
+  const now = normalised(await drive(t, NEW), { translator: tr.origin });
+  const was = record(FILE, 'stored');
+  assert.equal(now.length, was.length);
   for (let i = 0; i < was.length; i++) assert.deepEqual(now[i], was[i], `after ${was[i][0]}`);
   // What the edits came to (the table's own check that each did something).
   const stored = (i) => JSON.parse(was[i][1]);
-  assert.equal(stored(1).serverUrl, tr.origin, 'the trailing slash left off');
+  assert.equal(stored(1).serverUrl, '<translator>', 'the trailing slash left off');
   assert.equal(was[2][2], 'Server URL must start with http:// or https://');
   assert.equal(stored(4).serverToken, 'secret');
   assert.equal(stored(14).params['translator.content_screen_prompt'], '  my prompt  ');
@@ -219,19 +224,21 @@ test('what is read at load: each stored form shows and stores as 1.3\'s page sho
     JSON.stringify({ schema: 2, params: { 'ocr.ocr': '48px' }, saveSnapshots: true }),
     JSON.stringify({ schema: 3, params: {}, studyModeGeneration: 'sideways', keepSnapshotsOnRevert: true }),
   ];
+  const seen = [];
   for (const form of FORMS) {
-    const seen = [];
-    for (const [, path] of PAGES) {
-      const page = await open(t, path, { storage: form ? { 'shiori:translateSettings': form } : {} });
-      await pause(400);
-      seen.push({ stored: await raw(page), server: await value(page, '#translateServerInput'), token: await value(page, '#translateTokenInput'),
-        study: await value(page, '#studyModeGeneration'),
-        snapshots: await page.$eval('#translateSaveSnapshots', (el) => el.checked), keep: await page.$eval('#translateKeepSnapshots', (el) => el.checked),
-        refused: page.refused.length });
-      assert.deepEqual(page.problems, []);
-    }
-    assert.deepEqual(seen[1], seen[0], `stored: ${form}`);
-    assert.equal(seen[0].refused, 0, 'nothing asked of any server');
+    const page = await open(t, NEW, { storage: form ? { 'shiori:translateSettings': form } : {} });
+    await pause(400);
+    seen.push({ stored: await raw(page), server: await value(page, '#translateServerInput'), token: await value(page, '#translateTokenInput'),
+      study: await value(page, '#studyModeGeneration'),
+      snapshots: await page.$eval('#translateSaveSnapshots', (el) => el.checked), keep: await page.$eval('#translateKeepSnapshots', (el) => el.checked),
+      refused: page.refused.length });
+    assert.deepEqual(page.problems, []);
+  }
+  const now = normalised(seen, { translator: tr.origin });
+  const was = record(FILE, 'load-forms');
+  for (let i = 0; i < FORMS.length; i++) {
+    assert.deepEqual(now[i], was[i], `stored: ${FORMS[i]}`);
+    assert.equal(was[i].refused, 0, 'nothing asked of any server');
   }
 });
 
@@ -457,42 +464,34 @@ test('the benchmark: a run and its report, View last report, Compare JSON…, Es
 
 test('the benchmark: Stop cancels the job under way and leaves a report saying so; the estimate as 1.3\'s', async (t) => {
   if (skip(t)) return;
-  const estimates = [];
-  for (const [, path] of PAGES) {
-    const page = await open(t, path, { storage: configured(), galleries: true });
-    if (path === OLD) {
-      await page.evaluate(() => [...document.querySelectorAll('#translationBenchmark button')].find((b) => b.textContent === 'Load models and galleries').click());
-      await until(page, () => /galleries\.$/.test(document.querySelector('#translationBenchmark .benchmark-status').textContent), null, { what: 'loaded' });
-      estimates.push(await page.evaluate(() => [...document.querySelectorAll('#translationBenchmark .benchmark-controls > p.field-desc')].at(-2).textContent));
-      continue;
-    }
-    await page.click('#benchmarkLoad');
-    await until(page, () => /galleries\.$/.test(document.getElementById('benchmarkStatus').textContent), null, { what: 'loaded' });
-    estimates.push(await page.$eval('.benchmark-estimate', (p) => p.textContent));
-    await loadBenchmark(page);
-    tr.state.hold = true;
-    t.after(() => { tr.state.hold = false; });
-    const cancels = tr.state.cancels.length;
-    await page.click('#benchmarkRun');
-    await until(page, () => /^(warmup|Warming)/.test(document.getElementById('benchmarkStatus').textContent), null, { what: 'a job under way', timeout: 30000 });
-    // Every line the status says from here (the stand-in cancels at once: 'Stopping…' may last a frame).
-    await page.evaluate(() => {
-      const status = document.getElementById('benchmarkStatus');
-      window.__said = [];
-      new MutationObserver(() => window.__said.push(status.textContent)).observe(status, { childList: true, characterData: true, subtree: true });
-    });
-    await page.click('#benchmarkStop');
-    await until(page, () => !!document.getElementById('benchmarkReport'), null, { what: 'the report', timeout: 30000 });
-    const said = await page.evaluate(() => window.__said);
-    assert.equal(said[0], 'Stopping and cancelling the current job…', `said: ${JSON.stringify(said)}`);
-    assert.match(said.at(-1), /^cancelled/);
-    assert.match(await page.$eval('#benchmarkStatus', (s) => s.textContent), /^cancelled/);
-    assert.equal(tr.state.cancels.length, cancels + 1, 'the job under way cancelled');
-    assert.equal(await page.$eval('#benchmarkStop', (b) => b.disabled), true);
-    assert.equal(await page.$eval('#benchmarkRun', (b) => b.disabled), false);
-    assert.deepEqual(page.problems, []);
-  }
-  assert.equal(estimates[1], estimates[0], 'the same estimate for the same plan');
+  const page = await open(t, NEW, { storage: configured(), galleries: true });
+  await page.click('#benchmarkLoad');
+  await until(page, () => /galleries\.$/.test(document.getElementById('benchmarkStatus').textContent), null, { what: 'loaded' });
+  const now = await page.$eval('.benchmark-estimate', (p) => p.textContent);
+  const was = record(FILE, 'estimate');
+  assert.equal(now, was, 'the same estimate for the same plan');
+  await loadBenchmark(page);
+  tr.state.hold = true;
+  t.after(() => { tr.state.hold = false; });
+  const cancels = tr.state.cancels.length;
+  await page.click('#benchmarkRun');
+  await until(page, () => /^(warmup|Warming)/.test(document.getElementById('benchmarkStatus').textContent), null, { what: 'a job under way', timeout: 30000 });
+  // Every line the status says from here (the stand-in cancels at once: 'Stopping…' may last a frame).
+  await page.evaluate(() => {
+    const status = document.getElementById('benchmarkStatus');
+    window.__said = [];
+    new MutationObserver(() => window.__said.push(status.textContent)).observe(status, { childList: true, characterData: true, subtree: true });
+  });
+  await page.click('#benchmarkStop');
+  await until(page, () => !!document.getElementById('benchmarkReport'), null, { what: 'the report', timeout: 30000 });
+  const said = await page.evaluate(() => window.__said);
+  assert.equal(said[0], 'Stopping and cancelling the current job…', `said: ${JSON.stringify(said)}`);
+  assert.match(said.at(-1), /^cancelled/);
+  assert.match(await page.$eval('#benchmarkStatus', (s) => s.textContent), /^cancelled/);
+  assert.equal(tr.state.cancels.length, cancels + 1, 'the job under way cancelled');
+  assert.equal(await page.$eval('#benchmarkStop', (b) => b.disabled), true);
+  assert.equal(await page.$eval('#benchmarkRun', (b) => b.disabled), false);
+  assert.deepEqual(page.problems, []);
 });
 
 test('the benchmark: going to another page of the app while it runs asks first; staying keeps it running, leaving cancels its job', async (t) => {

@@ -1,0 +1,10 @@
+{
+  "card": "LibrarystorageLocationConnectedtoShioriDesktopathttp://127.0.0.1:9ThisbrowserShioriDesktop",
+  "rows": false,
+  "add": false,
+  "rescan": false,
+  "upgrades": false,
+  "stats": true,
+  "statsText": "StatsTotalDiskWritesEverythingthislibraryhaswrittentodiskacrosssessions:tothelibraryfolder(pages,translations,descriptions,archives)andtothiscomputer'sappdata(thelibrarydatabaseandcoverthumbnails),andwhatthiswindowstoreditself.Hoverthetotaltosplitit.Chromium'sowncachesaren'tcounted.Filesyousave(exports,backups)counttoo.—Reset",
+  "gate": "Shiori Desktop isn’t running"
+}

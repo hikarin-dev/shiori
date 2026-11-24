@@ -1,0 +1,37 @@
+{
+  "status": "Library cleared.",
+  "library": {
+    "places": [
+      {
+        "name": "(browser)",
+        "hidden": false,
+        "isDefault": true,
+        "access": "granted",
+        "galleries": 0,
+        "removable": false
+      },
+      {
+        "name": "Lib A",
+        "hidden": false,
+        "isDefault": false,
+        "access": "granted",
+        "galleries": 0,
+        "removable": true
+      },
+      {
+        "name": "Lib B",
+        "hidden": false,
+        "isDefault": false,
+        "access": "granted",
+        "galleries": 0,
+        "removable": true
+      }
+    ],
+    "ids": []
+  },
+  "stored": {
+    "shiori:libMergeSeries": "false",
+    "shiori:schemaSteps": "[\"countsRepaired\",\"seriesShellStatsRepaired\",\"exportSizes\",\"uploadDateBackfilled\",\"seriesPageSizes\",\"uploadDatesInSeconds\"]",
+    "shiori:storageLayout": "\"done\""
+  }
+}

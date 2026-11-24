@@ -1,13 +1,15 @@
 // settings-storage.browser.mjs — Settings → Storage as the one page draws it (src/routes/settings/
-// storage.tsx, folders.tsx), held against 1.3's page where both can be driven alike. Each page runs in a
-// browser context of its own (its own storage and private file system), seeded alike; the library's
-// folders are folders of the browser's private file system (as library-folders.browser.mjs stands them
-// in: a folder picked by hand can't be handed to a headless browser). Nothing here reaches a real folder,
-// the desktop app or any other address: the harness refuses every address the test server isn't, and
-// downloads are refused.
+// storage.tsx, folders.tsx), held to what 1.3's page gave: each table below has its record
+// (records/settings-storage.browser.mjs.<table>.json, records.mjs), 1.3's behaviour as measured on
+// 2026-11-24, which a deliberate change edits in the same commit. Each page runs in a browser context of
+// its own (its own storage and private file system), seeded as 1.3's was; the library's folders are
+// folders of the browser's private file system (as library-folders.browser.mjs stands them in: a folder
+// picked by hand can't be handed to a headless browser). Nothing here reaches a real folder, the desktop
+// app or any other address: the harness refuses every address the test server isn't, and downloads are
+// refused.
 //
-//   - One table of actions on the library's card, driven on both pages: after each, the same library,
-//     the same stored keys and the same words on the card (rows, marks, tasks, menus, questions, status).
+//   - One table of actions on the library's card: after each, the library, the stored keys and the
+//     words on the card (rows, marks, tasks, menus, questions, status) as 1.3's page left them.
 //   - The location choice as far as it goes without the desktop app; a library kept by the desktop app
 //     seen from a site (only the location, no upgrades, its own write count); a browser that can't pick
 //     folders; the desktop app's window by a stand-in for its bridge (the archiving card, its check).
@@ -19,10 +21,10 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
+import { record, normalised } from './records.mjs';
 
-const NEW = '/settings-next';   // step 5d: '/settings'
-const OLD = '/settings';        // 1.3's page, while it answers /settings
-const PAGES = [['1.3\'s page', OLD], ['the new page', NEW]];
+const NEW = '/settings-next';   // step 5e: '/settings'
+const FILE = 'settings-storage.browser.mjs';
 
 let server, origin, browser;
 before(async () => {
@@ -317,42 +319,41 @@ const STEPS = [
   ['an out-of-reach place\'s menu', async (p) => { const m = await menuOf(p, 'Lib D'); await closeMenu(p); return m; }],
 ];
 
-test('the library\'s card: every action leaves the same library, stored keys and words on 1.3\'s page and the new one', async (t) => {
+test('the library\'s card: every action leaves the library, stored keys and words on the card 1.3\'s page left', async (t) => {
   if (skip(t)) return;
-  const old = await open(t, OLD), now = await open(t, NEW);
+  const page = await open(t, NEW);
+  const steps = [];
+  for (const [what, step] of STEPS) {
+    const extra = await step(page);
+    steps.push({ what, extra: extra ?? null, ...await snapshot(page) });
+  }
+  assert.deepEqual(page.problems, []);
+  const now = normalised({ steps, refused: page.refused }, { site: origin });
+  const was = record(FILE, 'card');
   // (The card's status line stays 8 s: a step after the one that made it say something may find it
-  // there on one page and gone on the other. Each step's own words are compared; a step that says
+  // there on one run and gone on the other. Each step's own words are compared; a step that says
   // nothing new leaves either the last words or none.)
   let said = '';
-  for (const [what, step] of STEPS) {
-    const seen = [];
-    for (const page of [old, now]) {
-      const extra = await step(page);
-      seen.push({ extra: extra ?? null, ...await snapshot(page) });
-    }
-    if (process.env.SHOW_STEPS) console.log(what, JSON.stringify({ extra: seen[0].extra, rows: seen[0].card.rows.map((r) => [r.name, r.meta, r.badges.map((b) => b[0]).join(','), r.busy, r.job, r.button]), dialog: seen[0].card.dialog, status: seen.map((x) => x.card.status), lib: seen[0].library }));
-    const statuses = seen.map((x) => x.card.status);
-    for (const x of seen) delete x.card.status;
-    assert.deepEqual(seen[1], seen[0], what);
+  for (let i = 0; i < STEPS.length; i++) {
+    const [a, b] = [was.steps[i], now.steps[i]].map(({ card: { status, ...card }, ...rest }) => ({ ...rest, card, status }));
+    const statuses = [a.status, b.status];
+    delete a.status; delete b.status;
+    assert.deepEqual(b, a, STEPS[i][0]);
     const fresh = statuses.filter((s) => s && s !== said);
-    if (fresh.length) { assert.deepEqual(statuses, [fresh[0], fresh[0]], `${what}: the status line`); said = fresh[0]; }
+    if (fresh.length) { assert.deepEqual(statuses, [fresh[0], fresh[0]], `${STEPS[i][0]}: the status line`); said = fresh[0]; }
   }
-  assert.deepEqual(old.problems, []);
-  assert.deepEqual(now.problems, []);
-  assert.deepEqual(now.refused, old.refused);
+  assert.deepEqual(now.refused, was.refused);
 });
 
-test('a browser that can\'t pick folders is told so, and has no Add folder: the same on both pages', async (t) => {
+test('a browser that can\'t pick folders is told so, and has no Add folder, as 1.3\'s page', async (t) => {
   if (skip(t)) return;
-  const words = [];
-  for (const [, path] of PAGES) {
-    const page = await open(t, path, { library: false, before: () => { delete window.showDirectoryPicker; delete Window.prototype.showDirectoryPicker; } });
-    words.push(await until(page, () => document.querySelector('#foldersSection .lf-note') && document.querySelector('#foldersSection .lf-item') && {
-      note: document.querySelector('#foldersSection .lf-note').textContent, add: !!document.getElementById('lfAdd'), rescan: !!document.getElementById('lfRescan'),
-      rows: window.__s.rows().map((r) => r.name) }, null, { what: 'the note' }));
-  }
-  assert.deepEqual(words[1], words[0]);
-  assert.equal(words[0].add, false);
+  const page = await open(t, NEW, { library: false, before: () => { delete window.showDirectoryPicker; delete Window.prototype.showDirectoryPicker; } });
+  const now = await until(page, () => document.querySelector('#foldersSection .lf-note') && document.querySelector('#foldersSection .lf-item') && {
+    note: document.querySelector('#foldersSection .lf-note').textContent, add: !!document.getElementById('lfAdd'), rescan: !!document.getElementById('lfRescan'),
+    rows: window.__s.rows().map((r) => r.name) }, null, { what: 'the note' });
+  const was = record(FILE, 'no-picker');
+  assert.deepEqual(now, was);
+  assert.equal(was.add, false);
 });
 
 // ── Questions answered by their place: OK (the last button) or Cancel (the first, of two) ────────
@@ -364,20 +365,18 @@ const words = (page, ids) => run(page, (ids) => Object.fromEntries(ids.map((id) 
   // (Not shown: as good as not there — 1.3 kept a hidden row, the new page draws none.)
   return [id, el && el.getClientRects().length > 0 ? { text: el.textContent.trim(), disabled: !!el.disabled, tip: el.dataset.tip ?? '' } : null];
 })), ids);
-// Both pages, each in its own context: `drive(page)` resolves what it saw; the two the same.
-async function both(t, drive, opts = {}) {
-  const seen = [];
-  for (const [, path] of PAGES) {
-    const page = await open(t, path, opts);
-    seen.push(await drive(page, path));
-    assert.deepEqual(page.problems, [], path);
-  }
-  return seen;
+// The page in a context of its own: what `drive(page)` resolves, normalised (records.mjs), to compare
+// with 1.3's record.
+async function one(t, drive, opts = {}) {
+  const page = await open(t, NEW, opts);
+  const seen = await drive(page);
+  assert.deepEqual(page.problems, []);
+  return normalised(seen, { site: origin });
 }
 
 test('the location: choosing the desktop app asks first; cancelled nothing changes; not found, the question says so', async (t) => {
   if (skip(t)) return;
-  const [old, now] = await both(t, async (page) => {
+  const now = await one(t, async (page) => {
     const location = () => run(page, () => ({ choice: [...document.querySelectorAll('[data-loc]')].map((b) => [b.dataset.loc, b.getAttribute('aria-pressed')]),
       desc: document.getElementById('lfLocation')?.textContent.replace(/\s+/g, '') }));
     await until(page, () => document.querySelectorAll('[data-loc]').length === 2, null, { what: 'the location' });
@@ -397,14 +396,15 @@ test('the location: choosing the desktop app asks first; cancelled nothing chang
     return { first, asked1, kept, asked2, after: await location(), stored: await run(page, () => window.__s.stored()),
       refused: [...new Set(page.refused.map((u) => new URL(u).host))].sort() };
   });
-  assert.deepEqual(now, old);
-  assert.ok(old.refused.length > 0, 'the desktop app was looked for (and nothing answered)');
+  const was = record(FILE, 'location');
+  assert.deepEqual(now, was);
+  assert.ok(was.refused.length > 0, 'the desktop app was looked for (and nothing answered)');
 });
 
 test('continuing in this browser for now: the location says so, and Retry says the desktop app is still away', async (t) => {
   if (skip(t)) return;
   const storage = { 'shiori:libraryLocation': JSON.stringify({ kind: 'desktop', url: AWAY, token: 't' }), 'shiori:libraryFallback': JSON.stringify({ since: 1 }) };
-  const [old, now] = await both(t, async (page) => {
+  const now = await one(t, async (page) => {
     const retry = await until(page, () => document.getElementById('locRetry')?.textContent, null, { what: 'Retry' });
     const desc = await run(page, () => document.getElementById('lfLocation').textContent.replace(/\s+/g, ''));
     await run(page, () => document.getElementById('locRetry').click());
@@ -413,13 +413,14 @@ test('continuing in this browser for now: the location says so, and Retry says t
     await noDialog(page);
     return { retry, desc, said, rows: (await settled(page)).rows.map((r) => r.name) };
   }, { library: false, storage });
-  assert.deepEqual(now, old);
+  const was = record(FILE, 'fallback');
+  assert.deepEqual(now, was);
 });
 
 test('a library the desktop app keeps, seen from a site: only the location, no upgrades, its own write count', async (t) => {
   if (skip(t)) return;
   const storage = { 'shiori:libraryLocation': JSON.stringify({ kind: 'desktop', url: AWAY, token: 't' }) };
-  const [old, now] = await both(t, async (page) => {
+  const now = await one(t, async (page) => {
     await until(page, () => document.getElementById('lfLocation')?.textContent, null, { what: 'the location' });
     await pause(500);
     return run(page, () => ({
@@ -432,15 +433,16 @@ test('a library the desktop app keeps, seen from a site: only the location, no u
       gate: window.__s.dialog()?.title ?? null,
     }));
   }, { library: false, storage });
-  assert.deepEqual(now, old);
-  assert.equal(old.upgrades, false);
-  assert.equal(old.rows, false);
+  const was = record(FILE, 'desktop-library');
+  assert.deepEqual(now, was);
+  assert.equal(was.upgrades, false);
+  assert.equal(was.rows, false);
 });
 
 test('Export…: the choice opens with its first card focused; Escape closes it and focus goes back; each choice starts what 1.3 starts', async (t) => {
   if (skip(t)) return;
   const open1 = () => !!document.querySelector('#backupModal.show, #backupBox');
-  const [old, now] = await both(t, async (page) => {
+  const now = await one(t, async (page) => {
     await page.click('#exportBackupBtn');
     await until(page, open1, null, { what: 'the choice' });
     await pause(100);
@@ -467,13 +469,14 @@ test('Export…: the choice opens with its first card focused; Escape closes it 
     await until(page, (s) => !document.querySelector(s), '#backupModal.show, #backupBox', { what: 'closed' });
     return { focus, choice, back, results };
   });
-  assert.deepEqual(now, old);
-  assert.equal(old.focus, 'backupMetaBtn');
+  const was = record(FILE, 'export');
+  assert.deepEqual(now, was);
+  assert.equal(was.focus, 'backupMetaBtn');
 });
 
 test('Import… and Check… pick a file and say what it is, as 1.3', async (t) => {
   if (skip(t)) return;
-  const [old, now] = await both(t, async (page) => {
+  const now = await one(t, async (page) => {
     const said = {};
     for (const id of ['importBackupBtn', 'checkBackupBtn']) {
       const [chooser] = await Promise.all([page.waitForFileChooser(), page.click(`#${id}`)]);
@@ -489,12 +492,13 @@ test('Import… and Check… pick a file and say what it is, as 1.3', async (t) 
     }
     return { said, ids: (await run(page, () => window.__s.library())).ids };
   });
-  assert.deepEqual(now, old);
+  const was = record(FILE, 'import-check');
+  assert.deepEqual(now, was);
 });
 
 test('a backup running in another window holds Clear All and Factory Reset back, with a notice; nothing is cleared', async (t) => {
   if (skip(t)) return;
-  const [old, now] = await both(t, async (page) => {
+  const now = await one(t, async (page) => {
     const other = await page.browserContext().newPage();
     await other.goto(`${origin}/CHANGELOG.md`, { waitUntil: 'load' });
     await other.evaluate(() => { navigator.locks.request('shiori-backup', () => new Promise(() => {})); });
@@ -509,13 +513,14 @@ test('a backup running in another window holds Clear All and Factory Reset back,
     await other.close();
     return { said, library: await run(page, () => window.__s.library()), stored: await run(page, () => window.__s.stored()) };
   });
-  assert.deepEqual(now, old);
-  assert.equal(old.library.ids.length, 3);
+  const was = record(FILE, 'backup-held');
+  assert.deepEqual(now, was);
+  assert.equal(was.library.ids.length, 3);
 });
 
 test('Clear All and Factory Reset: each asked twice; cancelled at either question, nothing changes', async (t) => {
   if (skip(t)) return;
-  const [old, now] = await both(t, async (page) => {
+  const now = await one(t, async (page) => {
     const before = { library: await run(page, () => window.__s.library()), stored: await run(page, () => window.__s.stored()) };
     const said = [];
     for (const id of ['clearAllBtn', 'factoryResetBtn']) {
@@ -531,12 +536,13 @@ test('Clear All and Factory Reset: each asked twice; cancelled at either questio
     assert.deepEqual(after, before, 'nothing changed');
     return { said, status: await run(page, () => window.__s.status('clearAllStatus')) };
   });
-  assert.deepEqual(now, old);
+  const was = record(FILE, 'danger-asked');
+  assert.deepEqual(now, was);
 });
 
 test('Clear All done: the library cleared, preferences kept, said so', async (t) => {
   if (skip(t)) return;
-  const [old, now] = await both(t, async (page) => {
+  const now = await one(t, async (page) => {
     await run(page, () => document.getElementById('clearAllBtn').click());
     await asked(page); await ok(page);
     await until(page, () => window.__s.dialogs() === 1 && /Delete|delete|削除/.test(window.__s.dialog().buttons.at(-1)), null, { what: 'the second question' }).catch(() => {});
@@ -545,14 +551,15 @@ test('Clear All done: the library cleared, preferences kept, said so', async (t)
     await pause(500);
     return { status, library: await run(page, () => window.__s.library()), stored: await run(page, () => window.__s.stored()) };
   }, { storage: { 'shiori:libMergeSeries': 'false' } });
-  assert.deepEqual(now, old);
-  assert.deepEqual(old.library.ids, []);
-  assert.equal(old.stored['shiori:libMergeSeries'], 'false', 'preferences kept');
+  const was = record(FILE, 'clear-all');
+  assert.deepEqual(now, was);
+  assert.deepEqual(was.library.ids, []);
+  assert.equal(was.stored['shiori:libMergeSeries'], 'false', 'preferences kept');
 });
 
 test('Factory Reset done: every setting cleared, said so, and the page loaded again 1.2 s later', async (t) => {
   if (skip(t)) return;
-  const [old, now] = await both(t, async (page) => {
+  const now = await one(t, async (page) => {
     await run(page, () => { window.__before = true; });
     await run(page, () => document.getElementById('factoryResetBtn').click());
     await asked(page); await ok(page);
@@ -567,14 +574,15 @@ test('Factory Reset done: every setting cleared, said so, and the page loaded ag
     await shownStorage(page);
     return { status, kept, reloaded: after > 800 && after < 4000, library: await run(page, () => window.__s.library()) };
   }, { storage: { 'shiori:libMergeSeries': 'false' } });
-  assert.deepEqual(now, old);
-  assert.equal(old.kept['shiori:libMergeSeries'], undefined, 'settings cleared');
-  assert.equal(old.reloaded, true);
+  const was = record(FILE, 'factory-reset');
+  assert.deepEqual(now, was);
+  assert.equal(was.kept['shiori:libMergeSeries'], undefined, 'settings cleared');
+  assert.equal(was.reloaded, true);
 });
 
 test('the write counter: its figure and its tip by kind; Reset asked, cancelled, then done and said so', async (t) => {
   if (skip(t)) return;
-  const [old, now] = await both(t, async (page) => {
+  const now = await one(t, async (page) => {
     await run(page, async () => {
       const platform = await import('/app/js/platform.js');
       await platform.writes.reset();
@@ -591,20 +599,22 @@ test('the write counter: its figure and its tip by kind; Reset asked, cancelled,
     await pause(300);
     return { figure, q, kept, status, after: await words(page, ['totalWritesCount', 'resetWritesBtn']) };
   }, { library: false });
-  assert.deepEqual(now, old);
-  assert.notEqual(old.figure.totalWritesCount.tip, '');
+  const was = record(FILE, 'writes');
+  assert.deepEqual(now, was);
+  assert.notEqual(was.figure.totalWritesCount.tip, '');
 });
 
 test('the library upgrades: the stored layout\'s row, its button off with nothing left; category and rating only while something answers the bridge', async (t) => {
   if (skip(t)) return;
-  const quiet = await both(t, async (page) => {
+  const quiet = await one(t, async (page) => {
     await until(page, () => document.getElementById('layoutStatus')?.textContent !== '—', null, { what: 'the layout row' });
     await pause(1800);   // (nothing answers the bridge within 1.5 s)
     return words(page, ['layoutStatus', 'convertNowBtn', 'classifyRow', 'classifyStatus', 'classifyNowBtn']).then((w) => ({ ...w, classifyRow: !!w.classifyRow }));
   });
-  assert.deepEqual(quiet[1], quiet[0]);
-  assert.equal(quiet[0].convertNowBtn.disabled, true);
-  assert.equal(quiet[0].classifyRow, false);
+  const wasQuiet = record(FILE, 'upgrades-quiet');
+  assert.deepEqual(quiet, wasQuiet);
+  assert.equal(wasQuiet.convertNowBtn.disabled, true);
+  assert.equal(wasQuiet.classifyRow, false);
   // A stand-in that answers the bridge: a ping, and category and rating for a gallery that has none.
   const answering = () => window.addEventListener('message', (e) => {
     if (e.source !== window || e.data?.__shiori !== 'to-ext' || e.data.id == null) return;
@@ -612,7 +622,7 @@ test('the library upgrades: the stored layout\'s row, its button off with nothin
     const response = type === 'PING' ? { ok: true } : type === 'EXT_DERIVE_META' ? { ok: true, tags: [{ type: 'rating', name: 'safe' }, { type: 'category', name: 'misc' }] } : null;
     window.postMessage({ __shiori: 'from-ext', replyTo: e.data.id, response }, location.origin);
   });
-  const [old, now] = await both(t, async (page) => {
+  const now = await one(t, async (page) => {
     const pending = await until(page, () => document.getElementById('classifyRow')?.getClientRects().length > 0 && !document.getElementById('classifyNowBtn').disabled, null, { what: 'the row, something to do' })
       .then(() => words(page, ['classifyStatus', 'classifyNowBtn']));
     await page.click('#classifyNowBtn');
@@ -622,8 +632,9 @@ test('the library upgrades: the stored layout\'s row, its button off with nothin
     const meta = await run(page, async () => (await (await import('/app/js/api.js')).meta.get('1790000000004')).tags);
     return { pending, done: await words(page, ['classifyStatus', 'classifyNowBtn']), meta };
   }, { library: false, before: answering, seedMore: true });
-  assert.deepEqual(now, old);
-  assert.ok(old.meta.some((tg) => tg.type === 'rating'));
+  const was = record(FILE, 'upgrades');
+  assert.deepEqual(now, was);
+  assert.ok(was.meta.some((tg) => tg.type === 'rating'));
 });
 
 test('the desktop app\'s window (a stand-in for its bridge): the archiving card, its choices stored; the header\'s check says what the app found', async (t) => {
@@ -639,7 +650,7 @@ test('the desktop app\'s window (a stand-in for its bridge): the archiving card,
       return null;
     } };
   };
-  const [old, now] = await both(t, async (page) => {
+  const now = await one(t, async (page) => {
     await until(page, () => !!document.getElementById('deskArchiveAfter'), null, { what: 'the archiving card' });
     const read = () => run(page, () => ({
       after: ((el) => (el.tagName === 'SELECT' ? el.value : el.dataset.value))(document.getElementById('deskArchiveAfter')),
@@ -666,8 +677,9 @@ test('the desktop app\'s window (a stand-in for its bridge): the archiving card,
     return { first, chosen, status,
       sets: await run(page, () => window.__shell.filter((c) => c[0] === 'set' || c[0] === 'rescan')) };
   }, { before: bridge });
-  assert.deepEqual(now, old);
-  assert.deepEqual(old.sets, [['set', 'archiveAfter', 'month'], ['rescan']]);
+  const was = record(FILE, 'archive');
+  assert.deepEqual(now, was);
+  assert.deepEqual(was.sets, [['set', 'archiveAfter', 'month'], ['rescan']]);
 });
 
 test('the desktop app\'s window (a stand-in): a backup left by a reload is asked for once a page load, however often the panel is drawn', async (t) => {
@@ -701,7 +713,7 @@ test('the desktop app\'s window (a stand-in): a backup left by a reload is asked
 
 test('a change of language redraws the panel in it at once', async (t) => {
   if (skip(t)) return;
-  const [old, now] = await both(t, async (page) => {
+  const now = await one(t, async (page) => {
     await settled(page, { rows: 3 });
     await run(page, async () => (await import('/app/js/i18n.js')).setLang('ja'));
     await pause(800);
@@ -713,17 +725,18 @@ test('a change of language redraws the panel in it at once', async (t) => {
       layout: document.getElementById('layoutStatus').textContent,
     }));
   });
+  const was = record(FILE, 'language');
   // (The image storage row's words: 1.3 kept the language they were first read in; the new page reads
   // them again in the new one.)
   assert.equal(now.layout, 'すべてのページが新しい形式です。');
-  delete old.layout; delete now.layout;
-  assert.deepEqual(now, old);
-  assert.notEqual(old.titles[0], 'Library storage');
+  delete was.layout; delete now.layout;
+  assert.deepEqual(now, was);
+  assert.notEqual(was.titles[0], 'Library storage');
 });
 
 test('the phone form: nothing runs past the cards or the screen, the buttons under their words', async (t) => {
   if (skip(t)) return;
-  const [old, now] = await both(t, async (page) => {
+  const now = await one(t, async (page) => {
     await settled(page, { rows: 3 });
     return run(page, () => {
       const out = [];
@@ -739,8 +752,9 @@ test('the phone form: nothing runs past the cards or the screen, the buttons und
       return { scroll: document.documentElement.scrollWidth - innerWidth, out, exportFull: exp.width > 200, rows: document.querySelectorAll('#foldersSection .lf-item').length };
     });
   }, { viewport: { width: 390, height: 844, isMobile: true, hasTouch: true } });
-  assert.deepEqual(now, old);
-  assert.deepEqual(old, { scroll: 0, out: [], exportFull: true, rows: 3 });
+  const was = record(FILE, 'phone');
+  assert.deepEqual(now, was);
+  assert.deepEqual(was, { scroll: 0, out: [], exportFull: true, rows: 3 });
 });
 
 test('leaving the page leaves nothing behind: /settings-next → /tasks → /settings-next, five times, a folder\'s menu and the export choice opened each time', async (t) => {
@@ -843,7 +857,7 @@ test('a library kept as files (stand-ins for its count): its own figure and tip,
 
 test('Add folder: the folder\'s row shows at once, busy, and fills in where it stands; nothing above it moves', async (t) => {
   if (skip(t)) return;
-  const [old, now] = await both(t, async (page) => {
+  const now = await one(t, async (page) => {
     await settled(page, { rows: 3 });
     // (The library takes its time adding it: the row is seen while it does.)
     await run(page, async () => {
@@ -865,8 +879,9 @@ test('Add folder: the folder\'s row shows at once, busy, and fills in where it s
     return { adding, kept: during.slice(0, 3).join() === before.join() && after.slice(0, 4).join() === during.join(),
       addMoved: Math.abs(addDuring - addTop - grown - 8) < 0.5, filled: (await settled(page)).rows[3] };
   });
-  assert.deepEqual(now, old);
-  assert.equal(old.adding.busy, true);
-  assert.equal(old.kept, true);
-  assert.equal(old.addMoved, true);
+  const was = record(FILE, 'add-folder');
+  assert.deepEqual(now, was);
+  assert.equal(was.adding.busy, true);
+  assert.equal(was.kept, true);
+  assert.equal(was.addMoved, true);
 });

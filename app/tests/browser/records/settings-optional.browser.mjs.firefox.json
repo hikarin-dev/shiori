@@ -1,0 +1,17 @@
+{
+  "entry": "Extension",
+  "shows": "panelLibrary",
+  "offer": {
+    "title": "Extension",
+    "words": [
+      "Download the extension",
+      "Firefox asks whether to let this site install it: choose Continue to Installation, then Add."
+    ],
+    "button": "Download",
+    "href": "https://github.com/hikarin-dev/shiori/releases/latest/download/extension-firefox.xpi",
+    "target": null,
+    "rel": null
+  },
+  "standIn": false,
+  "text": null
+}

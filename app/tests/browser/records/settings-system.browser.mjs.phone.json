@@ -1,0 +1,16 @@
+{
+  "scroll": 0,
+  "out": [],
+  "wraps": true,
+  "share": {
+    "shown": [
+      "deskInstallUpdate",
+      "deskCheckUpdates"
+    ],
+    "gaps": [
+      0,
+      8,
+      0
+    ]
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "figure": {
+    "totalWritesCount": {
+      "text": "118.6MB",
+      "disabled": false,
+      "tip": "Pages, translations, study data and snapshots: 117.7MB\nCovers: 44.6KB\nOffline app files: 878.9KB\nSaved exports and backups: 12B"
+    }
+  },
+  "q": {
+    "title": "Reset the write counter?",
+    "text": "The lifetime total of disk writes starts again from zero. Nothing else changes.",
+    "busy": false,
+    "choice": null,
+    "buttons": [
+      "Cancel",
+      "Reset"
+    ]
+  },
+  "kept": {
+    "totalWritesCount": {
+      "text": "118.6MB",
+      "disabled": false,
+      "tip": "Pages, translations, study data and snapshots: 117.7MB\nCovers: 44.6KB\nOffline app files: 878.9KB\nSaved exports and backups: 12B"
+    }
+  },
+  "status": "Counter reset.",
+  "after": {
+    "totalWritesCount": {
+      "text": "0B",
+      "disabled": false,
+      "tip": ""
+    },
+    "resetWritesBtn": {
+      "text": "Reset",
+      "disabled": false,
+      "tip": ""
+    }
+  }
+}

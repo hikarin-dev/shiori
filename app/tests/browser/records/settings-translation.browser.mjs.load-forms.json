@@ -1,0 +1,38 @@
+[
+  {
+    "stored": null,
+    "server": "",
+    "token": "",
+    "study": "text_only",
+    "snapshots": false,
+    "keep": false,
+    "refused": 0
+  },
+  {
+    "stored": "{\"serverToken\":\"tok\",\"studyModeGeneration\":\"text_only\",\"params\":{\"translator.translator\":\"deepseek\",\"translator.target_lang\":\"JPN\",\"translator.content_screen_enabled\":true,\"translator.content_screen_translator\":\"qwen2\",\"translator.content_screen_fallback_translator\":\"qwen2\",\"detector.detector\":\"default\",\"detector.detection_size\":2560,\"detector.text_threshold\":0.5,\"detector.box_threshold\":0.75,\"detector.unclip_ratio\":2.3,\"ocr.ocr\":\"hayai\",\"inpainter.inpainter\":\"lama_large\",\"inpainter.inpainting_size\":2048,\"inpainter.inpainting_precision\":\"bf16\",\"render.renderer\":\"shiori\",\"render.direction\":\"auto\",\"render.alignment\":\"auto\",\"render.font_size_offset\":0,\"render.uppercase\":false,\"render.no_hyphenation\":false,\"render.estimate_font_color\":false,\"render.estimate_outline_color\":false,\"mask_dilation_offset\":40,\"kernel_size\":7,\"translator.content_screen_prompt\":\"\"},\"saveSnapshots\":false,\"keepSnapshotsOnRevert\":false,\"schema\":3}",
+    "server": "",
+    "token": "tok",
+    "study": "text_only",
+    "snapshots": false,
+    "keep": false,
+    "refused": 0
+  },
+  {
+    "stored": "{\"schema\":3,\"params\":{\"ocr.ocr\":\"hayai\",\"translator.translator\":\"deepseek\",\"render.renderer\":\"shiori\",\"detector.detection_size\":2560,\"detector.box_threshold\":0.75,\"inpainter.inpainting_size\":2048,\"mask_dilation_offset\":40,\"kernel_size\":7},\"saveSnapshots\":false,\"studyModeGeneration\":\"text_only\",\"keepSnapshotsOnRevert\":false}",
+    "server": "",
+    "token": "",
+    "study": "text_only",
+    "snapshots": false,
+    "keep": false,
+    "refused": 0
+  },
+  {
+    "stored": "{\"schema\":3,\"params\":{},\"studyModeGeneration\":\"sideways\",\"keepSnapshotsOnRevert\":true}",
+    "server": "",
+    "token": "",
+    "study": "",
+    "snapshots": false,
+    "keep": true,
+    "refused": 0
+  }
+]

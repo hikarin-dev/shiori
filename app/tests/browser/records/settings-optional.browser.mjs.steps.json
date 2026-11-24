@@ -1,0 +1,94 @@
+{
+  "offer": {
+    "entry": "Extension",
+    "shows": "panelLibrary",
+    "offer": {
+      "title": "Extension",
+      "words": [
+        "Download the extension",
+        "Unpack the zip, then load the folder as an unpacked extension in your browser."
+      ],
+      "button": "Download",
+      "href": "https://github.com/hikarin-dev/shiori/releases/latest/download/extension.zip",
+      "target": "_blank",
+      "rel": "noopener"
+    },
+    "standIn": false,
+    "text": null
+  },
+  "offerShown": {
+    "entry": "Extension",
+    "shows": "optional",
+    "offer": {
+      "title": "Extension",
+      "words": [
+        "Download the extension",
+        "Unpack the zip, then load the folder as an unpacked extension in your browser."
+      ],
+      "button": "Download",
+      "href": "https://github.com/hikarin-dev/shiori/releases/latest/download/extension.zip",
+      "target": "_blank",
+      "rel": "noopener"
+    },
+    "standIn": false,
+    "text": "Extension\nDownload the extension\nUnpack the zip, then load the folder as an unpacked extension in your browser.\nDownload"
+  },
+  "filled": {
+    "entry": "Stand-in",
+    "shows": "optional",
+    "offer": null,
+    "standIn": true,
+    "text": "Stand-in card"
+  },
+  "emptied": {
+    "entry": "Extension",
+    "shows": "panelLibrary",
+    "offer": {
+      "title": "Extension",
+      "words": [
+        "Download the extension",
+        "Unpack the zip, then load the folder as an unpacked extension in your browser."
+      ],
+      "button": "Download",
+      "href": "https://github.com/hikarin-dev/shiori/releases/latest/download/extension.zip",
+      "target": "_blank",
+      "rel": "noopener"
+    },
+    "standIn": false,
+    "text": null
+  },
+  "offerAgain": {
+    "entry": "Extension",
+    "shows": "optional",
+    "offer": {
+      "title": "Extension",
+      "words": [
+        "Download the extension",
+        "Unpack the zip, then load the folder as an unpacked extension in your browser."
+      ],
+      "button": "Download",
+      "href": "https://github.com/hikarin-dev/shiori/releases/latest/download/extension.zip",
+      "target": "_blank",
+      "rel": "noopener"
+    },
+    "standIn": false,
+    "text": "Extension\nDownload the extension\nUnpack the zip, then load the folder as an unpacked extension in your browser.\nDownload"
+  },
+  "emptiedShown": {
+    "entry": "Extension",
+    "shows": "panelLibrary",
+    "offer": {
+      "title": "Extension",
+      "words": [
+        "Download the extension",
+        "Unpack the zip, then load the folder as an unpacked extension in your browser."
+      ],
+      "button": "Download",
+      "href": "https://github.com/hikarin-dev/shiori/releases/latest/download/extension.zip",
+      "target": "_blank",
+      "rel": "noopener"
+    },
+    "standIn": false,
+    "text": null
+  }
+}

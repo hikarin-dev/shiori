@@ -1,0 +1,16 @@
+{
+  "retry": "Reconnect",
+  "desc": "LocationShioriDesktopcan’tbereached.Newgalleriesaresavedinthisbrowserfornow.ThisbrowserShioriDesktopReconnect",
+  "said": {
+    "title": "Shiori Desktop isn’t running",
+    "text": "Open Shiori Desktop on this computer, then try again.",
+    "busy": false,
+    "choice": null,
+    "buttons": [
+      "OK"
+    ]
+  },
+  "rows": [
+    "This browser"
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "offer": {
+    "entry": "拡張機能",
+    "shows": "panelLibrary",
+    "offer": {
+      "title": "拡張機能",
+      "words": [
+        "拡張機能をダウンロード",
+        "ZIP を展開し、そのフォルダーをブラウザに「パッケージ化されていない拡張機能」として読み込んでください。"
+      ],
+      "button": "ダウンロード",
+      "href": "https://github.com/hikarin-dev/shiori/releases/latest/download/extension.zip",
+      "target": "_blank",
+      "rel": "noopener"
+    },
+    "standIn": false,
+    "text": null
+  },
+  "filled": {
+    "entry": "代わり",
+    "shows": "panelLibrary",
+    "offer": null,
+    "standIn": false,
+    "text": null
+  },
+  "emptied": {
+    "entry": "Erweiterung",
+    "shows": "panelLibrary",
+    "offer": {
+      "title": "Erweiterung",
+      "words": [
+        "Erweiterung herunterladen",
+        "Entpacke die ZIP-Datei und lade den Ordner als entpackte Erweiterung in deinen Browser."
+      ],
+      "button": "Herunterladen",
+      "href": "https://github.com/hikarin-dev/shiori/releases/latest/download/extension.zip",
+      "target": "_blank",
+      "rel": "noopener"
+    },
+    "standIn": false,
+    "text": null
+  }
+}
