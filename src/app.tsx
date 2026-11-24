@@ -1,11 +1,13 @@
 // app.tsx — the app itself: its routes, drawn into the one page.
 import { StrictMode, type ComponentType } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { createBrowserRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { initTooltips } from '@lib/tooltip.js';
 import { siteRoot } from './entry';
 import Frame from './frame';
+import { followLibrary, queryClient } from './lib/gallery';
 import { keepLinksInApp } from './lib/links';
 import { ROUTES } from './routes';
 import NotFound from './routes/not-found';
@@ -34,11 +36,15 @@ export async function mount(root: HTMLElement) {
   }
   keepLinksInApp((to) => router.navigate(to));
   // The app's modules that work on any markup, started once for the page's life: the one tooltip
-  // (T10). (The page's scrollbars, scrollbar.js, start with the rest of the start-up: boot-core.js.)
+  // (T10); and the views' read cache following the library's change feed (T4, lib/gallery.ts). (The
+  // page's scrollbars, scrollbar.js, start with the rest of the start-up: boot-core.js.)
   initTooltips();
+  followLibrary();
   createRoot(root).render(
     <StrictMode>
-      <RouterProvider router={router} />
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
     </StrictMode>,
   );
 }
