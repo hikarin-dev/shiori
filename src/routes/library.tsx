@@ -1,8 +1,10 @@
 // library.tsx — the library page, as the one page draws it (for now at /library-next, beside 1.3's page
 // at / and /library): the header's parts (the page menu, the search, the totals, the buttons), the
 // toolbar (the sort and the filter), the grid of cards, one page of 30 at a time, and the paging.
-// It reads and searches; what a card's buttons do, the jobs on cards, import and Safe Mode come with
-// the page's later steps (a card's every other handler is left out, and its job is none).
+// What a card's buttons do is ./library/actions.ts's (1.3's questions, and its words to the library
+// and to whatever runs things); the jobs on cards are the page's job store's (src/lib/library-jobs.ts),
+// each card reading its own gallery's. Import, the drop, dragging cards together and Safe Mode come
+// with the page's later steps.
 //
 // What it shows is data (T4): the page asked for (sort, page, search, filter, merged or not) is read
 // through the app's query cache (./library/data.ts), each card drawn from its gallery's entry there,
@@ -27,11 +29,15 @@ import { useLocation, useNavigate } from 'react-router';
 import { Funnel } from 'lucide-react';
 import * as api from '@lib/api.js';
 import * as platform from '@lib/platform.js';
+import * as store from '@lib/store.js';
+import { IMPORT_ACCEPT } from '@lib/import-files.js';
+import { confirmDialog } from '@lib/notice.js';
 import { getLang } from '@lib/i18n.js';
 import { appendSearchToken, searchQuery } from '@lib/search-field.js';
 import { canDownload, galleryLink, siteMap, siteName } from '@lib/sites.js';
 import { request as helperRequest } from '@lib/ext-bridge.js';
 import { GalleryCard, cardModes, type CardHandlers } from '@/components/gallery-card';
+import { TagEditor } from '@/components/tag-editor';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Pagination } from '@/components/ui/pagination';
@@ -42,16 +48,20 @@ import { coverKeyOf, createCoverStore, type CoverStore } from '@/lib/covers';
 import { galleryQuery } from '@/lib/gallery';
 import { useT } from '@/lib/i18n';
 import { NO_FILTER, filtering, flagToken, sourceToken, stateToken, stepFilter, tagToken, type FilterType, type LibFilter } from '@/lib/library-search';
+import { createLibraryJobs, type LibraryJobs } from '@/lib/library-jobs';
 import { readAgain } from '@/lib/library-query';
 import { useShiftHeld } from '@/lib/modifiers';
 import { createIconStore, type IconStore } from '@/lib/source-icons';
 import { useTitle } from '@/lib/title';
 import { cn } from '@/lib/utils';
+import { cardActions, galleryDetail, type ShownGallery } from './library/actions';
 import { PAGES, TOTALS, pageCount, pageKey, readPage, readTotals, totalsKey, type PageAsk, type PageData } from './library/data';
 import { FilterDialog } from './library/filter-dialog';
 import { LibraryHeader } from './library/header';
 import { prefs, usePref } from './library/prefs';
+import { RerunMenu, rerunSteps, type RerunAsk } from './library/rerun-menu';
 import { useRunners } from './library/runners';
+import { SeriesTranslateDialog, seriesTranslateAsk, type SeriesTranslateAsk } from './library/series-translate';
 
 const SORTS = ['id', 'updated', 'size', 'count', 'uploadDate'] as const;
 const SEARCH_MS = 180;        // the search waits this long after the last key (1.3's)
@@ -77,18 +87,22 @@ function toAddress(page: number, query: string, sort: string) {
 
 type Gallery = CardGallery & { parentId?: unknown };
 
-// A card of the grid: its gallery's entry, its cover and its source's icon, drawn as the card's view.
-// The card is the grid's own child (this draws nothing of its own).
-const LibraryCard = memo(function LibraryCard({ g, env, covers, icons, on }: { g: Gallery; env: CardEnv; covers: CoverStore; icons: IconStore; on: CardHandlers }) {
+// A card of the grid: its gallery's entry, its cover, its source's icon and its jobs, drawn as the
+// card's view. The card is the grid's own child (this draws nothing of its own).
+const LibraryCard = memo(function LibraryCard({ g, env, covers, icons, jobs, on }: { g: Gallery; env: CardEnv; covers: CoverStore; icons: IconStore; jobs: LibraryJobs; on: CardHandlers }) {
   const key = coverKeyOf(g, env.prefs.mergeSeries);
   const cover = useSyncExternalStore(covers.subscribe, () => covers.get(key));
   const icon = useSyncExternalStore(icons.subscribe, () => icons.get(g.source));
+  // Its gallery's jobs alone: another gallery's word draws nothing here.
+  const gid = String(g.id);
+  const followJobs = useCallback((cb: () => void) => jobs.subscribe(gid, cb), [jobs, gid]);
+  const state = useSyncExternalStore(followJobs, () => jobs.get(gid));
   // The view without its cover, which the card takes apart: a cover arriving leaves the view the same
   // object, and the card draws its cover alone.
   const view = useMemo(() => cardView(g, null, env), [g, env, icon]);   // eslint-disable-line react-hooks/exhaustive-deps
   // A source with no icon kept: asked for each time its card is drawn anew (1.3's _siteFavicon).
   useEffect(() => { if (g.source && !icon) icons.want(g.source); }, [g, icon, icons]);
-  return <GalleryCard view={view} cover={cover} job={null} on={on} />;
+  return <GalleryCard view={view} cover={cover} job={state.job} interrupted={state.interrupted} pending={state.pending} pendingLabel={state.pendingLabel} on={on} />;
 });
 
 export default function Library() {
@@ -146,6 +160,18 @@ export default function Library() {
   }));
   useEffect(() => { covers.start(); return () => covers.stop(); }, [covers]);
 
+  // ── The jobs on the cards: started while the page shows ──
+  const revealRef = useRef<(gid: string) => void>(() => {});
+  const [jobs] = useState(() => createLibraryJobs({
+    jobs: platform.jobs as never, now: Date.now,
+    // A done job's end: the page and its totals read again (1.3's loadAll).
+    reread: () => { client.invalidateQueries({ queryKey: PAGES }).catch(() => {}); client.invalidateQueries({ queryKey: TOTALS }).catch(() => {}); },
+    // An upload's end: its gallery removed if it is still empty.
+    dropIfEmpty: (gid) => { (store.load(gid) as Promise<{ count?: number } | null>).then((g) => { if (!g || g.count === 0) store.remove(gid); }).catch(() => {}); },
+    reveal: (gid) => revealRef.current(gid),
+  }));
+  useEffect(() => { jobs.start(); return () => jobs.stop(); }, [jobs]);
+
   const { sites, translatorOnline } = useRunners(icons);
 
   // ── The page ──
@@ -176,6 +202,9 @@ export default function Library() {
     last.current = new Map(out.map((g) => [String(g.id), g]));
     return out;
   }, [ids, read]);
+
+  // The jobs store learns which galleries have cards (the first time, what is under way is asked).
+  useEffect(() => { if (data) jobs.showing(data.ids); }, [data, jobs]);
 
   // The address follows each read of the page.
   useEffect(() => {
@@ -215,7 +244,8 @@ export default function Library() {
     // change moved it onto this page): the page read again to see. Never for a chapter of a series
     // shown merged (it has no card of its own; its series' card hears of it), and once in 5 s at most
     // for any one gallery.
-    const reveal = async (gid: string) => {
+    const reveal = revealRef.current = async (gid: string) => {
+      if (idsRef.current.includes(gid)) return;
       if (mergeRef.current) {
         if (galleriesRef.current.some((g) => g.chapters?.some((c) => String(c.id) === gid))) return;
         const g = await client.fetchQuery({ ...galleryQuery(gid), staleTime: 0 }).catch(() => null) as Gallery | null;
@@ -236,7 +266,8 @@ export default function Library() {
     const offCache = client.getQueryCache().subscribe((event) => {
       if (event.type !== 'updated' || event.action.type !== 'success') return;
       const [kind, gid] = event.query.queryKey as [string, string];
-      if (kind === 'gallery' && event.query.state.data === null && idsRef.current.includes(gid)) reload();
+      // (Not while its job runs: 1.3 left the page as it was until the job's end.)
+      if (kind === 'gallery' && event.query.state.data === null && idsRef.current.includes(gid) && !jobs.live(gid)) reload();
     });
     return () => {
       off();
@@ -245,8 +276,9 @@ export default function Library() {
       clearTimeout(totalsTimer);
       reloadRef.current = () => {};
       totalsRef.current = () => {};
+      revealRef.current = () => {};
     };
-  }, [client]);
+  }, [client, jobs]);
 
   // ── The cards ──
   const env = useMemo<CardEnv>(() => ({
@@ -269,13 +301,49 @@ export default function Library() {
     if (had) box!.focus();
   }, []);
   const galleryOf = (id: string) => galleriesRef.current.find((g) => String(g.id) === id);
+
+  // What the page opens for a card: the re-run menu, a series' translation window, the tag editor,
+  // the file picker of Replace.
+  const tRef = useRef(t);
+  tRef.current = t;
+  const [rerun, setRerun] = useState<RerunAsk | null>(null);
+  const [seriesAsk, setSeriesAsk] = useState<SeriesTranslateAsk | null>(null);
+  const [tagging, setTagging] = useState<string | null>(null);
+  const replaceInput = useRef<HTMLInputElement>(null);
+  const replacing = useRef<string | null>(null);
+  // The cover a card shows, for a dialog about it. (Safe Mode, 6e: none while it blurs the card's.)
+  const coverOf = (id: string) => { const g = galleryOf(id); return (g && covers.get(coverKeyOf(g, mergeRef.current))) || ''; };
+  const actions = useMemo(() => cardActions({
+    client, jobs,
+    gallery: (id) => galleryOf(id) as ShownGallery | undefined,
+    merged: () => mergeRef.current,
+    cover: coverOf,
+    canDownload: (g) => canDownload(g as never) as boolean,
+    pickFile: (id) => { replacing.current = id; replaceInput.current?.click(); },
+    rerunMenu: (id, anchor) => { rerunSteps(id, anchor).then(setRerun, () => {}); },
+    seriesTranslate: (g) => { seriesTranslateAsk(tRef.current, g as never).then(setSeriesAsk, () => {}); },
+    tagEditor: (id) => setTagging(id),
+  }), [client, jobs, covers]);   // eslint-disable-line react-hooks/exhaustive-deps
   const on = useMemo<CardHandlers>(() => ({
+    ...actions,
     tag: (_id, tag) => addToken(tagToken(tag.type, String(tag.name).trim())),
     flag: (_id, _code, name) => { if (name) addToken(flagToken(name)); },
     searchFavorite: (id) => { const g = galleryOf(id); if (g) addToken(stateToken('favorite', g.favorite)); },
     searchTranslated: (id) => { const g = galleryOf(id); if (g) addToken(stateToken('translated', g.translated)); },
     searchSource: (id) => { const g = galleryOf(id); if (g?.source) addToken(sourceToken(g.source)); },
-  }), [addToken]);
+    jobSettled: (id) => jobs.settled(id),
+  }), [actions, addToken, jobs]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A step of the re-run menu chosen: asked first, then translated again from that step.
+  const rerunFrom = async (id: string, point: string, label: string) => {
+    const g = galleryOf(id) as ShownGallery | undefined;
+    if (!g) return;
+    if (!(await (confirmDialog as unknown as (ask: object) => Promise<boolean>)({
+      title: t('dlg.rerun_title', { stage: label }), body: t('dlg.rerun_body'),
+      detail: galleryDetail(g), cover: coverOf(id), ok: t('dlg.rerun_ok'),
+    }))) return;
+    await actions.startTranslation(g, point);
+  };
 
   // The search box: typed, cleared, or read back.
   const onQueryChange = useCallback((q: string, how: 'typed' | 'cleared' | 'set') => {
@@ -341,7 +409,7 @@ export default function Library() {
         </div>
         <div ref={grid} id="grid" data-card-modes={modes}
           className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] auto-rows-fr items-start gap-[16px] px-[24px] pb-[40px] max-w-[1512px] mx-auto [@media(max-width:600px)]:grid-cols-[repeat(2,minmax(0,1fr))] [@media(max-width:600px)]:gap-[10px] [@media(max-width:600px)]:px-[12px] [@media(max-width:600px)]:pb-[32px]">
-          {galleries.map((g) => <LibraryCard key={String(g.id)} g={g} env={env} covers={covers} icons={icons} on={on} />)}
+          {galleries.map((g) => <LibraryCard key={String(g.id)} g={g} env={env} covers={covers} icons={icons} jobs={jobs} on={on} />)}
           {data && galleries.length === 0 && (
             <EmptyState loose className="empty">{t('lib.empty_title')}<br />{t('lib.empty_sub')}</EmptyState>
           )}
@@ -352,6 +420,17 @@ export default function Library() {
       </main>
       <FilterDialog t={t} open={filterOpen} onOpenChange={setFilterOpen} filter={filter}
         onStep={(type: FilterType, value: string) => setFilter(stepFilter(filter, type, value))} onClear={() => setFilter(NO_FILTER)} />
+      <RerunMenu t={t} ask={rerun} onClose={() => setRerun(null)} onPick={(id, point, label) => { setRerun(null); rerunFrom(id, point, label).catch(() => {}); }} />
+      <SeriesTranslateDialog t={t} ask={seriesAsk} onClose={() => setSeriesAsk(null)}
+        onGo={(gid) => { platform.rpc({ type: 'TRANSLATE_GALLERY', galleryId: gid }); }} />
+      <TagEditor gid={tagging} onClose={() => setTagging(null)} />
+      <input ref={replaceInput} type="file" id="replaceImgInput" accept={IMPORT_ACCEPT} multiple hidden
+        onChange={(e) => {
+          const files = [...(e.currentTarget.files ?? [])];
+          const gid = replacing.current;
+          e.currentTarget.value = '';
+          if (gid && files.length) actions.replaceImages(gid, files).catch(() => {});
+        }} />
     </>
   );
 }

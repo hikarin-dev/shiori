@@ -95,6 +95,9 @@ type ContentProps = Omit<MenuPrimitive.Popup.Props, 'className'> & {
   className?: string;
   // Opened by a right-click: at the pointer.
   context?: boolean;
+  // Placed against this element rather than its trigger (a menu the page opens from code: the re-run
+  // menu under the translate button that was right-clicked).
+  anchor?: MenuPrimitive.Positioner.Props['anchor'];
 };
 
 // At the pointer, its top left corner on it (Base UI's own is 2px right and 5px up). Where the window
@@ -102,11 +105,11 @@ type ContentProps = Omit<MenuPrimitive.Popup.Props, 'className'> & {
 // clamped (it never turns to open upward or leftward from the pointer).
 const AT_POINTER = { sideOffset: 0, alignOffset: 0, collisionAvoidance: { side: 'shift', align: 'shift', fallbackAxisSide: 'none' } } as const;
 
-function MenuContent({ variant = 'context', side = 'bottom', align = 'start', sideOffset = 0, context, className, ...props }: ContentProps) {
+function MenuContent({ variant = 'context', side = 'bottom', align = 'start', sideOffset = 0, context, anchor, className, ...props }: ContentProps) {
   const Positioner = context ? ContextMenuPrimitive.Positioner : MenuPrimitive.Positioner;
   return (
     <MenuPrimitive.Portal>
-      <Positioner {...POSITIONER} {...(context ? AT_POINTER : { side, align, sideOffset })} className="z-menu">
+      <Positioner {...POSITIONER} {...(context ? AT_POINTER : { side, align, sideOffset })} {...(anchor ? { anchor } : {})} className="z-menu">
         <MenuPrimitive.Popup data-slot="menu" data-variant={variant} className={cn(popup({ variant }), className)} {...props} />
       </Positioner>
     </MenuPrimitive.Portal>
