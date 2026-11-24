@@ -80,7 +80,7 @@ test('only the folder store adapter touches the files of a library folder', () =
   // These reach the browser's own storage (OPFS: an import's staging copy) and nothing else; picking a
   // folder (showDirectoryPicker) hands its handle to the library, touching nothing in it.
   const adapter = 'storage/folder-store-web.js';
-  const opfs = new Set(['jobs-runner.js', 'migrations.js', 'settings.js']);
+  const opfs = new Set(['jobs-runner.js', 'migrations.js', 'storage-settings.js']);
   const handleCall = /\.(?:getDirectoryHandle|getFileHandle|removeEntry|createWritable|createSyncAccessHandle|queryPermission|requestPermission|isSameEntry|getFile)\s*\(|for\s+await\s*\([^)]*\bof\b[^)]*\.(?:entries|keys|values)\(\)/;
   const offenders = modules.filter((f) => f !== adapter && !opfs.has(f) && handleCall.test(code(read(f))));
   assert.deepEqual(offenders, [], 'go through storage/folder-store-web.js');

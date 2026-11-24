@@ -3,20 +3,20 @@
 import './boot.js';
 import * as api from './api.js';
 import * as platform from './platform.js';
-import { cancelJob } from './submit-job.js';
 import { pingServer, serverUrlFromSettings, hasConfiguredServer } from './translate.js';
 import { getCapabilities, cachedCapabilities } from './capabilities.js';
 import { settingsModel, GROUP_HEADING_KEYS } from './translate-config.js';
 import { readTranslateSettings, gatherTranslateSettings as gatherSettings, serverUrlInvalid, SERVER_URL_ERROR, applyControl as applyControlTo,
   resetTranslateSettings, benchmarkOffered, DEFAULT_PRICES, unavailableChoice, optionLabel as choiceLabel, stepLabel, stepTip,
   presetChoices, targetLanguageParam, capsNote } from './translate-settings.js';
-import { exportBackup, importBackups, checkBackup, backupRunning, attachNativeBackup } from './backup-ui.js';
+import { exportBackup, importBackups, checkBackup, attachNativeBackup } from './backup-ui.js';
+import { storageSections, clearLibrary, factoryReset, FACTORY_RELOAD_MS, browserWrites, desktopWrites, DESK_WRITES_EVERY, resetWrites,
+  layoutStatus, convertLayout, classifyStatus, classifyAll } from './storage-settings.js';
 import { t, applyTranslations, getLang, setLang, SUPPORTED, LANG_NAMES } from './i18n.js';
-import { formatBytes, formatCount } from './format.js';
 import { initTooltips } from './tooltip.js';
 import { initDropdowns } from './dropdown.js';
 import { initBenchmarkCard } from './benchmark-ui.js';
-import { confirmDialog, alertDialog } from './notice.js';
+import { confirmDialog } from './notice.js';
 import { customScrollbarAvailable, applyScrollbarPreference } from './scrollbar.js';
 import { prefKeys, readPref, writePref } from './settings-prefs.js';
 import { renderChangelog, CHANGELOG_UNAVAILABLE } from './changelog.js';
@@ -248,10 +248,11 @@ document.addEventListener('keydown', (event) => {
 });
 
 // Library upgrades are about the library this browser keeps; a library kept by the desktop app has
-// none (its disk writes it counts itself: updateDeskWrites).
-if (!api.capabilities.browserLibrary) {
-  document.getElementById('upgradesSection').style.display = 'none';
-  if (!api.capabilities.archive) document.getElementById('statsSection').style.display = 'none';
+// none (storage-settings.js storageSections).
+{
+  const sections = storageSections();
+  if (!sections.upgrades) document.getElementById('upgradesSection').style.display = 'none';
+  if (!sections.stats) document.getElementById('statsSection').style.display = 'none';
 }
 
 // ── Load saved values ──────────────────────────────────────────────────────
@@ -261,59 +262,17 @@ platform.kv.get(['translateSettings']).then((r) => {
 });
 
 // ── Reset (two tiers) ──────────────────────────────────────────────────────
-// Clear Library removes committed library content, durable job state and staged import files
-// while keeping preferences; Factory Reset additionally clears every shiori-owned storage key
-// (settings, credentials, repair flags). Both cancel running work first so nothing can
-// repopulate the stores, and broadcast one reset so every other context drops its caches.
-
-async function performReset(factory) {
-  try {
-    for (const rec of await platform.translateResume.all()) {
-      cancelJob('translate', { galleryId: rec.gid, token: rec.token, serverUrl: rec.serverUrl, settings: rec.settings });
-    }
-  } catch {}
-  await platform.clearJobsData();
-  await api.maintenance.clearAll(factory ? { folders: true } : undefined);
-  try {
-    const root = await navigator.storage.getDirectory();
-    for await (const name of root.keys()) {
-      if (/^cbz-.*\.bin$/.test(name)) await root.removeEntry(name).catch(() => {});
-    }
-  } catch {}
-  if (factory) {
-    for (const storage of [localStorage, sessionStorage]) {
-      try {
-        for (const key of Object.keys(storage)) {
-          if (/^(shiori[:-]|_shiori)/.test(key)) storage.removeItem(key);
-        }
-      } catch {}
-    }
-  }
-  platform.control.send({ type: 'LIBRARY_RESET', context: platform.contextId, factory: !!factory });
-}
-
-// Never under a backup being made or restored, in this window or another.
-async function backupBlocksReset() {
-  if (!(await backupRunning())) return false;
-  await alertDialog({ title: t('bk.lock_title'), body: t('bk.reset_blocked'), tone: 'info' });
-  return true;
-}
+// What each asks and clears is storage-settings.js's.
 
 document.getElementById('clearAllBtn').addEventListener('click', async () => {
-  if (await backupBlocksReset()) return;
-  if (!(await confirmDialog({ title: t('dlg.clear_title'), body: t('dlg.clear_body'), ok: t('dlg.continue'), danger: true }))) return;
-  if (!(await confirmDialog({ title: t('dlg.clear2_title'), body: t('dlg.clear2_body'), ok: t('dlg.clear2_ok'), danger: true }))) return;
-  await performReset(false);
+  if (!(await clearLibrary())) return;
   showStatus('clearAllStatus', t('set.clear_done'), 'ok');
 });
 
 document.getElementById('factoryResetBtn').addEventListener('click', async () => {
-  if (await backupBlocksReset()) return;
-  if (!(await confirmDialog({ title: t('dlg.factory_title'), body: t('dlg.factory_body'), ok: t('dlg.continue'), danger: true }))) return;
-  if (!(await confirmDialog({ title: t('dlg.factory2_title'), body: t('dlg.factory2_body'), ok: t('dlg.factory2_ok'), danger: true }))) return;
-  await performReset(true);
+  if (!(await factoryReset())) return;
   showStatus('clearAllStatus', t('set.factory_done'), 'ok');
-  setTimeout(() => location.reload(), 1200);   // re-initialize this page with defaults
+  setTimeout(() => location.reload(), FACTORY_RELOAD_MS);   // re-initialize this page with defaults
 });
 
 // ── Translation server status ───────────────────────────────────────────────
@@ -823,54 +782,36 @@ document.getElementById('backupCheckFile').addEventListener('change', async (e) 
 attachNativeBackup().catch(() => {});
 
 // ── Storage Writes ────────────────────────────────────────────────────────
+// What the figure and its tip say is storage-settings.js's.
 
-// Everything the app has written to this browser's storage; hovering the total splits it by kind.
-const WRITE_KINDS = ['pages', 'covers', 'library', 'folder', 'jobs', 'settings', 'app', 'staging', 'exports', 'other'];
 function updateWritesDisplay(writes) {
   const el = document.getElementById('totalWritesCount');
-  el.textContent = formatBytes(writes?.total || 0);
-  el.dataset.tip = WRITE_KINDS.filter(kind => writes?.by?.[kind])
-    .map(kind => `${t(`set.writes_${kind}`)}: ${formatBytes(writes.by[kind])}`).join('\n');
+  const { text, tip } = browserWrites(writes);
+  el.textContent = text;
+  el.dataset.tip = tip;
 }
 
-// A library kept as files (the desktop app's) counts what it writes itself: shown instead, by the
-// drive it went to and by kind, with what this window stored in its own browser storage beside it.
-const DESK_KINDS = { pages: 'set.writes_desk_pages', pictures: 'set.writes_desk_pictures', descriptions: 'set.writes_desk_descriptions',
-  archive: 'set.writes_desk_archive', database: 'set.writes_desk_database', thumbnails: 'set.writes_desk_thumbnails' };
-const LIBRARY_DRIVE_KINDS = ['pages', 'pictures', 'descriptions', 'archive'], APP_DATA_KINDS = ['database', 'thumbnails'];
 async function updateDeskWrites() {
-  const [desk, own] = await Promise.all([api.diskWrites.get().catch(() => null), platform.writes.get().catch(() => null)]);
-  if (!desk) return;
-  const sum = (kinds) => kinds.reduce((total, kind) => total + (desk.by[kind] || 0), 0);
-  const lines = (kinds) => kinds.filter(kind => desk.by[kind]).map(kind => `  ${t(DESK_KINDS[kind])}: ${formatBytes(desk.by[kind])}`);
-  // Saved files: downloads (counted by the desktop app) and backups saved through a dialog (by this
-  // window); an import's staging copy, should one have been written here.
-  const exports = (desk.by.exports || 0) + (own?.by?.exports || 0), staging = own?.by?.staging || 0;
+  const shown = await desktopWrites();
+  if (!shown) return;
   const el = document.getElementById('totalWritesCount');
-  el.textContent = formatBytes(desk.total + (own?.total || 0));
-  el.dataset.tip = [
-    t('set.writes_desk_library_drive', { size: formatBytes(sum(LIBRARY_DRIVE_KINDS)) }), ...lines(LIBRARY_DRIVE_KINDS),
-    t('set.writes_desk_app_drive', { size: formatBytes(sum(APP_DATA_KINDS)) }), ...lines(APP_DATA_KINDS),
-    ...(exports ? [`${t('set.writes_exports')}: ${formatBytes(exports)}`] : []),
-    ...(staging ? [`${t('set.writes_staging')}: ${formatBytes(staging)}`] : []),
-    t('set.writes_desk_window', { size: formatBytes((own?.total || 0) - (own?.by?.exports || 0) - staging) }),
-  ].join('\n');
+  el.textContent = shown.text;
+  el.dataset.tip = shown.tip;
 }
 
 if (api.capabilities.archive) {
   const desc = document.querySelector('[data-i18n="set.total_writes_desc"]');
   if (desc) { desc.dataset.i18n = 'set.writes_desk_desc'; desc.textContent = t('set.writes_desk_desc'); }
   updateDeskWrites();
-  setInterval(() => { if (!document.hidden) updateDeskWrites(); }, 3000);
+  setInterval(() => { if (!document.hidden) updateDeskWrites(); }, DESK_WRITES_EVERY);
 } else {
   platform.writes.get().then(updateWritesDisplay, () => {});
   platform.writes.subscribe(updateWritesDisplay);
 }
 
 document.getElementById('resetWritesBtn').addEventListener('click', async () => {
-  if (!(await confirmDialog({ title: t('dlg.writes_title'), body: t('dlg.writes_body'), ok: t('common.reset') }))) return;
-  await platform.writes.reset();
-  if (api.capabilities.archive) { await api.diskWrites.reset(); updateDeskWrites(); }
+  if (!(await resetWrites())) return;
+  if (api.capabilities.archive) updateDeskWrites();
   showStatus('writesStatus', t('set.writes_reset_done'), 'ok');
 });
 
@@ -878,41 +819,32 @@ document.getElementById('resetWritesBtn').addEventListener('click', async () => 
 // Pages stored before images were kept apart convert as their galleries change, or all at once here.
 
 async function updateLayoutDisplay() {
-  const { storageEstimate } = await import('./storage-upgrade.js');
-  const est = await storageEstimate();
-  document.getElementById('layoutStatus').textContent = est.remaining
-    ? t('set.layout_status', { converted: formatCount(est.converted), pages: formatCount(est.pages), size: formatBytes(est.bytes) })
-    : t('set.layout_done');
-  document.getElementById('convertNowBtn').disabled = !est.remaining;
+  const { text, remaining } = await layoutStatus();
+  document.getElementById('layoutStatus').textContent = text;
+  document.getElementById('convertNowBtn').disabled = !remaining;
 }
 updateLayoutDisplay().catch(() => {});
 
 document.getElementById('convertNowBtn').addEventListener('click', async (e) => {
   e.currentTarget.disabled = true;
-  const { convertNow } = await import('./storage-upgrade.js');
-  platform.kv.set({ storageLayout: 'now' });
-  await convertNow().catch(() => {});
+  await convertLayout();
   await updateLayoutDisplay().catch(() => {});
 });
 
 // Category and rating from each gallery's stored source details — offered only while something
 // answers the bridge.
 async function updateClassifyDisplay() {
-  const { classifyAvailable, classifyPending } = await import('./storage-upgrade.js');
-  const [ok, pending] = await Promise.all([classifyAvailable(), classifyPending()]);
-  document.getElementById('classifyRow').hidden = !ok;
-  if (!ok) return;
-  document.getElementById('classifyStatus').textContent = pending.length
-    ? t('set.classify_status', { n: formatCount(pending.length) })
-    : t('set.classify_done');
-  document.getElementById('classifyNowBtn').disabled = !pending.length;
+  const shown = await classifyStatus();
+  document.getElementById('classifyRow').hidden = !shown;
+  if (!shown) return;
+  document.getElementById('classifyStatus').textContent = shown.text;
+  document.getElementById('classifyNowBtn').disabled = !shown.pending;
 }
 updateClassifyDisplay().catch(() => {});
 
 document.getElementById('classifyNowBtn').addEventListener('click', async (e) => {
   e.currentTarget.disabled = true;
-  const { classifyNow } = await import('./storage-upgrade.js');
-  await classifyNow().catch(() => {});
+  await classifyAll();
   await updateClassifyDisplay().catch(() => {});
 });
 
