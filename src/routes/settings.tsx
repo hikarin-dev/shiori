@@ -12,12 +12,14 @@
 // its "/", About at the right.
 //
 // The ids and states 1.3's page had are kept (#settingsNav, .nav-item[data-panel][aria-current] and
-// .active, .settings-panels, .panel and .active, #panelLibrary…, each control's id).
+// .active, .settings-panels, .panel and .active, #panelLibrary…, each control's id). In the desktop
+// app's window a System panel comes before Storage (./settings/system.tsx).
 import { useLayoutEffect, useState } from 'react';
 import { HeaderSlot } from '@/components/header-slot';
 import { Button } from '@/components/ui/button';
 import { PageMenu } from '@/components/ui/page-menu';
 import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs';
+import * as api from '@lib/api.js';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 import { cn } from '@/lib/utils';
@@ -26,14 +28,16 @@ import { LibraryPanel } from './settings/library';
 import { prefs } from './settings/parts';
 import { ReaderPanel } from './settings/reader';
 import { StoragePanel } from './settings/storage';
+import { SystemPanel } from './settings/system';
 import { TranslationPanel } from './settings/translation';
 
 // The panels, in the nav's order: the panel's id is the nav item's value (data-panel), its nav item's
-// id and name.
+// id and name. System is the desktop app's window's alone (1.3 put it there, before Storage).
 const PANELS = [
   { id: 'panelLibrary', nav: 'navLibrary', label: 'set.nav_library', Panel: LibraryPanel },
   { id: 'panelReader', nav: 'navReader', label: 'set.nav_reader', Panel: ReaderPanel },
   { id: 'panelTranslation', nav: 'navTranslation', label: 'set.nav_translation', Panel: TranslationPanel },
+  ...(api.capabilities.desktopWindow ? [{ id: 'panelDesktop', nav: 'navDesktop', label: 'set.nav_desktop', Panel: SystemPanel }] : []),
   { id: 'panelStorage', nav: 'navStorage', label: 'set.nav_storage', Panel: StoragePanel },
 ] as const;
 
