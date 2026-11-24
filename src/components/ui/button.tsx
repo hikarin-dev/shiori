@@ -1,21 +1,31 @@
 // Button — every button of the app, text or icon, one component (design inventory §3, 22 shapes).
 //
 // What a button looks like is four choices:
-//   variant  its family: the dialog buttons (outline, primary, danger), Settings' (subtle, tint,
-//            danger-subtle), a button on a surface (secondary), the quiet bordered ones of the pages
-//            (quiet), the borderless ones (ghost), one over a picture (overlay), dashed, and a text link;
+//   variant  its family: the dialog buttons (outline, primary, danger), the pages' filled one
+//            (solid: Settings' Export…, the overview's Read), Settings' (subtle, tint, danger-subtle),
+//            a button on a surface (secondary), the quiet bordered ones of the pages (quiet), the
+//            borderless ones (ghost), one over a picture (overlay), dashed, and a text link;
 //   tone     the colour a tint, quiet or ghost button speaks in (neutral, primary, warning, danger,
 //            success), with `rest` (muted until hovered, or in its tone, framed or filled already) and
 //            `hover` (an outline in the tone, or filled with it);
-//   size     its box: text sizes lg 36 (dialogs) · default 36 · md 34 · sm 30 · xs 28 · block 40 (as
-//            wide as its place), icon
-//            sizes icon-xs 22 · icon-sm 26 · icon 28 · icon-md 30 · toolbar 38×34, and inline (a link);
+//   size     its box: text sizes default 36 and sm 28 (Settings' and the dialogs'), compact 28 (the
+//            pages' own small ones: the header's Import and Stop all, the import tracker's: no
+//            padding above and below, one line) and md 34 (the overview's actions); icon sizes
+//            icon-xs 22 · icon-sm 26 · icon 28 · icon-md 30 (the chapter rows') · toolbar 38×34; and
+//            inline (a link);
 //   coarse   the size a finger gets, where today's page gives one (36, 40 or 44).
 // Pressed (aria-pressed) shows the on look, in `pressedTone` where it differs from the tone; open
 // (aria-expanded) shows the hover look, as today's "Titles" and "⋯" buttons do.
 //
 // The keyboard ring is the document's one ring (styles/document.css): nothing here draws one.
 // Today's 1px press of Settings' buttons is gone (§5.3 F02: it moved the text).
+//
+// §5.3 S04, S05, S11, S13 (Settings and the dialogs on shadcn's scale): a dialog's buttons and
+// Settings' are one size, default: 36 on a 20px line, 12px (12.5 and 11 before; Settings' 1.35 line
+// takes the dialogs', the commoner); "Add folder" takes it too (40 before). The small ones are 28
+// (30 before; page properties' "Copy as JSON" joins them), 11px. An icon beside a label is 14 (13
+// before), a dialog's corner button's 16 (15). The pages' sizes (compact, md, the icon sizes) are
+// 1.3's.
 import { Button as ButtonPrimitive } from '@base-ui/react/button';
 import { cva, type VariantProps } from 'class-variance-authority';
 import type { AnchorHTMLAttributes } from 'react';
@@ -50,10 +60,13 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        // Dialogs and the toast (.btn).
+        // Dialogs and the toast (.btn): the muted frame under the pointer, filled or not.
         outline: 'border-input bg-transparent text-foreground hover:border-muted-foreground aria-expanded:border-muted-foreground',
-        primary: 'border-primary bg-primary text-primary-foreground hover:brightness-110',
-        danger: 'border-destructive bg-destructive text-destructive-foreground hover:brightness-110',
+        primary: 'border-primary bg-primary text-primary-foreground hover:border-muted-foreground hover:brightness-110',
+        danger: 'border-destructive bg-destructive text-destructive-foreground hover:border-muted-foreground hover:brightness-110',
+        // The pages' filled button (Settings' Export…, the overview's Read): it brightens, keeping
+        // its own frame.
+        solid: 'border-primary bg-primary text-primary-foreground hover:brightness-110',
         // Settings: Clear All, Import, Stop all (a tone's outline that fills on hover).
         tint: 'border-(--t) bg-transparent text-(--t-text) hover:border-(--t) hover:bg-(--t) hover:text-(--t-fill-fg)',
         // Settings: the quieter danger (Reset).
@@ -83,12 +96,10 @@ const buttonVariants = cva(
       hover: { outline: '', fill: '' },
       pressedTone: { neutral: PRESSED.neutral, primary: PRESSED.primary, warning: PRESSED.warning, danger: PRESSED.danger, success: PRESSED.success },
       size: {
-        lg: 'min-h-[36px] gap-[6px] rounded-6 px-[14px] py-[7px] text-12.5 leading-[20px] font-semibold [&_svg:not([class*=size-])]:size-[15px]',
-        default: 'min-h-[36px] gap-[6px] rounded-6 px-[14px] py-[8px] text-11 leading-[1.35] font-semibold whitespace-normal [overflow-wrap:anywhere] [&_svg:not([class*=size-])]:size-[13px]',
+        default: 'min-h-[36px] gap-[6px] rounded-6 px-[14px] py-[7px] text-12 leading-[20px] font-semibold whitespace-normal [overflow-wrap:anywhere] [&_svg:not([class*=size-])]:size-[14px]',
         md: 'gap-[7px] rounded-6 px-[14px] py-[8px] text-12 [&_svg:not([class*=size-])]:size-[14px]',
-        sm: 'min-h-[30px] gap-[6px] rounded-6 px-[10px] py-[5px] text-11 leading-[1.35] font-semibold whitespace-normal [overflow-wrap:anywhere] [&_svg:not([class*=size-])]:size-[13px]',
-        xs: 'h-[28px] gap-[6px] rounded-6 px-[10px] text-11 [&_svg:not([class*=size-])]:size-[13px]',
-        block: 'flex min-h-[40px] w-full gap-[6px] rounded-8 px-0 text-12 leading-[1.5] font-semibold [&_svg:not([class*=size-])]:size-[14px]',
+        sm: 'min-h-[28px] gap-[6px] rounded-6 px-[10px] py-[5px] text-11 leading-[1.35] font-semibold whitespace-normal [overflow-wrap:anywhere] [&_svg:not([class*=size-])]:size-[14px]',
+        compact: 'h-[28px] gap-[6px] rounded-6 px-[10px] text-11 [&_svg:not([class*=size-])]:size-[13px]',
         'icon-xs': 'size-[22px] rounded-4 p-0 [&_svg:not([class*=size-])]:size-[14px]',
         'icon-sm': 'size-[26px] rounded-pill p-0 [&_svg:not([class*=size-])]:size-[14px]',
         icon: 'size-[28px] rounded-6 p-0 [&_svg:not([class*=size-])]:size-[15px]',
@@ -109,27 +120,31 @@ const buttonVariants = cva(
       { variant: 'ghost', tone: 'neutral', class: 'hover:border-transparent aria-expanded:border-transparent' },
       // The toolbar's quiet button sits on the surface, like the select beside it.
       { variant: 'quiet', size: 'toolbar', class: 'bg-card' },
-      // A text button in the page's header or a row (Import, Stop all) is bold and a little wider.
-      { variant: 'tint', size: 'xs', class: 'px-[12px] py-[6px] font-semibold' },
-      // A dialog's filled button takes the outline's muted frame on hover, as .btn did.
-      { variant: ['primary', 'danger'], size: 'lg', class: 'hover:border-muted-foreground' },
+      // Page properties' quiet small button keeps the normal weight.
+      { variant: 'quiet', size: 'sm', class: 'font-normal' },
+      // A text button in the page's header (Import, Stop all) is bold and a little wider.
+      { variant: 'tint', size: 'compact', class: 'px-[12px] py-[6px] font-semibold' },
+      // A dialog's corner button (and Settings' beside a row): its icon alone, 16.
+      { variant: 'ghost', size: 'icon', class: '[&_svg:not([class*=size-])]:size-[16px]' },
+      // "Add folder": as wide as its place, radius 8.
+      { variant: 'dashed', class: 'flex w-full rounded-8' },
       // The overview's primary action is bold; its others are not.
-      { variant: 'primary', size: 'md', class: 'font-semibold' },
+      { variant: 'solid', size: 'md', class: 'font-semibold' },
       // Disabled: as each family was. Dialog buttons .6, Settings' .5 (not-allowed), the pages'
       // quiet ones .4, the borderless ones .3; Stop all greys out instead.
-      { variant: ['outline', 'primary', 'danger'], size: 'lg', class: 'disabled:cursor-default disabled:opacity-60' },
+      { variant: ['outline', 'primary', 'danger'], class: 'disabled:cursor-default disabled:opacity-60' },
       { variant: ['quiet', 'overlay'], class: 'disabled:cursor-default disabled:opacity-40' },
       { variant: 'ghost', class: 'disabled:cursor-default disabled:opacity-30' },
-      { variant: 'tint', size: 'xs', class: 'disabled:cursor-default disabled:border-border disabled:text-muted-dim disabled:opacity-100' },
+      { variant: 'tint', size: 'compact', class: 'disabled:cursor-default disabled:border-border disabled:text-muted-dim disabled:opacity-100' },
       // Coarse sizes.
       { size: ['icon', 'icon-sm', 'icon-md', 'toolbar'], coarse: '36', class: 'pointer-coarse:size-[36px]' },
       { size: ['icon', 'icon-sm', 'icon-md', 'toolbar'], coarse: '40', class: 'pointer-coarse:size-[40px]' },
       { size: ['icon', 'icon-sm', 'icon-md', 'toolbar'], coarse: '44', class: 'pointer-coarse:size-[44px]' },
-      { size: ['lg', 'default', 'md', 'sm', 'xs', 'block'], coarse: '36', class: 'pointer-coarse:h-auto pointer-coarse:min-h-[36px]' },
-      { size: ['lg', 'default', 'md', 'sm', 'xs', 'block'], coarse: '40', class: 'pointer-coarse:h-auto pointer-coarse:min-h-[40px]' },
-      { size: ['lg', 'default', 'md', 'sm', 'xs', 'block'], coarse: '44', class: 'pointer-coarse:h-auto pointer-coarse:min-h-[44px]' },
+      { size: ['default', 'md', 'sm', 'compact'], coarse: '36', class: 'pointer-coarse:h-auto pointer-coarse:min-h-[36px]' },
+      { size: ['default', 'md', 'sm', 'compact'], coarse: '40', class: 'pointer-coarse:h-auto pointer-coarse:min-h-[40px]' },
+      { size: ['default', 'md', 'sm', 'compact'], coarse: '44', class: 'pointer-coarse:h-auto pointer-coarse:min-h-[44px]' },
     ],
-    defaultVariants: { variant: 'outline', size: 'lg', coarse: 'none' },
+    defaultVariants: { variant: 'outline', size: 'default', coarse: 'none' },
   },
 );
 
@@ -164,10 +179,10 @@ export type ButtonProps = ButtonPrimitive.Props & {
 // nature, the quiet and ghost ones neutral.
 const TONED: Variant[] = ['tint', 'quiet', 'ghost'];
 
-function Button({ className, variant = 'outline', size = 'lg', tone, rest, hover, pressedTone, coarse, href, ...props }: ButtonProps) {
+function Button({ className, variant = 'outline', size = 'default', tone, rest, hover, pressedTone, coarse, href, ...props }: ButtonProps) {
   const toned = TONED.includes(variant);
   const t = toned ? tone ?? (variant === 'tint' ? 'warning' : 'neutral') : undefined;
-  const motion = size === 'lg' && ['outline', 'primary', 'danger'].includes(variant) ? '' : MOTION[variant] ?? MOTION_DEFAULT;
+  const motion = ['outline', 'primary', 'danger'].includes(variant) ? '' : MOTION[variant] ?? MOTION_DEFAULT;
   const classes = cn(
     buttonVariants({
       variant, size, coarse: coarse ?? 'none',

@@ -20,7 +20,7 @@ export function AlertSpecimens() {
             <Card>
               <SettingRow kind="footer">
                 <StatusText tone="ok" {...tag('status-msg', 'ok', state)}>{t('set.clear_done')}</StatusText>
-                <Button variant="tint" tone="danger" size="default">{t('common.reset')}</Button>
+                <Button variant="tint" tone="danger">{t('common.reset')}</Button>
               </SettingRow>
             </Card>
           </div>)} />

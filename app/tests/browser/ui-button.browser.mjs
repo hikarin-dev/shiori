@@ -104,5 +104,5 @@ test('under a coarse pointer each button grows to the finger size today\'s page 
   assert.deepEqual(await size(spec('tk-stop', 'quiet-danger')), [44, 44], 'task Stop: 44');
   assert.equal((await size(spec('ib-btn', 'quiet')))[1], 44, 'tracker text button: 44 tall');
   assert.equal((await size(spec('btn-stop-all', 'tint-danger')))[1], 40, 'Stop all: 40 tall');
-  assert.deepEqual(await size(spec('btn', 'outline')), [75, 36], 'a dialog button keeps its size');
+  assert.deepEqual(await size(spec('btn', 'outline')), [73.203125, 36], 'a dialog button keeps its size (12px, S11)');
 });
