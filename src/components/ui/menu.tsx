@@ -19,7 +19,7 @@
 //
 // Placed as Popover places its panel (popover.tsx): fixed to the window, 8px inside it; under its
 // button (6px for a context-menu style list opened by a button, 4px for a folder's), or at the
-// pointer. §5.3 F30: one layer (900; 9000, 900 and 430 before); the checklist takes the menu's
+// pointer, slid back inside the window where it would leave it. §5.3 F30: one layer (900; 9000, 900 and 430 before); the checklist takes the menu's
 // frame (the surface, the plain frame, radius 8; 1.3: the subtle ground, the strong frame, radius 6),
 // keeping its own 4px 0 padding (a candidate: the menu's 5px would move its options 5px in). F31:
 // one floating shadow (the checklist's 0 10px 24px .35). F32: a key cap's text in the text colour.
@@ -90,8 +90,9 @@ type ContentProps = Omit<MenuPrimitive.Popup.Props, 'className'> & {
 };
 
 // At the pointer, its top left corner on it (Base UI's own is 2px right and 5px up). Where the window
-// has no room below, it opens upward from the pointer: 1.3 slid it back in instead.
-const AT_POINTER = { sideOffset: 0, alignOffset: 0 } as const;
+// has no room below or to the right, it slides back inside, 8px from the edge, as 1.3's page menu was
+// clamped (it never turns to open upward or leftward from the pointer).
+const AT_POINTER = { sideOffset: 0, alignOffset: 0, collisionAvoidance: { side: 'shift', align: 'shift', fallbackAxisSide: 'none' } } as const;
 
 function MenuContent({ variant = 'context', side = 'bottom', align = 'start', sideOffset = 0, context, className, ...props }: ContentProps) {
   const Positioner = context ? ContextMenuPrimitive.Positioner : MenuPrimitive.Positioner;

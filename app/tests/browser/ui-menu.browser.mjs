@@ -2,7 +2,8 @@
 // 1.3's sizes (items, a title, a detail line, a key cap, a danger item, the menu's separator, the
 // checklist's options), one floating shadow and layer; and working: under its button or at the
 // pointer, the page's scrollbar kept, the keyboard of a menu (arrows, Home, End, a letter, Enter,
-// Escape, focus back to the button), closed by a scroll; a checklist's ticks leave it open. (The
+// Escape, focus back to the button), closed by a scroll; a right-click's menu slid back inside the window
+// at its edge; a checklist's ticks leave it open. (The
 // pointer is moved to a right-click's place first: puppeteer's click alone is not taken as one there.)
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -116,6 +117,29 @@ test('a right-click menu at the pointer, and a checklist that stays open', async
   await page.keyboard.press('Escape');
   await until(page, (m) => !document.querySelector(m), menu, { what: 'the context menu closed' });
 
+  // Near the window's bottom right corner it slides back inside, 8px from each edge, as 1.3's page
+  // menu was clamped: it never turns to open upward or leftward from the pointer.
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.evaluate(() => {
+    const el = document.querySelector('[data-specimen-open="context"]');
+    el.scrollIntoView({ block: 'end', behavior: 'instant' });
+    window.scrollBy(0, -2);
+  });
+  const edge = await page.evaluate(() => {
+    const r = document.querySelector('[data-specimen-open="context"]').getBoundingClientRect();
+    return { x: r.right - 4, y: Math.min(r.bottom, innerHeight) - 20, w: document.documentElement.clientWidth, h: innerHeight };
+  });
+  await page.mouse.move(edge.x, edge.y);
+  await page.mouse.click(edge.x, edge.y, { button: 'right' });
+  await page.waitForSelector(menu);
+  await frame(page);
+  const slid = await page.$eval(menu, (el) => { const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }; });
+  assert.ok(Math.abs(slid.bottom - (edge.h - 8)) <= 1, `its bottom 8px over the window's: ${JSON.stringify(slid)} in ${edge.h}`);
+  assert.ok(slid.top < edge.y && slid.bottom > edge.y, `over the pointer, slid up, not opened upward from it: ${JSON.stringify(slid)} at ${edge.y}`);
+  assert.ok(slid.left <= edge.x + 1 && slid.left >= 8, `its left at the pointer or slid in: ${JSON.stringify(slid)} at ${edge.x}`);
+  await page.keyboard.press('Escape');
+  await until(page, (m) => !document.querySelector(m), menu, { what: 'the context menu closed' });
+
   const list = '[data-specimen-menu="checklist"]';
   await page.click('[data-specimen-open="checklist"]');
   await page.waitForSelector(list);
@@ -126,3 +150,4 @@ test('a right-click menu at the pointer, and a checklist that stays open', async
   assert.ok(await page.$(list), 'still open');
   assert.deepEqual(page.problems, []);
 });
+
