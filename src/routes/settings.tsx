@@ -13,7 +13,9 @@
 //
 // The ids and states 1.3's page had are kept (#settingsNav, .nav-item[data-panel][aria-current] and
 // .active, .settings-panels, .panel and .active, #panelLibrary…, each control's id). In the desktop
-// app's window a System panel comes before Storage (./settings/system.tsx).
+// app's window a System panel comes before Storage (./settings/system.tsx). After Translation, the
+// optional panel (#panelOptional, its nav entry #navOptional): a mount whatever runs beside the app may
+// fill, and the app's own download offer while nothing does (./settings/optional.tsx has its contract).
 import { useLayoutEffect, useState } from 'react';
 import { HeaderSlot } from '@/components/header-slot';
 import { Button } from '@/components/ui/button';
@@ -25,6 +27,7 @@ import { useTitle } from '@/lib/title';
 import { cn } from '@/lib/utils';
 import { AboutDialog } from './settings/about';
 import { LibraryPanel } from './settings/library';
+import { Mount, OfferSection, useOptionalPanel } from './settings/optional';
 import { prefs } from './settings/parts';
 import { ReaderPanel } from './settings/reader';
 import { StoragePanel } from './settings/storage';
@@ -32,11 +35,14 @@ import { SystemPanel } from './settings/system';
 import { TranslationPanel } from './settings/translation';
 
 // The panels, in the nav's order: the panel's id is the nav item's value (data-panel), its nav item's
-// id and name. System is the desktop app's window's alone (1.3 put it there, before Storage).
+// id and name. System is the desktop app's window's alone (1.3 put it there, before Storage). The
+// optional panel's name and contents are its own (below).
+const OPTIONAL = 'panelOptional';
 const PANELS = [
   { id: 'panelLibrary', nav: 'navLibrary', label: 'set.nav_library', Panel: LibraryPanel },
   { id: 'panelReader', nav: 'navReader', label: 'set.nav_reader', Panel: ReaderPanel },
   { id: 'panelTranslation', nav: 'navTranslation', label: 'set.nav_translation', Panel: TranslationPanel },
+  { id: OPTIONAL, nav: 'navOptional', label: 'set.nav_extension', Panel: null },
   ...(api.capabilities.desktopWindow ? [{ id: 'panelDesktop', nav: 'navDesktop', label: 'set.nav_desktop', Panel: SystemPanel }] : []),
   { id: 'panelStorage', nav: 'navStorage', label: 'set.nav_storage', Panel: StoragePanel },
 ] as const;
@@ -46,6 +52,8 @@ export default function Settings() {
   const t = useT();
   const [shown, setShown] = useState<string>('panelLibrary');
   const [about, setAbout] = useState(false);
+  // The optional panel: if it loses its content while it shows, Library shows (as 1.3).
+  const optional = useOptionalPanel(() => setShown((now) => (now === OPTIONAL ? 'panelLibrary' : now)));
   // Other tabs' changes to the page's preferences are followed while it shows.
   useLayoutEffect(() => { prefs.start(); return () => prefs.stop(); }, []);
 
@@ -66,16 +74,18 @@ export default function Settings() {
           '[@media(380px<width<=520px)]:grid-cols-[96px_minmax(0,1fr)] [@media(380px<width<=520px)]:gap-[10px]',
           '[@media(width<=380px)]:grid-cols-[84px_minmax(0,1fr)] [@media(width<=380px)]:gap-[8px]')}>
           <TabsList id="settingsNav" aria-label={t('set.title')} className={cn('settings-nav sticky top-[82px] w-full', '[@media(520px<width<=760px)]:top-[74px]', '[@media(width<=520px)]:top-[68px]')}>
+            {/* (The optional panel's entry always has something to show: the mount's content, under the name
+                its filler gives it, or the app's offer, under the app's.) */}
             {PANELS.map(({ id, nav, label }) => (
               <TabsTab key={id} value={id} id={nav} data-panel={id} aria-controls={id} aria-current={shown === id ? 'page' : undefined}
-                className={cn('nav-item', shown === id && 'active')}>{t(label)}</TabsTab>
+                className={cn('nav-item', shown === id && 'active')}>{id === OPTIONAL && optional.filled && optional.label != null ? optional.label : t(label)}</TabsTab>
             ))}
           </TabsList>
           <div className="settings-panels w-full min-w-0 @container/settings-panel">
             {/* Every panel mounted; the hidden ones not displayed. */}
             {PANELS.map(({ id, nav, Panel }) => (
               <div key={id} id={id} role="tabpanel" aria-labelledby={nav} hidden={shown !== id} className={cn('panel w-full min-w-0', shown === id && 'active')}>
-                <Panel />
+                {Panel ? <Panel /> : <><OfferSection hidden={optional.filled} /><Mount mount={optional.mount} /></>}
               </div>
             ))}
           </div>

@@ -86,6 +86,29 @@
     --page-scrollbar-gap: 0px;
 }
 
+/* ── A promise to whatever is mounted in Settings' optional panel (src/routes/settings/optional.tsx) ──
+   Colours and radii under names that will not change, for what draws its own cards there: each an
+   alias of the app's own token, so it follows the app's palette. A name here is never renamed or
+   removed (app/tests/mounted-tokens.test.mjs holds the list); a new one may be added. */
+:root {
+    --shiori-background: var(--background);          /* the page */
+    --shiori-surface: var(--card);                   /* a section */
+    --shiori-surface-subtle: var(--surface-subtle);  /* a field, an inset, a track, on a section */
+    --shiori-surface-raised: var(--secondary);       /* under the pointer; the chosen segment */
+    --shiori-border: var(--border);                  /* a section's frame, a rule between rows */
+    --shiori-border-strong: var(--input);            /* a control's frame */
+    --shiori-text: var(--foreground);
+    --shiori-text-muted: var(--muted-foreground);    /* a description, a quiet control */
+    --shiori-text-dim: var(--muted-dim);             /* a placeholder, a step dimmer */
+    --shiori-brand: var(--primary);                  /* the brand colour: a primary button, a switch on */
+    --shiori-danger: var(--destructive);
+    --shiori-success: var(--success);
+    --shiori-warning: var(--warning);
+    --shiori-focus: var(--ring);                     /* a focused text box's border */
+    --shiori-radius-control: var(--radius-6);        /* fields and buttons */
+    --shiori-radius-section: var(--radius-10);       /* a section */
+}
+
 @theme inline {
     --color-*: initial;
     --color-background: var(--background);

@@ -65,6 +65,8 @@ const GROUPS = [
   { id: 'layer', title: 'Layers', prefix: '--z-index-' },
   { id: 'duration', title: 'Durations', prefix: '--transition-duration-' },
   { id: 'ease', title: 'Easings', prefix: '--ease-' },
+  // What Settings' optional panel promises whatever is mounted there: colours and radii.
+  { id: 'mounted', title: 'For the optional panel', prefix: '--shiori-' },
 ] as const;
 
 // The colours are the custom properties of the :root rule that sets --background (tokens.css), less
@@ -125,6 +127,9 @@ export default function Components() {
                 {group.id === 'text' && <span style={{ fontSize: ref(token) }}>Shiori</span>}
                 {group.id === 'radius' && <span className="block size-[48px] border border-input bg-secondary" style={{ borderRadius: ref(token) }} />}
                 {group.id === 'shadow' && <span className="m-[12px] block size-[64px] rounded-8 bg-card" style={{ boxShadow: ref(token) }} />}
+                {group.id === 'mounted' && (token.includes('radius')
+                  ? <span className="block size-[48px] border border-input bg-secondary" style={{ borderRadius: ref(token) }} />
+                  : <span className="block size-[32px] rounded-6 border border-border" style={{ background: ref(token) }} />)}
                 <code>{token}</code>
                 <span className="text-11 text-muted-foreground">{value(token)}</span>
               </li>

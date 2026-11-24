@@ -195,7 +195,7 @@ test('a hidden panel is kept, not drawn again: its nodes and their state stay wh
   const hidden = await page.evaluate(() => ({ library: getComputedStyle(document.getElementById('panelLibrary')).display, reader: getComputedStyle(document.getElementById('panelReader')).display,
     current: [...document.querySelectorAll('#settingsNav .nav-item')].map((b) => [b.dataset.panel, b.getAttribute('aria-current'), b.classList.contains('active')]),
     path: location.pathname }));
-  assert.deepEqual(hidden, { library: 'none', reader: 'block', path: ADDRESS, current: [['panelLibrary', null, false], ['panelReader', 'page', true], ['panelTranslation', null, false], ['panelStorage', null, false]] });
+  assert.deepEqual(hidden, { library: 'none', reader: 'block', path: ADDRESS, current: [['panelLibrary', null, false], ['panelReader', 'page', true], ['panelTranslation', null, false], ['panelOptional', null, false], ['panelStorage', null, false]] });
   await showPanel(page, 'navLibrary');
   assert.deepEqual(await page.evaluate(() => { const now = [...document.querySelectorAll('#panelLibrary *')]; return { same: now.length === window.__nodes.length && now.every((el, i) => el === window.__nodes[i]), switch: document.getElementById('libMergeSeries') === window.__switch }; }),
     { same: true, switch: true });
@@ -278,7 +278,7 @@ test('the header is the frame\'s: /settings-next ↔ /tasks, the same node, the 
     });
     await page.evaluate(() => { window.__band = document.querySelector('#root > header'); window.stayed = true; });
     const settings = await look();
-    assert.deepEqual({ ...settings, brand: null }, { same: true, brand: null, form: 'settings', page: 'settings', right: ['aboutBtn'], meta: null,
+    assert.deepEqual({ ...settings, brand: null }, { same: true, brand: null, form: 'settings', page: 'settings', right: ['aboutBtn'], meta: 'settings',
       padding: viewport.width <= 520 ? '12px' : '20px', title: 'Shiori — Settings' });
     // A plain link to /tasks is followed inside the app (a route change).
     await page.evaluate(() => { const a = document.createElement('a'); a.href = '/tasks'; a.id = 'toTasks'; a.textContent = 'tasks'; document.body.append(a); });
