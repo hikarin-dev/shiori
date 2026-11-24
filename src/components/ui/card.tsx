@@ -59,4 +59,4 @@ function CardDescription({ className, ...props }: ComponentProps<'p'>) {
   return <p data-slot="card-description" className={cn('mt-[4px] text-11 leading-[1.5] text-muted-foreground', className)} {...props} />;
 }
 
-export { Card, CardHeader, CardDescription };
+export { Card, CardHeader, CardDescription, cardVariants };

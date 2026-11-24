@@ -66,8 +66,10 @@ test('what the worker leaves out is the bundle\'s files only routes it doesn\'t 
   const start = startData();
   const leftOut = notInstalled(start, ROUTES);
   const uninstalled = Object.entries(ROUTES).filter(([, route]) => !route.installed).map(([segment]) => segment);
-  // Today the one such route is the comparison page; its chunk is left out.
-  assert.deepEqual(uninstalled, ['components']);
+  // Today two such routes: the comparison page, and Settings beside 1.3's page until it takes
+  // /settings; their chunks are left out.
+  assert.deepEqual(uninstalled, ['components', 'settings-next']);
+  assert.ok(leftOut.some((f) => /^assets\/settings-[\w-]+\.js$/.test(f)), 'Settings\' chunk');
   assert.ok(leftOut.some((f) => /^assets\/components-[\w-]+\.js$/.test(f)), 'the comparison page\'s chunk');
   const needed = new Set([start.entry, ...start.start,
     ...Object.entries(ROUTES).filter(([, route]) => route.installed).flatMap(([segment]) => start.routes[segment].preload)]);

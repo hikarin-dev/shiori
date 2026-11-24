@@ -20,4 +20,7 @@ export const ROUTES: Readonly<Record<string, Route>> = {
   // The comparison page: no page of the app, and its chunk would be a tenth of what installs.
   components: { page: 'components', app: false, header: true, installed: false },
   tasks: { page: 'tasks', app: true, header: true, installed: true },
+  // Settings as the one page draws it, beside 1.3's page (/settings) until it takes that address: no
+  // page of the app yet (no shiori-app meta), and not installed.
+  'settings-next': { page: 'settings', app: false, header: true, installed: false, form: 'settings' },
 };
