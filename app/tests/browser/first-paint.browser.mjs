@@ -146,6 +146,40 @@ for (const [name, size, x] of [['desktop', { width: 1280, height: 900 }, 20], ['
   });
 }
 
+// What recognises the app by its shiori-app meta may look once, as a page loads (1.3's pages carried it
+// in their markup): the one page has it before its app runs, and the app keeps that element.
+test('the shiori-app meta is in the page before the app runs, on the app\'s own pages alone, and the app keeps that element', async (t) => {
+  const page = await fresh(t);
+  if (!page) return;
+  const metas = () => page.evaluate(() => [...document.querySelectorAll('meta[name="shiori-app"]')].map((m) => m.content));
+  await page.goto(`${origin}/tasks`, { waitUntil: 'domcontentloaded' });
+  assert.equal(await page.evaluate(() => !!document.querySelector('#root main')), false, 'the app has not run (its entry is held back)');
+  assert.deepEqual(await metas(), ['tasks'], 'there once the page is parsed');
+  await page.evaluate(() => { window.__meta = document.querySelector('meta[name="shiori-app"]'); });
+  page.release();
+  await until(page, () => document.title === 'Shiori — Tasks' && !!document.querySelector('#root main'), undefined, { what: 'the route drawn' });
+  assert.deepEqual(await metas(), ['tasks']);
+  assert.equal(await page.evaluate(() => document.querySelector('meta[name="shiori-app"]') === window.__meta), true, 'the app keeps the element');
+  // A page that is not the app's own takes it away; back on the app's, the same element.
+  await page.evaluate(() => { const a = document.createElement('a'); a.href = '/components'; a.id = 'toOther'; document.body.append(a); });
+  await page.$eval('#toOther', (a) => a.click());
+  await until(page, () => document.title === 'Shiori — Components', undefined, { what: 'another page' });
+  assert.deepEqual(await metas(), []);
+  await page.evaluate(() => history.back());
+  await until(page, () => document.title === 'Shiori — Tasks', undefined, { what: 'Tasks again' });
+  assert.deepEqual(await metas(), ['tasks']);
+  assert.equal(await page.evaluate(() => document.querySelector('meta[name="shiori-app"]') === window.__meta), true, 'the same element again');
+  assert.deepEqual(page.problems, []);
+
+  // A page that is not the app's own, opened first: none, before the app runs and after.
+  const other = await fresh(t);
+  await other.goto(`${origin}/components`, { waitUntil: 'domcontentloaded' });
+  assert.equal(await other.evaluate(() => document.querySelectorAll('meta[name="shiori-app"]').length), 0);
+  other.release();
+  await until(other, () => document.title === 'Shiori — Components' && !!document.querySelector('#root main'), undefined, { what: 'the route drawn' });
+  assert.equal(await other.evaluate(() => document.querySelectorAll('meta[name="shiori-app"]').length), 0);
+});
+
 test('where the page hands the visitor on (the reader\'s address), no frame shows and none of the app is fetched', async (t) => {
   const page = await fresh(t, { answers: 'index.html' });   // a host answering every address with the one page
   if (!page) return;

@@ -8,6 +8,9 @@
 //     (html[data-frame="header"]); never where this page is about to hand the visitor on to another
 //     file, nor where it says "Not found."; in the route's own form where it has one
 //     (html[data-header-form], the route table's `form`);
+//   - the shiori-app meta, on the app's own pages, so the page says which it is from its first parse,
+//     as 1.3's pages did in their markup (what recognises the app by it may look once, as a page
+//     loads); src/frame.tsx keeps that element and changes it with the page;
 //   - every module the page will run to draw the address is asked for at once (<link rel=modulepreload>),
 //     so they arrive together instead of in waves; and the UI font's faces (app/font-init.js declares
 //     them) right after the first frame, so they are there when the app draws its text, which
@@ -39,6 +42,7 @@
     for (const name in attributes) el.setAttribute(name, attributes[name]);
     document.head.append(el);
   };
+  if (route && route.meta) add('meta', { name: 'shiori-app', content: route.meta });
   // The entry first: asked for after the list, it waited behind every module of it (a browser opens a
   // few connections to a host at a time), and nothing runs before it.
   if (START.entry) add('script', { type: 'module', src: root + START.entry });

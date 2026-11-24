@@ -8,10 +8,12 @@ import { AppHeader } from './components/ui/app-header';
 
 // <meta name="shiori-app" content="<page>"> while one of the app's own pages shows, by which an
 // independent observer recognises the app's pages; one element, its content changed with the page,
-// and none on any other route.
+// and none on any other route. start.js writes it for the page the document opens on, before the app
+// runs (what recognises the app by it may look once, as a page loads); that element is the one kept.
 let appMeta: HTMLMetaElement | null = null;
 function useAppMeta(page: string | null) {
   useLayoutEffect(() => {
+    appMeta ??= document.querySelector<HTMLMetaElement>('meta[name="shiori-app"]');
     if (!page) { appMeta?.remove(); return; }
     if (!appMeta) {
       appMeta = document.createElement('meta');

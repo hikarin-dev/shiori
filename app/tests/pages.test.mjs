@@ -58,6 +58,10 @@ test('the shiori-app meta names the app\'s own pages only', async () => {
     // Settings at /settings-next, carries the meta too: its contract is read from it.)
     assert.equal(route.app, own.has(route.page), `/${segment}: the meta is there exactly on the app's own pages`);
   }
+  // The page's first script writes it for the address a document opens on, before the app runs.
+  const { startData } = await import('../../build/start.mjs');
+  const start = startData({ routes: ROUTES });
+  for (const [segment, route] of Object.entries(ROUTES)) assert.equal(start.routes[segment].meta, route.app ? route.page : null, `/${segment}: what start.js writes`);
 });
 
 test('the one page\'s entry and 404.html hand an address over the same way', () => {
