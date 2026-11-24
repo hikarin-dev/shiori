@@ -27,6 +27,13 @@ type State = {
 };
 type Ask = (action: string, ...args: unknown[]) => Promise<unknown>;
 const ask = shell as Ask;
+// A state the panel can draw. 1.3 drew it from a module of its own, whose failure left the rest of the
+// page as it was (its panel with no values in it): one it can't draw is not taken, so nothing else of
+// the page goes with it.
+const whole = (s: unknown): s is State => {
+  const v = s as State | null;
+  return !!v && Array.isArray(v.ports) && Array.isArray(v.sites) && Array.isArray(v.extensions);
+};
 
 // A row of a list: not ruled off from the one before it (1.3's lists were blocks of their own).
 const LISTED = '[[data-kind=action]+&]:border-t-0';
@@ -38,7 +45,7 @@ export function SystemPanel() {
   const live = useRef(true);
   useEffect(() => {
     live.current = true;
-    (ask('state') as Promise<State>).then((s) => { if (live.current) setState(s); });
+    (ask('state') as Promise<State>).then((s) => { if (live.current && whole(s)) setState(s); });
     return () => { live.current = false; };
   }, []);
 
@@ -58,8 +65,8 @@ export function SystemPanel() {
 
   if (!state) return null;
   // Each change: what the bridge says the state is after it.
-  const set = async (key: string, value: unknown) => { const next = await ask('set', key, value) as State; if (live.current) setState(next); };
-  const replaced = async (action: string, ...args: unknown[]) => { const next = await ask(action, ...args) as State; if (live.current) setState(next); };
+  const set = async (key: string, value: unknown) => { const next = await ask('set', key, value); if (live.current && whole(next)) setState(next); };
+  const replaced = async (action: string, ...args: unknown[]) => { const next = await ask(action, ...args); if (live.current && whole(next)) setState(next); };
   // Both look for an update at once: followed from the start.
   const followCheck = () => setState((s) => s && { ...s, update: { status: 'checking' } });
   // (Shown as chosen at once, as 1.3's own controls were, before the bridge answers.)
@@ -118,7 +125,7 @@ export function SystemPanel() {
           <span className="desk-actions inline-flex min-w-0 gap-[8px]">
             <Button id="deskInstallUpdate" variant="solid" className="shrink" hidden={!update.ready} onClick={() => ask('installUpdate')}>{t('set.desk_restart_update')}</Button>
             <Button id="deskCheckUpdates" variant="subtle" size="sm" className="shrink" disabled={update.busy}
-              onClick={async () => { const next = await ask('checkUpdates') as State; if (!live.current) return; setState(next); followCheck(); }}>{t('set.desk_check')}</Button>
+              onClick={async () => { const next = await ask('checkUpdates'); if (!live.current) return; if (whole(next)) setState(next); followCheck(); }}>{t('set.desk_check')}</Button>
           </span>
         ))}
         <SettingRow kind="switch" label={t('set.desk_dev')} description={<span id="deskDevDesc">{t('set.desk_dev_desc', { address: state.devFeed })}</span>}
