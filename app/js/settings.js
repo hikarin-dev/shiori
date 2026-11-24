@@ -16,6 +16,7 @@ import { initBenchmarkCard } from './benchmark-ui.js';
 import { confirmDialog, alertDialog } from './notice.js';
 import { customScrollbarAvailable, applyScrollbarPreference } from './scrollbar.js';
 import { prefKeys, readPref, writePref } from './settings-prefs.js';
+import { renderChangelog, CHANGELOG_UNAVAILABLE } from './changelog.js';
 
 initTooltips();
 initDropdowns();
@@ -973,28 +974,12 @@ aboutModal.addEventListener('click', (e) => { if (!e.target.closest('#aboutBox')
 // Version comes from the app's own web manifest.
 fetch('manifest.webmanifest').then(r => r.json()).then(m => { if (m.version) document.getElementById('aboutVersion').textContent = 'v' + m.version; }).catch(() => {});
 
-// Render CHANGELOG.md using marked, with a custom renderer to split version/date in h2.
-marked.use({
-  gfm: true,
-  renderer: {
-    heading({ text, depth }) {
-      if (depth === 1) return '';
-      if (depth === 2) {
-        const m = text.match(/^(.+?) — (.+)$/);
-        if (m) return `<h2><span class="cl-ver">${m[1]}</span><span class="cl-date">${m[2]}</span></h2>\n`;
-        return `<h2>${text}</h2>\n`;
-      }
-      return false;
-    }
-  }
-});
-
+// CHANGELOG.md, drawn by the global marked (vendor/marked.min.js) as changelog.js says.
 (async () => {
   try {
     const text = await fetch('../CHANGELOG.md').then(r => r.text());
-    document.getElementById('aboutChangelog').innerHTML = marked.parse(text);
+    document.getElementById('aboutChangelog').innerHTML = renderChangelog(marked, text);
   } catch {
-    document.getElementById('aboutChangelog').innerHTML =
-      '<p>Changelog unavailable.</p>';
+    document.getElementById('aboutChangelog').innerHTML = CHANGELOG_UNAVAILABLE;
   }
 })();
