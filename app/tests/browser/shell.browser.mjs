@@ -192,7 +192,8 @@ test('the comparison page, not installed, opens with the network and is kept fro
   assert.equal(await until(page, drawn, undefined, { what: 'the components page' }), 21);
   assert.equal(await until(page, async () => {
     const name = (await caches.keys()).find((key) => key.includes('-shell-v'));
-    return (await (await caches.open(name)).keys()).filter((r) => /\/assets\/components-/.test(new URL(r.url).pathname)).length;
+    // (Its script; its stylesheet, the gallery card's, is kept the same way.)
+    return (await (await caches.open(name)).keys()).filter((r) => /\/assets\/components-[\w-]+\.js$/.test(new URL(r.url).pathname)).length;
   }, undefined, { what: 'the chunk kept once asked for' }), 1);
   assert.deepEqual(page.problems, []);
 });
