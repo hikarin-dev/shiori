@@ -9,8 +9,10 @@
 //                while busy; it goes 3.5s after it was said (an error 7s), a busy one stays until the
 //                next line; 28px over the bottom, centred, at most 520 wide; the status layer.
 //   ToastRegion  where a toast stands: fixed at the bottom, centred by layout (a full-width row,
-//                not a translate(-50%): no half pixel under the text), letting the pointer through
-//                around the toast. It is a polite status region and stays in the document, empty
+//                not a translate(-50%): no half pixel under the text), keeping the room of a page
+//                scrollbar that isn't there (--page-scrollbar-gap), as the body does, so it stays
+//                put when the scrollbar comes or goes (rule 12; 1.3's moved by half the bar),
+//                letting the pointer through around the toast. It is a polite status region and stays in the document, empty
 //                between toasts, so a screen reader hears each toast as it comes.
 //
 // The sizes are 1.3's (outside Settings and the dialogs). Nothing moves in or out; the status pill
@@ -30,7 +32,7 @@ function ToastRegion({ place = 'toast', className, ...props }: ComponentProps<'d
       role="status"
       aria-live="polite"
       className={cn(
-        'pointer-events-none fixed inset-x-0 flex justify-center px-[16px] *:pointer-events-auto',
+        'pointer-events-none fixed inset-x-0 flex justify-center pr-[calc(16px+var(--page-scrollbar-gap))] pl-[16px] *:pointer-events-auto',
         place === 'toast' ? 'bottom-[22px] z-toast' : 'bottom-[28px] z-status',
         className,
       )}

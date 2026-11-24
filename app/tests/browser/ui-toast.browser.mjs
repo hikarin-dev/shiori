@@ -33,6 +33,13 @@ test('the toast: 1.3\'s size, its place, busy, closed', async (t) => {
     return [innerHeight - r.bottom, Math.abs((r.left + r.right) / 2 - document.documentElement.clientWidth / 2) < 0.01, getComputedStyle(el).transform, getComputedStyle(el.parentElement).zIndex];
   });
   assert.deepEqual(placed, [22, true, 'none', '10000']);
+  // The page's scrollbar going moves it not at all (rule 12; 1.3's moved by half the bar).
+  const left = () => page.$eval(`${region} [data-slot="toast"]`, (el) => el.getBoundingClientRect().left);
+  const at = await left();
+  await page.evaluate(() => { document.documentElement.style.overflow = 'hidden'; });
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  assert.equal(await left(), at);
+  await page.evaluate(() => { document.documentElement.style.overflow = ''; });
   // Its action: busy, the close gone.
   await page.click(`${region} [data-variant="primary"]`);
   assert.deepEqual(await page.$eval(`${region} [data-slot="toast"]`, (el) => [el.querySelector('[data-variant="primary"]').disabled, el.querySelector('[data-variant="primary"]').textContent, !!el.querySelector('[data-variant="ghost"]')]), [true, 'Updating…', false]);
