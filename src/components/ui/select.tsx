@@ -203,7 +203,7 @@ function Select({ options, value, defaultValue, onValueChange, variant = 'field'
           <SelectPrimitive.Popup
             data-slot="select-list"
             className={cn(
-              'box-border max-h-[calc(8*(1lh+12px)+10px)] overflow-y-auto border border-solid border-border-hover py-[4px] text-foreground shadow-popover outline-none [scrollbar-color:var(--scrollbar-inner-thumb)_transparent] [scrollbar-width:thin]',
+              'box-border max-h-[calc(8*(1lh+12px)+10px)] overflow-y-auto border border-solid border-border-hover py-[4px] text-foreground shadow-popover outline-none',
               GROUND[variant],
               TEXT[s],
               variant === 'ghost' ? 'rounded-6' : up ? 'rounded-t-6 border-b-border' : 'rounded-b-6 border-t-border',
