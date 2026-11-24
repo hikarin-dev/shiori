@@ -140,7 +140,7 @@ test('the reader reads a series across its chapters', async (t) => {
 });
 
 test('settings open, and a full backup restores the library it was taken from', async (t) => {
-  const page = await visit('/app/settings.html', t);
+  const page = await visit('/settings', t);
   if (!page) return;
   const result = await page.evaluate(async () => {
     const api = await import('/app/js/api.js');
@@ -173,7 +173,7 @@ test('settings tell a browser that can\'t pick folders what can: its flags in a 
       if (kind !== 'chromium') Object.defineProperty(Navigator.prototype, 'userAgentData',
         { get: () => (kind === 'phone' ? { brands: [{ brand: 'Chromium' }], mobile: true } : undefined) });
     }, kind);
-    await page.goto(`${origin}/app/settings.html`, { waitUntil: 'load' });
+    await page.goto(`${origin}/settings`, { waitUntil: 'load' });
     const text = await until(page, () => document.querySelector('#foldersSection .lf-note')?.textContent, null, { what: 'the folders card\'s note' });
     await finish(page);
     return text;

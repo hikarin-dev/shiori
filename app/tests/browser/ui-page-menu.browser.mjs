@@ -44,14 +44,17 @@ test('the pages it offers, and its box', async (t) => {
 test('choosing a page that has a file of its own loads it', async (t) => {
   const page = await componentsPage(t, browser, origin);
   if (!page) return;
+  // (The library is the menu's own page here: a gallery's overview is the page with a file of its own
+  // it offers once the address names a gallery.)
+  await page.goto(`${origin}/components?g=1790000001058`, { waitUntil: 'load' });
+  await page.waitForSelector(MENU);
   await page.evaluate(() => { window.stayed = true; });
-  await offered(page, MENU);
+  assert.deepEqual(await offered(page, MENU), ['Library', 'Overview', 'Settings', 'Tasks']);
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'load' }),
     page.click('[data-slot="select-list"] [data-slot="select-option"]:nth-child(2)'),
   ]);
-  await until(page, () => document.title === 'Shiori — Settings', undefined, { what: 'the settings page' });
-  assert.deepEqual(await page.evaluate(() => [window.stayed ?? null, location.pathname]), [null, '/settings'], 'a page load, at its clean address');
+  assert.deepEqual(await page.evaluate(() => [window.stayed ?? null, location.pathname + location.search]), [null, '/overview?g=1790000001058'], 'a page load, at its clean address');
 });
 
 test('choosing a page the one page draws is a route change, no load', async (t) => {

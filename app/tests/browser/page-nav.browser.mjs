@@ -63,8 +63,11 @@ test('each page names itself in the menu and offers the others; picking one goes
   await new Promise((r) => setTimeout(r, 300));   // (a press in the list's first moments is not taken as a choice)
   assert.deepEqual(await page.$$eval('[data-slot="select-list"] [data-slot="select-option"]', (os) => os.map((o) => `${o.textContent}${o.hasAttribute('data-selected') ? '*' : ''}`)),
     ['Library', 'Settings', 'Tasks*']);
-  await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), page.click('[data-slot="select-list"] [data-slot="select-option"]:nth-child(2)')]);
-  assert.equal(new URL(page.url()).pathname, '/settings');
+  // Settings, drawn by the one page too: a route change.
+  await page.evaluate(() => { window.stayed = true; });
+  await page.click('[data-slot="select-list"] [data-slot="select-option"]:nth-child(2)');
+  await until(page, () => location.pathname === '/settings' && document.title === 'Shiori — Settings' && !!document.getElementById('settingsNav'), null, { what: 'Settings' });
+  assert.equal(await page.evaluate(() => window.stayed), true, 'no page load');
 
   const overview = await visit(t, `/overview?g=${GID}`);
   assert.deepEqual(await offered(overview), ['library', 'overview*', 'settings', 'tasks']);
@@ -74,6 +77,26 @@ test('each page names itself in the menu and offers the others; picking one goes
   assert.deepEqual(await offered(reader), ['library', 'overview', 'reader*', 'settings', 'tasks']);
   const to = await go(reader, 'overview');
   assert.deepEqual([to.pathname, to.searchParams.get('g')], ['/overview', GID], "the gallery's own overview");
+});
+
+// Every way into Settings from a page that still has a file of its own (its menu, its Settings button)
+// arrives at /settings, drawn by the one page (its nav, the shiori-app meta saying so); 1.3's Settings
+// read nothing from the address it was opened at, so nothing more is asked of it.
+test('every link into Settings from the library, an overview and the reader arrives at Settings, drawn by the one page', { skip: !chromePath() }, async t => {
+  const arrived = (page) => until(page, () => location.pathname === '/settings' && location.search === '' && document.title === 'Shiori — Settings'
+    && !!document.getElementById('settingsNav') && document.querySelector('meta[name="shiori-app"]')?.content === 'settings', null, { what: 'Settings' });
+  for (const path of ['/library', `/overview?g=${GID}`, `/reader?g=${GID}`]) {
+    const page = await visit(t, path);
+    await go(page, 'settings');
+    await arrived(page);
+    assert.deepEqual(page.problems, [], `${path}: its menu`);
+  }
+  for (const path of ['/library', `/overview?g=${GID}`]) {
+    const page = await visit(t, path);
+    await page.click('#settingsBtn');
+    await arrived(page);
+    assert.deepEqual(page.problems, [], `${path}: its Settings button`);
+  }
 });
 
 test("on a phone the menu stays in every header, and the reader's classic bar still fits", { skip: !chromePath() }, async t => {

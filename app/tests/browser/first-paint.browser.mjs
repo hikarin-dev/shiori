@@ -124,10 +124,10 @@ test('/tasks: the frame painted before the app runs; the page fills it with the 
 // 520px or less.
 const SETTINGS_BRAND = (x) => ({ brand: [x, 14.5, 84.203125, 24], icon: [x, 14.5, 24, 24], text: [x + 32, 17.5, 52.203125, 18] });
 for (const [name, size, x] of [['desktop', { width: 1280, height: 900 }, 20], ['phone', { width: 390, height: 844, isMobile: true, hasTouch: true }, 12]]) {
-  test(`${name}, Settings (/settings-next): the frame is painted in Settings' form before the app runs, as 1.3 draws it; the page fills it with the brand where it was`, async (t) => {
+  test(`${name}, Settings (/settings): the frame is painted in Settings' form before the app runs, as 1.3 draws it; the page fills it with the brand where it was`, async (t) => {
     const page = await fresh(t, { size });
     if (!page) return;
-    await page.goto(`${origin}/settings-next`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${origin}/settings`, { waitUntil: 'domcontentloaded' });
     await until(page, async () => { await document.fonts.ready; return document.querySelector('.brand-icon img').complete && document.fonts.check('700 15px "JetBrains Mono"'); },
       undefined, { what: 'the frame\'s font and icon' });
     await until(page, () => performance.getEntriesByType('paint').length > 0, undefined, { what: 'a paint' });

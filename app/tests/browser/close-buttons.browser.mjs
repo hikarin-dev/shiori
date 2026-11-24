@@ -64,16 +64,7 @@ test('every close button is the reader settings\' X', async (t) => {
   got.toast = await page.evaluate(look, '.notice-toast .icon-btn');
   const problems = [...page.problems];
   await page.close();
-
-  const settings = await openPage(browser, origin);
-  await settings.goto(`${origin}/app/settings.html`, { waitUntil: 'load' });
-  for (const [where, modal, button] of [['about', 'aboutModal', '#aboutClose'], ['translate', 'translateModal', '#translateClose']]) {
-    await settings.evaluate((id) => document.getElementById(id).classList.add('show'), modal);
-    got[where] = await settings.evaluate(look, button);
-    await settings.evaluate((id) => document.getElementById(id).classList.remove('show'), modal);
-  }
-  problems.push(...settings.problems);
-  await settings.close();
+  // (Settings' dialogs are the app's Dialog, its corner X held by ui-dialog.browser.)
 
   for (const [where, button] of Object.entries(got)) assert.deepEqual(button, model, `the ${where} close button`);
   assert.deepEqual(problems, [], 'the pages left nothing unhandled');

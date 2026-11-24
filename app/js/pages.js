@@ -13,18 +13,18 @@ export const APP_PAGE = 'index.html';
 export const PAGES = Object.freeze({
   '': 'app/library.html',
   library: 'app/library.html',
-  settings: 'app/settings.html',
+  settings: APP_PAGE,
   reader: 'app/reader.html',
   overview: 'app/overview.html',
   tasks: APP_PAGE,
   components: APP_PAGE,
-  'settings-next': APP_PAGE,   // Settings as the one page draws it, until it answers 'settings'
 });
 
 // The files of pages the one page now draws, gone with their port, by the address each moved to: a
 // bookmark or link to the old file is sent on to it (the query kept) wherever an address is answered.
 export const MOVED = Object.freeze({
   'app/tasks.html': 'tasks',
+  'app/settings.html': 'settings',
 });
 
 // Where the old file `path` (a path from the site's root, without its first slash) moved to, or null.

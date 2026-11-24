@@ -20,8 +20,5 @@ export const ROUTES: Readonly<Record<string, Route>> = {
   // The comparison page: no page of the app, and its chunk would be a tenth of what installs.
   components: { page: 'components', app: false, header: true, installed: false },
   tasks: { page: 'tasks', app: true, header: true, installed: true },
-  // Settings as the one page draws it, beside 1.3's page (/settings) until it takes that address: its
-  // meta says "settings" (its optional panel's contract is read from it; 1.3's page says "options"),
-  // and it is not installed.
-  'settings-next': { page: 'settings', app: true, header: true, installed: false, form: 'settings' },
+  settings: { page: 'settings', app: true, header: true, installed: true, form: 'settings' },
 };

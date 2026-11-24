@@ -61,29 +61,38 @@ async function paintedTrack(page, selector) {
 
 test('settings dialogs share the dropdown native profile and switch to overlays', { skip: !chromePath() }, async t => {
   const page = await fresh(t);
-  const dropdown = await nativeStyle(page, '#langSelect', '::picker(select)');
-  assert.deepEqual(dropdown, { width: 'thin', color: 'rgb(82, 82, 92) rgba(0, 0, 0, 0)' });
-  for (const [modal, scroller] of [
-    ['#aboutModal', '#aboutChangelog'], ['#translateModal', '#translateModal .about-scroll'],
-    ['#backupModal', '#backupModal .dialog-body'],
+  await page.waitForSelector('#settingsNav');
+  // The dropdown profile: a select's list, 1.3's native one's and the app's drawn one alike.
+  const dropdown = { width: 'thin', color: 'rgb(82, 82, 92) rgba(0, 0, 0, 0)' };
+  await page.click('#langSelect');
+  await page.waitForSelector('[data-slot="select-list"][data-open]');
+  assert.deepEqual(await nativeStyle(page, '[data-slot="select-list"][data-open]'), dropdown, 'the language list');
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('[data-slot="select-list"][data-open]'));
+  // Each dialog is drawn when opened: by its button, on its panel.
+  for (const [nav, button, box, scroller] of [
+    [null, '#aboutBtn', '#aboutBox', '#aboutChangelog'], ['#navTranslation', '#openTranslateModalBtn', '#translateBox', '#translateBox [data-slot="dialog-body"]'],
+    ['#navStorage', '#exportBackupBtn', '#backupBox', '#backupBox [data-slot="dialog-body"]'],
   ]) {
-    await page.evaluate(({ modal, scroller }) => {
-      const target = document.querySelector(scroller);
+    if (nav) await page.click(nav);
+    await page.click(button);
+    await page.waitForSelector(scroller);
+    await page.evaluate((scroller) => {
       const content = document.createElement('div');
       content.style.cssText = 'min-height:2400px;flex:none';
-      target.append(content);
-      document.querySelector(modal).classList.add('show');
-    }, { modal, scroller });
+      document.querySelector(scroller).append(content);
+    }, scroller);
     await page.evaluate(() => document.fonts.ready);
     assert.ok(await page.$eval(scroller, el => el.scrollHeight > el.clientHeight));
-    assert.deepEqual(await nativeStyle(page, scroller), dropdown, modal);
-    assert.deepEqual(await paintedTrack(page, scroller), [22, 22, 26], `${modal} track must reveal the dialog background`);
+    assert.deepEqual(await nativeStyle(page, scroller), dropdown, box);
+    assert.deepEqual(await paintedTrack(page, scroller), [22, 22, 26], `${box} track must reveal the dialog background`);
     await preference(page, true);
     await page.waitForSelector(scroller + ' > .scrollbar-host');
-    assert.equal(await page.$eval(scroller, el => el.offsetWidth - el.clientWidth), 0, modal);
+    assert.equal(await page.$eval(scroller, el => el.offsetWidth - el.clientWidth), 0, box);
     await preference(page, false);
-    assert.deepEqual(await nativeStyle(page, scroller), dropdown, `${modal} must restore native styling`);
-    await page.$eval(modal, el => el.classList.remove('show'));
+    assert.deepEqual(await nativeStyle(page, scroller), dropdown, `${box} must restore native styling`);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction((box) => !document.querySelector(box), {}, box);
   }
   assert.deepEqual(await nativeStyle(page, 'html'), { width: 'auto', color: 'rgb(149, 149, 149) rgb(23, 23, 23)' });
 });

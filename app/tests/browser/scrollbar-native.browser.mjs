@@ -107,12 +107,15 @@ test('experimental toggle persists and restores native controls and picker struc
   assert.equal(await page.$eval('#experimentalSection', el => el.closest('.panel').id), 'panelLibrary');
   assert.equal(await page.$('.scrollbar-host'), null);
   assert.equal(await page.$('#langSelect .dd-options'), null);
-  const selection = await page.$eval('#langSelect', el => el.value);
-  await page.click('label[for="customScrollbar"]');
+  // (Settings' selects are the app's drawn ones whether or not the bars are drawn: 1.3's swapped its
+  // native selects for scrollbar.js's lists while they were.)
+  const selection = await page.$eval('#langSelect', el => el.dataset.value);
+  const flip = async (p) => (await p.evaluateHandle(() => document.getElementById('customScrollbar').parentElement.querySelector('[role="switch"]'))).click();
+  await flip(page);
   await page.waitForSelector('.page-scrollbar');
   assert.equal(await page.evaluate(() => innerWidth - document.documentElement.clientWidth), 0);
-  assert.ok(await page.$('#langSelect .dd-options'));
-  assert.equal(await page.$eval('#langSelect', el => el.value), selection);
+  assert.equal(await page.$('#langSelect .dd-options'), null);
+  assert.equal(await page.$eval('#langSelect', el => el.dataset.value), selection);
   // A second tab reads the persisted preference and follows later changes.
   const other = await openPage(browser, origin);
   t.after(() => other.close());
@@ -120,11 +123,11 @@ test('experimental toggle persists and restores native controls and picker struc
   await other.waitForSelector('.page-scrollbar');
   assert.equal(await other.$eval('#customScrollbar', el => el.checked), true);
   await page.bringToFront();
-  await page.click('label[for="customScrollbar"]');
+  await flip(page);
   await page.waitForFunction(() => !document.querySelector('.scrollbar-host'));
   await other.waitForFunction(() => !document.querySelector('.scrollbar-host'), { polling: 50 });
   assert.equal(await page.$('#langSelect .dd-options'), null);
-  assert.equal(await page.$eval('#langSelect', el => el.value), selection);
+  assert.equal(await page.$eval('#langSelect', el => el.dataset.value), selection);
   assert.equal(await other.$eval('#customScrollbar', el => el.checked), false);
   const cdp = await page.createCDPSession();
   const scripts = new Map();

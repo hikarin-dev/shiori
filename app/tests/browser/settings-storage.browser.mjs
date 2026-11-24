@@ -23,7 +23,7 @@ import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 import { record, normalised } from './records.mjs';
 
-const NEW = '/settings-next';   // step 5e: '/settings'
+const NEW = '/settings';
 const FILE = 'settings-storage.browser.mjs';
 
 let server, origin, browser;
@@ -46,7 +46,7 @@ function helpers() {
   const shown = (el) => !!el && el.getClientRects().length > 0;
   // The dialog on top: notice.js's on 1.3's page, the notice host's on the new one (both say role).
   const dialogs = () => [...document.querySelectorAll('[role="dialog"], [role="alertdialog"]')].filter(shown)
-    .filter((d) => !d.closest('#backupModal, #backupBox, #aboutModal, #aboutBox, #translateModal, #translateBox') || d.matches('#backupBox'));
+    .filter((d) => !d.closest('#backupBox, #aboutBox, #translateBox') || d.matches('#backupBox'));
   window.__s = {
     rows: () => [...document.querySelectorAll('#foldersSection .lf-item')].map((r) => ({
       name: r.querySelector('.lf-title')?.textContent ?? '',
@@ -441,7 +441,7 @@ test('a library the desktop app keeps, seen from a site: only the location, no u
 
 test('Export…: the choice opens with its first card focused; Escape closes it and focus goes back; each choice starts what 1.3 starts', async (t) => {
   if (skip(t)) return;
-  const open1 = () => !!document.querySelector('#backupModal.show, #backupBox');
+  const open1 = () => !!document.querySelector('#backupBox');
   const now = await one(t, async (page) => {
     await page.click('#exportBackupBtn');
     await until(page, open1, null, { what: 'the choice' });
@@ -449,7 +449,7 @@ test('Export…: the choice opens with its first card focused; Escape closes it 
     const focus = await run(page, () => document.activeElement?.id);
     const choice = await run(page, () => [...document.querySelectorAll('#backupMetaBtn, #backupFullBtn, #backupCancelBtn')].map((b) => b.textContent.trim()));
     await page.keyboard.press('Escape');
-    await until(page, (s) => !document.querySelector(s), '#backupModal.show, #backupBox', { what: 'closed' });
+    await until(page, (s) => !document.querySelector(s), '#backupBox', { what: 'closed' });
     const back = await until(page, () => document.activeElement?.id === 'exportBackupBtn' && 'exportBackupBtn', null, { what: 'focus back' });
     const results = {};
     for (const kind of ['backupMetaBtn', 'backupFullBtn']) {
@@ -466,7 +466,7 @@ test('Export…: the choice opens with its first card focused; Escape closes it 
     await until(page, open1, null, { what: 'the choice' });
     await pause(100);
     await page.click('#backupCancelBtn');
-    await until(page, (s) => !document.querySelector(s), '#backupModal.show, #backupBox', { what: 'closed' });
+    await until(page, (s) => !document.querySelector(s), '#backupBox', { what: 'closed' });
     return { focus, choice, back, results };
   });
   const was = record(FILE, 'export');
@@ -757,7 +757,7 @@ test('the phone form: nothing runs past the cards or the screen, the buttons und
   assert.deepEqual(was, { scroll: 0, out: [], exportFull: true, rows: 3 });
 });
 
-test('leaving the page leaves nothing behind: /settings-next → /tasks → /settings-next, five times, a folder\'s menu and the export choice opened each time', async (t) => {
+test('leaving the page leaves nothing behind: /settings → /tasks → /settings, five times, a folder\'s menu and the export choice opened each time', async (t) => {
   if (skip(t)) return;
   const context = await browser.createBrowserContext();
   t.after(() => context.close().catch(() => {}));
@@ -775,7 +775,7 @@ test('leaving the page leaves nothing behind: /settings-next → /tasks → /set
   page.problems.length = 0;
   await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await until(page, () => !!document.getElementById('tkList'), null, { what: 'Tasks' });
-  await page.evaluate(() => { const a = document.createElement('a'); a.href = '/settings-next'; a.id = 'toSettings'; document.body.append(a); });
+  await page.evaluate(() => { const a = document.createElement('a'); a.href = '/settings'; a.id = 'toSettings'; document.body.append(a); });
   const held = async () => {
     const cdp = await page.createCDPSession();
     const listeners = async (expr) => {
@@ -828,7 +828,7 @@ test('a library kept as files (stand-ins for its count): its own figure and tip,
     api.diskWrites.get = async () => { window.__counts.get++; return window.__counts.desk; };
     api.diskWrites.reset = async () => { window.__counts.reset++; window.__counts.desk = { total: 0, by: {} }; };
     platform.writes.get = async () => window.__counts.own;
-    const a = document.createElement('a'); a.href = '/settings-next'; a.id = 'toSettings'; document.body.append(a);
+    const a = document.createElement('a'); a.href = '/settings'; a.id = 'toSettings'; document.body.append(a);
   });
   await page.$eval('#toSettings', (a) => a.click());
   await shownStorage(page);

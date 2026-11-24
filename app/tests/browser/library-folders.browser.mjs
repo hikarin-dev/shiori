@@ -559,7 +559,7 @@ test('a folder out of reach keeps new pictures in the browser, and they move out
 // Settings as the one page draws it (src/routes/settings/folders.tsx). Its questions are the notice
 // host's: a dialog (role dialog or alertdialog) with its title, its words, its buttons, and for the
 // remove question a switch and a list (the dialog helpers of settings-storage.browser.mjs).
-const SETTINGS = '/settings-next';   // step 5e: '/settings'
+const SETTINGS = '/settings';
 function settingsHelpers() {
   const shown = (el) => !!el && el.getClientRects().length > 0;
   const dialogs = () => [...document.querySelectorAll('[role="dialog"], [role="alertdialog"]')].filter(shown);

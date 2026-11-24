@@ -25,10 +25,8 @@ import { startServer, chromePath, launch, openPage, until } from './harness.mjs'
 import { startTranslator, CAPS } from './stand-in-translator.mjs';
 import { record, normalised } from './records.mjs';
 
-const NEW = '/settings-next';   // step 5e: '/settings'
+const NEW = '/settings';
 const FILE = 'settings-translation.browser.mjs';
-const OLD = '/settings';        // 1.3's page, while it answers /settings
-const PAGES = [['1.3\'s page', OLD], ['the new page', NEW]];
 
 let server, origin, browser, tr, away, scratch;
 before(async () => {
@@ -78,7 +76,7 @@ const configured = (url = tr.origin) => ({ 'shiori:translateSettings': JSON.stri
 const raw = (page) => page.evaluate(() => localStorage.getItem('shiori:translateSettings'));
 const drawnCaps = (page) => until(page, () => !!document.getElementById('step-detect') && document.getElementById('translateStatusBadge').textContent !== '○ Checking…', null, { what: 'the capabilities drawn' });
 
-// A control's value on either page: a <select>'s, a drawn select's (data-value), a box's.
+// A control's value: a drawn select's (data-value), a native one's or a box's.
 const value = (page, sel) => page.$eval(sel, (el) => (el.tagName === 'SELECT' ? el.value : el.dataset.value ?? el.value));
 const exists = (page, sel) => page.evaluate((sel) => !!document.querySelector(sel), sel);
 
@@ -109,7 +107,7 @@ async function tick(page, param) {
   if (await exists(page, `[data-slot="checkbox"][data-param="${param}"]`)) await page.click(`[data-slot="checkbox"][data-param="${param}"]`);
   else await page.click(`input[type="checkbox"][data-param="${param}"]`);
 }
-const modalOpen = () => !!document.querySelector('#translateModal.show, #translateBox[data-open]');
+const modalOpen = () => !!document.querySelector('#translateBox[data-open]');
 async function openWindow(page) {
   await page.click('#openTranslateModalBtn');
   await until(page, modalOpen, null, { what: 'the advanced window' });
@@ -200,20 +198,18 @@ test('the stored settings: every edit stores the text 1.3\'s page stored, and sa
   assert.equal(was.at(-2)[1], was.at(-3)[1], 'a reset cancelled stores nothing');
 });
 
-test('a box stores nothing until it is left: typing alone changes nothing, on either page', async (t) => {
+test('a box stores nothing until it is left: typing alone changes nothing', async (t) => {
   if (skip(t)) return;
-  for (const [, path] of PAGES) {
-    const page = await open(t, path, { storage: configured() });
-    await drawnCaps(page);
-    await openWindow(page);
-    await fold(page, true);
-    const before = await raw(page);
-    await type(page, '[data-param="render.font_color"]', '#abc', { leave: false });
-    await pause(300);
-    assert.equal(await raw(page), before, `${path}: not while typing`);
-    await page.keyboard.press('Enter');
-    await until(page, () => JSON.parse(localStorage.getItem('shiori:translateSettings') || '{}').params?.['render.font_color'] === '#abc', null, { what: 'stored on Enter' });
-  }
+  const page = await open(t, NEW, { storage: configured() });
+  await drawnCaps(page);
+  await openWindow(page);
+  await fold(page, true);
+  const before = await raw(page);
+  await type(page, '[data-param="render.font_color"]', '#abc', { leave: false });
+  await pause(300);
+  assert.equal(await raw(page), before, 'not while typing');
+  await page.keyboard.press('Enter');
+  await until(page, () => JSON.parse(localStorage.getItem('shiori:translateSettings') || '{}').params?.['render.font_color'] === '#abc', null, { what: 'stored on Enter' });
 });
 
 test('what is read at load: each stored form shows and stores as 1.3\'s page shows and stores it (an older schema migrated once)', async (t) => {
@@ -243,145 +239,137 @@ test('what is read at load: each stored form shows and stores as 1.3\'s page sho
 });
 
 // ── The server's status ─────────────────────────────────────────────────────────────────────────
-for (const [name, path] of PAGES) {
-  test(`the status badge through checking, online and offline, on ${name}`, async (t) => {
-    if (skip(t)) return;
-    tr.state.delay = 600;
-    t.after(() => { tr.state.delay = 0; tr.state.online = true; });
-    const page = await open(t, path, { storage: configured() });
-    const look = () => page.evaluate(() => ({ text: document.getElementById('translateStatusBadge').textContent, busy: document.getElementById('checkTranslateBtn').getAttribute('aria-busy') }));
-    assert.deepEqual(await until(page, () => document.getElementById('translateStatusBadge').textContent === '○ Checking…' && { text: '○ Checking…', busy: document.getElementById('checkTranslateBtn').getAttribute('aria-busy') }, null, { what: 'checking' }),
-      { text: '○ Checking…', busy: 'true' });
-    await until(page, () => document.getElementById('translateStatusBadge').textContent === '● Server online', null, { what: 'online' });
-    assert.deepEqual(await look(), { text: '● Server online', busy: 'false' });
-    assert.equal(await page.$eval('#translationBenchmark', (el) => !el.hidden && getComputedStyle(el).display !== 'none'), true, 'the benchmark, for a local server that answers');
-    // (A server that is down answers at once: "Checking…" may stand for less than one look at the
-    // page, so what the badge says is kept as it changes.)
-    await page.evaluate(() => {
-      const said = window.__badge = [document.getElementById('translateStatusBadge').textContent];
-      new MutationObserver(() => { const text = document.getElementById('translateStatusBadge').textContent; if (said.at(-1) !== text) said.push(text); })
-        .observe(document.body, { childList: true, characterData: true, subtree: true });
-    });
-    tr.state.online = false;
-    await page.click('#checkTranslateBtn');
-    await until(page, () => document.getElementById('translateStatusBadge').textContent === '○ Server offline', null, { what: 'offline' });
-    assert.deepEqual(await page.evaluate(() => window.__badge), ['● Server online', '○ Checking…', '○ Server offline'], 'checking again, then offline');
-    assert.deepEqual(await look(), { text: '○ Server offline', busy: 'false' });
-    assert.equal(await page.$eval('#translationBenchmark', (el) => el.hidden || getComputedStyle(el).display === 'none'), true, 'no benchmark once it stops answering');
-    assert.deepEqual(page.problems.filter((p) => !/Failed to load resource/.test(p)), []);
+test(`the status badge through checking, online and offline`, async (t) => {
+  if (skip(t)) return;
+  tr.state.delay = 600;
+  t.after(() => { tr.state.delay = 0; tr.state.online = true; });
+  const page = await open(t, NEW, { storage: configured() });
+  const look = () => page.evaluate(() => ({ text: document.getElementById('translateStatusBadge').textContent, busy: document.getElementById('checkTranslateBtn').getAttribute('aria-busy') }));
+  assert.deepEqual(await until(page, () => document.getElementById('translateStatusBadge').textContent === '○ Checking…' && { text: '○ Checking…', busy: document.getElementById('checkTranslateBtn').getAttribute('aria-busy') }, null, { what: 'checking' }),
+    { text: '○ Checking…', busy: 'true' });
+  await until(page, () => document.getElementById('translateStatusBadge').textContent === '● Server online', null, { what: 'online' });
+  assert.deepEqual(await look(), { text: '● Server online', busy: 'false' });
+  assert.equal(await page.$eval('#translationBenchmark', (el) => !el.hidden && getComputedStyle(el).display !== 'none'), true, 'the benchmark, for a local server that answers');
+  // (A server that is down answers at once: "Checking…" may stand for less than one look at the
+  // page, so what the badge says is kept as it changes.)
+  await page.evaluate(() => {
+    const said = window.__badge = [document.getElementById('translateStatusBadge').textContent];
+    new MutationObserver(() => { const text = document.getElementById('translateStatusBadge').textContent; if (said.at(-1) !== text) said.push(text); })
+      .observe(document.body, { childList: true, characterData: true, subtree: true });
   });
+  tr.state.online = false;
+  await page.click('#checkTranslateBtn');
+  await until(page, () => document.getElementById('translateStatusBadge').textContent === '○ Server offline', null, { what: 'offline' });
+  assert.deepEqual(await page.evaluate(() => window.__badge), ['● Server online', '○ Checking…', '○ Server offline'], 'checking again, then offline');
+  assert.deepEqual(await look(), { text: '○ Server offline', busy: 'false' });
+  assert.equal(await page.$eval('#translationBenchmark', (el) => el.hidden || getComputedStyle(el).display === 'none'), true, 'no benchmark once it stops answering');
+  assert.deepEqual(page.problems.filter((p) => !/Failed to load resource/.test(p)), []);
+});
 
-  test(`nothing is contacted before a server is configured; Check asks the default address, on ${name}`, async (t) => {
-    if (skip(t)) return;
-    const asked = tr.state.requests.length;
-    const page = await open(t, path, { storage: {} });
-    await until(page, () => document.getElementById('translateStatusBadge').textContent === '○ Server offline', null, { what: 'offline at once' });
-    await openWindow(page);
-    await pause(1500);
-    assert.deepEqual(page.refused, [], 'no request left for any server');
-    assert.equal(tr.state.requests.length, asked);
-    assert.equal(await raw(page), null, 'nothing stored');
-    assert.equal(await page.$eval('#resetTranslateBtn', (b) => b.disabled), true, 'Reset off: nothing known of a server');
-    assert.equal(await page.$eval('#translateCapsNote', (n) => n.textContent), 'Connect to a translation server to choose models.');
-    await page.keyboard.press('Escape');
-    await until(page, () => !(document.querySelector('#translateModal.show, #translateBox[data-open]')), null, { what: 'closed' });
-    await page.click('#checkTranslateBtn');
-    await until(page, () => document.getElementById('translateStatusBadge').textContent === '○ Server offline' && document.getElementById('checkTranslateBtn').getAttribute('aria-busy') === 'false', null, { what: 'checked' });
-    assert.ok(page.refused.includes('http://127.0.0.1:5003/stats'), `Check asked the default address (refused by the harness: ${page.refused})`);
-    assert.equal(await raw(page), null, 'still nothing stored');
-  });
-}
+test(`nothing is contacted before a server is configured; Check asks the default address`, async (t) => {
+  if (skip(t)) return;
+  const asked = tr.state.requests.length;
+  const page = await open(t, NEW, { storage: {} });
+  await until(page, () => document.getElementById('translateStatusBadge').textContent === '○ Server offline', null, { what: 'offline at once' });
+  await openWindow(page);
+  await pause(1500);
+  assert.deepEqual(page.refused, [], 'no request left for any server');
+  assert.equal(tr.state.requests.length, asked);
+  assert.equal(await raw(page), null, 'nothing stored');
+  assert.equal(await page.$eval('#resetTranslateBtn', (b) => b.disabled), true, 'Reset off: nothing known of a server');
+  assert.equal(await page.$eval('#translateCapsNote', (n) => n.textContent), 'Connect to a translation server to choose models.');
+  await page.keyboard.press('Escape');
+  await until(page, () => !(document.querySelector('#translateBox[data-open]')), null, { what: 'closed' });
+  await page.click('#checkTranslateBtn');
+  await until(page, () => document.getElementById('translateStatusBadge').textContent === '○ Server offline' && document.getElementById('checkTranslateBtn').getAttribute('aria-busy') === 'false', null, { what: 'checked' });
+  assert.ok(page.refused.includes('http://127.0.0.1:5003/stats'), `Check asked the default address (refused by the harness: ${page.refused})`);
+  assert.equal(await raw(page), null, 'still nothing stored');
+});
 
 test('the benchmark only for a server on this machine: one elsewhere that answers gets none', async (t) => {
   if (skip(t)) return;
   if (!away) { t.skip('no second loopback address'); return; }
-  for (const [, path] of PAGES) {
-    const page = await open(t, path, { storage: configured(away.origin) });
-    await until(page, () => document.getElementById('translateStatusBadge').textContent === '● Server online', null, { what: 'online' });
-    await pause(200);
-    assert.equal(await page.$eval('#translationBenchmark', (el) => el.hidden || getComputedStyle(el).display === 'none'), true, path);
-  }
+  const page = await open(t, NEW, { storage: configured(away.origin) });
+  await until(page, () => document.getElementById('translateStatusBadge').textContent === '● Server online', null, { what: 'online' });
+  await pause(200);
+  assert.equal(await page.$eval('#translationBenchmark', (el) => el.hidden || getComputedStyle(el).display === 'none'), true, NEW);
 });
 
 // ── What depends on what ────────────────────────────────────────────────────────────────────────
-for (const [name, path] of PAGES) {
-  test(`what depends on what, on ${name}`, async (t) => {
-    if (skip(t)) return;
-    const page = await open(t, path, { storage: configured() });
-    await drawnCaps(page);
-    // The pipeline's translator and the window's engine are one choice.
-    await choose(page, '#step-translate', '"sugoi"', implIndex('translate', 'sugoi'));
-    await openWindow(page);
-    assert.equal(await value(page, '[data-param="translator.translator"]:not(#step-translate)'), '"sugoi"', 'the window follows the pipeline');
-    await choose(page, '[data-param="translator.translator"]:not(#step-translate)', '"gemini"', implIndex('translate', 'gemini'));
-    await until(page, () => (document.getElementById('step-translate').value ?? '') === '"gemini"' || document.getElementById('step-translate').dataset.value === '"gemini"', null, { what: 'the pipeline follows the window' });
-    // The panel's language and the window's target are one choice.
-    await page.keyboard.press('Escape');
-    await until(page, () => !(document.querySelector('#translateModal.show, #translateBox[data-open]')), null, { what: 'closed' });
-    await choose(page, '#translateLanguage', '"JPN"', langIndex('JPN'));
-    await openWindow(page);
-    assert.equal(await value(page, '[data-param="translator.target_lang"]:not(#translateLanguage)'), '"JPN"');
-    // A preset fills its options; an option changed by hand makes it Custom.
-    await choose(page, '[data-preset]', '"fast"', presetIndex('fast'));
-    await fold(page, true);
-    assert.deepEqual([await value(page, '[data-param="inpainter.inpainting_size"]'), await value(page, '[data-param="mask_dilation_offset"]'), await value(page, '[data-param="kernel_size"]')], ['1024', '20', '3']);
-    await type(page, '[data-param="kernel_size"]', '9');
-    await until(page, () => { const p = document.querySelector('[data-preset]'); return (p.value ?? p.dataset.value) === '"custom"' || p.dataset.value === '"custom"'; }, null, { what: 'Custom' });
-    // Batch caps only for the translators that take one.
-    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('[data-batch]')].map((el) => el.dataset.batch).sort()), ['chatgpt', 'gemini']);
-    // The fold hides all it holds.
-    await fold(page, false);
-    assert.equal(await page.$eval('[data-param="kernel_size"]', (el) => el.getClientRects().length), 0, 'folded away');
-    assert.equal(await page.$eval('[data-param="translator.content_screen_prompt"]', (el) => el.getClientRects().length > 0), true, 'the grouped options stay');
-    // The note: a model the server doesn't offer.
-    assert.equal(await page.$eval('#translateCapsNote', (n) => n.hidden || getComputedStyle(n).display === 'none'), true, 'no note while all is offered');
-    assert.equal(await page.$eval('#resetTranslateBtn', (b) => b.disabled), false);
-    assert.deepEqual(page.problems, []);
-  });
+test(`what depends on what`, async (t) => {
+  if (skip(t)) return;
+  const page = await open(t, NEW, { storage: configured() });
+  await drawnCaps(page);
+  // The pipeline's translator and the window's engine are one choice.
+  await choose(page, '#step-translate', '"sugoi"', implIndex('translate', 'sugoi'));
+  await openWindow(page);
+  assert.equal(await value(page, '[data-param="translator.translator"]:not(#step-translate)'), '"sugoi"', 'the window follows the pipeline');
+  await choose(page, '[data-param="translator.translator"]:not(#step-translate)', '"gemini"', implIndex('translate', 'gemini'));
+  await until(page, () => (document.getElementById('step-translate').value ?? '') === '"gemini"' || document.getElementById('step-translate').dataset.value === '"gemini"', null, { what: 'the pipeline follows the window' });
+  // The panel's language and the window's target are one choice.
+  await page.keyboard.press('Escape');
+  await until(page, () => !(document.querySelector('#translateBox[data-open]')), null, { what: 'closed' });
+  await choose(page, '#translateLanguage', '"JPN"', langIndex('JPN'));
+  await openWindow(page);
+  assert.equal(await value(page, '[data-param="translator.target_lang"]:not(#translateLanguage)'), '"JPN"');
+  // A preset fills its options; an option changed by hand makes it Custom.
+  await choose(page, '[data-preset]', '"fast"', presetIndex('fast'));
+  await fold(page, true);
+  assert.deepEqual([await value(page, '[data-param="inpainter.inpainting_size"]'), await value(page, '[data-param="mask_dilation_offset"]'), await value(page, '[data-param="kernel_size"]')], ['1024', '20', '3']);
+  await type(page, '[data-param="kernel_size"]', '9');
+  await until(page, () => { const p = document.querySelector('[data-preset]'); return (p.value ?? p.dataset.value) === '"custom"' || p.dataset.value === '"custom"'; }, null, { what: 'Custom' });
+  // Batch caps only for the translators that take one.
+  assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('[data-batch]')].map((el) => el.dataset.batch).sort()), ['chatgpt', 'gemini']);
+  // The fold hides all it holds.
+  await fold(page, false);
+  assert.equal(await page.$eval('[data-param="kernel_size"]', (el) => el.getClientRects().length), 0, 'folded away');
+  assert.equal(await page.$eval('[data-param="translator.content_screen_prompt"]', (el) => el.getClientRects().length > 0), true, 'the grouped options stay');
+  // The note: a model the server doesn't offer.
+  assert.equal(await page.$eval('#translateCapsNote', (n) => n.hidden || getComputedStyle(n).display === 'none'), true, 'no note while all is offered');
+  assert.equal(await page.$eval('#resetTranslateBtn', (b) => b.disabled), false);
+  assert.deepEqual(page.problems, []);
+});
 
-  test(`the window's note: a kept copy while the server is down, a model it no longer offers, on ${name}`, async (t) => {
-    if (skip(t)) return;
-    const page = await open(t, path, { storage: { ...configured(), 'shiori:translateSettings': JSON.stringify({ schema: 3, serverUrl: tr.origin, params: { 'ocr.ocr': 'gone' } }) } });
-    await drawnCaps(page);
-    await openWindow(page);
-    assert.match(await page.$eval('#translateCapsNote', (n) => n.textContent), /gone/);
-    tr.state.online = false;
-    t.after(() => { tr.state.online = true; });
-    await page.keyboard.press('Escape');
-    await until(page, () => !(document.querySelector('#translateModal.show, #translateBox[data-open]')), null, { what: 'closed' });
-    await page.click('#checkTranslateBtn');
-    await until(page, () => document.getElementById('translateStatusBadge').textContent === '○ Server offline', null, { what: 'offline' });
-    await pause(300);
-    await openWindow(page);
-    const note = await page.$eval('#translateCapsNote', (n) => n.textContent);
-    const cached = await page.evaluate(async () => (await import('/app/js/i18n.js')).t('tm.caps_cached'));
-    assert.ok(note.startsWith(cached), `the kept copy said: ${note}`);
-    assert.equal(await exists(page, '#step-detect'), true, 'its choices still drawn');
-  });
-}
+test(`the window's note: a kept copy while the server is down, a model it no longer offers`, async (t) => {
+  if (skip(t)) return;
+  const page = await open(t, NEW, { storage: { ...configured(), 'shiori:translateSettings': JSON.stringify({ schema: 3, serverUrl: tr.origin, params: { 'ocr.ocr': 'gone' } }) } });
+  await drawnCaps(page);
+  await openWindow(page);
+  assert.match(await page.$eval('#translateCapsNote', (n) => n.textContent), /gone/);
+  tr.state.online = false;
+  t.after(() => { tr.state.online = true; });
+  await page.keyboard.press('Escape');
+  await until(page, () => !(document.querySelector('#translateBox[data-open]')), null, { what: 'closed' });
+  await page.click('#checkTranslateBtn');
+  await until(page, () => document.getElementById('translateStatusBadge').textContent === '○ Server offline', null, { what: 'offline' });
+  await pause(300);
+  await openWindow(page);
+  const note = await page.$eval('#translateCapsNote', (n) => n.textContent);
+  const cached = await page.evaluate(async () => (await import('/app/js/i18n.js')).t('tm.caps_cached'));
+  assert.ok(note.startsWith(cached), `the kept copy said: ${note}`);
+  assert.equal(await exists(page, '#step-detect'), true, 'its choices still drawn');
+});
 
 // ── The window ──────────────────────────────────────────────────────────────────────────────────
-for (const [name, path] of PAGES) {
-  test(`the advanced window: its close focused, focus held, Escape, focus back; the fold kept on reopening, on ${name}`, async (t) => {
-    if (skip(t)) return;
-    const page = await open(t, path, { storage: configured() });
-    await drawnCaps(page);
-    await page.focus('#openTranslateModalBtn');
-    await page.keyboard.press('Enter');
-    await until(page, () => document.activeElement?.id === 'translateClose', null, { what: 'its close focused' });
-    for (let i = 0; i < 30; i++) {
-      await page.keyboard.press('Tab');
-      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));   // (a focus guard at the box's end hands focus round)
-      assert.equal(await page.evaluate(() => !!document.activeElement.closest('#translateBox')), true, `focus held (Tab ${i + 1}): ${await page.evaluate(() => document.activeElement.outerHTML.slice(0, 200))}`);
-    }
-    await fold(page, true);
-    await page.keyboard.press('Escape');
-    await until(page, () => !document.querySelector('#translateModal.show, #translateBox[data-open]') && document.activeElement?.id === 'openTranslateModalBtn', null, { what: 'closed, focus back' });
-    await openWindow(page);
-    assert.equal(await page.$eval('#cfgAdvancedHeader', (h) => h.getAttribute('aria-expanded')), 'true', 'the fold as it was left');
-    assert.deepEqual(page.problems, []);
-  });
-}
+test(`the advanced window: its close focused, focus held, Escape, focus back; the fold kept on reopening`, async (t) => {
+  if (skip(t)) return;
+  const page = await open(t, NEW, { storage: configured() });
+  await drawnCaps(page);
+  await page.focus('#openTranslateModalBtn');
+  await page.keyboard.press('Enter');
+  await until(page, () => document.activeElement?.id === 'translateClose', null, { what: 'its close focused' });
+  for (let i = 0; i < 30; i++) {
+    await page.keyboard.press('Tab');
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));   // (a focus guard at the box's end hands focus round)
+    assert.equal(await page.evaluate(() => !!document.activeElement.closest('#translateBox')), true, `focus held (Tab ${i + 1}): ${await page.evaluate(() => document.activeElement.outerHTML.slice(0, 200))}`);
+  }
+  await fold(page, true);
+  await page.keyboard.press('Escape');
+  await until(page, () => !document.querySelector('#translateBox[data-open]') && document.activeElement?.id === 'openTranslateModalBtn', null, { what: 'closed, focus back' });
+  await openWindow(page);
+  assert.equal(await page.$eval('#cfgAdvancedHeader', (h) => h.getAttribute('aria-expanded')), 'true', 'the fold as it was left');
+  assert.deepEqual(page.problems, []);
+});
 
 test('the window\'s box never moves or changes size after its first frame, with the CPU slowed six times', async (t) => {
   if (skip(t)) return;
@@ -558,7 +546,7 @@ test('the phone form: the pipeline one step under another, the window\'s options
   assert.deepEqual(page.problems, []);
 });
 
-test('leaving the page leaves nothing behind: /settings-next → /tasks → /settings-next, five times, the window opened each time', async (t) => {
+test('leaving the page leaves nothing behind: /settings → /tasks → /settings, five times, the window opened each time', async (t) => {
   if (skip(t)) return;
   const page = await openPage(browser, origin, { allow: [tr.origin] });
   t.after(() => page.close());
@@ -573,7 +561,7 @@ test('leaving the page leaves nothing behind: /settings-next → /tasks → /set
   }, tr.origin);
   await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await until(page, () => !!document.getElementById('tkList'), null, { what: 'Tasks' });
-  await page.evaluate(() => { const a = document.createElement('a'); a.href = '/settings-next'; a.id = 'toSettings'; document.body.append(a); });
+  await page.evaluate(() => { const a = document.createElement('a'); a.href = '/settings'; a.id = 'toSettings'; document.body.append(a); });
   const held = async () => {
     const cdp = await page.createCDPSession();
     const listeners = async (expr) => {

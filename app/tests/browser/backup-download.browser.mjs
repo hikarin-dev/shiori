@@ -25,13 +25,15 @@ after(async () => {
   if (dir) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-// The top notice dialog's text once it matches `pattern` (run in the page), or 0.
+// The top notice dialog's text once it matches `pattern` (run in the page), or 0: notice.js's own on a
+// page that has a file of its own, the notice host's on a page the one page draws.
+const NOTICES = '.notice-overlay, [data-notice="dialog"], [data-notice="ask"], [data-notice="operation"], [data-notice="progress"]';
 const dialogText = (pattern) => {
-  const text = [...document.querySelectorAll('.notice-overlay')].at(-1)?.innerText || '';
+  const text = [...document.querySelectorAll('.notice-overlay, [data-notice="dialog"], [data-notice="ask"], [data-notice="operation"], [data-notice="progress"]')].at(-1)?.innerText || '';
   return new RegExp(pattern).test(text) ? text : 0;
 };
 const clickDialog = (label) => {
-  const top = [...document.querySelectorAll('.notice-overlay')].at(-1);
+  const top = [...document.querySelectorAll('.notice-overlay, [data-notice="dialog"], [data-notice="ask"], [data-notice="operation"], [data-notice="progress"]')].at(-1);
   const button = [...(top?.querySelectorAll('button') || [])].find(b => b.textContent.trim() === label);
   if (!button) return 0;
   button.click();
@@ -85,7 +87,7 @@ test("a full backup is saved as one file by the browser's downloads, and restore
   assert.match(asked, /Restore this backup\?/);
   assert.match(asked, /2 galleries, 5 pages/);
   await page.evaluate(clickDialog, 'Restore');
-  assert.match(await until(page, () => { const t = [...document.querySelectorAll('.notice-overlay')].at(-1)?.innerText || ''; return /Backup restored/.test(t) ? t : 0; }, null, { what: 'the restore outcome' }),
+  assert.match(await until(page, (sel) => { const t = [...document.querySelectorAll(sel)].at(-1)?.innerText || ''; return /Backup restored/.test(t) ? t : 0; }, NOTICES, { what: 'the restore outcome' }),
     /2 galleries and 5 pages are in your library/);
   assert.deepEqual(await page.evaluate(async () => (await (await import('/app/js/api.js')).transfer.ids()).sort()), library);
   await page.evaluate(clickDialog, 'OK');

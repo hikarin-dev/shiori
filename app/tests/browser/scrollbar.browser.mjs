@@ -331,21 +331,24 @@ test('a panel keeps its overlay after its contents are replaced', { skip: !chrom
 });
 
 test('the long language picker keeps native wheel input and keyboard selection', { skip: !chromePath() }, async (t) => {
+  // (Settings' language box is the app's drawn select: its list, open, is drawn by the select, and its
+  // bar by scrollbar.js.)
   const page = await settings(t);
-  const initial = await page.$eval('#langSelect', (el) => el.value);
+  const open = () => page.$eval('#langSelect', (el) => el.hasAttribute('data-popup-open'));
+  const initial = await page.$eval('#langSelect', (el) => el.dataset.value);
   await page.click('#langSelect');
-  const list = '#langSelect .dd-options';
+  const list = '[data-slot="select-list"][data-open]';
   const track = `${list} .scrollbar-overlay`;
   await page.waitForSelector(track, { visible: true });
-  await wait(200);
-  assert.ok(await page.$eval('#langSelect', (el) => el.matches(':open')));
-  assert.equal(await page.$eval('#langSelect', (el) => el.value), initial, 'opening the picker must preserve its selected option');
+  await wait(300);   // (a drawn list takes no press in its first moments)
+  assert.ok(await open());
+  assert.equal(await page.$eval('#langSelect', (el) => el.dataset.value), initial, 'opening the picker must preserve its selected option');
   const thumb = await center(page, `${track} .scrollbar-thumb`);
   await page.mouse.move(thumb.x, thumb.y);
   assert.equal(await page.$eval(track, (el) => getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)');
   const rootOffset = await page.evaluate(() => scrollY);
   await page.mouse.wheel({ deltaY: 180 });
-  await page.waitForFunction(() => document.querySelector('#langSelect .dd-options').scrollTop > 100);
+  await page.waitForFunction((list) => document.querySelector(list).scrollTop > 100, {}, list);
   assert.equal(await page.evaluate(() => scrollY), rootOffset);
   await wait(400); // OverlayScrollbars lets wheel events pass through its controls for 333ms.
   const movedThumb = await center(page, `${track} .scrollbar-thumb`);
@@ -353,18 +356,21 @@ test('the long language picker keeps native wheel input and keyboard selection',
   await page.mouse.down();
   await page.mouse.move(movedThumb.x, movedThumb.y + 10);
   await page.mouse.up();
-  assert.ok(await page.$eval('#langSelect', (el) => el.matches(':open')), 'dragging the thumb must not close the picker');
+  assert.ok(await open(), 'dragging the thumb must not close the picker');
   const down = await center(page, `${track} .scrollbar-arrow.down`);
   await page.mouse.move(down.x, down.y);
   await page.mouse.down();
   await wait(100);
   await page.mouse.up();
-  assert.ok(await page.$eval('#langSelect', (el) => el.matches(':open')), 'pressing an arrow must not close the picker');
+  assert.ok(await open(), 'pressing an arrow must not close the picker');
   await page.keyboard.press('Escape');
-  assert.equal(await page.$eval('#langSelect', (el) => el.matches(':open')), false);
+  await page.waitForFunction(() => !document.getElementById('langSelect').hasAttribute('data-popup-open'));
   await page.click('#langSelect');
+  await page.waitForSelector(list);
+  await wait(300);
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
-  await page.waitForFunction(() => !document.getElementById('langSelect').matches(':open'));
-  assert.notEqual(await page.$eval('#langSelect', (el) => el.value), initial, 'keyboard selection must still reach the wrapped options');
+  await page.waitForFunction(() => !document.getElementById('langSelect').hasAttribute('data-popup-open'));
+  assert.notEqual(await page.$eval('#langSelect', (el) => el.dataset.value), initial, 'keyboard selection must still reach the wrapped options');
+  await page.evaluate(() => localStorage.setItem('shiori-lang', 'en'));
 });

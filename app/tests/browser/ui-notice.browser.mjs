@@ -165,7 +165,7 @@ test('a page that is not React\'s: notice.js draws its own', async (t) => {
   if (!browser) { t.skip('Chrome not found'); return; }
   const page = await openPage(browser, origin);
   t.after(() => page.close());
-  await page.goto(`${origin}/settings`, { waitUntil: 'load' });
+  await page.goto(`${origin}/library`, { waitUntil: 'load' });
   await page.evaluate(() => { import('/app/js/notice.js').then((n) => n.confirmDialog({ title: 'Stop?' }).then((a) => { window.__answer = a; })); });
   await page.waitForSelector('.notice-overlay .notice-modal.notice-dialog');
   assert.equal(await page.$('[data-slot="dialog"]'), null);

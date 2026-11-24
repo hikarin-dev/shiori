@@ -121,12 +121,21 @@ test('on a host that knows no clean addresses, 404.html brings /components to th
   assert.deepEqual(page.problems, []);
 });
 
-test('on a host that knows no clean addresses, 404.html brings /settings to the page\'s own file', async (t) => {
+test('on a host that knows no clean addresses, 404.html brings /settings to the one page', async (t) => {
   const page = await fresh(t, { answers: '404.html' });
   if (!page) return;
-  await page.goto(`${origin}/settings?tab=storage#about`).catch(() => {});
-  await until(page, () => document.title === 'Shiori — Settings' && !!document.querySelector('header'), undefined, { what: 'the settings page' });
-  assert.equal(await page.evaluate(address), '/app/settings.html?tab=storage#about');
+  await page.goto(`${origin}/settings?tab=storage#about`).catch(() => {});   // the 404 page leaves at once
+  await until(page, () => document.title === 'Shiori — Settings' && !!document.getElementById('settingsNav'), undefined, { what: 'the settings page' });
+  assert.equal(await page.evaluate(address), '/settings?tab=storage#about', 'the address is the one asked for');
+  assert.deepEqual(page.problems, []);
+});
+
+test('on a host that knows no clean addresses, 404.html brings /library to the page\'s own file', async (t) => {
+  const page = await fresh(t, { answers: '404.html' });
+  if (!page) return;
+  await page.goto(`${origin}/library`).catch(() => {});
+  await until(page, () => document.title === 'Shiori — Library' && !!document.querySelector('header'), undefined, { what: 'the library page' });
+  assert.equal(await page.evaluate(address), '/app/library.html');
   assert.deepEqual(page.problems, []);
 });
 
@@ -167,6 +176,11 @@ test('with the worker installed and the server gone, the library and the one pag
     return (await (await caches.open(name)).keys()).filter((r) => /\/assets\/components-/.test(new URL(r.url).pathname)).length;
   }), 0, 'never installed, never asked for: the worker holds no copy');
   assert.deepEqual(page.problems.filter((problem) => /policy/.test(problem)), [], 'nothing refused by the page\'s policy');
+  // Settings, which the worker installs: drawn whole, offline.
+  assert.ok(SHELL.some((f) => /^assets\/settings-[\w-]+\.js$/.test(f)), 'Settings\' chunk is in the list');
+  await page.goto(`${site.origin}/settings`, { waitUntil: 'load' });
+  await until(page, () => document.title === 'Shiori — Settings' && !!document.getElementById('clearAllBtn'), undefined, { what: 'Settings, offline' });
+  assert.equal(await page.evaluate(address), '/settings');
 });
 
 test('the comparison page, not installed, opens with the network and is kept from then on', async (t) => {
@@ -224,8 +238,8 @@ test('with the worker installed, an old page\'s file opens its page at its clean
     await until(page, () => !!document.getElementById('root')?.querySelector('main'), undefined, { what: `/${segment}` });
     assert.equal(await page.evaluate(address), `/${segment}?g=1`);
     assert.deepEqual(asked.filter((url) => url.startsWith(`/${old}`) || url.startsWith(`/${segment}`)), [], 'the worker sent it on and answered: the server was not asked');
+    assert.equal(await page.evaluate(() => document.title), `Shiori — ${segment[0].toUpperCase()}${segment.slice(1)}`);
   }
-  assert.equal(await page.evaluate(() => document.title), 'Shiori — Tasks');
   assert.deepEqual(page.problems, []);
 });
 

@@ -1,13 +1,14 @@
 // settings-optional.browser.mjs — Settings' optional panel as the one page draws it (src/routes/
 // settings/optional.tsx), held to what 1.3's page gave: each table below has its record
 // (records/settings-optional.browser.mjs.<table>.json, records.mjs), 1.3's behaviour as measured on
-// 2026-11-24, which a deliberate change edits in the same commit. The panel is filled from outside the app; here by a
-// stand-in filler written in the test: a few lines that put an element in the panel and name its nav
-// entry, on 1.3's page the way 1.3's page allowed (its panel and nav item), on the new page by the
-// contract (the shiori-app meta saying "settings", #settingsMount, its data-label).
+// 2026-11-24, which a deliberate change edits in the same commit. The panel is filled from outside the
+// app; here by a stand-in filler written in the test: a few lines that put an element in the panel and
+// name its nav entry by the contract (the shiori-app meta saying "settings", #settingsMount, its
+// data-label). (The records were taken with the same filler written for 1.3's page: its panel and nav
+// item.)
 //
-//   - Nothing filling it: the app's own download offer, under the app's name for the entry, the same on
-//     both; in Firefox its own package, opened in the page's tab.
+//   - Nothing filling it: the app's own download offer, under the app's name for the entry, as 1.3's;
+//     in Firefox its own package, opened in the page's tab.
 //   - Filled: the filler's name on the entry, the offer gone, the panel showing the filler's element
 //     alone; emptied, the offer and the app's name back; emptied while the panel shows, Library shows
 //     (as 1.3). A change of language. Nothing else moves when the panel is filled after the first paint.
@@ -15,15 +16,14 @@
 //     change; a new, empty one when the page is left and shown again, which leaves no observer or
 //     listener behind.
 //   - A filler written for 1.3's page (it looks for the meta saying "options", then for an element of
-//     the class `content`) finds nothing to hook on the new page, and returns before touching anything.
+//     the class `content`) finds nothing to hook, and returns before touching anything.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 import { record, normalised } from './records.mjs';
 
-const NEW = '/settings-next';   // step 5e: '/settings'
+const NEW = '/settings';
 const FILE = 'settings-optional.browser.mjs';
-const OLD = '/settings';        // 1.3's page, while it answers /settings
 
 let server, origin, browser;
 before(async () => {
@@ -37,27 +37,19 @@ const skip = (t) => { if (!browser) { t.skip('Chrome not found (set CHROME_PATH)
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 const run = (page, fn, arg) => page.evaluate(fn, arg);
 
-// The stand-in filler and what the test reads, installed in the page as window.__o: on 1.3's page its
-// panel and nav item, on the new one the mount.
+// The stand-in filler and what the test reads, installed in the page as window.__o: the mount.
 function helpers() {
-  const old = () => document.querySelector('meta[name="shiori-app"]')?.content === 'options';
-  const nav = () => document.getElementById(old() ? 'navExtension' : 'navOptional');
-  const panel = () => document.getElementById(old() ? 'panelExtension' : 'panelOptional');
+  const nav = () => document.getElementById('navOptional');
+  const panel = () => document.getElementById('panelOptional');
   const shown = (el) => !!el && el.getClientRects().length > 0;
   window.__o = {
     fill: (label) => {
       const el = document.createElement('div');
       el.id = 'standIn';
       el.textContent = 'Stand-in card';
-      if (old()) {
-        panel().append(el);
-        nav().textContent = label;
-        nav().hidden = false;
-      } else {
-        const mount = document.getElementById('settingsMount');
-        mount.append(el);
-        mount.dataset.label = label;
-      }
+      const mount = document.getElementById('settingsMount');
+      mount.append(el);
+      mount.dataset.label = label;
     },
     empty: () => document.getElementById('standIn')?.remove(),
     // What shows: the entry (and its name), the panel shown, the offer, the panel's words.
@@ -101,18 +93,6 @@ async function one(t, drive, opts) {
   assert.deepEqual(page.problems, []);
   assert.deepEqual(page.refused, [], 'nothing asked of another address');
   return normalised(seen);
-}
-
-// Both pages: `drive(page)` resolves what it saw; the two compared.
-async function both(t, drive, opts) {
-  const seen = [];
-  for (const path of [OLD, NEW]) {
-    const page = await open(t, path, opts);
-    seen.push(await drive(page, path));
-    assert.deepEqual(page.problems, [], path);
-    assert.deepEqual(page.refused, [], `${path}: nothing asked of another address`);
-  }
-  return seen;
 }
 
 const read = (page) => run(page, () => window.__o.read());
@@ -276,7 +256,7 @@ test('leaving and returning: a new, empty mount each time; no observer or listen
   assert.deepEqual(page.problems, []);
 });
 
-test('a filler written for 1.3\'s page finds nothing to hook on the new page, and returns before touching anything', async (t) => {
+test('a filler written for 1.3\'s page finds nothing to hook, and returns before touching anything', async (t) => {
   if (skip(t)) return;
   // Its entry: the meta saying "options", then an element of the class `content`, then nothing of its
   // own there yet. (The new page's grid still carries the class `content`: the meta stops it first.)
@@ -292,7 +272,7 @@ test('a filler written for 1.3\'s page finds nothing to hook on the new page, an
     })();
     return new Promise((resolve) => setTimeout(() => { watch.disconnect(); resolve({ reached, touched }); }, 100));
   };
-  const [old, now] = await both(t, async (page) => run(page, entry));
-  assert.equal(old.reached, 'hooked', 'on 1.3\'s page it goes on');
-  assert.deepEqual(now, { reached: 'stopped at the meta', touched: [] });
+  const page = await open(t, NEW);
+  assert.deepEqual(await run(page, entry), { reached: 'stopped at the meta', touched: [] });
+  assert.deepEqual(page.problems, []);
 });

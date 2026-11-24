@@ -1,7 +1,8 @@
-// settings-page.browser.mjs — Settings as the one page draws it (src/routes/settings.tsx), at its
-// address beside 1.3's page until it takes /settings. One table of every preference control: its key,
-// its control, what it shows of each stored value and what a change stores, held against 1.3's page
-// and the new one alike, so the two are seen to agree; each control showing its saved value in the
+// settings-page.browser.mjs — Settings as the one page draws it (src/routes/settings.tsx), at
+// /settings. One table of every preference control: its key, its control, what it shows of each
+// stored value and what a change stores, as 1.3's page showed and stored them (the table is 1.3's
+// behaviour, measured on its page and the new one alike until 1.3's went: a deliberate change edits the
+// table in the same commit); each control showing its saved value in the
 // first frame drawn; another tab's change followed for every key; a hidden panel kept; the status
 // line's 2.5 s; a change of language; the About dialog; the header kept across routes; leaving the page
 // five times leaves nothing behind; the experimental section where it can work, and its switch applied
@@ -11,8 +12,7 @@ import assert from 'node:assert/strict';
 import puppeteer from 'puppeteer-core';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 
-const ADDRESS = '/settings-next';   // step 5c: '/settings'
-const OLD = '/settings';            // 1.3's page, while it answers /settings
+const ADDRESS = '/settings';
 
 let server, origin, browser;
 before(async () => {
@@ -81,11 +81,11 @@ async function open(t, path, { viewport, storage } = {}) {
     for (const [key, raw] of Object.entries(storage)) localStorage.setItem(key, raw);
   }, storage ?? null);
   await page.goto(`${origin}${path}`, { waitUntil: 'load' });
-  await drawn(page, path);
+  await drawn(page);
   return page;
 }
-const drawn = (page, path) => until(page, (old) => (old ? document.querySelectorAll('#langSelect option').length > 1 : !!document.querySelector('#settingsNav .nav-item'))
-  && document.getElementById('libMergeSeries') && document.title === 'Shiori — Settings', path === OLD, { what: 'the Settings page' });
+const drawn = (page) => until(page, () => !!document.querySelector('#settingsNav .nav-item')
+  && !!document.getElementById('libMergeSeries') && document.title === 'Shiori — Settings', null, { what: 'the Settings page' });
 
 const frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 async function showPanel(page, nav) {
@@ -93,18 +93,14 @@ async function showPanel(page, nav) {
   await until(page, (nav) => document.getElementById(nav).classList.contains('active') && document.getElementById(document.getElementById(nav).dataset.panel).classList.contains('active'), nav, { what: nav });
 }
 
-// Drives the control of `row` to `value`, on 1.3's page or the new one.
-async function choose(page, row, value, old) {
+// Drives the control of `row` to `value`.
+async function choose(page, row, value) {
   const id = idOf(row);
   if (row.panel) await showPanel(page, row.panel); else await showPanel(page, 'navLibrary');
   if (row.kind === 'switch') {
-    if (old) await page.click(`label[for="${id}"]`);
-    else await (await page.evaluateHandle((id) => document.getElementById(id).parentElement.querySelector('[role="switch"]'), id)).click();
+    await (await page.evaluateHandle((id) => document.getElementById(id).parentElement.querySelector('[role="switch"]'), id)).click();
   } else if (row.kind === 'choice') {
-    if (old) await page.click(`[data-choice-for="${id}"] [data-value="${value}"]`);
-    else await page.click(`#${id} [data-slot="toggle-group-item"]:nth-of-type(${row.values.indexOf(value) + 1})`);
-  } else if (old) {
-    await page.select(`#${id}`, value);
+    await page.click(`#${id} [data-slot="toggle-group-item"]:nth-of-type(${row.values.indexOf(value) + 1})`);
   } else {
     await page.click(`#${id}`);
     await page.waitForSelector('[data-slot="select-list"] [data-slot="select-option"]');
@@ -115,37 +111,33 @@ async function choose(page, row, value, old) {
   }
 }
 
-for (const [name, path] of [['1.3\'s page', OLD], ['the new page', ADDRESS]]) {
-  const old = path === OLD;
-  test(`the table, on ${name}: what each control shows of each stored value`, async (t) => {
-    for (let i = 0; i < 3; i++) {
-      const storage = Object.fromEntries(TABLE.filter((row) => row.shows[i][0] !== null).map((row) => [`shiori:${row.key}`, row.shows[i][0]]));
-      const page = await open(t, path, { storage });
-      if (!page) return;
-      const shown = await page.evaluate(SHOWN, rowsForPage());
-      assert.deepEqual(shown, Object.fromEntries(TABLE.map((row) => [idOf(row), row.shows[i][1]])), `stored: ${JSON.stringify(storage)}`);
-      assert.deepEqual(page.problems, []);
-    }
-  });
-
-  test(`the table, on ${name}: a change stores what 1.3 stored, and shows it`, async (t) => {
-    const page = await open(t, path, { storage: {} });
+test('the table: what each control shows of each stored value', async (t) => {
+  for (let i = 0; i < 3; i++) {
+    const storage = Object.fromEntries(TABLE.filter((row) => row.shows[i][0] !== null).map((row) => [`shiori:${row.key}`, row.shows[i][0]]));
+    const page = await open(t, ADDRESS, { storage });
     if (!page) return;
-    for (const row of TABLE) {
-      await choose(page, row, row.change[0], old);
-      const raw = await until(page, (key) => localStorage.getItem(`shiori:${key}`), row.key, { what: `${row.key} stored` });
-      assert.equal(raw, row.change[1], `${row.key} ← ${JSON.stringify(row.change[0])}`);
-      assert.equal((await page.evaluate(SHOWN, rowsForPage()))[idOf(row)], row.change[0], `${row.key} shows its new value`);
-    }
-    // The language: its own key, a plain string.
-    await showPanel(page, 'navLibrary');
-    if (old) await page.select('#langSelect', 'de');
-    else await choose(page, { key: 'lang', id: 'langSelect', kind: 'select', labels: { de: 'Deutsch' } }, 'de', false);
-    await until(page, () => localStorage.getItem('shiori-lang') === 'de' && document.getElementById('navLibrary').textContent === 'Bibliothek', null, { what: 'German' });
-    await page.evaluate(() => localStorage.removeItem('shiori-lang'));
+    const shown = await page.evaluate(SHOWN, rowsForPage());
+    assert.deepEqual(shown, Object.fromEntries(TABLE.map((row) => [idOf(row), row.shows[i][1]])), `stored: ${JSON.stringify(storage)}`);
     assert.deepEqual(page.problems, []);
-  });
-}
+  }
+});
+
+test('the table: a change stores what 1.3 stored, and shows it', async (t) => {
+  const page = await open(t, ADDRESS, { storage: {} });
+  if (!page) return;
+  for (const row of TABLE) {
+    await choose(page, row, row.change[0]);
+    const raw = await until(page, (key) => localStorage.getItem(`shiori:${key}`), row.key, { what: `${row.key} stored` });
+    assert.equal(raw, row.change[1], `${row.key} ← ${JSON.stringify(row.change[0])}`);
+    assert.equal((await page.evaluate(SHOWN, rowsForPage()))[idOf(row)], row.change[0], `${row.key} shows its new value`);
+  }
+  // The language: its own key, a plain string.
+  await showPanel(page, 'navLibrary');
+  await choose(page, { key: 'lang', id: 'langSelect', kind: 'select', labels: { de: 'Deutsch' } }, 'de');
+  await until(page, () => localStorage.getItem('shiori-lang') === 'de' && document.getElementById('navLibrary').textContent === 'Bibliothek', null, { what: 'German' });
+  await page.evaluate(() => localStorage.removeItem('shiori-lang'));
+  assert.deepEqual(page.problems, []);
+});
 
 test('every control shows its saved value in the first frame the page is drawn', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
@@ -207,12 +199,12 @@ test('a status line says Saved for 2.5 s, from the last change', async (t) => {
   if (!page) return;
   const look = () => page.evaluate(() => { const s = document.getElementById('libStatus'); return { shown: s.hasAttribute('data-shown'), text: s.textContent, visible: getComputedStyle(s).visibility }; });
   assert.deepEqual(await look(), { shown: false, text: '', visible: 'hidden' });
-  await choose(page, TABLE[1], false, false);
+  await choose(page, TABLE[1], false);
   const at = Date.now();
   await new Promise((r) => setTimeout(r, 200));   // (it comes in by its colour, .15 s)
   assert.deepEqual(await look(), { shown: true, text: 'Saved.', visible: 'visible' });
   await new Promise((r) => setTimeout(r, 1500));
-  await choose(page, TABLE[1], true, false);   // again: 2.5 s from here
+  await choose(page, TABLE[1], true);   // again: 2.5 s from here
   const again = Date.now();
   await new Promise((r) => setTimeout(r, 2200 - (Date.now() - again)));
   assert.equal((await look()).shown, true, `still there 2.2 s after the second change (${Date.now() - at} ms after the first)`);
@@ -265,7 +257,7 @@ test('About: opens with its close focused, the version and the changelog drawn; 
 
 // The frame's header across a route change: the same node, the brand on the same pixels, Settings'
 // form on <html> while Settings shows.
-test('the header is the frame\'s: /settings-next ↔ /tasks, the same node, the brand unmoved, its form following the route', async (t) => {
+test('the header is the frame\'s: /settings ↔ /tasks, the same node, the brand unmoved, its form following the route', async (t) => {
   for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844, isMobile: true, hasTouch: true }]) {
     const page = await open(t, ADDRESS, { viewport });
     if (!page) return;
@@ -335,7 +327,7 @@ async function held(page) {
   return counts;
 }
 
-test('leaving the page leaves nothing behind: /settings-next → /tasks → /settings-next, five times', async (t) => {
+test('leaving the page leaves nothing behind: /settings → /tasks → /settings, five times', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const page = await openPage(browser, origin);
   t.after(() => page.close());
@@ -353,7 +345,7 @@ test('leaving the page leaves nothing behind: /settings-next → /tasks → /set
     count(platform.jobs, 'subscribe', 'jobs');
     count(platform.control, 'on', 'control');
     count(platform.feed, 'subscribe', 'feed');
-    const a = document.createElement('a'); a.href = '/settings-next'; a.id = 'toSettings'; document.body.append(a);
+    const a = document.createElement('a'); a.href = '/settings'; a.id = 'toSettings'; document.body.append(a);
   });
   const go = async (i) => {
     await page.$eval('#toSettings', (a) => a.click());
@@ -395,53 +387,48 @@ test('leaving the page leaves nothing behind: /settings-next → /tasks → /set
 });
 
 // The experimental section is Chromium's alone (scrollbar.js draws the bars only there): where the
-// browser is another, the section is not there, on either page.
-for (const [name, path] of [['1.3\'s page', OLD], ['the new page', ADDRESS]]) {
-  test(`the experimental section is not shown where the drawn scrollbars are not available, on ${name}`, async (t) => {
-    if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-    for (const [agent, shown] of [[null, true], ['Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:160.0) Gecko/20100101 Firefox/160.0', false]]) {
-      const page = await openPage(browser, origin);
-      t.after(() => page.close());
-      if (agent) await page.setUserAgent(agent);
-      await page.goto(`${origin}${path}`, { waitUntil: 'load' });
-      await drawn(page, path);
-      const look = await page.evaluate(() => {
-        const section = document.getElementById('experimentalSection');
-        return { display: section && getComputedStyle(section).display !== 'none', chromium: document.documentElement.classList.contains('chromium-scrollbars') };
-      });
-      assert.deepEqual(look, { display: shown, chromium: shown }, agent ? 'another browser' : 'Chromium');
-      assert.deepEqual(page.problems, []);
-    }
-  });
-}
+// browser is another, the section is not there.
+test('the experimental section is not shown where the drawn scrollbars are not available', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  for (const [agent, shown] of [[null, true], ['Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:160.0) Gecko/20100101 Firefox/160.0', false]]) {
+    const page = await openPage(browser, origin);
+    t.after(() => page.close());
+    if (agent) await page.setUserAgent(agent);
+    await page.goto(`${origin}${ADDRESS}`, { waitUntil: 'load' });
+    await drawn(page);
+    const look = await page.evaluate(() => {
+      const section = document.getElementById('experimentalSection');
+      return { display: section && getComputedStyle(section).display !== 'none', chromium: document.documentElement.classList.contains('chromium-scrollbars') };
+    });
+    assert.deepEqual(look, { display: shown, chromium: shown }, agent ? 'another browser' : 'Chromium');
+    assert.deepEqual(page.problems, []);
+  }
+});
 
 // (The bars are drawn only where the browser's own take room: a browser of its own, without headless
 // Chrome's hidden scrollbars, as scrollbar.browser's.)
-for (const [name, path] of [['1.3\'s page', OLD], ['the new page', ADDRESS]]) {
-  test(`turning the drawn scrollbars on applies them at once, and off takes them away, on ${name}`, async (t) => {
-    if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-    const own = await puppeteer.launch({ executablePath: chromePath(), headless: true, ignoreDefaultArgs: ['--hide-scrollbars'], args: ['--force-device-scale-factor=1'] });
-    t.after(() => own.close());
-    const page = await openPage(own, origin);
-    await page.evaluateOnNewDocument(() => localStorage.removeItem('shiori:customScrollbar'));
-    await page.goto(`${origin}${path}`, { waitUntil: 'load' });
-    await drawn(page, path);
-    const look = () => page.evaluate(() => ({ on: document.documentElement.classList.contains('custom-scrollbars'), bar: !!document.querySelector('.page-scrollbar') }));
-    assert.deepEqual(await look(), { on: false, bar: false });
-    const flip = async () => (path === OLD ? page.click('label[for="customScrollbar"]')
-      : (await page.evaluateHandle(() => document.getElementById('customScrollbar').parentElement.querySelector('[role="switch"]'))).click());
-    await flip();
-    // In the frames after the press: nothing waited on (no storage event, no other tab).
-    await page.evaluate(frames);
-    assert.deepEqual(await look(), { on: true, bar: true }, 'drawn at once');
-    assert.equal(await page.evaluate(() => localStorage.getItem('shiori:customScrollbar')), 'true');
-    await flip();
-    await page.evaluate(frames);
-    assert.deepEqual(await look(), { on: false, bar: false }, 'taken away at once');
-    assert.equal(await page.evaluate(() => localStorage.getItem('shiori:customScrollbar')), 'false');
-    assert.deepEqual(page.problems, []);
-  });
-}
+test('turning the drawn scrollbars on applies them at once, and off takes them away', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const own = await puppeteer.launch({ executablePath: chromePath(), headless: true, ignoreDefaultArgs: ['--hide-scrollbars'], args: ['--force-device-scale-factor=1'] });
+  t.after(() => own.close());
+  const page = await openPage(own, origin);
+  await page.evaluateOnNewDocument(() => localStorage.removeItem('shiori:customScrollbar'));
+  await page.goto(`${origin}${ADDRESS}`, { waitUntil: 'load' });
+  await drawn(page);
+  const look = () => page.evaluate(() => ({ on: document.documentElement.classList.contains('custom-scrollbars'), bar: !!document.querySelector('.page-scrollbar') }));
+  assert.deepEqual(await look(), { on: false, bar: false });
+  const flip = async () => (await page.evaluateHandle(() => document.getElementById('customScrollbar').parentElement.querySelector('[role="switch"]'))).click();
+  await flip();
+  // In the frames after the press: nothing waited on (no storage event, no other tab).
+  await page.evaluate(frames);
+  assert.deepEqual(await look(), { on: true, bar: true }, 'drawn at once');
+  assert.equal(await page.evaluate(() => localStorage.getItem('shiori:customScrollbar')), 'true');
+  await flip();
+  await page.evaluate(frames);
+  assert.deepEqual(await look(), { on: false, bar: false }, 'taken away at once');
+  assert.equal(await page.evaluate(() => localStorage.getItem('shiori:customScrollbar')), 'false');
+  assert.deepEqual(page.problems, []);
+});
 
 // The study preview says what its four controls say (its data-* state), the text options are off while
 // the original shows as an image, and a bubble shown as an image is drawn on its canvas.
@@ -476,20 +463,20 @@ test('the study preview follows its four controls', async (t) => {
   assert.deepEqual(await look(), { original: 'image', translation: 'hardcoded_images', font: 'yasashisa', furigana: 'off', disabled: true,
     rasterOriginal: true, rasterTranslation: true, textOriginal: false, textTranslation: false, furiganaShown: null });
   // The original as text: its options on, the font and furigana followed.
-  await choose(page, TABLE.find((r) => r.key === 'readerStudyOriginal'), 'text', false);
+  await choose(page, TABLE.find((r) => r.key === 'readerStudyOriginal'), 'text');
   await until(page, () => document.getElementById('studyPreview').dataset.original === 'text' && !document.getElementById('studyTextOptions').disabled, null, { what: 'the original as text' });
   assert.deepEqual(await look(), { original: 'text', translation: 'hardcoded_images', font: 'yasashisa', furigana: 'off', disabled: false,
     rasterOriginal: null, rasterTranslation: true, textOriginal: true, textTranslation: false, furiganaShown: false });
-  await choose(page, TABLE.find((r) => r.key === 'readerStudySrcFont'), 'kiwi', false);
+  await choose(page, TABLE.find((r) => r.key === 'readerStudySrcFont'), 'kiwi');
   await until(page, () => document.getElementById('studyPreview').dataset.font === 'kiwi', null, { what: 'the font followed' });
-  await choose(page, TABLE.find((r) => r.key === 'readerFurigana'), true, false);
+  await choose(page, TABLE.find((r) => r.key === 'readerFurigana'), true);
   await until(page, () => document.getElementById('studyPreview').dataset.furigana === 'on', null, { what: 'furigana followed' });
-  await choose(page, TABLE.find((r) => r.key === 'readerStudyDisplay'), 'text', false);
+  await choose(page, TABLE.find((r) => r.key === 'readerStudyDisplay'), 'text');
   await until(page, () => document.getElementById('studyPreview').dataset.translation === 'text', null, { what: 'the translation as text' });
   assert.deepEqual(await look(), { original: 'text', translation: 'text', font: 'kiwi', furigana: 'on', disabled: false,
     rasterOriginal: null, rasterTranslation: null, textOriginal: true, textTranslation: true, furiganaShown: true });
   // The original as an image again: the options off at once, its canvas drawn again.
-  await choose(page, TABLE.find((r) => r.key === 'readerStudyOriginal'), 'image', false);
+  await choose(page, TABLE.find((r) => r.key === 'readerStudyOriginal'), 'image');
   await until(page, () => document.getElementById('studyPreview').dataset.original === 'image', null, { what: 'the original as an image again' });
   assert.equal(await page.evaluate(() => document.getElementById('studyTextOptions').disabled), true, 'its options off in the same frame');
   await until(page, () => {

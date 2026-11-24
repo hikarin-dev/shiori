@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 import { record, normalised } from './records.mjs';
 
-const NEW = '/settings-next';   // step 5e: '/settings'
+const NEW = '/settings';
 const FILE = 'settings-system.browser.mjs';
 
 let server, origin, browser;
@@ -337,7 +337,7 @@ test('the phone form, an update ready: nothing runs past the cards or the screen
   assert.deepEqual(await run(idle, () => window.__share()), { shown: ['deskCheckUpdates'], gaps: [0, 0] });
 });
 
-test('leaving the page leaves nothing behind: /settings-next → /tasks → /settings-next, five times, an update followed each time', async (t) => {
+test('leaving the page leaves nothing behind: /settings → /tasks → /settings, five times, an update followed each time', async (t) => {
   if (skip(t)) return;
   const context = await browser.createBrowserContext();
   t.after(() => context.close().catch(() => {}));

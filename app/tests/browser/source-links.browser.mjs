@@ -65,13 +65,14 @@ test('a chapter row\'s id links to its source page in a new tab', async (t) => {
 test('the About dialog links to the repository beside its close button', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const page = await openPage(browser, origin);
-  await page.goto(`${origin}/app/settings.html`, { waitUntil: 'load' });
+  await page.goto(`${origin}/settings`, { waitUntil: 'load' });
+  await until(page, () => !!document.getElementById('settingsNav'), null, { what: 'Settings' });
   await page.click('#aboutBtn');
-  await until(page, () => document.getElementById('aboutModal').classList.contains('show'), null, { what: 'the About dialog' });
+  await until(page, () => !!document.getElementById('aboutBox') && !!document.getElementById('aboutRepo'), null, { what: 'the About dialog' });
   const got = await page.evaluate(() => {
     const repo = document.getElementById('aboutRepo');
     const close = document.getElementById('aboutClose');
-    const header = repo.closest('.about-header');
+    const header = repo.closest('[data-slot="dialog-header"]');
     const r = repo.getBoundingClientRect(), c = close.getBoundingClientRect(), h = header.getBoundingClientRect();
     return {
       href: repo.getAttribute('href'), target: repo.getAttribute('target'), label: repo.getAttribute('aria-label'),
@@ -82,7 +83,7 @@ test('the About dialog links to the repository beside its close button', async (
     };
   });
   assert.deepEqual(got, {
-    href: 'https://github.com/hikarin-dev/shiori', target: '_blank', label: 'GitHub',
+    href: 'https://github.com/hikarin-dev/shiori/', target: '_blank', label: 'GitHub',   // (the slash: §5.3 F44)
     same: { w: true, h: true, top: true }, before: true, inHeader: true, icon: true,
   });
   await finish(page);
