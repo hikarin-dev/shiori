@@ -18,6 +18,7 @@ export const PAGES = Object.freeze({
   overview: 'app/overview.html',
   tasks: APP_PAGE,
   components: APP_PAGE,
+  'library-next': APP_PAGE,   // the library as the one page draws it, until it answers '' and 'library'
 });
 
 // The files of pages the one page now draws, gone with their port, by the address each moved to: a

@@ -27,6 +27,9 @@ const read = async (id: string): Promise<Gallery | null> => {
   return (g as Gallery | undefined) ?? null;
 };
 
+// How the gallery `id` is read into the cache (for a view that reads several at once: useQueries).
+export const galleryQuery = (id: string) => ({ queryKey: galleryKey(id), queryFn: () => read(id) });
+
 // The gallery `id` (none read while `id` is null): { data } is undefined until first read.
 export function useGallery(id: string | null) {
   return useQuery({ queryKey: galleryKey(id ?? ''), queryFn: () => read(id!), enabled: id != null });

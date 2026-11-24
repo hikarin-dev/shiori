@@ -54,7 +54,10 @@ test('the shiori-app meta names the app\'s own pages only', async () => {
   const { ROUTES } = await import('../../src/routes.ts');
   const own = new Set(['library', 'overview', 'reader', 'settings', 'tasks']);
   for (const [segment, route] of Object.entries(ROUTES)) {
-    assert.equal(route.app, own.has(route.page), `/${segment}: the meta is there exactly on the app's own pages`);
+    // A page of the app drawn at an address of its own while its old page still answers the page's
+    // (the library at /library-next, until it takes / and /library) is not yet that page: no meta.
+    const beside = own.has(route.page) && segment !== route.page && PAGES[route.page] !== APP_PAGE;
+    assert.equal(route.app, own.has(route.page) && !beside, `/${segment}: the meta is there exactly on the app's own pages`);
   }
   // The page's first script writes it for the address a document opens on, before the app runs.
   const { startData } = await import('../../build/start.mjs');

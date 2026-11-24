@@ -59,11 +59,16 @@ type Props = {
   clearLabel: string;
   // The query it starts with (its blocks made).
   defaultQuery?: string;
-  // The query, as typed: on every change, and when cleared.
-  onQueryChange?: (query: string) => void;
+  // The query it shows, where its page holds it (a page that adds to it, or reads it from the
+  // address): set in the box (its blocks made) whenever it differs from what the box holds.
+  query?: string;
+  // The query the box holds, as the module reads it: on every change typed ('typed'), when cleared
+  // ('cleared'), and when a query handed in reads otherwise once in the box ('set': its blocks'
+  // spacing and keys, as 1.3's box read it back).
+  onQueryChange?: (query: string, how: 'typed' | 'cleared' | 'set') => void;
 } & { [data: `data-${string}`]: string | undefined };
 
-function SearchField({ placeholder, clearLabel, defaultQuery, onQueryChange, ...data }: Props) {
+function SearchField({ placeholder, clearLabel, defaultQuery, query: given, onQueryChange, ...data }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [query, setQuery] = useState('');
@@ -90,11 +95,21 @@ function SearchField({ placeholder, clearLabel, defaultQuery, onQueryChange, ...
     const stop = initSearchField(el, { show: (next: Group[] | null) => setGroups((was) => (sameList(was, next) ? was : next)), chipClass: FILTER_TAG, chipKeyClass: TAG_KEY });
     if (defaultQuery) setSearchQuery(defaultQuery);
     setQuery(searchQuery());
-    const typed = () => { const q = searchQuery(); setQuery(q); changed.current?.(q); };
+    const typed = () => { const q = searchQuery(); setQuery(q); changed.current?.(q, 'typed'); };
     el.addEventListener('input', typed);
     return () => { stop(); el.removeEventListener('input', typed); };
     // (Once: the module holds the box from here on.)
   }, []);
+
+  // A query handed in: put in the box where the box doesn't hold it already (a page may have added to
+  // the box through the module itself), the X following.
+  useLayoutEffect(() => {
+    if (given === undefined) return;
+    if (given !== searchQuery()) setSearchQuery(given);
+    const q = searchQuery();
+    setQuery(q);
+    if (q !== given) changed.current?.(q, 'set');
+  }, [given]);
 
   // Placed as it opens, and again as the page scrolls or the window resizes while it shows.
   const open = !!groups;
@@ -110,7 +125,7 @@ function SearchField({ placeholder, clearLabel, defaultQuery, onQueryChange, ...
   const clear = () => {
     setSearchQuery('');
     setQuery('');
-    changed.current?.('');
+    changed.current?.('', 'cleared');
     box.current?.focus();
   };
 

@@ -76,8 +76,11 @@ export function startData({ bundle = null, routes, root = ROOT }) {
     const module = path.join(root, 'src', 'routes', `${route.page}.tsx`).split(path.sep).join('/').toLowerCase();
     const chunk = Object.values(chunks).find((c) => c.facadeModuleId?.toLowerCase() === module);
     if (!chunk) throw new Error(`start.mjs: no chunk draws /${segment} (src/routes/${route.page}.tsx)`);
-    const styles = [...(chunk.viteMetadata?.importedCss ?? [])];
-    data.routes[segment].preload = [...closure([chunk.fileName], chunks, root), ...styles].filter((file) => !started.has(file));
+    // Its stylesheets: its own chunk's and those of the chunks it shares with other routes (a component
+    // two routes draw, its stylesheet with it).
+    const files = closure([chunk.fileName], chunks, root);
+    const styles = [...new Set(files.flatMap((file) => [...(chunks[file]?.viteMetadata?.importedCss ?? [])]))];
+    data.routes[segment].preload = [...files, ...styles].filter((file) => !started.has(file));
   }
   return data;
 }

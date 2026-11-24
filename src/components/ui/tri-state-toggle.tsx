@@ -37,20 +37,29 @@ function TriStateToggle({ value, onValueChange, label, className, onClick, ...pr
       )}
       {...props}
     >
-      <span
-        aria-hidden
-        data-slot="tri-state-mark"
-        className={cn(
-          'inline-flex size-[14px] shrink-0 items-center justify-center rounded-3 border border-solid border-border text-10 leading-none font-bold',
-          'group-data-[state=include]/tri:border-success group-data-[state=include]/tri:bg-success group-data-[state=include]/tri:text-background',
-          'group-data-[state=exclude]/tri:border-destructive group-data-[state=exclude]/tri:bg-destructive group-data-[state=exclude]/tri:text-destructive-foreground',
-        )}
-      >
-        {value === 'include' ? '✓' : value === 'exclude' ? '✕' : null}
-      </span>
+      <TriStateMark state={value} />
       <span className="truncate group-data-[state=exclude]/tri:line-through">{label}</span>
     </ButtonPrimitive>
   );
 }
 
-export { TriStateToggle };
+// The option's mark alone: what a state looks like (the filter dialog's legend shows two of them).
+function TriStateMark({ state, className }: { state: TriState; className?: string }) {
+  return (
+    <span
+      aria-hidden
+      data-slot="tri-state-mark"
+      data-state={state}
+      className={cn(
+        'inline-flex size-[14px] shrink-0 items-center justify-center rounded-3 border border-solid border-border text-10 leading-none font-bold',
+        'data-[state=include]:border-success data-[state=include]:bg-success data-[state=include]:text-background',
+        'data-[state=exclude]:border-destructive data-[state=exclude]:bg-destructive data-[state=exclude]:text-destructive-foreground',
+        className,
+      )}
+    >
+      {state === 'include' ? '✓' : state === 'exclude' ? '✕' : null}
+    </span>
+  );
+}
+
+export { TriStateToggle, TriStateMark };
