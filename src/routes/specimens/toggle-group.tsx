@@ -51,8 +51,8 @@ export function ToggleGroupSpecimens() {
           </ToggleGroup>)} />
         <Line label="default" states={['rest', 'hover', 'on']} render={(state) => (
           <ToggleGroup variant="cards" className="w-[442px]" defaultValue={state === 'on' ? 'ltr' : 'rtl'}>
-            <ToggleGroupItem value="ltr" {...tag('rs-choices', 'default', state)}><MoveHorizontal className="size-[15px]" /><span>Left to right</span></ToggleGroupItem>
-            <ToggleGroupItem value="rtl"><MoveVertical className="size-[15px]" /><span>Right to left</span></ToggleGroupItem>
+            <ToggleGroupItem value="ltr" {...tag('rs-choices', 'default', state)}><MoveHorizontal /><span>Left to right</span></ToggleGroupItem>
+            <ToggleGroupItem value="rtl"><MoveVertical /><span>Right to left</span></ToggleGroupItem>
           </ToggleGroup>)} />
         <Line label="small" states={['rest', 'hover', 'on']} render={(state) => (
           <ToggleGroup variant="cards" size="sm" defaultValue={state === 'on' ? 'image' : 'text'}>

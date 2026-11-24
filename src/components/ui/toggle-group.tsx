@@ -6,8 +6,13 @@
 //              under the labels. It moves by its `left` (layout, not a transform), so no text is
 //              lifted onto a compositor layer while it moves (rule 11); `left` is a fraction of the
 //              track's width, so a resize moves it with the track and never sets it gliding.
-//   cards      separate buttons in equal columns (reader settings' choices); sizes default 34,
+//   cards      separate buttons in equal columns (reader settings' choices); sizes default 36,
 //              stack 52 (icon over name), sm 28.
+//
+// §5.3 S02, S08, S13: Settings' track 40 → 36 with its segments 32 → 28, as reader settings' tabs (a
+// 36 track holds 28 segments); one segment for both, 9px in at the sides on a 1.35 line (Settings',
+// the commoner: the tabs' were 8px on the normal line). Reader settings' choice cards 34 → 36 (the
+// small ones stay 28, the stacked ones 52). An icon beside a label 14 (16 and 15 before).
 //   pill       round filter pills (the import tracker's title filters), 24, a finger's 36.
 import { Children, createContext, isValidElement, useContext, useState, type CSSProperties, type ReactElement, type ReactNode } from 'react';
 import { Toggle as TogglePrimitive } from '@base-ui/react/toggle';
@@ -16,7 +21,7 @@ import { cva } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
 type Variant = 'segmented' | 'cards' | 'pill';
-type Size = 'default' | 'sm' | 'stack';
+type Size = 'default' | 'sm' | 'stack';   // (segmented and pill have the one size, default)
 
 // The segmented track and its highlight, shared with Tabs' segmented list (one recipe, F12). The
 // track gives each item an equal column; the group sets --seg-n (how many) and --seg-i (which one
@@ -29,7 +34,7 @@ export const SEGMENTED_HIGHLIGHT = cn(
   'transition-[left] duration-open ease-standard',
 );
 // An item over the highlight: the chosen one only changes its text colour (the highlight is its ground).
-export const SEGMENTED_ITEM = 'z-[1] flex items-center justify-center gap-[6px] rounded-5 border-transparent bg-transparent text-11 leading-[1.35] font-semibold hover:text-foreground disabled:cursor-default disabled:opacity-45 [&_span]:min-w-0 [&_span]:[overflow-wrap:anywhere] [&_svg]:size-[16px]';
+export const SEGMENTED_ITEM = 'z-[1] flex min-h-[28px] items-center justify-center gap-[6px] rounded-5 border-transparent bg-transparent px-[9px] py-[5px] text-11 leading-[1.35] font-semibold hover:text-foreground disabled:cursor-default disabled:opacity-45 has-[svg]:px-[7px] [&_span]:min-w-0 [&_span]:[overflow-wrap:anywhere] [&_svg]:size-[14px]';
 
 const group = cva('relative min-w-0', {
   variants: {
@@ -55,9 +60,7 @@ const item = cva(
       size: { default: '', sm: '', stack: '' },
     },
     compoundVariants: [
-      { variant: 'segmented', size: 'default', class: 'min-h-[32px] px-[9px] py-[7px] has-[svg]:px-[7px]' },
-      { variant: 'segmented', size: 'sm', class: 'min-h-[28px] px-[8px] py-0' },
-      { variant: 'cards', size: 'default', class: 'min-h-[34px] px-[8px] py-[6px]' },
+      { variant: 'cards', size: 'default', class: 'min-h-[36px] px-[8px] py-[6px] [&_svg]:size-[14px]' },
       { variant: 'cards', size: 'stack', class: 'min-h-[52px] flex-col gap-[5px] px-[4px] py-[7px] text-10.5 leading-[1.3] [&_svg]:size-[17px]' },
       { variant: 'cards', size: 'sm', class: 'min-h-[28px] px-[12px] py-[4px] text-10.5 leading-[1.3]' },
     ],

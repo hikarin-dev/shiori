@@ -3,7 +3,8 @@
 //
 //   nav        Settings' side navigation: a column of tabs, the shown one framed on the raised
 //              surface; its sizes step down with the window as Settings' did (760, 520, 380px).
-//   segmented  reader settings' tabs: the ToggleGroup's track and its one sliding highlight (F12).
+//   segmented  reader settings' tabs: the ToggleGroup's track and its one sliding highlight (F12),
+//              its tabs Settings' segments (S02: 9px in, not 8; a 1.35 line).
 //   underline  the overview's Chapters / Volumes: small capitals, the shown one underlined.
 //
 // The panels all stay mounted, in one grid cell: the box holding them is as tall as the tallest
@@ -85,7 +86,7 @@ const tab = cva('relative min-w-0 cursor-pointer border-solid text-muted-foregro
         // F21: its 9.5px at 380px and under becomes 10 (the step above's), with 6px sides.
         '[@media(width<=380px)]:min-h-[36px] [@media(width<=380px)]:px-[6px] [@media(width<=380px)]:py-[8px] [@media(width<=380px)]:text-10 [@media(width<=380px)]:leading-[1.45]',
       ].join(' '),
-      segmented: `${SEGMENTED_ITEM} border h-[28px] px-[8px] leading-normal aria-selected:text-foreground`,
+      segmented: `${SEGMENTED_ITEM} border aria-selected:text-foreground`,
       underline: 'mr-[10px] border-0 border-b-2 border-transparent bg-transparent px-[2px] pt-0 pb-[2px] text-muted-dim hover:text-foreground aria-selected:cursor-default aria-selected:border-primary aria-selected:text-muted-foreground pointer-coarse:pt-[10px] pointer-coarse:pb-[6px] [font:inherit] [letter-spacing:inherit] [text-transform:inherit]',
     },
   },
