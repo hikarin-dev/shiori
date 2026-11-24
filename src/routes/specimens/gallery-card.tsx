@@ -216,6 +216,12 @@ export function GalleryCardSpecimens() {
     fixtureCovers().then((made) => { if (live) setCovers(made); }).catch(() => {});
     return () => { live = false; };
   }, []);
+  // Some seventy cards: drawn a frame after the page, so the page itself shows as soon as before.
+  const [drawn, setDrawn] = useState(false);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setDrawn(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
   const root = useRef<HTMLDivElement>(null);
   useShiftHeld(root);
   const rows: [string, Spec[]][] = [
@@ -224,13 +230,15 @@ export function GalleryCardSpecimens() {
   ];
   return (
     <Section id="gallery-card" title="Gallery card">
-      <div ref={root} className="flex flex-col gap-[16px]" data-covers={Object.keys(covers).length ? 'ready' : 'coming'}>
+      <div ref={root} className="flex flex-col gap-[16px]" data-covers={drawn && Object.keys(covers).length ? 'ready' : 'coming'}>
         <Shape id="gallery-card" name="Gallery card" used="The library's grid: a gallery's cover, its id and source, its quick actions, title, pages and size, a job's bar, its tags.">
-          {rows.map(([label, specs]): ReactNode => <Row key={label} label={label} specs={specs} t={t} covers={covers} />)}
-          <div className="flex flex-col gap-[8px]">
-            <span className="text-11 text-muted-dim">Driven by the browser test</span>
-            <Driven t={t} covers={covers} />
-          </div>
+          {drawn && rows.map(([label, specs]): ReactNode => <Row key={label} label={label} specs={specs} t={t} covers={covers} />)}
+          {drawn && (
+            <div className="flex flex-col gap-[8px]">
+              <span className="text-11 text-muted-dim">Driven by the browser test</span>
+              <Driven t={t} covers={covers} />
+            </div>
+          )}
         </Shape>
       </div>
     </Section>
