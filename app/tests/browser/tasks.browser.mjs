@@ -158,3 +158,33 @@ test('a running download\'s button is a Stop control, on a library card and on a
   assert.equal(tip, 'Replace images from CBZ', 'with nothing to download from, the button is Replace again');
   await finish(overview);
 });
+
+test('a row leads to its gallery: its cover drawn, its title and cover linked; a folder\'s row and the Settings button lead to Settings', async (t) => {
+  const page = await visit('/tasks', t);
+  if (!page) return;
+  const jobs = [[G.b, 'download'], ['folder-links', 'folder']];
+  t.after(async () => {
+    await page.evaluate(async (jobs) => { const platform = await import('/app/js/platform.js'); for (const [gid, kind] of jobs) await platform.jobs.clear(gid, kind); }, jobs).catch(() => {});
+    await page.close();
+  });
+  await publish(page, { gid: G.b, kind: 'download', status: 'progress', done: 1, total: 4 });
+  await publish(page, { gid: 'folder-links', kind: 'folder', status: 'progress', title: 'Shelf', done: 1, total: 3 });
+  const row = `.tk-row[data-key="${G.b}:download"]`, folder = '.tk-row[data-key="folder-links:folder"]';
+  // The cover is asked for once the gallery is read and drawn when it comes; none shows as nothing.
+  const cover = await until(page, (row) => {
+    const img = document.querySelector(`${row} .tk-thumb img`);
+    return img?.naturalWidth > 0 && [img.src.slice(0, 11), getComputedStyle(img).visibility];
+  }, row, { what: 'the cover' });
+  assert.deepEqual(cover, ['data:image/', 'visible']);
+  const to = (sel) => page.$eval(sel, (a) => { const u = new URL(a.href); return u.pathname + u.search; });
+  assert.equal(await to(`${row} .tk-title`), `/overview?g=${G.b}`, 'the title: its overview');
+  assert.equal(await to(`${row} .tk-thumb`), `/overview?g=${G.b}`, 'the cover: its overview');
+  // A library folder's check: the folder's mark in the cover's place, and Settings, where the folders are.
+  await page.waitForSelector(folder);
+  assert.deepEqual(await page.$eval(folder, (r) => [r.querySelector('.tk-title').textContent, !!r.querySelector('.tk-thumb.folder svg'), !!r.querySelector('.tk-thumb img')]), ['Shelf', true, false]);
+  assert.equal(await to(`${folder} .tk-title`), '/settings');
+  assert.deepEqual(page.problems, []);
+  // The header's Settings button: the Settings page.
+  await page.click('#settingsBtn');
+  await until(page, () => location.pathname === '/settings' && document.readyState === 'complete', null, { what: 'the Settings page' });
+});
