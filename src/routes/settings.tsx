@@ -25,6 +25,7 @@ import { AboutDialog } from './settings/about';
 import { LibraryPanel } from './settings/library';
 import { prefs } from './settings/parts';
 import { ReaderPanel } from './settings/reader';
+import { StoragePanel } from './settings/storage';
 import { TranslationPanel } from './settings/translation';
 
 // The panels, in the nav's order: the panel's id is the nav item's value (data-panel), its nav item's
@@ -33,7 +34,7 @@ const PANELS = [
   { id: 'panelLibrary', nav: 'navLibrary', label: 'set.nav_library', Panel: LibraryPanel },
   { id: 'panelReader', nav: 'navReader', label: 'set.nav_reader', Panel: ReaderPanel },
   { id: 'panelTranslation', nav: 'navTranslation', label: 'set.nav_translation', Panel: TranslationPanel },
-  { id: 'panelStorage', nav: 'navStorage', label: 'set.nav_storage', Panel: null },
+  { id: 'panelStorage', nav: 'navStorage', label: 'set.nav_storage', Panel: StoragePanel },
 ] as const;
 
 export default function Settings() {
@@ -70,7 +71,7 @@ export default function Settings() {
             {/* Every panel mounted; the hidden ones not displayed. */}
             {PANELS.map(({ id, nav, Panel }) => (
               <div key={id} id={id} role="tabpanel" aria-labelledby={nav} hidden={shown !== id} className={cn('panel w-full min-w-0', shown === id && 'active')}>
-                {Panel && <Panel />}
+                <Panel />
               </div>
             ))}
           </div>

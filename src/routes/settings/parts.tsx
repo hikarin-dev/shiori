@@ -26,16 +26,17 @@ export function usePref<T extends boolean | string>(key: PrefKey): [T, (value: T
 export type Status = { text: string; tone: 'ok' | 'err'; shown: boolean };
 export const STATUS_MS = 2500;   // a status line shows this long, as 1.3's showStatus
 
-// A section's status line: show(text) shows it for 2.5 s (again from the start if shown already).
-export function useStatus(): [Status, (text: string, tone?: 'ok' | 'err') => void] {
+// A section's status line: show(text) shows it for 2.5 s, or `ms` (again from the start if shown
+// already); no text hides it at once.
+export function useStatus(ms = STATUS_MS): [Status, (text: string, tone?: 'ok' | 'err') => void] {
   const [status, setStatus] = useState<Status>({ text: '', tone: 'ok', shown: false });
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
   const show = useCallback((text: string, tone: 'ok' | 'err' = 'ok') => {
-    setStatus({ text, tone, shown: true });
+    setStatus({ text, tone, shown: !!text });
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => setStatus((s) => ({ ...s, shown: false })), STATUS_MS);
-  }, []);
+    timer.current = setTimeout(() => setStatus((s) => ({ ...s, shown: false })), ms);
+  }, [ms]);
   return [status, show];
 }
 
