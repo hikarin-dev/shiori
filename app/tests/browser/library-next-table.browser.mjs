@@ -22,7 +22,7 @@ before(async () => {
 after(async () => { await browser?.close(); server?.close(); });
 
 // Runs in the page: 70 galleries of one to three pages of three sizes, three tags in turn, a category
-// (manga, misc), a rating (safe, explicit, none), a language for some, an artist for a few, every
+// (manga, misc), a rating (safe, pornographic, none), a language for some, an artist for a few, every
 // fifth translated, every seventh a favourite, a published date for half; and a series of three
 // chapters.
 async function seed() {
@@ -33,7 +33,7 @@ async function seed() {
     for (let y = 0; y < canvas.height; y += 7) { ctx.fillStyle = `hsl(${(hue + y) % 360} 60% 50%)`; ctx.fillRect(0, y, canvas.width, 7); }
     return canvas.convertToBlob({ type: 'image/png' });
   };
-  const RATINGS = ['safe', 'explicit', null];
+  const RATINGS = ['safe', 'pornographic', null];
   for (let i = 0; i < 70; i++) {
     const gid = String(1790000002000 + i);
     const tags = [{ type: 'tag', name: `t${i % 3}` }, { type: 'category', name: i % 4 ? 'manga' : 'misc' }];
@@ -99,7 +99,7 @@ const TABLE = [
   ...SORTS.flatMap((sort) => ['', 'tag:"t1"'].map((q) => ({ query: [q && `q=${enc(q)}`, sort && `sort=${sort}`].filter(Boolean).join('&') }))),
   ...['gallery 1', 'favorite:"yes"', 'favorite:"no"', 'translated:"yes"', 'language:"chinese"', 'language:"japanese"', 'artist:an', 'nothing-is-called-this', 'category:"misc" t2', 'series', '17900000020']
     .map((q) => ({ query: `q=${enc(q)}` })),
-  ...[{ rating: { safe: 'include' } }, { category: { misc: 'exclude' } }, { rating: { explicit: 'exclude', safe: 'include' }, category: { manga: 'include' } }]
+  ...[{ rating: { safe: 'include' } }, { category: { misc: 'exclude' } }, { rating: { pornographic: 'exclude', safe: 'include' }, category: { manga: 'include' } }]
     .flatMap((filter) => ['', 'q=t0'].map((query) => ({ query, storage: { 'shiori:libFilter': filter } }))),
   { query: 'page=2' }, { query: 'page=3&sort=size' }, { query: 'page=9' }, { query: 'page=2&q=t1' }, { query: 'page=0' }, { query: 'page=abc&sort=count' },
   { query: '', storage: { 'shiori:libMergeSeries': false } }, { query: 'q=series', storage: { 'shiori:libMergeSeries': false } }, { query: 'page=3', storage: { 'shiori:libMergeSeries': false } },

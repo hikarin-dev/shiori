@@ -53,7 +53,7 @@ export function tierTally(t: Translate, stats: Totals['stats']) {
   // Percentages padded to one width with figure spaces (digit-wide, never collapsed), so the
   // right-aligned values keep their "·" in one column.
   const width = Math.max(...rows.map(([, n]) => pct(n).length));
-  return [t('lib.images_by_tier'), ...rows.map(([label, n]) => `${label}\t${formatCount(n)} · ${pct(n).padStart(width, ' ')}`)].join('\n');
+  return [t('lib.images_by_tier'), ...rows.map(([label, n]) => `${label}\t${formatCount(n)} · ${pct(n).padStart(width, ' ')}`)].join('\n');
 }
 
 // 1.3's widths: the totals and Import's word in the bar above 1400px; the menu button at 1400px or
