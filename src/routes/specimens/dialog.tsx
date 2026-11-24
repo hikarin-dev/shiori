@@ -14,16 +14,11 @@ import { Line, Section, Shape, tag } from './specimen';
 type Size = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl';
 const WIDTH: Record<Size, number> = { xs: 340, sm: 440, md: 480, lg: 520, xl: 620, '2xl': 760, '3xl': 960, '4xl': 1120 };
 
-// A dialog drawn where it stands: open, in place, doing nothing.
+// A dialog drawn where it stands: the box alone, still.
 function Still({ shape, variant, size, layout = 'simple', children }: { shape: string; variant: string; size: Size; layout?: 'simple' | 'sectioned'; children: ReactNode }) {
-  const [place, setPlace] = useState<HTMLDivElement | null>(null);
   return (
-    <div ref={setPlace} className="max-w-[calc(100vw-200px)] min-w-0" style={{ width: WIDTH[size] }}>
-      {place && (
-        <Dialog open modal={false}>
-          <DialogContent inPlace={place} size={size} layout={layout} {...tag(shape, variant, 'rest')}>{children}</DialogContent>
-        </Dialog>
-      )}
+    <div className="max-w-[calc(100vw-200px)] min-w-0" style={{ width: WIDTH[size] }}>
+      <DialogContent still size={size} layout={layout} {...tag(shape, variant, 'rest')}>{children}</DialogContent>
     </div>
   );
 }

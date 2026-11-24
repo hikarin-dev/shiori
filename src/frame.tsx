@@ -2,6 +2,7 @@
 import { useLayoutEffect } from 'react';
 import { Outlet, useMatches } from 'react-router';
 import type { Route } from './routes';
+import { NoticeHost } from './components/notice-host';
 
 // <meta name="shiori-app" content="<page>"> while one of the app's own pages shows, by which an
 // independent observer recognises the app's pages; one element, its content changed with the page,
@@ -43,6 +44,7 @@ export default function Frame() {
     <>
       {route?.header && <Header />}
       <Outlet />
+      <NoticeHost />
     </>
   );
 }

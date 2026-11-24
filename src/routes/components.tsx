@@ -32,6 +32,7 @@ import { ScrollBoxSpecimens } from './specimens/scroll-box';
 import { DragHandleSpecimens } from './specimens/drag-handle';
 import { DialogSpecimens } from './specimens/dialog';
 import { ToastSpecimens } from './specimens/toast';
+import { NoticeSpecimens } from './specimens/notice';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -162,6 +163,7 @@ export default function Components() {
       <DragHandleSpecimens />
       <DialogSpecimens />
       <ToastSpecimens />
+      <NoticeSpecimens />
     </main>
   );
 }

@@ -9,6 +9,8 @@ import './index.css';
 import { enter } from './entry';
 
 if (await enter()) {
+  // notice.js's host first, so a notice the start-up raises before the app has drawn waits for it.
+  await import('./lib/notice-store');
   await import('@lib/boot-core.js');
   const { mount } = await import('./app');
   // start.js starts this script from the head: the body may still be on its way.

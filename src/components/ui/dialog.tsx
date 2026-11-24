@@ -41,8 +41,8 @@
 // sectioned dialog takes its 1.3 phone form (14px, the footer 11px 14px, radius 10, 8px off the
 // window's edges).
 //
-// inPlace: drawn where it stands with no backdrop or layer, open and doing nothing (the /components
-// page's still specimens).
+// still: the box alone, drawn where it stands, outside any Dialog: no backdrop, layer, focus trap or
+// title wiring, nothing done to the rest of the page (the /components page's still specimens).
 import { createContext, useContext, type ComponentProps, type ReactNode } from 'react';
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
 import { X } from 'lucide-react';
@@ -54,6 +54,7 @@ import { cn } from '@/lib/utils';
 
 type Layout = 'simple' | 'sectioned';
 const LayoutContext = createContext<Layout>('simple');
+const StillContext = createContext(false);
 
 function Dialog({ modal = 'trap-focus', ...props }: DialogPrimitive.Root.Props) {
   return <DialogPrimitive.Root modal={modal} {...props} />;
@@ -67,7 +68,7 @@ function DialogTrigger(props: DialogPrimitive.Trigger.Props) {
 const LAYER = { dialog: 'z-dialog', notice: 'z-notice' } as const;
 
 const box = cva(
-  'relative flex min-w-0 flex-col rounded-12 border border-solid border-input bg-popover text-popover-foreground shadow-dialog outline-none [overflow-wrap:anywhere]',
+  'relative min-w-0 rounded-12 border border-solid border-input bg-popover text-popover-foreground shadow-dialog outline-none [overflow-wrap:anywhere]',
   {
     variants: {
       size: {
@@ -75,8 +76,10 @@ const box = cva(
         xl: 'w-[min(620px,100%)]', '2xl': 'w-[min(760px,100%)]', '3xl': 'w-[min(960px,100%)]', '4xl': 'w-[min(1120px,100%)]',
       },
       layout: {
+        // A block, as 1.3's notice box: the space between what it says and its buttons is the larger
+        // of the two margins, not their sum.
         simple: 'scroll-box max-h-[calc(100dvh-32px)] p-[20px]',
-        sectioned: 'max-h-[calc(100dvh-32px)] overflow-hidden max-[520.02px]:max-h-[calc(100dvh-16px)] max-[520.02px]:rounded-10',
+        sectioned: 'flex max-h-[calc(100dvh-32px)] flex-col overflow-hidden max-[520.02px]:max-h-[calc(100dvh-16px)] max-[520.02px]:rounded-10',
       },
     },
   },
@@ -87,27 +90,23 @@ type ContentProps = Omit<DialogPrimitive.Popup.Props, 'className'> & {
   size?: Size;
   layout?: Layout;
   layer?: keyof typeof LAYER;
-  inPlace?: HTMLElement | null;
+  still?: boolean;
   className?: string;
+  backdropClassName?: string;
   children?: ReactNode;
 };
 
-function DialogContent({ size = 'sm', layout = 'simple', layer = 'dialog', inPlace, className, children, ...props }: ContentProps) {
+function DialogContent({ size = 'sm', layout = 'simple', layer = 'dialog', still, className, backdropClassName, children, ...props }: ContentProps) {
+  const inner = <LayoutContext.Provider value={layout}>{children}</LayoutContext.Provider>;
+  if (still) {
+    return <div data-slot="dialog" data-layout={layout} className={cn(box({ size, layout }), className)} {...(props as ComponentProps<'div'>)}><StillContext.Provider value>{inner}</StillContext.Provider></div>;
+  }
   const popup = (
-    <DialogPrimitive.Popup
-      data-slot="dialog"
-      data-layout={layout}
-      className={cn(box({ size, layout }), className)}
-      {...(inPlace !== undefined ? { initialFocus: false, finalFocus: false } : {})}
-      {...props}
-    >
-      <LayoutContext.Provider value={layout}>{children}</LayoutContext.Provider>
-    </DialogPrimitive.Popup>
+    <DialogPrimitive.Popup data-slot="dialog" data-layout={layout} className={cn(box({ size, layout }), className)} {...props}>{inner}</DialogPrimitive.Popup>
   );
-  if (inPlace !== undefined) return <DialogPrimitive.Portal container={inPlace}>{popup}</DialogPrimitive.Portal>;
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Backdrop data-slot="dialog-backdrop" className={cn('fixed inset-0 bg-backdrop', LAYER[layer])} />
+      <DialogPrimitive.Backdrop data-slot="dialog-backdrop" className={cn('fixed inset-0 bg-backdrop', LAYER[layer], backdropClassName)} />
       <DialogPrimitive.Viewport
         data-slot="dialog-viewport"
         className={cn(
@@ -140,11 +139,15 @@ function DialogHeader({ className, ...props }: ComponentProps<'div'>) {
 }
 
 function DialogTitle({ className, ...props }: Omit<DialogPrimitive.Title.Props, 'className'> & { className?: string }) {
-  return <DialogPrimitive.Title data-slot="dialog-title" className={cn(DIALOG_TITLE, 'min-w-0 flex-1', className)} {...props} />;
+  const classes = cn(DIALOG_TITLE, 'min-w-0 flex-1', className);
+  if (useContext(StillContext)) return <h2 data-slot="dialog-title" className={classes} {...(props as ComponentProps<'h2'>)} />;
+  return <DialogPrimitive.Title data-slot="dialog-title" className={classes} {...props} />;
 }
 
 function DialogDescription({ className, ...props }: Omit<DialogPrimitive.Description.Props, 'className'> & { className?: string }) {
-  return <DialogPrimitive.Description data-slot="dialog-description" className={cn('mt-[4px] text-11 leading-[1.5] text-muted-foreground', className)} {...props} />;
+  const classes = cn('mt-[4px] text-11 leading-[1.5] text-muted-foreground', className);
+  if (useContext(StillContext)) return <p data-slot="dialog-description" className={classes} {...(props as ComponentProps<'p'>)} />;
+  return <DialogPrimitive.Description data-slot="dialog-description" className={classes} {...props} />;
 }
 
 // A sectioned dialog's body, which scrolls on its own between the header and the footer.
@@ -171,6 +174,8 @@ function DialogFooter({ className, ...props }: ComponentProps<'div'>) {
 // The corner X: a borderless 28px button with its icon alone at 16, at the header row's end.
 function DialogClose({ className, ...props }: Omit<DialogPrimitive.Close.Props, 'className' | 'render'> & { className?: string }) {
   const t = useT();
+  const still = useContext(StillContext);
+  if (still) return <Button data-slot="dialog-close" variant="ghost" size="icon" aria-label={t('common.close')} className={cn('shrink-0', className)}><X aria-hidden strokeWidth={2} /></Button>;
   return (
     <DialogPrimitive.Close
       data-slot="dialog-close"

@@ -10,11 +10,21 @@ const _el = (tag, cls, text) => {
   return el;
 };
 
+// A page that draws these itself registers its host here; from then on each function below hands
+// its request to the host, which draws it and gives back the same promise or handle. Until one has,
+// they are drawn here.
+let _host = null;
+export function setNoticeHost(host) {
+  _host = host;
+  return () => { if (_host === host) _host = null; };
+}
+
 const CLOSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
 
 // One toast at a time: a message, an action button and a close button. Returns { close, busy }.
 let _toast = null;
 export function showToast({ text, action, onAction, closeLabel = 'Close' }) {
+  if (_host) return _host.toast({ text, action, onAction, closeLabel });
   _toast?.close();
   const box = _el('div', 'notice-toast');
   box.setAttribute('role', 'status');
@@ -50,6 +60,7 @@ function _modal(title, body) {
 
 // A question with a few answers ({ value, label, detail }); resolves with the chosen value.
 export function ask({ title, body, choices }) {
+  if (_host) return _host.ask({ title, body, choices });
   return new Promise((resolve) => {
     const { overlay, modal } = _modal(title, body);
     const list = _el('div', 'notice-choices');
@@ -69,6 +80,7 @@ export function ask({ title, body, choices }) {
 // A progress modal: update(done, total, detail) — total 0 shows an indeterminate bar. With
 // `stopLabel`, a Stop button calls onStop once. close() removes it.
 export function showProgress({ title, body, stopLabel, onStop }) {
+  if (_host) return _host.progress({ title, body, stopLabel, onStop });
   const { overlay, modal } = _modal(title, body);
   const bar = _el('div', 'notice-bar indeterminate');
   bar.append(_el('div'));
@@ -99,6 +111,7 @@ export function showProgress({ title, body, stopLabel, onStop }) {
 // up to two lines of detail under it; stopping(label) disables the Stop button with a new label;
 // hide()/show() set the box aside while a dialog asks something (the page stays locked).
 export function showOperation({ title, body = '', stopLabel, onStop }) {
+  if (_host) return _host.operation({ title, body, stopLabel, onStop });
   const { overlay, modal } = _modal(title, body);
   modal.classList.add('notice-operation');
   const id = `notice-op-${++_dialogSeq}`;
@@ -218,6 +231,7 @@ const _ICONS = {
 let _dialogSeq = 0;
 
 function _dialog({ title, body, detail, cover, tone, input, form, toggle, ok, cancel }) {
+  if (_host) return _host.dialog({ title, body, detail, cover, tone, input, form, toggle, ok: ok || t('common.ok'), cancel });
   return new Promise((resolve) => {
     const id = `notice-dlg-${++_dialogSeq}`;
     const overlay = _el('div', 'notice-overlay');
