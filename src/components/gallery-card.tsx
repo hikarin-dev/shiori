@@ -227,12 +227,14 @@ function GalleryCardImpl({ view, job = null, interrupted = false, lingerMs = JOB
 
   // What the job's news says, kept while news comes that a card doesn't draw.
   const drawnRef = useRef<Drawn | null>(null);
-  const interruptedKey = useMemo(() => (interrupted ? {} : null), [interrupted]);
+  // The hint of an interruption shows over no job, or over the last word of the one there when it was
+  // said; news that comes after it shows in its place (1.3: whichever was said last).
+  const interruptedKey = useMemo(() => (interrupted ? { before: job } : null), [interrupted]);   // eslint-disable-line react-hooks/exhaustive-deps
   let drawn: Drawn | null = null;
   const fromNews = job ? cardJob(job, format) : null;
   if (job && fromNews) drawn = { job: fromNews, key: job };
   else if (job && !fromNews) drawn = drawnRef.current;
-  if (interruptedKey && (!drawn || drawn.job.ended)) drawn = { job: INTERRUPTED(t('prog.interrupted')), key: interruptedKey };
+  if (interruptedKey && (!drawn || (drawn.job.ended && job === interruptedKey.before))) drawn = { job: INTERRUPTED(t('prog.interrupted')), key: interruptedKey };
 
   // A last word stays its while, then the card is at rest again.
   const [settled, setSettled] = useState<object | null>(null);
@@ -246,11 +248,12 @@ function GalleryCardImpl({ view, job = null, interrupted = false, lingerMs = JOB
   }, [endedKey, settled, id, lingerMs]);
   const live = drawn && drawn.key !== settled ? drawn.job : null;
 
-  // A cancelled job's word shows where its job showed; an error's bar stays where it was.
+  // A cancelled job's word shows where its job showed; an error's bar stays where it was (empty, where
+  // it had no figure yet: its motion stops, as 1.3's did).
   const wasShown = useRef(false);
   const barRef = useRef<number | null>(0);
   const shown = !!live && (live.shown || wasShown.current) || pending === 'download' || pending === 'translate';
-  const bar = live ? (live.bar === undefined ? barRef.current : live.bar) : 0;
+  const bar = live ? (live.bar === undefined ? barRef.current ?? 0 : live.bar) : 0;
   const label = live ? live.label : pending === 'download' ? t('prog.fetching_meta') : pending === 'translate' ? t('prog.translating') : '';
   useEffect(() => {
     drawnRef.current = drawn;
@@ -288,7 +291,8 @@ function GalleryCardImpl({ view, job = null, interrupted = false, lingerMs = JOB
     else on.translate?.(id);
   });
   const onRerun = (e: MouseEvent<HTMLButtonElement>) => {
-    if (!view.translated || view.series || trForm !== 'rest') return;
+    // Not while it is its job's Stop, or off: a translation just finished leaves it pressable, as 1.3's.
+    if (!view.translated || view.series || (trForm !== 'rest' && trForm !== 'done')) return;
     e.preventDefault();
     on.rerun?.(id, e.currentTarget);
   };

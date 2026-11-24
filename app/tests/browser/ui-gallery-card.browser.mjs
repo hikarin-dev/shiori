@@ -233,6 +233,8 @@ test('each handler, called with the gallery\'s id, as 1.3 chose by Shift, Alt an
     [translated, '.card-btn-translate', { keys: ['Shift'] }, [['revert', T]]],
     [translated, '.card-btn-translate', { button: 'right' }, [['rerun', T, 'element:card-btn-translate']]],
     [plain, '.card-btn-translate', { button: 'right' }, []],                    // not translated: the browser's own menu
+    // A translation just finished, its last word still showing: the button is pressable again (1.3's was).
+    [{ ...translated, job: { gid: T, kind: 'translate', status: 'done', done: 3, total: 3 } }, '.card-btn-translate', { button: 'right' }, [['rerun', T, 'element:card-btn-translate']]],
     [plain, '.card-btn-export', {}, [['export', P]]],
     [plain, '.card-btn-export', { keys: ['Shift'] }, [['exportMetadata', P]]],
     [plain, '.card-btn-del', {}, [['remove', P]]],
@@ -346,10 +348,41 @@ test('a job\'s states one after another on one card: its bar, its line, the Stop
   ]);
   // While the translation ran its Stop had no Shift or Alt words.
   assert.ok((await page.evaluate(() => window.__states)).map((s) => JSON.parse(s)).filter((s) => s.tr[0] === 'stop').every((s) => s.tr[3] === null));
+  // News after an interruption's hint shows in its place (the card is still told of that interruption):
+  // a job that fails with no figure yet, its bar's motion stopped and empty (1.3 took the motion away).
+  await page.evaluate(() => { window.__states = [window.__states.at(-1)]; window.__galleryCardCalls = []; });
+  await news({ gid: S, kind: 'download', status: 'downloading', downloaded: 2048 });
+  await news({ gid: S, kind: 'download', status: 'error', error: 'gone' });
+  await until(page, () => window.__galleryCardCalls?.length === 1, null, { what: 'this error\'s while over' });
+  await sleep(100);
+  assert.deepEqual((await page.evaluate(() => window.__states)).map((s) => JSON.parse(s)).map((s) => [s.shown, s.bar, s.moving, s.label]), [
+    [false, '0%', false, ''],
+    [true, null, true, '↓ 2KB'],
+    [true, '0%', false, 'Error: gone'],
+    [false, '0%', false, ''],
+  ]);
+  // And a word said while the hint still shows takes its place at once.
+  await page.evaluate(() => { window.__states = [window.__states.at(-1)]; window.__galleryCardCalls = []; window.dispatchEvent(new CustomEvent('gallery-card-drive', { detail: { job: null, interrupted: false } })); });
+  await sleep(80);
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('gallery-card-drive', { detail: { interrupted: true } })));
+  await sleep(80);
+  await news({ gid: S, kind: 'download', status: 'error', error: 'gone' });
+  await until(page, () => window.__galleryCardCalls?.length === 1, null, { what: 'the later word\'s while over' });
+  await sleep(100);
+  assert.deepEqual((await page.evaluate(() => window.__states)).map((s) => JSON.parse(s)).map((s) => [s.shown, s.label]), [
+    [false, ''],
+    [true, 'Interrupted — run again to resume'],
+    [true, 'Error: gone'],
+    [false, ''],
+  ]);
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('gallery-card-drive', { detail: { job: null, interrupted: false } })));
+  await sleep(80);
   // A cancelled job the card wasn't showing brings nothing up.
   await page.evaluate(() => { window.__states = [window.__states.at(-1)]; });
   await news({ gid: S, kind: 'download', status: 'cancelled' });
-  assert.deepEqual((await page.evaluate(() => window.__states)).map((s) => JSON.parse(s).shown), [false]);
+  const quiet = (await page.evaluate(() => window.__states)).map((s) => JSON.parse(s));
+  assert.ok(quiet.some((s) => s.label === 'Cancelled'), 'the word is there (as 1.3 set it)');
+  assert.ok(quiet.every((s) => !s.shown), 'and its place stays shut');
   assert.deepEqual(page.problems, []);
 });
 
