@@ -2,7 +2,7 @@
 // panel uses: which of its sections show, the write counter's figure and the tip that splits it by
 // kind (this browser's, and a library kept as files' own count), resetting it, the two resets of the
 // danger zone (what each asks, what each clears and in what order), and the library upgrades' rows
-// (what each says, and running it). Moved as they were from settings.js.
+// (what each says, and running it). Moved as they were from 1.3's Settings page.
 
 import * as api from './api.js';
 import * as platform from './platform.js';

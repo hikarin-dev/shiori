@@ -2,7 +2,7 @@
 // pipeline's models step by step, the target language, Study data, snapshots, and the advanced window
 // with every option the server offers), and the benchmark for a local server that answers. Everything
 // saves as it changes, said for 2.5 s in the status line of the section (or window) the change came
-// from. What is stored is 1.3's to the byte (app/js/translate-settings.js, which 1.3's page uses too);
+// from. What is stored is 1.3's to the byte (app/js/translate-settings.js);
 // the panel's flow is src/lib/translation-store.ts.
 //
 // Drawn as 1.3's (settings.css): the status pill at the server header's end; the pipeline a row of

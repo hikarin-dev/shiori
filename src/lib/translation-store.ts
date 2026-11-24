@@ -1,7 +1,7 @@
 // translation-store.ts — Settings' Translation panel as a store outside React (read with
 // useSyncExternalStore): the stored translation settings and the panel's fields, the server's status,
-// what it can run (its capabilities), and saving, as 1.3's settings.js ran them. What is stored, and
-// how it is read back, is app/js/translate-settings.js's (both pages use it).
+// what it can run (its capabilities), and saving, as 1.3's Settings page ran them. What is stored, and
+// how it is read back, is app/js/translate-settings.js's.
 //
 //   - start() reads the stored settings (an older schema's migrated and stored once), asks for the
 //     capabilities (the copy kept for the server at once, then the server), and checks the server's

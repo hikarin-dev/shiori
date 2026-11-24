@@ -21,7 +21,7 @@ async function fresh(t, fixture = false) {
     page.on('request', request => {
       if (request.url() === origin + '/panel-fixture') request.respond({ status: 200, contentType: 'text/html',
         body: '<!doctype html><link rel="icon" href="data:,">' +
-          ['base', 'dropdown', 'library', 'overview', 'settings', 'reader', 'notice', 'benchmark']
+          ['base', 'dropdown', 'library', 'overview', 'settings', 'reader', 'notice']
             .map(name => `<link rel="stylesheet" href="/app/${name}.css">`).join('') +
           '<body><script type="module" src="/app/js/scrollbar.js"></script>' });
       else if (request.url().startsWith(origin) || request.url().startsWith('data:')) request.continue();
@@ -112,10 +112,6 @@ test('other modal bodies, lists and nested details share native styling and acce
       ['Page properties settings', '<details class="pp-details" open><summary>Settings</summary><div class="pp-detail-scroll"><dl class="pp-grid"></dl></div></details>', '.pp-detail-scroll'],
       ['Page properties text', '<details class="pp-details" open><summary>Text</summary><table class="pp-text"></table></details>', '.pp-text'],
       ['Notice details', '<div class="notice-detail-box"></div>', '.notice-detail-box'],
-      ['Benchmark dialog', '<dialog class="benchmark-dialog" open></dialog>', '.benchmark-dialog'],
-      ['Benchmark models', '<div class="benchmark-models"><fieldset></fieldset></div>', 'fieldset'],
-      ['Benchmark galleries', '<div class="benchmark-galleries"></div>', '.benchmark-galleries'],
-      ['Benchmark report', '<div class="benchmark-dialog"><pre></pre></div>', 'pre'],
     ];
     for (const [index, [name, html, selector]] of examples.entries()) {
       const owner = document.createElement('div');

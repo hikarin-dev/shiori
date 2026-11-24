@@ -1,6 +1,6 @@
 // benchmark-view.js — what Settings' benchmark card and its report say, worked out from the experiment's
-// plan, the server's models, the library's galleries and a report: for 1.3's page (benchmark-ui.js) and
-// the port to share while both run. Pure: no DOM, no network (app/tests/benchmark-view.test.mjs). Its
+// plan, the server's models, the library's galleries and a report, for Settings' benchmark card
+// (src/routes/settings/benchmark.tsx). Pure: no DOM, no network (app/tests/benchmark-view.test.mjs). Its
 // words are English only, as they have always been.
 
 import { MODEL_STAGES, benchmarkCases, benchmarkSummary, benchmarkCoverage } from './benchmark-core.js';

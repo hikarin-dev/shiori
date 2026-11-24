@@ -2,11 +2,11 @@
 // server's address, its port, other devices on the network and the addresses they open, the sites
 // allowed); the add-ons its windows run; updates (where one stands, Check, Restart to update, developer
 // mode); the app's version and data folder. Every setting is the desktop app's own, read and changed
-// through the window's bridge (app/js/system-settings.js, which 1.3's page uses too): the same calls
-// with the same arguments in the same order as desktop-settings.js, the same question after a change of
+// through the window's bridge (app/js/system-settings.js): the same calls
+// with the same arguments in the same order as 1.3's page made them, the same question after a change of
 // the port or the network, an update followed every 700 ms while one is under way.
 //
-// Drawn as 1.3's (desktop-settings.js, settings.css): each a section of rows; a list (the addresses, the
+// Drawn as 1.3's: each a section of rows; a list (the addresses, the
 // sites, the add-ons) a block of rows of its own, not ruled apart; the update's state as its row's name.
 // §5.3 S01/S04/S11/S20: the port's box 36 (38), the small buttons 28 (30) at 11px, Restart to update 36
 // on a 20px line at 12px.

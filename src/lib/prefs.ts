@@ -1,6 +1,6 @@
 // prefs.ts — preferences as controls read and write them, kept outside React (read with
 // useSyncExternalStore): over platform.kv, with a table saying what each key's control shows of what
-// is stored and what it stores (Settings' own: app/js/settings-prefs.js, which 1.3's page reads too).
+// is stored and what it stores (Settings' own: app/js/settings-prefs.js).
 //
 //   - load() reads every key once; a page draws only after it, so no control paints its default and
 //     then jumps to the saved value.

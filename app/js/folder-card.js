@@ -1,5 +1,5 @@
-// folder-card.js — Settings → Storage → Library storage without its drawing, which every page drawing
-// the card uses (library-folders.js initLibraryFolders, and the one page's card): what the card holds
+// folder-card.js — Settings → Storage → Library storage without its drawing, which the card uses
+// (src/routes/settings/folders.tsx): what the card holds
 // for this library (cardShape), what a place's row says (rowView, folderJobView), what its menu offers
 // and what each item asks first (createFolderCard's menu), and the card's flow — the places listed again
 // as the library says they changed, each one's task followed as it says how it goes, adding a folder,

@@ -1,6 +1,6 @@
 // translate-settings.js — what Settings' Translation panel and its advanced window store under
-// `translateSettings`, and how they read it back, for 1.3's page (settings.js) and the port to share
-// while both run. Pure: no DOM, no network (app/tests/translate-settings.test.mjs).
+// `translateSettings`, and how they read it back, as 1.3's Settings page did (moved as they were from
+// it). Pure: no DOM, no network (app/tests/translate-settings.test.mjs).
 //
 // The stored object is the migrated settings (translate-config.js) with the panel's own fields laid
 // over it, and each edit in the advanced window applied to it as a control describes it; its keys keep

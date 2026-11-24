@@ -5,8 +5,8 @@
 // backup runs in any window). A library kept by the desktop app has no upgrades, and seen from a site no
 // stats either.
 //
-// What each says, asks and does is app/js/storage-settings.js's (1.3's page uses it too); a backup is
-// backup-ui.js's (its progress window and questions are notice.js's), called as 1.3's page calls it.
+// What each says, asks and does is app/js/storage-settings.js's; a backup is
+// backup-ui.js's (its progress window and questions are notice.js's), called as 1.3's page called it.
 //
 // Drawn as 1.3's (settings.css): each a section of rows with a button at the end (under the words, full
 // width, in a panel of 480px or less); the total in its framed figure, its tip the split by kind; Reset

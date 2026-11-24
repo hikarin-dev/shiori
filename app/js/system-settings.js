@@ -2,7 +2,7 @@
 // panel uses: the window's bridge to the desktop app (`shioriDesktop.shell`), the ports offered, what
 // an add-on's row is called, what the update's line says for each of its states (and whether it is
 // ready, or under way and followed), and the restart a change of the port or of the network asks for.
-// Moved as they were from desktop-settings.js.
+// Moved as they were from 1.3's Settings page.
 import { t } from './i18n.js';
 import { confirmDialog } from './notice.js';
 

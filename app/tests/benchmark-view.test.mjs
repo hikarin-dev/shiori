@@ -1,7 +1,8 @@
 // benchmark-view.test.mjs — what Settings' benchmark card and its report say (app/js/benchmark-view.js),
 // held against 1.3's own code: the report as 1.3's showBenchmarkReport drew it (copied verbatim below,
-// over a stand-in document) and as benchmark-ui.js draws it now through the view are the same tree,
-// word for word, for reports with and without errors, telemetry and a comparison; the card's rules
+// over a stand-in document) says, word for word and in its order, what the view says (Settings' report,
+// src/routes/settings/benchmark.tsx, draws the view), for reports with and without errors, telemetry
+// and a comparison; the card's rules
 // (the plan, the estimate, the server it loads from, the models offered, an imported plan, the
 // picker's groups, meta and filter) as 1.3 worked them out.
 import test from 'node:test';
@@ -32,7 +33,6 @@ class Element {
 const { reportView, isBenchmarkReport, reportFileName, PLAN_FILE_NAME, number, RECOMMENDED_PAGES, tierRange, galleryMeta, galleryGroups, tierCounts,
   galleryHidden, tierFilterText, benchmarkPlan, selectedText, estimateText, benchmarkServerSettings, defaultStartInterval, modelGroups, planFields,
   finishedText, MODES, NUMBERS } = await import('../js/benchmark-view.js');
-const { showBenchmarkReport } = await import('../js/benchmark-ui.js');
 const { MODEL_STAGES, benchmarkSummary, benchmarkCoverage } = await import('../js/benchmark-core.js');
 const { TIERS } = await import('../js/page-size.js');
 const { formatBytes, formatCount, formatMegapixels } = await import('../js/format.js');
@@ -154,13 +154,25 @@ const EARLIER = { ...REPORT, startedAt: '2026-11-10T08:00:00.000Z', runs: REPORT
 const OTHER_CORPUS = { ...EARLIER, galleries: [gallery('17', 20)] };
 const OTHER_COVERAGE = { ...EARLIER, runs: EARLIER.runs.filter((r) => r.galleryId !== '9') };
 
-test('the report draws the same tree as 1.3\'s, word for word, with and without a comparison', () => {
+// The words of a tree drawn by 1.3's code, in order; the words of the view, in the order of its fields
+// (each table's headers, then its rows); the report's own labels, which the page writes itself.
+const WORDS = (shape) => { const out = []; const walk = (n) => { if (n.text != null) out.push(n.text); for (const c of n.children || []) walk(c); }; walk(shape); return out; };
+const SAID = (view) => {
+  const out = [];
+  const walk = (v, key) => {
+    if (v == null || typeof v === 'boolean' || ['value', 'max', 'name'].includes(key)) return;
+    if (typeof v !== 'object') { out.push(String(v)); return; }
+    for (const [k, x] of Object.entries(v)) if (k !== 'waitsNote' || v.waits) walk(x, Array.isArray(v) ? key : k);   // (the note goes with its table)
+  };
+  walk(view);
+  return out;
+};
+const CHROME = new Set(['Translation benchmark', 'Close', 'Export JSON', 'Compare JSON…']);
+
+test('the report says what 1.3\'s said, word for word, with and without a comparison', () => {
   for (const [report, comparison] of [[REPORT, null], [FAILED, null], [EMPTY, null], [REPORT, EARLIER], [REPORT, OTHER_CORPUS], [REPORT, OTHER_COVERAGE], [EMPTY, REPORT]]) {
-    body.children = [];
-    showBenchmarkReport(report, comparison);
-    const now = body.children.at(-1).shape;
-    const was = oldShowBenchmarkReport(report, comparison).shape;
-    assert.deepEqual(now, was, `${report.status} against ${comparison?.startedAt ?? 'nothing'}`);
+    const was = WORDS(oldShowBenchmarkReport(report, comparison).shape).filter((w) => !CHROME.has(w));
+    assert.deepEqual(SAID(reportView(report, comparison)), was, `${report.status} against ${comparison?.startedAt ?? 'nothing'}`);
   }
   const view = reportView(REPORT, EARLIER);
   assert.equal(view.comparison.table.rows[0][3], '-20.0%', 'a quarter slower before: a fifth faster now');

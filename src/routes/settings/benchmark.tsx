@@ -3,10 +3,10 @@
 // answers). Load the server's models and the galleries, pick models, galleries and the plan's numbers,
 // run it (one job at a time; its progress said as it goes; Stop cancels the job under way), and read
 // the report, also compared with an earlier one. Its words are English only, as 1.3's; what they say
-// and every figure is app/js/benchmark-view.js's (1.3's page draws through it too), the run is
+// and every figure is app/js/benchmark-view.js's, the run is
 // app/js/benchmark.js's.
 //
-// Drawn as 1.3's (benchmark.css): the card's body 20px in; the models a grid of framed lists 220px or
+// Drawn as 1.3's: the card's body 20px in; the models a grid of framed lists 220px or
 // wider, the galleries a framed list 420 high at most, grouped by tier under sticky heads, a row's
 // cover drawn small as it comes into view; the plan's fields a grid 200px or wider. §5.3: its fields
 // and select 36 (S06, 34 before), its buttons Settings' small ones (S04), its ticks the app's
@@ -45,7 +45,7 @@ type Model = { id: string; label: string; checked: boolean; disabled: boolean; r
 type Group = { stage: string; legend: string; models: Model[] };
 type Table = { headers: string[]; rows: (string | number)[][] };
 
-// (Every description in the card stands 12px over what follows, as benchmark.css had it.)
+// (Every description in the card stands 12px over what follows, as 1.3's had it.)
 const DESC = 'field-desc mb-[12px] min-w-0 text-11.5 leading-[1.6] text-muted-foreground [overflow-wrap:anywhere]';
 // (benchmark.js and benchmark-view.js are typed by what they do with what they are given: their
 // callbacks and tables as the page hands and reads them.)
