@@ -71,6 +71,8 @@ function helpers() {
       // (A choice from a list: 1.3's native select, the new page's drawn one; said by what it shows.)
       const list = d.querySelector('select, [data-slot="select-trigger"]');
       return { title: d.querySelector('h2')?.textContent ?? '', text: d.querySelector('p')?.textContent ?? '',
+        // A progress or operation window (its bar), not a question.
+        busy: !!d.querySelector('.notice-bar, [role="progressbar"]'),
         choice: list ? (list.tagName === 'SELECT' ? list.selectedOptions[0]?.textContent : list.textContent) ?? '' : null,
         buttons: [...d.querySelectorAll('button')].filter((b) => shown(b) && !b.matches('[data-slot="select-trigger"]')).map((b) => b.textContent.trim()).filter(Boolean) };
     },
@@ -355,9 +357,9 @@ test('a browser that can\'t pick folders is told so, and has no Add folder: the 
 });
 
 // ── Questions answered by their place: OK (the last button) or Cancel (the first, of two) ────────
-const ok = (page) => until(page, () => { const d = window.__s.dialog(); return d && window.__s.answer(d.buttons.at(-1)); }, null, { what: 'the question\'s OK' });
-const cancel = (page) => until(page, () => { const d = window.__s.dialog(); return d && d.buttons.length > 1 && window.__s.answer(d.buttons[0]); }, null, { what: 'the question\'s Cancel' });
-const noDialog = (page) => until(page, () => !window.__s.dialog(), null, { what: 'no question' });
+const ok = (page) => until(page, () => { const d = window.__s.dialog(); return d && !d.busy && window.__s.answer(d.buttons.at(-1)); }, null, { what: 'the question\'s OK' });
+const cancel = (page) => until(page, () => { const d = window.__s.dialog(); return d && !d.busy && d.buttons.length > 1 && window.__s.answer(d.buttons[0]); }, null, { what: 'the question\'s Cancel' });
+const noDialog = (page) => until(page, () => !window.__s.dialog(), null, { what: 'no question' }).catch(async (e) => { throw new Error(`${e.message} — still: ${JSON.stringify(await run(page, () => window.__s.dialog()))}`); });
 const words = (page, ids) => run(page, (ids) => Object.fromEntries(ids.map((id) => {
   const el = document.getElementById(id);
   // (Not shown: as good as not there — 1.3 kept a hidden row, the new page draws none.)
@@ -454,7 +456,7 @@ test('Export…: the choice opens with its first card focused; Escape closes it 
       await until(page, open1, null, { what: 'the choice' });
       await pause(100);
       await page.click(`#${kind}`);
-      results[kind] = await until(page, () => { const d = window.__s.dialog(); return d && d.buttons.length === 1 && d.title; }, null, { what: 'how it went', timeout: 30000 });
+      results[kind] = await until(page, () => { const d = window.__s.dialog(); return d && !d.busy && d.buttons.length === 1 && d.title; }, null, { what: 'how it went', timeout: 30000 });
       await ok(page);
       await noDialog(page);
     }
@@ -481,7 +483,7 @@ test('Import… and Check… pick a file and say what it is, as 1.3', async (t) 
       const file = path.join(dir, 'not-a-backup.shioridb');
       fs.writeFileSync(file, 'nothing of a backup here');
       await chooser.accept([file]);
-      said[id] = await until(page, () => { const d = window.__s.dialog(); return d && d.buttons.length === 1 && d; }, null, { what: 'what it is', timeout: 20000 });
+      said[id] = await until(page, () => { const d = window.__s.dialog(); return d && !d.busy && d.buttons.length === 1 && d; }, null, { what: 'what it is', timeout: 20000 });
       await ok(page);
       await noDialog(page);
       fs.rmSync(dir, { recursive: true, force: true });
@@ -501,7 +503,7 @@ test('a backup running in another window holds Clear All and Factory Reset back,
     const said = [];
     for (const id of ['clearAllBtn', 'factoryResetBtn']) {
       await run(page, (id) => document.getElementById(id).click(), id);
-      said.push(await until(page, () => { const d = window.__s.dialog(); return d && d.buttons.length === 1 && d; }, null, { what: 'the notice' }));
+      said.push(await until(page, () => { const d = window.__s.dialog(); return d && !d.busy && d.buttons.length === 1 && d; }, null, { what: 'the notice' }));
       await ok(page);
       await noDialog(page);
     }
