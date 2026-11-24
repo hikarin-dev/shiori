@@ -22,7 +22,7 @@ import { Switch } from './ui/switch';
 import { Select } from './ui/select';
 import { Progress } from './ui/progress';
 import { Toast, ToastRegion } from './ui/toast';
-import { finish, getRequests, getToast, getVersion, subscribe, update, type AskRequest, type DialogRequest, type ProgressRequest } from '@/lib/notice-store';
+import { dismissed, finish, getRequests, getToast, getVersion, subscribe, update, type AskRequest, type DialogRequest, type ProgressRequest } from '@/lib/notice-store';
 import { cn } from '@/lib/utils';
 
 // The notices' own type: 12.5px on a 1.55 line, as notice.css had it.
@@ -91,7 +91,7 @@ function NoticeDialog({ request }: { request: DialogRequest }) {
 
   const answer = (a: unknown) => { finish(request); request.resolve(a); };
   const accept = () => answer(input ? value.trim() : form ? { value: picked, checks } : toggle ? { toggle: toggled, option } : true);
-  const dismiss = () => answer(input || form || toggle ? null : (cancel ? false : undefined));
+  const dismiss = () => answer(dismissed(request.ask));
   // A toggle's confirm question, asked when it is turned on or its choice changes while on.
   const confirmed = async (o: string | undefined) => { paused.current = true; try { return (await toggle?.confirm?.(o)) !== false; } finally { paused.current = false; } };
 

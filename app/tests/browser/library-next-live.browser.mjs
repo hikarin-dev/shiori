@@ -352,3 +352,28 @@ test('a change made in another context shows on its card within two frames of it
   assert.deepEqual(page.problems, []);
   await page.close();
 });
+
+test('the page\'s own edit (the heart) shows in the frame of the press, before the library answers', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const page = await open('/library-next');
+  const gid = await page.evaluate(() => document.querySelectorAll('#grid > .card')[7].dataset.galleryId);
+  const sel = `${card(gid)} .card-fav`;
+  await page.evaluate((sel) => {
+    window.__frame = 0;
+    const tick = () => { window.__frame++; requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+    document.addEventListener('click', () => { window.__pressed = window.__frame; }, { capture: true });
+    const fav = document.querySelector(sel);
+    new MutationObserver(() => { if (fav.getAttribute('aria-pressed') === 'true' && window.__drawn == null) window.__drawn = window.__frame; }).observe(fav, { attributes: true });
+  }, sel);
+  await page.hover(card(gid));
+  await page.click(sel);
+  await until(page, () => window.__drawn != null, null, { what: 'the heart drawn' });
+  const { pressed, drawn } = await page.evaluate(() => ({ pressed: window.__pressed, drawn: window.__drawn }));
+  assert.equal(drawn, pressed, 'drawn in the frame of the press');
+  await until(page, async (gid) => (await (await import('/app/js/api.js')).galleries.byIds([gid]))[0]?.favorite === true, gid, { what: 'the library holding it' });
+  await sleep(600);
+  assert.equal(await page.evaluate((sel) => document.querySelector(sel).getAttribute('aria-pressed'), sel), 'true');
+  assert.deepEqual(page.problems, []);
+  await page.close();
+});

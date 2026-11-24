@@ -47,6 +47,7 @@ import { CARD_FORMATS } from '@/lib/card-rules';
 import { coverKeyOf, createCoverStore, type CoverStore } from '@/lib/covers';
 import { galleryQuery } from '@/lib/gallery';
 import { useT } from '@/lib/i18n';
+import { dismissSince, noticeMark } from '@/lib/notice-store';
 import { NO_FILTER, filtering, flagToken, sourceToken, stateToken, stepFilter, tagToken, type FilterType, type LibFilter } from '@/lib/library-search';
 import { createLibraryJobs, type LibraryJobs } from '@/lib/library-jobs';
 import { readAgain } from '@/lib/library-query';
@@ -171,6 +172,8 @@ export default function Library() {
     reveal: (gid) => revealRef.current(gid),
   }));
   useEffect(() => { jobs.start(); return () => jobs.stop(); }, [jobs]);
+  // The questions the page asked go with it when it is left.
+  useEffect(() => { const mark = noticeMark(); return () => dismissSince(mark); }, []);
 
   const { sites, translatorOnline } = useRunners(icons);
 

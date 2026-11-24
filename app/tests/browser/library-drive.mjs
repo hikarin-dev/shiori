@@ -53,6 +53,20 @@ async function seed({ base, parts }) {
 export async function openRun(browser, origin, path, { base, helper = true, merge = true, storage = {}, translator } = {}) {
   const page = await openPage(browser, origin, { allow: translator ? [translator] : [] });
   if (helper) await standInHelper(page);
+  await seedRun(page, origin, base, { helper, merge, storage, translator });
+  await page.goto(`${origin}${path}`, { waitUntil: 'load' });
+  const first = String(base + PARTS.P);
+  await until(page, (first) => document.querySelector('#grid > .card')?.dataset.galleryId === first
+    && [...document.querySelectorAll('#grid > .card img.card-thumb')].slice(0, 5).every((img) => img.getAttribute('src') && img.complete), first, { what: `${path}: the run's cards` });
+  // The translate buttons: shown once the stand-in server has answered.
+  if (translator) await until(page, () => getComputedStyle(document.querySelector('#grid > .card .card-btn-translate')).display !== 'none', null, { what: 'the translation server' });
+  await page.evaluate(record);
+  return page;
+}
+
+// The run's galleries made (from /tasks, in `page`), the jobs registry emptied, and the library's
+// settings for the run stored.
+export async function seedRun(page, origin, base, { helper = true, merge = true, storage = {}, translator } = {}) {
   await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await page.evaluate(seed, { base, parts: PARTS });
   await page.evaluate(async (stored) => {
@@ -63,14 +77,6 @@ export async function openRun(browser, origin, path, { base, helper = true, merg
     for (const [k, v] of Object.entries(stored)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
   }, { ...(helper ? HELPER_STATUS : {}), 'shiori:libMergeSeries': merge, 'shiori:libQuickActionsMode': 'always',
     ...(translator ? { 'shiori:translateSettings': { serverUrl: translator } } : {}), ...storage });
-  await page.goto(`${origin}${path}`, { waitUntil: 'load' });
-  const first = String(base + PARTS.P);
-  await until(page, (first) => document.querySelector('#grid > .card')?.dataset.galleryId === first
-    && [...document.querySelectorAll('#grid > .card img.card-thumb')].slice(0, 5).every((img) => img.getAttribute('src') && img.complete), first, { what: `${path}: the run's cards` });
-  // The translate buttons: shown once the stand-in server has answered.
-  if (translator) await until(page, () => getComputedStyle(document.querySelector('#grid > .card .card-btn-translate')).display !== 'none', null, { what: 'the translation server' });
-  await page.evaluate(record);
-  return page;
 }
 
 // In the page: what it says and does from here on.

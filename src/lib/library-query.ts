@@ -18,11 +18,14 @@
 // An edit the page itself makes (a favourite, a source) is drawn before the library answers
 // (editGallery): set on the gallery's entry at once, held over every read made before the library has
 // it, and put back if the library refuses it (1.3's _pendingSourceChanges).
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient, notifyManager } from '@tanstack/react-query';
 
 export const SETTLE_MS = 500;
 
 export function makeQueryClient() {
+  // A change to an entry reaches its views in the same task (a microtask after it), not a timer's
+  // later: an edit the page makes on a press is drawn in that press's frame.
+  notifyManager.setScheduler(queueMicrotask);
   return new QueryClient({
     defaultOptions: {
       queries: {

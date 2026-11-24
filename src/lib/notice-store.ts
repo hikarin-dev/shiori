@@ -47,6 +47,24 @@ export const update = changed;
 
 function add<T extends Request>(request: T): T { requests = [...requests, request]; changed(); return request; }
 
+// What a dialog answers when it is dismissed (Cancel, Escape, a press on the backdrop), as notice.js's
+// did: null for a prompt, a choice or a toggle; false for a confirmation; nothing for an alert.
+export const dismissed = (ask: DialogAsk) => (ask.input || ask.form || ask.toggle ? null : (ask.cancel ? false : undefined));
+
+// The number of the last request made: what a page asks after it is numbered above it.
+export const noticeMark = () => seq;
+
+// The questions asked since `mark` (notice.js's dialogs) dismissed: a page that is left takes what it
+// asked away with it, as 1.3's page did by unloading (the toast and the progress windows stay: they
+// are the app's).
+export function dismissSince(mark: number) {
+  for (const request of requests) {
+    if (request.kind !== 'dialog' || request.id <= mark) continue;
+    finish(request);
+    request.resolve(dismissed(request.ask));
+  }
+}
+
 // A request is done: it goes, and focus goes back to what had it when it came (as notice.js did).
 export function finish(request: Request) {
   if (!requests.includes(request)) return;
