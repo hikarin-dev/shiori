@@ -77,14 +77,15 @@ const tab = cva('relative min-w-0 cursor-pointer border-solid text-muted-foregro
   variants: {
     variant: {
       nav: [
-        'min-h-[38px] w-full rounded-6 border border-transparent bg-transparent px-[12px] py-[9px] text-left text-12 leading-[1.45] font-semibold [overflow-wrap:anywhere]',
+        // §5.3 S03: 36 (38 before), 8px above and below (9) so its 1.45 line fits, at every width.
+        'min-h-[36px] w-full rounded-6 border border-transparent bg-transparent px-[12px] py-[8px] text-left text-12 leading-[1.45] font-semibold [overflow-wrap:anywhere]',
         'hover:bg-card hover:text-foreground aria-selected:border-border aria-selected:bg-secondary aria-selected:text-foreground',
         // Settings' narrower steps: its media queries, inclusive as they were, each a range of its own
         // so no two set one value.
-        '[@media(520px<width<=760px)]:px-[10px] [@media(520px<width<=760px)]:py-[8px] [@media(520px<width<=760px)]:text-11 [@media(520px<width<=760px)]:leading-[1.45]',
-        '[@media(380px<width<=520px)]:min-h-[36px] [@media(380px<width<=520px)]:px-[7px] [@media(380px<width<=520px)]:py-[8px] [@media(380px<width<=520px)]:text-10 [@media(380px<width<=520px)]:leading-[1.45]',
+        '[@media(520px<width<=760px)]:px-[10px] [@media(520px<width<=760px)]:text-11 [@media(520px<width<=760px)]:leading-[1.45]',
+        '[@media(380px<width<=520px)]:px-[7px] [@media(380px<width<=520px)]:text-10 [@media(380px<width<=520px)]:leading-[1.45]',
         // F21: its 9.5px at 380px and under becomes 10 (the step above's), with 6px sides.
-        '[@media(width<=380px)]:min-h-[36px] [@media(width<=380px)]:px-[6px] [@media(width<=380px)]:py-[8px] [@media(width<=380px)]:text-10 [@media(width<=380px)]:leading-[1.45]',
+        '[@media(width<=380px)]:px-[6px] [@media(width<=380px)]:text-10 [@media(width<=380px)]:leading-[1.45]',
       ].join(' '),
       segmented: `${SEGMENTED_ITEM} border aria-selected:text-foreground`,
       underline: 'mr-[10px] border-0 border-b-2 border-transparent bg-transparent px-[2px] pt-0 pb-[2px] text-muted-dim hover:text-foreground aria-selected:cursor-default aria-selected:border-primary aria-selected:text-muted-foreground pointer-coarse:pt-[10px] pointer-coarse:pb-[6px] [font:inherit] [letter-spacing:inherit] [text-transform:inherit]',
