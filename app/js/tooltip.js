@@ -113,9 +113,13 @@ function _setModifiers(shift, alt) {
   refreshTooltip();
 }
 
-// An open dropdown list sits in the top layer, above this tooltip — so no tips while one is open.
-// Lists only open or close on a press or a key, so that's when it's re-checked (not per move).
-const _OPEN_LIST = CSS.supports('selector(select:open)') ? 'select:open' : null;
+// An open dropdown list is over everything, this tooltip included — the system's sits in the top
+// layer, the app's drawn one is layered over whatever it opens from — so no tips while one is open.
+// It is looked for when it can have changed, not per move: the system's opens or closes on a press
+// or a key; the drawn one a moment after either, so its box, which says when it is open
+// (data-popup-open), is watched.
+const _DRAWN_LIST = '[data-slot="select-trigger"][data-popup-open]';
+const _OPEN_LIST = CSS.supports('selector(select:open)') ? `select:open, ${_DRAWN_LIST}` : _DRAWN_LIST;
 let _listOpen = false;
 const _tipOf = (el) => {
   if (!el || _listOpen) return '';
@@ -178,12 +182,11 @@ function _onScroll() {
   _place('');
 }
 
-function _checkOpenList() {
-  requestAnimationFrame(() => {
-    _listOpen = !!document.querySelector(_OPEN_LIST);
-    if (_listOpen) _place('');
-  });
+function _lookForOpenList() {
+  _listOpen = !!document.querySelector(_OPEN_LIST);
+  if (_listOpen) _place('');
 }
+function _checkOpenList() { requestAnimationFrame(_lookForOpenList); }
 
 function _hide() { _setTarget(null); _place(''); }
 
@@ -206,7 +209,8 @@ export function initTooltips() {
   // press (a modifier change calling refreshTooltip) can't bring it back until the cursor moves.
   document.addEventListener('mouseleave', _hide);
   window.addEventListener('blur', () => { _hide(); _setModifiers(false, false); });
-  if (_OPEN_LIST) for (const type of ['pointerdown', 'click', 'keydown']) document.addEventListener(type, _checkOpenList);
+  for (const type of ['pointerdown', 'click', 'keydown']) document.addEventListener(type, _checkOpenList);
+  new MutationObserver(_lookForOpenList).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['data-popup-open'] });
 }
 
 // Re-read the current target's tip without a mouse move — for callers that change a tip in place

@@ -592,3 +592,30 @@ test('leaving the page leaves nothing behind: /settings → /tasks → /settings
   assert.deepEqual(await held(), first, 'after five more visits, what is held is what it was after the first');
   assert.deepEqual(page.problems, []);
 });
+
+test('a pipeline step\'s tip is put away while its list is open, and is back once the list has closed', async (t) => {
+  if (skip(t)) return;
+  const page = await open(t, NEW, { storage: configured() });
+  await drawnCaps(page);
+  const tip = () => page.evaluate(() => { const el = document.querySelector('.shiori-tip'); return el && getComputedStyle(el).display !== 'none' ? el.textContent : null; });
+  const tipShown = (what) => until(page, () => { const el = document.querySelector('.shiori-tip'); return !!el && getComputedStyle(el).display !== 'none' && el.textContent; }, null, { what });
+  const expanded = (want, what) => until(page, (want) => (document.getElementById('step-detect').getAttribute('aria-expanded') === 'true') === want, want, { what });
+  const box = await page.$eval('#step-detect', (el) => { el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  // The step's tip is on what holds its name and its box: the pointer on the box is on it.
+  await page.mouse.move(box.x - 5, box.y);
+  await page.mouse.move(box.x, box.y);
+  const words = await tipShown('the step\'s tip');
+  assert.equal(words, await page.$eval('#step-detect', (el) => el.closest('.translate-step').dataset.tip.split('\n').join('')));
+  await pause(300);   // (a drawn list takes no press in its first moments)
+  await page.mouse.click(box.x, box.y);
+  await expanded(true, 'the list open');
+  await page.mouse.move(box.x + 3, box.y);
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  assert.equal(await tip(), null, 'no tip under the open list, the pointer still on the step');
+  await page.keyboard.press('Escape');
+  await expanded(false, 'the list closed');
+  await page.mouse.move(box.x - 5, box.y);
+  await page.mouse.move(box.x, box.y);
+  assert.equal(await tipShown('the tip again'), words);
+  assert.deepEqual(page.problems, []);
+});

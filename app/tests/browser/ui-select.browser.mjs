@@ -142,3 +142,76 @@ test('in a browser without CSS anchor positioning it is the system\'s select, as
   assert.equal(await page.$$eval('[data-slot="select-trigger"]', (els) => els.length), 0, 'no drawn list anywhere');
   assert.deepEqual(page.problems, []);
 });
+
+test('no tip shows while a list is open (the list is over everything, a tip would sit behind it); it is back once the list has closed', async (t) => {
+  const page = await componentsPage(t, browser, origin);
+  if (!page) return;
+  // The tip is on what holds the box, as a pipeline step of Settings carries its own: the pointer on
+  // the box is on it, and stays on it while the list hangs open below.
+  await page.$eval(FIELD, (el) => { el.parentElement.dataset.tip = 'About this choice'; });
+  const tip = () => page.evaluate(() => { const el = document.querySelector('.shiori-tip'); return el && getComputedStyle(el).display !== 'none' ? el.textContent : null; });
+  const open = () => page.$eval(FIELD, (el) => el.getAttribute('aria-expanded') === 'true');
+  // The list opens a moment after what asks for it: waited for, then two frames more.
+  const opened = async () => { await until(page, (sel) => document.querySelector(sel).getAttribute('aria-expanded') === 'true', FIELD, { what: 'the list open', timeout: 5000 }); await frames(); };
+  const shown = (what) => until(page, () => { const el = document.querySelector('.shiori-tip'); return !!el && getComputedStyle(el).display !== 'none' && el.textContent === 'About this choice'; }, undefined, { what, timeout: 5000 });
+  // Two frames: what a press or a key changes is looked at in the frame after it.
+  const frames = () => page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  const at = await centreOf(page, FIELD);
+  const rest = async () => { await page.mouse.move(at.x - 6, at.y); await page.mouse.move(at.x, at.y); };
+  await rest();
+  await shown('the tip, the list closed');
+
+  // Opened by a press: the tip goes, and the pointer moving on the box does not bring it back.
+  await page.mouse.click(at.x, at.y);
+  await opened();
+  assert.equal(await tip(), null, 'opened by a press');
+  await rest();
+  await frames();
+  assert.equal(await tip(), null, 'the pointer moving on the box while the list is open');
+  await settled(page);
+  assert.equal(await tip(), null, 'and once the list has unrolled');
+
+  // Closed by Escape: back at the pointer's next move.
+  await page.keyboard.press('Escape');
+  await settled(page);
+  assert.equal(await open(), false);
+  await rest();
+  await shown('the tip after Escape');
+
+  // Opened by the keyboard, the pointer resting on the box: gone with no move of the pointer.
+  await page.focus(FIELD);
+  await page.keyboard.press('Enter');
+  await opened();
+  assert.equal(await tip(), null, 'opened by the keyboard');
+
+  // An option chosen by a press: the list closes, and the tip is back at the next move.
+  await settled(page);
+  const option = await page.evaluate(() => { const r = document.querySelectorAll('[data-slot="select-list"][data-open] [role="option"]')[2].getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await page.mouse.move(option.x, option.y);
+  assert.equal(await tip(), null, 'the pointer on an option');
+  await page.mouse.click(option.x, option.y);
+  await settled(page);
+  assert.equal(await open(), false);
+  await rest();
+  await shown('the tip after a choice');
+
+  // Closed by a press beside it (on what holds the box, clear of the box and the list).
+  await page.mouse.click(at.x, at.y);
+  await opened();
+  assert.equal(await tip(), null);
+  const beside = await page.evaluate((sel) => {
+    const box = document.querySelector(sel).getBoundingClientRect();
+    for (const [x, y] of [[box.right + 40, box.top - 30], [box.left - 40, box.top - 30], [box.right + 40, box.top + 4], [innerWidth - 40, box.top - 30]]) {
+      const el = document.elementFromPoint(x, y);
+      if (el && !el.closest('a, button, input, select, label, [role], [tabindex], [data-slot="select-positioner"]')) return { x, y };
+    }
+    return null;
+  }, FIELD);
+  assert.ok(beside, 'a place beside the box that is nothing to press');
+  await page.mouse.click(beside.x, beside.y);
+  await settled(page);
+  assert.equal(await open(), false, 'closed by a press beside it');
+  await rest();
+  await shown('the tip after a press beside the list');
+  assert.deepEqual(page.problems, []);
+});
