@@ -28,14 +28,16 @@ before(async () => {
 });
 after(async () => { for (const b of Object.values(browsers)) await b.close(); server?.close(); await tr?.close(); });
 
-// In the page: the box of `sel` in every frame from now for `ms`, and the window.
+// In the page: the box of `sel` in every frame for `ms` from the frame it first shows in (what opens
+// the first time is loaded then: under a slowed CPU it may take a while to come), and the window.
 const boxes = (page, sel, ms = 600) => page.evaluate(([sel, ms]) => new Promise((done) => {
   const seen = [];
-  const t0 = performance.now();
+  let t0 = null;
+  const given = performance.now();
   const tick = () => {
     const el = document.querySelector(sel);
-    if (el) { const r = el.getBoundingClientRect(); seen.push([r.left, r.top, r.width, r.height].map((v) => Math.round(v * 100) / 100).join(',')); }
-    if (performance.now() - t0 < ms) requestAnimationFrame(tick); else done({ seen, w: innerWidth, h: innerHeight, cw: document.documentElement.clientWidth, overflow: getComputedStyle(document.body).overflow + getComputedStyle(document.documentElement).overflow });
+    if (el) { t0 ??= performance.now(); const r = el.getBoundingClientRect(); seen.push([r.left, r.top, r.width, r.height].map((v) => Math.round(v * 100) / 100).join(',')); }
+    if (t0 == null ? performance.now() - given < 5000 : performance.now() - t0 < ms) requestAnimationFrame(tick); else done({ seen, w: innerWidth, h: innerHeight, cw: document.documentElement.clientWidth, overflow: getComputedStyle(document.body).overflow + getComputedStyle(document.documentElement).overflow });
   };
   requestAnimationFrame(tick);
 }), [sel, ms]);
