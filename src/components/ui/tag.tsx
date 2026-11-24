@@ -61,6 +61,12 @@ const REMOVING = {
   ghost: 'in-[.shift-held]:hover:border-destructive in-[.shift-held]:hover:text-destructive',
 };
 
+// A filter's key, muted, before its value.
+const TAG_KEY = 'mr-[4px] font-normal text-muted-foreground';
+// The look of a search filter (filterKey, sm) as classes, for a block another module makes (the
+// search box's, app/js/search-field.js, given them by SearchField).
+const FILTER_TAG = cn(tagVariants({ variant: 'neutral', size: 'sm', interactive: false }), 'font-semibold whitespace-pre');
+
 type Common = Omit<VariantProps<typeof tagVariants>, 'interactive'> & {
   count?: ReactNode;
   filterKey?: string;
@@ -84,7 +90,7 @@ function Tag({ variant = 'neutral', size, count, filterKey, removable, className
   );
   const content = (
     <>
-      {filterKey !== undefined && <span data-slot="tag-key" className="mr-[4px] font-normal text-muted-foreground">{filterKey}:</span>}
+      {filterKey !== undefined && <span data-slot="tag-key" className={TAG_KEY}>{filterKey}:</span>}
       {children}
       {count !== undefined && (
         <span data-slot="tag-count" className={cn('ml-[8px] border-0 border-l border-solid pl-[8px] text-muted-foreground tabular-nums [border-left-color:inherit]',
@@ -100,4 +106,4 @@ function Tag({ variant = 'neutral', size, count, filterKey, removable, className
   return <span data-slot="tag" data-variant={variant} className={classes} {...(props as ComponentProps<'span'>)}>{content}</span>;
 }
 
-export { Tag };
+export { Tag, FILTER_TAG, TAG_KEY };

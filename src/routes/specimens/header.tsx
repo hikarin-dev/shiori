@@ -1,12 +1,14 @@
-// The header's specimens: AppHeader in each page's form, 1200px wide (the column's width on a phone).
+// The header's specimens: AppHeader in each page's form, 1200px wide (on a phone, the window's width,
+// as a page's header is).
 // Each stands in a box that clips it, so its stickiness holds it in place there instead of to the
 // window's top. Its phone form shows at a phone's width (600px or less). Choosing a page in a page
 // menu here goes to it, as on its page.
 import type { ReactNode } from 'react';
-import { Settings, Square } from 'lucide-react';
+import { Eye, Menu, Pin, Settings, Square, Upload } from 'lucide-react';
 import { AppHeader } from '@/components/ui/app-header';
 import { Button } from '@/components/ui/button';
 import { PageMenu, type Page } from '@/components/ui/page-menu';
+import { SearchField } from '@/components/ui/search-field';
 import { Stat } from '@/components/ui/stat';
 import { useT } from '@/lib/i18n';
 import { Line, Section, Shape, tag, type State } from './specimen';
@@ -14,7 +16,7 @@ import { Line, Section, Shape, tag, type State } from './specimen';
 function Framed({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-[4px]">
-      <div className="w-[1200px] max-w-full overflow-hidden">{children}</div>
+      <div className="w-[1200px] max-w-full overflow-hidden [@media(max-width:600px)]:-mx-[20px] [@media(max-width:600px)]:w-[100vw] [@media(max-width:600px)]:max-w-none">{children}</div>
       <span className="text-10 text-muted-dim">{label}</span>
     </div>
   );
@@ -27,6 +29,20 @@ export function HeaderSpecimens() {
   return (
     <Section id="header" title="Header">
       <Shape id="app-header" name="Page header" used="Library, Overview and Tasks: the brand, the page menu after a '/', the page's buttons at the right (sticky, 54px).">
+        <Framed label="Library (its search: type, or focus it for its list)">
+          <AppHeader
+            page={page('library')}
+            search={<SearchField placeholder={t('lib.search_ph')} clearLabel={t('lib.clear_search')} defaultQuery={'category:"manga" '} {...tag('header-search', 'library', 'rest')} />}
+            left={<Button variant="quiet" tone="warning" size="icon" coarse="40" aria-label={t('nav.pin')} data-tip={t('nav.pin')}><Pin className="size-[14px]" /></Button>}
+            right={<>
+              <Button variant="quiet" size="icon" coarse="40" aria-label={t('nav.menu')} data-tip={t('nav.menu')}><Menu className="size-[16px]" /></Button>
+              <Button variant="tint" tone="warning" size="icon" coarse="40" aria-label={t('nav.import')} data-tip={t('nav.import')}><Upload /></Button>
+              <Button variant="quiet" tone="warning" pressedTone="success" size="icon" coarse="40" aria-label={t('nav.safe_on')} data-tip={t('nav.safe_on')}><Eye /></Button>
+              {settings}
+            </>}
+            {...tag('app-header', 'library', 'rest')}
+          />
+        </Framed>
         <Framed label="Tasks">
           <AppHeader
             page={page('tasks')}
