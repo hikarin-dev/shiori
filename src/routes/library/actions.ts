@@ -21,16 +21,10 @@ import { safeExternalUrl } from '@lib/sanitize.js';
 import { galleryLink, helperAvailable } from '@lib/sites.js';
 import { request as helperRequest } from '@lib/ext-bridge.js';
 import { alertDialog, choiceDialog, confirmDialog, promptDialog } from '@lib/notice.js';
-import { deleteRefused } from '@lib/library-folders.js';
-import { removeChapter } from '@lib/series.js';
 import { LANG_NAME_TO_CODE } from '@lib/gallery-model.js';
 import { TAG_TYPE_LABEL, langDisplayName, tagPatchFor } from '@lib/tag-editor.js';
-import { zipCreate } from '@lib/zip.js';
-import { seriesManifest } from '@lib/storage/gallery-files.js';
-import { exportFiles } from '@lib/gallery-export.js';
-import { groupImports, importBytes } from '@lib/import-files.js';
-import { startImport } from '@lib/jobs-runner.js';
-import { handImport } from '@lib/submit-job.js';
+// What a press needs beyond what the page reads is loaded at the press (the page draws none of it).
+const zipping = () => import('@lib/zip.js');
 import type { CardHandlers, CardTagRef } from '@/components/gallery-card';
 import { editGallery } from '@/lib/library-query';
 import type { LibraryJobs } from '@/lib/library-jobs';
@@ -80,6 +74,7 @@ async function parseSourceInput(input: string) {
 const looksLikeUrl = (s: string) => /^https?:\/\//i.test(s) || /^[\w-]+(\.[\w-]+)+([/?#]|$)/.test(s);
 
 // ── Export (1.3's "Per-gallery ZIP export") ──
+const zipCreate = async (files: unknown) => (await zipping()).zipCreate(files as never);
 function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -105,16 +100,17 @@ async function exportMetadataBundle(galleryId: string) {
   const meta = await getMeta(gid);
   const chapters = Array.isArray(meta?.chapters) && meta.chapters.length > 1 ? meta.chapters : null;
   if (!chapters) {
-    saveBlob(new Blob([zipCreate([{ name: 'metadata.json', data: enc.encode(JSON.stringify(cleanMeta(meta), null, 2)) }])], { type: 'application/zip' }), `shiori-${gid}-metadata.zip`);
+    saveBlob(new Blob([await zipCreate([{ name: 'metadata.json', data: enc.encode(JSON.stringify(cleanMeta(meta), null, 2)) }])], { type: 'application/zip' }), `shiori-${gid}-metadata.zip`);
     return;
   }
   const files = [];
+  const { seriesManifest } = await import('@lib/storage/gallery-files.js');
   const manifest = seriesManifest(meta as never, { metadataOnly: true }) as { chapters: { id: string; folder: string }[] };
   for (const { id, folder } of manifest.chapters) {
     files.push({ name: `${folder}/metadata.json`, data: enc.encode(JSON.stringify(cleanMeta(await getMeta(id), { stripSeriesFields: true }), null, 2)) });
   }
   files.push({ name: 'series.json', data: enc.encode(JSON.stringify(manifest, null, 2)) });
-  saveBlob(new Blob([zipCreate(files)], { type: 'application/zip' }), `shiori-series-${gid}-metadata.zip`);
+  saveBlob(new Blob([await zipCreate(files)], { type: 'application/zip' }), `shiori-series-${gid}-metadata.zip`);
 }
 
 // How to export (Settings → Library): asked each time unless a format is set there; the question can
@@ -149,8 +145,9 @@ async function exportGallery(galleryId: string) {
   const meta = await api.meta.get(gid);
   const how = await exportFormat(gid, meta);
   if (!how) return;
+  const { exportFiles } = await import('@lib/gallery-export.js');
   const { name, files } = await exportFiles(gid, { read: api.transfer.read, metaGet: api.meta.get, translations: how.translations, comicInfo: how.format === 'cbz' }) as { name: string; files: never[] };
-  saveBlob(new Blob([zipCreate(files)], { type: how.format === 'cbz' ? 'application/vnd.comicbook+zip' : 'application/zip' }), `${name}.${how.format}`);
+  saveBlob(new Blob([await zipCreate(files)], { type: how.format === 'cbz' ? 'application/vnd.comicbook+zip' : 'application/zip' }), `${name}.${how.format}`);
 }
 
 export type ActionDeps = {
@@ -202,9 +199,9 @@ export function cardActions(deps: ActionDeps): Omit<CardHandlers, 'tag' | 'flag'
         : { title: t('dlg.del_gallery_title'), body: t('dlg.del_gallery_body'), detail: galleryDetail(g), cover: deps.cover(g.id), ok: t('dlg.delete'), danger: true }))) return;
     try {
       if (whole) await rpc({ type: 'DELETE_SERIES', galleryId: g.id });
-      else if (g.isSeries || g.parentId) await removeChapter(String(g.parentId || g.id), g.id, { deleteImages: true });
+      else if (g.isSeries || g.parentId) await (await import('@lib/series.js')).removeChapter(String(g.parentId || g.id), g.id, { deleteImages: true });
       else await rpc({ type: 'DELETE_GALLERY', galleryId: g.id });
-    } catch (err) { if (await deleteRefused(err)) return; throw err; }
+    } catch (err) { if (await (await import('@lib/library-folders.js')).deleteRefused(err)) return; throw err; }
     reread();
   }
 
@@ -221,6 +218,7 @@ export function cardActions(deps: ActionDeps): Omit<CardHandlers, 'tag' | 'flag'
   // Replace: the gallery's pages from a file the person picked (the desktop app's runner takes it
   // when there is one; it reports on the jobs channel).
   async function replaceImages(gid: string, picked: FileList | File[]) {
+    const [{ groupImports, importBytes }, { startImport }, { handImport }] = await Promise.all([import('@lib/import-files.js'), import('@lib/jobs-runner.js'), import('@lib/submit-job.js')]);
     const [group] = groupImports([...picked]) as { name: string }[];
     if (!group || !gid) return;
     jobs.press(gid, 'download', t('prog.reading_file'));

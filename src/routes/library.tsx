@@ -23,21 +23,19 @@
 // controls 12 apart; the grid of cards at least 240px wide, 16 apart, 1512px wide at most, 24px in at
 // the sides and 40 under it (two to a row, 10 apart, 12 in and 32 under at 600px or less); the paging
 // 8px under it and 48 above the page's end, its buttons 5 apart.
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { keepPreviousData, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router';
 import { Funnel } from 'lucide-react';
 import * as api from '@lib/api.js';
 import * as platform from '@lib/platform.js';
 import * as store from '@lib/store.js';
-import { IMPORT_ACCEPT } from '@lib/import-files.js';
 import { confirmDialog } from '@lib/notice.js';
 import { getLang } from '@lib/i18n.js';
 import { appendSearchToken, searchQuery } from '@lib/search-field.js';
 import { canDownload, galleryLink, siteMap, siteName } from '@lib/sites.js';
 import { request as helperRequest } from '@lib/ext-bridge.js';
 import { GalleryCard, cardModes, type CardHandlers } from '@/components/gallery-card';
-import { TagEditor } from '@/components/tag-editor';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Pagination } from '@/components/ui/pagination';
@@ -60,9 +58,17 @@ import { PAGES, TOTALS, pageCount, pageKey, readPage, readTotals, totalsKey, typ
 import { FilterDialog } from './library/filter-dialog';
 import { LibraryHeader } from './library/header';
 import { prefs, usePref } from './library/prefs';
-import { RerunMenu, rerunSteps, type RerunAsk } from './library/rerun-menu';
+import type { RerunAsk } from './library/rerun-menu';
 import { useRunners } from './library/runners';
-import { SeriesTranslateDialog, seriesTranslateAsk, type SeriesTranslateAsk } from './library/series-translate';
+import type { SeriesTranslateAsk } from './library/series-translate';
+
+// What a card opens, loaded the first time it is asked for (the page draws none of it at rest): the
+// re-run menu, a series' translation window, the tag editor.
+const rerunMenu = () => import('./library/rerun-menu');
+const seriesWindow = () => import('./library/series-translate');
+const RerunMenu = lazy(() => rerunMenu().then((m) => ({ default: m.RerunMenu })));
+const SeriesTranslateDialog = lazy(() => seriesWindow().then((m) => ({ default: m.SeriesTranslateDialog })));
+const TagEditor = lazy(() => import('@/components/tag-editor').then((m) => ({ default: m.TagEditor })));
 
 const SORTS = ['id', 'updated', 'size', 'count', 'uploadDate'] as const;
 const SEARCH_MS = 180;        // the search waits this long after the last key (1.3's)
@@ -312,6 +318,9 @@ export default function Library() {
   const [rerun, setRerun] = useState<RerunAsk | null>(null);
   const [seriesAsk, setSeriesAsk] = useState<SeriesTranslateAsk | null>(null);
   const [tagging, setTagging] = useState<string | null>(null);
+  // Which of them has been opened: drawn from then on (closed, it keeps its place to close from).
+  const [opened, setOpened] = useState({ rerun: false, series: false, tags: false });
+  const open = (which: keyof typeof opened) => setOpened((was) => (was[which] ? was : { ...was, [which]: true }));
   const replaceInput = useRef<HTMLInputElement>(null);
   const replacing = useRef<string | null>(null);
   // The cover a card shows, for a dialog about it. (Safe Mode, 6e: none while it blurs the card's.)
@@ -322,10 +331,14 @@ export default function Library() {
     merged: () => mergeRef.current,
     cover: coverOf,
     canDownload: (g) => canDownload(g as never) as boolean,
-    pickFile: (id) => { replacing.current = id; replaceInput.current?.click(); },
-    rerunMenu: (id, anchor) => { rerunSteps(id, anchor).then(setRerun, () => {}); },
-    seriesTranslate: (g) => { seriesTranslateAsk(tRef.current, g as never).then(setSeriesAsk, () => {}); },
-    tagEditor: (id) => setTagging(id),
+    // (What it accepts is import-files.js's, loaded at the press: the page reads none of it.)
+    pickFile: (id) => {
+      replacing.current = id;
+      import('@lib/import-files.js').then(({ IMPORT_ACCEPT }) => { const input = replaceInput.current; if (input) { input.accept = IMPORT_ACCEPT; input.click(); } }, () => {});
+    },
+    rerunMenu: (id, anchor) => { rerunMenu().then((m) => m.rerunSteps(id, anchor)).then((ask) => { open('rerun'); setRerun(ask); }, () => {}); },
+    seriesTranslate: (g) => { seriesWindow().then((m) => m.seriesTranslateAsk(tRef.current, g as never)).then((ask) => { open('series'); setSeriesAsk(ask); }, () => {}); },
+    tagEditor: (id) => { open('tags'); setTagging(id); },
   }), [client, jobs, covers]);   // eslint-disable-line react-hooks/exhaustive-deps
   const on = useMemo<CardHandlers>(() => ({
     ...actions,
@@ -423,11 +436,13 @@ export default function Library() {
       </main>
       <FilterDialog t={t} open={filterOpen} onOpenChange={setFilterOpen} filter={filter}
         onStep={(type: FilterType, value: string) => setFilter(stepFilter(filter, type, value))} onClear={() => setFilter(NO_FILTER)} />
-      <RerunMenu t={t} ask={rerun} onClose={() => setRerun(null)} onPick={(id, point, label) => { setRerun(null); rerunFrom(id, point, label).catch(() => {}); }} />
-      <SeriesTranslateDialog t={t} ask={seriesAsk} onClose={() => setSeriesAsk(null)}
-        onGo={(gid) => { platform.rpc({ type: 'TRANSLATE_GALLERY', galleryId: gid }); }} />
-      <TagEditor gid={tagging} onClose={() => setTagging(null)} />
-      <input ref={replaceInput} type="file" id="replaceImgInput" accept={IMPORT_ACCEPT} multiple hidden
+      <Suspense fallback={null}>
+        {opened.rerun && <RerunMenu t={t} ask={rerun} onClose={() => setRerun(null)} onPick={(id, point, label) => { setRerun(null); rerunFrom(id, point, label).catch(() => {}); }} />}
+        {opened.series && <SeriesTranslateDialog t={t} ask={seriesAsk} onClose={() => setSeriesAsk(null)}
+          onGo={(gid) => { platform.rpc({ type: 'TRANSLATE_GALLERY', galleryId: gid }); }} />}
+        {opened.tags && <TagEditor gid={tagging} onClose={() => setTagging(null)} />}
+      </Suspense>
+      <input ref={replaceInput} type="file" id="replaceImgInput" multiple hidden
         onChange={(e) => {
           const files = [...(e.currentTarget.files ?? [])];
           const gid = replacing.current;
