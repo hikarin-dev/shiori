@@ -10,6 +10,10 @@
 // failed), each line hidden while it has nothing to say; then, opened, its titles: the filter pills,
 // the titles (up to 320px, scrolling), "More", or why there are none. Ids, classes and states kept
 // (the tests' and other pages' selectors: .ib[data-batch][data-state], .ib-tally, .ib-stop…).
+//
+// A drop being read (the store's `reading`: a dropped folder's list, before its batch is made) is a
+// panel of its own above the batches, as 1.3's (import-tracker.js listing): the kind, the drop's
+// name, a bar with no figure, and "Reading… n" (the files its folders have shown so far).
 import { memo, useSyncExternalStore } from 'react';
 import { X } from 'lucide-react';
 import { FILTERS, batchView, hasTitles, isLive, titlesView } from '@lib/import-batch-view.js';
@@ -23,7 +27,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { StopIcon } from '@/components/stop-icon';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { batchStateOf, type Batch, type BatchStore } from '@/lib/import-batches';
+import { batchStateOf, type Batch, type BatchStore, type Reading } from '@/lib/import-batches';
 
 const LINE = 'overflow-hidden text-ellipsis whitespace-nowrap text-11 text-muted-foreground empty:hidden';
 
@@ -91,13 +95,28 @@ const Panel = memo(function Panel({ batch, store, tick, data }: { batch: Batch; 
   );
 });
 
+const ReadingPanel = memo(function ReadingPanel({ reading, data }: { reading: Reading; data?: Data }) {
+  const t = useT();
+  return (
+    <Card variant="row" className={cn('ib listing flex flex-col gap-[6px] px-[12px] py-[10px]', '[@media(max-width:600px)]:px-[10px] [@media(max-width:600px)]:py-[8px]')} {...data}>
+      <div className="ib-head flex min-h-[28px] min-w-0 items-center gap-[8px]">
+        <Badge variant="kind" tone="warning" className="ib-kind">{t('tasks.kind_upload')}</Badge>
+        <span className="ib-name min-w-0 overflow-hidden text-13 font-semibold text-ellipsis whitespace-nowrap text-foreground">{reading.name}</span>
+      </div>
+      <Progress value={null} className="prog-track" indicatorClassName="prog-fill indeterminate" aria-label={reading.name} />
+      <div className={cn('ib-line ib-tally', LINE)}>{t('imp.reading', { n: formatCount(reading.found) })}</div>
+    </Card>
+  );
+});
+
 // `panelData`: data attributes every panel carries (/components tags its specimen so).
 type Props = { store: BatchStore; id?: string; className?: string; panelData?: Data };
 
 function ImportTracker({ store, id, className, panelData }: Props) {
-  const { batches, tick } = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const { batches, tick, reading } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   return (
-    <div id={id} className={cn('ib-host flex flex-col gap-[8px]', className)} hidden={!batches.length}>
+    <div id={id} className={cn('ib-host flex flex-col gap-[8px]', className)} hidden={!batches.length && !reading}>
+      {reading && <ReadingPanel reading={reading} data={panelData} />}
       {batches.map((batch) => <Panel key={batch.id} batch={batch} store={store} tick={tick} data={panelData} />)}
     </div>
   );

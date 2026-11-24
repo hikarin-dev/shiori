@@ -5,7 +5,10 @@
 // (STOP_JOB, pressable again after 3 s), Dismiss (once it has ended: it goes, and its record is
 // cleared), and its titles as a list, asked for again every 2 s while it runs. What a batch says and
 // how it stands are import-batch-view.js's, read when it is drawn: the store says to draw again every
-// 5 s, when time left, quiet and lost may have changed.
+// 5 s, when time left, quiet and lost may have changed. A batch's word older than the one it shows is
+// let go (what is under way, read as the store starts, may land after a newer word). Words a page
+// heard before its store started are handed in (hear). And a drop being read (listing: the page's
+// reading of a dropped folder's list, before any batch is made), shown above the batches until it ends.
 import * as platform from '@lib/platform.js';
 import { PAINT_EVERY_MS, ROWS_STEP, TITLES_EVERY_MS, batchState, hasTitles, isLive, titlesSource } from '@lib/import-batch-view.js';
 
@@ -20,14 +23,16 @@ export type Batch = {
   stopping: boolean;
   list: { open: boolean; filter: string; shown: number; titles: Title[] | null };
 };
-export type BatchesSnapshot = { batches: readonly Batch[]; tick: number };
+export type Reading = { name: string; found: number };
+export type BatchesSnapshot = { batches: readonly Batch[]; tick: number; reading: Reading | null };
 
 export const batchStateOf = (batch: Batch) => batchState(batch.job, batch.id) as string;
 
 export function createBatchStore() {
   let batches = new Map<string, Batch>();
   const dismissed = new Set<string>();
-  let snapshot: BatchesSnapshot = { batches: [], tick: 0 };
+  let snapshot: BatchesSnapshot = { batches: [], tick: 0, reading: null };
+  let reading: Reading | null = null;
   const listeners = new Set<() => void>();
   let run = 0;
   let off: (() => unknown) | null = null;
@@ -37,7 +42,7 @@ export function createBatchStore() {
   let source: { titlesOf: (id: string) => Promise<Title[] | null>; close: () => void } | null = null;
 
   const publish = (tick = snapshot.tick) => {
-    snapshot = { batches: [...batches.values()], tick };
+    snapshot = { batches: [...batches.values()], tick, reading };
     for (const l of [...listeners]) l();
   };
   const put = (batch: Batch) => { if (batches.has(batch.id)) batches.set(batch.id, batch); };
@@ -76,6 +81,7 @@ export function createBatchStore() {
     const id = String(job.gid);
     if (dismissed.has(id)) return;
     const was = batches.get(id);
+    if (was && job.at != null && was.job.at != null && job.at < was.job.at) return;
     const ended = job.status !== 'progress' && was?.job.status === 'progress';
     batches.set(id, {
       id, job,
@@ -127,8 +133,20 @@ export function createBatchStore() {
       source = null;
       batches = new Map();
       dismissed.clear();
+      reading = null;
       publish(0);
     },
+
+    // A drop being read: its name and how many files its folders have shown so far; null once read.
+    // (Not while stopped: a page left takes its reading with it.)
+    listing(name: string | null, found = 0) {
+      if (!off) return;
+      reading = name == null ? null : { name, found };
+      publish();
+    },
+
+    // A word the page heard before this store started (or any other way), as if from the channel.
+    hear(job: BatchJob) { if (off) onJob(job); },
 
     // How many batches run or wait, now.
     running: () => snapshot.batches.filter((b) => isLive(batchStateOf(b))).length,
