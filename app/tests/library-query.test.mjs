@@ -1,12 +1,14 @@
 // library-query.test.mjs — the views' read path (src/lib/library-query.ts, T4): reads of one gallery
 // that overlap and land out of order leave the newest showing (the fault store.js has, plans §2.7);
-// the change feed reads a shown gallery again only once its changes settle (500 ms after the last),
-// '*' every gallery, a gallery no view shows not at all; nothing is read again by itself; and the
-// follower stopped hears nothing more.
+// the change feed reads a shown gallery again at its first word, and words that follow within 500 ms
+// in one more read at that window's close (a download's every page a handful of reads), '*' every
+// gallery, a gallery no view shows not at all; nothing is read again by itself; the follower stopped
+// hears nothing more; and an edit the page makes shows at once, held over reads that come before the
+// library has it, and is put back when the library refuses it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { QueryObserver } from '@tanstack/react-query';
-import { SETTLE_MS, followChanges, galleryKey, makeQueryClient, readAgain } from '../../src/lib/library-query.ts';
+import { SETTLE_MS, editGallery, followChanges, galleryKey, makeQueryClient, readAgain, readGallery } from '../../src/lib/library-query.ts';
 
 const tick = () => new Promise((r) => setTimeout(r, 5));
 
@@ -97,7 +99,7 @@ test('the same through the change feed: changes 500 ms apart while reads are slo
   client.clear();
 });
 
-test('a change is read once things settle: 500 ms after the last word of it', async () => {
+test('a change is read at its first word; words within the next 500 ms end in one more read at its close', async () => {
   const client = makeQueryClient();
   const { reads, read } = handReader();
   const timers = handTimers();
@@ -107,16 +109,56 @@ test('a change is read once things settle: 500 ms after the last word of it', as
   await tick();
   reads[0].answer({ n: 0 });
   await tick();
+  feed.say('g1');
+  await tick();
+  assert.equal(reads.length, 2, 'read at once');
+  reads[1].answer({ n: 1 });
+  await tick();
   // A download's every page: words 100 ms apart.
-  for (let i = 0; i < 5; i++) { feed.say('g1'); timers.advance(100); }
+  for (let i = 0; i < 4; i++) { timers.advance(100); feed.say('g1'); }
   await tick();
-  assert.equal(reads.length, 1, 'not while the words keep coming');
-  timers.advance(SETTLE_MS - 100 - 1);
+  assert.equal(reads.length, 2, 'not again inside the window');
+  timers.advance(SETTLE_MS - 400 - 1);
   await tick();
-  assert.equal(reads.length, 1, 'not before 500 ms after the last');
+  assert.equal(reads.length, 2, 'not before the window closes');
   timers.advance(1);
   await tick();
-  assert.equal(reads.length, 2, 'once, 500 ms after the last');
+  assert.equal(reads.length, 3, 'once at its close, for every word inside it');
+  reads[2].answer({ n: 2 });
+  await tick();
+  // Quiet since: the next window closes with nothing to read, and the next word is read at once.
+  timers.advance(SETTLE_MS);
+  await tick();
+  assert.equal(reads.length, 3);
+  feed.say('g1');
+  await tick();
+  assert.equal(reads.length, 4, 'a word after a quiet window is read at once');
+  view.off();
+  stop();
+  client.clear();
+});
+
+test('200 words about one gallery in a second read it a handful of times', async () => {
+  const client = makeQueryClient();
+  const { reads, read } = handReader();
+  const timers = handTimers();
+  const feed = handFeed();
+  const stop = followChanges(client, feed.watch, { timers });
+  const view = show(client, 'g1', read);
+  await tick();
+  reads[0].answer({});
+  for (let i = 0; i < 200; i++) {
+    feed.say('g1');
+    timers.advance(5);
+    await tick();
+    for (const r of reads) r.answer({ i });
+  }
+  timers.advance(SETTLE_MS);
+  await tick();
+  timers.advance(SETTLE_MS);
+  await tick();
+  const made = reads.length - 1;
+  assert.ok(made >= 2 && made <= 4, `${made} reads`);
   view.off();
   stop();
   client.clear();
@@ -136,14 +178,13 @@ test("'*' reads every gallery shown again; a gallery no view shows is not read; 
   gone.off();   // no longer shown
   reads.length = 0;
   feed.say('a');
-  timers.advance(SETTLE_MS);
   await tick();
   assert.deepEqual(reads.map((r) => r.id), ['a']);
   for (const r of reads) r.answer({ id: r.id });
   await tick();
   reads.length = 0;
-  feed.say('*');
   timers.advance(SETTLE_MS);
+  feed.say('*');
   await tick();
   assert.deepEqual(reads.map((r) => r.id).sort(), ['a', 'b'], 'every gallery shown, not the one no view shows');
   a.off(); b.off();
@@ -172,7 +213,7 @@ test('nothing is read again by itself: not on focus, not on reconnecting, not wi
   client.clear();
 });
 
-test('stopped, the follower hears nothing more, and its waiting reads are dropped', async () => {
+test('stopped, the follower hears nothing more, and its window\'s read is dropped', async () => {
   const client = makeQueryClient();
   const { reads, read } = handReader();
   const timers = handTimers();
@@ -183,13 +224,70 @@ test('stopped, the follower hears nothing more, and its waiting reads are droppe
   reads[0].answer({});
   await tick();
   feed.say('g1');
-  assert.equal(timers.pending, 1);
+  feed.say('g1');
+  await tick();
+  assert.equal(reads.length, 2);
+  assert.equal(timers.pending, 1, 'its window open, a word in it');
   stop();
   assert.equal(feed.listening, 0, 'unsubscribed from the feed');
   assert.equal(timers.pending, 0, 'its timer cleared');
   timers.advance(SETTLE_MS);
+  feed.say('g1');
   await tick();
-  assert.equal(reads.length, 1);
+  assert.equal(reads.length, 2);
   view.off();
+  client.clear();
+});
+
+// The library as a hand-held record: a read answers when the test says, with what is stored then.
+function handLibrary(g) {
+  let stored = { ...g };
+  const reads = [];
+  return {
+    read: (id) => readGallery(id, () => new Promise((resolve) => reads.push(() => resolve({ ...stored })))),
+    reads,
+    commit(patch) { stored = { ...stored, ...patch }; },
+    async answerAll() { while (reads.length) { reads.shift()(); await tick(); } },
+  };
+}
+
+test('an edit the page makes shows at once, holds over reads made before the library has it, and is put back when refused', async () => {
+  const client = makeQueryClient();
+  const lib = handLibrary({ id: 'g1', favorite: false, title: 'one' });
+  const view = new QueryObserver(client, { queryKey: galleryKey('g1'), queryFn: () => lib.read('g1') });
+  const seen = [];
+  const off = view.subscribe((r) => seen.push(r.data?.favorite));
+  await tick();
+  await lib.answerAll();
+  assert.equal(view.getCurrentResult().data.favorite, false);
+  // A read under way when the edit is made (a download's page): it lands after, with the old value.
+  await readAgain(client, 'g1');
+  await tick();
+  let land;
+  const done = editGallery(client, 'g1', { favorite: true }, () => new Promise((resolve) => { land = resolve; }));
+  assert.equal(view.getCurrentResult().data.favorite, true, 'shown at once, before the library answers');
+  await lib.answerAll();
+  assert.equal(view.getCurrentResult().data.favorite, true, 'held over a read made before the library had it');
+  lib.commit({ favorite: true });
+  land(true);
+  await done;
+  await tick();
+  await lib.answerAll();
+  assert.equal(view.getCurrentResult().data.favorite, true);
+  assert.deepEqual(seen.filter((v, i) => v !== undefined && v !== seen[i - 1]), [false, true], 'never shown false again once pressed');
+
+  // Refused (it throws): put back as the library has it.
+  await editGallery(client, 'g1', { title: 'two' }, () => Promise.reject(new Error('no'))).catch(() => {});
+  await tick();
+  await lib.answerAll();
+  assert.equal(view.getCurrentResult().data.title, 'one', 'put back');
+  // A refusal said, not thrown (false): put back too.
+  const said = editGallery(client, 'g1', { title: 'three' }, () => Promise.resolve(false));
+  assert.equal(view.getCurrentResult().data.title, 'three');
+  await said;
+  await tick();
+  await lib.answerAll();
+  assert.equal(view.getCurrentResult().data.title, 'one');
+  off();
   client.clear();
 });

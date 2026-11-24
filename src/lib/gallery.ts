@@ -2,7 +2,7 @@
 // (library-query.ts), which the library's change feed keeps up to date.
 import { useQuery } from '@tanstack/react-query';
 import * as api from '@lib/api.js';
-import { followChanges, galleryKey, makeQueryClient } from './library-query';
+import { followChanges, galleryKey, makeQueryClient, readGallery } from './library-query';
 
 export const queryClient = makeQueryClient();
 
@@ -21,11 +21,11 @@ export type Gallery = {
 };
 
 // A gallery not in the library (yet, or any more), or one that could not be read, is null, as 1.3's
-// pages took it.
-const read = async (id: string): Promise<Gallery | null> => {
+// pages took it. An edit the page made that the library does not hold yet is laid over it.
+const read = (id: string): Promise<Gallery | null> => readGallery(id, async () => {
   const [g] = await api.galleries.byIds([id]).catch(() => []);
   return (g as Gallery | undefined) ?? null;
-};
+});
 
 // How the gallery `id` is read into the cache (for a view that reads several at once: useQueries).
 export const galleryQuery = (id: string) => ({ queryKey: galleryKey(id), queryFn: () => read(id) });

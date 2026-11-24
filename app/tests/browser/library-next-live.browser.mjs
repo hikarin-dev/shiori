@@ -298,3 +298,57 @@ test('the helper there and then not; the translation server there, gone, and bac
   assert.match(out['/library'].first, /^Download/);
   assert.deepEqual(out['/library-next'], out['/library']);
 });
+
+test('a change made in another context shows on its card within two frames of its word; 200 words about one gallery in a second read it a handful of times', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const page = await open('/library-next');
+  const gid = await page.evaluate(() => document.querySelectorAll('#grid > .card')[5].dataset.galleryId);
+  // In the page: a frame count; the frame each word about the gallery came in; the frame its card's
+  // title changed in; and every read of the gallery.
+  await page.evaluate(async (gid) => {
+    const api = await import('/app/js/api.js');
+    window.__frame = 0;
+    const tick = () => { window.__frame++; requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+    window.__words = [];
+    api.events.watch((id) => { if (String(id) === gid) window.__words.push(window.__frame); });
+    window.__drawn = [];
+    const title = document.querySelector(`#grid > .card[data-gallery-id="${gid}"] .card-title`);
+    new MutationObserver(() => window.__drawn.push([window.__frame, title.textContent])).observe(title, { childList: true, characterData: true, subtree: true });
+    window.__reads = 0;
+    const byIds = api.galleries.byIds;
+    api.galleries.byIds = (ids, ...rest) => { if (ids.map(String).includes(gid)) window.__reads++; return byIds(ids, ...rest); };
+  }, gid);
+  const other = await openPage(browser, origin);
+  await other.goto(`${origin}/tasks`, { waitUntil: 'load' });
+  await other.evaluate(async (gid) => (await import('/app/js/store.js')).mutate(gid, { title: { english: 'Changed elsewhere', japanese: '', pretty: '' } }), gid);
+  await page.bringToFront();
+  await until(page, () => window.__drawn.some(([, text]) => text === 'Changed elsewhere'), null, { what: 'the new title' });
+  const { words, drawn } = await page.evaluate(() => ({ words: window.__words, drawn: window.__drawn.find(([, text]) => text === 'Changed elsewhere')[0] }));
+  assert.ok(drawn - words[0] <= 2, `drawn ${drawn - words[0]} frames after its word`);
+  // 200 words about it in a second, as the change feed says them (a writer's own feed says one every
+  // 250 ms at most: these are said by hand, as many writers would), the last after it was made a
+  // favourite.
+  await sleep(1000);
+  await page.evaluate(() => { window.__reads = 0; window.__words = []; });
+  await other.evaluate(async (gid) => {
+    const platform = await import('/app/js/platform.js');
+    const start = performance.now();
+    for (let i = 0; i < 200; i++) {
+      if (i === 199) await (await import('/app/js/api.js')).personal.favorite(gid, true);
+      platform.feed.publish({ gid, context: 'by-hand', n: i + 1, at: Date.now() });
+      const due = start + (i + 1) * 5;
+      if (performance.now() < due) await new Promise((r) => setTimeout(r, due - performance.now()));
+    }
+  }, gid);
+  await page.bringToFront();
+  await sleep(1500);
+  const { reads, heard } = await page.evaluate(() => ({ reads: window.__reads, heard: window.__words.length }));
+  assert.ok(heard >= 200, `${heard} words heard`);
+  assert.ok(reads >= 1 && reads <= 5, `${reads} reads for ${heard} words`);
+  // It ends on what the library holds.
+  await until(page, (gid) => document.querySelector(`#grid > .card[data-gallery-id="${gid}"] .card-fav`).getAttribute('aria-pressed') === 'true', gid, { what: 'the favourite as stored' });
+  await other.close();
+  assert.deepEqual(page.problems, []);
+  await page.close();
+});
