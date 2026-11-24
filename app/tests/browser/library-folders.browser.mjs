@@ -581,6 +581,8 @@ test('Settings → Storage shows where the library is kept, and the overview can
   await settings.keyboard.press('Escape');
   assert.deepEqual(await menuOf('Lib C'), ['Rescan', 'Remove']);
   await settings.keyboard.press('Escape');
+  // (The location is mounted by a module the card asks for once its rows are drawn.)
+  await until(settings, () => !!document.querySelector('#foldersSection #lfLocation .choice-toggle'), null, { what: 'the location, mounted' });
   const layout = await settings.evaluate(() => {
     const card = document.getElementById('foldersSection');
     const add = document.getElementById('lfAdd'), list = document.getElementById('lfRows');
