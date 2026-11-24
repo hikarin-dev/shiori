@@ -46,8 +46,9 @@ test('a route the table marks as one of the app\'s own pages carries the meta, b
   // changed on its way to the page so /components counts as one, and the frame's own code is watched.
   const assets = join(builtSite(), 'assets');
   const entry = /(page:[`"']components[`"'],app:)!1/;
-  const chunk = readdirSync(assets).find((f) => /^app-.*\.js$/.test(f) && entry.test(readFileSync(join(assets, f), 'utf8')));
-  assert.ok(chunk, 'the route table is in the app chunk');
+  // (The app's start-up chunk: vite.config.ts keeps what every page runs as it starts in one.)
+  const chunk = readdirSync(assets).find((f) => /^(app|start)-.*\.js$/.test(f) && entry.test(readFileSync(join(assets, f), 'utf8')));
+  assert.ok(chunk, 'the route table is in the app\'s start-up chunk');
   const body = readFileSync(join(assets, chunk), 'utf8').replace(entry, '$1!0');
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const page = await browser.newPage();
