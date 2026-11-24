@@ -19,6 +19,8 @@
   }
   .app-header .header-left { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
   .app-header .header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  /* Not filled (the frame alone, a page with no buttons): not there, so no gap is kept for it. */
+  .app-header .header-right:empty { display: none; }
 
   .brand-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; text-decoration: none; }
   .brand-wrap:hover { opacity: .8; }

@@ -1,7 +1,8 @@
 // frame.tsx — the root layout route: what every page the one page draws stands on.
-import { useLayoutEffect } from 'react';
+import { useLayoutEffect, useMemo, useState } from 'react';
 import { Outlet, useMatches } from 'react-router';
 import type { Route } from './routes';
+import { HeaderNodesContext, type HeaderNodes } from './components/header-slot';
 import { NoticeHost } from './components/notice-host';
 import { AppHeader } from './components/ui/app-header';
 
@@ -29,16 +30,30 @@ function useFrame(frame: 'header' | null) {
   }, [frame]);
 }
 
+// The header's two parts a route fills (HeaderSlot), as the header draws them.
+function useHeaderNodes() {
+  const [nodes, setNodes] = useState<HeaderNodes>({ left: null, right: null });
+  const slots = useMemo(() => ({
+    left: (left: HTMLDivElement | null) => setNodes((n) => (n.left === left ? n : { ...n, left })),
+    right: (right: HTMLDivElement | null) => setNodes((n) => (n.right === right ? n : { ...n, right })),
+  }), []);
+  return { nodes, slots };
+}
+
 export default function Frame() {
   const route = useMatches().at(-1)?.handle as Route | undefined;
   useAppMeta(route?.app ? route.page : null);
   useFrame(route?.header ? 'header' : null);
+  const { nodes, slots } = useHeaderNodes();
   return (
     <>
-      {/* The common header, with no slots: index.html's frame, the same markup (a test holds the two
-          equal), drawn in its place on the same pixels. A page's own controls come with its port. */}
-      {route?.header && <AppHeader />}
-      <Outlet />
+      {/* The common header: index.html's frame, the same markup (a test holds the two equal), drawn in
+          its place on the same pixels, and kept while the routes change; a route fills its parts
+          (HeaderSlot), which leave with it. */}
+      {route?.header && <AppHeader slots={slots} />}
+      <HeaderNodesContext.Provider value={nodes}>
+        <Outlet />
+      </HeaderNodesContext.Provider>
       <NoticeHost />
     </>
   );

@@ -14,11 +14,16 @@
 //   translucent  §5.3 F33 (the owner's call): Settings' header in 1.3 is the surface at 94% under a
 //              10px blur; built opaque, as every other page's, and kept one prop away
 //
+// The frame (src/frame.tsx) draws it once for every route that has it and keeps it while the routes
+// change; a route fills it through HeaderSlot (src/components/header-slot.tsx), which puts the route's
+// parts into the left and right parts this hands out (`slots`). The right part is there, empty and not
+// shown (frame.css), until something fills it, so the band is the same markup filled or not.
+//
 // Its phone form (CSS, at 600px or less, inclusive as 1.3's): a header with a search wraps, 7px 12px
 // round and 8 apart, the search on a row of its own under the brand, the page menu and the buttons;
 // the brand's word and the "/" give way so the menu keeps its place. A header without one keeps its
 // band. Sizes are 1.3's.
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 
 type Props = {
   page?: ReactNode;
@@ -27,11 +32,12 @@ type Props = {
   right?: ReactNode;
   form?: 'settings';
   translucent?: boolean;
+  slots?: { left: Ref<HTMLDivElement>; right: Ref<HTMLDivElement> };
 } & { [data: `data-${string}`]: string | undefined };
 
-function AppHeader({ page, search, left, right, form, translucent, ...data }: Props) {
+function AppHeader({ page, search, left, right, form, translucent, slots, ...data }: Props) {
   return (
-    <header className="app-header" data-form={form} data-translucent={translucent ? '' : undefined} {...data}><div className="header-left"><a className="brand-wrap" href="./"><div className="brand-icon"><img alt="" src="icons/shiori-logo.svg" /></div><span className="brand-text">Shiori</span></a>{page != null && <><span className="brand-sep">/</span>{page}</>}{search}{left}</div>{right != null && <div className="header-right">{right}</div>}</header>
+    <header className="app-header" data-form={form} data-translucent={translucent ? '' : undefined} {...data}><div className="header-left" ref={slots?.left}><a className="brand-wrap" href="./"><div className="brand-icon"><img alt="" src="icons/shiori-logo.svg" /></div><span className="brand-text">Shiori</span></a>{page != null && <><span className="brand-sep">/</span>{page}</>}{search}{left}</div><div className="header-right" ref={slots?.right}>{right}</div></header>
   );
 }
 

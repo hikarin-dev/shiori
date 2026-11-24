@@ -9,12 +9,13 @@
 import type { ComponentProps, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
-type Props = Omit<ComponentProps<'div'>, 'children'> & { value: ReactNode } & (
+// `valueId`: the figure's own id (a page's tests read it: Tasks' #tkCount).
+type Props = Omit<ComponentProps<'div'>, 'children'> & { value: ReactNode; valueId?: string } & (
   | { variant?: 'header'; label: ReactNode }
   | { variant: 'inline'; label?: undefined }
 );
 
-function Stat({ variant = 'header', value, label, className, ...props }: Props) {
+function Stat({ variant = 'header', value, valueId, label, className, ...props }: Props) {
   if (variant === 'inline') {
     return (
       <span data-slot="stat" data-variant="inline" className={cn(
@@ -24,7 +25,7 @@ function Stat({ variant = 'header', value, label, className, ...props }: Props) 
   }
   return (
     <div data-slot="stat" data-variant="header" className={cn('rounded-6 border border-solid border-border bg-background px-[10px] py-[5px] text-center', className)} {...props}>
-      <div data-slot="stat-value" className="text-14 leading-none font-bold text-primary">{value}</div>
+      <div data-slot="stat-value" id={valueId} className="text-14 leading-none font-bold text-primary">{value}</div>
       <div data-slot="stat-label" className="mt-[2px] text-8 text-muted-foreground uppercase">{label}</div>
     </div>
   );
