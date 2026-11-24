@@ -220,9 +220,9 @@ test('each handler, called with the gallery\'s id, as 1.3 chose by Shift, Alt an
   const CASES = [
     [plain, '.card-fav', {}, [['favorite', P]]],
     [plain, '.card-fav', { keys: ['Alt'] }, [['searchFavorite', P]]],
-    [plain, '.card-btn-open', {}, [['editSource', P]]],                       // no link yet
+    [plain, '.card-btn-open', {}, [['editSource', P, false]]],                       // no link yet
     [sourced, '.card-btn-open', {}, [['openSource', S]]],
-    [sourced, '.card-btn-open', { keys: ['Shift'] }, [['editSource', S]]],
+    [sourced, '.card-btn-open', { keys: ['Shift'] }, [['editSource', S, true]]],
     [sourced, '.card-btn-open', { keys: ['Alt'] }, [['searchSource', S]]],
     [plain, '.card-btn-dl', {}, [['replace', P]]],                             // nothing to download from
     [sourced, '.card-btn-dl', {}, [['download', S]]],

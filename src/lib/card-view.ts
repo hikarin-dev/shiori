@@ -230,6 +230,9 @@ export type CardJob = { shown: boolean; bar: number | null | undefined; done: bo
 // How long a job's last word stays on a card before it returns to rest (1.3's JOB_MSG_LINGER_MS).
 export const JOB_LINGER_MS = 4000;
 
+// A press on a card that no news has answered yet, drawn as 1.3 drew it (GalleryCard's `pending`).
+export type Pending = 'download' | 'translate' | 'revert' | 'export' | null;
+
 export function cardJob(job: JobNews, f: JobFormat): CardJob | null {
   const view: JobView | null = jobView(job, f, 'card');
   if (!view) return null;

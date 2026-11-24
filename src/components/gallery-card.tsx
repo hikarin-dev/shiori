@@ -9,11 +9,14 @@
 //   job      the gallery's job, its latest news as published (null: none): its bar and line, the
 //            button it holds as its Stop (or busy), its last word kept JOB_LINGER_MS, then the card
 //            returns to rest and says so (on.jobSettled)
-//   interrupted  a job left unfinished by its runner: the hint, for JOB_LINGER_MS
+//   interrupted  a job left unfinished by its runner: the hint, for JOB_LINGER_MS (true: 1.3's words;
+//            a string: a hint in words of its own, as a replace that could not read its file)
 //   lingerMs how long a last word stays (JOB_LINGER_MS; /components holds one still with Infinity)
 //   pending  a press its handler has taken and no news has answered yet, drawn as 1.3 drew it:
 //            'download' (its button "…", "Fetching metadata…"), 'translate' (its button off,
 //            "Translating…"), 'revert' (translate off), 'export' (its button "…")
+//   pendingLabel  the line a pressed download shows in place of "Fetching metadata…" (a replace's
+//            "Reading file…")
 //   on       the handlers, each called with the gallery's id (and what was pressed, where there is a
 //            choice): the card starts nothing itself. Which one a press means is the card's, as 1.3's
 //            handlers chose: Shift, Alt, the button's form.
@@ -34,7 +37,7 @@ import { StopIcon } from '@/components/stop-icon';
 import { siteRoot } from '@/entry';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { JOB_LINGER_MS, cardJob, type CardJob, type CardTag, type CardView } from '@/lib/card-view';
+import { JOB_LINGER_MS, cardJob, type CardJob, type CardTag, type CardView, type Pending } from '@/lib/card-view';
 import type { JobFormat, JobNews } from '@/lib/job-view';
 import { formatBytes, formatCount } from '@lib/format.js';
 import { ChainIcon, DeleteIcon, DownloadIcon, ExportIcon, ExportMetaIcon, HeartIcon, QuickDeleteIcon, RevertIcon, TranslateIcon, UploadIcon } from './gallery-card-icons';
@@ -45,7 +48,7 @@ export type CardHandlers = {
   favorite?(id: string): void;
   searchFavorite?(id: string): void;            // Alt
   openSource?(id: string): void;                // its page, in a new window
-  editSource?(id: string): void;                // Shift, or no link yet
+  editSource?(id: string, shift: boolean): void; // Shift, or no link yet
   searchSource?(id: string): void;              // Alt, with a source
   download?(id: string): void;
   replace?(id: string): void;                   // Shift, or nothing to download from
@@ -67,7 +70,7 @@ export type CardHandlers = {
   coverPointerDown?(id: string, event: PointerEvent<HTMLAnchorElement>): void;   // a mouse's left button on the cover
   jobSettled?(id: string): void;                // a job's last word has stayed its while
 };
-export type Pending = 'download' | 'translate' | 'revert' | 'export' | null;
+export type { Pending } from '@/lib/card-view';
 
 export type CardModes = { quickActions?: 'hover' | 'always' | 'hidden'; hideCategory?: boolean; translatorOffline?: boolean; safeMode?: boolean; narrow?: boolean };
 // The value of data-card-modes for the grid's element.
@@ -80,9 +83,10 @@ type Props = {
   view: CardView;
   cover?: string | null;
   job?: JobNews | null;
-  interrupted?: boolean;
+  interrupted?: boolean | string;
   lingerMs?: number;
   pending?: Pending;
+  pendingLabel?: string;
   on?: CardHandlers;
 } & Omit<React.HTMLAttributes<HTMLDivElement>, 'children' | 'onPointerDown'> & Record<`data-${string}`, string | undefined>;
 
@@ -238,7 +242,7 @@ const Rest = memo(function Rest({ view, on, shown, bar, done, label, dlForm, trF
   const onFav = press((e) => (e.altKey ? on.searchFavorite?.(id) : on.favorite?.(id)));
   const onOpen = press((e) => {
     if (e.altKey && view.open.alt) on.searchSource?.(id);
-    else if (!view.open.shift || e.shiftKey) on.editSource?.(id);
+    else if (!view.open.shift || e.shiftKey) on.editSource?.(id, e.shiftKey);
     else on.openSource?.(id);
   });
   const onDownload = press((e) => {
@@ -328,7 +332,7 @@ const Rest = memo(function Rest({ view, on, shown, bar, done, label, dlForm, trF
   );
 });
 
-function GalleryCardImpl({ view, cover, job = null, interrupted = false, lingerMs = JOB_LINGER_MS, pending = null, on = NO_HANDLERS, className, ...rest }: Props) {
+function GalleryCardImpl({ view, cover, job = null, interrupted = false, lingerMs = JOB_LINGER_MS, pending = null, pendingLabel, on = NO_HANDLERS, className, ...rest }: Props) {
   const t = useT();
   const id = view.id;
   const format: JobFormat = useMemo(() => ({ t, count: formatCount, bytes: formatBytes }), [t]);
@@ -342,7 +346,7 @@ function GalleryCardImpl({ view, cover, job = null, interrupted = false, lingerM
   const fromNews = job ? cardJob(job, format) : null;
   if (job && fromNews) drawn = { job: fromNews, key: job };
   else if (job && !fromNews) drawn = drawnRef.current;
-  if (interruptedKey && (!drawn || (drawn.job.ended && job === interruptedKey.before))) drawn = { job: INTERRUPTED(t('prog.interrupted')), key: interruptedKey };
+  if (interruptedKey && (!drawn || (drawn.job.ended && job === interruptedKey.before))) drawn = { job: INTERRUPTED(typeof interrupted === 'string' ? interrupted : t('prog.interrupted')), key: interruptedKey };
 
   // A last word stays its while, then the card is at rest again.
   const [settled, setSettled] = useState<object | null>(null);
@@ -362,7 +366,7 @@ function GalleryCardImpl({ view, cover, job = null, interrupted = false, lingerM
   const barRef = useRef<number | null>(0);
   const shown = !!live && (live.shown || wasShown.current) || pending === 'download' || pending === 'translate';
   const bar = live ? (live.bar === undefined ? barRef.current ?? 0 : live.bar) : 0;
-  const label = live ? live.label : pending === 'download' ? t('prog.fetching_meta') : pending === 'translate' ? t('prog.translating') : '';
+  const label = live ? live.label : pending === 'download' ? pendingLabel ?? t('prog.fetching_meta') : pending === 'translate' ? t('prog.translating') : '';
   useEffect(() => {
     drawnRef.current = drawn;
     wasShown.current = shown;
