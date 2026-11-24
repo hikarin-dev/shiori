@@ -468,9 +468,17 @@ test('the benchmark: Stop cancels the job under way and leaves a report saying s
     const cancels = tr.state.cancels.length;
     await page.click('#benchmarkRun');
     await until(page, () => /^(warmup|Warming)/.test(document.getElementById('benchmarkStatus').textContent), null, { what: 'a job under way', timeout: 30000 });
+    // Every line the status says from here (the stand-in cancels at once: 'Stopping…' may last a frame).
+    await page.evaluate(() => {
+      const status = document.getElementById('benchmarkStatus');
+      window.__said = [];
+      new MutationObserver(() => window.__said.push(status.textContent)).observe(status, { childList: true, characterData: true, subtree: true });
+    });
     await page.click('#benchmarkStop');
-    assert.equal(await page.$eval('#benchmarkStatus', (s) => s.textContent), 'Stopping and cancelling the current job…');
     await until(page, () => !!document.getElementById('benchmarkReport'), null, { what: 'the report', timeout: 30000 });
+    const said = await page.evaluate(() => window.__said);
+    assert.equal(said[0], 'Stopping and cancelling the current job…', `said: ${JSON.stringify(said)}`);
+    assert.match(said.at(-1), /^cancelled/);
     assert.match(await page.$eval('#benchmarkStatus', (s) => s.textContent), /^cancelled/);
     assert.equal(tr.state.cancels.length, cancels + 1, 'the job under way cancelled');
     assert.equal(await page.$eval('#benchmarkStop', (b) => b.disabled), true);
