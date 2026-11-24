@@ -191,7 +191,7 @@ export function TranslationPanel() {
             <Options key={state.drawn} model={model} settings={state.settings} advancedOpen={advancedOpen} onAdvancedOpen={setAdvancedOpen}
               apply={(control) => say(showModal)(store.apply(control))} />
           </DialogBody>
-          <DialogFooter className="justify-start max-[520.02px]:flex-wrap">
+          <DialogFooter>
             <Button id="resetTranslateBtn" disabled={model.offline} onClick={async () => {
               if (!(await confirm({ title: t('dlg.trreset_title'), body: t('dlg.trreset_body'), ok: t('common.reset') }))) return;
               say(showModal)(store.reset());
