@@ -11,8 +11,10 @@ import { enter } from './entry';
 if (await enter()) {
   // notice.js's host first, so a notice the start-up raises before the app has drawn waits for it.
   await import('./lib/notice-store');
-  await import('@lib/boot-core.js');
-  const { mount } = await import('./app');
+  // The start-up and the app's own code, asked for together: the app's code (React and the routes)
+  // is evaluated while the start-up's many modules are still arriving, instead of after them. It
+  // draws nothing until both are in.
+  const [, { mount }] = await Promise.all([import('@lib/boot-core.js'), import('./app')]);
   // start.js starts this script from the head: the body may still be on its way.
   if (document.readyState === 'loading') await new Promise((ready) => document.addEventListener('DOMContentLoaded', ready, { once: true }));
   mount(document.getElementById('root')!);

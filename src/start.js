@@ -13,7 +13,7 @@
 //     otherwise would ask for them only once drawn, and move when they came (by the font API: preload
 //     links for them let Chromium hold the first paint until they arrive); none of it where the page
 //     hands the visitor on;
-//   - the bundle's entry is started (it decides, and draws or hands on).
+//   - the bundle's entry is started, first (it decides, and draws or hands on).
 (function () {
   const START = null;   // written by the build (build/start.mjs)
   const html = document.documentElement;
@@ -37,6 +37,9 @@
     for (const name in attributes) el.setAttribute(name, attributes[name]);
     document.head.append(el);
   };
+  // The entry first: asked for after the list, it waited behind every module of it (a browser opens a
+  // few connections to a host at a time), and nothing runs before it.
+  if (START.entry) add('script', { type: 'module', src: root + START.entry });
   if (drawn) {
     for (const path of START.start.concat(route ? route.preload : [])) {
       if (path.endsWith('.css')) add('link', { rel: 'preload', as: 'style', href: root + path });
@@ -49,5 +52,4 @@
       for (const face of document.fonts) if (face.family.replace(/["']/g, '') === 'JetBrains Mono') face.load().catch(() => {});
     }));
   }
-  if (START.entry) add('script', { type: 'module', src: root + START.entry });
 })();
