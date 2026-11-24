@@ -97,11 +97,8 @@ async function useDesktop(status) {
 export async function mountLocation(el, status = () => {}) {
   if (desktopHosted() || !el) return;
   const render = async () => {
-    const saved = savedLocation();
-    const away = saved && fallback();
-    const left = saved && !away ? (await browserGalleries().catch(() => [])).length : 0;
-    const desc = !saved ? esc(t('lf.loc_browser_desc'))
-      : away ? esc(t('set.loc_fallback_desc')) : `${esc(t('set.loc_desktop_desc'))} <code>${esc(saved.url)}</code>`;
+    const { saved, away, left, descKey, url } = await locationView();
+    const desc = `${esc(t(descKey))}${url ? ` <code>${esc(url)}</code>` : ''}`;
     el.innerHTML = `
       <div class="field">
         <div class="field-label" data-i18n="lf.location"></div>
@@ -116,23 +113,50 @@ export async function mountLocation(el, status = () => {}) {
         <span class="desk-actions"><button class="btn-mini" id="locMove" type="button" data-i18n="set.loc_move"></button>
         <button class="btn-mini btn-clear-key" id="locDelete" type="button" data-i18n="set.loc_delete"></button></span></div>` : ''}`;
     applyTranslations(el);
-    el.querySelector('[data-loc="desktop"]').addEventListener('click', () => { if (!savedLocation()) useDesktop(status); });
-    el.querySelector('[data-loc="browser"]').addEventListener('click', async () => {
-      if (!savedLocation()) return;
-      if (await confirmDialog({ title: t('dlg.loc_browser_title'), body: t('dlg.loc_browser_body'), ok: t('set.loc_use_browser') })) switchTo(null);
-    });
-    el.querySelector('#locRetry')?.addEventListener('click', () => offerReturn(saved, { asked: true }));
+    el.querySelector('[data-loc="desktop"]').addEventListener('click', () => chooseDesktop(status));
+    el.querySelector('[data-loc="browser"]').addEventListener('click', () => chooseBrowser());
+    el.querySelector('#locRetry')?.addEventListener('click', () => retryDesktop(saved));
     el.querySelector('#locMove')?.addEventListener('click', async () => {
-      if (await move(saved, await browserGalleries())) { status(t('set.loc_moved', { n: formatCount(left) })); render(); }
+      if (await moveLeft(saved, left, status)) render();
     });
     el.querySelector('#locDelete')?.addEventListener('click', async () => {
-      if (!(await confirmDialog({ title: t('dlg.loc_delete_title'), body: t('dlg.loc_delete_body', { n: formatCount(left) }), ok: t('dlg.delete'), danger: true }))) return;
-      await clearBrowserLibrary();
-      render();
+      if (await deleteLeft(left)) render();
     });
   };
   await render();
   window.addEventListener('shiori-lang-change', render);
+}
+
+// What the location says now: `saved` (the desktop library chosen, or null: this browser's), `away`
+// (continuing in this browser for now), `left` (galleries this browser still holds, on the desktop
+// library), its description's key and the desktop library's address to show after it.
+export async function locationView() {
+  const saved = savedLocation();
+  const away = !!(saved && fallback());
+  const left = saved && !away ? (await browserGalleries().catch(() => [])).length : 0;
+  return { saved, away, left,
+    descKey: !saved ? 'lf.loc_browser_desc' : away ? 'set.loc_fallback_desc' : 'set.loc_desktop_desc', url: saved && !away ? saved.url : '' };
+}
+// The choice's two buttons: the desktop library (finding the app, asking it, offering to move what
+// this browser holds) and this browser's (asked first).
+export function chooseDesktop(status) { if (!savedLocation()) useDesktop(status); }
+export async function chooseBrowser() {
+  if (!savedLocation()) return;
+  if (await confirmDialog({ title: t('dlg.loc_browser_title'), body: t('dlg.loc_browser_body'), ok: t('set.loc_use_browser') })) switchTo(null);
+}
+// Continuing in this browser for now: try the desktop app again.
+export const retryDesktop = (saved) => offerReturn(saved, { asked: true });
+// What this browser still holds (`left` galleries), moved to the desktop library (said in `status`) or
+// deleted (asked first). Each resolves whether it was done.
+export async function moveLeft(saved, left, status) {
+  if (!(await move(saved, await browserGalleries()))) return false;
+  status(t('set.loc_moved', { n: formatCount(left) }));
+  return true;
+}
+export async function deleteLeft(left) {
+  if (!(await confirmDialog({ title: t('dlg.loc_delete_title'), body: t('dlg.loc_delete_body', { n: formatCount(left) }), ok: t('dlg.delete'), danger: true }))) return false;
+  await clearBrowserLibrary();
+  return true;
 }
 
 // ── The desktop app can't be reached ──
