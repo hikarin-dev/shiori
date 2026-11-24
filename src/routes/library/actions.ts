@@ -346,10 +346,10 @@ export function cardActions(deps: ActionDeps): Omit<CardHandlers, 'tag' | 'flag'
   };
 
   async function exporting(gid: string, run: () => Promise<void>) {
-    if (jobs.get(gid).pending === 'export') return;
-    jobs.press(gid, 'export');
+    if (jobs.get(gid).exporting) return;
+    jobs.exporting(gid, true);
     try { await run(); } catch (err) {
       alertNotice({ title: t('dlg.export_fail_title'), body: t('dlg.export_fail_body'), detail: (err as Error).message, tone: 'error' });
-    } finally { jobs.release(gid); }
+    } finally { jobs.exporting(gid, false); }
   }
 }

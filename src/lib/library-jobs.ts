@@ -4,8 +4,10 @@
 // 1.3's (app/js/library.js applyJob, _jobDoneHandled, _markJobInterrupted, hydrateJobs), each kept:
 //
 //   - A gallery's job is its latest news, one object a word (its identity is how the card knows a new
-//     word). A "done" said again is not a new word. Not the page's: a signal on the jobs channel (no
-//     gallery or no status), an import and a batch of imports' words (the tracker's).
+//     word). A "done" said again is not a new word. Not the page's: a signal on the jobs channel (it
+//     has a type, or no gallery or no status: a batch telling of a title's end among them) and an
+//     import's words (the tracker's). A title of a batch says its own news as an upload does, and its
+//     card shows it.
 //   - A gallery the page shows no card for: a running job is kept (its card may come: a page read
 //     again, or a page turned back to) and looked for (reveal: not a translation or a sync, not at its
 //     end); its end is forgotten, as is what ended on a card that leaves the page.
@@ -19,6 +21,8 @@
 //   - A press no news has answered yet (pending: its button held, its words) is cleared by the first
 //     word, or by the press failing (release). A hint in words of its own (note) shows over no job,
 //     as an interruption's does.
+//   - An export under way (exporting) holds its own button until it ends, whatever is pressed or said
+//     meanwhile: 1.3 held each button by itself.
 //
 // Pure: the jobs channel and registry, the clock and what a job's end does to the page are handed in
 // (app/tests/library-jobs.test.mjs).
@@ -31,7 +35,7 @@ export const JOB_STALE_MS: Readonly<Record<string, number>> = { download: 2 * 60
 const STALE_MS = 2 * 60 * 1000;
 
 // What a card shows of its gallery's jobs: `interrupted` true (1.3's hint) or the hint's own words.
-export type CardJobs = { job: JobNews | null; interrupted: boolean | string; pending: Pending; pendingLabel?: string };
+export type CardJobs = { job: JobNews | null; interrupted: boolean | string; pending: Pending; pendingLabel?: string; exporting?: boolean };
 export const AT_REST: CardJobs = Object.freeze({ job: null, interrupted: false, pending: null });
 
 export type LibraryJobDeps = {
@@ -57,15 +61,17 @@ export function createLibraryJobs(deps: LibraryJobDeps) {
 
   const get = (gid: string) => states.get(gid) ?? AT_REST;
   const tell = (gid: string) => { for (const l of [...(listeners.get(gid) ?? [])]) l(); };
+  // An export under way is kept through every other change of its card's state.
+  const held = (was: CardJobs) => (was.exporting ? { exporting: true } : null);
   const set = (gid: string, next: CardJobs) => {
-    const at = !next.job && !next.interrupted && !next.pending;
+    const at = !next.job && !next.interrupted && !next.pending && !next.exporting;
     if (at ? !states.has(gid) : states.get(gid) === next) return;
     if (at) states.delete(gid); else states.set(gid, next);
     tell(gid);
   };
 
   function onJob(news: JobNews | null | undefined) {
-    if (!news || news.gid == null || !news.status || news.kind === 'import' || news.batch) return;
+    if (!news || news.type || news.gid == null || !news.status || news.kind === 'import') return;
     const gid = String(news.gid);
     if (news.status !== 'done') doneHandled.delete(gid);
     else if (doneHandled.has(gid)) return;
@@ -79,7 +85,7 @@ export function createLibraryJobs(deps: LibraryJobDeps) {
     }
     if (job.status === 'done') doneHandled.add(gid);
     if (job.kind === 'upload' && ended) deps.dropIfEmpty(gid);
-    set(gid, { job, interrupted: was.interrupted, pending: null });
+    set(gid, { job, interrupted: was.interrupted, pending: null, ...held(was) });
   }
 
   async function hydrate(mine: number) {
@@ -95,7 +101,7 @@ export function createLibraryJobs(deps: LibraryJobDeps) {
       }
       if (row.kind !== 'translate' && deps.now() - ((row.at as number) || 0) > (JOB_STALE_MS[row.kind ?? ''] ?? STALE_MS)) {
         deps.jobs.clear(gid, row.kind);
-        if (shown.has(gid)) set(gid, { job: null, interrupted: true, pending: get(gid).pending });
+        if (shown.has(gid)) set(gid, { ...get(gid), job: null, interrupted: true });
         continue;
       }
       onJob(row);
@@ -142,7 +148,7 @@ export function createLibraryJobs(deps: LibraryJobDeps) {
         if (shown.has(gid) || (state.job && isRunning(state.job))) continue;
         set(gid, AT_REST);
       }
-      for (const [gid, state] of [...states]) if (!shown.has(gid) && (state.interrupted || state.pending)) set(gid, { ...state, interrupted: false, pending: null });
+      for (const [gid, state] of [...states]) if (!shown.has(gid) && (state.interrupted || state.pending || state.exporting)) set(gid, { job: state.job, interrupted: false, pending: null });
       if (off && !hydrated) { hydrated = true; hydrate(run).catch(() => {}); }
     },
 
@@ -152,20 +158,25 @@ export function createLibraryJobs(deps: LibraryJobDeps) {
       const was = get(gid);
       if (was === AT_REST) return;
       const job = was.job && isRunning(was.job) ? was.job : null;
-      set(gid, job || was.pending ? { job, interrupted: false, pending: was.pending } : AT_REST);
+      set(gid, { ...was, job, interrupted: false });
       if (was.job?.status === 'done') { deps.reread(); hydrate(run).catch(() => {}); }
     },
 
     press(gid: string, pending: Exclude<Pending, null>, label?: string) {
       const was = get(gid);
-      set(gid, { job: was.job, interrupted: was.interrupted, pending, ...(label ? { pendingLabel: label } : {}) });
+      set(gid, { job: was.job, interrupted: was.interrupted, pending, ...(label ? { pendingLabel: label } : {}), ...held(was) });
     },
     release(gid: string) {
       const was = get(gid);
-      if (was.pending) set(gid, { job: was.job, interrupted: was.interrupted, pending: null });
+      if (was.pending) set(gid, { job: was.job, interrupted: was.interrupted, pending: null, ...held(was) });
     },
     note(gid: string, label: string) {
-      set(gid, { job: null, interrupted: label, pending: null });
+      set(gid, { job: null, interrupted: label, pending: null, ...held(get(gid)) });
+    },
+    // An export of the gallery begun (true) or ended.
+    exporting(gid: string, on: boolean) {
+      const was = get(gid);
+      if (!!was.exporting !== on) set(gid, { ...was, exporting: on });
     },
   };
 }

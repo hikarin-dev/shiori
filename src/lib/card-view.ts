@@ -231,7 +231,7 @@ export type CardJob = { shown: boolean; bar: number | null | undefined; done: bo
 export const JOB_LINGER_MS = 4000;
 
 // A press on a card that no news has answered yet, drawn as 1.3 drew it (GalleryCard's `pending`).
-export type Pending = 'download' | 'translate' | 'revert' | 'export' | null;
+export type Pending = 'download' | 'translate' | 'revert' | null;
 
 export function cardJob(job: JobNews, f: JobFormat): CardJob | null {
   const view: JobView | null = jobView(job, f, 'card');

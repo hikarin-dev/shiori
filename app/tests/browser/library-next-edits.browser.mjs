@@ -8,7 +8,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, until } from './harness.mjs';
 import { startTranslator } from './stand-in-translator.mjs';
-import { openRun, result, press, readDialog, answer, nextBase, choose, sleep, PARTS } from './library-drive.mjs';
+import { openRun, result, press, readDialog, answer, nextBase, choose, publish, sleep, PARTS } from './library-drive.mjs';
 
 let server, origin, browser, tr;
 const PATHS = ['/library', '/library-next'];
@@ -130,6 +130,19 @@ const CASES = [
     await d.page.evaluate(async () => { const api = await import('/app/js/api.js'); api.transfer.read = async () => { throw new Error('the disk said no'); }; });
     await d.press('P', 'export'); await d.dialog(); await d.answer('ok'); await sleep(300);
     d.seen.push({ button: await d.page.evaluate((sel) => document.querySelector(sel).disabled, `#grid > .card[data-gallery-id="${d.id('P')}"] .card-btn-export`) });
+  }],
+  // Each button is held by itself: an export under way (here, its question still open) keeps its
+  // button off and "…" whatever its gallery's jobs say meanwhile, until it ends.
+  ['export under way: its button held while a job\'s news comes, until it ends', {}, async (d) => {
+    const button = () => d.page.evaluate((sel) => { const b = document.querySelector(sel); return [b.disabled, b.textContent.trim()]; }, `#grid > .card[data-gallery-id="${d.id('P')}"] .card-btn-export`);
+    await d.press('P', 'export'); await d.dialog();
+    d.seen.push({ asked: await button() });
+    await publish(d.page, { gid: d.id('P'), kind: 'translate', status: 'progress', done: 1, total: 2 }); await sleep(300);
+    d.seen.push({ 'a word': await button() });
+    await publish(d.page, { gid: d.id('P'), kind: 'translate', status: 'done', done: 2, total: 2 }); await sleep(300);
+    d.seen.push({ 'its last word': await button() });
+    await d.answer('cancel'); await sleep(400);
+    d.seen.push({ ended: await button() });
   }],
 ];
 

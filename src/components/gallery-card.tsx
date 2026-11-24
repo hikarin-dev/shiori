@@ -14,9 +14,10 @@
 //   lingerMs how long a last word stays (JOB_LINGER_MS; /components holds one still with Infinity)
 //   pending  a press its handler has taken and no news has answered yet, drawn as 1.3 drew it:
 //            'download' (its button "…", "Fetching metadata…"), 'translate' (its button off,
-//            "Translating…"), 'revert' (translate off), 'export' (its button "…")
+//            "Translating…"), 'revert' (translate off)
 //   pendingLabel  the line a pressed download shows in place of "Fetching metadata…" (a replace's
 //            "Reading file…")
+//   exporting  an export of it under way: its button "…" and off, whatever else the card shows
 //   on       the handlers, each called with the gallery's id (and what was pressed, where there is a
 //            choice): the card starts nothing itself. Which one a press means is the card's, as 1.3's
 //            handlers chose: Shift, Alt, the button's form.
@@ -87,6 +88,7 @@ type Props = {
   lingerMs?: number;
   pending?: Pending;
   pendingLabel?: string;
+  exporting?: boolean;
   on?: CardHandlers;
 } & Omit<React.HTMLAttributes<HTMLDivElement>, 'children' | 'onPointerDown'> & Record<`data-${string}`, string | undefined>;
 
@@ -332,7 +334,7 @@ const Rest = memo(function Rest({ view, on, shown, bar, done, label, dlForm, trF
   );
 });
 
-function GalleryCardImpl({ view, cover, job = null, interrupted = false, lingerMs = JOB_LINGER_MS, pending = null, pendingLabel, on = NO_HANDLERS, className, ...rest }: Props) {
+function GalleryCardImpl({ view, cover, job = null, interrupted = false, lingerMs = JOB_LINGER_MS, pending = null, pendingLabel, exporting = false, on = NO_HANDLERS, className, ...rest }: Props) {
   const t = useT();
   const id = view.id;
   const format: JobFormat = useMemo(() => ({ t, count: formatCount, bytes: formatBytes }), [t]);
@@ -376,7 +378,6 @@ function GalleryCardImpl({ view, cover, job = null, interrupted = false, lingerM
   // The buttons a job or a press holds.
   const dlForm = live?.hold === 'download' ? live.form : pending === 'download' ? 'pending' : 'rest';
   const trForm = live?.hold === 'translate' ? live.form : pending === 'translate' || pending === 'revert' ? 'pending' : 'rest';
-  const exporting = pending === 'export';
 
   const coverDown = useCallback((e: PointerEvent<HTMLAnchorElement>) => {
     // The left button of a mouse or pen: a finger on a cover scrolls the library.

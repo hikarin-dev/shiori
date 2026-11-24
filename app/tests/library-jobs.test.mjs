@@ -91,7 +91,7 @@ test('a "done" said again is not a new word; a word after it starts over', async
   store.stop();
 });
 
-test('not a job: a signal with no gallery or no status, a batch of imports and its titles, an import', async () => {
+test('not a job: a signal (it has a type, or no gallery or no status), an import', async () => {
   const w = world();
   const store = await started(w);
   const { told } = listen(store, ['1']);
@@ -99,11 +99,28 @@ test('not a job: a signal with no gallery or no status, a batch of imports and i
   w.say({ type: 'STOP_IMPORT', galleryId: '1' });
   w.say({ gid: '1', kind: 'download' });
   w.say({ gid: '1', kind: 'import', status: 'progress' });
-  w.say({ type: 'IMPORT_TITLE', batch: 'b1', gid: '1', status: 'done' });
-  w.say({ gid: '1', kind: 'upload', status: 'progress', batch: 'b1' });
+  // A batch telling of a title's end, whichever way it ended (1.3 took these for a job's news: a
+  // title found imported already opened its gallery's card for a job that never came).
+  for (const status of ['done', 'skipped', 'failed']) w.say({ type: 'IMPORT_TITLE', batch: 'b1', gid: '1', status });
+  w.say({ type: 'IMPORT_TITLE', batch: 'b1', gid: '9', status: 'skipped' });
   assert.equal(told['1'], 0);
   assert.equal(store.get('1'), AT_REST);
   assert.deepEqual(w.asked.filter(([k]) => k === 'reveal'), []);
+  store.stop();
+});
+
+test('a title of a batch of imports says its own news: on its card, looked for where it has none, its end as an upload\'s', async () => {
+  const w = world();
+  const store = await started(w, ['1']);
+  const { told } = listen(store, ['1']);
+  w.say({ gid: '1', kind: 'upload', status: 'started', labelKey: 'prog.reading', batch: 'b1' });
+  w.say({ gid: '1', kind: 'upload', status: 'progress', done: 1, total: 2, batch: 'b1' });
+  assert.equal(store.get('1').job.done, 1);
+  assert.equal(told['1'], 2);
+  w.say({ gid: '9', kind: 'upload', status: 'started', batch: 'b1' });
+  assert.deepEqual(w.asked.filter(([k]) => k === 'reveal'), [['reveal', '9']]);
+  w.say({ gid: '1', kind: 'upload', status: 'error', error: 'x', batch: 'b1' });
+  assert.deepEqual(w.asked.filter(([k]) => k === 'dropIfEmpty'), [['dropIfEmpty', '1']]);
   store.stop();
 });
 
@@ -242,18 +259,53 @@ test('a press no news has answered yet: set, cleared by the first word or by the
   store.stop();
 });
 
+test('an export under way holds its own button: through a word, a press and its release, a hint, a last word\'s while; gone with its end', async () => {
+  const w = world();
+  const store = await started(w);
+  const { told } = listen(store, ['1']);
+  store.exporting('1', true);
+  store.exporting('1', true);
+  assert.deepEqual([store.get('1').exporting, store.get('1').pending, told['1']], [true, null, 1]);
+  // A download pressed while it runs is held too, and the first word answers the press alone.
+  store.press('1', 'download');
+  assert.deepEqual([store.get('1').exporting, store.get('1').pending], [true, 'download']);
+  w.say({ gid: '1', kind: 'download', status: 'progress', done: 1, total: 2 });
+  assert.deepEqual([store.get('1').exporting, store.get('1').pending, store.get('1').job.done], [true, null, 1]);
+  store.press('1', 'translate');
+  store.release('1');
+  assert.deepEqual([store.get('1').exporting, store.get('1').pending], [true, null]);
+  w.say({ gid: '1', kind: 'download', status: 'done', done: 2, total: 2 });
+  store.settled('1');
+  assert.deepEqual([store.get('1').exporting, store.get('1').job], [true, null]);
+  store.note('1', 'x');
+  assert.deepEqual([store.get('1').exporting, store.get('1').interrupted], [true, 'x']);
+  store.settled('1');
+  assert.equal(store.get('1').exporting, true);
+  // Its end: at rest, the one shared state.
+  store.exporting('1', false);
+  assert.equal(store.get('1'), AT_REST);
+  // An export that ends while a job shows leaves the job.
+  store.exporting('2', true);
+  w.say({ gid: '2', kind: 'translate', status: 'progress', done: 1, total: 2 });
+  store.exporting('2', false);
+  assert.deepEqual([store.get('2').exporting, store.get('2').job.kind], [false, 'translate']);
+  store.stop();
+});
+
 test('the page\'s galleries change: what ended on a card no longer shown is forgotten, a running job kept', async () => {
   const w = world();
   const store = await started(w, ['1', '2', '3', '4']);
   w.say({ gid: '1', kind: 'download', status: 'done', done: 2, total: 2 });
   w.say({ gid: '2', kind: 'download', status: 'progress', done: 1, total: 2 });
   store.note('3', 'x');
-  store.press('4', 'export');
+  store.exporting('4', true);
+  store.exporting('2', true);
   store.showing(['5']);
   assert.equal(store.get('1'), AT_REST);
   assert.equal(store.get('2').job.done, 1);
   assert.equal(store.get('3'), AT_REST);
   assert.equal(store.get('4'), AT_REST);
+  assert.equal(store.get('2').exporting, undefined, 'a card made again has its export button back, as 1.3\'s had');
   // Back on the page: the running one is there at once, the others at rest.
   store.showing(['1', '2', '3', '4']);
   assert.equal(store.get('2').job.done, 1);

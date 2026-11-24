@@ -126,6 +126,59 @@ for (const [kind, news] of Object.entries(NEWS)) {
   });
 }
 
+// A title of a batch of imports says its own news on the live channel alone (jobs-runner.js: the
+// batch keeps the record), and its card shows it as an upload's. The batch then tells of the title's
+// end in a signal of its own (IMPORT_TITLE), which is no job's news.
+const signal = (page, event) => page.evaluate(async (event) => (await import('/app/js/platform.js')).jobs.signal({ ...event, at: Date.now() }), event);
+
+test('a title of a batch of imports: its own news on its card, to its end and back to rest', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const out = {};
+  for (const path of PATHS) {
+    const base = nextBase(1790004000000);
+    const page = await openRun(browser, origin, path, { base });
+    const gid = id(base, 'N');
+    await watching(page, gid);
+    for (const word of [
+      { gid, kind: 'upload', status: 'started', labelKey: 'prog.reading', batch: 'b1' },
+      { gid, kind: 'upload', status: 'progress', done: 1, total: 2, batch: 'b1' },
+      { gid, kind: 'upload', status: 'done', done: 2, total: 2, batch: 'b1' },
+      { type: 'IMPORT_TITLE', batch: 'b1', name: 'N gallery', gid, status: 'done', error: null },
+    ]) { await signal(page, word); await sleep(150); }
+    await sleep(4800);
+    out[path] = { states: (await states(page)).map((s) => s.split(gid).join('<gid>')), problems: page.problems };
+    await page.close();
+  }
+  const f50 = (s) => !/^at rest .*dl: done ✓/.test(s);
+  if (process.env.DUMP) console.log(JSON.stringify(out));
+  assert.deepEqual(out['/library-next'], { ...out['/library'], states: out['/library'].states.filter(f50) });
+  assert.ok(out['/library-next'].states.some((s) => /^shown .*1 \/ 2/.test(s)), 'its progress showed');
+});
+
+// §5.3 F52: 1.3's page took a batch's word of a title's end for a job's news. For a title found
+// imported already (its gallery there, with a card) that opened the card's place for a job, empty, and
+// left it open until the page was loaded again. The new page takes a signal for what it is.
+test('a batch telling that a title was imported already draws nothing on that gallery\'s card', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const out = {};
+  for (const path of PATHS) {
+    const base = nextBase(1790004000000);
+    const page = await openRun(browser, origin, path, { base });
+    const gid = id(base, 'P');
+    await watching(page, gid);
+    await signal(page, { type: 'IMPORT_TITLE', batch: 'b1', name: 'P gallery', gid, status: 'skipped', error: null });
+    await sleep(600);
+    out[path] = { states: (await states(page)).map((s) => s.split(gid).join('<gid>')), problems: page.problems };
+    await page.close();
+  }
+  if (process.env.DUMP) console.log(JSON.stringify(out));
+  assert.equal(out['/library-next'].states.length, 1, 'the card stays as it was');
+  assert.match(out['/library-next'].states[0], /^at rest/);
+  assert.deepEqual(out['/library-next'].problems, []);
+  // 1.3's page, as it was (the difference recorded above).
+  assert.match(out['/library'].states.at(-1), /^shown/);
+});
+
 test('a job said in another tab shows on the card', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const out = {};
