@@ -67,7 +67,8 @@ test('typing: blocks made, the list and its keys, a press picks, the X clears', 
   assert.deepEqual(await tokens(page), ['artist:"ann"', 'category:"doujinshi"']);
   // The arrows from none, not past the first; Escape closes the list only.
   await page.keyboard.type('fa');
-  await until(page, async () => (document.getElementById('searchSuggest')?.textContent || '').includes('favorite:'), undefined, { what: 'the filters matching' });
+  // (Its first row: the list drawn for 'f' alone holds it too, further down.)
+  await until(page, () => (document.querySelector('#searchSuggest [role="option"]')?.textContent || '').includes('favorite:'), undefined, { what: 'the filters matching' });
   assert.equal((await list(page)).active, null, 'nothing active as it opens');
   await page.keyboard.press('ArrowUp');
   assert.equal((await list(page)).active, null, 'not past the first');
