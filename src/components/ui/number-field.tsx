@@ -4,7 +4,7 @@
 // as today; its buttons stay in the Tab order as today's were (Base UI would leave them out), and
 // the arrow keys step the value while it has focus, Page Up and Down by a larger step, Home and
 // End to the ends; focused so, the track takes the document's keyboard ring. A button is off at
-// its end.
+// its end. §5.3 S13: a button's icon alone 16 (15 before).
 import { NumberField as NumberFieldPrimitive } from '@base-ui/react/number-field';
 import { Minus, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -18,7 +18,7 @@ type Props = Omit<NumberFieldPrimitive.Root.Props, 'children' | 'className'> & {
   'data-force'?: string;
 };
 
-const STEP = 'grid h-[28px] cursor-pointer place-items-center rounded-5 border-0 bg-transparent p-0 text-muted-foreground hover:bg-secondary hover:text-foreground disabled:cursor-default disabled:opacity-35 [&_svg]:size-[15px]';
+const STEP = 'grid h-[28px] cursor-pointer place-items-center rounded-5 border-0 bg-transparent p-0 text-muted-foreground hover:bg-secondary hover:text-foreground disabled:cursor-default disabled:opacity-35 [&_svg]:size-[16px]';
 
 function NumberField({ className, 'aria-label': label, decrementLabel, incrementLabel, 'data-force': force, ...props }: Props) {
   return (
