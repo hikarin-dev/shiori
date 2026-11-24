@@ -44,11 +44,12 @@ export const SectionStatus = ({ id, status }: { id: string; status: Status }) =>
   <StatusText id={id} place="section" tone={status.tone} shown={status.shown}>{status.text}</StatusText>
 );
 
-// A Settings section: a card with its title in a ruled header, then its rows; 24px under it.
-export function Section({ title, id, hidden, className, children }: { title: ReactNode; id?: string; hidden?: boolean; className?: string; children: ReactNode }) {
+// A Settings section: a card with its title in a ruled header, then its rows; 24px under it. `aside`:
+// what else its header holds (a status pill), at the header's end.
+export function Section({ title, id, hidden, className, aside, children }: { title: ReactNode; id?: string; hidden?: boolean; className?: string; aside?: ReactNode; children: ReactNode }) {
   return (
     <Card id={id} hidden={hidden} className={cn('section mb-[24px]', className)}>
-      <CardHeader><CardTitle>{title}</CardTitle></CardHeader>
+      <CardHeader><CardTitle>{title}</CardTitle>{aside}</CardHeader>
       {children}
     </Card>
   );

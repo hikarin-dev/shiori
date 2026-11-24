@@ -35,7 +35,9 @@ import { cva } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 import { FOCUS_BOX } from './focus';
 
-export type SelectOption = { value: string; label: string; className?: string };
+// An option's `title` shows under the pointer (the system's tip, as 1.3's option titles did); a
+// disabled one is listed but can't be chosen.
+export type SelectOption = { value: string; label: string; className?: string; title?: string; disabled?: boolean };
 type Variant = 'field' | 'inset' | 'toolbar' | 'ghost';
 type Size = 'default' | 'toolbar' | 'xs';
 
@@ -153,7 +155,7 @@ function Select({ options, value, defaultValue, onValueChange, variant = 'field'
           className={cn(boxClass, 'appearance-none [grid-area:1/1]', variant === 'ghost' ? 'pr-[22px] [field-sizing:content]' : 'pr-[30px]')}
           {...rest}
         >
-          {options.map((o) => <option key={o.value} value={o.value} className={o.className}>{o.label}</option>)}
+          {options.map((o) => <option key={o.value} value={o.value} className={o.className} title={o.title} disabled={o.disabled}>{o.label}</option>)}
         </select>
         <Chevron className={cn('pointer-events-none absolute top-1/2 -translate-y-1/2', variant === 'ghost' ? 'right-[6px]' : 'right-[11px]')} />
       </span>
@@ -221,12 +223,16 @@ function Select({ options, value, defaultValue, onValueChange, variant = 'field'
                 <SelectPrimitive.Item
                   key={o.value}
                   value={o.value}
+                  title={o.title}
+                  disabled={o.disabled}
                   data-slot="select-option"
                   className={cn(
                     'py-[6px] whitespace-normal text-muted-foreground outline-none transition-[background-color,color] duration-fast ease-standard', cursor,
                     // Under the pointer, or reached by the keyboard (not merely the one the list
                     // opened on), as 1.3's list showed it.
                     'data-[selected]:font-semibold data-[selected]:text-foreground hover:bg-secondary hover:text-foreground focus-visible:bg-secondary focus-visible:text-foreground',
+                    // Listed, not to be chosen (as Chromium's list greyed a disabled option).
+                    'data-disabled:cursor-default data-disabled:text-muted-dim data-disabled:hover:bg-transparent data-disabled:hover:text-muted-dim',
                     INSET[s], o.className,
                   )}
                 >

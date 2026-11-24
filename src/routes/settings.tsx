@@ -25,13 +25,14 @@ import { AboutDialog } from './settings/about';
 import { LibraryPanel } from './settings/library';
 import { prefs } from './settings/parts';
 import { ReaderPanel } from './settings/reader';
+import { TranslationPanel } from './settings/translation';
 
 // The panels, in the nav's order: the panel's id is the nav item's value (data-panel), its nav item's
 // id and name.
 const PANELS = [
   { id: 'panelLibrary', nav: 'navLibrary', label: 'set.nav_library', Panel: LibraryPanel },
   { id: 'panelReader', nav: 'navReader', label: 'set.nav_reader', Panel: ReaderPanel },
-  { id: 'panelTranslation', nav: 'navTranslation', label: 'set.nav_translation', Panel: null },
+  { id: 'panelTranslation', nav: 'navTranslation', label: 'set.nav_translation', Panel: TranslationPanel },
   { id: 'panelStorage', nav: 'navStorage', label: 'set.nav_storage', Panel: null },
 ] as const;
 
