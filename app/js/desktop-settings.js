@@ -6,9 +6,8 @@
 // the desktop app's own, read and changed through the window's bridge to it (`shioriDesktop.shell`).
 // The library's folders (and archiving) are in Settings → Storage (library-folders.js).
 import { t, applyTranslations } from './i18n.js';
-import { confirmDialog } from './notice.js';
+import { shell, portChoices, addOnName, updateView, UPDATE_FOLLOW_MS, restart } from './system-settings.js';
 
-const shell = (action, ...args) => globalThis.shioriDesktop.shell(action, ...args);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 const SWITCH = (id, label) => `
@@ -129,8 +128,8 @@ export async function initDesktopSettings() {
     $('deskTray').checked = state.closeToTray;
     $('deskServerUrl').textContent = state.url;
     $('deskPortDesc').textContent = t('set.desk_port_desc', { port: state.ports[0] });
-    $('deskPort').innerHTML = [0, ...state.ports].map(p =>
-      `<option value="${p}"${p === state.port ? ' selected' : ''}>${p ? p : esc(t('set.desk_port_auto'))}</option>`).join('');
+    $('deskPort').innerHTML = portChoices(state).map(({ value: p, label }) =>
+      `<option value="${p}"${p === state.port ? ' selected' : ''}>${esc(label)}</option>`).join('');
     $('deskLan').checked = state.lan;
     // While it is open: the addresses another device opens (none while this computer is on no network).
     $('deskLanUrls').innerHTML = !state.lanUrls ? ''
@@ -143,7 +142,7 @@ export async function initDesktopSettings() {
       : `<div class="toggle-row"><div class="toggle-info"><div class="toggle-desc">${esc(t('set.desk_sites_none'))}</div></div></div>`;
     $('deskExtensions').innerHTML = state.extensions.length
       ? state.extensions.map(ext => `<div class="toggle-row"><div class="toggle-info">
-          <div class="toggle-name">${esc(ext.name ? `${ext.name} ${ext.version || ''}` : ext.dir)}</div>
+          <div class="toggle-name">${esc(addOnName(ext))}</div>
           <div class="toggle-desc">${ext.error ? esc(t('set.desk_ext_failed', { error: ext.error })) : `<code>${esc(ext.dir)}</code>`}</div></div>
           <button class="btn-mini" type="button" data-remove-extension="${esc(ext.dir)}">${esc(t('set.desk_ext_remove'))}</button></div>`).join('')
       : `<div class="toggle-row"><div class="toggle-info"><div class="toggle-desc">${esc(t('set.desk_ext_none'))}</div></div></div>`;
@@ -154,32 +153,23 @@ export async function initDesktopSettings() {
     renderUpdate();
   };
   // The update's progress, followed while something is under way.
-  const UPDATE_TEXT = {
-    idle: () => t('set.desk_check_desc'), checking: () => t('set.desk_checking'), none: () => t('set.desk_up_to_date'),
-    downloading: (u) => t('set.desk_downloading', { version: u.version, percent: u.percent ?? 0 }),
-    ready: (u) => t('set.desk_ready', { version: u.version }), error: (u) => t('set.desk_update_error', { error: u.error }),
-    unavailable: () => t('set.desk_update_unavailable'),
-  };
   let following = null;
   const renderUpdate = () => {
-    const u = state.update || { status: 'idle' };
-    $('deskUpdateStatus').textContent = (UPDATE_TEXT[u.status] || UPDATE_TEXT.idle)(u);
-    $('deskInstallUpdate').classList.toggle('hidden', u.status !== 'ready');
-    $('deskCheckUpdates').disabled = u.status === 'checking' || u.status === 'downloading';
-    if ((u.status === 'checking' || u.status === 'downloading') && !following) {
+    const u = updateView(state.update);
+    $('deskUpdateStatus').textContent = u.text;
+    $('deskInstallUpdate').classList.toggle('hidden', !u.ready);
+    $('deskCheckUpdates').disabled = u.busy;
+    if (u.busy && !following) {
       following = setTimeout(async () => {
         following = null;
         state = { ...state, update: await shell('updateState') };
         renderUpdate();
-      }, 700);
+      }, UPDATE_FOLLOW_MS);
     }
   };
   render();
   window.addEventListener('shiori-lang-change', render);
 
-  const restart = async (body) => {
-    if (await confirmDialog({ title: t('set.desk_restart_title'), body, ok: t('set.desk_restart_ok'), cancel: t('set.desk_later') })) shell('restart');
-  };
   const set = async (key, value) => { state = await shell('set', key, value); render(); };
 
   $('deskTray').addEventListener('change', (e) => set('closeToTray', e.target.checked));
