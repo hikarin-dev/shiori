@@ -14,7 +14,7 @@ before(async () => {
 });
 after(async () => { await browser?.close(); server?.close(); });
 
-test('a separator in a menu, presentation in a listbox; one 1px line held 6px 4px off', async (t) => {
+test('a separator in a menu, presentation in a listbox; one 1px line, held 6px 4px off in a list and 4px 2px in a menu', async (t) => {
   const page = await componentsPage(t, browser, origin);
   if (!page) return;
   const read = (sel) => page.$eval(sel, (el) => {
@@ -26,12 +26,11 @@ test('a separator in a menu, presentation in a listbox; one 1px line held 6px 4p
   assert.deepEqual([menu.role, menu.orientation], ['separator', 'horizontal']);
   const list = await read(spec('separator', 'list'));
   assert.deepEqual([list.role, list.orientation], ['presentation', null], 'inside a listbox: no separator role');
-  for (const s of [menu, list]) {
-    assert.deepEqual([s.height, s.ground, s.margin], [1, 'rgb(42, 42, 48)', '6px 4px 6px 4px']);
-  }
-  // The frame's padding plus its own margin: 1 + 6 + 4 in the list, 1 + 5 + 4 in the menu.
+  assert.deepEqual([list.height, list.ground, list.margin], [1, 'rgb(42, 42, 48)', '6px 4px 6px 4px']);
+  assert.deepEqual([menu.height, menu.ground, menu.margin], [1, 'rgb(42, 42, 48)', '4px 2px 4px 2px'], 'a menu\'s: 1.3\'s 4px 2px');
+  // The frame's padding plus its own margin: 1 + 6 + 4 in the list, 1 + 5 + 2 in the menu.
   assert.deepEqual(list.inset, [11, 11]);
-  assert.deepEqual(menu.inset, [10, 10]);
+  assert.deepEqual(menu.inset, [8, 8]);
   // Nothing in the menu and list is focusable because of it.
   assert.equal(await page.$eval(spec('separator', 'menu'), (el) => el.tabIndex), -1);
   assert.deepEqual(page.problems, []);

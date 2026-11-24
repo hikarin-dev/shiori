@@ -19,7 +19,7 @@ export function SeparatorSpecimens() {
         <Line label="in a menu" states={['rest']} render={(state) => (
           <div role="menu" aria-label="Folder" className="w-[170px] rounded-8 border border-solid border-border bg-popover p-[5px]">
             <div role="menuitem" className="px-[9px] py-[7px] text-12">Rescan</div>
-            <Separator {...tag('separator', 'menu', state)} />
+            <Separator spacing="menu" {...tag('separator', 'menu', state)} />
             <div role="menuitem" className="px-[9px] py-[7px] text-12 text-destructive">Delete</div>
           </div>)} />
       </Shape>
