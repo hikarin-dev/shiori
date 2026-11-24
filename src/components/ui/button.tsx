@@ -29,7 +29,7 @@
 import { Button as ButtonPrimitive } from '@base-ui/react/button';
 import { cva, type VariantProps } from 'class-variance-authority';
 import type { AnchorHTMLAttributes } from 'react';
-import { cn } from '@/lib/utils';
+import { classCache, cn } from '@/lib/utils';
 
 // A tone is a set of colours the variants below read: the outline (--t), its text (--t-text: the
 // neutral tone frames in the muted grey and writes in the text colour), the fill's text (--t-fill-fg)
@@ -181,21 +181,26 @@ export type ButtonProps = ButtonPrimitive.Props & {
 // nature, the quiet and ghost ones neutral.
 const TONED: Variant[] = ['tint', 'quiet', 'ghost'];
 
+const kept = classCache();
+
 function Button({ className, variant = 'outline', size = 'default', tone, rest, hover, pressedTone, coarse, href, ...props }: ButtonProps) {
-  const toned = TONED.includes(variant);
-  const t = toned ? tone ?? (variant === 'tint' ? 'warning' : 'neutral') : undefined;
-  const motion = ['outline', 'primary', 'danger'].includes(variant) ? '' : MOTION[variant] ?? MOTION_DEFAULT;
-  const classes = cn(
-    buttonVariants({
-      variant, size, coarse: coarse ?? 'none',
-      tone: t,
-      rest: toned ? rest ?? 'muted' : undefined,
-      hover: toned ? hover ?? 'outline' : undefined,
-      pressedTone: pressedTone ?? (variant === 'secondary' || variant === 'quiet' ? t ?? 'primary' : undefined),
-    }),
-    motion,
-    typeof className === 'string' ? className : undefined,
-  );
+  const own = typeof className === 'string' ? className : undefined;
+  const classes = kept(`${variant}|${size}|${tone}|${rest}|${hover}|${pressedTone}|${coarse}|${own}`, () => {
+    const toned = TONED.includes(variant);
+    const t = toned ? tone ?? (variant === 'tint' ? 'warning' : 'neutral') : undefined;
+    const motion = ['outline', 'primary', 'danger'].includes(variant) ? '' : MOTION[variant] ?? MOTION_DEFAULT;
+    return cn(
+      buttonVariants({
+        variant, size, coarse: coarse ?? 'none',
+        tone: t,
+        rest: toned ? rest ?? 'muted' : undefined,
+        hover: toned ? hover ?? 'outline' : undefined,
+        pressedTone: pressedTone ?? (variant === 'secondary' || variant === 'quiet' ? t ?? 'primary' : undefined),
+      }),
+      motion,
+      own,
+    );
+  });
   if (href !== undefined) {
     const { children, ...rest } = props as unknown as AnchorHTMLAttributes<HTMLAnchorElement>;
     return <a data-slot="button" data-variant={variant} data-size={size} href={href} className={classes} {...rest}>{children}</a>;

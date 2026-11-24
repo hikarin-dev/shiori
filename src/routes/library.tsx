@@ -83,10 +83,12 @@ const LibraryCard = memo(function LibraryCard({ g, env, covers, icons, on }: { g
   const key = coverKeyOf(g, env.prefs.mergeSeries);
   const cover = useSyncExternalStore(covers.subscribe, () => covers.get(key));
   const icon = useSyncExternalStore(icons.subscribe, () => icons.get(g.source));
-  const view = useMemo(() => cardView(g, cover, env), [g, cover, env, icon]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // The view without its cover, which the card takes apart: a cover arriving leaves the view the same
+  // object, and the card draws its cover alone.
+  const view = useMemo(() => cardView(g, null, env), [g, env, icon]);   // eslint-disable-line react-hooks/exhaustive-deps
   // A source with no icon kept: asked for each time its card is drawn anew (1.3's _siteFavicon).
   useEffect(() => { if (g.source && !icon) icons.want(g.source); }, [g, icon, icons]);
-  return <GalleryCard view={view} job={null} on={on} />;
+  return <GalleryCard view={view} cover={cover} job={null} on={on} />;
 });
 
 export default function Library() {

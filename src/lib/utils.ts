@@ -19,3 +19,20 @@ export const cn = createCn({
     classGroups: { z: [{ z: TOKENS.z }], duration: [{ duration: TOKENS.duration }] },
   },
 });
+
+// classCache() — a component's classes for one set of choices, worked out once. Its variants and cn()
+// are pure, and a page draws the same few looks by the hundred (a library page: 180 buttons, some 400
+// tags), each of which would otherwise run its every compound variant again. `key` names the choices
+// (everything `make` reads, the caller's own class names included); `make` runs for a key not seen.
+export function classCache() {
+  const kept = new Map<string, string>();
+  return (key: string, make: () => string) => {
+    let classes = kept.get(key);
+    if (classes === undefined) {
+      if (kept.size >= 1000) kept.clear();   // (class names made up as it goes must not pile up)
+      classes = make();
+      kept.set(key, classes);
+    }
+    return classes;
+  };
+}

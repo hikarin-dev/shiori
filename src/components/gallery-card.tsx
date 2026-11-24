@@ -4,6 +4,8 @@
 // actions, the title, the meta line, a job's bar and line, the tags. Its look is gallery-card.css.
 //
 //   view     what it shows of its gallery: cardView(g, cover, env) (src/lib/card-view.ts)
+//   cover    its cover's picture, where the page keeps it apart from the view (a cover arriving then
+//            draws the cover alone, the view being the same object); left out, the view's is shown
 //   job      the gallery's job, its latest news as published (null: none): its bar and line, the
 //            button it holds as its Stop (or busy), its last word kept JOB_LINGER_MS, then the card
 //            returns to rest and says so (on.jobSettled)
@@ -76,6 +78,7 @@ export function cardModes({ quickActions = 'hover', hideCategory, translatorOffl
 
 type Props = {
   view: CardView;
+  cover?: string | null;
   job?: JobNews | null;
   interrupted?: boolean;
   lingerMs?: number;
@@ -144,7 +147,8 @@ const Cover = memo(function Cover({ id, href, src, expected, badge, onPointerDow
     const img = event.currentTarget;
     if (!img.naturalWidth || !img.naturalHeight) return;
     const landscape = img.naturalWidth >= img.naturalHeight;
-    setFit({ landscape, glow: landscape ? paintGlow(img) : null });
+    // (A portrait cover after a portrait one changes nothing: the same object, nothing drawn again.)
+    setFit((was) => (landscape ? { landscape, glow: paintGlow(img) } : was.landscape || was.glow ? { landscape: false, glow: null } : was));
   }, []);
   return (
     // draggable off on the cover and its link: grabbing it starts the card's own drag (6d), not the
@@ -219,10 +223,114 @@ function OpenFace({ view }: { view: CardView }) {
 type Drawn = { job: CardJob; key: object };
 const INTERRUPTED = (label: string): CardJob => ({ shown: true, bar: undefined, done: false, label, hold: null, form: 'rest', ended: true });
 
-function GalleryCardImpl({ view, job = null, interrupted = false, lingerMs = JOB_LINGER_MS, pending = null, on = NO_HANDLERS, className, ...rest }: Props) {
+// Everything of the card but its cover. A component of its own, drawn again only when something it
+// shows changes: a cover arriving (the commonest change of a card, thirty to a page) draws the cover
+// alone.
+type Form = CardJob['form'] | 'pending';
+const Rest = memo(function Rest({ view, on, shown, bar, done, label, dlForm, trForm, exporting }: {
+  view: CardView; on: CardHandlers; shown: boolean; bar: number | null; done: boolean; label: string; dlForm: Form; trForm: Form; exporting: boolean;
+}) {
   const t = useT();
   const id = view.id;
   const labelId = useId();
+
+  const press = (fn: (e: MouseEvent<HTMLButtonElement>) => void) => (e: MouseEvent<HTMLButtonElement>) => { fn(e); };
+  const onFav = press((e) => (e.altKey ? on.searchFavorite?.(id) : on.favorite?.(id)));
+  const onOpen = press((e) => {
+    if (e.altKey && view.open.alt) on.searchSource?.(id);
+    else if (!view.open.shift || e.shiftKey) on.editSource?.(id);
+    else on.openSource?.(id);
+  });
+  const onDownload = press((e) => {
+    if (dlForm === 'cancel') on.stopDownload?.(id);
+    else if (e.shiftKey || !view.canDownload) on.replace?.(id);
+    else on.download?.(id);
+  });
+  const onTranslate = press((e) => {
+    if (trForm === 'cancel') on.cancelTranslate?.(id);
+    else if (e.altKey) on.searchTranslated?.(id);
+    else if (e.shiftKey && view.translated && !view.series) on.revert?.(id);
+    else on.translate?.(id);
+  });
+  const onRerun = (e: MouseEvent<HTMLButtonElement>) => {
+    // Not while it is its job's Stop, or off: a translation just finished leaves it pressable, as 1.3's.
+    if (!view.translated || view.series || (trForm !== 'rest' && trForm !== 'done')) return;
+    e.preventDefault();
+    on.rerun?.(id, e.currentTarget);
+  };
+  const onExport = press((e) => (e.shiftKey ? on.exportMetadata?.(id) : on.export?.(id)));
+  const onRemove = press((e) => (e.shiftKey ? on.quickRemove?.(id) : on.remove?.(id)));
+
+  // Download: Replace's icon when there is nothing to download from; Stop while it downloads; "…"
+  // pressed; ✓ done.
+  const dl = dlForm === 'cancel' ? { face: <StopIcon className={ICON} />, tip: t('card.tip_stop_dl'), shift: null }
+    : dlForm === 'pending' ? { face: '…', tip: view.download.tip, shift: view.download.shift }
+    : dlForm === 'done' ? { face: '✓', tip: view.download.tip, shift: view.download.shift }
+    : { face: view.canDownload ? <Faces rest={<DownloadIcon className={ICON} />} shift={<UploadIcon className={ICON} />} /> : <UploadIcon className={ICON} />,
+      tip: view.download.tip, shift: view.download.shift };
+  const trDone = view.translated || trForm === 'done';
+  const tr = trForm === 'cancel' ? { face: <StopIcon className={ICON} />, tip: t('card.tip_cancel'), shift: null, alt: null }
+    : { face: <Faces rest={<TranslateIcon className={ICON} />} shift={view.translate.shift ? <RevertIcon className={ICON} /> : undefined} />,
+      tip: view.translate.tip, shift: view.translate.shift, alt: view.translate.alt };
+
+  return (
+    <>
+      <Button variant="overlay" size="icon-sm" coarse="36" type="button" className={cn('card-fav absolute top-[8px] right-[8px] z-[7]', view.favorite && 'on')}
+        aria-pressed={view.favorite} aria-label={view.fav.tip} data-tip={view.fav.tip} data-tip-alt={view.fav.alt} onClick={onFav}>
+        <HeartIcon className={cn(ICON, view.favorite && 'fill-current')} />
+      </Button>
+      <div className={cn('card-body', shown && 'downloading')}>
+        <div className="card-id-row">
+          <Button variant="ghost" size="icon-2xs" type="button" className="card-btn card-btn-open hover:bg-transparent" data-id={id}
+            aria-label={view.open.tip} data-tip={view.open.tip} data-tip-shift={view.open.shift ?? undefined} data-tip-alt={view.open.alt ?? undefined} onClick={onOpen}>
+            <OpenFace view={view} />
+          </Button>
+          {view.idHref
+            ? <a className={cn('card-id', view.local && 'local')} href={view.idHref} target="_blank" rel="noopener noreferrer" data-original={view.idText}>{view.idText}</a>
+            : <div className={cn('card-id', view.local && 'local')} data-original={view.idText}>{view.idText}</div>}
+          <div className="card-actions">
+            <Button variant="quiet" tone={dlForm === 'done' ? 'success' : 'warning'} rest={dlForm === 'done' ? 'framed' : 'tone'} hover="fill" size="icon" coarse="36" type="button"
+              className={cn('card-btn card-btn-dl', dlForm === 'cancel' && 'cancelling', dlForm === 'done' && 'done')} data-id={id}
+              disabled={dlForm === 'pending' || dlForm === 'busy'} aria-label={dl.tip} data-tip={dl.tip} data-tip-shift={dl.shift ?? undefined} onClick={onDownload}>
+              {dl.face}
+            </Button>
+            <Button variant="quiet" tone="primary" rest="tone" size="icon" coarse="36" type="button"
+              className={cn('card-btn card-btn-translate', trForm === 'cancel' && 'cancelling', trDone && 'done text-success hover:text-success')} data-id={id}
+              disabled={trForm === 'pending' || trForm === 'busy'} aria-label={tr.tip} data-tip={tr.tip} data-tip-shift={tr.shift ?? undefined} data-tip-alt={tr.alt ?? undefined}
+              onClick={onTranslate} onContextMenu={onRerun}>
+              {tr.face}
+            </Button>
+            <Button variant="quiet" tone="warning" size="icon" coarse="36" type="button" className="card-btn card-btn-export" data-id={id}
+              disabled={exporting} aria-label={view.export.tip} data-tip={view.export.tip} data-tip-shift={view.export.shift} onClick={onExport}>
+              {exporting ? '…' : <Faces rest={<ExportIcon className={ICON} />} shift={<ExportMetaIcon className={ICON} />} />}
+            </Button>
+            <Button variant="quiet" tone="danger" rest="tone" hover="fill" size="icon" coarse="36" type="button" className="card-btn card-btn-del" data-id={id}
+              aria-label={view.remove.tip} data-tip={view.remove.tip} data-tip-shift={view.remove.shift} onClick={onRemove}>
+              <Faces rest={<DeleteIcon className={ICON} />} shift={<QuickDeleteIcon className={ICON} />} />
+            </Button>
+          </div>
+        </div>
+        {view.title && <div className="card-title" data-original={view.title}>{view.title}</div>}
+        <div className="card-meta">
+          {view.pages.tip == null ? view.pages.text
+            : <span className="card-pages" data-tip={view.pages.tip} data-tip-badge={view.pages.badge ?? undefined}>{view.pages.text}</span>}
+          {' · '}
+          <span className="card-size" data-tip={view.size.tip}>{view.size.text}</span>
+          {view.missing != null && <>{' · '}<span className="card-missing">{view.missing}</span></>}
+        </div>
+        <div className="card-progress">
+          <Progress value={bar} done={done} className="prog-track" indicatorClassName="prog-fill" aria-labelledby={labelId} />
+          <span className="card-prog-label" id={labelId}>{label}</span>
+        </div>
+        <Tags id={id} tags={view.tags} on={on} />
+      </div>
+    </>
+  );
+});
+
+function GalleryCardImpl({ view, cover, job = null, interrupted = false, lingerMs = JOB_LINGER_MS, pending = null, on = NO_HANDLERS, className, ...rest }: Props) {
+  const t = useT();
+  const id = view.id;
   const format: JobFormat = useMemo(() => ({ t, count: formatCount, bytes: formatBytes }), [t]);
 
   // What the job's news says, kept while news comes that a card doesn't draw.
@@ -272,97 +380,11 @@ function GalleryCardImpl({ view, job = null, interrupted = false, lingerMs = JOB
     onRef.current.coverPointerDown?.(id, e);
   }, [id]);
 
-  const press = (fn: (e: MouseEvent<HTMLButtonElement>) => void) => (e: MouseEvent<HTMLButtonElement>) => { fn(e); };
-  const onFav = press((e) => (e.altKey ? on.searchFavorite?.(id) : on.favorite?.(id)));
-  const onOpen = press((e) => {
-    if (e.altKey && view.open.alt) on.searchSource?.(id);
-    else if (!view.open.shift || e.shiftKey) on.editSource?.(id);
-    else on.openSource?.(id);
-  });
-  const onDownload = press((e) => {
-    if (dlForm === 'cancel') on.stopDownload?.(id);
-    else if (e.shiftKey || !view.canDownload) on.replace?.(id);
-    else on.download?.(id);
-  });
-  const onTranslate = press((e) => {
-    if (trForm === 'cancel') on.cancelTranslate?.(id);
-    else if (e.altKey) on.searchTranslated?.(id);
-    else if (e.shiftKey && view.translated && !view.series) on.revert?.(id);
-    else on.translate?.(id);
-  });
-  const onRerun = (e: MouseEvent<HTMLButtonElement>) => {
-    // Not while it is its job's Stop, or off: a translation just finished leaves it pressable, as 1.3's.
-    if (!view.translated || view.series || (trForm !== 'rest' && trForm !== 'done')) return;
-    e.preventDefault();
-    on.rerun?.(id, e.currentTarget);
-  };
-  const onExport = press((e) => (e.shiftKey ? on.exportMetadata?.(id) : on.export?.(id)));
-  const onRemove = press((e) => (e.shiftKey ? on.quickRemove?.(id) : on.remove?.(id)));
-
-  // Download: Replace's icon when there is nothing to download from; Stop while it downloads; "…"
-  // pressed; ✓ done.
-  const dl = dlForm === 'cancel' ? { face: <StopIcon className={ICON} />, tip: t('card.tip_stop_dl'), shift: null }
-    : dlForm === 'pending' ? { face: '…', tip: view.download.tip, shift: view.download.shift }
-    : dlForm === 'done' ? { face: '✓', tip: view.download.tip, shift: view.download.shift }
-    : { face: view.canDownload ? <Faces rest={<DownloadIcon className={ICON} />} shift={<UploadIcon className={ICON} />} /> : <UploadIcon className={ICON} />,
-      tip: view.download.tip, shift: view.download.shift };
-  const trDone = view.translated || trForm === 'done';
-  const tr = trForm === 'cancel' ? { face: <StopIcon className={ICON} />, tip: t('card.tip_cancel'), shift: null, alt: null }
-    : { face: <Faces rest={<TranslateIcon className={ICON} />} shift={view.translate.shift ? <RevertIcon className={ICON} /> : undefined} />,
-      tip: view.translate.tip, shift: view.translate.shift, alt: view.translate.alt };
-
+  const src = cover === undefined ? view.cover.src : cover;
   return (
     <div className={cn('card', view.sfw && 'card-sfw', className)} data-gallery-id={id} {...rest}>
-      <Cover id={id} href={view.href} src={view.cover.src} expected={view.cover.expected} badge={view.series ? view.badge : ''} onPointerDown={coverDown} />
-      <Button variant="overlay" size="icon-sm" coarse="36" type="button" className={cn('card-fav absolute top-[8px] right-[8px] z-[7]', view.favorite && 'on')}
-        aria-pressed={view.favorite} aria-label={view.fav.tip} data-tip={view.fav.tip} data-tip-alt={view.fav.alt} onClick={onFav}>
-        <HeartIcon className={cn(ICON, view.favorite && 'fill-current')} />
-      </Button>
-      <div className={cn('card-body', shown && 'downloading')}>
-        <div className="card-id-row">
-          <Button variant="ghost" size="icon-2xs" type="button" className="card-btn card-btn-open hover:bg-transparent" data-id={id}
-            aria-label={view.open.tip} data-tip={view.open.tip} data-tip-shift={view.open.shift ?? undefined} data-tip-alt={view.open.alt ?? undefined} onClick={onOpen}>
-            <OpenFace view={view} />
-          </Button>
-          {view.idHref
-            ? <a className={cn('card-id', view.local && 'local')} href={view.idHref} target="_blank" rel="noopener noreferrer" data-original={view.idText}>{view.idText}</a>
-            : <div className={cn('card-id', view.local && 'local')} data-original={view.idText}>{view.idText}</div>}
-          <div className="card-actions">
-            <Button variant="quiet" tone={dlForm === 'done' ? 'success' : 'warning'} rest={dlForm === 'done' ? 'framed' : 'tone'} hover="fill" size="icon" coarse="36" type="button"
-              className={cn('card-btn card-btn-dl', dlForm === 'cancel' && 'cancelling', dlForm === 'done' && 'done')} data-id={id}
-              disabled={dlForm === 'pending' || dlForm === 'busy'} aria-label={dl.tip} data-tip={dl.tip} data-tip-shift={dl.shift ?? undefined} onClick={onDownload}>
-              {dl.face}
-            </Button>
-            <Button variant="quiet" tone="primary" rest="tone" size="icon" coarse="36" type="button"
-              className={cn('card-btn card-btn-translate', trForm === 'cancel' && 'cancelling', trDone && 'done text-success hover:text-success')} data-id={id}
-              disabled={trForm === 'pending' || trForm === 'busy'} aria-label={tr.tip} data-tip={tr.tip} data-tip-shift={tr.shift ?? undefined} data-tip-alt={tr.alt ?? undefined}
-              onClick={onTranslate} onContextMenu={onRerun}>
-              {tr.face}
-            </Button>
-            <Button variant="quiet" tone="warning" size="icon" coarse="36" type="button" className="card-btn card-btn-export" data-id={id}
-              disabled={exporting} aria-label={view.export.tip} data-tip={view.export.tip} data-tip-shift={view.export.shift} onClick={onExport}>
-              {exporting ? '…' : <Faces rest={<ExportIcon className={ICON} />} shift={<ExportMetaIcon className={ICON} />} />}
-            </Button>
-            <Button variant="quiet" tone="danger" rest="tone" hover="fill" size="icon" coarse="36" type="button" className="card-btn card-btn-del" data-id={id}
-              aria-label={view.remove.tip} data-tip={view.remove.tip} data-tip-shift={view.remove.shift} onClick={onRemove}>
-              <Faces rest={<DeleteIcon className={ICON} />} shift={<QuickDeleteIcon className={ICON} />} />
-            </Button>
-          </div>
-        </div>
-        {view.title && <div className="card-title" data-original={view.title}>{view.title}</div>}
-        <div className="card-meta">
-          {view.pages.tip == null ? view.pages.text
-            : <span className="card-pages" data-tip={view.pages.tip} data-tip-badge={view.pages.badge ?? undefined}>{view.pages.text}</span>}
-          {' · '}
-          <span className="card-size" data-tip={view.size.tip}>{view.size.text}</span>
-          {view.missing != null && <>{' · '}<span className="card-missing">{view.missing}</span></>}
-        </div>
-        <div className="card-progress">
-          <Progress value={bar} done={!!live?.done} className="prog-track" indicatorClassName="prog-fill" aria-labelledby={labelId} />
-          <span className="card-prog-label" id={labelId}>{label}</span>
-        </div>
-        <Tags id={id} tags={view.tags} on={on} />
-      </div>
+      <Cover id={id} href={view.href} src={src} expected={view.cover.expected || !!src} badge={view.series ? view.badge : ''} onPointerDown={coverDown} />
+      <Rest view={view} on={on} shown={shown} bar={bar} done={!!live?.done} label={label} dlForm={dlForm} trForm={trForm} exporting={exporting} />
     </div>
   );
 }

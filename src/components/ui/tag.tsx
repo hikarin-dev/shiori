@@ -17,7 +17,7 @@
 // dialogs are as intended; F19 withdrawn). F10: a card tag's ground #1e1e28 → the raised surface.
 import type { ComponentProps, MouseEventHandler, ReactNode } from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
-import { cn } from '@/lib/utils';
+import { classCache, cn } from '@/lib/utils';
 
 const tagVariants = cva('group/tag border border-solid no-underline', {
   variants: {
@@ -79,15 +79,18 @@ type Props = Common & (
   | ({ href?: undefined; onClick?: MouseEventHandler<HTMLButtonElement> } & Omit<ComponentProps<'button'>, 'className' | 'children'>)
 );
 
+const kept = classCache();
+
 function Tag({ variant = 'neutral', size, count, filterKey, removable, className, children, ...props }: Props) {
   const interactive = props.href !== undefined || props.onClick !== undefined;
-  const classes = cn(
+  const filter = filterKey !== undefined;
+  const classes = kept(`${variant}|${size}|${filter}|${interactive}|${!!removable}|${className}`, () => cn(
     // A filter is sm, a tag md, unless told; the editable detail takes the text around it.
-    tagVariants({ variant, size: variant === 'ghost' ? null : size ?? (filterKey !== undefined ? 'sm' : 'md'), interactive }),
+    tagVariants({ variant, size: variant === 'ghost' ? null : size ?? (filter ? 'sm' : 'md'), interactive }),
     removable && variant !== 'add' && (variant === 'ghost' ? REMOVING.ghost : REMOVING.fill),
-    filterKey !== undefined && 'font-semibold whitespace-pre',
+    filter && 'font-semibold whitespace-pre',
     className,
-  );
+  ));
   const content = (
     <>
       {filterKey !== undefined && <span data-slot="tag-key" className={TAG_KEY}>{filterKey}:</span>}
