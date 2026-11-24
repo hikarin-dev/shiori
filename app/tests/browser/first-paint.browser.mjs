@@ -100,6 +100,26 @@ for (const [name, size] of [['desktop', { width: 1280, height: 900 }], ['phone',
   });
 }
 
+test('/tasks: the frame painted before the app runs; the page fills it with the brand where it was, and nothing shifts', async (t) => {
+  const page = await fresh(t);
+  if (!page) return;
+  await page.goto(`${origin}/tasks`, { waitUntil: 'domcontentloaded' });
+  await until(page, async () => { await document.fonts.ready; return document.querySelector('.brand-icon img').complete && document.fonts.check('700 15px "JetBrains Mono"'); },
+    undefined, { what: 'the frame\'s font and icon' });
+  await until(page, () => performance.getEntriesByType('paint').length > 0, undefined, { what: 'a paint' });
+  const painted = await page.evaluate(frame);
+  assert.deepEqual([painted.frame, painted.shown, painted.painted, painted.mounted], ['header', true, true, false], 'the frame shows, painted, before the app');
+  for (const part of ['brand', 'icon', 'text']) assert.deepEqual(painted[part], BRAND[part], `${part}: where 1.3 has it`);
+  page.release();
+  await until(page, () => document.title === 'Shiori — Tasks' && !!document.getElementById('tkCount') && !document.getElementById('tkEmpty').hidden, undefined, { what: 'the page drawn' });
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const drawn = await page.evaluate(frame);
+  for (const part of ['brand', 'icon', 'text']) assert.deepEqual(drawn[part], painted[part], `${part}: the same pixels`);
+  assert.deepEqual([drawn.band[0], drawn.band[1], drawn.band[3]], [0, 0, 54], 'the band where it was, as high');
+  assert.deepEqual(await page.evaluate(() => window.__shifts), [], 'nothing shifted');
+  assert.deepEqual(page.problems, []);
+});
+
 test('where the page hands the visitor on (the reader\'s address), no frame shows and none of the app is fetched', async (t) => {
   const page = await fresh(t, { answers: 'index.html' });   // a host answering every address with the one page
   if (!page) return;
