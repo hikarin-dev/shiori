@@ -39,6 +39,11 @@ export type JobView = { pct: number | null | undefined; done: boolean; label: st
 export const TERMINAL: ReadonlySet<string> = new Set(['done', 'error', 'cancelled']);
 export const isRunning = (job: JobNews) => !TERMINAL.has(job.status ?? '');
 
+// The button of a library card a job holds while it runs: a translation the translate button, a
+// download or an upload the download button, a series' sync none.
+export type JobButton = 'download' | 'translate';
+export const jobButton = (job: JobNews): JobButton | null => (job.kind === 'sync' ? null : job.kind === 'translate' ? 'translate' : 'download');
+
 const view = (pct: number | null | undefined, label: string, done = false): JobView => ({ pct, done, label });
 
 // A finished folder job's counts (folder-scan.js): galleries read again, things it couldn't read,

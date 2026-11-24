@@ -259,6 +259,67 @@ test('a press no news has answered yet: set, cleared by the first word or by the
   store.stop();
 });
 
+test('two jobs on one gallery: each button stays its own job\'s while the news is another\'s; a job still running is the card\'s again once a last word has stayed', async () => {
+  const w = world();
+  const store = await started(w);
+  const buttons = (gid) => { const h = store.get(gid).holding; return h ? Object.fromEntries(Object.entries(h).map(([b, j]) => [b, `${j.kind} ${j.status} ${j.done ?? ''}`.trim()])) : null; };
+  // A download, then its series' sync says a word: the download keeps its button (a sync holds none).
+  w.say({ gid: '1', kind: 'download', status: 'progress', done: 1, total: 4 });
+  assert.equal(buttons('1'), null, 'one job: nothing beside it');
+  const download = store.get('1').job;
+  w.say({ gid: '1', kind: 'sync', status: 'progress', done: 1, total: 9 });
+  assert.equal(store.get('1').job.kind, 'sync', 'the bar and the line are the latest news\'');
+  assert.equal(store.get('1').holding.download, download, 'the download\'s own word, as it was');
+  // The download's next word is its button's again; a sync is kept by no button.
+  w.say({ gid: '1', kind: 'download', status: 'progress', done: 2, total: 4 });
+  assert.equal(buttons('1'), null);
+  // A translation beside it, then the sync again: both buttons held.
+  w.say({ gid: '1', kind: 'translate', status: 'started' });
+  assert.deepEqual(buttons('1'), { download: 'download progress 2' });
+  w.say({ gid: '1', kind: 'sync', status: 'progress', done: 2, total: 9 });
+  assert.deepEqual(buttons('1'), { download: 'download progress 2', translate: 'translate started' });
+  assert.equal(store.live('1'), true);
+  // The sync ends (a last word is nobody's button) and the download ends straight after: a job's own
+  // "done", not lost behind another's.
+  w.say({ gid: '1', kind: 'sync', status: 'done', done: 9, total: 9 });
+  w.say({ gid: '1', kind: 'download', status: 'done', done: 4, total: 4 });
+  assert.deepEqual([store.get('1').job.kind, store.get('1').job.status, buttons('1')], ['download', 'done', { translate: 'translate started' }]);
+  w.say({ gid: '1', kind: 'download', status: 'done', done: 4, total: 4 });
+  assert.equal(w.asked.filter(([k]) => k === 'reread').length, 0);
+  // Its last word has stayed its while: the page read again, and the translation still running is the
+  // card's job again.
+  store.settled('1');
+  assert.equal(w.asked.filter(([k]) => k === 'reread').length, 1);
+  assert.deepEqual([store.get('1').job.kind, store.get('1').job.status, buttons('1'), store.live('1')], ['translate', 'started', null, true]);
+  w.say({ gid: '1', kind: 'translate', status: 'cancelled' });
+  store.settled('1');
+  assert.equal(store.get('1'), AT_REST);
+  assert.equal(store.live('1'), false);
+
+  // A press is answered by its own button's first word: another job's word leaves it pressed.
+  w.say({ gid: '2', kind: 'download', status: 'progress', done: 1, total: 4 });
+  store.press('2', 'translate');
+  w.say({ gid: '2', kind: 'download', status: 'progress', done: 2, total: 4 });
+  w.say({ gid: '2', kind: 'sync', status: 'progress', done: 1, total: 9 });
+  assert.deepEqual([store.get('2').pending, buttons('2')], ['translate', { download: 'download progress 2' }]);
+  w.say({ gid: '2', kind: 'translate', status: 'started' });
+  assert.deepEqual([store.get('2').pending, buttons('2')], [null, { download: 'download progress 2' }]);
+  // A hint, a press and its release leave the buttons' jobs as they are.
+  store.note('2', 'x');
+  assert.deepEqual([store.get('2').job, store.get('2').interrupted, buttons('2')], [null, 'x', { download: 'download progress 2' }]);
+  store.press('2', 'revert');
+  store.release('2');
+  assert.deepEqual(buttons('2'), { download: 'download progress 2' });
+
+  // Its card gone from the page: what still runs is kept, the download the card's when it comes back.
+  w.say({ gid: '3', kind: 'download', status: 'progress', done: 1, total: 4 });
+  w.say({ gid: '3', kind: 'translate', status: 'progress', done: 1, total: 4 });
+  w.say({ gid: '3', kind: 'translate', status: 'error', error: 'x' });
+  store.showing(['1']);
+  assert.deepEqual([store.get('3').job.kind, store.get('3').job.status, buttons('3'), store.live('3')], ['download', 'progress', null, true]);
+  store.stop();
+});
+
 test('an export under way holds its own button: through a word, a press and its release, a hint, a last word\'s while; gone with its end', async () => {
   const w = world();
   const store = await started(w);

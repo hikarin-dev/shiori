@@ -18,6 +18,9 @@
 //   pendingLabel  the line a pressed download shows in place of "Fetching metadata…" (a replace's
 //            "Reading file…")
 //   exporting  an export of it under way: its button "…" and off, whatever else the card shows
+//   holding  the jobs of its buttons that still run while `job` is another job's news (a download
+//            while its series' sync or a translation says a word): each keeps its own button, as 1.3
+//            painted each button from its own job's words; the bar and the line are the latest news'
 //   on       the handlers, each called with the gallery's id (and what was pressed, where there is a
 //            choice): the card starts nothing itself. Which one a press means is the card's, as 1.3's
 //            handlers chose: Shift, Alt, the button's form.
@@ -38,8 +41,8 @@ import { StopIcon } from '@/components/stop-icon';
 import { siteRoot } from '@/entry';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { JOB_LINGER_MS, cardJob, type CardJob, type CardTag, type CardView, type Pending } from '@/lib/card-view';
-import type { JobFormat, JobNews } from '@/lib/job-view';
+import { JOB_LINGER_MS, buttonForm, cardJob, type CardJob, type CardTag, type CardView, type Pending } from '@/lib/card-view';
+import type { JobButton, JobFormat, JobNews } from '@/lib/job-view';
 import { formatBytes, formatCount } from '@lib/format.js';
 import { ChainIcon, DeleteIcon, DownloadIcon, ExportIcon, ExportMetaIcon, HeartIcon, QuickDeleteIcon, RevertIcon, TranslateIcon, UploadIcon } from './gallery-card-icons';
 import './gallery-card.css';
@@ -89,6 +92,7 @@ type Props = {
   pending?: Pending;
   pendingLabel?: string;
   exporting?: boolean;
+  holding?: Partial<Record<JobButton, JobNews>>;
   on?: CardHandlers;
 } & Omit<React.HTMLAttributes<HTMLDivElement>, 'children' | 'onPointerDown'> & Record<`data-${string}`, string | undefined>;
 
@@ -334,7 +338,7 @@ const Rest = memo(function Rest({ view, on, shown, bar, done, label, dlForm, trF
   );
 });
 
-function GalleryCardImpl({ view, cover, job = null, interrupted = false, lingerMs = JOB_LINGER_MS, pending = null, pendingLabel, exporting = false, on = NO_HANDLERS, className, ...rest }: Props) {
+function GalleryCardImpl({ view, cover, job = null, interrupted = false, lingerMs = JOB_LINGER_MS, pending = null, pendingLabel, exporting = false, holding, on = NO_HANDLERS, className, ...rest }: Props) {
   const t = useT();
   const id = view.id;
   const format: JobFormat = useMemo(() => ({ t, count: formatCount, bytes: formatBytes }), [t]);
@@ -375,9 +379,9 @@ function GalleryCardImpl({ view, cover, job = null, interrupted = false, lingerM
     barRef.current = live ? bar : 0;
   });
 
-  // The buttons a job or a press holds.
-  const dlForm = live?.hold === 'download' ? live.form : pending === 'download' ? 'pending' : 'rest';
-  const trForm = live?.hold === 'translate' ? live.form : pending === 'translate' || pending === 'revert' ? 'pending' : 'rest';
+  // The buttons a job or a press holds: the latest news' own, another job's still running, a press.
+  const dlForm = live?.hold === 'download' ? live.form : holding?.download ? buttonForm(holding.download) : pending === 'download' ? 'pending' : 'rest';
+  const trForm = live?.hold === 'translate' ? live.form : holding?.translate ? buttonForm(holding.translate) : pending === 'translate' || pending === 'revert' ? 'pending' : 'rest';
 
   const coverDown = useCallback((e: PointerEvent<HTMLAnchorElement>) => {
     // The left button of a mouse or pen: a finger on a cover scrolls the library.

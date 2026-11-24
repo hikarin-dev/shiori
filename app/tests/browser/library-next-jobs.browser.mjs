@@ -126,6 +126,56 @@ for (const [kind, news] of Object.entries(NEWS)) {
   });
 }
 
+// Two jobs on one gallery at once: the bar and the line are the latest news', and each button stays
+// its own job's (1.3 painted each button from its own job's words): a download's Stop does not go
+// while its series' sync, or a translation, says a word.
+const TWO = {
+  'a series\' download while its sync runs': ['S', (gid) => [
+    { gid, kind: 'download', status: 'started', labelKey: 'prog.contacting_helper' },
+    { gid, kind: 'sync', status: 'started' },
+    { gid, kind: 'download', status: 'progress', done: 1, total: 4 },
+    { gid, kind: 'sync', status: 'progress', done: 1, total: 2 },
+    { gid, kind: 'sync', status: 'done', done: 2, total: 2 },
+    { gid, kind: 'download', status: 'progress', done: 3, total: 4 },
+    { gid, kind: 'download', status: 'done', done: 4, total: 4 },
+  ]],
+  'a download while a translation runs and is stopped': ['P', (gid) => [
+    { gid, kind: 'download', status: 'started', labelKey: 'prog.contacting_helper' },
+    { gid, kind: 'translate', status: 'started' },
+    { gid, kind: 'download', status: 'progress', done: 1, total: 4 },
+    { gid, kind: 'translate', status: 'progress', pct: 12, labelKey: 'prog.translating' },
+    { gid, kind: 'translate', status: 'cancelled' },
+    { gid, kind: 'download', status: 'progress', done: 3, total: 4 },
+    { gid, kind: 'download', status: 'done', done: 4, total: 4 },
+  ]],
+};
+
+for (const [name, [part, news]] of Object.entries(TWO)) {
+  test(`two jobs on one gallery, ${name}: each button its own job's, word by word`, async (t) => {
+    if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+    const out = {};
+    for (const path of PATHS) {
+      const base = nextBase(1790004000000);
+      const page = await openRun(browser, origin, path, { base });
+      const gid = id(base, part);
+      await watching(page, gid);
+      for (const word of news(gid)) { await publish(page, word); await sleep(150); }
+      await sleep(4800);
+      out[path] = { states: (await states(page)).map((s) => s.split(gid).join('<gid>')), problems: page.problems };
+      await page.close();
+    }
+    const f50 = (s) => !/^at rest .*dl: done ✓/.test(s);
+    if (process.env.DUMP) console.log(JSON.stringify(out));
+    assert.deepEqual(out['/library-next'], { ...out['/library'], states: out['/library'].states.filter(f50) });
+    // From its first word to its last, the download's button is its Stop in every state.
+    const now = out['/library-next'].states;
+    const first = now.findIndex((s) => /dl: stop/.test(s)), last = now.findIndex((s) => /dl: done ✓/.test(s));
+    assert.ok(first > 0 && last > first + 4, `the download's states were seen (${first}, ${last})`);
+    assert.deepEqual(now.slice(first, last).filter((s) => !/dl: stop/.test(s)), [], 'the download\'s Stop never went');
+    assert.match(now.at(-1), /^at rest/);
+  });
+}
+
 // A title of a batch of imports says its own news on the live channel alone (jobs-runner.js: the
 // batch keeps the record), and its card shows it as an upload's. The batch then tells of the title's
 // end in a signal of its own (IMPORT_TITLE), which is no job's news.

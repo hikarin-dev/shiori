@@ -109,7 +109,7 @@ const LibraryCard = memo(function LibraryCard({ g, env, covers, icons, jobs, on 
   const view = useMemo(() => cardView(g, null, env), [g, env, icon]);   // eslint-disable-line react-hooks/exhaustive-deps
   // A source with no icon kept: asked for each time its card is drawn anew (1.3's _siteFavicon).
   useEffect(() => { if (g.source && !icon) icons.want(g.source); }, [g, icon, icons]);
-  return <GalleryCard view={view} cover={cover} job={state.job} interrupted={state.interrupted} pending={state.pending} pendingLabel={state.pendingLabel} exporting={state.exporting} on={on} />;
+  return <GalleryCard view={view} cover={cover} job={state.job} interrupted={state.interrupted} pending={state.pending} pendingLabel={state.pendingLabel} exporting={state.exporting} holding={state.holding} on={on} />;
 });
 
 export default function Library() {

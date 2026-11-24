@@ -21,7 +21,7 @@ import type * as Series from '@lib/series.js';
 import type * as Model from '@lib/gallery-model.js';
 import type * as Sanitize from '@lib/sanitize.js';
 import type * as TagEditor from '@lib/tag-editor.js';
-import { jobView, type JobFormat, type JobNews, type JobView } from './job-view.ts';
+import { isRunning, jobButton, jobView, type JobFormat, type JobNews, type JobView } from './job-view.ts';
 
 // A gallery as the library hands it over: the fields a card reads.
 export type CardGallery = {
@@ -233,12 +233,13 @@ export const JOB_LINGER_MS = 4000;
 // A press on a card that no news has answered yet, drawn as 1.3 drew it (GalleryCard's `pending`).
 export type Pending = 'download' | 'translate' | 'revert' | null;
 
+// What the button a job holds is while the job's latest news is `job`.
+export const buttonForm = (job: JobNews): CardJob['form'] =>
+  (job.status === 'done' ? 'done' : !isRunning(job) ? 'rest' : job.kind === 'translate' || job.kind === 'download' ? 'cancel' : 'busy');
+
 export function cardJob(job: JobNews, f: JobFormat): CardJob | null {
   const view: JobView | null = jobView(job, f, 'card');
   if (!view) return null;
-  const hold = job.kind === 'sync' ? null : job.kind === 'translate' ? 'translate' : 'download';
-  const ended = job.status === 'done' || job.status === 'error' || job.status === 'cancelled';
-  const form = job.status === 'done' ? 'done' : ended ? 'rest' : job.kind === 'translate' || job.kind === 'download' ? 'cancel' : 'busy';
   // A cancelled job's word shows where the job showed; it doesn't bring the job's place up by itself.
-  return { shown: job.status !== 'cancelled', bar: view.pct, done: view.done, label: view.label, hold, form, ended };
+  return { shown: job.status !== 'cancelled', bar: view.pct, done: view.done, label: view.label, hold: jobButton(job), form: buttonForm(job), ended: !isRunning(job) };
 }
