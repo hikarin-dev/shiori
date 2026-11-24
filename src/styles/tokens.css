@@ -53,6 +53,7 @@
     --backdrop: rgba(0, 0, 0, .65);   /* behind a dialog */
     --overlay-ground: rgba(13, 13, 15, .82);   /* badges over a cover */
     --overlay-black: rgba(0, 0, 0, .62);       /* a page's number over its tile */
+    --drop-ground: rgba(13, 13, 15, .72);      /* the veil under the file drop overlay */
     --image-ground: #111;             /* behind a cover or thumbnail */
     --reader-background: #0a0a0c;     /* the reader's page */
     --primary-line: #4a1a26;          /* a border in the brand's tone */
@@ -118,6 +119,7 @@
     --color-backdrop: var(--backdrop);
     --color-overlay-ground: var(--overlay-ground);
     --color-overlay-black: var(--overlay-black);
+    --color-drop-ground: var(--drop-ground);
     --color-image-ground: var(--image-ground);
     --color-reader-background: var(--reader-background);
     --color-primary-line: var(--primary-line);
