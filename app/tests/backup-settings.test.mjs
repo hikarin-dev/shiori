@@ -27,6 +27,7 @@ globalThis.localStorage = {
 };
 const { importBackup } = await import('../js/backup.js');
 const { PORTABLE_SETTINGS, PORTABLE_DASH_SETTINGS, snapshotSettings, restoreSettings, portableSettings } = await import('../js/backup-core.js');
+const { SETTINGS_PREFS, prefKeys } = await import('../js/settings-prefs.js');
 
 function archive(manifest) {
   const body = new TextEncoder().encode(JSON.stringify(manifest));
@@ -159,6 +160,8 @@ function storedKeys() {
     }
     for (const m of src.matchAll(/(?:localStorage|sessionStorage)\.(?:getItem|setItem|removeItem)\(['"`](shiori-[\w-]+)['"`]/g)) dash.add(m[1]);
   }
+  // Settings' own controls name their keys in one table (settings-prefs.js).
+  for (const key of Object.keys(SETTINGS_PREFS)) for (const k of prefKeys(key)) kv.add(k);
   for (const k of [...kv]) if (!/^[a-z]\w*$/i.test(k)) kv.delete(k);
   return { kv, dash };
 }

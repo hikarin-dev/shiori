@@ -15,6 +15,7 @@ import { initDropdowns } from './dropdown.js';
 import { initBenchmarkCard } from './benchmark-ui.js';
 import { confirmDialog, alertDialog } from './notice.js';
 import { customScrollbarAvailable, applyScrollbarPreference } from './scrollbar.js';
+import { prefKeys, readPref, writePref } from './settings-prefs.js';
 
 initTooltips();
 initDropdowns();
@@ -22,14 +23,15 @@ initBenchmarkCard();
 
 const scrollbarToggle = document.getElementById('customScrollbar');
 document.getElementById('experimentalSection').hidden = !customScrollbarAvailable;
-platform.kv.get(['customScrollbar']).then((r) => { scrollbarToggle.checked = r.customScrollbar === true; });
+const loadScrollbarToggle = () => platform.kv.get(prefKeys('customScrollbar')).then((r) => { scrollbarToggle.checked = readPref('customScrollbar', r); });
+loadScrollbarToggle();
 scrollbarToggle.addEventListener('change', () => {
-  platform.kv.set({ customScrollbar: scrollbarToggle.checked });
+  platform.kv.set(writePref('customScrollbar', scrollbarToggle.checked));
   applyScrollbarPreference();
   showStatus('experimentalStatus', t('common.saved'), 'ok');
 });
 window.addEventListener('storage', (e) => {
-  if (e.key === 'shiori:customScrollbar' || e.key === null) scrollbarToggle.checked = e.newValue === 'true';
+  if (e.key === 'shiori:customScrollbar' || e.key === null) loadScrollbarToggle();
 });
 
 // ── Side nav ────────────────────────────────────────────────────────────────
@@ -745,59 +747,40 @@ document.getElementById('resetTranslateBtn').addEventListener('click', async () 
 });
 
 // ── Library — gallery card preferences, saved on change ───────────────
+// What each control shows of its stored value, and what it stores, is settings-prefs.js's.
 
-const QUICK_ACTION_MODES = new Set(['hover', 'always', 'hidden']);
-const DEFAULT_QUICK_ACTIONS_MODE = 'hover';
-const normalizeQuickActionsMode = (mode) => QUICK_ACTION_MODES.has(mode) ? mode : DEFAULT_QUICK_ACTIONS_MODE;
-
-platform.kv.get(['libQuickActionsMode']).then((r) => {
-  setChoiceValue('libQuickActionsMode', normalizeQuickActionsMode(r.libQuickActionsMode));
-});
-document.getElementById('libQuickActionsMode').addEventListener('change', (e) => {
-  platform.kv.set({ libQuickActionsMode: normalizeQuickActionsMode(e.target.value) });
-  showStatus('libStatus', t('common.saved'), 'ok');
-});
-
-platform.kv.get(['libHideAppLangFlag']).then((r) => {
-  document.getElementById('libAppLangFlag').checked = r.libHideAppLangFlag !== false;
-});
-document.getElementById('libAppLangFlag').addEventListener('change', (e) => {
-  platform.kv.set({ libHideAppLangFlag: e.target.checked });
-  showStatus('libStatus', t('common.saved'), 'ok');
-});
-
-// Library details that can be switched off (both shown by default), each confirmed in its section.
-for (const [key, statusId] of [['libShowNavStats', 'libBarStatus'], ['libShowCategoryTag', 'libStatus']]) {
-  platform.kv.get([key]).then((r) => { document.getElementById(key).checked = r[key] !== false; });
-  document.getElementById(key).addEventListener('change', (e) => {
-    platform.kv.set({ [key]: e.target.checked });
+// A control's value, read from its key: a switch's on/off, or a choice's value.
+function loadPref(key, id = key) {
+  return platform.kv.get(prefKeys(key)).then((r) => {
+    const el = document.getElementById(id);
+    if (el.type === 'checkbox') el.checked = readPref(key, r);
+    else setChoiceValue(id, readPref(key, r));
+  });
+}
+// The control's value saved under its key as it changes, which its section's status line says.
+function savePref(key, statusId, id = key) {
+  document.getElementById(id).addEventListener('change', (e) => {
+    platform.kv.set(writePref(key, e.target.type === 'checkbox' ? e.target.checked : e.target.value));
     showStatus(statusId, t('common.saved'), 'ok');
   });
 }
 
-// Gallery export: ZIP, CBZ, or asked at each export (the default); either holds the translations
-// unless turned off.
-const EXPORT_FORMATS = new Set(['ask', 'zip', 'cbz']);
-platform.kv.get(['libExportFormat', 'libExportTranslations', 'libExportCbzTranslations']).then((r) => {
-  setChoiceValue('libExportFormat', EXPORT_FORMATS.has(r.libExportFormat) ? r.libExportFormat : 'ask');
-  document.getElementById('libExportTranslations').checked = (r.libExportTranslations ?? r.libExportCbzTranslations) !== false;
-});
-document.getElementById('libExportFormat').addEventListener('change', (e) => {
-  platform.kv.set({ libExportFormat: EXPORT_FORMATS.has(e.target.value) ? e.target.value : 'ask' });
-  showStatus('libExportStatus', t('common.saved'), 'ok');
-});
-document.getElementById('libExportTranslations').addEventListener('change', (e) => {
-  platform.kv.set({ libExportTranslations: e.target.checked });
-  showStatus('libExportStatus', t('common.saved'), 'ok');
-});
-
-platform.kv.get(['libMergeSeries']).then((r) => {
-  document.getElementById('libMergeSeries').checked = r.libMergeSeries !== false;
-});
-document.getElementById('libMergeSeries').addEventListener('change', (e) => {
-  platform.kv.set({ libMergeSeries: e.target.checked });
-  showStatus('libStatus', t('common.saved'), 'ok');
-});
+loadPref('libQuickActionsMode');
+savePref('libQuickActionsMode', 'libStatus');
+loadPref('libHideAppLangFlag', 'libAppLangFlag');
+savePref('libHideAppLangFlag', 'libStatus', 'libAppLangFlag');
+// Library details that can be switched off (both shown by default), each confirmed in its section.
+for (const [key, statusId] of [['libShowNavStats', 'libBarStatus'], ['libShowCategoryTag', 'libStatus']]) {
+  loadPref(key);
+  savePref(key, statusId);
+}
+// Gallery export.
+loadPref('libExportFormat');
+savePref('libExportFormat', 'libExportStatus');
+loadPref('libExportTranslations');
+savePref('libExportTranslations', 'libExportStatus');
+loadPref('libMergeSeries');
+savePref('libMergeSeries', 'libStatus');
 
 // ── Reader — study display, saved on change ───────────────────────────────
 
@@ -828,76 +811,16 @@ function syncStudyPreview() {
   drawRasterStudyPreview(preview.querySelector('[data-raster="translation"]'), 'Good Luck!', false);
 }
 
-platform.kv.get(['readerStudyDisplay']).then((r) => {
-  setChoiceValue('readerStudyDisplay', (r.readerStudyDisplay === 'text') ? 'text' : 'hardcoded_images');
-  syncStudyPreview();
-});
-platform.kv.get(['readerStudyOriginal']).then((r) => {
-  setChoiceValue('readerStudyOriginal', (r.readerStudyOriginal === 'text') ? 'text' : 'image');
-  syncStudyPreview();
-});
-document.getElementById('readerStudyOriginal').addEventListener('change', (e) => {
-  platform.kv.set({ readerStudyOriginal: e.target.value });
-  syncStudyPreview();
-  showStatus('readerStatus', t('common.saved'), 'ok');
-});
-
-platform.kv.get(['readerStudySrcFont']).then((r) => {
-  setChoiceValue('readerStudySrcFont', (r.readerStudySrcFont === 'kiwi') ? 'kiwi' : 'yasashisa');
-  syncStudyPreview();
-});
-document.getElementById('readerStudySrcFont').addEventListener('change', (e) => {
-  platform.kv.set({ readerStudySrcFont: e.target.value });
-  syncStudyPreview();
-  showStatus('readerStatus', t('common.saved'), 'ok');
-});
-document.getElementById('readerStudyDisplay').addEventListener('change', (e) => {
-  platform.kv.set({ readerStudyDisplay: e.target.value });
-  syncStudyPreview();
-  showStatus('readerStatus', t('common.saved'), 'ok');
-});
-
-platform.kv.get(['readerFurigana']).then((r) => {
-  document.getElementById('readerFurigana').checked = r.readerFurigana === 'on';
-  syncStudyPreview();
-});
-document.getElementById('readerFurigana').addEventListener('change', (e) => {
-  platform.kv.set({ readerFurigana: e.target.checked ? 'on' : 'off' });
-  syncStudyPreview();
-  showStatus('readerStatus', t('common.saved'), 'ok');
-});
-
-platform.kv.get(['readerTranslateDisplay']).then((r) => {
-  setChoiceValue('readerTranslateDisplay', (r.readerTranslateDisplay === 'text') ? 'text' : 'image');
-});
-document.getElementById('readerTranslateDisplay').addEventListener('change', (e) => {
-  platform.kv.set({ readerTranslateDisplay: e.target.value });
-  showStatus('readerStatus', t('common.saved'), 'ok');
-});
-
-platform.kv.get(['readerSkipOverview']).then((r) => {
-  document.getElementById('readerSkipOverview').checked = !r.readerSkipOverview;
-});
-document.getElementById('readerSkipOverview').addEventListener('change', (e) => {
-  platform.kv.set({ readerSkipOverview: !e.target.checked });
-  showStatus('readerStatus', t('common.saved'), 'ok');
-});
-
-platform.kv.get(['readerChapterDivider']).then((r) => {
-  document.getElementById('readerChapterDivider').checked = r.readerChapterDivider !== false;
-});
-document.getElementById('readerChapterDivider').addEventListener('change', (e) => {
-  platform.kv.set({ readerChapterDivider: e.target.checked });
-  showStatus('readerStatus', t('common.saved'), 'ok');
-});
-
-platform.kv.get(['readerStripMode']).then((r) => {
-  document.getElementById('readerStripMode').checked = r.readerStripMode !== 'chapter';
-});
-document.getElementById('readerStripMode').addEventListener('change', (e) => {
-  platform.kv.set({ readerStripMode: e.target.checked ? 'series' : 'chapter' });
-  showStatus('readerStatus', t('common.saved'), 'ok');
-});
+// The study controls redraw the preview as they are read and as they change.
+for (const key of ['readerStudyDisplay', 'readerStudyOriginal', 'readerStudySrcFont', 'readerFurigana']) {
+  loadPref(key).then(syncStudyPreview);
+  document.getElementById(key).addEventListener('change', syncStudyPreview);
+  savePref(key, 'readerStatus');
+}
+for (const key of ['readerTranslateDisplay', 'readerSkipOverview', 'readerChapterDivider', 'readerStripMode']) {
+  loadPref(key);
+  savePref(key, 'readerStatus');
+}
 
 syncStudyPreview();
 document.fonts.ready.then(syncStudyPreview);
