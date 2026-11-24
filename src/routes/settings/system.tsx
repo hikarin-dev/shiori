@@ -17,6 +17,7 @@ import { Select } from '@/components/ui/select';
 import { SettingRow } from '@/components/ui/setting-row';
 import { Switch } from '@/components/ui/switch';
 import { useT } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 import { Section } from './parts';
 
 type Update = { status: string; version?: string; percent?: number; error?: string };
@@ -38,6 +39,8 @@ const whole = (s: unknown): s is State => {
 // A row of a list: not ruled off from the one before it (1.3's lists were blocks of their own).
 const LISTED = '[[data-kind=action]+&]:border-t-0';
 const CODE = '[overflow-wrap:anywhere]';
+// The phone form (SettingRow's: the panel 480px wide or less): a row's buttons take its whole width.
+const PHONE_FILL = '@max-[480.02px]/settings-panel:grow';
 
 export function SystemPanel() {
   const t = useT();
@@ -121,10 +124,11 @@ export function SystemPanel() {
 
       <Section title={t('set.desk_updates')}>
         {row(<span id="deskUpdateStatus">{update.text}</span>, null, (
-          // (Its buttons give room as 1.3's did, their words wrapping, so a narrow panel holds both.)
+          // (Its buttons give room as 1.3's did, their words wrapping, so a narrow panel holds both; on
+          // the phone form Check alone has the row's width, as every row's one button there.)
           <span className="desk-actions inline-flex min-w-0 gap-[8px]">
-            <Button id="deskInstallUpdate" variant="solid" className="shrink" hidden={!update.ready} onClick={() => ask('installUpdate')}>{t('set.desk_restart_update')}</Button>
-            <Button id="deskCheckUpdates" variant="subtle" size="sm" className="shrink" disabled={update.busy}
+            <Button id="deskInstallUpdate" variant="solid" className={cn('shrink', PHONE_FILL)} hidden={!update.ready} onClick={() => ask('installUpdate')}>{t('set.desk_restart_update')}</Button>
+            <Button id="deskCheckUpdates" variant="subtle" size="sm" className={cn('shrink', PHONE_FILL)} disabled={update.busy}
               onClick={async () => { const next = await ask('checkUpdates'); if (!live.current) return; if (whole(next)) setState(next); followCheck(); }}>{t('set.desk_check')}</Button>
           </span>
         ))}

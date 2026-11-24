@@ -101,6 +101,15 @@ function questions() {
     b?.click();
     return !!b;
   };
+  // The update row's buttons that show, and the gaps before, between and after them inside the row
+  // (its padding taken off): all 0 but the 8px between two when they take the row's whole width.
+  window.__share = () => {
+    const shown = ['deskInstallUpdate', 'deskCheckUpdates'].map((id) => document.getElementById(id)).filter((b) => b.getClientRects().length);
+    const row = shown[0].closest('.toggle-row, [data-slot="setting-row"]');
+    const box = row.getBoundingClientRect(), style = getComputedStyle(row);
+    const edges = [box.left + parseFloat(style.paddingLeft), ...shown.flatMap((b) => { const r = b.getBoundingClientRect(); return [r.left, r.right]; }), box.right - parseFloat(style.paddingRight)];
+    return { shown: shown.map((b) => b.id), gaps: edges.flatMap((edge, i) => (i % 2 ? [Math.round(edge - edges[i - 1])] : [])) };
+  };
 }
 
 async function open(t, path, { viewport, early } = {}) {
@@ -319,12 +328,17 @@ test('the phone form, an update ready: nothing runs past the cards or the screen
         }
       }
       const data = document.getElementById('deskDataPath').getBoundingClientRect();
-      return { scroll: document.documentElement.scrollWidth - innerWidth, out, wraps: data.height > 20 };
+      return { scroll: document.documentElement.scrollWidth - innerWidth, out, wraps: data.height > 20, share: window.__share() };
     }));
     assert.deepEqual(page.problems, []);
   }
   assert.deepEqual(seen[1], seen[0]);
-  assert.deepEqual(seen[0], { scroll: 0, out: [], wraps: true });
+  assert.deepEqual(seen[0], { scroll: 0, out: [], wraps: true, share: { shown: ['deskInstallUpdate', 'deskCheckUpdates'], gaps: [0, 8, 0] } }, 'the two fill the row');
+  // No update ready: Check alone has the row's width, as every row's one button on the phone form.
+  // (The new page only: 1.3's showed Restart to update in every state.)
+  const page = await open(t, NEW, { viewport: { width: 390, height: 844, isMobile: true, hasTouch: true } });
+  await settle(page);
+  assert.deepEqual(await run(page, () => window.__share()), { shown: ['deskCheckUpdates'], gaps: [0, 0] });
 });
 
 test('leaving the page leaves nothing behind: /settings-next → /tasks → /settings-next, five times, an update followed each time', async (t) => {
