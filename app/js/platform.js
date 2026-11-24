@@ -84,6 +84,19 @@ export const kv = {
       } catch {}
     }
   },
+  // A change made by another context of this origin (another tab; this one's own writes are not
+  // told): changed(key), or changed(null) when every key may have changed (storage cleared).
+  // Returns what stops it.
+  watch(changed) {
+    if (!_hasLS || typeof addEventListener !== 'function') return () => {};
+    const heard = (e) => {
+      if (e.storageArea !== localStorage) return;
+      if (e.key === null) changed(null);
+      else if (e.key.startsWith('shiori:')) changed(e.key.slice('shiori:'.length));
+    };
+    addEventListener('storage', heard);
+    return () => removeEventListener('storage', heard);
+  },
 };
 
 // ── Beyond this origin ──
