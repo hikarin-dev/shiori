@@ -248,10 +248,17 @@ for (const [name, path] of PAGES) {
     await until(page, () => document.getElementById('translateStatusBadge').textContent === '● Server online', null, { what: 'online' });
     assert.deepEqual(await look(), { text: '● Server online', busy: 'false' });
     assert.equal(await page.$eval('#translationBenchmark', (el) => !el.hidden && getComputedStyle(el).display !== 'none'), true, 'the benchmark, for a local server that answers');
+    // (A server that is down answers at once: "Checking…" may stand for less than one look at the
+    // page, so what the badge says is kept as it changes.)
+    await page.evaluate(() => {
+      const said = window.__badge = [document.getElementById('translateStatusBadge').textContent];
+      new MutationObserver(() => { const text = document.getElementById('translateStatusBadge').textContent; if (said.at(-1) !== text) said.push(text); })
+        .observe(document.body, { childList: true, characterData: true, subtree: true });
+    });
     tr.state.online = false;
     await page.click('#checkTranslateBtn');
-    await until(page, () => document.getElementById('translateStatusBadge').textContent === '○ Checking…', null, { what: 'checking again' });
     await until(page, () => document.getElementById('translateStatusBadge').textContent === '○ Server offline', null, { what: 'offline' });
+    assert.deepEqual(await page.evaluate(() => window.__badge), ['● Server online', '○ Checking…', '○ Server offline'], 'checking again, then offline');
     assert.deepEqual(await look(), { text: '○ Server offline', busy: 'false' });
     assert.equal(await page.$eval('#translationBenchmark', (el) => el.hidden || getComputedStyle(el).display === 'none'), true, 'no benchmark once it stops answering');
     assert.deepEqual(page.problems.filter((p) => !/Failed to load resource/.test(p)), []);
