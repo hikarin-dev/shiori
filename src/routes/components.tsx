@@ -36,6 +36,7 @@ import { NoticeSpecimens } from './specimens/notice';
 import { PopoverSpecimens } from './specimens/popover';
 import { MenuSpecimens } from './specimens/menu';
 import { ListboxSpecimens } from './specimens/listbox';
+import { HeaderSpecimens } from './specimens/header';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -170,6 +171,7 @@ export default function Components() {
       <PopoverSpecimens />
       <MenuSpecimens />
       <ListboxSpecimens />
+      <HeaderSpecimens />
     </main>
   );
 }

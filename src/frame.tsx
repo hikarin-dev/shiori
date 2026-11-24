@@ -3,6 +3,7 @@ import { useLayoutEffect } from 'react';
 import { Outlet, useMatches } from 'react-router';
 import type { Route } from './routes';
 import { NoticeHost } from './components/notice-host';
+import { AppHeader } from './components/ui/app-header';
 
 // <meta name="shiori-app" content="<page>"> while one of the app's own pages shows, by which an
 // independent observer recognises the app's pages; one element, its content changed with the page,
@@ -28,21 +29,15 @@ function useFrame(frame: 'header' | null) {
   }, [frame]);
 }
 
-// The common header's band and the brand: index.html's frame, the same markup (a test holds the two
-// equal), drawn in its place on the same pixels. The header's controls come with its component.
-function Header() {
-  return (
-    <header className="app-header"><div className="header-left"><a className="brand-wrap" href="./"><div className="brand-icon"><img alt="" src="icons/shiori-logo.svg" /></div><span className="brand-text">Shiori</span></a></div></header>
-  );
-}
-
 export default function Frame() {
   const route = useMatches().at(-1)?.handle as Route | undefined;
   useAppMeta(route?.app ? route.page : null);
   useFrame(route?.header ? 'header' : null);
   return (
     <>
-      {route?.header && <Header />}
+      {/* The common header, with no slots: index.html's frame, the same markup (a test holds the two
+          equal), drawn in its place on the same pixels. A page's own controls come with its port. */}
+      {route?.header && <AppHeader />}
       <Outlet />
       <NoticeHost />
     </>
