@@ -33,13 +33,14 @@ import { Section, SectionStatus, useStatus } from './parts';
 
 const BACKUP_FILES = '.shi,.shioridb,.crdownload,.crswap,application/octet-stream,application/json';
 
-// A backup the desktop app was making or restoring when its window was reloaded: followed once, however
-// often the panel is drawn.
-let attaching: Promise<unknown> | null = null;
+// A backup the desktop app was making or restoring when its window was reloaded is followed again:
+// asked for once a page load, as 1.3's page asked as it loaded. Asked again when the panel is drawn
+// again, it would take a backup this window itself is making or restoring for one left behind.
+let attached = false;
 
 export function StoragePanel() {
   const [sections] = useState(() => storageSections() as { upgrades: boolean; stats: boolean });
-  useEffect(() => { attaching ??= attachNativeBackup().catch(() => {}).finally(() => { attaching = null; }); }, []);
+  useEffect(() => { if (!attached) { attached = true; attachNativeBackup().catch(() => {}); } }, []);
   return (
     <>
       <FoldersSection />

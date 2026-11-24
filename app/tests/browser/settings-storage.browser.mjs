@@ -670,6 +670,35 @@ test('the desktop app\'s window (a stand-in for its bridge): the archiving card,
   assert.deepEqual(old.sets, [['set', 'archiveAfter', 'month'], ['rescan']]);
 });
 
+test('the desktop app\'s window (a stand-in): a backup left by a reload is asked for once a page load, however often the panel is drawn', async (t) => {
+  if (skip(t)) return;
+  const context = await browser.createBrowserContext();
+  t.after(() => context.close().catch(() => {}));
+  const page = await openPage(context, origin);
+  await page.evaluateOnNewDocument(() => {
+    window.__shell = [];
+    window.shioriDesktop = { pathOf: () => '', shell: async (action) => {
+      window.__shell.push(action);
+      return action === 'state' ? { archiveAfter: 'week', archiveFormat: 'zip' } : null;
+    } };
+  });
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
+  await until(page, () => !!document.getElementById('tkList'), null, { what: 'Tasks' });
+  await page.evaluate((to) => { const a = document.createElement('a'); a.href = to; a.id = 'toSettings'; document.body.append(a); }, NEW);
+  const asked = () => run(page, () => window.__shell.filter((action) => action === 'backupCurrent').length);
+  for (let i = 0; i < 3; i++) {
+    if (i === 0) await page.$eval('#toSettings', (a) => a.click()); else await page.evaluate(() => history.forward());
+    await shownStorage(page);
+    await until(page, () => window.__shell.includes('backupCurrent'), null, { what: 'asked' });
+    await pause(300);
+    await page.evaluate(() => history.back());
+    await until(page, () => location.pathname === '/tasks' && !document.getElementById('settingsNav') && !!document.getElementById('tkList'), null, { what: `Tasks again (${i})` });
+  }
+  // (Asked again, it would take a backup this window itself is making for one left behind: a second
+  // progress window, or an import waiting for an answer cancelled.)
+  assert.equal(await asked(), 1);
+});
+
 test('a change of language redraws the panel in it at once', async (t) => {
   if (skip(t)) return;
   const [old, now] = await both(t, async (page) => {
