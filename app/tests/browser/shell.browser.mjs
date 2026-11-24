@@ -152,13 +152,34 @@ test('with the worker installed and the server gone, the library and the one pag
   await page.reload({ waitUntil: 'load' });
   await until(page, () => document.title === 'Shiori — Library' && !!document.querySelector('header'), undefined, { what: 'the library, offline' });
   assert.equal(await page.evaluate(address), '/');
-
-  await page.goto(`${site.origin}/components`, { waitUntil: 'load' });
-  assert.equal(await until(page, drawn, undefined, { what: 'the components page, offline' }), 21);
-  assert.equal(await page.evaluate(address), '/components');
   assert.match(await page.evaluate(async () => { await document.fonts.ready; return [...document.fonts].filter((f) => f.status === 'loaded').map((f) => f.family).join(); }),
     /JetBrains Mono/, 'the UI font comes from the worker too');
-  assert.deepEqual(page.problems.filter((problem) => /uncaught|policy/.test(problem)), [], 'no error of the page\'s own');
+
+  // The one page itself opens too, its frame painted, its start-up run: everything but the
+  // comparison page's own chunk, which the worker doesn't install (src/routes.ts, installed).
+  assert.deepEqual(SHELL.filter((f) => /^assets\/components-/.test(f)), [], 'the comparison page\'s chunk is not in the list');
+  await page.goto(`${site.origin}/components`, { waitUntil: 'load' });
+  await until(page, () => !!document.querySelector('header.app-header .brand-text') && document.documentElement.dataset.frame === 'header', undefined, { what: 'the one page\'s frame, offline' });
+  assert.equal(await page.evaluate(address), '/components');
+  assert.equal(await page.evaluate(async () => {
+    const name = (await caches.keys()).find((key) => key.includes('-shell-v'));
+    return (await (await caches.open(name)).keys()).filter((r) => /\/assets\/components-/.test(new URL(r.url).pathname)).length;
+  }), 0, 'never installed, never asked for: the worker holds no copy');
+  assert.deepEqual(page.problems.filter((problem) => /policy/.test(problem)), [], 'nothing refused by the page\'s policy');
+});
+
+test('the comparison page, not installed, opens with the network and is kept from then on', async (t) => {
+  const page = await fresh(t);
+  if (!page) return;
+  await page.goto(`${origin}/`, { waitUntil: 'load' });
+  await workerHoldsAll(page);
+  await page.goto(`${origin}/components`, { waitUntil: 'load' });
+  assert.equal(await until(page, drawn, undefined, { what: 'the components page' }), 21);
+  assert.equal(await until(page, async () => {
+    const name = (await caches.keys()).find((key) => key.includes('-shell-v'));
+    return (await (await caches.open(name)).keys()).filter((r) => /\/assets\/components-/.test(new URL(r.url).pathname)).length;
+  }, undefined, { what: 'the chunk kept once asked for' }), 1);
+  assert.deepEqual(page.problems, []);
 });
 
 test('with the worker installed, a hard reload of a clean address the host doesn\'t know comes back through the worker', async (t) => {

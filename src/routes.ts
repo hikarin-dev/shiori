@@ -8,8 +8,12 @@
 //   app     one of the app's own pages (library, overview, reader, settings, tasks): the meta is
 //           there while it shows; on any other route there is none
 //   header  drawn under the common header, which index.html paints before any script has run
-export type Route = { page: string; app: boolean; header: boolean };
+//   installed  its own files (its chunk, and what only it imports) are among those the service worker
+//           installs, so it opens with no network; where not, they are fetched when it is first shown
+//           and kept from then on, as any file the page asks for is (build/start.mjs, notInstalled)
+export type Route = { page: string; app: boolean; header: boolean; installed: boolean };
 
 export const ROUTES: Readonly<Record<string, Route>> = {
-  components: { page: 'components', app: false, header: true },
+  // The comparison page: no page of the app, and its chunk would be a tenth of what installs.
+  components: { page: 'components', app: false, header: true, installed: false },
 };

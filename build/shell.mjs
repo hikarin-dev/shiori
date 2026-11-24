@@ -18,12 +18,14 @@ const NOT_KEPT = new Set(['sw.js', 'shell-files.js', '404.html']);
 const sha256 = (data) => createHash('sha256').update(data).digest('hex');
 
 // The files of the site in `dir` the worker keeps (sorted, as paths from the site's root), and
-// their id.
-export function shellFiles(dir) {
+// their id. `leftOut`: files of the bundle that only a route the worker doesn't install draws with
+// (start.mjs, notInstalled); fetched when first asked for, and kept from then on.
+export function shellFiles(dir, leftOut = []) {
+  const left = new Set(leftOut);
   const files = fs.readdirSync(dir, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile())
     .map((entry) => path.relative(dir, path.join(entry.parentPath, entry.name)).split(path.sep).join('/'))
-    .filter((file) => !NOT_KEPT.has(file) && !file.endsWith('.map'))
+    .filter((file) => !NOT_KEPT.has(file) && !left.has(file) && !file.endsWith('.map'))
     .sort();
   const id = sha256(JSON.stringify(files.map((file) => [file, sha256(fs.readFileSync(path.join(dir, file)))]))).slice(0, 12);
   return { files, id };
@@ -46,8 +48,8 @@ export const shellStamp = (id) => `\n// The files this worker was built with (sh
 // Finishes a built site in `dir`: writes its shell-files.js and ends its sw.js with the id.
 // `worker` is sw.js as it is written (the stamp is put on that, so a site is finished the same
 // whether or not it was finished before).
-export function writeShell(dir, worker) {
-  const shell = shellFiles(dir);
+export function writeShell(dir, worker, leftOut = []) {
+  const shell = shellFiles(dir, leftOut);
   fs.writeFileSync(path.join(dir, 'shell-files.js'), shellModule(shell));
   fs.writeFileSync(path.join(dir, 'sw.js'), worker + shellStamp(shell.id));
   return shell;

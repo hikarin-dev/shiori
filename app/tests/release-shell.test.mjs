@@ -10,6 +10,8 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { builtSite } from '../../build/built.mjs';
+import { notInstalled } from '../../build/start.mjs';
+import { ROUTES } from '../../src/routes.ts';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (rel) => readFileSync(join(repo, rel), 'utf8');
@@ -23,6 +25,8 @@ const appModules = () => filesUnder('app/js').filter((f) => f.endsWith('.js'));
 
 // The files the worker precaches: the list the build wrote into the built site, which sw.js imports.
 const shellFiles = async () => (await import(pathToFileURL(built('shell-files.js')).href)).SHELL;
+// What start.js was built with: the entry, the start-up's files, each route's own.
+const startData = () => JSON.parse(readFileSync(built('start.js'), 'utf8').match(/const START = (\{.*\});/)[1]);
 
 test('the runtime root files are present', () => {
   for (const required of ['index.html', 'start.js', '404.html', 'sw.js', 'shell-files.js', 'CHANGELOG.md']) {
@@ -41,19 +45,36 @@ test('every app/js module is precached in SHELL', async () => {
   assert.deepEqual(missing, [], 'app/js modules not listed in the SHELL cache');
 });
 
-test('SHELL is the whole built site, less what a worker must not keep', async () => {
+test('SHELL is the whole built site, less what a worker must not keep and what only a route it doesn\'t install draws with', async () => {
   // The worker and its list are what the browser checks for a newer version: taken from the
   // worker's own cache they would never change. 404.html is a host's answer for an address it
   // doesn't have, never the worker's. A source map is nothing a page runs.
   const shell = await shellFiles();
   for (const f of ['sw.js', 'shell-files.js', '404.html']) assert.ok(!shell.includes(f), `${f} must not be in the list`);
   assert.deepEqual(shell.filter((f) => f.endsWith('.map')), []);
-  const site = filesUnder('', builtSite()).filter((f) => !['sw.js', 'shell-files.js', '404.html'].includes(f) && !f.endsWith('.map'));
+  const leftOut = notInstalled(startData(), ROUTES);
+  const site = filesUnder('', builtSite()).filter((f) => !['sw.js', 'shell-files.js', '404.html'].includes(f) && !f.endsWith('.map') && !leftOut.includes(f));
   assert.deepEqual(shell.toSorted(), site.toSorted(), 'every other file of the built site is listed, and nothing that isn\'t there');
   assert.equal(new Set(shell).size, shell.length, 'no file twice');
-  // What the one page loads is among it: the page, and each file of its bundle.
+  // What the one page loads is among it: the page, and each file of its bundle but those.
   assert.ok(shell.includes('index.html'));
-  assert.deepEqual(filesUnder('assets', builtSite()).filter((f) => !shell.includes(f)), []);
+  assert.deepEqual(filesUnder('assets', builtSite()).filter((f) => !shell.includes(f)).toSorted(), leftOut);
+});
+
+test('what the worker leaves out is the bundle\'s files only routes it doesn\'t install draw with', () => {
+  const start = startData();
+  const leftOut = notInstalled(start, ROUTES);
+  const uninstalled = Object.entries(ROUTES).filter(([, route]) => !route.installed).map(([segment]) => segment);
+  // Today the one such route is the comparison page; its chunk is left out.
+  assert.deepEqual(uninstalled, ['components']);
+  assert.ok(leftOut.some((f) => /^assets\/components-[\w-]+\.js$/.test(f)), 'the comparison page\'s chunk');
+  const needed = new Set([start.entry, ...start.start,
+    ...Object.entries(ROUTES).filter(([, route]) => route.installed).flatMap(([segment]) => start.routes[segment].preload)]);
+  for (const file of leftOut) {
+    assert.match(file, /^assets\//, `${file}: the bundle's own; the app's served files are kept whoever imports them`);
+    assert.ok(!needed.has(file), `${file} is needed by the start-up or an installed route`);
+    assert.ok(uninstalled.some((segment) => start.routes[segment].preload.includes(file)), `${file} is drawn with by a route left out`);
+  }
 });
 
 test('the built site carries every app/js and vendor file as the file it is', () => {

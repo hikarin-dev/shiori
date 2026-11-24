@@ -78,6 +78,20 @@ export function startData({ bundle = null, routes, root = ROOT }) {
   return data;
 }
 
+// The bundle's files that only routes the worker doesn't install draw with (`installed` false in the
+// route table): what each such route preloads, less what the start-up or an installed route needs
+// too. A served module is never among them: those are the app's files, kept whoever imports them.
+// From start.js's data, so the built site says it by itself (the tests read it there).
+/** @param {{ entry: unknown, start: string[], routes: Record<string, { preload: string[] }> }} data @param {Record<string, { installed: boolean }>} routes */
+export function notInstalled(data, routes) {
+  const needed = new Set([String(data.entry), ...data.start]);
+  const left = new Set();
+  for (const [segment, route] of Object.entries(routes)) {
+    for (const file of data.routes[segment].preload) (route.installed ? needed : left).add(file);
+  }
+  return [...left].filter((file) => file.startsWith('assets/') && !needed.has(file)).sort();
+}
+
 // start.js: its source with the data in place of the line that waits for it.
 export const START_LINE = '  const START = null;   // written by the build (build/start.mjs)';
 export function startScript(data, root = ROOT) {

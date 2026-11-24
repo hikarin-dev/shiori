@@ -14,6 +14,8 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { builtSite } from '../../build/built.mjs';
 import { shellFiles, shellStamp } from '../../build/shell.mjs';
+import { notInstalled } from '../../build/start.mjs';
+import { ROUTES } from '../../src/routes.ts';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const sw = readFileSync(join(repo, 'sw.js'), 'utf8');
@@ -26,6 +28,10 @@ const revision = Number(revisionMatch[1]);
 // What the build wrote for the worker (asking for the built site throws, saying so, when there is
 // none or a source changed since: npm run build).
 const { SHELL: shell, SHELL_ID: id } = await import(pathToFileURL(join(builtSite(), 'shell-files.js')).href);
+// The bundle's files the worker leaves to be fetched when first shown (a route it doesn't install),
+// as the built start.js says them.
+const leftOut = notInstalled(JSON.parse(readFileSync(join(builtSite(), 'start.js'), 'utf8').match(/const START = (\{.*\});/)[1]), ROUTES);
+const kept = (dir) => shellFiles(dir, leftOut);
 
 const helperMatch = sw.match(/function isStaleShellCache\(key, current\) \{[\s\S]*?\n\}/);
 assert.ok(helperMatch, 'sw.js must expose its stale-cache predicate for review');
@@ -48,7 +54,7 @@ test('the worker takes its files and their id from the build, and keeps no list 
   assert.match(id, /^[0-9a-f]{12}$/);
   assert.deepEqual(shell, shell.toSorted(), 'the list is sorted');
   // The id shell-files.js carries is the one the built site's files give.
-  assert.deepEqual(shellFiles(builtSite()), { files: shell, id });
+  assert.deepEqual(kept(builtSite()), { files: shell, id });
 });
 
 test('the built worker\'s own file ends with the id, so a changed build is a changed worker', () => {
@@ -67,33 +73,33 @@ test('any change to any file the worker keeps is another id: its bytes, its name
   const copy = mkdtempSync(join(tmpdir(), 'shiori-shell-'));
   t.after(() => rmSync(copy, { recursive: true, force: true }));
   cpSync(builtSite(), copy, { recursive: true });
-  assert.equal(shellFiles(copy).id, id, 'a copy of the same files has the same id');
+  assert.equal(kept(copy).id, id, 'a copy of the same files has the same id');
 
   // A module the worker imports, changed by one line: the same list of names, another id.
   assert.match(sw, /from '\.\/app\/js\/jobs-runner\.js';/, 'jobs-runner.js is a module the worker imports');
   appendFileSync(join(copy, 'app', 'js', 'jobs-runner.js'), '// changed\n');
-  const changed = shellFiles(copy);
+  const changed = kept(copy);
   assert.deepEqual(changed.files, shell, 'the same files by name');
   assert.notEqual(changed.id, id, 'a changed module is another id');
 
   // A file that isn't code counts the same.
   appendFileSync(join(copy, 'CHANGELOG.md'), '\n');
-  const again = shellFiles(copy);
+  const again = kept(copy);
   assert.notEqual(again.id, changed.id);
 
   // A file renamed with its bytes kept (as a bundle file is, by its hash), and one added.
   const bundle = shell.find((f) => /^assets\/.+-[\w-]{8}\.js$/.test(f));
   assert.ok(bundle, 'the list names the bundle, by a hashed name');
   renameSync(join(copy, bundle), join(copy, bundle.replace(/-[\w-]{8}\.js$/, '-AAAAAAAA.js')));
-  const renamed = shellFiles(copy);
+  const renamed = kept(copy);
   assert.notEqual(renamed.id, again.id);
   appendFileSync(join(copy, 'app', 'new-file.txt'), 'new');
-  assert.notEqual(shellFiles(copy).id, renamed.id);
+  assert.notEqual(kept(copy).id, renamed.id);
 
   // What the worker doesn't keep doesn't count: its own file, its list, the host's 404 page.
-  const before = shellFiles(copy).id;
+  const before = kept(copy).id;
   for (const f of ['sw.js', 'shell-files.js', '404.html']) appendFileSync(join(copy, f), '\n');
-  assert.equal(shellFiles(copy).id, before);
+  assert.equal(kept(copy).id, before);
 });
 
 test('a new worker reads its imports past the HTTP cache, so it never starts with an old list', () => {

@@ -12,7 +12,7 @@ import type { Plugin } from 'vite';
 import { APP_PAGE, pageFile } from '../app/js/pages.js';
 import { ROUTES } from '../src/routes.ts';
 import { writeShell } from './shell.mjs';
-import { startData, startScript } from './start.mjs';
+import { notInstalled, startData, startScript } from './start.mjs';
 
 export const ROOT = path.resolve(import.meta.dirname, '..');
 
@@ -97,13 +97,15 @@ const NOT_COPIED = new Set([path.join(ROOT, 'app', 'tests')]);
 
 // Once the bundle is written: the copies beside it, then what the service worker keeps of it all
 // (shell.mjs: shell-files.js, with the id every file counts in, and the same id at the end of the
-// built sw.js).
+// built sw.js), less the files only a route it doesn't install draws with.
 export function siteFiles(): Plugin {
   let outDir = '';
+  let leftOut: string[] = [];
   return {
     name: 'shiori:site-files',
     apply: 'build',
     configResolved(config) { outDir = path.resolve(config.root, config.build.outDir); },
+    generateBundle(_, bundle) { leftOut = notInstalled(startData({ bundle, routes: ROUTES }), ROUTES); },
     closeBundle() {
       for (const name of COPIED) {
         fs.cpSync(path.join(ROOT, name), path.join(outDir, name), {
@@ -112,7 +114,7 @@ export function siteFiles(): Plugin {
           filter: (src) => !NOT_COPIED.has(src),
         });
       }
-      writeShell(outDir, fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
+      writeShell(outDir, fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'), leftOut);
     },
   };
 }
