@@ -39,6 +39,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useT, type Translate } from '@/lib/i18n';
 import { createTranslationStore, type Control, type Fields, type Saved, type TranslationStore } from '@/lib/translation-store';
 import { cn } from '@/lib/utils';
+import { BenchmarkSection } from './benchmark';
 import { Section, SectionStatus, useStatus } from './parts';
 
 type Choice = { value: unknown; label: string; short?: string | null; version?: string; available?: boolean; missing?: boolean };
@@ -172,6 +173,8 @@ export function TranslationPanel() {
         </div>
         <SectionStatus id="translateStatus" status={config} />
       </Section>
+
+      <BenchmarkSection offered={state.benchmark} />
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent id="translateBox" size="2xl" layout="sectioned" initialFocus={() => document.getElementById('translateClose')}>
