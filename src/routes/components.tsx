@@ -34,6 +34,7 @@ import { DialogSpecimens } from './specimens/dialog';
 import { ToastSpecimens } from './specimens/toast';
 import { NoticeSpecimens } from './specimens/notice';
 import { PopoverSpecimens } from './specimens/popover';
+import { MenuSpecimens } from './specimens/menu';
 import { useT } from '@/lib/i18n';
 import { useTitle } from '@/lib/title';
 
@@ -166,6 +167,7 @@ export default function Components() {
       <ToastSpecimens />
       <NoticeSpecimens />
       <PopoverSpecimens />
+      <MenuSpecimens />
     </main>
   );
 }

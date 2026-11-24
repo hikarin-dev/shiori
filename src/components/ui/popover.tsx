@@ -47,8 +47,10 @@ function PopoverTrigger(props: PopoverPrimitive.Trigger.Props) {
 
 type Side = 'top' | 'bottom' | 'left' | 'right';
 type Align = 'start' | 'center' | 'end';
-// The placement every floating panel takes: fixed to the window, 8px inside it, on the menu layer.
-export const POSITIONER = { positionMethod: 'fixed', collisionPadding: 8 } as const;
+// The placement every floating panel takes: fixed to the window, 8px inside it (on the other side of
+// what opened it when its own side has no room, slid along the window's edge otherwise, as 1.3's
+// menus were clamped), on the menu layer.
+export const POSITIONER = { positionMethod: 'fixed', collisionPadding: 8, collisionAvoidance: { side: 'flip', align: 'shift' } } as const;
 
 type ContentProps = Omit<PopoverPrimitive.Popup.Props, 'className'> & {
   variant?: Variant;
