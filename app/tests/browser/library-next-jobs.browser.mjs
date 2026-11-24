@@ -255,6 +255,18 @@ test('300 words about one gallery draw its card and none of the other 29', async
     const base = nextBase(1790004000000);
     const page = await openRun(browser, origin, path, { base });
     const gid = id(base, 'I');
+    // The library settled first: every cover in, and no word of a change for 1.5 s (the run's galleries
+    // just made have their sizes and typical pages worked out a while after: changes to their cards,
+    // not a job's).
+    await until(page, () => [...document.querySelectorAll('#grid > .card img.card-thumb')].every((img) => img.getAttribute('src') && img.complete), null, { what: 'every cover' });
+    await page.evaluate(async () => {
+      const api = await import('/app/js/api.js');
+      let last = performance.now();
+      const off = api.events.watch(() => { last = performance.now(); });
+      while (performance.now() - last < 1500) await new Promise((r) => setTimeout(r, 100));
+      off();
+    });
+    await sleep(300);
     await page.evaluate(() => {
       window.__touched = {};
       new MutationObserver((records) => {

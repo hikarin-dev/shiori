@@ -336,8 +336,8 @@ export default function Library() {
       replacing.current = id;
       import('@lib/import-files.js').then(({ IMPORT_ACCEPT }) => { const input = replaceInput.current; if (input) { input.accept = IMPORT_ACCEPT; input.click(); } }, () => {});
     },
-    rerunMenu: (id, anchor) => { rerunMenu().then((m) => m.rerunSteps(id, anchor)).then((ask) => { open('rerun'); setRerun(ask); }, () => {}); },
-    seriesTranslate: (g) => { seriesWindow().then((m) => m.seriesTranslateAsk(tRef.current, g as never)).then((ask) => { open('series'); setSeriesAsk(ask); }, () => {}); },
+    rerunMenu: (id, anchor) => { rerunMenu().then((m) => m.rerunSteps(id, anchor)).then((ask) => { open('rerun'); setRerun(ask); }, (err) => console.error(err)); },
+    seriesTranslate: (g) => { seriesWindow().then((m) => m.seriesTranslateAsk(tRef.current, g as never)).then((ask) => { open('series'); setSeriesAsk(ask); }, (err) => console.error(err)); },
     tagEditor: (id) => { open('tags'); setTagging(id); },
   }), [client, jobs, covers]);   // eslint-disable-line react-hooks/exhaustive-deps
   const on = useMemo<CardHandlers>(() => ({

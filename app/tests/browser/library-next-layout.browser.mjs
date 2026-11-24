@@ -37,16 +37,34 @@ const boxes = (page, sel, ms = 600) => page.evaluate(([sel, ms]) => new Promise(
   const tick = () => {
     const el = document.querySelector(sel);
     if (el) { t0 ??= performance.now(); const r = el.getBoundingClientRect(); seen.push([r.left, r.top, r.width, r.height].map((v) => Math.round(v * 100) / 100).join(',')); }
-    if (t0 == null ? performance.now() - given < 5000 : performance.now() - t0 < ms) requestAnimationFrame(tick); else done({ seen, w: innerWidth, h: innerHeight, cw: document.documentElement.clientWidth, overflow: getComputedStyle(document.body).overflow + getComputedStyle(document.documentElement).overflow });
+    if (t0 == null ? performance.now() - given < 15000 : performance.now() - t0 < ms) requestAnimationFrame(tick); else done({ seen, w: innerWidth, h: innerHeight, cw: document.documentElement.clientWidth, overflow: getComputedStyle(document.body).overflow + getComputedStyle(document.documentElement).overflow });
   };
   requestAnimationFrame(tick);
-}), [sel, ms]);
+}), [sel, ms]).then(async (out) => ({ ...out, said: JSON.stringify(page.problems) }));
 
-function inside(name, { seen, w, h }) {
-  assert.ok(seen.length > 0, `${name}: drawn`);
+function inside(name, { seen, w, h, said }) {
+  assert.ok(seen.length > 0, `${name}: drawn (${said})`);
   assert.equal(new Set(seen).size, 1, `${name}: never moved or changed size (${[...new Set(seen)].join(' | ')})`);
   const [left, top, width, height] = seen[0].split(',').map(Number);
   assert.ok(left >= 8 && top >= 8 && left + width <= w - 8 && top + height <= h - 8, `${name}: inside the window (${seen[0]} in ${w}×${h})`);
+}
+
+// Escape, and what it closes gone (under the whole suite's load and a CPU slowed six times a key can
+// come before the box is ready for it: pressed again then).
+async function closed(page, sel) {
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press('Escape');
+    if (await page.waitForFunction((sel) => !document.querySelector(sel), { timeout: 8000 }, sel).then(() => true, () => false)) return;
+  }
+  throw new Error(`${sel} still open after Escape`);
+}
+
+// A press on a card's button once it shows (the translate button goes while the translation server
+// does not answer its ping in time, as it may not under the whole suite's load and a slowed CPU).
+async function pressShown(page, base, part, what, sel) {
+  await page.waitForFunction((sel) => { const b = document.querySelector(sel); return b && getComputedStyle(b).display !== 'none' && b.getBoundingClientRect().width > 0 && !b.disabled; },
+    { timeout: 20000 }, `#grid > .card[data-gallery-id="${base + PARTS[part]}"] ${sel}`);
+  await press(page, base, part, what);
 }
 
 const SIZES = [['desktop', 1280, 900], ['narrow', 400, 800], ['phone', 390, 844]];
@@ -65,20 +83,18 @@ for (const scale of [1, 1.25, 1.5]) {
       const scrollbar = await page.evaluate(() => document.documentElement.clientWidth);
       // The delete question, with its cover and the long title.
       await page.evaluate((sel) => document.querySelector(sel).scrollIntoView({ block: 'center' }), `#grid > .card[data-gallery-id="${base + PARTS.P}"]`);
-      await press(page, base, 'P', 'del');
+      await pressShown(page, base, 'P', 'del', '.card-btn-del');
       const del = await boxes(page, '[data-notice="dialog"]');
       inside(`${name}: the delete question`, del);
       assert.equal(del.cw, scrollbar, `${name}: the page's scrollbar left where it is`);
-      await page.keyboard.press('Escape');
-      await page.waitForFunction(() => !document.querySelector('[data-notice="dialog"]'), { timeout: 10000 });
+      await closed(page, '[data-notice="dialog"]');
       // The series' window.
       await page.evaluate((sel) => document.querySelector(sel).scrollIntoView({ block: 'center' }), `#grid > .card[data-gallery-id="${base + PARTS.S}"]`);
-      await press(page, base, 'S', 'tr');
+      await pressShown(page, base, 'S', 'tr', '.card-btn-translate');
       inside(`${name}: the series' window`, await boxes(page, '#seriesTranslateModal'));
-      await page.keyboard.press('Escape');
-      await page.waitForFunction(() => !document.querySelector('#seriesTranslateModal'), { timeout: 10000 });
+      await closed(page, '#seriesTranslateModal');
       // The tag editor, its suggestions open.
-      await press(page, base, 'P', 'add');
+      await pressShown(page, base, 'P', 'add', '.card-tag-add');
       inside(`${name}: the tag editor`, await boxes(page, '#tagEditor'));
       await page.type('#tagEdValue', 'a'); await sleep(400);
       const list = await page.evaluate(() => { const l = document.querySelector('[data-slot="listbox"]'); if (!l) return null; const r = l.getBoundingClientRect(), f = document.getElementById('tagEdValue').getBoundingClientRect(); return { gap: r.top - f.bottom, left: r.left - f.left, width: r.width - f.width }; });
