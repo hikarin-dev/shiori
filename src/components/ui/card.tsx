@@ -28,7 +28,7 @@ const cardVariants = cva('min-w-0 border border-solid', {
       section: 'w-full rounded-10 border-border bg-card',
       row: 'rounded-8 border-border bg-card',
       inset: 'rounded-8 border-border bg-surface-subtle',
-      detail: 'max-h-[30vh] overflow-auto rounded-8 border-border bg-background px-[11px] py-[9px] text-12 leading-[1.55] whitespace-pre-line text-foreground [overflow-wrap:anywhere] [scrollbar-color:var(--scrollbar-inner-thumb)_transparent] [scrollbar-width:thin]',
+      detail: 'max-h-[30vh] overflow-auto rounded-8 border-border bg-background px-[11px] py-[9px] text-12 leading-[1.55] whitespace-pre-line text-foreground [overflow-wrap:anywhere]',
     },
     hover: {
       // (The frame eases in .12s, the lift in .2s, as the row's did.)
