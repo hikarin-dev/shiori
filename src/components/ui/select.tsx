@@ -4,7 +4,12 @@
 //   variant  field (Settings, reader settings: on the subtle ground, the strong frame), inset (in a
 //            dialog: on the page's ground, the plain frame), toolbar (the library's sort, on the
 //            surface), ghost (the header's page menu: no frame until hovered).
-//   size     xs 26 · sm 30 · default 34 · lg 38.
+//   size     default 36 (Settings' and the dialogs' fields) · toolbar 34 (the library's sort) · xs 26
+//            (the header's page menu); each variant has its one.
+//
+// §5.3 S01, S06, S09, S12: Settings' selects 38 → 36, the dialogs' 34 → 36, reader settings' 30 → 36
+// with its 11px text → 12; 10px in at the sides on a 1.4 line, as Input (Settings' were 11px in,
+// reader settings' pointer the hand: it takes Settings' arrow).
 //   width    fill (its place), widest (held at its widest option, so it never jumps between picks:
 //            every label sits in one grid cell, the others invisible — CSS, no measuring) or content.
 //
@@ -29,21 +34,16 @@ import { FOCUS_BOX } from './focus';
 
 export type SelectOption = { value: string; label: string; className?: string };
 type Variant = 'field' | 'inset' | 'toolbar' | 'ghost';
-type Size = 'xs' | 'sm' | 'default' | 'lg';
+type Size = 'default' | 'toolbar' | 'xs';
 
 const ROW = 28;        // an option's row, roughly: only to judge whether the list fits below
 const MAX_ROWS = 8;    // the list shows at most this many and scrolls the rest
 
 // The box. Its ground at rest is also the open list's (they read as one).
 const GROUND: Record<Variant, string> = { field: 'bg-surface-subtle', inset: 'bg-background', toolbar: 'bg-card', ghost: 'bg-card' };
-// The pointer over it, as each had it: Settings' and the dialogs' the arrow, the toolbar's, the
-// header's and reader settings' the hand. Its list's options take the same.
-const CURSOR: Record<Variant, Partial<Record<Size, string>>> = {
-  field: { sm: 'cursor-pointer', default: 'cursor-auto', lg: 'cursor-auto' },
-  inset: { default: 'cursor-auto', sm: 'cursor-auto', lg: 'cursor-auto' },
-  toolbar: { default: 'cursor-pointer' },
-  ghost: { xs: 'cursor-pointer' },
-};
+// The pointer over it, as each had it: Settings' and the dialogs' the arrow, the toolbar's and the
+// header's the hand. Its list's options take the same.
+const CURSOR: Record<Variant, string> = { field: 'cursor-auto', inset: 'cursor-auto', toolbar: 'cursor-pointer', ghost: 'cursor-pointer' };
 const box = cva(
   'inline-flex min-w-0 items-center gap-[8px] rounded-6 border border-solid text-left whitespace-nowrap text-foreground select-none transition-[background-color,border-color,border-radius,box-shadow] duration-fast ease-standard',
   {
@@ -56,21 +56,19 @@ const box = cva(
         ghost: 'border-transparent bg-transparent text-muted-foreground hover:text-foreground',
       },
       size: {
+        default: 'min-h-[36px] px-[10px] py-[8px]',
+        toolbar: 'min-h-[34px] px-[12px] py-[8px]',
         xs: 'h-[26px] px-[6px]',
-        sm: 'h-[30px] px-[10px]',
-        default: 'min-h-[34px] px-[10px] py-[8px]',
-        lg: 'min-h-[38px] px-[11px] py-[8px]',
       },
       width: { fill: 'w-full', widest: '', content: '' },
     },
     compoundVariants: [
-      { variant: 'toolbar', size: 'default', class: 'px-[12px]' },
       { variant: 'ghost', class: 'gap-[5px]' },
     ],
   },
 );
 // The box's type, which its list shares (the list's eight rows are eight of its lines).
-const TEXT: Record<Size, string> = { xs: 'text-13', sm: 'text-11', default: 'text-12', lg: 'text-12 leading-[1.4]' };
+const TEXT: Record<Size, string> = { default: 'text-12 leading-[1.4]', toolbar: 'text-12', xs: 'text-13' };
 
 // Hovered (not open): the raised ground and the hover frame. Open: its resting ground, the hover
 // frame, the corners by the list squared.
@@ -86,12 +84,7 @@ const OPEN_EDGE: Record<Variant, string> = {
 };
 
 // The list's options line up with the box's text: their side padding is the box's.
-const INSET: Record<Variant, Partial<Record<Size, string>>> = {
-  field: { sm: 'px-[10px]', default: 'px-[10px]', lg: 'px-[11px]' },
-  inset: { default: 'px-[10px]', sm: 'px-[10px]', lg: 'px-[11px]' },
-  toolbar: { default: 'px-[12px]' },
-  ghost: { xs: 'px-[10px]' },
-};
+const INSET: Record<Size, string> = { default: 'px-[10px]', toolbar: 'px-[12px]', xs: 'px-[10px]' };
 
 const coarseQuery = typeof matchMedia === 'function' ? matchMedia('(pointer: coarse)') : null;
 const subscribe = (changed: () => void) => { coarseQuery?.addEventListener('change', changed); return () => coarseQuery?.removeEventListener('change', changed); };
@@ -136,7 +129,7 @@ function Label({ options, value, width }: { options: SelectOption[]; value: stri
 }
 
 function Select({ options, value, defaultValue, onValueChange, variant = 'field', size, width, disabled, name, id, className, native, ...rest }: Props) {
-  const s: Size = size ?? (variant === 'field' ? 'lg' : variant === 'ghost' ? 'xs' : 'default');
+  const s: Size = size ?? (variant === 'toolbar' ? 'toolbar' : variant === 'ghost' ? 'xs' : 'default');
   const w = width ?? (variant === 'toolbar' ? 'widest' : variant === 'ghost' ? 'content' : 'fill');
   const coarse = useSyncExternalStore(subscribe, isCoarse, () => false);
   const [own, setOwn] = useState(defaultValue ?? options[0]?.value);
@@ -144,7 +137,7 @@ function Select({ options, value, defaultValue, onValueChange, variant = 'field'
   const choose = (v: string) => { setOwn(v); onValueChange?.(v); };
   const anchor = `--select-${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   const [up, setUp] = useState(false);
-  const cursor = CURSOR[variant][s] ?? 'cursor-auto';
+  const cursor = CURSOR[variant];
   const boxClass = cn(box({ variant, size: s, width: w }), TEXT[s], cursor, cursor === 'cursor-pointer' && 'disabled:cursor-default data-disabled:cursor-default', BOX_STATES, OPEN_EDGE[variant], className);
   const trigger = useRef<HTMLButtonElement>(null);
 
@@ -231,7 +224,7 @@ function Select({ options, value, defaultValue, onValueChange, variant = 'field'
                     // Under the pointer, or reached by the keyboard (not merely the one the list
                     // opened on), as 1.3's list showed it.
                     'data-[selected]:font-semibold data-[selected]:text-foreground hover:bg-secondary hover:text-foreground focus-visible:bg-secondary focus-visible:text-foreground',
-                    INSET[variant][s] ?? 'px-[10px]', o.className,
+                    INSET[s], o.className,
                   )}
                 >
                   <SelectPrimitive.ItemText>{o.label}</SelectPrimitive.ItemText>

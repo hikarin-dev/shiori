@@ -17,18 +17,18 @@ export function SelectSpecimens() {
   return (
     <Section id="select" title="Select">
       <Shape id="select-field" name="Settings select" used="Settings: language, quick actions, export format, study font and data, target language; advanced options; the toggle dialog's choice.">
-        <Line label="field · lg" states={STATES} render={(state) => <div className="w-[260px]"><Select options={LANGS} defaultValue="en" aria-label="Language" disabled={state === 'disabled'} {...tag('select-field', 'field', state)} /></div>} />
+        <Line label="field · default" states={STATES} render={(state) => <div className="w-[260px]"><Select options={LANGS} defaultValue="en" aria-label="Language" disabled={state === 'disabled'} {...tag('select-field', 'field', state)} /></div>} />
         <Line label="a short list" states={['rest']} render={() => <div className="w-[260px]"><Select options={QUICK} defaultValue="hover" aria-label="Quick actions" data-select-demo="short" /></div>} />
         <Line label="the system's picker" states={['rest']} render={(state) => <div className="w-[260px]"><Select native options={LANGS} defaultValue="en" aria-label="Language" {...tag('select-field', 'native', state)} /></div>} />
       </Shape>
       <Shape id="sort-select" name="Library sort" used="The library's toolbar: held at its widest option's width.">
-        <Line label="toolbar · default" states={STATES} render={(state) => <Select variant="toolbar" options={SORT} defaultValue="id" aria-label="Sort" disabled={state === 'disabled'} {...tag('sort-select', 'toolbar', state)} />} />
+        <Line label="toolbar · toolbar" states={STATES} render={(state) => <Select variant="toolbar" options={SORT} defaultValue="id" aria-label="Sort" disabled={state === 'disabled'} {...tag('sort-select', 'toolbar', state)} />} />
       </Shape>
       <Shape id="modal-select" name="Tag editor type" used="The tag editor (Library, Overview); the benchmark's fields and the pipeline steps take its size (F14).">
         <Line label="inset · default" states={STATES} render={(state) => <div className="w-[298px]"><Select variant="inset" options={TYPES} defaultValue="tag" aria-label="Type" disabled={state === 'disabled'} {...tag('modal-select', 'inset', state)} /></div>} />
       </Shape>
-      <Shape id="rs-select" name="Reader settings select" used="Reader settings → Display → Study: the original text's font (F14: the strong frame).">
-        <Line label="field · sm" states={STATES} render={(state) => <div className="w-[211px]"><Select size="sm" options={FONTS} defaultValue="yasashisa" aria-label="Font" disabled={state === 'disabled'} {...tag('rs-select', 'field-sm', state)} /></div>} />
+      <Shape id="rs-select" name="Reader settings select" used="Reader settings → Display → Study: the original text's font (F14: the strong frame; S09: 36px, 12px).">
+        <Line label="field · default" states={STATES} render={(state) => <div className="w-[211px]"><Select options={FONTS} defaultValue="yasashisa" aria-label="Font" disabled={state === 'disabled'} {...tag('rs-select', 'field', state)} /></div>} />
       </Shape>
       <Shape id="page-nav" name="Header page menu" used="Every page's header: the page's name, a menu of the app's pages.">
         <Line label="ghost · xs" states={STATES} render={(state) => <Select variant="ghost" options={PAGES} defaultValue="library" aria-label="Page" disabled={state === 'disabled'} {...tag('page-nav', 'ghost', state)} />} />

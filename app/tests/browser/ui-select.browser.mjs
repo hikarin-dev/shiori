@@ -121,7 +121,7 @@ test('under a coarse pointer it is the system\'s select, drawn closed as the oth
   const page = await componentsPage(t, browser, origin, { width: 390, height: 844, hasTouch: true, isMobile: true });
   if (!page) return;
   const box = await page.$eval(FIELD, (el) => { const r = el.getBoundingClientRect(), s = getComputedStyle(el); return [el.localName, r.height, s.backgroundColor, s.borderTopColor, s.appearance, el.options.length]; });
-  assert.deepEqual(box, ['select', 38, 'rgb(17, 17, 20)', 'rgb(63, 63, 72)', 'none', 12]);
+  assert.deepEqual(box, ['select', 36, 'rgb(17, 17, 20)', 'rgb(63, 63, 72)', 'none', 12]);
   await page.select(FIELD, 'fr');
   assert.equal(await page.$eval(FIELD, (el) => el.value), 'fr');
 });
@@ -138,7 +138,7 @@ test('in a browser without CSS anchor positioning it is the system\'s select, as
   await page.goto(`${origin}/components`, { waitUntil: 'load' });
   await until(page, () => !!document.querySelector('[data-specimen]'), undefined, { what: 'the components page' });
   const box = await page.$eval(FIELD, (el) => { const r = el.getBoundingClientRect(), s = getComputedStyle(el); return [el.localName, r.height, s.backgroundColor, s.borderTopColor, el.options.length]; });
-  assert.deepEqual(box, ['select', 38, 'rgb(17, 17, 20)', 'rgb(63, 63, 72)', 12]);
+  assert.deepEqual(box, ['select', 36, 'rgb(17, 17, 20)', 'rgb(63, 63, 72)', 12]);
   assert.equal(await page.$$eval('[data-slot="select-trigger"]', (els) => els.length), 0, 'no drawn list anywhere');
   assert.deepEqual(page.problems, []);
 });
