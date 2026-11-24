@@ -8,8 +8,8 @@
 // library the desktop app keeps, seen from a site, shows only the location. In the desktop app's window,
 // a card after it says when and how galleries left alone are archived.
 //
-// What a row says, what its menu offers and asks, and the card's flow are app/js/folder-card.js's (1.3's
-// page draws from it too); the location's, app/js/desktop-link.js's. Every question is notice.js's.
+// What a row says, what its menu offers and asks, and the card's flow are app/js/folder-card.js's; the
+// location's, app/js/desktop-link.js's. Every question is notice.js's.
 //
 // Drawn as 1.3's (settings.css .lf-*): the location a field row; the list 16px 20px 18px in (14px 15px
 // 16px in a panel of 480px or less), rows 8px apart, each an inset panel (11px 10px 11px 12px; a 32px
@@ -61,7 +61,7 @@ type Say = (text: string, tone?: 'ok' | 'err') => void;
 
 const STATUS_MS = 8000;   // the card's status line stays this long (1.3's)
 
-// 1.3's drawings (library-folders.js ICON).
+// 1.3's drawings (its card's icons).
 const Svg = ({ children, className }: { children: ReactNode; className?: string }) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>{children}</svg>
 );

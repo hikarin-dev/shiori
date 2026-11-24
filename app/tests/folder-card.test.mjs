@@ -97,7 +97,7 @@ function oracle({ manage, desktop: isDesktop, jobs = new Map(), showing = new Se
   return { actionsOf, rowHtml, jobView, ICON };
 }
 
-// The row drawn from rowView as 1.3's page draws it now (library-folders.js initLibraryFolders).
+// The row drawn from rowView as 1.3's page drew it once the rules had moved (its card's drawing, gone with that page).
 function drawn(v, ICON) {
   const badge = ({ text, warn, tip }) => `<span class="key-status-badge${warn ? ' unset' : ''}"${tip ? ` data-tip="${esc(tip)}"` : ''}>${esc(text)}</span>`;
   const attentionHtml = (lines) => {
