@@ -4,9 +4,11 @@
 // and the new one alike, so the two are seen to agree; each control showing its saved value in the
 // first frame drawn; another tab's change followed for every key; a hidden panel kept; the status
 // line's 2.5 s; a change of language; the About dialog; the header kept across routes; leaving the page
-// five times leaves nothing behind; the phone form.
+// five times leaves nothing behind; the experimental section where it can work, and its switch applied
+// at once; the study preview following its controls; the phone form.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import puppeteer from 'puppeteer-core';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 
 const ADDRESS = '/settings-next';   // step 5c: '/settings'
@@ -389,6 +391,113 @@ test('leaving the page leaves nothing behind: /settings-next → /tasks → /set
   await new Promise((r) => setTimeout(r, 300));
   assert.deepEqual(await held(page), first, 'after five more visits, what is held is what it was after the first');
   assert.equal(await statusTimers(), 0);
+  assert.deepEqual(page.problems, []);
+});
+
+// The experimental section is Chromium's alone (scrollbar.js draws the bars only there): where the
+// browser is another, the section is not there, on either page.
+for (const [name, path] of [['1.3\'s page', OLD], ['the new page', ADDRESS]]) {
+  test(`the experimental section is not shown where the drawn scrollbars are not available, on ${name}`, async (t) => {
+    if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+    for (const [agent, shown] of [[null, true], ['Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:160.0) Gecko/20100101 Firefox/160.0', false]]) {
+      const page = await openPage(browser, origin);
+      t.after(() => page.close());
+      if (agent) await page.setUserAgent(agent);
+      await page.goto(`${origin}${path}`, { waitUntil: 'load' });
+      await drawn(page, path);
+      const look = await page.evaluate(() => {
+        const section = document.getElementById('experimentalSection');
+        return { display: section && getComputedStyle(section).display !== 'none', chromium: document.documentElement.classList.contains('chromium-scrollbars') };
+      });
+      assert.deepEqual(look, { display: shown, chromium: shown }, agent ? 'another browser' : 'Chromium');
+      assert.deepEqual(page.problems, []);
+    }
+  });
+}
+
+// (The bars are drawn only where the browser's own take room: a browser of its own, without headless
+// Chrome's hidden scrollbars, as scrollbar.browser's.)
+for (const [name, path] of [['1.3\'s page', OLD], ['the new page', ADDRESS]]) {
+  test(`turning the drawn scrollbars on applies them at once, and off takes them away, on ${name}`, async (t) => {
+    if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+    const own = await puppeteer.launch({ executablePath: chromePath(), headless: true, ignoreDefaultArgs: ['--hide-scrollbars'], args: ['--force-device-scale-factor=1'] });
+    t.after(() => own.close());
+    const page = await openPage(own, origin);
+    await page.evaluateOnNewDocument(() => localStorage.removeItem('shiori:customScrollbar'));
+    await page.goto(`${origin}${path}`, { waitUntil: 'load' });
+    await drawn(page, path);
+    const look = () => page.evaluate(() => ({ on: document.documentElement.classList.contains('custom-scrollbars'), bar: !!document.querySelector('.page-scrollbar') }));
+    assert.deepEqual(await look(), { on: false, bar: false });
+    const flip = async () => (path === OLD ? page.click('label[for="customScrollbar"]')
+      : (await page.evaluateHandle(() => document.getElementById('customScrollbar').parentElement.querySelector('[role="switch"]'))).click());
+    await flip();
+    // In the frames after the press: nothing waited on (no storage event, no other tab).
+    await page.evaluate(frames);
+    assert.deepEqual(await look(), { on: true, bar: true }, 'drawn at once');
+    assert.equal(await page.evaluate(() => localStorage.getItem('shiori:customScrollbar')), 'true');
+    await flip();
+    await page.evaluate(frames);
+    assert.deepEqual(await look(), { on: false, bar: false }, 'taken away at once');
+    assert.equal(await page.evaluate(() => localStorage.getItem('shiori:customScrollbar')), 'false');
+    assert.deepEqual(page.problems, []);
+  });
+}
+
+// The study preview says what its four controls say (its data-* state), the text options are off while
+// the original shows as an image, and a bubble shown as an image is drawn on its canvas.
+test('the study preview follows its four controls', async (t) => {
+  const page = await open(t, ADDRESS, { storage: {} });
+  if (!page) return;
+  await showPanel(page, 'navReader');
+  const look = () => page.evaluate(() => {
+    const preview = document.getElementById('studyPreview');
+    const options = document.getElementById('studyTextOptions');
+    const drawn = (which) => {
+      const canvas = preview.querySelector(`canvas[data-raster="${which}"]`);
+      if (!canvas) return null;
+      const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+      for (let i = 3; i < data.length; i += 4) if (data[i]) return true;
+      return false;
+    };
+    const { original, translation, font, furigana } = preview.dataset;
+    return { original, translation, font, furigana, disabled: options.disabled, rasterOriginal: drawn('original'), rasterTranslation: drawn('translation'),
+      textOriginal: !!preview.querySelector('.study-dom-original'), textTranslation: !!preview.querySelector('.study-dom-translation'),
+      furiganaShown: (() => { const rt = preview.querySelector('.study-dom-original rt'); return rt ? getComputedStyle(rt).display !== 'none' : null; })() };
+  });
+  // As nothing is stored: both as images, each drawn; the text options off.
+  const base = await until(page, () => {
+    const c = document.querySelector('#studyPreview canvas[data-raster="original"]');
+    if (!c) return false;
+    const { data } = c.getContext('2d').getImageData(0, 0, c.width, c.height);
+    for (let i = 3; i < data.length; i += 4) if (data[i]) return true;
+    return false;
+  }, null, { what: 'the original drawn as an image' });
+  assert.equal(base, true);
+  assert.deepEqual(await look(), { original: 'image', translation: 'hardcoded_images', font: 'yasashisa', furigana: 'off', disabled: true,
+    rasterOriginal: true, rasterTranslation: true, textOriginal: false, textTranslation: false, furiganaShown: null });
+  // The original as text: its options on, the font and furigana followed.
+  await choose(page, TABLE.find((r) => r.key === 'readerStudyOriginal'), 'text', false);
+  await until(page, () => document.getElementById('studyPreview').dataset.original === 'text' && !document.getElementById('studyTextOptions').disabled, null, { what: 'the original as text' });
+  assert.deepEqual(await look(), { original: 'text', translation: 'hardcoded_images', font: 'yasashisa', furigana: 'off', disabled: false,
+    rasterOriginal: null, rasterTranslation: true, textOriginal: true, textTranslation: false, furiganaShown: false });
+  await choose(page, TABLE.find((r) => r.key === 'readerStudySrcFont'), 'kiwi', false);
+  await until(page, () => document.getElementById('studyPreview').dataset.font === 'kiwi', null, { what: 'the font followed' });
+  await choose(page, TABLE.find((r) => r.key === 'readerFurigana'), true, false);
+  await until(page, () => document.getElementById('studyPreview').dataset.furigana === 'on', null, { what: 'furigana followed' });
+  await choose(page, TABLE.find((r) => r.key === 'readerStudyDisplay'), 'text', false);
+  await until(page, () => document.getElementById('studyPreview').dataset.translation === 'text', null, { what: 'the translation as text' });
+  assert.deepEqual(await look(), { original: 'text', translation: 'text', font: 'kiwi', furigana: 'on', disabled: false,
+    rasterOriginal: null, rasterTranslation: null, textOriginal: true, textTranslation: true, furiganaShown: true });
+  // The original as an image again: the options off at once, its canvas drawn again.
+  await choose(page, TABLE.find((r) => r.key === 'readerStudyOriginal'), 'image', false);
+  await until(page, () => document.getElementById('studyPreview').dataset.original === 'image', null, { what: 'the original as an image again' });
+  assert.equal(await page.evaluate(() => document.getElementById('studyTextOptions').disabled), true, 'its options off in the same frame');
+  await until(page, () => {
+    const c = document.querySelector('#studyPreview canvas[data-raster="original"]');
+    const { data } = c.getContext('2d').getImageData(0, 0, c.width, c.height);
+    for (let i = 3; i < data.length; i += 4) if (data[i]) return true;
+    return false;
+  }, null, { what: 'drawn again' });
   assert.deepEqual(page.problems, []);
 });
 
