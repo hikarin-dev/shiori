@@ -69,6 +69,12 @@ export async function openRun(browser, origin, path, { base, helper = true, merg
 export async function seedRun(page, origin, base, { helper = true, merge = true, storage = {}, translator } = {}) {
   await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await page.evaluate(seed, { base, parts: PARTS });
+  // The library's one-time updates, run to their end here. A page starts them a second or more after
+  // its load (boot-core.js), and one that takes over 700 ms shows its progress window over the page:
+  // on a browser's first page, with the CPU slowed or under the whole suite's load, that window came
+  // up in the middle of a test and took its press (the layout checklist's "not drawn", about one
+  // first page in five).
+  await page.evaluate(async () => (await import('/app/js/migrations.js')).runMigrations());
   await page.evaluate(async (stored) => {
     const platform = await import('/app/js/platform.js');
     for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind);
