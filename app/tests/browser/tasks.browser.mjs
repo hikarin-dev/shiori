@@ -188,3 +188,28 @@ test('a row leads to its gallery: its cover drawn, its title and cover linked; a
   await page.click('#settingsBtn');
   await until(page, () => location.pathname === '/settings' && document.readyState === 'complete', null, { what: 'the Settings page' });
 });
+
+// Where a job runs names the page its tab shows as the job is published: a tab opened on Tasks that has
+// moved to Settings since (a route change, no load) names Settings (platform.js runner.page).
+test('a job published by a tab opened on Tasks and moved to Settings says it runs in a tab on Settings', async (t) => {
+  const tab = await visit('/tasks', t);
+  if (!tab) return;
+  const page = await visit('/tasks', t);
+  t.after(async () => {
+    await page.evaluate(async (gid) => (await import('/app/js/platform.js')).jobs.clear(gid, 'download'), G.b).catch(() => {});
+    await page.close(); await tab.close();
+  });
+  await until(tab, () => !!document.getElementById('tkList'), null, { what: 'Tasks' });
+  assert.equal(await tab.evaluate(async () => (await import('/app/js/platform.js')).runner.page), 'tasks');
+  await tab.evaluate(() => { window.stayed = true; const a = document.createElement('a'); a.href = '/settings-next'; a.id = 'toSettings'; document.body.append(a); });
+  await tab.$eval('#toSettings', (a) => a.click());
+  await until(tab, () => document.title === 'Shiori — Settings' && !!document.getElementById('settingsNav'), null, { what: 'Settings' });
+  assert.equal(await tab.evaluate(() => window.stayed), true, 'a route change, no load');
+  await publish(tab, { gid: G.b, kind: 'download', status: 'progress', done: 1, total: 4 });
+  const tag = await until(page, (key) => { const el = document.querySelector(`.tk-row[data-key="${key}"] .run-tag`); return el && !el.hidden && [el.textContent, el.dataset.runner]; },
+    `${G.b}:download`, { what: 'the row\'s tag' });
+  // (Named by its address: the interim one, until Settings takes /settings.)
+  assert.deepEqual(tag, ['Tab · settings-next', 'tab']);
+  assert.deepEqual(tab.problems, []);
+  assert.deepEqual(page.problems, []);
+});

@@ -35,10 +35,13 @@ export const runner = (() => {
   if (is('SharedWorkerGlobalScope')) return { kind: 'shared-worker', id: contextId };
   if (is('DedicatedWorkerGlobalScope')) return { kind: 'worker', id: contextId };
   if (typeof document === 'undefined' || !g.location) return { kind: 'other', id: contextId };
-  const page = g.location.pathname.split('/').pop().replace(/\.html$/, '') || 'library';
+  const pageOf = () => g.location.pathname.split('/').pop().replace(/\.html$/, '') || 'library';
+  const page = pageOf();
   if (page === 'agent') return { kind: 'helper', host: helperHost, id: contextId };
   if (page === 'runner') return { kind: 'desktop-background', id: contextId };
-  return { kind: g.shioriDesktop ? 'desktop-window' : 'tab', page, id: contextId };
+  // The page showing when it is asked for (as a job is published, as a tag is drawn): in the one page a
+  // tab moves between pages without a load.
+  return { kind: g.shioriDesktop ? 'desktop-window' : 'tab', get page() { return pageOf(); }, id: contextId };
 })();
 
 // ── Change feed ──────────────────────────────────────────────────────────────────────────
