@@ -234,7 +234,7 @@ function Location({ show, onShown }: { show: Say; onShown: (shown: boolean) => v
           <span>{t('set.loc_left', { n: formatCount(left) })}</span>
           <span className="desk-actions inline-flex gap-[8px]">
             <Button id="locMove" variant="subtle" size="sm" onClick={async () => { if (await moveLeft(saved, left, show)) read(); }}>{t('set.loc_move')}</Button>
-            <Button id="locDelete" variant="danger-subtle" size="sm" onClick={async () => { if (await deleteLeft(left)) read(); }}>{t('set.loc_delete')}</Button>
+            <Button id="locDelete" variant="danger" size="sm" onClick={async () => { if (await deleteLeft(left)) read(); }}>{t('set.loc_delete')}</Button>
           </span>
         </div>
       )}

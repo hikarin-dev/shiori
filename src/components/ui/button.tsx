@@ -2,7 +2,7 @@
 //
 // What a button looks like is four choices:
 //   variant  its family: the dialog buttons (outline, primary, danger), the pages' filled one
-//            (solid: Settings' Export…, the overview's Read), Settings' (subtle, tint, danger-subtle),
+//            (solid: Settings' Export…, the overview's Read), Settings' (subtle) and the header's Import (tint),
 //            a button on a surface (secondary), the quiet bordered ones of the pages (quiet), the
 //            borderless ones (ghost), one over a picture (overlay), dashed, and a text link;
 //   tone     the colour a tint, quiet or ghost button speaks in (neutral, primary, warning, danger,
@@ -37,16 +37,17 @@ import type { AnchorHTMLAttributes } from 'react';
 import { classCache, cn } from '@/lib/utils';
 
 // A tone is a set of colours the variants below read: the outline (--t), its text (--t-text: the
-// neutral tone frames in the muted grey and writes in the text colour), the fill (--t-fill: the tone
-// itself, but danger's, which is its 60% under white words: F61), the fill's text (--t-fill-fg)
-// and the 8% tint of an on button (--t-tint). The pressed set (--p…) is the tone's unless
+// neutral tone frames in the muted grey and writes in the text colour), the fill (--t-fill), its
+// frame (--t-fill-edge) and its text (--t-fill-fg), and the 8% tint of an on button (--t-tint). A
+// tone fills with itself, framed in itself, but danger: its own words on its 20% ground with no line,
+// as shadcn's destructive button (F61). The pressed set (--p…) is the tone's unless
 // pressedTone names another.
 const TONES = {
-  neutral: '[--t:var(--muted-foreground)] [--t-fill:var(--muted-foreground)] [--t-text:var(--foreground)] [--t-fill-fg:var(--foreground)] [--t-tint:var(--secondary)]',
-  primary: '[--t:var(--primary)] [--t-fill:var(--primary)] [--t-text:var(--primary)] [--t-fill-fg:var(--primary-foreground)] [--t-tint:var(--primary-tint)]',
-  warning: '[--t:var(--warning)] [--t-fill:var(--warning)] [--t-text:var(--warning)] [--t-fill-fg:var(--warning-foreground)] [--t-tint:var(--warning-tint)]',
-  danger: '[--t:var(--destructive)] [--t-fill:var(--destructive-fill)] [--t-text:var(--destructive)] [--t-fill-fg:var(--destructive-foreground)] [--t-tint:var(--destructive-tint)]',
-  success: '[--t:var(--success)] [--t-fill:var(--success)] [--t-text:var(--success)] [--t-fill-fg:var(--background)] [--t-tint:var(--success-tint)]',
+  neutral: '[--t:var(--muted-foreground)] [--t-fill:var(--muted-foreground)] [--t-fill-edge:var(--muted-foreground)] [--t-text:var(--foreground)] [--t-fill-fg:var(--foreground)] [--t-tint:var(--secondary)]',
+  primary: '[--t:var(--primary)] [--t-fill:var(--primary)] [--t-fill-edge:var(--primary)] [--t-text:var(--primary)] [--t-fill-fg:var(--primary-foreground)] [--t-tint:var(--primary-tint)]',
+  warning: '[--t:var(--warning)] [--t-fill:var(--warning)] [--t-fill-edge:var(--warning)] [--t-text:var(--warning)] [--t-fill-fg:var(--warning-foreground)] [--t-tint:var(--warning-tint)]',
+  danger: '[--t:var(--destructive)] [--t-fill:var(--destructive-fill)] [--t-fill-edge:transparent] [--t-text:var(--destructive)] [--t-fill-fg:var(--destructive)] [--t-tint:var(--destructive-tint)]',
+  success: '[--t:var(--success)] [--t-fill:var(--success)] [--t-fill-edge:var(--success)] [--t-text:var(--success)] [--t-fill-fg:var(--background)] [--t-tint:var(--success-tint)]',
 } as const;
 const PRESSED = {
   neutral: '[--p:var(--muted-foreground)] [--p-text:var(--foreground)] [--p-tint:var(--secondary)]',
@@ -69,14 +70,15 @@ const buttonVariants = cva(
         // Dialogs and the toast (.btn): the muted frame under the pointer, filled or not.
         outline: 'border-input bg-transparent text-foreground hover:border-muted-foreground aria-expanded:border-muted-foreground',
         primary: 'border-primary bg-primary text-primary-foreground hover:border-muted-foreground hover:brightness-110',
-        danger: 'border-destructive bg-destructive-fill text-destructive-foreground hover:border-muted-foreground hover:brightness-110',
+        // The danger button, wherever one is (a dialog's, Settings' Clear All and Reset, Tasks' Stop
+        // all): shadcn's destructive button (F61). Always filled, never an outline (the owner's): there
+        // is no outlined danger variant, and a quiet or ghost button in the danger tone hovers filled.
+        danger: 'border-transparent bg-destructive-fill text-destructive hover:bg-destructive-fill-hover',
         // The pages' filled button (Settings' Export…, the overview's Read): it brightens, keeping
         // its own frame.
         solid: 'border-primary bg-primary text-primary-foreground hover:brightness-110',
-        // Settings: Clear All, Import, Stop all (a tone's outline that fills on hover).
-        tint: 'border-(--t) bg-transparent text-(--t-text) hover:border-(--t) hover:bg-(--t-fill) hover:text-(--t-fill-fg)',
-        // Settings: the quieter danger (Reset).
-        'danger-subtle': 'border-input bg-transparent text-destructive hover:border-destructive hover:bg-[color-mix(in_srgb,var(--destructive)_14%,transparent)]',
+        // A tone's outline that fills on hover (the header's Import, filled at rest there).
+        tint: 'border-(--t) bg-transparent text-(--t-text) hover:border-(--t-fill-edge) hover:bg-(--t-fill) hover:text-(--t-fill-fg)',
         // Settings' small neutral buttons (Advanced settings…, About).
         subtle: 'border-input bg-transparent text-foreground hover:border-border-hover hover:bg-secondary aria-expanded:border-border-hover aria-expanded:bg-secondary',
         // On a surface (the overview's actions).
@@ -99,7 +101,7 @@ const buttonVariants = cva(
         neutral: TONES.neutral, primary: TONES.primary, warning: TONES.warning, danger: TONES.danger, success: TONES.success,
       },
       // How a tint, quiet or ghost button shows its tone before it is hovered.
-      rest: { plain: '', tone: 'text-(--t-text)', framed: 'border-(--t) text-(--t-text)', filled: 'border-(--t) bg-(--t-fill) text-(--t-fill-fg)' },
+      rest: { plain: '', tone: 'text-(--t-text)', framed: 'border-(--t) text-(--t-text)', filled: 'border-(--t-fill-edge) bg-(--t-fill) text-(--t-fill-fg)' },
       // How it hovers in its tone: its frame and text in the tone, or filled with it.
       hover: { outline: '', fill: '' },
       pressedTone: { neutral: PRESSED.neutral, primary: PRESSED.primary, warning: PRESSED.warning, danger: PRESSED.danger, success: PRESSED.success },
@@ -125,7 +127,7 @@ const buttonVariants = cva(
       // Quiet and ghost buttons hover in their tone: outline (frame and text), or fill. A quiet
       // neutral outline is the muted frame and the text colour.
       { variant: ['quiet', 'ghost'], hover: 'outline', class: 'hover:border-(--t) hover:text-(--t-text) aria-expanded:border-(--t) aria-expanded:text-(--t-text)' },
-      { variant: ['quiet', 'ghost'], hover: 'fill', class: 'hover:border-(--t) hover:bg-(--t-fill) hover:text-(--t-fill-fg)' },
+      { variant: ['quiet', 'ghost'], hover: 'fill', class: 'hover:border-(--t-fill-edge) hover:bg-(--t-fill) hover:text-(--t-fill-fg)' },
       // A ghost button in the neutral tone shows no frame on hover (F09): its ground says it.
       { variant: 'ghost', tone: 'neutral', class: 'hover:border-transparent aria-expanded:border-transparent' },
       // The toolbar's quiet button sits on the surface, like the select beside it.
@@ -136,7 +138,7 @@ const buttonVariants = cva(
       // buttons do: it is its tone already, and nothing gets darker there (§3 rule 27).
       { variant: 'tint', rest: 'filled', class: 'hover:brightness-110' },
       // A text button in the page's header (Import, Stop all) is bold and a little wider.
-      { variant: 'tint', size: 'compact', class: 'px-[12px] py-[6px] font-semibold' },
+      { variant: ['tint', 'danger'], size: 'compact', class: 'px-[12px] py-[6px] font-semibold' },
       // A dialog's corner button (and Settings' beside a row): its icon alone, 16.
       { variant: 'ghost', size: 'icon', class: '[&_svg:not([class*=size-])]:size-[16px]' },
       // "Add folder": as wide as its place, radius 8.
@@ -149,6 +151,7 @@ const buttonVariants = cva(
       { variant: ['quiet', 'overlay'], class: 'disabled:cursor-default disabled:opacity-40' },
       { variant: 'ghost', class: 'disabled:cursor-default disabled:opacity-30' },
       { variant: 'tint', size: 'compact', class: 'disabled:cursor-default disabled:border-border disabled:text-muted-dim disabled:opacity-100' },
+      { variant: 'danger', size: ['compact', 'icon'], class: 'disabled:cursor-default disabled:border-border disabled:bg-transparent disabled:text-muted-dim disabled:opacity-100' },
       // Coarse sizes.
       { size: ['icon', 'icon-sm', 'icon-md', 'toolbar'], coarse: '36', class: 'pointer-coarse:size-[36px]' },
       { size: ['icon', 'icon-sm', 'icon-md', 'toolbar'], coarse: '40', class: 'pointer-coarse:size-[40px]' },
@@ -205,7 +208,7 @@ function Button({ className, variant = 'outline', size = 'default', tone, rest, 
         variant, size, coarse: coarse ?? 'none',
         tone: t,
         rest: toned ? rest ?? 'plain' : undefined,
-        hover: toned ? hover ?? 'outline' : undefined,
+        hover: toned ? (t === 'danger' ? 'fill' : hover ?? 'outline') : undefined,
         pressedTone: pressedTone ?? (variant === 'secondary' || variant === 'quiet' || variant === 'ghost' ? t ?? 'primary' : undefined),
       }),
       motion,

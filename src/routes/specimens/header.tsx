@@ -48,7 +48,7 @@ export function HeaderSpecimens() {
             page={page('tasks')}
             right={<>
               <Stat value={2} label={t('tasks.running')} />
-              <Button variant="tint" tone="danger" size="compact" coarse="40"><Square className="fill-current" />{t('tasks.stop_all')}</Button>
+              <Button variant="danger" size="compact" coarse="40"><Square className="fill-current" />{t('tasks.stop_all')}</Button>
               {settings}
             </>}
             {...tag('app-header', 'default', 'rest')}

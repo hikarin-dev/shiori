@@ -35,7 +35,6 @@
     --accent: #1c1c21;                /* the hover surface; --surface-raised */
     --accent-foreground: #f4f4f5;
     --destructive: #ff6467;           /* --danger. shadcn's --destructive on its dark theme, oklch(0.704 0.191 22.216), as sRGB (F61) */
-    --destructive-foreground: #fff;   /* words on a danger fill (--destructive-fill) */
     --border: #2a2a30;
     --input: #3f3f48;                 /* controls and dialog frames; --border-strong (absorbs #3a3a44) */
     --ring: #fb7185;                  /* a focused text box's border */
@@ -64,9 +63,11 @@
     --warning-tint: rgb(255 209 102 / 8%);
     --success-tint: rgb(6 214 160 / 8%);
     --destructive-tint: rgb(255 100 103 / 8%);
-    /* A danger fill under white words: the colour at 60%, as shadcn fills its destructive button on
-       the dark theme. (White on the colour itself is 2.9:1; on this, over a surface, 6:1.) */
-    --destructive-fill: rgb(255 100 103 / 60%);
+    /* A danger button's ground, as shadcn's destructive button on its dark theme (this project's
+       style, base-nova: dark:bg-destructive/20 text-destructive, dark:hover:bg-destructive/30): the
+       colour's own words on its 20%, 30% under the pointer, no line. (4.7:1 over a surface.) */
+    --destructive-fill: rgb(255 100 103 / 20%);
+    --destructive-fill-hover: rgb(255 100 103 / 30%);
     --switch-track: #303038;
     --switch-track-border: #4a4a55;
     --switch-knob: #b3b3bf;
@@ -129,7 +130,6 @@
     --color-accent: var(--accent);
     --color-accent-foreground: var(--accent-foreground);
     --color-destructive: var(--destructive);
-    --color-destructive-foreground: var(--destructive-foreground);
     --color-border: var(--border);
     --color-input: var(--input);
     --color-ring: var(--ring);
@@ -155,6 +155,7 @@
     --color-success-tint: var(--success-tint);
     --color-destructive-tint: var(--destructive-tint);
     --color-destructive-fill: var(--destructive-fill);
+    --color-destructive-fill-hover: var(--destructive-fill-hover);
     --color-switch-track: var(--switch-track);
     --color-switch-track-border: var(--switch-track-border);
     --color-switch-knob: var(--switch-knob);

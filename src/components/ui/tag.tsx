@@ -57,7 +57,7 @@ const tagVariants = cva('group/tag border border-solid no-underline', {
 // While Shift is held, a removable tag's hover is the delete preview (its count's divider fades to
 // white at half strength; an editable detail turns its frame and text red).
 const REMOVING = {
-  fill: 'in-[.shift-held]:hover:border-destructive in-[.shift-held]:hover:bg-destructive-fill in-[.shift-held]:hover:text-destructive-foreground',
+  fill: 'in-[.shift-held]:hover:border-destructive in-[.shift-held]:hover:bg-destructive-fill in-[.shift-held]:hover:text-destructive',
   ghost: 'in-[.shift-held]:hover:border-destructive in-[.shift-held]:hover:text-destructive',
 };
 
@@ -97,7 +97,7 @@ function Tag({ variant = 'neutral', size, count, filterKey, removable, className
       {children}
       {count !== undefined && (
         <span data-slot="tag-count" className={cn('ml-[8px] border-0 border-l border-solid pl-[8px] text-muted-foreground tabular-nums [border-left-color:inherit]',
-          removable && 'in-[.shift-held]:group-hover/tag:text-inherit in-[.shift-held]:group-hover/tag:[border-left-color:rgb(255_255_255/50%)]')}>{count}</span>
+          removable && 'in-[.shift-held]:group-hover/tag:text-inherit in-[.shift-held]:group-hover/tag:[border-left-color:rgb(255_100_103/50%)]')}>{count}</span>
       )}
     </>
   );

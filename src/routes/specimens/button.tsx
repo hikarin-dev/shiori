@@ -22,12 +22,12 @@ const SHAPES: ShapeSpec[] = [
   { id: 'btn-save', name: 'Settings primary', used: 'Settings → Storage (Export…, Import…, Check…, Convert now), the optional panel\'s download, the desktop panel.', states: BASE, variants: [
     { v: 'primary', label: 'solid · default', props: { variant: 'solid' }, children: 'Export…' },
   ] },
-  { id: 'btn-clear-all', name: 'Settings danger outline', used: 'Settings → Storage → Danger Zone (Clear All, Factory Reset).', states: BASE, variants: [
-    { v: 'tint-danger', label: 'tint danger · default', props: { variant: 'tint', tone: 'danger' }, children: '✕ Clear All' },
+  { id: 'btn-clear-all', name: 'Settings danger', used: 'Settings → Storage → Danger Zone (Clear All, Factory Reset): the danger button (F61: filled, never an outline).', states: BASE, variants: [
+    { v: 'danger', label: 'danger · default', props: { variant: 'danger' }, children: '✕ Clear All' },
   ] },
-  { id: 'btn-clear-key', name: 'Settings quiet danger', used: 'Settings → Storage → Stats (Reset); the library location\'s "delete what is left" (small).', states: BASE, variants: [
-    { v: 'danger-subtle', label: 'danger-subtle · default', props: { variant: 'danger-subtle' }, children: 'Reset' },
-    { v: 'danger-subtle-sm', label: 'danger-subtle · sm', props: { variant: 'danger-subtle', size: 'sm' }, children: 'Delete' },
+  { id: 'btn-clear-key', name: 'Settings danger, small things', used: 'Settings → Storage → Stats (Reset); the library location\'s "delete what is left" (small).', states: BASE, variants: [
+    { v: 'danger', label: 'danger · default', props: { variant: 'danger' }, children: 'Reset' },
+    { v: 'danger-sm', label: 'danger · sm', props: { variant: 'danger', size: 'sm' }, children: 'Delete' },
   ] },
   { id: 'btn-mini', name: 'Settings small', used: 'Settings: Advanced settings…, library folders\' attention lines, the desktop panel, library location, benchmark controls.', states: BASE, variants: [
     { v: 'subtle', label: 'subtle · sm', props: { variant: 'subtle', size: 'sm' }, children: <><Settings />Advanced settings…</> },
@@ -45,8 +45,8 @@ const SHAPES: ShapeSpec[] = [
     { v: 'tint-warning-icon', label: 'tint warning, filled · icon', props: { variant: 'tint', tone: 'warning', rest: 'filled', size: 'icon', coarse: '40', 'aria-label': 'Import' }, children: <Upload /> },
   ] },
   { id: 'btn-stop-all', name: 'Tasks header Stop all', used: 'Tasks header.', states: BASE, variants: [
-    { v: 'tint-danger', label: 'tint danger · compact', props: { variant: 'tint', tone: 'danger', size: 'compact', coarse: '40' }, children: <><Square />Stop all</> },
-    { v: 'tint-danger-icon', label: 'tint danger · icon', props: { variant: 'tint', tone: 'danger', size: 'icon', coarse: '40', 'aria-label': 'Stop all' }, children: <Square className="size-[13px]" />, states: ['rest', 'hover', 'focus', 'disabled'] },
+    { v: 'danger', label: 'danger · compact', props: { variant: 'danger', size: 'compact', coarse: '40' }, children: <><Square />Stop all</> },
+    { v: 'danger-icon', label: 'danger · icon', props: { variant: 'danger', size: 'icon', coarse: '40', 'aria-label': 'Stop all' }, children: <Square className="size-[13px]" />, states: ['rest', 'hover', 'focus', 'disabled'] },
   ] },
   { id: 'ib-btn', name: 'Import tracker button', used: 'The import batch panel (Library, Overview, Tasks): Titles (opens), Stop, Dismiss, More.', states: WITH_ON, variants: [
     { v: 'quiet', label: 'quiet · compact', props: { variant: 'quiet', size: 'compact', coarse: '44' }, children: 'Titles', onProps: OPEN },

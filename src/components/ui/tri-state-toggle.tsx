@@ -53,7 +53,7 @@ function TriStateMark({ state, className }: { state: TriState; className?: strin
       className={cn(
         'inline-flex size-[14px] shrink-0 items-center justify-center rounded-3 border border-solid border-border text-10 leading-none font-bold',
         'data-[state=include]:border-success data-[state=include]:bg-success data-[state=include]:text-background',
-        'data-[state=exclude]:border-destructive data-[state=exclude]:bg-destructive-fill data-[state=exclude]:text-destructive-foreground',
+        'data-[state=exclude]:border-destructive data-[state=exclude]:bg-destructive-fill data-[state=exclude]:text-destructive',
         className,
       )}
     >

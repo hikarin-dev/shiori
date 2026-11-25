@@ -174,7 +174,7 @@ function StatsSection({ shown }: { shown: boolean }) {
         )} />
       <SettingRow kind="footer" className="actions-row">
         <StatusText id="writesStatus" tone={status.tone} shown={status.shown}>{status.text}</StatusText>
-        <Button id="resetWritesBtn" variant="danger-subtle" onClick={async () => {
+        <Button id="resetWritesBtn" variant="danger" onClick={async () => {
           if (!(await resetWrites())) return;
           readAgain();   // (a library kept as files' count, at once; this browser's follows by itself)
           show(t('set.writes_reset_done'));
@@ -192,10 +192,10 @@ function DangerSection() {
   return (
     <Section title={<span className="danger-title text-destructive">{t('set.danger')}</span>}>
       <SettingRow kind="action" label={t('set.clear_all')} description={t('set.clear_all_desc')}
-        control={<Button id="clearAllBtn" variant="tint" tone="danger" onClick={async () => { if (await clearLibrary()) show(t('set.clear_done')); }}>{t('set.clear_all_btn')}</Button>} />
+        control={<Button id="clearAllBtn" variant="danger" onClick={async () => { if (await clearLibrary()) show(t('set.clear_done')); }}>{t('set.clear_all_btn')}</Button>} />
       <SettingRow kind="action" label={t('set.factory_reset')} description={t('set.factory_reset_desc')}
         control={(
-          <Button id="factoryResetBtn" variant="tint" tone="danger" onClick={async () => {
+          <Button id="factoryResetBtn" variant="danger" onClick={async () => {
             if (!(await factoryReset())) return;
             show(t('set.factory_done'));
             setTimeout(() => location.reload(), FACTORY_RELOAD_MS);   // the page again, with defaults

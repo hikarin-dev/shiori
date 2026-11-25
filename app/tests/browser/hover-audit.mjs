@@ -70,6 +70,12 @@ function look(i) {
     for (const c of layers.reverse()) out = out.map((v, k) => c[k] * c[3] + v * (1 - c[3]));
     return `rgb(${out.map((v) => Math.round(v * 10) / 10).join(', ')})`;
   };
+  // A frame as it is seen: its colour over the element's own ground, which lies under it (a clear
+  // frame shows that ground, not the page).
+  const seenOver = (colour, ground) => {
+    const c = parse(colour), under = parse(ground);
+    return `rgb(${under.slice(0, 3).map((v, k) => Math.round((c[k] * c[3] + v * (1 - c[3])) * 10) / 10).join(', ')})`;
+  };
   return els.map((el) => {
     const cs = getComputedStyle(el);
     if (cs.display === 'none') return null;
@@ -77,7 +83,7 @@ function look(i) {
     const svg = el instanceof SVGElement;
     return {
       parent: els.indexOf(el.parentElement), visible: cs.visibility, opacity: cs.opacity, filter: cs.filter,
-      text: cs.color, ground: cs.backgroundColor, shown: shown(el), frame: [...new Set(border)].join(' '), fill: svg ? cs.fill : '', stroke: svg ? cs.stroke : '',
+      text: cs.color, ground: cs.backgroundColor, shown: shown(el), frame: [...new Set(border)].join(' '), frameShown: [...new Set(border)].map((b) => seenOver(b, shown(el))).join(' '), fill: svg ? cs.fill : '', stroke: svg ? cs.stroke : '',
     };
   });
 }
@@ -131,9 +137,11 @@ function compare(rest, hover, lit) {
   if (hover.filter !== rest.filter) out.push({ what: 'filter', from: rest.filter, to: hover.filter, darker: brightness(hover.filter) < brightness(rest.filter) });
   for (const what of ['text', 'ground', 'frame', 'fill', 'stroke']) {
     if (rest[what] === hover[what]) continue;
-    const a = lightness(what === 'ground' ? rest.shown : rest[what]), b = lightness(what === 'ground' ? hover.shown : hover[what]);
+    const seen = (l) => (what === 'ground' ? l.shown : what === 'frame' ? l.frameShown : l[what]);
+    const a = lightness(seen(rest)), b = lightness(seen(hover));
     const down = a != null && b != null && b < a - STEP && drawn(rest) && !(lit && what !== 'ground' && what !== 'frame');
-    const coloured = chroma(hover[what]) > chroma(rest[what]) + 0.08;
+    // (A frame's colour too is the one seen: a clear frame over a tinted ground has taken that tint.)
+    const coloured = what === 'frame' ? chroma(seen(hover)) > chroma(seen(rest)) + 0.08 : chroma(hover[what]) > chroma(rest[what]) + 0.08;
     out.push({ what, from: rest[what], to: hover[what], darker: down && !coloured, tone: down && coloured });
   }
   return out;

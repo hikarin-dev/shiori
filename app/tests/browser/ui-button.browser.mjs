@@ -105,22 +105,32 @@ test('at rest a button is the text colour; the header\'s icon buttons have no fr
 });
 
 // §5.3 F61 (the owner, 2026-11-25: "try switch my danger color profile to the destructive color of
-// shadcn"): danger is shadcn's destructive on its dark theme (oklch(0.704 0.191 22.216), as sRGB), and
-// a danger fill under white words is that colour at 60%, as shadcn fills its destructive button there
-// (white on the colour itself is 2.9:1), framed in the colour.
-test('danger is shadcn\'s destructive: the colour in words and frames, its 60% under white words', async (t) => {
+// shadcn"; then "the font color needs to match the danger shadcn too", "make it always filled by
+// default, never outline"): danger is shadcn's destructive on its dark theme (oklch(0.704 0.191
+// 22.216), as sRGB), and the danger button is shadcn's destructive button of this project's style: the
+// colour's own words on its 20% ground, 30% under the pointer, no line; there is no outlined danger.
+test('danger is shadcn\'s destructive: the button filled with its 20% under its own words, no line, never an outline', async (t) => {
   const page = await componentsPage(t, browser, origin);
   if (!page) return;
   const look = (sel) => page.$eval(sel, (el) => { const cs = getComputedStyle(el); return [cs.backgroundColor, cs.borderTopColor, cs.color]; });
-  const RED = 'rgb(255, 100, 103)', FILL = 'rgba(255, 100, 103, 0.6)', WHITE = 'rgb(255, 255, 255)', NONE = 'rgba(0, 0, 0, 0)';
-  // A dialog's filled button.
-  assert.deepEqual(await look(spec('btn', 'danger')), [FILL, RED, WHITE], 'a dialog\'s danger button');
-  // Settings' outline: the colour at rest, the fill under the pointer.
-  assert.deepEqual(await look(spec('btn-clear-all', 'tint-danger')), [NONE, RED, RED], 'Clear All at rest');
-  assert.deepEqual(await look(spec('btn-clear-all', 'tint-danger', 'hover')), [FILL, RED, WHITE], 'Clear All under the pointer');
-  // A card's delete: the colour at rest, the fill under the pointer.
+  const RED = 'rgb(255, 100, 103)', FILL = 'rgba(255, 100, 103, 0.2)', DEEPER = 'rgba(255, 100, 103, 0.3)', NONE = 'rgba(0, 0, 0, 0)';
+  // Every danger button, filled at rest and a step deeper under the pointer: a dialog's, Settings'
+  // (Clear All; Reset and its small form, once an outline each), Tasks' Stop all.
+  for (const [shape, variant] of [['btn', 'danger'], ['btn-clear-all', 'danger'], ['btn-clear-key', 'danger'], ['btn-clear-key', 'danger-sm'], ['btn-stop-all', 'danger']]) {
+    assert.deepEqual(await look(spec(shape, variant)), [FILL, NONE, RED], `${shape} ${variant}: filled at rest, its own words, no line`);
+    assert.deepEqual(await look(spec(shape, variant, 'hover')), [DEEPER, NONE, RED], `${shape} ${variant}: a step deeper under the pointer`);
+  }
+  // Stop all with nothing to stop greys out whole (1.3's: the header is not red while nothing runs).
+  assert.deepEqual(await look(spec('btn-stop-all', 'danger', 'disabled')), [NONE, 'rgb(42, 42, 48)', 'rgb(124, 124, 140)'], 'Stop all, disabled');
+  // An icon button in the danger tone is plain at rest (a card's delete: its icon in the colour) and
+  // takes the same fill under the pointer, with no line: a card's delete, a task's and the tracker's Stop.
   assert.equal((await look(spec('card-btn', 'quiet-danger-fill')))[2], RED);
-  assert.deepEqual(await look(spec('card-btn', 'quiet-danger-fill', 'hover')), [FILL, RED, WHITE], 'a card\'s delete under the pointer');
+  for (const [shape, variant] of [['card-btn', 'quiet-danger-fill'], ['tk-stop', 'quiet-danger'], ['ib-btn', 'quiet-danger-icon']]) {
+    assert.deepEqual(await look(spec(shape, variant, 'hover')), [FILL, NONE, RED], `${shape} ${variant} under the pointer`);
+  }
+  // No outlined danger is left on the page of specimens: nothing framed in the colour on a clear ground.
+  const outlined = await page.$$eval('[data-slot="button"]', (els) => els.filter((el) => { const cs = getComputedStyle(el); return cs.borderTopColor === 'rgb(255, 100, 103)' && cs.backgroundColor === 'rgba(0, 0, 0, 0)'; }).map((el) => el.textContent.trim() || el.getAttribute('aria-label')));
+  assert.deepEqual(outlined, [], 'no outlined danger button');
   // The other tones fill with the tone itself.
   assert.equal((await look(spec('card-btn', 'quiet-warning-fill', 'hover')))[0], 'rgb(255, 209, 102)', 'download: its yellow, whole');
   assert.deepEqual(page.problems, []);
@@ -166,6 +176,6 @@ test('under a coarse pointer each button grows to the finger size today\'s page 
   assert.deepEqual(await size(spec('card-btn', 'quiet')), [36, 36], 'card action: 36');
   assert.deepEqual(await size(spec('tk-stop', 'quiet-danger')), [44, 44], 'task Stop: 44');
   assert.equal((await size(spec('ib-btn', 'quiet')))[1], 44, 'tracker text button: 44 tall');
-  assert.equal((await size(spec('btn-stop-all', 'tint-danger')))[1], 40, 'Stop all: 40 tall');
+  assert.equal((await size(spec('btn-stop-all', 'danger')))[1], 40, 'Stop all: 40 tall');
   assert.deepEqual(await size(spec('btn', 'outline')), [73.203125, 36], 'a dialog button keeps its size (12px, S11)');
 });

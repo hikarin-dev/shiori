@@ -164,7 +164,7 @@ export default function Tasks() {
       <HeaderSlot side="left"><span className="brand-sep">/</span><PageMenu page="tasks" /></HeaderSlot>
       <HeaderSlot side="right">
         <Stat value={formatCount(running)} valueId="tkCount" label={t('tasks.running')} />
-        <Button id="stopAllBtn" variant="tint" tone="danger" size="compact" coarse="40" disabled={!stoppable} onClick={stopAll}
+        <Button id="stopAllBtn" variant="danger" size="compact" coarse="40" disabled={!stoppable} onClick={stopAll}
           data-tip={t('tasks.stop_all')} aria-label={t('tasks.stop_all')}
           className="btn-stop-all [@media(max-width:600px)]:w-[28px] [@media(max-width:600px)]:px-0 [@media(pointer:coarse)_and_(max-width:600px)]:w-[40px]">
           <StopIcon width="13" height="13" />

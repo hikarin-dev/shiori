@@ -25,7 +25,7 @@ function Rows({ state, where }: { state: State; where: string }) {
       <SettingRow kind="switch" label={t('set.lib_nav_stats')} description={t('set.lib_nav_stats_desc')} control={<Switch defaultChecked />} {...at('switch')} />
       <SettingRow kind="switch" sub label={t('set.snapshots_revert')} description={t('set.snapshots_revert_desc')} control={<Switch />} {...at('sub')} />
       <SettingRow kind="action" label={t('set.export_backup')} description={t('set.export_backup_desc')} control={<Button variant="solid">{t('common.export')}</Button>} {...at('action')} />
-      <SettingRow kind="footer" {...at('footer')}><Button variant="danger-subtle">{t('common.reset')}</Button></SettingRow>
+      <SettingRow kind="footer" {...at('footer')}><Button variant="danger">{t('common.reset')}</Button></SettingRow>
     </Card>
   );
 }
