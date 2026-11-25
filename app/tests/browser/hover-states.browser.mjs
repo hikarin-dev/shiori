@@ -80,13 +80,16 @@ for (const path of ['/library']) {
   });
 }
 
-test('the overview (a gallery and a series) and the reader', async (t) => {
+test('the overview (a gallery and a series, 1.3\'s page and the new one) and the reader', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const { page: seeded, gid } = await run('/library');
   await seeded.close();
   for (const [name, path, ready, least] of [
     ['the overview of a gallery', `/overview?g=${gid('P')}`, '.ov-btn', 8],
     ['the overview of a series', `/overview?g=${gid('S')}`, '.ch-ibtn', 15],
+    // The overview as the one page draws it, beside 1.3's until its switch (7e).
+    ['the new overview of a gallery', `/overview-next?g=${gid('P')}`, '.ov-btn', 8],
+    ['the new overview of a series', `/overview-next?g=${gid('S')}`, '.ch-ibtn', 15],
     ['the reader', `/reader?g=${gid('P')}`, '#topbar .tb-btn', 5],
   ]) {
     const page = await open(path, ready);
