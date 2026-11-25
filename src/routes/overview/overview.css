@@ -1,0 +1,202 @@
+/* overview.css — the overview (src/routes/overview.tsx), as 1.3's overview.css draws it, on the app's
+   tokens: the page's column, the hero (the backdrop, the cover, the titles, the actions, the details,
+   the tags), the heading over the list, a chapter's row (what it holds and what shows under the
+   pointer), the page grids, the add-a-chapter bar, and the phone and finger forms. The pieces the page
+   is made of (Button, Tag, InlineEdit, Card, DragHandle, Progress, Tabs, Eyebrow, Input, EmptyState)
+   bring their own looks; what is here is where they stand and what the page itself draws. Sizes are
+   1.3's to the pixel. Edit mode (#ovContent.ov-editing) and a dragged row are 7b's and 7c's: their
+   looks are left out until then. */
+@layer components {
+  .ov-wrap { max-width: 980px; margin: 0 auto; padding: 24px 20px 80px; }
+
+  /* ── The hero: the cover, and beside it the titles, actions, details and tags ── */
+  .ov-hero {
+    display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 26px; align-items: start;
+    margin-bottom: 30px;
+  }
+  /* The cover, blurred and faint, across the page behind the hero, fading out downward. It hangs off
+     the page itself (no positioned ancestor), so it spans the full width below the top bar. */
+  .ov-backdrop {
+    position: absolute; left: 0; right: 0; top: 54px; z-index: -1; height: 480px;
+    background: center 25% / cover no-repeat;
+    /* Keep the cover's sizing and centring stable while the outer layer reaches the window's edge. */
+    padding-right: var(--page-scrollbar-gap); background-origin: content-box;
+    filter: blur(28px) saturate(1.15); opacity: .16;
+    mask-image: linear-gradient(to bottom, #000 35%, transparent);
+    pointer-events: none;
+  }
+  .series-cover {
+    position: relative; width: 100%; min-width: 0; aspect-ratio: 1 / sqrt(2);
+    border-radius: 8px; overflow: hidden; background: var(--card);
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center; text-decoration: none;
+  }
+  /* A cover's fit, as a library card's: an A4-ratio box, a portrait cover fills it, a landscape one is
+     contained so nothing is cut off (.landscape follows the picture's own size). */
+  .ov-thumb { position: relative; z-index: 1; width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
+  .series-cover.landscape, .ch-thumb.landscape { background: transparent; border-color: transparent; }
+  .series-cover.landscape { aspect-ratio: auto; }
+  .ov-thumb.landscape {
+    width: 100%; height: auto; max-height: 100%;
+    object-fit: contain; border: 1px solid var(--border);
+    border-radius: 4px; box-sizing: border-box;
+  }
+  .series-cover .ov-thumb.landscape { max-height: none; border-radius: 6px; }
+  .series-cover .ph { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 34px; opacity: .5; }
+
+  .series-info { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+  .series-title-wrap { position: relative; }
+  /* The title is text until edit mode: the pointer passes to the link over it, which opens the reader. */
+  .series-title-open { position: absolute; inset: 0; z-index: 2; border-radius: 6px; cursor: pointer; }
+  .series-title-wrap:has(.series-title-open:hover) .series-title-input:read-only { color: var(--primary); }
+  /* The title in the other script, right under the heading. */
+  .ov-subtitle { margin-top: -10px; color: var(--muted-foreground); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+
+  .series-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ov-btn.fav.on svg { fill: currentColor; }
+
+  /* The details: icon and value pairs, each explained under the pointer; the dates on a line of their own. */
+  .ov-meta { display: flex; flex-direction: column; gap: 7px; color: var(--muted-foreground); font-size: 12px; }
+  .ov-meta-line { display: flex; flex-wrap: wrap; gap: 7px 18px; }
+  .ov-meta-item { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; cursor: default; }
+  .ov-meta-item svg { flex: none; width: 14px; height: 14px; color: var(--muted-dim); }
+  .ov-meta-item.cap > span { text-transform: capitalize; }
+  .ov-meta-item.done { color: var(--success); }
+  .ov-meta-item.done svg { color: currentColor; }
+
+  /* The tags: a label column, then the tags of that kind; each searches the library for itself. */
+  .ov-tag-table { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 7px 16px; font-size: 12px; }
+  .ov-tag-row { display: contents; }
+  .ov-tag-label { padding-top: 3px; color: var(--muted-foreground); white-space: nowrap; }
+  .ov-tag-chips { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
+  .ov-tag-add-only { grid-column: 1 / -1; }
+
+  /* The heading over the chapter list or the page grid (an Eyebrow, placed by the page), with its count. */
+  .ov-count { color: var(--muted-dim); font-weight: 400; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+  /* The chapters/volumes switch takes the heading's words, at the normal weight (1.3's rule for the
+     heading's spans reached it). */
+  .ov-section-title .ov-view-toggle { color: inherit; font-size: inherit; letter-spacing: inherit; }
+
+  @media (max-width: 640px) {
+    .ov-hero { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+    .ov-hero .series-cover { width: 170px; }
+  }
+
+  /* ── The chapter list ── */
+  .ch-list { display: flex; flex-direction: column; gap: 6px; }
+  .ch-row { position: relative; display: flex; flex-direction: column; overflow: hidden; }
+  .ch-row.missing { opacity: .5; }
+  .ch-head { position: relative; display: flex; align-items: center; gap: 10px; padding: 6px 9px 6px 0; }
+  /* The grip (DragHandle) of a lone row: nowhere to go. */
+  .ch-row:only-child .ch-grip { visibility: hidden; }
+  /* The number sits centred between the row's left border and the cover, in a column that fits the
+     list's longest label so every row's cover lines up. The negative margin takes back the row's gap,
+     so the padding is all the space on either side. */
+  .ch-num {
+    box-sizing: content-box; width: calc(var(--ch-num-chars, 1) * 1ch); padding: 0 18px; margin-right: -10px;
+    text-align: center; color: var(--muted-foreground); font-size: 12px; flex-shrink: 0; font-variant-numeric: tabular-nums;
+  }
+  .ch-thumb {
+    position: relative; width: 36px; aspect-ratio: 1 / sqrt(2); flex-shrink: 0; border-radius: 5px; overflow: hidden;
+    background: var(--background); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center; text-decoration: none;
+  }
+  .ch-thumb .ph { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 16px; opacity: .5; }
+  .ch-thumb.link { cursor: pointer; }
+
+  .ch-main { flex: 1; min-width: 0; }
+  .ch-title-wrap { position: relative; display: inline-grid; max-width: 100%; vertical-align: top; }
+  .ch-title-wrap > * { grid-area: 1 / 1; }
+  .ch-title-open { z-index: 2; border-radius: 5px; cursor: pointer; }
+  .ch-title-wrap:has(.ch-title-open:hover) .ch-title-input:read-only { color: var(--primary); }
+  .ch-meta { color: var(--muted-foreground); font-size: 10.5px; padding: 1px 5px 0; display: flex; gap: 10px; flex-wrap: wrap; }
+  .ch-meta .ch-id { color: inherit; text-decoration: none; }
+  .ch-meta .ch-id:hover { color: var(--primary); }
+  .ch-meta .done { color: var(--success); }
+  .ch-meta .missing, .ov-meta-item.missing { color: var(--destructive); }
+  .ch-progress { display: none; padding: 3px 5px 0; }
+  .ch-row.working .ch-meta { display: none; }
+  .ch-row.working .ch-progress { display: flex; flex-direction: column; }
+  .ch-prog-label {
+    margin-top: 3px; color: var(--muted-foreground); font-size: 10.5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .ch-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  /* A chapter's quick actions show at once while its row is hovered. They keep their space so nothing
+     shifts, stay up while a job's Stop button is live or one of them has keyboard focus (.key-focus:
+     a clicked button keeps its focus too, and its row would keep its buttons up after sliding away
+     from the pointer), and are always shown where there is no hover. */
+  @media (hover: hover) {
+    .ch-actions, .ch-grip { opacity: 0; pointer-events: none; }
+    .ch-head:hover :is(.ch-actions, .ch-grip),
+    .ch-actions.key-focus:focus-within,
+    .ch-actions:has(.cancelling) { opacity: 1; pointer-events: auto; }
+  }
+  /* A button's faces: its icon at rest and, where it has one, its icon for Shift, one over the other.
+     While Shift is held on it, the one at rest folds shut (0.1s) and the other opens (0.1s after), as
+     1.3's flip did. */
+  .ch-face { display: grid; place-items: center; }
+  .ch-face > * { grid-area: 1 / 1; display: flex; transition: transform 0.1s ease-out 0.1s; }
+  .ch-face > .face-shift { transform: scaleY(0); transition: transform 0.1s ease-in; }
+  .shift-held .ch-ibtn:hover:not(:disabled) > .ch-face > .face-rest { transform: scaleY(0); transition: transform 0.1s ease-in; }
+  .shift-held .ch-ibtn:hover:not(:disabled) > .ch-face > .face-shift { transform: none; transition: transform 0.1s ease-out 0.1s; }
+
+  /* ── A chapter's pages, opened under its row ── */
+  .ch-expand { margin-left: 2px; }
+  .ch-expand svg { transition: transform .18s ease; }
+  .ch-row.expanded .ch-expand svg { transform: rotate(180deg); }
+  .ch-pages {
+    display: none;
+    grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+    gap: 8px; padding: 2px 9px 10px;
+  }
+  .ch-row.expanded .ch-pages { display: grid; }
+
+  /* ── The add-a-chapter bar ── */
+  .add-bar { margin-top: 22px; padding: 16px; border: 1px dashed var(--border); border-radius: 10px; }
+  .add-bar h3 { margin: 0 0 10px; }
+  .add-search-wrap { position: relative; }
+  .add-hint { margin-top: 10px; color: var(--muted-foreground); font-size: 11px; }
+
+  /* ── Page grids (a standalone gallery inline, a chapter's under its row): tiles made by
+     src/lib/page-thumbs.ts ── */
+  .ov-pages {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+    gap: 10px; margin-top: 4px;
+  }
+  .ov-page {
+    position: relative; display: block; aspect-ratio: 1 / sqrt(2);
+    background: var(--background); border: 1px solid var(--border); border-radius: 6px;
+    overflow: hidden; text-decoration: none;
+  }
+  .ov-page:hover { border-color: var(--primary); }
+  .ov-page img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* A tile whose copy isn't made yet (or was let go far from view) shows its own ground, never the
+     browser's broken-image glyph: a sized <img> without a source draws one, even with alt="". */
+  .ov-page img:not([src]) { visibility: hidden; }
+  .ov-page-num {
+    position: absolute; left: 4px; bottom: 4px; z-index: 1;
+    font-size: 10px; line-height: 1; padding: 2px 5px; border-radius: 4px;
+    background: var(--overlay-black); color: #fff; font-variant-numeric: tabular-nums; pointer-events: none;
+  }
+  .ov-pages-empty { grid-column: 1 / -1; color: var(--muted-foreground); font-size: 12px; text-align: center; padding: 24px 0; }
+
+  /* ── Phones ── A chapter's buttons take a line of their own under it, on the right, so its title and
+     page count keep the row's width. */
+  @media (max-width: 600px) {
+    .ch-head { flex-wrap: wrap; row-gap: 2px; }
+    .ch-head::after { content: ''; order: 1; flex-basis: 100%; }
+    .ch-actions { order: 2; margin-left: auto; }
+    .ch-expand { order: 3; }
+  }
+}
+
+/* What the page changes of its pieces' own looks, where their classes are. */
+@layer utilities {
+  .series-actions [hidden] { display: none; }
+  /* "+" adds a tag: edit mode only (with no tags, the table shows for it alone). */
+  #ovContent:not(.ov-editing) :is(.ov-chip-add, .ov-tag-table.no-tags) { display: none; }
+  /* The translation server not there: no translate buttons. */
+  #ovContent[data-translator-offline] .ch-ibtn.translate { display: none; }
+}
