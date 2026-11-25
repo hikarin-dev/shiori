@@ -6,13 +6,17 @@
 // 1.3's does and nothing else; with the CPU slowed six times, nothing moves while the pictures land that
 // does not on 1.3's page (the column, once, as the scrollbar comes); a title that runs long wraps as
 // 1.3's; on a phone's screen nothing scrolls sideways and
-// a row's buttons show with no pointer to hover.
+// a row's buttons show with no pointer to hover. Edit mode (7b): every box 1.3's at 100%, 125% and 150%,
+// 1280 and 760 wide; the title growing with its lines in the frame they are typed, as 1.3's; the
+// delete's question and the re-run menu inside the window at 1280, 760, a phone and 125%/150%, the
+// question never moving from its first frame with the CPU slowed six times.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import puppeteer from 'puppeteer-core';
 import { startServer, chromePath, openPage, until } from './harness.mjs';
 import { seedRun, nextBase, gid, visit, boxes, boxDiff, sleep, OLD, NEW } from './overview-drive.mjs';
 import { standInHelper } from './stand-in-helper.mjs';
+import { startTranslator } from './stand-in-translator.mjs';
 
 let server, origin, browser, base, long, sixty, titled;
 
@@ -157,5 +161,116 @@ test('on a phone\'s screen: nothing scrolls sideways, a row\'s buttons show with
     assert.ok(got[NEW].actions.every((o) => o === '1'));
     // (The header is every page's one header, 12px in at the sides at 600px or less: not 1.3's 20.)
     assert.deepEqual(boxDiff(got[`${OLD} boxes`], got[`${NEW} boxes`], 1).filter((d) => !/^\.count: /.test(d)), []);
+  }
+});
+
+// ── Edit mode, the delete's question and the re-run menu (7b) ──
+
+const editing = async (page) => {
+  await page.click('#editToggle');
+  await until(page, () => !!document.querySelector('#ovContent.ov-editing'), null, { what: 'edit mode' });
+  await page.mouse.move(2, 2);
+  await sleep(300);
+};
+
+for (const scale of [1, 1.25, 1.5]) {
+  test(`edit mode at ${scale * 100}% scale, 1280 and 760 wide: every box 1.3's within a pixel`, { skip: !chromePath() }, async () => {
+    for (const width of [1280, 760]) {
+      for (const [part, g] of [['a series', gid(base, 'S')], ['a long title and a long tag', titled]]) {
+        const got = {};
+        for (const path of [OLD, NEW]) {
+          const page = await open(path, g, { width, height: 900, deviceScaleFactor: scale });
+          await editing(page);
+          got[path] = await page.evaluate(boxes);
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0, `${path} ${width}: no sideways scroll`);
+          await page.close();
+        }
+        assert.deepEqual(boxDiff(got[OLD], got[NEW], 1).filter((d) => !/^\.count: /.test(d)), [], `${part}, ${width}`);
+      }
+    }
+  });
+}
+
+test('edit mode: the title grows with its lines as they are typed, in the frame they come, as 1.3\'s; on a phone nothing scrolls sideways', { skip: !chromePath() }, async () => {
+  const more = ' and the words go on and on, over the end of the line, to a line of their own and then one more after it';
+  const got = {};
+  for (const path of [OLD, NEW]) {
+    for (const view of [{ width: 1280, height: 900 }, { width: 390, height: 844, isMobile: true, hasTouch: true }]) {
+      const page = await open(path, titled, view);
+      // (The title as it was made: a page closed with its box focused may have saved what was typed.)
+      await page.evaluate(async (id) => { const api = await import('/app/js/api.js'); const m = await api.meta.get(id); await api.meta.put({ ...m, title: { ...m.title, english: 'A title that runs long, and longer still, over more than one line of the page and then over a third one as well, with words that wrap' } }); }, titled);
+      await visit(page, origin, path, titled);
+      await editing(page);
+      const before = await page.$eval('.series-title-input', (el) => el.getBoundingClientRect().height);
+      await page.click('.series-title-input');
+      await page.keyboard.press('End');
+      await page.keyboard.type(more, { delay: 0 });
+      // In the frame after the last letter: the box as tall as its lines, nothing easing, and no sideways scroll.
+      const next = await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => {
+        const el = document.querySelector('.series-title-input');
+        resolve({ height: Math.round(el.getBoundingClientRect().height * 100) / 100, fits: el.scrollHeight <= el.clientHeight + 2,
+          moving: document.getAnimations().filter((a) => a.playState === 'running').length, sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth });
+      })));
+      assert.ok(next.height > before, `${path} ${view.width}: grown (${before} → ${next.height})`);
+      assert.deepEqual([next.fits, next.moving, next.sideways], [true, 0, 0], `${path} ${view.width}`);
+      got[`${path} ${view.width}`] = [before, next.height];
+      await page.close();
+    }
+  }
+  for (const width of [1280, 390]) {
+    const [a, b] = [got[`${OLD} ${width}`], got[`${NEW} ${width}`]];
+    assert.ok(Math.abs(a[0] - b[0]) <= 4 && Math.abs(a[1] - b[1]) <= 4, `${width}: 1.3's heights (${a}) and the new (${b}), within 1.3's 4px of an inline box`);
+  }
+});
+
+test('the delete\'s question and the re-run menu stay inside the window (1280, 760, a phone; 125% and 150%); the question still from its first frame with the CPU slowed six times', { skip: !chromePath() }, async () => {
+  const row = `.ch-row[data-chapter-id="${gid(base, 'S3')}"]`;
+  // The translation server's stand-in answering (the translate buttons show).
+  const tr = await startTranslator();
+  const open = async (path, g, view) => {
+    const page = await openPage(browser, origin, { allow: [tr.origin] });
+    await page.setViewport(view);
+    await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
+    await page.evaluate((url) => localStorage.setItem('shiori:translateSettings', JSON.stringify({ serverUrl: url })), tr.origin);
+    await visit(page, origin, path, g);
+    await until(page, (sel) => getComputedStyle(document.querySelector(sel)).display !== 'none', `${row} [data-translate]`, { what: 'the translation server' });
+    return page;
+  };
+  try {
+  for (const [view, scale] of [[{ width: 1280, height: 900 }, 1], [{ width: 760, height: 700 }, 1], [{ width: 1280, height: 900 }, 1.25], [{ width: 1280, height: 900 }, 1.5], [{ width: 390, height: 844, isMobile: true, hasTouch: true }, 1]]) {
+    const page = await open(NEW, gid(base, 'S'), { ...view, deviceScaleFactor: scale });
+    const inside = (sel) => page.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); const e = document.documentElement; return r.left >= 0 && r.top >= 0 && r.right <= e.clientWidth && r.bottom <= innerHeight && e.scrollWidth <= e.clientWidth; }, sel);
+    const cdp = await page.createCDPSession();
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
+    // Every frame of the question's box from the press on.
+    await page.evaluate(() => {
+      window.__boxes = [];
+      const tick = () => { const d = document.querySelector('[data-notice="dialog"]'); if (d) { const r = d.getBoundingClientRect(); window.__boxes.push(`${r.top},${r.height},${r.left},${r.width}`); } if (window.__boxes.length < 40) requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    });
+    await page.$eval(`${row} [data-remove]`, (b) => b.scrollIntoView({ block: 'center' }));
+    if (!view.isMobile) await page.hover(`${row} .ch-main`);
+    await page.click(`${row} [data-remove]`);
+    await page.waitForFunction(() => window.__boxes.length >= 40, { timeout: 20000 });
+    assert.equal(new Set(await page.evaluate(() => window.__boxes)).size, 1, `${view.width}@${scale}: the question never moves or changes size`);
+    assert.ok(await inside('[data-notice="dialog"]'), `${view.width}@${scale}: the question inside the window`);
+    await page.keyboard.press('Escape');
+    await until(page, () => !document.querySelector('[data-notice="dialog"]'), null, { what: 'the question gone' });
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+    if (!view.isMobile) await page.hover(`${row} .ch-main`);
+    await page.click(`${row} [data-translate]`, { button: 'right' });
+    await until(page, () => !!document.querySelector('[data-slot="menu"]'), null, { what: 'the menu' });
+    await sleep(400);
+    assert.ok(await inside('[data-slot="menu"]'), `${view.width}@${scale}: the menu inside the window`);
+    await page.keyboard.press('Escape');
+    assert.deepEqual(page.problems, []);
+    await page.close();
+  }
+  } finally {
+    const last = await openPage(browser, origin);
+    await last.goto(`${origin}/tasks`, { waitUntil: 'load' });
+    await last.evaluate(() => localStorage.removeItem('shiori:translateSettings'));
+    await last.close();
+    await tr.close();
   }
 });
