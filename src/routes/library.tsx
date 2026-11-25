@@ -54,6 +54,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Pagination } from '@/components/ui/pagination';
 import { Select } from '@/components/ui/select';
 import { cardView, ratedSafe, type CardEnv, type CardGallery } from '@/lib/card-view';
+import { fitAhead } from '@/lib/cover-fit';
 import { CARD_FORMATS } from '@/lib/card-rules';
 import { coverKeyOf, createCoverStore, type CoverStore } from '@/lib/covers';
 import { galleryQuery } from '@/lib/gallery';
@@ -226,7 +227,7 @@ export default function Library() {
     rpc: platform.rpc, onControl: platform.onControl, canDownload: canDownload as never,
     viewport: () => window, onResize: (cb) => { window.addEventListener('resize', cb); return () => window.removeEventListener('resize', cb); },
     session: (() => { try { return sessionStorage; } catch { return null; } })(),
-    prime: (dataUrl) => { const img = new Image(); img.src = dataUrl; },
+    prime: fitAhead,
     // A gallery with no pages whose cover came: its record read again, and the totals.
     onEmptyCover: (gid) => { readAgain(client, gid).catch(() => {}); totalsRef.current(); },
   }));

@@ -1,5 +1,76 @@
-// cover-fit.ts — how a card's cover sits in its portrait box (src/components/gallery-card.tsx).
-//
+// cover-fit.ts — how a card's cover sits in its portrait box (src/components/gallery-card.tsx), known
+// before the cover is shown: a portrait cover fills the box; a landscape one sits whole in it, its bars
+// filled with a glow made from it. 1.3 fitted a cover in the turn its picture loaded (updateCardThumbFit),
+// so the card was never seen unfitted; a card that fits its cover after drawing it shows the cover
+// cropped, then whole, then its glow. Here the fit is worked out ahead and the card draws the cover once:
+//   - fitNow(src): the fit where it is known at once: one kept from before, or that of a portrait cover
+//     the library's cover service made (it says its size in its first bytes).
+//   - fitComing(src): the fit of any other, once its picture is decoded: its shape from the picture
+//     itself, and for a landscape one its glow, made and decoded too, so cover and glow show in one
+//     frame. Worked out once per picture however many ask; the last KEPT are kept (two pages of the
+//     library: the one shown and the one left), each landscape one with its two pictures as decoded
+//     (`held`), so both are at hand the moment a card draws them (some 150 KB a landscape cover).
+//   - fitAhead(src): a cover about to be shown (the session's, as the page starts): its picture's
+//     decoding begun, as 1.3 primed each cover it restored, and its fit with it where that is not
+//     known at once, so a landscape cover is ready by the time its card is drawn.
+import { headerSize } from '@lib/page-size.js';
+
+export type Fit = { landscape: boolean; glow: Glow | null; held?: HTMLImageElement[] };
+const PORTRAIT: Fit = { landscape: false, glow: null };
+const KEPT = 60;
+const fits = new Map<string, Fit>();
+const coming = new Map<string, Promise<Fit>>();
+
+// Whether a cover the cover service made is portrait: a WebP as a canvas writes one has its size in its
+// first 30 bytes (in a container with its colour profile, "VP8X", or bare). Null for any other picture,
+// and for a WebP that carries EXIF, which may turn it: those are decoded to know.
+const WEBP = 'data:image/webp;base64,';
+function madePortrait(src: string): boolean | null {
+  if (!src.startsWith(WEBP)) return null;
+  try {
+    const bytes = Uint8Array.from(atob(src.slice(WEBP.length, WEBP.length + 40)), (c) => c.charCodeAt(0));
+    if (bytes[15] === 0x58 && bytes[20] & 0x08) return null;   // "VP8X" saying it holds EXIF
+    const size = headerSize(bytes) as { w: number; h: number } | null | undefined;
+    return size?.w && size.h ? size.w < size.h : null;
+  } catch { return null; }
+}
+
+export function fitNow(src: string): Fit | null {
+  return fits.get(src) ?? (madePortrait(src) ? PORTRAIT : null);
+}
+
+export function fitComing(src: string): Promise<Fit> {
+  let fit = coming.get(src);
+  if (!fit) {
+    fit = make(src).then((made) => {
+      coming.delete(src);
+      fits.set(src, made);
+      for (const oldest of fits.keys()) { if (fits.size <= KEPT) break; fits.delete(oldest); }
+      return made;
+    });
+    coming.set(src, fit);
+  }
+  return fit;
+}
+
+export function fitAhead(src: string) {
+  if (fitNow(src)) new Image().src = src;
+  else void fitComing(src);
+}
+
+async function make(src: string): Promise<Fit> {
+  const img = new Image();
+  img.src = src;
+  try { await img.decode(); } catch { return PORTRAIT; }
+  if (!img.naturalHeight || img.naturalWidth < img.naturalHeight) return PORTRAIT;
+  const glow = paintGlow(img);
+  if (!glow) return { landscape: true, glow, held: [img] };
+  const picture = new Image();
+  picture.src = glow.src;
+  try { await picture.decode(); } catch { /* it shows as it comes */ }
+  return { landscape: true, glow, held: [img, picture] };
+}
+
 // 1.3's paintCardGlow, moved as it is: a landscape cover's bars are filled with an ambient glow built
 // as ambient-light video players build theirs, copies of the cover stacked behind it, each a step
 // taller than the last so its edge colours reach outward, then blurred. Tuned to the maximum spread
@@ -11,7 +82,7 @@ const GLOW_SPREAD = 4, GLOW_EDGE = 0.12, GLOW_BLUR = 0.25;
 // The glow overhangs the cover's box by half its size on every side (the stylesheet, same fraction).
 const GLOW_BLEED = 0.5;
 export type Glow = { src: string; blur: string };
-export function paintGlow(img: HTMLImageElement): Glow | null {
+function paintGlow(img: HTMLImageElement): Glow | null {
   const aspect = img.naturalWidth / img.naturalHeight;
   // Small is enough: the result is blurred and scaled up. One downscaled copy is drawn repeatedly.
   const src = document.createElement('canvas');

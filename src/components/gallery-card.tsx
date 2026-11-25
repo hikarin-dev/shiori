@@ -38,7 +38,7 @@ import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type Mo
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { paintGlow, type Glow } from '@/lib/cover-fit';
+import { fitComing, fitNow, type Fit } from '@/lib/cover-fit';
 import { Tag } from '@/components/ui/tag';
 import { StopIcon } from '@/components/stop-icon';
 import { siteRoot } from '@/entry';
@@ -102,32 +102,45 @@ type Props = {
 const NO_HANDLERS: CardHandlers = {};
 
 // ── The cover ──
-// The cover: the picture once there is one to show (its place kept empty while it comes, 📁 where
-// none will), letterboxed when it is landscape (1.3's updateCardThumbFit). A new picture replaces the
-// old in the same <img>, which shows the old one until the new has come; a cover taken away (none at
-// hand for now) leaves the last one showing, as 1.3's did.
+// The cover: the picture once there is one to show and how it sits is known (its place kept empty
+// until then, 📁 where none will come): filling the box, or whole in it with its glow when it is
+// landscape (1.3's updateCardThumbFit). How it sits is known at once for a portrait cover the cover
+// service made and for a cover fitted before; any other is shown once it is fitted, cover and glow in
+// one frame (src/lib/cover-fit.ts; both decoded with that frame, not after it): a cover is never seen
+// cropped and then whole, or without its glow.
+// A new picture takes the old one's place once it can be shown so: the old one shows until then, and a
+// cover taken away (none at hand for now) leaves the last one showing, as 1.3's did.
+type Shown = { src: string; fit: Fit };
+const fitted = (src: string | null): Shown | null => {
+  const fit = src ? fitNow(src) : null;
+  return fit ? { src: src!, fit } : null;
+};
 const Cover = memo(function Cover({ id, href, src, expected, badge, onPointerDown }: {
   id: string; href: string; src: string | null; expected: boolean; badge: string;
   onPointerDown: (event: PointerEvent<HTMLAnchorElement>) => void;
 }) {
-  const [kept, setKept] = useState<string | null>(src);
-  if (src && src !== kept) setKept(src);
-  const shown = src || kept;
-  const [fit, setFit] = useState<{ landscape: boolean; glow: Glow | null }>({ landscape: false, glow: null });
-  const loaded = useCallback((event: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = event.currentTarget;
-    if (!img.naturalWidth || !img.naturalHeight) return;
-    const landscape = img.naturalWidth >= img.naturalHeight;
-    // (A portrait cover after a portrait one changes nothing: the same object, nothing drawn again.)
-    setFit((was) => (landscape ? { landscape, glow: paintGlow(img) } : was.landscape || was.glow ? { landscape: false, glow: null } : was));
-  }, []);
+  const [kept, setKept] = useState<Shown | null>(() => fitted(src));
+  let shown = kept;
+  if (src && src !== shown?.src) {
+    const next = fitted(src);
+    if (next) { setKept(next); shown = next; }
+  }
+  // (A cover whose fit is still to come: shown when it has.)
+  const awaited = src && src !== shown?.src ? src : null;
+  useEffect(() => {
+    if (!awaited) return;
+    let wanted = true;
+    fitComing(awaited).then((fit) => { if (wanted) setKept({ src: awaited, fit }); });
+    return () => { wanted = false; };
+  }, [awaited]);
+  const fit = shown?.fit;
   return (
     // draggable off on the cover and its link: grabbing it starts the card's own drag (6d), not the
     // browser's, whose dragged image carries a 'Files' type the page's file drop would take.
     <a className="card-thumb-wrap" href={href} draggable={false} onPointerDown={onPointerDown}>
-      {expected && fit.glow && <img className="card-thumb-glow" alt="" aria-hidden="true" src={fit.glow.src} style={{ filter: fit.glow.blur }} />}
+      {expected && fit?.glow && <img className="card-thumb-glow" alt="" aria-hidden="true" decoding="sync" src={fit.glow.src} style={{ filter: fit.glow.blur }} />}
       {expected
-        ? <img className={fit.landscape ? 'card-thumb landscape' : 'card-thumb'} draggable={false} alt="" src={shown ?? undefined} onLoad={loaded} data-cover={id} />
+        ? <img className={fit?.landscape ? 'card-thumb landscape' : 'card-thumb'} draggable={false} alt="" decoding={fit?.landscape ? 'sync' : undefined} src={shown?.src} data-cover={id} />
         : <div className="card-thumb-placeholder">📁</div>}
       {badge && <Badge variant="overlay" className="card-series-badge absolute top-[8px] left-[8px] z-[6]">{badge}</Badge>}
     </a>
