@@ -1,5 +1,7 @@
-// TagEditor — a tag added to a gallery (app/js/tag-editor.js's dialog, on the design system's pieces):
-// its type (the type last added first), then its value, typed with the library's tags of that type
+// TagEditor — a tag added to a gallery (app/js/tag-editor.js's dialog, on the design system's pieces), or
+// with `edit` a tag the gallery has changed or removed (the overview's tags in edit mode: its type
+// kept, its value to change, a Remove button that takes it off): its type (the type last added
+// first), then its value, typed with the library's tags of that type
 // suggested (most used first; those the gallery has left out) or, for a type with a fixed vocabulary
 // (a category, a rating, a language), picked from a list (a category or a rating starts on the one the
 // gallery has: a gallery has one of each, and the new one replaces it). What it writes is
@@ -13,7 +15,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import * as api from '@lib/api.js';
 import { formatCompact } from '@lib/format.js';
-import { TAG_TYPE_LABEL, singleValue, suggestionsFor, tagChoices, tagSuggestions, writeTag } from '@lib/tag-editor.js';
+import { TAG_TYPE_LABEL, removeTag, singleValue, suggestionsFor, tagChoices, tagSuggestions, writeTag } from '@lib/tag-editor.js';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -30,7 +32,7 @@ const TYPES = Object.entries(TAG_TYPE_LABEL as Record<string, string>);
 // The type an add starts on: the last one added (for the page's life, as 1.3's module kept it).
 let lastType = 'tag';
 
-export function TagEditor({ gid, onClose }: { gid: string | null; onClose: (changed: boolean) => void }) {
+export function TagEditor({ gid, edit = null, onClose }: { gid: string | null; edit?: Tag | null; onClose: (changed: boolean) => void }) {
   const t = useT();
   const [have, setHave] = useState<Tag[] | null>(null);
   useEffect(() => {
@@ -41,25 +43,28 @@ export function TagEditor({ gid, onClose }: { gid: string | null; onClose: (chan
   }, [gid]);
   return (
     <Dialog open={gid != null && have != null} onOpenChange={(open) => { if (!open) onClose(false); }}>
-      {gid != null && have != null && <Editor key={gid} t={t} gid={gid} have={have} onClose={onClose} />}
+      {gid != null && have != null && <Editor key={`${gid}
+${edit?.type ?? ''}
+${edit?.name ?? ''}`} t={t} gid={gid} edit={edit} have={have} onClose={onClose} />}
     </Dialog>
   );
 }
 
-function Editor({ t, gid, have, onClose }: { t: ReturnType<typeof useT>; gid: string; have: Tag[]; onClose: (changed: boolean) => void }) {
+function Editor({ t, gid, edit, have, onClose }: { t: ReturnType<typeof useT>; gid: string; edit: Tag | null; have: Tag[]; onClose: (changed: boolean) => void }) {
   const listId = `${useId().replace(/[^a-zA-Z0-9]/g, '')}-tag-list`;
-  const [type, setType] = useState(lastType);
+  const [type, setType] = useState(edit ? edit.type : lastType);
   const choices = choicesOf(type);
-  // A picked value: the gallery's own for a category or rating (kept as an option when it is outside
-  // the list), else the list's first.
+  // A picked value: the edited tag's, or the gallery's own for a category or rating (kept as an option
+  // when it is outside the list), else the list's first.
+  const ownOf = (forType: string) => String(edit ? edit.name : singleValue(forType, have) || '');
   const pickOptions = (forType: string) => {
     const list = choicesOf(forType) ?? [];
-    const own = String(singleValue(forType, have) || '');
+    const own = ownOf(forType);
     const lower = own.toLowerCase();
     return lower && !list.some((c) => c.value === lower) ? [{ value: lower, label: own }, ...list] : list;
   };
-  const [pick, setPick] = useState(() => String(singleValue(lastType, have) || '').toLowerCase() || pickOptions(lastType)[0]?.value || '');
-  const [value, setValue] = useState('');
+  const [pick, setPick] = useState(() => ownOf(type).toLowerCase() || pickOptions(type)[0]?.value || '');
+  const [value, setValue] = useState(edit ? edit.name : '');
   const [all, setAll] = useState<Suggestion[]>([]);
   const [live, setLive] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -88,18 +93,23 @@ function Editor({ t, gid, have, onClose }: { t: ReturnType<typeof useT>; gid: st
   const save = async () => {
     const name = (choices ? pick : value).trim().toLowerCase();
     if (!name) { input.current?.focus(); return; }
-    const written = await writeTag(gid, type, name) as boolean;
-    lastType = type;
+    const written = await (writeTag as (...args: unknown[]) => Promise<boolean>)(gid, type, name, edit ? { edit } : undefined);
+    if (!edit) lastType = type;
     onClose(written);
   };
+  const remove = async () => onClose(await removeTag(gid, edit) as boolean);
 
   return (
     <DialogContent size="xs" id="tagEditor" aria-labelledby="tagEdTitle"
-      initialFocus={() => (choices ? pickBox.current?.querySelector<HTMLElement>('button, select') ?? null : input.current)}>
-      <DialogHeader><DialogTitle id="tagEdTitle">{t('addtag.title')}</DialogTitle></DialogHeader>
+      initialFocus={() => {
+        if (choices) return pickBox.current?.querySelector<HTMLElement>('button, select') ?? null;
+        if (edit) setTimeout(() => input.current?.select());   // (its value chosen, as 1.3 did)
+        return input.current;
+      }}>
+      <DialogHeader><DialogTitle id="tagEdTitle">{t(edit ? 'addtag.edit_title' : 'addtag.title')}</DialogTitle></DialogHeader>
       <div className="flex flex-col gap-[8px]">
         <Eyebrow size="xs" id="tagEdTypeLabel">{t('addtag.type')}</Eyebrow>
-        <Select id="tagEdType" variant="inset" aria-labelledby="tagEdTypeLabel" value={type} onValueChange={changeType}
+        <Select id="tagEdType" variant="inset" aria-labelledby="tagEdTypeLabel" value={type} onValueChange={changeType} disabled={!!edit}
           options={TYPES.map(([value, key]) => ({ value, label: t(key) }))} />
         <Eyebrow size="xs" id="tagEdValueLabel" className="mt-[4px]">{t('addtag.value')}</Eyebrow>
         {choices ? (
@@ -126,8 +136,9 @@ function Editor({ t, gid, have, onClose }: { t: ReturnType<typeof useT>; gid: st
         )}
       </div>
       <DialogFooter>
+        {edit && <Button id="tagEdRemove" variant="danger" className="mr-auto" onClick={remove}>{t('dlg.tag_ok')}</Button>}
         <Button id="tagEdCancel" onClick={() => onClose(false)}>{t('common.cancel')}</Button>
-        <Button id="tagEdOk" variant="primary" onClick={save}>{t('common.add')}</Button>
+        <Button id="tagEdOk" variant="primary" onClick={save}>{t(edit ? 'common.save' : 'common.add')}</Button>
       </DialogFooter>
     </DialogContent>
   );
