@@ -111,6 +111,11 @@ const CASES = [
     const at = await press(d, 'S2');
     await moveTo(d, at.x, at.y + 90);
     await d.page.evaluate((sel) => { const g = document.querySelector(sel); for (const id of [1, 2, 3]) if (g.hasPointerCapture(id)) g.releasePointerCapture(id); }, `${rowSel(d.base, 'S2')} .ch-grip`);
+    // A capture let go by script is told (lostpointercapture) as the next pointer event comes: on 1.3's page
+    // its drag's frame loop had it told within 400 ms, on the new page it waits for that event (a real loss
+    // comes with one: a cancel, a lifted finger). The pointer moved a pixel, then the rows read.
+    await sleep(400);
+    await d.page.mouse.move(at.x + 1, at.y + 91);
     await sleep(400);
     await look(d, 'lost');
     await d.page.mouse.up(); await sleep(800);
