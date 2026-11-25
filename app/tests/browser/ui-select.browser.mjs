@@ -215,3 +215,69 @@ test('no tip shows while a list is open (the list is over everything, a tip woul
   await shown('the tip after a press beside the list');
   assert.deepEqual(page.problems, []);
 });
+
+// The owner (2026-11-26), of the list hung off its box: "when it's sliding in and out, there's a weird
+// period where you can see it breaks the illusion as the rounding needs to maybe delayed or synced to
+// the dropdown pulling up and down". The box squared and rounded its corners over 120 ms from the
+// moment the popup opened or began to close, while the list unrolled or rolled up over 180 ms: as it
+// closed, the box was round again with a strip of the list still hanging under it, the list's sides
+// showing past the curve, and its frame had gone back to its resting colour beside the list's. Now the
+// box keeps its joined look (data-unrolled) from the frame the list starts until the frame it is gone.
+// Held every frame, the motion slowed five times so no frame of it is missed: while any of the list is
+// there, the corners by it are square and the box's frame is the list's; after it, they are round.
+const JOINED = [['field', spec('select-field', 'field')], ['toolbar', spec('sort-select', 'toolbar')], ['inset', spec('modal-select', 'inset')]];
+const watchJoin = (page, sel, up) => page.evaluate(({ sel, up }) => {
+  const box = document.querySelector(sel);
+  const seen = (window.__join = { frames: [], stop: false });
+  const tick = () => {
+    // (The list is kept in the page while closed, not drawn: "there" is drawn.)
+    const kept = document.querySelector('[data-slot="select-list"]'), list = kept && kept.getClientRects().length ? kept : null;
+    const b = getComputedStyle(box);
+    const row = {
+      list: !!list,
+      byList: up ? [b.borderTopLeftRadius, b.borderTopRightRadius] : [b.borderBottomLeftRadius, b.borderBottomRightRadius],
+      away: up ? [b.borderBottomLeftRadius, b.borderBottomRightRadius] : [b.borderTopLeftRadius, b.borderTopRightRadius],
+      frame: up ? b.borderTopColor : b.borderBottomColor,
+    };
+    if (list) { const l = getComputedStyle(list); row.listFrame = l.borderLeftColor; row.clip = l.clipPath; }
+    seen.frames.push(row);
+    if (!seen.stop) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}, { sel, up });
+const joinSeen = (page) => page.evaluate(() => new Promise((done) => requestAnimationFrame(() => { window.__join.stop = true; done(window.__join.frames); })));
+
+for (const [variant, sel] of JOINED) {
+  for (const up of [false, true]) {
+    test(`${variant}, opening ${up ? 'upward' : 'downward'}: box and list are one outline in every frame the list shows any of itself, unrolling and rolling up`, async (t) => {
+      const page = await componentsPage(t, browser, origin);
+      if (!page) return;
+      const cdp = await page.createCDPSession();
+      await cdp.send('Animation.enable');
+      await cdp.send('Animation.setPlaybackRate', { playbackRate: 0.2 });
+      if (up) await page.$eval(sel, (el) => { const p = el.parentElement; Object.assign(p.style, { position: 'fixed', bottom: '10px', left: '20px', zIndex: 5 }); });
+      const at = await centreOf(page, sel);
+      await watchJoin(page, sel, up);
+      await page.mouse.click(at.x, at.y);
+      await until(page, () => { const l = document.querySelector('[data-slot="select-list"]'); return !!l && l.getAnimations().length === 0 && !l.hasAttribute('data-starting-style'); }, null, { what: 'the list unrolled' });
+      // An option pressed: the pointer is on the list, off the box, as the list rolls up.
+      const option = await page.evaluate(() => { const r = document.querySelectorAll('[data-slot="select-list"] [role="option"]')[1].getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+      await page.mouse.move(option.x, option.y);
+      await page.mouse.click(option.x, option.y);
+      await until(page, () => !document.querySelector('[data-slot="select-list"]')?.getClientRects().length, null, { what: 'the list gone' });
+      await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+      const frames = await joinSeen(page);
+
+      const withList = frames.filter((f) => f.list);
+      const moving = new Set(withList.map((f) => f.clip)).size;
+      assert.ok(moving >= 6, `the unrolling and the rolling up were watched as they moved (${moving} places of the clip seen)`);
+      assert.deepEqual([...new Set(withList.map((f) => f.byList.join(' ')))], ['0px 0px'], 'the corners by the list: square in every frame the list is there');
+      assert.deepEqual(withList.filter((f) => f.frame !== f.listFrame).map((f) => `${f.frame} beside ${f.listFrame}`).slice(0, 3), [], 'the box\'s frame is the list\'s in every frame the list is there');
+      assert.deepEqual([...new Set(frames.map((f) => f.away.join(' ')))], ['6px 6px'], 'the corners away from the list never change');
+      const last = frames[frames.length - 1];
+      assert.deepEqual([last.list, last.byList.join(' ')], [false, '6px 6px'], 'the list gone: the box round again');
+      // Nothing of it eases a corner (it would curve while the list still hangs there).
+      assert.equal(await page.$eval(sel, (el) => getComputedStyle(el).transitionProperty.includes('border-radius') || getComputedStyle(el).transitionProperty === 'all'), false);
+    });
+  }
+}

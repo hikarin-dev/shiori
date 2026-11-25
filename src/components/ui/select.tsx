@@ -50,16 +50,16 @@ const GROUND: Record<Variant, string> = { field: 'bg-surface-subtle', inset: 'bg
 // header's the hand. Its list's options take the same.
 const CURSOR: Record<Variant, string> = { field: 'cursor-auto', inset: 'cursor-auto', toolbar: 'cursor-pointer', ghost: 'cursor-pointer' };
 const box = cva(
-  'inline-flex min-w-0 items-center gap-[8px] rounded-6 border border-solid text-left whitespace-nowrap text-foreground select-none transition-[background-color,border-color,border-radius,box-shadow] duration-fast ease-standard',
+  'inline-flex min-w-0 items-center gap-[8px] rounded-6 border border-solid text-left whitespace-nowrap text-foreground select-none transition-[background-color,border-color,box-shadow] duration-fast ease-standard',
   {
     variants: {
       variant: {
-        field: `border-input bg-surface-subtle data-popup-open:bg-surface-subtle ${FOCUS_BOX}`,
-        inset: `border-border bg-background data-popup-open:bg-background ${FOCUS_BOX} disabled:opacity-60 data-disabled:opacity-60`,
-        toolbar: `border-border bg-card data-popup-open:bg-card ${FOCUS_BOX}`,
+        field: `border-input bg-surface-subtle data-unrolled:bg-surface-subtle ${FOCUS_BOX}`,
+        inset: `border-border bg-background data-unrolled:bg-background ${FOCUS_BOX} disabled:opacity-60 data-disabled:opacity-60`,
+        toolbar: `border-border bg-card data-unrolled:bg-card ${FOCUS_BOX}`,
         // The header's page menu: the shared keyboard ring, as the header's other controls.
         // (Its word in the text colour, as the header's buttons beside it: §5.3 F60.)
-        ghost: 'border-transparent bg-transparent text-foreground data-popup-open:bg-transparent',
+        ghost: 'border-transparent bg-transparent text-foreground data-unrolled:bg-transparent',
       },
       size: {
         default: 'min-h-[36px] px-[10px] py-[8px]',
@@ -76,14 +76,20 @@ const box = cva(
 // The box's type, which its list shares (the list's eight rows are eight of its lines).
 const TEXT: Record<Size, string> = { default: 'text-12 leading-[1.4]', toolbar: 'text-12', xs: 'text-13' };
 
-// Hovered: the raised ground and the hover frame. Open: its resting ground (each variant's, above),
-// the hover frame, the corners by the list squared. Focused, its frame is the focused one under the
-// pointer too (a hover weighs what focus-visible does and comes before it).
-const BOX_STATES = 'hover:bg-secondary hover:border-border-hover data-popup-open:border-border-hover';
+// Hovered: the raised ground and the hover frame. With its list showing: its resting ground (each
+// variant's, above), the hover frame, the corners by the list squared. Focused, its frame is the
+// focused one under the pointer too (a hover weighs what focus-visible does and comes before it).
+// "Its list showing" is data-unrolled: from the frame the list starts to unroll until the frame it
+// has rolled up whole, which is later than data-popup-open's end (that goes as the closing begins).
+// Box and list are one outline for exactly as long as there is a list: the corners are not eased
+// (rounding them while a strip of the list still hangs there showed its sides past the curve), and
+// the box takes the joined look at once, nothing of it eased (a press in the first moments of a hover
+// would otherwise show its frame still on its way to the list's): it eases back once the list is gone.
+const BOX_STATES = 'hover:bg-secondary hover:border-border-hover data-unrolled:border-border-hover data-unrolled:transition-none';
 const OPEN_EDGE: Record<Variant, string> = {
-  field: 'data-popup-open:not-data-up:rounded-b-none data-popup-open:data-up:rounded-t-none',
-  inset: 'data-popup-open:not-data-up:rounded-b-none data-popup-open:data-up:rounded-t-none',
-  toolbar: 'data-popup-open:not-data-up:rounded-b-none data-popup-open:data-up:rounded-t-none',
+  field: 'data-unrolled:not-data-up:rounded-b-none data-unrolled:data-up:rounded-t-none',
+  inset: 'data-unrolled:not-data-up:rounded-b-none data-unrolled:data-up:rounded-t-none',
+  toolbar: 'data-unrolled:not-data-up:rounded-b-none data-unrolled:data-up:rounded-t-none',
   ghost: '',   // its list stands 4px off it, with corners of its own
 };
 
@@ -141,6 +147,8 @@ function Select({ options, value, defaultValue, onValueChange, variant = 'field'
   const choose = (v: string) => { setOwn(v); onValueChange?.(v); };
   const anchor = `--select-${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   const [up, setUp] = useState(false);
+  // Its list showing at all: from the first of it unrolled to the last of it rolled up.
+  const [unrolled, setUnrolled] = useState(false);
   const cursor = CURSOR[variant];
   const boxClass = cn(box({ variant, size: s, width: w }), TEXT[s], cursor, cursor === 'cursor-pointer' && 'disabled:cursor-default data-disabled:cursor-default', BOX_STATES, OPEN_EDGE[variant], className);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -166,12 +174,16 @@ function Select({ options, value, defaultValue, onValueChange, variant = 'field'
       value={current}
       onValueChange={(v) => { if (typeof v === 'string') choose(v); }}
       onOpenChange={(open) => {
+        if (!open) return;
+        setUnrolled(true);
         // Which way it opens, settled as it opens: down, unless only the space above can hold it.
-        if (open && trigger.current) {
+        if (trigger.current) {
           const r = trigger.current.getBoundingClientRect(), below = innerHeight - r.bottom;
           setUp(variant !== 'ghost' && below < Math.min(options.length, MAX_ROWS) * ROW + 10 && r.top > below);
         }
       }}
+      // (The list rolled up whole: only now is the box on its own again.)
+      onOpenChangeComplete={(open) => { if (!open) setUnrolled(false); }}
       items={options}
       modal={false}
       disabled={disabled}
@@ -183,6 +195,7 @@ function Select({ options, value, defaultValue, onValueChange, variant = 'field'
         data-slot="select-trigger"
         data-variant={variant}
         data-up={up ? '' : undefined}
+        data-unrolled={unrolled ? '' : undefined}
         style={{ anchorName: anchor } as CSSProperties}
         className={cn(boxClass, '[&[data-popup-open]_svg]:[--turn:1] [&:is(:hover,[data-popup-open])_svg]:text-muted-foreground')}
         {...rest}
