@@ -116,18 +116,21 @@ test('the search: the list, a block, the 180 ms after a key, the X; a card\'s ta
   for (const path of ['/library', '/library-next']) {
     const page = await open(path);
     const r = {};
-    // When the grid's cards change, kept by an observer in the page.
+    // When the grid's cards change, and when the last key went down, both kept in the page (a time read
+    // from here after the typing comes a round trip late: under the whole suite's load that made the
+    // wait look shorter than it was).
     await page.evaluate(() => {
       window.__changed = [];
+      window.__keyed = 0;
       new MutationObserver(() => window.__changed.push(performance.now())).observe(document.getElementById('grid'), { childList: true });
+      document.addEventListener('keydown', () => { window.__keyed = performance.now(); }, true);
     });
     await page.click('#searchBox');
     await until(page, () => !!document.querySelector('#searchSuggest [role="option"]'), null, { what: 'the list' });
     r.list = await page.evaluate(() => [...document.querySelectorAll('#searchSuggest [role="option"]')].length);
     await page.keyboard.type('tag:"t1"');
-    const typed = await page.evaluate(() => performance.now());
     await until(page, () => window.__changed.length > 0, null, { what: 'the search applied' });
-    r.waited = (await page.evaluate(() => window.__changed[0])) - typed >= 180;
+    r.waited = await page.evaluate(() => window.__changed[0] - window.__keyed >= 180);
     await sleep(300);
     r.after = await page.evaluate(() => [[...document.querySelectorAll('#searchBox .search-chip')].map((c) => c.dataset.token), document.querySelectorAll('#grid > .card').length,
       location.search, getComputedStyle(document.getElementById('searchClear')).display !== 'none']);

@@ -145,6 +145,8 @@ test('galleries added and removed in another context: the page follows, as 1.3\'
   const out = {};
   for (const path of ['/library', '/library-next']) {
     const page = await open(path);
+    // The total as it stands before anything is added (once it has been read: a figure, not "—").
+    const before = await until(page, () => { const said = document.getElementById('hTotalGalleries').textContent; return /\d/.test(said) && said; }, null, { what: `${path}: the totals` });
     const other = await openPage(browser, origin);
     await other.goto(`${origin}/tasks`, { waitUntil: 'load' });
     const add = await other.evaluate(async () => {
@@ -158,12 +160,15 @@ test('galleries added and removed in another context: the page follows, as 1.3\'
     await page.bringToFront();
     await until(page, (gid) => document.querySelector('#grid > .card')?.dataset.galleryId === gid, add, { what: `${path}: the added gallery first` });
     await covered(page);
-    await sleep(1200);   // the totals, read again 800 ms after the last change (as the removal's below)
+    // The totals are read again 800 ms after the library's last word of a change, and words may still
+    // be coming (the new gallery's cover): waited for until they have changed, not for a fixed while
+    // (under the whole suite's load 1.2 s was once too short for the one page, once for the other).
+    await until(page, (was) => document.getElementById('hTotalGalleries').textContent !== was, before, { what: `${path}: the totals after the gallery was added` });
     const added = await page.evaluate(() => [document.querySelectorAll('#grid > .card').length, document.getElementById('hTotalGalleries').textContent]);
     await other.evaluate(async (gid) => (await import('/app/js/store.js')).remove(gid), add);
     await page.bringToFront();
     await until(page, (gid) => !document.querySelector(`#grid > .card[data-gallery-id="${gid}"]`) && document.querySelectorAll('#grid > .card').length === 30, add, { what: `${path}: removed` });
-    await sleep(1200);
+    await until(page, (was) => document.getElementById('hTotalGalleries').textContent === was, before, { what: `${path}: the totals after the gallery was removed` });
     out[path] = { added, removed: await page.evaluate(() => [document.querySelectorAll('#grid > .card').length, document.getElementById('hTotalGalleries').textContent]) };
     await other.close();
     assert.deepEqual(page.problems, []);
