@@ -687,11 +687,11 @@ test('Settings → Storage shows where the library is kept, and the overview can
   assert.deepEqual(await menuOf('Lib C'), ['Show', 'Remove']);
   await settings.keyboard.press('Escape');
   const gid = page.__gid;
-  // The overview (as the one page draws it: /overview-next) offers every other place in the library
+  // The overview (drawn by the one page since its switch) offers every other place in the library
   // folders' own window, not the one the gallery is in: its Move followed the folders' count as it shows;
   // Cancel moves nothing, a place moves it there. (1.3's page offered the same places in its own window.)
   const next = await openPage(browser, origin);
-  await next.goto(`${origin}/overview-next?g=${gid}`, { waitUntil: 'load' });
+  await next.goto(`${origin}/overview?g=${gid}`, { waitUntil: 'load' });
   await until(next, () => { const b = document.getElementById('moveTo'); return b && !b.hidden; }, null, { what: 'the one page’s Move to button' });
   await next.click('#moveTo');
   const offered = await until(next, () => { const list = [...document.querySelectorAll('[data-notice="ask"] [data-slot="option-title"]')].map(s => s.textContent); return list.length && list; }, null, { what: 'the one page’s places to move to' });

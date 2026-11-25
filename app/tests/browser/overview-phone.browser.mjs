@@ -1,5 +1,5 @@
 // overview-phone.browser.mjs — the overview on a phone (a touch screen, a coarse pointer, no hover),
-// the one page's (/overview-next) held to what 1.3's (/overview) gave driven alike over one seeded
+// the one page's (/overview) held to what 1.3's (/overview) gave driven alike over one seeded
 // library (overview-drive.mjs). At 390 and 600 wide: a series (its chapters, its volumes),
 // a gallery, edit mode and a row's pages open, every part's box within a pixel, the same words, the same
 // text sizes, the same targets for a finger (a row's buttons and the header's Settings 40px, the hero's

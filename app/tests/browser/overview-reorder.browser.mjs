@@ -53,7 +53,7 @@ async function seed(G) {
 async function visit(t) {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return null; }
   const page = await openPage(browser, origin);
-  await page.goto(`${origin}/overview-next?g=${G.a}`, { waitUntil: 'load' });
+  await page.goto(`${origin}/overview?g=${G.a}`, { waitUntil: 'load' });
   await until(page, () => document.querySelectorAll('.ch-row .ch-thumb img').length === 4 && !!document.querySelector('#seriesCover img'),
     null, { what: 'four rows with their thumbnails, and the cover' });
   return page;

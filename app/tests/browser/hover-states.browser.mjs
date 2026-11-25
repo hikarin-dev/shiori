@@ -82,23 +82,21 @@ for (const path of ['/library']) {
   });
 }
 
-test('the overview (a gallery and a series, 1.3\'s page and the new one) and the reader', async (t) => {
+// (Until the overview's switch, 2026-11-25, 1.3's /overview was measured beside the one page's.)
+test('the overview (a gallery and a series) and the reader', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const { page: seeded, gid } = await run('/library');
   await seeded.close();
   for (const [name, path, ready, least] of [
     ['the overview of a gallery', `/overview?g=${gid('P')}`, '.ov-btn', 8],
     ['the overview of a series', `/overview?g=${gid('S')}`, '.ch-ibtn', 15],
-    // The overview as the one page draws it, beside 1.3's until its switch (7e).
-    ['the new overview of a gallery', `/overview-next?g=${gid('P')}`, '.ov-btn', 8],
-    ['the new overview of a series', `/overview-next?g=${gid('S')}`, '.ch-ibtn', 15],
     ['the reader', `/reader?g=${gid('P')}`, '#topbar .tb-btn', 5],
   ]) {
     const page = await open(path, ready);
     await nothingDarker(page, name, least);
-    // The new overview in edit mode too: its titles to type in, its tags and details pressable, its Edit
+    // The overview in edit mode too: its titles to type in, its tags and details pressable, its Edit
     // on (Done, in its yellow), which keeps that look under the pointer.
-    if (path.startsWith('/overview-next')) {
+    if (path.startsWith('/overview')) {
       await page.click('#editToggle');
       await until(page, () => !!document.querySelector('#ovContent.ov-editing'), null, { what: 'edit mode' });
       await page.mouse.move(5, 5);
@@ -122,8 +120,7 @@ test('the overview (a gallery and a series, 1.3\'s page and the new one) and the
 
 // 7d: the new overview in the states that have more to point at: a row with a job (its bar, its Stop),
 // a row's pages open (its tiles, its toggle on), the re-run menu open (a translated chapter's steps), the
-// tag editor open, and the phone form (a row's buttons shown with no pointer over them). 1.3's page beside
-// it in each, as above.
+// tag editor open, and the phone form (a row's buttons shown with no pointer over them).
 test('the overview\'s other states: a row with a job, a row\'s pages open, the re-run menu, the tag editor, the phone form', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const tr = await startTranslator();
@@ -133,8 +130,8 @@ test('the overview\'s other states: a row with a job, a row\'s pages open, the r
   const page = await ov.openRun(browser, origin, base, { translator: tr.origin, storage: { 'shiori:translateSettings': { serverUrl: tr.origin } } });
   t.after(async () => { await page.evaluate(async () => { const platform = await import('/app/js/platform.js'); for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind); }); await page.close(); });
   const row = (part) => ov.rowSel(base, part);
-  for (const path of [ov.OLD, ov.NEW]) {
-    const name = path === ov.NEW ? 'the new overview' : 'the overview';
+  for (const path of [ov.NEW]) {
+    const name = 'the overview';
     await page.setViewport({ width: 1280, height: 900 });
     await ov.visit(page, origin, path, ov.gid(base, 'S'));
     await until(page, () => getComputedStyle(document.querySelector('.ch-row:not(.missing) [data-translate]')).display !== 'none', null, { what: 'the translation server' });

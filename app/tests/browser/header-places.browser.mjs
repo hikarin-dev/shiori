@@ -3,7 +3,8 @@
 // another page is seen to move: the logo, the name, the "/" and the page menu are measured (their
 // boxes, and where their words are drawn) in every frame of a walk from the library to Settings, to
 // Tasks and back, at several widths and at 100%, 125% and 150% scale, and none may differ from the
-// first frame's. (The page menu's own word changes with the page: where it begins does not.)
+// first frame's. (The page menu's own word changes with the page: where it begins does not.) The
+// overview joined the walk at its switch (2026-11-25): a series' overview between them.
 //
 // What it found the first time: Settings had a form of the header of its own (1.3's Settings page's:
 // a 1.5 line, the brand on a 1.2 line), which drew the "/" and the menu's word a quarter of a pixel
@@ -17,7 +18,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import puppeteer from 'puppeteer-core';
 import { startServer, chromePath, until } from './harness.mjs';
-import { openRun, nextBase } from './library-drive.mjs';
+import { openRun, nextBase, PARTS } from './library-drive.mjs';
 
 let server, origin;
 const browsers = {};
@@ -71,14 +72,17 @@ const shown = {
   library: (page) => until(page, () => /^\/(library)?$/.test(location.pathname) && !!document.querySelector('#grid > .card') && !!document.querySelector('.app-header .page-nav'), null, { what: 'the library' }),
   settings: (page) => until(page, () => location.pathname === '/settings' && !!document.querySelector('#settingsNav .nav-item') && !!document.getElementById('aboutBtn'), null, { what: 'Settings' }),
   tasks: (page) => until(page, () => location.pathname === '/tasks' && !!document.getElementById('tkList') && !!document.querySelector('.app-header .page-nav'), null, { what: 'Tasks' }),
+  overview: (page) => until(page, () => location.pathname === '/overview' && !!document.querySelector('#ovContent .ov-hero') && !!document.querySelector('.app-header .page-nav'), null, { what: 'the overview' }),
 };
 // A change of route as a link in the app makes it (no load).
 const go = (page, path) => page.evaluate((path) => { const a = document.createElement('a'); a.href = path; document.body.append(a); a.click(); a.remove(); }, path);
 const settle = (page) => page.evaluate(() => new Promise((done) => { let n = 0; const tick = () => (++n < 20 ? requestAnimationFrame(tick) : done()); tick(); }));
 
+// A page of `path` over a run's library; `page.series`: the address of its series' overview.
 async function open(scale, width, path) {
   const base = nextBase(1790011000000);
   const page = await openRun(browsers[scale], origin, path, { base });
+  page.series = `/overview?g=${base + PARTS.S}`;
   await page.setViewport({ width, height: 900 });
   await page.evaluate(() => document.fonts.ready);
   await settle(page);
@@ -93,13 +97,13 @@ for (const scale of [1, 1.25, 1.5]) {
       const page = await open(scale, width, '/library');
       await shown.library(page);
       await page.evaluate(record);
-      for (const [path, name] of [['/settings', 'settings'], ['/tasks', 'tasks'], ['/library', 'library'], ['/settings', 'settings'], ['/library', 'library']]) {
+      for (const [path, name] of [['/settings', 'settings'], ['/tasks', 'tasks'], ['/library', 'library'], [page.series, 'overview'], ['/settings', 'settings'], [page.series, 'overview'], ['/tasks', 'tasks'], ['/library', 'library']]) {
         await go(page, path);
         await shown[name](page);
         await settle(page);
       }
       const { frames, pages, seen } = await recorded(page);
-      assert.ok(frames > 100 && pages.length >= 3, `${width}: the walk was watched (${frames} frames, ${pages})`);
+      assert.ok(frames > 100 && pages.length >= 4, `${width}: the walk was watched (${frames} frames, ${pages})`);
       assert.equal(await page.evaluate(() => window.__stayed), true, `${width}: no page load`);
       for (const [part, places] of Object.entries(seen)) {
         assert.deepEqual(places.filter((p) => p !== '-').length, 1, `${width}: the ${part} stood in one place (${places.join(' | ')})`);
@@ -112,7 +116,7 @@ for (const scale of [1, 1.25, 1.5]) {
   });
 }
 
-test('at a phone\'s width the logo is as far from the side on every page; Settings and Tasks are the same in every part', async (t) => {
+test('at a phone\'s width the logo is as far from the side on every page; Settings, Tasks and the overview are the same in every part', async (t) => {
   if (!browsers[1]) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   for (const width of [600, 520, 390, 320]) {
     const page = await open(1, width, '/library');
@@ -123,15 +127,15 @@ test('at a phone\'s width the logo is as far from the side on every page; Settin
     await shown.settings(page);
     await settle(page);
     places.settings = await logo();
-    // Settings ↔ Tasks: one shape of header, every part in one place.
+    // Settings ↔ Tasks ↔ the overview: one shape of header, every part in one place.
     await page.evaluate(record);
-    for (const [path, name] of [['/tasks', 'tasks'], ['/settings', 'settings'], ['/tasks', 'tasks']]) {
+    for (const [path, name] of [['/tasks', 'tasks'], [page.series, 'overview'], ['/settings', 'settings'], ['/tasks', 'tasks']]) {
       await go(page, path);
       await shown[name](page);
       await settle(page);
     }
     const { seen } = await recorded(page);
-    for (const [part, at] of Object.entries(seen)) assert.deepEqual(at.filter((p) => p !== '-').length, 1, `${width}: the ${part} stood in one place between Settings and Tasks (${at.join(' | ')})`);
+    for (const [part, at] of Object.entries(seen)) assert.deepEqual(at.filter((p) => p !== '-').length, 1, `${width}: the ${part} stood in one place between Settings, Tasks and the overview (${at.join(' | ')})`);
     places.tasks = await logo();
     assert.deepEqual(places.settings, places.library, `${width}: the logo on Settings where the library has it`);
     assert.deepEqual(places.tasks, places.library, `${width}: the logo on Tasks where the library has it`);

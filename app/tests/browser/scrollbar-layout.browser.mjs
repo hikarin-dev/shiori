@@ -72,7 +72,7 @@ const geometry = (page, selectors) => page.evaluate(selectors => {
 for (const [route, selectors] of [
   ['/library', ['.header-right', '.toolbar', '#grid']],
   ['/settings', ['.header-right', '.settings-page', '.content']],
-  [`/overview-next?g=${GALLERY}`, ['.header-right', '.ov-wrap', '.series-cover']],
+  [`/overview?g=${GALLERY}`, ['.header-right', '.ov-wrap', '.series-cover']],
 ]) {
   test(`${route.split('?')[0]} content stays aligned while the navbar reaches the edge`, { skip: !chromePath() }, async t => {
     const page = await fresh(t, route);

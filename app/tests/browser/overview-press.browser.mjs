@@ -1,4 +1,4 @@
-// overview-press.browser.mjs — a press on the overview at /overview-next, as it is drawn: its change
+// overview-press.browser.mjs — a press on the overview at /overview, as it is drawn: its change
 // in the frame of the press, and put back when the library refuses it (the heart); a press on one row
 // draws that row alone (the other rows' nodes untouched); a job begun by a press, each of its words, and
 // what its end does (the gallery read again, the row's cover asked again for pages that changed, the

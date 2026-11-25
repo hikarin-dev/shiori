@@ -1,4 +1,4 @@
-// overview-jobs.browser.mjs — jobs drawn on the overview's rows at /overview-next, held to what
+// overview-jobs.browser.mjs — jobs drawn on the overview's rows at /overview, held to what
 // 1.3's page (/overview) gave driven alike: every state of a download (started, its
 // bytes with and without a size, extracting, its pages, done and the 4 s it stays, then at rest), an
 // import (started, its pages, failed), a translation (started, its figure, done with what failed and

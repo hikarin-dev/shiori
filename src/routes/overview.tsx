@@ -1,5 +1,5 @@
 // overview.tsx — a gallery's or a series' overview, the landing before the reader, as the one page
-// draws it (at /overview-next while 1.3's page answers /overview): the header's parts (the page menu,
+// draws it (at /overview?g=, which 1.3's page answered until the switch): the header's parts (the page menu,
 // Settings), the hero (./overview/hero.tsx: the cover and its backdrop, the titles, the actions, the
 // details, the tags), the heading over the list (a series' chapters/volumes switch with its count, a
 // gallery's pages with theirs), a series' rows (./overview/rows.tsx) or a gallery's page grid, the
@@ -84,7 +84,7 @@ const TagEditor = lazy(() => import('@/components/tag-editor').then((m) => ({ de
 // its reads as its script ran. The page then finds them in the cache.
 (function readEarly() {
   const g = new URLSearchParams(location.search).get('g');
-  if (!g || !/\/overview-next$/.test(location.pathname)) return;
+  if (!g || !/\/overview$/.test(location.pathname)) return;
   queryClient.fetchQuery({ queryKey: overviewKey(g), queryFn: () => readFrame(queryClient, g), staleTime: Infinity }).then((frame) => {
     if (!frame.found) return;
     const owner = queryClient.getQueryData<Entity | null>(galleryQuery(frame.ownerId).queryKey);

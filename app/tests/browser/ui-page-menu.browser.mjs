@@ -2,7 +2,9 @@
 // pages it offers (a gallery's overview only where the address names a gallery, the reader only in
 // the reader), and choosing one: a plain page load for a page that still has a file of its own, a
 // route change (no load) for one the one page draws; under a coarse pointer the system's picker (T15),
-// as wide as the drawn box.
+// as wide as the drawn box. (Since the overview's switch, 2026-11-25, every page it offers outside the
+// reader is drawn by the one page: the reader, the one page left with a file of its own, is offered only
+// in the reader, whose menu is its own page's. Until then a gallery's overview was the page it loaded.)
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, until } from './harness.mjs';
@@ -41,20 +43,19 @@ test('the pages it offers, and its box', async (t) => {
   assert.deepEqual(page.problems, []);
 });
 
-test('choosing a page that has a file of its own loads it', async (t) => {
+test('choosing a gallery\'s overview is a route change to its clean address, no load', async (t) => {
   const page = await componentsPage(t, browser, origin);
   if (!page) return;
-  // (The library is the menu's own page here: a gallery's overview is the page with a file of its own
-  // it offers once the address names a gallery.)
+  // (The library is the menu's own page here: a gallery's overview is offered once the address names a
+  // gallery.)
   await page.goto(`${origin}/components?g=1790000001058`, { waitUntil: 'load' });
   await page.waitForSelector(MENU);
   await page.evaluate(() => { window.stayed = true; });
   assert.deepEqual(await offered(page, MENU), ['Library', 'Overview', 'Settings', 'Tasks']);
-  await Promise.all([
-    page.waitForNavigation({ waitUntil: 'load' }),
-    page.click('[data-slot="select-list"] [data-slot="select-option"]:nth-child(2)'),
-  ]);
-  assert.deepEqual(await page.evaluate(() => [window.stayed ?? null, location.pathname + location.search]), [null, '/overview?g=1790000001058'], 'a page load, at its clean address');
+  await page.click('[data-slot="select-list"] [data-slot="select-option"]:nth-child(2)');
+  await until(page, () => location.pathname === '/overview' && document.title === 'Shiori — Series' && !!document.getElementById('ovContent'), undefined, { what: 'the overview drawn' });
+  assert.deepEqual(await page.evaluate(() => [window.stayed ?? null, location.pathname + location.search]), [true, '/overview?g=1790000001058'], 'a route change, at its clean address');
+  assert.deepEqual(page.problems, []);
 });
 
 test('choosing a page the one page draws is a route change, no load', async (t) => {

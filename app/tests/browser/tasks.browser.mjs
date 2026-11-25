@@ -142,7 +142,7 @@ test('a running download\'s button is a Stop control, on a library card and on a
   }, card, { what: 'the download stopped, the button back' });
   await finish(library);
 
-  const overview = await visit(`/overview-next?g=${G.ch1}`, t);
+  const overview = await visit(`/overview?g=${G.ch1}`, t);
   const row = `.ch-row[data-chapter-id="${G.ch2}"]`;
   await overview.waitForSelector(`${row} [data-download]`);
   await publish(overview, { gid: G.ch2, kind: 'download', status: 'progress', done: 1, total: 2 });

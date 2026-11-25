@@ -1,4 +1,4 @@
-// overview-edit.browser.mjs — edit mode on the overview at /overview-next, held to what 1.3's page
+// overview-edit.browser.mjs — edit mode on the overview at /overview, held to what 1.3's page
 // (/overview) gave driven alike: every way into and out of it, every way a title is
 // saved and is not (the series', a gallery's own, a chapter's; typed, emptied, the same text again; left
 // by a press elsewhere or by Done), the tags (a tag and the category pressed: the tag editor on it, its
@@ -246,7 +246,7 @@ test('the address changing in edit mode: off for the next gallery and back (the 
   await page.click('#editToggle');
   await typeTitle(page, SERIES_TITLE, 'Left by a link');
   // A press on a link to another overview (the address changes in the page).
-  await page.evaluate((g) => { const a = document.createElement('a'); a.href = `overview-next?g=${g}`; a.id = '__go'; a.textContent = 'go'; a.style.cssText = 'position:fixed;left:0;top:60px;z-index:99'; document.body.append(a); }, gid(base, 'G'));
+  await page.evaluate((g) => { const a = document.createElement('a'); a.href = `overview?g=${g}`; a.id = '__go'; a.textContent = 'go'; a.style.cssText = 'position:fixed;left:0;top:60px;z-index:99'; document.body.append(a); }, gid(base, 'G'));
   await page.click('#__go');
   await until(page, (g) => new URLSearchParams(location.search).get('g') === g && document.querySelector('#galleryTitle')?.value === 'G gallery', gid(base, 'G'), { what: 'the next gallery' });
   assert.equal(await page.evaluate(() => document.getElementById('ovContent').classList.contains('ov-editing')), false, 'edit mode off');

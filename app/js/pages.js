@@ -15,10 +15,9 @@ export const PAGES = Object.freeze({
   library: APP_PAGE,
   settings: APP_PAGE,
   reader: 'app/reader.html',
-  overview: 'app/overview.html',
+  overview: APP_PAGE,
   tasks: APP_PAGE,
   components: APP_PAGE,
-  'overview-next': APP_PAGE,   // the overview as the one page draws it, until it answers 'overview'
 });
 
 // The files of pages the one page now draws, gone with their port, by the address each moved to: a
@@ -27,6 +26,7 @@ export const MOVED = Object.freeze({
   'app/tasks.html': 'tasks',
   'app/settings.html': 'settings',
   'app/library.html': 'library',
+  'app/overview.html': 'overview',
 });
 
 // Where the old file `path` (a path from the site's root, without its first slash) moved to, or null.

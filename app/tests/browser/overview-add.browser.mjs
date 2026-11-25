@@ -1,4 +1,4 @@
-// overview-add.browser.mjs — the add-a-chapter bar at /overview-next, held to what 1.3's page
+// overview-add.browser.mjs — the add-a-chapter bar at /overview, held to what 1.3's page
 // (/overview) gave driven alike. The search: by a title, by an id, nothing found, typed fast, the box
 // emptied, focus coming back with words in the box, a press outside, keys (none do anything: 1.3's list
 // had none); a result pressed (a gallery, a series of the library, on a gallery that is no series, in

@@ -1,14 +1,14 @@
-// overview-drive.mjs — driving the overview for the tests that hold the one page's (/overview-next) to
-// 1.3's (/overview), both pages driven alike over one seeded library, 1.3's page the oracle: a run's
-// galleries, the page read as words, links and tips (read), every part's box (boxes), and waiting for a
-// page to have drawn what it will (settled). A run's galleries are named by their parts, never by ids.
+// overview-drive.mjs — driving the overview (/overview, drawn by the one page) for the tests that hold
+// it to what 1.3's page gave (records.mjs; until the switch, 2026-11-25, both pages were driven alike
+// over one seeded library): a run's galleries, the page read as words, links and tips (read), every
+// part's box (boxes), and waiting for the page to have drawn what it will (settled). A run's galleries
+// are named by their parts, never by ids.
 import { setTimeout as sleep } from 'node:timers/promises';
 import { openPage, until } from './harness.mjs';
 import { standInHelper, HELPER_STATUS } from './stand-in-helper.mjs';
 
 export { sleep };
-export const OLD = '/overview';
-export const NEW = '/overview-next';
+export const NEW = '/overview';
 
 // The parts of a run's library, each a gallery at `base + n`:
 //   G   a gallery: 3 of its 4 pages, from Site One with a link, posted, translated, a favourite, tags

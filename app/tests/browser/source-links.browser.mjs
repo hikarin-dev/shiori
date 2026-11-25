@@ -47,7 +47,7 @@ async function finish(page) {
 test('a chapter row\'s id links to its source page in a new tab', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const page = await openPage(browser, origin);
-  await page.goto(`${origin}/overview-next?g=${G.a}`, { waitUntil: 'load' });
+  await page.goto(`${origin}/overview?g=${G.a}`, { waitUntil: 'load' });
   await until(page, () => document.querySelectorAll('.ch-row .ch-meta').length === 3, null, { what: 'three chapter rows' });
   const ids = await page.evaluate(() => [...document.querySelectorAll('.ch-row .ch-meta')].map((meta) => {
     const first = meta.firstElementChild;

@@ -101,6 +101,10 @@ const CASES = [
     await sleep(200);
     await Promise.all([d.page.waitForNavigation({ timeout: 8000 }).catch(() => null), d.page.mouse.click(a.x, a.y)]);
     d.seen.push({ opened: await d.page.evaluate(() => location.pathname) });
+    // (The overview opened, what the case kept of the library, its frames and what it said, opened and
+    // saved, goes as it went with 1.3's overview, a page load that took the library's document with it:
+    // the one page keeps its document, and the record is what was left after that load, nothing.)
+    await d.page.evaluate(() => { cancelAnimationFrame(window.__frame); window.__frames = []; delete window.__said; delete window.__opened; delete window.__saved; });
   }],
   ['a finger on a cover does nothing', {}, async (d) => {
     const a = await coverOf(d.page, d.base, 'P');

@@ -6,7 +6,7 @@ import { startServer, chromePath, launch, openPage } from './harness.mjs';
 // buttons big enough for a finger; and a finger on a cover scrolls rather than merging galleries. The
 // library is the one page's (/library; until 2026-11-25 these held 1.3's page).
 const LIBRARY = '/library';
-const OVERVIEW = '/overview-next';   // the overview as the one page draws it (it takes /overview at the switch)
+const OVERVIEW = '/overview';
 const SERIES = ['1790000000711', '1790000000712', '1790000000713'];
 const SINGLES = ['1790000000721', '1790000000722', '1790000000723'];
 const PHONE = { width: 390, height: 844, hasTouch: true, isMobile: true };

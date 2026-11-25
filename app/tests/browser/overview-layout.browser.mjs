@@ -1,5 +1,5 @@
 // overview-layout.browser.mjs — the layout checklist (the layout-principles skill) on the overview
-// at /overview-next, held to what 1.3's page (/overview) gave where 1.3 sets the bar: a window resized across
+// at /overview, held to what 1.3's page (/overview) gave where 1.3 sets the bar: a window resized across
 // every column count of the page grid and across the page's own widths settles in the next frame with
 // nothing easing; at 125% and 150% scale, with the page's scrollbar shown, every part's box is 1.3's
 // within a pixel; the scrollbar coming (a series of 2 chapters against one of 60) moves the column as

@@ -1,4 +1,4 @@
-// overview-drag.browser.mjs — a chapter row dragged by its grip at /overview-next, held to what 1.3's
+// overview-drag.browser.mjs — a chapter row dragged by its grip at /overview, held to what 1.3's
 // page (/overview) gave driven alike: nothing until the pointer has moved 3px; a row down a
 // place, up to the first (ownership moving with it), over several rows to the end, released in its own
 // place, Escape and a pointer lost (every row back, nothing saved), a volume among the volumes, with a

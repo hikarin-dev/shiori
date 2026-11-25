@@ -1,4 +1,4 @@
-// overview-live.browser.mjs — the overview at /overview-next under a library that changes, held
+// overview-live.browser.mjs — the overview at /overview under a library that changes, held
 // to what 1.3's (/overview) gave driven alike. The page is shown over a run's library while a tab behind
 // it makes the changes there (another context, as a download's runner or another window is). After each
 // kind of change the page reads as 1.3's did (words, links, tips, rows in order), and of what was there

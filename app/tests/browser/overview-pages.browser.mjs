@@ -1,4 +1,4 @@
-// overview-pages.browser.mjs — the overview's page grid and its thumbnails at /overview-next, held
+// overview-pages.browser.mjs — the overview's page grid and its thumbnails at /overview, held
 // to what 1.3's page (/overview) gave driven alike (1.3's own tests of its grid, overview-pages.browser.mjs
 // until 7e, are here too, on their gallery of full-size pages): which copy each tile gets at the grid's
 // tile width and at twice the pixel ratio; the tiles in view first; the warm-up making every tile's copy

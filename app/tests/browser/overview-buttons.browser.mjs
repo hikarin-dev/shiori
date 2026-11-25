@@ -1,4 +1,4 @@
-// overview-buttons.browser.mjs — what the overview's buttons do at /overview-next, held to what 1.3's
+// overview-buttons.browser.mjs — what the overview's buttons do at /overview, held to what 1.3's
 // page (/overview) gave driven alike, with stand-ins for the helper and the translation
 // server: for each press in each case (plain, Shift, the right button; a series' chapter, its owner, a
 // volume, a translated one, one with no pages, one whose download is under way, a missing one, a linked
@@ -183,7 +183,7 @@ async function run(path, [, opts, steps]) {
   await steps(d);
   const r = await page.evaluate(read);
   const out = named({ ...(await outcome(page, base)), dialogs: seen,
-    shown: r.empty ? { empty: r.empty } : { title: r.hero.title, rows: r.rows.map((x) => `${x.num} ${x.id} ${x.title}`) }, at: new URL(page.url()).pathname.replace(/-next$/, '') }, base);
+    shown: r.empty ? { empty: r.empty } : { title: r.hero.title, rows: r.rows.map((x) => `${x.num} ${x.id} ${x.title}`) }, at: new URL(page.url()).pathname }, base);
   out.problems = page.problems;
   await context.close();
   return out;

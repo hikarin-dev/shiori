@@ -1,7 +1,7 @@
 // runner-page.test.mjs — where a tab's job says it runs (platform.js `runner`): the page named is the one
 // showing when it is asked for, as a job is published and as its tag is drawn. In the one page a tab
 // moves between pages without a load, so the page is read from the address then, not once as the tab
-// opened; a page that is still a document of its own (library, overview, reader) is named as before.
+// opened; a page loaded as a document of its own (the reader, an old page's file) is named as before.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 

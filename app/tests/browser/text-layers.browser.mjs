@@ -4,7 +4,8 @@
 // The list's arrow turned by an animated rotate: the compositor's, and while it ran every card painted
 // after it got a layer of its own (eleven of them), their words smoothed another way for those 180 ms.
 // Held by the browser's own layer tree, mid-way through each motion (layers.mjs): the library's sort
-// list opened and closed, Settings' switch turned and list opened; and by what the pages ease at all.
+// list opened and closed, Settings' switch turned and list opened, the overview reached by a change of
+// route (a row moved, edit mode); and by what the pages ease at all.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
@@ -91,6 +92,46 @@ test('Settings: a switch turns and a list opens with nothing lifted onto a layer
     await sleep(250);
     assert.deepEqual(await easedTransforms(page), [], `no transform eased (${await tab.evaluate((el) => el.textContent.trim())})`);
   }
+  assert.deepEqual(page.problems, []);
+});
+
+// The overview, a page of the one page since its switch (2026-11-25): reached from the library by a change
+// of route, a row moved by its arrow and edit mode turned on and off lift nothing onto a layer, and it
+// eases no transform but a row button's faces; back on the library by Back, its sort list as above. (Its
+// other states: overview-layers.browser.mjs.)
+test('the overview, reached from the library by a change of route: a row moved and edit mode lift nothing; Back, the library\'s list neither', async (t) => {
+  if (!browser) return t.skip('no Chrome');
+  const base = nextBase(1790015200000);
+  const page = await openRun(browser, origin, '/library', { base });
+  t.after(() => page.close());
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.evaluate(() => { window.__stayed = true; });
+  await page.evaluate((g) => { const a = document.createElement('a'); a.href = `overview?g=${g}`; document.body.append(a); a.click(); a.remove(); }, String(base + PARTS.S));
+  await until(page, () => !!document.querySelector('#ovContent .ov-hero') && !!document.querySelector('#seriesCover img')?.complete && document.querySelectorAll('.ch-row').length === 2, null, { what: 'the overview' });
+  assert.equal(await page.evaluate(() => window.__stayed), true, 'a change of route');
+  await sleep(500);
+  await page.mouse.move(640, 880);
+  const watch = await layerWatch(page);
+  t.after(() => watch.close());
+  const quiet = (what, seen) => { assert.deepEqual(seen.animated, [], `${what}: no layer is there for an animation`); assert.deepEqual(seen.gained, [], `${what}: nothing got a layer`); };
+  const row = `.ch-row[data-chapter-id="${base + PARTS.S2}"]`;
+  await page.hover(`${row} .ch-main`);
+  const moved = await watch.during(() => page.click(`${row} [data-up]`));
+  assert.ok(moved.running.length > 0, 'met mid-way, the rows sliding');
+  quiet('a row moved by its arrow', moved);
+  await page.mouse.move(640, 880);
+  quiet('edit mode on', await watch.during(() => page.click('#editToggle')));
+  quiet('edit mode off', await watch.during(() => page.click('#editToggle')));
+  assert.deepEqual(await easedTransforms(page, '.ch-face'), [], 'the overview eases no transform but a row button\'s faces');
+  await page.goBack();
+  await until(page, () => !!document.querySelector('#grid > .card') && !!document.getElementById('sortSelect'), null, { what: 'the library again' });
+  await sleep(500);
+  await page.mouse.move(640, 880);
+  const opened = await watch.during(() => page.click('#sortSelect'));
+  assert.deepEqual(opened.animated, [], 'the library\'s list: no layer is there for an animation');
+  assert.deepEqual(opened.gained.filter((l) => !LIST.test(l)), [], 'the library\'s list: nothing but the list itself got a layer');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.evaluate(() => window.__stayed), true, 'Back: a change of route');
   assert.deepEqual(page.problems, []);
 });
 

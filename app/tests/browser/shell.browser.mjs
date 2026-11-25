@@ -229,7 +229,12 @@ test('with the worker installed, a hard reload of a clean address the host doesn
 
 // An old page's file the one page now draws the address of (app/js/pages.js, MOVED): the worker sends a
 // navigation to it on to that address, with the server gone; a host that knows no clean addresses
-// answers it with 404.html, which brings it to the one page at that address.
+// answers it with 404.html, which brings it to the one page at that address. Each asked with a query its
+// page keeps (the library writes back only page, q and sort, as 1.3's syncUrl did; the overview reads g),
+// and known by its title (the overview's is 1.3's, "Series") and the page drawn.
+const QUERY = { overview: '?g=1790000000001&q=1' };
+const TITLE = { overview: 'Series' };
+const pageDrawn = () => !!document.getElementById('root')?.querySelector('main, #ovContent');
 
 test('with the worker installed, an old page\'s file opens its page at its clean address, the worker answering', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
@@ -242,11 +247,12 @@ test('with the worker installed, an old page\'s file opens its page at its clean
   await workerHoldsAll(page);
   for (const [old, segment] of Object.entries(MOVED)) {
     asked.length = 0;
-    await page.goto(`${site.origin}/${old}?q=1`, { waitUntil: 'load' });
-    await until(page, () => !!document.getElementById('root')?.querySelector('main'), undefined, { what: `/${segment}` });
-    assert.equal(await page.evaluate(address), `/${segment}?q=1`);
+    const query = QUERY[segment] ?? '?q=1';
+    await page.goto(`${site.origin}/${old}${query}`, { waitUntil: 'load' });
+    await until(page, pageDrawn, undefined, { what: `/${segment}` });
+    assert.equal(await page.evaluate(address), `/${segment}${query}`);
     assert.deepEqual(asked.filter((url) => url.startsWith(`/${old}`) || url.startsWith(`/${segment}`)), [], 'the worker sent it on and answered: the server was not asked');
-    assert.equal(await page.evaluate(() => document.title), `Shiori — ${segment[0].toUpperCase()}${segment.slice(1)}`);
+    assert.equal(await page.evaluate(() => document.title), `Shiori — ${TITLE[segment] ?? `${segment[0].toUpperCase()}${segment.slice(1)}`}`);
   }
   assert.deepEqual(page.problems, []);
 });
@@ -265,8 +271,9 @@ test('on a host that knows no clean addresses (and no worker yet), 404.html brin
     else request.abort();
   });
   for (const [old, segment] of Object.entries(MOVED)) {
-    await page.goto(`${origin}/${old}?q=1#x`).catch(() => {});   // the 404 page leaves at once
-    await until(page, () => !!document.getElementById('root')?.querySelector('main'), undefined, { what: `/${segment}` });
-    assert.equal(await page.evaluate(address), `/${segment}?q=1#x`);
+    const query = QUERY[segment] ?? '?q=1';
+    await page.goto(`${origin}/${old}${query}#x`).catch(() => {});   // the 404 page leaves at once
+    await until(page, pageDrawn, undefined, { what: `/${segment}` });
+    assert.equal(await page.evaluate(address), `/${segment}${query}#x`);
   }
 });

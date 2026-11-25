@@ -1,4 +1,4 @@
-// overview-table.browser.mjs — the overview at /overview-next held to what 1.3's (/overview) gave
+// overview-table.browser.mjs — the overview at /overview held to what 1.3's (/overview) gave
 // driven alike over one seeded library (overview-drive.mjs): for a gallery, a
 // series in each of its views, a chapter's own id, a series of volumes alone, a gallery with no pages,
 // an id that is not there and no id at all, every part's words, links and tips (the hero's details item
