@@ -21,7 +21,7 @@ async function fresh(t, fixture = false) {
     page.on('request', request => {
       if (request.url() === origin + '/panel-fixture') request.respond({ status: 200, contentType: 'text/html',
         body: '<!doctype html><link rel="icon" href="data:,">' +
-          ['base', 'dropdown', 'library', 'overview', 'reader', 'notice']
+          ['base', 'dropdown', 'reader', 'notice']
             .map(name => `<link rel="stylesheet" href="/app/${name}.css">`).join('') +
           '<body><script type="module" src="/app/js/scrollbar.js"></script>' });
       else if (request.url().startsWith(origin) || request.url().startsWith('data:')) request.continue();
@@ -100,11 +100,10 @@ test('settings dialogs share the dropdown native profile and switch to overlays'
 test('other modal bodies, lists and nested details share native styling and accept overlays', { skip: !chromePath() }, async t => {
   const page = await fresh(t, true);
   const count = await page.evaluate(() => {
-    // (1.3's library page's filter box and search list were here until 2026-11-25: its drawing and their
-    // rules went with it; the one page draws them as its Dialog and Listbox.)
+    // (1.3's library page's filter box and search list were here until 2026-11-25, and its overview's tag
+    // suggestions and add-a-chapter results until its switch the same day: their drawing and their rules
+    // went with their pages (library.css, overview.css); the one page draws them as its Listbox.)
     const examples = [
-      ['Tag suggestions', '<div class="tag-ed-list open"></div>', '.tag-ed-list'],
-      ['Overview results', '<div class="add-results open"></div>', '.add-results'],
       ['Reader settings', '<div id="readerSettingsBox"><div class="rs-panel active"></div></div>', '.rs-panel'],   // the tab shown scrolls
       ['Feedback dialog', '<dialog class="feedback-dialog" open></dialog>', '.feedback-dialog'],
       ['Related feedback', '<fieldset class="feedback-related"></fieldset>', '.feedback-related'],
