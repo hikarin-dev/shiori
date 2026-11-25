@@ -95,9 +95,11 @@ test("a full backup is saved as one file by the browser's downloads, and restore
   await page.close();
 });
 
+// (notice.js's own drawing, on a page that has a file of its own: the reader's, with no gallery. Until
+// 2026-11-25 this ran on 1.3's library page.)
 test('while a backup runs the page behind it is held: no keys, no focus, no drops, no leaving unasked', { skip: !chromePath() }, async () => {
   const page = await openPage(browser, origin);
-  await page.goto(`${origin}/library`, { waitUntil: 'load' });
+  await page.goto(`${origin}/reader`, { waitUntil: 'load' });
   const held = await page.evaluate(async () => {
     const { showOperation } = await import('/app/js/notice.js');
     let heard = 0;
@@ -137,7 +139,9 @@ test('a cut-short download dropped on the library is recognised by its content, 
   await page.evaluate(clickDialog, 'OK');
   assert.deepEqual(await page.evaluate(async () => (await import('/app/js/api.js')).transfer.ids()), []);
 
-  await page.goto(`${origin}/library`, { waitUntil: 'load' });
+  // The library as the one page draws it (until 2026-11-25, 1.3's page).
+  await page.goto(`${origin}/library-next`, { waitUntil: 'load' });
+  await page.waitForSelector('#grid');
   await page.evaluate(() => { const i = document.createElement('input'); i.type = 'file'; i.id = 'pick'; i.hidden = true; document.body.append(i); });
   await (await page.$('#pick')).uploadFile(backup);
   await page.evaluate(() => {
@@ -149,7 +153,7 @@ test('a cut-short download dropped on the library is recognised by its content, 
   });
   assert.match(await until(page, dialogText, 'Restore this backup|can.t be restored', { what: 'the restore question' }), /Restore this backup\?/);
   await page.evaluate(clickDialog, 'Restore');
-  await until(page, () => /Backup restored/.test([...document.querySelectorAll('.notice-overlay')].at(-1)?.innerText || '') ? 1 : 0, null, { what: 'the restore outcome' });
+  await until(page, dialogText, 'Backup restored', { what: 'the restore outcome' });
   await page.evaluate(clickDialog, 'OK');
   assert.equal((await page.evaluate(async () => (await import('/app/js/api.js')).transfer.ids())).length, 2);
   assert.deepEqual(page.problems, []);
