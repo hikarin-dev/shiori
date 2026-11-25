@@ -245,10 +245,23 @@ async function use(page, c) {
 }
 
 // What is left after a stop: listeners on the window, the document, <html> and <body> (CDP), DOM nodes
-// and JS listeners after two collections, what the instrument counts, and what the page holds.
+// and JS listeners, what the instrument counts, and what the page holds.
+// DOM nodes and JS listeners are the browser's counts of objects not yet collected, so one read also
+// counts what the page's work in the background made a moment ago (the library's reads and the save
+// of the place: each request and transaction has listeners until it is collected). On a busy machine
+// a read 50 ms after a collection came to 81, 75, 69 or 67 listeners where the next read was the 63
+// that stay, the nodes the same (traced with six copies of this file at once, a read every 80 ms,
+// the library's open transactions beside it: none open at a high read). What stays is the least of
+// several reads, each straight after a collection: garbage only ever adds to a read.
 async function leftAfterStop(page, cdp) {
-  for (let i = 0; i < 2; i++) { await cdp.send('HeapProfiler.collectGarbage'); await new Promise((r) => setTimeout(r, 50)); }
-  const { nodes, jsEventListeners } = await cdp.send('Memory.getDOMCounters');
+  let nodes = Infinity, jsEventListeners = Infinity;
+  for (let i = 0; i < 6; i++) {
+    await cdp.send('HeapProfiler.collectGarbage');
+    const now = await cdp.send('Memory.getDOMCounters');
+    nodes = Math.min(nodes, now.nodes);
+    jsEventListeners = Math.min(jsEventListeners, now.jsEventListeners);
+    await new Promise((r) => setTimeout(r, 50));
+  }
   const listeners = {};
   for (const [name, expr] of [['window', 'window'], ['document', 'document'], ['html', 'document.documentElement'], ['body', 'document.body']]) {
     const { result } = await cdp.send('Runtime.evaluate', { expression: expr });
