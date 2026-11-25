@@ -1,7 +1,8 @@
 // search-field.js — the library's search box. The query is typed as plain text, and each finished
 // filter in it (`artist:"ann"`) shows as a solid block. A list under the box helps with the syntax:
 // the filters first, then the library's tags matching the word being typed — or, once inside a
-// filter, that filter's values, most used first. Plain words keep searching as they're typed.
+// filter, that filter's values, most used first. Plain words keep searching as they're typed. The page
+// that hosts the box draws the list (the one page's SearchField): this works out what it shows.
 
 import * as api from './api.js';
 import { t } from './i18n.js';
@@ -52,21 +53,19 @@ function _hint(f) {
 }
 const _display = (key, value) => key === 'source' ? siteName(value) : value;
 
-const _chipHtml = (key, value, keyClass = 'search-chip-key') =>
-  `<span class="${keyClass}">${escHtml(key)}:</span>${escHtml(_display(key, value))}`;
 function _chip(key, value) {
   const chip = document.createElement('span');
-  chip.className = _host ? `search-chip ${_host.chipClass}` : 'search-chip';
+  chip.className = `search-chip ${_host.chipClass}`;
   chip.contentEditable = 'false';
   chip.dataset.token = `${key}:"${value}"`;
-  chip.innerHTML = _chipHtml(key, value, _host ? `search-chip-key ${_host.chipKeyClass}` : undefined);
+  chip.innerHTML = `<span class="search-chip-key ${_host.chipKeyClass}">${escHtml(key)}:</span>${escHtml(_display(key, value))}`;
   return chip;
 }
 
 let _el = null;
-// A page that draws the list itself (the one page's SearchField) is its host: it is handed what the
-// list shows (null: nothing) instead of the list being written into the page, it answers the list's
-// keys, and it gives the blocks their look (chipClass, chipKeyClass). See initSearchField.
+// The page that draws the list (the one page's SearchField) is the box's host: it is handed what the
+// list shows (null: nothing), it answers the list's keys, and it gives the blocks their look
+// (chipClass, chipKeyClass). See initSearchField.
 let _host = null;
 
 // ── The query ──
@@ -141,15 +140,9 @@ function _tidy() {
 }
 
 // ── Suggestions ──
-let _dd = null;          // the list, built on first use
-let _rows = [];          // what it shows: { filter } or { filter, value, n }
-let _sel = -1;
 let _tags = [];          // the library's tags, [{ type, name, n }], read when the box gains focus
 let _tagsSeq = 0;
 let _raf = 0;
-
-const ICON_FILTER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M7 12h10"/><path d="M10 18h4"/></svg>';
-const ICON_SEARCH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>';
 
 async function _loadTags() {
   const seq = ++_tagsSeq;
@@ -200,7 +193,7 @@ function _valueRows(filter, term) {
 
 function _render() {
   _raf = 0;
-  if ((!_dd && !_host) || document.activeElement !== _el) return _close();
+  if (document.activeElement !== _el) return _close();
   const ctx = _caretContext();
   const term = ctx.term.toLowerCase();
   const inQuery = new Set([..._el.querySelectorAll('.search-chip')].map((c) => c.dataset.token));
@@ -219,18 +212,7 @@ function _render() {
       .filter(fresh).slice(0, SUGGEST_MAX)]);
   }
   const shown = sections.filter(([, rows]) => rows.length);
-  _rows = shown.flatMap(([, rows]) => rows);
-  if (_host) return _host.show(_rows.length ? shown.map(([head, rows]) => ({ head, rows: rows.map(_shownRow) })) : null);
-  _sel = -1;
-  _el.removeAttribute('aria-activedescendant');
-  if (!_rows.length) return _close();
-  let i = 0;
-  _dd.innerHTML = shown.map(([head, rows]) =>
-    `<div class="search-suggest-head" role="presentation">${escHtml(head)}</div>${rows.map((r) => _rowHtml(r, i++)).join('')}`)
-    .join('<div class="search-suggest-sep" role="presentation"></div>');
-  _place();
-  _dd.classList.add('open');
-  _el.setAttribute('aria-expanded', 'true');
+  _host.show(shown.length ? shown.map(([head, rows]) => ({ head, rows: rows.map(_shownRow) })) : null);
 }
 
 // A row as the host draws it: a filter (its name, its key and what its values look like) or a value
@@ -239,48 +221,13 @@ const _shownRow = (r) => (r.value == null
   ? { row: r, key: r.filter.key, title: _label(r.filter), hint: _hint(r.filter) }
   : { row: r, key: r.filter.key, label: _display(r.filter.key, r.value), count: r.n ? formatCompact(r.n) : null });
 
-function _rowHtml(r, i) {
-  const attrs = `class="search-suggest-opt" role="option" id="searchOpt${i}" data-i="${i}" aria-selected="false"`;
-  if (r.value == null) {
-    return `<div ${attrs}>${ICON_FILTER}<div class="search-suggest-text"><div class="search-suggest-title">${escHtml(_label(r.filter))}</div><div class="search-suggest-hint"><b>${escHtml(r.filter.key)}:</b> ${escHtml(_hint(r.filter))}</div></div></div>`;
-  }
-  return `<div ${attrs}>${ICON_SEARCH}<span class="search-chip">${_chipHtml(r.filter.key, r.value)}</span>${r.n ? `<span class="search-suggest-n">${formatCompact(r.n)}</span>` : ''}</div>`;
-}
-
 function _schedule() {
   if (!_raf) _raf = requestAnimationFrame(_render);
 }
 
 function _close() {
   if (_raf) { cancelAnimationFrame(_raf); _raf = 0; }
-  if (_host) return _host.show(null);
-  _dd?.classList.remove('open');
-  _el.setAttribute('aria-expanded', 'false');
-  _el.removeAttribute('aria-activedescendant');
-  _sel = -1;
-}
-
-// Under the box — the list lives on <body>, so the header can't clip it.
-function _place() {
-  const r = _el.getBoundingClientRect();
-  const width = Math.min(Math.max(r.width, 320), innerWidth - 16);
-  const top = r.bottom + 6;
-  _dd.style.left = `${Math.max(8, Math.min(r.left, innerWidth - width - 8))}px`;
-  _dd.style.top = `${top}px`;
-  _dd.style.width = `${width}px`;
-  _dd.style.maxHeight = `${Math.max(160, Math.min(480, innerHeight - top - 12))}px`;
-}
-
-function _move(delta) {
-  _sel = Math.max(-1, Math.min(_rows.length - 1, _sel + delta));
-  _dd.querySelectorAll('.search-suggest-opt').forEach((opt, i) => {
-    const on = i === _sel;
-    opt.classList.toggle('sel', on);
-    opt.setAttribute('aria-selected', on ? 'true' : 'false');
-    if (on) opt.scrollIntoView({ block: 'nearest' });
-  });
-  if (_sel >= 0) _el.setAttribute('aria-activedescendant', `searchOpt${_sel}`);
-  else _el.removeAttribute('aria-activedescendant');
+  _host.show(null);
 }
 
 // The text node and range a pick replaces — one is made at the caret when it sits between blocks.
@@ -294,9 +241,9 @@ function _typed(ctx) {
   return { ...ctx, node, start: 0, end: 0 };
 }
 
-// A filter starts its value (`artist:`); a value finishes the filter as a block. (A host picks a row
-// it was shown by pickSuggestion, and closes the list, as Escape does here, by closeSuggestions: a
-// drawing already asked for is called off with it.)
+// A filter starts its value (`artist:`); a value finishes the filter as a block. (The host picks a row
+// it was shown by pickSuggestion, and closes the list by closeSuggestions: a drawing already asked for
+// is called off with it.)
 export function pickSuggestion(row) { _pick(row); }
 export function closeSuggestions() { _close(); }
 function _pick(row) {
@@ -315,21 +262,13 @@ function _pick(row) {
   _el.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
-// `host`: a page that draws the list itself (above); without one the list is built here. Returns
-// what stops it (its listeners gone), for a page that is left without a load.
-/** @param {HTMLElement} el @param {{ show: (groups: any) => void, chipClass: string, chipKeyClass: string } | null} [host] */
-export function initSearchField(el, host = null) {
+// `host`: the page that draws the list (above). Returns what stops it (its listeners gone), for a page
+// that is left without a load.
+/** @param {HTMLElement} el @param {{ show: (groups: any) => void, chipClass: string, chipKeyClass: string }} host */
+export function initSearchField(el, host) {
   _el = el;
   _host = host;
   const stop = new AbortController();
-  if (!host) {
-    _dd = document.createElement('div');
-    _dd.className = 'search-suggest';
-    _dd.id = 'searchSuggest';
-    _dd.setAttribute('role', 'listbox');
-    document.body.appendChild(_dd);
-    el.setAttribute('aria-controls', _dd.id);
-  }
   const on = { signal: stop.signal };
 
   el.addEventListener('input', (e) => {
@@ -341,37 +280,15 @@ export function initSearchField(el, host = null) {
   el.addEventListener('blur', _close, on);
   document.addEventListener('selectionchange', () => { if (document.activeElement === el) _schedule(); }, on);
   el.addEventListener('keydown', (e) => {
-    // A key the host took (its list's) is its own.
+    // A key the host took (its list's: the arrows, Tab, Escape, Enter on a row) is its own.
     if (e.isComposing || e.defaultPrevented) return;
-    const open = !!_dd?.classList.contains('open');
-    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && open) {
+    if (e.key === 'Enter') {
+      // One line only. Enter finishes the filter being typed.
       e.preventDefault();
-      _move(e.key === 'ArrowDown' ? 1 : -1);
-    } else if (e.key === 'Enter') {
-      // One line only. Enter picks the highlighted suggestion, or finishes the filter being typed.
-      e.preventDefault();
-      if (open && _sel >= 0) { _pick(_rows[_sel]); return; }
       const ctx = _caretContext();
       if (ctx.filter && ctx.term.trim()) _pick({ filter: ctx.filter, value: ctx.term.trim().toLowerCase() });
       else _close();
-    } else if (e.key === 'Tab' && open && _sel >= 0) {
-      e.preventDefault();
-      _pick(_rows[_sel]);
-    } else if (e.key === 'Escape' && open) {
-      e.preventDefault();
-      _close();
     }
   }, on);
-  if (!host) {
-    // mousedown, not click: the box keeps focus (and its caret), so the pick lands where it was.
-    _dd.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      const opt = e.target.closest('.search-suggest-opt');
-      if (opt) _pick(_rows[Number(opt.dataset.i)]);
-    });
-    const follow = () => { if (_dd.classList.contains('open')) _place(); };
-    window.addEventListener('resize', follow, on);
-    window.addEventListener('scroll', follow, { ...on, capture: true, passive: true });
-  }
   return () => { stop.abort(); if (_raf) { cancelAnimationFrame(_raf); _raf = 0; } };
 }
