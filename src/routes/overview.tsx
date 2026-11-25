@@ -44,7 +44,7 @@ import { Input } from '@/components/ui/input';
 import { PageMenu } from '@/components/ui/page-menu';
 import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs';
 import { Eyebrow } from '@/components/ui/text';
-import { galleryQuery } from '@/lib/gallery';
+import { galleryQuery, queryClient } from '@/lib/gallery';
 import { useT, type Translate } from '@/lib/i18n';
 import { createBatchStore } from '@/lib/import-batches';
 import { readAgain } from '@/lib/library-query';
@@ -64,6 +64,20 @@ import { altTitle, chapterJob, heroMeta, rowActions, rowView, shownKind, tableTa
 import './overview/overview.css';
 
 const readerHref = (gid: string) => `reader?g=${encodeURIComponent(String(gid))}`;
+
+// The first time the page is shown in a document (a load of its address): its frame and its tags'
+// counts asked for as this module comes, while React is still drawing the page, as 1.3's page began
+// its reads as its script ran. The page then finds them in the cache.
+(function readEarly() {
+  const g = new URLSearchParams(location.search).get('g');
+  if (!g || !/\/overview-next$/.test(location.pathname)) return;
+  queryClient.fetchQuery({ queryKey: overviewKey(g), queryFn: () => readFrame(queryClient, g), staleTime: Infinity }).then((frame) => {
+    if (!frame.found) return;
+    const owner = queryClient.getQueryData<Entity | null>(galleryQuery(frame.ownerId).queryKey);
+    const keys = tableTags(owner?.tags).map((tg) => tagKey(tg.type, tg.name) as string);
+    return queryClient.prefetchQuery({ queryKey: tagCountsKey(keys), queryFn: () => readTagCounts(keys), staleTime: Infinity });
+  }).catch(() => {});
+})();
 
 // The add-a-chapter bar: drawn, doing nothing yet (7c: a chapter added from the library, a file dropped).
 const AddBar = memo(function AddBar({ t, kind }: { t: Translate; kind: 'chapter' | 'volume' }) {
