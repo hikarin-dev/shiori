@@ -5,14 +5,14 @@
 // rule 29). A chapter whose gallery went
 // missing (or came back) is laid out differently: a new row, as 1.3 made.
 //
-// What a row's buttons do is the page's (./actions.ts; the grip's drag is 7c's): the arrows, download
+// What a row's buttons do is the page's (./actions.ts; the grip's drag ./row-drag.ts): the arrows, download
 // (Replace with Shift; its Stop while it runs), translate (Revert with Shift; its Stop; "Re-run from…"
 // on the right button), detach, delete (no question with Shift). Each Shift face shows while Shift is
 // held on its button (CSS). The title and the cover open the chapter in the reader, the id its source
 // (a new tab); the toggle at the end opens the chapter's pages under the row. In edit mode the title is
 // a box to type in (saved as it is left, on Enter, and as edit mode ends), the toggle is gone and the
 // pages close.
-import { Component, memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from 'react';
+import { Component, memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { DragHandle } from '@/components/ui/drag-handle';
@@ -25,7 +25,7 @@ import { DetachIcon, DownIcon, DownloadIcon, QuickRemoveIcon, RemoveIcon, Revert
 import { Faces, PageGrid, useCover, useDecoded, type GridEngine } from './parts';
 import type { ChapterJobs } from './jobs';
 import type { OverviewCovers } from './covers';
-import { rowTops, slideRows } from './slide';
+import { rowTops, setDown, slideRows } from './slide';
 import type { RowActions, RowView } from './view';
 import type { JobView } from '@/lib/job-view';
 import type { JobNews } from '@/lib/job-view';
@@ -33,6 +33,7 @@ import type { JobNews } from '@/lib/job-view';
 // What a row's buttons do (the page's ./actions.ts). `label`: the title the row shows (a dialog names
 // the chapter by it).
 export type RowOn = {
+  grip: (e: ReactPointerEvent<HTMLElement>) => void;   // a press on the grip: the row dragged (./row-drag.ts)
   step: (chapterId: string, delta: number) => void;
   download: (ch: Ref, e: Entity | null, label: string, shift: boolean) => Promise<void>;
   translate: (ch: Ref, e: Entity | null, label: string, shift: boolean) => Promise<void>;
@@ -125,7 +126,7 @@ export const ChapterRow = memo(function ChapterRow({ chapter, idx, entity, last,
   return (
     <Card variant="row" hover className={cn('ch-row', !entity && 'missing', working && 'working', open && 'expanded')} data-chapter-id={id}>
       <div className="ch-head">
-        <DragHandle className="ch-grip" data-tip={t('ov.drag_reorder')} />
+        <DragHandle className="ch-grip" data-tip={t('ov.drag_reorder')} onPointerDown={on.grip} />
         <div className="ch-num">{view.num}</div>
         <RowThumb url={cover} href={entity ? view.href : null} />
         <div className="ch-main">
@@ -173,7 +174,15 @@ export class ChapterList extends Component<ListProps> {
     // Moving a row out of the DOM and back drops its focus; give it back.
     const focused = snap.focused as HTMLElement | null;
     if (focused && focused !== document.activeElement && focused.isConnected) focused.focus({ preventScroll: true });
+    // Rows dropped by the grip (./row-drag.ts) stand where the drag put them (their `top`): taken from
+    // there, they slide to their places in the order drawn.
+    const dropped = this.list.getAttribute('data-sorting') === 'dropped';
+    if (dropped) {
+      this.list.removeAttribute('data-sorting');
+      for (const row of this.list.children as HTMLCollectionOf<HTMLElement>) row.style.top = '';
+    }
     slideRows(this.list, snap.tops);
+    if (dropped) setDown(this.list);
   }
   render() {
     // The number column fits the longest label (1084.5) so every row's cover lines up.

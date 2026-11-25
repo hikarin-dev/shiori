@@ -4,8 +4,8 @@
    pointer), the page grids, the add-a-chapter bar, and the phone and finger forms. The pieces the page
    is made of (Button, Tag, InlineEdit, Card, DragHandle, Progress, Tabs, Eyebrow, Input, EmptyState)
    bring their own looks; what is here is where they stand and what the page itself draws. Sizes are
-   1.3's to the pixel. Edit mode is #ovContent.ov-editing; a dragged row is 7c's: its look is left out
-   until then. */
+   1.3's to the pixel. Edit mode is #ovContent.ov-editing; a row being dragged is [data-dragging] in a
+   list that says data-sorting (./row-drag.ts). */
 @layer components {
   .ov-wrap { max-width: 980px; margin: 0 auto; padding: 24px 20px 80px; }
 
@@ -84,7 +84,8 @@
 
   /* ── The chapter list ── */
   .ch-list { display: flex; flex-direction: column; gap: 6px; }
-  .ch-row { position: relative; display: flex; flex-direction: column; overflow: hidden; }
+  /* (Its place given as 0, so a slide by `top` eases from it: ./row-drag.ts, ./slide.ts.) */
+  .ch-row { position: relative; top: 0; display: flex; flex-direction: column; overflow: hidden; }
   .ch-row.missing { opacity: .5; }
   .ch-head { position: relative; display: flex; align-items: center; gap: 10px; padding: 6px 9px 6px 0; }
   /* The grip (DragHandle) of a lone row: nowhere to go. */
@@ -132,7 +133,13 @@
     .ch-head:hover :is(.ch-actions, .ch-grip),
     .ch-actions.key-focus:focus-within,
     .ch-actions:has(.cancelling) { opacity: 1; pointer-events: auto; }
+    .ch-row[data-dragging] .ch-grip { opacity: 1; pointer-events: auto; }
   }
+  /* A row dragged by its grip (./row-drag.ts): it rides above the others (lifted: Card's data-dragging),
+     the rows show only what is being moved, and the pointer is the closed hand everywhere. */
+  .ch-row[data-dragging] { z-index: 5; }
+  .ch-list[data-sorting] .ch-actions { opacity: 0; pointer-events: none; }
+  body.ch-dragging, body.ch-dragging * { cursor: grabbing !important; user-select: none; }
   /* A button's faces: its icon at rest and, where it has one, its icon for Shift, one over the other.
      While Shift is held on it, the one at rest folds shut (0.1s) and the other opens (0.1s after), as
      1.3's flip did. A button with no face for Shift stays as it is (data-shift: it has one). */
@@ -202,6 +209,9 @@
   #ovContent.ov-editing :is(.series-title-open, .ch-title-open, .ch-expand) { display: none; }
   /* "+" adds a tag: edit mode only (with no tags, the table shows for it alone). */
   #ovContent:not(.ov-editing) :is(.ov-chip-add, .ov-tag-table.no-tags) { display: none; }
+  /* While a row is dragged, the rows it passes slide aside by `top` (1.3's 0.2s and curve; never an
+     eased transform: rule 29), in place of a row's own eased frame and ground. */
+  .ch-list[data-sorting] > .ch-row:not([data-dragging]) { transition: top .2s cubic-bezier(.2, .8, .2, 1); }
   /* The translation server not there: no translate buttons. */
   #ovContent[data-translator-offline] .ch-ibtn.translate { display: none; }
 }

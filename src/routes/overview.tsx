@@ -21,7 +21,7 @@
 // (./overview/jobs.ts), each outside React and read by the part that shows them.
 //
 // Drawn on 1.3's sizes (overview.css, ./overview/overview.css).
-import { Suspense, lazy, memo, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Settings } from 'lucide-react';
@@ -60,6 +60,7 @@ import { coverKey, createOverviewCovers, HERO_WIDTH, ROW_WIDTH } from './overvie
 import { followFrame, overviewKey, readFrame, readTagCounts, tagCountsKey, type Entity, type Frame, type Ref } from './overview/data';
 import { Hero, type HeroOn, type HeroView } from './overview/hero';
 import { createChapterJobs } from './overview/jobs';
+import type { RowDrag } from './overview/row-drag';
 import { createGridEngine, PageGrid, useCover } from './overview/parts';
 import { prefs, useSeriesView } from './overview/prefs';
 import { ChapterList, ChapterRow, type RowDeps, type RowOn } from './overview/rows';
@@ -71,6 +72,7 @@ const readerHref = (gid: string) => `reader?g=${encodeURIComponent(String(gid))}
 
 // What a press opens, loaded the first time it is asked for (the page draws none of it at rest).
 const rerunMenu = () => import('@/components/rerun-menu');
+const rowDrag = () => import('./overview/row-drag');
 const RerunMenu = lazy(() => rerunMenu().then((m) => ({ default: m.RerunMenu })));
 const TagEditor = lazy(() => import('@/components/tag-editor').then((m) => ({ default: m.TagEditor })));
 
@@ -141,7 +143,10 @@ export default function Overview() {
       return frame;
     },
   });
-  const frame = frameQuery.data;
+  // While a row is dragged the list is the one it was dragged in: a frame read meanwhile is drawn once the
+  // drag is over (1.3's _renderAfterDrag); the drop's own order is drawn in its frame.
+  const [held, setHeld] = useState<{ g: string | null; frame: Frame } | null>(null);
+  const frame = (held?.g === g ? held.frame : null) ?? frameQuery.data;
   const refs: Ref[] = useMemo(() => (frame?.found ? frame.refs : []), [frame]);
   const ownerId = frame?.found ? frame.ownerId : null;
   const ids = useMemo(() => [...new Set([...(ownerId ? [ownerId] : []), ...refs.map((r) => r.id)])], [ownerId, refs]);
@@ -287,10 +292,34 @@ export default function Overview() {
     tag: actions.tag, addTag: actions.addTag,
     edit: () => setEditing((was) => !was),
   }), [actions]);
+  // ── The grip: a row dragged to another place (./overview/row-drag.ts, loaded at the first press) ──
+  const drag = useRef<{ current: RowDrag | null; pressed: boolean; left: boolean }>({ current: null, pressed: false, left: false });
+  useEffect(() => {
+    const d = drag.current;
+    d.left = false;
+    return () => { d.left = true; d.current?.cancel(); d.current = null; };
+  }, []);
+  const grip = useCallback((e: ReactPointerEvent<HTMLElement>) => {
+    const d = drag.current;
+    const handle = e.currentTarget, row = handle.closest<HTMLElement>('.ch-row');
+    if (e.button !== 0 || d.current || d.pressed || !row || (row.parentElement?.children.length ?? 0) < 2) return;
+    e.preventDefault();
+    const press = { pointerId: e.pointerId, clientY: e.clientY, pageY: e.clientY + scrollY };
+    d.pressed = true;
+    rowDrag().then(({ beginRowDrag }) => {
+      d.pressed = false;
+      if (d.left || !row.isConnected) return;
+      d.current = beginRowDrag(press, handle, row, {
+        onDrop: (order) => actions.drop(order),
+        onEnd: () => { d.current = null; setHeld(null); },
+      });
+      if (d.current && now.current.frame) setHeld({ g: now.current.g, frame: now.current.frame });
+    }, (err) => { d.pressed = false; console.error(err); });
+  }, [actions]);
   const rowOn = useMemo<RowOn>(() => ({
-    step: actions.step, download: actions.download, translate: actions.translate, rerun: actions.rerun,
+    grip, step: actions.step, download: actions.download, translate: actions.translate, rerun: actions.rerun,
     detach: actions.detach, delete: actions.delete, saveChapterTitle: actions.saveChapterTitle,
-  }), [actions]);
+  }), [actions, grip]);
 
   const rowDeps = useMemo<RowDeps>(() => ({
     t, covers, jobs, grids, on: rowOn,

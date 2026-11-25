@@ -90,7 +90,14 @@ export function overviewActions(deps: OverviewDeps) {
     if (sameOrder(next, order)) return;
     await reorderChapters(owner, next);
     deps.setOwner(next[0]);   // the head may have changed: ownership moved
-  }).catch(failed));
+    // (A save the library refuses is told to no one, as 1.3's: the order drawn is dropped, and the page
+    // shows the series as the library has it.)
+  }).catch(() => false));
+  // The shown kind's rows in the order `shown`, drawn at once (the frame), then saved.
+  const place = (shown: string[]) => {
+    const kind = deps.kind();
+    editFrame(client, deps.key(), (f) => withShownOrder(f, kind, shown), saveShownOrder).catch(failed);
+  };
 
   // A chapter removed from the series (its gallery deleted, or kept as a gallery of its own): a refusal
   // told; the page then shows what the series is now (its owner moved on when the owner went), or the
@@ -202,7 +209,15 @@ export function overviewActions(deps: OverviewDeps) {
       const at = shown.indexOf(chapterId), to = at + delta;
       if (at < 0 || to < 0 || to >= shown.length) return;
       [shown[at], shown[to]] = [shown[to], shown[at]];
-      editFrame(client, deps.key(), (f) => withShownOrder(f, kind, shown), saveShownOrder).catch(failed);
+      place(shown);
+    },
+    // The rows shown in the order the grip's drop left them: drawn so at once, then saved. Answers
+    // whether the page draws that order (not when the list it was dragged in is no longer the series'
+    // members of that kind: the library changed meanwhile, and the series is shown as it is).
+    drop(shown: string[]) {
+      const key = overviewKey(deps.key()), before = client.getQueryData(key);
+      place(shown);
+      return client.getQueryData(key) !== before;
     },
 
     // Download (its Stop while its download runs; nothing while an import runs); with Shift, or where no

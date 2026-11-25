@@ -91,3 +91,45 @@ test('edit mode on and off, a row moved by its arrow, a delete’s question: not
   assert.deepEqual(await easedTransforms(page, '.ch-face'), [], 'the page eases no transform but a row button’s faces');
   assert.deepEqual(page.problems, []);
 });
+
+// 7c: a row dragged by its grip, the others sliding aside, and dropped (the row travelling to its place).
+// The dragged row follows the pointer by its place (no motion of its own); the rows making room ease by
+// `top`; nothing is on a layer for an animation, and no row's words are lifted, mid-drag or mid-drop.
+test('a row dragged by its grip and dropped: nothing lifted onto a layer', async (t) => {
+  if (!browser) return t.skip('no Chrome');
+  const base = nextBase(1790016000000);
+  const page = await openRun(browser, origin, base);
+  t.after(() => page.close());
+  await page.setViewport({ width: 1280, height: 900 });
+  await visit(page, origin, NEW, gid(base, 'S'));
+  await page.bringToFront();
+  const watch = await layerWatch(page);
+  t.after(() => watch.close());
+  // (A layer that is no element's holds none of the page's words: the 0×0 hidden field of the page menu's
+  // select comes with one of 4×4 that paints nothing, which comes and goes as the tip under the pointer
+  // does: read with the browser's own snapshot of it, plans/frontend-react-probes/7c/layer-probe.mjs.)
+  const quiet = (what, seen) => { assert.deepEqual(seen.animated, [], `${what}: no layer is there for an animation`); assert.deepEqual(seen.gained.filter((l) => !l.startsWith(' [')), [], `${what}: nothing got a layer`); };
+  const box = (sel) => page.$eval(sel, (el) => { const b = el.getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2, top: b.top }; });
+  const grip = await box(`.ch-row[data-chapter-id="${gid(base, 'S')}"] .ch-grip`);
+  const target = await box(`.ch-row[data-chapter-id="${gid(base, 'S3')}"]`);
+  await page.mouse.move(grip.x + 40, grip.y);
+  await page.mouse.move(grip.x, grip.y);
+  await sleep(100);
+  await page.mouse.down();
+  // (Begun first, a few px: the grip's tip, shown under the pointer, is put away as the drag begins, and
+  // the page's look at rest is read without it.)
+  await page.mouse.move(grip.x, grip.y + 6);
+  await sleep(300);
+  const dragged = await watch.during(() => page.mouse.move(grip.x, target.y, { steps: 10 }));
+  assert.ok(dragged.running.includes('top'), `met mid-way, the rows making room by their place (${dragged.running})`);
+  assert.ok(await page.$('.ch-row[data-dragging]'), 'a row lifted');
+  quiet('a drag under way', dragged);
+  await page.mouse.move(grip.x, target.y - 20);
+  await sleep(400);
+  const dropped = await watch.during(() => page.mouse.up());
+  assert.ok(dropped.running.some((r) => r === '' || r === 'top'), `met mid-way, the dropped row travelling (${dropped.running})`);
+  quiet('the drop', dropped);
+  await sleep(600);
+  assert.deepEqual(await easedTransforms(page, '.ch-face'), [], 'the page eases no transform but a row button’s faces');
+  assert.deepEqual(page.problems, []);
+});

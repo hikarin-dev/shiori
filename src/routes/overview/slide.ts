@@ -22,3 +22,13 @@ export function slideRows(list: Element, tops: Map<Element, number>) {
     row.animate([{ top: `${was - now}px` }, { top: '0px' }], { duration: SLIDE_MS, easing: SLIDE_EASING });
   }
 }
+
+// The row the grip's drag lifted (./row-drag.ts: data-dragging) set down once its slide to its place has
+// run (at once where it has none): above the others until it is there.
+export function setDown(list: Element) {
+  const row = list.querySelector(':scope > [data-dragging]');
+  if (!row) return;
+  const travel = row.getAnimations().find((a) => !(a instanceof CSSTransition));
+  const done = () => row.removeAttribute('data-dragging');
+  if (travel) travel.finished.then(done, done); else done();
+}
