@@ -132,6 +132,16 @@ export function siteFiles(): Plugin {
 // is taken away (asked for before the install fails, done after it: waited for inside the install
 // it would wait for the install). Never installed, not installed-then-removed: a worker that was
 // active even for a moment is one the app hands its jobs to.
+//
+// And its page holds its first paint for the stylesheet, as the built page does (firstPaint above puts
+// the built stylesheet first in the head). Left to itself the dev server brings the styles in with the
+// app's script, after the first paint: index.html's frame, the header's markup, showed with none for
+// a moment at every load: a white page, the logo at its picture's full size, the name as a plain link.
+// The stylesheet the app's entry imports is linked first in the head, where the browser waits for it.
+// (Vite answers a link's request for it with the stylesheet itself, and keeps it in step as it changes,
+// as it does the copy the entry brings in.)
+export const DEV_STYLESHEET = '/src/index.css';
+
 const NO_WORKER = `// No service worker under the dev server (build/plugins.ts).
 self.addEventListener('install', (event) => {
   self.registration.unregister();
@@ -143,6 +153,10 @@ export function devPages(): Plugin {
   return {
     name: 'shiori:dev-pages',
     apply: 'serve',
+    transformIndexHtml: {
+      order: 'pre',
+      handler: () => [{ tag: 'link', attrs: { rel: 'stylesheet', href: DEV_STYLESHEET }, injectTo: 'head-prepend' }],
+    },
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const { pathname, search } = new URL(req.url ?? '/', 'http://dev');

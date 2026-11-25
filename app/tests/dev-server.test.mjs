@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { devPages } from '../../build/plugins.ts';
+import { devPages, DEV_STYLESHEET } from '../../build/plugins.ts';
 import { PAGES, APP_PAGE, MOVED } from '../js/pages.js';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -85,6 +85,24 @@ test('/sw.js is a worker that never installs, and takes a registration left at t
   assert.doesNotMatch(answer.body, /waitUntil\([^)]*unregister/, 'the removal is not waited for inside the install: it waits for the install');
   assert.doesNotMatch(answer.body, /skipWaiting|addEventListener\('(?:activate|fetch|message)'|\bimport\b/, 'it does nothing else');
   assert.match(readFileSync(join(repo, 'app', 'js', 'submit-job.js'), 'utf8'), /_swActive = reg\.active/, 'the app still keeps the active worker it saw (else this rule can go)');
+});
+
+// The dev server brings styles in with the app's script, after the first paint: the header's frame in
+// index.html showed with none for a moment (a white page, the logo at its picture's full size). The
+// page links the stylesheet the entry imports first in its head, so the first paint waits for it, as
+// the built page's does. (The browser suites drive the built site, not the dev server: what its first
+// paint shows was measured by hand, the entry held back: the page's ground, the band 54px, the logo 24.)
+test('the dev server\'s page links the app\'s stylesheet first in its head, before any script', () => {
+  const tags = plugin.transformIndexHtml.handler('', {});
+  assert.deepEqual(tags, [{ tag: 'link', attrs: { rel: 'stylesheet', href: DEV_STYLESHEET }, injectTo: 'head-prepend' }]);
+  assert.equal(plugin.transformIndexHtml.order, 'pre', 'before Vite\'s own tags, so it stays first');
+  // It is the stylesheet the entry imports: one source, linked and imported.
+  const entry = readFileSync(join(repo, 'src', 'main.tsx'), 'utf8');
+  assert.match(entry, /import '\.\/index\.css';/);
+  assert.equal(DEV_STYLESHEET, '/src/index.css');
+  assert.ok(readFileSync(join(repo, 'src', 'index.css'), 'utf8').length > 0);
+  // The page as it is written has no stylesheet of its own to hold the paint (the build adds its own).
+  assert.doesNotMatch(readFileSync(join(repo, 'index.html'), 'utf8'), /rel="stylesheet"/);
 });
 
 test('/start.js is the page\'s first script with the map and the routes\' frames, and starts nothing', () => {
