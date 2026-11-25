@@ -1,6 +1,5 @@
 // reader.js — offline gallery reader
 
-import './boot.js';
 import * as api from './api.js';
 import { resolveSeries, chapterNumberLabel } from './series.js';
 import { memberKind } from './gallery-model.js';
@@ -26,6 +25,70 @@ import { openPageProperties, propertiesOpen, closePageProperties } from './reade
 import { openPageMenu, pageStatus } from './reader-page-menu.js';
 import { translationView } from './page-image.js';
 import { resumeAt } from './storage/personal.js';
+
+// ── Start and stop (made by plans/frontend-react-probes/8a/transform.mjs) ──
+// Everything below runs once per start. What would outlive the reader is made through the instance:
+// listeners on the window and the document take its signal, and the globals that make timers,
+// frames, observers, workers and object URLs are shadowed here so each is known and released by stop.
+export function startReader() {
+const _rsWin = globalThis;
+const _rsAbort = new AbortController();
+const _rsSignal = _rsAbort.signal;
+let _rsStopped = false;
+const _rsDisposers = [];
+const _rsTimers = new Set(), _rsIntervals = new Set(), _rsFrames = new Set(), _rsIdle = new Set();
+const _rsObservers = new Set(), _rsWorkers = new Set(), _rsUrls = new Set(), _rsNodes = new Set();
+const _rsWithSignal = (o) => ({ ...(o && typeof o === 'object' ? o : { capture: !!o }), signal: _rsSignal });
+const _rsOwn = (node) => { _rsNodes.add(node); return node; };
+const setTimeout = (fn, ms, ...args) => {
+  if (_rsStopped) return 0;
+  const id = _rsWin.setTimeout(() => { _rsTimers.delete(id); if (!_rsStopped) fn(...args); }, ms);
+  _rsTimers.add(id);
+  return id;
+};
+const clearTimeout = (id) => { _rsTimers.delete(id); _rsWin.clearTimeout(id); };
+const setInterval = (fn, ms, ...args) => {
+  if (_rsStopped) return 0;
+  const id = _rsWin.setInterval(() => { if (!_rsStopped) fn(...args); }, ms);
+  _rsIntervals.add(id);
+  return id;
+};
+const clearInterval = (id) => { _rsIntervals.delete(id); _rsWin.clearInterval(id); };
+const requestAnimationFrame = (fn) => {
+  if (_rsStopped) return 0;
+  const id = _rsWin.requestAnimationFrame((t) => { _rsFrames.delete(id); if (!_rsStopped) fn(t); });
+  _rsFrames.add(id);
+  return id;
+};
+const cancelAnimationFrame = (id) => { _rsFrames.delete(id); _rsWin.cancelAnimationFrame(id); };
+const requestIdleCallback = (fn, opts) => {
+  if (_rsStopped) return 0;
+  const id = _rsWin.requestIdleCallback((d) => { _rsIdle.delete(id); if (!_rsStopped) fn(d); }, opts);
+  _rsIdle.add(id);
+  return id;
+};
+const ResizeObserver = class extends _rsWin.ResizeObserver {
+  constructor(fn) {
+    super((entries, observer) => { if (!_rsStopped) fn(entries, observer); });
+    _rsObservers.add(this);
+  }
+  observe(...args) { if (!_rsStopped) super.observe(...args); }
+};
+const Worker = class extends _rsWin.Worker {
+  constructor(...args) {
+    if (_rsStopped) throw new Error('the reader has stopped');
+    super(...args);
+    _rsWorkers.add(this);
+  }
+};
+const URL = class extends _rsWin.URL {
+  static createObjectURL(obj) {
+    const url = _rsWin.URL.createObjectURL(obj);
+    if (_rsStopped) _rsWin.URL.revokeObjectURL(url); else _rsUrls.add(url);
+    return url;
+  }
+  static revokeObjectURL(url) { _rsUrls.delete(url); _rsWin.URL.revokeObjectURL(url); }
+};
 
 // Site names/links come from sites.js (runtime data + the localStorage warm start, so source
 // labels are correct on first paint instead of waiting for the bridge to answer).
@@ -117,7 +180,7 @@ function _loadStudy() {
   if (!_libraryOpen) return Promise.resolve(false);
   _studyLoadPromise = (async () => {
     // Study layers are optional: a gallery whose layers can't be read is read without them.
-    try { hasStudy = await loadStudyRecords(_chapters.map(ch => ch.id)); }
+    try { hasStudy = await loadStudyRecords(_chapters.map(ch => ch.id)); if (_rsStopped) return; }
     catch { hasStudy = false; }
     _studyLoaded = true;
     _syncStudyAvailability();
@@ -142,10 +205,10 @@ async function pageBlobUrl(page) {
   if (!_libraryOpen) return '';
   _pageReadsInFlight++;   // the thumbnail warm-up waits for these
   let record;
-  try { record = await api.pages.get(page.gid, page.pageNum, page.url).catch(() => null); }
+  try { record = await api.pages.get(page.gid, page.pageNum, page.url).catch(() => null); if (_rsStopped) return; }
   finally { _pageReadsInFlight--; }
   const src = record ? _variantSrc(record) : null;
-  const blob = await imageToBlob(src);
+  const blob = await imageToBlob(src); if (_rsStopped) return;
   const url = blob ? URL.createObjectURL(blob) : '';
   if (_pageUrlCache.has(key)) {                // a concurrent load won the race — reuse its URL
     if (url) URL.revokeObjectURL(url);
@@ -162,10 +225,10 @@ const PLACEHOLDER_DIM_CONCURRENCY = 2;
 async function _cachedPageHeightRatio(page) {
   let bitmap = null;
   try {
-    const record = await api.pages.get(page.gid, page.pageNum, page.url).catch(() => null);
-    const blob = await imageToBlob(record?.blob ?? record?.dataUrl);
+    const record = await api.pages.get(page.gid, page.pageNum, page.url).catch(() => null); if (_rsStopped) return;
+    const blob = await imageToBlob(record?.blob ?? record?.dataUrl); if (_rsStopped) return;
     if (!blob) return 0;
-    bitmap = await createImageBitmap(blob);
+    bitmap = await createImageBitmap(blob); if (_rsStopped) return;
     return bitmap.width > 0 && bitmap.height > 0 ? bitmap.height / bitmap.width : 0;
   } catch {
     return 0;
@@ -194,12 +257,12 @@ async function _measurePlaceholderRatio() {
   async function worker() {
     while (next < cachedPages.length) {
       const page = cachedPages[next++];
-      const height = await _cachedPageHeightRatio(page);
+      const height = await _cachedPageHeightRatio(page); if (_rsStopped) return;
       if (height > 0) heights.push(height);
     }
   }
   const workerCount = Math.min(PLACEHOLDER_DIM_CONCURRENCY, cachedPages.length);
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  await Promise.all(Array.from({ length: workerCount }, () => worker())); if (_rsStopped) return;
 
   // One landscape page is not representative of the missing portrait slots; keep the A4 fallback.
   if (cachedPages.length === 1 && heights[0] < 1) return;
@@ -214,9 +277,9 @@ async function _measurePlaceholderRatio() {
 // a translation-view toggle. The element keeps its measured size, so nothing shifts.
 async function _swapImg(imgEl, page) {
   if (!imgEl || !page) return;
-  const url = await pageBlobUrl(page);
+  const url = await pageBlobUrl(page); if (_rsStopped) return;
   if (!url) return;
-  try { const pre = new Image(); pre.src = url; await pre.decode(); } catch {}
+  try { const pre = new Image(); pre.src = url; await pre.decode(); if (_rsStopped) return; } catch {}
   imgEl.src = url;
 }
 
@@ -392,7 +455,7 @@ let _thumbScaleTimer = 0;
 window.visualViewport?.addEventListener('resize', () => {
   clearTimeout(_thumbScaleTimer);
   _thumbScaleTimer = setTimeout(() => _refreshThumbSizes(), 250);
-});
+}, { signal: _rsSignal });
 
 function _cachedThumb(pageUrl) {
   const entry = _thumbBlobCache.get(pageUrl);
@@ -493,8 +556,8 @@ async function _processThumbQueue() {
     const width = _thumbWidth();
     const cached = _cachedThumb(page.url);
     if (cached && cached.width >= width) { resolve(cached.url); return; }
-    const source = _libraryOpen ? await _thumbSource(page) : null;
-    const small = source ? await _resizeInWorker(source, width) : null;
+    const source = _libraryOpen ? await _thumbSource(page) : null; if (_rsStopped) return;
+    const small = source ? await _resizeInWorker(source, width) : null; if (_rsStopped) return;
     if (!small) { resolve(cached?.url || ''); return; }
     const entry = { url: URL.createObjectURL(small), width, bytes: small.size };
     _cacheThumb(page.url, entry);
@@ -512,7 +575,7 @@ async function _processThumbQueue() {
 async function _thumbSource(page) {
   const held = _pageUrlCache.get('o:' + page.url);
   if (held) { try { return await (await fetch(held)).blob(); } catch {} }   // revoked meanwhile: read it
-  const record = await api.pages.get(page.gid, page.pageNum, page.url).catch(() => null);
+  const record = await api.pages.get(page.gid, page.pageNum, page.url).catch(() => null); if (_rsStopped) return;
   return imageToBlob(record?.blob ?? record?.dataUrl);
 }
 
@@ -587,7 +650,7 @@ function _scheduleThumbWarm(delay = 300) {
   if (_thumbWarmTimer || _thumbWarming >= WARM_JOBS || !pages.length) return;
   _thumbWarmTimer = setTimeout(() => {
     _thumbWarmTimer = 0;
-    if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(_warmNextThumb, { timeout: 500 });
+    if (typeof window.requestIdleCallback === 'function') requestIdleCallback(_warmNextThumb, { timeout: 500 });
     else _warmNextThumb();
   }, delay);
 }
@@ -661,7 +724,7 @@ function _shapeBlankLike(blank, partner) {
   if (partner.naturalWidth <= 1 || partner.naturalHeight <= 1) return;
   blank.src = _blankPageSrc(partner.naturalWidth, partner.naturalHeight);   // its load re-seeds the geometry
 }
-[mainImg, imgLeft, imgRight].forEach(img => img.addEventListener('load', () => _seedRatio(img)));
+[mainImg, imgLeft, imgRight].forEach(img => img.addEventListener('load', () => _seedRatio(img), { signal: _rsSignal }));
 const scrubSegments = document.getElementById('scrubSegments');
 const scrubTrack    = document.getElementById('scrubTrack');
 const scrubView     = document.getElementById('scrubView');
@@ -744,7 +807,7 @@ function _scheduleStudyLoad() {
     void _loadStudy().then(() => { if (hasStudy) _recomputeFold(); }).catch(() => {});
   };
   if (typeof window.requestIdleCallback === 'function') {
-    window.requestIdleCallback(load, { timeout: 2000 });
+    requestIdleCallback(load, { timeout: 2000 });
   } else {
     setTimeout(load, 250);
   }
@@ -758,7 +821,7 @@ async function init() {
   document.title        = `Shiori — #${galleryId}`;
 
   loadingText.textContent = t('rd.opening_db');
-  try { await api.meta.get(galleryId); _libraryOpen = true; }
+  try { await api.meta.get(galleryId); if (_rsStopped) return; _libraryOpen = true; }
   catch (e) { showEmpty(); return; }
 
   loadingText.textContent = t('rd.loading_pages');
@@ -771,7 +834,7 @@ async function init() {
   // Series membership FIRST: a series is read as ONE continuous page list — every cached
   // chapter's pages concatenated in series order — so a chapter transition is just the next
   // scroll row (or page flip), never a reload.
-  try { _series = await resolveSeries(galleryId); } catch { _series = null; }
+  try { _series = await resolveSeries(galleryId); if (_rsStopped) return; } catch { _series = null; }
   // A series is read one kind of member at a time: the chapters, or the volumes — whichever the
   // opened gallery is.
   const readKind = _series ? memberKind(_series.chapters.find(c => String(c.id) === gid)) : 'chapter';
@@ -785,7 +848,7 @@ async function init() {
   const [lists, metas] = await Promise.all([
     Promise.all(chapterRefs.map(c => api.pages.list(c.id).catch(() => []))),
     Promise.all(chapterRefs.map(c => api.meta.get(c.id).catch(() => null))),
-  ]);
+  ]); if (_rsStopped) return;
 
   // Merge into the flat list by chapter-local page number. Metadata supplies the true total;
   // cached keys fill their fixed slots and every gap remains a placeholder until its page arrives.
@@ -848,7 +911,7 @@ async function init() {
   // back to the first — and, when no page is asked for, where the person left off in it.
   const startCh = _chapters.find(c => c.id === gid) || _chapters[0];
   const marks = initialPageParam ? null : api.personal.get(startCh.id).catch(() => null);
-  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerFitMode', 'readerFitMaxWidth', 'readerDirection', 'readerNavDirection', 'readerPageDirection', 'readerCoverOffset', 'readerDebugLoaded', 'readerAutoScrollSpeed', 'readerDim', 'readerPageGap', 'readerProgressPosition', 'readerView', 'readerTranslateDisplay', 'readerStudyDisplay', 'readerStudyOriginal', 'readerStudySrcFont', 'readerFurigana', 'readerChapterDivider', 'readerStripMode', 'readerAutoBarPosition', 'readerAutoPauseOnUp', 'readerSkipOverview', 'readerSmoothScroll']);
+  const saved = await platform.kv.get(['readerMode', 'readerLastPageMode', 'readerThumbsOpen', 'readerThumbHeight', 'readerPageZoom', 'readerFitMode', 'readerFitMaxWidth', 'readerDirection', 'readerNavDirection', 'readerPageDirection', 'readerCoverOffset', 'readerDebugLoaded', 'readerAutoScrollSpeed', 'readerDim', 'readerPageGap', 'readerProgressPosition', 'readerView', 'readerTranslateDisplay', 'readerStudyDisplay', 'readerStudyOriginal', 'readerStudySrcFont', 'readerFurigana', 'readerChapterDivider', 'readerStripMode', 'readerAutoBarPosition', 'readerAutoPauseOnUp', 'readerSkipOverview', 'readerSmoothScroll']); if (_rsStopped) return;
 
   // A saved study view needs its layers before the first paint, and so does a translate view that
   // draws its text from them — otherwise the inpainted page would paint with empty bubbles until
@@ -905,8 +968,8 @@ async function init() {
   if (fromEnd) startCh.entry = 'end';
   const within = fromEnd ? startCh.count
     : initialPageParam ? Math.max(1, Math.min(startCh.count, parseInt(initialPageParam, 10) || 1))
-    : resumeAt(await marks, startCh.count);
-  await placeholderRatioReady;
+    : resumeAt(await marks, startCh.count); if (_rsStopped) return;
+  await placeholderRatioReady; if (_rsStopped) return;
   loadingScreen.style.display = 'none';
   currentPage = startCh.start + within;
   setMode(saved.readerMode || 'strip', true);
@@ -979,8 +1042,8 @@ function _saveProgress() {
   _progress = null;
   if (at) api.personal.read(at.gid, at.page, at.pages).catch(() => {});
 }
-window.addEventListener('pagehide', _saveProgress);
-document.addEventListener('visibilitychange', () => { if (document.hidden) _saveProgress(); });
+window.addEventListener('pagehide', _saveProgress, { signal: _rsSignal });
+document.addEventListener('visibilitychange', () => { if (document.hidden) _saveProgress(); }, { signal: _rsSignal });
 
 function _handlePageStored(event) {
   const ch = _chapters.find(c => String(c.id) === String(event.galleryId));
@@ -1046,7 +1109,7 @@ async function _growChapters() {
   for (const [id, { upTo }] of jobs) {
     const ch = _chapters.find(c => String(c.id) === id);
     if (!ch?.growing) continue;
-    const meta = await api.meta.get(id).catch(() => null);
+    const meta = await api.meta.get(id).catch(() => null); if (_rsStopped) return;
     const total = Number(meta?.numPages);
     if (meta) ch.meta = meta;
     if (Number.isSafeInteger(total) && total > 0) ch.growing = false;
@@ -1156,16 +1219,16 @@ function _replayQueuedPageStores() {
   queued.forEach(_handlePageStored);
 }
 
-platform.jobs.subscribe((event) => {
+_rsDisposers.push(platform.jobs.subscribe((event) => {
   if (event?.type === 'PAGE_STORED') _dispatchPageStored(event);
   else if (event?.kind === 'translate') _onTranslateEvent(event);
-});
+}));
 
 // A chapter whose length isn't known yet often learns it from its metadata before any of its pages
 // arrive — so every chapter can be laid out ahead of reading it.
-api.events.watch((gid) => {
+_rsDisposers.push(api.events.watch((gid) => {
   for (const ch of _chapters) if (ch.growing && (gid === '*' || String(ch.id) === gid)) _queueGrowth(ch, null);
-});
+}));
 
 // ── A page on its own: properties, translation, settings (right-click, or I) ──
 // Which page is under a point: strip rows carry their number; the single view shows the current
@@ -1209,13 +1272,13 @@ async function _translationRunning(gid) {
 async function _openPageMenu(n, x, y) {
   const page = pages[n - 1];
   const { gid, number } = _pagePlace(n);
-  const [record, busy] = await Promise.all([api.pages.get(gid, number).catch(() => null), _translationRunning(gid)]);
+  const [record, busy] = await Promise.all([api.pages.get(gid, number).catch(() => null), _translationRunning(gid)]); if (_rsStopped) return;
   const own = !!record?.own;
   openPageMenu(x, y, [t('page.menu_title', { n: formatCount(number) }), own ? t('page.keeps_own') : ''].filter(Boolean).join(' · '), [
     { label: t('page.translate'), detail: t(busy ? 'page.translate_busy' : 'page.translate_detail'), disabled: busy,
       onPick: () => _translatePage(gid, page.url, number) },
     ...(own ? [{ label: t('page.follow'), detail: t('page.follow_detail'), onPick: async () => {
-      await platform.rpc({ type: 'FOLLOW_GALLERY_SETTINGS', galleryId: gid, urls: [page.url] });
+      await platform.rpc({ type: 'FOLLOW_GALLERY_SETTINGS', galleryId: gid, urls: [page.url] }); if (_rsStopped) return;
       pageStatus(t('page.now_follows', { n: formatCount(number) }));
     } }] : []),
     { label: t('page.properties'), detail: t('page.properties_detail'), kbd: 'I', onPick: () => _openProperties(n) },
@@ -1223,7 +1286,7 @@ async function _openPageMenu(n, x, y) {
 }
 
 async function _translatePage(gid, url, number) {
-  const resp = await platform.rpc({ type: 'TRANSLATE_PAGES', galleryId: gid, urls: [url] }).catch(() => null);
+  const resp = await platform.rpc({ type: 'TRANSLATE_PAGES', galleryId: gid, urls: [url] }).catch(() => null); if (_rsStopped) return;
   if (resp?.busy) { pageStatus(t('page.busy'), { error: true }); return; }
   if (!resp?.started) { pageStatus(t('page.failed', { n: formatCount(number), error: t('page.not_started') }), { error: true }); return; }
   _pageJobs.set(gid, number);
@@ -1249,7 +1312,7 @@ function _onTranslateEvent(event) {
 async function _refreshTranslations(gid) {
   const ch = _chapters.find(c => String(c.id) === gid);
   if (!ch) return;
-  ch.meta = (await api.meta.get(gid).catch(() => null)) || ch.meta;
+  ch.meta = (await api.meta.get(gid).catch(() => null)) || ch.meta; if (_rsStopped) return;
   _translateAvailable = _chapters.some(c => !!c.meta?.translated);
   const urls = new Set(pages.slice(ch.start, ch.start + ch.count).map(p => p?.url).filter(Boolean));
   const stale = [];
@@ -1261,7 +1324,7 @@ async function _refreshTranslations(gid) {
     }
   }
   forgetStudy(urls);
-  await loadStudyRecords([gid]);
+  await loadStudyRecords([gid]); if (_rsStopped) return;
   hasStudy = hasAnyStudy();
   _syncStudyAvailability();
   if (mode === 'strip') _stripImgs.forEach((img, i) => { if (urls.has(pages[_viewBase + i]?.url)) delete img.dataset.vk; });
@@ -1277,7 +1340,7 @@ viewport.addEventListener('contextmenu', (e) => {
   e.preventDefault();
   _stopScroll();
   void _openPageMenu(n, e.clientX, e.clientY);
-});
+}, { signal: _rsSignal });
 
 // Double-page spreads are paired from each chapter's first page and never straddle a chapter
 // boundary (the transition card must appear before the next chapter's first page, not after it
@@ -1466,8 +1529,8 @@ function _waitForImgDecode(img) {
 }
 
 async function _waitForImgLayout(imgs) {
-  await Promise.all(imgs.map(_waitForImgDecode));
-  await _nextLayoutFrame();
+  await Promise.all(imgs.map(_waitForImgDecode)); if (_rsStopped) return;
+  await _nextLayoutFrame(); if (_rsStopped) return;
 }
 
 // A page's view is as tall as the window (100vh), and on a phone that is the window without the
@@ -1476,7 +1539,7 @@ async function _waitForImgLayout(imgs) {
 // the screen, and then stops painting what's fixed along the bottom (the rail's icons, the progress
 // bar) until something repaints it. So a turn never scrolls into that room. (100vh as the pages are
 // sized; on a desktop it is the window, and this changes nothing.)
-const _vhProbe = document.body.appendChild(document.createElement('div'));
+const _vhProbe = _rsOwn(document.body.appendChild(document.createElement('div')));
 _vhProbe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:100vh;visibility:hidden;pointer-events:none';
 
 function _scrollPageModeToStart() {
@@ -1526,7 +1589,7 @@ async function goTo(n, skipDivider = false) {
     _thumbsFollowPage(n - 1);
 
     if (mode === 'single') {
-      const url = await pageBlobUrl(pages[n - 1]);
+      const url = await pageBlobUrl(pages[n - 1]); if (_rsStopped) return;
       if (currentPage !== n || mode !== 'single') return;
       const cold = _whenDecoded([url, ..._overlayImageUrls(n)]);
       _scrollPageModeWhenImgsLoad([mainImg], nav);
@@ -1536,16 +1599,16 @@ async function goTo(n, skipDivider = false) {
       _warmNeighbors(n);
       if (cold) {
         _clearBubbleLayers();
-        await cold;
+        await cold; if (_rsStopped) return;
         if (currentPage !== n || mode !== 'single') return;
       }
       if (_bubbleLayersOn()) _refreshBubbleLayers();
-      await _waitForImgLayout([mainImg]);
+      await _waitForImgLayout([mainImg]); if (_rsStopped) return;
       if (currentPage !== n || mode !== 'single') return;
       _scrollPageModeToStart();
     } else if (mode === 'double') {
       const { lead, trail } = _spreadAt(n);
-      const [lUrl, rUrl] = await Promise.all([lead, trail].map(p => p ? pageBlobUrl(pages[p - 1]) : ''));
+      const [lUrl, rUrl] = await Promise.all([lead, trail].map(p => p ? pageBlobUrl(pages[p - 1]) : '')); if (_rsStopped) return;
       if (currentPage !== n || mode !== 'double') return;
       const cold = _whenDecoded([lUrl, rUrl, lead && trail ? '' : _defaultBlankSrc(),
         ...(lead ? _overlayImageUrls(lead) : []), ...(trail ? _overlayImageUrls(trail) : [])]);
@@ -1559,11 +1622,11 @@ async function goTo(n, skipDivider = false) {
       _warmNeighbors(n);
       if (cold) {
         _clearBubbleLayers();
-        await cold;
+        await cold; if (_rsStopped) return;
         if (currentPage !== n || mode !== 'double') return;
       }
       if (_bubbleLayersOn()) _refreshBubbleLayers();
-      await _waitForImgLayout(pageImgs);
+      await _waitForImgLayout(pageImgs); if (_rsStopped) return;
       if (currentPage !== n || mode !== 'double') return;
       if (!lead) _shapeBlankLike(imgLeft, imgRight);
       if (!trail) _shapeBlankLike(imgRight, imgLeft);
@@ -2386,9 +2449,9 @@ function _startThumbInteraction(initialEvent) {
       _clickSnapToThumb(ev.clientX);
     }
   }
-  document.addEventListener('pointermove', move);
-  document.addEventListener('pointerup', up);
-  document.addEventListener('pointercancel', up);
+  document.addEventListener('pointermove', move, { signal: _rsSignal });
+  document.addEventListener('pointerup', up, { signal: _rsSignal });
+  document.addEventListener('pointercancel', up, { signal: _rsSignal });
 }
 
 let _thumbScrollRaf = null;
@@ -2399,7 +2462,7 @@ thumbStrip.addEventListener('scroll', () => {
     _enqueueNearbyThumbs();   // shows copies made since, and asks again for any let go
     _prioritizeVisibleThumbs();
   });
-}, { passive: true });
+}, { passive: true, signal: _rsSignal });
 
 // A plain mouse-wheel over the strip scrolls it horizontally (no Shift needed), eased toward an
 // accumulated target so rapid ticks glide smoothly instead of stepping. Kept local — preventDefault
@@ -2424,7 +2487,7 @@ window.addEventListener('wheel', (e) => {
   if (!e.shiftKey && Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
   e.preventDefault();
   window.scrollBy(0, _eventDominantWheelDelta(e));
-}, { capture: true, passive: false });
+}, { capture: true, passive: false, signal: _rsSignal });
 
 thumbStrip.addEventListener('wheel', (e) => {
   // Mid-drag the strip's place belongs to the drag: the wheel scrolls the pages instead.
@@ -2441,7 +2504,7 @@ thumbStrip.addEventListener('wheel', (e) => {
   if (!_wheelRaf) _wheelRaf = requestAnimationFrame(_wheelGlide);
   e.preventDefault();
   e.stopPropagation();
-}, { passive: false });
+}, { passive: false, signal: _rsSignal });
 
 // Container listener — clicks/drags that don't start on the indicator itself.
 // A thumbnail the pointer rests on: the page a click there shows is read and decoded ahead.
@@ -2449,14 +2512,14 @@ thumbStrip.addEventListener('pointermove', (e) => {
   if (_thumbDragging || e.buttons) return;
   const img = e.target.closest?.('.thumb-item')?.querySelector('img');
   if (img) _preloadOnRest(Number(img.dataset.idx) + 1, false);
-});
-thumbStrip.addEventListener('pointerleave', _cancelPreloadOnRest);
+}, { signal: _rsSignal });
+thumbStrip.addEventListener('pointerleave', _cancelPreloadOnRest, { signal: _rsSignal });
 
 thumbStrip.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
   e.preventDefault();
   _startThumbInteraction(e);
-});
+}, { signal: _rsSignal });
 
 // Indicator listener — separated so we can stopPropagation and not double-handle.
 function _attachIndicatorListener() {
@@ -2494,9 +2557,9 @@ thumbResizeHandle.addEventListener('pointerdown', (e) => {
     platform.kv.set({ readerThumbHeight: _thumbHeight });
     _refreshThumbSizes();   // copies made for a shorter strip would look soft now
   }
-  thumbResizeHandle.addEventListener('pointermove', move);
-  thumbResizeHandle.addEventListener('pointerup', up);
-});
+  thumbResizeHandle.addEventListener('pointermove', move, { signal: _rsSignal });
+  thumbResizeHandle.addEventListener('pointerup', up, { signal: _rsSignal });
+}, { signal: _rsSignal });
 
 function setKeybindOpen(open) {
   if (open && readerSettingsModal.classList.contains('show')) setReaderSettingsOpen(false);   // one dialog at a time
@@ -2637,7 +2700,7 @@ window.addEventListener('wheel', (e) => {
     return;
   }
   _hideReaderNav();
-}, { passive: true });
+}, { passive: true, signal: _rsSignal });
 
 window.addEventListener('scroll', () => {
   const y = window.scrollY;
@@ -2646,17 +2709,17 @@ window.addEventListener('scroll', () => {
     else if (y <= 0 && readerNavLastY > 0) readerNavWheelUps = 0;
   }
   readerNavLastY = y;
-}, { passive: true });
+}, { passive: true, signal: _rsSignal });
 
 topbarReveal.addEventListener('pointerenter', () => {
   if (!readerPinned) document.body.classList.add('reader-nav-hover');
-});
+}, { signal: _rsSignal });
 topbarReveal.addEventListener('pointerleave', (e) => {
   if (!topbar.contains(e.relatedTarget)) document.body.classList.remove('reader-nav-hover');
-});
+}, { signal: _rsSignal });
 topbar.addEventListener('pointerleave', (e) => {
   if (e.relatedTarget !== topbarReveal) document.body.classList.remove('reader-nav-hover');
-});
+}, { signal: _rsSignal });
 
 // ── Side controls ──
 // Everything the top bar offers, as buttons down the right edge: home, the overview, the reading
@@ -2780,25 +2843,25 @@ function _openChapterList() {
 const _chapterListOpen = () => document.body.classList.contains('sn-pop-open');
 function _closeChapterList() { document.body.classList.remove('sn-pop-open'); }
 
-snChPrev.addEventListener('click', () => _gotoAdjacentChapter(-1));
-snChNext.addEventListener('click', () => _gotoAdjacentChapter(1));
-snChLabel.addEventListener('click', () => (_chapterListOpen() ? _closeChapterList() : _openChapterList()));
-snChaptersClose.addEventListener('click', _closeChapterList);
+snChPrev.addEventListener('click', () => _gotoAdjacentChapter(-1), { signal: _rsSignal });
+snChNext.addEventListener('click', () => _gotoAdjacentChapter(1), { signal: _rsSignal });
+snChLabel.addEventListener('click', () => (_chapterListOpen() ? _closeChapterList() : _openChapterList()), { signal: _rsSignal });
+snChaptersClose.addEventListener('click', _closeChapterList, { signal: _rsSignal });
 document.addEventListener('pointerdown', (e) => {
   if (_chapterListOpen() && !e.target.closest?.('#snChapters, #snChLabel')) _closeChapterList();
-}, true);
-snMode.addEventListener('click', () => setMode((SN_MODES[mode] || SN_MODES.strip).next));
-snTranslate.addEventListener('click', () => setView(translateView ? 'off' : 'translate'));
-snStudy.addEventListener('click', () => { if (hasStudy) setView(studyMode ? 'off' : 'study'); });
-snThumbs.addEventListener('click', () => setThumbsOpen(!thumbsOpen));
+}, { capture: true, signal: _rsSignal });
+snMode.addEventListener('click', () => setMode((SN_MODES[mode] || SN_MODES.strip).next), { signal: _rsSignal });
+snTranslate.addEventListener('click', () => setView(translateView ? 'off' : 'translate'), { signal: _rsSignal });
+snStudy.addEventListener('click', () => { if (hasStudy) setView(studyMode ? 'off' : 'study'); }, { signal: _rsSignal });
+snThumbs.addEventListener('click', () => setThumbsOpen(!thumbsOpen), { signal: _rsSignal });
 _wireSpeedDrag(snAuto);
 _wireSpeedDrag(autoBtn);
-snSettings.addEventListener('click', () => setReaderSettingsOpen(!readerSettingsModal.classList.contains('show')));
-snKeys.addEventListener('click', () => setKeybindOpen(!keybindModal.classList.contains('show')));
-snTop.addEventListener('click', _backToTop);
-snFit.addEventListener('click', () => (readerFitMode === 'width' ? fitPageHeight() : fitPageWidth()));
-snZoomOut.addEventListener('click', () => adjustPageZoom(-1));
-snZoomIn.addEventListener('click', () => adjustPageZoom(1));
+snSettings.addEventListener('click', () => setReaderSettingsOpen(!readerSettingsModal.classList.contains('show')), { signal: _rsSignal });
+snKeys.addEventListener('click', () => setKeybindOpen(!keybindModal.classList.contains('show')), { signal: _rsSignal });
+snTop.addEventListener('click', _backToTop, { signal: _rsSignal });
+snFit.addEventListener('click', () => (readerFitMode === 'width' ? fitPageHeight() : fitPageWidth()), { signal: _rsSignal });
+snZoomOut.addEventListener('click', () => adjustPageZoom(-1), { signal: _rsSignal });
+snZoomIn.addEventListener('click', () => adjustPageZoom(1), { signal: _rsSignal });
 
 // A play button plays or pauses on a press, and sets the speed when dragged, the way a number is
 // scrubbed in an image editor: up or right faster, down or left slower, 2 px/s a pixel (10 with
@@ -2814,7 +2877,7 @@ let _speedDragging = false;
 const speedTip = document.createElement('div');
 speedTip.className = 'speed-tip';
 speedTip.innerHTML = '<span class="speed-tip-bar"><span class="speed-tip-fill"></span></span><span class="speed-tip-value"></span>';
-document.body.appendChild(speedTip);
+_rsOwn(document.body.appendChild(speedTip));
 const speedTipFill = speedTip.querySelector('.speed-tip-fill');
 const speedTipValue = speedTip.querySelector('.speed-tip-value');
 
@@ -2851,7 +2914,7 @@ function _wireSpeedDrag(btn) {
     drag = { id: e.pointerId, value: readerAutoScrollSpeed, travel: 0, moved: false, push: 0, shift: false, pushRaf: 0, pushAt: 0 };
     dragged = false;
     btn.setPointerCapture(e.pointerId);
-  });
+  }, { signal: _rsSignal });
   // Held against the edge, no more moves arrive: the speed goes on a frame at a time.
   const pushFrame = (now) => {
     drag.pushRaf = 0;
@@ -2880,7 +2943,7 @@ function _wireSpeedDrag(btn) {
     drag.push = _edgePush(e);
     drag.shift = e.shiftKey;
     if (drag.push && !drag.pushRaf) { drag.pushAt = 0; drag.pushRaf = requestAnimationFrame(pushFrame); }
-  });
+  }, { signal: _rsSignal });
   const end = (e) => {
     if (!drag || e.pointerId !== drag.id) return;
     cancelAnimationFrame(drag.pushRaf);
@@ -2894,12 +2957,12 @@ function _wireSpeedDrag(btn) {
     }
     drag = null;
   };
-  btn.addEventListener('pointerup', end);
-  btn.addEventListener('pointercancel', end);
+  btn.addEventListener('pointerup', end, { signal: _rsSignal });
+  btn.addEventListener('pointercancel', end, { signal: _rsSignal });
   btn.addEventListener('click', () => {
     if (dragged) { dragged = false; return; }   // that press set the speed
     setAutoScroll(!_autoRaf);
-  });
+  }, { signal: _rsSignal });
 }
 
 // ── Auto-play ──
@@ -2919,7 +2982,7 @@ let _autoChapter = -1;                      // the chapter it started in: it nev
 const autoBar = document.createElement('div');
 autoBar.className = 'auto-bar';
 autoBar.innerHTML = '<span class="auto-bar-fill"></span>';
-document.body.appendChild(autoBar);
+_rsOwn(document.body.appendChild(autoBar));
 const autoBarFill = autoBar.firstElementChild;
 
 // The reader going back up stops auto-play (unless Reader settings says to read on from there): a
@@ -2936,14 +2999,14 @@ const AUTO_TURN_SETTLE_MS = 600;   // single/double: how long after a turn its s
 const MOVING_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End', ' ', 'w', 'W', 's', 'S', 'a', 'A', 'd', 'D']);
 let _readerInputAt = -Infinity, _readerPointerHeld = false;
 const _noteReaderInput = () => { _readerInputAt = performance.now(); };
-window.addEventListener('wheel', _noteReaderInput, { capture: true, passive: true });
-window.addEventListener('keydown', (e) => { if (MOVING_KEYS.has(e.key)) _noteReaderInput(); }, true);
+window.addEventListener('wheel', _noteReaderInput, { capture: true, passive: true, signal: _rsSignal });
+window.addEventListener('keydown', (e) => { if (MOVING_KEYS.has(e.key)) _noteReaderInput(); }, { capture: true, signal: _rsSignal });
 window.addEventListener('pointerdown', (e) => {
   _noteReaderInput();
   _readerPointerHeld = !e.target.closest?.('#snAuto, #autoBtn');
-}, true);
-for (const type of ['pointerup', 'pointercancel']) window.addEventListener(type, () => { _readerPointerHeld = false; }, true);
-window.addEventListener('blur', () => { _readerPointerHeld = false; });
+}, { capture: true, signal: _rsSignal });
+for (const type of ['pointerup', 'pointercancel']) window.addEventListener(type, () => { _readerPointerHeld = false; }, { capture: true, signal: _rsSignal });
+window.addEventListener('blur', () => { _readerPointerHeld = false; }, { signal: _rsSignal });
 const _readerActing = () => _readerPointerHeld || performance.now() - _readerInputAt < AUTO_INTENT_MS;
 // Turned up over the pages (not over the thumbnails or a dialog, which scroll on their own, nor a
 // pinch-zoom), the wheel stops it at once; a touch dragged down by more than a little does too.
@@ -2951,12 +3014,12 @@ const AUTO_TOUCH_BACK_PX = 12;
 const _ownScroller = (el) => !!el?.closest?.('#thumbStrip, #readerSettingsModal, #keybindModal, #snChapters');
 window.addEventListener('wheel', (e) => {
   if (_autoRaf && readerAutoPauseOnUp && e.deltaY < 0 && !e.ctrlKey && !_ownScroller(e.target)) setAutoScroll(false);
-}, { capture: true, passive: true });
+}, { capture: true, passive: true, signal: _rsSignal });
 let _touchY = 0;
-window.addEventListener('touchstart', (e) => { _touchY = e.touches[0]?.clientY ?? 0; }, { capture: true, passive: true });
+window.addEventListener('touchstart', (e) => { _touchY = e.touches[0]?.clientY ?? 0; }, { capture: true, passive: true, signal: _rsSignal });
 window.addEventListener('touchmove', (e) => {
   if (_autoRaf && readerAutoPauseOnUp && !_ownScroller(e.target) && (e.touches[0]?.clientY ?? 0) - _touchY > AUTO_TOUCH_BACK_PX) setAutoScroll(false);
-}, { capture: true, passive: true });
+}, { capture: true, passive: true, signal: _rsSignal });
 // The reader settings don't hold it up: their speed is easiest set watching it.
 const _autoWaits = () => document.hidden || keybindModal.classList.contains('show')
   || _chapterListOpen() || propertiesOpen() || feedbackOpen();
@@ -3144,7 +3207,7 @@ const _scrollTrail = [];   // recent { t, y }
 let _lastScrollAt = 0;
 let _lastWheelAt = -Infinity;
 let _stripDir = 1;         // 1 moving down, -1 up; kept while at rest
-window.addEventListener('wheel', () => { _lastWheelAt = performance.now(); }, { capture: true, passive: true });
+window.addEventListener('wheel', () => { _lastWheelAt = performance.now(); }, { capture: true, passive: true, signal: _rsSignal });
 
 function _noteScroll() {
   const t = _lastScrollAt = performance.now();
@@ -3258,7 +3321,7 @@ function _releaseStripRow(idx) {
 // pass was superseded or the window has already moved past this page.
 async function _mountOne(idx, gen, swap) {
   const page = pages[_viewBase + idx];
-  const url = await pageBlobUrl(page);
+  const url = await pageBlobUrl(page); if (_rsStopped) return;
   if (_stripGen !== gen || !url) return;
   if (idx < _winLo || idx > _winHi) return;   // the window moved on mid-load
   const img = _stripImgs[idx];
@@ -3273,7 +3336,7 @@ async function _mountOne(idx, gen, swap) {
   const near = _stripCost(idx, _winC) <= _decodeAhead;
   if (swap && near && img.getAttribute('src')) {
     const pre = new Image(); pre.src = url;   // decode the replacement before swapping in
-    try { await pre.decode(); } catch {}
+    try { await pre.decode(); if (_rsStopped) return; } catch {}
     if (_stripGen !== gen) return;
   }
   img.src = url;
@@ -3733,7 +3796,7 @@ function _scrollStripToCurrent() {
 // Keep image drags from leaving the reader unless Ctrl is held when the drag starts.
 document.addEventListener('dragstart', (e) => {
   if (e.target instanceof HTMLImageElement && !e.ctrlKey) e.preventDefault();
-});
+}, { signal: _rsSignal });
 
 const CLICK_WHEEL_NAV_THRESHOLD = 60;   // fine-grained input: how far to travel for one page
 const CLICK_WHEEL_NAV_NOTCH_MIN = 30;   // smallest event still read as one whole wheel detent
@@ -3910,18 +3973,18 @@ function _armClickWheelNav(e) {
   _clickWheelNavPage = mode === 'strip' ? currentPage : null;
 }
 
-viewport.addEventListener('pointerdown', _armClickWheelNav, true);
+viewport.addEventListener('pointerdown', _armClickWheelNav, { capture: true, signal: _rsSignal });
 // The unpinned header's hover strip is an invisible overlay lying across the top of the page,
 // not something the reader can act on — without it the gesture would silently do nothing
 // whenever the press happened to land in that band.
-topbarReveal.addEventListener('pointerdown', _armClickWheelNav, true);
+topbarReveal.addEventListener('pointerdown', _armClickWheelNav, { capture: true, signal: _rsSignal });
 
 viewport.addEventListener('click', (e) => {
   if (!_clickWheelNavUsed) return;
   _clickWheelNavUsed = false;
   e.preventDefault();
   e.stopImmediatePropagation();
-}, true);
+}, { capture: true, signal: _rsSignal });
 
 window.addEventListener('wheel', (e) => {
   if (!_clickWheelNavHeld || (e.buttons !== 0 && !(e.buttons & 1))) return;
@@ -3935,12 +3998,12 @@ window.addEventListener('wheel', (e) => {
   const dir = _clickWheelNavDelta > 0 ? 1 : -1;
   _clickWheelNavDelta = 0;
   _clickWheelPageNav(dir);
-}, { passive: false, capture: true });
+}, { passive: false, capture: true, signal: _rsSignal });
 
-document.addEventListener('pointerup', _endClickWheelNav);
-document.addEventListener('pointercancel', _endClickWheelNav);
-window.addEventListener('blur', _endClickWheelNav);
-document.addEventListener('visibilitychange', () => { if (document.hidden) _endClickWheelNav(); });
+document.addEventListener('pointerup', _endClickWheelNav, { signal: _rsSignal });
+document.addEventListener('pointercancel', _endClickWheelNav, { signal: _rsSignal });
+window.addEventListener('blur', _endClickWheelNav, { signal: _rsSignal });
+document.addEventListener('visibilitychange', () => { if (document.hidden) _endClickWheelNav(); }, { signal: _rsSignal });
 
 // Forward (1) or back (−1) for a flip toward one side of the screen, per the navigation direction.
 function _sideDir(side) {
@@ -3982,7 +4045,7 @@ viewport.addEventListener('click', (e) => {
   if (e.detail === 1 || !open) { _clickPairOpen = true; return; }
   window.getSelection()?.removeAllRanges();
   _toggleControls();
-});
+}, { signal: _rsSignal });
 
 // ── Page progress: pointing, pressing, dragging ──
 // Chapter-relative, like the counter: one segment per page of the chapter being read. Pointing
@@ -4150,22 +4213,22 @@ function _barReturnToBar(press) {
 // Pressing the bar and dragging along or away from it never selects page text. (A class on <body>
 // with a `*` rule did this, restyling every element of the page on each press and release — 13 ms
 // with a long chapter's bar and thumbnails, before the first page of a scrub could even be read.)
-document.addEventListener('selectstart', (e) => { if (_barPress) e.preventDefault(); });
+document.addEventListener('selectstart', (e) => { if (_barPress) e.preventDefault(); }, { signal: _rsSignal });
 
-bottombar.addEventListener('pointerenter', () => { _barHover = true; _syncBarGrown(); });
+bottombar.addEventListener('pointerenter', () => { _barHover = true; _syncBarGrown(); }, { signal: _rsSignal });
 bottombar.addEventListener('pointerleave', () => {
   _barHover = false;
   _cancelPreloadOnRest();
   if (!_barPress) _setBarTip(-1);
   _syncBarGrown();
-});
+}, { signal: _rsSignal });
 bottombar.addEventListener('pointermove', (e) => {
   const ch = _chapters[_curChIdx];
   if (_barPress || !ch || !scrubSegments.children.length) return;
   const idx = _barIdxAt(e);
   _setBarTip(idx);
   _preloadOnRest(ch.start + idx + 1, true);   // the page a press here shows, and the thumbnails around it
-});
+}, { signal: _rsSignal });
 bottombar.addEventListener('pointerdown', (e) => {
   const ch = _chapters[_curChIdx];
   if (e.button !== 0 || !ch || !scrubSegments.children.length) return;
@@ -4200,10 +4263,10 @@ bottombar.addEventListener('pointerdown', (e) => {
     _setBarTip(_barHover ? _barIdxAt(ev) : -1);
     _syncBarGrown();
   };
-  document.addEventListener('pointermove', move);
-  document.addEventListener('pointerup', up);
-  document.addEventListener('pointercancel', up);
-});
+  document.addEventListener('pointermove', move, { signal: _rsSignal });
+  document.addEventListener('pointerup', up, { signal: _rsSignal });
+  document.addEventListener('pointercancel', up, { signal: _rsSignal });
+}, { signal: _rsSignal });
 
 // Too many pages for the bar's length: below this many device pixels a page, the gaps between
 // segments would outweigh the pages, so the bar drops them.
@@ -4286,9 +4349,9 @@ function _updateModeToggle() {
   modeStrip.classList.toggle('active', mode === 'strip');
   _syncSideNav();
 }
-modeSingle.addEventListener('click', () => setMode('single'));
-modeDouble.addEventListener('click', () => setMode('double'));
-modeStrip.addEventListener('click', () => setMode('strip'));
+modeSingle.addEventListener('click', () => setMode('single'), { signal: _rsSignal });
+modeDouble.addEventListener('click', () => setMode('double'), { signal: _rsSignal });
+modeStrip.addEventListener('click', () => setMode('strip'), { signal: _rsSignal });
 
 // Back to top (the classic button, the rail's last one): the strip glides to its top, the way a jump
 // does, and auto-play makes way for the glide (_autoScrollFrame). Going back up pauses auto-play,
@@ -4298,7 +4361,7 @@ function _backToTop() {
   if (_autoRaf && readerAutoPauseOnUp) setAutoScroll(false);
   _glideStripTo(stripView);
 }
-scrollTopBtn.addEventListener('click', _backToTop);
+scrollTopBtn.addEventListener('click', _backToTop, { signal: _rsSignal });
 window.addEventListener('scroll', () => {
   _noteScroll();   // how fast the strip moves decides whether full pages load (_stripFlying)
   _syncTopButtons();
@@ -4315,10 +4378,10 @@ window.addEventListener('scroll', () => {
   }
   _stripLine = _stripLineAt(true);   // where a resize puts the strip's reading line back
   _scheduleScrubView();               // the progress bar's band follows what the screen shows
-}, { passive: true });
+}, { passive: true, signal: _rsSignal });
 
 // Thumbs
-thumbBtn.addEventListener('click', () => setThumbsOpen(!thumbsOpen));
+thumbBtn.addEventListener('click', () => setThumbsOpen(!thumbsOpen), { signal: _rsSignal });
 
 // Clicking anywhere in the page viewport closes an open thumbnail strip. Capture phase +
 // stopPropagation so that first click only dismisses the strip and doesn't also page-flip.
@@ -4326,7 +4389,7 @@ viewport.addEventListener('click', (e) => {
   if (!thumbsOpen) return;
   e.stopPropagation();
   setThumbsOpen(false);
-}, true);
+}, { capture: true, signal: _rsSignal });
 
 // Seamless variant switch: re-point the on-screen pages at the current variant in place —
 // decoded first so nothing blanks, keeping each page's measured size and the scroll position.
@@ -4382,8 +4445,8 @@ function _updateViewToggle() {
 }
 
 // Click a side to turn it on (and the other off); click the active side again to turn it off.
-translateSeg.addEventListener('click', () => setView(translateView ? 'off' : 'translate'));
-studySeg.addEventListener('click', () => { if (hasStudy) setView(studyMode ? 'off' : 'study'); });
+translateSeg.addEventListener('click', () => setView(translateView ? 'off' : 'translate'), { signal: _rsSignal });
+studySeg.addEventListener('click', () => { if (hasStudy) setView(studyMode ? 'off' : 'study'); }, { signal: _rsSignal });
 
 // ── Study mode: reveal translated bubbles one at a time over the clean original ──
 function _mountTextBubble(box, b, idx, pageUrl, bgLayer, fgLayer, pg, srcOpts, hasPageBg) {
@@ -4666,10 +4729,10 @@ function _refreshBubbleLayers() {
 }
 
 // Keybind modal
-keybindBtn.addEventListener('click', () => setKeybindOpen(!keybindModal.classList.contains('show')));
+keybindBtn.addEventListener('click', () => setKeybindOpen(!keybindModal.classList.contains('show')), { signal: _rsSignal });
 keybindModal.addEventListener('click', (e) => {
   if (!e.target.closest('#keybindBox')) setKeybindOpen(false);
-});
+}, { signal: _rsSignal });
 
 function _readerZoomScale() {
   if (readerFitMode === 'off') return Math.min(mode === 'strip' ? 1 : ZOOM_MAX, _pageZoom);
@@ -4762,14 +4825,14 @@ function _showSettingsTab(tab, focus) {
   if (focus) tab.focus();
 }
 for (const tab of rsTabs) {
-  tab.addEventListener('click', () => _showSettingsTab(tab));
+  tab.addEventListener('click', () => _showSettingsTab(tab), { signal: _rsSignal });
   tab.addEventListener('keydown', (e) => {
     const i = rsTabs.indexOf(tab);
     const next = { ArrowLeft: i - 1, ArrowRight: i + 1, Home: 0, End: rsTabs.length - 1 }[e.key];
     if (next === undefined) return;
     e.preventDefault();
     _showSettingsTab(rsTabs[(next + rsTabs.length) % rsTabs.length], true);
-  });
+  }, { signal: _rsSignal });
 }
 
 // ── Reader settings: placement pickers ──
@@ -4905,7 +4968,7 @@ for (const p of PICKERS) {
     // the window's top or bottom the choices shift to stay inside it).
     _pick.press = { id: e.pointerId, opening, left: false };
     p.btn.setPointerCapture(e.pointerId);
-  });
+  }, { signal: _rsSignal });
   p.btn.addEventListener('pointermove', (e) => {
     const press = _pick?.press;
     if (!press || e.pointerId !== press.id) return;
@@ -4918,7 +4981,7 @@ for (const p of PICKERS) {
       cell = _cellUnder(e);
     }
     for (const other of rsPicker.children) other.classList.toggle('hot', other === cell);
-  });
+  }, { signal: _rsSignal });
   p.btn.addEventListener('pointerup', (e) => {
     const press = _pick?.press;
     if (!press || e.pointerId !== press.id) return;
@@ -4931,15 +4994,15 @@ for (const p of PICKERS) {
     const cell = _cellUnder(e);
     if (cell) { _takeCell(cell, true); return; }
     if (!_onButton(p.btn, e)) _closePicker();   // let go anywhere else: nothing picked (back on the button, they stay)
-  });
-  p.btn.addEventListener('pointercancel', () => { if (_pick) _pick.press = null; });
+  }, { signal: _rsSignal });
+  p.btn.addEventListener('pointercancel', () => { if (_pick) _pick.press = null; }, { signal: _rsSignal });
   // From the keyboard (or a click the press didn't make): open on the choice it is now, or close.
   p.btn.addEventListener('click', () => {
     if (_pickOwnClick) { _pickOwnClick = false; return; }
     if (_pick?.picker === p) { _closePicker(); return; }
     _openPicker(p);
     (rsPicker.querySelector('.current') || rsPicker.firstElementChild)?.focus();
-  });
+  }, { signal: _rsSignal });
 }
 rsPicker.addEventListener('click', (e) => {
   // Kept from the dialog's outside-click check: showing an edge's places takes the clicked cell out of
@@ -4947,19 +5010,19 @@ rsPicker.addEventListener('click', (e) => {
   e.stopPropagation();
   const cell = e.target.closest('.rs-pick-cell');
   if (cell && _pick) _takeCell(cell, false);
-});
+}, { signal: _rsSignal });
 // A press anywhere else, the settings scrolling under it or the window resizing puts it away.
 document.addEventListener('pointerdown', (e) => {
   if (_pick && !e.target.closest?.('#rsPicker') && !_pick.picker.btn.contains(e.target)) _closePicker();
-}, true);
-readerSettingsBox.addEventListener('scroll', () => _closePicker(), true);   // the tab shown is what scrolls
-window.addEventListener('resize', () => _closePicker());
+}, { capture: true, signal: _rsSignal });
+readerSettingsBox.addEventListener('scroll', () => _closePicker(), { capture: true, signal: _rsSignal });   // the tab shown is what scrolls
+window.addEventListener('resize', () => _closePicker(), { signal: _rsSignal });
 
-readerSettingsBtn.addEventListener('click', () => setReaderSettingsOpen(!readerSettingsModal.classList.contains('show')));
-readerSettingsClose.addEventListener('click', () => setReaderSettingsOpen(false));
+readerSettingsBtn.addEventListener('click', () => setReaderSettingsOpen(!readerSettingsModal.classList.contains('show')), { signal: _rsSignal });
+readerSettingsClose.addEventListener('click', () => setReaderSettingsOpen(false), { signal: _rsSignal });
 readerSettingsModal.addEventListener('click', (e) => {
   if (!e.target.closest('#readerSettingsBox')) setReaderSettingsOpen(false);
-});
+}, { signal: _rsSignal });
 readerSettingsBox.addEventListener('click', (e) => {
   const modeBtn = e.target.closest('[data-reader-mode]');
   if (modeBtn) { setMode(modeBtn.dataset.readerMode); return; }
@@ -4983,27 +5046,27 @@ readerSettingsBox.addEventListener('click', (e) => {
       void (next === 'width' ? fitPageWidth() : fitPageHeight()).then(_syncReaderSettingsUI);
     }
   }
-});
-readerGap.addEventListener('input', () => _applyReaderPageGap(readerGap.value));
-readerAutoScrollInput.addEventListener('input', () => _applyReaderAutoScrollSpeed(readerAutoScrollInput.value));
-readerDimInput.addEventListener('input', () => _applyReaderDim(readerDimInput.value));
+}, { signal: _rsSignal });
+readerGap.addEventListener('input', () => _applyReaderPageGap(readerGap.value), { signal: _rsSignal });
+readerAutoScrollInput.addEventListener('input', () => _applyReaderAutoScrollSpeed(readerAutoScrollInput.value), { signal: _rsSignal });
+readerDimInput.addEventListener('input', () => _applyReaderDim(readerDimInput.value), { signal: _rsSignal });
 readerSettingsBox.querySelectorAll('[data-reader-nav]').forEach(btn => {
-  btn.addEventListener('click', () => applyReaderNavLayout(btn.dataset.readerNav));
+  btn.addEventListener('click', () => applyReaderNavLayout(btn.dataset.readerNav), { signal: _rsSignal });
 });
-readerCoverOffsetInput.addEventListener('change', () => _applyReaderCoverOffset(readerCoverOffsetInput.checked));
-readerDebugLoadedInput.addEventListener('change', () => _applyReaderDebugLoaded(readerDebugLoadedInput.checked));
-readerOverviewInput.addEventListener('change', () => _applySkipOverview(!readerOverviewInput.checked));
-readerStripFlowInput.addEventListener('change', () => _applyStripFlow(readerStripFlowInput.checked));
-readerTransitionsInput.addEventListener('change', () => _applyChapterTransitions(readerTransitionsInput.checked));
-readerPauseOnUpInput.addEventListener('change', () => _applyReaderPauseOnUp(readerPauseOnUpInput.checked));
-readerSmoothScrollInput.addEventListener('change', () => _applyReaderSmoothScroll(readerSmoothScrollInput.checked));
-readerFuriganaInput.addEventListener('change', () => _applyStudyPref('furigana', readerFuriganaInput.checked));
-readerStudyFontSelect.addEventListener('change', () => _applyStudyPref('srcFont', readerStudyFontSelect.value));
+readerCoverOffsetInput.addEventListener('change', () => _applyReaderCoverOffset(readerCoverOffsetInput.checked), { signal: _rsSignal });
+readerDebugLoadedInput.addEventListener('change', () => _applyReaderDebugLoaded(readerDebugLoadedInput.checked), { signal: _rsSignal });
+readerOverviewInput.addEventListener('change', () => _applySkipOverview(!readerOverviewInput.checked), { signal: _rsSignal });
+readerStripFlowInput.addEventListener('change', () => _applyStripFlow(readerStripFlowInput.checked), { signal: _rsSignal });
+readerTransitionsInput.addEventListener('change', () => _applyChapterTransitions(readerTransitionsInput.checked), { signal: _rsSignal });
+readerPauseOnUpInput.addEventListener('change', () => _applyReaderPauseOnUp(readerPauseOnUpInput.checked), { signal: _rsSignal });
+readerSmoothScrollInput.addEventListener('change', () => _applyReaderSmoothScroll(readerSmoothScrollInput.checked), { signal: _rsSignal });
+readerFuriganaInput.addEventListener('change', () => _applyStudyPref('furigana', readerFuriganaInput.checked), { signal: _rsSignal });
+readerStudyFontSelect.addEventListener('change', () => _applyStudyPref('srcFont', readerStudyFontSelect.value), { signal: _rsSignal });
 initDropdowns();
-readerZoomOut.addEventListener('click', () => adjustPageZoom(-1));
-readerZoomIn.addEventListener('click', () => adjustPageZoom(1));
+readerZoomOut.addEventListener('click', () => adjustPageZoom(-1), { signal: _rsSignal });
+readerZoomIn.addEventListener('click', () => adjustPageZoom(1), { signal: _rsSignal });
 
-readerPinBtn.addEventListener('click', () => applyReaderPin(!readerPinned));
+readerPinBtn.addEventListener('click', () => applyReaderPin(!readerPinned), { signal: _rsSignal });
 
 // ── Responsive navbar: fold controls into a ⋯ menu, in stages, as the bar runs out of room ──
 // Stage 1 folds the secondary buttons (.tb-extra) so the title can start to ellipsize; stage 2
@@ -5022,7 +5085,7 @@ const _viewToMenu = () => { if (viewToggle.parentElement !== tbExtra) tbExtra.in
 // The layout engine then evaluates the fold every frame, in the same pass as the resize, so the
 // buttons fold the instant the gap hits zero even mid-drag: the title never flashes an ellipsis.
 // It's content-, not width-, dependent, so it only needs to re-run when the title/toggle/font change.
-const _foldStyle = document.head.appendChild(document.createElement('style'));
+const _foldStyle = _rsOwn(document.head.appendChild(document.createElement('style')));
 function _recomputeFold() {
   // Measure with the bar fully expanded and the gap collapsed, so the children pack to the left and
   // the rightmost one's edge marks the natural content width = the breakpoint (a @container width is
@@ -5053,10 +5116,10 @@ function _layoutStage2() {
   if (folded && idClips()) _viewToMenu();                            // title spent & # would clip → fold the toggle
   _tbBusy = false;
 }
-tbMenuBtn.addEventListener('click', (e) => { e.stopPropagation(); topbar.classList.toggle('menu-open'); });
-document.addEventListener('click', () => topbar.classList.remove('menu-open'));
+tbMenuBtn.addEventListener('click', (e) => { e.stopPropagation(); topbar.classList.toggle('menu-open'); }, { signal: _rsSignal });
+document.addEventListener('click', () => topbar.classList.remove('menu-open'), { signal: _rsSignal });
 new ResizeObserver(_layoutStage2).observe(topbar);
-window.addEventListener('resize', _layoutStage2);
+window.addEventListener('resize', _layoutStage2, { signal: _rsSignal });
 // The breakpoint shifts only when the bar's natural width does: re-measure once the web font lands,
 // and whenever the page counter changes width (a new digit) — it's flex-shrink:0, so this RO never
 // fires on a plain window resize, keeping the recompute off the resize path.
@@ -5240,15 +5303,15 @@ document.addEventListener('keyup', (e) => {
   _scrollFast = e.shiftKey;   // releasing Shift drops back to the half-speed default, live
   if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp')   _releaseScroll('up');
   if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') _releaseScroll('down');
-});
-window.addEventListener('blur', () => { _stopScroll(); _scrollFast = false; _setStudyTextSelectable(false); });
+}, { signal: _rsSignal });
+window.addEventListener('blur', () => { _stopScroll(); _scrollFast = false; _setStudyTextSelectable(false); }, { signal: _rsSignal });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { _stopScroll(); _scrollFast = false; _setStudyTextSelectable(false); }
-});
+}, { signal: _rsSignal });
 
 let _feedbackPointer = null;
-document.addEventListener('pointermove', e => { _feedbackPointer = { x: e.clientX, y: e.clientY }; }, { passive: true });
-document.addEventListener('pointerleave', () => { _feedbackPointer = null; });
+document.addEventListener('pointermove', e => { _feedbackPointer = { x: e.clientX, y: e.clientY }; }, { passive: true, signal: _rsSignal });
+document.addEventListener('pointerleave', () => { _feedbackPointer = null; }, { signal: _rsSignal });
 
 function _openHoveredFeedback() {
   if (!studyMode || !_feedbackPointer) return;
@@ -5268,8 +5331,8 @@ function _openHoveredFeedback() {
 // keyboard is: a key lets it go instead of ringing it, and hidden controls that focus held up hide
 // again. Focus moved there by the keyboard (Tab) stays, ringed.
 let _focusByKeys = false;
-document.addEventListener('keydown', (e) => { if (e.key === 'Tab') _focusByKeys = true; }, true);
-document.addEventListener('pointerdown', () => { _focusByKeys = false; }, true);
+document.addEventListener('keydown', (e) => { if (e.key === 'Tab') _focusByKeys = true; }, { capture: true, signal: _rsSignal });
+document.addEventListener('pointerdown', () => { _focusByKeys = false; }, { capture: true, signal: _rsSignal });
 function _dropPointerFocus(e) {
   if (_focusByKeys || ['Shift', 'Control', 'Alt', 'Meta', 'Tab'].includes(e.key)) return;
   const el = document.activeElement;
@@ -5438,7 +5501,7 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key === '[') _gotoAdjacentChapter(-1);   // previous chapter (series)
   if (e.key === ']') _gotoAdjacentChapter(1);     // next chapter (series)
-});
+}, { signal: _rsSignal });
 
 initTooltips();
 
@@ -5462,6 +5525,29 @@ window.addEventListener('resize', () => {
   _scrollStripLineTo(_stripLine);
   _syncBarDensity();
   _scheduleScrubView();
-});
+}, { signal: _rsSignal });
 
 init();
+
+// ── stop ──
+function stop() {
+  if (_rsStopped) return null;
+  _rsStopped = true;
+  _rsAbort.abort();
+  for (const id of _rsTimers) _rsWin.clearTimeout(id);
+  for (const id of _rsIntervals) _rsWin.clearInterval(id);
+  for (const id of _rsFrames) _rsWin.cancelAnimationFrame(id);
+  for (const id of _rsIdle) _rsWin.cancelIdleCallback(id);
+  for (const o of _rsObservers) o.disconnect();
+  for (const w of _rsWorkers) w.terminate();
+  for (const u of _rsUrls) _rsWin.URL.revokeObjectURL(u);
+  for (const n of _rsNodes) n.remove();
+  for (const off of _rsDisposers) { try { off(); } catch {} }
+  const counts = { timers: _rsTimers.size, intervals: _rsIntervals.size, frames: _rsFrames.size, idle: _rsIdle.size,
+    observers: _rsObservers.size, workers: _rsWorkers.size, objectUrls: _rsUrls.size, nodes: _rsNodes.size, subscriptions: _rsDisposers.length };
+  for (const set of [_rsTimers, _rsIntervals, _rsFrames, _rsIdle, _rsObservers, _rsWorkers, _rsUrls, _rsNodes]) set.clear();
+  _rsDisposers.length = 0;
+  return { released: counts };
+}
+return { stop };
+}
