@@ -64,19 +64,38 @@ export const OLD_PAGE_SHEETS = ['base.css', 'reader-aliases.css', 'notice.css'];
 // entry's, and with `all` every route's too: a route's sheet stays once it has been loaded), and
 // <html class="dark"> as the one page has it.
 export function routeDocument({ all = true } = {}) {
-  const dist = builtSite();
-  const index = readFileSync(join(dist, 'index.html'), 'utf8');
-  const entry = [...index.matchAll(/<link rel="stylesheet"[^>]*href="\.?\/?(assets\/[^"]+\.css)"[^>]*>/g)].map((m) => `/${m[1]}`);
-  const routes = all ? readdirSync(join(dist, 'assets')).filter((f) => f.endsWith('.css')).map((f) => `/assets/${f}`).filter((f) => !entry.includes(f)) : [];
-  let html = readFileSync(join(dist, 'app', 'reader.html'), 'utf8');
+  let html = readFileSync(join(builtSite(), 'app', 'reader.html'), 'utf8');
   for (const sheet of OLD_PAGE_SHEETS) {
     const link = new RegExp(`\\s*<link rel="stylesheet" href="${sheet.replace('.', '\\.')}">`);
     if (!link.test(html)) throw new Error(`reader.html has no ${sheet}`);
     html = html.replace(link, '');
   }
   const first = html.match(/\s*<link rel="stylesheet"[^>]*>/);
-  html = html.replace(first[0], [...entry, ...routes].map((href) => `\n  <link rel="stylesheet" href="${href}">`).join('') + first[0]);
+  html = html.replace(first[0], onePageSheets({ all }).map((href) => `\n  <link rel="stylesheet" href="${href}">`).join('') + first[0]);
   return html.replace(/<html lang="en"/, '<html lang="en" class="dark"');
+}
+
+// The one page's built stylesheets, by address: its entry's, and with `all` every route's.
+export function onePageSheets({ all = true } = {}) {
+  const dist = builtSite();
+  const index = readFileSync(join(dist, 'index.html'), 'utf8');
+  const entry = [...index.matchAll(/<link rel="stylesheet"[^>]*href="\.?\/?(assets\/[^"]+\.css)"[^>]*>/g)].map((m) => `/${m[1]}`);
+  const routes = all ? readdirSync(join(dist, 'assets')).filter((f) => f.endsWith('.css')).map((f) => `/assets/${f}`).filter((f) => !entry.includes(f)) : [];
+  return [...entry, ...routes];
+}
+
+// The reader's page as it is, with the one page's stylesheets in it too, first in <head> (openPage's
+// `styles: 'added'`): what the one page's own defaults would do to the reader beside base.css.
+export function addedDocument() {
+  const html = readFileSync(join(builtSite(), 'app', 'reader.html'), 'utf8');
+  return html.replace('<head>', `<head>${onePageSheets().map((href) => `\n  <link rel="stylesheet" href="${href}">`).join('')}`);
+}
+
+// The one page's own document with `sheets` linked after its stylesheet (openPage's `onePage`).
+export function onePageWith(sheets) {
+  const html = readFileSync(join(builtSite(), 'index.html'), 'utf8');
+  const own = html.match(/<link rel="stylesheet"[^>]*>/)[0];
+  return html.replace(own, own + sheets.map((href) => `<link rel="stylesheet" href="${href}">`).join(''));
 }
 
 // The reader's own sheets, as the reader's page links them (after <base href="app/">).
@@ -98,7 +117,11 @@ const NOWHERE = 'ws://127.0.0.1:9/';
 // answers that file instead, so a test can hold the engine and stop it. READER_START=strict or again
 // in the environment does the same for every page a test opens: the reader's own tests run on an
 // engine started a second time.
-export async function openPage(browser, origin, { allow = [], reader = process.env.READER_START } = {}) {
+// `styles`: 'route' answers the reader's page as its route's document will be (routeDocument), and
+// 'added' with the one page's stylesheets in it beside its own (addedDocument); READER_STYLES in the
+// environment does the same for every page a test opens. `onePage`: sheets (by address) the one
+// page's document links after its own stylesheet, at every address but the reader's (onePageWith).
+export async function openPage(browser, origin, { allow = [], reader = process.env.READER_START, styles = process.env.READER_STYLES, onePage = null } = {}) {
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 900 });
   await page.setBypassServiceWorker(true);
@@ -115,8 +138,16 @@ export async function openPage(browser, origin, { allow = [], reader = process.e
   const refused = [];
   await page.setRequestInterception(true);
   if (reader && !READER_ENTRIES[reader]) throw new Error(`no reader entry "${reader}"`);
+  const readerDoc = styles === 'route' ? routeDocument() : styles === 'added' ? addedDocument() : null;
+  if (styles && !readerDoc) throw new Error(`no reader styles "${styles}"`);
+  const onePageDoc = onePage ? onePageWith(onePage) : null;
   page.on('request', (req) => {
     const url = req.url();
+    if ((readerDoc || onePageDoc) && url.startsWith(origin) && req.isNavigationRequest()) {
+      const path = new URL(url).pathname;
+      const doc = path === '/reader' ? readerDoc : /^\/[a-z]*$/.test(path) ? onePageDoc : null;
+      if (doc) { req.respond({ status: 200, contentType: 'text/html', body: doc }); return; }
+    }
     if (reader && url.startsWith(origin) && new URL(url).pathname === '/app/js/reader-page.js') {
       req.respond({ status: 200, contentType: 'text/javascript', body: READER_ENTRIES[reader] });
       return;
