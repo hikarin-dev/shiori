@@ -154,13 +154,16 @@
   [data-card-modes~="quick-hidden"] .card-actions { display: none; }
 
   /* A button's faces: its icon at rest and, where it has one, its icon for Shift, one over the other.
-     While Shift is held on it, the one at rest folds shut (0.1s) and the other opens (0.1s after), as
-     1.3 flipped them; let go, or the pointer gone, they fold back the other way. */
+     While Shift is held on a button that has one (its faces say so: data-shift), the one at rest folds
+     shut (0.1s) and the other opens (0.1s after), as 1.3 flipped them; let go, or the pointer gone,
+     they fold back the other way. A button with no face for Shift stays as it is, as 1.3's did (the
+     translate button of a gallery not translated, the source button with no link to edit): folded
+     shut with nothing to open, it showed empty. */
   .card-face { display: grid; place-items: center; }
   .card-face > * { grid-area: 1 / 1; transition: transform 0.1s ease-out 0.1s; }
   .card-face > .face-shift { transform: scaleY(0); transition: transform 0.1s ease-in; }
-  .shift-held .card-btn:is(:hover, [data-force~="hover"]):not(:disabled) > .card-face > .face-rest { transform: scaleY(0); transition: transform 0.1s ease-in; }
-  .shift-held .card-btn:is(:hover, [data-force~="hover"]):not(:disabled) > .card-face > .face-shift { transform: none; transition: transform 0.1s ease-out 0.1s; }
+  .shift-held .card-btn:is(:hover, [data-force~="hover"]):not(:disabled) > .card-face[data-shift] > .face-rest { transform: scaleY(0); transition: transform 0.1s ease-in; }
+  .shift-held .card-btn:is(:hover, [data-force~="hover"]):not(:disabled) > .card-face[data-shift] > .face-shift { transform: none; transition: transform 0.1s ease-out 0.1s; }
 
   /* The open button's face fills its 16px box; a source with no icon cached yet shows the chain at the
      icon's 12px, where the icon will go, on the line of the button's text (centred by it). */

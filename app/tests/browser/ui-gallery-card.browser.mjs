@@ -166,8 +166,35 @@ test('the tips as they show under the pointer, plain, with Shift and with Alt; t
   assert.equal(await page.$eval('[data-section="gallery-card"] > div', (s) => s.classList.contains('shift-held')), false);
   assert.equal(await page.$eval(`${DRIVEN} .card-btn-dl .face-rest`, (f) => getComputedStyle(f).transform), 'none');
   assert.equal(await tipText(page), 'Download all 3 pages');
-  // A button with no Shift face (translate, not translated) turns to nothing.
+  // A button with no Shift face (translate, not translated) has none to turn to, and stays as it is
+  // with Shift held on it, and with Alt: its icon at rest, full size (it folded shut and showed empty).
   assert.equal(await page.$eval(`${DRIVEN} .card-btn-translate`, (b) => b.querySelectorAll('.face-shift').length), 0);
+  const translate = () => page.$eval(`${DRIVEN} .card-btn-translate`, (b) => {
+    const rest = b.querySelector('.face-rest'), icon = rest.querySelector('svg').getBoundingClientRect();
+    return [getComputedStyle(rest).transform, Math.round(icon.width), Math.round(icon.height)];
+  });
+  const still = await translate();
+  assert.deepEqual([still[0], still[1] > 0, still[2] > 0], ['none', true, true], 'the translate button\'s icon at rest');
+  assert.equal(await shown('.card-btn-translate'), 'Translate gallery');
+  for (const key of ['Shift', 'Alt']) {
+    await page.keyboard.down(key);
+    await sleep(350);
+    assert.deepEqual(await translate(), still, `${key} held on it: its icon as it was`);
+    await page.keyboard.up(key);
+    await sleep(350);
+    assert.deepEqual(await translate(), still, `${key} let go: as it was`);
+  }
+  // The source button of a gallery with no link to edit has no Shift face either.
+  await drive(page, { g: 'plain', cover: 'plain', env: { helper: true }, modes: { quickActions: 'always' } });
+  await sleep(100);
+  assert.equal(await page.$eval(`${DRIVEN} .card-btn-open`, (b) => b.querySelectorAll('.face-shift').length), 0);
+  const open = await centre(page, `${DRIVEN} .card-btn-open`);
+  await page.mouse.move(open.x, open.y, { steps: 3 });
+  await page.keyboard.down('Shift');
+  await sleep(350);
+  assert.equal(await page.$eval(`${DRIVEN} .card-btn-open .face-rest`, (f) => getComputedStyle(f).transform), 'none', 'the source button with no link: as it was with Shift held');
+  await page.keyboard.up('Shift');
+  await sleep(200);
   // Nothing holding text moves by opacity or transform.
   assert.deepEqual((await textMotion(page, DRIVEN)).filter((x) => !/card-actions/.test(x)), []);
   assert.deepEqual(page.problems, []);

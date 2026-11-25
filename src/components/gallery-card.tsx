@@ -176,6 +176,7 @@ const Cover = memo(function Cover({ id, href, src, expected, badge, onPointerDow
 });
 
 // ── A button's faces ──
+// (data-shift: it has a face for Shift, which the stylesheet turns it to; without one it stays still.)
 function Faces({ rest, shift }: { rest: ReactNode; shift?: ReactNode }) {
   return (
     <span className="card-face" data-shift={shift ? '' : undefined}>
@@ -225,7 +226,7 @@ function OpenFace({ view }: { view: CardView }) {
     : <span className="source-icon-slot" data-fav={face.source}><ChainIcon /></span>;
   // Flipped to its Shift face only where there is a link to edit (1.3's flip asked for its Shift tip).
   return (
-    <span className="card-face">
+    <span className="card-face" data-shift={view.open.shift ? '' : undefined}>
       <span className="face-rest open-inner">{rest}</span>
       {view.open.shift && <span className="face-shift open-inner"><ChainIcon /></span>}
     </span>
