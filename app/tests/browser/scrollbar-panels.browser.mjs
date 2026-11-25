@@ -100,9 +100,9 @@ test('settings dialogs share the dropdown native profile and switch to overlays'
 test('other modal bodies, lists and nested details share native styling and accept overlays', { skip: !chromePath() }, async t => {
   const page = await fresh(t, true);
   const count = await page.evaluate(() => {
+    // (1.3's library page's filter box and search list were here until 2026-11-25: its drawing and their
+    // rules went with it; the one page draws them as its Dialog and Listbox.)
     const examples = [
-      ['Library filter', '<div class="modal-box filter-box"></div>', '.filter-box'],
-      ['Search suggestions', '<div class="search-suggest open"></div>', '.search-suggest'],
       ['Tag suggestions', '<div class="tag-ed-list open"></div>', '.tag-ed-list'],
       ['Overview results', '<div class="add-results open"></div>', '.add-results'],
       ['Reader settings', '<div id="readerSettingsBox"><div class="rs-panel active"></div></div>', '.rs-panel'],   // the tab shown scrolls
