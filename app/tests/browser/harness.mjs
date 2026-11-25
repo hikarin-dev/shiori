@@ -57,7 +57,7 @@ globalThis.__reader = startReader();
 
 // The reader's page has sheets the route that will draw it inside the one page does not load: the
 // old pages' shared sheets. The rest of its sheets are the reader's own.
-export const OLD_PAGE_SHEETS = ['base.css', 'dropdown.css', 'notice.css'];
+export const OLD_PAGE_SHEETS = ['base.css', 'reader-aliases.css', 'notice.css'];
 
 // The reader's page as the document of its route will be (openPage's `styles: 'route'`): the old
 // pages' sheets taken out, the one page's built stylesheets put in before the reader's own (its

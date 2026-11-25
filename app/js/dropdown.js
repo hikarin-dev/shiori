@@ -1,4 +1,4 @@
-// dropdown.js — dropdown behaviour the look in dropdown.css relies on.
+// dropdown.js — dropdown behaviour the look in reader.css (its dropdowns, at its end) relies on.
 //
 // The list hangs straight off its box, so its side has to be settled before it opens: below,
 // unless only the space above can fit it. Delegated from the document, so dropdowns built later
@@ -9,7 +9,7 @@
 // doesn't jump between picks, and every option fits the list.
 
 const ROW = 28;        // rough option row height (px) — only used to judge whether the list fits below
-const MAX_ROWS = 8;   // the list shows at most this many options and scrolls the rest (dropdown.css)
+const MAX_ROWS = 8;   // the list shows at most this many options and scrolls the rest (reader.css)
 
 function place(e) {
   const sel = e.target.closest && e.target.closest('select');
