@@ -1,4 +1,4 @@
-// library-next-import.browser.mjs — import on /library-next, held to 1.3's page (/library) driven alike:
+// library-next-import.browser.mjs — import on /library-next, held to what 1.3's page (/library) gave driven alike:
 // what Import's picker offers and what a pick of it does (one archive, a PDF, loose pictures, several
 // titles with each answer to their question, a title imported already, a file that is neither, a
 // backup alone and one under another name among titles, a read that fails), the same by a drop of
@@ -6,20 +6,25 @@
 // dragged over the window (for files only, gone on leave, on a drop, on a drag that ends outside), the
 // tracker's "reading a drop" panel during a slow listing and gone at its end, and ?import=1. For each:
 // every dialog and toast (its words), the tracker's panels as they end, the cards the page shows and
-// the header's totals, and what the library holds after. 1.3's page is the oracle: any difference
-// fails, but those named here (§5.3's rows).
+// the header's totals, and what the library holds after. Any difference from 1.3's fails, but those
+// named here (§5.3's rows). What 1.3's page gave is the record (records/<this file>.<table>.json,
+// records.mjs), 1.3's behaviour as measured on 2026-11-25, which a deliberate change of the library's
+// behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 import { readDialog, answer, sleep } from './library-drive.mjs';
+import { record, normalised } from './records.mjs';
 import { zipCreate } from '../../js/zip.js';
 
+const NEW = '/library-next';
+const FILE = path.basename(fileURLToPath(import.meta.url));
 let server, origin, browser, dir;
-const PATHS = ['/library', '/library-next'];
 const at = (name) => path.join(dir, name);
 
 // A small PNG of one colour.
@@ -198,10 +203,9 @@ async function run(where, steps) {
 for (const [name, steps] of CASES) {
   test(name, async (t) => {
     if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-    const [old, now] = [await run(PATHS[0], steps), await run(PATHS[1], steps)];
-    if (process.env.DUMP) console.log(JSON.stringify(old), '\n', JSON.stringify(now));
-    delete old.words; delete now.words;
-    assert.deepEqual(now, old);
+    const now = normalised(await run(NEW, steps), { site: origin });
+    const was = record(FILE, 'cases', name);
+    assert.deepEqual(now, was);
   });
 }
 
@@ -211,9 +215,8 @@ for (const [name, steps] of CASES) {
 // runs is held by library-next-jobs' batch test.)
 test('a batch of two titles: each title on its own card', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const where of PATHS) {
-    const page = await openEmpty(where);
+  {
+    const page = await openEmpty(NEW);
     await page.evaluate(() => {
       const read = Blob.prototype.arrayBuffer;
       Blob.prototype.arrayBuffer = function () { return new Promise((r) => setTimeout(r, 250)).then(() => read.call(this)); };
@@ -226,12 +229,12 @@ test('a batch of two titles: each title on its own card', async (t) => {
     const news = await page.evaluate(() => window.__news);
     // Each card's words, the counts and readings it showed (a word the paced store may skip between two
     // of a title's pages is no part of it: the first and last of each kind are).
-    out[where] = { titles: Object.keys(news).sort(), shown: Object.fromEntries(Object.entries(news).map(([k, w]) => [k, [w[0], w.at(-1)]])), ...(await shown(page)), problems: page.problems };
+    const now = { titles: Object.keys(news).sort(), shown: Object.fromEntries(Object.entries(news).map(([k, w]) => [k, [w[0], w.at(-1)]])), ...(await shown(page)), problems: page.problems };
     await page.close();
+    const was = record(FILE, 'batch');
+    assert.deepEqual(now.cards.length, 2);
+    assert.deepEqual(now, was);
   }
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  assert.deepEqual(out['/library-next'].cards.length, 2);
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 // ── The overlay, the reading panel, the tracker's place, ?import=1 ──
@@ -248,9 +251,8 @@ function overlay() {
 
 test('the overlay: while files are dragged over the window, never for text; gone on leaving, on a drop, on a drag ending outside', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const where of PATHS) {
-    const page = await openEmpty(where);
+  {
+    const page = await openEmpty(NEW);
     const seen = [];
     const look = async (what) => seen.push([what, await page.evaluate(overlay)]);
     // The events a drag from outside brings, as the browser sends them to the element under it: each
@@ -272,21 +274,20 @@ test('the overlay: while files are dragged over the window, never for text; gone
     await fire('dragenter', 'files'); await fire('dragover', 'files'); await look('files again');
     await fire('drop', 'files'); await look('dropped');
     await settle(page);
-    out[where] = { seen, holdings: await holdings(page), problems: page.problems };
+    const now = { seen, holdings: await holdings(page), problems: page.problems };
     await page.close();
+    const was = record(FILE, 'overlay');
+    // §5.3 A6: 1.3's words were its stylesheet's, in English in every language; the new page's are a
+    // string of its own, the same words (no key exists for them yet).
+    assert.deepEqual(now, was);
+    assert.equal(now.seen.find(([w]) => w === 'files over the page')[1]?.words, 'Drop to import');
   }
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  // §5.3 A6: 1.3's words were its stylesheet's, in English in every language; the new page's are a
-  // string of its own, the same words (no key exists for them yet).
-  assert.deepEqual(out['/library-next'], out['/library']);
-  assert.equal(out['/library-next'].seen.find(([w]) => w === 'files over the page')[1]?.words, 'Drop to import');
 });
 
 test('a drop being read: the tracker\'s reading panel during a slow listing, gone at its end', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const where of PATHS) {
-    const page = await openEmpty(where);
+  {
+    const page = await openEmpty(NEW);
     await page.evaluate(() => {
       // Each batch of a folder's list a while coming, so the reading is seen.
       const getEntry = DataTransferItem.prototype.webkitGetAsEntry;
@@ -310,13 +311,13 @@ test('a drop being read: the tracker\'s reading panel during a slow listing, gon
     const box = await readDialog(page, 15000);
     await answer(page, 'cancel');
     await settle(page);
-    out[where] = { panels: await page.evaluate(() => window.__panels), dialog: box?.title, tracker: (await shown(page)).trackerShown, problems: page.problems };
+    const now = { panels: await page.evaluate(() => window.__panels), dialog: box?.title, tracker: (await shown(page)).trackerShown, problems: page.problems };
     await page.close();
+    const was = record(FILE, 'reading');
+    assert.ok(now.panels.some((p) => p && /Reading the folder/.test(p)), JSON.stringify(now.panels));
+    assert.equal(now.panels.at(-1), null, 'gone at its end');
+    assert.deepEqual(now, was);
   }
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  assert.ok(out['/library-next'].panels.some((p) => p && /Reading the folder/.test(p)), JSON.stringify(out['/library-next'].panels));
-  assert.equal(out['/library-next'].panels.at(-1), null, 'gone at its end');
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 // The tracker's panel and its host, as boxes, with a batch under way: at every width 1.3 has a rule
@@ -340,10 +341,9 @@ function trackerBoxes() {
 }
 test('the tracker: in 1.3\'s place and on its margins at every width, on a phone, at 125% and 150%', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const where of PATHS) {
-    const page = await openEmpty(where);
-    out[where] = [];
+  {
+    const page = await openEmpty(NEW);
+    const now = [];
     for (const size of SIZES) {
       await page.setViewport(size);
       await page.reload({ waitUntil: 'load' });
@@ -357,14 +357,14 @@ test('the tracker: in 1.3\'s place and on its margins at every width, on a phone
       });
       await until(page, () => document.querySelector('#importTracker .ib .ib-tally')?.textContent, null, { what: 'the panel' });
       await sleep(300);
-      out[where].push(await page.evaluate(trackerBoxes));
+      now.push(await page.evaluate(trackerBoxes));
       await page.evaluate(async () => (await import('/app/js/platform.js')).jobs.clear('import-9', 'import'));
     }
     assert.deepEqual(page.problems, []);
     await page.close();
+    const was = record(FILE, 'tracker');
+    assert.deepEqual(now, was);
   }
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 // What is true of ?import=1 (6e, plans/frontend-react-probes/6e/import-param.mjs, Chrome and Firefox
@@ -382,29 +382,29 @@ test('?import=1: on a load each page asks for the picker and the browser shows n
     const click = HTMLInputElement.prototype.click;
     HTMLInputElement.prototype.click = function () { if (this.type === 'file') window.__asked.push([this.id, navigator.userActivation.isActive]); return click.call(this); };
   });
-  for (const where of PATHS) {
-    const page = await openEmpty(where);
+  {
+    const page = await openEmpty(NEW);
     await instrument(page);
-    out[where] = { load: await opened(page, () => page.goto(`${origin}${where}?import=1`, { waitUntil: 'load' })) };
+    const now = { load: await opened(page, () => page.goto(`${origin}${NEW}?import=1`, { waitUntil: 'load' })) };
     await sleep(500);
-    out[where].asked = await asked(page);
-    out[where].address = await page.evaluate(() => location.search);
+    now.asked = await asked(page);
+    now.address = await page.evaluate(() => location.search);
     await page.close();
+    const was = record(FILE, 'import-param');
+    assert.deepEqual(was, { load: false, asked: [['cbzFileInput', false]], address: '' });
+    assert.deepEqual(now, was);
   }
   // A change of route to it, from Tasks: a link in the page, pressed, followed inside the app.
-  const page = await openEmpty('/library-next');
+  const page = await openEmpty(NEW);
   await instrument(page);
   await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await page.waitForSelector('#tkList');
-  await page.evaluate(() => { const a = document.createElement('a'); a.id = 'toImport'; a.href = '/library-next?import=1'; a.textContent = 'Import'; Object.assign(a.style, { position: 'fixed', left: '10px', top: '200px', zIndex: 9999 }); document.body.append(a); });
+  await page.evaluate((href) => { const a = document.createElement('a'); a.id = 'toImport'; a.href = href; a.textContent = 'Import'; Object.assign(a.style, { position: 'fixed', left: '10px', top: '200px', zIndex: 9999 }); document.body.append(a); }, `${NEW}?import=1`);
   out.route = await opened(page, () => page.click('#toImport'));
   out.routeAt = await page.evaluate(() => location.pathname);
   out.routeAsked = await asked(page);
   await page.close();
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  assert.deepEqual(out['/library'], { load: false, asked: [['cbzFileInput', false]], address: '' });
-  assert.deepEqual(out['/library-next'], out['/library']);
-  assert.deepEqual([out.route, out.routeAt, out.routeAsked], [true, '/library-next', [['cbzFileInput', true]]]);
+  assert.deepEqual([out.route, out.routeAt, out.routeAsked], [true, NEW, [['cbzFileInput', true]]]);
 });
 
 // ── The new page alone: leaving it leaves nothing behind ──
@@ -454,7 +454,7 @@ function countHeld() {
 
 test('leaving the page five times with a drop being read, a batch running, a drag under way and a backup\'s window open leaves nothing behind', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const page = await openEmpty('/library-next');
+  const page = await openEmpty(NEW);
   await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await page.evaluate(async () => {
     const api = await import('/app/js/api.js');
@@ -465,7 +465,7 @@ test('leaving the page five times with a drop being read, a batch running, a dra
     }
   });
   await page.evaluateOnNewDocument(countHeld);
-  await page.goto(`${origin}/library-next`, { waitUntil: 'load' });
+  await page.goto(`${origin}${NEW}`, { waitUntil: 'load' });
   await until(page, () => document.querySelectorAll('#grid > .card img.card-thumb[src]').length === 2, null, { what: 'the page' });
   const away = async () => {
     await page.evaluate(() => { const a = document.createElement('a'); a.href = '/settings'; document.body.append(a); a.click(); a.remove(); });
@@ -473,7 +473,7 @@ test('leaving the page five times with a drop being read, a batch running, a dra
   };
   const back = async () => {
     await page.evaluate(() => history.back());
-    await until(page, () => location.pathname === '/library-next' && document.querySelectorAll('#grid > .card img.card-thumb[src]').length >= 2, null, { what: 'the library again' });
+    await until(page, (path) => location.pathname === path && document.querySelectorAll('#grid > .card img.card-thumb[src]').length >= 2, NEW, { what: 'the library again' });
   };
   // Until nothing of the app's own is still running or asking (a backup's window and what it says).
   const quiet = async () => {

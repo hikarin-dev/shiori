@@ -1,5 +1,5 @@
 // library-next-drag.browser.mjs — a card dragged onto another to make them a series, on /library-next,
-// held to 1.3's page (/library) driven alike (library-drive.mjs): nothing until the pointer has moved
+// held to what 1.3's page (/library) gave driven alike (library-drive.mjs): nothing until the pointer has moved
 // 6px; the copy's box in every frame against the pointer; the target's mark; each answer of the
 // question and what the library holds after; a refusal told; the copy going back when let go over
 // nothing; the click after a drag swallowed; a finger, and a drag begun on the title, doing nothing
@@ -7,13 +7,19 @@
 // button and the window losing focus during a drag (none of them ends it, in 1.3 as now); and what the
 // compositor holds while the copy moves (no card text on a layer of its own). Then the new page alone:
 // a drag the page leaves leaves nothing behind.
+// What 1.3's page gave is the record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as
+// measured on 2026-11-25, which a deliberate change of the library's behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, until } from './harness.mjs';
 import { openRun, result, readDialog, answer, publish, nextBase, card, sleep, PARTS } from './library-drive.mjs';
+import { record, normalised } from './records.mjs';
 
+const NEW = '/library-next';
+const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser;
-const PATHS = ['/library', '/library-next'];
 
 before(async () => {
   if (!chromePath()) return;
@@ -156,9 +162,9 @@ async function run(path, [, opts, steps]) {
 for (const c of CASES) {
   test(c[0], async (t) => {
     if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-    const [old, now] = [await run(PATHS[0], c), await run(PATHS[1], c)];
-    if (process.env.DUMP) console.log(JSON.stringify(old), '\n', JSON.stringify(now));
-    assert.deepEqual(now, old);
+    const now = normalised(await run(NEW, c), { site: origin });
+    const was = record(FILE, 'cases', c[0]);
+    assert.deepEqual(now, was);
   });
 }
 
@@ -167,10 +173,9 @@ for (const c of CASES) {
 // layer of its own is drawn thinner; the copy is held to 1.3's.
 test('what the compositor holds while the copy moves and while the drop overlay shows, as 1.3', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
+  {
     const base = nextBase(1790007000000);
-    const page = await openRun(browser, origin, path, { base });
+    const page = await openRun(browser, origin, NEW, { base });
     const cdp = await page.createCDPSession();
     await cdp.send('DOM.getDocument', { depth: -1 });
     let layers = [];
@@ -201,12 +206,12 @@ test('what the compositor holds while the copy moves and while the drop overlay 
     await page.evaluate(() => document.getElementById('grid').dispatchEvent(new DragEvent('dragleave', { bubbles: true })));
     // On a layer, as 1.3's own was: the copy (its own, or shared with the fixed layer it is drawn over),
     // the overlay; never a card of the grid.
-    out[path] = { copyOnLayer: copy.some((n) => n === 'div.card.card-drag-clone' || n === 'fixed layer'), overlayOnLayer: overlay.some((n) => n === '::after' || n === 'div'),
+    const now = { copyOnLayer: copy.some((n) => n === 'div.card.card-drag-clone' || n === 'fixed layer'), overlayOnLayer: overlay.some((n) => n === '::after' || n === 'div'),
       gridCards: [...copy, ...overlay].filter((n) => n === 'div.card' || n === 'div.card-actions'), problems: page.problems };
     await cdp.detach();
     await page.close();
+    const was = record(FILE, 'layers');
+    assert.deepEqual(now, { copyOnLayer: true, overlayOnLayer: true, gridCards: [], problems: [] });
+    assert.deepEqual(now, was);
   }
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  assert.deepEqual(out['/library-next'], { copyOnLayer: true, overlayOnLayer: true, gridCards: [], problems: [] });
-  assert.deepEqual(out['/library-next'], out['/library']);
 });

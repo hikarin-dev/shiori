@@ -1,13 +1,20 @@
-// library-next-table.browser.mjs — the library as the one page draws it (/library-next) against 1.3's page
-// (/library), both driven alike by their address over one seeded library: for each sort, a set of
-// searches, the filter's states, pages (one past the end too), series merged or not, what each shows —
-// the cards' ids in order, the totals, the paging's buttons (the current one, the ones that are off),
-// the address it writes back — and the same after a reload; Back from Settings lands on what it showed.
-// 1.3's page is the oracle: every row of the table is read from both and compared.
+// library-next-table.browser.mjs — the library as the one page draws it (/library-next), driven by its
+// address over one seeded library: for each sort, a set of searches, the filter's states, pages (one past
+// the end too), series merged or not, what it shows — the cards' ids in order, the totals, the paging's
+// buttons (the current one, the ones that are off), the address it writes back — and the same after a
+// reload; Back from Settings lands on what it showed. Held to what 1.3's page gave: each table below has
+// its record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as measured on 2026-11-25,
+// which a deliberate change of the library's behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
+import { record } from './records.mjs';
+import { librarySettled } from './library-drive.mjs';
 
+const NEW = '/library-next';
+const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser;
 
 before(async () => {
@@ -15,8 +22,9 @@ before(async () => {
   ({ server, origin } = await startServer());
   browser = await launch();
   const page = await openPage(browser, origin);
-  await page.goto(`${origin}/app/library.html`, { waitUntil: 'load' });
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await page.evaluate(seed);
+  await librarySettled(page);
   await page.close();
 });
 after(async () => { await browser?.close(); server?.close(); });
@@ -105,53 +113,87 @@ const TABLE = [
   { query: '', storage: { 'shiori:libMergeSeries': false } }, { query: 'q=series', storage: { 'shiori:libMergeSeries': false } }, { query: 'page=3', storage: { 'shiori:libMergeSeries': false } },
 ];
 
-test(`each of ${TABLE.length} rows shows on the new page what 1.3's page shows`, async (t) => {
+test(`each of ${TABLE.length} rows shows what 1.3's page showed`, async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const page = await openPage(browser, origin);
-  await page.goto(`${origin}/app/library.html`, { waitUntil: 'load' });
-  const differ = [];
-  let seen = 0;
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
+  const now = [];
+  const reloads = [];
   for (const row of TABLE) {
     const qs = row.query ? `?${row.query}` : '';
-    const old = await read(page, `/library${qs}`, row.storage);
-    const now = await read(page, `/library-next${qs}`, row.storage);
-    if (JSON.stringify(old) !== JSON.stringify(now)) differ.push({ row, old, now });
-    seen += old.cards.length;
+    const shows = await read(page, `${NEW}${qs}`, row.storage);
+    now.push(shows);
     // A reload of the address it settled on shows the same.
     if (row.query.includes('page=')) {
       await page.reload({ waitUntil: 'load' });
       const again = await settled(page);
-      if (JSON.stringify(again) !== JSON.stringify(now)) differ.push({ row, reloaded: true, now, again });
+      if (JSON.stringify(again) !== JSON.stringify(shows)) reloads.push({ row, shows, again });
     }
   }
-  assert.deepEqual(differ, []);
+  const was = record(FILE, 'table');
+  assert.equal(was.length, TABLE.length);
+  assert.deepEqual(TABLE.map((row, i) => ({ row, now: now[i], was: was[i] })).filter((r) => JSON.stringify(r.now) !== JSON.stringify(r.was)), []);
+  assert.deepEqual(reloads, []);
+  const seen = was.reduce((n, shows) => n + shows.cards.length, 0);
   assert.ok(seen > 400, `the table shows cards (${seen})`);
   assert.deepEqual(page.problems, []);
   await page.close();
 });
 
-test('Back from Settings lands on what the page showed, on both pages', async (t) => {
+test('Back from Settings lands on what the page showed, as 1.3\'s did', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const page = await openPage(browser, origin);
-  await page.goto(`${origin}/app/library.html`, { waitUntil: 'load' });
-  const out = {};
-  for (const path of ['/library', '/library-next']) {
-    // (Sorted by pages, which nothing changes meanwhile: a gallery's stored size can still grow a little
-    // while the library writes its covers, which would reorder a sort by size between two reads.)
-    const before = await read(page, `${path}?page=2&sort=count`);
-    await page.click('#settingsBtn');
-    await until(page, () => location.pathname.endsWith('settings'), null, { what: 'Settings' });
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
+  // (Sorted by pages, which nothing changes meanwhile: a gallery's stored size can still grow a little
+  // while the library writes its covers, which would reorder a sort by size between two reads.)
+  const before = await read(page, `${NEW}?page=2&sort=count`);
+  await page.click('#settingsBtn');
+  await until(page, () => location.pathname.endsWith('settings'), null, { what: 'Settings' });
+  await page.goBack();
+  await until(page, (path) => location.pathname === path, NEW, { what: 'back' });
+  const after = await settled(page);
+  assert.deepEqual({ ...after, totals: null }, { ...before, totals: null }, 'Back lands on what it showed');
+  await page.goForward();
+  await until(page, () => location.pathname.endsWith('settings'), null, { what: 'Forward to Settings' });
+  await page.goBack();
+  await until(page, (path) => location.pathname === path, NEW, { what: 'back again' });
+  const now = { ...(await settled(page)), totals: null };
+  const was = record(FILE, 'back');
+  assert.deepEqual(now, was);
+  assert.deepEqual(page.problems, []);
+  await page.close();
+});
+
+// Back from the overview (a card's cover pressed: a page of its own) and from the reader (gone to by
+// its address) to the library: where it was, its page, its search and its scroll. Whether the browser
+// kept the library's document (`kept`: a mark left in it is still there) is recorded too.
+test('Back from the overview and from the reader lands where the library was: its page, its search, its scroll, as 1.3\'s did', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const page = await openPage(browser, origin);
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
+  const now = {};
+  for (const [name, away] of [
+    ['the overview', async () => { await page.click('#grid > .card:nth-child(14) .card-thumb-wrap'); await page.waitForSelector('#ovContent .ov-hero', { timeout: 15000 }); }],
+    ['the reader', async () => { const gid = await page.evaluate(() => document.querySelector('#grid > .card:nth-child(14)').dataset.galleryId); await page.goto(`${origin}/reader?g=${gid}`, { waitUntil: 'load' }); await page.waitForSelector('#topbar', { timeout: 15000 }); }],
+  ]) {
+    const before = await read(page, `${NEW}?page=2&q=manga`);
+    await page.evaluate(() => { window.scrollTo(0, 700); window.__mark = 'kept'; });
+    await new Promise((r) => setTimeout(r, 400));
+    const at = await page.evaluate(() => scrollY);
+    await away();
     await page.goBack();
-    await until(page, (path) => location.pathname === path, path, { what: 'back' });
+    await until(page, (path) => location.pathname === path, NEW, { what: `back from ${name}` });
     const after = await settled(page);
-    assert.deepEqual({ ...after, totals: null }, { ...before, totals: null }, `${path}: Back lands on what it showed`);
-    await page.goForward();
-    await until(page, () => location.pathname.endsWith('settings'), null, { what: 'Forward to Settings' });
-    await page.goBack();
-    await until(page, (path) => location.pathname === path, path, { what: 'back again' });
-    out[path] = { ...(await settled(page)), totals: null };
+    await new Promise((r) => setTimeout(r, 600));
+    now[name] = { at, before: { ...before, totals: null }, after: { ...after, totals: null }, scroll: await page.evaluate(() => scrollY),
+      search: await page.evaluate(() => document.getElementById('searchBox').textContent), kept: await page.evaluate(() => window.__mark === 'kept') };
   }
-  assert.deepEqual(out['/library-next'], out['/library']);
+  const was = record(FILE, 'back-from-pages');
+  assert.deepEqual(now, was);
+  for (const r of Object.values(was)) {
+    assert.deepEqual(r.after, r.before, 'its page and search');
+    assert.equal(r.search, 'manga');
+  }
   assert.deepEqual(page.problems, []);
   await page.close();
 });

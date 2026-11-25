@@ -85,6 +85,21 @@ export async function seedRun(page, origin, base, { helper = true, merge = true,
     ...(translator ? { 'shiori:translateSettings': { serverUrl: translator } } : {}), ...storage });
 }
 
+// Until the library has measured every gallery just made (each one's typical page, and the copies it
+// keeps of its pages: the stored size's "other data") and its stored size has stood still for 3 s. The
+// measuring runs in whatever page is open: a page closed before it ends leaves the library part-measured,
+// so what the totals and a sort by size show then differs from run to run.
+export async function librarySettled(page) {
+  await until(page, async () => {
+    const api = await import('/app/js/api.js');
+    const stats = await api.galleries.stats();
+    const measured = Object.values(stats.galleries).every((g) => g.medianPage);
+    const now = performance.now();
+    if (!measured || stats.totalSize !== window.__settledSize) { window.__settledSize = stats.totalSize; window.__settledSince = now; return false; }
+    return now - window.__settledSince >= 3000;
+  }, null, { what: 'every gallery measured, the stored size still', timeout: 60000 });
+}
+
 // In the page: what it says and does from here on.
 async function record() {
   const { services } = await import('/app/js/services.js');

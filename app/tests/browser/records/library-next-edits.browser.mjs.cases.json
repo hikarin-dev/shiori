@@ -1,0 +1,3196 @@
+{
+  "delete: asked, Escape": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "title": "Delete this gallery?",
+        "body": "Its saved pages, translations and details are removed from this browser. This can’t be undone.",
+        "detail": [
+          "P gallery",
+          "#901 · 2 pages"
+        ],
+        "cover": "picture",
+        "tone": "danger",
+        "input": null,
+        "choices": [],
+        "checks": [],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Delete",
+            "danger": true
+          }
+        ],
+        "focus": "Cancel"
+      }
+    ],
+    "problems": []
+  },
+  "delete: asked, Cancel": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "title": "Delete this gallery?",
+        "body": "Its saved pages, translations and details are removed from this browser. This can’t be undone.",
+        "detail": [
+          "P gallery",
+          "#901 · 2 pages"
+        ],
+        "cover": "picture",
+        "tone": "danger",
+        "input": null,
+        "choices": [],
+        "checks": [],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Delete",
+            "danger": true
+          }
+        ],
+        "focus": "Cancel"
+      }
+    ],
+    "problems": []
+  },
+  "delete: asked, OK": {
+    "said": [
+      {
+        "type": "DELETE_GALLERY",
+        "galleryId": "<P>"
+      }
+    ],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": null,
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "title": "Delete this gallery?",
+        "body": "Its saved pages, translations and details are removed from this browser. This can’t be undone.",
+        "detail": [
+          "P gallery",
+          "#901 · 2 pages"
+        ],
+        "cover": "picture",
+        "tone": "danger",
+        "input": null,
+        "choices": [],
+        "checks": [],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Delete",
+            "danger": true
+          }
+        ],
+        "focus": "Cancel"
+      }
+    ],
+    "problems": []
+  },
+  "Shift on delete: no question": {
+    "said": [
+      {
+        "type": "DELETE_GALLERY",
+        "galleryId": "<P>"
+      }
+    ],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": null,
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      null
+    ],
+    "problems": []
+  },
+  "delete a merged series: asked, OK": {
+    "said": [
+      {
+        "type": "DELETE_SERIES",
+        "galleryId": "<S>"
+      }
+    ],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": null,
+      "S2": null
+    },
+    "dialogs": [
+      {
+        "title": "Delete this series?",
+        "body": "All 2 chapters are deleted, together with their saved pages and translations. This can’t be undone.",
+        "detail": [
+          "S series",
+          "2 chapters"
+        ],
+        "cover": "picture",
+        "tone": "danger",
+        "input": null,
+        "choices": [],
+        "checks": [],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Delete 2 chapters",
+            "danger": true
+          }
+        ],
+        "focus": "Cancel"
+      }
+    ],
+    "problems": []
+  },
+  "Shift on delete, a merged series: no question": {
+    "said": [
+      {
+        "type": "DELETE_SERIES",
+        "galleryId": "<S>"
+      }
+    ],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": null,
+      "S2": null
+    },
+    "dialogs": [
+      null
+    ],
+    "problems": []
+  },
+  "delete a chapter, unmerged: asked, OK": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S2": null
+    },
+    "dialogs": [
+      {
+        "title": "Delete this gallery?",
+        "body": "Its saved pages, translations and details are removed from this browser. This can’t be undone.",
+        "detail": [
+          "S2 gallery",
+          "#904 · 1 pages"
+        ],
+        "cover": "picture",
+        "tone": "danger",
+        "input": null,
+        "choices": [],
+        "checks": [],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Delete",
+            "danger": true
+          }
+        ],
+        "focus": "Cancel"
+      }
+    ],
+    "problems": []
+  },
+  "delete a series' owner, unmerged: asked, OK": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": null,
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "title": "Delete this gallery?",
+        "body": "Its saved pages, translations and details are removed from this browser. This can’t be undone.",
+        "detail": [
+          "S gallery",
+          "#905 · 1 pages"
+        ],
+        "cover": "picture",
+        "tone": "danger",
+        "input": null,
+        "choices": [],
+        "checks": [],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Delete",
+            "danger": true
+          }
+        ],
+        "focus": "Cancel"
+      }
+    ],
+    "problems": []
+  },
+  "delete a linked gallery: its words, Cancel": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "title": "Remove from library?",
+        "body": "Its files stay in their folder. Translations and other additions are deleted.",
+        "detail": [
+          "P gallery",
+          "#901 · 2 pages"
+        ],
+        "cover": "picture",
+        "tone": "danger",
+        "input": null,
+        "choices": [],
+        "checks": [],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Remove",
+            "danger": true
+          }
+        ],
+        "focus": "Cancel"
+      }
+    ],
+    "problems": []
+  },
+  "delete a linked series: its words, Cancel": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "title": "Remove from library?",
+        "body": "Its files stay in their folder. Translations and other additions are deleted.",
+        "detail": [
+          "S series",
+          "2 chapters"
+        ],
+        "cover": "picture",
+        "tone": "danger",
+        "input": null,
+        "choices": [],
+        "checks": [],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Remove",
+            "danger": true
+          }
+        ],
+        "focus": "Cancel"
+      }
+    ],
+    "problems": []
+  },
+  "delete refused by its folder: told so": {
+    "said": [
+      {
+        "type": "DELETE_GALLERY",
+        "galleryId": "<P>"
+      }
+    ],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "title": "Delete this gallery?",
+        "body": "Its saved pages, translations and details are removed from this browser. This can’t be undone.",
+        "detail": [
+          "P gallery",
+          "#901 · 2 pages"
+        ],
+        "cover": "picture",
+        "tone": "danger",
+        "input": null,
+        "choices": [],
+        "checks": [],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Delete",
+            "danger": true
+          }
+        ],
+        "focus": "Cancel"
+      },
+      {
+        "title": "Couldn’t delete",
+        "body": "Another app is using its library folder.",
+        "detail": [],
+        "cover": null,
+        "tone": "error",
+        "input": null,
+        "choices": [],
+        "checks": [],
+        "buttons": [
+          {
+            "text": "OK",
+            "danger": false
+          }
+        ],
+        "focus": "OK"
+      }
+    ],
+    "problems": []
+  },
+  "Shift on a tag: asked, OK": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "title": "Remove this tag?",
+        "body": "It’s removed from this gallery only.",
+        "detail": [
+          "Tag · alpha",
+          "P gallery"
+        ],
+        "cover": "picture",
+        "tone": "danger",
+        "input": null,
+        "choices": [],
+        "checks": [],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Remove",
+            "danger": true
+          }
+        ],
+        "focus": "Cancel"
+      }
+    ],
+    "problems": []
+  },
+  "Shift on a tag: asked, Cancel": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "title": "Remove this tag?",
+        "body": "It’s removed from this gallery only.",
+        "detail": [
+          "Tag · beta",
+          "P gallery"
+        ],
+        "cover": "picture",
+        "tone": "danger",
+        "input": null,
+        "choices": [],
+        "checks": [],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Remove",
+            "danger": true
+          }
+        ],
+        "focus": "Cancel"
+      }
+    ],
+    "problems": []
+  },
+  "Shift on a language flag: asked, OK": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "title": "Remove this tag?",
+        "body": "It’s removed from this gallery only.",
+        "detail": [
+          "Language · Japanese",
+          "P gallery"
+        ],
+        "cover": "picture",
+        "tone": "danger",
+        "input": null,
+        "choices": [],
+        "checks": [],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Remove",
+            "danger": true
+          }
+        ],
+        "focus": "Cancel"
+      }
+    ],
+    "problems": []
+  },
+  "+: the editor, a tag typed, Enter": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta",
+          "tag:gamma"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "editor": {
+          "title": "Add metadata tag",
+          "labels": [
+            "Type",
+            "Value"
+          ],
+          "type": "Tag",
+          "value": {
+            "typed": "",
+            "placeholder": "e.g. romance"
+          },
+          "pick": null,
+          "buttons": [
+            "Cancel",
+            "Add"
+          ],
+          "focus": "tagEdValue"
+        }
+      },
+      {
+        "open": false
+      }
+    ],
+    "problems": []
+  },
+  "+: a category picked, Add": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:doujinshi",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "editor": {
+          "title": "Add metadata tag",
+          "labels": [
+            "Type",
+            "Value"
+          ],
+          "type": "Category",
+          "value": null,
+          "pick": "manga",
+          "buttons": [
+            "Cancel",
+            "Add"
+          ],
+          "focus": "tagEdType"
+        }
+      }
+    ],
+    "problems": []
+  },
+  "+: the suggestions, an arrow, Enter twice": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [
+          "tag:alpha"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "suggested": [
+          "alpha",
+          "beta",
+          "gamma"
+        ]
+      },
+      {
+        "editor": {
+          "title": "Add metadata tag",
+          "labels": [
+            "Type",
+            "Value"
+          ],
+          "type": "Tag",
+          "value": {
+            "typed": "alpha",
+            "placeholder": "e.g. romance"
+          },
+          "pick": null,
+          "buttons": [
+            "Cancel",
+            "Add"
+          ],
+          "focus": "tagEdValue"
+        },
+        "suggested": []
+      }
+    ],
+    "problems": []
+  },
+  "+: Escape closes the list, then the editor": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "suggested": [],
+        "open": true
+      },
+      {
+        "open": false
+      }
+    ],
+    "problems": []
+  },
+  "+: Add with nothing typed": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "editor": {
+          "title": "Add metadata tag",
+          "labels": [
+            "Type",
+            "Value"
+          ],
+          "type": "Tag",
+          "value": {
+            "typed": "",
+            "placeholder": "e.g. romance"
+          },
+          "pick": null,
+          "buttons": [
+            "Cancel",
+            "Add"
+          ],
+          "focus": "tagEdValue"
+        }
+      }
+    ],
+    "problems": []
+  },
+  "export: the choice, Cancel": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "title": "Export gallery",
+        "body": null,
+        "detail": [
+          "P gallery"
+        ],
+        "cover": null,
+        "tone": null,
+        "input": null,
+        "choices": [
+          {
+            "label": "ZIP",
+            "detail": "Everything, for restoring into Shiori",
+            "checked": true
+          },
+          {
+            "label": "CBZ",
+            "detail": "The same files plus ComicInfo.xml, for other comic readers too",
+            "checked": false
+          }
+        ],
+        "checks": [
+          {
+            "label": "Include translations",
+            "checked": true
+          },
+          {
+            "label": "Remember my choice (change it in Settings → Library)",
+            "checked": false
+          }
+        ],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Export",
+            "danger": false
+          }
+        ],
+        "focus": "Export"
+      }
+    ],
+    "problems": []
+  },
+  "export: the choice, OK": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [
+      "P gallery.zip"
+    ],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "title": "Export gallery",
+        "body": null,
+        "detail": [
+          "P gallery"
+        ],
+        "cover": null,
+        "tone": null,
+        "input": null,
+        "choices": [
+          {
+            "label": "ZIP",
+            "detail": "Everything, for restoring into Shiori",
+            "checked": true
+          },
+          {
+            "label": "CBZ",
+            "detail": "The same files plus ComicInfo.xml, for other comic readers too",
+            "checked": false
+          }
+        ],
+        "checks": [
+          {
+            "label": "Include translations",
+            "checked": true
+          },
+          {
+            "label": "Remember my choice (change it in Settings → Library)",
+            "checked": false
+          }
+        ],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Export",
+            "danger": false
+          }
+        ],
+        "focus": "Export"
+      }
+    ],
+    "problems": []
+  },
+  "export: CBZ without translations, remembered": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [
+      "P gallery.cbz"
+    ],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "title": "Export gallery",
+        "body": null,
+        "detail": [
+          "P gallery"
+        ],
+        "cover": null,
+        "tone": null,
+        "input": null,
+        "choices": [
+          {
+            "label": "ZIP",
+            "detail": "Everything, for restoring into Shiori",
+            "checked": true
+          },
+          {
+            "label": "CBZ",
+            "detail": "The same files plus ComicInfo.xml, for other comic readers too",
+            "checked": false
+          }
+        ],
+        "checks": [
+          {
+            "label": "Include translations",
+            "checked": true
+          },
+          {
+            "label": "Remember my choice (change it in Settings → Library)",
+            "checked": false
+          }
+        ],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Export",
+            "danger": false
+          }
+        ],
+        "focus": "Export"
+      },
+      {
+        "title": "Export gallery",
+        "body": null,
+        "detail": [
+          "P gallery"
+        ],
+        "cover": null,
+        "tone": null,
+        "input": null,
+        "choices": [
+          {
+            "label": "ZIP",
+            "detail": "Everything, for restoring into Shiori",
+            "checked": false
+          },
+          {
+            "label": "CBZ",
+            "detail": "The same files plus ComicInfo.xml, for other comic readers too",
+            "checked": true
+          }
+        ],
+        "checks": [
+          {
+            "label": "Include translations",
+            "checked": false
+          },
+          {
+            "label": "Remember my choice (change it in Settings → Library)",
+            "checked": true
+          }
+        ],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Export",
+            "danger": false
+          }
+        ],
+        "focus": "tick"
+      },
+      {
+        "kept": [
+          "\"cbz\"",
+          "false"
+        ]
+      }
+    ],
+    "problems": []
+  },
+  "export with a format kept: no question": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [
+      "P gallery.cbz"
+    ],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      null
+    ],
+    "problems": []
+  },
+  "Shift on export: the metadata": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [
+      "shiori-<P>-metadata.zip"
+    ],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [],
+    "problems": []
+  },
+  "Shift on export, a merged series: its metadata": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [
+      "shiori-series-<S>-metadata.zip"
+    ],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [],
+    "problems": []
+  },
+  "export fails: told so": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "title": "Export failed",
+        "body": "The gallery couldn’t be packed into a file.",
+        "detail": [
+          "the disk said no"
+        ],
+        "cover": null,
+        "tone": "error",
+        "input": null,
+        "choices": [],
+        "checks": [],
+        "buttons": [
+          {
+            "text": "OK",
+            "danger": false
+          }
+        ],
+        "focus": "OK"
+      },
+      {
+        "button": false
+      }
+    ],
+    "problems": []
+  },
+  "export under way: its button held while a job's news comes, until it ends": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "title": "Export gallery",
+        "body": null,
+        "detail": [
+          "P gallery"
+        ],
+        "cover": null,
+        "tone": null,
+        "input": null,
+        "choices": [
+          {
+            "label": "ZIP",
+            "detail": "Everything, for restoring into Shiori",
+            "checked": true
+          },
+          {
+            "label": "CBZ",
+            "detail": "The same files plus ComicInfo.xml, for other comic readers too",
+            "checked": false
+          }
+        ],
+        "checks": [
+          {
+            "label": "Include translations",
+            "checked": true
+          },
+          {
+            "label": "Remember my choice (change it in Settings → Library)",
+            "checked": false
+          }
+        ],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Export",
+            "danger": false
+          }
+        ],
+        "focus": "Export"
+      },
+      {
+        "asked": [
+          true,
+          "…"
+        ]
+      },
+      {
+        "a word": [
+          true,
+          "…"
+        ]
+      },
+      {
+        "its last word": [
+          true,
+          "…"
+        ]
+      },
+      {
+        "ended": [
+          false,
+          ""
+        ]
+      }
+    ],
+    "problems": []
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "source": {
+    "title": "Add a source link",
+    "buttons": [
+      "Cancel",
+      "Save"
+    ],
+    "inside": true,
+    "fitsHeight": true,
+    "count": 2,
+    "reachable": true,
+    "smallest": 35
+  },
+  "tag": [
+    "?q=tag%3A%22tag+9%22",
+    1
+  ],
+  "filter": {
+    "inside": true,
+    "fitsHeight": true,
+    "count": 19,
+    "reachable": true,
+    "smallest": 34
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "seen": [
+    [
+      "text over the page",
+      null
+    ],
+    [
+      "text gone",
+      null
+    ],
+    [
+      "files over the page",
+      {
+        "words": "Drop to import",
+        "position": "fixed",
+        "top": "0px",
+        "left": "0px",
+        "right": "0px",
+        "bottom": "0px",
+        "zIndex": "1000",
+        "display": "flex",
+        "alignItems": "center",
+        "justifyContent": "center",
+        "fontSize": "18px",
+        "fontFamily": "\"JetBrains Mono\", monospace",
+        "color": "rgb(237, 39, 84)",
+        "backgroundColor": "rgba(13, 13, 15, 0.72)",
+        "borderTopWidth": "2px",
+        "borderTopStyle": "dashed",
+        "borderTopColor": "rgb(237, 39, 84)",
+        "pointerEvents": "none"
+      }
+    ],
+    [
+      "files over the header",
+      {
+        "words": "Drop to import",
+        "position": "fixed",
+        "top": "0px",
+        "left": "0px",
+        "right": "0px",
+        "bottom": "0px",
+        "zIndex": "1000",
+        "display": "flex",
+        "alignItems": "center",
+        "justifyContent": "center",
+        "fontSize": "18px",
+        "fontFamily": "\"JetBrains Mono\", monospace",
+        "color": "rgb(237, 39, 84)",
+        "backgroundColor": "rgba(13, 13, 15, 0.72)",
+        "borderTopWidth": "2px",
+        "borderTopStyle": "dashed",
+        "borderTopColor": "rgb(237, 39, 84)",
+        "pointerEvents": "none"
+      }
+    ],
+    [
+      "the drag ended outside the window",
+      null
+    ],
+    [
+      "files again",
+      {
+        "words": "Drop to import",
+        "position": "fixed",
+        "top": "0px",
+        "left": "0px",
+        "right": "0px",
+        "bottom": "0px",
+        "zIndex": "1000",
+        "display": "flex",
+        "alignItems": "center",
+        "justifyContent": "center",
+        "fontSize": "18px",
+        "fontFamily": "\"JetBrains Mono\", monospace",
+        "color": "rgb(237, 39, 84)",
+        "backgroundColor": "rgba(13, 13, 15, 0.72)",
+        "borderTopWidth": "2px",
+        "borderTopStyle": "dashed",
+        "borderTopColor": "rgb(237, 39, 84)",
+        "pointerEvents": "none"
+      }
+    ],
+    [
+      "dropped",
+      null
+    ]
+  ],
+  "holdings": [
+    "[\"Pic\",1,0,null,[]]"
+  ],
+  "problems": []
+}

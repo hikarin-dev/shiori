@@ -1,5 +1,5 @@
-// library-next-keys.browser.mjs — W/S scrolling and F5 on /library-next, held against 1.3's page
-// (/library) driven alike. W and S scroll the window from the keydown, every frame, at 1.3's speed
+// library-next-keys.browser.mjs — W/S scrolling and F5 on /library-next, held to what 1.3's page
+// (/library) gave driven alike. W and S scroll the window from the keydown, every frame, at 1.3's speed
 // (11px a frame, Shift twice that, changing as Shift goes down and up mid-hold) until the key is let go
 // or the window loses focus; nothing scrolls from the search box. F5 and Ctrl+R read the library again
 // in place: a gallery changed underneath (where the page hears nothing of it) shows its change, no page
@@ -7,13 +7,19 @@
 // reload. With the sort list open, or a question or the filter's dialog open, what each page does with
 // the keys. And leaving the new page five times with W held, the menu open and Safe Mode on leaves
 // nothing behind.
+// What 1.3's page gave is the record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as
+// measured on 2026-11-25, which a deliberate change of the library's behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 import { readDialog, answer } from './library-drive.mjs';
+import { record } from './records.mjs';
 
+const NEW = '/library-next';
+const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser;
-const PATHS = ['/library', '/library-next'];
 const BASE = 1790008100000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -61,9 +67,8 @@ const kinds = (s) => [...new Set(s.slice(2).filter((d) => d !== 0))].sort((a, b)
 
 test('W and S: from the keydown, every frame, at 1.3\'s speed, Shift twice as fast and live; let go, or the window\'s focus lost: still', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
-    const page = await open(path);
+  {
+    const page = await open(NEW);
     await page.mouse.click(100, 85);
     await steps(page);
     const r = {};
@@ -80,23 +85,23 @@ test('W and S: from the keydown, every frame, at 1.3\'s speed, Shift twice as fa
     await page.keyboard.down('s'); await page.keyboard.down('w'); await sleep(200); r.both = await steps(page);
     await page.keyboard.up('w'); await sleep(200); r.bothS = await steps(page);
     await page.keyboard.up('s'); await sleep(100); await steps(page);
-    out[path] = {
+    const now = {
       s: kinds(r.s), sFirst: r.s.findIndex((d) => d !== 0) <= 1, shift: kinds(r.shift), shiftUp: kinds(r.shiftUp), up: kinds(r.up.slice(1)), w: kinds(r.w), blur: kinds(r.blur.slice(1)),
       both: kinds(r.both.slice(2)), bothS: kinds(r.bothS),
       steady: r.s.slice(2).every((d) => d === 11) && r.shift.slice(2).every((d) => d === 22),
     };
     assert.deepEqual(page.problems, []);
     await page.close();
+    const was = record(FILE, 'scroll');
+    assert.deepEqual(was, { s: [11], sFirst: true, shift: [22], shiftUp: [11], up: [], w: [-11], blur: [], both: [], bothS: [], steady: true });
+    assert.deepEqual(now, was);
   }
-  assert.deepEqual(out['/library'], { s: [11], sFirst: true, shift: [22], shiftUp: [11], up: [], w: [-11], blur: [], both: [], bothS: [], steady: true });
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 test('W and S do nothing from the search box; with the sort list, a question or the filter open: what each page does', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
-    const page = await open(path);
+  {
+    const page = await open(NEW);
     const r = {};
     const held = async (key = 's') => { await steps(page); await page.keyboard.down(key); await sleep(250); await page.keyboard.up(key); await sleep(100); return (await steps(page)).reduce((a, b) => a + b, 0) !== 0; };
     await page.click('#searchBox');
@@ -128,19 +133,17 @@ test('W and S do nothing from the search box; with the sort list, a question or 
     await page.keyboard.press('ArrowRight'); await sleep(400);
     r.questionArrow = await page.evaluate(() => /page=2/.test(location.search));
     await answer(page, 'cancel');
-    out[path] = r;
+    const now = r;
     assert.deepEqual(page.problems, []);
     await page.close();
+    const was = record(FILE, 'from-boxes');
+    assert.deepEqual(was.search, [false, 's']);
+    assert.deepEqual(now.search, was.search);
+    // No key a list or a dialog has goes to the page (§5.3 F57: 1.3 scrolled and turned the page behind
+    // its dialogs, and behind its open sort list: its record says so, sort, filter and question true).
+    assert.deepEqual({ ...now, search: undefined },
+      { search: undefined, sortOpen: true, sort: false, filter: false, filterArrow: false, question: [true, false], questionArrow: false });
   }
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  assert.deepEqual(out['/library'].search, [false, 's']);
-  assert.deepEqual(out['/library-next'].search, out['/library'].search);
-  // The new page: no key a list or a dialog has goes to the page (§5.3 F57: 1.3 scrolled and turned the
-  // page behind its dialogs, and behind its open sort list).
-  assert.deepEqual({ ...out['/library-next'], search: undefined },
-    { search: undefined, sortOpen: true, sort: false, filter: false, filterArrow: false, question: [true, false], questionArrow: false });
-  // 1.3's: every one of them (its page took the keys behind its open list and its dialogs).
-  assert.deepEqual({ ...out['/library'], search: undefined }, { search: undefined, sortOpen: true, sort: true, filter: true, filterArrow: true, question: [true, true], questionArrow: true });
 });
 
 // In the page: the gallery `gid`'s title changed in the database itself, where the page hears nothing
@@ -162,9 +165,8 @@ async function changeUnderneath(gid, title) {
 
 test('F5 and Ctrl+R: the library read again in place, nothing loaded, the scroll kept, no cover asked again; Ctrl+Shift+R the browser\'s', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
-    const page = await open(path);
+  {
+    const page = await open(NEW);
     const gid = String(BASE + 33);
     await page.evaluate(async () => {
       const { services } = await import('/app/js/services.js');
@@ -198,13 +200,14 @@ test('F5 and Ctrl+R: the library read again in place, nothing loaded, the scroll
     await page.keyboard.down('Control'); await page.keyboard.down('Shift'); await page.keyboard.press('KeyR'); await page.keyboard.up('Shift'); await page.keyboard.up('Control');
     await sleep(800);
     r.hard = await page.evaluate((gid) => ({ taken: window.__hard ?? 'gone', title: document.querySelector(`#grid > .card[data-gallery-id="${gid}"] .card-title`)?.textContent ?? null }), gid);
-    out[path] = r;
+    const now = r;
     assert.deepEqual(page.problems, []);
     await page.close();
+    const was = record(FILE, 'reload');
+    assert.deepEqual(was.F5, { title: 'Changed underneath for F5', same: true, loads: 0, scroll: 600, covers: 0, changed: true });
+    assert.equal(was.hard.taken, false);
+    assert.deepEqual(now, was);
   }
-  assert.deepEqual(out['/library'].F5, { title: 'Changed underneath for F5', same: true, loads: 0, scroll: 600, covers: 0, changed: true });
-  assert.equal(out['/library'].hard.taken, false);
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 test('the new page left five times with W held, the menu open and Safe Mode on: nothing left behind', async (t) => {
@@ -236,7 +239,7 @@ test('the new page left five times with W held, the menu open and Safe Mode on: 
     stored: Object.keys(localStorage).sort(), session: Object.keys(sessionStorage).sort() }));
   const go = (href) => page.evaluate((href) => { const a = document.createElement('a'); a.href = href; document.body.append(a); a.click(); a.remove(); }, href);
   // Once, to load what the page loads the first time.
-  await go('/library-next');
+  await go(NEW);
   await until(page, () => document.querySelectorAll('#grid > .card').length === 30, null, { what: 'the library' });
   await sleep(500);
   await go('/tasks');
@@ -244,7 +247,7 @@ test('the new page left five times with W held, the menu open and Safe Mode on: 
   await sleep(1000);
   const start = await at();
   for (let i = 0; i < 5; i++) {
-    await go('/library-next');
+    await go(NEW);
     await until(page, () => document.querySelectorAll('#grid > .card').length === 30, null, { what: 'the library' });
     await sleep(300);
     if (i === 0) { await page.click('#safeBtn'); await sleep(200); }

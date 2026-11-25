@@ -1,0 +1,12 @@
+{
+  "tips": [
+    "64",
+    "64",
+    "1.7MB",
+    "Images by page resolution\nT1\u000b< 1.4 MP\t32 · 50%\nT2\u000b1.4–2.2 MP\t32 · 50%\nT3\u000b2.2–3 MP\t0 ·  0%\nT4\u000b3–5 MP\t0 ·  0%\nT5\u000b5–8 MP\t0 ·  0%\nT6\u000b≥ 8 MP\t0 ·  0%",
+    "Original pages\t1.6MB\nOther data\t63.6KB",
+    "avg 27.3KB / image"
+  ],
+  "plain": "Original pages1.6MBOther data63.6KB",
+  "shift": "avg 27.3KB / image"
+}

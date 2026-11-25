@@ -1,0 +1,21 @@
+{
+  "first": {
+    "P": "shown 0% | Error: Download helper not reachable — enable it, then reload this tab. | dl: Download all 2 pages | tr: Translate gallery",
+    "N": "at rest |  | dl: Replace images from CBZ | tr: Translate gallery",
+    "T": "shown 30% | Translating… | dl: Replace images from CBZ | tr: stop done Stop translating",
+    "I": "shown 0% | Interrupted — run again to resume | dl: Download all 4 pages | tr: Translate gallery",
+    "S": "shown 93% | 1 / 2 | dl: stop Stop downloading | tr: Translate gallery"
+  },
+  "later": {
+    "P": "at rest |  | dl: Download all 2 pages | tr: Translate gallery",
+    "N": "at rest |  | dl: Replace images from CBZ | tr: Translate gallery",
+    "T": "shown 30% | Translating… | dl: Replace images from CBZ | tr: stop done Stop translating",
+    "I": "at rest |  | dl: Download all 4 pages | tr: Translate gallery",
+    "S": "shown 93% | 1 / 2 | dl: stop Stop downloading | tr: Translate gallery"
+  },
+  "left": [
+    "S:download:progress",
+    "T:translate:progress"
+  ],
+  "problems": []
+}

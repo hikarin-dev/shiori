@@ -1,0 +1,32 @@
+{
+  "list": 13,
+  "waited": true,
+  "after": [
+    [
+      "tag:\"t1\""
+    ],
+    21,
+    "?q=tag%3A%22t1%22",
+    true
+  ],
+  "clearedAtOnce": true,
+  "cleared": [
+    "",
+    "searchBox",
+    30,
+    ""
+  ],
+  "tag": [
+    "?q=tag%3A%22t2%22",
+    21,
+    false
+  ],
+  "flag": [
+    "?q=tag%3A%22t2%22+language%3A%22japanese%22",
+    10
+  ],
+  "alt": [
+    "?q=tag%3A%22t2%22+language%3A%22japanese%22+favorite%3A%22no%22",
+    9
+  ]
+}

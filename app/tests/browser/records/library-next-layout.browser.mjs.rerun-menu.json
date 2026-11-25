@@ -1,0 +1,26 @@
+{
+  "top": {
+    "below": 6,
+    "above": -350,
+    "left": -188,
+    "right": 15,
+    "ring": "none",
+    "bar": 15
+  },
+  "foot": {
+    "below": -350,
+    "above": 6,
+    "left": -188,
+    "right": 15,
+    "ring": "focused, nothing drawn",
+    "bar": 15
+  },
+  "narrow": {
+    "below": 6,
+    "above": -350,
+    "left": -175,
+    "right": 15,
+    "ring": "focused, nothing drawn",
+    "bar": 15
+  }
+}

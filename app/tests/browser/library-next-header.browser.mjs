@@ -1,5 +1,5 @@
-// library-next-header.browser.mjs — the library's header on /library-next, held against 1.3's page
-// (/library) driven alike: every part's box at every width 1.3's stylesheet has a rule for (above and at
+// library-next-header.browser.mjs — the library's header on /library-next, held to what 1.3's page
+// (/library) gave driven alike: every part's box at every width 1.3's stylesheet has a rule for (above and at
 // 1400px, the folded form; above and at 600px, the phone's two rows; a phone; 320px), and at 125% and
 // 150% scale; the menu button (what its press shows at each width, and what closes it: its own press
 // again and a press anywhere else, not Escape, not a press inside the totals, as 1.3's); the pin (the
@@ -7,14 +7,21 @@
 // reload); the totals' tips in the open menu. And the layout checklist for what the new page adds: the
 // open menu drawn in the frame after the press and after a resize, no motion on it, no keyboard ring
 // after a press, the phone's targets. The new page alone: the menu closed when the page is left.
+// What 1.3's page gave is the record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as
+// measured on 2026-11-25, which a deliberate change of the library's behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { startServer, chromePath, openPage, until } from './harness.mjs';
+import { record } from './records.mjs';
+import { librarySettled } from './library-drive.mjs';
 
+const NEW = '/library-next';
+const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin;
 const browsers = {};
-const PATHS = ['/library', '/library-next'];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 before(async () => {
@@ -38,6 +45,7 @@ before(async () => {
     }
     await (await import('/app/js/migrations.js')).runMigrations();
   });
+  await librarySettled(page);
   await page.close();
   }
 });
@@ -91,9 +99,9 @@ const WIDTHS = [[1500, 900], [1401, 900], [1400, 900], [1280, 900], [800, 900], 
 test('the header at every width 1.3 has a rule for, and on a phone: every part\'s box, the menu\'s press', async (t) => {
   if (!browsers[1]) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   for (const [name, viewport] of [...WIDTHS.map(([width, height]) => [`${width}`, { width, height }]), ['phone', PHONE]]) {
-    const out = {};
-    for (const path of PATHS) {
-      const page = await open(path, viewport);
+    let now;
+    {
+      const page = await open(NEW, viewport);
       const r = { rest: await page.evaluate(boxes, PARTS), overflow: await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth) };
       const burger = await page.evaluate(() => { const b = document.getElementById('burgerBtn'); return b && getComputedStyle(b).display !== 'none'; });
       if (burger) {
@@ -103,11 +111,11 @@ test('the header at every width 1.3 has a rule for, and on a phone: every part\'
         r.menu = await page.evaluate(menuLook);
         r.inside = await page.evaluate(() => { const g = document.getElementById('collapsibleGroup').getBoundingClientRect(); return g.left >= 0 && g.right <= document.documentElement.clientWidth; });
       }
-      out[path] = r;
+      now = r;
       assert.deepEqual(page.problems, []);
       await page.close();
     }
-    const was = out['/library'], now = out['/library-next'];
+    const was = record(FILE, 'widths', name);
     assert.deepEqual(differ(was.rest, now.rest), [], `at ${name}, at rest`);
     assert.equal(now.overflow, was.overflow, `at ${name}: sideways scroll`);
     assert.equal(!!now.open, !!was.open, `at ${name}: the menu button`);
@@ -122,9 +130,8 @@ test('the header at every width 1.3 has a rule for, and on a phone: every part\'
 
 test('the menu button: its own press closes it, a press anywhere else too; not Escape, not a press inside it', async (t) => {
   if (!browsers[1]) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
-    const page = await open(path, { width: 1280, height: 900 });
+  {
+    const page = await open(NEW, { width: 1280, height: 900 });
     const isOpen = () => page.evaluate(() => getComputedStyle(document.getElementById('collapsibleGroup')).display !== 'none');
     const r = {};
     await page.click('#burgerBtn'); await sleep(150); r.pressed = await isOpen();
@@ -148,17 +155,18 @@ test('the menu button: its own press closes it, a press anywhere else too; not E
     // back to the folded width, the menu is as it was left.
     await page.setViewport({ width: 1500, height: 900 }); await sleep(150); r.wide = [await isOpen(), await page.evaluate(() => getComputedStyle(document.getElementById('burgerBtn')).display)];
     await page.setViewport({ width: 1280, height: 900 }); await sleep(150); r.foldedAgain = await isOpen();
-    out[path] = r;
+    const now = r;
     assert.deepEqual(page.problems, []);
     await page.close();
+    const was = record(FILE, 'menu');
+    assert.deepEqual(was, { pressed: true, pressedAgain: false, escape: true, inside: true, tip: was.tip, toolbar: false, search: false, card: false, wide: [true, 'none'], foldedAgain: true });
+    assert.deepEqual(now, was);
   }
-  assert.deepEqual(out['/library'], { pressed: true, pressedAgain: false, escape: true, inside: true, tip: out['/library'].tip, toolbar: false, search: false, card: false, wide: [true, 'none'], foldedAgain: true });
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 test('the new page: the menu closed once the page is left, and its look under the pointer kept', async (t) => {
   if (!browsers[1]) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const page = await open('/library-next', { width: 1280, height: 900 });
+  const page = await open(NEW, { width: 1280, height: 900 });
   await page.click('#burgerBtn');
   await sleep(150);
   await page.evaluate(() => { const a = document.createElement('a'); a.href = '/tasks'; document.body.append(a); a.click(); a.remove(); });
@@ -174,9 +182,8 @@ test('the new page: the menu closed once the page is left, and its look under th
 
 test('the pin: the header stays or scrolls away 2,000px down; its faces and tips; the choice kept across a reload', async (t) => {
   if (!browsers[1]) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
-    const page = await open(path, { width: 1280, height: 900 });
+  {
+    const page = await open(NEW, { width: 1280, height: 900 });
     const look = () => page.evaluate(async () => {
       window.scrollTo(0, 2000);
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -197,24 +204,24 @@ test('the pin: the header stays or scrolls away 2,000px down; its faces and tips
     r.reload = await look();
     await page.click('#pinBtn'); await sleep(200);
     r.pinned = await look();
-    out[path] = r;
+    const now = r;
     assert.deepEqual(page.problems, []);
     await page.close();
+    const was = record(FILE, 'pin');
+    assert.equal(was.load.headerTop, 0);
+    assert.equal(was.unpinned.headerTop, -2000);
+    assert.equal(was.unpinned.stored, '0');
+    assert.deepEqual(now, was);
   }
-  const was = out['/library'];
-  assert.equal(was.load.headerTop, 0);
-  assert.equal(was.unpinned.headerTop, -2000);
-  assert.equal(was.unpinned.stored, '0');
-  assert.deepEqual(out['/library-next'], was);
 });
 
 test('the pin, the menu and the header at 125% and 150%: boxes as 1.3\'s; the layout checklist', async (t) => {
   if (!browsers[1.25]) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   for (const scale of [1, 1.25, 1.5]) {
     for (const viewport of [{ width: 1280, height: 900 }, { width: 600, height: 900 }]) {
-      const out = {};
-      for (const path of PATHS) {
-        const page = await open(path, viewport, { scale });
+      let now;
+      {
+        const page = await open(NEW, viewport, { scale });
         const r = { rest: await page.evaluate(boxes, PARTS) };
         await page.click('#burgerBtn');
         // Drawn in the frame after the press, and no motion on it.
@@ -236,11 +243,12 @@ test('the pin, the menu and the header at 125% and 150%: boxes as 1.3\'s; the la
         r.resized = await page.evaluate((sels) => new Promise((done) => requestAnimationFrame(() => done({ boxes: Object.fromEntries(sels.map((s) => { const b = document.querySelector(s).getBoundingClientRect(); return [s, [b.x, b.width].map((n) => +n.toFixed(1))]; })), moving: document.getElementById('collapsibleGroup').getAnimations({ subtree: true }).length }))), ['#collapsibleGroup', '#burgerBtn']);
         await sleep(300);
         r.settled = await page.evaluate((sels) => Object.fromEntries(sels.map((s) => { const b = document.querySelector(s).getBoundingClientRect(); return [s, [b.x, b.width].map((n) => +n.toFixed(1))]; })), ['#collapsibleGroup', '#burgerBtn']);
-        out[path] = r;
+        now = r;
         assert.deepEqual(page.problems, []);
         await page.close();
       }
-      const was = out['/library'], now = out['/library-next'], at = `${viewport.width} at ${scale * 100}%`;
+      const at = `${viewport.width} at ${scale * 100}%`;
+      const was = record(FILE, 'scales', at);
       // (Under the header: the sort box is a fixed 34px where 1.3's native box rounded its line, 1.33px
       // off at 150%, §5.3 F49; the filter button and the grid follow it.)
       for (const r of [was, now]) for (const boxes of [r.rest, r.open]) for (const k of ['#sortSelect', '#filterBtn', '#grid > .card']) delete boxes[k];
@@ -259,12 +267,10 @@ test('the pin, the menu and the header at 125% and 150%: boxes as 1.3\'s; the la
 
 test('on a phone the header\'s buttons are a finger\'s size, as 1.3\'s', async (t) => {
   if (!browsers[1]) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
-    const page = await open(path, PHONE);
-    out[path] = await page.evaluate(() => ['#pinBtn', '#burgerBtn', '#uploadCbzBtn', '#safeBtn', '#settingsBtn'].map((s) => { const r = document.querySelector(s).getBoundingClientRect(); return [s, r.width, r.height]; }));
-    await page.close();
-  }
-  for (const [s, w, h] of out['/library-next']) assert.ok(w >= 40 && h >= 40, `${s} ${w}×${h}`);
-  assert.deepEqual(out['/library-next'], out['/library']);
+  const page = await open(NEW, PHONE);
+  const now = await page.evaluate(() => ['#pinBtn', '#burgerBtn', '#uploadCbzBtn', '#safeBtn', '#settingsBtn'].map((s) => { const r = document.querySelector(s).getBoundingClientRect(); return [s, r.width, r.height]; }));
+  await page.close();
+  const was = record(FILE, 'phone');
+  for (const [s, w, h] of now) assert.ok(w >= 40 && h >= 40, `${s} ${w}×${h}`);
+  assert.deepEqual(now, was);
 });

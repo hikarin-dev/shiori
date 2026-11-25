@@ -1,0 +1,70 @@
+[
+  {
+    "kind": "favourite",
+    "newCards": 0,
+    "newCovers": 0,
+    "loads": 0,
+    "still": true,
+    "cards": 30
+  },
+  {
+    "kind": "title",
+    "newCards": 0,
+    "newCovers": 0,
+    "loads": 0,
+    "still": true,
+    "cards": 30
+  },
+  {
+    "kind": "tags",
+    "newCards": 0,
+    "newCovers": 0,
+    "loads": 0,
+    "still": true,
+    "cards": 30
+  },
+  {
+    "kind": "translated",
+    "newCards": 0,
+    "newCovers": 0,
+    "loads": 0,
+    "still": true,
+    "cards": 30
+  },
+  {
+    "kind": "source",
+    "newCards": 0,
+    "newCovers": 0,
+    "loads": 0,
+    "still": true,
+    "cards": 30
+  },
+  {
+    "kind": "cover",
+    "newCards": 0,
+    "newCovers": 0,
+    "loads": 1,
+    "still": true,
+    "cards": 30
+  },
+  {
+    "kind": "series",
+    "newCards": 1,
+    "newCovers": 1,
+    "loads": 1,
+    "still": null,
+    "cards": 30,
+    "chapterShown": true,
+    "ownerShown": true
+  },
+  {
+    "kind": "series undone",
+    "newCards": 1,
+    "newCovers": 1,
+    "loads": 1,
+    "still": null,
+    "cards": 30,
+    "chapterShown": true,
+    "ownerShown": true
+  }
+]

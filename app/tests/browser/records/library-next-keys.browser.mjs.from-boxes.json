@@ -1,0 +1,15 @@
+{
+  "search": [
+    false,
+    "s"
+  ],
+  "sortOpen": true,
+  "sort": true,
+  "filter": true,
+  "filterArrow": true,
+  "question": [
+    true,
+    true
+  ],
+  "questionArrow": true
+}

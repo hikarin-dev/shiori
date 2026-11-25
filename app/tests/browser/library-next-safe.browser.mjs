@@ -1,20 +1,29 @@
-// library-next-safe.browser.mjs — Safe Mode on /library-next, held against 1.3's page (/library) driven
-// alike. On: the covers not rated safe or suggestive blurred, every card's words stood in for as 1.3's
+// library-next-safe.browser.mjs — Safe Mode on /library-next, held to what 1.3's page (/library) gave
+// driven alike. On: the covers not rated safe or suggestive blurred, every card's words stood in for as 1.3's
 // (the title word by word, each tag, the id's digits: each word against its real one and against 1.3's
 // pool), the flags and "+" left, the id no link; a card landing while it is on (the next page, a new
 // gallery) the same; off, every real word back. The button's two faces and tips. The choice kept across
 // a reload and a change of route. A question about a card shows no cover while Safe Mode blurs that
 // card's. Turning it on and off draws no cover again and moves no card.
 //
-// One difference, deliberate: 1.3 kept the id's link in the markup while it was on (data-safe-href), so
-// the real address was there to read; the new page keeps nothing of it.
+// Two differences, deliberate (§5.3 F56): 1.3 kept the id's link in the markup while it was on
+// (data-safe-href), so the real address was there to read; the new page keeps nothing of it. And off,
+// 1.3 put back each tag's bare name, so a female or male tag lost its mark until its card's tags were
+// drawn again; the new page puts back every tag as it was. (Its record holds both as 1.3 gave them.)
+//
+// What 1.3's page gave is the record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as
+// measured on 2026-11-25, which a deliberate change of the library's behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 import { readDialog, answer, sleep } from './library-drive.mjs';
+import { record } from './records.mjs';
 
+const NEW = '/library-next';
+const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser;
-const PATHS = ['/library', '/library-next'];
 const BASE = 1790006000000;
 const N = 34;   // a second page of four
 
@@ -129,9 +138,9 @@ function offRules(card) {
 
 test('on: every card\'s words stood in for as 1.3\'s, the covers blurred, the id no link; a card landing the same; off: every word back', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
-    const page = await open(path, null);
+  let now;
+  {
+    const page = await open(NEW, null);
     const r = {};
     r.offAtFirst = { state: await page.evaluate(state), cards: (await page.evaluate(cards)).map(offRules) };
     await page.click('#safeBtn');
@@ -151,7 +160,7 @@ test('on: every card\'s words stood in for as 1.3\'s, the covers blurred, the id
     // A gallery made while it is on, back on page 1: its card lands scrambled.
     await page.evaluate(() => [...document.querySelectorAll('#pagination button')].find((b) => b.textContent === '1').click());
     await shown(page, 30);
-    const added = String(BASE + 90 + PATHS.indexOf(path));
+    const added = String(BASE + 90);
     await page.evaluate(async (gid) => {
       const api = await import('/app/js/api.js');
       await api.meta.put({ galleryId: gid, title: { english: 'A gallery made just now', japanese: '', pretty: '' }, tags: [{ type: 'tag', name: 'fresh' }], numPages: 1, source: 'a.example', sourceId: '777', sourceUrl: 'https://a.example/g/777' });
@@ -169,12 +178,11 @@ test('on: every card\'s words stood in for as 1.3\'s, the covers blurred, the id
     await page.click('#safeBtn');
     await until(page, () => [...document.querySelectorAll('#grid > .card .card-title')].every((t) => t.textContent === t.dataset.original), null, { what: 'restored' });
     r.off = { state: await page.evaluate(state), cards: (await page.evaluate(cards)).map(offRules) };
-    out[path] = r;
+    now = r;
     assert.deepEqual(page.problems, []);
     await page.close();
   }
-  const now = out['/library-next'], was = out['/library'];
-  if (process.env.DUMP) console.log(JSON.stringify(out, null, 1));
+  const was = record(FILE, 'words');
   for (const r of [was, now]) {
     assert.ok(r.on.cards.every((c) => c.titleStood && c.tagsStood && c.idStood), 'every word stood in for');
     assert.ok(r.page2.every((c) => c.titleStood && c.tagsStood && c.idStood), 'the next page\'s too');
@@ -184,16 +192,13 @@ test('on: every card\'s words stood in for as 1.3\'s, the covers blurred, the id
     assert.ok(r.on.cards.some((c) => c.sfw) && r.on.cards.some((c) => !c.sfw), 'blurred and not');
     assert.ok(r.idsChanged, 'the ids\' digits stood in for');
   }
-  // The id's link: gone from the new page while it is on, with nothing of it left in the markup; 1.3
-  // parked it in data-safe-href.
+  // The id's link: gone while it is on, with nothing of it left in the markup (§5.3 F56: 1.3 parked it in
+  // data-safe-href).
   assert.ok(now.on.cards.every((c) => c.noLink));
   assert.deepEqual(now.address, []);
   assert.deepEqual({ ...now.landed, address: [] }, { ...now.landed });
-  assert.ok(was.address.length > 0 && was.address.every((a) => a.endsWith('@data-safe-href')), `1.3 left the address in data-safe-href: ${was.address.slice(0, 2)}`);
-  // Off: every tag back as it was on the new page, its mark with it; 1.3's female and male tags lost
-  // their mark (§5.3 F56).
-  assert.ok(now.off.cards.every((c) => c.tagsReal), 'the new page: every tag as it was');
-  assert.ok(was.off.cards.every((c) => c.tagsBare && !c.tagsReal), '1.3: each tag\'s bare name');
+  // Off: every tag back as it was, its mark with it (§5.3 F56: 1.3's female and male tags lost theirs).
+  assert.ok(now.off.cards.every((c) => c.tagsReal), 'every tag as it was');
   for (const r of [now, was]) for (const c of r.off.cards) { delete c.tagsReal; delete c.tagsBare; }
   delete now.address; delete was.address; delete now.landed.address; delete was.landed.address;
   assert.deepEqual(now, was);
@@ -201,9 +206,8 @@ test('on: every card\'s words stood in for as 1.3\'s, the covers blurred, the id
 
 test('the choice: kept across a reload and a change of route; the button\'s faces and tips', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
-    const page = await open(path, '1');
+  {
+    const page = await open(NEW, '1');
     const r = { load: await page.evaluate(state) };
     await page.reload({ waitUntil: 'load' });
     await shown(page, 30);
@@ -220,18 +224,19 @@ test('the choice: kept across a reload and a change of route; the button\'s face
     await page.reload({ waitUntil: 'load' });
     await shown(page, 30);
     r.offReload = await page.evaluate(state);
-    out[path] = r;
+    const now = r;
     assert.deepEqual(page.problems, []);
     await page.close();
+    const was = record(FILE, 'choice');
+    assert.equal(was.load.on, true);
+    assert.equal(was.off.stored, '0');
+    assert.deepEqual(now, was);
   }
-  assert.equal(out['/library'].load.on, true);
-  assert.equal(out['/library'].off.stored, '0');
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 test('the change of route inside the app (the new page): to Tasks and back by history, still on', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const page = await open('/library-next', '1');
+  const page = await open(NEW, '1');
   const loads = await page.evaluate(() => performance.getEntriesByType('navigation').length);
   await page.evaluate(() => { window.__same = true; const a = document.createElement('a'); a.href = '/tasks'; document.body.append(a); a.click(); a.remove(); });
   await page.waitForSelector('#tkList');
@@ -247,9 +252,8 @@ test('the change of route inside the app (the new page): to Tasks and back by hi
 
 test('a question about a card shows no cover while Safe Mode blurs that card\'s', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
-    const page = await open(path, null);
+  {
+    const page = await open(NEW, null);
     const ask = async (i) => {
       const card = `#grid > .card[data-gallery-id="${BASE + i}"]`;
       await page.evaluate((sel) => document.querySelector(sel).scrollIntoView({ block: 'center' }), card);
@@ -268,19 +272,19 @@ test('a question about a card shows no cover while Safe Mode blurs that card\'s'
     r.onBlurred = await ask(32);
     r.onSafe = await ask(30);
     r.onSuggestive = await ask(31);
-    out[path] = r;
+    const now = r;
     assert.deepEqual(page.problems, []);
     await page.close();
+    const was = record(FILE, 'question');
+    assert.deepEqual(was, { offBlurred: 'picture', offSafe: 'picture', onBlurred: 'none yet', onSafe: 'picture', onSuggestive: 'picture' });
+    assert.deepEqual(now, was);
   }
-  assert.deepEqual(out['/library'], { offBlurred: 'picture', offSafe: 'picture', onBlurred: 'none yet', onSafe: 'picture', onSuggestive: 'picture' });
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 test('turning it on and off draws no cover again and moves no card', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
-    const page = await open(path, null);
+  {
+    const page = await open(NEW, null);
     await page.mouse.move(5, 5);
     await page.evaluate(() => {
       const grid = document.getElementById('grid');
@@ -312,10 +316,11 @@ test('turning it on and off draws no cover again and moves no card', async (t) =
         seen: { ...window.__seen },
       })));
     }
-    out[path] = r;
+    const now = r;
     assert.deepEqual(page.problems, []);
     await page.close();
+    const was = record(FILE, 'toggle');
+    for (const r of now) assert.deepEqual({ ...r, on: undefined }, { on: undefined, sameImgs: true, sameCards: true, moved: 0, seen: { src: 0, imgs: 0, cards: 0 } });
+    assert.deepEqual(now, was);
   }
-  for (const r of out['/library-next']) assert.deepEqual({ ...r, on: undefined }, { on: undefined, sameImgs: true, sameCards: true, moved: 0, seen: { src: 0, imgs: 0, cards: 0 } });
-  assert.deepEqual(out['/library-next'], out['/library']);
 });

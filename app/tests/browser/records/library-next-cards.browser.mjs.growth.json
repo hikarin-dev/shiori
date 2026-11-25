@@ -1,0 +1,24 @@
+{
+  "at 1280": {
+    "grownOver": 3,
+    "grew": true,
+    "shrinkingOver": 3,
+    "upOnTop": 3,
+    "zBetween": true,
+    "moved": [],
+    "loneGrew": true,
+    "loneMoved": [],
+    "pastEnd": false
+  },
+  "at the two-column width": {
+    "grownOver": 3,
+    "grew": true,
+    "shrinkingOver": 3,
+    "upOnTop": 3,
+    "zBetween": true,
+    "moved": [],
+    "loneGrew": true,
+    "loneMoved": [],
+    "pastEnd": true
+  }
+}

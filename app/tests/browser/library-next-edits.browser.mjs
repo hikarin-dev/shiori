@@ -1,17 +1,23 @@
 // library-next-edits.browser.mjs — a card's delete and export buttons, its tags' Shift-click and the
-// tag editor on /library-next, held to 1.3's page (/library) driven alike (library-drive.mjs): for each
+// tag editor on /library-next, held to what 1.3's page (/library) gave driven alike (library-drive.mjs): for each
 // press in each case (plain, Shift; a gallery, a series merged and unmerged, its chapter, a linked one
 // of each, one whose delete the library refuses), what is said to whatever runs things (type and
 // fields, in order), each dialog's words and buttons, each answer's outcome, the files saved, and what
-// the library holds after. 1.3's page is the oracle: any difference fails.
+// the library holds after. Any difference from 1.3's fails.
+// What 1.3's page gave is the record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as
+// measured on 2026-11-25, which a deliberate change of the library's behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, until } from './harness.mjs';
 import { startTranslator } from './stand-in-translator.mjs';
 import { openRun, result, press, readDialog, answer, nextBase, choose, publish, sleep, PARTS } from './library-drive.mjs';
+import { record, normalised } from './records.mjs';
 
+const NEW = '/library-next';
+const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser, tr;
-const PATHS = ['/library', '/library-next'];
 
 before(async () => {
   if (!chromePath()) return;
@@ -168,8 +174,8 @@ async function run(path, [, opts, steps]) {
 for (const c of CASES) {
   test(c[0], async (t) => {
     if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-    const [old, now] = [await run(PATHS[0], c), await run(PATHS[1], c)];
-    if (process.env.DUMP) console.log(JSON.stringify(old));
-    assert.deepEqual(now, old);
+    const now = normalised(await run(NEW, c), { site: origin, translator: tr.origin });
+    const was = record(FILE, 'cases', c[0]);
+    assert.deepEqual(now, was);
   });
 }

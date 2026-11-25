@@ -1,0 +1,24 @@
+{
+  "at1280": [
+    256
+  ],
+  "resized": {
+    "newCards": [],
+    "newCovers": []
+  },
+  "shrunk": [
+    384
+  ],
+  "returned": {
+    "bare": 0,
+    "widths": [
+      384
+    ]
+  },
+  "pushed": {
+    "newCards": [],
+    "newCovers": [],
+    "loads": 1,
+    "others": []
+  }
+}

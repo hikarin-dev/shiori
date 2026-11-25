@@ -1,17 +1,23 @@
 // library-next-phone.browser.mjs — /library-next on a phone (390×844, touch, a coarse pointer, no
-// hover), held against 1.3's page (/library) as mobile.browser.mjs holds 1.3's: the two-column grid,
+// hover), held to what 1.3's page (/library) gave, as mobile.browser.mjs held 1.3's: the two-column grid,
 // every card's box and its parts' (the heart a favourite shows, its source button, its tags), the
 // header's two rows, text sizes; no sideways scroll at any width from 320 to 600; what a card opens on a
 // phone (its source's question, from its source button; a tag's search) and the filter's dialog inside
 // the window, their buttons reachable and a finger's size; a tap grows no card and shows no quick
 // actions, and a finger on a cover never lifts it.
+// What 1.3's page gave is the record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as
+// measured on 2026-11-25, which a deliberate change of the library's behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 import { readDialog, answer } from './library-drive.mjs';
+import { record } from './records.mjs';
 
+const NEW = '/library-next';
+const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser;
-const PATHS = ['/library', '/library-next'];
 const PHONE = { width: 390, height: 844, hasTouch: true, isMobile: true };
 const BASE = 1790008300000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -79,30 +85,26 @@ function differ(a, b, at = '') {
 
 test('on a phone: two columns, every card\'s box and its parts\', the toolbar, text sizes, as 1.3\'s', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
-    const page = await open(path);
-    out[path] = await page.evaluate(phoneForm);
-    assert.deepEqual(page.problems, []);
-    await page.close();
-  }
-  const was = out['/library'];
+  const page = await open(NEW);
+  const now = await page.evaluate(phoneForm);
+  assert.deepEqual(page.problems, []);
+  await page.close();
+  const was = record(FILE, 'form');
   assert.equal(was.columns, 2);
   assert.equal(was.width, 390);
   assert.equal(was.sideways, false);
-  assert.deepEqual(differ(was, out['/library-next']), []);
+  assert.deepEqual(differ(was, now), []);
 });
 
 test('no sideways scroll at any width from 320 to 600, on either page; the header and the grid as 1.3\'s at each', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
-    const page = await open(path);
-    out[path] = [];
+  const now = [];
+  {
+    const page = await open(NEW);
     for (let width = 320; width <= 600; width += 20) {
       await page.setViewport({ ...PHONE, width });
       await sleep(250);
-      out[path].push(await page.evaluate(() => {
+      now.push(await page.evaluate(() => {
         const box = (sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map((n) => +n.toFixed(1)); };
         return { width: innerWidth, sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth, header: box('header'), search: box('header .search-wrap'),
           settings: box('#settingsBtn'), card: box('#grid > .card'), second: box('#grid > .card:nth-child(2)') };
@@ -110,14 +112,14 @@ test('no sideways scroll at any width from 320 to 600, on either page; the heade
     }
     await page.close();
   }
-  assert.ok(out['/library'].every((r) => !r.sideways), 'no sideways scroll on 1.3\'s page');
-  assert.ok(out['/library-next'].every((r) => !r.sideways), 'none on the new page');
-  assert.deepEqual(differ(out['/library'], out['/library-next']), []);
+  const was = record(FILE, 'widths');
+  assert.ok(was.every((r) => !r.sideways), 'no sideways scroll on 1.3\'s page');
+  assert.ok(now.every((r) => !r.sideways), 'none on this one');
+  assert.deepEqual(differ(was, now), []);
 });
 
 test('what a card opens on a phone, and the filter: inside the window, the buttons reachable and a finger\'s size', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
   const inside = () => {
     const box = document.querySelector('.notice-overlay .notice-dialog, [data-notice="dialog"], #filterModal.show .modal-box, [data-slot="dialog"]');
     if (!box) return null;
@@ -126,8 +128,9 @@ test('what a card opens on a phone, and the filter: inside the window, the butto
     return { inside: r.left >= 0 && r.right <= innerWidth && r.top >= 0, fitsHeight: r.bottom <= innerHeight || box.scrollHeight > box.clientHeight || box.parentElement.scrollHeight > box.parentElement.clientHeight,
       count: buttons.length, reachable: buttons.every((b) => b.left >= 0 && b.right <= innerWidth), smallest: Math.min(...buttons.map((b) => Math.round(b.height))) };
   };
-  for (const path of PATHS) {
-    const page = await open(path);
+  let now;
+  {
+    const page = await open(NEW);
     const r = {};
     // A gallery with no source: its source button asks for one.
     const card = `#grid > .card[data-gallery-id="${BASE + 9}"]`;
@@ -148,12 +151,11 @@ test('what a card opens on a phone, and the filter: inside the window, the butto
     r.filter = await page.evaluate(inside);
     await page.keyboard.press('Escape');
     await sleep(200);
-    out[path] = r;
+    now = r;
     assert.deepEqual(page.problems, []);
     await page.close();
   }
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  const now = out['/library-next'], was = out['/library'];
+  const was = record(FILE, 'opens');
   for (const r of [now.source, now.filter]) {
     assert.equal(r.inside, true);
     assert.equal(r.fitsHeight, true);
@@ -167,9 +169,8 @@ test('what a card opens on a phone, and the filter: inside the window, the butto
 
 test('a tap grows no card and shows no quick actions; a finger on a cover lifts nothing', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
-    const page = await open(path);
+  {
+    const page = await open(NEW);
     const card = '#grid > .card:nth-child(2)';
     const size = () => page.$eval(card, (c) => [c.getBoundingClientRect().height, getComputedStyle(c).marginBottom, getComputedStyle(c.querySelector('.card-actions')).display, getComputedStyle(c.querySelector('.card-tag-add')).display].join());
     const before = await size();
@@ -183,10 +184,11 @@ test('a tap grows no card and shows no quick actions; a finger on a cover lifts 
     const lifted = !!(await page.$('.card-drag-clone'));
     await page.touchscreen.touchEnd();
     await sleep(300);
-    out[path] = { before, after, lifted, asked: !!(await page.$('.notice-overlay, [data-notice="dialog"]')) };
+    const now = { before, after, lifted, asked: !!(await page.$('.notice-overlay, [data-notice="dialog"]')) };
     await page.close();
+    const was = record(FILE, 'tap');
+    assert.equal(was.before, was.after);
+    assert.equal(was.lifted, false);
+    assert.deepEqual(now, was);
   }
-  assert.equal(out['/library'].before, out['/library'].after);
-  assert.equal(out['/library'].lifted, false);
-  assert.deepEqual(out['/library-next'], out['/library']);
 });

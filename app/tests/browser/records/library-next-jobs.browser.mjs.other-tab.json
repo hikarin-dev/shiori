@@ -1,0 +1,7 @@
+{
+  "states": [
+    "at rest |  | dl: Download all 4 pages | tr: Translate gallery",
+    "shown 93% | 2 / 4 | dl: stop Stop downloading | tr: Translate gallery"
+  ],
+  "problems": []
+}

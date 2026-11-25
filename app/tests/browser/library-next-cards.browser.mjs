@@ -1,5 +1,7 @@
-// library-next-cards.browser.mjs — the library's cards on a real grid at /library-next, held against 1.3's
-// page (/library) driven alike. A hovered card grows down over the cards below it and never pushes
+// library-next-cards.browser.mjs — the library's cards on a real grid at /library-next, held to what 1.3's
+// page (/library) gave driven alike (each table's record: records/<this file>.<table>.json, records.mjs,
+// 1.3's behaviour as measured on 2026-11-25, which a deliberate change of the library's behaviour edits
+// in the same commit). A hovered card grows down over the cards below it and never pushes
 // anything: in every frame while it grows and shrinks back, no other card's top or height moves, the
 // grid's height, the page's scroll height and the paging stay; the grown card is drawn over the card
 // below; moving up to the card above while it shrinks, the new one is on top at once and the shrinking
@@ -10,8 +12,13 @@
 // object URLs).
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
+import { record } from './records.mjs';
 
+const NEW = '/library-next';
+const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const IDS = Array.from({ length: 9 }, (_, i) => String(1790000005001 + i));
@@ -21,7 +28,7 @@ before(async () => {
   ({ server, origin } = await startServer());
   browser = await launch();
   const page = await openPage(browser, origin);
-  await page.goto(`${origin}/app/library.html`, { waitUntil: 'load' });
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await page.evaluate(async (ids) => {
     const api = await import('/app/js/api.js');
     const tags = Array.from({ length: 30 }, (_, i) => ({ type: 'tag', name: `tag number ${i}`, url: '' }));
@@ -115,32 +122,33 @@ async function growth(path, size, perRow) {
 for (const [name, size, perRow] of [['at 1280', { width: 1280, height: 2400 }, 4], ['at the two-column width', { width: 500, height: 2400 }, 2]]) {
   test(`${name}: a hovered card grows down over the cards below and pushes nothing, as 1.3's`, async (t) => {
     if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-    const old = await growth('/library', size, perRow);
-    const now = await growth('/library-next', size, perRow);
     // (A lone card at the page's end may reach past it: the page's scroll height then follows the card
-    // frame by frame, as on 1.3's page; nothing in the grid or under it moves.)
+    // frame by frame, as on 1.3's page, to a height a pixel apart from run to run; nothing in the grid or
+    // under it moves. Its frames are left out, and that it reached past the end is kept.)
     const plain = (r) => ({ ...r, loneMoved: r.loneMoved.filter((m) => !m.startsWith('scroll height')), pastEnd: r.loneMoved.some((m) => m.startsWith('scroll height')) });
-    assert.deepEqual(plain(now), plain(old));
-    assert.deepEqual({ ...plain(now), pastEnd: undefined },
+    const now = plain(await growth(NEW, size, perRow));
+    const was = record(FILE, 'growth', name);
+    assert.deepEqual(now, was);
+    assert.deepEqual({ ...now, pastEnd: undefined },
       { grownOver: 3, grew: true, shrinkingOver: 3, upOnTop: 3, zBetween: true, moved: [], loneGrew: true, loneMoved: [], pastEnd: undefined });
   });
 }
 
 test('the grid\'s only card grows the grid (it has nothing to grow over), as 1.3\'s', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of ['/library', '/library-next']) {
-    const page = await open(`${path}?q=${IDS[4]}`, { width: 1280, height: 900 }, 1);
+  {
+    const page = await open(`${NEW}?q=${IDS[4]}`, { width: 1280, height: 900 }, 1);
     const before = await page.evaluate(() => document.getElementById('grid').getBoundingClientRect().height);
     const b = await (await page.$('#grid > .card')).boundingBox();
     await page.mouse.move(b.x + b.width / 2, b.y + 60);
     await sleep(450);
     const grown = await page.evaluate(() => [document.getElementById('grid').getBoundingClientRect().height, document.querySelector('#grid > .card').getBoundingClientRect().height]);
-    out[path] = { grewGrid: grown[0] > before + 50, cardFills: Math.abs(grown[0] - 40 - grown[1]) < 1 };
+    const now = { grewGrid: grown[0] > before + 50, cardFills: Math.abs(grown[0] - 40 - grown[1]) < 1 };
     await page.close();
+    const was = record(FILE, 'only');
+    assert.deepEqual(now, { grewGrid: true, cardFills: true });
+    assert.deepEqual(now, was);
   }
-  assert.deepEqual(out['/library-next'], { grewGrid: true, cardFills: true });
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 // A file picker opened from a card (Replace: these galleries have no source, so download is Replace)
@@ -150,9 +158,8 @@ test('the grid\'s only card grows the grid (it has nothing to grow over), as 1.3
 // pointer-events none, read, and back. Once only: a focus after that does nothing.
 test('a card a file picker was opened from: what is under the pointer worked out again once the window has its focus back', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of ['/library', '/library-next']) {
-    const page = await open(path);
+  {
+    const page = await open(NEW);
     const sel = '#grid > .card:nth-child(2)';
     await page.hover(sel);
     await sleep(400);
@@ -171,36 +178,36 @@ test('a card a file picker was opened from: what is under the pointer worked out
     await sleep(100);
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await sleep(100);
-    out[path] = { before, after: await page.evaluate(() => window.__styles), problems: page.problems };
+    const now = { before, after: await page.evaluate(() => window.__styles), problems: page.problems };
     await page.close();
+    const was = record(FILE, 'picker');
+    // Nothing before the focus came back; then once its pointer-events none, read so, and back.
+    assert.deepEqual(now.before, []);
+    assert.ok(now.after.includes('read while none') && now.after.at(-1) === '', JSON.stringify(now));
+    assert.deepEqual(now, was);
   }
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  // Nothing before the focus came back; then once its pointer-events none, read so, and back.
-  assert.deepEqual(out['/library-next'].before, []);
-  assert.ok(out['/library-next'].after.includes('read while none') && out['/library-next'].after.at(-1) === '', JSON.stringify(out['/library-next']));
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 test('on a touch screen a tap grows nothing', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of ['/library', '/library-next']) {
-    const page = await open(path, { width: 390, height: 2400, isMobile: true, hasTouch: true });
+  {
+    const page = await open(NEW, { width: 390, height: 2400, isMobile: true, hasTouch: true });
     const heights = () => page.evaluate(() => [...document.querySelectorAll('#grid > .card')].map((c) => c.getBoundingClientRect().height));
     const before = await heights();
     const title = await (await page.$('#grid > .card:nth-child(3) .card-title')).boundingBox();
     await page.touchscreen.tap(title.x + 10, title.y + 5);
     await sleep(500);
-    out[path] = { same: JSON.stringify(await heights()) === JSON.stringify(before), columns: await page.evaluate(() => getComputedStyle(document.getElementById('grid')).gridTemplateColumns.split(' ').length) };
+    const now = { same: JSON.stringify(await heights()) === JSON.stringify(before), columns: await page.evaluate(() => getComputedStyle(document.getElementById('grid')).gridTemplateColumns.split(' ').length) };
     await page.close();
+    const was = record(FILE, 'touch');
+    assert.deepEqual(now, { same: true, columns: 2 });
+    assert.deepEqual(now, was);
   }
-  assert.deepEqual(out['/library-next'], { same: true, columns: 2 });
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 test('no card\'s text is lifted onto a compositor layer while cards grow and trade places', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const page = await open('/library-next');
+  const page = await open(NEW);
   const cdp = await page.createCDPSession();
   await cdp.send('DOM.getDocument', { depth: -1 });
   let layers = [];
@@ -267,7 +274,7 @@ test('leaving the page and coming back five times leaves nothing behind', async 
     URL.createObjectURL = (o) => { const u = cu(o); urls.add(u); held.urls = urls.size; return u; };
     URL.revokeObjectURL = (u) => { urls.delete(u); held.urls = urls.size; return ru(u); };
   });
-  await page.goto(`${origin}/library-next`, { waitUntil: 'load' });
+  await page.goto(`${origin}${NEW}`, { waitUntil: 'load' });
   await until(page, () => document.querySelectorAll('#grid > .card img.card-thumb[src]').length === 9, null, { what: 'the page' });
   const counts = [];
   for (let i = 0; i < 6; i++) {
@@ -275,7 +282,7 @@ test('leaving the page and coming back five times leaves nothing behind', async 
     await until(page, () => location.pathname === '/settings' && !!document.getElementById('settingsNav'), null, { what: 'Settings' });
     await sleep(300);
     await page.evaluate(() => history.back());
-    await until(page, () => location.pathname === '/library-next' && document.querySelectorAll('#grid > .card img.card-thumb[src]').length === 9, null, { what: 'the library again' });
+    await until(page, (path) => location.pathname === path && document.querySelectorAll('#grid > .card img.card-thumb[src]').length === 9, NEW, { what: 'the library again' });
     await sleep(1200);
     counts.push(await page.evaluate(() => ({ ...window.__held, cards: document.querySelectorAll('.card').length, tips: document.querySelectorAll('.shiori-tip').length })));
   }

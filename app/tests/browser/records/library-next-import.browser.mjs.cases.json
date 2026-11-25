@@ -1,0 +1,467 @@
+{
+  "a pick of one archive": {
+    "seen": [
+      {
+        "picker": {
+          "multiple": true,
+          "accept": ".cbz,.zip,.pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.shi,.shioridb,.crdownload,.crswap"
+        }
+      }
+    ],
+    "holdings": [
+      "[\"One\",2,0,null,[]]"
+    ],
+    "cards": [
+      "One | 2 pages · 1.4KB"
+    ],
+    "totals": "1",
+    "tracker": [],
+    "trackerShown": false,
+    "toast": null,
+    "problems": []
+  },
+  "a pick of a PDF": {
+    "seen": [
+      {
+        "picker": {
+          "multiple": true,
+          "accept": ".cbz,.zip,.pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.shi,.shioridb,.crdownload,.crswap"
+        }
+      }
+    ],
+    "holdings": [
+      "[\"Paper\",1,0,null,[]]"
+    ],
+    "cards": [
+      "Paper | 1 pages · 1.4KB"
+    ],
+    "totals": "1",
+    "tracker": [],
+    "trackerShown": false,
+    "toast": null,
+    "problems": []
+  },
+  "a pick of loose pictures": {
+    "seen": [
+      {
+        "picker": {
+          "multiple": true,
+          "accept": ".cbz,.zip,.pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.shi,.shioridb,.crdownload,.crswap"
+        }
+      }
+    ],
+    "holdings": [
+      "[\"Loose\",2,0,null,[]]"
+    ],
+    "cards": [
+      "Loose | 2 pages · 1.4KB"
+    ],
+    "totals": "1",
+    "tracker": [],
+    "trackerShown": false,
+    "toast": null,
+    "problems": []
+  },
+  "a pick of several titles and a file that is neither: asked first, OK": {
+    "seen": [
+      {
+        "picker": {
+          "multiple": true,
+          "accept": ".cbz,.zip,.pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.shi,.shioridb,.crdownload,.crswap"
+        }
+      },
+      {
+        "dialog": {
+          "title": "Import “2 items”?",
+          "body": "2 titles · 688B\n1 other files are left out: they aren’t archives, PDFs or pictures.\nTitles already in your library are skipped.\nIt runs in the background: any open Shiori tab keeps it going, and closing them all stops it within a few minutes.",
+          "detail": [],
+          "tone": null,
+          "buttons": [
+            "Cancel",
+            "Import 2 titles"
+          ]
+        }
+      }
+    ],
+    "holdings": [
+      "[\"Three\",3,0,null,[]]",
+      "[\"Two\",1,0,null,[]]"
+    ],
+    "cards": [
+      "Two | 1 pages · 1,018B",
+      "Three | 3 pages · 1.8KB"
+    ],
+    "totals": "2",
+    "tracker": [
+      "done | 2 items | Imported 2 titles | "
+    ],
+    "trackerShown": true,
+    "toast": null,
+    "problems": []
+  },
+  "a pick of several titles: asked first, Cancel": {
+    "seen": [
+      {
+        "picker": {
+          "multiple": true,
+          "accept": ".cbz,.zip,.pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.shi,.shioridb,.crdownload,.crswap"
+        }
+      },
+      {
+        "dialog": {
+          "title": "Import “2 items”?",
+          "body": "2 titles · 688B\nTitles already in your library are skipped.\nIt runs in the background: any open Shiori tab keeps it going, and closing them all stops it within a few minutes.",
+          "detail": [],
+          "tone": null,
+          "buttons": [
+            "Cancel",
+            "Import 2 titles"
+          ]
+        }
+      }
+    ],
+    "holdings": [],
+    "cards": [],
+    "totals": "0",
+    "tracker": [],
+    "trackerShown": false,
+    "toast": null,
+    "problems": []
+  },
+  "a pick of several titles: asked first, Escape": {
+    "seen": [
+      {
+        "picker": {
+          "multiple": true,
+          "accept": ".cbz,.zip,.pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.shi,.shioridb,.crdownload,.crswap"
+        }
+      },
+      {
+        "dialog": {
+          "title": "Import “2 items”?",
+          "body": "2 titles · 688B\nTitles already in your library are skipped.\nIt runs in the background: any open Shiori tab keeps it going, and closing them all stops it within a few minutes.",
+          "detail": [],
+          "tone": null,
+          "buttons": [
+            "Cancel",
+            "Import 2 titles"
+          ]
+        }
+      }
+    ],
+    "holdings": [],
+    "cards": [],
+    "totals": "0",
+    "tracker": [],
+    "trackerShown": false,
+    "toast": null,
+    "problems": []
+  },
+  "a title imported already": {
+    "seen": [
+      {
+        "picker": {
+          "multiple": true,
+          "accept": ".cbz,.zip,.pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.shi,.shioridb,.crdownload,.crswap"
+        }
+      },
+      {
+        "picker": {
+          "multiple": true,
+          "accept": ".cbz,.zip,.pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.shi,.shioridb,.crdownload,.crswap"
+        }
+      },
+      {
+        "toast": "Already in your library: One"
+      }
+    ],
+    "holdings": [
+      "[\"One\",2,0,null,[]]"
+    ],
+    "cards": [
+      "One | 2 pages · 1.4KB"
+    ],
+    "totals": "1",
+    "tracker": [],
+    "trackerShown": false,
+    "toast": "Already in your library: One",
+    "problems": []
+  },
+  "a pick of a file that is neither": {
+    "seen": [
+      {
+        "picker": {
+          "multiple": true,
+          "accept": ".cbz,.zip,.pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.shi,.shioridb,.crdownload,.crswap"
+        }
+      },
+      {
+        "dialog": null
+      }
+    ],
+    "holdings": [],
+    "cards": [],
+    "totals": "0",
+    "tracker": [],
+    "trackerShown": false,
+    "toast": null,
+    "problems": []
+  },
+  "a pick of a backup alone": {
+    "seen": [
+      {
+        "picker": {
+          "multiple": true,
+          "accept": ".cbz,.zip,.pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.shi,.shioridb,.crdownload,.crswap"
+        }
+      },
+      {
+        "dialog": {
+          "title": "Backup restored",
+          "body": "Details for 1 galleries were restored.",
+          "detail": [],
+          "tone": "success",
+          "buttons": [
+            "OK"
+          ]
+        }
+      }
+    ],
+    "holdings": [
+      "[\"From the backup\",0,2,null,[]]"
+    ],
+    "cards": [
+      "From the backup | 0 / 2 pages · 517B"
+    ],
+    "totals": "1",
+    "tracker": [],
+    "trackerShown": false,
+    "toast": null,
+    "problems": []
+  },
+  "a pick of a backup under another name, among titles: restored first, then imported": {
+    "seen": [
+      {
+        "picker": {
+          "multiple": true,
+          "accept": ".cbz,.zip,.pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.shi,.shioridb,.crdownload,.crswap"
+        }
+      },
+      {
+        "dialog": {
+          "title": "Backup restored",
+          "body": "Details for 1 galleries were restored.",
+          "detail": [],
+          "tone": "success",
+          "buttons": [
+            "OK"
+          ]
+        }
+      }
+    ],
+    "holdings": [
+      "[\"From the backup\",0,2,null,[]]",
+      "[\"One\",2,0,null,[]]"
+    ],
+    "cards": [
+      "One | 2 pages · 1.4KB",
+      "From the backup | 0 / 2 pages · 517B"
+    ],
+    "totals": "2",
+    "tracker": [],
+    "trackerShown": false,
+    "toast": null,
+    "problems": []
+  },
+  "a pick whose read fails": {
+    "seen": [
+      {
+        "picker": {
+          "multiple": true,
+          "accept": ".cbz,.zip,.pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.shi,.shioridb,.crdownload,.crswap"
+        }
+      },
+      {
+        "dialog": {
+          "title": "Couldn’t import it",
+          "body": "Not a valid ZIP file",
+          "detail": [
+            "broken"
+          ],
+          "tone": "error",
+          "buttons": [
+            "OK"
+          ]
+        }
+      }
+    ],
+    "holdings": [],
+    "cards": [],
+    "totals": "0",
+    "tracker": [],
+    "trackerShown": false,
+    "toast": null,
+    "problems": []
+  },
+  "a drop of one archive": {
+    "seen": [],
+    "holdings": [
+      "[\"One\",2,0,null,[]]"
+    ],
+    "cards": [
+      "One | 2 pages · 1.4KB"
+    ],
+    "totals": "1",
+    "tracker": [],
+    "trackerShown": false,
+    "toast": null,
+    "problems": []
+  },
+  "a drop of several titles: asked first, OK": {
+    "seen": [
+      {
+        "dialog": {
+          "title": "Import “2 items”?",
+          "body": "2 titles · 688B\nTitles already in your library are skipped.\nIt runs in the background: any open Shiori tab keeps it going, and closing them all stops it within a few minutes.",
+          "detail": [],
+          "tone": null,
+          "buttons": [
+            "Cancel",
+            "Import 2 titles"
+          ]
+        }
+      }
+    ],
+    "holdings": [
+      "[\"Three\",3,0,null,[]]",
+      "[\"Two\",1,0,null,[]]"
+    ],
+    "cards": [
+      "Two | 1 pages · 1,018B",
+      "Three | 3 pages · 1.8KB"
+    ],
+    "totals": "2",
+    "tracker": [
+      "done | 2 items | Imported 2 titles | "
+    ],
+    "trackerShown": true,
+    "toast": null,
+    "problems": []
+  },
+  "a drop of a real folder: asked first (its titles, what is left out), OK": {
+    "seen": [
+      {
+        "dialog": {
+          "title": "Import “Shelf”?",
+          "body": "2 titles · 527B\n1 other files are left out: they aren’t archives, PDFs or pictures.\nTitles already in your library are skipped.\nIt runs in the background: any open Shiori tab keeps it going, and closing them all stops it within a few minutes.",
+          "detail": [],
+          "tone": null,
+          "buttons": [
+            "Cancel",
+            "Import 2 titles"
+          ]
+        }
+      }
+    ],
+    "holdings": [
+      "[\"Alpha\",1,0,null,[]]",
+      "[\"Beta\",2,0,null,[]]"
+    ],
+    "cards": [
+      "Beta | 2 pages · 1.4KB",
+      "Alpha | 1 pages · 1,022B"
+    ],
+    "totals": "2",
+    "tracker": [
+      "done | Shelf | Imported 2 titles | "
+    ],
+    "trackerShown": true,
+    "toast": null,
+    "problems": []
+  },
+  "a drop of a folder of chapter folders: a series": {
+    "seen": [
+      {
+        "dialog": null
+      }
+    ],
+    "holdings": [
+      "[\"Chapter 1\",1,0,null,[\"Chapter 1\",\"Chapter 2\"]]",
+      "[\"Chapter 2\",1,0,\"Chapter 1\",[]]"
+    ],
+    "cards": [
+      "Saga | 2 pages · 2.2KB"
+    ],
+    "totals": "1",
+    "tracker": [],
+    "trackerShown": false,
+    "toast": null,
+    "problems": []
+  },
+  "a drop of a backup among titles": {
+    "seen": [
+      {
+        "dialog": {
+          "title": "Backup restored",
+          "body": "Details for 1 galleries were restored.",
+          "detail": [],
+          "tone": "success",
+          "buttons": [
+            "OK"
+          ]
+        }
+      }
+    ],
+    "holdings": [
+      "[\"From the backup\",0,2,null,[]]",
+      "[\"Two\",1,0,null,[]]"
+    ],
+    "cards": [
+      "Two | 1 pages · 1,018B",
+      "From the backup | 0 / 2 pages · 517B"
+    ],
+    "totals": "2",
+    "tracker": [],
+    "trackerShown": false,
+    "toast": null,
+    "problems": []
+  },
+  "a drop whose read fails": {
+    "seen": [
+      {
+        "dialog": {
+          "title": "Couldn’t import it",
+          "body": "Not a valid ZIP file",
+          "detail": [
+            "broken"
+          ],
+          "tone": "error",
+          "buttons": [
+            "OK"
+          ]
+        }
+      }
+    ],
+    "holdings": [],
+    "cards": [],
+    "totals": "0",
+    "tracker": [],
+    "trackerShown": false,
+    "toast": null,
+    "problems": []
+  },
+  "a drop of a file that is neither": {
+    "seen": [
+      {
+        "dialog": null
+      }
+    ],
+    "holdings": [],
+    "cards": [],
+    "totals": "0",
+    "tracker": [],
+    "trackerShown": false,
+    "toast": null,
+    "problems": []
+  }
+}

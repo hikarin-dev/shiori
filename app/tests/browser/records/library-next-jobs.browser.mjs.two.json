@@ -1,0 +1,31 @@
+{
+  "a series' download while its sync runs": {
+    "states": [
+      "at rest |  | dl: Download all 1 pages | tr: Translate gallery",
+      "shown 0% | Contacting download helper… | dl: stop Stop downloading | tr: Translate gallery",
+      "shown 0% | Fetching chapter info | dl: stop Stop downloading | tr: Translate gallery",
+      "shown 89% | 1 / 4 | dl: stop Stop downloading | tr: Translate gallery",
+      "shown 50% | Fetching chapter info · 1/2 | dl: stop Stop downloading | tr: Translate gallery",
+      "shown 100% done | Chapter info ready | dl: stop Stop downloading | tr: Translate gallery",
+      "shown 96% | 3 / 4 | dl: stop Stop downloading | tr: Translate gallery",
+      "shown 100% done | Done — 4/4 | dl: done ✓ Download all 1 pages | tr: Translate gallery",
+      "at rest |  | dl: done ✓ Download all 1 pages | tr: Translate gallery",
+      "at rest |  | dl: Download all 1 pages | tr: Translate gallery"
+    ],
+    "problems": []
+  },
+  "a download while a translation runs and is stopped": {
+    "states": [
+      "at rest |  | dl: Download all 2 pages | tr: Translate gallery",
+      "shown 0% | Contacting download helper… | dl: stop Stop downloading | tr: Translate gallery",
+      "shown 0% | Starting… | dl: stop Stop downloading | tr: stop Stop translating",
+      "shown 89% | 1 / 4 | dl: stop Stop downloading | tr: stop Stop translating",
+      "shown 12% | Translating… | dl: stop Stop downloading | tr: stop Stop translating",
+      "shown 0% | Cancelled | dl: stop Stop downloading | tr: Translate gallery",
+      "shown 96% | 3 / 4 | dl: stop Stop downloading | tr: Translate gallery",
+      "shown 100% done | Done — 4/4 | dl: done ✓ Download all 2 pages | tr: Translate gallery",
+      "at rest |  | dl: Download all 2 pages | tr: Translate gallery"
+    ],
+    "problems": []
+  }
+}

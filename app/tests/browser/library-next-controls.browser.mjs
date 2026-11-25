@@ -1,15 +1,23 @@
 // library-next-controls.browser.mjs — the library at /library-next, its header, toolbar, search, filter
-// and keys, held against 1.3's page (/library) where the two can be driven alike: the header's boxes
-// at 1500px (the totals in the bar) and at 1280 (folded: the menu button, Import's icon alone), the
-// totals and their tips plain and with Shift; the search's list, its blocks, the X and the 180 ms the
-// box waits after a key (kept by an observer in the page, never polled); a card's tag, flag and Alt
-// on its heart adding to the search at once; the filter's dialog (each state of an option, the
-// button's mark, what is stored, Clear, Escape, focus back on the button, another tab's change); the
-// keyboard through the page; the arrows and A/D paging.
+// and keys, held to what 1.3's page (/library) gave where the two could be driven alike: the header's
+// boxes at 1500px (the totals in the bar) and at 1280 (folded: the menu button, Import's icon alone),
+// the totals and their tips plain and with Shift; the search's list, its blocks, the X and the 180 ms
+// the box waits after a key (kept by an observer in the page, never polled); a card's tag, flag and Alt
+// on its heart adding to the search at once; the filter's dialog (each state of an option, the button's
+// mark, what is stored, Clear, Escape, focus back on the button, another tab's change); the keyboard
+// through the page; the arrows and A/D paging. What 1.3's page gave is each table's record
+// (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as measured on 2026-11-25, which a
+// deliberate change of the library's behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
+import { record } from './records.mjs';
+import { librarySettled } from './library-drive.mjs';
 
+const NEW = '/library-next';
+const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -18,15 +26,12 @@ before(async () => {
   ({ server, origin } = await startServer());
   browser = await launch();
   const page = await openPage(browser, origin);
-  await page.goto(`${origin}/app/library.html`, { waitUntil: 'load' });
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await page.evaluate(seed);
-  // The library's pages are measured once a page has shown them (the totals' tiers count them): both
-  // pages are then read with them measured.
-  await page.goto(`${origin}/library`, { waitUntil: 'load' });
-  await until(page, async () => {
-    const api = await import('/app/js/api.js');
-    return Object.values((await api.galleries.stats()).galleries).every((g) => g.medianPage);
-  }, null, { what: 'every gallery measured', timeout: 30000 });
+  // The library's pages are measured once a page has shown them (the totals' tiers count them): the
+  // page is then read with them measured.
+  await page.goto(`${origin}${NEW}`, { waitUntil: 'load' });
+  await librarySettled(page);
   await page.close();
 });
 after(async () => { await browser?.close(); server?.close(); });
@@ -51,7 +56,7 @@ const ready = (page) => until(page, () => document.getElementById('hTotalGalleri
 async function open(path, size = { width: 1500, height: 900 }, storage = {}) {
   const page = await openPage(browser, origin);
   await page.setViewport(size);
-  await page.goto(`${origin}/app/library.html`, { waitUntil: 'load' });
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await page.evaluate((storage) => { localStorage.removeItem('shiori:libFilter'); for (const [k, v] of Object.entries(storage)) localStorage.setItem(k, JSON.stringify(v)); }, storage);
   await page.goto(`${origin}${path}`, { waitUntil: 'load' });
   await ready(page);
@@ -64,29 +69,30 @@ const HEADER = ['header .brand-wrap', '#pageNav', '#searchBox', '#pinBtn', '#bur
 
 test('the header and the toolbar: where 1.3 has them, wide and folded at 1400px or less', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const now = {};
   for (const size of [{ width: 1500, height: 900 }, { width: 1280, height: 900 }, { width: 800, height: 900 }]) {
-    const boxes = {};
-    for (const path of ['/library', '/library-next']) {
-      const page = await open(path, size);
-      boxes[path] = await page.evaluate((sels, box) => Object.fromEntries(sels.map((s) => [s, new Function(`return (${box})`)()(s)])), HEADER, box.toString());
-      // Import's frame, which 1.3 kept in the second accent at every width.
-      boxes[path].importFrame = await page.evaluate(() => getComputedStyle(document.getElementById('uploadCbzBtn')).borderTopColor);
-      assert.deepEqual(page.problems, []);
-      await page.close();
-    }
-    // The page menu: 1.3's select against the drawn one's box, within a pixel; everything else exact.
-    assert.equal(boxes['/library-next'].importFrame, boxes['/library'].importFrame, `Import's frame at ${size.width}`);
-    const differ = HEADER.filter((s) => JSON.stringify(boxes['/library'][s]) !== JSON.stringify(boxes['/library-next'][s]))
-      .filter((s) => !(Array.isArray(boxes['/library'][s]) && boxes['/library'][s].every((v, i) => Math.abs(v - boxes['/library-next'][s][i]) <= 1)));
-    assert.deepEqual(differ.map((s) => [s, boxes['/library'][s], boxes['/library-next'][s]]), [], `at ${size.width}`);
+    const page = await open(NEW, size);
+    const boxes = now[size.width] = await page.evaluate((sels, box) => Object.fromEntries(sels.map((s) => [s, new Function(`return (${box})`)()(s)])), HEADER, box.toString());
+    // Import's frame, which 1.3 kept in the second accent at every width.
+    boxes.importFrame = await page.evaluate(() => getComputedStyle(document.getElementById('uploadCbzBtn')).borderTopColor);
+    assert.deepEqual(page.problems, []);
+    await page.close();
   }
+  const was = record(FILE, 'header');
+  for (const width of Object.keys(was)) {
+    // The page menu: 1.3's select against the drawn one's box, within a pixel; everything else exact.
+    assert.equal(now[width].importFrame, was[width].importFrame, `Import's frame at ${width}`);
+    const differ = HEADER.filter((s) => JSON.stringify(was[width][s]) !== JSON.stringify(now[width][s]))
+      .filter((s) => !(Array.isArray(was[width][s]) && was[width][s].every((v, i) => Math.abs(v - now[width][s][i]) <= 1)));
+    assert.deepEqual(differ.map((s) => [s, was[width][s], now[width][s]]), [], `at ${width}`);
+  }
+  assert.deepEqual(Object.keys(now), Object.keys(was));
 });
 
 test('the totals and their tips, plain and with Shift, as 1.3\'s', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of ['/library', '/library-next']) {
-    const page = await open(path);
+  {
+    const page = await open(NEW);
     const tips = await page.evaluate(() => ['hTotalGalleries', 'hTotalImages', 'hTotalSize'].map((id) => document.getElementById(id).textContent)
       .concat([document.getElementById('hImagesStat').dataset.tip, document.getElementById('hSizeStat').dataset.tip, document.getElementById('hSizeStat').dataset.tipShift]));
     const shown = async (shift) => {
@@ -101,20 +107,20 @@ test('the totals and their tips, plain and with Shift, as 1.3\'s', async (t) => 
       if (shift) await page.keyboard.up('Shift');
       return text;
     };
-    out[path] = { tips, plain: await shown(false), shift: await shown(true) };
+    const now = { tips, plain: await shown(false), shift: await shown(true) };
     assert.deepEqual(page.problems, []);
     await page.close();
+    const was = record(FILE, 'totals');
+    assert.ok(/\d/.test(was.tips[0]) && was.tips[3].includes('MP'), 'figures and the tiers\' tip');
+    assert.notEqual(was.shift, was.plain, 'Shift shows the average');
+    assert.deepEqual(now, was);
   }
-  assert.ok(/\d/.test(out['/library'].tips[0]) && out['/library'].tips[3].includes('MP'), 'figures and the tiers\' tip');
-  assert.notEqual(out['/library'].shift, out['/library'].plain, 'Shift shows the average');
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 test('the search: the list, a block, the 180 ms after a key, the X; a card\'s tag, flag and Alt on its heart add to it at once', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of ['/library', '/library-next']) {
-    const page = await open(path);
+  {
+    const page = await open(NEW);
     const r = {};
     // When the grid's cards change, and when the last key went down, both kept in the page (a time read
     // from here after the typing comes a round trip late: under the whole suite's load that made the
@@ -164,20 +170,20 @@ test('the search: the list, a block, the 180 ms after a key, the X; a card\'s ta
     await page.keyboard.up('Alt');
     await sleep(400);
     r.alt = await page.evaluate(() => [location.search, document.querySelectorAll('#grid > .card').length]);
-    out[path] = r;
+    const now = r;
     assert.deepEqual(page.problems, []);
     await page.close();
+    const was = record(FILE, 'search');
+    assert.equal(was.waited, true);
+    assert.equal(was.clearedAtOnce, true);
+    assert.deepEqual(now, was);
   }
-  assert.equal(out['/library'].waited, true);
-  assert.equal(out['/library'].clearedAtOnce, true);
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 test('the filter\'s dialog: an option\'s states, the button\'s mark, Clear, Escape, focus back, another tab\'s change', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of ['/library', '/library-next']) {
-    const page = await open(path);
+  {
+    const page = await open(NEW);
     const r = [];
     const state = () => page.evaluate(() => {
       const btn = document.getElementById('filterBtn');
@@ -208,17 +214,18 @@ test('the filter\'s dialog: an option\'s states, the button\'s mark, Clear, Esca
     await page.bringToFront();
     await sleep(600);
     r.push(await state());
-    out[path] = r;
+    const now = r;
     assert.deepEqual(page.problems, []);
     await page.close();
+    const was = record(FILE, 'filter');
+    assert.equal(was[1].mark, true);
+    assert.deepEqual(now, was);
   }
-  assert.equal(out['/library'][1].mark, true);
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 test('the keyboard through the page, and the arrows and A/D paging', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const page = await open('/library-next');
+  const page = await open(NEW);
   const order = [];
   for (let i = 0; i < 24; i++) {
     await page.keyboard.press('Tab');

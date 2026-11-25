@@ -1,0 +1,1763 @@
+{
+  "nothing until the pointer has moved 6px, then the copy follows it": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "under6": false
+      },
+      {
+        "past6": true
+      }
+    ],
+    "frames": [
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": null,
+        "source": "<P>",
+        "dragging": true
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": "<I>",
+        "source": "<P>",
+        "dragging": true
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": null,
+        "source": "<P>",
+        "dragging": true
+      },
+      {
+        "copy": "flying",
+        "target": null,
+        "source": null,
+        "dragging": false
+      },
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      }
+    ],
+    "left": {
+      "copies": 0,
+      "marked": 0,
+      "dragging": false
+    },
+    "problems": []
+  },
+  "let go over a card: asked, OK, a series": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": "<I>",
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": [
+          "<I>",
+          "<P>"
+        ]
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "dialog": {
+          "title": "Add as a chapter?",
+          "body": "The gallery you dragged becomes the next chapter of the one you dropped it on. Their tags are combined.",
+          "detail": [
+            "P gallery",
+            "into I gallery"
+          ],
+          "tone": null,
+          "buttons": [
+            "Cancel",
+            "Merge"
+          ]
+        }
+      }
+    ],
+    "frames": [
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": null,
+        "source": "<P>",
+        "dragging": true
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": "<I>",
+        "source": "<P>",
+        "dragging": true
+      },
+      {
+        "copy": "flying",
+        "target": null,
+        "source": null,
+        "dragging": false
+      },
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      }
+    ],
+    "left": {
+      "copies": 0,
+      "marked": 0,
+      "dragging": false
+    },
+    "problems": []
+  },
+  "let go over a card: asked, Cancel": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "dialog": {
+          "title": "Add as a chapter?",
+          "body": "The gallery you dragged becomes the next chapter of the one you dropped it on. Their tags are combined.",
+          "detail": [
+            "P gallery",
+            "into I gallery"
+          ],
+          "tone": null,
+          "buttons": [
+            "Cancel",
+            "Merge"
+          ]
+        }
+      }
+    ],
+    "frames": [
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": null,
+        "source": "<P>",
+        "dragging": true
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": "<I>",
+        "source": "<P>",
+        "dragging": true
+      },
+      {
+        "copy": "flying",
+        "target": null,
+        "source": null,
+        "dragging": false
+      },
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      }
+    ],
+    "left": {
+      "copies": 0,
+      "marked": 0,
+      "dragging": false
+    },
+    "problems": []
+  },
+  "let go over a card: asked, Escape": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "dialog": {
+          "title": "Add as a chapter?",
+          "body": "The gallery you dragged becomes the next chapter of the one you dropped it on. Their tags are combined.",
+          "detail": [
+            "N gallery",
+            "into T gallery"
+          ],
+          "tone": null,
+          "buttons": [
+            "Cancel",
+            "Merge"
+          ]
+        }
+      }
+    ],
+    "frames": [
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": null,
+        "source": "<N>",
+        "dragging": true
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": "<T>",
+        "source": "<N>",
+        "dragging": true
+      },
+      {
+        "copy": "flying",
+        "target": null,
+        "source": null,
+        "dragging": false
+      },
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      }
+    ],
+    "left": {
+      "copies": 0,
+      "marked": 0,
+      "dragging": false
+    },
+    "problems": []
+  },
+  "a merge refused: told so": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "dialog": {
+          "title": "Add as a chapter?",
+          "body": "The gallery you dragged becomes the next chapter of the one you dropped it on. Their tags are combined.",
+          "detail": [
+            "P gallery",
+            "into I gallery"
+          ],
+          "tone": null,
+          "buttons": [
+            "Cancel",
+            "Merge"
+          ]
+        }
+      },
+      {
+        "dialog": {
+          "title": "Couldn’t merge",
+          "body": "The galleries couldn’t be combined.",
+          "detail": [
+            "This folder is in use by another app."
+          ],
+          "tone": "error",
+          "buttons": [
+            "OK"
+          ]
+        }
+      }
+    ],
+    "frames": [
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": null,
+        "source": "<P>",
+        "dragging": true
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": "<I>",
+        "source": "<P>",
+        "dragging": true
+      },
+      {
+        "copy": "flying",
+        "target": null,
+        "source": null,
+        "dragging": false
+      },
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      }
+    ],
+    "left": {
+      "copies": 0,
+      "marked": 0,
+      "dragging": false
+    },
+    "problems": []
+  },
+  "let go over nothing: the copy goes back": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "dialog": null
+      }
+    ],
+    "frames": [
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": null,
+        "source": "<P>",
+        "dragging": true
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": "<I>",
+        "source": "<P>",
+        "dragging": true
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": null,
+        "source": "<P>",
+        "dragging": true
+      },
+      {
+        "copy": "flying",
+        "target": null,
+        "source": null,
+        "dragging": false
+      },
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      }
+    ],
+    "left": {
+      "copies": 0,
+      "marked": 0,
+      "dragging": false
+    },
+    "problems": []
+  },
+  "the click after a drag is swallowed; the next one opens the card": {
+    "helper": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "stayed": true,
+        "clicks": []
+      },
+      {
+        "opened": "/overview"
+      }
+    ],
+    "frames": [],
+    "left": {
+      "copies": 0,
+      "marked": 0,
+      "dragging": false
+    },
+    "problems": []
+  },
+  "a finger on a cover does nothing": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "copy": false
+      }
+    ],
+    "frames": [
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      }
+    ],
+    "left": {
+      "copies": 0,
+      "marked": 0,
+      "dragging": false
+    },
+    "problems": []
+  },
+  "a drag begun on the title does nothing; its words are selected": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "copy": false,
+        "selected": "P gallery"
+      }
+    ],
+    "frames": [
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      }
+    ],
+    "left": {
+      "copies": 0,
+      "marked": 0,
+      "dragging": false
+    },
+    "problems": []
+  },
+  "a card with a job running: its bar in the copy": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "copy": {
+          "shown": true,
+          "bar": "89%",
+          "line": "1 / 4"
+        }
+      }
+    ],
+    "frames": [
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": null,
+        "source": "<I>",
+        "dragging": true
+      },
+      {
+        "copy": "flying",
+        "target": null,
+        "source": null,
+        "dragging": false
+      },
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      }
+    ],
+    "left": {
+      "copies": 0,
+      "marked": 0,
+      "dragging": false
+    },
+    "problems": []
+  },
+  "a hovered (grown) card dragged: the copy as the card at rest": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "copy": {
+          "atRest": true,
+          "titleAll": true
+        }
+      }
+    ],
+    "frames": [
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": null,
+        "source": "<P>",
+        "dragging": true
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": "<I>",
+        "source": "<P>",
+        "dragging": true
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": null,
+        "source": "<P>",
+        "dragging": true
+      },
+      {
+        "copy": "flying",
+        "target": null,
+        "source": null,
+        "dragging": false
+      },
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      }
+    ],
+    "left": {
+      "copies": 0,
+      "marked": 0,
+      "dragging": false
+    },
+    "problems": []
+  },
+  "Escape, a second button and the window losing focus during a drag: it goes on, and ends where it is let go": {
+    "said": [],
+    "helper": [],
+    "opened": [],
+    "saved": [],
+    "after": {
+      "P": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "901",
+        "sourceUrl": "https://a.example/g/901",
+        "count": 2,
+        "tags": [
+          "language:japanese",
+          "category:manga",
+          "tag:alpha",
+          "tag:beta"
+        ],
+        "parent": null,
+        "chapters": []
+      },
+      "I": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "902",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "N": {
+        "favorite": false,
+        "translated": false,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "T": {
+        "favorite": false,
+        "translated": true,
+        "source": "",
+        "sourceId": null,
+        "sourceUrl": null,
+        "count": 2,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "E": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "906",
+        "sourceUrl": null,
+        "count": 0,
+        "tags": [],
+        "parent": null,
+        "chapters": []
+      },
+      "S": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "905",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": null,
+        "chapters": [
+          "<S>",
+          "<S2>"
+        ]
+      },
+      "S2": {
+        "favorite": false,
+        "translated": false,
+        "source": "a.example",
+        "sourceId": "904",
+        "sourceUrl": null,
+        "count": 1,
+        "tags": [],
+        "parent": "<S>",
+        "chapters": []
+      }
+    },
+    "dialogs": [
+      {
+        "still": true
+      },
+      {
+        "dialog": {
+          "title": "Add as a chapter?",
+          "body": "The gallery you dragged becomes the next chapter of the one you dropped it on. Their tags are combined.",
+          "detail": [
+            "P gallery",
+            "into I gallery"
+          ],
+          "tone": null,
+          "buttons": [
+            "Cancel",
+            "Merge"
+          ]
+        }
+      }
+    ],
+    "frames": [
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": null,
+        "source": "<P>",
+        "dragging": true
+      },
+      {
+        "copy": {
+          "dx": -148,
+          "dy": -208.9,
+          "w": 296,
+          "h": 540.6
+        },
+        "target": "<I>",
+        "source": "<P>",
+        "dragging": true
+      },
+      {
+        "copy": "flying",
+        "target": null,
+        "source": null,
+        "dragging": false
+      },
+      {
+        "copy": null,
+        "target": null,
+        "source": null,
+        "dragging": false
+      }
+    ],
+    "left": {
+      "copies": 0,
+      "marked": 0,
+      "dragging": false
+    },
+    "problems": []
+  }
+}

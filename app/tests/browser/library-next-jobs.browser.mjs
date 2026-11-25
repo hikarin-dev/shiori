@@ -1,18 +1,24 @@
-// library-next-jobs.browser.mjs — jobs on the cards of /library-next, held to 1.3's page (/library)
-// driven alike (library-drive.mjs): every state a download, an upload, a translation and a sync show
+// library-next-jobs.browser.mjs — jobs on the cards of /library-next, held to what 1.3's page (/library)
+// gave driven alike (library-drive.mjs): every state a download, an upload, a translation and a sync show
 // on a card as their news comes on the real jobs channel, kept by an observer in the page (the card's
 // place shown, its bar, its line, the buttons the job holds), through the last word's while and back to
 // rest; a job said in another tab; what is under way as the page opens (each of 1.3's rows); a done
 // job's page read again; an upload's empty gallery removed; a card's job while the page is turned and
 // turned back. Then the new page alone: 300 words about one gallery draw its card and none of the
 // other 29, and leaving the page five times with a job running and a question open leaves nothing.
+// What 1.3's page gave is the record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as
+// measured on 2026-11-25, which a deliberate change of the library's behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 import { openRun, seedRun, nextBase, publish, readDialog, sleep, PARTS } from './library-drive.mjs';
+import { record } from './records.mjs';
 
+const NEW = '/library-next';
+const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser;
-const PATHS = ['/library', '/library-next'];
 const id = (base, part) => String(base + PARTS[part]);
 
 before(async () => {
@@ -105,24 +111,21 @@ const ON = { download: 'I', upload: 'N', translate: 'T', 'translate stopped': 'T
 for (const [kind, news] of Object.entries(NEWS)) {
   test(`a ${kind}: every state on its card, in order, to its end and back to rest`, async (t) => {
     if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-    const out = {};
-    for (const path of PATHS) {
-      const base = nextBase(1790004000000);
-      const page = await openRun(browser, origin, path, { base });
-      const gid = id(base, ON[kind]);
-      await watching(page, gid);
-      for (const word of news(gid)) { await publish(page, word); await sleep(150); }
-      await sleep(4800);
-      out[path] = { states: (await states(page)).map((s) => s.split(gid).join('<gid>')), problems: page.problems };
-      await page.close();
-    }
+    const base = nextBase(1790004000000);
+    const page = await openRun(browser, origin, NEW, { base });
+    const gid = id(base, ON[kind]);
+    await watching(page, gid);
+    for (const word of news(gid)) { await publish(page, word); await sleep(150); }
+    await sleep(4800);
+    const now = { states: (await states(page)).map((s) => s.split(gid).join('<gid>')), problems: page.problems };
+    await page.close();
+    const was = record(FILE, 'news', kind);
     // §5.3 F50: when a finished download's last word has stayed its while, 1.3 hid its place and only
     // then put the button back, once the page's read again had landed: its ✓ stood on a card at rest
     // for that read. The new card rests in one step.
     const f50 = (s) => !/^at rest .*dl: done ✓/.test(s);
-    if (process.env.DUMP) console.log(JSON.stringify(out));
-    assert.deepEqual(out['/library-next'], { ...out['/library'], states: out['/library'].states.filter(f50) });
-    assert.ok(out['/library-next'].states.length > news(String(0)).length / 2);
+    assert.deepEqual(now, { ...was, states: was.states.filter(f50) });
+    assert.ok(now.states.length > news(String(0)).length / 2);
   });
 }
 
@@ -153,26 +156,22 @@ const TWO = {
 for (const [name, [part, news]] of Object.entries(TWO)) {
   test(`two jobs on one gallery, ${name}: each button its own job's, word by word`, async (t) => {
     if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-    const out = {};
-    for (const path of PATHS) {
-      const base = nextBase(1790004000000);
-      const page = await openRun(browser, origin, path, { base });
-      const gid = id(base, part);
-      await watching(page, gid);
-      for (const word of news(gid)) { await publish(page, word); await sleep(150); }
-      await sleep(4800);
-      out[path] = { states: (await states(page)).map((s) => s.split(gid).join('<gid>')), problems: page.problems };
-      await page.close();
-    }
-    const f50 = (s) => !/^at rest .*dl: done ✓/.test(s);
-    if (process.env.DUMP) console.log(JSON.stringify(out));
-    assert.deepEqual(out['/library-next'], { ...out['/library'], states: out['/library'].states.filter(f50) });
+    const base = nextBase(1790004000000);
+    const page = await openRun(browser, origin, NEW, { base });
+    const gid = id(base, part);
+    await watching(page, gid);
+    for (const word of news(gid)) { await publish(page, word); await sleep(150); }
+    await sleep(4800);
+    const now = { states: (await states(page)).map((s) => s.split(gid).join('<gid>')), problems: page.problems };
+    await page.close();
+    const was = record(FILE, 'two', name);
+    const f50 = (s) => !/^at rest .*dl: done ✓/.test(s);   // §5.3 F50, as above
+    assert.deepEqual(now, { ...was, states: was.states.filter(f50) });
     // From its first word to its last, the download's button is its Stop in every state.
-    const now = out['/library-next'].states;
-    const first = now.findIndex((s) => /dl: stop/.test(s)), last = now.findIndex((s) => /dl: done ✓/.test(s));
+    const first = now.states.findIndex((s) => /dl: stop/.test(s)), last = now.states.findIndex((s) => /dl: done ✓/.test(s));
     assert.ok(first > 0 && last > first + 4, `the download's states were seen (${first}, ${last})`);
-    assert.deepEqual(now.slice(first, last).filter((s) => !/dl: stop/.test(s)), [], 'the download\'s Stop never went');
-    assert.match(now.at(-1), /^at rest/);
+    assert.deepEqual(now.states.slice(first, last).filter((s) => !/dl: stop/.test(s)), [], 'the download\'s Stop never went');
+    assert.match(now.states.at(-1), /^at rest/);
   });
 }
 
@@ -183,10 +182,9 @@ const signal = (page, event) => page.evaluate(async (event) => (await import('/a
 
 test('a title of a batch of imports: its own news on its card, to its end and back to rest', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
+  {
     const base = nextBase(1790004000000);
-    const page = await openRun(browser, origin, path, { base });
+    const page = await openRun(browser, origin, NEW, { base });
     const gid = id(base, 'N');
     await watching(page, gid);
     for (const word of [
@@ -196,45 +194,39 @@ test('a title of a batch of imports: its own news on its card, to its end and ba
       { type: 'IMPORT_TITLE', batch: 'b1', name: 'N gallery', gid, status: 'done', error: null },
     ]) { await signal(page, word); await sleep(150); }
     await sleep(4800);
-    out[path] = { states: (await states(page)).map((s) => s.split(gid).join('<gid>')), problems: page.problems };
+    const now = { states: (await states(page)).map((s) => s.split(gid).join('<gid>')), problems: page.problems };
     await page.close();
+    const was = record(FILE, 'batch-title');
+    const f50 = (s) => !/^at rest .*dl: done ✓/.test(s);   // §5.3 F50
+    assert.deepEqual(now, { ...was, states: was.states.filter(f50) });
+    assert.ok(now.states.some((s) => /^shown .*1 \/ 2/.test(s)), 'its progress showed');
   }
-  const f50 = (s) => !/^at rest .*dl: done ✓/.test(s);
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  assert.deepEqual(out['/library-next'], { ...out['/library'], states: out['/library'].states.filter(f50) });
-  assert.ok(out['/library-next'].states.some((s) => /^shown .*1 \/ 2/.test(s)), 'its progress showed');
 });
 
 // §5.3 F52: 1.3's page took a batch's word of a title's end for a job's news. For a title found
 // imported already (its gallery there, with a card) that opened the card's place for a job, empty, and
-// left it open until the page was loaded again. The new page takes a signal for what it is.
+// left it open until the page was loaded again (driven here beside this page until 2026-11-25, its last
+// state was "shown"). The new page takes a signal for what it is.
 test('a batch telling that a title was imported already draws nothing on that gallery\'s card', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
-    const base = nextBase(1790004000000);
-    const page = await openRun(browser, origin, path, { base });
-    const gid = id(base, 'P');
-    await watching(page, gid);
-    await signal(page, { type: 'IMPORT_TITLE', batch: 'b1', name: 'P gallery', gid, status: 'skipped', error: null });
-    await sleep(600);
-    out[path] = { states: (await states(page)).map((s) => s.split(gid).join('<gid>')), problems: page.problems };
-    await page.close();
-  }
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  assert.equal(out['/library-next'].states.length, 1, 'the card stays as it was');
-  assert.match(out['/library-next'].states[0], /^at rest/);
-  assert.deepEqual(out['/library-next'].problems, []);
-  // 1.3's page, as it was (the difference recorded above).
-  assert.match(out['/library'].states.at(-1), /^shown/);
+  const base = nextBase(1790004000000);
+  const page = await openRun(browser, origin, NEW, { base });
+  const gid = id(base, 'P');
+  await watching(page, gid);
+  await signal(page, { type: 'IMPORT_TITLE', batch: 'b1', name: 'P gallery', gid, status: 'skipped', error: null });
+  await sleep(600);
+  const now = { states: (await states(page)).map((s) => s.split(gid).join('<gid>')), problems: page.problems };
+  await page.close();
+  assert.equal(now.states.length, 1, 'the card stays as it was');
+  assert.match(now.states[0], /^at rest/);
+  assert.deepEqual(now.problems, []);
 });
 
 test('a job said in another tab shows on the card', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
+  {
     const base = nextBase(1790004000000);
-    const page = await openRun(browser, origin, path, { base });
+    const page = await openRun(browser, origin, NEW, { base });
     const gid = id(base, 'I');
     await watching(page, gid);
     const other = await openPage(browser, origin);
@@ -245,17 +237,16 @@ test('a job said in another tab shows on the card', async (t) => {
     await page.bringToFront();
     await until(page, (gid) => !!document.querySelector(`#grid > .card[data-gallery-id="${gid}"] .card-body.downloading`), gid, { what: 'the job' });
     await sleep(300);
-    out[path] = { states: (await states(page)).map((s) => s.split(gid).join('<gid>')), problems: page.problems };
+    const now = { states: (await states(page)).map((s) => s.split(gid).join('<gid>')), problems: page.problems };
     await page.close();
+    const was = record(FILE, 'other-tab');
+    assert.deepEqual(now, was);
   }
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 test('what is under way as the page opens: each of 1.3\'s rows', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
+  {
     const base = nextBase(1790004000000);
     const ids = Object.fromEntries(Object.keys(PARTS).map((part) => [part, id(base, part)]));
     // The rows as they would be left in the registry, written there before the page opens.
@@ -276,7 +267,7 @@ test('what is under way as the page opens: each of 1.3\'s rows', async (t) => {
     }, ids);
     await writer.close();
     const view = await openPage(browser, origin);
-    await view.goto(`${origin}${path}`, { waitUntil: 'load' });
+    await view.goto(`${origin}${NEW}`, { waitUntil: 'load' });
     await until(view, (first) => document.querySelector('#grid > .card')?.dataset.galleryId === first, ids.P, { what: 'the run\'s cards' });
     await view.evaluate((src) => { window.__stateOf = src; }, stateOf.toString());
     await sleep(800);
@@ -285,20 +276,19 @@ test('what is under way as the page opens: each of 1.3\'s rows', async (t) => {
     await sleep(4500);
     const later = await read();
     const left = await view.evaluate(async (ids) => (await (await import('/app/js/platform.js')).jobs.current()).filter((j) => Object.values(ids).includes(String(j.gid))).map((j) => `${Object.keys(ids).find((k) => ids[k] === String(j.gid))}:${j.kind}:${j.status}`).sort(), ids);
-    out[path] = { first, later, left, problems: view.problems };
+    const now = { first, later, left, problems: view.problems };
     await view.evaluate(async () => { const p = await import('/app/js/platform.js'); for (const j of await p.jobs.current()) await p.jobs.clear(j.gid, j.kind); });
     await view.close();
+    const was = record(FILE, 'at-load');
+    assert.deepEqual(now, was);
   }
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 test('a done job\'s end reads the page again; an upload that ends with its gallery empty removes it', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
+  {
     const base = nextBase(1790004000000);
-    const page = await openRun(browser, origin, path, { base });
+    const page = await openRun(browser, origin, NEW, { base });
     await page.evaluate(async () => {
       const api = await import('/app/js/api.js');
       window.__pages = 0;
@@ -317,27 +307,25 @@ test('a done job\'s end reads the page again; an upload that ends with its galle
     await sleep(1500);
     const empty = await page.evaluate(async (gid) => !!(await (await import('/app/js/api.js')).galleries.byIds([gid]))[0], id(base, 'E'));
     await until(page, (gid) => !document.querySelector(`#grid > .card[data-gallery-id="${gid}"]`), id(base, 'E'), { what: 'its card gone', timeout: 8000 });
-    out[path] = { reread: reread > 0, emptyKept: empty, problems: page.problems };
+    const now = { reread: reread > 0, emptyKept: empty, problems: page.problems };
     await page.close();
+    const was = record(FILE, 'done-read');
+    assert.deepEqual(now, { reread: true, emptyKept: false, problems: [] });
+    assert.deepEqual(now, was);
   }
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  assert.deepEqual(out['/library-next'], { reread: true, emptyKept: false, problems: [] });
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 // A gallery removed from the library while its job runs. 1.3's rule (library.js: a gallery gone from
 // the page reads it again `if (!_liveJobs.has(gid))`) leaves the page as it is until the job's end, its
 // card kept; at the end the page is read again and the card goes. 1.3's page, driven here, did not
 // always keep to its rule: in two quiet runs it read the page again at once and the card went, in one
-// under the whole suite's load it kept the card. The new page keeps the rule; 1.3's run is recorded,
-// its end held to the new page's.
+// under the whole suite's load it kept the card. The new page keeps the rule; of 1.3's run the record
+// keeps its end (and that nothing went unhandled), which the new page's is held to.
 test('a gallery removed while its job runs: the page is not read again until the job ends, by 1.3 rule', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
+  {
     const base = nextBase(1790004000000);
-    const page = await openRun(browser, origin, path, { base });
+    const page = await openRun(browser, origin, NEW, { base });
     const gid = id(base, 'I');
     await page.evaluate(async () => {
       const api = await import('/app/js/api.js');
@@ -352,21 +340,21 @@ test('a gallery removed while its job runs: the page is not read again until the
     const during = await page.evaluate((gid) => ({ read: window.__pages > 0, card: !!document.querySelector(`#grid > .card[data-gallery-id="${gid}"]`) }), gid);
     await publish(page, { gid, kind: 'download', status: 'done', done: 4, total: 4 });
     await sleep(6000);
-    out[path] = { during, after: await page.evaluate((gid) => ({ read: window.__pages > 0, card: !!document.querySelector(`#grid > .card[data-gallery-id="${gid}"]`) }), gid), problems: page.problems };
+    const seen = { during, after: await page.evaluate((gid) => ({ read: window.__pages > 0, card: !!document.querySelector(`#grid > .card[data-gallery-id="${gid}"]`) }), gid), problems: page.problems };
     await page.close();
+    const now = { after: seen.after, problems: seen.problems };
+    const was = record(FILE, 'removed');
+    assert.deepEqual(seen, { during: { read: false, card: true }, after: { read: true, card: false }, problems: [] });
+    assert.deepEqual(now.after, was.after);
+    assert.deepEqual(was.problems, []);
   }
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  assert.deepEqual(out['/library-next'], { during: { read: false, card: true }, after: { read: true, card: false }, problems: [] });
-  assert.deepEqual(out['/library-next'].after, out['/library'].after);
-  assert.deepEqual(out['/library'].problems, []);
 });
 
 test('a card\'s job while the page is turned and turned back', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
+  {
     const base = nextBase(1790004000000);
-    const page = await openRun(browser, origin, path, { base });
+    const page = await openRun(browser, origin, NEW, { base });
     const gid = id(base, 'I');
     await publish(page, { gid, kind: 'download', status: 'progress', done: 1, total: 4 });
     await publish(page, { gid: id(base, 'N'), kind: 'download', status: 'error', error: 'gone' });
@@ -379,19 +367,18 @@ test('a card\'s job while the page is turned and turned back', async (t) => {
     await until(page, (gid) => !!document.querySelector(`#grid > .card[data-gallery-id="${gid}"]`), gid, { what: 'page 1' });
     await page.evaluate((src) => { window.__stateOf = src; }, stateOf.toString());
     await sleep(400);
-    out[path] = await page.evaluate(([i, n]) => { const s = new Function(`return (${window.__stateOf})`)(); return [s(i).split(i).join('<gid>'), s(n).split(n).join('<gid>')]; }, [gid, id(base, 'N')]);
+    const now = await page.evaluate(([i, n]) => { const s = new Function(`return (${window.__stateOf})`)(); return [s(i).split(i).join('<gid>'), s(n).split(n).join('<gid>')]; }, [gid, id(base, 'N')]);
     await page.close();
+    const was = record(FILE, 'turned');
+    assert.deepEqual(now, was);
   }
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 test('300 words about one gallery draw its card and none of the other 29', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of PATHS) {
+  {
     const base = nextBase(1790004000000);
-    const page = await openRun(browser, origin, path, { base });
+    const page = await openRun(browser, origin, NEW, { base });
     const gid = id(base, 'I');
     // The library settled first: every cover in, and no word of a change for 1.5 s (the run's galleries
     // just made have their sizes and typical pages worked out a while after: changes to their cards,
@@ -423,13 +410,12 @@ test('300 words about one gallery draw its card and none of the other 29', async
     }, gid);
     await sleep(600);
     const touched = await page.evaluate(() => window.__touched);
-    out[path] = { cards: Object.keys(touched).map((k) => (k === gid ? 'its card' : 'another')).sort(), label: await page.evaluate((gid) => document.querySelector(`#grid > .card[data-gallery-id="${gid}"] .card-prog-label`).textContent, gid) };
+    const now = { cards: Object.keys(touched).map((k) => (k === gid ? 'its card' : 'another')).sort(), label: await page.evaluate((gid) => document.querySelector(`#grid > .card[data-gallery-id="${gid}"] .card-prog-label`).textContent, gid) };
     await page.close();
+    const was = record(FILE, 'words');
+    assert.deepEqual(now, { cards: ['its card'], label: was.label });
+    assert.deepEqual(now, was);
   }
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  assert.deepEqual(out['/library-next'], { cards: ['its card'], label: out['/library'].label });
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  assert.deepEqual(out['/library-next'], out['/library']);
 });
 
 test('leaving the page five times with a job running and a question open leaves nothing behind', async (t) => {
@@ -465,7 +451,7 @@ test('leaving the page five times with a job running and a question open leaves 
     URL.createObjectURL = (o) => { const u = cu(o); urls.add(u); held.urls = urls.size; return u; };
     URL.revokeObjectURL = (u) => { urls.delete(u); held.urls = urls.size; return ru(u); };
   });
-  await page.goto(`${origin}/library-next`, { waitUntil: 'load' });
+  await page.goto(`${origin}${NEW}`, { waitUntil: 'load' });
   const gid = id(base, 'I');
   await until(page, (gid) => !!document.querySelector(`#grid > .card[data-gallery-id="${gid}"]`), gid, { what: 'the page' });
   const counts = [];
@@ -481,7 +467,7 @@ test('leaving the page five times with a job running and a question open leaves 
     await sleep(300);
     const left = await page.evaluate(() => !!document.querySelector('[data-notice="dialog"]'));
     await page.evaluate(() => history.back());
-    await until(page, (gid) => location.pathname === '/library-next' && !!document.querySelector(`#grid > .card[data-gallery-id="${gid}"]`), gid, { what: 'the library again' });
+    await until(page, ([path, gid]) => location.pathname === path && !!document.querySelector(`#grid > .card[data-gallery-id="${gid}"]`), [NEW, gid], { what: 'the library again' });
     await sleep(1200);
     counts.push(await page.evaluate((left) => ({ ...window.__held, cards: document.querySelectorAll('.card').length, tips: document.querySelectorAll('.shiori-tip').length, dialogs: document.querySelectorAll('[data-slot="dialog"]').length, left }), left));
   }

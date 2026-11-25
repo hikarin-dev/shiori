@@ -1,0 +1,74 @@
+[
+  {
+    "stored": null,
+    "cards": 30,
+    "page": "?page=2",
+    "mark": false,
+    "options": [],
+    "focus": "safe"
+  },
+  {
+    "stored": "{\"rating\":{\"safe\":\"include\"},\"category\":{}}",
+    "cards": 30,
+    "page": "",
+    "mark": true,
+    "options": [
+      "safe:include"
+    ],
+    "focus": "safe"
+  },
+  {
+    "stored": "{\"rating\":{\"safe\":\"exclude\"},\"category\":{}}",
+    "cards": 30,
+    "page": "",
+    "mark": true,
+    "options": [
+      "safe:exclude"
+    ],
+    "focus": "safe"
+  },
+  {
+    "stored": "{\"rating\":{},\"category\":{}}",
+    "cards": 30,
+    "page": "",
+    "mark": false,
+    "options": [],
+    "focus": "safe"
+  },
+  {
+    "stored": "{\"rating\":{\"pornographic\":\"exclude\"},\"category\":{\"misc\":\"include\"}}",
+    "cards": 0,
+    "page": "",
+    "mark": true,
+    "options": [
+      "pornographic:exclude",
+      "misc:include"
+    ],
+    "focus": "pornographic"
+  },
+  {
+    "stored": "{\"rating\":{},\"category\":{}}",
+    "cards": 30,
+    "page": "",
+    "mark": false,
+    "options": [],
+    "focus": "filterClear"
+  },
+  {
+    "stored": "{\"rating\":{},\"category\":{\"misc\":\"include\"}}",
+    "cards": 16,
+    "page": "",
+    "mark": true,
+    "options": [],
+    "focus": "filterBtn",
+    "open": false
+  },
+  {
+    "stored": "{\"rating\":{\"pornographic\":\"exclude\"},\"category\":{}}",
+    "cards": 30,
+    "page": "",
+    "mark": true,
+    "options": [],
+    "focus": "filterBtn"
+  }
+]

@@ -1,0 +1,1463 @@
+{
+  "offAtFirst": {
+    "state": {
+      "on": false,
+      "button": {
+        "tip": "Enable Safe Mode\n(blur content for sharing)",
+        "on": false,
+        "icon": "M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z|circle"
+      },
+      "stored": null
+    },
+    "cards": [
+      {
+        "gid": "1790006000033",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": "https://a.example/g/9033x7"
+      },
+      {
+        "gid": "1790006000032",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000031",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": "https://a.example/g/9031x7"
+      },
+      {
+        "gid": "1790006000030",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000029",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": "https://a.example/g/9029x7"
+      },
+      {
+        "gid": "1790006000028",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000027",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": "https://a.example/g/9027x7"
+      },
+      {
+        "gid": "1790006000026",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000025",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": "https://a.example/g/9025x7"
+      },
+      {
+        "gid": "1790006000024",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000023",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": "https://a.example/g/9023x7"
+      },
+      {
+        "gid": "1790006000022",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000021",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": "https://a.example/g/9021x7"
+      },
+      {
+        "gid": "1790006000020",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000019",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": "https://a.example/g/9019x7"
+      },
+      {
+        "gid": "1790006000018",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000017",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": "https://a.example/g/9017x7"
+      },
+      {
+        "gid": "1790006000016",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000015",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": "https://a.example/g/9015x7"
+      },
+      {
+        "gid": "1790006000014",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000013",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": "https://a.example/g/9013x7"
+      },
+      {
+        "gid": "1790006000012",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000011",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": "https://a.example/g/9011x7"
+      },
+      {
+        "gid": "1790006000010",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000009",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": "https://a.example/g/909x7"
+      },
+      {
+        "gid": "1790006000008",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000007",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": "https://a.example/g/907x7"
+      },
+      {
+        "gid": "1790006000006",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000005",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": "https://a.example/g/905x7"
+      },
+      {
+        "gid": "1790006000004",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": true,
+        "tagsBare": false,
+        "idReal": true,
+        "link": null
+      }
+    ]
+  },
+  "on": {
+    "state": {
+      "on": true,
+      "button": {
+        "tip": "Disable Safe Mode",
+        "on": true,
+        "icon": "M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24|line"
+      },
+      "stored": "1"
+    },
+    "cards": [
+      {
+        "gid": "1790006000033",
+        "real": "Gallery number 33 has a title of several words",
+        "tagsReal": [
+          "category:manga",
+          "artist:artist 33",
+          "tag:a rather long tag 33",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "9033x7",
+        "sfw": false,
+        "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+        "openTip": "a.example: https://a.example/g/9033x7",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000032",
+        "real": "Gallery number 32 has a title of several words",
+        "tagsReal": [
+          "category:doujinshi",
+          "artist:artist 32",
+          "tag:a rather long tag 32",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "1790006000032",
+        "sfw": false,
+        "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+        "openTip": "Set source site",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000031",
+        "real": "Gallery number 31 has a title of several words",
+        "tagsReal": [
+          "category:manga",
+          "artist:artist 31",
+          "tag:a rather long tag 31",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "9031x7",
+        "sfw": true,
+        "blur": "none none",
+        "openTip": "a.example: https://a.example/g/9031x7",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000030",
+        "real": "Gallery number 30 has a title of several words",
+        "tagsReal": [
+          "category:doujinshi",
+          "artist:artist 30",
+          "tag:a rather long tag 30",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "1790006000030",
+        "sfw": true,
+        "blur": "none none",
+        "openTip": "Set source site",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000029",
+        "real": "Gallery number 29 has a title of several words",
+        "tagsReal": [
+          "category:manga",
+          "artist:artist 29",
+          "tag:a rather long tag 29",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "9029x7",
+        "sfw": false,
+        "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+        "openTip": "a.example: https://a.example/g/9029x7",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000028",
+        "real": "Gallery number 28 has a title of several words",
+        "tagsReal": [
+          "category:doujinshi",
+          "artist:artist 28",
+          "tag:a rather long tag 28",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "1790006000028",
+        "sfw": false,
+        "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+        "openTip": "Set source site",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000027",
+        "real": "Gallery number 27 has a title of several words",
+        "tagsReal": [
+          "category:manga",
+          "artist:artist 27",
+          "tag:a rather long tag 27",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "9027x7",
+        "sfw": false,
+        "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+        "openTip": "a.example: https://a.example/g/9027x7",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000026",
+        "real": "Gallery number 26 has a title of several words",
+        "tagsReal": [
+          "category:doujinshi",
+          "artist:artist 26",
+          "tag:a rather long tag 26",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "1790006000026",
+        "sfw": true,
+        "blur": "none none",
+        "openTip": "Set source site",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000025",
+        "real": "Gallery number 25 has a title of several words",
+        "tagsReal": [
+          "category:manga",
+          "artist:artist 25",
+          "tag:a rather long tag 25",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "9025x7",
+        "sfw": true,
+        "blur": "none none",
+        "openTip": "a.example: https://a.example/g/9025x7",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000024",
+        "real": "Gallery number 24 has a title of several words",
+        "tagsReal": [
+          "category:doujinshi",
+          "artist:artist 24",
+          "tag:a rather long tag 24",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "1790006000024",
+        "sfw": false,
+        "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+        "openTip": "Set source site",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000023",
+        "real": "Gallery number 23 has a title of several words",
+        "tagsReal": [
+          "category:manga",
+          "artist:artist 23",
+          "tag:a rather long tag 23",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "9023x7",
+        "sfw": false,
+        "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+        "openTip": "a.example: https://a.example/g/9023x7",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000022",
+        "real": "Gallery number 22 has a title of several words",
+        "tagsReal": [
+          "category:doujinshi",
+          "artist:artist 22",
+          "tag:a rather long tag 22",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "1790006000022",
+        "sfw": false,
+        "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+        "openTip": "Set source site",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000021",
+        "real": "Gallery number 21 has a title of several words",
+        "tagsReal": [
+          "category:manga",
+          "artist:artist 21",
+          "tag:a rather long tag 21",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "9021x7",
+        "sfw": true,
+        "blur": "none none",
+        "openTip": "a.example: https://a.example/g/9021x7",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000020",
+        "real": "Gallery number 20 has a title of several words",
+        "tagsReal": [
+          "category:doujinshi",
+          "artist:artist 20",
+          "tag:a rather long tag 20",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "1790006000020",
+        "sfw": true,
+        "blur": "none none",
+        "openTip": "Set source site",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000019",
+        "real": "Gallery number 19 has a title of several words",
+        "tagsReal": [
+          "category:manga",
+          "artist:artist 19",
+          "tag:a rather long tag 19",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "9019x7",
+        "sfw": false,
+        "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+        "openTip": "a.example: https://a.example/g/9019x7",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000018",
+        "real": "Gallery number 18 has a title of several words",
+        "tagsReal": [
+          "category:doujinshi",
+          "artist:artist 18",
+          "tag:a rather long tag 18",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "1790006000018",
+        "sfw": false,
+        "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+        "openTip": "Set source site",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000017",
+        "real": "Gallery number 17 has a title of several words",
+        "tagsReal": [
+          "category:manga",
+          "artist:artist 17",
+          "tag:a rather long tag 17",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "9017x7",
+        "sfw": false,
+        "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+        "openTip": "a.example: https://a.example/g/9017x7",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000016",
+        "real": "Gallery number 16 has a title of several words",
+        "tagsReal": [
+          "category:doujinshi",
+          "artist:artist 16",
+          "tag:a rather long tag 16",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "1790006000016",
+        "sfw": true,
+        "blur": "none none",
+        "openTip": "Set source site",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000015",
+        "real": "Gallery number 15 has a title of several words",
+        "tagsReal": [
+          "category:manga",
+          "artist:artist 15",
+          "tag:a rather long tag 15",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "9015x7",
+        "sfw": true,
+        "blur": "none none",
+        "openTip": "a.example: https://a.example/g/9015x7",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000014",
+        "real": "Gallery number 14 has a title of several words",
+        "tagsReal": [
+          "category:doujinshi",
+          "artist:artist 14",
+          "tag:a rather long tag 14",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "1790006000014",
+        "sfw": false,
+        "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+        "openTip": "Set source site",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000013",
+        "real": "Gallery number 13 has a title of several words",
+        "tagsReal": [
+          "category:manga",
+          "artist:artist 13",
+          "tag:a rather long tag 13",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "9013x7",
+        "sfw": false,
+        "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+        "openTip": "a.example: https://a.example/g/9013x7",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000012",
+        "real": "Gallery number 12 has a title of several words",
+        "tagsReal": [
+          "category:doujinshi",
+          "artist:artist 12",
+          "tag:a rather long tag 12",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "1790006000012",
+        "sfw": false,
+        "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+        "openTip": "Set source site",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000011",
+        "real": "Gallery number 11 has a title of several words",
+        "tagsReal": [
+          "category:manga",
+          "artist:artist 11",
+          "tag:a rather long tag 11",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "9011x7",
+        "sfw": true,
+        "blur": "none none",
+        "openTip": "a.example: https://a.example/g/9011x7",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000010",
+        "real": "Gallery number 10 has a title of several words",
+        "tagsReal": [
+          "category:doujinshi",
+          "artist:artist 10",
+          "tag:a rather long tag 10",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "1790006000010",
+        "sfw": true,
+        "blur": "none none",
+        "openTip": "Set source site",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000009",
+        "real": "Gallery number 9 has a title of several words",
+        "tagsReal": [
+          "category:manga",
+          "artist:artist 9",
+          "tag:a rather long tag 9",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "909x7",
+        "sfw": false,
+        "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+        "openTip": "a.example: https://a.example/g/909x7",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000008",
+        "real": "Gallery number 8 has a title of several words",
+        "tagsReal": [
+          "category:doujinshi",
+          "artist:artist 8",
+          "tag:a rather long tag 8",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "1790006000008",
+        "sfw": false,
+        "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+        "openTip": "Set source site",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000007",
+        "real": "Gallery number 7 has a title of several words",
+        "tagsReal": [
+          "category:manga",
+          "artist:artist 7",
+          "tag:a rather long tag 7",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "907x7",
+        "sfw": false,
+        "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+        "openTip": "a.example: https://a.example/g/907x7",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000006",
+        "real": "Gallery number 6 has a title of several words",
+        "tagsReal": [
+          "category:doujinshi",
+          "artist:artist 6",
+          "tag:a rather long tag 6",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "1790006000006",
+        "sfw": true,
+        "blur": "none none",
+        "openTip": "Set source site",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000005",
+        "real": "Gallery number 5 has a title of several words",
+        "tagsReal": [
+          "category:manga",
+          "artist:artist 5",
+          "tag:a rather long tag 5",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "905x7",
+        "sfw": true,
+        "blur": "none none",
+        "openTip": "a.example: https://a.example/g/905x7",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      },
+      {
+        "gid": "1790006000004",
+        "real": "Gallery number 4 has a title of several words",
+        "tagsReal": [
+          "category:doujinshi",
+          "artist:artist 4",
+          "tag:a rather long tag 4",
+          "tag:female:glasses",
+          "tag:male:x"
+        ],
+        "flags": [
+          "Japanese"
+        ],
+        "add": "+",
+        "idReal": "1790006000004",
+        "sfw": false,
+        "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+        "openTip": "Set source site",
+        "titleStood": true,
+        "tagsStood": true,
+        "idStood": true,
+        "noLink": true
+      }
+    ]
+  },
+  "idsChanged": true,
+  "address": [
+    "card-id@data-safe-href",
+    "card-id@data-safe-href",
+    "card-id@data-safe-href",
+    "card-id@data-safe-href",
+    "card-id@data-safe-href",
+    "card-id@data-safe-href",
+    "card-id@data-safe-href",
+    "card-id@data-safe-href",
+    "card-id@data-safe-href",
+    "card-id@data-safe-href",
+    "card-id@data-safe-href",
+    "card-id@data-safe-href",
+    "card-id@data-safe-href",
+    "card-id@data-safe-href",
+    "card-id@data-safe-href"
+  ],
+  "page2": [
+    {
+      "gid": "1790006000003",
+      "real": "Gallery number 3 has a title of several words",
+      "tagsReal": [
+        "category:manga",
+        "artist:artist 3",
+        "tag:a rather long tag 3",
+        "tag:female:glasses",
+        "tag:male:x"
+      ],
+      "flags": [
+        "Japanese"
+      ],
+      "add": "+",
+      "idReal": "903x7",
+      "sfw": false,
+      "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+      "openTip": "a.example: https://a.example/g/903x7",
+      "titleStood": true,
+      "tagsStood": true,
+      "idStood": true,
+      "noLink": true
+    },
+    {
+      "gid": "1790006000002",
+      "real": "Gallery number 2 has a title of several words",
+      "tagsReal": [
+        "category:doujinshi",
+        "artist:artist 2",
+        "tag:a rather long tag 2",
+        "tag:female:glasses",
+        "tag:male:x"
+      ],
+      "flags": [
+        "Japanese"
+      ],
+      "add": "+",
+      "idReal": "1790006000002",
+      "sfw": false,
+      "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+      "openTip": "Set source site",
+      "titleStood": true,
+      "tagsStood": true,
+      "idStood": true,
+      "noLink": true
+    },
+    {
+      "gid": "1790006000001",
+      "real": "Gallery number 1 has a title of several words",
+      "tagsReal": [
+        "category:manga",
+        "artist:artist 1",
+        "tag:a rather long tag 1",
+        "tag:female:glasses",
+        "tag:male:x"
+      ],
+      "flags": [
+        "Japanese"
+      ],
+      "add": "+",
+      "idReal": "901x7",
+      "sfw": true,
+      "blur": "none none",
+      "openTip": "a.example: https://a.example/g/901x7",
+      "titleStood": true,
+      "tagsStood": true,
+      "idStood": true,
+      "noLink": true
+    },
+    {
+      "gid": "1790006000000",
+      "real": "Gallery number 0 has a title of several words",
+      "tagsReal": [
+        "category:doujinshi",
+        "artist:artist 0",
+        "tag:a rather long tag 0",
+        "tag:female:glasses",
+        "tag:male:x"
+      ],
+      "flags": [
+        "Japanese"
+      ],
+      "add": "+",
+      "idReal": "1790006000000",
+      "sfw": true,
+      "blur": "none none",
+      "openTip": "Set source site",
+      "titleStood": true,
+      "tagsStood": true,
+      "idStood": true,
+      "noLink": true
+    }
+  ],
+  "landed": {
+    "gid": "new",
+    "real": "A gallery made just now",
+    "tagsReal": [
+      "tag:fresh"
+    ],
+    "flags": [],
+    "add": "+",
+    "idReal": "777",
+    "sfw": false,
+    "blur": "blur(22px) matrix(1.06, 0, 0, 1.06, 0, 0)",
+    "openTip": "a.example: https://a.example/g/777",
+    "titleStood": true,
+    "tagsStood": true,
+    "idStood": true,
+    "noLink": true,
+    "address": [
+      "card-id@data-safe-href"
+    ]
+  },
+  "off": {
+    "state": {
+      "on": false,
+      "button": {
+        "tip": "Enable Safe Mode\n(blur content for sharing)",
+        "on": false,
+        "icon": "M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z|circle"
+      },
+      "stored": "0"
+    },
+    "cards": [
+      {
+        "gid": "1790006000033",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": "https://a.example/g/9033x7"
+      },
+      {
+        "gid": "1790006000032",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000031",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": "https://a.example/g/9031x7"
+      },
+      {
+        "gid": "1790006000030",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000029",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": "https://a.example/g/9029x7"
+      },
+      {
+        "gid": "1790006000028",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000027",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": "https://a.example/g/9027x7"
+      },
+      {
+        "gid": "1790006000026",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000025",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": "https://a.example/g/9025x7"
+      },
+      {
+        "gid": "1790006000024",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000023",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": "https://a.example/g/9023x7"
+      },
+      {
+        "gid": "1790006000022",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000021",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": "https://a.example/g/9021x7"
+      },
+      {
+        "gid": "1790006000020",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000019",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": "https://a.example/g/9019x7"
+      },
+      {
+        "gid": "1790006000018",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000017",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": "https://a.example/g/9017x7"
+      },
+      {
+        "gid": "1790006000016",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000015",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": "https://a.example/g/9015x7"
+      },
+      {
+        "gid": "1790006000014",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000013",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": "https://a.example/g/9013x7"
+      },
+      {
+        "gid": "1790006000012",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000011",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": "https://a.example/g/9011x7"
+      },
+      {
+        "gid": "1790006000010",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000009",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": "https://a.example/g/909x7"
+      },
+      {
+        "gid": "1790006000008",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000007",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": "https://a.example/g/907x7"
+      },
+      {
+        "gid": "1790006000006",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": null
+      },
+      {
+        "gid": "1790006000005",
+        "sfw": true,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": "https://a.example/g/905x7"
+      },
+      {
+        "gid": "1790006000004",
+        "sfw": false,
+        "blur": "none none",
+        "titleReal": true,
+        "tagsReal": false,
+        "tagsBare": true,
+        "idReal": true,
+        "link": null
+      }
+    ]
+  }
+}

@@ -5,13 +5,20 @@
 // or more from its edges), drawn at once and never moving or changing size after (the CPU slowed six
 // times), the page's scrollbar left where it is; the menu turning upward at the window's foot and
 // sliding back inside at its right edge, as 1.3's did; a press then a key leaving no keyboard ring.
+// What 1.3's page gave is the record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as
+// measured on 2026-11-25, which a deliberate change of the library's behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { startServer, chromePath } from './harness.mjs';
 import { startTranslator } from './stand-in-translator.mjs';
 import { openRun, nextBase, press, sleep, PARTS } from './library-drive.mjs';
+import { record } from './records.mjs';
 
+const NEW = '/library-next';
+const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, tr;
 const browsers = {};
 const LONG = 'A title that runs on and on, far longer than any box it is shown in, '.repeat(4).trim();
@@ -74,7 +81,7 @@ for (const scale of [1, 1.25, 1.5]) {
     if (!browsers[scale]) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
     for (const [name, width, height] of SIZES) {
       const base = nextBase(1790005000000);
-      const page = await openRun(browsers[scale], origin, '/library-next', { base, translator: tr.origin });
+      const page = await openRun(browsers[scale], origin, NEW, { base, translator: tr.origin });
       await page.evaluate(async ([gid, long]) => (await import('/app/js/store.js')).mutate(gid, { title: { english: long, japanese: '', pretty: '' } }), [String(base + PARTS.P), LONG]);
       await page.setViewport({ width, height });
       await sleep(600);
@@ -109,10 +116,9 @@ for (const scale of [1, 1.25, 1.5]) {
 
 test('the re-run menu: under its button, upward at the window\'s foot, back inside at its right edge; no ring after a press', async (t) => {
   if (!browsers[1]) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of ['/library', '/library-next']) {
+  {
     const base = nextBase(1790005000000);
-    const page = await openRun(browsers[1], origin, path, { base, translator: tr.origin });
+    const page = await openRun(browsers[1], origin, NEW, { base, translator: tr.origin });
     const btn = `#grid > .card[data-gallery-id="${base + PARTS.T}"] .card-btn-translate`;
     // The button `y` px from the window's top, or (y < 0) -y px from its foot: the window's height
     // made to fit.
@@ -135,18 +141,17 @@ test('the re-run menu: under its button, upward at the window\'s foot, back insi
       await sleep(300);
       return r;
     };
-    out[path] = { top: await place(120, 1280), foot: await place(-60, 1280), narrow: await place(120, 400) };
+    const now = { top: await place(120, 1280), foot: await place(-60, 1280), narrow: await place(120, 400) };
     await page.close();
+    const was = record(FILE, 'rerun-menu');
+    assert.equal(now.top.below, 6, 'under its button, 6px down');
+    assert.equal(now.foot.above, 6, 'above it at the window\'s foot');
+    assert.ok(now.narrow.right >= 8, 'back inside the window at its right edge');
+    for (const r of [now.top, now.foot, now.narrow]) assert.notEqual(r.ring.slice(0, 5), 'drawn', 'no keyboard ring drawn after a press');
+    // Up or down, and how far from its button, as 1.3's. Slid back inside at the right: 8px from the
+    // page's scrollbar (§5.3 F51; 1.3's reached the scrollbar, placed against the window's whole width).
+    const where = (r) => ({ top: r.top.below, foot: r.foot.above, narrow: r.narrow.below });
+    assert.deepEqual(where(now), where(was));
+    for (const r of [now.top, now.foot, now.narrow]) assert.equal(r.right, 8 + r.bar, 'slid back 8px inside the page');
   }
-  const now = out['/library-next'], was = out['/library'];
-  assert.equal(now.top.below, 6, 'under its button, 6px down');
-  assert.equal(now.foot.above, 6, 'above it at the window\'s foot');
-  assert.ok(now.narrow.right >= 8, 'back inside the window at its right edge');
-  if (process.env.DUMP) console.log(JSON.stringify(out));
-  for (const r of [now.top, now.foot, now.narrow]) assert.notEqual(r.ring.slice(0, 5), 'drawn', 'no keyboard ring drawn after a press');
-  // Up or down, and how far from its button, as 1.3's. Slid back inside at the right: 8px from the
-  // page's scrollbar (§5.3 F51; 1.3's reached the scrollbar, placed against the window's whole width).
-  const where = (r) => ({ top: r.top.below, foot: r.foot.above, narrow: r.narrow.below });
-  assert.deepEqual(where(now), where(was));
-  for (const r of [now.top, now.foot, now.narrow]) assert.equal(r.right, 8 + r.bar, 'slid back 8px inside the page');
 });

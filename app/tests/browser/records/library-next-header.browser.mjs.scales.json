@@ -1,0 +1,1514 @@
+{
+  "1280 at 100%": {
+    "rest": {
+      "header": [
+        0,
+        0,
+        1265,
+        54
+      ],
+      "header .brand-wrap": [
+        20,
+        14.5,
+        84.2,
+        24
+      ],
+      "header .brand-text": [
+        52,
+        16.5,
+        52.2,
+        20
+      ],
+      "header .brand-sep": [
+        114.2,
+        18,
+        7.81,
+        17
+      ],
+      "#pageNav": [
+        127.02,
+        13.5,
+        84.61,
+        26
+      ],
+      "header .search-wrap": [
+        221.63,
+        6.5,
+        670,
+        40
+      ],
+      "#searchBox": [
+        221.63,
+        6.5,
+        670,
+        40
+      ],
+      "#pinBtn": [
+        901.63,
+        12.5,
+        28,
+        28
+      ],
+      "#burgerBtn": [
+        1109,
+        12.5,
+        28,
+        28
+      ],
+      "#collapsibleGroup": "hidden",
+      "#hTotalGalleries": "hidden",
+      "#hImagesStat": "hidden",
+      "#hSizeStat": "hidden",
+      "#uploadCbzBtn": [
+        1145,
+        12.5,
+        28,
+        28
+      ],
+      "#safeBtn": [
+        1181,
+        12.5,
+        28,
+        28
+      ],
+      "#settingsBtn": [
+        1217,
+        12.5,
+        28,
+        28
+      ],
+      "#sortSelect": [
+        534.5,
+        66,
+        146,
+        34
+      ],
+      "#filterBtn": [
+        692.5,
+        66,
+        38,
+        34
+      ],
+      "#grid > .card": [
+        24,
+        112,
+        292.25,
+        535.3
+      ]
+    },
+    "frame": {
+      "shown": true,
+      "moving": 0
+    },
+    "open": {
+      "header": [
+        0,
+        0,
+        1265,
+        54
+      ],
+      "header .brand-wrap": [
+        20,
+        14.5,
+        84.2,
+        24
+      ],
+      "header .brand-text": [
+        52,
+        16.5,
+        52.2,
+        20
+      ],
+      "header .brand-sep": [
+        114.2,
+        18,
+        7.81,
+        17
+      ],
+      "#pageNav": [
+        127.02,
+        13.5,
+        84.61,
+        26
+      ],
+      "header .search-wrap": [
+        221.63,
+        6.5,
+        670,
+        40
+      ],
+      "#searchBox": [
+        221.63,
+        6.5,
+        670,
+        40
+      ],
+      "#pinBtn": [
+        901.63,
+        12.5,
+        28,
+        28
+      ],
+      "#burgerBtn": [
+        1109,
+        12.5,
+        28,
+        28
+      ],
+      "#collapsibleGroup": [
+        1006.17,
+        54,
+        238.83,
+        64
+      ],
+      "#hTotalGalleries": [
+        1030.17,
+        73,
+        43.2,
+        14
+      ],
+      "#hImagesStat": [
+        1092.38,
+        67,
+        50.81,
+        38
+      ],
+      "#hSizeStat": [
+        1151.19,
+        67,
+        80.81,
+        38
+      ],
+      "#uploadCbzBtn": [
+        1145,
+        12.5,
+        28,
+        28
+      ],
+      "#safeBtn": [
+        1181,
+        12.5,
+        28,
+        28
+      ],
+      "#settingsBtn": [
+        1217,
+        12.5,
+        28,
+        28
+      ],
+      "#sortSelect": [
+        534.5,
+        66,
+        146,
+        34
+      ],
+      "#filterBtn": [
+        692.5,
+        66,
+        38,
+        34
+      ],
+      "#grid > .card": [
+        24,
+        112,
+        292.25,
+        535.3
+      ]
+    },
+    "ring": "burgerBtn",
+    "noScrollbar": {
+      "#collapsibleGroup": [
+        1021.17,
+        54,
+        238.83,
+        64
+      ],
+      "#burgerBtn": [
+        1109,
+        12.5,
+        28,
+        28
+      ],
+      "#settingsBtn": [
+        1217,
+        12.5,
+        28,
+        28
+      ]
+    },
+    "resized": {
+      "boxes": {
+        "#collapsibleGroup": [
+          969.2,
+          238.8
+        ],
+        "#burgerBtn": [
+          1072,
+          28
+        ]
+      },
+      "moving": 0
+    },
+    "settled": {
+      "#collapsibleGroup": [
+        969.2,
+        238.8
+      ],
+      "#burgerBtn": [
+        1072,
+        28
+      ]
+    }
+  },
+  "600 at 100%": {
+    "rest": {
+      "header": [
+        0,
+        0,
+        585,
+        91
+      ],
+      "header .brand-wrap": [
+        12,
+        9,
+        24,
+        24
+      ],
+      "header .brand-text": "hidden",
+      "header .brand-sep": "hidden",
+      "#pageNav": [
+        39,
+        8,
+        84.61,
+        26
+      ],
+      "header .search-wrap": [
+        12,
+        43,
+        561,
+        40
+      ],
+      "#searchBox": [
+        12,
+        43,
+        561,
+        40
+      ],
+      "#pinBtn": [
+        131.61,
+        7,
+        28,
+        28
+      ],
+      "#burgerBtn": [
+        443,
+        7,
+        28,
+        28
+      ],
+      "#collapsibleGroup": "hidden",
+      "#hTotalGalleries": "hidden",
+      "#hImagesStat": "hidden",
+      "#hSizeStat": "hidden",
+      "#uploadCbzBtn": [
+        477,
+        7,
+        28,
+        28
+      ],
+      "#safeBtn": [
+        511,
+        7,
+        28,
+        28
+      ],
+      "#settingsBtn": [
+        545,
+        7,
+        28,
+        28
+      ],
+      "#sortSelect": [
+        194.5,
+        101,
+        146,
+        34
+      ],
+      "#filterBtn": [
+        352.5,
+        101,
+        38,
+        34
+      ],
+      "#grid > .card": [
+        12,
+        145,
+        275.5,
+        531.17
+      ]
+    },
+    "frame": {
+      "shown": true,
+      "moving": 0
+    },
+    "open": {
+      "header": [
+        0,
+        0,
+        585,
+        91
+      ],
+      "header .brand-wrap": [
+        12,
+        9,
+        24,
+        24
+      ],
+      "header .brand-text": "hidden",
+      "header .brand-sep": "hidden",
+      "#pageNav": [
+        39,
+        8,
+        84.61,
+        26
+      ],
+      "header .search-wrap": [
+        12,
+        43,
+        561,
+        40
+      ],
+      "#searchBox": [
+        12,
+        43,
+        561,
+        40
+      ],
+      "#pinBtn": [
+        131.61,
+        7,
+        28,
+        28
+      ],
+      "#burgerBtn": [
+        443,
+        7,
+        28,
+        28
+      ],
+      "#collapsibleGroup": [
+        334.17,
+        52,
+        238.83,
+        64
+      ],
+      "#hTotalGalleries": [
+        358.17,
+        71,
+        43.2,
+        14
+      ],
+      "#hImagesStat": [
+        420.38,
+        65,
+        50.81,
+        38
+      ],
+      "#hSizeStat": [
+        479.19,
+        65,
+        80.81,
+        38
+      ],
+      "#uploadCbzBtn": [
+        477,
+        7,
+        28,
+        28
+      ],
+      "#safeBtn": [
+        511,
+        7,
+        28,
+        28
+      ],
+      "#settingsBtn": [
+        545,
+        7,
+        28,
+        28
+      ],
+      "#sortSelect": [
+        194.5,
+        101,
+        146,
+        34
+      ],
+      "#filterBtn": [
+        352.5,
+        101,
+        38,
+        34
+      ],
+      "#grid > .card": [
+        12,
+        145,
+        275.5,
+        531.17
+      ]
+    },
+    "ring": "burgerBtn",
+    "noScrollbar": {
+      "#collapsibleGroup": [
+        349.17,
+        52,
+        238.83,
+        64
+      ],
+      "#burgerBtn": [
+        458,
+        7,
+        28,
+        28
+      ],
+      "#settingsBtn": [
+        560,
+        7,
+        28,
+        28
+      ]
+    },
+    "resized": {
+      "boxes": {
+        "#collapsibleGroup": [
+          297.2,
+          238.8
+        ],
+        "#burgerBtn": [
+          406,
+          28
+        ]
+      },
+      "moving": 0
+    },
+    "settled": {
+      "#collapsibleGroup": [
+        297.2,
+        238.8
+      ],
+      "#burgerBtn": [
+        406,
+        28
+      ]
+    }
+  },
+  "1280 at 125%": {
+    "rest": {
+      "header": [
+        0,
+        0,
+        1264.8,
+        54
+      ],
+      "header .brand-wrap": [
+        20,
+        14.6,
+        84.2,
+        24
+      ],
+      "header .brand-text": [
+        52,
+        16.6,
+        52.2,
+        20
+      ],
+      "header .brand-sep": [
+        114.2,
+        17.8,
+        7.8,
+        17.6
+      ],
+      "#pageNav": [
+        127,
+        13.6,
+        84.2,
+        26
+      ],
+      "header .search-wrap": [
+        221.2,
+        6.6,
+        670,
+        40
+      ],
+      "#searchBox": [
+        221.2,
+        6.6,
+        670,
+        40
+      ],
+      "#pinBtn": [
+        901.2,
+        12.6,
+        28,
+        28
+      ],
+      "#burgerBtn": [
+        1108.8,
+        12.6,
+        28,
+        28
+      ],
+      "#collapsibleGroup": "hidden",
+      "#hTotalGalleries": "hidden",
+      "#hImagesStat": "hidden",
+      "#hSizeStat": "hidden",
+      "#uploadCbzBtn": [
+        1144.8,
+        12.6,
+        28,
+        28
+      ],
+      "#safeBtn": [
+        1180.8,
+        12.6,
+        28,
+        28
+      ],
+      "#settingsBtn": [
+        1216.8,
+        12.6,
+        28,
+        28
+      ],
+      "#sortSelect": [
+        535.1,
+        66,
+        145,
+        33.6
+      ],
+      "#filterBtn": [
+        692.1,
+        66,
+        37.6,
+        33.6
+      ],
+      "#grid > .card": [
+        24,
+        111.6,
+        292.2,
+        535.39
+      ]
+    },
+    "frame": {
+      "shown": true,
+      "moving": 0
+    },
+    "open": {
+      "header": [
+        0,
+        0,
+        1264.8,
+        54
+      ],
+      "header .brand-wrap": [
+        20,
+        14.6,
+        84.2,
+        24
+      ],
+      "header .brand-text": [
+        52,
+        16.6,
+        52.2,
+        20
+      ],
+      "header .brand-sep": [
+        114.2,
+        17.8,
+        7.8,
+        17.6
+      ],
+      "#pageNav": [
+        127,
+        13.6,
+        84.2,
+        26
+      ],
+      "header .search-wrap": [
+        221.2,
+        6.6,
+        670,
+        40
+      ],
+      "#searchBox": [
+        221.2,
+        6.6,
+        670,
+        40
+      ],
+      "#pinBtn": [
+        901.2,
+        12.6,
+        28,
+        28
+      ],
+      "#burgerBtn": [
+        1108.8,
+        12.6,
+        28,
+        28
+      ],
+      "#collapsibleGroup": [
+        1007.6,
+        54,
+        237.2,
+        63.6
+      ],
+      "#hTotalGalleries": [
+        1031.2,
+        72.6,
+        43.2,
+        14
+      ],
+      "#hImagesStat": [
+        1093.2,
+        66.8,
+        50.4,
+        38
+      ],
+      "#hSizeStat": [
+        1151.6,
+        66.8,
+        80.4,
+        38
+      ],
+      "#uploadCbzBtn": [
+        1144.8,
+        12.6,
+        28,
+        28
+      ],
+      "#safeBtn": [
+        1180.8,
+        12.6,
+        28,
+        28
+      ],
+      "#settingsBtn": [
+        1216.8,
+        12.6,
+        28,
+        28
+      ],
+      "#sortSelect": [
+        535.1,
+        66,
+        145,
+        33.6
+      ],
+      "#filterBtn": [
+        692.1,
+        66,
+        37.6,
+        33.6
+      ],
+      "#grid > .card": [
+        24,
+        111.6,
+        292.2,
+        535.39
+      ]
+    },
+    "ring": "burgerBtn",
+    "noScrollbar": {
+      "#collapsibleGroup": [
+        1022.8,
+        54,
+        237.2,
+        63.6
+      ],
+      "#burgerBtn": [
+        1108.81,
+        12.6,
+        28,
+        28
+      ],
+      "#settingsBtn": [
+        1216.81,
+        12.6,
+        28,
+        28
+      ]
+    },
+    "resized": {
+      "boxes": {
+        "#collapsibleGroup": [
+          970.8,
+          237.2
+        ],
+        "#burgerBtn": [
+          1072,
+          28
+        ]
+      },
+      "moving": 0
+    },
+    "settled": {
+      "#collapsibleGroup": [
+        970.8,
+        237.2
+      ],
+      "#burgerBtn": [
+        1072,
+        28
+      ]
+    }
+  },
+  "600 at 125%": {
+    "rest": {
+      "header": [
+        0,
+        0,
+        584.8,
+        90.8
+      ],
+      "header .brand-wrap": [
+        12,
+        9,
+        24,
+        24
+      ],
+      "header .brand-text": "hidden",
+      "header .brand-sep": "hidden",
+      "#pageNav": [
+        39,
+        8,
+        84.2,
+        26
+      ],
+      "header .search-wrap": [
+        12,
+        43,
+        560.8,
+        40
+      ],
+      "#searchBox": [
+        12,
+        43,
+        560.8,
+        40
+      ],
+      "#pinBtn": [
+        131.2,
+        7,
+        28,
+        28
+      ],
+      "#burgerBtn": [
+        442.8,
+        7,
+        28,
+        28
+      ],
+      "#collapsibleGroup": "hidden",
+      "#hTotalGalleries": "hidden",
+      "#hImagesStat": "hidden",
+      "#hSizeStat": "hidden",
+      "#uploadCbzBtn": [
+        476.8,
+        7,
+        28,
+        28
+      ],
+      "#safeBtn": [
+        510.8,
+        7,
+        28,
+        28
+      ],
+      "#settingsBtn": [
+        544.8,
+        7,
+        28,
+        28
+      ],
+      "#sortSelect": [
+        195.1,
+        100.8,
+        145,
+        33.6
+      ],
+      "#filterBtn": [
+        352.1,
+        100.8,
+        37.6,
+        33.6
+      ],
+      "#grid > .card": [
+        12,
+        144.4,
+        275.4,
+        531.6
+      ]
+    },
+    "frame": {
+      "shown": true,
+      "moving": 0
+    },
+    "open": {
+      "header": [
+        0,
+        0,
+        584.8,
+        90.8
+      ],
+      "header .brand-wrap": [
+        12,
+        9,
+        24,
+        24
+      ],
+      "header .brand-text": "hidden",
+      "header .brand-sep": "hidden",
+      "#pageNav": [
+        39,
+        8,
+        84.2,
+        26
+      ],
+      "header .search-wrap": [
+        12,
+        43,
+        560.8,
+        40
+      ],
+      "#searchBox": [
+        12,
+        43,
+        560.8,
+        40
+      ],
+      "#pinBtn": [
+        131.2,
+        7,
+        28,
+        28
+      ],
+      "#burgerBtn": [
+        442.8,
+        7,
+        28,
+        28
+      ],
+      "#collapsibleGroup": [
+        335.6,
+        52,
+        237.2,
+        63.6
+      ],
+      "#hTotalGalleries": [
+        359.2,
+        70.6,
+        43.2,
+        14
+      ],
+      "#hImagesStat": [
+        421.2,
+        64.8,
+        50.4,
+        38
+      ],
+      "#hSizeStat": [
+        479.6,
+        64.8,
+        80.4,
+        38
+      ],
+      "#uploadCbzBtn": [
+        476.8,
+        7,
+        28,
+        28
+      ],
+      "#safeBtn": [
+        510.8,
+        7,
+        28,
+        28
+      ],
+      "#settingsBtn": [
+        544.8,
+        7,
+        28,
+        28
+      ],
+      "#sortSelect": [
+        195.1,
+        100.8,
+        145,
+        33.6
+      ],
+      "#filterBtn": [
+        352.1,
+        100.8,
+        37.6,
+        33.6
+      ],
+      "#grid > .card": [
+        12,
+        144.4,
+        275.4,
+        531.6
+      ]
+    },
+    "ring": "burgerBtn",
+    "noScrollbar": {
+      "#collapsibleGroup": [
+        350.8,
+        52,
+        237.2,
+        63.6
+      ],
+      "#burgerBtn": [
+        458,
+        7,
+        28,
+        28
+      ],
+      "#settingsBtn": [
+        560,
+        7,
+        28,
+        28
+      ]
+    },
+    "resized": {
+      "boxes": {
+        "#collapsibleGroup": [
+          298.8,
+          237.2
+        ],
+        "#burgerBtn": [
+          406,
+          28
+        ]
+      },
+      "moving": 0
+    },
+    "settled": {
+      "#collapsibleGroup": [
+        298.8,
+        237.2
+      ],
+      "#burgerBtn": [
+        406,
+        28
+      ]
+    }
+  },
+  "1280 at 150%": {
+    "rest": {
+      "header": [
+        0,
+        0,
+        1264.67,
+        54
+      ],
+      "header .brand-wrap": [
+        20,
+        14.67,
+        84.21,
+        24
+      ],
+      "header .brand-text": [
+        52,
+        16.67,
+        52.21,
+        20
+      ],
+      "header .brand-sep": [
+        114.21,
+        18,
+        7.8,
+        17.33
+      ],
+      "#pageNav": [
+        127.01,
+        13.67,
+        83.94,
+        26
+      ],
+      "header .search-wrap": [
+        220.95,
+        6.67,
+        670,
+        40
+      ],
+      "#searchBox": [
+        220.95,
+        6.67,
+        670,
+        40
+      ],
+      "#pinBtn": [
+        900.95,
+        12.67,
+        28,
+        28
+      ],
+      "#burgerBtn": [
+        1108.67,
+        12.67,
+        28,
+        28
+      ],
+      "#collapsibleGroup": "hidden",
+      "#hTotalGalleries": "hidden",
+      "#hImagesStat": "hidden",
+      "#hSizeStat": "hidden",
+      "#uploadCbzBtn": [
+        1144.67,
+        12.67,
+        28,
+        28
+      ],
+      "#safeBtn": [
+        1180.67,
+        12.67,
+        28,
+        28
+      ],
+      "#settingsBtn": [
+        1216.67,
+        12.67,
+        28,
+        28
+      ],
+      "#sortSelect": [
+        535.17,
+        66,
+        145,
+        32.67
+      ],
+      "#filterBtn": [
+        692.17,
+        66,
+        37.33,
+        32.67
+      ],
+      "#grid > .card": [
+        24,
+        110.67,
+        292.17,
+        535.45
+      ]
+    },
+    "frame": {
+      "shown": true,
+      "moving": 0
+    },
+    "open": {
+      "header": [
+        0,
+        0,
+        1264.67,
+        54
+      ],
+      "header .brand-wrap": [
+        20,
+        14.67,
+        84.21,
+        24
+      ],
+      "header .brand-text": [
+        52,
+        16.67,
+        52.21,
+        20
+      ],
+      "header .brand-sep": [
+        114.21,
+        18,
+        7.8,
+        17.33
+      ],
+      "#pageNav": [
+        127.01,
+        13.67,
+        83.94,
+        26
+      ],
+      "header .search-wrap": [
+        220.95,
+        6.67,
+        670,
+        40
+      ],
+      "#searchBox": [
+        220.95,
+        6.67,
+        670,
+        40
+      ],
+      "#pinBtn": [
+        900.95,
+        12.67,
+        28,
+        28
+      ],
+      "#burgerBtn": [
+        1108.67,
+        12.67,
+        28,
+        28
+      ],
+      "#collapsibleGroup": [
+        1008.52,
+        54,
+        236.15,
+        63.33
+      ],
+      "#hTotalGalleries": [
+        1031.85,
+        72.33,
+        43.21,
+        14
+      ],
+      "#hImagesStat": [
+        1093.73,
+        66.67,
+        50.14,
+        38
+      ],
+      "#hSizeStat": [
+        1151.86,
+        66.67,
+        80.14,
+        38
+      ],
+      "#uploadCbzBtn": [
+        1144.67,
+        12.67,
+        28,
+        28
+      ],
+      "#safeBtn": [
+        1180.67,
+        12.67,
+        28,
+        28
+      ],
+      "#settingsBtn": [
+        1216.67,
+        12.67,
+        28,
+        28
+      ],
+      "#sortSelect": [
+        535.17,
+        66,
+        145,
+        32.67
+      ],
+      "#filterBtn": [
+        692.17,
+        66,
+        37.33,
+        32.67
+      ],
+      "#grid > .card": [
+        24,
+        110.67,
+        292.17,
+        535.45
+      ]
+    },
+    "ring": "burgerBtn",
+    "noScrollbar": {
+      "#collapsibleGroup": [
+        1023.85,
+        54,
+        236.15,
+        63.33
+      ],
+      "#burgerBtn": [
+        1108.68,
+        12.67,
+        28,
+        28
+      ],
+      "#settingsBtn": [
+        1216.68,
+        12.67,
+        28,
+        28
+      ]
+    },
+    "resized": {
+      "boxes": {
+        "#collapsibleGroup": [
+          971.9,
+          236.1
+        ],
+        "#burgerBtn": [
+          1072,
+          28
+        ]
+      },
+      "moving": 0
+    },
+    "settled": {
+      "#collapsibleGroup": [
+        971.9,
+        236.1
+      ],
+      "#burgerBtn": [
+        1072,
+        28
+      ]
+    }
+  },
+  "600 at 150%": {
+    "rest": {
+      "header": [
+        0,
+        0,
+        584.67,
+        90.67
+      ],
+      "header .brand-wrap": [
+        12,
+        9,
+        24,
+        24
+      ],
+      "header .brand-text": "hidden",
+      "header .brand-sep": "hidden",
+      "#pageNav": [
+        39,
+        8,
+        83.94,
+        26
+      ],
+      "header .search-wrap": [
+        12,
+        43,
+        560.67,
+        40
+      ],
+      "#searchBox": [
+        12,
+        43,
+        560.67,
+        40
+      ],
+      "#pinBtn": [
+        130.94,
+        7,
+        28,
+        28
+      ],
+      "#burgerBtn": [
+        442.67,
+        7,
+        28,
+        28
+      ],
+      "#collapsibleGroup": "hidden",
+      "#hTotalGalleries": "hidden",
+      "#hImagesStat": "hidden",
+      "#hSizeStat": "hidden",
+      "#uploadCbzBtn": [
+        476.67,
+        7,
+        28,
+        28
+      ],
+      "#safeBtn": [
+        510.67,
+        7,
+        28,
+        28
+      ],
+      "#settingsBtn": [
+        544.67,
+        7,
+        28,
+        28
+      ],
+      "#sortSelect": [
+        195.17,
+        100.67,
+        145,
+        32.67
+      ],
+      "#filterBtn": [
+        352.17,
+        100.67,
+        37.33,
+        32.67
+      ],
+      "#grid > .card": [
+        12,
+        143.33,
+        275.33,
+        530.55
+      ]
+    },
+    "frame": {
+      "shown": true,
+      "moving": 0
+    },
+    "open": {
+      "header": [
+        0,
+        0,
+        584.67,
+        90.67
+      ],
+      "header .brand-wrap": [
+        12,
+        9,
+        24,
+        24
+      ],
+      "header .brand-text": "hidden",
+      "header .brand-sep": "hidden",
+      "#pageNav": [
+        39,
+        8,
+        83.94,
+        26
+      ],
+      "header .search-wrap": [
+        12,
+        43,
+        560.67,
+        40
+      ],
+      "#searchBox": [
+        12,
+        43,
+        560.67,
+        40
+      ],
+      "#pinBtn": [
+        130.94,
+        7,
+        28,
+        28
+      ],
+      "#burgerBtn": [
+        442.67,
+        7,
+        28,
+        28
+      ],
+      "#collapsibleGroup": [
+        336.52,
+        52,
+        236.15,
+        63.33
+      ],
+      "#hTotalGalleries": [
+        359.85,
+        70.33,
+        43.21,
+        14
+      ],
+      "#hImagesStat": [
+        421.73,
+        64.67,
+        50.14,
+        38
+      ],
+      "#hSizeStat": [
+        479.86,
+        64.67,
+        80.14,
+        38
+      ],
+      "#uploadCbzBtn": [
+        476.67,
+        7,
+        28,
+        28
+      ],
+      "#safeBtn": [
+        510.67,
+        7,
+        28,
+        28
+      ],
+      "#settingsBtn": [
+        544.67,
+        7,
+        28,
+        28
+      ],
+      "#sortSelect": [
+        195.17,
+        100.67,
+        145,
+        32.67
+      ],
+      "#filterBtn": [
+        352.17,
+        100.67,
+        37.33,
+        32.67
+      ],
+      "#grid > .card": [
+        12,
+        143.33,
+        275.33,
+        530.55
+      ]
+    },
+    "ring": "burgerBtn",
+    "noScrollbar": {
+      "#collapsibleGroup": [
+        351.85,
+        52,
+        236.15,
+        63.33
+      ],
+      "#burgerBtn": [
+        458,
+        7,
+        28,
+        28
+      ],
+      "#settingsBtn": [
+        560,
+        7,
+        28,
+        28
+      ]
+    },
+    "resized": {
+      "boxes": {
+        "#collapsibleGroup": [
+          299.9,
+          236.1
+        ],
+        "#burgerBtn": [
+          406,
+          28
+        ]
+      },
+      "moving": 0
+    },
+    "settled": {
+      "#collapsibleGroup": [
+        299.9,
+        236.1
+      ],
+      "#burgerBtn": [
+        406,
+        28
+      ]
+    }
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "download": {
+    "states": [
+      "at rest |  | dl: Download all 4 pages | tr: Translate gallery",
+      "shown 0% | Contacting download helper… | dl: stop Stop downloading | tr: Translate gallery",
+      "shown moving | ↓ 293KB | dl: stop Stop downloading | tr: Translate gallery",
+      "shown 21% | ~1 / 4 · 585.9KB | dl: stop Stop downloading | tr: Translate gallery",
+      "shown 85% | Extracting… | dl: stop Stop downloading | tr: Translate gallery",
+      "shown 89% | 1 / 4 (1 already cached) | dl: stop Stop downloading | tr: Translate gallery",
+      "shown 96% | Storing · 3/4 (1 already cached) | dl: stop Stop downloading | tr: Translate gallery",
+      "shown 100% done | Done — 4/4 (1 already cached) | dl: done ✓ Download all 4 pages | tr: Translate gallery",
+      "at rest |  | dl: done ✓ Download all 4 pages | tr: Translate gallery",
+      "at rest |  | dl: Download all 4 pages | tr: Translate gallery"
+    ],
+    "problems": []
+  },
+  "upload": {
+    "states": [
+      "at rest |  | dl: Replace images from CBZ | tr: Translate gallery",
+      "shown 0% | Reading… | dl: off Replace images from CBZ | tr: Translate gallery",
+      "shown 50% | 1 / 2 | dl: off Replace images from CBZ | tr: Translate gallery",
+      "shown 50% | Error: Download helper not reachable — enable it, then reload this tab. | dl: Replace images from CBZ | tr: Translate gallery",
+      "at rest |  | dl: Replace images from CBZ | tr: Translate gallery"
+    ],
+    "problems": []
+  },
+  "translate": {
+    "states": [
+      "at rest |  | dl: Replace images from CBZ | tr: done Translate any new pages · Right-click: re-run from a stage",
+      "shown 0% | Starting… | dl: Replace images from CBZ | tr: stop done Stop translating",
+      "shown 12% | Translating… | dl: Replace images from CBZ | tr: stop done Stop translating",
+      "shown 50% | Translating… 1 / 2 | dl: Replace images from CBZ | tr: stop done Stop translating",
+      "shown 100% done | Translated 2/2 · Skipped (picture changed): 1 · $0.01 | dl: Replace images from CBZ | tr: done Translate any new pages · Right-click: re-run from a stage",
+      "at rest |  | dl: Replace images from CBZ | tr: done Translate any new pages · Right-click: re-run from a stage"
+    ],
+    "problems": []
+  },
+  "translate stopped": {
+    "states": [
+      "at rest |  | dl: Replace images from CBZ | tr: done Translate any new pages · Right-click: re-run from a stage",
+      "shown 40% | Translating… | dl: Replace images from CBZ | tr: stop done Stop translating",
+      "shown 0% | Cancelled | dl: Replace images from CBZ | tr: done Translate any new pages · Right-click: re-run from a stage",
+      "at rest |  | dl: Replace images from CBZ | tr: done Translate any new pages · Right-click: re-run from a stage"
+    ],
+    "problems": []
+  },
+  "sync": {
+    "states": [
+      "at rest |  | dl: Download all 1 pages | tr: Translate gallery",
+      "shown 0% | Fetching chapter info | dl: Download all 1 pages | tr: Translate gallery",
+      "shown 50% | Fetching chapter info · 1/2 | dl: Download all 1 pages | tr: Translate gallery",
+      "shown 100% done | Chapter info ready | dl: Download all 1 pages | tr: Translate gallery",
+      "at rest |  | dl: Download all 1 pages | tr: Translate gallery"
+    ],
+    "problems": []
+  }
+}

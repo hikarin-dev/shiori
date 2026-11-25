@@ -1,0 +1,30 @@
+{
+  "F5": {
+    "title": "Changed underneath for F5",
+    "same": true,
+    "loads": 0,
+    "scroll": 600,
+    "covers": 0,
+    "changed": true
+  },
+  "Ctrl+R": {
+    "title": "Changed underneath for Ctrl+R",
+    "same": true,
+    "loads": 0,
+    "scroll": 600,
+    "covers": 0,
+    "changed": true
+  },
+  "F5 from the search box": {
+    "title": "Changed underneath for F5 from the search box",
+    "same": true,
+    "loads": 0,
+    "scroll": 600,
+    "covers": 0,
+    "changed": true
+  },
+  "hard": {
+    "taken": false,
+    "title": "Changed underneath for F5 from the search box"
+  }
+}

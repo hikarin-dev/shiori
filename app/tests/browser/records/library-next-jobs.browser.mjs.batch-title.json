@@ -1,0 +1,11 @@
+{
+  "states": [
+    "at rest |  | dl: Replace images from CBZ | tr: Translate gallery",
+    "shown 0% | Reading… | dl: off Replace images from CBZ | tr: Translate gallery",
+    "shown 50% | 1 / 2 | dl: off Replace images from CBZ | tr: Translate gallery",
+    "shown 100% done | Done — 2/2 | dl: done ✓ Replace images from CBZ | tr: Translate gallery",
+    "at rest |  | dl: done ✓ Replace images from CBZ | tr: Translate gallery",
+    "at rest |  | dl: Replace images from CBZ | tr: Translate gallery"
+  ],
+  "problems": []
+}
