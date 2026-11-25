@@ -170,10 +170,9 @@ test('the page left: its workers ended, every copy\'s object URL revoked', { ski
   await page.close();
 });
 
-test('leaving the page five times with a chapter\'s pages open and a job running leaves nothing behind', { skip: !chromePath() }, async () => {
-  const page = await openPage(browser, origin);
-  await page.evaluateOnNewDocument(instrument);
-  await page.evaluateOnNewDocument(() => {
+// In the page, from its start: what it holds that a page left must let go of (window and document
+// listeners, intervals, timers over a second, observers, channels).
+function holding() {
     const held = window.__held = { listeners: 0, intervals: 0, timers: 0, observers: 0, channels: 0 };
     for (const target of [window, document]) {
       const add = target.addEventListener, remove = target.removeEventListener;
@@ -202,7 +201,12 @@ test('leaving the page five times with a chapter\'s pages open and a job running
     }
     const BC = window.BroadcastChannel;
     window.BroadcastChannel = class extends BC { constructor(n) { super(n); held.channels++; } close() { if (!this.__closed) { this.__closed = true; held.channels--; } return super.close(); } };
-  });
+}
+
+test('leaving the page five times with a chapter\'s pages open and a job running leaves nothing behind', { skip: !chromePath() }, async () => {
+  const page = await openPage(browser, origin);
+  await page.evaluateOnNewDocument(instrument);
+  await page.evaluateOnNewDocument(holding);
   await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await sleep(1500);
   const counts = [];
@@ -223,6 +227,54 @@ test('leaving the page five times with a chapter\'s pages open and a job running
   assert.ok(counts.every((c) => c.workers === 0 && c.urls === 0 && c.rows === 0), JSON.stringify(counts));
   // After the first return, nothing grows with each later one.
   assert.deepEqual(counts.slice(1), Array(5).fill(counts[0]), JSON.stringify(counts));
+  assert.deepEqual(page.problems, []);
+  await page.evaluate(async () => { const platform = await import('/app/js/platform.js'); for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind); });
+  await page.close();
+});
+
+// What its buttons open (7b): left in edit mode with a delete's question open, a job running, after
+// Replace's file input was made and its tag editor opened and closed, five times: nothing of them stays
+// (the question is answered as Cancel, the input goes with the page), and nothing grows.
+test('leaving the page five times in edit mode, a question open and a job running, leaves nothing behind', { skip: !chromePath() }, async () => {
+  const page = await openPage(browser, origin);
+  await page.evaluateOnNewDocument(instrument);
+  await page.evaluateOnNewDocument(holding);
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
+  await sleep(1500);
+  const counts = [];
+  const row = (part) => `.ch-row[data-chapter-id="${gid(base, part)}"]`;
+  for (let i = 0; i < 6; i++) {
+    await page.evaluate((path) => { history.pushState(null, '', path); dispatchEvent(new PopStateEvent('popstate')); }, `${NEW}?g=${gid(base, 'S')}`);
+    await until(page, () => document.querySelectorAll('.ch-row').length === 4 && !!document.querySelector('#seriesCover img'), null, { what: 'the overview' });
+    await publish(page, { gid: gid(base, 'S2'), kind: 'download', status: 'downloading', downloaded: 100, total: 1000, pages: 2 });
+    // Replace's input made (its picker cancelled), the tag editor opened and closed.
+    await page.hover(`${row('S3')} .ch-main`);
+    await page.keyboard.down('Shift');
+    const [chooser] = await Promise.all([page.waitForFileChooser({ timeout: 5000 }), page.click(`${row('S3')} [data-download]`)]);
+    await page.keyboard.up('Shift');
+    await chooser.cancel();
+    await page.click('#editToggle');
+    await page.click('.ov-chip-add');
+    await until(page, () => !!document.getElementById('tagEdType'), null, { what: 'the tag editor' });
+    await sleep(300);
+    await page.keyboard.press('Escape');
+    await until(page, () => !document.getElementById('tagEdType'), null, { what: 'the tag editor closed' });
+    // A delete's question open as the page is left.
+    await page.hover(`${row('S3')} .ch-main`);
+    await page.click(`${row('S3')} [data-remove]`);
+    await until(page, () => !!document.querySelector('[data-notice="dialog"]') && !!document.querySelector('.ch-row.working') && !!document.querySelector('#ovContent.ov-editing'), null, { what: 'edit mode, the question and the job' });
+    await sleep(300);
+    await page.evaluate(() => history.back());
+    await until(page, () => location.pathname === '/tasks' && !document.getElementById('ovContent'), null, { what: 'Tasks again' });
+    await sleep(1500);
+    counts.push(await page.evaluate(() => ({ ...window.__held, workers: window.__thumbs.workers - window.__thumbs.ended, urls: window.__thumbs.urls.size,
+      rows: document.querySelectorAll('.ch-row').length, tips: document.querySelectorAll('.shiori-tip').length,
+      dialogs: document.querySelectorAll('[data-notice], [role="dialog"]').length, inputs: document.querySelectorAll('input[type="file"]').length })));
+  }
+  assert.ok(counts.every((c) => c.workers === 0 && c.urls === 0 && c.rows === 0 && c.dialogs === 0 && c.inputs === 0), JSON.stringify(counts));
+  assert.deepEqual(counts.slice(1), Array(5).fill(counts[0]), JSON.stringify(counts));
+  // Nothing was deleted: the question left was answered as Cancel.
+  assert.equal(await page.evaluate(async (id) => !!(await (await import('/app/js/api.js')).galleries.get(id)), gid(base, 'S3')), true);
   assert.deepEqual(page.problems, []);
   await page.evaluate(async () => { const platform = await import('/app/js/platform.js'); for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind); });
   await page.close();
