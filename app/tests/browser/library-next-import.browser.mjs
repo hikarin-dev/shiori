@@ -367,27 +367,44 @@ test('the tracker: in 1.3\'s place and on its margins at every width, on a phone
   assert.deepEqual(out['/library-next'], out['/library']);
 });
 
-test('?import=1: what each page does with it on a load, and the new page on a change of route to it', async (t) => {
+// What is true of ?import=1 (6e, plans/frontend-react-probes/6e/import-param.mjs, Chrome and Firefox
+// alike): on a load each page asks its file input to open once the page has loaded, with no press of the
+// person's to go on (a load ends the press that led to it), and the browser shows no picker (Chrome says
+// "File chooser dialog can only be shown with a user activation"; Firefox refuses without a word). On
+// the new page a change of route to it, from a press, keeps that press: its picker opens.
+test('?import=1: on a load each page asks for the picker and the browser shows none; a change of route to it after a press opens it', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const out = {};
   const opened = (page, go) => Promise.all([page.waitForFileChooser({ timeout: 4000 }).then((c) => c.cancel().then(() => true), () => false), go()]).then(([o]) => o);
+  const asked = (page) => page.evaluate(() => window.__asked);
+  const instrument = (page) => page.evaluateOnNewDocument(() => {
+    window.__asked = [];
+    const click = HTMLInputElement.prototype.click;
+    HTMLInputElement.prototype.click = function () { if (this.type === 'file') window.__asked.push([this.id, navigator.userActivation.isActive]); return click.call(this); };
+  });
   for (const where of PATHS) {
     const page = await openEmpty(where);
+    await instrument(page);
     out[where] = { load: await opened(page, () => page.goto(`${origin}${where}?import=1`, { waitUntil: 'load' })) };
     await sleep(500);
+    out[where].asked = await asked(page);
     out[where].address = await page.evaluate(() => location.search);
     await page.close();
   }
-  // A change of route to it, from Tasks (a link in the page, followed inside the app).
+  // A change of route to it, from Tasks: a link in the page, pressed, followed inside the app.
   const page = await openEmpty('/library-next');
+  await instrument(page);
   await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await page.waitForSelector('#tkList');
-  out.route = await opened(page, () => page.evaluate(() => { const a = document.createElement('a'); a.href = '/library-next?import=1'; document.body.append(a); a.click(); a.remove(); }));
+  await page.evaluate(() => { const a = document.createElement('a'); a.id = 'toImport'; a.href = '/library-next?import=1'; a.textContent = 'Import'; Object.assign(a.style, { position: 'fixed', left: '10px', top: '200px', zIndex: 9999 }); document.body.append(a); });
+  out.route = await opened(page, () => page.click('#toImport'));
   out.routeAt = await page.evaluate(() => location.pathname);
+  out.routeAsked = await asked(page);
   await page.close();
   if (process.env.DUMP) console.log(JSON.stringify(out));
+  assert.deepEqual(out['/library'], { load: false, asked: [['cbzFileInput', false]], address: '' });
   assert.deepEqual(out['/library-next'], out['/library']);
-  assert.equal(out.routeAt, '/library-next');
+  assert.deepEqual([out.route, out.routeAt, out.routeAsked], [true, '/library-next', [['cbzFileInput', true]]]);
 });
 
 // ── The new page alone: leaving it leaves nothing behind ──
