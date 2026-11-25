@@ -12,7 +12,9 @@
 //
 // Where 1.3 said one rule twice, it is said once here: the delete question in its four wordings and
 // the delete itself (deleteGallery), a translation started and its button held (startTranslation:
-// the button, a series' chapter and the re-run menu's choice).
+// the button, a series' chapter and the re-run menu's choice). What the overview's rows ask and say
+// too (the questions of a download, a translation, a revert, a re-run, a delete and a tag taken off;
+// the intents) is src/lib/gallery-actions.ts's, the one statement both pages use.
 import type { QueryClient } from '@tanstack/react-query';
 import * as api from '@lib/api.js';
 import * as platform from '@lib/platform.js';
@@ -29,7 +31,7 @@ import { TAG_TYPE_LABEL, langDisplayName, tagPatchFor } from '@lib/tag-editor.js
 const zipping = () => import('@lib/zip.js');
 import type { CardHandlers, CardTagRef } from '@/components/gallery-card';
 import { editGallery } from '@/lib/library-query';
-import { alertNotice, choose, confirmNotice, galleryDetail, promptNotice, rpc, seriesDetail, t, type ShownGallery } from '@/lib/gallery-actions';
+import { alertNotice, askDelete, askDownloadAgain, askRemoveTag, askRevert, askTranslate, choose, confirmNotice, galleryDetail, intent, isWhole, promptNotice, rpc, seriesDetail, t, type ShownGallery } from '@/lib/gallery-actions';
 import type { LibraryJobs } from '@/lib/library-jobs';
 import { PAGES, TOTALS } from './data';
 
@@ -163,7 +165,7 @@ export function cardActions(deps: ActionDeps): Omit<CardHandlers, 'tag' | 'flag'
   // A translation asked for: its button held, "Translating…", until its job's first word.
   async function startTranslation(g: ShownGallery, forceFrom?: string) {
     jobs.press(g.id, 'translate');
-    try { await rpc({ type: 'TRANSLATE_GALLERY', galleryId: g.id, ...(forceFrom ? { forceFrom } : {}) }); } catch (err) { jobs.release(g.id); throw err; }
+    try { await intent.translate(g.id, forceFrom); } catch (err) { jobs.release(g.id); throw err; }
   }
 
   // A gallery deleted, a series shown merged with every chapter: asked first (unless `quick`), in one of
@@ -174,11 +176,9 @@ export function cardActions(deps: ActionDeps): Omit<CardHandlers, 'tag' | 'flag'
   async function deleteGallery(g: ShownGallery, quick: boolean) {
     const whole = series(g);
     const n = formatCount(g.chapterCount);
-    if (!quick && !(await confirmNotice(g.linked
-      ? { title: t('dlg.del_linked_title'), body: t('dlg.del_linked_body'), detail: whole ? seriesDetail(g) : galleryDetail(g), cover: deps.cover(g.id), ok: t('dlg.del_linked_ok'), danger: true }
-      : whole
-        ? { title: t('dlg.del_series_title'), body: t('dlg.del_series_body', { n }), detail: seriesDetail(g), cover: deps.cover(g.id), ok: t('dlg.del_series_ok', { n }), danger: true }
-        : { title: t('dlg.del_gallery_title'), body: t('dlg.del_gallery_body'), detail: galleryDetail(g), cover: deps.cover(g.id), ok: t('dlg.delete'), danger: true }))) return;
+    if (!quick && !(await (whole && !g.linked
+      ? confirmNotice({ title: t('dlg.del_series_title'), body: t('dlg.del_series_body', { n }), detail: seriesDetail(g), cover: deps.cover(g.id), ok: t('dlg.del_series_ok', { n }), danger: true })
+      : askDelete(g, { detail: whole ? seriesDetail(g) : galleryDetail(g), cover: deps.cover(g.id) })))) return;
     try {
       if (whole) await rpc({ type: 'DELETE_SERIES', galleryId: g.id });
       else if (g.isSeries || g.parentId) await (await import('@lib/series.js')).removeChapter(String(g.parentId || g.id), g.id, { deleteImages: true });
@@ -190,10 +190,7 @@ export function cardActions(deps: ActionDeps): Omit<CardHandlers, 'tag' | 'flag'
   // A tag (or a language flag's tags) taken off the gallery, after its question.
   async function removeTags(g: ShownGallery, gone: (tag: Tag) => boolean, label: string, name: string) {
     if (!Array.isArray(g.tags)) return;
-    if (!(await confirmNotice({
-      title: t('dlg.tag_title'), body: t('dlg.tag_body'),
-      detail: [`${label} · ${name}`, galleryDetail(g)[0]], cover: deps.cover(g.id), ok: t('dlg.tag_ok'), danger: true,
-    }))) return;
+    if (!(await askRemoveTag(label, name, galleryDetail(g)[0], deps.cover(g.id)))) return;
     await store.mutate(g.id, tagPatchFor(g, g.tags.filter((tag) => !gone(tag))));
   }
 
@@ -287,14 +284,12 @@ export function cardActions(deps: ActionDeps): Omit<CardHandlers, 'tag' | 'flag'
         return;
       }
       if (jobs.get(g.id).pending) return;
-      const alreadyComplete = (g.numPages ?? 0) > 0 && (g.count ?? 0) >= (g.numPages ?? 0);
-      if (alreadyComplete && !(await confirmNotice({
-        title: t('dlg.redl_title'), body: t('dlg.redl_body', { n: formatCount(g.numPages) }), detail: galleryDetail(g), cover: deps.cover(g.id), ok: t('dlg.redl_ok'),
-      }))) return;
+      const alreadyComplete = isWhole(g);
+      if (alreadyComplete && !(await askDownloadAgain(g, { detail: galleryDetail(g), cover: deps.cover(g.id) }))) return;
       jobs.press(g.id, 'download');
-      try { await rpc({ type: 'CACHE_ALL_PAGES', galleryId: g.id, source: g.source, overwrite: alreadyComplete }); } catch (err) { jobs.release(g.id); throw err; }
+      try { await intent.download(g, alreadyComplete); } catch (err) { jobs.release(g.id); throw err; }
     }),
-    stopDownload: (id) => shown(id, (g) => rpc({ type: 'STOP_JOB', galleryId: g.id, kind: 'download' })),
+    stopDownload: (id) => shown(id, (g) => intent.stopDownload(g.id)),
     replace: (id) => deps.pickFile(id),
 
     // Translate: a series shown merged opens its window (one chapter a press); no pages: told so; a
@@ -302,25 +297,17 @@ export function cardActions(deps: ActionDeps): Omit<CardHandlers, 'tag' | 'flag'
     translate: (id) => shown(id, async (g) => {
       if (series(g)) { deps.seriesTranslate(g); return; }
       if (jobs.get(g.id).pending) return;
-      if (g.count === 0) {
-        alertNotice({ title: t('dlg.no_pages_title'), body: t('dlg.no_pages_body'), detail: galleryDetail(g)[0], cover: deps.cover(g.id) });
-        return;
-      }
-      if (!g.translated && !(await confirmNotice({
-        title: t('dlg.tr_title'), body: t('dlg.tr_body', { n: formatCount(g.count) }), detail: galleryDetail(g), cover: deps.cover(g.id), ok: t('dlg.tr_ok'),
-      }))) return;
+      if (!(await askTranslate(g, { detail: galleryDetail(g), cover: deps.cover(g.id) }))) return;
       await startTranslation(g);
     }),
-    cancelTranslate: (id) => shown(id, (g) => rpc({ type: 'CANCEL_TRANSLATE', galleryId: g.id })),
+    cancelTranslate: (id) => shown(id, (g) => intent.cancelTranslate(g.id)),
     // Revert with Shift: the originals back, after its question; drawn untranslated once done.
     revert: (id) => shown(id, async (g) => {
       if (jobs.get(g.id).pending) return;
-      if (!(await confirmNotice({
-        title: t('dlg.revert_title'), body: t('dlg.revert_body'), detail: galleryDetail(g), cover: deps.cover(g.id), ok: t('dlg.revert_ok'), danger: true,
-      }))) return;
+      if (!(await askRevert({ detail: galleryDetail(g), cover: deps.cover(g.id) }))) return;
       jobs.press(g.id, 'revert');
       try {
-        await rpc({ type: 'REVERT_GALLERY', galleryId: g.id });
+        await intent.revert(g.id);
         await editGallery(client, g.id, { translated: false }, async () => true);
       } finally { jobs.release(g.id); }
     }),

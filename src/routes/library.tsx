@@ -43,7 +43,6 @@ import { Funnel } from 'lucide-react';
 import * as api from '@lib/api.js';
 import * as platform from '@lib/platform.js';
 import * as store from '@lib/store.js';
-import { confirmDialog } from '@lib/notice.js';
 import { getLang } from '@lib/i18n.js';
 import { appendSearchToken, searchQuery } from '@lib/search-field.js';
 import { canDownload, galleryLink, siteMap, siteName } from '@lib/sites.js';
@@ -73,7 +72,7 @@ import { createIconStore, type IconStore } from '@/lib/source-icons';
 import { useTitle } from '@/lib/title';
 import { cn } from '@/lib/utils';
 import { cardActions } from './library/actions';
-import { galleryDetail, type ShownGallery } from '@/lib/gallery-actions';
+import { askRerun, galleryDetail, type ShownGallery } from '@/lib/gallery-actions';
 import { PAGES, TOTALS, pageCount, pageKey, readPage, readTotals, totalsKey, type PageAsk, type PageData } from './library/data';
 import { FilterDialog } from './library/filter-dialog';
 import { LibraryHeader } from './library/header';
@@ -505,10 +504,7 @@ export default function Library() {
   const rerunFrom = async (id: string, point: string, label: string) => {
     const g = galleryOf(id) as ShownGallery | undefined;
     if (!g) return;
-    if (!(await (confirmDialog as unknown as (ask: object) => Promise<boolean>)({
-      title: t('dlg.rerun_title', { stage: label }), body: t('dlg.rerun_body'),
-      detail: galleryDetail(g), cover: coverOf(id), ok: t('dlg.rerun_ok'),
-    }))) return;
+    if (!(await askRerun(label, { detail: galleryDetail(g), cover: coverOf(id) }))) return;
     await actions.startTranslation(g, point);
   };
 
