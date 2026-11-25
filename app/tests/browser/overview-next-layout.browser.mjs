@@ -16,6 +16,7 @@ import puppeteer from 'puppeteer-core';
 import { startServer, chromePath, openPage, until } from './harness.mjs';
 import { seedRun, nextBase, gid, visit, boxes, boxDiff, sleep, OLD, NEW } from './overview-drive.mjs';
 import { standInHelper } from './stand-in-helper.mjs';
+import { easedTransforms } from './layers.mjs';
 import { startTranslator } from './stand-in-translator.mjs';
 
 let server, origin, browser, base, long, sixty, titled;
@@ -379,5 +380,83 @@ test('the add list: inside the window at its edges, nothing of the page moving a
     assert.ok(Math.abs(long.height - 58.43) < 1, `${at}: its row one line high (${long.height})`);
     assert.deepEqual(page.problems, []);
     await page.close();
+  }
+});
+
+// 7d: the checklist over the whole page, each variant in a loop, both pages alike: a gallery; a series
+// (with a chapter whose gallery is missing); its volumes; edit mode; a row's pages open; jobs on rows (a
+// download with no figure yet, its bar travelling, and a translation, their words growing); the tracker
+// showing a batch; a title and a tag that run long; no tags. In each, step by step on the same page: at
+// rest; the page's scrollbar taken away; 400 wide; 400 × 260; 1280 × 560; 125%; 150%. At every step,
+// in the frame after the change nothing of the page eases (but the travelling bars) and every box is
+// where it is 400 ms later; no sideways scroll; every box 1.3's within a pixel (F18's count apart). And
+// nothing eases a transform but a row button's faces (rule 29). (The desktop's Archive now and Move are
+// not here: a browser's library has neither; they sit in the same wrapping row of buttons.)
+test('the whole page, each variant: the scrollbar, a resize, narrow and short windows, 125% and 150%, as 1.3\'s', { skip: !chromePath() }, async () => {
+  const row = (n) => `.ch-row:nth-child(${n})`;
+  const publish = (p, job) => p.evaluate(async (job) => (await import('/app/js/platform.js')).jobs.publish(job), job);
+  // (The jobs cleared and the view's choice forgotten after each variant.)
+  const clear = (p) => p.evaluate(async () => { localStorage.removeItem('shiori:seriesView'); const platform = await import('/app/js/platform.js'); for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind); });
+  const VARIANTS = [
+    ['a gallery', gid(base, 'G')],
+    ['a series', gid(base, 'S')],
+    ['its volumes', gid(base, 'S'), async (p) => { await p.click('#ovSection [data-view="volumes"]'); await until(p, () => document.querySelectorAll('.ch-row').length === 2 && document.querySelectorAll('.ch-row .ch-thumb img').length === 2, null, { what: 'the volumes' }); }],
+    ['edit mode', gid(base, 'S'), async (p) => { await p.click('#editToggle'); await until(p, () => !!document.querySelector('#ovContent.ov-editing'), null, { what: 'edit mode' }); }],
+    ['a row\'s pages open', gid(base, 'S'), async (p) => { await p.hover(`${row(2)} .ch-head`); await p.click(`${row(2)} [data-expand]`); await until(p, (s) => [...document.querySelectorAll(`${s} .ch-pages .ov-page img`)].every((i) => i.getAttribute('src') && i.complete) && document.querySelectorAll(`${s} .ch-pages .ov-page`).length === 2, row(2), { what: 'the pages' }); }],
+    ['jobs on rows', gid(base, 'S'), async (p) => {
+      await publish(p, { gid: gid(base, 'S2'), kind: 'download', status: 'downloading', downloaded: 0, pages: 2 });
+      await publish(p, { gid: gid(base, 'S3'), kind: 'translate', status: 'progress', done: 1, total: 4 });
+      await until(p, () => document.querySelectorAll('.ch-row.working').length === 2, null, { what: 'two rows working' });
+    }],
+    ['the tracker showing', gid(base, 'S'), async (p) => {
+      await publish(p, { gid: 'import-layout', kind: 'import', status: 'progress', name: '2 items', total: 2, done: 0, imported: 0, skipped: 0, failed: 0, bytes: 527, bytesDone: 0, current: { name: 'Next One', done: 0, total: 2, bytes: 300 }, startedAt: Date.now(), movedAt: Date.now() });
+      await until(p, () => !!document.querySelector('#ovImports .ib'), null, { what: 'the tracker' });
+    }],
+    ['a long title and a long tag', titled],
+    ['no tags', gid(base, 'W')],
+  ];
+  const STEPS = [
+    ['at rest', { width: 1280, height: 900 }],
+    ['no scrollbar', { width: 1280, height: 900 }, true],
+    ['400 wide', { width: 400, height: 800 }],
+    ['400 × 260', { width: 400, height: 260 }],
+    ['1280 × 560', { width: 1280, height: 560 }],
+    ['125%', { width: 1280, height: 900, deviceScaleFactor: 1.25 }],
+    ['150%', { width: 1280, height: 900, deviceScaleFactor: 1.5 }],
+  ];
+  // In the frame after a change: what eases in the page (not a bar's travel), and the boxes.
+  const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve({
+    moving: document.getAnimations().filter((a) => a.playState === 'running' && a.effect?.target?.closest?.('#ovContent, #ovImports') && a.animationName !== 'progress-travel' && a.animationName !== 'prog-shimmer').map((a) => `${a.effect.target.className}`.slice(0, 40)),
+    sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  })));
+  for (const [name, g, then] of VARIANTS) {
+    const got = {};
+    for (const path of [OLD, NEW]) {
+      const page = await open(path, g);
+      if (then) await then(page);
+      await page.mouse.move(1270, 5);
+      await sleep(500);
+      got[path] = [];
+      for (const [step, view, noBar] of STEPS) {
+        await page.setViewport(view);
+        await page.evaluate((noBar) => { document.documentElement.style.overflow = noBar ? 'hidden' : ''; }, !!noBar);
+        const next = await page.evaluate(nextFrame);
+        const first = await page.evaluate(boxes);
+        await sleep(400);
+        const later = await page.evaluate(boxes);
+        got[path].push({ step, ...next, still: boxDiff(first, later, 0.01), boxes: later });
+      }
+      if (path === NEW) assert.deepEqual(await easedTransforms(page, '.ch-face'), [], `${name}: nothing eases a transform but a row button's faces`);
+      await clear(page);
+      await page.close();
+    }
+    for (const [i, [step]] of STEPS.entries()) {
+      const [was, now] = [got[OLD][i], got[NEW][i]];
+      assert.deepEqual(now.moving, [], `${name}, ${step}: nothing eases in the frame after`);
+      assert.deepEqual(now.still, [], `${name}, ${step}: every box final in the next frame`);
+      assert.equal(now.sideways, was.sideways, `${name}, ${step}: sideways scroll as 1.3's`);
+      assert.equal(now.sideways, false, `${name}, ${step}: no sideways scroll`);
+      assert.deepEqual(boxDiff(was.boxes, now.boxes, 1).filter((d) => !/^\.count: /.test(d)), [], `${name}, ${step}: every box 1.3's`);
+    }
   }
 });
