@@ -17,12 +17,13 @@ import {
   _removeWrapBubbleLayer, _layerUrls, _clipInset, _buildStudyText, _buildStudySrc,
   _studySourceRect, _studyTranslationRect, _positionBubbleIndicator, _buildBubbleShape, _sharedShapes,
   _wireSelectableText, _setStudyTextSelectable, _sourceTextLang, _sniffSourceLang, _syncLayerScale, forgetStudy, hasAnyStudy,
+  startStudy, stopStudy,
 } from './reader-study.js';
 import { resizeToWidth, imageToBlob } from './image-util.js';
 import { feedbackKey, editingTarget, feedbackTarget, tagFeedback } from './feedback.js';
-import { openFeedback, feedbackOpen } from './reader-feedback.js';
+import { openFeedback, feedbackOpen, closeFeedback } from './reader-feedback.js';
 import { openPageProperties, propertiesOpen, closePageProperties } from './reader-properties.js';
-import { openPageMenu, pageStatus } from './reader-page-menu.js';
+import { openPageMenu, pageStatus, closePageMenu, clearPageStatus } from './reader-page-menu.js';
 import { translationView } from './page-image.js';
 import { resumeAt } from './storage/personal.js';
 
@@ -154,6 +155,8 @@ const URL = class extends _rsWin.URL {
   static revokeObjectURL(url) { _rsUrls.delete(url); _rsWin.URL.revokeObjectURL(url); }
 };
 const _rsAtStart = _readerDocumentNow();   // put back by stop (READER_DOCUMENT)
+// reader-study.js's document listeners, first, as its module added them when it was loaded.
+startStudy();
 
 // Site names/links come from sites.js (runtime data + the localStorage warm start, so source
 // labels are correct on first paint instead of waiting for the bridge to answer).
@@ -5609,8 +5612,10 @@ function _rsBeforeStop() {
   if (_autoRaf) setAutoScroll(false);
   _endClickWheelNav();
   if (propertiesOpen()) closePageProperties();
-  _removeBubbleLayers();                 // reader-study.js: the layers and their object URLs
-  forgetStudy(pages.map((p) => p?.url).filter(Boolean));   // reader-study.js: the records it holds for these pages
+  closeFeedback();                       // its dialogs, open or kept closed, and their previews' URLs
+  closePageMenu();
+  clearPageStatus();
+  stopStudy();                           // reader-study.js: its listeners, layers and their URLs, records
 }
 
 // ── stop ──

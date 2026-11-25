@@ -16,6 +16,7 @@ function close() {
 }
 
 export const pageMenuOpen = () => !!_open;
+export function closePageMenu() { close(); }   // the reader's stop
 
 // `items`: [{ label, detail?, kbd?, disabled?, onPick }].
 export function openPageMenu(x, y, title, items) {
@@ -90,4 +91,10 @@ export function pageStatus(text, { busy = false, error = false } = {}) {
   _status.textContent = text;
   _status.classList.add('show');
   if (!busy) _statusTimer = setTimeout(() => _status.classList.remove('show'), error ? 7000 : 3500);
+}
+// The reader's stop: the status line goes, as before it first showed.
+export function clearPageStatus() {
+  clearTimeout(_statusTimer);
+  _status?.remove();
+  _status = null;
 }

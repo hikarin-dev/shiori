@@ -138,7 +138,7 @@ function _traceOutline(content) {
       return [];
     })));
     document.fonts?.addEventListener('loadingdone', () =>
-      _drawOutlines([...document.querySelectorAll('.study-text > .study-outline')].map(outline => outline.parentNode)));
+      _drawOutlines([...document.querySelectorAll('.study-text > .study-outline')].map(outline => outline.parentNode)), { signal: _running?.signal });
   }
   _outlined?.observe(content);
 }
@@ -535,26 +535,47 @@ function _unlockSelectionHost() {
 }
 // A drag beginning inside a bubble locks the selection to it before the pointer can move (so the
 // confinement is in place before the browser extends the range). Releasing the pointer frees it.
-document.addEventListener('pointerdown', (e) => {
-  if (!document.body.classList.contains('study-text-selecting')) return;
-  const host = _studyTextHost(e.target);
-  if (host) _lockSelectionToHost(host); else _unlockSelectionHost();
-});
-document.addEventListener('pointerup', _unlockSelectionHost);
-document.addEventListener('pointercancel', _unlockSelectionHost);
-document.addEventListener('selectionchange', () => {
-  if (_clampingStudySelection) return;
-  const sel = document.getSelection();
-  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
-  const host = _studyTextHost(sel.anchorNode);
-  if (!host || host.contains(sel.focusNode)) return;   // not a bubble selection, or still inside it
-  const after = !!(host.compareDocumentPosition(sel.focusNode) & Node.DOCUMENT_POSITION_FOLLOWING);
-  const r = document.createRange();
-  r.selectNodeContents(host);
-  _clampingStudySelection = true;
-  try { sel.extend(after ? r.endContainer : r.startContainer, after ? r.endOffset : r.startOffset); } catch {}
-  _clampingStudySelection = false;
-});
+// Listened for from the reader's start to its stop (startStudy, stopStudy).
+let _running = null;   // the running reader's AbortController
+export function startStudy() {
+  _running = new AbortController();
+  const { signal } = _running;
+  document.addEventListener('pointerdown', (e) => {
+    if (!document.body.classList.contains('study-text-selecting')) return;
+    const host = _studyTextHost(e.target);
+    if (host) _lockSelectionToHost(host); else _unlockSelectionHost();
+  }, { signal });
+  document.addEventListener('pointerup', _unlockSelectionHost, { signal });
+  document.addEventListener('pointercancel', _unlockSelectionHost, { signal });
+  document.addEventListener('selectionchange', () => {
+    if (_clampingStudySelection) return;
+    const sel = document.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+    const host = _studyTextHost(sel.anchorNode);
+    if (!host || host.contains(sel.focusNode)) return;   // not a bubble selection, or still inside it
+    const after = !!(host.compareDocumentPosition(sel.focusNode) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const r = document.createRange();
+    r.selectNodeContents(host);
+    _clampingStudySelection = true;
+    try { sel.extend(after ? r.endContainer : r.startContainer, after ? r.endOffset : r.startOffset); } catch {}
+    _clampingStudySelection = false;
+  }, { signal });
+}
+
+// The reader's stop: nothing of this module's is left. Its listeners go, every bubble layer and its
+// object URLs, the records, the outline observer and its fonts listener, the selection lock, and the
+// preferences go back to their first values (the next start sets its own).
+export function stopStudy() {
+  _running?.abort();
+  _running = null;
+  _unlockSelectionHost();
+  _removeBubbleLayers();
+  _pageStudy.clear();
+  _outlined?.disconnect();
+  _outlined = null;
+  _outlineIds = 0;
+  studyDisplay = 'hardcoded_images'; studyOriginal = 'image'; studySrcFont = 'yasashisa'; furiganaOn = false;
+}
 
 export function _setStudyTextSelectable(selectable) {
   document.body.classList.toggle('study-text-selecting', !!selectable);

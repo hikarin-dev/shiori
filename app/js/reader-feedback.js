@@ -4,7 +4,18 @@ import { t } from './i18n.js';
 import { ISSUES, captureFeedback, feedbackZip, feedbackDestination, feedbackRequest, sha256 } from './feedback.js';
 
 const drafts = new Map();
+const releases = new Map();   // a draft's dialog → what frees its preview (its object URLs, its observer)
 export const feedbackOpen = () => !!document.querySelector('.feedback-dialog[open]');
+// The reader's stop: every draft, open or kept closed for the session, goes with what it holds.
+export function closeFeedback() {
+  for (const dialog of drafts.values()) {
+    if (dialog.open) dialog.close();
+    dialog.remove();
+    releases.get(dialog)?.();
+  }
+  drafts.clear();
+  releases.clear();
+}
 const node = (tag, cls, text) => {
   const el = document.createElement(tag);
   if (cls) el.className = cls;
@@ -106,6 +117,7 @@ export function openFeedback({ pageUrl, page, study, index, wrap, context }) {
   const observer = new ResizeObserver(() => preview.querySelectorAll('.bubble-layer').forEach(layer =>
     layer.style.setProperty('--pgscale', String(preview.clientWidth / (context.pageWidth || wrap.clientWidth)))));
   observer.observe(preview);
+  releases.set(dialog, () => observer.disconnect());
   let capture, destination, receipt, busy = false, submitted = '';
   const chosen = () => [...issues.querySelectorAll('input:checked')].map(el => el.value);
   const updateButtons = () => {
@@ -173,6 +185,7 @@ export function openFeedback({ pageUrl, page, study, index, wrap, context }) {
         for (const label of labels) list.append(node('li', '', t('feedback.' + label)));
         fidelity.append(list);
       }
+      if (drafts.get(key) !== dialog) return;   // closed for good meanwhile (closeFeedback)
       // Give the preview independent URLs, so reader cache eviction cannot remove its images.
       const urls = [];
       const blobs = [capture.manifest.page.original, capture.manifest.page.study_background];
@@ -183,7 +196,9 @@ export function openFeedback({ pageUrl, page, study, index, wrap, context }) {
         if (ref) { img.src = URL.createObjectURL(capture.assets.get(ref.path)); urls.push(img.src); }
       }
       // Retain closed drafts for this reader session. Release when the tab leaves.
-      window.addEventListener('pagehide', () => { urls.forEach(u => URL.revokeObjectURL(u)); observer.disconnect(); }, { once: true });
+      const release = () => { urls.forEach(u => URL.revokeObjectURL(u)); observer.disconnect(); };
+      window.addEventListener('pagehide', release, { once: true });
+      releases.set(dialog, () => { window.removeEventListener('pagehide', release); release(); });
     } catch (err) { status.textContent = t(err.message.startsWith('feedback.') ? err.message : 'feedback.missing_page'); }
     updateButtons();
   })();
