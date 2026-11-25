@@ -145,6 +145,17 @@ export async function press(page, base, part, what, { shift = false, alt = false
   const sel = `${card(base, part)} ${BUTTON[what] ?? what}`;
   await page.hover(card(base, part));
   await sleep(50);
+  // The card under the pointer grows: what is pressed may still be moving with it (a long title opening
+  // under a slowed CPU took the "+" 136px down while the press was on its way, 1 time in 10). Pressed
+  // once it stands still (the same box three frames running).
+  await page.waitForFunction((sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return true;
+    const r = el.getBoundingClientRect(), at = `${r.x},${r.y},${r.width},${r.height}`;
+    const still = window.__pressAt?.sel === sel && window.__pressAt.at === at ? window.__pressAt.n + 1 : 0;
+    window.__pressAt = { sel, at, n: still };
+    return still >= 2;
+  }, { polling: 'raf', timeout: 8000 }, sel).catch(() => {});
   if (shift) await page.keyboard.down('Shift');
   if (alt) await page.keyboard.down('Alt');
   await page.click(sel, right ? { button: 'right' } : {});
