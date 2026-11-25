@@ -128,7 +128,8 @@ test('the overview\'s other states: a row with a job, a row\'s pages open, the r
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const tr = await startTranslator();
   t.after(() => tr.close());
-  const base = ov.nextBase(1790009700000);
+  // (Ids below the library runs' here: the library's first card is a run's own, which the tests after wait for.)
+  const base = ov.nextBase(1790008900000);
   const page = await ov.openRun(browser, origin, base, { translator: tr.origin, storage: { 'shiori:translateSettings': { serverUrl: tr.origin } } });
   t.after(async () => { await page.evaluate(async () => { const platform = await import('/app/js/platform.js'); for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind); }); await page.close(); });
   const row = (part) => ov.rowSel(base, part);
