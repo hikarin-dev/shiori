@@ -58,7 +58,8 @@ const box = cva(
         inset: `border-border bg-background data-popup-open:bg-background ${FOCUS_BOX} disabled:opacity-60 data-disabled:opacity-60`,
         toolbar: `border-border bg-card data-popup-open:bg-card ${FOCUS_BOX}`,
         // The header's page menu: the shared keyboard ring, as the header's other controls.
-        ghost: 'border-transparent bg-transparent text-muted-foreground hover:text-foreground data-popup-open:bg-transparent',
+        // (Its word in the text colour, as the header's buttons beside it: §5.3 F60.)
+        ghost: 'border-transparent bg-transparent text-foreground data-popup-open:bg-transparent',
       },
       size: {
         default: 'min-h-[36px] px-[10px] py-[8px]',

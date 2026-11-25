@@ -6,7 +6,7 @@
 //            a button on a surface (secondary), the quiet bordered ones of the pages (quiet), the
 //            borderless ones (ghost), one over a picture (overlay), dashed, and a text link;
 //   tone     the colour a tint, quiet or ghost button speaks in (neutral, primary, warning, danger,
-//            success), with `rest` (muted until hovered, or in its tone, framed or filled already) and
+//            success), with `rest` (plain until hovered, or in its tone, framed or filled already) and
 //            `hover` (an outline in the tone, or filled with it);
 //   size     its box: text sizes default 36 and sm 28 (Settings' and the dialogs'), compact 28 (the
 //            pages' own small ones: the header's Import and Stop all, the import tracker's: no
@@ -16,6 +16,11 @@
 //   coarse   the size a finger gets, where today's page gives one (36, 40 or 44).
 // Pressed (aria-pressed) shows the on look, in `pressedTone` where it differs from the tone; open
 // (aria-expanded) shows the hover look, as today's "Titles" and "⋯" buttons do.
+//
+// §5.3 F60 (the owner, 2026-11-25): at rest a button's words and icon are the text colour, never the
+// muted grey 1.3's quiet, borderless and small buttons had ("grey might be confused with disabled"); a
+// tone at rest is for a button whose colour says something (download, delete), not the brand's red on
+// translate. The header's buttons are ghost: no frame, the raised ground under the pointer.
 //
 // The keyboard ring is the document's one ring (styles/document.css): nothing here draws one.
 // Today's 1px press of Settings' buttons is gone (§5.3 F02: it moved the text).
@@ -72,17 +77,18 @@ const buttonVariants = cva(
         // Settings: the quieter danger (Reset).
         'danger-subtle': 'border-input bg-transparent text-destructive hover:border-destructive hover:bg-[color-mix(in_srgb,var(--destructive)_14%,transparent)]',
         // Settings' small neutral buttons (Advanced settings…, About).
-        subtle: 'border-input bg-transparent text-muted-foreground hover:border-border-hover hover:bg-secondary hover:text-foreground aria-expanded:border-border-hover aria-expanded:bg-secondary aria-expanded:text-foreground',
+        subtle: 'border-input bg-transparent text-foreground hover:border-border-hover hover:bg-secondary aria-expanded:border-border-hover aria-expanded:bg-secondary',
         // On a surface (the overview's actions).
         secondary: `border-border bg-card text-foreground hover:border-primary ${PRESSED_LOOK}`,
-        // The pages' bordered buttons, muted until hovered (header, card, tracker, task rows).
-        quiet: `border-border bg-transparent text-muted-foreground ${PRESSED_LOOK}`,
-        // No frame: a dialog's corner X, the chapter rows' buttons, the search box's clear.
-        // §5.3 F09 (owner): every borderless button hovers to the raised surface. Today's chapter
-        // buttons hovered darker, with a frame: 'hover:border-border hover:bg-background'.
-        ghost: 'border-transparent bg-transparent text-muted-foreground hover:bg-secondary hover:text-foreground aria-expanded:bg-secondary aria-expanded:text-foreground',
+        // The pages' bordered buttons (card, toolbar, tracker, task rows).
+        quiet: `border-border bg-transparent text-foreground ${PRESSED_LOOK}`,
+        // No frame: the header's buttons, a dialog's corner X, the chapter rows' buttons, the search
+        // box's clear. §5.3 F09 (owner): every borderless button hovers to the raised surface. Today's
+        // chapter buttons hovered darker, with a frame: 'hover:border-border hover:bg-background'.
+        // On (aria-pressed: the header's Safe Mode): the pressed tone's words on its tint, still no frame.
+        ghost: 'border-transparent bg-transparent text-foreground hover:bg-secondary aria-expanded:bg-secondary aria-pressed:bg-(--p-tint) aria-pressed:text-(--p-text)',
         // Over a picture: the card's heart.
-        overlay: 'border-border bg-overlay-ground text-muted-foreground hover:border-primary hover:text-primary aria-pressed:text-primary',
+        overlay: 'border-border bg-overlay-ground text-foreground hover:border-primary hover:text-primary aria-pressed:text-primary',
         // (Its ground stays under the pointer: 1.3 put the darker inset ground there.)
         dashed: 'border-dashed border-input bg-transparent text-muted-foreground hover:border-primary hover:text-foreground',
         // §5.3 F07 (owner): a text link hovers to the brand colour, whatever it hovered to before.
@@ -91,8 +97,8 @@ const buttonVariants = cva(
       tone: {
         neutral: TONES.neutral, primary: TONES.primary, warning: TONES.warning, danger: TONES.danger, success: TONES.success,
       },
-      // How a quiet or ghost button shows its tone before it is hovered.
-      rest: { muted: '', tone: 'text-(--t-text)', framed: 'border-(--t) text-(--t-text)', filled: 'border-(--t) bg-(--t) text-(--t-fill-fg)' },
+      // How a tint, quiet or ghost button shows its tone before it is hovered.
+      rest: { plain: '', tone: 'text-(--t-text)', framed: 'border-(--t) text-(--t-text)', filled: 'border-(--t) bg-(--t) text-(--t-fill-fg)' },
       // How it hovers in its tone: its frame and text in the tone, or filled with it.
       hover: { outline: '', fill: '' },
       pressedTone: { neutral: PRESSED.neutral, primary: PRESSED.primary, warning: PRESSED.warning, danger: PRESSED.danger, success: PRESSED.success },
@@ -125,6 +131,9 @@ const buttonVariants = cva(
       { variant: 'quiet', size: 'toolbar', class: 'bg-card' },
       // Page properties' quiet small button keeps the normal weight.
       { variant: 'quiet', size: 'sm', class: 'font-normal' },
+      // A tint button filled at rest (the header's Import) brightens under the pointer, as the filled
+      // buttons do: it is its tone already, and nothing gets darker there (§3 rule 27).
+      { variant: 'tint', rest: 'filled', class: 'hover:brightness-110' },
       // A text button in the page's header (Import, Stop all) is bold and a little wider.
       { variant: 'tint', size: 'compact', class: 'px-[12px] py-[6px] font-semibold' },
       // A dialog's corner button (and Settings' beside a row): its icon alone, 16.
@@ -172,7 +181,7 @@ export type ButtonProps = ButtonPrimitive.Props & {
   variant?: Variant;
   size?: Size;
   tone?: Tone;
-  rest?: 'muted' | 'tone' | 'framed' | 'filled';
+  rest?: 'plain' | 'tone' | 'framed' | 'filled';
   hover?: 'outline' | 'fill';
   pressedTone?: Tone;
   coarse?: '36' | '40' | '44';
@@ -194,9 +203,9 @@ function Button({ className, variant = 'outline', size = 'default', tone, rest, 
       buttonVariants({
         variant, size, coarse: coarse ?? 'none',
         tone: t,
-        rest: toned ? rest ?? 'muted' : undefined,
+        rest: toned ? rest ?? 'plain' : undefined,
         hover: toned ? hover ?? 'outline' : undefined,
-        pressedTone: pressedTone ?? (variant === 'secondary' || variant === 'quiet' ? t ?? 'primary' : undefined),
+        pressedTone: pressedTone ?? (variant === 'secondary' || variant === 'quiet' || variant === 'ghost' ? t ?? 'primary' : undefined),
       }),
       motion,
       own,

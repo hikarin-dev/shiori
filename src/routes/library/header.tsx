@@ -121,13 +121,13 @@ export function LibraryHeader({ t, query, onQueryChange, totals, showTotals, onI
         <span className="brand-sep">/</span>
         <PageMenu page="library" />
         <SearchField placeholder={t('lib.search_ph')} clearLabel={t('lib.clear_search')} query={query} onQueryChange={onQueryChange} />
-        <Button id="pinBtn" variant="quiet" tone="warning" size="icon" coarse="40" className="btn-pin" aria-label={pinTip} data-tip={pinTip} onClick={onPin}>
+        <Button id="pinBtn" variant="ghost" size="icon" coarse="40" className="btn-pin" aria-label={pinTip} data-tip={pinTip} onClick={onPin}>
           {pinned ? <PinIcon /> : <UnpinIcon />}
         </Button>
       </HeaderSlot>
       <HeaderSlot side="right">
         {showTotals && (
-          <Button id="burgerBtn" variant="quiet" size="icon" coarse="40" className={cn('burger-btn', NARROW_ONLY)} aria-label={t('nav.menu')} data-tip={t('nav.menu')}
+          <Button id="burgerBtn" variant="ghost" size="icon" coarse="40" className={cn('burger-btn', NARROW_ONLY)} aria-label={t('nav.menu')} data-tip={t('nav.menu')}
             onClick={() => setOpen((was) => !was)}>
             <Menu className="size-[16px]" />
           </Button>
@@ -145,20 +145,20 @@ export function LibraryHeader({ t, query, onQueryChange, totals, showTotals, onI
         {/* Import keeps its place at every width: its word wider than 1400px, its icon alone at 1400px or
             less (28 square, 15px icon; 40 under a finger). Its frame stays the second accent there: 1.3's
             narrow rule asked for the plain frame, but its base rule came after it and won. */}
-        <Button id="uploadCbzBtn" variant="tint" tone="warning" size="compact" coarse="40" aria-label={t('nav.import')} data-tip={t('nav.import')}
+        <Button id="uploadCbzBtn" variant="tint" tone="warning" rest="filled" size="compact" coarse="40" aria-label={t('nav.import')} data-tip={t('nav.import')}
           className={cn('btn-upload gap-[5px]',
             '[@media(max-width:1400px)]:w-[28px] [@media(max-width:1400px)]:gap-0 [@media(max-width:1400px)]:px-0',
             '[@media(pointer:coarse)_and_(max-width:1400px)]:size-[40px]')} onClick={onImport}>
           <Upload className="btn-upload-icon size-[13px] [@media(max-width:1400px)]:size-[15px]" />
           <span className={cn('btn-upload-label', WIDE_ONLY)}>{t('nav.import')}</span>
         </Button>
-        {/* Safe Mode: on, its frame and eye in the colour of success on its tint (aria-pressed: kept
-            under the pointer, rule 27). */}
-        <Button id="safeBtn" variant="quiet" tone="warning" pressedTone="success" size="icon" coarse="40" className={cn('btn-safe', safe && 'active')}
+        {/* Safe Mode: on, its eye in the colour of success on its tint (aria-pressed: kept under the
+            pointer, rule 27); no frame, as the header's other buttons (§5.3 F60). */}
+        <Button id="safeBtn" variant="ghost" pressedTone="success" size="icon" coarse="40" className={cn('btn-safe', safe && 'active')}
           aria-pressed={safe} aria-label={safeTip} data-tip={safeTip} onClick={onSafe}>
           {safe ? <EyeOffIcon /> : <EyeIcon />}
         </Button>
-        <Button id="settingsBtn" variant="quiet" tone="primary" size="icon" coarse="40" className="btn-settings" aria-label={t('nav.settings')} data-tip={t('nav.settings')}
+        <Button id="settingsBtn" variant="ghost" size="icon" coarse="40" className="btn-settings" aria-label={t('nav.settings')} data-tip={t('nav.settings')}
           onClick={() => goTo(navigate, 'settings')}>
           <Settings className="size-[16px]" />
         </Button>

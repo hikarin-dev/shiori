@@ -309,7 +309,8 @@ const Rest = memo(function Rest({ view, on, shown, bar, done, label, dlForm, trF
               disabled={dlForm === 'pending' || dlForm === 'busy'} aria-label={dl.tip} data-tip={dl.tip} data-tip-shift={dl.shift ?? undefined} onClick={onDownload}>
               {dl.face}
             </Button>
-            <Button variant="quiet" tone="primary" rest="tone" size="icon" coarse="36" type="button"
+            {/* (No tone of its own: the brand's red said nothing here, §5.3 F60. Translated, it is green.) */}
+            <Button variant="quiet" size="icon" coarse="36" type="button"
               className={cn('card-btn card-btn-translate', trForm === 'cancel' && 'cancelling', trDone && 'done text-success hover:text-success')} data-id={id}
               disabled={trForm === 'pending' || trForm === 'busy'} aria-label={tr.tip} data-tip={tr.tip} data-tip-shift={tr.shift ?? undefined} data-tip-alt={tr.alt ?? undefined}
               onClick={onTranslate} onContextMenu={onRerun}>

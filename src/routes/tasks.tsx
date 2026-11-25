@@ -170,7 +170,7 @@ export default function Tasks() {
           <StopIcon width="13" height="13" />
           <span className="btn-stop-all-label [@media(max-width:600px)]:hidden">{t('tasks.stop_all')}</span>
         </Button>
-        <Button id="settingsBtn" variant="quiet" tone="primary" size="icon" coarse="40" data-tip={t('nav.settings')} aria-label={t('nav.settings')}
+        <Button id="settingsBtn" variant="ghost" size="icon" coarse="40" data-tip={t('nav.settings')} aria-label={t('nav.settings')}
           onClick={() => goTo(navigate, 'settings')}>
           <Settings className="size-[16px]" />
         </Button>

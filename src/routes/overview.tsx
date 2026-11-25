@@ -235,7 +235,7 @@ export default function Overview() {
     <>
       <HeaderSlot side="left"><span className="brand-sep">/</span><PageMenu page="overview" /></HeaderSlot>
       <HeaderSlot side="right">
-        <Button id="settingsBtn" variant="quiet" tone="primary" size="icon" coarse="40" className="btn-settings" aria-label={t('nav.settings')} data-tip={t('nav.settings')}
+        <Button id="settingsBtn" variant="ghost" size="icon" coarse="40" className="btn-settings" aria-label={t('nav.settings')} data-tip={t('nav.settings')}
           onClick={() => goTo(navigate, 'settings')}>
           <Settings className="size-[16px]" />
         </Button>

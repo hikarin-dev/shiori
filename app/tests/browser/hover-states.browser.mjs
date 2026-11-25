@@ -134,7 +134,9 @@ test('every shared component in every state /components shows; a control that is
   for (const specimen of ['select-field', 'sort-select', 'modal-select', 'rs-select', 'inline-title']) assert.deepEqual(of(specimen, 'focus', ['frame']), [], `${specimen}: the focused frame`);
   // The chapter being read, in the reader's chapter list: its tint stays.
   assert.deepEqual(changes.filter((c) => /current=true[^▸]*slot=popover-item/.test(c.element) && !c.element.includes('▸')).map(said), [], 'the chapter being read');
-  // And the measure sees a plain hover: a quiet button's frame does change.
-  assert.ok(of('header-icon', 'rest', ['frame']).length > 0, 'a header button at rest takes its frame under the pointer');
+  // And the measure sees a plain hover: a header button's ground does change (it has no frame: F60),
+  // and a card's quiet button's frame.
+  assert.ok(of('header-icon', 'rest', ['ground']).length > 0, 'a header button at rest takes the raised ground under the pointer');
+  assert.ok(of('card-btn', 'rest', ['frame']).length > 0, 'a card\'s button at rest takes its frame under the pointer');
   await page.close();
 });

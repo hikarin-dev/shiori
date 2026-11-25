@@ -58,9 +58,47 @@ test('an on button says so (aria-pressed), an open one aria-expanded', async (t)
   const on = await page.$$eval('[data-section="button"] [data-specimen-state="on"]', (els) => els.map((el) => [el.dataset.specimen, el.getAttribute('aria-pressed') ?? el.getAttribute('aria-expanded') ?? (el.dataset.specimen === 'card-btn' ? 'done' : null)]));
   assert.ok(on.length >= 8);
   for (const [shape, value] of on) assert.ok(['true', 'done'].includes(value), `${shape}: on is announced (${value})`);
-  // The on look comes from the attribute: a quiet button pressed takes its pressed tone.
-  const safe = await page.$eval(spec('header-icon', 'quiet-warning', 'on'), (el) => getComputedStyle(el).color);
+  // The on look comes from the attribute: a button pressed takes its pressed tone.
+  const safe = await page.$eval(spec('header-icon', 'ghost-safe', 'on'), (el) => getComputedStyle(el).color);
   assert.equal(safe, 'rgb(6, 214, 160)', 'Safe mode on: the success tone');
+});
+
+// §5.3 F60 (the owner, 2026-11-25): a button's words and icon are the text colour at rest, never the
+// muted grey (it read as disabled), and the brand's red is not on translate; the header's buttons have
+// no frame and take the raised ground under the pointer; Import is filled in its yellow.
+test('at rest a button is the text colour; the header\'s have no frame and fill under the pointer; Import is filled', async (t) => {
+  const page = await componentsPage(t, browser, origin);
+  if (!page) return;
+  const look = (sel) => page.$eval(sel, (el) => { const cs = getComputedStyle(el); return { text: cs.color, ground: cs.backgroundColor, frame: cs.borderTopColor, filter: cs.filter }; });
+  const TEXT = 'rgb(244, 244, 245)', NONE = 'rgba(0, 0, 0, 0)', RAISED = 'rgb(28, 28, 33)', YELLOW = 'rgb(255, 209, 102)';
+  // Plain at rest, whatever the family: the text colour.
+  for (const [shape, variant] of [['header-icon', 'ghost-menu'], ['header-icon', 'ghost-settings'], ['header-icon', 'ghost-pin'], ['header-icon', 'ghost-safe'], ['btn-about', 'ghost'],
+    ['icon-btn', 'ghost'], ['btn-mini', 'subtle'], ['card-btn', 'quiet'], ['card-btn', 'quiet-warning'], ['filter-btn', 'quiet-toolbar'], ['tk-stop', 'quiet-danger'], ['card-fav', 'overlay']]) {
+    assert.equal((await look(spec(shape, variant))).text, TEXT, `${shape} ${variant}: the text colour at rest`);
+  }
+  // A tone at rest where the colour says something: download, delete; translated, in the colour of success.
+  assert.equal((await look(spec('card-btn', 'quiet-warning-fill'))).text, YELLOW, 'download: its yellow');
+  assert.equal((await look(spec('card-btn', 'quiet-danger-fill'))).text, 'rgb(255, 64, 64)', 'delete: its red');
+  assert.equal((await look(spec('card-btn', 'quiet', 'on'))).text, 'rgb(6, 214, 160)', 'translated: the colour of success');
+  // The header's buttons: no frame at rest or under the pointer, the raised ground under it; on, the
+  // pressed tone's words on its tint, still no frame.
+  for (const variant of ['ghost-menu', 'ghost-settings', 'ghost-pin', 'ghost-safe']) {
+    const rest = await look(spec('header-icon', variant)), hover = await look(spec('header-icon', variant, 'hover'));
+    assert.deepEqual([rest.frame, rest.ground], [NONE, NONE], `${variant}: no frame, no ground at rest`);
+    assert.deepEqual([hover.frame, hover.ground, hover.text], [NONE, RAISED, TEXT], `${variant}: the raised ground under the pointer, no frame`);
+  }
+  const on = await look(spec('header-icon', 'ghost-safe', 'on'));
+  assert.deepEqual([on.frame, on.text], [NONE, 'rgb(6, 214, 160)'], 'Safe Mode on: no frame');
+  assert.notEqual(on.ground, NONE, 'Safe Mode on: on its tint');
+  const about = await look(spec('btn-about', 'ghost', 'hover'));
+  assert.deepEqual([about.frame, about.ground], [NONE, RAISED], 'About: as the header\'s other buttons');
+  // Import: filled at rest, its words dark on it; brighter under the pointer, never darker.
+  for (const variant of ['tint-warning', 'tint-warning-icon']) {
+    const rest = await look(spec('btn-upload', variant)), hover = await look(spec('btn-upload', variant, 'hover'));
+    assert.deepEqual([rest.ground, rest.frame, rest.text, rest.filter], [YELLOW, YELLOW, 'rgb(17, 17, 17)', 'none'], `${variant}: filled in its yellow`);
+    assert.deepEqual([hover.ground, hover.text, hover.filter], [YELLOW, 'rgb(17, 17, 17)', 'brightness(1.1)'], `${variant}: brighter under the pointer`);
+  }
+  assert.deepEqual(page.problems, []);
 });
 
 test('the keyboard ring shows after a key, never after a click', async (t) => {
@@ -99,8 +137,8 @@ test('under a coarse pointer each button grows to the finger size today\'s page 
   const page = await componentsPage(t, browser, origin, { width: 390, height: 844, hasTouch: true, isMobile: true });
   if (!page) return;
   const size = (sel) => page.$eval(sel, (el) => { const r = el.getBoundingClientRect(); return [r.width, r.height]; });
-  assert.deepEqual(await size(spec('header-icon', 'quiet-primary')), [40, 40], 'header icon: 40');
-  assert.deepEqual(await size(spec('card-btn', 'quiet-primary')), [36, 36], 'card action: 36');
+  assert.deepEqual(await size(spec('header-icon', 'ghost-settings')), [40, 40], 'header icon: 40');
+  assert.deepEqual(await size(spec('card-btn', 'quiet')), [36, 36], 'card action: 36');
   assert.deepEqual(await size(spec('tk-stop', 'quiet-danger')), [44, 44], 'task Stop: 44');
   assert.equal((await size(spec('ib-btn', 'quiet')))[1], 44, 'tracker text button: 44 tall');
   assert.equal((await size(spec('btn-stop-all', 'tint-danger')))[1], 40, 'Stop all: 40 tall');

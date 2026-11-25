@@ -32,17 +32,17 @@ const SHAPES: ShapeSpec[] = [
   { id: 'btn-mini', name: 'Settings small', used: 'Settings: Advanced settings…, library folders\' attention lines, the desktop panel, library location, benchmark controls.', states: BASE, variants: [
     { v: 'subtle', label: 'subtle · sm', props: { variant: 'subtle', size: 'sm' }, children: <><Settings />Advanced settings…</> },
   ] },
-  { id: 'btn-about', name: 'Settings header "About"', used: 'Settings\' header.', states: ['rest', 'hover', 'active', 'focus'], variants: [
-    { v: 'subtle', label: 'subtle · sm', props: { variant: 'subtle', size: 'sm' }, children: 'About' },
+  { id: 'btn-about', name: 'Settings header "About"', used: 'Settings\' header (F60: no frame, as the header\'s other buttons).', states: ['rest', 'hover', 'active', 'focus'], variants: [
+    { v: 'ghost', label: 'ghost · sm', props: { variant: 'ghost', size: 'sm' }, children: 'About' },
   ] },
   { id: 'ov-btn', name: 'Overview action', used: 'Overview hero: Read (primary), Favourite, Edit (on while editing), Archive, Move, Source.', states: WITH_ON, variants: [
     { v: 'primary', label: 'solid · md', props: { variant: 'solid', size: 'md' }, children: <><BookOpen />Read from start</>, states: BASE },
     { v: 'secondary', label: 'secondary · md', props: { variant: 'secondary', size: 'md', pressedTone: 'warning' }, children: <><Settings />Edit</> },
     { v: 'secondary-fav', label: 'secondary · md (favourite)', props: { variant: 'secondary', size: 'md', pressedTone: 'primary' }, children: <><Heart />Favorited</>, onProps: { ...PRESSED, children: <><Heart className="fill-current" />Favorited</> } },
   ] },
-  { id: 'btn-upload', name: 'Header Import', used: 'Library header (Import): icon only under 1400px.', states: BASE, variants: [
-    { v: 'tint-warning', label: 'tint warning · compact', props: { variant: 'tint', tone: 'warning', size: 'compact', coarse: '40' }, children: <><Upload />Import</> },
-    { v: 'tint-warning-icon', label: 'tint warning · icon', props: { variant: 'tint', tone: 'warning', size: 'icon', coarse: '40', 'aria-label': 'Import' }, children: <Upload /> },
+  { id: 'btn-upload', name: 'Header Import', used: 'Library header (Import): icon only under 1400px. F60: filled in its yellow at rest.', states: BASE, variants: [
+    { v: 'tint-warning', label: 'tint warning, filled · compact', props: { variant: 'tint', tone: 'warning', rest: 'filled', size: 'compact', coarse: '40' }, children: <><Upload />Import</> },
+    { v: 'tint-warning-icon', label: 'tint warning, filled · icon', props: { variant: 'tint', tone: 'warning', rest: 'filled', size: 'icon', coarse: '40', 'aria-label': 'Import' }, children: <Upload /> },
   ] },
   { id: 'btn-stop-all', name: 'Tasks header Stop all', used: 'Tasks header.', states: BASE, variants: [
     { v: 'tint-danger', label: 'tint danger · compact', props: { variant: 'tint', tone: 'danger', size: 'compact', coarse: '40' }, children: <><Square />Stop all</> },
@@ -64,15 +64,15 @@ const SHAPES: ShapeSpec[] = [
   { id: 'icon-btn', name: 'Dialog corner icon button', used: 'The toast\'s close, About (GitHub, close), the advanced settings\' close, reader settings, page properties, library folders (rescan, more).', states: WITH_ON, variants: [
     { v: 'ghost', label: 'ghost · icon', props: { variant: 'ghost', size: 'icon', 'aria-label': 'Close' }, children: <X />, onProps: OPEN },
   ] },
-  { id: 'header-icon', name: 'Header square buttons', used: 'Library header (menu, safe mode, settings, pin); Overview and Tasks header (settings).', states: WITH_ON, variants: [
-    { v: 'quiet-neutral', label: 'quiet · icon (menu)', props: { variant: 'quiet', size: 'icon', coarse: '40', 'aria-label': 'Menu' }, children: <Menu className="size-[16px]" />, states: BASE },
-    { v: 'quiet-primary', label: 'quiet primary · icon', props: { variant: 'quiet', tone: 'primary', size: 'icon', coarse: '40', 'aria-label': 'Settings' }, children: <Settings className="size-[16px]" />, states: BASE },
-    { v: 'quiet-warning', label: 'quiet warning · icon (safe)', props: { variant: 'quiet', tone: 'warning', pressedTone: 'success', size: 'icon', coarse: '40', 'aria-label': 'Safe mode' }, children: <Eye />, onProps: PRESSED },
-    { v: 'quiet-warning-pin', label: 'quiet warning · icon (pin)', props: { variant: 'quiet', tone: 'warning', size: 'icon', coarse: '40', 'aria-label': 'Pin' }, children: <Pin className="size-[14px]" />, states: BASE },
+  { id: 'header-icon', name: 'Header square buttons', used: 'Library header (menu, safe mode, settings, pin); Overview and Tasks header (settings). F60: no frame, the raised ground under the pointer.', states: WITH_ON, variants: [
+    { v: 'ghost-menu', label: 'ghost · icon (menu)', props: { variant: 'ghost', size: 'icon', coarse: '40', 'aria-label': 'Menu' }, children: <Menu className="size-[16px]" />, states: BASE },
+    { v: 'ghost-settings', label: 'ghost · icon (settings)', props: { variant: 'ghost', size: 'icon', coarse: '40', 'aria-label': 'Settings' }, children: <Settings className="size-[16px]" />, states: BASE },
+    { v: 'ghost-safe', label: 'ghost · icon (safe: on in the colour of success)', props: { variant: 'ghost', pressedTone: 'success', size: 'icon', coarse: '40', 'aria-label': 'Safe mode' }, children: <Eye />, onProps: PRESSED },
+    { v: 'ghost-pin', label: 'ghost · icon (pin)', props: { variant: 'ghost', size: 'icon', coarse: '40', 'aria-label': 'Pin' }, children: <Pin className="size-[14px]" />, states: BASE },
   ] },
   { id: 'card-btn', name: 'Card quick actions', used: 'A library card: download, translate, export, delete.', states: ['rest', 'hover', 'active', 'focus', 'disabled', 'on'], variants: [
     { v: 'quiet-warning-fill', label: 'quiet warning, fill', props: { variant: 'quiet', tone: 'warning', rest: 'tone', hover: 'fill', size: 'icon', coarse: '36', 'aria-label': 'Download' }, children: <Download className="size-[14px]" />, onProps: { tone: 'success', rest: 'framed' } },
-    { v: 'quiet-primary', label: 'quiet primary', props: { variant: 'quiet', tone: 'primary', rest: 'tone', size: 'icon', coarse: '36', 'aria-label': 'Translate' }, children: <Languages className="size-[14px]" />, onProps: { tone: 'success' } },
+    { v: 'quiet', label: 'quiet (translate: translated, in the colour of success)', props: { variant: 'quiet', size: 'icon', coarse: '36', 'aria-label': 'Translate' }, children: <Languages className="size-[14px]" />, onProps: { tone: 'success', rest: 'tone' } },
     { v: 'quiet-warning', label: 'quiet warning', props: { variant: 'quiet', tone: 'warning', size: 'icon', coarse: '36', 'aria-label': 'Export' }, children: <Share className="size-[14px]" />, states: BASE },
     { v: 'quiet-danger-fill', label: 'quiet danger, fill', props: { variant: 'quiet', tone: 'danger', rest: 'tone', hover: 'fill', size: 'icon', coarse: '36', 'aria-label': 'Delete' }, children: <Trash2 className="size-[14px]" />, states: BASE },
   ] },
