@@ -1,16 +1,7 @@
-/* library.css — the library page, and the header, buttons, modal and progress bar the series
-   overview reuses. Tokens, reset, brand, tooltip and context menu come from base.css. */
-
-body.drag-over::after {
-  content: 'Drop to import';
-  position: fixed; inset: 0; z-index: 1000;
-  pointer-events: none;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 18px; font-family: 'JetBrains Mono', monospace;
-  color: var(--accent);
-  background: rgba(13, 13, 15, 0.72);
-  border: 2px dashed var(--accent);
-}
+/* library.css — the series overview's now (app/overview.html links it; until 2026-11-25 1.3's library
+   page drew with it too): the header, the Settings button, the shared modal and tag editor, the
+   progress bar, the re-run menu and the import tracker's panels the overview reuses. Tokens, reset,
+   brand, tooltip and context menu come from base.css. It keeps its name until the overview is ported. */
 
 header {
   position: sticky; top: 0; z-index: 30;
@@ -22,390 +13,15 @@ header {
 
 .header-left  { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
 .header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.header-divider { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
 
-.search-wrap { position: relative; width: 670px; flex-shrink: 1; display: flex; align-items: center; }
-/* The search box is an editable line (search-field.js), so finished filters can sit in it as blocks.
-   One line: it scrolls sideways instead of wrapping. */
-.header-search {
-  position: relative;
-  width: 100%; height: 40px; padding: 0 34px 0 12px;
-  background: var(--bg); border: 1px solid var(--border);
-  border-radius: 6px; color: var(--text); font-family: inherit; font-size: 12px;
-  line-height: 38px; white-space: pre; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
-  cursor: text; outline: none; transition: border-color 0.15s;
-}
-.header-search:focus { border-color: var(--accent); }
-.header-search:empty::before {
-  content: attr(data-placeholder); position: absolute; left: 12px;
-  color: var(--muted-dim); pointer-events: none;
-}
-/* A finished filter: a solid block, its key dimmed. */
-.search-chip {
-  display: inline-block; vertical-align: middle;
-  padding: 0 6px; line-height: 20px; border-radius: 4px;
-  background: var(--surface-raised); border: 1px solid var(--border-strong);
-  color: var(--text); font-weight: 600; white-space: pre; cursor: default;
-}
-.search-chip-key { margin-right: 4px; color: var(--muted); font-weight: 400; }
-/* Suggestions under the search box: the filters, then the tags matching what's typed. */
-.search-suggest {
-  position: fixed; z-index: 300; display: none; padding: 6px;
-  overflow-y: auto; overscroll-behavior: contain;
-  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px;
-  box-shadow: 0 10px 24px rgb(0 0 0 / .35);
-}
-.search-suggest.open { display: block; }
-.search-suggest-head {
-  padding: 6px 8px 4px; color: var(--muted);
-  font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
-}
-.search-suggest-sep { height: 1px; margin: 6px 4px; background: var(--border); }
-.search-suggest-opt {
-  display: flex; align-items: center; gap: 10px; padding: 6px 8px;
-  border-radius: 5px; font-size: 12px; cursor: pointer;
-}
-.search-suggest-opt:hover, .search-suggest-opt.sel { background: var(--surface-raised); }
-.search-suggest-opt > svg { flex: none; width: 16px; height: 16px; color: var(--muted); }
-.search-suggest-text { flex: 1; min-width: 0; }
-.search-suggest-title { color: var(--text); }
-.search-suggest-hint { color: var(--muted); font-size: 11px; }
-.search-suggest-hint b { color: var(--text); font-weight: 600; }
-.search-suggest-opt .search-chip { overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.search-suggest-n { margin-left: auto; flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-.search-clear {
-  position: absolute; right: 8px;
-  background: none; border: none; padding: 4px; cursor: pointer;
-  color: var(--muted); display: none; align-items: center; justify-content: center;
-  border-radius: 4px; transition: color 0.12s;
-}
-.search-clear:hover { color: var(--text); }
-.search-clear.visible { display: flex; }
-
-/* The header's square icon buttons; each has its own hover colour. */
-.burger-btn, .btn-settings, .btn-safe, .btn-pin {
+/* The header's square icon button. */
+.btn-settings {
   width: 28px; height: 28px; padding: 0; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   background: none; border: 1px solid var(--border); border-radius: 6px;
   color: var(--muted); font-size: 16px; cursor: pointer; transition: all 0.15s;
 }
-.burger-btn { display: none; }
-.burger-btn:hover { border-color: var(--text); color: var(--text); }
-
-.collapsible-group { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-
-@media (max-width: 1400px) {
-  .burger-btn { display: flex; }
-  /* Stats drop into the burger menu as a single horizontal row of the same navbar boxes —
-     content-sized (not stretched to equal widths). */
-  .collapsible-group {
-    position: fixed; top: 54px; right: 20px; z-index: 200;
-    display: none; flex-direction: row; align-items: stretch; gap: 8px;
-    width: max-content; max-width: calc(100vw - 40px);
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 8px; padding: 12px;
-    box-shadow: 0 6px 24px rgba(0,0,0,0.5);
-  }
-  .collapsible-group.open { display: flex; }
-  /* Import stays in the bar, icon-only, matching the settings/safe icon buttons (28×28). */
-  .btn-upload-label { display: none; }
-  .btn-upload { width: 28px; height: 28px; padding: 0; gap: 0; justify-content: center; border-color: var(--border); }
-  .btn-upload .btn-upload-icon { flex-shrink: 0; width: 15px; height: 15px; }
-}
-
-/* Storage stats switched off in Settings: the totals go, and with them the burger that only opens them. */
-body.hide-nav-stats .collapsible-group,
-body.hide-nav-stats .burger-btn { display: none; }
-
-.hstat { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; text-align: center; }
-.hstat-val { font-size: 14px; font-weight: 700; color: var(--accent); line-height: 1; }
-.hstat-label { font-size: 8px; color: var(--muted); text-transform: uppercase; margin-top: 2px; }
-
-.btn-upload {
-  padding: 6px 12px;
-  display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
-  background: transparent; border: 1px solid var(--accent2);
-  color: var(--accent2); font-family: inherit; font-size: 11px; font-weight: 600;
-  border-radius: 6px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
-}
-.btn-upload-icon { display: block; }
-.btn-upload:hover { background: var(--accent2); color: #111; }
 .btn-settings:hover { border-color: var(--accent); color: var(--accent); }
-.btn-safe:hover { border-color: var(--accent2); color: var(--accent2); }
-.btn-safe.active { border-color: var(--success); color: var(--success); background: rgba(6,214,160,0.08); }
-.btn-pin:hover { border-color: var(--accent2); color: var(--accent2); }
-
-/* ── Safe Mode ── (covers of galleries rated safe or suggestive stay visible) */
-body.safe-mode .card:not(.card-sfw) .card-thumb {
-  filter: blur(22px);
-  transform: scale(1.06);
-}
-body.safe-mode .card:not(.card-sfw) .card-thumb-placeholder {
-  filter: blur(12px);
-}
-
-.toolbar {
-  padding: 12px 24px;
-  display: flex; align-items: center; justify-content: center; gap: 12px;
-}
-
-.sort-select {
-  padding: 8px 12px;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 6px; color: var(--text); font-family: inherit; font-size: 12px;
-  outline: none; cursor: pointer;
-}
-.sort-select { --dd-bg: var(--surface); --dd-inset: 12px; }
-
-/* Filter — an icon box beside the sort dropdown (same height); a quiet grey highlight while any
-   option is set. */
-.filter-btn {
-  display: inline-flex; align-items: center; align-self: stretch;
-  padding: 0 11px;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 6px; color: var(--muted); font-family: inherit; cursor: pointer;
-  transition: border-color 0.12s, color 0.12s, background 0.12s;
-}
-.filter-btn:hover { border-color: var(--muted); color: var(--text); }
-.filter-btn.active { border-color: var(--muted); color: var(--text); background: #22222a; }
-
-/* Filter modal: tri-state options — any (plain), show only (green ✓), hide (red ✕, struck). */
-.modal-box.filter-box { width: 620px; padding: 24px 26px; gap: 14px; max-height: 88vh; overflow-y: auto; }
-.filter-box .modal-title { font-size: 15px; margin-bottom: 0; }
-.filter-hint { font-size: 11px; color: var(--muted); line-height: 1.5; }
-.filter-legend { display: flex; gap: 16px; font-size: 11px; color: var(--muted); }
-.fopt-legend { display: inline-flex; align-items: center; gap: 6px; }
-.filter-section { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
-.filter-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-@media (max-width: 560px) { .filter-options { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.fopt {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-  color: var(--muted); font-family: inherit; font-size: 12px; text-align: left; cursor: pointer;
-  transition: border-color 0.12s, color 0.12s, background 0.12s;
-}
-.fopt:hover { border-color: var(--muted); color: var(--text); }
-.fopt-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fopt-mark {
-  flex-shrink: 0; width: 14px; height: 14px; border: 1px solid var(--border); border-radius: 3px;
-  display: inline-flex; align-items: center; justify-content: center;
-  font-size: 10px; font-weight: 700; line-height: 1;
-}
-[data-state="include"] > .fopt-mark { background: var(--success); border-color: var(--success); color: var(--bg); }
-[data-state="include"] > .fopt-mark::before { content: '✓'; }
-[data-state="exclude"] > .fopt-mark { background: var(--danger); border-color: var(--danger); color: white; }
-[data-state="exclude"] > .fopt-mark::before { content: '✕'; }
-.fopt[data-state="include"] { border-color: var(--success); color: var(--text); background: rgba(6, 214, 160, 0.08); }
-.fopt[data-state="exclude"] { border-color: var(--danger); background: rgba(255, 64, 64, 0.08); }
-.fopt[data-state="exclude"] .fopt-name { text-decoration: line-through; }
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  /* Every row as tall as a card at rest. A hovered card doesn't count (below), so a row keeps its
-     height even when that card is the only one in it. */
-  grid-auto-rows: 1fr;
-  gap: 16px;
-  padding: 0 24px 40px;
-  align-items: start;
-  max-width: 1512px;
-  margin: 0 auto;
-}
-
-/* A card shows two lines of its title and one row of its tags; hovered, it grows to show all of
-   both, over the cards below. Its negative bottom margin then takes it out of its row's height, so
-   the grid doesn't move — and stays until the card has shrunk back (0.25s). A card alone in the
-   grid has nothing to grow over, so it grows the grid. Only where something hovers: on a touch
-   screen a tap would leave the card grown (see the end of this file). */
-.card {
-  --card-radius: 10px;
-  --card-border-width: 1px;
-  --card-inner-radius: calc(var(--card-radius) - var(--card-border-width));
-  --card-leave-z: linear(0.5, 0.5 50%, 1 50%);
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  background: var(--surface);
-  border: var(--card-border-width) solid var(--border);
-  border-radius: var(--card-radius);
-  z-index: 0;
-  transition: border-color 0.15s, z-index 0.5s var(--card-leave-z), margin-bottom 0s 0.3s;
-}
-@media (hover: hover) {
-  .card:hover { z-index: 16; border-color: var(--accent); transition: border-color 0.15s; }
-  .card:hover:not(:only-child) { margin-bottom: -10000px; }
-  /* Which card is drawn over which: the hovered one over all the rest, at once. One that stops being
-     hovered stays above the resting cards while it shrinks back (z 8 for 0.25s, then 0) — and when it
-     comes before the card now hovered, above that one too (z 24): only then can its shrinking body
-     reach over it. No other card's order changes. */
-  .card:has(~ .card:hover) { --card-leave-z: linear(-0.5, -0.5 50%, 1 50%); }
-}
-/* Drag one card onto another to merge into a series. */
-.card.drag-source { opacity: 0.3; }
-/* Merge-target ring: an OUTER shadow around the whole card (thumbnail + body) — an inset shadow
-   would be hidden behind the cover image, leaving only the info area outlined. */
-.card.merge-target { z-index: 16; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent); }
-/* Floating clone that follows the cursor while dragging a card. */
-.card-drag-clone {
-  position: fixed; z-index: 9999; margin: 0; pointer-events: none;
-  border-color: var(--accent);
-  filter: drop-shadow(0 14px 28px rgba(0, 0, 0, 0.55));
-}
-.card-drag-clone.dropping { transition: left .2s ease, top .2s ease, opacity .2s ease; }
-body.card-dragging { user-select: none; cursor: grabbing; }
-/* Chapter-count badge on a series card's cover. */
-.card-series-badge {
-  position: absolute; top: 8px; left: 8px; z-index: 6;
-  background: rgba(13, 13, 15, 0.82); color: var(--accent2);
-  border: 1px solid var(--border); border-radius: 999px;
-  font-size: 11px; font-weight: 600; padding: 3px 9px; letter-spacing: .2px;
-  pointer-events: none;
-}
-/* Favorite heart over the cover's top-right corner: always shown once favorited (filled), otherwise
-   only while the card is hovered. It fades by its colours, as the '+' tag does, not by opacity: an
-   opacity or transform animation runs on the compositor, which lifts the text drawn over it (here, a
-   card shrinking back over this cover) onto a layer for the while, where it loses its subpixel
-   antialiasing. */
-.card-fav {
-  position: absolute; top: 8px; right: 8px; z-index: 7;
-  width: 26px; height: 26px; padding: 0;
-  display: flex; align-items: center; justify-content: center;
-  background-color: rgba(13, 13, 15, 0.82); color: var(--muted);
-  border: 1px solid var(--border); border-radius: 999px; cursor: pointer;
-  transition: background-color 0.12s, color 0.12s, border-color 0.12s;
-}
-.card:not(:hover) .card-fav:not(.on) { background-color: transparent; color: transparent; border-color: transparent; pointer-events: none; }
-.card-fav:hover { color: var(--accent); border-color: var(--accent); }
-.card-fav.on { color: var(--accent); }
-.card-fav.on svg { fill: currentColor; }
-
-.card-thumb-wrap {
-  position: relative;
-  aspect-ratio: 1/sqrt(2);
-  overflow: hidden;
-  background: #111;
-  display: block;
-  text-decoration: none;
-  border-radius: var(--card-inner-radius) var(--card-inner-radius) 0 0;
-  flex-shrink: 0;
-}
-
-.card-thumb {
-  width: 100%; height: 100%;
-  object-fit: cover;
-  object-position: center center;
-  display: block;
-}
-.card-thumb.landscape { object-fit: contain; position: relative; }
-/* Ambient glow filling a landscape cover's letterbox bars (library.js paintCardGlow). It overhangs
-   the thumb by half its size a side so the blur's soft rim is clipped away; its blur is set in cqw. */
-.card-thumb-wrap { container-type: inline-size; }
-.card-thumb-glow {
-  position: absolute; left: -50%; top: -50%; width: 200%; height: 200%;
-  display: block; pointer-events: none;
-}
-.card-thumb:not([src]) { visibility: hidden; }
-
-.card-thumb-placeholder {
-  width: 100%; height: 100%;
-  display: flex; align-items: center; justify-content: center;
-  color: var(--muted); font-size: 32px;
-}
-
-/* At rest every card is a full-width cover's height plus 122px. The cover sits inside the border,
-   2px narrower and so 2(√2 − 1)px shorter, and the body takes that up too. */
-.card-body {
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: calc(122px + 2 * (sqrt(2) - 1) * var(--card-border-width));
-}
-
-.card-id {
-  font-size: 14px; font-weight: 700; color: var(--accent);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  text-decoration: none;
-}
-.card-id.local { color: var(--accent2); }
-
-.card-title {
-  font-size: 12px; color: var(--text); line-height: 1.35;
-  margin-top: 3px;
-  overflow: hidden;
-  opacity: 0.85;
-  max-height: calc(12px * 1.35 * 2);
-  min-height: calc(12px * 1.35 * 2);
-  transition: max-height 0.25s ease;
-}
-.card-meta {
-  font-size: 12px; color: var(--muted); margin-top: 4px;
-}
-/* A card's page count, size and tags keep a deeper grey than the app's secondary text, so the
-   title stays the brightest line. */
-.card :is(.card-meta, .card-tags) { --muted: #6b6b80; }
-.card-missing { color: var(--danger); }
-/* Category tag switched off in Settings. */
-body.hide-card-category .card-tag.category { display: none; }
-
-.card-tags {
-  display: flex; flex-wrap: wrap; align-items: flex-start; align-content: flex-start; gap: 3px;
-  margin-top: 5px;
-  max-height: 14px;
-  min-height: 14px;
-  overflow: hidden;
-  transition: max-height 0.25s ease;
-}
-@media (hover: hover) {
-  .card:hover .card-title { max-height: 300px; transition: max-height 0.3s ease; }
-  .card:hover .card-tags  { max-height: 500px; transition: max-height 0.3s ease; }
-}
-
-.card-tag {
-  font-size: 10px; padding: 1px 6px; line-height: 1;
-  background: #1e1e28; border: 1px solid var(--border);
-  border-radius: 3px; color: var(--muted);
-  white-space: nowrap; max-width: 100px;
-  overflow: hidden; text-overflow: ellipsis;
-  cursor: pointer; transition: border-color 0.12s, color 0.12s;
-}
-.card-tag:hover { border-color: var(--muted); color: var(--text); }
-.card-tag.artist { color: var(--accent2); border-color: #3a3a20; }
-.card-tag.artist:hover { border-color: var(--accent2); }
-.card-tag.category { color: var(--accent); border-color: #4a1a26; }
-.card-tag.category:hover { border-color: var(--accent); }
-
-/* While Shift is held, hovering a tag previews its deletion (Shift+click deletes) with the same
-   colour as the card's delete button. The '+' chip is excluded; the flag gets its own rule below. */
-body.shift-held .card-tag:not(.card-tag-add):hover {
-  background: var(--danger); color: white; border-color: var(--danger);
-}
-
-/* Language flag chip — first tag; clickable (adds a language filter). Sized to match text tags. */
-.card-tag-flag {
-  display: inline-flex; align-items: center; flex-shrink: 0; cursor: pointer; height: 14px;
-}
-.card-tag-flag .flag-img {
-  height: 14px; width: auto; display: block;
-  border: 1px solid var(--border); border-radius: 3px; transition: border-color 0.12s;
-}
-.card-tag-flag:hover .flag-img { border-color: var(--muted); }
-/* Shift+hover previews deleting the flag's language tag (Shift+click deletes), matching other tags. */
-body.shift-held .card-tag-flag:hover .flag-img { border-color: var(--danger); }
-
-/* '+' add-tag chip — same shape/rounding as a tag. Shown while the card is hovered; on unhover
-   it fades out only after the card has finished shrinking back (the 0.25s delay), instead of
-   popping out the instant the pointer leaves. */
-.card-tag-add {
-  display: inline-flex; align-items: center; justify-content: center;
-  font-weight: 700; padding: 1px 7px; color: var(--muted);
-  transition: color 0.1s, background-color 0.1s, border-color 0.1s;
-}
-.card:not(:hover) .card-tag-add {
-  color: transparent; background-color: transparent; border-color: transparent; pointer-events: none;
-  transition: color 0.12s ease 0.25s, background-color 0.12s ease 0.25s, border-color 0.12s ease 0.25s;
-}
-.card-tag-add:hover { color: var(--accent2); border-color: var(--accent2); }
 
 /* ── Shared modal (add-tag) ── */
 /* The overlay holds the page still behind it without hiding its scrollbar: as a scroll container
@@ -448,18 +64,7 @@ body.shift-held .card-tag-flag:hover .flag-img { border-color: var(--danger); }
 .tag-ed-opt-n { flex-shrink: 0; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .modal-actions .tag-ed-remove { margin-right: auto; }
 
-.card-progress { display: none; padding: 6px 0 2px; }
-.card-body.downloading .card-meta,
-.card-body.downloading .card-tags { display: none; }
-@media (hover: hover) { .card:hover .card-body.downloading .card-tags  { display: flex; } }
-.card-body.downloading .card-progress {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  flex: 1;
-}
-
-/* Thin progress bar — a library card's and a chapter row's job. */
+/* Thin progress bar — a chapter row's job and an import's. */
 .prog-track {
   height: 3px; background: var(--border);
   border-radius: 2px; overflow: hidden;
@@ -481,156 +86,18 @@ body.shift-held .card-tag-flag:hover .flag-img { border-color: var(--danger); }
   100% { background-position: -200% 0; }
 }
 
-.card-prog-label {
-  font-size: 11px; color: var(--muted);
-  margin-top: 3px; display: block;
-}
-
-.card-id-row {
-  --card-id-logo-size: 16px;
-  display: flex; align-items: center; gap: 4px;
-}
-
-/* In hover mode the buttons fade in sliding by `top`, not a transform: a transform animation makes the
-   compositor lift everything drawn after it onto layers (see .card-fav). Their opacity fade only
-   lifts the buttons themselves, which hold icons and nothing drawn over them. */
-.card-actions {
-  display: flex; gap: 3px; margin-left: auto; flex-shrink: 0;
-  position: relative; top: 0;
-  transition: opacity 0.12s ease, top 0.12s ease;
-}
-body.quick-actions-hover .card-actions {
-  opacity: 0;
-  pointer-events: none;
-  top: -2px;
-}
-body.quick-actions-hover .card:hover .card-actions,
-body.quick-actions-hover .card:focus-within .card-actions {
-  opacity: 1;
-  pointer-events: auto;
-  top: 0;
-}
-body.quick-actions-hidden .card-actions {
-  display: none;
-}
-
-.card-btn {
-  width: 28px; height: 28px; padding: 0;
-  border-radius: 6px; cursor: pointer; transition: all 0.15s;
-  text-decoration: none; display: flex;
-  align-items: center; justify-content: center;
-  border: 1px solid var(--border); background: transparent;
-  font-family: inherit;
-}
-.card-btn-dl { color: var(--accent2); }
-.card-btn-dl:hover { background: var(--accent2); color: #111; border-color: var(--accent2); }
-.card-btn-dl:disabled { opacity: 0.4; cursor: default; }
-.card-btn-dl.done { color: var(--success); border-color: var(--success); }
-.card-btn-dl.upload-mode { background: var(--accent2); color: #111; border-color: var(--accent2); }
-.dl-inner     { display: flex; align-items: center; justify-content: center; transition: transform 0.15s; }
-.card-btn-dl.upload-mode .dl-inner { transform: scaleY(-1); }
-.open-inner   { display: flex; align-items: center; justify-content: center; }
-.export-inner { display: flex; align-items: center; justify-content: center; }
-.del-inner    { display: flex; align-items: center; justify-content: center; }
-
-.card-btn-translate { color: var(--accent); }
-body.translator-offline .card-btn-translate { display: none; }
-.card-btn-translate:hover { border-color: var(--accent); }
-.card-btn-translate:disabled { opacity: 0.4; cursor: default; }
-.card-btn-translate.done { color: var(--success); }
-.tr-inner { display: flex; align-items: center; justify-content: center; transition: transform 0.15s; }
-
-.card-btn-open {
-  width: var(--card-id-logo-size); height: var(--card-id-logo-size);
-  flex: 0 0 var(--card-id-logo-size);
-  color: var(--muted); border: 0; background: transparent;
-  border-radius: 2px;
-}
-.card-btn-open .open-inner,
-.card-btn-open img,
-.card-btn-open svg {
-  width: 100% !important; height: 100% !important;
-  display: block; object-fit: contain;
-}
-.card-btn-open:hover { color: var(--text); border: 0; }
-
-.card-btn-del { color: var(--danger); }
-.card-btn-del:hover { background: var(--danger); color: white; border-color: var(--danger); }
-
-.card-btn-export { color: var(--muted); }
-.card-btn-export:hover { color: var(--accent2); border-color: var(--accent2); }
-.card-btn-export:disabled { opacity: 0.4; cursor: default; }
-
-.empty {
-  grid-column: 1/-1;
-  text-align: center; padding: 80px 20px;
-  color: var(--muted); font-size: 13px; line-height: 2;
-}
-
-
-/* ── Pagination ── */
-#pagination {
-  display: flex; align-items: center; justify-content: center;
-  gap: 5px; padding: 8px 24px 48px;
-}
-.page-btn {
-  background: var(--surface); border: 1px solid var(--border);
-  color: var(--muted); font-family: inherit; font-size: 11px;
-  padding: 6px 11px; border-radius: 5px; cursor: pointer;
-  transition: all 0.12s; min-width: 32px; text-align: center;
-}
-/* Exclude .active: on the highlighted page the accent background + accent hover text would
-   render the number invisible. */
-.page-btn:hover:not(:disabled):not(.active) { border-color: var(--accent); color: var(--accent); }
-.page-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
-.page-btn:disabled { opacity: 0.3; cursor: default; }
-.page-ellipsis { color: var(--muted); font-size: 11px; padding: 0 3px; user-select: none; }
-
-/* "Re-run from…" — a translated gallery's translate button, right-clicked (base.css .ctx-menu). */
+/* "Re-run from…" — a translated chapter's translate button, right-clicked (base.css .ctx-menu). */
 .rerun-menu { z-index: 9000; min-width: 190px; }
 
-/* ── Phones ──
-   The library's search takes a row of its own under the bar, the logo, the page menu and the buttons
-   above it (the brand's word gives way so the menu keeps its place). The cards come two to a row,
-   their quick actions a row of their own under the gallery number, sharing its width. */
-@media (max-width: 600px) {
-  header:has(.search-wrap) { flex-wrap: wrap; height: auto; min-height: 54px; padding: 7px 12px; gap: 8px; }
-  header:has(.search-wrap) .header-left { display: contents; }
-  header:has(.search-wrap) :is(.brand-text, .brand-sep) { display: none; }
-  .search-wrap { order: 9; flex: 1 1 100%; width: auto; }
-  header:has(.search-wrap) .header-right { margin-left: auto; gap: 6px; }
-  .collapsible-group { top: 52px; right: 12px; max-width: calc(100vw - 24px); }
-  .toolbar { padding: 10px 12px; }
-  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 0 12px 32px; }
-  .card-body { padding: 8px; }
-  .card-id-row { flex-wrap: wrap; row-gap: 6px; }
-  .card-actions { flex: 1 1 100%; margin-left: 0; gap: 4px; }
-  .card-actions .card-btn { flex: 1 1 0; width: auto; }
-}
-/* Where nothing hovers (a phone, a tablet), a card is for opening. Its quick actions are made for a
-   mouse, and the gallery's overview has them all; nothing on it waits for a hover either (the
-   growing, above; the heart that adds a favourite, the '+' tag), which a tap would leave stuck. A
-   favourite's heart still shows that it is one. */
-@media (hover: none) {
-  .card-actions, .card-fav:not(.on), .card-tag-add { display: none; }
-}
-/* A finger needs bigger buttons than a mouse: the header's and the cards'. */
+/* A finger needs bigger buttons than a mouse. */
 @media (pointer: coarse) {
-  .burger-btn, .btn-settings, .btn-safe, .btn-pin { width: 40px; height: 40px; }
-  .btn-upload { min-height: 40px; }
-  .card-actions .card-btn { height: 36px; min-width: 36px; }
-  .card-fav { width: 36px; height: 36px; }
-}
-@media (pointer: coarse) and (max-width: 1400px) {
-  .btn-upload { width: 40px; height: 40px; }
+  .btn-settings { width: 40px; height: 40px; }
 }
 
-/* A batch of imports (import-tracker.js): a panel per batch, under the library's toolbar (as wide as
-   the grid) and under a series' add bar; the bar is a card's. (Tasks draws it as a component,
-   src/components/import-tracker.tsx.) */
+/* A batch of imports (import-tracker.js): a panel per batch, under a series' add bar; the bar is a
+   chapter row's. (Tasks and the library draw it as a component, src/components/import-tracker.tsx.) */
 .ib-host { display: flex; flex-direction: column; gap: 8px; }
 .ib-host[hidden] { display: none; }
-#importTracker { max-width: 1512px; margin: 0 auto 16px; padding: 0 24px; }
 #ovImports { margin-top: 16px; }
 .ib {
   display: flex; flex-direction: column; gap: 6px;
@@ -694,7 +161,6 @@ body.translator-offline .card-btn-translate { display: none; }
 .ib-more { align-self: flex-start; }
 
 @media (max-width: 600px) {
-  #importTracker { padding: 0 12px; margin-bottom: 10px; }
   .ib { padding: 8px 10px; }
   .ib-total { display: none; }
   .ib-row { grid-template-columns: 76px minmax(0, 1fr); }
@@ -705,8 +171,8 @@ body.translator-offline .card-btn-translate { display: none; }
   .ib-filter { height: 36px; border-radius: 18px; }
 }
 
-/* Where a job runs (runner-tag.js): a quiet tag beside its kind, on the tasks page's rows and the
-   import tracker; its tooltip says what ending would stop it. */
+/* Where a job runs (runner-tag.js): a quiet tag beside its kind, on the import tracker's panels; its
+   tooltip says what ending would stop it. */
 .run-tag {
   flex-shrink: 0; padding: 1px 6px;
   border: 1px solid var(--border); border-radius: 4px;
