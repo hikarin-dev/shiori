@@ -69,9 +69,9 @@ test('every one-page name the reader reads is one of its tokens, given on the re
     assert.ok(TOKEN_VALUE.has(name), `${name} is a token of src/styles/tokens.css`);
     assert.ok(ALIASED.has(name) || BASE.has(name), `${name} has a value on the reader's own page (reader-aliases.css, or base.css under the same name)`);
   }
-  // A name the reader reads that is the one page's is the reader's own otherwise: none of them is
-  // one of the one page's names in another meaning.
-  for (const name of READ) if (!ONE_PAGE.has(name) && !SHARED.has(name)) assert.ok(!TOKEN_VALUE.has(name), name);
+  // Every other name it reads is its own: one it defines (in its sheet, or from its scripts). A name
+  // only base.css defines would have no value inside the one page.
+  for (const name of READ) if (!ONE_PAGE.has(name) && !SHARED.has(name)) assert.ok(DEFINED.has(name), `${name} is read and never defined by the reader`);
 });
 
 test('the alias block: each one-page token as base.css\'s token for it, the reader\'s ground as the one page has it', () => {

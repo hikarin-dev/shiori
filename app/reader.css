@@ -139,9 +139,9 @@
 }
 :where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn:hover:not(:disabled) { border-color: var(--muted-foreground); }
 :where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn.danger { background: var(--danger-fill); border-color: transparent; color: var(--danger); }
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn.danger { background: var(--destructive-fill); border-color: transparent; color: var(--destructive); }
 :where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn.danger:hover:not(:disabled) { background: var(--danger-fill-hover); border-color: transparent; }
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn.danger:hover:not(:disabled) { background: var(--destructive-fill-hover); border-color: transparent; }
 :where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn:disabled { opacity: .6; cursor: default; }
 
 /* ── Icon button in a dialog's corner: the close X, or a link beside it (base.css's) ── */

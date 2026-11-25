@@ -15,4 +15,7 @@
   --muted-foreground: var(--muted);
   --input: var(--border-strong);
   --warning: var(--accent2);
+  --destructive: var(--danger);
+  --destructive-fill: var(--danger-fill);
+  --destructive-fill-hover: var(--danger-fill-hover);
 }
