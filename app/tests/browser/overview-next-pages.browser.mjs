@@ -331,3 +331,45 @@ test('leaving the page five times mid-drag, with the add list open and a batch r
   await page.evaluate(async () => { const platform = await import('/app/js/platform.js'); for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind); });
   await page.close();
 });
+
+// 7d: on the phone form, left five times with a finger's drag held on a row's grip and the delete's
+// question open (pressed while the finger is still down): nothing of them stays (no row placed or
+// lifted, no question, no drag cursor), the order is not saved, and nothing grows.
+test('on a phone, leaving the page five times with a finger\'s drag held and a question open leaves nothing behind', { skip: !chromePath() }, async () => {
+  const page = await openPage(browser, origin);
+  await page.setViewport({ width: 390, height: 844, hasTouch: true, isMobile: true });
+  await page.evaluateOnNewDocument(instrument);
+  await page.evaluateOnNewDocument(holding);
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
+  await sleep(1500);
+  const cdp = await page.createCDPSession();
+  const touch = (type, touchPoints) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints });
+  const order = () => page.evaluate(async (g) => (await (await import('/app/js/api.js')).series.resolve(g)).chapters.map((c) => String(c.id)).join(), gid(base, 'S'));
+  const was = await order();
+  const counts = [];
+  for (let i = 0; i < 6; i++) {
+    await page.evaluate((path) => { history.pushState(null, '', path); dispatchEvent(new PopStateEvent('popstate')); }, `${NEW}?g=${gid(base, 'S')}`);
+    await until(page, () => document.querySelectorAll('.ch-row').length === 4 && !!document.querySelector('#seriesCover img'), null, { what: 'the overview' });
+    await page.$eval('.ch-row:nth-child(2)', (el) => el.scrollIntoView({ block: 'center' }));
+    await sleep(200);
+    const grip = await page.$eval('.ch-row:nth-child(2) .ch-grip', (el) => { const b = el.getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
+    await touch('touchStart', [{ x: grip.x, y: grip.y }]);
+    for (let k = 1; k <= 8; k++) { await touch('touchMove', [{ x: grip.x, y: grip.y + 10 * k }]); await sleep(20); }
+    await page.$eval('.ch-row:nth-child(3) [data-remove]', (el) => el.click());
+    await until(page, () => !!document.querySelector('.ch-row[data-dragging]') && !!document.querySelector('[data-notice="dialog"]'), null, { what: 'mid-drag, the question open' });
+    await page.evaluate(() => history.back());
+    await until(page, () => location.pathname === '/tasks' && !document.getElementById('ovContent'), null, { what: 'Tasks again' });
+    await touch('touchEnd', []);
+    await sleep(1500);
+    counts.push(await page.evaluate(() => ({ ...window.__held, workers: window.__thumbs.workers - window.__thumbs.ended, urls: window.__thumbs.urls.size,
+      rows: document.querySelectorAll('.ch-row').length, dialogs: document.querySelectorAll('[data-notice], [role="dialog"]').length,
+      dragging: document.body.classList.contains('ch-dragging') })));
+  }
+  assert.ok(counts.every((c) => c.workers === 0 && c.urls === 0 && c.rows === 0 && c.dialogs === 0 && !c.dragging), JSON.stringify(counts));
+  const but = ({ timers, ...c }) => c;
+  assert.deepEqual(counts.slice(1).map(but), Array(5).fill(but(counts[0])), JSON.stringify(counts));
+  assert.ok(Math.max(...counts.map((c) => c.timers)) - Math.min(...counts.map((c) => c.timers)) <= 1, JSON.stringify(counts));
+  assert.equal(await order(), was, 'the order not saved');
+  assert.deepEqual(page.problems, []);
+  await page.close();
+});
