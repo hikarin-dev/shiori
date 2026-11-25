@@ -1,9 +1,12 @@
 /* reader.css — the reader. Its colours are the one page's tokens (src/styles/tokens.css: --primary
    the brand colour, --muted-foreground secondary text, --reader-background the reader's ground…),
    which its own page gives it under those names from base.css's (reader-aliases.css). Reset, brand,
-   tooltip, context menu and the study-mode typefaces come from base.css. */
+   tooltip, context menu and the study-mode typefaces come from base.css.
+   What it sets on :root, html and body holds only while the reader is in the document: <html
+   data-reader>, the page's own mark (reader.html has it from the start; a page that draws the reader
+   sets it while the reader shows). :where() adds no weight, so each rule weighs what it did. */
 
-:root {
+:root:where([data-reader]) {
   --topbar-h: 54px; --botbar-h: 3px;
   --bar-zone: 12px;   /* how close to the progress bar's edge pointing grows it, and how thick it grows */
   --thumb-h: 88px; --zoom-inv: 1;
@@ -18,14 +21,14 @@
   --reader-fit-page-height: calc(100vh - var(--topbar-h) - var(--botbar-visual-h));
 }
 @media (pointer: coarse) {
-  :root { --sn-size: 44px; }
+  :root:where([data-reader]) { --sn-size: 44px; }
   :root .sn-btn svg { width: 20px; height: 20px; }
   /* No keyboard to use them with: the keyboard shortcuts button leaves both navigations. */
   :is(#snKeys, #keybindBtn) { display: none; }
 }
-html { background: var(--reader-background); color: var(--foreground); font-family: 'JetBrains Mono', monospace; }
+html:where([data-reader]) { background: var(--reader-background); color: var(--foreground); font-family: 'JetBrains Mono', monospace; }
 /* The reader never set a base text size: text that doesn't size itself keeps the browser's 16px. */
-body { font-size: 16px; }
+:where(html[data-reader]) body { font-size: 16px; }
 
 /* ── Chapter transition card (series only) ──
    "End of Ch. N" + prev/next chapter cards + Series/Home links. Rendered inline after a chapter's
@@ -1175,7 +1178,7 @@ body.reader-dim #doubleInner > * { filter: brightness(var(--reader-dim, 1)); }
 #sideNav, .sn-zone, #snChapters { display: none; }
 /* On <html>, set before the first paint (reader-init.js), so the top bar never shows first. */
 html.reader-side-nav #topbar, html.reader-side-nav #topbarReveal { display: none; }
-body {
+:where(html[data-reader]) body {
   /* See-through panels in the reader's own colour, with no border; a soft shadow lifts them off the page. */
   --sn-panel: color-mix(in srgb, var(--card) 82%, transparent);
   --sn-shadow: 0 16px 40px -16px rgba(0, 0, 0, 0.8);
@@ -1193,8 +1196,8 @@ body[data-bar="left"] { --sn-left: calc(8px + var(--bar-zone) * var(--zoom-inv))
 body[data-bar="right"] { --sn-right: calc(8px + var(--page-scrollbar-gap) + var(--bar-zone) * var(--zoom-inv)); }
 /* The classic go-to-top button stands on --sn-bottom: the bottom progress bar and an open (or opening)
    thumbnail strip. Zoom, a bottom rail and their hover zones work out their own from --sn-bar (below). */
-body { --sn-bottom: 0px; --sn-bar: 0px; }
-body:not(.bar-hidden) { --sn-bottom: var(--botbar-visual-h); --sn-bar: var(--botbar-visual-h); }
+:where(html[data-reader]) body { --sn-bottom: 0px; --sn-bar: 0px; }
+:where(html[data-reader]) body:not(.bar-hidden) { --sn-bottom: var(--botbar-visual-h); --sn-bar: var(--botbar-visual-h); }
 body.thumbs-open.bar-hidden { --sn-bottom: calc(var(--thumb-h) * var(--zoom-inv)); }
 body.thumbs-open:not(.bar-hidden) { --sn-bottom: calc(var(--thumb-h) * var(--zoom-inv) + var(--botbar-visual-h)); }
 body.thumbs-open.thumb-revealing { --sn-bottom: calc(var(--thumb-shown, 0px) * var(--zoom-inv) + var(--botbar-visual-h)); }
