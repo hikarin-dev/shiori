@@ -178,3 +178,40 @@ test('the add list opening and the bar lit by files over it: nothing lifted onto
   assert.deepEqual(await easedTransforms(page, '.ch-face'), [], 'the page eases no transform but a row button’s faces');
   assert.deepEqual(page.problems, []);
 });
+
+// 7d: a bar with no figure yet (Progress's block travelling, `progress-travel`: an animated transform,
+// the compositor's). Measured on a row's job and on the tracker's batch: the block alone is on a layer
+// for its animation, and nothing else is lifted that a bar with a figure (no motion of its own) does not
+// lift as well (Base UI's hidden fixed spans flip on and off either way): none of the page's words. The
+// track clips the block, so nothing painted after it can be overlapped by it. Nothing to move, then.
+test('a bar with no figure yet travels with nothing but its block on a layer: a row\'s job, the tracker\'s batch', async (t) => {
+  if (!browser) return t.skip('no Chrome');
+  const base = nextBase(1790016100000);
+  const page = await openRun(browser, origin, base);
+  t.after(async () => {
+    await page.evaluate(async () => { const platform = await import('/app/js/platform.js'); for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind); });
+    await page.close();
+  });
+  await page.setViewport({ width: 1280, height: 900 });
+  await visit(page, origin, NEW, gid(base, 'S'));
+  await page.mouse.move(1270, 890);
+  const watch = await layerWatch(page);
+  t.after(() => watch.close());
+  const publish = (job) => () => page.evaluate(async (job) => (await import('/app/js/platform.js')).jobs.publish(job), job);
+  const BLOCK = 'div[progress-indicator] [ActiveTransformAnimation]';
+  const still = await watch.during(publish({ gid: gid(base, 'S3'), kind: 'download', status: 'downloading', downloaded: 100, total: 1000, pages: 2 }));
+  assert.deepEqual(still.animated, []);
+  const row = await watch.during(publish({ gid: gid(base, 'S2'), kind: 'download', status: 'downloading', downloaded: 0, pages: 2 }));
+  assert.deepEqual(row.running, ['progress-travel'], 'met mid-way, the block travelling');
+  assert.deepEqual(row.animated, [BLOCK], 'its block alone is on a layer for the animation');
+  assert.deepEqual(row.gained.filter((l) => l !== BLOCK && !still.gained.includes(l)), [], 'nothing else lifted');
+  // The tracker's batch: its bar always has a figure here (a title's count); the tracker's bar with none is
+  // the library's "reading a drop" panel alone (text-layers.browser.mjs has the library and Tasks).
+  await publish({ gid: gid(base, 'S2'), kind: 'download', status: 'downloading', downloaded: 1, total: 2, pages: 2 })();
+  await until(page, () => ![...document.querySelectorAll('[data-slot="progress-indicator"]')].some((f) => getComputedStyle(f).animationName === 'progress-travel'), null, { what: 'no bar travelling' });
+  const batch = await watch.during(publish({ gid: 'import-travel', kind: 'import', status: 'progress', name: '2 items', total: 2, done: 0, imported: 0, skipped: 0, failed: 0, current: { name: 'One', done: 0, total: 0 }, startedAt: Date.now(), movedAt: Date.now() }));
+  assert.ok(await page.$('#ovImports .ib'), 'the batch in the tracker');
+  assert.deepEqual([batch.animated, batch.running.filter((r) => r === 'progress-travel')], [[], []], 'the batch\'s bar has a figure: nothing travels');
+  assert.deepEqual(await easedTransforms(page, '.ch-face'), [], 'still no transition of a transform');
+  assert.deepEqual(page.problems, []);
+});

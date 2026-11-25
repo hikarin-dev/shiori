@@ -7,9 +7,9 @@
 // list opened and closed, Settings' switch turned and list opened; and by what the pages ease at all.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startServer, chromePath, launch, openPage } from './harness.mjs';
+import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 import { startTranslator } from './stand-in-translator.mjs';
-import { openRun, nextBase, sleep } from './library-drive.mjs';
+import { openRun, seedRun, nextBase, sleep, PARTS } from './library-drive.mjs';
 import { layerWatch, easedTransforms } from './layers.mjs';
 
 let server, origin, browser, translator;
@@ -91,5 +91,36 @@ test('Settings: a switch turns and a list opens with nothing lifted onto a layer
     await sleep(250);
     assert.deepEqual(await easedTransforms(page), [], `no transform eased (${await tab.evaluate((el) => el.textContent.trim())})`);
   }
+  assert.deepEqual(page.problems, []);
+});
+
+// 7d: a bar with no figure yet (Progress's block travelling: an animated transform). On Tasks, a
+// download's row: its block alone is on a layer for the animation, and nothing else is lifted that a bar
+// with a figure does not lift too: none of the page's words (the track clips the block). The overview's
+// rows are held in overview-next-layers.browser.mjs.
+test('Tasks: a job\'s bar with no figure yet travels with nothing but its block on a layer', async (t) => {
+  if (!browser) return t.skip('no Chrome');
+  const base = nextBase(1790015100000);
+  const page = await openPage(browser, origin);
+  t.after(async () => {
+    await page.evaluate(async () => { const platform = await import('/app/js/platform.js'); for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind); });
+    await page.close();
+  });
+  await page.setViewport({ width: 1280, height: 900 });
+  await seedRun(page, origin, base);
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
+  await sleep(800);
+  await page.mouse.move(1270, 890);
+  const watch = await layerWatch(page);
+  t.after(() => watch.close());
+  const publish = (job) => () => page.evaluate(async (job) => (await import('/app/js/platform.js')).jobs.publish(job), job);
+  const BLOCK = 'div[progress-indicator] [ActiveTransformAnimation]';
+  const still = await watch.during(publish({ gid: String(base + PARTS.S), kind: 'download', status: 'downloading', downloaded: 100, total: 1000, pages: 2 }));
+  assert.deepEqual(still.animated, []);
+  const moving = await watch.during(publish({ gid: String(base + PARTS.P), kind: 'download', status: 'downloading', downloaded: 0, pages: 2 }));
+  assert.ok(await page.$('[data-slot="progress-indicator"]'), 'the rows drawn');
+  assert.deepEqual(moving.running, ['progress-travel'], 'met mid-way, the block travelling');
+  assert.deepEqual(moving.animated, [BLOCK], 'its block alone is on a layer for the animation');
+  assert.deepEqual(moving.gained.filter((l) => l !== BLOCK && !still.gained.includes(l)), [], 'nothing else lifted');
   assert.deepEqual(page.problems, []);
 });

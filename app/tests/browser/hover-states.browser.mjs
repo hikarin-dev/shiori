@@ -14,6 +14,8 @@ import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 import { openRun, nextBase, publish, sleep, PARTS } from './library-drive.mjs';
 import { hoverChanges } from './hover-audit.mjs';
+import { startTranslator } from './stand-in-translator.mjs';
+import * as ov from './overview-drive.mjs';
 
 let server, origin, browser;
 
@@ -115,6 +117,52 @@ test('the overview (a gallery and a series, 1.3\'s page and the new one) and the
       assert.ok(changes.some((c) => /add-res|listbox-option/.test(c.element)), `${name}: the add list's results measured (${changes.map((c) => c.element).join('; ')})`);
     }
     await page.close();
+  }
+});
+
+// 7d: the new overview in the states that have more to point at: a row with a job (its bar, its Stop),
+// a row's pages open (its tiles, its toggle on), the re-run menu open (a translated chapter's steps), the
+// tag editor open, and the phone form (a row's buttons shown with no pointer over them). 1.3's page beside
+// it in each, as above.
+test('the overview\'s other states: a row with a job, a row\'s pages open, the re-run menu, the tag editor, the phone form', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const tr = await startTranslator();
+  t.after(() => tr.close());
+  const base = ov.nextBase(1790009700000);
+  const page = await ov.openRun(browser, origin, base, { translator: tr.origin, storage: { 'shiori:translateSettings': { serverUrl: tr.origin } } });
+  t.after(async () => { await page.evaluate(async () => { const platform = await import('/app/js/platform.js'); for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind); }); await page.close(); });
+  const row = (part) => ov.rowSel(base, part);
+  for (const path of [ov.OLD, ov.NEW]) {
+    const name = path === ov.NEW ? 'the new overview' : 'the overview';
+    await page.setViewport({ width: 1280, height: 900 });
+    await ov.visit(page, origin, path, ov.gid(base, 'S'));
+    await until(page, () => getComputedStyle(document.querySelector('.ch-row:not(.missing) [data-translate]')).display !== 'none', null, { what: 'the translation server' });
+    await ov.publish(page, { gid: ov.gid(base, 'S2'), kind: 'download', status: 'downloading', downloaded: 100, total: 1000, pages: 2 });
+    await page.hover(`${row('S')} .ch-main`);
+    await page.click(`${row('S')} [data-expand]`);
+    await until(page, (s) => !!document.querySelector(`${s}.working`) && [...document.querySelectorAll('.ch-row.expanded .ov-page img')].some((i) => i.getAttribute('src')), row('S2'), { what: `${name}: a job and a row's pages` });
+    await sleep(300);
+    const changes = await nothingDarker(page, `${name}, a row with a job and a row's pages open`, 15);
+    assert.ok(changes.some((c) => /ov-page/.test(c.element)), `${name}: the tiles measured`);
+    await page.hover(`${row('S3')} .ch-main`);
+    await page.click(`${row('S3')} [data-translate]`, { button: 'right' });
+    await until(page, () => [...document.querySelectorAll('.rerun-menu')].some((m) => m.getClientRects().length), null, { what: `${name}: the menu` });
+    await sleep(400);
+    await nothingDarker(page, `${name}, the re-run menu open`, 15);
+    await page.keyboard.press('Escape');
+    await sleep(300);
+    await page.$eval('#editToggle', (el) => el.click());
+    await page.$eval('.ov-chip-add', (el) => el.click());
+    await until(page, () => !!document.querySelector('.modal-overlay.show #tagEdType, [data-slot="dialog"] #tagEdType'), null, { what: `${name}: the tag editor` });
+    await sleep(400);
+    await nothingDarker(page, `${name}, the tag editor open`, 8);
+    await page.keyboard.press('Escape');
+    await sleep(300);
+    await page.setViewport({ width: 390, height: 844, hasTouch: true, isMobile: true });
+    await ov.visit(page, origin, path, ov.gid(base, 'S'));
+    await sleep(300);
+    const phone = await nothingDarker(page, `${name}, on a phone`, 15);
+    assert.ok(phone.some((c) => /ch-ibtn/.test(c.element)), `${name}: a row's shown buttons measured`);
   }
 });
 
