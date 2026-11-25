@@ -6,8 +6,7 @@
 // first paint:
 //   - the common header's frame, which index.html holds, shows on the routes that have that header
 //     (html[data-frame="header"]); never where this page is about to hand the visitor on to another
-//     file, nor where it says "Not found."; in the route's own form where it has one
-//     (html[data-header-form], the route table's `form`);
+//     file, nor where it says "Not found.";
 //   - the shiori-app meta, on the app's own pages, so the page says which it is from its first parse,
 //     as 1.3's pages did in their markup (what recognises the app by it may look once, as a page
 //     loads); src/frame.tsx keeps that element and changes it with the page;
@@ -35,7 +34,6 @@
   const drawn = file === null || file === START.appPage;   // an address the app doesn't have is drawn here too
   const route = drawn ? START.routes[segment] : undefined;
   if (route && route.header) html.dataset.frame = 'header';
-  if (route && route.header && route.form) html.dataset.headerForm = route.form;
 
   const add = (tag, attributes) => {
     const el = document.createElement(tag);

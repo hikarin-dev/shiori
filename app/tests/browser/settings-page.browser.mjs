@@ -255,32 +255,31 @@ test('About: opens with its close focused, the version and the changelog drawn; 
   assert.deepEqual(page.problems, []);
 });
 
-// The frame's header across a route change: the same node, the brand on the same pixels, Settings'
-// form on <html> while Settings shows.
-test('the header is the frame\'s: /settings ↔ /tasks, the same node, the brand unmoved, its form following the route', async (t) => {
+// The frame's header across a route change: the same node, the brand on the same pixels (every part
+// of the header's left is held, page against page, by header-places.browser).
+test('the header is the frame\'s: /settings ↔ /tasks, the same node, the brand unmoved', async (t) => {
   for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844, isMobile: true, hasTouch: true }]) {
     const page = await open(t, ADDRESS, { viewport });
     if (!page) return;
     const look = () => page.evaluate(() => {
       const band = document.querySelector('#root > header');
       const r = band.querySelector('.brand-wrap').getBoundingClientRect();
-      return { same: window.__band === band, brand: [r.x, r.y, r.width, r.height], form: document.documentElement.dataset.headerForm ?? null,
+      return { same: window.__band === band, brand: [r.x, r.y, r.width, r.height],
         page: band.querySelector('#pageNav')?.dataset.page ?? null, right: [...band.querySelector('.header-right').children].map((el) => el.id || el.dataset.slot),
         meta: document.querySelector('meta[name="shiori-app"]')?.content ?? null, padding: getComputedStyle(band).paddingLeft, title: document.title };
     });
     await page.evaluate(() => { window.__band = document.querySelector('#root > header'); window.stayed = true; });
     const settings = await look();
-    assert.deepEqual({ ...settings, brand: null }, { same: true, brand: null, form: 'settings', page: 'settings', right: ['aboutBtn'], meta: 'settings',
-      padding: viewport.width <= 520 ? '12px' : '20px', title: 'Shiori — Settings' });
+    assert.deepEqual({ ...settings, brand: null }, { same: true, brand: null, page: 'settings', right: ['aboutBtn'], meta: 'settings',
+      padding: viewport.width <= 600 ? '12px' : '20px', title: 'Shiori — Settings' });
     // A plain link to /tasks is followed inside the app (a route change).
     await page.evaluate(() => { const a = document.createElement('a'); a.href = '/tasks'; a.id = 'toTasks'; a.textContent = 'tasks'; document.body.append(a); });
     await page.$eval('#toTasks', (a) => a.click());
     await until(page, () => document.title === 'Shiori — Tasks' && !!document.getElementById('tkList'), null, { what: 'Tasks' });
     const tasks = await look();
-    assert.deepEqual({ ...tasks, brand: null }, { same: true, brand: null, form: null, page: 'tasks', right: ['stat', 'stopAllBtn', 'settingsBtn'], meta: 'tasks',
-      padding: viewport.width <= 600 ? tasks.padding : '20px', title: 'Shiori — Tasks' });
-    if (viewport.width > 520) assert.deepEqual(tasks.brand, settings.brand, 'the brand where it was');
-    else assert.deepEqual([tasks.brand[1], tasks.brand[2], tasks.brand[3]], [settings.brand[1], settings.brand[2], settings.brand[3]], 'the brand as high and as wide (Settings\' phone form sets it 12px in, as 1.3)');
+    assert.deepEqual({ ...tasks, brand: null }, { same: true, brand: null, page: 'tasks', right: ['stat', 'stopAllBtn', 'settingsBtn'], meta: 'tasks',
+      padding: viewport.width <= 600 ? '12px' : '20px', title: 'Shiori — Tasks' });
+    assert.deepEqual(tasks.brand, settings.brand, 'the brand where it was');
     await page.evaluate(() => history.back());
     await until(page, (path) => location.pathname === path && !!document.getElementById('libMergeSeries'), ADDRESS, { what: 'back on Settings' });
     const back = await look();

@@ -64,12 +64,12 @@ export function HeaderSpecimens() {
       <Shape id="page-menu" name="Page menu" used="Every page's header: '/ Library ▾', the page's name as a menu of the app's pages (a gallery's overview where the address names one, the reader in the reader). Choosing one goes there.">
         <Line label="ghost · xs" states={['rest', 'hover', 'focus']} render={(state) => <div className="flex items-center gap-[10px]"><span className="brand-sep">/</span>{page('library', state)}</div>} />
       </Shape>
-      <Shape id="settings-header" name="Settings header" used="Settings: the two parts held apart, About at the right; 12px in at 520px or less. F33 (your call): opaque as the other pages', or 1.3's see-through blur.">
+      <Shape id="settings-header" name="Settings header" used="Settings: the common header, About at the right. F33 (your call): opaque as the other pages', or 1.3's see-through blur.">
         <Framed label="opaque (F33)">
-          <AppHeader form="settings" page={page('settings')} right={<Button variant="subtle" size="sm">{t('nav.about')}</Button>} {...tag('settings-header', 'opaque', 'rest')} />
+          <AppHeader page={page('settings')} right={<Button variant="subtle" size="sm">{t('nav.about')}</Button>} {...tag('settings-header', 'opaque', 'rest')} />
         </Framed>
         <Framed label="translucent (1.3)">
-          <AppHeader form="settings" translucent page={<PageMenu page="settings" id="pageNav-settings-translucent" />} right={<Button variant="subtle" size="sm">{t('nav.about')}</Button>} {...tag('settings-header', 'translucent', 'rest')} />
+          <AppHeader translucent page={<PageMenu page="settings" id="pageNav-settings-translucent" />} right={<Button variant="subtle" size="sm">{t('nav.about')}</Button>} {...tag('settings-header', 'translucent', 'rest')} />
         </Framed>
       </Shape>
     </Section>

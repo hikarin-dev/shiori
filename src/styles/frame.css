@@ -1,8 +1,10 @@
-/* frame.css — the common header (AppHeader, src/components/ui/app-header.tsx), as 1.3's pages draw it
-   (library.css's and 1.3's Settings page's header, base.css's brand). index.html paints its band and brand
-   before any script has run, on the routes that have the header (start.js sets html[data-frame]);
-   React draws the same markup in its place (src/frame.tsx), on the same pixels. Its forms are here
-   too, in plain CSS: they answer the window's width inclusively, as 1.3's did. */
+/* frame.css — the common header (AppHeader, src/components/ui/app-header.tsx), as 1.3's library drew
+   it (library.css's header, base.css's brand). index.html paints its band and brand before any script
+   has run, on the routes that have the header (start.js sets html[data-frame]); React draws the same
+   markup in its place (src/frame.tsx), on the same pixels. One header, the same on every page: the
+   logo, the name, the "/" and the page menu stand on the same pixels whichever page shows, so nothing
+   of them moves on a change of page (header-places.browser holds it). Its phone form is here too, in
+   plain CSS: it answers the window's width inclusively, as 1.3's did. */
 @layer components {
   :root:not([data-frame="header"]) .app-header { display: none; }
 
@@ -41,24 +43,15 @@
   /* The search box's place (SearchField): up to 670px, giving way first. */
   .app-header .search-wrap { position: relative; width: 670px; flex-shrink: 1; display: flex; align-items: center; }
 
-  /* Settings' header: its two parts held apart, on Settings' line (the brand's 1.2), the page menu
-     giving way first. Its form is the header's own (AppHeader's form="settings") or the page's: the
-     frame's header takes the route's form from <html> (html[data-header-form], which start.js sets
-     before the first paint and the frame while the route shows). */
-  .app-header:is([data-form="settings"], [data-header-form="settings"] *) {
-    justify-content: space-between; line-height: 1.5;
-    & .header-left { flex: initial; overflow: visible; }
-    & .header-right { flex: 0 0 auto; }
-    & .brand-text { line-height: 1.2; }
-    & .header-left > :is(.page-nav, [data-slot="select"]:has(> .page-nav)) { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-    @media (max-width: 520px) { padding-left: 12px; padding-right: calc(12px + var(--page-scrollbar-gap)); }
-  }
   /* §5.3 F33, the owner's call: 1.3's Settings header, see-through under a blur. */
   .app-header[data-translucent] { background: color-mix(in srgb, var(--card) 94%, transparent); backdrop-filter: blur(10px); }
 
-  /* A phone: a header with a search wraps, the search on a row of its own under the brand, the page
-     menu and the buttons; the brand's word and the "/" give way so the menu keeps its place. */
+  /* A phone: every page's header comes 12px in at the sides (the library's did, and Settings' from
+     520px down; Tasks' kept 20: the logo moved 8px between them). A header with a search wraps
+     besides, the search on a row of its own under the brand, the page menu and the buttons; the
+     brand's word and the "/" give way so the menu keeps its place. */
   @media (max-width: 600px) {
+    .app-header { padding-left: 12px; padding-right: calc(12px + var(--page-scrollbar-gap)); }
     .app-header:has(.search-wrap) { flex-wrap: wrap; height: auto; min-height: 54px; padding: 7px 12px; gap: 8px; }
     .app-header:has(.search-wrap) .header-left { display: contents; }
     .app-header:has(.search-wrap) :is(.brand-text, .brand-sep) { display: none; }

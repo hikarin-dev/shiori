@@ -54,11 +54,11 @@ function closure(files, chunks, root) {
 // route table (src/routes.ts): each route's header and its form, what its shiori-app meta says (the
 // app's own pages: the page's name), and its preload list. In the dev server, with no bundle: the map,
 // the header and the meta alone.
-/** @param {{ bundle?: Record<string, any> | null, routes: Record<string, { page: string, app: boolean, header: boolean, form?: string }>, root?: string }} options */
+/** @param {{ bundle?: Record<string, any> | null, routes: Record<string, { page: string, app: boolean, header: boolean }>, root?: string }} options */
 export function startData({ bundle = null, routes, root = ROOT }) {
   const data = { appPage: APP_PAGE, pages: PAGES, entry: null, start: [], routes: {} };
   for (const [segment, route] of Object.entries(routes)) {
-    data.routes[segment] = { header: route.header, form: route.form ?? null, meta: route.app ? route.page : null, preload: [] };
+    data.routes[segment] = { header: route.header, meta: route.app ? route.page : null, preload: [] };
   }
   if (!bundle) return data;
 

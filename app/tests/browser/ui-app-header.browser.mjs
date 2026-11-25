@@ -46,29 +46,34 @@ test('the page header: 1.3\'s band, brand, "/" and page menu, its right part', a
   assert.deepEqual(page.problems, []);
 });
 
-test('Settings\' header: its parts apart, its line, opaque by default (F33) and 1.3\'s blur one prop away', async (t) => {
+test('Settings\' header: the common one, opaque by default (F33) and 1.3\'s blur one prop away', async (t) => {
   const page = await componentsPage(t, browser, origin);
   if (!page) return;
   const opaque = await look(page, spec('settings-header', 'opaque'));
   const glass = await look(page, spec('settings-header', 'translucent'));
-  assert.deepEqual([opaque.justify, opaque.line, opaque.padding, opaque.text[3]], ['space-between', '19.5px', '0px 20px', 18], 'the brand on its 1.2 line, as Settings\' had it');
+  // No form of its own: the line, the sides and the brand's line are every page's (1.3's Settings page
+  // had space-between, a 1.5 line and the brand on 1.2, which moved the header's words by a fraction of
+  // a pixel when the page changed).
+  const common = await look(page, spec('app-header', 'default'));
+  assert.deepEqual([opaque.justify, opaque.line, opaque.padding, opaque.text], [common.justify, common.line, common.padding, common.text], 'as the page header');
+  assert.equal(opaque.text[3], 20, 'the brand on its 20px line');
   assert.deepEqual([opaque.ground, opaque.blur], ['rgb(22, 22, 26)', 'none']);
   assert.deepEqual([glass.ground, glass.blur], ['color(srgb 0.0862745 0.0862745 0.101961 / 0.94)', 'blur(10px)']);
   assert.deepEqual(opaque.brand, glass.brand);
   assert.deepEqual(page.problems, []);
 });
 
-test('on a phone: the page header keeps its band; Settings\' comes 12px in', async (t) => {
+test('on a phone: the page header keeps its band, 12px in on every page', async (t) => {
   const page = await componentsPage(t, browser, origin, { width: 390, height: 844, isMobile: true, hasTouch: true });
   if (!page) return;
   const overview = await look(page, spec('app-header', 'overview'));
-  assert.deepEqual([overview.height, overview.padding, overview.brand[0], overview.text[2]], [54, '0px 20px', 20, 52.2]);
+  assert.deepEqual([overview.height, overview.padding, overview.brand[0], overview.text[2]], [54, '0px 12px', 12, 52.2]);
   const settings = await look(page, spec('settings-header', 'opaque'));
   assert.deepEqual([settings.height, settings.padding, settings.brand[0]], [54, '0px 12px', 12]);
-  // At 521px the desktop's 20 again (inclusive at 520, as 1.3's).
-  await page.setViewport({ width: 521, height: 844, isMobile: true, hasTouch: true });
-  assert.equal((await look(page, spec('settings-header', 'opaque'))).padding, '0px 20px');
-  await page.setViewport({ width: 520, height: 844, isMobile: true, hasTouch: true });
-  assert.equal((await look(page, spec('settings-header', 'opaque'))).padding, '0px 12px');
+  // At 601px the desktop's 20 again (inclusive at 600, as the library's header was).
+  await page.setViewport({ width: 601, height: 844, isMobile: true, hasTouch: true });
+  for (const name of [['app-header', 'overview'], ['settings-header', 'opaque']]) assert.equal((await look(page, spec(...name))).padding, '0px 20px');
+  await page.setViewport({ width: 600, height: 844, isMobile: true, hasTouch: true });
+  for (const name of [['app-header', 'overview'], ['settings-header', 'opaque']]) assert.equal((await look(page, spec(...name))).padding, '0px 12px');
   assert.deepEqual(page.problems, []);
 });

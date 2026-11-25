@@ -69,9 +69,11 @@ const frame = () => {
     painted: performance.getEntriesByType('paint').some((e) => e.name === 'first-contentful-paint') };
 };
 
-// 1.3's header at every size (the baseline's tasks page, plans/frontend-react-probes): the band 54px
-// high, the brand at 20px from the left.
-const BRAND = { brand: [20, 14.5, 84.203125, 24], icon: [20, 14.5, 24, 24], text: [52, 16.5, 52.203125, 20] };
+// The header on every page (1.3's, by the baseline's tasks page, plans/frontend-react-probes): the band
+// 54px high, the brand 20px from the left; 12px at 600px or less, on every page alike (1.3's library
+// and Settings had 12 there and its Tasks 20: one header now, so the logo does not move between pages).
+const BRAND_AT = (x) => ({ brand: [x, 14.5, 84.203125, 24], icon: [x, 14.5, 24, 24], text: [x + 32, 16.5, 52.203125, 20] });
+const BRAND = BRAND_AT(20);
 
 for (const [name, size] of [['desktop', { width: 1280, height: 900 }], ['phone', { width: 390, height: 844, isMobile: true, hasTouch: true }]]) {
   test(`${name}: the header's frame is painted before the app runs, as 1.3 draws it, and React draws it on the same pixels`, async (t) => {
@@ -85,7 +87,7 @@ for (const [name, size] of [['desktop', { width: 1280, height: 900 }], ['phone',
     assert.equal(painted.mounted, false, 'the app has not run (its entry is held back)');
     assert.deepEqual([painted.frame, painted.shown, painted.painted], ['header', true, true], 'the frame shows, painted');
     assert.match(painted.font, /JetBrains Mono/);
-    for (const part of ['brand', 'icon', 'text']) assert.deepEqual(painted[part], BRAND[part], `${part}: where 1.3 has it`);
+    for (const part of ['brand', 'icon', 'text']) assert.deepEqual(painted[part], BRAND_AT(size.width <= 600 ? 12 : 20)[part], `${part}: where every page has it`);
     assert.deepEqual(painted.band, [0, 0, size.width, 54], 'the band: the window\'s width, 54px');
 
     page.release();
@@ -167,11 +169,11 @@ for (const [path, segment] of [['/', ''], ['/library', 'library']]) test(`a hard
   assert.deepEqual(page.problems, []);
 });
 
-// 1.3's Settings header (the baseline's settings-library): the brand on Settings' 1.2 line, 12px in at
-// 520px or less.
-const SETTINGS_BRAND = (x) => ({ brand: [x, 14.5, 84.203125, 24], icon: [x, 14.5, 24, 24], text: [x + 32, 17.5, 52.203125, 18] });
+// Settings' header is the common one (1.3's Settings page had a header of its own: the brand on a 1.2
+// line, 12px in at 520px or less).
+const SETTINGS_BRAND = BRAND_AT;
 for (const [name, size, x] of [['desktop', { width: 1280, height: 900 }, 20], ['phone', { width: 390, height: 844, isMobile: true, hasTouch: true }, 12]]) {
-  test(`${name}, Settings (/settings): the frame is painted in Settings' form before the app runs, as 1.3 draws it; the page fills it with the brand where it was`, async (t) => {
+  test(`${name}, Settings (/settings): the frame is painted before the app runs, the brand where every page has it; the page fills it with the brand where it was`, async (t) => {
     const page = await fresh(t, { size });
     if (!page) return;
     await page.goto(`${origin}/settings`, { waitUntil: 'domcontentloaded' });
@@ -180,8 +182,7 @@ for (const [name, size, x] of [['desktop', { width: 1280, height: 900 }, 20], ['
     await until(page, () => performance.getEntriesByType('paint').length > 0, undefined, { what: 'a paint' });
     const painted = await page.evaluate(frame);
     assert.deepEqual([painted.frame, painted.shown, painted.painted, painted.mounted], ['header', true, true, false], 'the frame shows, painted, before the app');
-    assert.equal(await page.evaluate(() => document.documentElement.dataset.headerForm), 'settings');
-    for (const part of ['brand', 'icon', 'text']) assert.deepEqual(painted[part], SETTINGS_BRAND(x)[part], `${part}: where 1.3 has it`);
+    for (const part of ['brand', 'icon', 'text']) assert.deepEqual(painted[part], SETTINGS_BRAND(x)[part], `${part}: where every page has it`);
     page.release();
     await until(page, () => document.title === 'Shiori — Settings' && !!document.getElementById('libMergeSeries'), undefined, { what: 'the page drawn' });
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
