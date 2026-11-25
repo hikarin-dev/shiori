@@ -279,3 +279,55 @@ test('leaving the page five times in edit mode, a question open and a job runnin
   await page.evaluate(async () => { const platform = await import('/app/js/platform.js'); for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind); });
   await page.close();
 });
+
+// 7c: left five times mid-drag (the pointer still held on a grip), with the add list open and a batch of
+// imports running in the tracker: nothing of them stays (the drag's place and look on no row, the page's
+// drag cursor, the list, the tracker's panels), the order is not saved, and nothing grows.
+test('leaving the page five times mid-drag, with the add list open and a batch running, leaves nothing behind', { skip: !chromePath() }, async () => {
+  const page = await openPage(browser, origin);
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.evaluateOnNewDocument(instrument);
+  await page.evaluateOnNewDocument(holding);
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
+  await sleep(1500);
+  const order = () => page.evaluate(async (g) => (await (await import('/app/js/api.js')).series.resolve(g)).chapters.map((c) => String(c.id)).join(), gid(base, 'S'));
+  const was = await order();
+  const counts = [];
+  for (let i = 0; i < 6; i++) {
+    await page.evaluate((path) => { history.pushState(null, '', path); dispatchEvent(new PopStateEvent('popstate')); }, `${NEW}?g=${gid(base, 'S')}`);
+    await until(page, () => document.querySelectorAll('.ch-row').length === 4 && !!document.querySelector('#seriesCover img'), null, { what: 'the overview' });
+    // A batch of imports running (as its runner tells of it; the same one each time: Tasks, where the page
+    // is left for, shows it too).
+    await publish(page, { gid: 'import-left', kind: 'import', status: 'progress', name: '2 items', total: 2, done: 0, imported: 0, skipped: 0, failed: 0, bytes: 527, bytesDone: 0, current: { name: 'Next One', done: 0, total: 2, bytes: 300 }, startedAt: Date.now(), movedAt: Date.now() });
+    await until(page, () => !!document.querySelector('#ovImports .ib[data-state="running"]'), null, { what: 'the batch in the tracker' });
+    // The add list open.
+    await page.$eval('#addSearch', (el) => { el.value = ''; el.scrollIntoView({ block: 'center' }); });
+    await page.click('#addSearch');
+    await page.type('#addSearch', 'gallery', { delay: 10 });
+    await until(page, () => document.querySelectorAll('#addResults .add-res').length > 0, null, { what: 'the add list' });
+    // A row's grip pressed and dragged, the pointer still held as the page is left.
+    await page.$eval('.ch-row:nth-child(1)', (el) => el.scrollIntoView({ block: 'center' }));
+    const grip = await page.$eval('.ch-row:nth-child(1) .ch-grip', (el) => { const b = el.getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
+    await page.mouse.move(grip.x + 30, grip.y); await page.mouse.move(grip.x, grip.y); await sleep(100);
+    await page.mouse.down();
+    await page.mouse.move(grip.x, grip.y + 80, { steps: 8 });
+    await until(page, () => !!document.querySelector('.ch-row[data-dragging]') && !!document.getElementById('addResults'), null, { what: 'mid-drag, the list open' });
+    await page.evaluate(() => history.back());
+    await until(page, () => location.pathname === '/tasks' && !document.getElementById('ovContent'), null, { what: 'Tasks again' });
+    await page.mouse.up();
+    await sleep(1500);
+    counts.push(await page.evaluate(() => ({ ...window.__held, workers: window.__thumbs.workers - window.__thumbs.ended, urls: window.__thumbs.urls.size,
+      rows: document.querySelectorAll('.ch-row').length, tips: document.querySelectorAll('.shiori-tip').length, list: document.querySelectorAll('#addResults').length,
+      panels: document.querySelectorAll('#ovImports .ib').length, dragging: document.body.classList.contains('ch-dragging') })));
+  }
+  assert.ok(counts.every((c) => c.workers === 0 && c.urls === 0 && c.rows === 0 && c.list === 0 && c.panels === 0 && !c.dragging), JSON.stringify(counts));
+  // (Tasks, where the page is left for, shows the batch too: its timers of over a second come and go with
+  // its own pace, one more or less at the moment counted, never more each time.)
+  const but = ({ timers, ...c }) => c;
+  assert.deepEqual(counts.slice(1).map(but), Array(5).fill(but(counts[0])), JSON.stringify(counts));
+  assert.ok(Math.max(...counts.map((c) => c.timers)) - Math.min(...counts.map((c) => c.timers)) <= 1, JSON.stringify(counts));
+  assert.equal(await order(), was, 'the order not saved');
+  assert.deepEqual(page.problems, []);
+  await page.evaluate(async () => { const platform = await import('/app/js/platform.js'); for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind); });
+  await page.close();
+});
