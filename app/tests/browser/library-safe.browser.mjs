@@ -1,4 +1,4 @@
-// library-next-safe.browser.mjs — Safe Mode on /library-next, held to what 1.3's page (/library) gave
+// library-safe.browser.mjs — Safe Mode on /library, held to what 1.3's page gave
 // driven alike. On: the covers not rated safe or suggestive blurred, every card's words stood in for as 1.3's
 // (the title word by word, each tag, the id's digits: each word against its real one and against 1.3's
 // pool), the flags and "+" left, the id no link; a card landing while it is on (the next page, a new
@@ -21,7 +21,7 @@ import { startServer, chromePath, launch, openPage, until } from './harness.mjs'
 import { readDialog, answer, sleep } from './library-drive.mjs';
 import { record } from './records.mjs';
 
-const NEW = '/library-next';
+const NEW = '/library';
 const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser;
 const BASE = 1790006000000;

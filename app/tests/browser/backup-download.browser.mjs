@@ -140,7 +140,7 @@ test('a cut-short download dropped on the library is recognised by its content, 
   assert.deepEqual(await page.evaluate(async () => (await import('/app/js/api.js')).transfer.ids()), []);
 
   // The library as the one page draws it (until 2026-11-25, 1.3's page).
-  await page.goto(`${origin}/library-next`, { waitUntil: 'load' });
+  await page.goto(`${origin}/library`, { waitUntil: 'load' });
   await page.waitForSelector('#grid');
   await page.evaluate(() => { const i = document.createElement('input'); i.type = 'file'; i.id = 'pick'; i.hidden = true; document.body.append(i); });
   await (await page.$('#pick')).uploadFile(backup);

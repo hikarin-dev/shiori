@@ -120,12 +120,12 @@ test('/tasks: the frame painted before the app runs; the page fills it with the 
   assert.deepEqual(page.problems, []);
 });
 
-// The library as the one page draws it (/library-next): the frame painted before the app runs, React's
-// header on its pixels with the page's parts in it, nothing shifting as the page and its cards come.
-test('/library-next: the frame painted before the app runs; the page fills it with the brand where it was, and nothing shifts', async (t) => {
+// The library, at the site's root and at /library: the frame painted before the app runs, React's header
+// on its pixels with the page's parts in it, nothing shifting as the page and its cards come.
+for (const path of ['/', '/library']) test(`${path}: the frame painted before the app runs; the page fills it with the brand where it was, and nothing shifts`, async (t) => {
   const page = await fresh(t);
   if (!page) return;
-  await page.goto(`${origin}/library-next`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${origin}${path}`, { waitUntil: 'domcontentloaded' });
   await until(page, async () => { await document.fonts.ready; return document.querySelector('.brand-icon img').complete && document.fonts.check('700 15px "JetBrains Mono"'); },
     undefined, { what: 'the frame\'s font and icon' });
   await until(page, () => performance.getEntriesByType('paint').length > 0, undefined, { what: 'a paint' });
@@ -142,15 +142,15 @@ test('/library-next: the frame painted before the app runs; the page fills it wi
   assert.deepEqual(page.problems, []);
 });
 
-test('a hard load of /library-next asks for every module it runs at once, by the list, and for none the list did not name', async (t) => {
+for (const [path, segment] of [['/', ''], ['/library', 'library']]) test(`a hard load of ${path} asks for every module it runs at once, by the list, and for none the list did not name`, async (t) => {
   const page = await fresh(t);
   if (!page) return;
   page.release();
-  await page.goto(`${origin}/library-next`, { waitUntil: 'load' });
+  await page.goto(`${origin}${path}`, { waitUntil: 'load' });
   await until(page, () => document.title === 'Shiori — Library' && !!document.getElementById('grid'), undefined, { what: 'the route drawn' });
   await new Promise((r) => setTimeout(r, 500));
   const { entry, start, routes } = START();
-  const listed = new Set([entry, ...start, ...routes['library-next'].preload].map((f) => `/${f}`));
+  const listed = new Set([entry, ...start, ...routes[segment].preload].map((f) => `/${f}`));
   const classic = new Set(['/app/font-init.js', '/start.js']);
   const modules = page.asked.filter((r) => r.type === 'script' && !classic.has(r.url)).map((r) => r.url);
   assert.ok(modules.length > 40, `the page ran its modules (${modules.length})`);
@@ -225,6 +225,20 @@ test('the shiori-app meta is in the page before the app runs, on the app\'s own 
   other.release();
   await until(other, () => document.title === 'Shiori — Components' && !!document.querySelector('#root main'), undefined, { what: 'the route drawn' });
   assert.equal(await other.evaluate(() => document.querySelectorAll('meta[name="shiori-app"]').length), 0);
+});
+
+test('the library says it is the library in the shiori-app meta from its first parse, at / and at /library, as on 1.3', async (t) => {
+  for (const path of ['/', '/library', '/?q=x&page=2']) {
+    const page = await fresh(t);
+    if (!page) return;
+    await page.goto(`${origin}${path}`, { waitUntil: 'domcontentloaded' });
+    assert.equal(await page.evaluate(() => !!document.querySelector('#root main')), false, 'the app has not run (its entry is held back)');
+    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('meta[name="shiori-app"]')].map((m) => m.content)), ['library'], `${path}: there once the page is parsed`);
+    page.release();
+    await until(page, () => document.title === 'Shiori — Library' && !!document.querySelector('#root main.library-page'), undefined, { what: 'the library drawn' });
+    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('meta[name="shiori-app"]')].map((m) => m.content)), ['library']);
+    assert.deepEqual(page.problems, []);
+  }
 });
 
 test('where the page hands the visitor on (the reader\'s address), no frame shows and none of the app is fetched', async (t) => {

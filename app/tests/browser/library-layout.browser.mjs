@@ -1,5 +1,5 @@
-// library-next-layout.browser.mjs — the layout checklist (the layout-principles skill) for what a card
-// opens on /library-next: the delete question with its cover, the series' translation window, the tag
+// library-layout.browser.mjs — the layout checklist (the layout-principles skill) for what a card
+// opens on /library: the delete question with its cover, the series' translation window, the tag
 // editor with its suggestions, and the re-run menu. Each at the desktop width, the narrow one and a
 // phone's, at 100%, 125% and 150% scale, with a gallery whose title runs long: inside the window (8px
 // or more from its edges), drawn at once and never moving or changing size after (the CPU slowed six
@@ -17,7 +17,7 @@ import { startTranslator } from './stand-in-translator.mjs';
 import { openRun, nextBase, press, sleep, PARTS } from './library-drive.mjs';
 import { record } from './records.mjs';
 
-const NEW = '/library-next';
+const NEW = '/library';
 const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, tr;
 const browsers = {};

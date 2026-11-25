@@ -1,4 +1,4 @@
-// library-next-table.browser.mjs — the library as the one page draws it (/library-next), driven by its
+// library-table.browser.mjs — the library as the one page draws it (/library), driven by its
 // address over one seeded library: for each sort, a set of searches, the filter's states, pages (one past
 // the end too), series merged or not, what it shows — the cards' ids in order, the totals, the paging's
 // buttons (the current one, the ones that are off), the address it writes back — and the same after a
@@ -13,7 +13,7 @@ import { startServer, chromePath, launch, openPage, until } from './harness.mjs'
 import { record } from './records.mjs';
 import { librarySettled } from './library-drive.mjs';
 
-const NEW = '/library-next';
+const NEW = '/library';
 const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser;
 

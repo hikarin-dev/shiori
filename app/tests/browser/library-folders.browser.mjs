@@ -851,7 +851,7 @@ test('a folder of what Shiori didn\'t make is used as it is: galleries read in p
   page.__linked = out.gid;
   // Its card says what deleting it does: it leaves the library, its files stay.
   const library = await openPage(browser, origin);
-  await library.goto(`${origin}/library-next`, { waitUntil: 'load' });
+  await library.goto(`${origin}/library`, { waitUntil: 'load' });
   await until(library, (g) => !!document.querySelector(`.card[data-gallery-id="${g}"] .card-btn-del`), out.gid, { what: 'its card' });
   await library.evaluate((g) => document.querySelector(`.card[data-gallery-id="${g}"] .card-btn-del`).click(), out.gid);
   const asked = await until(library, () => { const d = document.querySelector('[data-notice="dialog"]'); return d && { title: d.querySelector('[data-slot="dialog-title"]').textContent, ok: d.querySelector('[data-slot="dialog-footer"] button[data-variant="danger"]')?.textContent }; }, null, { what: 'the question' });

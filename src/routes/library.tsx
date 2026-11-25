@@ -1,6 +1,6 @@
-// library.tsx — the library page, as the one page draws it (for now at /library-next, beside 1.3's page
-// at / and /library): the header's parts (the page menu, the search, the totals, the buttons), the
-// toolbar (the sort and the filter), the grid of cards, one page of 30 at a time, and the paging.
+// library.tsx — the library page, as the one page draws it (at / and /library): the header's parts (the
+// page menu, the search, the totals, the buttons), the toolbar (the sort and the filter), the grid of
+// cards, one page of 30 at a time, and the paging.
 // What a card's buttons do is ./library/actions.ts's (1.3's questions, and its words to the library
 // and to whatever runs things); the jobs on cards are the page's job store's (src/lib/library-jobs.ts),
 // each card reading its own gallery's. Import (the picker, a drop of files or folders, the tracker of
@@ -380,7 +380,7 @@ export default function Library() {
       if (event.type !== 'updated' || event.action.type !== 'success') return;
       const [kind, gid] = event.query.queryKey as [string, string];
       // (Not while its job runs: 1.3's rule, library.js `if (!_liveJobs.has(gid)) _scheduleReloadPage()`;
-      // its page, driven, did not always keep it: library-next-jobs' case.)
+      // its page, driven, did not always keep it: library-jobs' case.)
       if (kind === 'gallery' && event.query.state.data === null && idsRef.current.includes(gid) && !jobs.live(gid)) reload();
     });
     return () => {

@@ -1,5 +1,5 @@
-// library-next-buttons.browser.mjs — a card's heart, open, download and translate buttons on
-// /library-next, held to what 1.3's page (/library) gave driven alike, with stand-ins for the helper and the
+// library-buttons.browser.mjs — a card's heart, open, download and translate buttons on
+// /library, held to what 1.3's page gave driven alike, with stand-ins for the helper and the
 // translation server: for each press in each case (plain, Shift, Alt, the right button; a gallery
 // whole, incomplete, empty, translated, with no source, a series merged and unmerged; the helper there
 // and not), what is said to whatever runs things and to the helper (type and fields, in order), each
@@ -21,7 +21,7 @@ import { startTranslator } from './stand-in-translator.mjs';
 import { openRun, result, press, readDialog, answer, typeInto, readMenu, pickStep, readSeriesWindow, publish, nextBase, card, sleep } from './library-drive.mjs';
 import { record, normalised } from './records.mjs';
 
-const NEW = '/library-next';
+const NEW = '/library';
 const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser, tr, dir, picture;
 

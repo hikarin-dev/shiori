@@ -1,4 +1,4 @@
-// library-next-jobs.browser.mjs — jobs on the cards of /library-next, held to what 1.3's page (/library)
+// library-jobs.browser.mjs — jobs on the cards of /library, held to what 1.3's page
 // gave driven alike (library-drive.mjs): every state a download, an upload, a translation and a sync show
 // on a card as their news comes on the real jobs channel, kept by an observer in the page (the card's
 // place shown, its bar, its line, the buttons the job holds), through the last word's while and back to
@@ -16,7 +16,7 @@ import { startServer, chromePath, launch, openPage, until } from './harness.mjs'
 import { openRun, seedRun, nextBase, publish, readDialog, sleep, PARTS } from './library-drive.mjs';
 import { record } from './records.mjs';
 
-const NEW = '/library-next';
+const NEW = '/library';
 const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser;
 const id = (base, part) => String(base + PARTS[part]);

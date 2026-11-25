@@ -49,11 +49,11 @@ before(async () => {
 });
 after(async () => { await browser?.close(); server?.close(); if (dir) fs.rmSync(dir, { recursive: true, force: true }); });
 
-// The library, as the one page draws it (/library-next; until 2026-11-25 these held 1.3's page).
+// The library, as the one page draws it (until 2026-11-25 these held 1.3's page).
 async function library(t) {
   const page = await openPage(browser, origin);
   t.after(async () => { await page.close(); assert.deepEqual(page.problems, []); });
-  await page.goto(`${origin}/library-next`, { waitUntil: 'load' });
+  await page.goto(`${origin}/library`, { waitUntil: 'load' });
   await page.waitForSelector('#uploadCbzBtn');
   return page;
 }

@@ -52,8 +52,8 @@ async function run(path) {
   return { page: await openRun(browser, origin, path, { base }), gid: (part) => String(base + PARTS[part]) };
 }
 
-// (Until the library's switch both pages are there: 1.3's, and the one the one page draws.)
-for (const path of ['/library', '/library-next']) {
+// (Until the library's switch, 2026-11-25, 1.3's /library was measured beside the one page's.)
+for (const path of ['/library']) {
   test(`${path}: its header, toolbar and cards; cards with jobs running and a favourite`, async (t) => {
     if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
     const { page, gid } = await run(path);
@@ -82,7 +82,7 @@ for (const path of ['/library', '/library-next']) {
 
 test('the overview (a gallery and a series) and the reader', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const { page: seeded, gid } = await run('/library-next');
+  const { page: seeded, gid } = await run('/library');
   await seeded.close();
   for (const [name, path, ready, least] of [
     ['the overview of a gallery', `/overview?g=${gid('P')}`, '.ov-btn', 8],
@@ -97,7 +97,7 @@ test('the overview (a gallery and a series) and the reader', async (t) => {
 
 test('Tasks, and Settings panel by panel', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const { page: seeded, gid } = await run('/library-next');
+  const { page: seeded, gid } = await run('/library');
   await seeded.close();
   let page = await open('/tasks', '.app-header .page-nav');
   await publish(page, { gid: gid('I'), kind: 'download', status: 'progress', done: 1, total: 4 });

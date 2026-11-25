@@ -54,11 +54,10 @@ test('the shiori-app meta names the app\'s own pages only', async () => {
   const { ROUTES } = await import('../../src/routes.ts');
   const own = new Set(['library', 'overview', 'reader', 'settings', 'tasks']);
   for (const [segment, route] of Object.entries(ROUTES)) {
-    // A page of the app drawn at an address of its own while its old page still answers the page's
-    // (the library at /library-next, until it takes / and /library) is not yet that page: no meta.
-    const beside = own.has(route.page) && segment !== route.page && PAGES[route.page] !== APP_PAGE;
-    assert.equal(route.app, own.has(route.page) && !beside, `/${segment}: the meta is there exactly on the app's own pages`);
+    assert.equal(route.app, own.has(route.page), `/${segment}: the meta is there exactly on the app's own pages`);
   }
+  // The library, at the root and at /library, says so as 1.3's page did.
+  assert.deepEqual([ROUTES[''].page, ROUTES.library.page], ['library', 'library']);
   // The page's first script writes it for the address a document opens on, before the app runs.
   const { startData } = await import('../../build/start.mjs');
   const start = startData({ routes: ROUTES });
@@ -83,7 +82,7 @@ test('an old page\'s file moved to an address the one page draws, and is gone fr
     assert.ok(!existsSync(join(builtSite(), old)), `${old} is gone`);
     assert.equal(movedTo(old), segment);
   }
-  for (const path of ['app/library.html', 'tasks', 'constructor', 'app/tasks.htm']) assert.equal(movedTo(path), null, path);
+  for (const path of ['app/overview.html', 'app/reader.html', 'tasks', 'library', 'constructor', 'app/tasks.htm']) assert.equal(movedTo(path), null, path);
 });
 
 test('the server the tests and the preview use sends an old page\'s file on to its address, the query kept', async (t) => {

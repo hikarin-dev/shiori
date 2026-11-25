@@ -1,4 +1,4 @@
-// library-next-import.browser.mjs — import on /library-next, held to what 1.3's page (/library) gave driven alike:
+// library-import.browser.mjs — import on /library, held to what 1.3's page gave driven alike:
 // what Import's picker offers and what a pick of it does (one archive, a PDF, loose pictures, several
 // titles with each answer to their question, a title imported already, a file that is neither, a
 // backup alone and one under another name among titles, a read that fails), the same by a drop of
@@ -22,7 +22,7 @@ import { readDialog, answer, sleep } from './library-drive.mjs';
 import { record, normalised } from './records.mjs';
 import { zipCreate } from '../../js/zip.js';
 
-const NEW = '/library-next';
+const NEW = '/library';
 const FILE = path.basename(fileURLToPath(import.meta.url));
 let server, origin, browser, dir;
 const at = (name) => path.join(dir, name);
@@ -212,7 +212,7 @@ for (const [name, steps] of CASES) {
 // A real batch of two titles, slowed (each read of a file a while coming): each title on a card of its
 // own, what each card said meanwhile, the tracker to its end. (Here a title's card comes once its
 // gallery is made, as its import ends, on both pages: what a card draws of a title's news while it
-// runs is held by library-next-jobs' batch test.)
+// runs is held by library-jobs' batch test.)
 test('a batch of two titles: each title on its own card', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   {

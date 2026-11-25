@@ -1,5 +1,5 @@
-// library-next-drag.browser.mjs — a card dragged onto another to make them a series, on /library-next,
-// held to what 1.3's page (/library) gave driven alike (library-drive.mjs): nothing until the pointer has moved
+// library-drag.browser.mjs — a card dragged onto another to make them a series, on /library,
+// held to what 1.3's page gave driven alike (library-drive.mjs): nothing until the pointer has moved
 // 6px; the copy's box in every frame against the pointer; the target's mark; each answer of the
 // question and what the library holds after; a refusal told; the copy going back when let go over
 // nothing; the click after a drag swallowed; a finger, and a drag begun on the title, doing nothing
@@ -17,7 +17,7 @@ import { startServer, chromePath, launch, until } from './harness.mjs';
 import { openRun, result, readDialog, answer, publish, nextBase, card, sleep, PARTS } from './library-drive.mjs';
 import { record, normalised } from './records.mjs';
 
-const NEW = '/library-next';
+const NEW = '/library';
 const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser;
 

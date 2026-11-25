@@ -89,12 +89,13 @@ test('the one page draws /components: tokens, every button shape, the UI font, n
   assert.deepEqual(page.problems, []);
 });
 
-test('opened by its file name with no worker installed, the one page goes straight on to the library\'s file', async (t) => {
+test('opened by its file name with no worker installed, the one page draws the library, at the site\'s root', async (t) => {
   const page = await fresh(t);
   if (!page) return;
   await page.goto(`${origin}/index.html?q=x`, { waitUntil: 'load' });
-  await until(page, () => document.title === 'Shiori — Library' && !!document.querySelector('header'), undefined, { what: 'the library' });
-  assert.equal(await page.evaluate(address), '/app/library.html?q=x');
+  await until(page, () => document.title === 'Shiori — Library' && !!document.querySelector('#root main.library-page #grid'), undefined, { what: 'the library' });
+  assert.equal(await page.evaluate(address), '/?q=x');
+  assert.equal(await page.evaluate(() => document.getElementById('searchBox').textContent), 'x', 'what the address asks for');
   assert.deepEqual(page.problems, []);
 });
 
@@ -130,12 +131,14 @@ test('on a host that knows no clean addresses, 404.html brings /settings to the 
   assert.deepEqual(page.problems, []);
 });
 
-test('on a host that knows no clean addresses, 404.html brings /library to the page\'s own file', async (t) => {
+test('on a host that knows no clean addresses, 404.html brings /library to the one page', async (t) => {
   const page = await fresh(t, { answers: '404.html' });
   if (!page) return;
-  await page.goto(`${origin}/library`).catch(() => {});
-  await until(page, () => document.title === 'Shiori — Library' && !!document.querySelector('header'), undefined, { what: 'the library page' });
-  assert.equal(await page.evaluate(address), '/app/library.html');
+  await page.goto(`${origin}/library?page=2&q=x`).catch(() => {});   // the 404 page leaves at once
+  await until(page, () => document.title === 'Shiori — Library' && !!document.querySelector('#root main.library-page #grid'), undefined, { what: 'the library page' });
+  // (An empty library has one page: the page asked for past the end comes back to the first, as 1.3's did.)
+  assert.equal(await page.evaluate(address), '/library?q=x', 'the address is the one asked for');
+  assert.equal(await page.evaluate(() => sessionStorage.getItem('shiori-route')), null, 'the kept address is used once');
   assert.deepEqual(page.problems, []);
 });
 
@@ -160,8 +163,9 @@ test('with the worker installed and the server gone, the library and the one pag
   site.server.closeAllConnections();
   page.problems.length = 0;
   await page.reload({ waitUntil: 'load' });
-  await until(page, () => document.title === 'Shiori — Library' && !!document.querySelector('header'), undefined, { what: 'the library, offline' });
+  await until(page, () => document.title === 'Shiori — Library' && !!document.querySelector('#root main.library-page #grid'), undefined, { what: 'the library, offline' });
   assert.equal(await page.evaluate(address), '/');
+  assert.ok(SHELL.some((f) => /^assets\/library-[\w-]+\.js$/.test(f)), 'the library\'s chunk is in the list');
   assert.match(await page.evaluate(async () => { await document.fonts.ready; return [...document.fonts].filter((f) => f.status === 'loaded').map((f) => f.family).join(); }),
     /JetBrains Mono/, 'the UI font comes from the worker too');
 
@@ -202,7 +206,7 @@ test('with the worker installed, a hard reload of a clean address the host doesn
   const page = await fresh(t, { answers: '404.html' });
   if (!page) return;
   // A first visit by a file's own name (every host has it), which installs the worker.
-  await page.goto(`${origin}/app/library.html`, { waitUntil: 'load' });
+  await page.goto(`${origin}/index.html`, { waitUntil: 'load' });
   await until(page, () => !!navigator.serviceWorker.controller, undefined, { what: 'the worker in charge', timeout: 30000 });
   const cdp = await page.createCDPSession();
   let asked = 0;
@@ -235,9 +239,9 @@ test('with the worker installed, an old page\'s file opens its page at its clean
   await workerHoldsAll(page);
   for (const [old, segment] of Object.entries(MOVED)) {
     asked.length = 0;
-    await page.goto(`${site.origin}/${old}?g=1`, { waitUntil: 'load' });
+    await page.goto(`${site.origin}/${old}?q=1`, { waitUntil: 'load' });
     await until(page, () => !!document.getElementById('root')?.querySelector('main'), undefined, { what: `/${segment}` });
-    assert.equal(await page.evaluate(address), `/${segment}?g=1`);
+    assert.equal(await page.evaluate(address), `/${segment}?q=1`);
     assert.deepEqual(asked.filter((url) => url.startsWith(`/${old}`) || url.startsWith(`/${segment}`)), [], 'the worker sent it on and answered: the server was not asked');
     assert.equal(await page.evaluate(() => document.title), `Shiori — ${segment[0].toUpperCase()}${segment.slice(1)}`);
   }
@@ -258,8 +262,8 @@ test('on a host that knows no clean addresses (and no worker yet), 404.html brin
     else request.abort();
   });
   for (const [old, segment] of Object.entries(MOVED)) {
-    await page.goto(`${origin}/${old}?g=1#x`).catch(() => {});   // the 404 page leaves at once
+    await page.goto(`${origin}/${old}?q=1#x`).catch(() => {});   // the 404 page leaves at once
     await until(page, () => !!document.getElementById('root')?.querySelector('main'), undefined, { what: `/${segment}` });
-    assert.equal(await page.evaluate(address), `/${segment}?g=1#x`);
+    assert.equal(await page.evaluate(address), `/${segment}?q=1#x`);
   }
 });

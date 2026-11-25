@@ -1,4 +1,4 @@
-// library-next-keys.browser.mjs — W/S scrolling and F5 on /library-next, held to what 1.3's page
+// library-keys.browser.mjs — W/S scrolling and F5 on /library, held to what 1.3's page
 // (/library) gave driven alike. W and S scroll the window from the keydown, every frame, at 1.3's speed
 // (11px a frame, Shift twice that, changing as Shift goes down and up mid-hold) until the key is let go
 // or the window loses focus; nothing scrolls from the search box. F5 and Ctrl+R read the library again
@@ -17,7 +17,7 @@ import { startServer, chromePath, launch, openPage, until } from './harness.mjs'
 import { readDialog, answer } from './library-drive.mjs';
 import { record } from './records.mjs';
 
-const NEW = '/library-next';
+const NEW = '/library';
 const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser;
 const BASE = 1790008100000;

@@ -1,9 +1,10 @@
-// library-drive.mjs — driving 1.3's library page (/library) and the new one (/library-next) alike, for
-// the tests that hold the new page's buttons to 1.3's: a seeded set of galleries per run, the helper's
+// library-drive.mjs — driving the library page (/library) for the tests that hold its buttons to what
+// 1.3's page gave (driven alike, 1.3's page beside it, until 2026-11-25): a seeded set of galleries per run, the helper's
 // and the translation server's stand-ins, and in the page recorders of what it says (to whatever runs
 // things: services.handle's messages; to the helper: the bridge's requests), what it opens and saves,
-// and readers of its dialogs and menus, whichever page draws them. A run's record names its galleries
-// by their parts (P, I, …), never by their ids, so the two pages' records compare.
+// and readers of its dialogs and menus, whichever drawing they are (notice.js's own, or the one page's).
+// A run's record names its galleries by their parts (P, I, …), never by their ids, so a run compares
+// with its record.
 import { setTimeout as sleep } from 'node:timers/promises';
 import { openPage, until } from './harness.mjs';
 import { standInHelper, HELPER_STATUS } from './stand-in-helper.mjs';

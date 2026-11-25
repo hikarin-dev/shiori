@@ -1,6 +1,6 @@
 // library-cards.browser.mjs — the library's cards on a real grid, as the one page draws the library
-// (/library-next; until 2026-11-25 this file held 1.3's page, and library-next-cards.browser.mjs held the
-// new page to 1.3's, driven alike: what 1.3's page gave is each table's record, records/<this
+// (/library; until 2026-11-25 this file held 1.3's page, and a file of its own held the new page to
+// 1.3's, driven alike: what 1.3's page gave is each table's record, records/<this
 // file>.<table>.json, records.mjs, 1.3's behaviour as measured on 2026-11-25, which a deliberate change of
 // the library's behaviour edits in the same commit). At rest a card shows two lines of its title and one
 // row of its tags; hovered, it grows down over the cards below to show all of both, animated, and never
@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 import { record } from './records.mjs';
 
-const NEW = '/library-next';
+const NEW = '/library';
 const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

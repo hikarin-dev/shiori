@@ -17,11 +17,11 @@
 export type Route = { page: string; app: boolean; header: boolean; installed: boolean; form?: 'settings' };
 
 export const ROUTES: Readonly<Record<string, Route>> = {
+  // The library, at the site's root and at /library alike (1.3's page answered both).
+  '': { page: 'library', app: true, header: true, installed: true },
+  library: { page: 'library', app: true, header: true, installed: true },
   // The comparison page: no page of the app, and its chunk would be a tenth of what installs.
   components: { page: 'components', app: false, header: true, installed: false },
   tasks: { page: 'tasks', app: true, header: true, installed: true },
   settings: { page: 'settings', app: true, header: true, installed: true, form: 'settings' },
-  // The library as the one page draws it, beside 1.3's page (/ and /library) until it takes those
-  // addresses: no page of the app yet (no shiori-app meta), and not installed.
-  'library-next': { page: 'library', app: false, header: true, installed: false },
 };

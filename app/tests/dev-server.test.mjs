@@ -67,7 +67,7 @@ test('an old page\'s file, gone since the one page draws its address, is sent on
 });
 
 test('everything else is Vite\'s: modules, styles, an address the app doesn\'t have', () => {
-  for (const url of ['/app/js/platform.js', '/src/main.tsx', '/app/base.css', '/nowhere', '/app/library.html', '/index.html', '/constructor']) {
+  for (const url of ['/app/js/platform.js', '/src/main.tsx', '/app/base.css', '/nowhere', '/app/overview.html', '/index.html', '/constructor']) {
     assert.deepEqual(ask(url), { passedOn: true, url, status: null, headers: {}, body: null }, url);
   }
 });

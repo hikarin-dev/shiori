@@ -1,5 +1,5 @@
-// library-next-phone.browser.mjs — /library-next on a phone (390×844, touch, a coarse pointer, no
-// hover), held to what 1.3's page (/library) gave, as mobile.browser.mjs held 1.3's: the two-column grid,
+// library-phone.browser.mjs — /library on a phone (390×844, touch, a coarse pointer, no
+// hover), held to what 1.3's page gave, as mobile.browser.mjs held 1.3's: the two-column grid,
 // every card's box and its parts' (the heart a favourite shows, its source button, its tags), the
 // header's two rows, text sizes; no sideways scroll at any width from 320 to 600; what a card opens on a
 // phone (its source's question, from its source button; a tag's search) and the filter's dialog inside
@@ -15,7 +15,7 @@ import { startServer, chromePath, launch, openPage, until } from './harness.mjs'
 import { readDialog, answer } from './library-drive.mjs';
 import { record } from './records.mjs';
 
-const NEW = '/library-next';
+const NEW = '/library';
 const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser;
 const PHONE = { width: 390, height: 844, hasTouch: true, isMobile: true };

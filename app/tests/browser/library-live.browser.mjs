@@ -1,5 +1,5 @@
-// library-next-live.browser.mjs — the library at /library-next under a library that changes, held to what
-// 1.3's page (/library) gave driven alike: one gallery changed in place for each kind of change
+// library-live.browser.mjs — the library at /library under a library that changes, held to what
+// 1.3's page gave driven alike: one gallery changed in place for each kind of change
 // (favourite, title, tags, translated, source, its cover, becoming a series and back) with which cards
 // and covers stay the same nodes and how many covers load again, a hovered card staying grown;
 // galleries added and removed in another context; covers (the tier asked at each width, a resize into
@@ -17,7 +17,7 @@ import { startServer, chromePath, launch, openPage, until } from './harness.mjs'
 import { startTranslator } from './stand-in-translator.mjs';
 import { record, normalised } from './records.mjs';
 
-const NEW = '/library-next';
+const NEW = '/library';
 const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser, tr;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

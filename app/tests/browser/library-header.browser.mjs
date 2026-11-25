@@ -1,4 +1,4 @@
-// library-next-header.browser.mjs — the library's header on /library-next, held to what 1.3's page
+// library-header.browser.mjs — the library's header on /library, held to what 1.3's page
 // (/library) gave driven alike: every part's box at every width 1.3's stylesheet has a rule for (above and at
 // 1400px, the folded form; above and at 600px, the phone's two rows; a phone; 320px), and at 125% and
 // 150% scale; the menu button (what its press shows at each width, and what closes it: its own press
@@ -18,7 +18,7 @@ import { startServer, chromePath, openPage, until } from './harness.mjs';
 import { record } from './records.mjs';
 import { librarySettled } from './library-drive.mjs';
 
-const NEW = '/library-next';
+const NEW = '/library';
 const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin;
 const browsers = {};

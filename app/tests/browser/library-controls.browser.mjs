@@ -1,5 +1,5 @@
-// library-next-controls.browser.mjs — the library at /library-next, its header, toolbar, search, filter
-// and keys, held to what 1.3's page (/library) gave where the two could be driven alike: the header's
+// library-controls.browser.mjs — the library at /library, its header, toolbar, search, filter
+// and keys, held to what 1.3's page gave where the two could be driven alike: the header's
 // boxes at 1500px (the totals in the bar) and at 1280 (folded: the menu button, Import's icon alone),
 // the totals and their tips plain and with Shift; the search's list, its blocks, the X and the 180 ms
 // the box waits after a key (kept by an observer in the page, never polled); a card's tag, flag and Alt
@@ -16,7 +16,7 @@ import { startServer, chromePath, launch, openPage, until } from './harness.mjs'
 import { record } from './records.mjs';
 import { librarySettled } from './library-drive.mjs';
 
-const NEW = '/library-next';
+const NEW = '/library';
 const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

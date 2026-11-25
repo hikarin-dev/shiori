@@ -105,6 +105,7 @@ test('a plain link to an address the one page draws is followed inside the app; 
     add('toComponents', 'components?from=link#top');
     add('toTasks', 'tasks');
     add('toLibrary', 'library');
+    add('toReader', 'reader');
     add('toBlank', 'components?blank', { target: '_blank' });
     add('toDownload', 'components?file', { download: 'x' });
     window.stayed = true;
@@ -142,9 +143,15 @@ test('a plain link to an address the one page draws is followed inside the app; 
   await until(page, () => document.title === 'Shiori — Tasks' && !!document.getElementById('tkList'), undefined, { what: 'the tasks page' });
   assert.equal(await page.evaluate(() => window.stayed), true, 'no page load');
 
+  // The library, which the one page draws too: no page load. (The links are outside React's tree: still
+  // there on Tasks.)
+  await click('toLibrary');
+  await until(page, () => document.title === 'Shiori — Library' && !!document.querySelector('#root main.library-page'), undefined, { what: 'the library page' });
+  assert.equal(await page.evaluate(() => window.stayed), true, 'no page load');
+
   // A page that still has a file of its own: loaded as always.
-  await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), click('toLibrary')]);
-  await until(page, () => document.title === 'Shiori — Library' && !!document.querySelector('header'), undefined, { what: 'the library page' });
+  await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), click('toReader')]);
+  await until(page, () => document.title === 'Shiori — Reader' && location.pathname === '/reader', undefined, { what: 'the reader\'s page' });
   assert.equal(await page.evaluate(() => window.stayed), undefined, 'a page load');
   assert.deepEqual(page.problems, []);
 });

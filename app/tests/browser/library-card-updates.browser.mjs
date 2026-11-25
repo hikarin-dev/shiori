@@ -1,5 +1,5 @@
 // library-card-updates.browser.mjs — the library's cards take changes in place, in Chrome, on the library as
-// the one page draws it (/library-next; until 2026-11-25 this held 1.3's page). While a
+// the one page draws it (/library; until 2026-11-25 this held 1.3's page). While a
 // series' chapter downloads (pages arriving, progress reported) and other galleries change, every
 // card stays the same element: only the changed text redraws, covers stay put, and a hovered card
 // stays grown. The new values show at once, and a card's own job keeps its progress showing while
@@ -8,7 +8,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 
-const LIBRARY = '/library-next';
+const LIBRARY = '/library';
 const S = { owner: '1790000000601', ch2: '1790000000602' };
 const PLAIN = ['1790000000611', '1790000000612', '1790000000613', '1790000000614', '1790000000615'];
 

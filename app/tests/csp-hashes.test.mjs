@@ -64,7 +64,7 @@ test('the entry page has no inline script at all', () => {
 test('the built one page carries the policy of the app\'s other pages', () => {
   // The same policy as a page with a file of its own, less that page's hash (the build writes it:
   // the dev server's page needs inline scripts, so the page as written has none).
-  const own = policyOf(readFileSync(join(repo, 'app', 'library.html'), 'utf8'));
+  const own = policyOf(readFileSync(join(repo, 'app', 'overview.html'), 'utf8'));
   assert.match(own, / 'sha256-[^']+'/, 'a page with an inline script pins it');
   const policy = policyOf(builtPage());
   assert.equal(policy, own.replace(/ 'sha256-[^']+'/, ''));

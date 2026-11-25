@@ -54,7 +54,7 @@ async function workerPage(pathname) {
 }
 
 test('a dropped batch runs in the service worker, and closing the tab that started it doesn\'t stop it', { skip: !chromePath() }, async () => {
-  const lib = await workerPage('/library-next');
+  const lib = await workerPage('/library');
   const cdp = await lib.createCDPSession();
   const data = { items: [], files: [path.join(dir, 'Lot')], dragOperationsMask: 1 };
   for (const type of ['dragEnter', 'dragOver', 'drop']) await cdp.send('Input.dispatchDragEvent', { type, x: 640, y: 500, data });

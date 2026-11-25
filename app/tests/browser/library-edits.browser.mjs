@@ -1,5 +1,5 @@
-// library-next-edits.browser.mjs — a card's delete and export buttons, its tags' Shift-click and the
-// tag editor on /library-next, held to what 1.3's page (/library) gave driven alike (library-drive.mjs): for each
+// library-edits.browser.mjs — a card's delete and export buttons, its tags' Shift-click and the
+// tag editor on /library, held to what 1.3's page gave driven alike (library-drive.mjs): for each
 // press in each case (plain, Shift; a gallery, a series merged and unmerged, its chapter, a linked one
 // of each, one whose delete the library refuses), what is said to whatever runs things (type and
 // fields, in order), each dialog's words and buttons, each answer's outcome, the files saved, and what
@@ -15,7 +15,7 @@ import { startTranslator } from './stand-in-translator.mjs';
 import { openRun, result, press, readDialog, answer, nextBase, choose, publish, sleep, PARTS } from './library-drive.mjs';
 import { record, normalised } from './records.mjs';
 
-const NEW = '/library-next';
+const NEW = '/library';
 const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser, tr;
 
