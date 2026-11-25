@@ -136,7 +136,10 @@ test('on a host that knows no clean addresses, 404.html brings /library to the o
   if (!page) return;
   await page.goto(`${origin}/library?page=2&q=x`).catch(() => {});   // the 404 page leaves at once
   await until(page, () => document.title === 'Shiori — Library' && !!document.querySelector('#root main.library-page #grid'), undefined, { what: 'the library page' });
-  // (An empty library has one page: the page asked for past the end comes back to the first, as 1.3's did.)
+  // (An empty library has one page: the page asked for past the end comes back to the first, as 1.3's did,
+  // once the library has answered: waited for. Read the moment the grid was there, under the whole suite's
+  // load the address still named page 2.)
+  await until(page, () => location.search === '?q=x', undefined, { what: 'the address brought back to the first page' });
   assert.equal(await page.evaluate(address), '/library?q=x', 'the address is the one asked for');
   assert.equal(await page.evaluate(() => sessionStorage.getItem('shiori-route')), null, 'the kept address is used once');
   assert.deepEqual(page.problems, []);
