@@ -18,7 +18,9 @@ export const NEW = '/overview-next';
 //       series' own title in English and Japanese, its tags
 //   W   a series of volumes alone (W, W2)
 //   E   a gallery with no pages
-export const PARTS = { G: 10, S: 20, S2: 21, S3: 22, V1: 23, V2: 24, X: 25, W: 30, W2: 31, E: 40 };
+//   F   a gallery of one page, in no series
+//   N   none at first: a test's gallery made later
+export const PARTS = { G: 10, S: 20, S2: 21, S3: 22, V1: 23, V2: 24, X: 25, W: 30, W2: 31, E: 40, F: 45, N: 50 };
 let runs = 0;
 export const nextBase = (start) => start + (runs++) * 100;
 export const gid = (base, part) => String(base + PARTS[part]);
@@ -53,6 +55,7 @@ async function seed({ base, parts }) {
   await api.series.write(id('W'), [{ id: id('W'), title: '', kind: 'volume' }, { id: id('W2'), title: '', kind: 'volume' }], { seriesTitle: title('W volumes') });
   await gallery('E', { source: 'a.example', sourceId: '740', numPages: 5 }, 1);
   await api.pages.prune(id('E'), []);
+  await gallery('F', {}, 1);
 }
 
 // The run's galleries made (from /tasks), the jobs registry emptied, the page's settings stored. Each
@@ -115,7 +118,7 @@ export function read() {
   const tagTable = content.querySelector('#ovTags');
   const tags = tagTable ? { shown: shown(tagTable), rows: [...tagTable.querySelectorAll('.ov-tag-row')].map((row) => ({
     label: text(row.querySelector('.ov-tag-label')),
-    chips: [...row.querySelectorAll('.ov-chip')].map((chip) => ({ text: text(chip), href: link(chip), shown: shown(chip), type: chip.dataset.type ?? null, tip: chip.dataset.tip ?? null })) })) } : null;
+    chips: [...row.querySelectorAll('.ov-chip')].map((chip) => ({ text: text(chip), count: text(chip.querySelector('.ov-chip-n, [data-slot="tag-count"]')), href: link(chip), shown: shown(chip), type: chip.dataset.type ?? null, tip: chip.dataset.tip ?? null })) })) } : null;
   const section = content.querySelector('#ovSection');
   const views = [...section.querySelectorAll('[data-view]')].map((b) => ({ view: b.dataset.view, text: text(b), selected: b.getAttribute('aria-selected') }));
   const rows = [...content.querySelectorAll('.ch-row')].map((row) => {
