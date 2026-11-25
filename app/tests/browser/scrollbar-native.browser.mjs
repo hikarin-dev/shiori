@@ -103,6 +103,9 @@ test('Firefox keeps its own scrollbars even with the experimental preference sav
 
 test('experimental toggle persists and restores native controls and picker structure', { skip: !chromePath() }, async t => {
   const page = await fresh(t);
+  // (Settings is drawn by the one page after its load: its panel is waited for. Read at once, under the
+  // whole suite's load the box was not there yet.)
+  await page.waitForSelector('#customScrollbar', { timeout: 15000 });
   assert.equal(await page.$eval('#customScrollbar', el => el.checked), false);
   assert.equal(await page.$eval('#experimentalSection', el => el.closest('.panel').id), 'panelLibrary');
   assert.equal(await page.$('.scrollbar-host'), null);
