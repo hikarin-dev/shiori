@@ -226,3 +226,25 @@ test('a title saved while the same gallery changes elsewhere never shows the old
   await other.close();
   await page.close();
 });
+
+// The address changing while in edit mode (another gallery's overview, then back): edit mode is off,
+// as 1.3's page, loaded again, began; a title being typed is saved as its box is left by the press.
+test('the address changing in edit mode: off for the next gallery and back (the new page alone)', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const base = nextBase(1790011000000);
+  const page = await openRun(browser, origin, base);
+  await visit(page, origin, NEW, gid(base, 'S'));
+  await page.click('#editToggle');
+  await typeTitle(page, SERIES_TITLE, 'Left by a link');
+  // A press on a link to another overview (the address changes in the page).
+  await page.evaluate((g) => { const a = document.createElement('a'); a.href = `overview-next?g=${g}`; a.id = '__go'; a.textContent = 'go'; a.style.cssText = 'position:fixed;left:0;top:60px;z-index:99'; document.body.append(a); }, gid(base, 'G'));
+  await page.click('#__go');
+  await until(page, (g) => new URLSearchParams(location.search).get('g') === g && document.querySelector('#galleryTitle')?.value === 'G gallery', gid(base, 'G'), { what: 'the next gallery' });
+  assert.equal(await page.evaluate(() => document.getElementById('ovContent').classList.contains('ov-editing')), false, 'edit mode off');
+  assert.equal(await page.$eval('#galleryTitle', (el) => el.readOnly), true);
+  await page.goBack();
+  await until(page, () => document.querySelector('#seriesTitle')?.value === 'Left by a link', null, { what: 'the series again, its title saved' });
+  assert.equal(await page.evaluate(() => document.getElementById('ovContent').classList.contains('ov-editing')), false, 'off coming back');
+  assert.deepEqual(page.problems, []);
+  await page.close();
+});
