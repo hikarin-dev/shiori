@@ -27,6 +27,13 @@ before(async () => {
       return canvas.convertToBlob({ type: 'image/png' });
     }));
     for (let n = 1; n <= count; n++) await api.pages.put(gid, n, blobs[n % 2]);
+    // Study layers on the first three pages: the cleaned page, and one bubble's typeset text.
+    for (let n = 1; n <= 3; n++) {
+      await api.derived.putTranslation(gid, n, { image: blobs[n % 2], pipeline: { job: 'j1', lines: [], read: [], regions: [] } });
+      const b = { x: 0.1, y: 0.3, w: 0.5, h: 0.15 };
+      await api.derived.putStudy(gid, n, { bg: blobs[n % 2], page: { w: 600, h: n % 2 ? 600 : 900 },
+        bubbles: [{ id: 0, box: b, region: b, tr: 'Hello there', src: 'こんにちは', text: blobs[n % 2] }] }, 'j1');
+    }
   }, { gid: GALLERY, count: PAGE_COUNT });
   await page.close();
 });
@@ -147,4 +154,188 @@ test('stop puts back what the reader wrote on <html> and <body>, by its own name
   }
   assert.match(after2.html.style || '', /--elsewhere: 9px/);
   assert.equal(after2.title, firstFound.title);
+});
+
+// Before any script of the page: counts the object URLs, workers and resize observers alive, and, once
+// asked (after.on), the animation frames, timers and observer callbacks that run, by the module that
+// asked for them.
+function instrument() {
+  const live = { urls: new Set(), workers: new Set(), ros: new Set() };
+  const after = { on: false, fired: [] };
+  const origin = () => {
+    for (const l of (new Error().stack || '').split('\n').slice(2)) { const m = l.match(/\/(app\/js\/[^:?]+|assets\/[^:?]+)(?:\?[^:]*)?:(\d+)/); if (m) return `${m[1]}:${m[2]}`; }
+    return 'unknown';
+  };
+  const create = URL.createObjectURL, revoke = URL.revokeObjectURL;
+  URL.createObjectURL = function (o) { const u = create.call(URL, o); live.urls.add(u); return u; };
+  URL.revokeObjectURL = function (u) { live.urls.delete(u); return revoke.call(URL, u); };
+  const W = globalThis.Worker;
+  globalThis.Worker = class extends W {
+    constructor(...a) { super(...a); this.__rec = { ref: new WeakRef(this), alive: true }; live.workers.add(this.__rec); }
+    terminate() { this.__rec.alive = false; return super.terminate(); }
+  };
+  const RO = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class extends RO {
+    constructor(fn) {
+      const from = origin();
+      super((e, o) => { if (after.on) after.fired.push(`observer ${from}`); return fn(e, o); });
+      this.__rec = { ref: new WeakRef(this), observing: 0 };
+      live.ros.add(this.__rec);
+    }
+    observe(...a) { this.__rec.observing++; return super.observe(...a); }
+    disconnect() { this.__rec.observing = 0; return super.disconnect(); }
+  };
+  const raf = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = function (fn) {
+    const from = origin();
+    return raf.call(globalThis, (t) => { if (after.on) after.fired.push(`frame ${from}`); return fn(t); });
+  };
+  const st = globalThis.setTimeout;
+  globalThis.setTimeout = function (fn, ms, ...a) {
+    if (typeof fn !== 'function') return st.call(globalThis, fn, ms, ...a);
+    const from = origin();
+    return st.call(globalThis, (...x) => { if (after.on) after.fired.push(`timer ${from}`); return fn(...x); }, ms, ...a);
+  };
+  globalThis.__live = () => ({ objectUrls: live.urls.size, workers: [...live.workers].filter((r) => r.alive && r.ref.deref()).length,
+    observers: [...live.ros].filter((r) => r.observing > 0 && r.ref.deref()).length });
+  globalThis.__after = after;
+}
+
+// The reader in use: the strip wheeled, single page with turns, double page, zoom, the thumbnails, the
+// strip with auto-play (left running every other time), the progress bar scrubbed, reader settings
+// opened and a setting changed, study mode with its overlay, a bubble's feedback dialog, then page
+// properties or the page menu (left open).
+async function use(page, c) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const key = (k) => page.keyboard.press(k);
+  const active = (id) => until(page, (id) => document.getElementById(id)?.classList.contains('active'), id, { what: id });
+  await until(page, () => [...document.querySelectorAll('#stripView img, #mainImg')].some((i) => i.complete && i.naturalWidth > 0 && i.getBoundingClientRect().height > 0), null, { what: 'a page drawn' });
+  await page.mouse.move(640, 450);
+  for (let i = 0; i < 3; i++) { await page.mouse.wheel({ deltaY: 700 }); await sleep(100); }
+  await key('1'); await active('singleView');
+  for (const k of ['ArrowRight', 'ArrowRight', 'ArrowLeft']) { await key(k); await sleep(120); }
+  await key('2'); await active('doubleView'); await key('ArrowRight'); await sleep(150);
+  for (const k of ['=', '=', '-']) { await key(k); await sleep(60); }
+  if (!(await page.evaluate(() => document.body.classList.contains('thumbs-open')))) await key('g');
+  await until(page, () => document.querySelectorAll('#thumbStrip .thumb-item img[src]').length > 0, null, { what: 'thumbnails' });
+  await key('3'); await active('stripView');
+  await key('k'); await sleep(300); if (c % 2) await key('k');
+  const bar = await page.evaluate(() => { const s = document.querySelectorAll('.scrub-segment'); const a = s[0].getBoundingClientRect(), b = s[s.length - 1].getBoundingClientRect(); return { x1: a.left + a.width / 2, x2: b.left + b.width / 2, y: a.top + a.height / 2 }; });
+  await page.mouse.move(bar.x1, bar.y); await page.mouse.down(); await page.mouse.move(bar.x2, bar.y, { steps: 6 }); await page.mouse.move(bar.x1, bar.y, { steps: 4 }); await page.mouse.up(); await sleep(150);
+  await page.evaluate(() => document.getElementById('readerSettingsBtn').click());
+  await until(page, () => !!document.querySelector('#readerSettingsModal.show'), null, { what: 'reader settings' });
+  await page.evaluate((c) => { const i = document.getElementById('readerDim'); i.value = String(c * 5 % 40); i.dispatchEvent(new Event('input', { bubbles: true })); }, c);
+  await key('Escape'); await sleep(150);
+  await key('1'); await active('singleView');
+  if (!(await page.evaluate(() => document.body.classList.contains('study-mode')))) await key('b');
+  await until(page, () => document.querySelectorAll('.bubble-box').length > 0, null, { what: 'the study overlay' });
+  const box = await page.evaluate(() => { const r = document.querySelector('.bubble-box').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await page.mouse.move(box.x - 3, box.y); await page.mouse.move(box.x, box.y); await sleep(300);
+  await key('f');
+  await until(page, () => !!document.querySelector('dialog.feedback-dialog[open]'), null, { what: 'the feedback dialog' });
+  await key('Escape'); await sleep(100);
+  if (c % 2) {
+    await key('i');
+    await until(page, () => !!document.querySelector('dialog.pp-dialog[open]'), null, { what: 'page properties' });
+  } else {
+    const at = await page.evaluate(() => { const r = document.getElementById('mainImg').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + 20 }; });
+    await page.mouse.click(at.x, at.y, { button: 'right' });
+    await until(page, () => !!document.querySelector('.page-menu'), null, { what: 'the page menu' });
+  }
+}
+
+// What is left after a stop: listeners on the window, the document, <html> and <body> (CDP), DOM nodes
+// and JS listeners after two collections, what the instrument counts, and what the page holds.
+async function leftAfterStop(page, cdp) {
+  for (let i = 0; i < 2; i++) { await cdp.send('HeapProfiler.collectGarbage'); await new Promise((r) => setTimeout(r, 50)); }
+  const { nodes, jsEventListeners } = await cdp.send('Memory.getDOMCounters');
+  const listeners = {};
+  for (const [name, expr] of [['window', 'window'], ['document', 'document'], ['html', 'document.documentElement'], ['body', 'document.body']]) {
+    const { result } = await cdp.send('Runtime.evaluate', { expression: expr });
+    listeners[name] = (await cdp.send('DOMDebugger.getEventListeners', { objectId: result.objectId })).listeners.length;
+    await cdp.send('Runtime.releaseObject', { objectId: result.objectId });
+  }
+  const inPage = await page.evaluate(() => ({ ...globalThis.__live(), headStyles: document.head.querySelectorAll('style').length,
+    bodyChildren: [...document.body.children].map((e) => e.id || `${e.localName}.${e.className}`).join(' '),
+    inDocument: document.getElementsByTagName('*').length,
+    dialogs: document.querySelectorAll('dialog').length, menus: document.querySelectorAll('.page-menu, .page-status').length }));
+  return { nodes, jsEventListeners, listeners, ...inPage };
+}
+
+test('started, used and stopped five times, the reader leaves nothing behind, and nothing of it runs after a stop', { skip: !chromePath() }, async (t) => {
+  const page = await openPage(browser, origin, { reader: 'keep' });
+  t.after(async () => { await page.close(); assert.deepEqual(page.problems, []); });
+  await page.evaluateOnNewDocument(() => { localStorage.setItem('shiori-reader-nav', 'top'); localStorage.setItem('shiori-reader-pin', '1'); localStorage.setItem('shiori:readerMode', '"strip"'); });
+  await page.evaluateOnNewDocument(instrument);
+  const cdp = await page.createCDPSession();
+  await page.goto(`${origin}/reader?g=${GALLERY}&page=1`, { waitUntil: 'load' });
+  // The frame as the page first had it, drawn again before each later start (as a route would).
+  const frame = await page.evaluate(async () => {
+    const doc = new DOMParser().parseFromString(await (await fetch('/app/reader.html')).text(), 'text/html');
+    doc.querySelectorAll('body > script').forEach((s) => s.remove());
+    return doc.body.innerHTML;
+  });
+  const rows = [];
+  for (let c = 1; c <= 5; c++) {
+    await use(page, c);
+    await page.evaluate(() => { globalThis.__reader.stop(); globalThis.__reader = null; });
+    rows.push(await leftAfterStop(page, cdp));
+    if (c === 5) break;
+    await page.evaluate(async (markup) => {
+      // The frame drawn again in its place; what others keep in the body (a tooltip's tip, the page's script) stays.
+      { const t = { content: document.createRange().createContextualFragment(markup) }; const ids = new Set([...t.content.children].map((e) => e.id).filter(Boolean)); for (const e of [...document.body.childNodes]) if (e.nodeType !== 1 || ids.has(e.id)) e.remove(); document.body.prepend(t.content); }
+      history.replaceState(null, '', `${location.pathname}?g=${new URLSearchParams(location.search).get('g')}&page=1`);
+      (await import('/app/js/i18n.js')).applyTranslations(document.body);
+      globalThis.__reader = globalThis.__startReader();
+    }, frame);
+  }
+  t.diagnostic(JSON.stringify(rows.map(({ nodes, jsEventListeners, listeners, inDocument }) => ({ nodes, inDocument, jsEventListeners, ...listeners }))));
+  const [first] = rows, last = rows.at(-1);
+  for (const row of rows) {
+    assert.deepEqual(row.listeners, first.listeners, 'listeners on the window, the document, <html> and <body> as after the first stop');
+    assert.deepEqual({ objectUrls: row.objectUrls, workers: row.workers, dialogs: row.dialogs, menus: row.menus }, { objectUrls: 0, workers: 0, dialogs: 0, menus: 0 });
+    assert.equal(row.observers, first.observers, 'resize observers watching');
+    assert.equal(row.headStyles, first.headStyles, 'no <style> left in the head');
+    assert.equal(row.bodyChildren, first.bodyChildren, 'nothing left in the body but the frame');
+  }
+  // Cycles 3 and 5 used the reader alike (page properties; 2 and 4 the page menu): the same is left.
+  assert.ok(last.nodes <= rows[2].nodes, `DOM nodes grew from ${rows[2].nodes} to ${last.nodes}`);
+  assert.ok(last.jsEventListeners <= rows[2].jsEventListeners, `JS listeners grew from ${rows[2].jsEventListeners} to ${last.jsEventListeners}`);
+  // Five seconds with nothing to do, a resize in the middle: nothing of the reader runs, nothing is asked for.
+  const asked = [];
+  page.on('request', (r) => asked.push(r.url()));
+  await page.evaluate(() => { globalThis.__after.on = true; });
+  await new Promise((r) => setTimeout(r, 2500));
+  await page.setViewport({ width: 1279, height: 899 });
+  await new Promise((r) => setTimeout(r, 2500));
+  await page.setViewport({ width: 1280, height: 900 });
+  const fired = await page.evaluate(() => { globalThis.__after.on = false; return globalThis.__after.fired; });
+  assert.deepEqual(fired.filter((f) => /\/reader|page-nav/.test(f)), [], 'frames, timers or observer callbacks of the reader');
+  assert.deepEqual(asked, [], 'requests');
+});
+
+test('started, stopped and started again in one task (React\'s strict mode), it is one working reader and nothing of the first', { skip: !chromePath() }, async (t) => {
+  const count = async (entry) => {
+    const page = await reader(t, { readerMode: 'single', readerThumbsOpen: false }, { entry });
+    const cdp = await page.createCDPSession();
+    await page.keyboard.press('ArrowRight');
+    await until(page, () => document.getElementById('pageCounter').textContent.trim().startsWith('2'), null, { what: 'page 2' });
+    await page.keyboard.press('g');
+    await until(page, () => document.querySelectorAll('#thumbStrip .thumb-item img[src]').length > 0, null, { what: 'thumbnails' });
+    const listeners = {};
+    for (const [name, expr] of [['window', 'window'], ['document', 'document']]) {
+      const { result } = await cdp.send('Runtime.evaluate', { expression: expr });
+      listeners[name] = (await cdp.send('DOMDebugger.getEventListeners', { objectId: result.objectId })).listeners.map((l) => l.type).sort().join(' ');
+      await cdp.send('Runtime.releaseObject', { objectId: result.objectId });
+    }
+    return { listeners, ...(await page.evaluate(() => ({
+      owned: ['.auto-bar', '.speed-tip', 'head > style'].map((s) => document.querySelectorAll(s).length),
+      body: [...document.body.children].map((e) => e.id || `${e.localName}.${e.className}`).join(' '),
+      pageNav: document.querySelectorAll('#pageNav option').length,
+      counter: document.getElementById('pageCounter').textContent.trim(),
+    }))) };
+  };
+  const once = await count('keep');
+  const strict = await count('strict');
+  assert.deepEqual(strict, once, 'the reader started in strict mode\'s way is the reader started once');
 });
