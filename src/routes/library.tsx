@@ -14,6 +14,11 @@
 // question about a card shows no cover while its cover is blurred) and the pin (`shiori-header-pin`:
 // unpinned, html[data-header-unpinned] lets the header scroll away with the page, frame.css).
 //
+// The keys, in one place (1.3's): W and S scroll the window every frame from the keydown (Shift twice
+// as fast, live) until let go or the window's focus is lost; the arrows and A/D turn the page (Shift:
+// the first or the last); F5 and Ctrl+R read the library again in place. None from a text box, and none
+// for a key an open list or a dialog has.
+//
 // What it shows is data (T4): the page asked for (sort, page, search, filter, merged or not) is read
 // through the app's query cache (./library/data.ts), each card drawn from its gallery's entry there,
 // its cover from the cover store (src/lib/covers.ts) and its source's icon from the icon store
@@ -95,11 +100,19 @@ const RELOAD_MS = 250;        // the page read again this long after the last wo
 const TOTALS_MS = 800;        // the totals read again this long after the last change
 const REVEAL_EVERY_MS = 5000; // a gallery the page shows no card for is looked for once in this at most
 const LISTING_EVERY_MS = 100; // a drop being read is told this often at most (1.3's)
+const SCROLL_SPEED = 22;      // W/S: px a frame with Shift held; half of it without (1.3's)
 const PIN_KEY = 'shiori-header-pin';   // the header pinned unless '0' (1.3's)
 
 // A raw key of the page's, kept as 1.3 kept it (storage may be refused: a private window).
 const readKey = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
 const writeKey = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* not kept */ } };
+// A key the page's own keys leave alone: one an open list took, one in a text box, or one an open list,
+// menu or dialog has.
+const KEYS_TAKEN = '[role="listbox"], [role="menu"], [role="dialog"], [role="alertdialog"]';
+const keysTaken = (e: KeyboardEvent) => {
+  const el = e.target as HTMLElement | null;
+  return e.defaultPrevented || (!!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable || !!el.closest?.(KEYS_TAKEN)));
+};
 
 // A drop's items as the drop event has them, for reading after it (they can only be listed while it
 // lasts): each file's entry, and its file where it is not a folder.
@@ -507,7 +520,7 @@ export default function Library() {
     searchTimer.current = setTimeout(() => { setQuery(q); setPage(1); }, SEARCH_MS);
   }, []);
 
-  // ── Paging: a button, or the arrows and A/D (Shift: the first or the last page) ──
+  // ── Paging: a button, or the arrows and A/D (Shift: the first or the last page); W/S; F5 ──
   const pages = data ? pageCount(data.total) : 1;
   const shownPage = data?.page ?? page;
   const goToPage = useCallback((n: number) => {
@@ -516,11 +529,35 @@ export default function Library() {
   }, []);
   const pagingRef = useRef({ page: shownPage, pages });
   pagingRef.current = { page: shownPage, pages };
+  // The library read again in place (1.3's F5: loadAll): the page, its totals, what is under way. Its
+  // covers are kept, so none is asked for again.
+  const refreshRef = useRef(() => {});
+  refreshRef.current = () => {
+    client.invalidateQueries({ queryKey: PAGES }).catch(() => {});
+    client.invalidateQueries({ queryKey: TOTALS }).catch(() => {});
+    jobs.refresh();
+  };
   useEffect(() => {
+    // W/S: a frame loop from the keydown, skipping the system's repeat delay. Each key held is a
+    // direction; both cancel out.
+    const held = new Set<'up' | 'down'>();
+    let frame = 0, fast = false;
+    const scroll = () => {
+      const dir = (held.has('down') ? 1 : 0) - (held.has('up') ? 1 : 0);
+      if (!dir) { frame = 0; return; }
+      window.scrollBy(0, dir * (fast ? SCROLL_SPEED : SCROLL_SPEED / 2));
+      frame = requestAnimationFrame(scroll);
+    };
+    const hold = (dir: 'up' | 'down') => {
+      if (held.has(dir)) return;
+      held.add(dir);
+      if (!frame) frame = requestAnimationFrame(scroll);
+    };
     const keys = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null;
-      if (e.defaultPrevented) return;   // a key an open list took (the sort's, the page menu's)
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      if (keysTaken(e)) return;
+      fast = e.shiftKey;   // Shift held: twice as fast, even mid-hold
+      if (e.key === 'w' || e.key === 'W') { e.preventDefault(); hold('up'); return; }
+      if (e.key === 's' || e.key === 'S') { e.preventDefault(); hold('down'); return; }
       const fwd = e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D';
       const bck = e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A';
       if (!fwd && !bck) return;
@@ -530,8 +567,30 @@ export default function Library() {
       if (next === now.page) return;
       goToPage(next);
     };
+    const released = (e: KeyboardEvent) => {
+      fast = e.shiftKey;   // Shift let go: back to the half speed, live
+      if (e.key === 'w' || e.key === 'W') held.delete('up');
+      if (e.key === 's' || e.key === 'S') held.delete('down');
+    };
+    const lost = () => { held.clear(); fast = false; };
+    // F5 and Ctrl+R (not Ctrl+Shift+R): read in place, nothing loaded. Before anything else has the key,
+    // from a text box too.
+    const reload = (e: KeyboardEvent) => {
+      if (e.key !== 'F5' && !((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r' && !e.shiftKey)) return;
+      e.preventDefault();
+      refreshRef.current();
+    };
+    document.addEventListener('keydown', reload, true);
     document.addEventListener('keydown', keys);
-    return () => document.removeEventListener('keydown', keys);
+    document.addEventListener('keyup', released);
+    window.addEventListener('blur', lost);
+    return () => {
+      document.removeEventListener('keydown', reload, true);
+      document.removeEventListener('keydown', keys);
+      document.removeEventListener('keyup', released);
+      window.removeEventListener('blur', lost);
+      cancelAnimationFrame(frame);
+    };
   }, [goToPage]);
 
   // ── The filter ──

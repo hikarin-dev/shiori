@@ -188,6 +188,11 @@ export function createLibraryJobs(deps: LibraryJobDeps) {
       if (off && !hydrated) { hydrated = true; hydrate(run).catch(() => {}); }
     },
 
+    // What is under way asked again (the page read again in place, F5: 1.3's loadAll's hydrateJobs).
+    refresh() {
+      if (off) hydrate(run).catch(() => {});
+    },
+
     // The card's last word has stayed its while: the card rests (a job running again is kept), and a
     // done job's end reads the page again.
     settled(gid: string) {
