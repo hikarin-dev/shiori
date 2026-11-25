@@ -1564,7 +1564,7 @@ function _scrollPageModeToStartSoon(nav) {
 }
 
 function _scrollPageModeWhenImgsLoad(imgs, nav) {
-  imgs.forEach(img => img.addEventListener('load', () => _scrollPageModeToStartSoon(nav), { once: true }));
+  imgs.forEach(img => img.addEventListener('load', () => _scrollPageModeToStartSoon(nav), { once: true, signal: _rsSignal }));
 }
 
 async function goTo(n, skipDivider = false) {
