@@ -274,3 +274,110 @@ test('the delete\'s question and the re-run menu stay inside the window (1280, 7
     await tr.close();
   }
 });
+
+// 7c: a row dragged by its grip, at 100%, 125% and 150%, with the page's scrollbar shown (the sixty) and
+// with none (a series of four, the window tall), and in a narrow window: every frame the row within 1px
+// of where the pointer holds it, nothing of the page moving sideways or growing, the drop in its place.
+test('the drag: at 100%, 125% and 150%, with the page’s scrollbar and without, in a narrow window, the row on the pointer and nothing else moving', { skip: !chromePath() }, async () => {
+  for (const [what, g, view, scale] of [
+    ['a series of four, no scrollbar', gid(base, 'S'), { width: 1280, height: 1400 }, 1],
+    ['the sixty, its scrollbar', sixty, { width: 1280, height: 900 }, 1],
+    ['the sixty at 125%', sixty, { width: 1280, height: 900 }, 1.25],
+    ['the sixty at 150%', sixty, { width: 1280, height: 900 }, 1.5],
+    ['a series of four at 760', gid(base, 'S'), { width: 760, height: 900 }, 1],
+    ['a series of four at 400', gid(base, 'S'), { width: 400, height: 800 }, 1],
+  ]) {
+    const page = await open(NEW, g, { ...view, deviceScaleFactor: scale });
+    await page.$eval('.ch-row:nth-child(2)', (el) => el.scrollIntoView({ block: 'center' }));
+    await sleep(200);
+    const first = await page.$eval('.ch-row:nth-child(1) .ch-grip', (el) => { const b = el.getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
+    const third = await page.$eval('.ch-row:nth-child(3)', (el) => { const b = el.getBoundingClientRect(); return { y: b.top + b.height / 2 }; });
+    const page0 = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight, client: document.documentElement.clientWidth, list: document.querySelector('.ch-list').getBoundingClientRect().left }));
+    await page.evaluate(() => {
+      window.__f = []; window.__p = null;
+      document.addEventListener('pointermove', (e) => { window.__p = e.clientY; }, true);
+      const tick = () => {
+        const row = document.querySelector('.ch-row[data-dragging]');
+        if (row && window.__p != null) window.__f.push({ top: row.getBoundingClientRect().top, p: window.__p, left: row.getBoundingClientRect().left, width: document.documentElement.scrollWidth, client: document.documentElement.clientWidth });
+        window.__raf = requestAnimationFrame(tick);
+      };
+      window.__raf = requestAnimationFrame(tick);
+    });
+    await page.mouse.move(first.x + 30, first.y); await page.mouse.move(first.x, first.y); await sleep(100);
+    await page.mouse.down();
+    for (let i = 1; i <= 30; i++) { await page.mouse.move(first.x, first.y + ((third.y - first.y) * i) / 30); await sleep(10); }
+    await sleep(300);
+    await page.mouse.up();
+    await sleep(600);
+    const frames = (await page.evaluate(() => { cancelAnimationFrame(window.__raf); return window.__f; }));
+    assert.ok(frames.length > 10, `${what}: frames of the drag (${frames.length})`);
+    const during = frames.slice(0, -1);
+    const off = during[0].top - during[0].p;
+    assert.ok(during.every((f) => Math.abs(f.top - f.p - off) <= 1), `${what}: the row within 1px of the pointer`);
+    assert.ok(frames.every((f) => Math.abs(f.left - page0.list) <= 1 && f.width === page0.width && f.client === page0.client), `${what}: nothing sideways, the scrollbar as it was`);
+    const after = await page.evaluate(() => ({ order: [...document.querySelectorAll('.ch-row')].map((r) => r.dataset.chapterId), height: document.documentElement.scrollHeight, left: !!document.querySelector('.ch-row[data-dragging], .ch-list[data-sorting]') || [...document.querySelectorAll('.ch-row')].some((r) => r.style.top) }));
+    assert.equal(after.left, false, `${what}: nothing of the drag left`);
+    assert.equal(after.height, page0.height, `${what}: the page's height as it was`);
+    assert.deepEqual(page.problems, []);
+    // The order put back for the next size (the first row back to the head).
+    await page.evaluate(async (order) => {
+      const api = await import('/app/js/api.js');
+      const series = await api.series.resolve(order[0]);
+      const ids = series.chapters.map((c) => String(c.id));
+      const moved = ids[2];
+      await api.series.reorder(series.ownerId, [moved, ...ids.filter((id) => id !== moved)]);
+    }, after.order);
+    await page.close();
+  }
+});
+
+// 7c: the add bar's list at the window's edges (a long series scrolled to its end: the box at the
+// window's foot, the list over it; a short one at its top: the list under the box where the room below
+// holds it), inside the window, nothing of the page moving or growing as it opens, at 1280, 760, a phone
+// and 125% and 150%; a result with a long title cut at its end on its one line, nothing sideways.
+test('the add list: inside the window at its edges, nothing of the page moving as it opens; a long title on one line', { skip: !chromePath() }, async () => {
+  for (const [view, scale] of [[{ width: 1280, height: 900 }, 1], [{ width: 760, height: 700 }, 1], [{ width: 1280, height: 900 }, 1.25], [{ width: 1280, height: 900 }, 1.5], [{ width: 390, height: 844, isMobile: true, hasTouch: true }, 1]]) {
+    const at = `${view.width}@${scale}`;
+    let page;
+    for (const edge of ['end', 'start']) {
+      page = await open(NEW, edge === 'end' ? sixty : gid(base, 'S'), { ...view, deviceScaleFactor: scale });
+      if (edge === 'end') await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+      await sleep(200);
+      await page.click('#addSearch');
+      await sleep(200);
+      const before = await page.evaluate(() => ({ height: document.documentElement.scrollHeight, width: document.documentElement.scrollWidth, scroll: scrollY, bar: document.getElementById('addBar').getBoundingClientRect().top, hero: document.querySelector('.ov-hero').getBoundingClientRect().top }));
+      await page.type('#addSearch', 'gallery', { delay: 10 });
+      await until(page, () => document.querySelectorAll('#addResults .add-res').length > 0, null, { what: `${at}: the list` });
+      await sleep(300);
+      const now = await page.evaluate(() => {
+        const list = document.getElementById('addResults').getBoundingClientRect(), box = document.getElementById('addSearch').getBoundingClientRect();
+        return { height: document.documentElement.scrollHeight, width: document.documentElement.scrollWidth, scroll: scrollY, bar: document.getElementById('addBar').getBoundingClientRect().top, hero: document.querySelector('.ov-hero').getBoundingClientRect().top,
+          list: { top: list.top, bottom: list.bottom, left: list.left, right: list.right }, box: { top: box.top, bottom: box.bottom, left: box.left, right: box.right }, inner: innerHeight, client: document.documentElement.clientWidth };
+      });
+      assert.deepEqual([now.height, now.width, now.scroll, now.bar, now.hero], [before.height, before.width, before.scroll, before.bar, before.hero], `${at} ${edge}: nothing of the page moved or grew`);
+      assert.ok(now.list.top >= 0 && now.list.bottom <= now.inner && now.list.right <= now.client, `${at} ${edge}: the list inside the window (${JSON.stringify(now.list)})`);
+      assert.ok(Math.abs(now.list.left - now.box.left) < 1 && Math.abs(now.list.right - now.box.right) < 1, `${at} ${edge}: as wide as its box`);
+      // Under the box where the room below holds the list (as tall as its rows, 320px at most); over it
+      // where only the room above does.
+      const header = await page.$eval('.app-header', (el) => el.getBoundingClientRect().bottom);
+      const rows = await page.$$eval('#addResults .add-res', (els) => els.length);
+      const below = now.inner - now.box.bottom - 12, above = now.box.top - 4 - Math.max(8, header);
+      const over = below < Math.min(320, rows * 58.43 + 2) && above > below;
+      assert.ok(over ? now.list.bottom <= now.box.top : now.list.top >= now.box.bottom, `${at} ${edge}: ${over ? 'over' : 'under'} the box (${JSON.stringify(now)})`);
+      if (edge === 'end') assert.ok(over, `${at}: the box at the window's foot, the list over it`);
+      await page.click('#ovSection');
+      await until(page, () => !document.getElementById('addResults'), null, { what: `${at}: the list closed` });
+      if (edge === 'end') await page.close();
+    }
+    // A long title: one line, cut at its end.
+    await page.$eval('#addSearch', (el) => { el.value = ''; });
+    await page.click('#addSearch');
+    await page.type('#addSearch', 'runs long', { delay: 10 });
+    await until(page, () => document.querySelectorAll('#addResults .add-res').length === 1, null, { what: `${at}: the long title` });
+    const long = await page.$eval('#addResults .add-res-title', (el) => ({ cut: el.scrollWidth > el.clientWidth, overflow: getComputedStyle(el).textOverflow, height: el.parentElement.getBoundingClientRect().height, sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth }));
+    assert.deepEqual([long.cut, long.overflow, long.sideways], [true, 'ellipsis', false], `${at}: a long title cut at its end, nothing sideways`);
+    assert.ok(Math.abs(long.height - 58.43) < 1, `${at}: its row one line high (${long.height})`);
+    assert.deepEqual(page.problems, []);
+    await page.close();
+  }
+});

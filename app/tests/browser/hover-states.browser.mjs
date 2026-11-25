@@ -104,6 +104,16 @@ test('the overview (a gallery and a series, 1.3\'s page and the new one) and the
       const changes = await nothingDarker(page, `${name}, in edit mode`, least);
       assert.deepEqual(changes.filter((c) => c.element.includes('#editToggle') && !c.element.includes('▸')).map(said), [], `${name}: Edit, on, under the pointer`);
     }
+    // A series' add bar with its list of galleries open (7c): its results lift under the pointer.
+    if (path.startsWith('/overview') && path.endsWith(gid('S'))) {
+      await page.$eval('#addSearch', (el) => el.scrollIntoView({ block: 'center' }));
+      await page.click('#addSearch');
+      await page.type('#addSearch', gid('S').slice(0, 6), { delay: 30 });
+      await until(page, () => document.querySelectorAll('#addResults.open .add-res').length > 0, null, { what: `${name}: the add list` });
+      await sleep(500);
+      const changes = await nothingDarker(page, `${name}, its add list open`, least);
+      assert.ok(changes.some((c) => /add-res|listbox-option/.test(c.element)), `${name}: the add list's results measured (${changes.map((c) => c.element).join('; ')})`);
+    }
     await page.close();
   }
 });

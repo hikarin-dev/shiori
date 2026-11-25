@@ -17,7 +17,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { startServer, chromePath, launch, until } from './harness.mjs';
 import { readDialog, answer } from './library-drive.mjs';
-import { openRun, nextBase, gid, visit, read, named, sleep, OLD, NEW } from './overview-drive.mjs';
+import { openRun, nextBase, gid, visit, read, named, sleep, record, OLD, NEW } from './overview-drive.mjs';
 import { zipCreate } from '../../js/zip.js';
 
 let server, origin, browser, dir;
@@ -131,7 +131,7 @@ const PREP = {
     const channel = new BroadcastChannel('shiori-runner');
     channel.onmessage = ({ data }) => {
       if (data?.type !== 'batch') return;
-      window.__batches.push({ name: data.batch.name, attachTo: data.batch.attachTo, meta: data.batch.meta, groups: data.batch.groups.map((g) => [g.name, g.files.length]) });
+      window.__batches.push({ id: data.batch.id, name: data.batch.name, attachTo: data.batch.attachTo, meta: data.batch.meta, groups: data.batch.groups.map((g) => [g.name, g.files.length]) });
       channel.postMessage({ type: 'taken', id: data.id });
     };
   },
@@ -165,6 +165,31 @@ const CASES = [
   ['in the volumes\' view: added as its own kind', { view: 'volumes' }, async (d) => { await type(d, 'F gal'); await pickRow(d, 'F gallery'); await look(d, 'after'); }],
   ['the addition refused: told so, nothing added', { prep: 'refuse' }, async (d) => { await type(d, 'F gal'); await pickRow(d, 'F gallery'); await dialog(d); await answer(d.page, 'ok'); await look(d, 'after'); }],
   // ── Files dropped on the bar ──
+  // §5.3 F10: the tint 6% → 8%.
+  ['files over the bar light it, not text; gone on leaving and on a drop; over the page elsewhere, not', { differs: (was) => {
+    for (const step of was.seen) for (const v of Object.values(step)) if (v?.ground === 'rgba(237, 39, 84, 0.06)') v.ground = 'rgba(237, 39, 84, 0.08)';
+  } }, async (d) => {
+    await d.page.evaluate(async () => {
+      const c = new OffscreenCanvas(40, 60); c.getContext('2d').fillRect(0, 0, 40, 60);
+      window.__picture = new File([await c.convertToBlob({ type: 'image/png' })], 'Pic.png', { type: 'image/png' });
+    });
+    const fire = (type, kind, where = '#addBar') => d.page.evaluate((type, kind, where) => {
+      const data = new DataTransfer();
+      if (kind === 'files') data.items.add(window.__picture); else data.setData('text/plain', 'some words');
+      document.querySelector(where).dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: data }));
+    }, type, kind, where);
+    const bar = async (what) => { await sleep(250); d.seen.push({ [what]: await d.page.evaluate(() => { const b = document.getElementById('addBar'); const s = getComputedStyle(b); return { lit: b.classList.contains('drag'), frame: s.borderTopColor, ground: s.backgroundColor }; }) }); };
+    await fire('dragenter', 'text'); await fire('dragover', 'text'); await bar('text over it');
+    await fire('dragleave', 'text');
+    await fire('dragenter', 'files', '#ovSection'); await fire('dragover', 'files', '#ovSection'); await bar('files over the page elsewhere');
+    await fire('dragleave', 'files', '#ovSection');
+    await fire('dragenter', 'files'); await fire('dragover', 'files'); await bar('files over it');
+    await fire('dragenter', 'files', '#addHeading'); await fire('dragleave', 'files'); await bar('files over its heading');
+    await fire('dragleave', 'files', '#addHeading'); await bar('the drag gone');
+    await fire('dragenter', 'files'); await fire('dragover', 'files'); await bar('files again');
+    await fire('drop', 'files'); await bar('dropped');
+    await settle(d.page, d.id('S'));
+  }],
   ['a drop of one archive: the next chapter', {}, async (d) => { await drop(d, [at('Next One.cbz')]); await settle(d.page, d.id('S')); }],
   ['a drop of two archives: asked first, OK', {}, async (d) => { await drop(d, [at('Next One.cbz'), at('Next Two.cbz')]); await dialog(d, 8000); await answer(d.page, 'ok'); await settle(d.page, d.id('S')); }],
   ['a drop of two archives: asked first, Cancel', {}, async (d) => { await drop(d, [at('Next One.cbz'), at('Next Two.cbz')]); await dialog(d, 8000); await answer(d.page, 'cancel'); await settle(d.page, d.id('S')); }],
@@ -177,9 +202,115 @@ const CASES = [
   ['a drop without the helper', { helper: false }, async (d) => { await drop(d, [at('Next Two.cbz')]); await settle(d.page, d.id('S')); }],
   ['a drop of two handed to the desktop app\'s runner', { prep: 'runner' }, async (d) => {
     await drop(d, [at('Next One.cbz'), at('Next Two.cbz')]); await dialog(d, 8000); await answer(d.page, 'ok'); await sleep(1500);
-    d.seen.push({ handed: await d.page.evaluate(() => window.__batches) });
+    d.seen.push({ handed: await d.page.evaluate(() => window.__batches.map(({ id, ...b }) => b)) });
   }],
 ];
+
+// ── The imports' tracker: a batch begun on the page, as its runner tells of it ──
+
+// In the page: each panel of the tracker, word by word, and its buttons.
+function panels() {
+  const text = (el) => (el ? el.textContent.replace(/\s+/g, ' ').trim() : null);
+  const shown = (el) => !!el && !el.hidden && getComputedStyle(el).display !== 'none';
+  return [...document.querySelectorAll('#ovImports .ib')].map((p) => ({
+    state: p.dataset.state, kind: text(p.querySelector('.ib-kind')), runner: shown(p.querySelector('.run-tag')) ? text(p.querySelector('.run-tag')) : null,
+    name: text(p.querySelector('.ib-name')), total: text(p.querySelector('.ib-total')),
+    lines: ['.ib-tally', '.ib-now', '.ib-issues'].map((s) => text(p.querySelector(s))),
+    stop: shown(p.querySelector('.ib-stop')) ? (p.querySelector('.ib-stop').disabled ? 'off' : 'on') : null,
+    dismiss: shown(p.querySelector('.ib-dismiss')), titles: shown(p.querySelector('.ib-list-btn')),
+  }));
+}
+
+test('the imports’ tracker: a batch begun on the page, each of its states, Stop, its end, Dismiss', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const out = {};
+  for (const where of [OLD, NEW]) {
+    const base = nextBase(1790018000000);
+    const context = await browser.createBrowserContext();
+    const page = await openRun(context, origin, base);
+    await page.setViewport({ width: 1280, height: 900 });
+    await page.evaluateOnNewDocument(PREP.runner);
+    await visit(page, origin, where, gid(base, 'S'));
+    await page.evaluate(record);
+    const d = { page, base, seen: [], id: (part) => gid(base, part) };
+    await drop(d, [at('Next One.cbz'), at('Next Two.cbz')]);
+    await readDialog(page, 8000);
+    await answer(page, 'ok');
+    const id = await until(page, () => window.__batches[0]?.id, null, { what: 'the batch handed over' });
+    const job = { gid: id, kind: 'import', name: '2 items', total: 2, done: 0, imported: 0, skipped: 0, failed: 0, bytes: 527, bytesDone: 0, runner: { kind: 'app' }, startedAt: Date.now() };
+    const tell = (word) => page.evaluate(async (word) => (await import('/app/js/platform.js')).jobs.publish({ ...word, movedAt: Date.now(), at: Date.now() }), word);
+    const steps = [];
+    const look = async (what) => { await sleep(400); steps.push([what, await page.evaluate(panels)]); };
+    await tell({ ...job, status: 'progress', current: { name: 'Next One', done: 0, total: 2, bytes: 300 } });
+    await until(page, () => !!document.querySelector('#ovImports .ib'), null, { what: 'the panel' });
+    await look('the first title under way');
+    await tell({ ...job, status: 'progress', done: 1, imported: 1, bytesDone: 300, current: { name: 'Next Two', done: 0, total: 1, bytes: 227 } });
+    await look('the second under way');
+    await page.click('#ovImports .ib-stop');
+    await look('Stop pressed');
+    await tell({ ...job, status: 'cancelled', done: 1, imported: 1, bytesDone: 300, current: null });
+    await look('stopped');
+    const said = await page.evaluate(() => window.__said.filter((m) => m.type === 'STOP_JOB'));
+    await page.click('#ovImports .ib-dismiss');
+    await look('dismissed');
+    // Another batch, ended with a title failed.
+    await tell({ ...job, gid: `${id}-b`, status: 'done', done: 2, imported: 1, failed: 1, bytesDone: 527, current: null });
+    await look('another, ended with a title failed');
+    out[where] = { steps, said: said.map((m) => ({ ...m, galleryId: m.galleryId === id ? '<batch>' : m.galleryId })), problems: page.problems };
+    await page.evaluate(async () => { const platform = await import('/app/js/platform.js'); for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind); });
+    await context.close();
+  }
+  if (process.env.DUMP) console.log(JSON.stringify(out[OLD]));
+  assert.deepEqual(out[NEW], out[OLD]);
+  assert.equal(out[NEW].said.length, 1, 'Stop said once');
+});
+
+// ── Live: a gallery added drawn in the frame of the press, taken off again when refused ──
+
+// In the page, from now: every frame's rows (by chapter) and whether each was there before, from the
+// press on a result.
+function framesFromPress() {
+  window.__f = [];
+  for (const r of document.querySelectorAll('.ch-row')) r.__kept = true;
+  document.addEventListener('mousedown', (e) => { if (e.target.closest('#addResults')) window.__pressed = true; }, true);
+  const tick = () => {
+    if (window.__pressed) {
+      const rows = [...document.querySelectorAll('.ch-row')];
+      window.__f.push({ rows: rows.map((r) => r.dataset.chapterId).join(','), fresh: rows.filter((r) => !r.__kept).map((r) => r.dataset.chapterId).join(','), dialog: !!document.querySelector('[data-notice="dialog"]') });
+    }
+    window.__raf = requestAnimationFrame(tick);
+  };
+  window.__raf = requestAnimationFrame(tick);
+}
+
+test('live: a gallery added is drawn in the frame of the press, the other rows the same nodes; refused, it is taken off again', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const out = {};
+  for (const refuse of [false, true]) {
+    const base = nextBase(1790018000000);
+    const context = await browser.createBrowserContext();
+    const page = await openRun(context, origin, base);
+    await page.setViewport({ width: 1280, height: 900 });
+    if (refuse) await page.evaluateOnNewDocument(PREP.refuse);
+    await visit(page, origin, NEW, gid(base, 'S'));
+    const d = { page, base, seen: [], id: (part) => gid(base, part) };
+    await type(d, 'F gal');
+    await page.evaluate(framesFromPress);
+    await pickRow(d, 'F gallery');
+    const frames = await page.evaluate(() => { cancelAnimationFrame(window.__raf); return window.__f; });
+    // Each distinct frame once, ids named by their parts.
+    const seen = [];
+    for (const f of named(frames, base)) if (JSON.stringify(f) !== JSON.stringify(seen.at(-1))) seen.push(f);
+    out[refuse ? 'refused' : 'added'] = { first: seen[0], seen, problems: page.problems };
+    await context.close();
+  }
+  const rows = '<S>,<S2>,<S3>,<X>';
+  assert.deepEqual(out.added.first, { rows: `${rows},<F>`, fresh: '<F>', dialog: false }, 'in the frame of the press');
+  assert.deepEqual(out.added.seen.at(-1), { rows: `${rows},<F>`, fresh: '<F>', dialog: false });
+  assert.deepEqual(out.refused.first, { rows: `${rows},<F>`, fresh: '<F>', dialog: false }, 'refused: drawn at the press too');
+  assert.deepEqual(out.refused.seen.at(-1), { rows, fresh: '', dialog: true }, 'then taken off, and told');
+  assert.deepEqual([out.added.problems, out.refused.problems], [[], []]);
+});
 
 // One case on one page: what it showed, asked and left.
 async function run(where, [, opts, steps]) {

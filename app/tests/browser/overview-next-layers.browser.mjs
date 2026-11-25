@@ -7,7 +7,7 @@
 // a delete's question opened and answered: the same.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startServer, chromePath, launch } from './harness.mjs';
+import { startServer, chromePath, launch, until } from './harness.mjs';
 import { openRun, nextBase, gid, visit, sleep, NEW, PARTS } from './overview-drive.mjs';
 import { layerWatch, easedTransforms } from './layers.mjs';
 
@@ -130,6 +130,51 @@ test('a row dragged by its grip and dropped: nothing lifted onto a layer', async
   assert.ok(dropped.running.some((r) => r === '' || r === 'top'), `met mid-way, the dropped row travelling (${dropped.running})`);
   quiet('the drop', dropped);
   await sleep(600);
+  assert.deepEqual(await easedTransforms(page, '.ch-face'), [], 'the page eases no transform but a row button’s faces');
+  assert.deepEqual(page.problems, []);
+});
+
+// 7c: the add bar's list of galleries opening, and the bar lit by files dragged over it (its frame and
+// ground easing by colour): nothing lifted onto a layer.
+test('the add list opening and the bar lit by files over it: nothing lifted onto a layer', async (t) => {
+  if (!browser) return t.skip('no Chrome');
+  const base = nextBase(1790016000000);
+  const page = await openRun(browser, origin, base);
+  t.after(() => page.close());
+  await page.setViewport({ width: 1280, height: 900 });
+  await visit(page, origin, NEW, gid(base, 'S'));
+  await page.bringToFront();
+  await page.$eval('#addSearch', (el) => el.scrollIntoView({ block: 'center' }));
+  await page.mouse.move(640, 5);
+  const watch = await layerWatch(page);
+  t.after(() => watch.close());
+  const quiet = (what, seen) => { assert.deepEqual(seen.animated, [], `${what}: no layer is there for an animation`); assert.deepEqual(seen.gained.filter((l) => !l.startsWith(' [')), [], `${what}: nothing got a layer`); };
+  await page.click('#addSearch');
+  await sleep(400);
+  const opened = await watch.during(async () => {
+    await page.type('#addSearch', 'gallery', { delay: 20 });
+    await until(page, () => document.querySelectorAll('#addResults .add-res').length > 0, null, { what: 'the add list' });
+  });
+  // The list itself is on layers of its own while it shows (placed against its box by anchor positioning,
+  // which the compositor keeps on the box as the page scrolls): its own words, there from its first frame
+  // to its last; nothing of the page's.
+  assert.deepEqual(opened.animated, [], 'the add list opening: no layer is there for an animation');
+  assert.deepEqual(opened.gained.filter((l) => !l.startsWith(' [') && !l.startsWith('div#addResults')), [], 'the add list opening: nothing of the page got a layer');
+  await page.click('#ovSection');
+  await page.evaluate(async () => {
+    const c = new OffscreenCanvas(40, 60); c.getContext('2d').fillRect(0, 0, 40, 60);
+    window.__picture = new File([await c.convertToBlob({ type: 'image/png' })], 'Pic.png', { type: 'image/png' });
+  });
+  const fire = (type) => page.evaluate((type) => {
+    const data = new DataTransfer();
+    data.items.add(window.__picture);
+    document.getElementById('addBar').dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: data }));
+  }, type);
+  const lit = await watch.during(async () => { await fire('dragenter'); await fire('dragover'); });
+  assert.ok(lit.running.some((p) => /border|background/.test(p)), `met mid-way, the bar's frame and ground easing (${lit.running})`);
+  quiet('the bar lit', lit);
+  quiet('the bar unlit', await watch.during(() => fire('dragleave')));
+  await sleep(300);
   assert.deepEqual(await easedTransforms(page, '.ch-face'), [], 'the page eases no transform but a row button’s faces');
   assert.deepEqual(page.problems, []);
 });
