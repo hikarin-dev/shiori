@@ -5529,9 +5529,24 @@ window.addEventListener('resize', () => {
 
 init();
 
+// What stop does first, while the instance still runs: what the page leaving does for it (pagehide
+// saves the place; the library hears the reader has gone when the page's connection closes), and what
+// would otherwise run on or stay open with nothing to end it.
+function _rsBeforeStop() {
+  _saveProgress();                       // where the person left off
+  if (_shownGallery) api.galleries.reading(null).catch(() => {});
+  _stopScroll();                         // a held key's scroll
+  if (_autoRaf) setAutoScroll(false);
+  _endClickWheelNav();
+  if (propertiesOpen()) closePageProperties();
+  _removeBubbleLayers();                 // reader-study.js: the layers and their object URLs
+  forgetStudy(pages.map((p) => p?.url).filter(Boolean));   // reader-study.js: the records it holds for these pages
+}
+
 // ── stop ──
 function stop() {
   if (_rsStopped) return null;
+  _rsBeforeStop();
   _rsStopped = true;
   _rsAbort.abort();
   for (const id of _rsTimers) _rsWin.clearTimeout(id);
