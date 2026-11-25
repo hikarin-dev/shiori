@@ -8,6 +8,24 @@
    data-reader>, the page's own mark (reader.html has it from the start; a page that draws the reader
    sets it while the reader shows). :where() adds no weight, so each rule weighs what it did. */
 
+/* The reader's controls are the browser's wherever the reader gives them nothing of its own, as on
+   its own page, whatever defaults a page drawing the reader has (the one page's: a control takes the
+   text around it and has no ground, frame or rounding, src/styles/document.css). Each property those
+   defaults set goes back to the browser's own (revert: the same on every system as on this page),
+   ligatures off as base.css has them. Zero weight and first: every rule of the reader's and of
+   base.css outweighs it, so on the reader's own page it changes nothing. Its roots are the reader's
+   parts that hold controls: the frame's, and the dialogs and the menu its scripts add to <body>. */
+:where(#topbar, #sideNav, #sideZoom, #snChapters, #viewport, #readerSettingsModal, .page-menu, .feedback-dialog, .pp-dialog) :where(button, input, select, optgroup, textarea),
+:where(#scrollTopBtn) {
+  font: revert; font-variant-ligatures: none; letter-spacing: revert;
+  color: revert; background-color: revert; border: revert; border-radius: revert; opacity: revert;
+}
+/* And where such a page gives the reader's own elements something else: the page's ground on <body>
+   (the reader's is a shade darker), and its header's 20px line to the brand's word (the top bar's
+   brand shares the header's names). */
+:where(html[data-reader]) body { background: var(--reader-background); }
+:where(#topbar) .brand-text { line-height: inherit; }
+
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* The comic-lettering face the translation renderer typesets with, and the two source-text faces
