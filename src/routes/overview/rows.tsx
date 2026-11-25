@@ -59,7 +59,7 @@ function Actions({ t, a, first, last }: { t: Translate; a: RowActions; first: bo
         </Button>
       )}
       {tr && (
-        <Button variant="ghost" tone={tr.done ? 'success' : 'primary'} rest="tone" size="icon-md" coarse="40"
+        <Button variant="ghost" {...(tr.done ? { tone: 'success', rest: 'tone' } as const : {})} size="icon-md" coarse="40"
           className={cn('ch-ibtn translate', tr.done && 'done', tr.cancelling && 'cancelling')}
           data-translate data-tip={tr.tip} data-tip-shift={tr.shift ?? undefined}>
           {tr.face === 'stop' ? <StopIcon /> : <Faces rest={<TranslateIcon />} shift={tr.shift ? <RevertIcon /> : undefined} />}
