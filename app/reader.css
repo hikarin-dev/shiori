@@ -30,50 +30,50 @@
 }
 
 /* ── Header brand: icon and name, then "/ page" ── */
-.brand-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; text-decoration: none; }
-.brand-icon { width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 6px; }
-.brand-icon img { display: block; width: 100%; height: 100%; }
-.brand-text { color: var(--accent); font-size: 15px; font-weight: 700; letter-spacing: -0.3px; white-space: nowrap; }
-.brand-sep { flex-shrink: 0; color: var(--border-strong); font-size: 13px; }
-.brand-page { flex-shrink: 0; color: var(--muted); font-size: 13px; white-space: nowrap; }
+:where(#topbar) .brand-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; text-decoration: none; }
+:where(#topbar) .brand-icon { width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 6px; }
+:where(#topbar) .brand-icon img { display: block; width: 100%; height: 100%; }
+:where(#topbar) .brand-text { color: var(--primary); font-size: 15px; font-weight: 700; letter-spacing: -0.3px; white-space: nowrap; }
+:where(#topbar) .brand-sep { flex-shrink: 0; color: var(--input); font-size: 13px; }
+:where(#topbar) .brand-page { flex-shrink: 0; color: var(--muted-foreground); font-size: 13px; white-space: nowrap; }
 /* The page's name is a menu of the app's pages (page-nav.js), as quiet as the name it replaces: its
    text and a faint caret, no box until pointed at (the dropdowns' rules at the end then give it the
-   app's dropdown hover). Open, its list is a small menu of its own under it, as wide as its longest page; where the
-   browser can't style the list (no base-select), its native one opens. */
-.page-nav {
+   app's dropdown hover). Open, its list is a small menu of its own under it, as wide as its longest
+   page; where the browser can't style the list (no base-select), its native one opens. */
+:where(#topbar) .page-nav {
   height: 26px; margin-left: -5px; padding: 0 6px;
-  font: inherit; font-size: 13px; color: var(--muted); cursor: pointer;
+  font: inherit; font-size: 13px; color: var(--muted-foreground); cursor: pointer;
   background: transparent; border: 1px solid transparent; border-radius: 6px;
   field-sizing: content;   /* as wide as this page's name (a native one fits its longest option) */
-  --dd-bg: var(--surface); --dd-inset: 10px;
+  --dd-bg: var(--card); --dd-inset: 10px;
 }
-.page-nav:hover { color: var(--text); }
+:where(#topbar) .page-nav:hover { color: var(--foreground); }
 @supports (appearance: base-select) {
-  .page-nav { gap: 5px; }
-  .page-nav:open { border-radius: 6px; }
-  .page-nav::picker(select) {
+  :where(#topbar) .page-nav { gap: 5px; }
+  :where(#topbar) .page-nav:open { border-radius: 6px; }
+  :where(#topbar) .page-nav::picker(select) {
     width: max-content; min-width: anchor-size(width); margin-top: 4px;
     border-top-color: var(--dd-line); border-radius: 6px;
   }
 }
 @supports not (appearance: base-select) {
-  .page-nav {
+  :where(#topbar) .page-nav {
     appearance: none; padding-right: 22px;
     background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237c7c8c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 6px center / 11px;
   }
 }
 
 /* ── An (i) beside a setting's name: more detail on hover (tooltip.js) ── */
-.field-info {
+:where(#readerSettingsModal) .field-info {
   display: inline-flex;
   margin-left: 6px;
   vertical-align: -2px;
-  color: var(--muted);
+  color: var(--muted-foreground);
   cursor: help;
 }
-.field-info:hover,
-.field-info:focus-visible { color: var(--text); outline: none; }
-.field-info svg {
+:where(#readerSettingsModal) .field-info:hover,
+:where(#readerSettingsModal) .field-info:focus-visible { color: var(--foreground); outline: none; }
+:where(#readerSettingsModal) .field-info svg {
   width: 13px;
   height: 13px;
   fill: none;
@@ -83,26 +83,131 @@
   stroke-linejoin: round;
 }
 
-/* ── Context menu (rerun-menu.js, reader-page-menu.js): a title, then items with an optional
+/* ── Context menu (reader-page-menu.js): a title, then items with an optional
    detail line under the label. Each menu sets its own layer and width. ── */
-.ctx-menu {
+.ctx-menu:where(.page-menu) {
   position: fixed; max-width: 320px; padding: 5px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  background: var(--popover); border: 1px solid var(--border); border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
-.ctx-menu-title { padding: 5px 9px 6px; color: var(--muted); font-size: 11px; }
-.ctx-menu-item {
+:where(.page-menu) .ctx-menu-title { padding: 5px 9px 6px; color: var(--muted-foreground); font-size: 11px; }
+:where(.page-menu) .ctx-menu-item {
   display: block; width: 100%; padding: 7px 9px; border: 0; border-radius: 5px;
-  background: none; color: var(--text); font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+  background: none; color: var(--foreground); font: inherit; font-size: 12px; text-align: left; cursor: pointer;
 }
-.ctx-menu-item:hover:not(:disabled), .ctx-menu-item:focus-visible { background: var(--border); outline: none; }
-.ctx-menu-item:disabled { cursor: default; opacity: 0.55; }
-.ctx-menu-label { display: block; }
-.ctx-menu-label kbd {
-  padding: 1px 5px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg);
-  color: var(--muted); font-family: inherit; font-size: 10px;
+:where(.page-menu) .ctx-menu-item:hover:not(:disabled), :where(.page-menu) .ctx-menu-item:focus-visible { background: var(--border); outline: none; }
+:where(.page-menu) .ctx-menu-item:disabled { cursor: default; opacity: 0.55; }
+:where(.page-menu) .ctx-menu-label { display: block; }
+:where(.page-menu) .ctx-menu-label kbd {
+  padding: 1px 5px; border: 1px solid var(--border); border-radius: 3px; background: var(--reader-background);
+  color: var(--muted-foreground); font-family: inherit; font-size: 10px;
 }
-.ctx-menu-detail { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+:where(.page-menu) .ctx-menu-detail { display: block; margin-top: 2px; color: var(--muted-foreground); font-size: 11px; line-height: 1.35; }
+
+/* ── Button in the reader's dialogs: neutral, or .primary / .danger (base.css's, which notice.js's
+   notices on this page use) ── */
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn {
+  flex: none;
+  padding: 7px 14px;
+  background: transparent;
+  border: 1px solid var(--input);
+  border-radius: 6px;
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.55;
+  cursor: pointer;
+}
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn:hover:not(:disabled) { border-color: var(--muted-foreground); }
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn.danger { background: var(--danger-fill); border-color: transparent; color: var(--danger); }
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn.danger:hover:not(:disabled) { background: var(--danger-fill-hover); border-color: transparent; }
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn:disabled { opacity: .6; cursor: default; }
+
+/* ── Icon button in a dialog's corner: the close X, or a link beside it (base.css's) ── */
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .icon-btn {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  text-decoration: none;
+}
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .icon-btn:hover { background: var(--secondary); color: var(--foreground); }
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .icon-btn[hidden] { display: none; }
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .icon-btn > svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ── Switch: a hidden checkbox and its track (the reader's settings) ── */
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .switch-control {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  cursor: pointer;
+}
+
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .switch-control input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .switch-track {
+  position: absolute;
+  inset: 0;
+  background: #303038;
+  border: 1px solid #4a4a55;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: #b3b3bf;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .4);
+  transition: background-color .15s ease, transform .15s ease;
+}
+
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .switch-control input:checked + .switch-track {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .switch-control input:checked + .switch-track::after {
+  background: #fff;
+  transform: translateX(16px);
+}
+
+/* The checkbox itself is hidden, so its track shows the browser's own focus ring. */
+:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .switch-control input:focus-visible + .switch-track {
+  outline: auto 1px -webkit-focus-ring-color;
+}
 
 :root:where([data-reader]) {
   --topbar-h: 54px; --botbar-h: 3px;
@@ -1539,25 +1644,25 @@ body.reader-side-nav.sn-pop-open #snChapters { display: flex; }
    dropdown.js adds .opens-up when only the space above the box can fit the list. Where the
    browser can't style the list (no base-select), the native dropdown is used as-is. */
 
-:root {
+:root:where([data-reader]) {
   --dd-bg: var(--surface-subtle);
-  --dd-bg-hover: var(--surface-raised);
+  --dd-bg-hover: var(--secondary);
   --dd-line: #52525c;
   --dd-seam: var(--border);
-  --dd-text: var(--text);
-  --dd-muted: var(--muted);
+  --dd-text: var(--foreground);
+  --dd-muted: var(--muted-foreground);
   --dd-caret: var(--muted-dim);
   --dd-radius: 6px;
   --dd-inset: 11px;
 }
 
 @supports (appearance: base-select) {
-  select,
-  ::picker(select) { appearance: base-select; }
+  :where(#topbar, #readerSettingsModal) select,
+  :where(#topbar, #readerSettingsModal) ::picker(select) { appearance: base-select; }
 
   /* The box stays one line tall, however long the chosen option's text; text and caret share its
      vertical centre. */
-  select {
+  :where(#topbar, #readerSettingsModal) select {
     align-items: center;
     gap: 8px;
     overflow: hidden;
@@ -1565,21 +1670,21 @@ body.reader-side-nav.sn-pop-open #snChapters { display: flex; }
     white-space: nowrap;
     transition: background-color .12s ease, border-color .12s ease, border-radius .18s ease;
   }
-  select:hover:not(:open) { background-color: var(--dd-bg-hover); border-color: var(--dd-line); }
-  select:open {
+  :where(#topbar, #readerSettingsModal) select:hover:not(:open) { background-color: var(--dd-bg-hover); border-color: var(--dd-line); }
+  :where(#topbar, #readerSettingsModal) select:open {
     background-color: var(--dd-bg);
     border-color: var(--dd-line);
     border-end-start-radius: 0;
     border-end-end-radius: 0;
   }
-  select.opens-up:open {
+  :where(#topbar, #readerSettingsModal) select.opens-up:open {
     border-start-start-radius: 0;
     border-start-end-radius: 0;
     border-end-start-radius: var(--dd-radius);
     border-end-end-radius: var(--dd-radius);
   }
 
-  select::picker-icon {
+  :where(#topbar, #readerSettingsModal) select::picker-icon {
     content: '';
     display: block;
     flex: 0 0 auto;
@@ -1590,14 +1695,14 @@ body.reader-side-nav.sn-pop-open #snChapters { display: flex; }
     mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
     transition: rotate .18s ease, background-color .12s ease;
   }
-  select:is(:hover, :open)::picker-icon { background-color: var(--dd-muted); }
-  select:open::picker-icon { rotate: 180deg; }
+  :where(#topbar, #readerSettingsModal) select:is(:hover, :open)::picker-icon { background-color: var(--dd-muted); }
+  :where(#topbar, #readerSettingsModal) select:open::picker-icon { rotate: 180deg; }
 
   /* The list: exactly the box's width, overlapping its edge by the border so the two read as one
      outline, with a faint seam where they meet. It unrolls away from the box. At most eight
      options show at once (a row is one line plus the option's 6px padding above and below); the
      rest scroll. dropdown.js assumes the same eight when choosing which way the list opens. */
-  ::picker(select) {
+  :where(#topbar, #readerSettingsModal) ::picker(select) {
     box-sizing: border-box;
     max-height: calc(8 * (1lh + 12px) + 10px);
     overflow-y: auto;
@@ -1617,39 +1722,39 @@ body.reader-side-nav.sn-pop-open #snChapters { display: flex; }
     clip-path: inset(0 -24px 100% -24px);
     transition: clip-path .18s ease-out, opacity .12s ease-out, display .18s allow-discrete, overlay .18s allow-discrete;
   }
-  select:open::picker(select) { opacity: 1; clip-path: inset(0 -24px -24px -24px); }
-  select:has(.dd-options)::picker(select) { overflow: hidden; }
-  .dd-options { max-height: calc(8 * (1lh + 12px)); overflow-y: auto; }
+  :where(#topbar, #readerSettingsModal) select:open::picker(select) { opacity: 1; clip-path: inset(0 -24px -24px -24px); }
+  :where(#topbar, #readerSettingsModal) select:has(.dd-options)::picker(select) { overflow: hidden; }
+  :where(#topbar, #readerSettingsModal) .dd-options { max-height: calc(8 * (1lh + 12px)); overflow-y: auto; }
   @starting-style {
-    select:open::picker(select) { opacity: 0; clip-path: inset(0 -24px 100% -24px); }
+    :where(#topbar, #readerSettingsModal) select:open::picker(select) { opacity: 0; clip-path: inset(0 -24px 100% -24px); }
   }
 
-  select.opens-up::picker(select) {
+  :where(#topbar, #readerSettingsModal) select.opens-up::picker(select) {
     margin: 0 0 -1px;
     position-area: block-start span-inline-end;
     border-color: var(--dd-line) var(--dd-line) var(--dd-seam);
     border-radius: var(--dd-radius) var(--dd-radius) 0 0;
     clip-path: inset(100% -24px 0 -24px);
   }
-  select.opens-up:open::picker(select) { clip-path: inset(-24px -24px 0 -24px); }
+  :where(#topbar, #readerSettingsModal) select.opens-up:open::picker(select) { clip-path: inset(-24px -24px 0 -24px); }
   @starting-style {
-    select.opens-up:open::picker(select) { clip-path: inset(100% -24px 0 -24px); }
+    :where(#topbar, #readerSettingsModal) select.opens-up:open::picker(select) { clip-path: inset(100% -24px 0 -24px); }
   }
 
-  select option {
+  :where(#topbar, #readerSettingsModal) select option {
     padding: 6px var(--dd-inset);
     background: transparent;
     color: var(--dd-muted);
     white-space: normal;
     transition: background-color .12s ease, color .12s ease;
   }
-  select option::checkmark { display: none; }
-  select option:checked { color: var(--dd-text); font-weight: 600; }
-  select option:is(:hover, :focus-visible) { background: var(--dd-bg-hover); color: var(--dd-text); outline: none; }
+  :where(#topbar, #readerSettingsModal) select option::checkmark { display: none; }
+  :where(#topbar, #readerSettingsModal) select option:checked { color: var(--dd-text); font-weight: 600; }
+  :where(#topbar, #readerSettingsModal) select option:is(:hover, :focus-visible) { background: var(--dd-bg-hover); color: var(--dd-text); outline: none; }
 
   @media (prefers-reduced-motion: reduce) {
-    select,
-    select::picker-icon,
-    ::picker(select) { transition: none; }
+    :where(#topbar, #readerSettingsModal) select,
+    :where(#topbar, #readerSettingsModal) select::picker-icon,
+    :where(#topbar, #readerSettingsModal) ::picker(select) { transition: none; }
   }
 }
