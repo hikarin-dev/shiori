@@ -4,6 +4,7 @@
 // icons' questions asked once at a time.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { coverCacheKey, coverTier, createCoverStore, SESSION_KEY } from '../../src/lib/covers.ts';
 import { createIconStore } from '../../src/lib/source-icons.ts';
 
@@ -84,6 +85,13 @@ test('answers: another page\'s, a gallery not shown and the other role\'s are le
   assert.deepEqual(w.asked.map((m) => [m.galleryId, m.preferSeries]), [['s', true]]);
   w.send({ type: 'COVER_INVALIDATED', galleryId: 'gone' });
   assert.equal(w.asked.length, 1, 'one not shown is not asked for');
+});
+
+// What the roles above rest on: the service that draws a cover says, with each result, the role it was
+// asked for (a late answer of the other role is then told apart; 1.3's page held the same of it).
+test('the cover service echoes the role asked for with each result', () => {
+  const services = readFileSync(new URL('../js/services.js', import.meta.url), 'utf8');
+  assert.match(services, /preferSeries: !!requester\.preferSeries/, 'the cover service must echo the requested role with each result');
 });
 
 test('the session\'s cache: read as the page starts (an entry from before roles as a gallery\'s own), written 800 ms after a change with the page\'s galleries only', () => {
