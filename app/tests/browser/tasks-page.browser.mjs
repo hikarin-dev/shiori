@@ -162,6 +162,12 @@ test('leaving the page leaves nothing behind: /tasks → /components → /tasks,
   await page.evaluate(() => history.back());
   await until(page, () => location.pathname === '/components' && !document.getElementById('tkList'), null, { what: '/components' });
   await new Promise((r) => setTimeout(r, 300));
+  // /components' gallery cards give a landscape cover its glow once the cover has loaded: measured once
+  // the section has made its covers (data-covers) and every cover given has loaded, each landscape one
+  // drawn so, its glow with it (under load the first measure came before three of them, and the five
+  // visits after seemed to leave three nodes: a census of the nodes, six copies at once).
+  await until(page, () => !!document.querySelector('[data-covers="ready"]') && [...document.querySelectorAll('img.card-thumb')].every((img) => !img.getAttribute('src') || (img.complete && img.naturalWidth > 0
+    && (img.naturalWidth < img.naturalHeight || img.classList.contains('landscape')))), null, { what: '/components\' covers drawn' });
   const first = await held(page);
   // The page's own: the rows' and the tracker's stores on the jobs channel, a row's cover on the control
   // channel. (Modules the page brought in for the first time keep their own one listener each for the
