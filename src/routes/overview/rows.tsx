@@ -1,9 +1,8 @@
 // A series' list (1.3's .ch-list) and its rows (.ch-row): each row drawn from its chapter's entry in the
 // query cache and its job from the page's job store, so one chapter changing draws its row alone; a
 // row is kept for its chapter while the list changes round it (its node, its opened pages), and a row
-// that moved slides to its new place, as 1.3's flipRows did (FLIP: where each row showed before the
-// change, then from there to where it is, 220 ms; a slide still running is taken from where it is; a
-// row off the screen just moves; nothing with less motion asked for; by `top`, not a transform: rule 29). A chapter whose gallery went
+// that moved slides to its new place, as 1.3's flipRows did (./slide.ts: by `top`, not a transform,
+// rule 29). A chapter whose gallery went
 // missing (or came back) is laid out differently: a new row, as 1.3 made.
 //
 // What a row's buttons do is the page's (./actions.ts; the grip's drag is 7c's): the arrows, download
@@ -26,6 +25,7 @@ import { DetachIcon, DownIcon, DownloadIcon, QuickRemoveIcon, RemoveIcon, Revert
 import { Faces, PageGrid, useCover, useDecoded, type GridEngine } from './parts';
 import type { ChapterJobs } from './jobs';
 import type { OverviewCovers } from './covers';
+import { rowTops, slideRows } from './slide';
 import type { RowActions, RowView } from './view';
 import type { JobView } from '@/lib/job-view';
 import type { JobNews } from '@/lib/job-view';
@@ -158,10 +158,7 @@ export const ChapterRow = memo(function ChapterRow({ chapter, idx, entity, last,
   );
 });
 
-// ── The list: rows that moved slide to their place ──
-const FLIP_MS = 220;
-const FLIP_EASING = 'cubic-bezier(.2, .8, .2, 1)';
-
+// ── The list: rows that moved slide to their place (./slide.ts) ──
 type ListProps = { order: string; numChars: string; children: ReactNode };
 type Snapshot = { tops: Map<Element, number>; focused: Element | null } | null;
 
@@ -169,26 +166,14 @@ export class ChapterList extends Component<ListProps> {
   private list: HTMLDivElement | null = null;
   getSnapshotBeforeUpdate(prev: ListProps): Snapshot {
     if (prev.order === this.props.order || !this.list) return null;
-    return { tops: new Map([...this.list.children].map((row) => [row, row.getBoundingClientRect().top])), focused: document.activeElement };
+    return { tops: rowTops(this.list), focused: document.activeElement };
   }
   componentDidUpdate(_: ListProps, __: unknown, snap: Snapshot) {
     if (!snap || !this.list) return;
-    const list = this.list;
-    for (const row of snap.tops.keys()) for (const a of row.getAnimations()) a.cancel();
     // Moving a row out of the DOM and back drops its focus; give it back.
     const focused = snap.focused as HTMLElement | null;
     if (focused && focused !== document.activeElement && focused.isConnected) focused.focus({ preventScroll: true });
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    for (const row of list.children as HTMLCollectionOf<HTMLElement>) {
-      const was = snap.tops.get(row);
-      if (was == null) continue;
-      const now = row.getBoundingClientRect().top;
-      const offScreen = Math.max(was, now) < -row.offsetHeight || Math.min(was, now) > innerHeight;
-      if (Math.abs(was - now) < 0.5 || offScreen) continue;
-      // (By `top`, the row being positioned where it is: an eased transform would lift the page's words
-      // after it onto layers of their own while it ran, rule 29.)
-      row.animate([{ top: `${was - now}px` }, { top: '0px' }], { duration: FLIP_MS, easing: FLIP_EASING });
-    }
+    slideRows(this.list, snap.tops);
   }
   render() {
     // The number column fits the longest label (1084.5) so every row's cover lines up.
