@@ -110,7 +110,7 @@ function fittedFromTheFirstFrame(cards, when) {
   }
 }
 
-test('a landscape cover shows fitted, its glow with it, from its first frame: a first load, the next page, a page seen before, a reload', async (t) => {
+test('a landscape cover shows fitted, its glow with it, from its first frame: a first load, a reload, the next page, a page seen before', async (t) => {
   if (!browser) return t.skip('no Chrome');
   const page = await openPage(browser, origin);
   t.after(() => page.close());
@@ -121,6 +121,21 @@ test('a landscape cover shows fitted, its glow with it, from its first frame: a 
   await page.goto(`${origin}/`, { waitUntil: 'load' });
   await coversIn(page, 'the first load');
   fittedFromTheFirstFrame(await seen(page), 'a first load');
+
+  // The reload, once the session holds this page's covers. They are written 800 ms after the last cover
+  // came or changed, with the galleries the page shows then (as 1.3's): a reload after going to a page
+  // seen before would start from whichever page was shown when that write ran (under load, the other
+  // one: this step, placed last, failed two in six copies at once with every portrait cover missing).
+  await until(page, () => {
+    const kept = Object.keys(JSON.parse(sessionStorage.getItem('shiori-covers') || '{}'));
+    const ids = [...document.querySelectorAll('#grid > .card')].map((c) => c.dataset.galleryId);
+    return ids.length === 30 && ids.every((id) => kept.includes(`${id}:gallery`));
+  }, null, { what: "the session's covers written" });
+  await page.reload({ waitUntil: 'load' });
+  await coversIn(page, 'the reload');
+  const reloaded = await seen(page);
+  fittedFromTheFirstFrame(reloaded, 'a reload');
+  assert.deepEqual(reloaded.filter((c) => !c.landscape && !c.coverAtFirstFrame).map((c) => c.id), [], 'a reload: every portrait cover is there in its card\'s first frame');
 
   const goTo = async (n) => {
     await forget(page);
@@ -134,13 +149,5 @@ test('a landscape cover shows fitted, its glow with it, from its first frame: a 
   const back = await goTo(1);
   fittedFromTheFirstFrame(back, 'a page seen before');
   assert.deepEqual(back.filter((c) => !c.coverAtFirstFrame).map((c) => c.id), [], 'a page seen before: every card has its cover in its first frame');
-
-  // (The session's covers are written 800 ms after the last change: the reload starts from them.)
-  await new Promise((done) => setTimeout(done, 1500));
-  await page.reload({ waitUntil: 'load' });
-  await coversIn(page, 'the reload');
-  const reloaded = await seen(page);
-  fittedFromTheFirstFrame(reloaded, 'a reload');
-  assert.deepEqual(reloaded.filter((c) => !c.landscape && !c.coverAtFirstFrame).map((c) => c.id), [], 'a reload: every portrait cover is there in its card\'s first frame');
   assert.deepEqual(page.problems, []);
 });
