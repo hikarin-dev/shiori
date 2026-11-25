@@ -94,6 +94,19 @@ const CASES = [
     await d.page.type('#tagEdValue', 'gamma'); await sleep(200);
     await d.page.click('#tagEdOk'); await editorGone(d.page); await sleep(1500); await d.edit();
   }],
+  // A gallery whose record has no tags at all (one read from a folder): shown (it stayed "Loading…" on
+  // the new page until 7b), "+" alone in edit mode, its first tag added.
+  ['a gallery with no tags at all: "+" adds its first', { part: 'N', prep: async (id) => {
+    const api = await import('/app/js/api.js');
+    const c = new OffscreenCanvas(30, 43); c.getContext('2d').fillRect(0, 0, 30, 43);
+    await api.meta.put({ galleryId: id, title: { english: 'No tags', japanese: '', pretty: '' }, numPages: 1 });
+    await api.pages.put(id, 1, await c.convertToBlob({ type: 'image/png' }));
+  } }, async (d) => {
+    await d.look(); await d.edit(); await d.look();
+    await d.page.click('.ov-chip-add'); d.seen.push({ editor: await readEditor(d.page) });
+    await d.page.type('#tagEdValue', 'first'); await sleep(200);
+    await d.page.click('#tagEdOk'); await editorGone(d.page); await sleep(1500); await d.edit();
+  }],
   ['outside edit mode a tag is a link, and Shift does nothing to it', {}, async (d) => {
     d.seen.push({ href: await d.page.evaluate(() => new URL(document.querySelector('.ov-chip[data-type="tag"]').href).href.replace(location.origin, '')) });
     await d.page.keyboard.down('Shift'); await d.page.hover('.ov-chip[data-type="tag"]'); await sleep(300);
@@ -108,6 +121,7 @@ async function run(path, [, opts, steps]) {
   const context = await browser.createBrowserContext();
   const page = await openRun(context, origin, base);
   await page.setViewport({ width: 1280, height: 1000 });
+  if (opts.prep) await page.evaluate(opts.prep, gid(base, opts.part));
   await visit(page, origin, path, gid(base, opts.part ?? 'S'));
   await page.evaluate(record);
   const seen = [];

@@ -178,7 +178,8 @@ export default function Overview() {
   const keys = useMemo(() => tags.map((tg) => tagKey(tg.type, tg.name) as string), [tags]);
   const counts = useQuery({ queryKey: tagCountsKey(keys), queryFn: () => readTagCounts(keys), enabled: !!frame?.found, staleTime: Infinity });
   const drawnTags = useRef<{ tags: Entity['tags']; counts: Map<string, number> } | null>(null);
-  if (counts.data && drawnTags.current?.tags !== ownerEntity?.tags) drawnTags.current = { tags: ownerEntity?.tags, counts: counts.data };
+  // (A record with no tags at all draws its empty table too: undefined is a value to have drawn.)
+  if (counts.data && (!drawnTags.current || drawnTags.current.tags !== ownerEntity?.tags)) drawnTags.current = { tags: ownerEntity?.tags, counts: counts.data };
 
   // Places the gallery could move to: asked as the page shows (1.3's buildShell), and again whenever the
   // library's folders change while it shows (1.3 asked once).

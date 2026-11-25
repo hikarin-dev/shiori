@@ -687,6 +687,19 @@ test('Settings → Storage shows where the library is kept, and the overview can
   assert.deepEqual(await menuOf('Lib C'), ['Show', 'Remove']);
   await settings.keyboard.press('Escape');
   const gid = page.__gid;
+  // The one page's overview (/overview-next) offers the same places in the library folders' own
+  // window: its Move followed the folders' count as it shows; Cancel moves nothing.
+  const next = await openPage(browser, origin);
+  await next.goto(`${origin}/overview-next?g=${gid}`, { waitUntil: 'load' });
+  await until(next, () => { const b = document.getElementById('moveTo'); return b && !b.hidden; }, null, { what: 'the one page’s Move to button' });
+  await next.click('#moveTo');
+  const offered = await until(next, () => { const list = [...document.querySelectorAll('[data-notice="ask"] [data-slot="option-title"]')].map(s => s.textContent); return list.length && list; }, null, { what: 'the one page’s places to move to' });
+  assert.deepEqual(offered, ['This browser', 'Lib A', 'Cancel'], 'the same places as 1.3’s overview');
+  await next.evaluate(() => [...document.querySelectorAll('[data-notice="ask"] [data-slot="option-card"]')].find(b => b.textContent.includes('Cancel')).click());
+  await until(next, () => !document.querySelector('[data-notice="ask"]') && !document.getElementById('moveTo').disabled, null, { what: 'the window gone, Move pressable again' });
+  assert.equal((await next.evaluate(async (g) => (await (await import('/app/js/api.js')).galleries.get(g))?.folder, gid)) === 'browser', false, 'nothing moved');
+  assert.deepEqual(next.problems, []);
+  await next.close();
   const overview = await openPage(browser, origin);
   await overview.goto(`${origin}/overview?g=${gid}`, { waitUntil: 'load' });
   await until(overview, () => { const b = document.getElementById('moveTo'); return b && !b.hidden; }, null, { what: 'the Move to button' });
