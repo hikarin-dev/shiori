@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import http from 'node:http';
 import { builtSite } from '../../build/built.mjs';
 import { PAGES, APP_PAGE, MOVED, movedTo, pageFile } from '../js/pages.js';
 import { startServer } from '../../build/serve.mjs';
@@ -87,9 +88,14 @@ test('an old page\'s file moved to an address the one page draws, and is gone fr
 
 test('the server the tests and the preview use sends an old page\'s file on to its address, the query kept', async (t) => {
   const site = await startServer({ root: builtSite() });
-  t.after(() => site.server.close());
+  t.after(() => new Promise((done) => site.server.close(done)));
+  // (Asked with a connection of its own, closed with the answer: fetch keeps its connections for a
+  // while, and under the desktop run, which ends the process as soon as the file's tests have, one
+  // still open took the process down with an assertion of the runtime's.)
+  const ask = (url) => new Promise((resolve, reject) => {
+    http.get(url, { agent: false }, (res) => { res.resume(); res.on('end', () => resolve([res.statusCode, res.headers.location])); }).on('error', reject);
+  });
   for (const [old, segment] of Object.entries(MOVED)) {
-    const res = await fetch(`${site.origin}/${old}?g=1`, { redirect: 'manual' });
-    assert.deepEqual([res.status, res.headers.get('location')], [301, `/${segment}?g=1`]);
+    assert.deepEqual(await ask(`${site.origin}/${old}?g=1`), [301, `/${segment}?g=1`]);
   }
 });
