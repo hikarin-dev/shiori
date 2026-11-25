@@ -385,7 +385,7 @@ function _nearPages(n) {
 // page flips and double-page spreads never show a blank frame.
 function _warmNeighbors(n) {
   for (const p of _nearPages(n)) {
-    pageBlobUrl(pages[p - 1]).then(u => _decodeUrls([u, ..._overlayImageUrls(p)]));
+    pageBlobUrl(pages[p - 1]).then(u => { if (_rsStopped) return; _decodeUrls([u, ..._overlayImageUrls(p)]); });
   }
 }
 
@@ -403,7 +403,7 @@ function _preloadOnRest(n, thumbsToo) {
   clearTimeout(_hoverTimer);
   _hoverTimer = setTimeout(() => {
     for (const p of _pagesShownAt(n)) {
-      pageBlobUrl(pages[p - 1]).then(u => _decodeUrls([u, ..._overlayImageUrls(p)]));
+      pageBlobUrl(pages[p - 1]).then(u => { if (_rsStopped) return; _decodeUrls([u, ..._overlayImageUrls(p)]); });
     }
     if (thumbsToo) _warmThumbsAround(n - 1);
   }, HOVER_REST_MS);
@@ -566,7 +566,7 @@ async function _processThumbQueue() {
     resolve('');
   } finally {
     _thumbGenActive--;
-    _processThumbQueue();
+    if (!_rsStopped) _processThumbQueue();
   }
 }
 
@@ -575,6 +575,7 @@ async function _processThumbQueue() {
 async function _thumbSource(page) {
   const held = _pageUrlCache.get('o:' + page.url);
   if (held) { try { return await (await fetch(held)).blob(); } catch {} }   // revoked meanwhile: read it
+  if (_rsStopped) return;
   const record = await api.pages.get(page.gid, page.pageNum, page.url).catch(() => null); if (_rsStopped) return;
   return imageToBlob(record?.blob ?? record?.dataUrl);
 }
@@ -804,7 +805,7 @@ function _syncStudyAvailability() {
 
 function _scheduleStudyLoad() {
   const load = () => {
-    void _loadStudy().then(() => { if (hasStudy) _recomputeFold(); }).catch(() => {});
+    void _loadStudy().then(() => { if (_rsStopped) return; if (hasStudy) _recomputeFold(); }).catch(() => {});
   };
   if (typeof window.requestIdleCallback === 'function') {
     requestIdleCallback(load, { timeout: 2000 });
@@ -828,7 +829,8 @@ async function init() {
   const gid = String(galleryId);
   // A library kept as files says when this gallery's files can't be found in its folder.
   api.galleries.get(gid).then((g) => {
-    if (g?.missing) import('./notice.js').then(({ showToast }) => showToast({ text: t('rd.files_missing'), closeLabel: t('common.close') }));
+    if (_rsStopped) return;
+    if (g?.missing) import('./notice.js').then(({ showToast }) => { if (_rsStopped) return; showToast({ text: t('rd.files_missing'), closeLabel: t('common.close') }); });
   }).catch(() => {});
 
   // Series membership FIRST: a series is read as ONE continuous page list — every cached
@@ -922,6 +924,7 @@ async function init() {
   const initTranslate = saved.readerView === 'translate' || (!saved.readerView && _translateAvailable);
   const studyFirst = saved.readerView === 'study' || initTranslate;
   if (studyFirst) await _loadStudy();
+  if (_rsStopped) return;
   _syncStudyAvailability();
   setStudyPrefs({
     display:  saved.readerStudyDisplay === 'text' ? 'text' : 'hardcoded_images',
@@ -1266,6 +1269,7 @@ const _pageJobs = new Map();   // gallery id → page number (in its chapter) be
 
 async function _translationRunning(gid) {
   if (await platform.translateResume.get(gid)) return true;
+  if (_rsStopped) return;
   return (await platform.jobsPending.all()).some(entry => entry.key === `${gid}:translate`);
 }
 
@@ -1931,6 +1935,7 @@ function _enqueueThumb(img) {
   if (img.dataset.queued || (cached && cached.width >= _thumbWidth())) return;
   img.dataset.queued = '1';
   _generateThumbBlob(page).then(url => {
+    if (_rsStopped) return;
     if (url && img.isConnected && img.dataset.queued && img.getAttribute('src') !== url) img.src = url;
   });
 }
@@ -3416,7 +3421,7 @@ function _syncStripWindow(swap = false, aim = currentPage) {
     while (_mountsActive < STRIP_CONCURRENCY && at < pending.length) {
       const idx = pending[at++];
       _mountsActive++;
-      _mountOne(idx, gen, swap).finally(() => { _mountsActive--; _stripPump?.(); });
+      _mountOne(idx, gen, swap).finally(() => { _mountsActive--; if (!_rsStopped) _stripPump?.(); });
     }
   }
   _stripPump = next;
@@ -4425,7 +4430,7 @@ function _redrawView() {
   _swapVisibleVariant();      // re-point images to the right variant (study forces original)
   _refreshBubbleLayers();     // builds overlays when they're on, tears them down otherwise
   // Overlays come from the study layers; if they are still loading, build them once they land.
-  if (_bubbleLayersOn() && !_studyLoaded) _loadStudy().then(() => { if (_bubbleLayersOn()) _refreshBubbleLayers(); });
+  if (_bubbleLayersOn() && !_studyLoaded) _loadStudy().then(() => { if (_rsStopped) return; if (_bubbleLayersOn()) _refreshBubbleLayers(); });
 }
 
 // Reflect the current view on the segmented toggle (slides the indicator + tooltips).
@@ -5123,7 +5128,7 @@ window.addEventListener('resize', _layoutStage2, { signal: _rsSignal });
 // The breakpoint shifts only when the bar's natural width does: re-measure once the web font lands,
 // and whenever the page counter changes width (a new digit) — it's flex-shrink:0, so this RO never
 // fires on a plain window resize, keeping the recompute off the resize path.
-document.fonts?.ready.then(_recomputeFold);
+document.fonts?.ready.then(() => { if (!_rsStopped) _recomputeFold(); });
 new ResizeObserver(_recomputeFold).observe(document.getElementById('pageCounter'));
 
 // ── Page zoom (+/-) ──
