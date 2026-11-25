@@ -13,7 +13,7 @@ before(async () => {
   ({ server, origin } = await startServer());
   browser = await launch();
   const page = await openPage(browser, origin);
-  await page.goto(`${origin}/app/library.html`, { waitUntil: 'load' });
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await page.evaluate(async (gid) => {
     const api = await import('/app/js/api.js');
     const canvas = new OffscreenCanvas(300, 450);

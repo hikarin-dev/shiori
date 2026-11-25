@@ -29,12 +29,12 @@ after(async () => {
   server?.close();
 });
 
-// The library page in a new tab of `ctx` (a profile of its own: its own IndexedDB and OPFS), with
+// A page of the app (Tasks) in a new tab of `ctx` (a profile of its own: its own IndexedDB and OPFS), with
 // helpers for the tests in window.__t. `first(...args)` runs in the page before any of its scripts.
 async function tab(ctx, first = null, ...args) {
   const page = await openPage(ctx, origin);
   if (first) await page.evaluateOnNewDocument(first, ...args);
-  await page.goto(`${origin}/app/library.html`, { waitUntil: 'load' });
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await page.evaluate(async () => {
     const png = async (hue, w = 30, h = 40) => {
       const canvas = new OffscreenCanvas(w, h);
