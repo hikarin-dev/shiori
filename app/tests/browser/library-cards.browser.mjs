@@ -123,10 +123,10 @@ test('a hovered card grows over the cards below without moving anything, then sh
   await page.evaluate(async () => (await import('/app/js/api.js')).personal.favorite(document.querySelectorAll('.card')[2].dataset.galleryId, true));
   await sleep(200);
 
-  // Down into B: A shrinks back still drawn over B's cover, until it has.
+  // Down into B: A shrinks back still drawn over B's cover, until it has (read in the frame B is hovered).
+  await arm(page, 'hovered', 6, overB);
   await page.mouse.move(x, B.y + 300);
-  await sleep(40);
-  assert.equal(await page.evaluate(drawnAt, overB), 3, 'the earlier card shrinks back over the hovered one');
+  assert.equal((await seen(page)).at, 3, 'the earlier card shrinks back over the hovered one');
   assert.deepEqual(await textLayersDuring(200), [], 'no card text on a layer while they trade places');
   await sleep(250);
   let now = await page.evaluate(layout);
@@ -135,14 +135,14 @@ test('a hovered card grows over the cards below without moving anything, then sh
   assert.equal(await page.evaluate(() => document.querySelectorAll('.card')[2].querySelector('.card-fav.on') !== null), true, 'A made again from the change');
   unmoved(now, 'B hovered');
 
-  // Back up into A: A grows over B's cover at once, and B shrinks back above the resting cards (read
-  // once A reaches B's cover, as below).
+  // Back up into A: A grows over B's cover at once, and B shrinks back above the resting cards (read in
+  // the frame A reaches B's cover).
+  await arm(page, 'reached', 2, overB);
   await page.mouse.move(x, A.y + 60);
-  await reaches(page, 2, overB.y);
-  now = await page.evaluate(layout);
-  assert.equal(await page.evaluate(drawnAt, overB), 3, 'the hovered card is drawn over the later card shrinking back');
-  assert.ok(now.cards[6].z > 0 && now.cards[6].z < now.cards[2].z, `the shrinking card sits between (z ${now.cards[6].z}, hovered ${now.cards[2].z})`);
-  assert.ok(now.cards[6].height > restHeight, 'B is still shrinking');
+  const up = await seen(page);
+  assert.equal(up.at, 3, 'the hovered card is drawn over the later card shrinking back');
+  assert.ok(up.z[6] > 0 && up.z[6] < up.z[2], `the shrinking card sits between (z ${up.z[6]}, hovered ${up.z[2]})`);
+  assert.ok(up.height[6] > restHeight, 'B is still shrinking');
   assert.deepEqual(await textLayersDuring(200), [], 'no card text on a layer');
   await sleep(250);
   now = await page.evaluate(layout);
@@ -201,17 +201,28 @@ function moved(frames, except) {
   return [...new Set(out)];
 }
 const drawnAt = ({ x, y }) => { const c = document.elementFromPoint(x, y)?.closest('.card'); return c ? [...document.querySelectorAll('#grid > .card')].indexOf(c) + 1 : null; };
-// Until the frame in which the card at `i` (0-based) has grown down past `y` (a point of the window),
-// looked at in the page every frame (the card behind it rests within 250 ms: a poll could miss that).
-const reaches = (page, i, y) => page.evaluate(([i, y]) => new Promise((done, fail) => {
-  const end = performance.now() + 5000;
-  (function frame() {
-    if (document.querySelectorAll('#grid > .card')[i].getBoundingClientRect().bottom > y + 1) done();
-    else if (performance.now() > end) fail(new Error(`card ${i + 1} never grew past ${y}`));
-    else requestAnimationFrame(frame);
-  })();
-}), [i, y]);
-const z =(i) => Number(getComputedStyle(document.querySelectorAll('#grid > .card')[i]).zIndex);
+// Armed before a pointer move: from now, looked at in the page every 2 ms, until card `i` (0-based) is
+// hovered ('hovered') or has grown down past `pt` ('reached'); `seen` gives what the page showed then:
+// which card is drawn at `pt`, and every card's z and height. What holds only for a moment (a card
+// shrinking back off the point within 250 ms; one not yet grown to it in its first 45 ms) is read
+// there, never a fixed time after the move: under load the page took a move up to 86 ms before the test
+// heard it was sent. Looked at in tasks, not frames: the animations' clock moves on with each task, and
+// under six copies at once frames came up to 1.3 s apart.
+const arm = (page, when, i, pt) => page.evaluate((when, i, pt) => {
+  window.__seen = new Promise((done, fail) => {
+    const end = performance.now() + 5000;
+    (function frame() {
+      const cards = [...document.querySelectorAll('#grid > .card')];
+      if (when === 'hovered' ? cards[i].matches(':hover') : cards[i].getBoundingClientRect().bottom > pt.y + 1) {
+        const c = document.elementFromPoint(pt.x, pt.y)?.closest('.card');
+        done({ at: c ? cards.indexOf(c) + 1 : null, z: cards.map((c) => Number(getComputedStyle(c).zIndex)), height: cards.map((c) => c.getBoundingClientRect().height) });
+      } else if (performance.now() > end) fail(new Error(`card ${i + 1} never ${when}`));
+      else setTimeout(frame, 2);
+    })();
+  });
+}, when, i, pt);
+const seen = (page) => page.evaluate(() => window.__seen);
+const z = (i) => Number(getComputedStyle(document.querySelectorAll('#grid > .card')[i]).zIndex);
 
 async function growth(path, size, perRow) {
   const page = await open(path, size);
@@ -226,17 +237,18 @@ async function growth(path, size, perRow) {
   r.grownOver = await page.evaluate(drawnAt, overB);
   r.grew = (await box(3)).height > A.height + 50;
   // Down into B: A shrinks back over B's cover, then rests.
+  await arm(page, 'hovered', 2 + perRow, overB);
   await page.mouse.move(x, B.y + B.height - 40);
-  await sleep(40);
-  r.shrinkingOver = await page.evaluate(drawnAt, overB);
+  r.shrinkingOver = (await seen(page)).at;
   await sleep(450);
   // Back up into A while B shrinks: A on top at once, B between it and the resting cards. A reaches B's
-  // cover only once it has grown some 45px, its first 45 ms of growth on a page at ease: read where it
-  // does (a fixed 40 ms read B's cover, not yet reached, whenever the frames came slower).
+  // cover only once it has grown some 45px, its first 45 ms of growth on a page at ease: read in that
+  // frame (a fixed 40 ms read B's cover, not yet reached, whenever the frames came slower).
+  await arm(page, 'reached', 2, overB);
   await page.mouse.move(x, A.y + 60);
-  await reaches(page, 2, overB.y);
-  r.upOnTop = await page.evaluate(drawnAt, overB);
-  r.zBetween = await page.evaluate(([a, b]) => { const za = Number(getComputedStyle(document.querySelectorAll('#grid > .card')[a]).zIndex), zb = Number(getComputedStyle(document.querySelectorAll('#grid > .card')[b]).zIndex); return zb > 0 && zb < za; }, [2, 2 + perRow]);
+  const up = await seen(page);
+  r.upOnTop = up.at;
+  r.zBetween = up.z[2 + perRow] > 0 && up.z[2 + perRow] < up.z[2];
   await page.mouse.move(5, 5);
   await sleep(500);
   r.moved = moved(await stop(page), [2, 2 + perRow]);
