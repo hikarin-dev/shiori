@@ -289,30 +289,34 @@ test('a running job silent over 2 min says for how long', async (t) => {
   assert.deepEqual(page.problems, []);
 });
 
-test('rows found at load: the live list, a translation under way on the server, a job waiting to be resumed', async (t) => {
+// The store's third source, a job waiting to be resumed, is held in Node (task-store.test.mjs: the
+// order of the three, the first of a key winning). It is not asked of a page: there such an entry
+// lives only until the app's next heartbeat (boot-core's poll, 3 s at most, in any tab or the worker),
+// which replays it or, when nothing in the app runs its kind, drops it. This test once added one and
+// waited for its row: under the whole suite's load the page opened after the heartbeat, and the row
+// never came (eight of eight with eight copies at once, 2026-11-25: the two other rows there).
+test('rows found at load: the live list, then a translation under way on the server', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const first = await visit(t, '/components');
   await first.evaluate(async (G) => {
     const platform = await import('/app/js/platform.js');
     await platform.jobs.publish({ gid: G.b, kind: 'download', status: 'progress', done: 1, total: 4 });
     await platform.translateResume.set({ gid: G.c, phase: 'collecting' });
-    await platform.jobsPending.add({ key: `${G.d}:download`, kind: 'download', payload: { galleryId: G.d } });
   }, G);
   const page = await visit(t, '/tasks');
   let rows;
   try {
     rows = await until(page, () => {
       const r = [...document.querySelectorAll('.tk-row')].map((el) => el.dataset.key);
-      return r.length >= 3 && r;
-    }, null, { what: 'three rows' });
+      return r.length >= 2 && r;
+    }, null, { what: 'two rows' });
   } finally {
     await page.evaluate(async (G) => {
       const platform = await import('/app/js/platform.js');
       await platform.translateResume.remove(G.c);
-      await platform.jobsPending.remove(`${G.d}:download`);
     }, G);
   }
-  assert.deepEqual(rows.slice(0, 3), [`${G.b}:download`, `${G.c}:translate`, `${G.d}:download`], 'the live list, then the server\'s translation, then the job waiting');
+  assert.deepEqual(rows, [`${G.b}:download`, `${G.c}:translate`], 'the live list, then the server\'s translation');
   assert.deepEqual(page.problems, []);
 });
 
