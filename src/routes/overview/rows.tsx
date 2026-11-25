@@ -3,7 +3,7 @@
 // row is kept for its chapter while the list changes round it (its node, its opened pages), and a row
 // that moved slides to its new place, as 1.3's flipRows did (FLIP: where each row showed before the
 // change, then from there to where it is, 220 ms; a slide still running is taken from where it is; a
-// row off the screen just moves; nothing with less motion asked for). A chapter whose gallery went
+// row off the screen just moves; nothing with less motion asked for; by `top`, not a transform: rule 29). A chapter whose gallery went
 // missing (or came back) is laid out differently: a new row, as 1.3 made.
 //
 // What a row's buttons do is 7b's (and the grip's drag 7c's): drawn in their place, with their tips and
@@ -152,7 +152,9 @@ export class ChapterList extends Component<ListProps> {
       const now = row.getBoundingClientRect().top;
       const offScreen = Math.max(was, now) < -row.offsetHeight || Math.min(was, now) > innerHeight;
       if (Math.abs(was - now) < 0.5 || offScreen) continue;
-      row.animate([{ transform: `translateY(${was - now}px)` }, { transform: 'none' }], { duration: FLIP_MS, easing: FLIP_EASING });
+      // (By `top`, the row being positioned where it is: an eased transform would lift the page's words
+      // after it onto layers of their own while it ran, rule 29.)
+      row.animate([{ top: `${was - now}px` }, { top: '0px' }], { duration: FLIP_MS, easing: FLIP_EASING });
     }
   }
   render() {

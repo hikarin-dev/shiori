@@ -52,7 +52,7 @@ function watch() {
     }
   });
   window.__watch.observe(content, { subtree: true, childList: true, attributes: true, characterData: true });
-  const frame = () => { for (const row of document.querySelectorAll('.ch-row')) if (row.getAnimations().some((a) => a.effect?.getKeyframes?.()[0]?.transform)) window.__slid.add(row.dataset.chapterId); window.__slideFrame = requestAnimationFrame(frame); };
+  const frame = () => { for (const row of document.querySelectorAll('.ch-row')) if (row.getAnimations().some((a) => { const k = a.effect?.getKeyframes?.()[0]; return k?.transform || k?.top; })) window.__slid.add(row.dataset.chapterId); window.__slideFrame = requestAnimationFrame(frame); };
   cancelAnimationFrame(window.__slideFrame);
   frame();
 }
