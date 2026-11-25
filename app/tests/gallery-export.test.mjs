@@ -20,7 +20,7 @@ const RECORD = { lines: [{ pts: [[0, 0], [9, 0], [9, 9], [0, 9]], score: 0.9, te
   read: [0], regions: [{ lines: [0], size: 20, prob: 0.99, fg: [0, 0, 0], bg: [255, 255, 255], lang: 'ja', src: 'v', tr: 'Hi' }] };
 const TRANSLATION = { at: 1, config: { render: { renderer: 'manga2eng' } }, builds: { render: 'r1' } };
 
-// The archive the gallery export writes (same layout and field choices as library.js).
+// The archive the gallery export writes (same layout and field choices as the library card's export, src/routes/library/actions.ts).
 async function exportArchive(gid, targetGid) {
   const meta = await api.meta.get(gid);
   const records = await api.pages.all(gid);

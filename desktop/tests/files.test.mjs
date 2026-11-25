@@ -72,7 +72,7 @@ async function whole(library) {
   const errors = checkInvariants(await library.integritySnapshot()).violations.filter(v => v.severity === 'error');
   assert.deepEqual(errors.map(v => `${v.id} ${v.detail}`), []);
 }
-// The export's file names for gallery `gid` (library.js exportGallery → exportFiles).
+// The export's file names for gallery `gid` (the library card's export, src/routes/library/actions.ts exportGallery → exportFiles).
 async function exportNames(library, gid) {
   const { files } = await exportFiles(gid, { read: (id) => library.transferRead(id), metaGet: (id) => library.metaGet(id) });
   return files.map(f => f.name).sort();

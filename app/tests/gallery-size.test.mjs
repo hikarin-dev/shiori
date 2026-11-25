@@ -15,7 +15,7 @@ const { zipCreate } = await import('../js/zip.js');
 const png = (n, fill = 1) => new Blob([new Uint8Array(n).fill(fill)], { type: 'image/png' });
 const webp = (n) => new Blob([new Uint8Array(n).fill(7)], { type: 'image/webp' });
 
-// The archive the gallery export writes (library.js exportGallery → exportFiles).
+// The archive the gallery export writes (the library card's export, src/routes/library/actions.ts exportGallery → exportFiles).
 async function archiveBytes(gid) {
   const { files } = await exportFiles(gid, { read: db.transferRead, metaGet: db.metaGet });
   return zipCreate(files).length;

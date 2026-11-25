@@ -1981,7 +1981,8 @@ async function importChapters(files, folders = [], leftOut = 0) {
     attachTo: ownerId, meta: _shownKind === 'volume' ? { kind: 'volume' } : {} });
 }
 
-// A chapter's pages replaced from a file (jobs-runner.js startImport), as library.js replaceGalleryImages does.
+// A chapter's pages replaced from a file (jobs-runner.js startImport), as a library card's Replace does
+// (src/routes/library/actions.ts replaceImages).
 async function stageImport(group, gid, { skipExisting = true } = {}) {
   // The desktop app's runner takes it when there is one, so it goes on whatever this window does.
   if (await handImport({ galleryId: gid, group, skipExisting })) return true;

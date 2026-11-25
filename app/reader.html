@@ -4,7 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-hY3v5/hK8HEXGvbWdwpC9QwryUrAFnXUNYc6GOBIxBU='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' data: blob: http: https: ws://127.0.0.1:*; object-src 'none'; base-uri 'self'">
-  <!-- Files live under /app/; pages are served at clean URLs. See library.html. -->
+  <!-- Files live under /app/; pages are served at clean URLs (/reader). This base points the page's
+       files back at the app folder; the inline corrector makes it ./ for a direct load of
+       app/reader.html (no service worker), where the page's own folder is the app folder already.
+       The CSP allows exactly that script by hash. -->
   <base href="app/">
   <script>if (/\/app\/[^/]*$/.test(location.pathname)) document.querySelector('base').href = './';</script>
   <link rel="icon" href="../icons/icon32.png">

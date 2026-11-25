@@ -19,7 +19,7 @@ const png = (...values) => new Blob([bytes(...values)], { type: 'image/png' });
 const blobBytes = async (blob) => (blob ? [...new Uint8Array(await blob.arrayBuffer())] : null);
 const title = (english) => ({ english, japanese: '', pretty: english });
 
-// The CBZ the library's export writes for one gallery (library.js exportGallery → exportFiles).
+// The CBZ the library's export writes for one gallery (the library card's export, src/routes/library/actions.ts exportGallery → exportFiles).
 async function cbz(gid, { translations = true } = {}) {
   const { files } = await exportFiles(gid, { read: api.transfer.read, metaGet: api.meta.get, translations, comicInfo: true });
   const z = zipCreate(files);
