@@ -27,7 +27,7 @@ test('a note, and a status line in its tones, shown and hidden', async (t) => {
   const ok = await status('ok');
   assert.deepEqual([ok.role, ok.live, ok.size, ok.align, ok.color], ['status', 'polite', '10.5px', 'right', 'rgb(6, 214, 160)']);
   const err = await status('err');
-  assert.deepEqual([err.color, err.padding], ['rgb(255, 64, 64)', '0px 20px 14px']);
+  assert.deepEqual([err.color, err.padding], ['rgb(255, 100, 103)', '0px 20px 14px']);
   const hidden = await status('hidden');
   assert.deepEqual([hidden.height, hidden.visibility], [0, 'hidden'], 'hidden in a section: no room');
   assert.equal((await status('muted')).color, 'rgb(161, 161, 170)');

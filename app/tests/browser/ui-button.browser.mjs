@@ -78,7 +78,7 @@ test('at rest a button is the text colour; the header\'s have no frame and fill 
   }
   // A tone at rest where the colour says something: download, delete; translated, in the colour of success.
   assert.equal((await look(spec('card-btn', 'quiet-warning-fill'))).text, YELLOW, 'download: its yellow');
-  assert.equal((await look(spec('card-btn', 'quiet-danger-fill'))).text, 'rgb(255, 64, 64)', 'delete: its red');
+  assert.equal((await look(spec('card-btn', 'quiet-danger-fill'))).text, 'rgb(255, 100, 103)', 'delete: its red');
   assert.equal((await look(spec('card-btn', 'quiet', 'on'))).text, 'rgb(6, 214, 160)', 'translated: the colour of success');
   // The header's buttons: no frame at rest or under the pointer, the raised ground under it; on, the
   // pressed tone's words on its tint, still no frame.
@@ -98,6 +98,28 @@ test('at rest a button is the text colour; the header\'s have no frame and fill 
     assert.deepEqual([rest.ground, rest.frame, rest.text, rest.filter], [YELLOW, YELLOW, 'rgb(17, 17, 17)', 'none'], `${variant}: filled in its yellow`);
     assert.deepEqual([hover.ground, hover.text, hover.filter], [YELLOW, 'rgb(17, 17, 17)', 'brightness(1.1)'], `${variant}: brighter under the pointer`);
   }
+  assert.deepEqual(page.problems, []);
+});
+
+// §5.3 F61 (the owner, 2026-11-25: "try switch my danger color profile to the destructive color of
+// shadcn"): danger is shadcn's destructive on its dark theme (oklch(0.704 0.191 22.216), as sRGB), and
+// a danger fill under white words is that colour at 60%, as shadcn fills its destructive button there
+// (white on the colour itself is 2.9:1), framed in the colour.
+test('danger is shadcn\'s destructive: the colour in words and frames, its 60% under white words', async (t) => {
+  const page = await componentsPage(t, browser, origin);
+  if (!page) return;
+  const look = (sel) => page.$eval(sel, (el) => { const cs = getComputedStyle(el); return [cs.backgroundColor, cs.borderTopColor, cs.color]; });
+  const RED = 'rgb(255, 100, 103)', FILL = 'rgba(255, 100, 103, 0.6)', WHITE = 'rgb(255, 255, 255)', NONE = 'rgba(0, 0, 0, 0)';
+  // A dialog's filled button.
+  assert.deepEqual(await look(spec('btn', 'danger')), [FILL, RED, WHITE], 'a dialog\'s danger button');
+  // Settings' outline: the colour at rest, the fill under the pointer.
+  assert.deepEqual(await look(spec('btn-clear-all', 'tint-danger')), [NONE, RED, RED], 'Clear All at rest');
+  assert.deepEqual(await look(spec('btn-clear-all', 'tint-danger', 'hover')), [FILL, RED, WHITE], 'Clear All under the pointer');
+  // A card's delete: the colour at rest, the fill under the pointer.
+  assert.equal((await look(spec('card-btn', 'quiet-danger-fill')))[2], RED);
+  assert.deepEqual(await look(spec('card-btn', 'quiet-danger-fill', 'hover')), [FILL, RED, WHITE], 'a card\'s delete under the pointer');
+  // The other tones fill with the tone itself.
+  assert.equal((await look(spec('card-btn', 'quiet-warning-fill', 'hover')))[0], 'rgb(255, 209, 102)', 'download: its yellow, whole');
   assert.deepEqual(page.problems, []);
 });
 

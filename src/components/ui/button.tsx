@@ -37,15 +37,16 @@ import type { AnchorHTMLAttributes } from 'react';
 import { classCache, cn } from '@/lib/utils';
 
 // A tone is a set of colours the variants below read: the outline (--t), its text (--t-text: the
-// neutral tone frames in the muted grey and writes in the text colour), the fill's text (--t-fill-fg)
+// neutral tone frames in the muted grey and writes in the text colour), the fill (--t-fill: the tone
+// itself, but danger's, which is its 60% under white words: F61), the fill's text (--t-fill-fg)
 // and the 8% tint of an on button (--t-tint). The pressed set (--p…) is the tone's unless
 // pressedTone names another.
 const TONES = {
-  neutral: '[--t:var(--muted-foreground)] [--t-text:var(--foreground)] [--t-fill-fg:var(--foreground)] [--t-tint:var(--secondary)]',
-  primary: '[--t:var(--primary)] [--t-text:var(--primary)] [--t-fill-fg:var(--primary-foreground)] [--t-tint:var(--primary-tint)]',
-  warning: '[--t:var(--warning)] [--t-text:var(--warning)] [--t-fill-fg:var(--warning-foreground)] [--t-tint:var(--warning-tint)]',
-  danger: '[--t:var(--destructive)] [--t-text:var(--destructive)] [--t-fill-fg:var(--destructive-foreground)] [--t-tint:var(--destructive-tint)]',
-  success: '[--t:var(--success)] [--t-text:var(--success)] [--t-fill-fg:var(--background)] [--t-tint:var(--success-tint)]',
+  neutral: '[--t:var(--muted-foreground)] [--t-fill:var(--muted-foreground)] [--t-text:var(--foreground)] [--t-fill-fg:var(--foreground)] [--t-tint:var(--secondary)]',
+  primary: '[--t:var(--primary)] [--t-fill:var(--primary)] [--t-text:var(--primary)] [--t-fill-fg:var(--primary-foreground)] [--t-tint:var(--primary-tint)]',
+  warning: '[--t:var(--warning)] [--t-fill:var(--warning)] [--t-text:var(--warning)] [--t-fill-fg:var(--warning-foreground)] [--t-tint:var(--warning-tint)]',
+  danger: '[--t:var(--destructive)] [--t-fill:var(--destructive-fill)] [--t-text:var(--destructive)] [--t-fill-fg:var(--destructive-foreground)] [--t-tint:var(--destructive-tint)]',
+  success: '[--t:var(--success)] [--t-fill:var(--success)] [--t-text:var(--success)] [--t-fill-fg:var(--background)] [--t-tint:var(--success-tint)]',
 } as const;
 const PRESSED = {
   neutral: '[--p:var(--muted-foreground)] [--p-text:var(--foreground)] [--p-tint:var(--secondary)]',
@@ -68,12 +69,12 @@ const buttonVariants = cva(
         // Dialogs and the toast (.btn): the muted frame under the pointer, filled or not.
         outline: 'border-input bg-transparent text-foreground hover:border-muted-foreground aria-expanded:border-muted-foreground',
         primary: 'border-primary bg-primary text-primary-foreground hover:border-muted-foreground hover:brightness-110',
-        danger: 'border-destructive bg-destructive text-destructive-foreground hover:border-muted-foreground hover:brightness-110',
+        danger: 'border-destructive bg-destructive-fill text-destructive-foreground hover:border-muted-foreground hover:brightness-110',
         // The pages' filled button (Settings' Export…, the overview's Read): it brightens, keeping
         // its own frame.
         solid: 'border-primary bg-primary text-primary-foreground hover:brightness-110',
         // Settings: Clear All, Import, Stop all (a tone's outline that fills on hover).
-        tint: 'border-(--t) bg-transparent text-(--t-text) hover:border-(--t) hover:bg-(--t) hover:text-(--t-fill-fg)',
+        tint: 'border-(--t) bg-transparent text-(--t-text) hover:border-(--t) hover:bg-(--t-fill) hover:text-(--t-fill-fg)',
         // Settings: the quieter danger (Reset).
         'danger-subtle': 'border-input bg-transparent text-destructive hover:border-destructive hover:bg-[color-mix(in_srgb,var(--destructive)_14%,transparent)]',
         // Settings' small neutral buttons (Advanced settings…, About).
@@ -98,7 +99,7 @@ const buttonVariants = cva(
         neutral: TONES.neutral, primary: TONES.primary, warning: TONES.warning, danger: TONES.danger, success: TONES.success,
       },
       // How a tint, quiet or ghost button shows its tone before it is hovered.
-      rest: { plain: '', tone: 'text-(--t-text)', framed: 'border-(--t) text-(--t-text)', filled: 'border-(--t) bg-(--t) text-(--t-fill-fg)' },
+      rest: { plain: '', tone: 'text-(--t-text)', framed: 'border-(--t) text-(--t-text)', filled: 'border-(--t) bg-(--t-fill) text-(--t-fill-fg)' },
       // How it hovers in its tone: its frame and text in the tone, or filled with it.
       hover: { outline: '', fill: '' },
       pressedTone: { neutral: PRESSED.neutral, primary: PRESSED.primary, warning: PRESSED.warning, danger: PRESSED.danger, success: PRESSED.success },
@@ -124,7 +125,7 @@ const buttonVariants = cva(
       // Quiet and ghost buttons hover in their tone: outline (frame and text), or fill. A quiet
       // neutral outline is the muted frame and the text colour.
       { variant: ['quiet', 'ghost'], hover: 'outline', class: 'hover:border-(--t) hover:text-(--t-text) aria-expanded:border-(--t) aria-expanded:text-(--t-text)' },
-      { variant: ['quiet', 'ghost'], hover: 'fill', class: 'hover:border-(--t) hover:bg-(--t) hover:text-(--t-fill-fg)' },
+      { variant: ['quiet', 'ghost'], hover: 'fill', class: 'hover:border-(--t) hover:bg-(--t-fill) hover:text-(--t-fill-fg)' },
       // A ghost button in the neutral tone shows no frame on hover (F09): its ground says it.
       { variant: 'ghost', tone: 'neutral', class: 'hover:border-transparent aria-expanded:border-transparent' },
       // The toolbar's quiet button sits on the surface, like the select beside it.

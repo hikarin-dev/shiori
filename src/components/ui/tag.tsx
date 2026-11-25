@@ -57,7 +57,7 @@ const tagVariants = cva('group/tag border border-solid no-underline', {
 // While Shift is held, a removable tag's hover is the delete preview (its count's divider fades to
 // white at half strength; an editable detail turns its frame and text red).
 const REMOVING = {
-  fill: 'in-[.shift-held]:hover:border-destructive in-[.shift-held]:hover:bg-destructive in-[.shift-held]:hover:text-destructive-foreground',
+  fill: 'in-[.shift-held]:hover:border-destructive in-[.shift-held]:hover:bg-destructive-fill in-[.shift-held]:hover:text-destructive-foreground',
   ghost: 'in-[.shift-held]:hover:border-destructive in-[.shift-held]:hover:text-destructive',
 };
 

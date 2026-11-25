@@ -19,7 +19,8 @@
   --muted: #a1a1aa;
   --muted-dim: #7c7c8c;
   --success: #06d6a0;
-  --danger: #ff4040;
+  --danger: #ff6467;
+  --danger-fill: rgb(255 100 103 / 60%);   /* a danger fill under white words */
   --debug: #2f7cf6;            /* debug views */
   --ring: #fb7185;             /* a focused text box's border */
   --backdrop: rgba(0, 0, 0, .65);
@@ -249,7 +250,7 @@ html.overlay-scroll-target[data-overlayscrollbars-viewport] > body { scrollbar-w
 }
 .btn:hover:not(:disabled) { border-color: var(--muted); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.danger { background: var(--danger-fill); border-color: var(--danger); color: #fff; }
 .btn:is(.primary, .danger):hover:not(:disabled) { filter: brightness(1.1); }
 .btn:disabled { opacity: .6; cursor: default; }
 

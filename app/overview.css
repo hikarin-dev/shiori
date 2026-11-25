@@ -132,7 +132,7 @@
 #ovContent:not(.ov-editing) :is(.ov-chip-add, .ov-tag-table.no-tags) { display: none; }
 /* While Shift is held in edit mode, hovering a tag previews its removal (Shift+click removes) in the
    delete colour, as on a library card. */
-body.shift-held #ovContent.ov-editing .ov-chip:not(.ov-chip-add):hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+body.shift-held #ovContent.ov-editing .ov-chip:not(.ov-chip-add):hover { background: var(--danger-fill); border-color: var(--danger); color: #fff; }
 body.shift-held #ovContent.ov-editing .ov-chip:not(.ov-chip-add):hover .ov-chip-n { color: inherit; border-left-color: rgba(255, 255, 255, .5); }
 body.shift-held #ovContent.ov-editing .ov-meta-item[data-tag-type]:hover { border-color: var(--danger); color: var(--danger); }
 body.shift-held #ovContent.ov-editing .ov-meta-item[data-tag-type]:hover svg { color: currentColor; }

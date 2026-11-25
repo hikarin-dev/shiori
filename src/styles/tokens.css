@@ -34,8 +34,8 @@
     --muted-foreground: #a1a1aa;      /* secondary text; base.css --muted */
     --accent: #1c1c21;                /* the hover surface; --surface-raised */
     --accent-foreground: #f4f4f5;
-    --destructive: #ff4040;           /* --danger */
-    --destructive-foreground: #fff;
+    --destructive: #ff6467;           /* --danger. shadcn's --destructive on its dark theme, oklch(0.704 0.191 22.216), as sRGB (F61) */
+    --destructive-foreground: #fff;   /* words on a danger fill (--destructive-fill) */
     --border: #2a2a30;
     --input: #3f3f48;                 /* controls and dialog frames; --border-strong (absorbs #3a3a44) */
     --ring: #fb7185;                  /* a focused text box's border */
@@ -63,7 +63,10 @@
     --primary-tint: rgb(237 39 84 / 8%);
     --warning-tint: rgb(255 209 102 / 8%);
     --success-tint: rgb(6 214 160 / 8%);
-    --destructive-tint: rgb(255 64 64 / 8%);
+    --destructive-tint: rgb(255 100 103 / 8%);
+    /* A danger fill under white words: the colour at 60%, as shadcn fills its destructive button on
+       the dark theme. (White on the colour itself is 2.9:1; on this, over a surface, 6:1.) */
+    --destructive-fill: rgb(255 100 103 / 60%);
     --switch-track: #303038;
     --switch-track-border: #4a4a55;
     --switch-knob: #b3b3bf;
@@ -151,6 +154,7 @@
     --color-warning-tint: var(--warning-tint);
     --color-success-tint: var(--success-tint);
     --color-destructive-tint: var(--destructive-tint);
+    --color-destructive-fill: var(--destructive-fill);
     --color-switch-track: var(--switch-track);
     --color-switch-track-border: var(--switch-track-border);
     --color-switch-knob: var(--switch-knob);
