@@ -206,6 +206,9 @@ test("in a short window the reader settings' tab scrolls inside its frame, and a
 
 test('custom overlays clear compensation and disabling them restores it',{ skip: !chromePath() }, async t => {
   const page = await fresh(t, '/library');
+  // (The one page draws the library's toolbar once the route's chunk has come, after `load`: under the
+  // whole suite's load the test read it before it was there.)
+  await page.waitForSelector('.toolbar');
   await overflow(page, 'hidden');
   const native = await geometry(page, ['.toolbar']);
   await page.evaluate(async () => {
