@@ -1,6 +1,6 @@
 // runner-tag.js — what a job's `runner` (platform.js) tells a person: where the job runs, as a short
 // tag, and in its tooltip what ending that would stop the job. The tasks page and the import tracker
-// show it on every job.
+// show it on every job (src/components/runner-tag.tsx).
 
 import { t } from './i18n.js';
 import { contextId, helperHost } from './platform.js';
@@ -28,14 +28,4 @@ export function runnerTag(runner) {
     }
     default: return { text: kind, tip: '' };
   }
-}
-
-// Fill a tag element (hidden when the job doesn't say), changing only what changed.
-export function paintRunnerTag(el, runner) {
-  const tag = runnerTag(runner);
-  el.hidden = !tag;
-  if (!tag) return;
-  if (el.textContent !== tag.text) el.textContent = tag.text;
-  if (el.dataset.tip !== tag.tip) el.dataset.tip = tag.tip;
-  if (el.dataset.runner !== runner.kind) el.dataset.runner = runner.kind;
 }
