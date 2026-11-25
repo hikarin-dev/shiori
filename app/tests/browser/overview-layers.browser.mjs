@@ -1,4 +1,4 @@
-// overview-next-layers.browser.mjs — rule 29 on the overview at /overview-next: a control's own motion
+// overview-layers.browser.mjs — rule 29 on the overview at /overview-next: a control's own motion
 // lifts none of the page's words onto a layer (layers.mjs: the browser's own layer tree, mid-way through
 // each motion). A chapter's pages opened (its arrow turning) and closed again; rows sliding to their new
 // places after the order changed in another tab: no layer there for an animation, none gained. And the

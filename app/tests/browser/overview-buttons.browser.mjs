@@ -1,4 +1,4 @@
-// overview-next-buttons.browser.mjs — what the overview's buttons do at /overview-next, held to what 1.3's
+// overview-buttons.browser.mjs — what the overview's buttons do at /overview-next, held to what 1.3's
 // page (/overview) gave driven alike, with stand-ins for the helper and the translation
 // server: for each press in each case (plain, Shift, the right button; a series' chapter, its owner, a
 // volume, a translated one, one with no pages, one whose download is under way, a missing one, a linked

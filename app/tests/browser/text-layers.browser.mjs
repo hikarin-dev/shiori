@@ -97,7 +97,7 @@ test('Settings: a switch turns and a list opens with nothing lifted onto a layer
 // 7d: a bar with no figure yet (Progress's block travelling: an animated transform). On Tasks, a
 // download's row: its block alone is on a layer for the animation, and nothing else is lifted that a bar
 // with a figure does not lift too: none of the page's words (the track clips the block). The overview's
-// rows are held in overview-next-layers.browser.mjs.
+// rows are held in overview-layers.browser.mjs.
 test('Tasks: a job\'s bar with no figure yet travels with nothing but its block on a layer', async (t) => {
   if (!browser) return t.skip('no Chrome');
   const base = nextBase(1790015100000);

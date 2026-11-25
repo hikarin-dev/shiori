@@ -1,4 +1,4 @@
-// overview-next-live.browser.mjs — the overview at /overview-next under a library that changes, held
+// overview-live.browser.mjs — the overview at /overview-next under a library that changes, held
 // to what 1.3's (/overview) gave driven alike. The page is shown over a run's library while a tab behind
 // it makes the changes there (another context, as a download's runner or another window is). After each
 // kind of change the page reads as 1.3's did (words, links, tips, rows in order), and of what was there
@@ -155,7 +155,7 @@ async function drive(part, changes) {
 }
 
 // The tags' counts are the whole library's, which the other page's run changed meanwhile: left out here
-// (overview-next-table holds them).
+// (overview-table holds them).
 const uncounted = (r) => JSON.parse(JSON.stringify(r, (k, v) => (k === 'count' && typeof v !== 'object' ? null : k === 'text' && typeof v === 'string' ? v : v)));
 const withoutCounts = (r) => { const out = uncounted(r); for (const row of out.hero?.tags?.rows ?? []) for (const chip of row.chips) if (chip.count != null || chip.text) { chip.text = chip.text.replace(/\d+(\.\d+)?[KM]?$/, ''); chip.count = null; } return out; };
 

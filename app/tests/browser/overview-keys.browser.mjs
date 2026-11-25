@@ -1,4 +1,4 @@
-// overview-next-keys.browser.mjs — the overview by the keyboard, the one page's (/overview-next) held to
+// overview-keys.browser.mjs — the overview by the keyboard, the one page's (/overview-next) held to
 // what 1.3's (/overview) gave driven alike over one seeded library (overview-drive.mjs; the translation
 // server's stand-in answering, so a row has its translate button). The keys 1.3's
 // overview answers: Tab through every control (the header's, the hero's, the tags, the view's tabs, each

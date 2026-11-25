@@ -1,4 +1,4 @@
-// overview-next-edit.browser.mjs — edit mode on the overview at /overview-next, held to what 1.3's page
+// overview-edit.browser.mjs — edit mode on the overview at /overview-next, held to what 1.3's page
 // (/overview) gave driven alike: every way into and out of it, every way a title is
 // saved and is not (the series', a gallery's own, a chapter's; typed, emptied, the same text again; left
 // by a press elsewhere or by Done), the tags (a tag and the category pressed: the tag editor on it, its

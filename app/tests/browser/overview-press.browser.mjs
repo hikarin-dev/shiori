@@ -1,4 +1,4 @@
-// overview-next-press.browser.mjs — a press on the overview at /overview-next, as it is drawn: its change
+// overview-press.browser.mjs — a press on the overview at /overview-next, as it is drawn: its change
 // in the frame of the press, and put back when the library refuses it (the heart); a press on one row
 // draws that row alone (the other rows' nodes untouched); a job begun by a press, each of its words, and
 // what its end does (the gallery read again, the row's cover asked again for pages that changed, the
@@ -83,7 +83,7 @@ test('a press on one row draws that row alone; its job begun, word by word, and 
   assert.deepEqual((await page.evaluate(() => window.__said)).map((m) => m.type), ['CACHE_ALL_PAGES']);
   const begun = await rowOf();
   assert.deepEqual([begun.state, begun.progress?.label, begun.download.state], [['working'], 'Contacting download helper…', ['cancelling']]);
-  // (Its words are 1.3's: overview-next-jobs holds them, both pages alike.)
+  // (Its words are 1.3's: overview-jobs holds them, both pages alike.)
   const labels = [begun.progress.label];
   for (const word of [{ status: 'downloading', downloaded: 1000, total: 4000, pages: 3 }, { status: 'progress', done: 1, total: 1 }]) {
     await publish(page, { gid: gid(base, 'S2'), kind: 'download', ...word });
