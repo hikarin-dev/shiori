@@ -1,0 +1,229 @@
+// overview-next-pages.browser.mjs — the overview's page grid and its thumbnails at /overview-next, held
+// against 1.3's page (/overview) driven alike, 1.3's page the oracle (its own measures are
+// overview-pages.browser.mjs's, run here on both pages too): which copy each tile gets at the grid's
+// tile width and at twice the pixel ratio; the tiles in view first; the warm-up making every tile's copy
+// ahead, each once; the two bands (a tile far from view lets its picture go, one within 5,400px keeps
+// it, scrolled back the copies made show again with none made twice); a tile with no copy yet showing
+// its ground, never a broken image; and, the page left (a route change), its workers ended and every
+// copy's object URL revoked. Then leaving the page five times with a chapter's pages open and a job
+// running leaves nothing behind (listeners, intervals, observers, channels, workers, object URLs).
+import test, { before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
+import { openRun, nextBase, gid, visit, sleep, publish, OLD, NEW } from './overview-drive.mjs';
+
+const COUNT = 400;
+let server, origin, browser, base, long;
+
+before(async () => {
+  if (!chromePath()) return;
+  ({ server, origin } = await startServer());
+  browser = await launch();
+  base = nextBase(1790009700000);
+  long = String(base + 60);
+  const page = await openRun(browser, origin, base);
+  // A gallery of 400 small pages, each its own colour (a few hundred KB in all).
+  await page.evaluate(async ({ gid, count }) => {
+    const api = await import('/app/js/api.js');
+    await api.meta.put({ galleryId: gid, title: { english: 'A long gallery', japanese: '', pretty: '' }, tags: [], numPages: count });
+    for (let n = 1; n <= count; n++) {
+      const c = new OffscreenCanvas(150, 215);
+      const x = c.getContext('2d');
+      x.fillStyle = `hsl(${(n * 37) % 360} 60% 50%)`; x.fillRect(0, 0, 150, 215);
+      x.fillStyle = '#fff'; x.fillRect(20, 20, n % 100, 10);
+      await api.pages.put(gid, n, await c.convertToBlob({ type: 'image/png' }));
+    }
+  }, { gid: long, count: COUNT });
+  await page.close();
+});
+after(async () => { await browser?.close(); server?.close(); });
+
+// In every document: the copies asked of the workers (by width), the workers started and ended, the
+// object URLs alive, and the order tiles got their pictures.
+function instrument() {
+  const seen = window.__thumbs = { posted: [], workers: 0, ended: 0, urls: new Set(), order: [] };
+  const W = window.Worker;
+  window.Worker = class extends W {
+    constructor(...a) { super(...a); seen.workers++; }
+    postMessage(msg, ...rest) { if (msg?.width) seen.posted.push(msg.width); return super.postMessage(msg, ...rest); }
+    terminate() { if (!this.__ended) { this.__ended = true; seen.ended++; } return super.terminate(); }
+  };
+  const cu = URL.createObjectURL, ru = URL.revokeObjectURL;
+  URL.createObjectURL = (o) => { const u = cu(o); seen.urls.add(u); return u; };
+  URL.revokeObjectURL = (u) => { seen.urls.delete(u); return ru(u); };
+  new MutationObserver((records) => {
+    for (const r of records) if (r.attributeName === 'src' && r.target.matches?.('.ov-page img') && r.target.getAttribute('src')) seen.order.push(Number(r.target.dataset.pageNum));
+  }).observe(document, { subtree: true, attributes: true, attributeFilter: ['src'] });
+}
+
+async function open(path, { scale = 1 } = {}) {
+  const page = await openPage(browser, origin);
+  await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: scale });
+  await page.evaluateOnNewDocument(instrument);
+  await page.goto(`${origin}${path}?g=${long}`, { waitUntil: 'load' });
+  await until(page, (n) => document.querySelectorAll('#ovPages .ov-page img').length === n, COUNT, { what: `${path}: the tiles` });
+  return page;
+}
+const inView = () => [...document.querySelectorAll('#ovPages .ov-page img')].filter((img) => { const r = img.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
+
+test('each tile\'s copy: 1.5 times its pixels, stepped; at twice the pixel ratio, twice; the tiles in view first: the same on both pages', { skip: !chromePath() }, async () => {
+  const got = {};
+  for (const scale of [1, 2]) {
+    for (const path of [OLD, NEW]) {
+      const page = await open(path, { scale });
+      await until(page, () => [...document.querySelectorAll('#ovPages .ov-page img')].filter((img) => { const r = img.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; }).every((img) => img.dataset.ready), null, { what: `${path}: the tiles in view` });
+      got[`${scale} ${path}`] = await page.evaluate((src) => {
+        const view = (0, eval)(`(${src})`)();
+        const shown = new Set(view.map((img) => Number(img.dataset.pageNum)));
+        const first = window.__thumbs.order.slice(0, shown.size);
+        return { tile: Math.round(view[0].parentElement.clientWidth * 100) / 100, widths: [...new Set(view.map((img) => img.dataset.width))], inView: shown.size,
+          firstInView: first.filter((n) => shown.has(n)).length };
+      }, inView.toString());
+      assert.deepEqual(page.problems, []);
+      await page.close();
+    }
+    // (Which of them came first is the copies' finishing order: compared by its bound below.)
+    const same = ({ firstInView, ...rest }) => rest;
+    assert.deepEqual(same(got[`${scale} ${NEW}`]), same(got[`${scale} ${OLD}`]));
+  }
+  assert.deepEqual(got[`1 ${OLD}`].widths, ['192']);
+  assert.deepEqual(got[`2 ${OLD}`].widths, ['384']);
+  // Of the first pictures shown, nearly all were tiles in view (a few copies run at once).
+  for (const key of Object.keys(got)) assert.ok(got[key].firstInView >= got[key].inView - 8, `${key}: ${JSON.stringify(got[key])}`);
+});
+
+test('the warm-up makes every tile\'s copy ahead, each once; far from view a tile lets its picture go, within 5,400px it keeps it; back again, none made twice', { skip: !chromePath() }, async () => {
+  const got = {};
+  for (const path of [OLD, NEW]) {
+    const page = await open(path);
+    await until(page, (n) => window.__thumbs.posted.length >= n, COUNT, { what: `${path}: every copy made`, timeout: 120000 });
+    await sleep(1000);
+    const made = await page.evaluate(() => window.__thumbs.posted.length);
+    // To the end: the top's tiles (more than 5,400px above) let theirs go.
+    await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+    await sleep(1500);
+    const kept = await page.evaluate(() => {
+      const imgs = [...document.querySelectorAll('#ovPages .ov-page img')];
+      return { painted: imgs.filter((img) => img.getAttribute('src')).length, firstPainted: Number(imgs.find((img) => img.getAttribute('src'))?.dataset.pageNum),
+        scroll: Math.round(scrollY) };
+    });
+    // Back to the top: shown again from what was made, nothing made again.
+    await page.evaluate(() => scrollTo(0, 0));
+    await until(page, () => [...document.querySelectorAll('#ovPages .ov-page img')].filter((img) => { const r = img.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; }).every((img) => img.getAttribute('src')), null, { what: `${path}: the top again` });
+    await sleep(500);
+    got[path] = { made, kept, after: await page.evaluate(() => window.__thumbs.posted.length) };
+    assert.deepEqual(page.problems, []);
+    await page.close();
+  }
+  assert.deepEqual(got[NEW], got[OLD]);
+  assert.equal(got[OLD].made, COUNT, 'each tile\'s copy made once');
+  assert.equal(got[OLD].after, COUNT, 'none made again on the way back');
+  assert.ok(got[OLD].kept.firstPainted > 1 && got[OLD].kept.painted < COUNT, JSON.stringify(got[OLD].kept));
+});
+
+// 1.3's own measures (overview-pages.browser.mjs), on both pages: scrolled at 12,000px a second, no tile
+// draws a broken image; with a moment for the warm-up first, the tiles scrolled to show their copies.
+function scrollToEnd(page, pxPerSec) {
+  return page.evaluate(async (pxPerSec) => {
+    const raf = () => new Promise((resolve) => requestAnimationFrame(resolve));
+    const imgs = [...document.querySelectorAll('#ovPages .ov-page img')];
+    let last = await raf(), tiles = 0, blank = 0, glyph = 0;
+    while (scrollY < document.documentElement.scrollHeight - innerHeight - 1) {
+      const now = await raf();
+      scrollBy(0, pxPerSec * (now - last) / 1000);
+      last = now;
+      for (const img of imgs) {
+        const r = img.getBoundingClientRect();
+        if (r.bottom < 0 || r.top > innerHeight) continue;
+        tiles++;
+        if (img.getAttribute('src') && img.complete && img.naturalWidth) continue;
+        blank++;
+        if (!img.getAttribute('src') && getComputedStyle(img).visibility !== 'hidden') glyph++;
+      }
+    }
+    return { blank: blank / Math.max(1, tiles), glyph };
+  }, pxPerSec);
+}
+test('a tile with no copy yet shows its ground; made ahead, the tiles scrolled to show theirs: on both pages', { skip: !chromePath() }, async () => {
+  for (const path of [OLD, NEW]) {
+    let page = await open(path);
+    assert.equal((await scrollToEnd(page, 12000)).glyph, 0, `${path}: no broken image`);
+    await page.close();
+    page = await open(path);
+    await until(page, (n) => window.__thumbs.posted.length >= n, COUNT, { what: `${path}: every copy made`, timeout: 120000 });
+    const { blank } = await scrollToEnd(page, 12000);
+    assert.ok(blank < 0.05, `${path}: tiles scrolled to show their copies (${(blank * 100).toFixed(1)}% blank)`);
+    await page.close();
+  }
+});
+
+test('the page left: its workers ended, every copy\'s object URL revoked', { skip: !chromePath() }, async () => {
+  const page = await open(NEW);
+  await until(page, (n) => window.__thumbs.posted.length >= n, 60, { what: 'copies made' });
+  await page.click('#settingsBtn');
+  await until(page, () => location.pathname === '/settings', null, { what: 'Settings' });
+  await sleep(500);
+  const left = await page.evaluate(() => ({ workers: window.__thumbs.workers, ended: window.__thumbs.ended, urls: window.__thumbs.urls.size }));
+  assert.ok(left.workers >= 1);
+  assert.equal(left.ended, left.workers, 'every worker ended');
+  assert.equal(left.urls, 0, 'every object URL revoked');
+  await page.close();
+});
+
+test('leaving the page five times with a chapter\'s pages open and a job running leaves nothing behind', { skip: !chromePath() }, async () => {
+  const page = await openPage(browser, origin);
+  await page.evaluateOnNewDocument(instrument);
+  await page.evaluateOnNewDocument(() => {
+    const held = window.__held = { listeners: 0, intervals: 0, timers: 0, observers: 0, channels: 0 };
+    for (const target of [window, document]) {
+      const add = target.addEventListener, remove = target.removeEventListener;
+      target.addEventListener = function (type, fn, opts) {
+        const k = `${type}|${typeof opts === 'object' ? !!opts?.capture : !!opts}`;
+        const key = fn && (fn.__keys ??= new Set());
+        if (key && !key.has(k)) {
+          key.add(k); held.listeners++;
+          opts?.signal?.addEventListener('abort', () => { if (key.delete(k)) held.listeners--; }, { once: true });
+          if (typeof opts === 'object' && opts?.once) { const self = this; const off = () => { if (key.delete(k)) held.listeners--; }; add.call(self, type, off, { once: true }); }
+        }
+        return add.call(this, type, fn, opts);
+      };
+      target.removeEventListener = function (type, fn, opts) { const k = `${type}|${typeof opts === 'object' ? !!opts?.capture : !!opts}`; if (fn?.__keys?.has(k)) { fn.__keys.delete(k); held.listeners--; } return remove.call(this, type, fn, opts); };
+    }
+    const si = window.setInterval, ci = window.clearInterval, live = new Set();
+    window.setInterval = (...a) => { const h = si(...a); live.add(h); held.intervals = live.size; return h; };
+    window.clearInterval = (h) => { live.delete(h); held.intervals = live.size; return ci(h); };
+    // Timers still to run that are longer than a second (the page's own, not a frame's or a tick's).
+    const st = window.setTimeout, ct = window.clearTimeout, pending = new Set();
+    window.setTimeout = (fn, ms, ...a) => { let h; h = st((...b) => { pending.delete(h); held.timers = pending.size; if (typeof fn === 'function') fn(...b); }, ms, ...a); if (ms > 1000) { pending.add(h); held.timers = pending.size; } return h; };
+    window.clearTimeout = (h) => { pending.delete(h); held.timers = pending.size; return ct(h); };
+    for (const name of ['MutationObserver', 'ResizeObserver', 'IntersectionObserver']) {
+      const Base = window[name];
+      window[name] = class extends Base { observe(...a) { if (!this.__on) { this.__on = true; held.observers++; } return super.observe(...a); } disconnect() { if (this.__on) { this.__on = false; held.observers--; } return super.disconnect(); } };
+    }
+    const BC = window.BroadcastChannel;
+    window.BroadcastChannel = class extends BC { constructor(n) { super(n); held.channels++; } close() { if (!this.__closed) { this.__closed = true; held.channels--; } return super.close(); } };
+  });
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
+  await sleep(1500);
+  const counts = [];
+  for (let i = 0; i < 6; i++) {
+    await page.evaluate((path) => { history.pushState(null, '', path); dispatchEvent(new PopStateEvent('popstate')); }, `${NEW}?g=${gid(base, 'S')}`);
+    await until(page, () => document.querySelectorAll('.ch-row').length === 4 && !!document.querySelector('#seriesCover img'), null, { what: 'the overview' });
+    await publish(page, { gid: gid(base, 'S2'), kind: 'download', status: 'downloading', downloaded: 100, total: 1000, pages: 2 });
+    await page.hover('.ch-row:nth-child(1) .ch-head');
+    await page.click('.ch-row:nth-child(1) [data-expand]');
+    await until(page, () => [...document.querySelectorAll('.ch-row:nth-child(1) .ch-pages .ov-page img')].some((img) => img.getAttribute('src')) && !!document.querySelector('.ch-row.working'), null, { what: 'the pages open and the job drawn' });
+    await sleep(300);
+    await page.evaluate(() => history.back());
+    await until(page, () => location.pathname === '/tasks' && !document.getElementById('ovContent'), null, { what: 'Tasks again' });
+    await sleep(1500);
+    counts.push(await page.evaluate(() => ({ ...window.__held, workers: window.__thumbs.workers - window.__thumbs.ended, urls: window.__thumbs.urls.size,
+      rows: document.querySelectorAll('.ch-row').length, tips: document.querySelectorAll('.shiori-tip').length })));
+  }
+  assert.ok(counts.every((c) => c.workers === 0 && c.urls === 0 && c.rows === 0), JSON.stringify(counts));
+  // After the first return, nothing grows with each later one.
+  assert.deepEqual(counts.slice(1), Array(5).fill(counts[0]), JSON.stringify(counts));
+  assert.deepEqual(page.problems, []);
+  await page.evaluate(async () => { const platform = await import('/app/js/platform.js'); for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind); });
+  await page.close();
+});
