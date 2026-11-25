@@ -91,14 +91,15 @@ test('a press on one row draws that row alone; its job begun, word by word, and 
     labels.push(await page.$eval('.ch-row:nth-child(2) .ch-prog-label', (el) => el.textContent));
   }
   assert.equal(new Set(labels).size, 3, labels.join(' | '));
-  // A page stored by the download, then its end: the gallery read again (3 pages), its cover asked again.
+  // A page stored by the download, then its end: the gallery read again (3 pages), its cover asked again
+  // (by the read of the change, which may land before the end's word: the end's read then finds nothing new).
+  await page.evaluate(() => { window.__covers = []; });
   await page.evaluate(async (id) => {
     const api = await import('/app/js/api.js');
     const c = new OffscreenCanvas(30, 43); c.getContext('2d').fillRect(0, 0, 30, 43);
     await api.pages.put(id, 3, await c.convertToBlob({ type: 'image/png' }));
   }, gid(base, 'S2'));
   await sleep(300);
-  await page.evaluate(() => { window.__covers = []; });
   await publish(page, { gid: gid(base, 'S2'), kind: 'download', status: 'done', done: 1, total: 1 });
   await until(page, () => document.querySelector('.ch-row:nth-child(2) [data-download]')?.textContent === '✓', null, { what: 'the ✓' });
   const ended = await rowOf();

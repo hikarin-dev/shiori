@@ -203,8 +203,11 @@ test('a title saved while the same gallery changes elsewhere never shows the old
     await typeTitle(page, chapterTitle(base, 'S3'), `Extra ${round}`);
     // Every value the two boxes show from the save on, each frame.
     await page.evaluate((sel) => {
-      window.__seen = [];
-      const tick = () => { const a = document.querySelector('#seriesTitle')?.value, b = document.querySelector(sel)?.value; window.__seen.push(`${a}|${b}`); if (window.__seen.length < 120) requestAnimationFrame(tick); };
+      // (For 2 s of the page's time, however many frames that is: under a whole suite's load a frame can
+      // take a tenth of a second, and 120 of them did not come within 10 s.)
+      window.__seen = []; window.__done = false;
+      const t0 = performance.now();
+      const tick = () => { const a = document.querySelector('#seriesTitle')?.value, b = document.querySelector(sel)?.value; window.__seen.push(`${a}|${b}`); if (performance.now() - t0 < 2000) requestAnimationFrame(tick); else window.__done = true; };
       requestAnimationFrame(tick);
     }, chapterTitle(base, 'S3'));
     // The owner changed in another context while the saves are under way: a page of it read again,
@@ -213,7 +216,7 @@ test('a title saved while the same gallery changes elsewhere never shows the old
       page.click('#editToggle'),
       other.evaluate(async (id) => { const api = await import('/app/js/api.js'); for (let i = 0; i < 6; i++) { await api.personal.favorite(id, i % 2 === 0); await new Promise((r) => setTimeout(r, 15)); } }, gid(base, 'S')),
     ]);
-    await page.waitForFunction(() => window.__seen.length >= 120, { timeout: 10000 });
+    await page.waitForFunction(() => window.__done, { timeout: 30000 });
     const seen = await page.evaluate(() => window.__seen);
     const first = seen.findIndex((v) => v === `${name}|Extra ${round}`);
     assert.ok(first >= 0, `round ${round}: the saved titles shown (${[...new Set(seen)].join(', ')})`);
