@@ -26,6 +26,7 @@ import { openPageProperties, propertiesOpen, closePageProperties } from './reade
 import { openPageMenu, pageStatus, closePageMenu, clearPageStatus } from './reader-page-menu.js';
 import { translationView } from './page-image.js';
 import { resumeAt } from './storage/personal.js';
+import { initPageNav } from './page-nav.js';
 
 // What the reader writes on <html> and <body>, by name: the classes, data attributes and inline
 // style properties it sets, toggles or removes (reader-study.js writes study-sel-lock and
@@ -155,8 +156,10 @@ const URL = class extends _rsWin.URL {
   static revokeObjectURL(url) { _rsUrls.delete(url); _rsWin.URL.revokeObjectURL(url); }
 };
 const _rsAtStart = _readerDocumentNow();   // put back by stop (READER_DOCUMENT)
-// reader-study.js's document listeners, first, as its module added them when it was loaded.
+// The helpers this reader starts, first, as their modules did when they were loaded: reader-study.js's
+// document listeners, and the header's page menu (page-nav.js, which boot.js started).
 startStudy();
+const _rsEndPageNav = initPageNav();
 
 // Site names/links come from sites.js (runtime data + the localStorage warm start, so source
 // labels are correct on first paint instead of waiting for the bridge to answer).
@@ -5616,6 +5619,7 @@ function _rsBeforeStop() {
   closePageMenu();
   clearPageStatus();
   stopStudy();                           // reader-study.js: its listeners, layers and their URLs, records
+  _rsEndPageNav();
 }
 
 // ── stop ──

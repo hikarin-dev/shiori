@@ -1,7 +1,8 @@
 // page-nav.js — the header's page name is a quiet menu of the app's pages: pick one to go there. Each
 // page's header holds a <select id="pageNav" data-page="…"> with its own page as the one option, so
 // the name paints at once; this adds the others. A gallery's overview is offered where there is a
-// gallery (its overview, the reader), the reader only in the reader. Started by boot.js on every page.
+// gallery (its overview, the reader), the reader only in the reader. Started by the reader (the one
+// page left with a file of its own; the one page draws its own menu), and ended by its stop.
 
 import { t } from './i18n.js';
 
@@ -14,9 +15,12 @@ const PAGES = [
   { id: 'tasks', label: 'tasks.title', href: () => '../tasks' },
 ];
 
+// Returns what ends it again (its listeners), for a page that is taken away without unloading.
 export function initPageNav() {
   const select = document.getElementById('pageNav');
-  if (!select) return;
+  if (!select) return () => {};
+  const started = new AbortController();
+  const { signal } = started;
   const current = select.dataset.page;
   const offered = PAGES.filter(p => p.id === current
     || (p.id === 'overview' ? !!gallery() : p.id !== 'reader'));
@@ -28,7 +32,8 @@ export function initPageNav() {
   select.addEventListener('change', () => {
     const page = PAGES.find(p => p.id === select.value);
     if (page && page.id !== current) location.href = page.href();
-  });
+  }, { signal });
   // Back here from the page picked (the back/forward cache keeps the pick): this page again.
-  window.addEventListener('pageshow', () => { select.value = current; });
+  window.addEventListener('pageshow', () => { select.value = current; }, { signal });
+  return () => started.abort();
 }

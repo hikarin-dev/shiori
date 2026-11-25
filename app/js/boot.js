@@ -4,13 +4,11 @@
 
 import './boot-core.js';
 import { applyTranslations } from './i18n.js';
-import { initPageNav } from './page-nav.js';
 
 // Localize the page's static markup as early as possible (this module is imported first by
 // every page, and runs after the DOM is parsed), so non-English users don't see an English flash.
 applyTranslations(document);
-// The header's page name: a menu of the app's pages (page-nav.js).
-initPageNav();
+// The header's page name, a menu of the app's pages (page-nav.js), is the reader's to start and end.
 
 // Clean URLs: pages are real .html files, but the address bar shows /library — the service
 // worker maps extensionless navigations back to the page file. Only rewrite when a worker
