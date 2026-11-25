@@ -1,6 +1,6 @@
 // overview-next-pages.browser.mjs — the overview's page grid and its thumbnails at /overview-next, held
-// to what 1.3's page (/overview) gave driven alike (its own measures are overview-pages.browser.mjs's,
-// run here too): which copy each tile gets at the grid's
+// to what 1.3's page (/overview) gave driven alike (1.3's own tests of its grid, overview-pages.browser.mjs
+// until 7e, are here too, on their gallery of full-size pages): which copy each tile gets at the grid's
 // tile width and at twice the pixel ratio; the tiles in view first; the warm-up making every tile's copy
 // ahead, each once; the two bands (a tile far from view lets its picture go, one within 5,400px keeps
 // it, scrolled back the copies made show again with none made twice); a tile with no copy yet showing
@@ -19,7 +19,8 @@ import { openRun, nextBase, gid, visit, sleep, publish, NEW } from './overview-d
 
 const FILE = basename(fileURLToPath(import.meta.url));
 const COUNT = 400;
-let server, origin, browser, base, long;
+const BUSY_COUNT = 150;
+let server, origin, browser, base, long, busy;
 
 before(async () => {
   if (!chromePath()) return;
@@ -40,6 +41,23 @@ before(async () => {
       await api.pages.put(gid, n, await c.convertToBlob({ type: 'image/png' }));
     }
   }, { gid: long, count: COUNT });
+  // 1.3's own grid's gallery (overview-pages.browser.mjs's until 7e): full-size, busy pages, so making a
+  // copy takes about as long as it does in a real library.
+  busy = String(base + 70);
+  await page.evaluate(async ({ gid, count }) => {
+    const api = await import('/app/js/api.js');
+    await api.meta.put({ galleryId: gid, title: { english: 'Page grid fixture' }, numPages: count });
+    const blobs = await Promise.all([0, 1, 2, 3].map(async k => {
+      const canvas = new OffscreenCanvas(1280, 1800);
+      const ctx = canvas.getContext('2d');
+      for (let i = 0; i < 1000; i++) {
+        ctx.fillStyle = `hsl(${(i * 37 + k * 90) % 360} 60% 50%)`;
+        ctx.fillRect((i * 97) % 1280, (i * 211) % 1800, 30 + i % 50, 30 + i % 40);
+      }
+      return canvas.convertToBlob({ type: 'image/webp', quality: 0.9 });
+    }));
+    for (let n = 1; n <= count; n++) await api.pages.put(gid, n, blobs[n % 4]);
+  }, { gid: busy, count: BUSY_COUNT });
   await page.close();
 });
 after(async () => { await browser?.close(); server?.close(); });
@@ -164,6 +182,31 @@ test('a tile with no copy yet shows its ground; made ahead, the tiles scrolled t
     assert.ok(blank < 0.05, `${path}: tiles scrolled to show their copies (${(blank * 100).toFixed(1)}% blank)`);
     await page.close();
   }
+});
+
+// 1.3's own tests of its grid (overview-pages.browser.mjs until 7e), on its gallery of full-size, busy pages.
+async function overview(t) {
+  const page = await openPage(browser, origin);
+  t.after(async () => { await page.close(); assert.deepEqual(page.problems, []); });
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.goto(`${origin}${NEW}?g=${busy}`, { waitUntil: 'load' });
+  await page.waitForFunction(n => document.querySelectorAll('.ov-page img').length === n, {}, BUSY_COUNT);
+  return page;
+}
+
+test('a page tile whose copy is not made yet shows its ground, never a broken image', { skip: !chromePath() }, async t => {
+  const page = await overview(t);
+  const { glyph } = await scrollToEnd(page, 12000);
+  assert.equal(glyph, 0, 'a sized <img> without a source draws the broken-image glyph');
+});
+
+// As in the reader, the grid's copies are made ahead, nearest first, once the tiles in view have
+// theirs: scrolling on (or back) finds them made rather than making each as it comes.
+test("the grid's copies are made ahead, so scrolling to the end finds them made", { skip: !chromePath() }, async t => {
+  const page = await overview(t);
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  const { blank } = await scrollToEnd(page, 12000);
+  assert.ok(blank < 0.05, `tiles scrolled to should show their copies (${(blank * 100).toFixed(1)}% blank)`);
 });
 
 test('the page left: its workers ended, every copy\'s object URL revoked', { skip: !chromePath() }, async () => {
