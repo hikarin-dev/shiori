@@ -61,7 +61,7 @@ export default function Settings() {
     <>
       <HeaderSlot side="left"><span className="brand-sep">/</span><PageMenu page="settings" /></HeaderSlot>
       <HeaderSlot side="right">
-        <Button id="aboutBtn" variant="ghost" size="sm" onClick={() => setAbout(true)}>{t('nav.about')}</Button>
+        <Button id="aboutBtn" variant="subtle" size="sm" onClick={() => setAbout(true)}>{t('nav.about')}</Button>
       </HeaderSlot>
       {/* Its steps down with the window: 1.3's media queries, inclusive, each a range of its own so no
           two set one value (written out whole: the stylesheet is made from the classes it finds). */}

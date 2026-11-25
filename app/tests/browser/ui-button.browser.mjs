@@ -66,13 +66,13 @@ test('an on button says so (aria-pressed), an open one aria-expanded', async (t)
 // §5.3 F60 (the owner, 2026-11-25): a button's words and icon are the text colour at rest, never the
 // muted grey (it read as disabled), and the brand's red is not on translate; the header's buttons have
 // no frame and take the raised ground under the pointer; Import is filled in its yellow.
-test('at rest a button is the text colour; the header\'s have no frame and fill under the pointer; Import is filled', async (t) => {
+test('at rest a button is the text colour; the header\'s icon buttons have no frame and fill under the pointer; About is outlined; Import is filled', async (t) => {
   const page = await componentsPage(t, browser, origin);
   if (!page) return;
   const look = (sel) => page.$eval(sel, (el) => { const cs = getComputedStyle(el); return { text: cs.color, ground: cs.backgroundColor, frame: cs.borderTopColor, filter: cs.filter }; });
   const TEXT = 'rgb(244, 244, 245)', NONE = 'rgba(0, 0, 0, 0)', RAISED = 'rgb(28, 28, 33)', YELLOW = 'rgb(255, 209, 102)';
   // Plain at rest, whatever the family: the text colour.
-  for (const [shape, variant] of [['header-icon', 'ghost-menu'], ['header-icon', 'ghost-settings'], ['header-icon', 'ghost-pin'], ['header-icon', 'ghost-safe'], ['btn-about', 'ghost'],
+  for (const [shape, variant] of [['header-icon', 'ghost-menu'], ['header-icon', 'ghost-settings'], ['header-icon', 'ghost-pin'], ['header-icon', 'ghost-safe'], ['btn-about', 'subtle'],
     ['icon-btn', 'ghost'], ['btn-mini', 'subtle'], ['card-btn', 'quiet'], ['card-btn', 'quiet-warning'], ['filter-btn', 'quiet-toolbar'], ['tk-stop', 'quiet-danger'], ['card-fav', 'overlay']]) {
     assert.equal((await look(spec(shape, variant))).text, TEXT, `${shape} ${variant}: the text colour at rest`);
   }
@@ -90,8 +90,11 @@ test('at rest a button is the text colour; the header\'s have no frame and fill 
   const on = await look(spec('header-icon', 'ghost-safe', 'on'));
   assert.deepEqual([on.frame, on.text], [NONE, 'rgb(6, 214, 160)'], 'Safe Mode on: no frame');
   assert.notEqual(on.ground, NONE, 'Safe Mode on: on its tint');
-  const about = await look(spec('btn-about', 'ghost', 'hover'));
-  assert.deepEqual([about.frame, about.ground], [NONE, RAISED], 'About: as the header\'s other buttons');
+  // About is an outline button (the owner, 2026-11-25: "make the about an outline button instead"):
+  // framed at rest, and under the pointer the raised ground in a stronger frame.
+  const about = await look(spec('btn-about', 'subtle')), aboutHover = await look(spec('btn-about', 'subtle', 'hover'));
+  assert.deepEqual([about.frame, about.ground, about.text], ['rgb(63, 63, 72)', NONE, TEXT], 'About: framed at rest, its words the text colour');
+  assert.deepEqual([aboutHover.frame, aboutHover.ground, aboutHover.text], ['rgb(82, 82, 92)', RAISED, TEXT], 'About: the raised ground under the pointer');
   // Import: filled at rest, its words dark on it; brighter under the pointer, never darker.
   for (const variant of ['tint-warning', 'tint-warning-icon']) {
     const rest = await look(spec('btn-upload', variant)), hover = await look(spec('btn-upload', variant, 'hover'));

@@ -32,8 +32,8 @@ const SHAPES: ShapeSpec[] = [
   { id: 'btn-mini', name: 'Settings small', used: 'Settings: Advanced settings…, library folders\' attention lines, the desktop panel, library location, benchmark controls.', states: BASE, variants: [
     { v: 'subtle', label: 'subtle · sm', props: { variant: 'subtle', size: 'sm' }, children: <><Settings />Advanced settings…</> },
   ] },
-  { id: 'btn-about', name: 'Settings header "About"', used: 'Settings\' header (F60: no frame, as the header\'s other buttons).', states: ['rest', 'hover', 'active', 'focus'], variants: [
-    { v: 'ghost', label: 'ghost · sm', props: { variant: 'ghost', size: 'sm' }, children: 'About' },
+  { id: 'btn-about', name: 'Settings header "About"', used: 'Settings\' header: an outline button (the owner\'s, after F60\'s frameless one).', states: ['rest', 'hover', 'active', 'focus'], variants: [
+    { v: 'subtle', label: 'subtle · sm', props: { variant: 'subtle', size: 'sm' }, children: 'About' },
   ] },
   { id: 'ov-btn', name: 'Overview action', used: 'Overview hero: Read (primary), Favourite, Edit (on while editing), Archive, Move, Source.', states: WITH_ON, variants: [
     { v: 'primary', label: 'solid · md', props: { variant: 'solid', size: 'md' }, children: <><BookOpen />Read from start</>, states: BASE },
