@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, openPage } from './harness.mjs';
 
 // The library and the series overview on a phone: laid out at its own width, every row fitting it,
-// buttons big enough for a finger; and a finger on a cover scrolls rather than merging galleries.
+// buttons big enough for a finger; and a finger on a cover scrolls rather than merging galleries. The
+// library is the one page's (/library-next; until 2026-11-25 these held 1.3's page).
+const LIBRARY = '/library-next';
 const SERIES = ['1790000000711', '1790000000712', '1790000000713'];
 const SINGLES = ['1790000000721', '1790000000722', '1790000000723'];
 const PHONE = { width: 390, height: 844, hasTouch: true, isMobile: true };
@@ -14,7 +16,7 @@ before(async () => {
   ({ server, origin } = await startServer());
   browser = await launch();
   const page = await openPage(browser, origin);
-  await page.goto(`${origin}/library`, { waitUntil: 'load' });
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await page.evaluate(async ({ series, singles }) => {
     const api = await import('/app/js/api.js');
     const title = english => ({ english, japanese: '', pretty: '' });
@@ -49,7 +51,7 @@ const box = (page, sel) => page.$eval(sel, el => { const r = el.getBoundingClien
 const fitsWidth = (page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
 test('on a phone the library fits its width: the search on a row of its own, two cards to a row', { skip: !chromePath() }, async t => {
-  const page = await phone(t, '/library');
+  const page = await phone(t, LIBRARY);
   await page.waitForSelector('.card');
   assert.equal(await page.evaluate(() => innerWidth), 390, 'laid out at the phone\'s width');
   assert.equal(await fitsWidth(page), true, 'nothing wider than the screen');
@@ -61,7 +63,7 @@ test('on a phone the library fits its width: the search on a row of its own, two
 });
 
 test('on a touch screen a library card is for opening: no quick actions, and a tap grows nothing; a mouse has both', { skip: !chromePath() }, async t => {
-  const page = await phone(t, '/library');
+  const page = await phone(t, LIBRARY);
   await page.waitForSelector('.card + .card');
   const hidden = () => page.$$eval('.card', cs => cs.map(c => ['.card-actions', '.card-tag-add', '.card-fav']
     .map(s => getComputedStyle(c.querySelector(s)).display).join()));
@@ -77,7 +79,7 @@ test('on a touch screen a library card is for opening: no quick actions, and a t
   assert.equal(await size(), before, 'and it stayed as it was');
 
   // With a mouse, a hovered card grows and shows its actions.
-  const desk = await phone(t, '/library', { width: 1280, height: 900 });
+  const desk = await phone(t, LIBRARY, { width: 1280, height: 900 });
   await desk.waitForSelector('.card + .card');
   await desk.hover('.card + .card .card-meta');
   await new Promise(r => setTimeout(r, 450));
@@ -86,7 +88,7 @@ test('on a touch screen a library card is for opening: no quick actions, and a t
 });
 
 test('a finger on a cover scrolls the library: it never starts merging galleries; a mouse still does', { skip: !chromePath() }, async t => {
-  const page = await phone(t, '/library');
+  const page = await phone(t, LIBRARY);
   await page.waitForSelector('.card + .card + .card');
   const [from, to] = await page.$$eval('.card .card-thumb-wrap', ws => [ws[0], ws[2]].map(w => { const r = w.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }));
   // A finger pressed on a cover and drawn down onto the card below, a step at a time (sideways, the
@@ -95,9 +97,9 @@ test('a finger on a cover scrolls the library: it never starts merging galleries
   for (let k = 1; k <= 8; k++) await page.touchscreen.touchMove(from.x + (to.x - from.x) * k / 8, from.y + (to.y - from.y) * k / 8);
   assert.equal(await page.$('.card-drag-clone'), null, 'no card lifted under the finger');
   await page.touchscreen.touchEnd();
-  assert.equal(await page.$('.modal-overlay.show, dialog[open]'), null, 'no merge asked for');
+  assert.equal(await page.$('.modal-overlay.show, dialog[open], [data-notice="dialog"]'), null, 'no merge asked for');
   // A mouse, on a desktop window: the drag still lifts the card.
-  const desk = await phone(t, '/library', { width: 1280, height: 900 });
+  const desk = await phone(t, LIBRARY, { width: 1280, height: 900 });
   await desk.waitForSelector('.card + .card');
   const [a, b] = await desk.$$eval('.card .card-thumb-wrap', ws => ws.slice(0, 2).map(w => { const r = w.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }));
   await desk.mouse.move(a.x, a.y);
@@ -122,7 +124,7 @@ test("on a phone a chapter's buttons take a line under it, so its title has the 
 });
 
 test('on a touch screen the library\'s and the overview\'s buttons are big enough for a finger', { skip: !chromePath() }, async t => {
-  const page = await phone(t, '/library');
+  const page = await phone(t, LIBRARY);
   await page.waitForSelector('.card');
   const sizes = await page.evaluate(() => ['#settingsBtn', '#safeBtn', '#uploadCbzBtn'].map(s => {
     const r = document.querySelector(s).getBoundingClientRect();
@@ -136,7 +138,7 @@ test('on a touch screen the library\'s and the overview\'s buttons are big enoug
 });
 
 test('a finger raises no tooltip, and a touch puts one away; a mouse still shows them', { skip: !chromePath() }, async t => {
-  const page = await phone(t, '/library', { width: 600, height: 800, hasTouch: true });
+  const page = await phone(t, LIBRARY, { width: 600, height: 800, hasTouch: true });
   await page.waitForSelector('.card');
   // Any control with a tip will do: the tooltip is one for the whole app.
   await page.evaluate(() => {

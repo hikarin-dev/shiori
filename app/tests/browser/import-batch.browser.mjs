@@ -49,10 +49,11 @@ before(async () => {
 });
 after(async () => { await browser?.close(); server?.close(); if (dir) fs.rmSync(dir, { recursive: true, force: true }); });
 
+// The library, as the one page draws it (/library-next; until 2026-11-25 these held 1.3's page).
 async function library(t) {
   const page = await openPage(browser, origin);
   t.after(async () => { await page.close(); assert.deepEqual(page.problems, []); });
-  await page.goto(`${origin}/library`, { waitUntil: 'load' });
+  await page.goto(`${origin}/library-next`, { waitUntil: 'load' });
   await page.waitForSelector('#uploadCbzBtn');
   return page;
 }
@@ -62,8 +63,8 @@ async function drop(page, files) {
   for (const type of ['dragEnter', 'dragOver', 'drop']) await cdp.send('Input.dispatchDragEvent', { type, x: 640, y: 500, data });
   await cdp.detach();
 }
-const dialogText = (page) => until(page, () => document.querySelector('.notice-modal')?.innerText, null, { what: 'the question' });
-const answer = (page, ok) => page.click(`.notice-actions .btn${ok ? '.primary' : ':not(.primary)'}`);
+const dialogText = (page) => until(page, () => document.querySelector('[data-notice="dialog"]')?.innerText, null, { what: 'the question' });
+const answer = (page, ok) => page.click(`[data-notice="dialog"] [data-slot="dialog-footer"] button:${ok ? 'last-child' : 'first-child'}`);
 const tracker = (page) => page.evaluate(() => [...document.querySelectorAll('#importTracker .ib')].map((p) => ({
   state: p.dataset.state, name: p.querySelector('.ib-name')?.textContent, tally: p.querySelector('.ib-tally')?.textContent,
   issues: p.querySelector('.ib-issues')?.textContent })));
@@ -126,10 +127,11 @@ test('a single title asks nothing, and says so when it is in the library already
     const ids = (await api.galleries.idsSorted({})).map(String);
     return (await Promise.all(ids.map((id) => api.galleries.get(id)))).some((g) => g?.title?.english === 'Delta' && g.count === 1);
   }, null, { what: 'Delta imported' });
-  assert.equal(await page.$('.notice-modal'), null, 'no question for one title');
-  assert.equal(await page.$eval('#importTracker', (h) => h.hidden), true, 'no batch shown for one title');
+  assert.equal(await page.$('[data-notice="dialog"]'), null, 'no question for one title');
+  // (The tracker is drawn from the first time there is something for it.)
+  assert.equal(await page.evaluate(() => document.getElementById('importTracker')?.hidden ?? true), true, 'no batch shown for one title');
   await drop(page, [path.join(dir, 'Delta.cbz')]);
-  const toast = await until(page, () => document.querySelector('.notice-toast, .toast')?.textContent, null, { what: 'the notice' });
+  const toast = await until(page, () => document.querySelector('[data-slot="toast-text"]')?.textContent, null, { what: 'the notice' });
   assert.match(toast, /Already in your library: Delta/);
 });
 

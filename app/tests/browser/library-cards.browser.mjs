@@ -1,4 +1,5 @@
-// library-cards.browser.mjs — a library card growing while hovered, in Chrome. At rest a card shows
+// library-cards.browser.mjs — a library card growing while hovered, in Chrome, on the library as the one
+// page draws it (/library-next; until 2026-11-25 this held 1.3's page). At rest a card shows
 // two lines of its title and one row of its tags; hovered, it grows over the cards below to show
 // all of both, animated, and nothing else moves — not even when it is alone in the last row. A
 // card shrinking back stays drawn over the card the pointer moved to when it is the earlier of the
@@ -8,6 +9,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 
+const LIBRARY = '/library-next';
 let server, origin, browser;
 
 before(async () => {
@@ -15,7 +17,7 @@ before(async () => {
   ({ server, origin } = await startServer());
   browser = await launch();
   const page = await openPage(browser, origin);
-  await page.goto(`${origin}/app/library.html`, { waitUntil: 'load' });
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await page.evaluate(seed);
   await page.close();
 });
@@ -66,12 +68,14 @@ test('a hovered card grows over the cards below without moving anything, then sh
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const page = await openPage(browser, origin);
   await page.setViewport({ width: 1280, height: 2400 });   // all three rows whole: four cards a row
-  await page.goto(`${origin}/app/library.html`, { waitUntil: 'load' });
+  await page.goto(`${origin}${LIBRARY}`, { waitUntil: 'load' });
   await until(page, () => document.querySelectorAll('.card img.card-thumb[src]').length === 9, null, { what: 'nine cards with covers' });
   await sleep(300);
 
   // What the compositor holds while things animate: any layer that isn't the page itself, the
-  // header or a card's buttons (icons only) would be carrying a card's text.
+  // header, a card's buttons (icons only) or the hidden field a drawn select keeps for a form (Base
+  // UI's: fixed, 1px, clipped, no text shown; the sort box's and the page menu's) would be carrying a
+  // card's text.
   const cdp = await page.createCDPSession();
   await cdp.send('DOM.getDocument', { depth: -1 });
   let layers = [];
@@ -86,7 +90,7 @@ test('a hovered card grows over the cards below without moving anything, then sh
       const cls = at >= 0 ? node.attributes[at + 1] : '';
       return `${node.nodeName.toLowerCase()}${cls ? '.' + cls.split(' ')[0] : ''}`;
     }));
-    return names.filter((n) => !['#document', 'header', 'div.card-actions'].includes(n));
+    return names.filter((n) => !['#document', 'header', 'header.app-header', 'div.card-actions', 'input'].includes(n));
   };
 
   const rest = await page.evaluate(layout);
@@ -123,7 +127,8 @@ test('a hovered card grows over the cards below without moving anything, then sh
   unmoved(hovered, 'hovered');
   assert.equal(await page.evaluate(drawnAt, overB), 3, 'drawn over the card below');
 
-  // A change to a hovered card's gallery waits for it to shrink back before the card is made again.
+  // A change to a hovered card's gallery (1.3 made the card again once it had shrunk back; the one page
+  // changes it in place, §5.3 F49).
   await page.evaluate(async () => (await import('/app/js/api.js')).personal.favorite(document.querySelectorAll('.card')[2].dataset.galleryId, true));
   await sleep(200);
 

@@ -16,7 +16,7 @@ after(async () => { await browser?.close(); server?.close(); });
 
 async function seed(instance) {
   const page = await openPage(instance, origin);
-  await page.goto(origin + '/library');
+  await page.goto(origin + '/tasks');
   await page.evaluate(async gid => {
     const api = await import('/app/js/api.js');
     await api.meta.put({ galleryId: gid, title: { english: 'Scrollbar layout fixture' }, numPages: 2 });
@@ -70,7 +70,7 @@ const geometry = (page, selectors) => page.evaluate(selectors => {
 }, selectors);
 
 for (const [route, selectors] of [
-  ['/library', ['.header-right', '.toolbar', '#grid']],
+  ['/library-next', ['.header-right', '.toolbar', '#grid']],
   ['/settings', ['.header-right', '.settings-page', '.content']],
   [`/overview?g=${GALLERY}`, ['.header-right', '.ov-wrap', '.series-cover']],
 ]) {
@@ -205,7 +205,7 @@ test("in a short window the reader settings' tab scrolls inside its frame, and a
 });
 
 test('custom overlays clear compensation and disabling them restores it',{ skip: !chromePath() }, async t => {
-  const page = await fresh(t, '/library');
+  const page = await fresh(t, '/library-next');
   await overflow(page, 'hidden');
   const native = await geometry(page, ['.toolbar']);
   await page.evaluate(async () => {
@@ -229,7 +229,7 @@ test('custom overlays clear compensation and disabling them restores it',{ skip:
 test('zero-width native scrollbars use the full page without compensation', { skip: !chromePath() }, async t => {
   // Chrome's headless hidden-scrollbar mode provides the same zero-width geometry as overlays.
   const overlayBrowser = await puppeteer.launch({ executablePath: chromePath(), headless: true });
-  const page = await fresh(t, '/library', overlayBrowser);
+  const page = await fresh(t, '/library-next', overlayBrowser);
   t.after(() => overlayBrowser.close());
   await overflow(page, 'hidden');
   const short = await geometry(page, ['.toolbar', '#grid']);

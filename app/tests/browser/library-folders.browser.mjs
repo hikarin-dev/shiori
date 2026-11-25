@@ -16,7 +16,7 @@ before(async () => {
   ({ server, origin } = await startServer());
   browser = await launch();
   page = await openPage(browser, origin);
-  await page.goto(`${origin}/app/library.html`, { waitUntil: 'load' });
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await page.evaluate(async () => {
     const png = async (hue, w = 300, h = 400) => {
       const canvas = new OffscreenCanvas(w, h);
@@ -851,12 +851,12 @@ test('a folder of what Shiori didn\'t make is used as it is: galleries read in p
   page.__linked = out.gid;
   // Its card says what deleting it does: it leaves the library, its files stay.
   const library = await openPage(browser, origin);
-  await library.goto(`${origin}/app/library.html`, { waitUntil: 'load' });
-  await until(library, (g) => !!document.querySelector(`.card[data-gallery-id="${g}"] .card-btn-del, .card .card-btn-del[data-id="${g}"]`), out.gid, { what: 'its card' });
-  await library.evaluate((g) => (document.querySelector(`.card .card-btn-del[data-id="${g}"]`) || document.querySelector(`.card[data-gallery-id="${g}"] .card-btn-del`)).click(), out.gid);
-  const asked = await until(library, () => { const d = document.querySelector('.notice-dialog'); return d && { title: d.querySelector('h2').textContent, ok: d.querySelector('.notice-actions .btn.danger')?.textContent }; }, null, { what: 'the question' });
+  await library.goto(`${origin}/library-next`, { waitUntil: 'load' });
+  await until(library, (g) => !!document.querySelector(`.card[data-gallery-id="${g}"] .card-btn-del`), out.gid, { what: 'its card' });
+  await library.evaluate((g) => document.querySelector(`.card[data-gallery-id="${g}"] .card-btn-del`).click(), out.gid);
+  const asked = await until(library, () => { const d = document.querySelector('[data-notice="dialog"]'); return d && { title: d.querySelector('[data-slot="dialog-title"]').textContent, ok: d.querySelector('[data-slot="dialog-footer"] button[data-variant="danger"]')?.textContent }; }, null, { what: 'the question' });
   assert.deepEqual(asked, { title: 'Remove from library?', ok: 'Remove' });
-  await library.evaluate(() => document.querySelector('.notice-dialog .notice-actions .btn:not(.danger)').click());
+  await library.evaluate(() => document.querySelector('[data-notice="dialog"] [data-slot="dialog-footer"] button:not([data-variant="danger"])').click());
   assert.deepEqual(library.problems, []);
   await library.close();
 });

@@ -19,7 +19,7 @@ before(async () => {
   ({ server, origin } = await startServer());
   browser = await launch();
   const page = await openPage(browser, origin);
-  await page.goto(`${origin}/app/library.html`, { waitUntil: 'load' });
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await page.evaluate(seed, G);
   await page.close();
 });
@@ -85,7 +85,7 @@ async function finish(page) {
 }
 
 test('the library shows every gallery, a series as one card', async (t) => {
-  const page = await visit('/app/library.html', t);
+  const page = await visit('/library-next', t);
   if (!page) return;
   const cards = await until(page, () => (document.querySelectorAll('.card').length >= 4 ? [...document.querySelectorAll('.card')].map(c => c.innerText) : 0), null, { what: 'four cards' });
   assert.equal(cards.length, 4);
@@ -197,7 +197,7 @@ test('a series lists its volumes apart, the choice is remembered, and a volume r
   assert.equal(page.problems.length, 0, page.problems.join('\n'));
 
   const library = await openPage(browser, origin);
-  await library.goto(`${origin}/app/library.html`, { waitUntil: 'load' });
+  await library.goto(`${origin}/library-next`, { waitUntil: 'load' });
   await until(library, () => [...document.querySelectorAll('.card')].some(c => /\b2 volumes\b/.test(c.innerText) && /Series/.test(c.innerText)), null, { what: 'the series card counting volumes' });
   await finish(library);
 

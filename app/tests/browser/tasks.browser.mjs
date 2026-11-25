@@ -15,7 +15,7 @@ before(async () => {
   ({ server, origin } = await startServer());
   browser = await launch();
   const page = await openPage(browser, origin);
-  await page.goto(`${origin}/app/library.html`, { waitUntil: 'load' });
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await page.evaluate(async (G) => {
     const api = await import('/app/js/api.js');
     const png = async (hue) => {
@@ -73,7 +73,7 @@ async function rowsUntil(page, ok, what) {
 }
 
 test('the tasks page lists every running job, a row per job, live, and stops one or all of them', async (t) => {
-  const other = await visit('/app/library.html', t);
+  const other = await visit('/library-next', t);
   if (!other) return;
   await publish(other, { gid: G.a, kind: 'download', status: 'progress', done: 1, total: 4 });
   await publish(other, { gid: G.a, kind: 'translate', status: 'progress', pct: 40, labelKey: 'prog.translating' });
@@ -124,7 +124,7 @@ test('the tasks page lists every running job, a row per job, live, and stops one
 });
 
 test('a running download\'s button is a Stop control, on a library card and on a chapter row', async (t) => {
-  const library = await visit('/app/library.html', t);
+  const library = await visit('/library-next', t);
   if (!library) return;
   const card = `.card[data-gallery-id="${G.a}"]`;
   await library.waitForSelector(`${card} .card-btn-dl`);
