@@ -63,6 +63,35 @@ test('a row\'s job: its latest word, one gallery told; an end stays 4 s, then th
   assert.equal(LINGER_MS, 4000);
 });
 
+test('a press: its job begun at once as a word; one not taken discarded (gone at once, the row read again, no 4 s); a revert holds the translate button', async () => {
+  const w = jobsWorld();
+  w.jobs.start();
+  await tick();
+  const told = [];
+  w.jobs.subscribe('a', () => told.push('a'));
+  w.jobs.begin('a', 'download', 'Fetching…');
+  assert.deepEqual({ ...w.jobs.get('a') }, { gid: 'a', kind: 'download', status: 'started', label: 'Fetching…' });
+  assert.equal(told.length, 1);
+  w.jobs.discard('a');
+  assert.equal(w.jobs.get('a'), null);
+  assert.deepEqual(w.reread, ['a']);
+  assert.equal(told.length, 2);
+  assert.equal(w.timers.pending, 0);
+  // An end discarded within its 4 s: no clearing left to come.
+  w.say({ gid: 'a', kind: 'translate', status: 'error', error: 'x' });
+  w.jobs.discard('a');
+  assert.equal(w.timers.pending, 0);
+  // Held: told once each way; stop() lets go of it.
+  w.jobs.hold('a', true);
+  w.jobs.hold('a', true);
+  assert.equal(w.jobs.held('a'), true);
+  w.jobs.hold('a', false);
+  assert.equal(w.jobs.held('a'), false);
+  w.jobs.hold('a', true);
+  w.jobs.stop();
+  assert.equal(w.jobs.held('a'), false);
+});
+
 test('what is under way as the page opens: a download or import over 2 minutes old is an interruption (cleared); a translation as it is; an end lingers', async () => {
   const now = 10_000_000;
   const w = jobsWorld([

@@ -6,10 +6,14 @@
 // row off the screen just moves; nothing with less motion asked for; by `top`, not a transform: rule 29). A chapter whose gallery went
 // missing (or came back) is laid out differently: a new row, as 1.3 made.
 //
-// What a row's buttons do is 7b's (and the grip's drag 7c's): drawn in their place, with their tips and
-// their Shift faces, doing nothing yet. The title and the cover open the chapter in the reader, the id
-// its source (a new tab); the toggle at the end opens the chapter's pages under the row.
-import { Component, memo, useCallback, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
+// What a row's buttons do is the page's (./actions.ts; the grip's drag is 7c's): the arrows, download
+// (Replace with Shift; its Stop while it runs), translate (Revert with Shift; its Stop; "Re-run from…"
+// on the right button), detach, delete (no question with Shift). Each Shift face shows while Shift is
+// held on its button (CSS). The title and the cover open the chapter in the reader, the id its source
+// (a new tab); the toggle at the end opens the chapter's pages under the row. In edit mode the title is
+// a box to type in (saved as it is left, on Enter, and as edit mode ends), the toggle is gone and the
+// pages close.
+import { Component, memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { DragHandle } from '@/components/ui/drag-handle';
@@ -26,13 +30,26 @@ import type { RowActions, RowView } from './view';
 import type { JobView } from '@/lib/job-view';
 import type { JobNews } from '@/lib/job-view';
 
+// What a row's buttons do (the page's ./actions.ts). `label`: the title the row shows (a dialog names
+// the chapter by it).
+export type RowOn = {
+  step: (chapterId: string, delta: number) => void;
+  download: (ch: Ref, e: Entity | null, label: string, shift: boolean) => Promise<void>;
+  translate: (ch: Ref, e: Entity | null, label: string, shift: boolean) => Promise<void>;
+  rerun: (ch: Ref, e: Entity | null, label: string, anchor: HTMLElement) => boolean;
+  detach: (ch: Ref) => void;
+  delete: (ch: Ref, e: Entity | null, label: string, quick: boolean) => Promise<void>;
+  saveChapterTitle: (chapterId: string, text: string) => void;
+};
+
 export type RowDeps = {
   t: Translate;
   covers: OverviewCovers;
   jobs: ChapterJobs;
   grids: GridEngine;
+  on: RowOn;
   view: (chapter: Ref, idx: number, entity: Entity | null) => RowView;
-  actions: (entity: Entity | null, job: JobNews | null) => RowActions;
+  actions: (entity: Entity | null, job: JobNews | null, held: boolean) => RowActions;
   jobView: (job: JobNews) => JobView | null;
 };
 
@@ -44,16 +61,22 @@ const RowThumb = memo(function RowThumb({ url, href }: { url: string | null; hre
     : <div className={cn('ch-thumb', shown?.landscape && 'landscape')}>{inner}</div>;
 });
 
-function Actions({ t, a, first, last }: { t: Translate; a: RowActions; first: boolean; last: boolean }) {
+const failed = (err: unknown) => console.error(err);
+
+function Actions({ t, a, first, last, on, chapter, entity, label }: {
+  t: Translate; a: RowActions; first: boolean; last: boolean; on: RowOn; chapter: Ref; entity: Entity | null; label: string;
+}) {
   const dl = a.download, tr = a.translate;
+  const rerun = (e: MouseEvent<HTMLButtonElement>) => { if (on.rerun(chapter, entity, label, e.currentTarget)) e.preventDefault(); };
   return (
     <div className="ch-actions">
-      <Button variant="ghost" size="icon-md" coarse="40" className="ch-ibtn" data-up data-tip={t('ov.move_up')} disabled={first}><UpIcon /></Button>
-      <Button variant="ghost" size="icon-md" coarse="40" className="ch-ibtn" data-down data-tip={t('ov.move_down')} disabled={last}><DownIcon /></Button>
+      <Button variant="ghost" size="icon-md" coarse="40" className="ch-ibtn" data-up data-tip={t('ov.move_up')} disabled={first} onClick={() => on.step(chapter.id, -1)}><UpIcon /></Button>
+      <Button variant="ghost" size="icon-md" coarse="40" className="ch-ibtn" data-down data-tip={t('ov.move_down')} disabled={last} onClick={() => on.step(chapter.id, 1)}><DownIcon /></Button>
       {dl && (
         <Button variant="ghost" tone={dl.face === 'done' ? 'success' : 'warning'} rest={dl.face === 'done' ? 'framed' : 'tone'} hover="fill" size="icon-md" coarse="40"
           className={cn('ch-ibtn download', dl.cancelling && 'cancelling', dl.face === 'done' && 'done')}
-          data-download data-tip={dl.tip} data-tip-shift={dl.shift ?? undefined} disabled={dl.disabled}>
+          data-download data-tip={dl.tip} data-tip-shift={dl.shift ?? undefined} disabled={dl.disabled}
+          onClick={(e) => { on.download(chapter, entity, label, e.shiftKey).catch(failed); }}>
           {dl.face === 'done' ? '✓' : dl.face === 'stop' ? <StopIcon /> : dl.face === 'download'
             ? <Faces rest={<DownloadIcon />} shift={dl.shift ? <UploadIcon /> : undefined} /> : <Faces rest={<UploadIcon />} />}
         </Button>
@@ -61,32 +84,42 @@ function Actions({ t, a, first, last }: { t: Translate; a: RowActions; first: bo
       {tr && (
         <Button variant="ghost" {...(tr.done ? { tone: 'success', rest: 'tone' } as const : {})} size="icon-md" coarse="40"
           className={cn('ch-ibtn translate', tr.done && 'done', tr.cancelling && 'cancelling')}
-          data-translate data-tip={tr.tip} data-tip-shift={tr.shift ?? undefined}>
+          data-translate data-tip={tr.tip} data-tip-shift={tr.shift ?? undefined} disabled={tr.disabled}
+          onClick={(e) => { on.translate(chapter, entity, label, e.shiftKey).catch(failed); }} onContextMenu={rerun}>
           {tr.face === 'stop' ? <StopIcon /> : <Faces rest={<TranslateIcon />} shift={tr.shift ? <RevertIcon /> : undefined} />}
         </Button>
       )}
-      {a.detach && <Button variant="ghost" tone="primary" size="icon-md" coarse="40" className="ch-ibtn detach" data-detach data-tip={t('ov.remove_detach')}><DetachIcon /></Button>}
-      <Button variant="ghost" tone="danger" size="icon-md" coarse="40" className="ch-ibtn danger" data-remove data-tip={a.remove.tip} data-tip-shift={a.remove.shift}>
+      {a.detach && <Button variant="ghost" tone="primary" size="icon-md" coarse="40" className="ch-ibtn detach" data-detach data-tip={t('ov.remove_detach')}
+        onClick={() => on.detach(chapter)}><DetachIcon /></Button>}
+      <Button variant="ghost" tone="danger" size="icon-md" coarse="40" className="ch-ibtn danger" data-remove data-tip={a.remove.tip} data-tip-shift={a.remove.shift}
+        onClick={(e) => { on.delete(chapter, entity, label, e.shiftKey).catch(failed); }}>
         <Faces rest={<RemoveIcon />} shift={<QuickRemoveIcon />} />
       </Button>
     </div>
   );
 }
-export const ChapterRow = memo(function ChapterRow({ chapter, idx, entity, last, deps }: {
-  chapter: Ref; idx: number; entity: Entity | null; last: boolean; deps: RowDeps;
+export const ChapterRow = memo(function ChapterRow({ chapter, idx, entity, last, editing, deps }: {
+  chapter: Ref; idx: number; entity: Entity | null; last: boolean; editing: boolean; deps: RowDeps;
 }) {
-  const { t, covers, jobs, grids } = deps;
+  const { t, covers, jobs, grids, on } = deps;
   const id = chapter.id;
   const view = useMemo(() => deps.view(chapter, idx, entity), [deps, chapter, idx, entity]);
   const first = idx === 0;
   // The title's box drawn again only when what it shows changes (React writes an input's name again
-  // each time it draws it).
-  const title = useMemo(() => <InlineEdit size="row" readOnly value={view.title} placeholder={view.fallback} data-chapter-id={id} data-fallback={view.fallback} />, [view.title, view.fallback, id]);
+  // each time it draws it). In edit mode it holds the chapter's own title (empty: none, the gallery's
+  // as its placeholder).
+  const title = useMemo(() => (
+    <InlineEdit size="row" readOnly={!editing} value={editing ? view.custom : view.title} placeholder={view.fallback} data-chapter-id={id} data-fallback={view.fallback}
+      onCommit={(text) => on.saveChapterTitle(id, text)} />
+  ), [editing, view.custom, view.title, view.fallback, id, on]);
   const follow = useCallback((cb: () => void) => jobs.subscribe(id, cb), [jobs, id]);
   const job = useSyncExternalStore(follow, () => jobs.get(id));
+  const held = useSyncExternalStore(follow, () => jobs.held(id));
   const cover = useCover(covers, entity ? id : null, {}, entity);
   const [open, setOpen] = useState(false);
-  const actions = deps.actions(entity, job);
+  // Edit mode closes the chapter's pages (its toggle is gone meanwhile).
+  useEffect(() => { if (editing) setOpen(false); }, [editing]);
+  const actions = deps.actions(entity, job, held);
   const progress = job ? deps.jobView(job) : null;
   const working = !!job;
   return (
@@ -112,7 +145,7 @@ export const ChapterRow = memo(function ChapterRow({ chapter, idx, entity, last,
             <span className="ch-prog-label">{progress?.label ?? ''}</span>
           </div>
         </div>
-        <Actions t={t} a={actions} first={first} last={last} />
+        <Actions t={t} a={actions} first={first} last={last} on={on} chapter={chapter} entity={entity} label={chapter.title || view.fallback} />
         {entity && (
           <Button variant="ghost" size="icon-md" coarse="40" className="ch-ibtn ch-expand" data-expand aria-expanded={open}
             data-tip={t(open ? 'ov.hide_pages' : 'ov.show_pages')} onClick={() => setOpen((was) => !was)}>

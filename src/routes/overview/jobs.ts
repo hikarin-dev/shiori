@@ -45,6 +45,7 @@ export function createChapterJobs(deps: ChapterJobDeps) {
   const timers = deps.timers ?? (globalThis as unknown as Timers);
   const live = new Map<string, JobNews>();
   const clearTimers = new Map<string, unknown>();
+  const held = new Set<string>();
   const listeners = new Map<string, Set<() => void>>();
   let off: (() => unknown) | null = null;
   let run = 0;
@@ -109,12 +110,31 @@ export function createChapterJobs(deps: ChapterJobDeps) {
       off = null;
       for (const timer of clearTimers.values()) timers.clearTimeout(timer);
       clearTimers.clear();
-      const had = [...live.keys()];
+      const had = [...live.keys(), ...held];
       live.clear();
+      held.clear();
       for (const gid of had) tell(gid);
     },
-    // A job the page itself begins (7b's presses): drawn at once, as a word of its own.
+    // A job the page itself begins (a press): drawn at once, as a word of its own (1.3's beginChapterJob).
     begin: (gid: string, kind: string, label: string) => apply({ gid, kind, status: 'started', label }),
+    // A press that failed (refused, or not taken): its job gone at once and the gallery read again
+    // (1.3's discardChapterJob).
+    discard(gid: string) {
+      const key = String(gid);
+      timers.clearTimeout(clearTimers.get(key));
+      clearTimers.delete(key);
+      live.delete(key);
+      tell(key);
+      deps.reread(key);
+    },
+    // A row's translate button held while its revert has no answer (1.3: the button disabled meanwhile).
+    hold(gid: string, on: boolean) {
+      const key = String(gid);
+      if (held.has(key) === on) return;
+      if (on) held.add(key); else held.delete(key);
+      tell(key);
+    },
+    held: (gid: string) => held.has(String(gid)),
   };
 }
 

@@ -17,6 +17,12 @@
 //
 // The owner stays the one the page found (1.3 kept ownerId across renders): the frame is resolved from
 // it, so a gallery the address named that leaves the series later leaves the page on the series.
+//
+// An edit the page makes to what the frame holds (the series' title, a chapter's title, the order) is
+// drawn before the library answers (editFrame, as editGallery is for a gallery): on the frame at once,
+// held over every read begun before the library has it, and dropped if the library refuses it. So a
+// title saved while a change of the same gallery is being read is never drawn back to the old one
+// (what 1.3 held its whole page back for, _suppressRenderUntil).
 import type { QueryClient } from '@tanstack/react-query';
 import * as api from '@lib/api.js';
 import { SETTLE_MS, galleryKey, readMark, withEdits } from '@/lib/library-query';
@@ -47,7 +53,8 @@ function seed(client: QueryClient, gid: string, g: Entity | null, started: numbe
 }
 
 // The frame, resolved from `from` (the address's gallery the first time, the owner found after).
-export async function readFrame(client: QueryClient, from: string): Promise<Frame> {
+// `key`: the address's gallery (the frame's query), whose edits are laid over the read.
+export async function readFrame(client: QueryClient, from: string, key = from): Promise<Frame> {
   const started = Date.now(), mark = readMark();
   const series = await api.series.resolve(from) as { ownerId: string } | null;
   const ownerId = series ? String(series.ownerId) : from;
@@ -57,11 +64,43 @@ export async function readFrame(client: QueryClient, from: string): Promise<Fram
   const meta = await api.meta.get(ownerId) as { seriesTitle?: unknown; uploadDate?: unknown } | null;
   seed(client, ownerId, owner, started, mark);
   for (const m of members) if (m.id !== ownerId) seed(client, String(m.id), m.entity, started, mark);
-  return {
+  return withFrameEdits(key, {
     found: true, ownerId, isSeries: !!series,
     refs: members.map((m) => ({ id: String(m.id), title: m.title || '', ...(m.number != null ? { number: m.number } : {}), ...(m.kind === 'volume' ? { kind: 'volume' as const } : {}) })),
     seriesTitle: meta?.seriesTitle, uploadDate: meta?.uploadDate,
-  };
+  }, mark);
+}
+
+// ── The page's own edits of the frame ──
+type Found = Extract<Frame, { found: true }>;
+type FrameEdit = { apply: (frame: Found) => Found; from: number };
+const frameEdits = new Map<string, FrameEdit[]>();   // by the address's gallery
+
+// The frame as a read begun at `mark` gives it, with the edits the library did not hold then laid
+// over it, in the order they were made. A read begun after the library has an edit ends it.
+function withFrameEdits(key: string, frame: Found, mark: number): Found {
+  const list = frameEdits.get(key);
+  if (!list) return frame;
+  const kept = list.filter((edit) => !(edit.from && mark >= edit.from));
+  if (kept.length) frameEdits.set(key, kept); else frameEdits.delete(key);
+  return kept.reduce((f, edit) => edit.apply(f), frame);
+}
+
+// Edits the frame of the address's gallery `key`: `apply` is on the frame at once (in the frame of the
+// press), `write` asks the library for it. A write that throws or answers false is refused: the edit is
+// dropped and the frame read again as the library has it. Answers whether it was done.
+export async function editFrame(client: QueryClient, key: string, apply: (frame: Found) => Found, write: () => Promise<unknown>) {
+  const edit: FrameEdit = { apply, from: 0 };
+  frameEdits.set(key, [...(frameEdits.get(key) ?? []), edit]);
+  client.setQueryData<Frame>(overviewKey(key), (frame) => (frame?.found ? apply(frame) : frame));
+  let done = false;
+  try { done = (await write()) !== false; } finally {
+    const list = frameEdits.get(key) ?? [];
+    if (done) edit.from = readMark() + 1;
+    else if (list.includes(edit)) { const rest = list.filter((e) => e !== edit); if (rest.length) frameEdits.set(key, rest); else frameEdits.delete(key); }
+    client.invalidateQueries({ queryKey: overviewKey(key) }).catch(() => {});
+  }
+  return done;
 }
 
 // The tags' counts: { key → n }.

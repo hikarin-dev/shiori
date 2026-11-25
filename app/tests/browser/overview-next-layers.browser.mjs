@@ -3,7 +3,8 @@
 // each motion). A chapter's pages opened (its arrow turning) and closed again; rows sliding to their new
 // places after the order changed in another tab: no layer there for an animation, none gained. And the
 // page eases no transform but a row button's two faces, flipped under Shift (1.3's flip; they lift their
-// own button alone).
+// own button alone). What the buttons do (7b): edit mode turned on and off, a row moved by its arrow,
+// a delete's question opened and answered: the same.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, chromePath, launch } from './harness.mjs';
@@ -54,5 +55,39 @@ test('a chapter\'s pages opened and closed, and rows sliding to their places: no
   assert.deepEqual(slid.gained, [], 'sliding: nothing got a layer');
   await sleep(300);
   assert.deepEqual(await easedTransforms(page, '.ch-face'), [], 'the page eases no transform but a row button\'s faces');
+  assert.deepEqual(page.problems, []);
+});
+
+test('edit mode on and off, a row moved by its arrow, a delete’s question: nothing lifted onto a layer', async (t) => {
+  if (!browser) return t.skip('no Chrome');
+  const base = nextBase(1790016000000);
+  const page = await openRun(browser, origin, base);
+  t.after(() => page.close());
+  await page.setViewport({ width: 1280, height: 900 });
+  await visit(page, origin, NEW, gid(base, 'S'));
+  await page.bringToFront();
+  await page.mouse.move(640, 880);
+  const watch = await layerWatch(page);
+  t.after(() => watch.close());
+  const quiet = (what, seen) => { assert.deepEqual(seen.animated, [], `${what}: no layer is there for an animation`); assert.deepEqual(seen.gained, [], `${what}: nothing got a layer`); };
+
+  quiet('edit mode on', await watch.during(() => page.click('#editToggle')));
+  assert.ok(await page.$('#ovContent.ov-editing'));
+  quiet('edit mode off', await watch.during(() => page.click('#editToggle')));
+
+  const row = `.ch-row[data-chapter-id="${gid(base, 'S2')}"]`;
+  await page.hover(`${row} .ch-main`);
+  const moved = await watch.during(() => page.click(`${row} [data-down]`));
+  assert.ok(moved.running.length > 0, 'met mid-way, the rows sliding');
+  quiet('a row moved by its arrow', moved);
+
+  await page.hover(`${row} .ch-main`);
+  const asked = await watch.during(() => page.click(`${row} [data-remove]`));
+  assert.ok(await page.$('[data-notice="dialog"]'), 'the delete’s question');
+  assert.deepEqual(asked.animated, [], 'the question: no layer is there for an animation');
+  const answered = await watch.during(() => page.keyboard.press('Escape'));
+  assert.deepEqual(answered.animated, [], 'the question answered: no layer is there for an animation');
+  await sleep(300);
+  assert.deepEqual(await easedTransforms(page, '.ch-face'), [], 'the page eases no transform but a row button’s faces');
   assert.deepEqual(page.problems, []);
 });

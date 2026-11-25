@@ -4,8 +4,8 @@
    pointer), the page grids, the add-a-chapter bar, and the phone and finger forms. The pieces the page
    is made of (Button, Tag, InlineEdit, Card, DragHandle, Progress, Tabs, Eyebrow, Input, EmptyState)
    bring their own looks; what is here is where they stand and what the page itself draws. Sizes are
-   1.3's to the pixel. Edit mode (#ovContent.ov-editing) and a dragged row are 7b's and 7c's: their
-   looks are left out until then. */
+   1.3's to the pixel. Edit mode is #ovContent.ov-editing; a dragged row is 7c's: its look is left out
+   until then. */
 @layer components {
   .ov-wrap { max-width: 980px; margin: 0 auto; padding: 24px 20px 80px; }
 
@@ -197,6 +197,9 @@
 /* What the page changes of its pieces' own looks, where their classes are. */
 @layer utilities {
   .series-actions [hidden] { display: none; }
+  /* Edit mode: the titles are boxes to type in (their links, which open the reader, give way), and a
+     row's pages toggle is gone. */
+  #ovContent.ov-editing :is(.series-title-open, .ch-title-open, .ch-expand) { display: none; }
   /* "+" adds a tag: edit mode only (with no tags, the table shows for it alone). */
   #ovContent:not(.ov-editing) :is(.ov-chip-add, .ov-tag-table.no-tags) { display: none; }
   /* The translation server not there: no translate buttons. */

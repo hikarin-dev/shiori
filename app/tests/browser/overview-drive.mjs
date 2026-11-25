@@ -211,3 +211,66 @@ export function named(value, base) {
 }
 
 export const publish = (page, job) => page.evaluate(async (job) => (await import('/app/js/platform.js')).jobs.publish(job), job);
+
+// ── Driving the buttons (7b) ──
+
+// In the page: what it says from here on to whatever runs things (but covers and the translation
+// server's ping), what it opens in a new window, the dialogs it asks. A translation asked for is
+// answered "started" and goes no further (its runner is not this page's); a revert, "done".
+export async function record() {
+  const { services } = await import('/app/js/services.js');
+  window.__said = [];
+  window.__opened = [];
+  const QUIET = new Set(['GET_COVER', 'TRANSLATOR_PING']);
+  const handle = services.__handle ??= services.handle;
+  services.handle = function (msg) {
+    if (!QUIET.has(msg?.type)) window.__said.push(JSON.parse(JSON.stringify(msg)));
+    if (msg?.type === 'TRANSLATE_GALLERY') return Promise.resolve(window.__refuseStart ? { ok: false, started: false } : { ok: true, started: true });
+    if (msg?.type === 'REVERT_GALLERY') return Promise.resolve({ ok: true });
+    return handle.call(this, msg);
+  };
+  window.open = (...args) => { window.__opened.push(args); return null; };
+}
+
+// What the library holds of the run after a press: each part's gallery, and the series' order, own
+// titles and title (every id named by its part).
+export async function outcome(page, base) {
+  const out = await page.evaluate(async ({ base, parts }) => {
+    const api = await import('/app/js/api.js');
+    const galleries = {};
+    for (const [part, n] of Object.entries(parts)) {
+      const g = await api.galleries.get(String(base + n));
+      galleries[part] = g ? { count: g.count, translated: !!g.translated, favorite: !!g.favorite, parent: g.parentId ? String(g.parentId) : null,
+        title: g.title?.english ?? null, tags: (g.tags || []).map((t) => `${t.type}:${t.name}`) } : null;
+    }
+    const series = {};
+    for (const part of ['S', 'S2', 'W', 'W2']) {
+      const meta = await api.meta.get(String(base + parts[part]));
+      if (meta?.chapters?.length) series[part] = { chapters: meta.chapters.map((c) => `${c.id}${c.title ? `:${c.title}` : ''}`), title: meta.seriesTitle ?? null };
+    }
+    return { said: window.__said ?? [], opened: window.__opened ?? [], galleries, series };
+  }, { base, parts: PARTS });
+  return named(out, base);
+}
+
+export const rowSel = (base, part) => `.ch-row[data-chapter-id="${gid(base, part)}"]`;
+
+// A press on a row's button (`what`: up, down, download, translate, detach, remove), with Shift held or
+// the right button; the row hovered first (its buttons show under the pointer).
+export async function pressRow(page, base, part, what, { shift = false, right = false } = {}) {
+  const sel = `${rowSel(base, part)} [data-${what}]`;
+  await page.hover(`${rowSel(base, part)} .ch-main`);
+  await sleep(80);
+  if (shift) await page.keyboard.down('Shift');
+  await page.click(sel, right ? { button: 'right' } : {});
+  if (shift) await page.keyboard.up('Shift');
+  await sleep(300);
+}
+
+// A press on one of the page's own parts, with Shift held.
+export async function pressAt(page, sel, { shift = false } = {}) {
+  if (shift) await page.keyboard.down('Shift');
+  await page.click(sel);
+  if (shift) await page.keyboard.up('Shift');
+  await sleep(300);
+}

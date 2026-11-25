@@ -172,10 +172,11 @@ export function rowView(ch: Ref, idx: number, e: Entity | null, deps: {
 // does; "✓" once a download or an import is done), translate (Revert under Shift once translated; Stop
 // while it runs), detach (where its gallery has pages), and delete (quick under Shift).
 export type DownloadButton = { face: 'download' | 'upload' | 'stop' | 'done'; tip: string; shift: string | null; disabled: boolean; cancelling: boolean };
-export type TranslateButton = { face: 'translate' | 'stop'; tip: string; shift: string | null; done: boolean; cancelling: boolean };
+export type TranslateButton = { face: 'translate' | 'stop'; tip: string; shift: string | null; done: boolean; cancelling: boolean; disabled: boolean };
 export type RowActions = { download: DownloadButton | null; translate: TranslateButton | null; detach: boolean; remove: { tip: string; shift: string } };
 
-export function rowActions(e: Entity | null, job: JobNews | null, canDownload: boolean, canDetach: boolean, f: Pick<Formats, 't' | 'count'>): RowActions {
+// `held`: its translate button off while a revert has no answer.
+export function rowActions(e: Entity | null, job: JobNews | null, canDownload: boolean, canDetach: boolean, f: Pick<Formats, 't' | 'count'>, held = false): RowActions {
   const { t } = f;
   const active = !!job && !['done', 'error', 'cancelled', 'interrupted'].includes(job.status ?? '');
   // A running download's button is its Stop control (as a translation's is); an import's is disabled.
@@ -197,7 +198,7 @@ export function rowActions(e: Entity | null, job: JobNews | null, canDownload: b
       face: busyTranslate ? 'stop' : 'translate',
       tip: busyTranslate ? t('card.tip_cancel') : (e.translated ? translatedTip : t('card.tip_translate')),
       shift: e.translated && !busyTranslate ? t('card.tip_revert') : null,
-      done: !!e.translated, cancelling: busyTranslate,
+      done: !!e.translated, cancelling: busyTranslate, disabled: held,
     } : null,
     detach: canDetach,
     remove: { tip: t('card.tip_delete'), shift: t('card.tip_quickdelete') },

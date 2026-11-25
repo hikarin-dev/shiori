@@ -94,6 +94,16 @@ test('the overview (a gallery and a series, 1.3\'s page and the new one) and the
   ]) {
     const page = await open(path, ready);
     await nothingDarker(page, name, least);
+    // The new overview in edit mode too: its titles to type in, its tags and details pressable, its Edit
+    // on (Done, in its yellow), which keeps that look under the pointer.
+    if (path.startsWith('/overview-next')) {
+      await page.click('#editToggle');
+      await until(page, () => !!document.querySelector('#ovContent.ov-editing'), null, { what: 'edit mode' });
+      await page.mouse.move(5, 5);
+      await sleep(300);
+      const changes = await nothingDarker(page, `${name}, in edit mode`, least);
+      assert.deepEqual(changes.filter((c) => c.element.includes('#editToggle') && !c.element.includes('▸')).map(said), [], `${name}: Edit, on, under the pointer`);
+    }
     await page.close();
   }
 });

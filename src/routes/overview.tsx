@@ -5,9 +5,10 @@
 // gallery's pages with theirs), a series' rows (./overview/rows.tsx) or a gallery's page grid, the
 // add-a-chapter bar, and the import batches' tracker (1.3's #ovImports).
 //
-// It reads; it changes nothing (7a). The buttons that change things (the heart, Edit, Archive now,
-// Move, a row's arrows, download, translate, detach, delete, the grip, the add bar) are drawn in their
-// place and do nothing yet: 7b's and 7c's.
+// Its buttons (./overview/actions.ts): the heart, Edit and edit mode (the titles typed in, the tags
+// edited), Archive now, Move; a row's arrows, download and Replace, translate with its Stop, Revert and
+// "Re-run from…", detach and delete. What a press opens is loaded at its first use: the re-run menu,
+// the tag editor, Replace's file input. The grip and the add bar are drawn and do nothing yet (7c).
 //
 // What it shows is data (T4): the page's frame (which gallery, a series or not, its members, the
 // series' title) and the tags' counts are queries (./overview/data.ts), each member's gallery its own
@@ -20,7 +21,7 @@
 // (./overview/jobs.ts), each outside React and read by the part that shows them.
 //
 // Drawn on 1.3's sizes (overview.css, ./overview/overview.css).
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Settings } from 'lucide-react';
@@ -37,6 +38,7 @@ import { safeExternalUrl } from '@lib/sanitize.js';
 import { imageToBlob, resizeToWidth } from '@lib/image-util.js';
 import { tagKey } from '@lib/tag-editor.js';
 import { HeaderSlot } from '@/components/header-slot';
+import type { RerunAsk } from '@/components/rerun-menu';
 import { ImportTracker } from '@/components/import-tracker';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -49,21 +51,28 @@ import { useT, type Translate } from '@/lib/i18n';
 import { createBatchStore } from '@/lib/import-batches';
 import { readAgain } from '@/lib/library-query';
 import { goTo } from '@/lib/links';
+import { dismissSince, noticeMark } from '@/lib/notice-store';
 import { useShiftHeld } from '@/lib/modifiers';
 import { useTitle } from '@/lib/title';
 import { siteRoot } from '../entry';
-import { createOverviewCovers, HERO_WIDTH } from './overview/covers';
-import { followFrame, overviewKey, readFrame, readTagCounts, tagCountsKey, type Entity, type Ref } from './overview/data';
-import { Hero, type HeroView } from './overview/hero';
+import { overviewActions, type TagRef } from './overview/actions';
+import { coverKey, createOverviewCovers, HERO_WIDTH, ROW_WIDTH } from './overview/covers';
+import { followFrame, overviewKey, readFrame, readTagCounts, tagCountsKey, type Entity, type Frame, type Ref } from './overview/data';
+import { Hero, type HeroOn, type HeroView } from './overview/hero';
 import { createChapterJobs } from './overview/jobs';
 import { createGridEngine, PageGrid, useCover } from './overview/parts';
 import { prefs, useSeriesView } from './overview/prefs';
-import { ChapterList, ChapterRow, type RowDeps } from './overview/rows';
+import { ChapterList, ChapterRow, type RowDeps, type RowOn } from './overview/rows';
 import { useRunners } from './overview/runners';
 import { altTitle, chapterJob, heroMeta, rowActions, rowView, shownKind, tableTags, tagRows, type Formats, type Member } from './overview/view';
 import './overview/overview.css';
 
 const readerHref = (gid: string) => `reader?g=${encodeURIComponent(String(gid))}`;
+
+// What a press opens, loaded the first time it is asked for (the page draws none of it at rest).
+const rerunMenu = () => import('@/components/rerun-menu');
+const RerunMenu = lazy(() => rerunMenu().then((m) => ({ default: m.RerunMenu })));
+const TagEditor = lazy(() => import('@/components/tag-editor').then((m) => ({ default: m.TagEditor })));
 
 // The first time the page is shown in a document (a load of its address): its frame and its tags'
 // counts asked for as this module comes, while React is still drawing the page, as 1.3's page began
@@ -116,6 +125,8 @@ export default function Overview() {
   useEffect(() => { batches.start(); return () => batches.stop(); }, [batches]);
   useEffect(() => { prefs.start(); return () => prefs.stop(); }, []);
   const { sites, translatorOnline } = useRunners();
+  // The questions the page asked go with it when it is left.
+  useEffect(() => { const mark = noticeMark(); return () => dismissSince(mark); }, []);
 
   // ── The frame: which gallery, its members ──
   // Resolved from the owner the page found (1.3 kept it), from the address's gallery at first.
@@ -125,7 +136,7 @@ export default function Overview() {
     queryKey: overviewKey(g ?? ''), enabled: !!g, staleTime: Infinity,
     queryFn: async () => {
       const at = owner.current;
-      const frame = await readFrame(client, at.id ?? g!);
+      const frame = await readFrame(client, at.id ?? g!, g!);
       if (frame.found && owner.current === at) at.id = frame.ownerId;
       return frame;
     },
@@ -169,12 +180,15 @@ export default function Overview() {
   const drawnTags = useRef<{ tags: Entity['tags']; counts: Map<string, number> } | null>(null);
   if (counts.data && drawnTags.current?.tags !== ownerEntity?.tags) drawnTags.current = { tags: ownerEntity?.tags, counts: counts.data };
 
-  // Places the gallery could move to: asked once (1.3's buildShell).
+  // Places the gallery could move to: asked as the page shows (1.3's buildShell), and again whenever the
+  // library's folders change while it shows (1.3 asked once).
   const [movable, setMovable] = useState(false);
   useEffect(() => {
     let live = true;
-    api.folders.list().then((places: { hidden?: boolean }[]) => { if (live) setMovable(places.filter((p) => !p.hidden).length >= 2); }, () => {});
-    return () => { live = false; };
+    const ask = () => { api.folders.list().then((places: { hidden?: boolean }[]) => { if (live) setMovable(places.filter((p) => !p.hidden).length >= 2); }, () => {}); };
+    ask();
+    const off = platform.control.on((msg: { type?: string }) => { if (msg?.type === 'FOLDERS_CHANGED') ask(); });
+    return () => { live = false; off(); };
   }, []);
 
   // ── The cover ──
@@ -208,12 +222,81 @@ export default function Overview() {
     };
   }, [frame, ownerId, ownerEntity, isSeries, kind, chapters, refs, members, movable, formats, lang, sites, drawnTags.current]);   // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Edit mode: off as the page shows a gallery (a change of address too, as 1.3's page loaded) ──
+  const [editing, setEditing] = useState(false);
+  useEffect(() => setEditing(false), [g]);
+
+  // ── What the buttons do ──
+  // What the handlers read when they run: the page as it shows now.
+  const now = useRef({ g, frame, kind, entityOf, hero: null as HeroView | null, heroCover: null as string | null });
+  now.current = { ...now.current, g, frame, kind, entityOf, heroCover };
+  const [rerun, setRerun] = useState<RerunAsk | null>(null);
+  const [tagging, setTagging] = useState<{ edit: TagRef | null } | null>(null);
+  // Which of them has been opened: drawn from then on (closed, it keeps its place to close from).
+  const [opened, setOpened] = useState({ rerun: false, tags: false });
+  const open = (which: keyof typeof opened) => setOpened((was) => (was[which] ? was : { ...was, [which]: true }));
+  // Replace's file input: made at its first use, gone with the page (1.3's ensureReplaceInput).
+  const replaceInput = useRef<HTMLInputElement | null>(null);
+  useEffect(() => () => { replaceInput.current?.remove(); replaceInput.current = null; }, []);
+  const actions = useMemo(() => {
+    // (The frame as the cache holds it: an edit of the page's own is on it before the page draws it.)
+    const found = () => { const f = client.getQueryData<Frame>(overviewKey(now.current.g ?? '')); return f?.found ? f : null; };
+    const made = overviewActions({
+      client, jobs,
+      key: () => now.current.g ?? '',
+      frame: found,
+      ownerId: () => owner.current.id ?? found()?.ownerId ?? null,
+      setOwner: (id) => { owner.current.id = id; },
+      kind: () => now.current.kind,
+      entity: (id) => now.current.entityOf.get(id) ?? null,
+      cover: (id) => covers.get(coverKey(id, false, ROW_WIDTH)) ?? '',
+      heroCover: () => now.current.heroCover ?? '',
+      heading: () => now.current.hero?.heading ?? '',
+      canDownload: (e) => canDownload(e as never) as boolean,
+      pickFile: (gid) => {
+        import('@lib/import-files.js').then(({ IMPORT_ACCEPT }) => {
+          let input = replaceInput.current;
+          if (!input) {
+            input = replaceInput.current = document.createElement('input');
+            input.type = 'file';
+            input.id = 'replaceChapterInput';
+            input.multiple = true;
+            input.style.display = 'none';
+            input.addEventListener('change', () => {
+              const files = [...(input!.files ?? [])];
+              const id = input!.dataset.gid;
+              input!.value = '';
+              if (files.length && id) made.replace(id, files).catch((err) => console.error(err));
+            });
+            document.body.appendChild(input);
+          }
+          input.accept = IMPORT_ACCEPT;
+          input.dataset.gid = gid;
+          input.click();
+        }, () => {});
+      },
+      rerunMenu: (gid, anchor) => { rerunMenu().then((m) => m.rerunSteps(gid, anchor)).then((ask) => { open('rerun'); setRerun(ask); }, (err) => console.error(err)); },
+      tagEditor: (tag) => { open('tags'); setTagging({ edit: tag }); },
+      home: () => navigate('/', { replace: true }),
+    });
+    return made;
+  }, [client, jobs, covers]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const heroOn = useMemo<HeroOn>(() => ({
+    favorite: actions.favorite, saveTitle: actions.saveOwnerTitle, archive: actions.archive, moveTo: actions.moveTo,
+    tag: actions.tag, addTag: actions.addTag,
+    edit: () => setEditing((was) => !was),
+  }), [actions]);
+  const rowOn = useMemo<RowOn>(() => ({
+    step: actions.step, download: actions.download, translate: actions.translate, rerun: actions.rerun,
+    detach: actions.detach, delete: actions.delete, saveChapterTitle: actions.saveChapterTitle,
+  }), [actions]);
+
   const rowDeps = useMemo<RowDeps>(() => ({
-    t, covers, jobs, grids,
+    t, covers, jobs, grids, on: rowOn,
     view: (ch, idx, e) => rowView(ch, idx, e, { pickTitle: pickTitle as never, chapterNumberLabel: chapterNumberLabel as never, memberKind, safeExternalUrl: safeExternalUrl as never, readerHref }, formats),
-    actions: (e, job) => rowActions(e, job, !!e && (canDownload(e as never) as boolean), canDetachChapter(e as never) as boolean, formats),
+    actions: (e, job, held) => rowActions(e, job, !!e && (canDownload(e as never) as boolean), canDetachChapter(e as never) as boolean, formats, held),
     jobView: (job) => chapterJob(job, formats),
-  }), [t, covers, jobs, grids, formats, sites]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }), [t, covers, jobs, grids, rowOn, formats, sites]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Keyboard use: a row's buttons stay up while one of them has keyboard focus ──
   // Not the focus a click leaves behind: the clicked row may slide away from the pointer (an arrow
@@ -241,6 +324,7 @@ export default function Overview() {
   const wrap = useRef<HTMLDivElement>(null);
   useShiftHeld(wrap);
 
+  now.current.hero = hero;
   const ready = !!frame && (!frame.found || (ownerEntity !== undefined && !!drawnTags.current));
   const totalPages = members.reduce((s, c) => s + (c.entity?.count || 0), 0);
   const numChars = String(Math.max(1, ...chapters.map((c, i) => String(chapterNumberLabel(c) ?? i + 1).length)));
@@ -255,12 +339,12 @@ export default function Overview() {
         </Button>
       </HeaderSlot>
       <div className="ov-wrap" ref={wrap}>
-        <div id="ovContent" ref={content} data-translator-offline={translatorOnline ? undefined : ''}>
+        <div id="ovContent" ref={content} className={editing ? 'ov-editing' : undefined} data-translator-offline={translatorOnline ? undefined : ''}>
           {!g || (frame && !frame.found) ? <EmptyState className="ov-empty">{t('ov.not_found')}</EmptyState>
             : !ready || !hero ? <EmptyState className="ov-loading">{t('ov.loading')}</EmptyState>
             : (
               <>
-                <Hero t={t} view={hero} cover={heroCover} />
+                <Hero t={t} view={hero} cover={heroCover} editing={editing} on={heroOn} />
                 <Eyebrow as="h2" size="md" className="ov-section-title m-0 mb-[12px] flex items-baseline gap-[8px]" id="ovSection">
                   {isSeries ? (
                     <Tabs variant="underline" className="contents" value={kind === 'volume' ? 'volumes' : 'chapters'} onValueChange={chooseView}>
@@ -277,7 +361,7 @@ export default function Overview() {
                     <ChapterList order={chapters.map((c) => `${c.id}:${!!entityOf.get(c.id)}`).join(',')} numChars={numChars}>
                       {chapters.map((c, i) => {
                         const e = entityOf.get(c.id) ?? null;
-                        return <ChapterRow key={`${c.id}:${!!e}`} chapter={c} idx={i} entity={e} last={i === chapters.length - 1} deps={rowDeps} />;
+                        return <ChapterRow key={`${c.id}:${!!e}`} chapter={c} idx={i} entity={e} last={i === chapters.length - 1} editing={editing} deps={rowDeps} />;
                       })}
                     </ChapterList>
                   ) : <PageGrid key={ownerId} engine={grids} gid={ownerId!} version={ownerEntity} className="ov-pages" id="ovPages" />}
@@ -288,6 +372,10 @@ export default function Overview() {
         </div>
         <ImportTracker store={batches} id="ovImports" className="mt-[16px]" />
       </div>
+      <Suspense fallback={null}>
+        {opened.rerun && <RerunMenu t={t} ask={rerun} onClose={() => setRerun(null)} onPick={(id, point, label) => { setRerun(null); actions.rerunFrom(id, point, label).catch(() => {}); }} />}
+        {opened.tags && <TagEditor gid={tagging && ownerId} edit={tagging?.edit} onClose={() => setTagging(null)} />}
+      </Suspense>
     </>
   );
 }
