@@ -69,7 +69,7 @@ export const PageGrid = memo(function PageGrid({ engine, gid, open = true, versi
 // held on the button: overview.css).
 export function Faces({ rest, shift }: { rest: ReactNode; shift?: ReactNode }) {
   return (
-    <span className="ch-face">
+    <span className="ch-face" data-shift={shift ? '' : undefined}>
       <span className="face-rest">{rest}</span>
       {shift && <span className="face-shift">{shift}</span>}
     </span>

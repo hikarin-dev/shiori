@@ -135,12 +135,12 @@
   }
   /* A button's faces: its icon at rest and, where it has one, its icon for Shift, one over the other.
      While Shift is held on it, the one at rest folds shut (0.1s) and the other opens (0.1s after), as
-     1.3's flip did. */
+     1.3's flip did. A button with no face for Shift stays as it is (data-shift: it has one). */
   .ch-face { display: grid; place-items: center; }
   .ch-face > * { grid-area: 1 / 1; display: flex; transition: transform 0.1s ease-out 0.1s; }
   .ch-face > .face-shift { transform: scaleY(0); transition: transform 0.1s ease-in; }
-  .shift-held .ch-ibtn:hover:not(:disabled) > .ch-face > .face-rest { transform: scaleY(0); transition: transform 0.1s ease-in; }
-  .shift-held .ch-ibtn:hover:not(:disabled) > .ch-face > .face-shift { transform: none; transition: transform 0.1s ease-out 0.1s; }
+  .shift-held .ch-ibtn:hover:not(:disabled) > .ch-face[data-shift] > .face-rest { transform: scaleY(0); transition: transform 0.1s ease-in; }
+  .shift-held .ch-ibtn:hover:not(:disabled) > .ch-face[data-shift] > .face-shift { transform: none; transition: transform 0.1s ease-out 0.1s; }
 
   /* ── A chapter's pages, opened under its row ── */
   .ch-expand { margin-left: 2px; }

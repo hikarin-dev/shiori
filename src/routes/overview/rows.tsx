@@ -51,16 +51,16 @@ function Actions({ t, a, first, last }: { t: Translate; a: RowActions; first: bo
       <Button variant="ghost" size="icon-md" coarse="40" className="ch-ibtn" data-up data-tip={t('ov.move_up')} disabled={first}><UpIcon /></Button>
       <Button variant="ghost" size="icon-md" coarse="40" className="ch-ibtn" data-down data-tip={t('ov.move_down')} disabled={last}><DownIcon /></Button>
       {dl && (
-        <Button variant="ghost" tone="warning" rest="tone" hover="fill" size="icon-md" coarse="40"
-          className={cn('ch-ibtn download', dl.cancelling && 'cancelling', dl.face === 'done' && 'done border-success text-success')}
+        <Button variant="ghost" tone={dl.face === 'done' ? 'success' : 'warning'} rest={dl.face === 'done' ? 'framed' : 'tone'} hover="fill" size="icon-md" coarse="40"
+          className={cn('ch-ibtn download', dl.cancelling && 'cancelling', dl.face === 'done' && 'done')}
           data-download data-tip={dl.tip} data-tip-shift={dl.shift ?? undefined} disabled={dl.disabled}>
           {dl.face === 'done' ? '✓' : dl.face === 'stop' ? <StopIcon /> : dl.face === 'download'
             ? <Faces rest={<DownloadIcon />} shift={dl.shift ? <UploadIcon /> : undefined} /> : <Faces rest={<UploadIcon />} />}
         </Button>
       )}
       {tr && (
-        <Button variant="ghost" tone="primary" rest="tone" size="icon-md" coarse="40"
-          className={cn('ch-ibtn translate', tr.done && 'done text-success hover:text-success', tr.cancelling && 'cancelling')}
+        <Button variant="ghost" tone={tr.done ? 'success' : 'primary'} rest="tone" size="icon-md" coarse="40"
+          className={cn('ch-ibtn translate', tr.done && 'done', tr.cancelling && 'cancelling')}
           data-translate data-tip={tr.tip} data-tip-shift={tr.shift ?? undefined}>
           {tr.face === 'stop' ? <StopIcon /> : <Faces rest={<TranslateIcon />} shift={tr.shift ? <RevertIcon /> : undefined} />}
         </Button>
@@ -79,6 +79,9 @@ export const ChapterRow = memo(function ChapterRow({ chapter, idx, entity, last,
   const id = chapter.id;
   const view = useMemo(() => deps.view(chapter, idx, entity), [deps, chapter, idx, entity]);
   const first = idx === 0;
+  // The title's box drawn again only when what it shows changes (React writes an input's name again
+  // each time it draws it).
+  const title = useMemo(() => <InlineEdit size="row" readOnly value={view.title} placeholder={view.fallback} data-chapter-id={id} data-fallback={view.fallback} />, [view.title, view.fallback, id]);
   const follow = useCallback((cb: () => void) => jobs.subscribe(id, cb), [jobs, id]);
   const job = useSyncExternalStore(follow, () => jobs.get(id));
   const cover = useCover(covers, entity ? id : null, {}, entity);
@@ -94,7 +97,7 @@ export const ChapterRow = memo(function ChapterRow({ chapter, idx, entity, last,
         <RowThumb url={cover} href={entity ? view.href : null} />
         <div className="ch-main">
           <span className="ch-title-wrap">
-            <InlineEdit size="row" readOnly value={view.title} placeholder={view.fallback} data-chapter-id={id} data-fallback={view.fallback} />
+            {title}
             <a className="ch-title-open" href={view.href} aria-label={view.title} />
           </span>
           <div className="ch-meta">
