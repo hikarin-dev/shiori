@@ -425,3 +425,48 @@ test('on a phone, leaving the page five times with a finger\'s drag held and a q
   assert.deepEqual(page.problems, []);
   await page.close();
 });
+
+// 7e: since the switch the library and the overview are two routes of one page, and going between them is
+// the app's commonest path: library → a series' overview (its pages open, a job running) → the library,
+// five times, both pages' leave tests in one walk. Back on the library each time, nothing of the overview
+// stays (rows, workers, object URLs, tips) and nothing grows (listeners, intervals, timers over a second,
+// observers, channels), the library's own counted as it stands after its first return. Timers over a
+// second are the one count that moves: each showing asks the helper's bridge a few things, and the bridge
+// (app/js/ext-bridge.js) keeps each ask's 15 s give-up timer running out whether or not it was answered,
+// so they pile up at the walk's pace and run out after it: 15 s after the last return, back to what the
+// first return left or fewer.
+test('library → overview → library five times leaves nothing behind', { skip: !chromePath() }, async () => {
+  const page = await openPage(browser, origin);
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.evaluateOnNewDocument(instrument);
+  await page.evaluateOnNewDocument(holding);
+  await page.goto(`${origin}/?q=${encodeURIComponent('S gallery')}`, { waitUntil: 'load' });
+  await until(page, () => document.querySelectorAll('#grid > .card').length > 0, null, { what: 'the library' });
+  await sleep(1500);
+  const go = (path) => page.evaluate((path) => { const a = document.createElement('a'); a.href = path; document.body.append(a); a.click(); a.remove(); }, path);
+  const counts = [];
+  for (let i = 0; i < 6; i++) {
+    await go(`overview?g=${gid(base, 'S')}`);
+    await until(page, () => document.querySelectorAll('.ch-row').length === 4 && !!document.querySelector('#seriesCover img'), null, { what: 'the overview' });
+    await publish(page, { gid: gid(base, 'S2'), kind: 'download', status: 'downloading', downloaded: 100, total: 1000, pages: 2 });
+    await page.hover('.ch-row:nth-child(1) .ch-head');
+    await page.click('.ch-row:nth-child(1) [data-expand]');
+    await until(page, () => [...document.querySelectorAll('.ch-row:nth-child(1) .ch-pages .ov-page img')].some((img) => img.getAttribute('src')) && !!document.querySelector('.ch-row.working'), null, { what: 'the pages open and the job drawn' });
+    await sleep(300);
+    await page.evaluate(() => history.back());
+    await until(page, () => location.pathname === '/' && !document.getElementById('ovContent') && document.querySelectorAll('#grid > .card').length > 0, null, { what: 'the library again' });
+    await sleep(1500);
+    counts.push(await page.evaluate(() => ({ ...window.__held, workers: window.__thumbs.workers - window.__thumbs.ended, urls: window.__thumbs.urls.size,
+      rows: document.querySelectorAll('.ch-row').length, tips: document.querySelectorAll('.shiori-tip').length })));
+  }
+  assert.ok(counts.every((c) => c.workers === 0 && c.urls === 0 && c.rows === 0), JSON.stringify(counts));
+  // (The library's own covers' object URLs are not the thumbnail engine's: urls counts the engine's.)
+  const but = ({ timers, ...c }) => c;
+  assert.deepEqual(counts.slice(1).map(but), Array(5).fill(but(counts[0])), JSON.stringify(counts));
+  await sleep(16000);
+  const rested = await page.evaluate(() => window.__held.timers);
+  assert.ok(rested <= counts[0].timers, `timers over a second, 15 s after the last return: ${rested} (the first return left ${counts[0].timers}; ${counts.map((c) => c.timers)})`);
+  assert.deepEqual(page.problems, []);
+  await page.evaluate(async () => { const platform = await import('/app/js/platform.js'); for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind); });
+  await page.close();
+});
