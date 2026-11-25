@@ -69,9 +69,14 @@ test('switch: a switch by role and state, turned by Space and a click, inert whe
   assert.equal(await page.evaluate(() => getComputedStyle(document.activeElement).outlineStyle), 'none', 'no ring after a click');
   const [after] = await boxes(page, sw);
   assert.deepEqual(after.slice(2), before.slice(2), 'turning it changes no box');
-  // The knob slides (a transform on an element with no text, rule 11 allows it), the track's colours ease.
+  // The knob slides by its `left`, not by a transform (rule 29: an animated transform lifts what is
+  // painted after it onto layers), 16px from off to on; the track's colours ease.
   const motion = await page.$eval(sw, (el) => [getComputedStyle(el).transitionProperty, getComputedStyle(el.querySelector('[data-slot="switch-thumb"]')).transitionProperty]);
-  assert.deepEqual(motion, ['background-color, border-color', 'background-color, transform']);
+  assert.deepEqual(motion, ['background-color, border-color', 'background-color, left']);
+  const knob = (sel) => page.$eval(sel, (el) => { const k = el.querySelector('[data-slot="switch-thumb"]'), t = el.getBoundingClientRect(), b = k.getBoundingClientRect(); return [+(b.left - t.left).toFixed(2), +(b.top - t.top).toFixed(2), b.width, b.height, getComputedStyle(k).transform]; });
+  await page.$eval(sw, (el) => Promise.all(el.querySelector('[data-slot="switch-thumb"]').getAnimations().map((a) => a.finished.catch(() => {}))));
+  assert.deepEqual(await knob(sw), [3, 3, 14, 14, 'none'], 'off: 2px inside the track\'s frame');
+  assert.deepEqual(await knob(spec('switch', 'switch', 'on')), [19, 3, 14, 14, 'none'], 'on: 16px on');
   // Disabled: not reached by Tab, a click changes nothing.
   const off = spec('switch', 'switch', 'disabled');
   assert.equal(await page.$eval(off, (el) => el.getAttribute('aria-disabled') ?? el.getAttribute('data-disabled')), 'true');

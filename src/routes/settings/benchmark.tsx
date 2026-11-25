@@ -216,7 +216,7 @@ export function BenchmarkSection({ offered }: { offered: boolean }) {
             <Menu>
               <MenuTrigger render={<button type="button" className="bench-tier-toggle group inline-flex min-h-[36px] min-w-[130px] cursor-pointer items-center justify-between gap-[10px] rounded-6 border border-solid border-border bg-background px-[11px] text-12 hover:border-input" />}>
                 <span>{tierFilterText(tiers)}</span>
-                <ChevronDown aria-hidden strokeWidth={2} className="size-[11px] text-muted-dim transition-[rotate] duration-open group-aria-expanded:rotate-180" />
+                <ChevronDown aria-hidden strokeWidth={2} className="turns size-[11px] text-muted-dim transition-[--turn] duration-open group-aria-expanded:[--turn:1]" />
               </MenuTrigger>
               <MenuContent variant="checklist" align="end" sideOffset={4}>
                 {TIERS.map((tier: { id: string; name: string }, i: number) => (

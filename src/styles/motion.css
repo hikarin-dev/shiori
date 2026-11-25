@@ -1,4 +1,14 @@
-/* motion.css — the keyframes of the components' own motions (Tailwind's spin aside). */
+/* motion.css — the keyframes of the components' own motions (Tailwind's spin aside), and the turn. */
+
+/* A turn eased as a number, not as a transform (rule 29). An animated transform (rotate, scale,
+   translate) is the compositor's, and while one runs the browser cannot tell what it will come to
+   cover: every positioned thing painted after it is lifted onto a layer of its own, and text on a
+   layer of its own is smoothed another way. For the animation's time the page's words changed their
+   look: a list's arrow turning did it to the library's cards. A registered number eases on the page's
+   own thread, and the element is drawn turned by it, on no layer.
+   `turns`: half a turn at --turn: 1; the element eases --turn (transition-[--turn]). */
+@property --turn { syntax: "<number>"; inherits: false; initial-value: 0; }
+@utility turns { rotate: calc(var(--turn) * 180deg); }
 
 /* A bar with no figure yet (Progress, §5.3 F22): its block travels from just off the start to just
    off the end. 290% of a block 35% wide is a little over the bar's whole width. */

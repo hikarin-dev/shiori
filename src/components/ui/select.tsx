@@ -116,7 +116,7 @@ type Props = {
 } & { [data: `data-${string}`]: string | undefined };
 
 function Chevron({ className }: { className?: string }) {
-  return <ChevronDown aria-hidden strokeWidth={2} className={cn('ml-auto size-[11px] shrink-0 text-muted-dim transition-[rotate,color] duration-open ease-standard', className)} />;
+  return <ChevronDown aria-hidden strokeWidth={2} className={cn('turns ml-auto size-[11px] shrink-0 text-muted-dim transition-[--turn,color] duration-open ease-standard', className)} />;
 }
 
 // The chosen label, or every label in one cell with only the chosen one showing (width widest).
@@ -184,7 +184,7 @@ function Select({ options, value, defaultValue, onValueChange, variant = 'field'
         data-variant={variant}
         data-up={up ? '' : undefined}
         style={{ anchorName: anchor } as CSSProperties}
-        className={cn(boxClass, '[&[data-popup-open]_svg]:rotate-180 [&:is(:hover,[data-popup-open])_svg]:text-muted-foreground')}
+        className={cn(boxClass, '[&[data-popup-open]_svg]:[--turn:1] [&:is(:hover,[data-popup-open])_svg]:text-muted-foreground')}
         {...rest}
       >
         <Label options={options} value={current} width={w} />
