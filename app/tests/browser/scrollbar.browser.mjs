@@ -348,7 +348,8 @@ test('the long language picker keeps native wheel input and keyboard selection',
   assert.equal(await page.$eval(track, (el) => getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)');
   const rootOffset = await page.evaluate(() => scrollY);
   await page.mouse.wheel({ deltaY: 180 });
-  await page.waitForFunction((list) => document.querySelector(list).scrollTop > 100, {}, list);
+  // (What scrolls is the list's rows, inside its outline: the seam by the box stays where it is.)
+  await page.waitForFunction((list) => document.querySelector(`${list} [data-slot="select-rows"]`).scrollTop > 100, {}, list);
   assert.equal(await page.evaluate(() => scrollY), rootOffset);
   await wait(400); // OverlayScrollbars lets wheel events pass through its controls for 333ms.
   const movedThumb = await center(page, `${track} .scrollbar-thumb`);

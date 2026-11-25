@@ -6,6 +6,7 @@
 // is the system's select, drawn closed the same.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import puppeteer from 'puppeteer-core';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 import { componentsPage, spec, centreOf, textMotion } from './specimens.mjs';
 
@@ -281,3 +282,130 @@ for (const [variant, sel] of JOINED) {
     });
   }
 }
+
+// The owner (2026-11-26), of the same list: "scrolling up with the dropdown overlay it on top of the
+// navbar / and certain zoomlevels dont make the alignment pixelperfect / and the connection border
+// doesnt seem to look seamless". Three things, each measured before it was changed:
+//  - The list stood over everything (as a dialog's must), so a list hung off a box in the page stayed
+//    over the header while its box went behind it. In the page's flow it now stands under the header.
+//  - The seam was the list's own top line, in another colour than its sides: it ran across the outline's
+//    two side lines, a darker pixel in each at the join. It is now the rows' line, inside the outline.
+//  - At a zoom where a CSS pixel is no whole number of device pixels, the browser paints the box's right
+//    edge at round(left + width) and the list's, a layer of its own, at round(left) + round(width): one
+//    device pixel apart for some widths (8 of 40 zooms and widths measured, all at 150% and 175%). The
+//    list's edges are now rounded in device pixels as the box's are painted.
+// The last two are read from the picture the browser draws, in a browser at a true device scale (what
+// its own zoom does; the viewport's emulated scale blurs every line, the box's too).
+const scaled = (zoom) => puppeteer.launch({ executablePath: chromePath(), headless: true, defaultViewport: null,
+  args: ['--no-first-run', '--no-default-browser-check', '--disable-extensions', `--force-device-scale-factor=${zoom}`, '--window-size=1301,900'] });
+const FRAME = '82,82,92';   // the outline with its list showing (border-border-hover)
+// In a blank page: the picture's pixels, and what the outline is in it. The picture starts 6 CSS px left
+// of the box and 4 above it.
+async function outline({ png, boxBottom, listTop, dpr, frame }) {
+  const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${png}`)).blob());
+  const canvas = new OffscreenCanvas(bmp.width, bmp.height), ctx = canvas.getContext('2d');
+  ctx.drawImage(bmp, 0, 0);
+  const px = ctx.getImageData(0, 0, bmp.width, bmp.height);
+  const at = (col, row) => { const i = (row * px.width + col) * 4; return `${px.data[i]},${px.data[i + 1]},${px.data[i + 2]}`; };
+  const lines = (row) => { let l = -1, r = -1; for (let col = 0; col < px.width; col++) if (at(col, row) === frame) { if (l < 0) l = col; r = col; } return [l, r]; };
+  const inBox = Math.round(boxBottom * dpr) - Math.round(8 * dpr), inList = Math.round(listTop * dpr) + Math.round(10 * dpr);
+  const box = lines(inBox), list = lines(inList);
+  const down = (col) => { const seen = []; for (let row = inBox; row <= inList; row++) { const c = at(col, row); if (seen[seen.length - 1] !== c) seen.push(c); } return seen; };
+  // (Down the middle, from inside the box to the list's own padding over its first row.)
+  const mid = Math.round(px.width / 2), join = [], padding = Math.round(listTop * dpr) + Math.round(3 * dpr);
+  for (let row = inBox; row <= padding; row++) { const c = at(mid, row); if (join[join.length - 1] !== c) join.push(c); }
+  return { box, list, leftSide: down(box[0]), rightSide: down(box[1]), join };
+}
+
+for (const zoom of [1.25, 1.5, 1.75]) {
+  test(`at ${zoom * 100}% the list's outline is the box's to the device pixel, its sides unbroken across the join, the seam one line inside them`, async (t) => {
+    if (!chromePath()) return t.skip('Chrome not found (set CHROME_PATH)');
+    const own = await scaled(zoom);
+    t.after(() => own.close());
+    const lab = await own.newPage();
+    await lab.goto('about:blank');
+    const page = await own.newPage();
+    await page.setBypassServiceWorker(true);
+    await page.goto(`${origin}/components`, { waitUntil: 'load' });
+    const sel = spec('sort-select', 'toolbar');
+    await page.waitForSelector(sel);
+    await page.bringToFront();
+    assert.equal(await page.evaluate(() => devicePixelRatio), zoom, 'the browser is at the scale asked for');
+    // The box nudged across a device pixel in steps, so its edges fall every way between two.
+    const found = [];
+    for (const nudge of [0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9]) {
+      await page.$eval(sel, (el, nudge) => { el.parentElement.style.marginLeft = `${nudge}px`; el.scrollIntoView({ block: 'center', behavior: 'instant' }); }, nudge);
+      const at = await page.$eval(sel, (el) => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+      await page.mouse.click(at.x, at.y);
+      await until(page, () => { const l = document.querySelector('[data-slot="select-list"]'); return !!l && l.getClientRects().length > 0 && l.getAnimations().length === 0 && !l.hasAttribute('data-starting-style'); }, null, { what: 'the list unrolled' });
+      await page.mouse.move(3, 3);
+      const geo = await page.$eval(sel, (el) => {
+        const b = el.getBoundingClientRect(), l = document.querySelector('[data-slot="select-list"]').getBoundingClientRect();
+        return { x: b.x, y: b.y, w: b.width, bottom: b.bottom, listTop: l.top, sx: scrollX, sy: scrollY };
+      });
+      const clip = { x: Math.floor(geo.x) - 6, y: Math.floor(geo.y) - 4, width: Math.ceil(geo.w) + 12, height: 90 };
+      const png = await page.screenshot({ clip: { ...clip, x: clip.x + geo.sx, y: clip.y + geo.sy }, encoding: 'base64' });
+      const seen = await lab.evaluate(outline, { png, boxBottom: geo.bottom - clip.y, listTop: geo.listTop - clip.y, dpr: zoom, frame: FRAME });
+      assert.ok(seen.box[0] >= 0 && seen.box[1] > seen.box[0], `the box ${nudge}px along: its outline found in the picture`);
+      found.push({ nudge, ...seen });
+      await page.keyboard.press('Escape');
+      await until(page, () => !document.querySelector('[data-slot="select-list"]')?.getClientRects().length, null, { what: 'the list gone' });
+    }
+    // (Each thing over every place the box was put, so one fault does not hide another.)
+    assert.deepEqual(found.filter((f) => String(f.list) !== String(f.box)).map((f) => `the box ${f.nudge}px along: its lines at ${f.box}, the list's at ${f.list}`), [],
+      'the list\'s side lines are in the box\'s own columns of device pixels');
+    assert.deepEqual(found.filter((f) => String([f.leftSide, f.rightSide]) !== String([[FRAME], [FRAME]])).map((f) => `the box ${f.nudge}px along: ${f.leftSide.join(' then ')}`), [],
+      'each side line is one colour from box to list');
+    assert.deepEqual(found.filter((f) => f.join.length !== 3).map((f) => `the box ${f.nudge}px along: ${f.join.join(' | ')}`), [],
+      'between the box\'s ground and the list\'s, one line of one colour');
+  });
+}
+
+// A list drawn, past its first frame, nothing of it moving (one still unrolling is clipped: a point over
+// it finds its place, not it; a closed one stays in the page, not drawn).
+const UNROLLED = () => {
+  const l = [...document.querySelectorAll('[data-slot="select-list"]')].find((el) => el.getClientRects().length);
+  return !!l && !l.hasAttribute('data-starting-style') && l.getAnimations().length === 0 && !getComputedStyle(l).clipPath.includes('100%');
+};
+
+test('a list hung off a box in the page goes behind the header with its box as the page scrolls; the header\'s own list stays over it', async (t) => {
+  const page = await componentsPage(t, browser, origin);
+  if (!page) return;
+  const sel = spec('sort-select', 'toolbar');
+  const at = await centreOf(page, sel);
+  await page.mouse.click(at.x, at.y);
+  await until(page, UNROLLED, null, { what: 'the list unrolled' });
+  // The page scrolled until the box's bottom is 10px under the header's: the list's first rows are
+  // then where the header is.
+  await page.evaluate((sel) => {
+    const header = document.querySelector('.app-header').getBoundingClientRect();
+    scrollBy({ top: document.querySelector(sel).getBoundingClientRect().bottom - (header.bottom - 10), behavior: 'instant' });
+  }, sel);
+  await until(page, () => document.querySelector('[data-slot="select-list"]').getBoundingClientRect().top < document.querySelector('.app-header').getBoundingClientRect().bottom - 4, null, { what: 'the list under the header' });
+  const over = await page.evaluate(() => {
+    const list = document.querySelector('[data-slot="select-list"]'), l = list.getBoundingClientRect(), h = document.querySelector('.app-header').getBoundingClientRect();
+    const x = l.left + l.width / 2, inHeader = document.elementFromPoint(x, h.bottom - 4), belowIt = document.elementFromPoint(x, h.bottom + 12);
+    return {
+      open: list.getClientRects().length > 0, listTop: l.top, headerBottom: h.bottom,
+      inHeader: !!inHeader?.closest('.app-header'), belowIt: !!belowIt?.closest('[data-slot="select-list"]'),
+      z: [getComputedStyle(list.parentElement).zIndex, getComputedStyle(document.querySelector('.app-header')).zIndex],
+    };
+  });
+  assert.equal(over.open, true, 'the list stays open as the page scrolls');
+  assert.ok(over.listTop < over.headerBottom - 4, 'the list reaches under the header');
+  assert.deepEqual([over.inHeader, over.belowIt], [true, true], `where they overlap the header is on top; below the header the list shows (${JSON.stringify(over)})`);
+  assert.ok(Number(over.z[0]) < Number(over.z[1]), `the list's level is under the header's (${over.z.join(' < ')})`);
+  await page.keyboard.press('Escape');
+
+  // The header's own menu (a page of the app: /components has headers drawn in the page as specimens,
+  // and those are of the page's flow): over the header and everything else.
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
+  await page.waitForSelector('.app-header #pageNav');
+  await page.click('.app-header #pageNav');
+  await until(page, UNROLLED, null, { what: 'the page menu\'s list' });
+  const menu = await page.evaluate(() => {
+    const list = [...document.querySelectorAll('[data-slot="select-list"]')].find((el) => el.getClientRects().length), l = list.getBoundingClientRect();
+    return { z: [getComputedStyle(list.parentElement).zIndex, getComputedStyle(document.querySelector('.app-header')).zIndex], top: !!document.elementFromPoint(l.left + l.width / 2, l.top + 12)?.closest('[data-slot="select-list"]') };
+  });
+  assert.ok(Number(menu.z[0]) > Number(menu.z[1]) && menu.top, `the header's menu is over the header (${menu.z.join(' > ')})`);
+});

@@ -45,7 +45,7 @@ type Props = { t: Translate; covers: OverviewCovers; items: Entity[]; style: CSS
 export function AddResults({ t, covers, items, style, onPick, ...rest }: Props) {
   const lang = getLang();
   return (
-    <Listbox variant="rich" id="addResults" className="add-results open z-page-overlay overflow-y-auto" style={style} {...rest}>
+    <Listbox variant="rich" id="addResults" className="add-results open z-page-popup overflow-y-auto" style={style} {...rest}>
       {items.length ? items.map((g) => {
         const id = String(g.sourceId || g.id);
         return (

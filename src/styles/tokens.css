@@ -227,6 +227,7 @@
 
     /* Layers, bottom to top. Stacking inside one component (a card, a row) stays its own: -1 … 10.
        The reader's chrome keeps its own layers (150–220) in its stylesheet. */
+    --z-index-page-popup: 20;         /* a list hung off a box in the page's flow: over the page, under the header it scrolls behind */
     --z-index-header: 30;             /* the sticky page header */
     --z-index-page-menu: 200;         /* the header's burger menu */
     --z-index-page-overlay: 300;      /* search suggestions, go-to-top, loading and empty screens, the drawn page scrollbar */

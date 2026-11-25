@@ -28,7 +28,7 @@
 // resize. Base UI's positioner still wraps the list (its popup needs it) but its computed place is
 // overridden. The one decision made in script is which way to open, taken once as it opens, as
 // dropdown.js did: a fact the stylesheet reads (data-up).
-import { useId, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { Select as SelectPrimitive } from '@base-ui/react/select';
 import { ChevronDown } from 'lucide-react';
 import { cva } from 'class-variance-authority';
@@ -93,6 +93,21 @@ const OPEN_EDGE: Record<Variant, string> = {
   ghost: '',   // its list stands 4px off it, with corners of its own
 };
 
+// A joined list's place, on the box's own device pixels. The browser paints the box's edges at whole
+// device pixels (each edge rounded: left, then left + width), and paints the list, a layer of its own,
+// from its rounded corner (left rounded, then width rounded): at a zoom where a CSS pixel is no whole
+// number of device pixels the two disagree by one for some widths (measured: the list's right line one
+// device pixel past the box's in 8 of 40 zooms and widths, all at 150% and 175%). So the list's edges
+// are rounded here as the box's are painted, in device pixels (--dp: one device pixel in CSS px, kept
+// on the positioner): its left and right each to the device pixel the box's falls on (the right inset
+// counted from the window's other edge, hence rounded the other way), its width what lies between.
+// It overlaps the box by the box's line (--dp at least: a line is never thinner than a device pixel),
+// so its first row is the box's last and the seam takes that line's place.
+const JOINED_SIDES = 'left-[round(nearest,anchor(left),var(--dp))]! right-[round(up,calc(anchor(right)_-_var(--dp)_/_2),var(--dp))]! w-auto!';
+const JOINED_DOWN = 'top-[calc(round(nearest,anchor(bottom),var(--dp))_-_max(var(--dp),round(down,1px,var(--dp))))]!';
+const JOINED_UP = 'bottom-[calc(round(up,calc(anchor(top)_-_var(--dp)_/_2),var(--dp))_-_max(var(--dp),round(down,1px,var(--dp))))]!';
+const devicePixel = () => 1 / (globalThis.devicePixelRatio || 1);
+
 // The list's options line up with the box's text: their side padding is the box's.
 const INSET: Record<Size, string> = { default: 'px-[10px]', toolbar: 'px-[12px]', xs: 'px-[10px]' };
 
@@ -149,6 +164,19 @@ function Select({ options, value, defaultValue, onValueChange, variant = 'field'
   const [up, setUp] = useState(false);
   // Its list showing at all: from the first of it unrolled to the last of it rolled up.
   const [unrolled, setUnrolled] = useState(false);
+  // Whether its box is in the page's flow (then its list goes behind the header as the box does when
+  // the page scrolls; a list of a header's own, wherever that header is drawn, or of a dialog's stays
+  // over everything).
+  const [inPage, setInPage] = useState(false);
+  // One device pixel in CSS px, followed while the list shows (the browser's zoom changes it).
+  const [dp, setDp] = useState(devicePixel);
+  useEffect(() => {
+    if (!unrolled) return;
+    const query = matchMedia(`(resolution: ${globalThis.devicePixelRatio}dppx)`);
+    const changed = () => setDp(devicePixel());
+    query.addEventListener('change', changed);
+    return () => query.removeEventListener('change', changed);
+  }, [unrolled, dp]);
   const cursor = CURSOR[variant];
   const boxClass = cn(box({ variant, size: s, width: w }), TEXT[s], cursor, cursor === 'cursor-pointer' && 'disabled:cursor-default data-disabled:cursor-default', BOX_STATES, OPEN_EDGE[variant], className);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -176,8 +204,10 @@ function Select({ options, value, defaultValue, onValueChange, variant = 'field'
       onOpenChange={(open) => {
         if (!open) return;
         setUnrolled(true);
+        setDp(devicePixel());
         // Which way it opens, settled as it opens: down, unless only the space above can hold it.
         if (trigger.current) {
+          setInPage(!!trigger.current.closest('main') && !trigger.current.closest('header'));
           const r = trigger.current.getBoundingClientRect(), below = innerHeight - r.bottom;
           setUp(variant !== 'ghost' && below < Math.min(options.length, MAX_ROWS) * ROW + 10 && r.top > below);
         }
@@ -208,29 +238,41 @@ function Select({ options, value, defaultValue, onValueChange, variant = 'field'
           alignItemWithTrigger={false}
           data-slot="select-positioner"
           data-up={up ? '' : undefined}
-          style={{ positionAnchor: anchor } as CSSProperties}
+          style={{ positionAnchor: anchor, '--dp': `${dp}px` } as CSSProperties}
           className={cn(
             // Placed by CSS against the box, whatever the positioner computed.
-            'z-select fixed! inset-auto! m-0! transform-none!',
+            'fixed! inset-auto! m-0! transform-none!',
+            inPage ? 'z-page-popup' : 'z-select',
             variant === 'ghost'
               ? 'top-[calc(anchor(bottom)+4px)]! left-[anchor(left)]! w-max! min-w-[anchor-size(width)]!'
-              : up ? 'bottom-[calc(anchor(top)-1px)]! left-[anchor(left)]! w-[anchor-size(width)]!' : 'top-[calc(anchor(bottom)-1px)]! left-[anchor(left)]! w-[anchor-size(width)]!',
+              : cn(JOINED_SIDES, up ? JOINED_UP : JOINED_DOWN),
           )}
         >
           <SelectPrimitive.Popup
             data-slot="select-list"
             className={cn(
-              'box-border max-h-[calc(8*(1lh+12px)+10px)] overflow-y-auto border border-solid border-border-hover py-[4px] text-foreground shadow-popover outline-none',
+              // The outline's three sides (the fourth is the box's): the seam is the rows' own line, inside
+              // them, so the sides run from box to list in one colour with nothing crossing them.
+              'box-border border border-solid border-border-hover text-foreground shadow-popover outline-none',
               GROUND[variant],
               TEXT[s],
-              variant === 'ghost' ? 'rounded-6' : up ? 'rounded-t-6 border-b-border' : 'rounded-b-6 border-t-border',
+              variant === 'ghost' ? 'rounded-6' : up ? 'rounded-t-6 border-b-0' : 'rounded-b-6 border-t-0',
               // It unrolls away from the box (a clip, not a fade: rule 11).
               'transition-[clip-path] duration-open ease-out',
               up ? '[clip-path:inset(-24px_-24px_0_-24px)] data-starting-style:[clip-path:inset(100%_-24px_0_-24px)] data-ending-style:[clip-path:inset(100%_-24px_0_-24px)]'
                 : '[clip-path:inset(0_-24px_-24px_-24px)] data-starting-style:[clip-path:inset(0_-24px_100%_-24px)] data-ending-style:[clip-path:inset(0_-24px_100%_-24px)]',
             )}
           >
-            <SelectPrimitive.List>
+            <SelectPrimitive.List
+              data-slot="select-rows"
+              className={cn(
+                // Eight rows at most, then it scrolls; the seam by the box stays where it is.
+                'box-border overflow-y-auto py-[4px]',
+                variant === 'ghost' ? 'max-h-[calc(8*(1lh+12px)+8px)] rounded-[5px]'
+                  : up ? 'max-h-[calc(8*(1lh+12px)+9px)] rounded-t-[5px] border-0 border-b border-solid border-border'
+                    : 'max-h-[calc(8*(1lh+12px)+9px)] rounded-b-[5px] border-0 border-t border-solid border-border',
+              )}
+            >
               {options.map((o) => (
                 <SelectPrimitive.Item
                   key={o.value}
