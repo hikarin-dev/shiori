@@ -9,7 +9,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, until } from './harness.mjs';
-import { openRun, nextBase, gid, visit, read, boxes, boxDiff, named, sleep, OLD, NEW } from './overview-drive.mjs';
+import { openRun, nextBase, gid, visit, settled, read, boxes, boxDiff, named, sleep, OLD, NEW } from './overview-drive.mjs';
 
 let server, origin, browser, page, base;
 
@@ -66,7 +66,7 @@ test('what the tests read: the series\' rows, the gallery\'s details and tags as
 });
 
 test('the volumes, chosen on the page: the same on both, kept as the view, and followed by the other page', { skip: !chromePath() }, async () => {
-  const choose = async (p) => { await p.click('#ovSection [data-view="volumes"]'); await until(p, () => document.querySelector('#ovSection [data-view="volumes"]').getAttribute('aria-selected') === 'true' && document.querySelectorAll('.ch-row').length === 2, null, { what: 'the volumes' }); await sleep(300); };
+  const choose = async (p) => { await p.click('#ovSection [data-view="volumes"]'); await until(p, () => document.querySelector('#ovSection [data-view="volumes"]').getAttribute('aria-selected') === 'true' && document.querySelectorAll('.ch-row').length === 2, null, { what: 'the volumes' }); await settled(p); };   // (its rows' covers in: 300 ms read 1.3's before they came, under load)
   const reset = () => page.evaluate(() => localStorage.removeItem('shiori:seriesView'));
   await reset();
   const got = await both(gid(base, 'S'), { then: async (p) => { await choose(p); } });

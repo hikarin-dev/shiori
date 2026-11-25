@@ -64,6 +64,15 @@ export async function seedRun(page, origin, base, { helper = true, storage = {} 
   await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await page.evaluate(seed, { base, parts: PARTS });
   await page.evaluate(async () => (await import('/app/js/migrations.js')).runMigrations());
+  // Each gallery's typical page measured, and each series' from its chapters', now: the library measures
+  // them 3 s after a gallery's pages stop changing, on a timer of the page that stored them, which this
+  // seeding page leaves at once; the overview then asks again as it reads, so under load 1.3's page was
+  // read before the size had come and the new page after it ("a gallery at 1280", six copies at once).
+  await page.evaluate(async ({ base, parts }) => {
+    const db = await import('/app/js/db.js');
+    for (const n of Object.values(parts)) await db.refreshMedianPage(String(base + n));
+    for (const part of ['S', 'W']) await db.refreshSeriesAggregate(String(base + parts[part]));
+  }, { base, parts: PARTS });
   await page.evaluate(async (stored) => {
     const platform = await import('/app/js/platform.js');
     for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind);
