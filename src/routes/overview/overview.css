@@ -163,7 +163,12 @@
   .ch-row.expanded .ch-pages { display: grid; }
 
   /* ── The add-a-chapter bar ── */
-  .add-bar { margin-top: 22px; padding: 16px; border: 1px dashed var(--border); border-radius: 10px; }
+  .add-bar {
+    margin-top: 22px; padding: 16px; border: 1px dashed var(--border); border-radius: 10px;
+    transition: border-color .12s, background-color .12s;
+  }
+  /* Files dragged over it (./add-bar.tsx): the brand's frame on its tint (§5.3 F10: 6% → 8%). */
+  .add-bar.drag { border-color: var(--primary); background-color: var(--primary-tint); }
   .add-bar h3 { margin: 0 0 10px; }
   .add-search-wrap { position: relative; }
   .add-hint { margin-top: 10px; color: var(--muted-foreground); font-size: 11px; }

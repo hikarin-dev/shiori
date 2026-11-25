@@ -22,10 +22,10 @@ import * as api from '@lib/api.js';
 import { getLang } from '@lib/i18n.js';
 import { editKeyForLang, normalizeTitle, seriesTitleObject } from '@lib/titles.js';
 import { memberKind } from '@lib/gallery-model.js';
-import { removeChapter, reorderChapters, setChapterTitle, setGalleryTitle, setSeriesTitle } from '@lib/series.js';
+import { mergeIntoSeries, removeChapter, reorderChapters, setChapterTitle, setGalleryTitle, setSeriesTitle } from '@lib/series.js';
 import { TAG_TYPE_LABEL, removeTag } from '@lib/tag-editor.js';
 import { alertNotice, askDelete, askDownloadAgain, askRemoveTag, askRerun, askRevert, askTranslate, galleryDetail, intent, isWhole, t, type About } from '@/lib/gallery-actions';
-import { editGallery, readAgain } from '@/lib/library-query';
+import { editGallery, galleryKey, readAgain } from '@/lib/library-query';
 import { editFrame, overviewKey, type Entity, type Frame, type Ref } from './data';
 import { isEnded, type ChapterJobs } from './jobs';
 
@@ -274,6 +274,26 @@ export function overviewActions(deps: OverviewDeps) {
     async delete(ch: Ref, e: Entity | null, label: string, quick: boolean) {
       if (!quick && !(await askDelete({ ...(e ?? {}), id: ch.id, linked: !!e?.linked }, about(ch, e, label)))) return;
       await remove(ch, true);
+    },
+
+    // ── The add bar ──
+    // A gallery of the library added as the series' next member (a standalone gallery so becomes a series;
+    // one that is a series itself brings its members): drawn at the list's end at once, as its own kind
+    // (the frame; its gallery's entry from what was found), then asked of the library; refused, it is
+    // taken off again and told (1.3's chapterFailAlert).
+    async addChapter(g: Entity) {
+      const owner = deps.ownerId();
+      if (!owner) return;
+      const id = String(g.id);
+      if (client.getQueryData(galleryKey(id)) === undefined) client.setQueryData(galleryKey(id), g);
+      const ref: Ref = { id, title: '', ...(memberKind(g) === 'volume' ? { kind: 'volume' as const } : {}) };
+      try {
+        await editFrame(client, deps.key(), (f) => (f.refs.some((r) => r.id === id) ? f : { ...f, isSeries: true, refs: [...f.refs, ref] }),
+          () => mergeIntoSeries(owner, id));
+      } catch (err) {
+        const { refusalText } = await import('@lib/library-folders.js');
+        alertNotice({ title: t('dlg.chapter_fail_title'), detail: (refusalText(err) as string | null) ?? (err as Error).message, tone: 'error' });
+      }
     },
 
     // Replace's file picked: its pages from it, as a library card's Replace does (the desktop app's

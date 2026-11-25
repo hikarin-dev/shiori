@@ -8,7 +8,10 @@
 // Its buttons (./overview/actions.ts): the heart, Edit and edit mode (the titles typed in, the tags
 // edited), Archive now, Move; a row's arrows, download and Replace, translate with its Stop, Revert and
 // "Re-run from…", detach and delete. What a press opens is loaded at its first use: the re-run menu,
-// the tag editor, Replace's file input. The grip and the add bar are drawn and do nothing yet (7c).
+// the tag editor, Replace's file input. A row's grip drags it to another place (./overview/row-drag.ts,
+// loaded at the first press on a grip); the add bar adds a gallery of the library or files dropped on it
+// as the next chapters (./overview/add-bar.tsx; what it finds and draws, and the drop's reading, loaded
+// at their first use), the batch then followed by the tracker.
 //
 // What it shows is data (T4): the page's frame (which gallery, a series or not, its members, the
 // series' title) and the tags' counts are queries (./overview/data.ts), each member's gallery its own
@@ -21,7 +24,7 @@
 // (./overview/jobs.ts), each outside React and read by the part that shows them.
 //
 // Drawn on 1.3's sizes (overview.css, ./overview/overview.css).
-import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Settings } from 'lucide-react';
@@ -42,12 +45,11 @@ import type { RerunAsk } from '@/components/rerun-menu';
 import { ImportTracker } from '@/components/import-tracker';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
-import { Input } from '@/components/ui/input';
 import { PageMenu } from '@/components/ui/page-menu';
 import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs';
 import { Eyebrow } from '@/components/ui/text';
 import { galleryQuery, queryClient } from '@/lib/gallery';
-import { useT, type Translate } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { createBatchStore } from '@/lib/import-batches';
 import { readAgain } from '@/lib/library-query';
 import { goTo } from '@/lib/links';
@@ -59,6 +61,7 @@ import { overviewActions, type TagRef } from './overview/actions';
 import { coverKey, createOverviewCovers, HERO_WIDTH, ROW_WIDTH } from './overview/covers';
 import { followFrame, overviewKey, readFrame, readTagCounts, tagCountsKey, type Entity, type Frame, type Ref } from './overview/data';
 import { Hero, type HeroOn, type HeroView } from './overview/hero';
+import { AddBar, type AddBarDeps } from './overview/add-bar';
 import { createChapterJobs } from './overview/jobs';
 import type { RowDrag } from './overview/row-drag';
 import { createGridEngine, PageGrid, useCover } from './overview/parts';
@@ -89,19 +92,6 @@ const TagEditor = lazy(() => import('@/components/tag-editor').then((m) => ({ de
     return queryClient.prefetchQuery({ queryKey: tagCountsKey(keys), queryFn: () => readTagCounts(keys), staleTime: Infinity });
   }).catch(() => {});
 })();
-
-// The add-a-chapter bar: drawn, doing nothing yet (7c: a chapter added from the library, a file dropped).
-const AddBar = memo(function AddBar({ t, kind }: { t: Translate; kind: 'chapter' | 'volume' }) {
-  return (
-    <div className="add-bar" id="addBar">
-      <Eyebrow as="h3" size="lg" id="addHeading">{t(kind === 'volume' ? 'ov.add_volume' : 'ov.add_chapter')}</Eyebrow>
-      <div className="add-search-wrap">
-        <Input variant="inset" size="xl" className="add-search" id="addSearch" placeholder={t('ov.add_search_ph')} autoComplete="off" spellCheck={false} />
-      </div>
-      <div className="add-hint">{t('ov.add_hint')}</div>
-    </div>
-  );
-});
 
 export default function Overview() {
   // 1.3's page's own title (overview.html).
@@ -321,6 +311,16 @@ export default function Overview() {
     detach: actions.detach, delete: actions.delete, saveChapterTitle: actions.saveChapterTitle,
   }), [actions, grip]);
 
+  // The add bar: a gallery of the library added, files dropped as the next chapters (./overview/add-bar.tsx).
+  const addDeps = useMemo<AddBarDeps>(() => {
+    const ownerOf = () => owner.current.id ?? (now.current.frame?.found ? now.current.frame.ownerId : null);
+    return {
+      t, covers, owner: ownerOf,
+      onPick: (g) => { actions.addChapter(g).catch((err) => console.error(err)); },
+      onDrop: (items) => { import('./overview/add-drop').then((m) => m.dropChapters(items, ownerOf, () => now.current.kind)).catch((err) => console.error(err)); },
+    };
+  }, [t, covers, actions]);
+
   const rowDeps = useMemo<RowDeps>(() => ({
     t, covers, jobs, grids, on: rowOn,
     view: (ch, idx, e) => rowView(ch, idx, e, { pickTitle: pickTitle as never, chapterNumberLabel: chapterNumberLabel as never, memberKind, safeExternalUrl: safeExternalUrl as never, readerHref }, formats),
@@ -396,7 +396,7 @@ export default function Overview() {
                     </ChapterList>
                   ) : <PageGrid key={ownerId} engine={grids} gid={ownerId!} version={ownerEntity} className="ov-pages" id="ovPages" />}
                 </div>
-                <AddBar t={t} kind={kind} />
+                <AddBar kind={kind} deps={addDeps} />
               </>
             )}
         </div>
