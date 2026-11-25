@@ -3,7 +3,8 @@
 // and pages that record everything the app leaves unhandled. Requests and sockets that leave the test
 // server are refused, so a test never reaches a real translation server, an app running on this
 // machine, or the internet.
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import puppeteer from 'puppeteer-core';
 import { builtSite } from '../../../build/built.mjs';
 import { startServer as serve } from '../../../build/serve.mjs';
@@ -53,6 +54,36 @@ document.body.innerHTML = frame;
 globalThis.__reader = startReader();
 `,
 };
+
+// The reader's page has sheets the route that will draw it inside the one page does not load: the
+// old pages' shared sheets. The rest of its sheets are the reader's own.
+export const OLD_PAGE_SHEETS = ['base.css', 'dropdown.css', 'notice.css'];
+
+// The reader's page as the document of its route will be (openPage's `styles: 'route'`): the old
+// pages' sheets taken out, the one page's built stylesheets put in before the reader's own (its
+// entry's, and with `all` every route's too: a route's sheet stays once it has been loaded), and
+// <html class="dark"> as the one page has it.
+export function routeDocument({ all = true } = {}) {
+  const dist = builtSite();
+  const index = readFileSync(join(dist, 'index.html'), 'utf8');
+  const entry = [...index.matchAll(/<link rel="stylesheet"[^>]*href="\.?\/?(assets\/[^"]+\.css)"[^>]*>/g)].map((m) => `/${m[1]}`);
+  const routes = all ? readdirSync(join(dist, 'assets')).filter((f) => f.endsWith('.css')).map((f) => `/assets/${f}`).filter((f) => !entry.includes(f)) : [];
+  let html = readFileSync(join(dist, 'app', 'reader.html'), 'utf8');
+  for (const sheet of OLD_PAGE_SHEETS) {
+    const link = new RegExp(`\\s*<link rel="stylesheet" href="${sheet.replace('.', '\\.')}">`);
+    if (!link.test(html)) throw new Error(`reader.html has no ${sheet}`);
+    html = html.replace(link, '');
+  }
+  const first = html.match(/\s*<link rel="stylesheet"[^>]*>/);
+  html = html.replace(first[0], [...entry, ...routes].map((href) => `\n  <link rel="stylesheet" href="${href}">`).join('') + first[0]);
+  return html.replace(/<html lang="en"/, '<html lang="en" class="dark"');
+}
+
+// The reader's own sheets, as the reader's page links them (after <base href="app/">).
+export function readerSheets() {
+  const html = readFileSync(join(builtSite(), 'app', 'reader.html'), 'utf8');
+  return [...html.matchAll(/<link rel="stylesheet" href="([^"]+)">/g)].map((m) => m[1]).filter((href) => !OLD_PAGE_SHEETS.includes(href));
+}
 
 // Where a refused socket is opened instead: a port the browser itself refuses to connect to.
 const NOWHERE = 'ws://127.0.0.1:9/';
