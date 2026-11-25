@@ -63,6 +63,19 @@ for (const path of ['/library', '/library-next']) {
     await page.evaluate(async (id) => (await import('/app/js/api.js')).personal.favorite(id, true), gid('P'));
     await until(page, (id) => !!document.querySelector(`#grid > .card[data-gallery-id="${id}"] .card-btn-dl.cancelling`), gid('I'), { what: 'the download\'s Stop' });
     await nothingDarker(page, `${path}, jobs running`, 20);
+    // Safe Mode on, the header unpinned, the menu's list of totals open (the window is 1280 wide: the
+    // totals are folded behind it). Safe Mode's button keeps its green under the pointer.
+    // (Both choices are kept from one page to the next: each pressed only where it is not so yet.)
+    if (!(await page.evaluate(() => document.getElementById('safeBtn').matches('.active, [aria-pressed="true"]')))) await page.click('#safeBtn');
+    if (await page.evaluate(() => getComputedStyle(document.querySelector('header')).position === 'sticky')) await page.click('#pinBtn');
+    await page.click('#burgerBtn');
+    await until(page, () => document.getElementById('safeBtn').matches('.active, [aria-pressed="true"]') && getComputedStyle(document.querySelector('header')).position === 'relative', null, { what: 'Safe Mode on, the header unpinned' });
+    await until(page, () => getComputedStyle(document.getElementById('collapsibleGroup')).display !== 'none', null, { what: 'the menu open' });
+    await sleep(300);
+    const changes = await nothingDarker(page, `${path}, Safe Mode on, unpinned, the menu open`, 20);
+    assert.deepEqual(changes.filter((c) => c.element.includes('#safeBtn') && !c.element.includes('▸')).map(said), [], `${path}: Safe Mode's button, on, under the pointer`);
+    // (The measure's pointer leaves the open list where it is: a move is no press.)
+    assert.notEqual(await page.evaluate(() => getComputedStyle(document.getElementById('collapsibleGroup')).display), 'none', 'the menu still open');
     await page.close();
   });
 }

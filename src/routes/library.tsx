@@ -6,7 +6,13 @@
 // each card reading its own gallery's. Import (the picker, a drop of files or folders, the tracker of
 // its batches, backups picked or dropped) is src/lib/library-import.ts's and ./library/tracker.tsx's,
 // a card dragged onto another src/lib/card-drag.ts's: each loaded the first time it is needed, so the
-// page's own load takes none of them. Safe Mode comes with the page's later steps.
+// page's own load takes none of them.
+//
+// The header's choices are the page's, kept as 1.3 kept them (raw keys, read as the page shows): Safe
+// Mode (`shiori-safe-mode`: the grid's `safe` mode blurs the covers not rated safe, every card shows the
+// words src/lib/safe-mode.ts stands in for its own, made once a gallery while it stays on, and a
+// question about a card shows no cover while its cover is blurred) and the pin (`shiori-header-pin`:
+// unpinned, html[data-header-unpinned] lets the header scroll away with the page, frame.css).
 //
 // What it shows is data (T4): the page asked for (sort, page, search, filter, merged or not) is read
 // through the app's query cache (./library/data.ts), each card drawn from its gallery's entry there,
@@ -25,7 +31,7 @@
 // controls 12 apart; the grid of cards at least 240px wide, 16 apart, 1512px wide at most, 24px in at
 // the sides and 40 under it (two to a row, 10 apart, 12 in and 32 under at 600px or less); the paging
 // 8px under it and 48 above the page's end, its buttons 5 apart.
-import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Suspense, lazy, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { keepPreviousData, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router';
 import { Funnel } from 'lucide-react';
@@ -43,7 +49,7 @@ import { DropOverlay } from '@/components/ui/drop-overlay';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Pagination } from '@/components/ui/pagination';
 import { Select } from '@/components/ui/select';
-import { cardView, type CardEnv, type CardGallery } from '@/lib/card-view';
+import { cardView, ratedSafe, type CardEnv, type CardGallery } from '@/lib/card-view';
 import { CARD_FORMATS } from '@/lib/card-rules';
 import { coverKeyOf, createCoverStore, type CoverStore } from '@/lib/covers';
 import { galleryQuery } from '@/lib/gallery';
@@ -56,6 +62,7 @@ import type { CardDrag } from '@/lib/card-drag';
 import type { DropItems } from '@/lib/library-import';
 import { attachNativeBackupOnce } from '@/lib/native-backup';
 import { readAgain } from '@/lib/library-query';
+import { SAFE_MODE_KEY, createScrambler, type Scrambler } from '@/lib/safe-mode';
 import { useShiftHeld } from '@/lib/modifiers';
 import { createIconStore, type IconStore } from '@/lib/source-icons';
 import { useTitle } from '@/lib/title';
@@ -88,6 +95,11 @@ const RELOAD_MS = 250;        // the page read again this long after the last wo
 const TOTALS_MS = 800;        // the totals read again this long after the last change
 const REVEAL_EVERY_MS = 5000; // a gallery the page shows no card for is looked for once in this at most
 const LISTING_EVERY_MS = 100; // a drop being read is told this often at most (1.3's)
+const PIN_KEY = 'shiori-header-pin';   // the header pinned unless '0' (1.3's)
+
+// A raw key of the page's, kept as 1.3 kept it (storage may be refused: a private window).
+const readKey = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
+const writeKey = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* not kept */ } };
 
 // A drop's items as the drop event has them, for reading after it (they can only be listed while it
 // lasts): each file's entry, and its file where it is not a folder.
@@ -118,8 +130,11 @@ function toAddress(page: number, query: string, sort: string) {
 type Gallery = CardGallery & { parentId?: unknown };
 
 // A card of the grid: its gallery's entry, its cover, its source's icon and its jobs, drawn as the
-// card's view. The card is the grid's own child (this draws nothing of its own).
-const LibraryCard = memo(function LibraryCard({ g, env, covers, icons, jobs, on }: { g: Gallery; env: CardEnv; covers: CoverStore; icons: IconStore; jobs: LibraryJobs; on: CardHandlers }) {
+// card's view (with Safe Mode's words while it is on). The card is the grid's own child (this draws
+// nothing of its own).
+const LibraryCard = memo(function LibraryCard({ g, env, covers, icons, jobs, on, safe, scrambler }: {
+  g: Gallery; env: CardEnv; covers: CoverStore; icons: IconStore; jobs: LibraryJobs; on: CardHandlers; safe: boolean; scrambler: Scrambler;
+}) {
   const key = coverKeyOf(g, env.prefs.mergeSeries);
   const cover = useSyncExternalStore(covers.subscribe, () => covers.get(key));
   const icon = useSyncExternalStore(icons.subscribe, () => icons.get(g.source));
@@ -130,9 +145,11 @@ const LibraryCard = memo(function LibraryCard({ g, env, covers, icons, jobs, on 
   // The view without its cover, which the card takes apart: a cover arriving leaves the view the same
   // object, and the card draws its cover alone.
   const view = useMemo(() => cardView(g, null, env), [g, env, icon]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // Safe Mode's words: one view a gallery while it stays on (the scrambler keeps them).
+  const shown = useMemo(() => (safe ? scrambler.view(view) : view), [view, safe, scrambler]);
   // A source with no icon kept: asked for each time its card is drawn anew (1.3's _siteFavicon).
   useEffect(() => { if (g.source && !icon) icons.want(g.source); }, [g, icon, icons]);
-  return <GalleryCard view={view} cover={cover} job={state.job} interrupted={state.interrupted} pending={state.pending} pendingLabel={state.pendingLabel} exporting={state.exporting} holding={state.holding} on={on} />;
+  return <GalleryCard view={shown} cover={cover} job={state.job} interrupted={state.interrupted} pending={state.pending} pendingLabel={state.pendingLabel} exporting={state.exporting} holding={state.holding} on={on} />;
 });
 
 export default function Library() {
@@ -154,6 +171,28 @@ export default function Library() {
   const seriesView = usePref<string>('seriesView');
   const filterJson = usePref<string>('libFilter');
   const filter = useMemo(() => JSON.parse(filterJson) as LibFilter, [filterJson]);
+
+  // ── The header's choices: Safe Mode and the pin, read as the page shows ──
+  const [safe, setSafe] = useState(() => readKey(SAFE_MODE_KEY) === '1');
+  const [scrambler] = useState(() => createScrambler());
+  const safeRef = useRef(safe);
+  safeRef.current = safe;
+  const toggleSafe = useCallback(() => {
+    const next = !safeRef.current;
+    writeKey(SAFE_MODE_KEY, next ? '1' : '0');
+    // Off: the stand-ins go; on again, new ones (1.3 scrambled anew each time).
+    if (!next) scrambler.clear();
+    setSafe(next);
+  }, [scrambler]);
+  const [pinned, setPinned] = useState(() => readKey(PIN_KEY) !== '0');
+  // Kept (1.3 wrote it each time the page showed, and at each press), and the header told; the header
+  // stays at the window's top again when the page is left.
+  useLayoutEffect(() => {
+    writeKey(PIN_KEY, pinned ? '1' : '0');
+    const { dataset } = document.documentElement;
+    if (pinned) delete dataset.headerUnpinned; else dataset.headerUnpinned = '';
+    return () => { delete dataset.headerUnpinned; };
+  }, [pinned]);
 
   // ── What the page asks: from the address once, as it shows ──
   const [start] = useState(() => fromAddress(location.search));
@@ -392,8 +431,12 @@ export default function Library() {
     window.addEventListener('focus', focus);
     return () => window.removeEventListener('focus', focus);
   }, []);
-  // The cover a card shows, for a dialog about it. (Safe Mode, 6e: none while it blurs the card's.)
-  const coverOf = (id: string) => { const g = galleryOf(id); return (g && covers.get(coverKeyOf(g, mergeRef.current))) || ''; };
+  // The cover a card shows, for a dialog about it: none while Safe Mode blurs it (1.3's _cardCover).
+  const coverOf = (id: string) => {
+    const g = galleryOf(id);
+    if (!g || (safeRef.current && !ratedSafe(g))) return '';
+    return covers.get(coverKeyOf(g, mergeRef.current)) || '';
+  };
   const actions = useMemo(() => cardActions({
     client, jobs,
     gallery: (id) => galleryOf(id) as ShownGallery | undefined,
@@ -570,11 +613,12 @@ export default function Library() {
   // ── The grid's element: the cards' modes, Shift held ──
   const grid = useRef<HTMLDivElement>(null);
   useShiftHeld(grid);
-  const modes = cardModes({ quickActions, hideCategory: !showCategory, translatorOffline: !translatorOnline });
+  const modes = cardModes({ quickActions, hideCategory: !showCategory, translatorOffline: !translatorOnline, safeMode: safe });
 
   return (
     <>
-      <LibraryHeader t={t} query={typed} onQueryChange={onQueryChange} totals={totals.data} showTotals={showTotals} onImport={pickImport} />
+      <LibraryHeader t={t} query={typed} onQueryChange={onQueryChange} totals={totals.data} showTotals={showTotals} onImport={pickImport}
+        pinned={pinned} onPin={() => setPinned((was) => !was)} safe={safe} onSafe={toggleSafe} />
       <main className="library-page">
         <div className="toolbar flex items-center justify-center gap-[12px] px-[24px] py-[12px] [@media(max-width:600px)]:px-[12px] [@media(max-width:600px)]:py-[10px]">
           <Select id="sortSelect" variant="toolbar" size="toolbar" width="widest" className="sort-select"
@@ -588,7 +632,7 @@ export default function Library() {
         {tracking && <Suspense fallback={null}><LibraryTracker onStore={onTrackerStore} /></Suspense>}
         <div ref={grid} id="grid" data-card-modes={modes}
           className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] auto-rows-fr items-start gap-[16px] px-[24px] pb-[40px] max-w-[1512px] mx-auto [@media(max-width:600px)]:grid-cols-[repeat(2,minmax(0,1fr))] [@media(max-width:600px)]:gap-[10px] [@media(max-width:600px)]:px-[12px] [@media(max-width:600px)]:pb-[32px]">
-          {galleries.map((g) => <LibraryCard key={String(g.id)} g={g} env={env} covers={covers} icons={icons} jobs={jobs} on={on} />)}
+          {galleries.map((g) => <LibraryCard key={String(g.id)} g={g} env={env} covers={covers} icons={icons} jobs={jobs} on={on} safe={safe} scrambler={scrambler} />)}
           {data && galleries.length === 0 && (
             <EmptyState loose className="empty">{t('lib.empty_title')}<br />{t('lib.empty_sub')}</EmptyState>
           )}

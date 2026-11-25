@@ -3,7 +3,9 @@
 // when it is landscape), a series' badge, the heart, the id row with the source button and the quick
 // actions, the title, the meta line, a job's bar and line, the tags. Its look is gallery-card.css.
 //
-//   view     what it shows of its gallery: cardView(g, cover, env) (src/lib/card-view.ts)
+//   view     what it shows of its gallery: cardView(g, cover, env) (src/lib/card-view.ts); with its
+//            `safe` words (Safe Mode, src/lib/safe-mode.ts) it shows those in place of the title's,
+//            the id's and the tags', keeps the real ones as its originals, and its id is no link
 //   cover    its cover's picture, where the page keeps it apart from the view (a cover arriving then
 //            draws the cover alone, the view being the same object); left out, the view's is shown
 //   job      the gallery's job, its latest news as published (null: none): its bar and line, the
@@ -24,8 +26,8 @@
 //   on       the handlers, each called with the gallery's id (and what was pressed, where there is a
 //            choice): the card starts nothing itself. Which one a press means is the card's, as 1.3's
 //            handlers chose: Shift, Alt, the button's form.
-// The modes (the quick actions' preference, the category tag, the translation server, Safe Mode, the
-// phone form) come from the grid's element: cardModes() below, read by the stylesheet, so a mode
+// The modes (the quick actions' preference, the category tag, the translation server, Safe Mode's blur,
+// the phone form) come from the grid's element: cardModes() below, read by the stylesheet, so a mode
 // changes no card's markup. Shift held comes as the grid's class (useShiftHeld): the hovered button
 // turns to its Shift face in CSS. A change to one part changes that part's nodes only (React keeps the
 // rest, the cover's <img> above all), and a card under the pointer keeps its hover.
@@ -186,7 +188,8 @@ const ICON = 'size-[14px]';
 
 // ── The tags ──
 const TAG_VARIANT = { category: 'category', artist: 'artist' } as const;
-const Tags = memo(function Tags({ id, tags, on }: { id: string; tags: CardTag[]; on: CardHandlers }) {
+// `shown`: Safe Mode's words, chip by chip (the view's `safe`), in place of each tag's own.
+const Tags = memo(function Tags({ id, tags, shown, on }: { id: string; tags: CardTag[]; shown?: (string | null)[]; on: CardHandlers }) {
   return (
     <div className="card-tags">
       {tags.map((chip, i) => {
@@ -207,7 +210,7 @@ const Tags = memo(function Tags({ id, tags, on }: { id: string; tags: CardTag[];
         return (
           <Tag key={`${i}:${chip.type}:${chip.name}`} size="xs" variant={variant} removable tabIndex={-1}
             className={cn('card-tag', chip.type === 'category' && 'category', chip.type === 'artist' && 'artist')} data-type={chip.type} data-original={chip.name}
-            onClick={(e) => { e.preventDefault(); if (e.shiftKey) on.removeTag?.(id, ref); else on.tag?.(id, ref); }}>{chip.text}</Tag>
+            onClick={(e) => { e.preventDefault(); if (e.shiftKey) on.removeTag?.(id, ref); else on.tag?.(id, ref); }}>{shown?.[i] ?? chip.text}</Tag>
         );
       })}
     </div>
@@ -295,9 +298,10 @@ const Rest = memo(function Rest({ view, on, shown, bar, done, label, dlForm, trF
             aria-label={view.open.tip} data-tip={view.open.tip} data-tip-shift={view.open.shift ?? undefined} data-tip-alt={view.open.alt ?? undefined} onClick={onOpen}>
             <OpenFace view={view} />
           </Button>
+          {/* Safe Mode: its words in place of the id's, and no link (nothing of the address in the page). */}
           {view.idHref
-            ? <a className={cn('card-id', view.local && 'local')} href={view.idHref} target="_blank" rel="noopener noreferrer" data-original={view.idText}>{view.idText}</a>
-            : <div className={cn('card-id', view.local && 'local')} data-original={view.idText}>{view.idText}</div>}
+            ? <a className={cn('card-id', view.local && 'local')} href={view.safe ? undefined : view.idHref} target="_blank" rel="noopener noreferrer" data-original={view.idText}>{view.safe?.idText ?? view.idText}</a>
+            : <div className={cn('card-id', view.local && 'local')} data-original={view.idText}>{view.safe?.idText ?? view.idText}</div>}
           <div className="card-actions">
             <Button variant="quiet" tone={dlForm === 'done' ? 'success' : 'warning'} rest={dlForm === 'done' ? 'framed' : 'tone'} hover="fill" size="icon" coarse="36" type="button"
               className={cn('card-btn card-btn-dl', dlForm === 'cancel' && 'cancelling', dlForm === 'done' && 'done')} data-id={id}
@@ -320,7 +324,7 @@ const Rest = memo(function Rest({ view, on, shown, bar, done, label, dlForm, trF
             </Button>
           </div>
         </div>
-        {view.title && <div className="card-title" data-original={view.title}>{view.title}</div>}
+        {view.title && <div className="card-title" data-original={view.title}>{view.safe?.title ?? view.title}</div>}
         <div className="card-meta">
           {view.pages.tip == null ? view.pages.text
             : <span className="card-pages" data-tip={view.pages.tip} data-tip-badge={view.pages.badge ?? undefined}>{view.pages.text}</span>}
@@ -332,7 +336,7 @@ const Rest = memo(function Rest({ view, on, shown, bar, done, label, dlForm, trF
           <Progress value={bar} done={done} className="prog-track" indicatorClassName="prog-fill" aria-labelledby={labelId} />
           <span className="card-prog-label" id={labelId}>{label}</span>
         </div>
-        <Tags id={id} tags={view.tags} on={on} />
+        <Tags id={id} tags={view.tags} shown={view.safe?.tags} on={on} />
       </div>
     </>
   );

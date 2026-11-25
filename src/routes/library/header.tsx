@@ -2,12 +2,16 @@
 // search and the pin; at the right the menu button, the three totals (galleries, images, stored, each
 // with its tip), Import, Safe Mode and Settings. Drawn on 1.3's sizes (library.css): wider than 1400px
 // the totals sit in the bar and Import shows its word; at 1400px or less the totals fold behind the
-// menu button and Import is its icon alone, 28 square. The totals and the menu button go when
-// Settings turns the totals off.
+// menu button, shown under the bar's right end while it is open, and Import is its icon alone, 28
+// square. The totals and the menu button go when Settings turns the totals off.
 //
-// Import opens the page's file picker (onImport). The menu button's list, the pin and Safe Mode are
-// drawn in their place and do nothing yet (they come with the page's later steps).
-import { Eye, Menu, Pin, Settings, Upload } from 'lucide-react';
+// Import opens the page's file picker (onImport). The pin makes the header stay at the window's top or
+// scroll away with the page (onPin), Safe Mode blurs and scrambles the cards (onSafe): both are the
+// page's, which keeps them. The menu button opens and closes its list of totals (1.3's #collapsibleGroup
+// and its class `open`); a press anywhere else closes it, as 1.3's did (not Escape: 1.3 had no key for
+// it), and it is closed again whenever the page shows.
+import { useEffect, useState, type SVGProps } from 'react';
+import { Menu, Settings, Upload } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { TIERS, describePage } from '@lib/page-size.js';
 import { formatBytes, formatCount } from '@lib/format.js';
@@ -60,6 +64,26 @@ export function tierTally(t: Translate, stats: Totals['stats']) {
 // less (written out whole: the stylesheet is made from the classes it finds).
 const WIDE_ONLY = '[@media(max-width:1400px)]:hidden';
 const NARROW_ONLY = 'hidden [@media(max-width:1400px)]:flex';
+// The totals folded (1.3's .collapsible-group at 1400px or less): not shown until the menu button opens
+// them, then one row of the same boxes under the bar's right end, as wide as they are, over the page;
+// 12px in from the window's edge on a phone (600px or less), 2px higher.
+const FOLDED = cn(
+  '[@media(max-width:1400px)]:fixed [@media(max-width:1400px)]:top-[54px] [@media(max-width:1400px)]:right-[20px] [@media(max-width:1400px)]:z-[200]',
+  '[@media(max-width:1400px)]:not-[.open]:hidden [@media(max-width:1400px)]:items-stretch',
+  '[@media(max-width:1400px)]:w-max [@media(max-width:1400px)]:max-w-[calc(100vw-40px)]',
+  '[@media(max-width:1400px)]:rounded-8 [@media(max-width:1400px)]:border [@media(max-width:1400px)]:border-solid [@media(max-width:1400px)]:border-border [@media(max-width:1400px)]:bg-card',
+  '[@media(max-width:1400px)]:p-[12px] [@media(max-width:1400px)]:[box-shadow:0_6px_24px_rgba(0,0,0,0.5)]',
+  '[@media(max-width:600px)]:top-[52px] [@media(max-width:600px)]:right-[12px] [@media(max-width:600px)]:max-w-[calc(100vw-24px)]',
+);
+
+// 1.3's own drawings (Lucide's of its time; the Lucide this app bundles draws them otherwise).
+function Icon({ size, children, ...props }: SVGProps<SVGSVGElement> & { size: number }) {
+  return <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>{children}</svg>;
+}
+const PinIcon = () => <Icon size={14} className="size-[14px]"><line x1="12" y1="17" x2="12" y2="22" /><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" /></Icon>;
+const UnpinIcon = () => <Icon size={14} className="size-[14px]"><line x1="2" y1="2" x2="22" y2="22" /><line x1="12" y1="17" x2="12" y2="22" /><path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h12" /><path d="M15 9.34V6h1a2 2 0 0 0 0-4H7.89" /></Icon>;
+const EyeIcon = () => <Icon size={15}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></Icon>;
+const EyeOffIcon = () => <Icon size={15}><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" /><line x1="1" y1="1" x2="23" y2="23" /></Icon>;
 
 type Props = {
   t: Translate;
@@ -68,29 +92,48 @@ type Props = {
   totals: Totals | undefined;
   showTotals: boolean;
   onImport: () => void;
+  pinned: boolean;
+  onPin: () => void;
+  safe: boolean;
+  onSafe: () => void;
 };
 
-export function LibraryHeader({ t, query, onQueryChange, totals, showTotals, onImport }: Props) {
+export function LibraryHeader({ t, query, onQueryChange, totals, showTotals, onImport, pinned, onPin, safe, onSafe }: Props) {
   const navigate = useNavigate();
   const avg = totals && totals.stats.totalImages > 0 ? Math.round(totals.stats.totalSize / totals.stats.totalImages) : 0;
+  // The folded totals' list: closed by a press anywhere but on it and its button (1.3's listener on the
+  // document's clicks).
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => {
+      const at = e.target as Element | null;
+      if (!at?.closest?.('#collapsibleGroup, #burgerBtn')) setOpen(false);
+    };
+    document.addEventListener('click', away);
+    return () => document.removeEventListener('click', away);
+  }, [open]);
+  const pinTip = t(pinned ? 'nav.unpin' : 'nav.pin');
+  const safeTip = t(safe ? 'nav.safe_off' : 'nav.safe_on');
   return (
     <>
       <HeaderSlot side="left">
         <span className="brand-sep">/</span>
         <PageMenu page="library" />
         <SearchField placeholder={t('lib.search_ph')} clearLabel={t('lib.clear_search')} query={query} onQueryChange={onQueryChange} />
-        <Button id="pinBtn" variant="quiet" tone="warning" size="icon" coarse="40" className="btn-pin" aria-label={t('nav.unpin')} data-tip={t('nav.unpin')}>
-          <Pin className="size-[14px]" />
+        <Button id="pinBtn" variant="quiet" tone="warning" size="icon" coarse="40" className="btn-pin" aria-label={pinTip} data-tip={pinTip} onClick={onPin}>
+          {pinned ? <PinIcon /> : <UnpinIcon />}
         </Button>
       </HeaderSlot>
       <HeaderSlot side="right">
         {showTotals && (
-          <Button id="burgerBtn" variant="quiet" size="icon" coarse="40" className={cn('burger-btn', NARROW_ONLY)} aria-label={t('nav.menu')} data-tip={t('nav.menu')}>
+          <Button id="burgerBtn" variant="quiet" size="icon" coarse="40" className={cn('burger-btn', NARROW_ONLY)} aria-label={t('nav.menu')} data-tip={t('nav.menu')}
+            onClick={() => setOpen((was) => !was)}>
             <Menu className="size-[16px]" />
           </Button>
         )}
         {showTotals && (
-          <div id="collapsibleGroup" className={cn('collapsible-group flex shrink-0 items-center gap-[8px]', WIDE_ONLY)}>
+          <div id="collapsibleGroup" className={cn('collapsible-group flex shrink-0 items-center gap-[8px]', FOLDED, open && 'open')}>
             <Stat value={totals ? formatCount(totals.topLevel) : '—'} valueId="hTotalGalleries" label={t('stat.galleries')} className="hstat" />
             <Stat id="hImagesStat" value={totals ? formatCount(totals.stats.totalImages) : '—'} valueId="hTotalImages" label={t('stat.images')} className="hstat"
               data-tip={totals ? tierTally(t, totals.stats) : ''} />
@@ -109,8 +152,11 @@ export function LibraryHeader({ t, query, onQueryChange, totals, showTotals, onI
           <Upload className="btn-upload-icon size-[13px] [@media(max-width:1400px)]:size-[15px]" />
           <span className={cn('btn-upload-label', WIDE_ONLY)}>{t('nav.import')}</span>
         </Button>
-        <Button id="safeBtn" variant="quiet" tone="warning" pressedTone="success" size="icon" coarse="40" className="btn-safe" aria-label={t('nav.safe_on')} data-tip={t('nav.safe_on')}>
-          <Eye />
+        {/* Safe Mode: on, its frame and eye in the colour of success on its tint (aria-pressed: kept
+            under the pointer, rule 27). */}
+        <Button id="safeBtn" variant="quiet" tone="warning" pressedTone="success" size="icon" coarse="40" className={cn('btn-safe', safe && 'active')}
+          aria-pressed={safe} aria-label={safeTip} data-tip={safeTip} onClick={onSafe}>
+          {safe ? <EyeOffIcon /> : <EyeIcon />}
         </Button>
         <Button id="settingsBtn" variant="quiet" tone="primary" size="icon" coarse="40" className="btn-settings" aria-label={t('nav.settings')} data-tip={t('nav.settings')}
           onClick={() => goTo(navigate, 'settings')}>

@@ -17,6 +17,9 @@
     margin-right: calc(-1 * var(--page-scrollbar-gap));
     padding-right: calc(20px + var(--page-scrollbar-gap));
   }
+  /* The library's pin let go (html[data-header-unpinned], while that page shows): the header scrolls
+     away with the page, as 1.3's did. */
+  :root[data-header-unpinned] .app-header { position: relative; }
   .app-header .header-left { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
   .app-header .header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   /* Not filled (the frame alone, a page with no buttons): not there, so no gap is kept for it. */

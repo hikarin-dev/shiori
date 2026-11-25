@@ -100,6 +100,10 @@ export type CardView = {
   size: { text: string; tip: string };
   missing: string | null;
   tags: CardTag[];
+  // While Safe Mode is on (src/lib/safe-mode.ts): the words shown in place of the title, the id and each
+  // chip (null for a flag and for "+", which keep theirs), in the order of `tags`; the id is no link
+  // meanwhile. The real words stay above, as the card's originals.
+  safe?: { title: string; idText: string; tags: (string | null)[] };
 };
 
 // Language code → its flag (app/flags/<code>.svg), for the leading flag chips.
@@ -148,6 +152,9 @@ function openFace(source: string | undefined, env: CardEnv): OpenFace {
   return icon ? { kind: 'icon', src: icon, source } : { kind: 'slot', source };
 }
 
+// Rated safe or suggestive: Safe Mode leaves its cover alone (an unrated one blurs).
+export const ratedSafe = (g: Pick<CardGallery, 'tags'>) => (g.tags || []).some((tg) => tg.type === 'rating' && (tg.name === 'safe' || tg.name === 'suggestive'));
+
 export function cardView(g: CardGallery, cover: string | null, env: CardEnv): CardView {
   const { t, count, prefs, site, rules } = env;
   // A series owner is drawn (and acts) as its series only while series are merged; otherwise it is
@@ -171,8 +178,7 @@ export function cardView(g: CardGallery, cover: string | null, env: CardEnv): Ca
   return {
     id: String(g.id),
     series,
-    // Safe Mode blurs a cover unless the gallery is rated safe or suggestive (an unrated one blurs).
-    sfw: (g.tags || []).some((tg) => tg.type === 'rating' && (tg.name === 'safe' || tg.name === 'suggestive')),
+    sfw: ratedSafe(g),
     // Every gallery has an overview; the "skip overview" preference sends a card to the reader.
     href: prefs.bypassOverview ? `reader?g=${encodeURIComponent(g.id)}` : `overview?g=${encodeURIComponent(g.id)}`,
     cover: { src, expected: series ? ((g.aggPages || g.count || 0) > 0 || !!src) : ((g.count ?? 0) > 0 || !!src) },
