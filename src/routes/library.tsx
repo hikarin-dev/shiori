@@ -72,18 +72,19 @@ import { useShiftHeld } from '@/lib/modifiers';
 import { createIconStore, type IconStore } from '@/lib/source-icons';
 import { useTitle } from '@/lib/title';
 import { cn } from '@/lib/utils';
-import { cardActions, galleryDetail, type ShownGallery } from './library/actions';
+import { cardActions } from './library/actions';
+import { galleryDetail, type ShownGallery } from '@/lib/gallery-actions';
 import { PAGES, TOTALS, pageCount, pageKey, readPage, readTotals, totalsKey, type PageAsk, type PageData } from './library/data';
 import { FilterDialog } from './library/filter-dialog';
 import { LibraryHeader } from './library/header';
 import { prefs, usePref } from './library/prefs';
-import type { RerunAsk } from './library/rerun-menu';
+import type { RerunAsk } from '@/components/rerun-menu';
 import { useRunners } from './library/runners';
 import type { SeriesTranslateAsk } from './library/series-translate';
 
 // What a card opens, loaded the first time it is asked for (the page draws none of it at rest): the
 // re-run menu, a series' translation window, the tag editor.
-const rerunMenu = () => import('./library/rerun-menu');
+const rerunMenu = () => import('@/components/rerun-menu');
 const seriesWindow = () => import('./library/series-translate');
 const RerunMenu = lazy(() => rerunMenu().then((m) => ({ default: m.RerunMenu })));
 const SeriesTranslateDialog = lazy(() => seriesWindow().then((m) => ({ default: m.SeriesTranslateDialog })));

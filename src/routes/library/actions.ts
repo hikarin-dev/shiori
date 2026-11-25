@@ -17,47 +17,23 @@ import type { QueryClient } from '@tanstack/react-query';
 import * as api from '@lib/api.js';
 import * as platform from '@lib/platform.js';
 import * as store from '@lib/store.js';
-import { t as translate, getLang } from '@lib/i18n.js';
+import { getLang } from '@lib/i18n.js';
 import { formatCount } from '@lib/format.js';
-import { pickSeriesTitle, pickTitle, migrateTitle } from '@lib/titles.js';
+import { pickTitle, migrateTitle } from '@lib/titles.js';
 import { safeExternalUrl } from '@lib/sanitize.js';
 import { galleryLink, helperAvailable } from '@lib/sites.js';
 import { request as helperRequest } from '@lib/ext-bridge.js';
-import { alertDialog, choiceDialog, confirmDialog, promptDialog } from '@lib/notice.js';
 import { LANG_NAME_TO_CODE } from '@lib/gallery-model.js';
 import { TAG_TYPE_LABEL, langDisplayName, tagPatchFor } from '@lib/tag-editor.js';
 // What a press needs beyond what the page reads is loaded at the press (the page draws none of it).
 const zipping = () => import('@lib/zip.js');
 import type { CardHandlers, CardTagRef } from '@/components/gallery-card';
 import { editGallery } from '@/lib/library-query';
+import { alertNotice, choose, confirmNotice, galleryDetail, promptNotice, rpc, seriesDetail, t, type ShownGallery } from '@/lib/gallery-actions';
 import type { LibraryJobs } from '@/lib/library-jobs';
 import { PAGES, TOTALS } from './data';
 
 type Tag = { type: string; name: string; url?: string };
-export type ShownGallery = {
-  id: string; isSeries?: boolean; parentId?: unknown; linked?: boolean; source?: string; sourceId?: string | null; sourceUrl?: string;
-  count?: number; numPages?: number; chapterCount?: number; chapters?: { id: string }[] | null; translated?: boolean; favorite?: boolean;
-  seriesTitle?: unknown; tags?: Tag[]; [field: string]: unknown;
-};
-
-// notice.js's JSDoc leaves its fields loose; the page asks with these.
-type Ask = { title: string; body?: string; detail?: string | string[]; cover?: string; ok?: string; cancel?: string; danger?: boolean; tone?: string; value?: string; placeholder?: string };
-const confirmNotice = confirmDialog as unknown as (ask: Ask) => Promise<boolean>;
-const alertNotice = alertDialog as unknown as (ask: Ask) => Promise<void>;
-const promptNotice = promptDialog as unknown as (ask: Ask) => Promise<string | null>;
-const choose = choiceDialog as unknown as (ask: Ask & { choices: { value: string; label: string; detail?: string }[]; checks: { name: string; label: string; checked?: boolean }[] }) => Promise<{ value: string; checks: Record<string, boolean> } | null>;
-const t = translate as (key: string, vars?: Record<string, string | number>) => string;
-const rpc = (msg: Record<string, unknown>) => platform.rpc(msg) as Promise<{ ok?: boolean } | null>;
-
-// How a dialog names what it acts on: the title, then "#id · N pages" / "N chapters".
-export const galleryDetail = (g: ShownGallery) => {
-  const id = g.sourceId || g.id;
-  return [pickTitle(g as never, getLang()) || `#${id}`, t('dlg.detail_pages', { id, n: formatCount(g.count || 0) })];
-};
-export const seriesDetail = (g: ShownGallery) => [
-  pickSeriesTitle(g.seriesTitle as never, g as never, getLang()) || `#${g.id}`,
-  t('dlg.detail_chapters', { n: formatCount(g.chapterCount || g.chapters?.length || 0) }),
-];
 
 // A link or a host typed into the source prompt, as 1.3 parsed it: the helper's reading when it is
 // there, otherwise the host and the address as given.
