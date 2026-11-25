@@ -6,6 +6,7 @@ import { startServer, chromePath, launch, openPage } from './harness.mjs';
 // buttons big enough for a finger; and a finger on a cover scrolls rather than merging galleries. The
 // library is the one page's (/library; until 2026-11-25 these held 1.3's page).
 const LIBRARY = '/library';
+const OVERVIEW = '/overview-next';   // the overview as the one page draws it (it takes /overview at the switch)
 const SERIES = ['1790000000711', '1790000000712', '1790000000713'];
 const SINGLES = ['1790000000721', '1790000000722', '1790000000723'];
 const PHONE = { width: 390, height: 844, hasTouch: true, isMobile: true };
@@ -111,7 +112,7 @@ test('a finger on a cover scrolls the library: it never starts merging galleries
 });
 
 test("on a phone a chapter's buttons take a line under it, so its title has the row's width", { skip: !chromePath() }, async t => {
-  const page = await phone(t, `/overview?g=${SERIES[0]}`);
+  const page = await phone(t, `${OVERVIEW}?g=${SERIES[0]}`);
   await page.waitForSelector('.ch-row .ch-actions button');
   assert.equal(await fitsWidth(page), true, 'nothing wider than the screen');
   const row = await page.$('.ch-row');
@@ -131,7 +132,7 @@ test('on a touch screen the library\'s and the overview\'s buttons are big enoug
     return [s, Math.round(r.width), Math.round(r.height)];
   }));
   for (const [sel, w, h] of sizes) assert.ok(w >= 36 && h >= 36, `${sel} is ${w}×${h}`);
-  const ov = await phone(t, `/overview?g=${SERIES[0]}`);
+  const ov = await phone(t, `${OVERVIEW}?g=${SERIES[0]}`);
   await ov.waitForSelector('.ch-row .ch-actions .ch-ibtn');
   const btn = await box(ov, '.ch-row .ch-actions .ch-ibtn');
   assert.deepEqual([btn.width, btn.height], [40, 40]);

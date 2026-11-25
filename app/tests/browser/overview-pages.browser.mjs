@@ -37,7 +37,7 @@ async function overview(t) {
   const page = await openPage(browser, origin);
   t.after(async () => { await page.close(); assert.deepEqual(page.problems, []); });
   await page.setViewport({ width: 1280, height: 900 });
-  await page.goto(`${origin}/overview?g=${GALLERY}`, { waitUntil: 'load' });
+  await page.goto(`${origin}/overview-next?g=${GALLERY}`, { waitUntil: 'load' });
   await page.waitForFunction(n => document.querySelectorAll('.ov-page img').length === n, {}, PAGE_COUNT);
   return page;
 }

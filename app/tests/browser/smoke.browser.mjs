@@ -97,14 +97,14 @@ test('the library shows every gallery, a series as one card', async (t) => {
 });
 
 test('a gallery overview shows its pages', async (t) => {
-  const page = await visit(`/app/overview.html?g=${G.plain}`, t);
+  const page = await visit(`/overview-next?g=${G.plain}`, t);
   if (!page) return;
   await until(page, () => document.querySelectorAll('.ov-page img[src]').length === 3, null, { what: 'three page thumbnails' });
   await finish(page);
 });
 
 test('a series overview lists its chapters by their own numbers', async (t) => {
-  const page = await visit(`/app/overview.html?g=${G.a}`, t);
+  const page = await visit(`/overview-next?g=${G.a}`, t);
   if (!page) return;
   const nums = await until(page, () => (document.querySelectorAll('.ch-row').length === 3 ? [...document.querySelectorAll('.ch-row .ch-num')].map(n => n.textContent) : 0), null, { what: 'three chapter rows' });
   assert.deepEqual(nums, ['1', '2', '2.5']);
@@ -185,15 +185,15 @@ test('settings tell a browser that can\'t pick folders what can: its flags in a 
 });
 
 test('a series lists its volumes apart, the choice is remembered, and a volume reads on its own', async (t) => {
-  const page = await visit(`/app/overview.html?g=${G.a}`, t);
+  const page = await visit(`/overview-next?g=${G.a}`, t);
   if (!page) return;
-  const rows = () => [...document.querySelectorAll('.ch-row')].map(r => r.querySelector('.ch-title-input').value);
+  const rows = () => [...document.querySelectorAll('.ch-row')].map(r => r.querySelector('[data-slot="inline-edit"]').value);
   await until(page, () => document.querySelectorAll('.ch-row').length === 3, null, { what: 'the chapters listed first' });
   await page.click('[data-view="volumes"]');
-  assert.deepEqual(await until(page, () => (document.querySelectorAll('.ch-row').length === 2 ? [...document.querySelectorAll('.ch-row')].map(r => r.querySelector('.ch-title-input').value) : 0), null, { what: 'the two volumes' }),
+  assert.deepEqual(await until(page, () => (document.querySelectorAll('.ch-row').length === 2 ? [...document.querySelectorAll('.ch-row')].map(r => r.querySelector('[data-slot="inline-edit"]').value) : 0), null, { what: 'the two volumes' }),
     ['Volume One', 'Volume Two']);
   await page.reload({ waitUntil: 'load' });
-  await until(page, () => document.querySelectorAll('.ch-row').length === 2 && document.querySelector('[data-view="volumes"]')?.classList.contains('active'), null, { what: 'the volume view, remembered' });
+  await until(page, () => document.querySelectorAll('.ch-row').length === 2 && document.querySelector('[data-view="volumes"]')?.getAttribute('aria-selected') === 'true', null, { what: 'the volume view, remembered' });
   assert.equal(page.problems.length, 0, page.problems.join('\n'));
 
   const library = await openPage(browser, origin);

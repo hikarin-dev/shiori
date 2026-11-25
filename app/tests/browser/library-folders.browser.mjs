@@ -687,26 +687,22 @@ test('Settings → Storage shows where the library is kept, and the overview can
   assert.deepEqual(await menuOf('Lib C'), ['Show', 'Remove']);
   await settings.keyboard.press('Escape');
   const gid = page.__gid;
-  // The one page's overview (/overview-next) offers the same places in the library folders' own
-  // window: its Move followed the folders' count as it shows; Cancel moves nothing.
+  // The overview (as the one page draws it: /overview-next) offers every other place in the library
+  // folders' own window, not the one the gallery is in: its Move followed the folders' count as it shows;
+  // Cancel moves nothing, a place moves it there. (1.3's page offered the same places in its own window.)
   const next = await openPage(browser, origin);
   await next.goto(`${origin}/overview-next?g=${gid}`, { waitUntil: 'load' });
   await until(next, () => { const b = document.getElementById('moveTo'); return b && !b.hidden; }, null, { what: 'the one page’s Move to button' });
   await next.click('#moveTo');
   const offered = await until(next, () => { const list = [...document.querySelectorAll('[data-notice="ask"] [data-slot="option-title"]')].map(s => s.textContent); return list.length && list; }, null, { what: 'the one page’s places to move to' });
-  assert.deepEqual(offered, ['This browser', 'Lib A', 'Cancel'], 'the same places as 1.3’s overview');
+  assert.deepEqual(offered, ['This browser', 'Lib A', 'Cancel'], 'every other place shown, not the one it is in');
   await next.evaluate(() => [...document.querySelectorAll('[data-notice="ask"] [data-slot="option-card"]')].find(b => b.textContent.includes('Cancel')).click());
   await until(next, () => !document.querySelector('[data-notice="ask"]') && !document.getElementById('moveTo').disabled, null, { what: 'the window gone, Move pressable again' });
   assert.equal((await next.evaluate(async (g) => (await (await import('/app/js/api.js')).galleries.get(g))?.folder, gid)) === 'browser', false, 'nothing moved');
-  assert.deepEqual(next.problems, []);
-  await next.close();
-  const overview = await openPage(browser, origin);
-  await overview.goto(`${origin}/overview?g=${gid}`, { waitUntil: 'load' });
-  await until(overview, () => { const b = document.getElementById('moveTo'); return b && !b.hidden; }, null, { what: 'the Move to button' });
+  const overview = next;
   await overview.click('#moveTo');
-  const choices = await until(overview, () => { const list = [...document.querySelectorAll('.notice-choice strong')].map(s => s.textContent); return list.length && list; }, null, { what: 'the places to move to' });
-  assert.deepEqual(choices, ['This browser', 'Lib A', 'Cancel'], 'every other place shown, not the one it is in');
-  await overview.evaluate(() => [...document.querySelectorAll('.notice-choice')].find(b => b.textContent.includes('This browser')).click());
+  await until(overview, () => document.querySelectorAll('[data-notice="ask"] [data-slot="option-title"]').length > 0, null, { what: 'the places to move to' });
+  await overview.evaluate(() => [...document.querySelectorAll('[data-notice="ask"] [data-slot="option-card"]')].find(b => b.textContent.includes('This browser')).click());
   await until(overview, async (g) => (await window.__api?.galleries.get(g))?.folder === 'browser' || (await (await import('/app/js/api.js')).galleries.get(g))?.folder === 'browser', gid, { what: 'the gallery to move' });
   // Shown again from its menu: back as it was, no folder picked.
   await settings.bringToFront();   // the overview opened over it: the card reads its folders again as it shows

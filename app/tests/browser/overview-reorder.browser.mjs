@@ -1,7 +1,9 @@
 // overview-reorder.browser.mjs — reordering a series on its overview, in Chrome. The arrows and the
 // grip's drag move rows in place: the rows, their thumbnails and the header are the same elements
 // afterwards and no placeholder shows in between. The order is saved with the volumes keeping their
-// places among the chapters, it survives a reload, and Escape puts a dragged row back.
+// places among the chapters, it survives a reload, and Escape puts a dragged row back. (Moved onto the
+// overview as the one page draws it in 7e: a row lifted is data-dragging, the rows it passes slide by
+// their top, a title box is the InlineEdit; 1.3's page said .dragging, a transform and .ch-title-input.)
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
@@ -51,8 +53,8 @@ async function seed(G) {
 async function visit(t) {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return null; }
   const page = await openPage(browser, origin);
-  await page.goto(`${origin}/app/overview.html?g=${G.a}`, { waitUntil: 'load' });
-  await until(page, () => document.querySelectorAll('.ch-row .ch-thumb img').length === 4 && document.querySelector('#seriesCover img'),
+  await page.goto(`${origin}/overview-next?g=${G.a}`, { waitUntil: 'load' });
+  await until(page, () => document.querySelectorAll('.ch-row .ch-thumb img').length === 4 && !!document.querySelector('#seriesCover img'),
     null, { what: 'four rows with their thumbnails, and the cover' });
   return page;
 }
@@ -101,7 +103,7 @@ test('the arrows move a row in place and save the order', async (t) => {
   assert.deepEqual(await page.evaluate(report), { seen: [], heroKept: true, rowsKept: true, thumbsKept: true });
   const state = await page.evaluate(() => ({
     nums: [...document.querySelectorAll('.ch-num')].map((n) => n.textContent),
-    titles: [...document.querySelectorAll('.ch-title-input')].map((i) => i.value),
+    titles: [...document.querySelectorAll('.ch-row [data-slot="inline-edit"]')].map((i) => i.value),
     ups: [...document.querySelectorAll('[data-up]')].map((b) => b.disabled),
     downs: [...document.querySelectorAll('[data-down]')].map((b) => b.disabled),
     heading: document.getElementById('seriesTitle')?.value,
@@ -130,18 +132,18 @@ test('the grip drags a row to a new place, and the order is saved', async (t) =>
   await new Promise((r) => setTimeout(r, 250));
   const mid = await page.evaluate(() => ({
     order: [...document.querySelectorAll('.ch-row')].map((r) => r.dataset.chapterId),
-    dragging: document.querySelector('.ch-row.dragging')?.dataset.chapterId,
-    aside: [...document.querySelectorAll('.ch-row:not(.dragging)')].map((r) => r.style.transform),
+    dragging: document.querySelector('.ch-row[data-dragging]')?.dataset.chapterId,
+    aside: [...document.querySelectorAll('.ch-row:not([data-dragging])')].map((r) => r.style.top),
   }));
   assert.deepEqual(mid.order, [G.b, G.a, G.c, G.d], 'nothing moves in the DOM until the drop');
   assert.equal(mid.dragging, G.d);
-  assert.ok(mid.aside.every((tf) => /translateY\(\d/.test(tf)), `the rows it passed slid down (${mid.aside})`);
+  assert.ok(mid.aside.every((top) => /^\d[\d.]*px$/.test(top)), `the rows it passed slid down (${mid.aside})`);
   await page.mouse.up();
   await waitSaved(page, [G.d, G.b, G.v, G.a, G.c], 'the dragged order saved');
   await new Promise((r) => setTimeout(r, 600));
   assert.deepEqual(await page.evaluate(shown), [G.d, G.b, G.a, G.c]);
   assert.deepEqual(await page.evaluate(report), { seen: [], heroKept: true, rowsKept: true, thumbsKept: true });
-  assert.equal(await page.evaluate(() => !!document.querySelector('.ch-row.dragging, .ch-list.sorting, body.ch-dragging') || [...document.querySelectorAll('.ch-row')].some((r) => r.style.transform)), false, 'the drag left nothing behind');
+  assert.equal(await page.evaluate(() => !!document.querySelector('.ch-row[data-dragging], .ch-list[data-sorting], body.ch-dragging') || [...document.querySelectorAll('.ch-row')].some((r) => r.style.top)), false, 'the drag left nothing behind');
 
   await page.reload({ waitUntil: 'load' });
   await until(page, () => document.querySelectorAll('.ch-row').length === 4, null, { what: 'the rows after a reload' });
