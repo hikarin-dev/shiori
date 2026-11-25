@@ -1,8 +1,9 @@
-/* reader.css — the reader. Tokens, reset, brand, tooltip, context menu and the study-mode
-   typefaces come from base.css. */
+/* reader.css — the reader. Its colours are the one page's tokens (src/styles/tokens.css: --primary
+   the brand colour, --muted-foreground secondary text, --reader-background the reader's ground…),
+   which its own page gives it under those names from base.css's (reader-aliases.css). Reset, brand,
+   tooltip, context menu and the study-mode typefaces come from base.css. */
 
 :root {
-  --bg: #0a0a0c;    /* the reader's ground is a shade darker than the other pages' */
   --topbar-h: 54px; --botbar-h: 3px;
   --bar-zone: 12px;   /* how close to the progress bar's edge pointing grows it, and how thick it grows */
   --thumb-h: 88px; --zoom-inv: 1;
@@ -22,7 +23,7 @@
   /* No keyboard to use them with: the keyboard shortcuts button leaves both navigations. */
   :is(#snKeys, #keybindBtn) { display: none; }
 }
-html { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; }
+html { background: var(--reader-background); color: var(--foreground); font-family: 'JetBrains Mono', monospace; }
 /* The reader never set a base text size: text that doesn't size itself keeps the browser's 16px. */
 body { font-size: 16px; }
 
@@ -31,30 +32,30 @@ body { font-size: 16px; }
    last page in the scroll strip, and as a dedicated transition page in single/double modes. */
 .chd { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
 .chd-end { font-size: 17px; font-weight: 700; }
-.chd-sub { font-size: 12px; color: var(--muted); margin-top: -8px; }
+.chd-sub { font-size: 12px; color: var(--muted-foreground); margin-top: -8px; }
 /* Both rows use two EQUAL-width columns so their center gaps sit on the same vertical axis. */
 .chd-nav { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 10px; margin-top: 6px; }
 .chd-adj {
   display: flex; align-items: center; gap: 10px;
   min-width: 168px; padding: 12px 16px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-  color: var(--text); font-family: inherit; cursor: pointer;
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  color: var(--foreground); font-family: inherit; cursor: pointer;
 }
-.chd-adj svg { color: var(--accent); flex-shrink: 0; }
+.chd-adj svg { color: var(--primary); flex-shrink: 0; }
 .chd-adj-txt { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; }
-.chd-lbl { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.chd-lbl { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted-foreground); }
 .chd-num { font-size: 13px; }
-.chd-adj:hover:not(:disabled) { border-color: var(--accent); }
+.chd-adj:hover:not(:disabled) { border-color: var(--primary); }
 .chd-adj:disabled { opacity: .35; cursor: default; }
 .chd-links { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 10px; }
 .chd-pill {
   display: flex; align-items: center; justify-content: center; gap: 6px;
   padding: 7px 14px; border-radius: 999px;
-  background: var(--surface); border: 1px solid var(--border);
-  color: var(--text); font-family: inherit; font-size: 12px; cursor: pointer;
+  background: var(--card); border: 1px solid var(--border);
+  color: var(--foreground); font-family: inherit; font-size: 12px; cursor: pointer;
 }
-.chd-pill svg { color: var(--accent); }
-.chd-pill:hover { border-color: var(--accent); }
+.chd-pill svg { color: var(--primary); }
+.chd-pill:hover { border-color: var(--primary); }
 
 /* Dedicated transition page (single/double). The container spans the view but stays transparent
    to clicks, so the reader's edge click-zones still flip off the transition; only the card itself
@@ -77,7 +78,7 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
 #topbar {
   position: sticky; top: 0; z-index: 200; width: calc(100% + var(--page-scrollbar-gap));
   height: var(--topbar-h);
-  background: var(--surface); border-bottom: 1px solid var(--border);
+  background: var(--card); border-bottom: 1px solid var(--border);
   display: flex; align-items: center; gap: 8px; padding: 0 20px;
   transition: transform 0.2s ease;
   /* Query container so the secondary-button fold (step 2 below) can be driven by the layout engine
@@ -103,21 +104,21 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
 .tb-meta    { display: flex; align-items: baseline; gap: 6px; flex-shrink: 1; overflow: hidden;
               background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; }
 .tb-meta:hover { filter: brightness(1.3); }   /* pointed at, it lights up */
-.tb-gallery { font-size: 13px; color: var(--accent); white-space: nowrap; flex-shrink: 0; }
-.tb-gallery.local { color: var(--accent2); }
-.tb-title   { font-size: 13px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; flex-shrink: 1; }
+.tb-gallery { font-size: 13px; color: var(--primary); white-space: nowrap; flex-shrink: 0; }
+.tb-gallery.local { color: var(--warning); }
+.tb-title   { font-size: 13px; color: var(--muted-foreground); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; flex-shrink: 1; }
 .tb-spacer  { flex: 1; min-width: 0px; }
-#pageCounter, [data-ref="pageCounter"] { font-size: 11px; color: var(--muted); white-space: nowrap; min-width: 52px; text-align: right; }
+#pageCounter, [data-ref="pageCounter"] { font-size: 11px; color: var(--muted-foreground); white-space: nowrap; min-width: 52px; text-align: right; }
 
 /* All reader-nav controls are the same 30px square so the bar reads as one set. */
 .tb-btn {
-  background: none; border: 1px solid var(--border); color: var(--muted);
+  background: none; border: 1px solid var(--border); color: var(--muted-foreground);
   font-family: inherit; font-size: 13px; width: 30px; height: 30px; padding: 0;
   border-radius: 6px; cursor: pointer; transition: all 0.12s;
   text-decoration: none; display: inline-flex; align-items: center; justify-content: center;
 }
-.tb-btn:hover  { border-color: var(--accent); color: var(--accent); }
-.tb-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+.tb-btn:hover  { border-color: var(--primary); color: var(--primary); }
+.tb-btn.active { background: var(--primary); border-color: var(--primary); color: white; }
 /* A play button being dragged to set the auto-scroll speed (_wireSpeedDrag), and its readout: the
    tooltip's look, a bar for where the speed sits in its range, and the value. */
 .speed-dragging { cursor: ew-resize !important; }
@@ -129,13 +130,13 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
 }
 .speed-tip.show { display: flex; }
 .speed-tip-bar { width: 96px; height: 4px; border-radius: 2px; background: #444; overflow: hidden; }
-.speed-tip-fill { display: block; height: 100%; background: var(--accent); }
+.speed-tip-fill { display: block; height: 100%; background: var(--primary); }
 .speed-tip-value { min-width: 60px; text-align: right; }
 /* Auto-play in single/double: how much of the pages' time has run, across the window at its top or
    bottom (Reader settings), just inside a progress bar on that edge (_placeAutoBar). */
 .auto-bar {
   position: fixed; z-index: 202; height: 4px; display: none; pointer-events: none; opacity: 0.85;
-  background: color-mix(in srgb, var(--bg) 40%, transparent);
+  background: color-mix(in srgb, var(--reader-background) 40%, transparent);
 }
 .auto-bar.show { display: block; }
 /* Where it stands. A page bar on the same edge stays nearer the edge: it stands on the bar's line
@@ -154,7 +155,7 @@ body[data-bar="left"] .auto-bar { left: var(--line); }
 body[data-bar="right"] .auto-bar { right: calc(var(--page-scrollbar-gap) + var(--line)); }
 .auto-bar[data-at="top"] { top: 0; bottom: auto; }
 body[data-bar="top"] .auto-bar[data-at="top"] { top: var(--line); }
-.auto-bar-fill { display: block; height: 100%; background: var(--accent); transform-origin: left; transform: scaleX(0); }
+.auto-bar-fill { display: block; height: 100%; background: var(--primary); transform-origin: left; transform: scaleX(0); }
 .auto-bar.rtl .auto-bar-fill { transform-origin: right; }
 
 /* Responsive nav — space is given up as the window narrows, in this order:
@@ -175,11 +176,11 @@ body[data-bar="top"] .auto-bar[data-at="top"] { top: var(--line); }
 .tb-menu-btn { display: none; }
 /* Folded (the injected @container rule shows .tb-menu-btn and hides .tb-extra): the ⋯ panel re-shows
    the secondary controls as a dropdown. menu-open is only reachable while folded. */
-#topbar.menu-open .tb-menu-btn { border-color: var(--accent); color: var(--accent); }
+#topbar.menu-open .tb-menu-btn { border-color: var(--primary); color: var(--primary); }
 #topbar.menu-open .tb-extra {
   display: flex; flex-direction: row; align-items: center; gap: 8px;
   position: absolute; top: calc(var(--topbar-h) - 2px); right: 14px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  background: var(--popover); border: 1px solid var(--border); border-radius: 8px;
   padding: 8px; z-index: 220; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 
@@ -192,15 +193,15 @@ body[data-bar="top"] .auto-bar[data-at="top"] { top: var(--line); }
 .seg {
   position: relative; z-index: 1; width: 30px; height: 100%; padding: 0;
   display: inline-flex; align-items: center; justify-content: center;
-  background: none; border: none; cursor: pointer; color: var(--muted);
+  background: none; border: none; cursor: pointer; color: var(--muted-foreground);
   transition: color 0.15s;
 }
-.seg:hover { color: var(--text); }
+.seg:hover { color: var(--foreground); }
 .seg.active { color: #fff; }
 .seg.disabled { opacity: 0.3; pointer-events: none; }
 .seg-indicator {
   position: absolute; top: 0; left: 0; z-index: 0; width: 30px; height: 100%;
-  background: var(--accent); opacity: 0; transform: translateX(0);
+  background: var(--primary); opacity: 0; transform: translateX(0);
   transition: transform 0.22s cubic-bezier(.4, 0, .2, 1), opacity 0.18s ease;
   pointer-events: none;
 }
@@ -244,7 +245,7 @@ body[data-bar="top"] .auto-bar[data-at="top"] { top: var(--line); }
   display: block; width: calc(min(1280px, 100vw - var(--page-scrollbar-width)) * var(--page-zoom)); max-width: none;
   height: auto; user-select: none; flex-shrink: 0;
 }
-/* #mainImg, .dImg, .page-img { outline: 1px solid var(--accent); outline-offset: -1px; } */
+/* #mainImg, .dImg, .page-img { outline: 1px solid var(--primary); outline-offset: -1px; } */
 
 body.reader-fit-width #singleInner > #mainImg,
 body.reader-fit-width #singleInner > .page-wrap {
@@ -321,18 +322,18 @@ body.reader-fit-height #stripView > .page-wrap {
 /* The strip is virtualized: rows outside the mounted window hold an <img> with no src. Keep the
    reserved slot as a quiet surface (and never a broken-image glyph) until its page mounts. */
 #stripView .page-img:not([src]) { visibility: hidden; }
-#stripView .page-wrap { background: var(--surface); }
+#stripView .page-wrap { background: var(--card); }
 
 /* Missing pages keep their normal geometry and show a quiet loading marker in every mode. */
 #mainImg.page-placeholder,
-.dImg.page-placeholder { background: var(--surface); }
+.dImg.page-placeholder { background: var(--card); }
 #singleInner.page-placeholder::after,
 #doubleInner.left-placeholder::before,
 #doubleInner.right-placeholder::after,
 #stripView .page-wrap.page-placeholder::after {
   content: ''; position: absolute; top: 50%; z-index: 1;
   width: 26px; height: 26px; margin-top: -16px; margin-left: -16px;
-  border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%;
+  border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%;
   animation: spin 0.8s linear infinite; pointer-events: none;
 }
 #singleInner.page-placeholder::after,
@@ -382,7 +383,7 @@ body.reader-fit-height #stripView > .page-wrap {
   user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
 }
 /* Image mode uses its source/translation region as the active hover target. */
-.bubble-box:hover { outline-color: var(--accent); background-color: rgba(237, 39, 84, 0.08); }
+.bubble-box:hover { outline-color: var(--primary); background-color: rgba(237, 39, 84, 0.08); }
 /* DOM text sits above this region target. Its own area keeps the text cursor and selection;
    uncovered parts of the region retain the box's pointer cursor without showing a region ring. */
 .bubble-box.text-revealed:hover { outline-color: transparent; background-color: transparent; }
@@ -400,7 +401,7 @@ body.reader-fit-height #stripView > .page-wrap {
 .bubble-shape-halo { stroke-width: 7; }
 .bubble-shape-line { stroke-width: 3; }
 .bubble-box.shaped:hover .bubble-shape-halo { stroke: rgb(255 255 255 / 92%); }
-.bubble-box.shaped:hover .bubble-shape-line { stroke: var(--accent); }
+.bubble-box.shaped:hover .bubble-shape-line { stroke: var(--primary); }
 
 /* A bubble's translation as selectable DOM text, positioned at the rect the renderer drew at.
    Font size = the renderer's page-pixel size × --pgscale (wrap width ÷ page width, kept in
@@ -468,7 +469,7 @@ body.study-text-selecting.study-sel-lock .study-text-content.study-sel-host {
   transition: border-color 0.12s ease, background-color 0.12s ease;
 }
 .study-text-content:hover::after {
-  border-color: var(--accent);
+  border-color: var(--primary);
   background-color: rgba(237, 39, 84, 0.08);
 }
 /* Translate-as-text draws the translation as a plain reading layer over the inpainted page: no
@@ -552,7 +553,7 @@ body.bar-hidden #thumbResizeHandle { bottom: calc(var(--thumb-h) - 3px); }
 body.bar-grown:not(.bar-hidden) #thumbStrip { bottom: var(--bar-zone); }
 body.bar-grown:not(.bar-hidden) #thumbResizeHandle { bottom: calc(var(--bar-zone) + var(--thumb-h) - 3px); }
 #thumbResizeHandle.show { display: block; }
-#thumbResizeHandle:hover, #thumbResizeHandle.active { background: var(--accent); }
+#thumbResizeHandle:hover, #thumbResizeHandle.active { background: var(--primary); }
 
 /* The scrubber fill — only shown while scrubbing (Shift+drag), not a plain swipe. Matches a
    thumb's height and aspect (A4-like) so it looks like a "currently selected page" outline —
@@ -594,8 +595,8 @@ body.thumb-dragging * {
 .thumb-item img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
 /* A thumb still being made shows the item's own ground, never a broken-image glyph. */
 .thumb-item img:not([src]) { visibility: hidden; }
-.thumb-item.active { border-color: var(--accent); }
-.thumb-item:hover:not(.active) { border-color: var(--muted); }
+.thumb-item.active { border-color: var(--primary); }
+.thumb-item:hover:not(.active) { border-color: var(--muted-foreground); }
 .thumb-num {
   position: absolute; bottom: 2px; right: 3px;
   font-size: 8px; color: rgba(255,255,255,0.6);
@@ -630,21 +631,21 @@ body.thumb-dragging * {
 #scrubSegments { position: absolute; inset: 0; display: flex; }
 .scrub-segment {
   position: relative; flex: 1 1 0; min-width: 0; min-height: 0;
-  background: color-mix(in srgb, #fff 10%, var(--bg));   /* not downloaded yet */
-  border-right: 1px solid var(--bg);
+  background: color-mix(in srgb, #fff 10%, var(--reader-background));   /* not downloaded yet */
+  border-right: 1px solid var(--reader-background);
   cursor: pointer;
 }
 .scrub-segment:last-child { border-right: 0; }
-.scrub-segment.cached  { background: color-mix(in srgb, #fff 22%, var(--bg)); }
+.scrub-segment.cached  { background: color-mix(in srgb, #fff 22%, var(--reader-background)); }
 /* The accent in three evenly spaced tones, all of them saturated: darkest on the pages read, a calm
    deeper tone on the page being read (and the one pointed at), and the vivid accent on what the
    screen shows. Lightening that last one far enough to stand apart would wash it toward white, so
    the room comes from below instead. */
-.scrub-segment.visited { background: color-mix(in srgb, var(--accent) 42%, var(--bg)); }
+.scrub-segment.visited { background: color-mix(in srgb, var(--primary) 42%, var(--reader-background)); }
 .scrub-segment.active,
 .scrub-segment.tip {
   background: #b90038;
-  background: oklch(from var(--accent) calc(l - 0.12) calc(c * 0.9) h);
+  background: oklch(from var(--primary) calc(l - 0.12) calc(c * 0.9) h);
 }
 /* Only the page pointed at fades in. A jump turns hundreds of pages read or unread at once, and a
    transition on each made every jump restyle and animate them all (7-11 ms a jump, then 120 ms of
@@ -658,7 +659,7 @@ body.thumb-dragging * {
 #scrubTip {
   position: absolute; z-index: 2; left: var(--tip-at, 50%); bottom: 0; transform: translateX(-50%);
   padding: 0 6px; border-radius: 4px; line-height: 1.5;
-  background: var(--muted); color: var(--bg);
+  background: var(--muted-foreground); color: var(--reader-background);
   font-size: 11px; font-weight: 600; white-space: nowrap;
   opacity: 0; pointer-events: none;
   transition: top 0.2s, bottom 0.2s, opacity 0.2s;
@@ -668,10 +669,10 @@ body.thumb-dragging * {
 .scrub-view {
   position: absolute; top: 0; bottom: 0;
   background: #ff205c;
-  background: oklch(from var(--accent) calc(l + 0.05) calc(c * 1.12) h);
+  background: oklch(from var(--primary) calc(l + 0.05) calc(c * 1.12) h);
 }
 /* A double spread's two pages keep the gap between them (the second band starts at the seam). */
-.scrub-view + .scrub-view { border-left: 1px solid var(--bg); }
+.scrub-view + .scrub-view { border-left: 1px solid var(--reader-background); }
 
 /* The other edges: the zone, the growth and the pill all face the pages. */
 #bottombar[data-position="top"] { top: 0; bottom: auto; align-items: flex-start; }
@@ -688,7 +689,7 @@ body.thumb-dragging * {
 #bottombar[data-position="left"] #scrubSegments,
 #bottombar[data-position="right"] #scrubSegments { flex-direction: column; }
 #bottombar[data-position="left"] .scrub-segment,
-#bottombar[data-position="right"] .scrub-segment { border-right: 0; border-bottom: 1px solid var(--bg); }
+#bottombar[data-position="right"] .scrub-segment { border-right: 0; border-bottom: 1px solid var(--reader-background); }
 #bottombar[data-position="left"] .scrub-segment:last-child,
 #bottombar[data-position="right"] .scrub-segment:last-child { border-bottom: 0; }
 /* Too many pages for the bar's length: no gaps, so it reads as one line rather than stripes. After
@@ -706,10 +707,10 @@ body.thumb-dragging * {
 #bottombar[data-position="left"] .scrub-view,
 #bottombar[data-position="right"] .scrub-view { left: 0; right: 0; }
 #bottombar[data-position="left"] .scrub-view + .scrub-view,
-#bottombar[data-position="right"] .scrub-view + .scrub-view { border-left: 0; border-top: 1px solid var(--bg); }
+#bottombar[data-position="right"] .scrub-view + .scrub-view { border-left: 0; border-top: 1px solid var(--reader-background); }
 
 /* ── Feedback dialog ── */
-.feedback-dialog { color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px; margin: auto; padding: 20px; width: min(960px, 94vw); max-height: 90vh; box-sizing: border-box; overflow: auto; overscroll-behavior: contain; font-size: 13px; }
+.feedback-dialog { color: var(--foreground); background: var(--popover); border: 1px solid var(--input); border-radius: 12px; margin: auto; padding: 20px; width: min(960px, 94vw); max-height: 90vh; box-sizing: border-box; overflow: auto; overscroll-behavior: contain; font-size: 13px; }
 .feedback-dialog::backdrop { background: var(--backdrop); }
 .feedback-header, .feedback-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .feedback-header h2 { font-size: 15px; margin: 0; }
@@ -717,12 +718,12 @@ body.thumb-dragging * {
 .feedback-preview { width: 100% !important; max-width: 100% !important; transform: none !important; margin: 0 !important; pointer-events: none; }
 .feedback-preview > img { display: block !important; width: 100% !important; height: auto !important; max-width: none !important; max-height: none !important; margin: 0 !important; }
 .feedback-region { position: absolute; outline: 1px dashed #558bff; color: #fff; font: bold 12px sans-serif; text-shadow: 0 1px 3px #000; z-index: 10; }
-.feedback-region.selected { outline: 3px solid var(--accent); background: rgba(237, 39, 84, .12); }
+.feedback-region.selected { outline: 3px solid var(--primary); background: rgba(237, 39, 84, .12); }
 .feedback-caption, .feedback-fidelity, .feedback-destination, .feedback-status { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .feedback-form fieldset { border: 1px solid var(--border); border-radius: 6px; margin: 12px 0; padding: 10px; }
 .feedback-check { display: flex; align-items: baseline; gap: 8px; margin: 6px 0; font-size: 13px; }
 .feedback-note { display: block; font-size: 13px; }
-.feedback-note textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 8px; padding: 8px; resize: vertical; color: inherit; background: var(--bg); border: 1px solid var(--border-strong); border-radius: 6px; font: inherit; }
+.feedback-note textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 8px; padding: 8px; resize: vertical; color: inherit; background: var(--reader-background); border: 1px solid var(--input); border-radius: 6px; font: inherit; }
 .feedback-related { max-height: 180px; overflow: auto; }
 @media (max-width: 650px) { .feedback-content { grid-template-columns: 1fr; } .feedback-preview-column { max-width: 330px; margin: auto; } }
 
@@ -740,16 +741,16 @@ body.thumb-dragging * {
 }
 #keybindModal.show { display: flex; }
 #keybindBox {
-  background: var(--surface); border: 1px solid var(--border-strong);
+  background: var(--popover); border: 1px solid var(--input);
   border-radius: 12px; padding: 20px 24px;
   min-width: 300px; max-width: 420px; width: 90%;
 }
 .kb-heading {
-  font-size: 12px; font-weight: 700; color: var(--text);
+  font-size: 12px; font-weight: 700; color: var(--foreground);
   margin-bottom: 14px;
 }
 .kb-section {
-  font-size: 9px; color: var(--muted); text-transform: uppercase;
+  font-size: 9px; color: var(--muted-foreground); text-transform: uppercase;
   letter-spacing: 1px; margin: 12px 0 5px;
 }
 .kb-row {
@@ -758,12 +759,12 @@ body.thumb-dragging * {
   font-size: 11px;
 }
 .kb-row:last-child { border-bottom: none; }
-.kb-desc { color: var(--muted); }
+.kb-desc { color: var(--muted-foreground); }
 .kb-keys { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 .kb-key {
-  background: var(--bg); border: 1px solid var(--border);
+  background: var(--reader-background); border: 1px solid var(--border);
   border-radius: 4px; padding: 2px 6px;
-  font-size: 10px; color: var(--text); font-family: inherit; white-space: nowrap;
+  font-size: 10px; color: var(--foreground); font-family: inherit; white-space: nowrap;
 }
 
 /* ── Reader settings modal ── */
@@ -797,7 +798,7 @@ body.thumb-dragging * {
    its frame. */
 .reader-settings-top {
   flex: none; padding: 0 var(--rs-pad-x) 16px; pointer-events: auto;
-  background: var(--surface); border: 1px solid var(--border-strong); border-bottom: 0; border-radius: 12px 12px 0 0;
+  background: var(--popover); border: 1px solid var(--input); border-bottom: 0; border-radius: 12px 12px 0 0;
 }
 .reader-settings-head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -810,18 +811,18 @@ body.thumb-dragging * {
 }
 .rs-tabs button {
   min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: 6px;
-  background: transparent; color: var(--muted); cursor: pointer;
+  background: transparent; color: var(--muted-foreground); cursor: pointer;
   font-family: inherit; font-size: 11px; font-weight: 600;
   transition: background-color .12s ease, color .12s ease;
 }
-.rs-tabs button:hover { color: var(--text); }
-.rs-tabs button[aria-selected="true"] { background: var(--surface-raised); color: var(--text); }
+.rs-tabs button:hover { color: var(--foreground); }
+.rs-tabs button[aria-selected="true"] { background: var(--secondary); color: var(--foreground); }
 /* The tabs' cell is as tall as the tallest tab, or the room left under the header; a tab taller than
    that scrolls. */
 .rs-panels { display: grid; grid-template-rows: minmax(0, 1fr); min-height: 0; }
 .rs-panel {
   grid-area: 1 / 1; align-self: start; min-width: 0; max-height: 100%; overflow: auto; padding: 0 var(--rs-pad-x) 18px;
-  background: var(--surface); border: 1px solid var(--border-strong); border-top: 0; border-radius: 0 0 12px 12px;
+  background: var(--popover); border: 1px solid var(--input); border-top: 0; border-radius: 0 0 12px 12px;
   box-shadow: 0 18px 55px rgba(0,0,0,.45);
 }
 /* A section is as wide as its tab less a scrollbar, for what's in it (a scroller's own container
@@ -830,7 +831,7 @@ body.thumb-dragging * {
 .rs-panel.active { pointer-events: auto; }
 .rs-panel:not(.active) { visibility: hidden; }
 .reader-settings-title { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 700; }
-.reader-settings-title .rs-ico { width: 17px; height: 17px; color: var(--muted); }
+.reader-settings-title .rs-ico { width: 17px; height: 17px; color: var(--muted-foreground); }
 
 /* One line-icon style for every glyph in the modal. */
 .rs-ico {
@@ -850,11 +851,11 @@ body.thumb-dragging * {
 .rs-row { display: grid; gap: 8px; min-width: 0; border: 0; }   /* some rows are fieldsets */
 .rs-row + .rs-row { margin-top: 16px; }
 .rs-row-inline { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.rs-label { color: var(--text); font-size: 11.5px; font-weight: 600; }
+.rs-label { color: var(--foreground); font-size: 11.5px; font-weight: 600; }
 .rs-label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 /* A setting the current mode doesn't use stays in place, dimmed like Settings' disabled options. */
 .rs-row[disabled] { opacity: .42; }
-.rs-label-row output { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.rs-label-row output { color: var(--muted-foreground); font-size: 11px; font-variant-numeric: tabular-nums; }
 
 /* Choices come as separate buttons; the chosen one takes Settings' highlight: a shade lighter than
    the panel, in a lighter frame. */
@@ -862,22 +863,22 @@ body.thumb-dragging * {
 .rs-choices button {
   min-width: 0; min-height: 34px; padding: 6px 8px;
   display: flex; align-items: center; justify-content: center; gap: 7px;
-  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-subtle); color: var(--muted);
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-subtle); color: var(--muted-foreground);
   font-family: inherit; font-size: 11px; font-weight: 600; line-height: 1.3; cursor: pointer;
   transition: background-color .12s ease, border-color .12s ease, color .12s ease;
 }
 .rs-choices button span { min-width: 0; overflow-wrap: anywhere; }
-.rs-choices button:hover:not(:disabled, .active) { border-color: var(--border-strong); color: var(--text); }
+.rs-choices button:hover:not(:disabled, .active) { border-color: var(--input); color: var(--foreground); }
 .rs-choices button:disabled { cursor: default; }
-.rs-choices button.active { background: var(--surface-raised); border-color: var(--border-strong); color: var(--text); }
+.rs-choices button.active { background: var(--secondary); border-color: var(--input); color: var(--foreground); }
 /* Three or more choices stack each icon over its name, so every name keeps room. */
 .rs-choices-stack button { flex-direction: column; gap: 5px; min-height: 52px; padding: 7px 4px; font-size: 10.5px; }
 .rs-choices-stack .rs-ico { width: 17px; height: 17px; }
 
 /* A setting's keyboard shortcut: in its button's corner, or after its name. */
 .rs-kbd {
-  padding: 0 3px; border: 1px solid var(--border-strong); border-radius: 3px;
-  color: var(--muted); font-family: inherit; font-size: 8.5px; font-weight: 600; line-height: 13px;
+  padding: 0 3px; border: 1px solid var(--input); border-radius: 3px;
+  color: var(--muted-foreground); font-family: inherit; font-size: 8.5px; font-weight: 600; line-height: 13px;
 }
 .rs-choices button { position: relative; }
 .rs-choices button > .rs-kbd { position: absolute; top: 5px; right: 5px; }
@@ -893,15 +894,15 @@ body.thumb-dragging * {
 
 .rs-stepper {
   display: grid; grid-template-columns: 30px 54px 30px; align-items: center; flex: none;
-  padding: 3px; background: var(--surface-subtle); border: 1px solid var(--border-strong); border-radius: 8px;
+  padding: 3px; background: var(--surface-subtle); border: 1px solid var(--input); border-radius: 8px;
 }
 .rs-stepper button {
   display: grid; place-items: center; height: 28px; padding: 0;
-  border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer;
+  border: 0; border-radius: 5px; background: transparent; color: var(--muted-foreground); cursor: pointer;
 }
-.rs-stepper button:hover:not(:disabled) { background: var(--surface-raised); color: var(--text); }
+.rs-stepper button:hover:not(:disabled) { background: var(--secondary); color: var(--foreground); }
 .rs-stepper button:disabled { opacity: .35; cursor: default; }
-.rs-stepper output { text-align: center; color: var(--text); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.rs-stepper output { text-align: center; color: var(--foreground); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
 /* A slider drawn like the switch: a dim track, filled in the accent up to the value (--fill, set by
    reader.js), and a white knob. The browser's own track stays light beside an accent colour. */
 .rs-range {
@@ -910,15 +911,15 @@ body.thumb-dragging * {
 }
 .rs-range::-webkit-slider-runnable-track {
   height: 4px; border-radius: 999px;
-  background: linear-gradient(var(--accent), var(--accent)) 0 0 / var(--fill, 0%) 100% no-repeat, var(--border-strong);
+  background: linear-gradient(var(--primary), var(--primary)) 0 0 / var(--fill, 0%) 100% no-repeat, var(--input);
 }
 .rs-range::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
   width: 14px; height: 14px; margin-top: -5px; border-radius: 50%;
   background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .4);
 }
-.rs-range::-moz-range-track { height: 4px; border-radius: 999px; background: var(--border-strong); }
-.rs-range::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--accent); }
+.rs-range::-moz-range-track { height: 4px; border-radius: 999px; background: var(--input); }
+.rs-range::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--primary); }
 .rs-range::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: #fff; }
 
 /* Two small choices beside a setting's name. */
@@ -929,13 +930,13 @@ body.thumb-dragging * {
 .rs-col { display: grid; gap: 8px; align-content: start; min-width: 0; }
 .rs-col-opts { display: grid; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
 .rs-col-opts[disabled] { opacity: .42; }
-.rs-col-name { color: var(--muted); font-size: 11px; font-weight: 600; }
+.rs-col-name { color: var(--muted-foreground); font-size: 11px; font-weight: 600; }
 /* A dropdown, in the app's one look (dropdown.css). */
 .rs-select {
   --dd-inset: 10px;
   width: 100%; min-width: 0; height: 30px; padding: 0 var(--dd-inset);
   background: var(--dd-bg); border: 1px solid var(--border); border-radius: var(--dd-radius);
-  color: var(--text); font-family: inherit; font-size: 11px; cursor: pointer;
+  color: var(--foreground); font-family: inherit; font-size: 11px; cursor: pointer;
 }
 .rs-select:disabled { cursor: default; }
 .rs-font-yasashisa { font-family: 'Yasashisa Antique', sans-serif; }
@@ -950,13 +951,13 @@ body.thumb-dragging * {
   display: flex; align-items: center; gap: 10px; flex: none;
   margin-right: max(0px, var(--rs-pick-room) - var(--rs-pick-size) / 2 - (var(--rs-reach) - 1px - var(--rs-pad-x) - 100cqw));
 }
-.rs-pick-value { color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.rs-pick-value { color: var(--muted-foreground); font-size: 11px; font-weight: 600; white-space: nowrap; }
 .rs-pick, .rs-pick-cell {
   display: grid; place-items: center; width: var(--rs-pick-size); height: var(--rs-pick-size); padding: 0;
-  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-subtle); color: var(--muted);
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-subtle); color: var(--muted-foreground);
   cursor: pointer; transition: background-color .12s ease, border-color .12s ease, color .12s ease;
 }
-.rs-pick:hover:not(:disabled), .rs-pick[aria-expanded="true"] { border-color: var(--border-strong); color: var(--text); }
+.rs-pick:hover:not(:disabled), .rs-pick[aria-expanded="true"] { border-color: var(--input); color: var(--foreground); }
 .rs-pick:disabled { cursor: default; }
 .rs-pick .rs-ico, .rs-pick-cell .rs-ico { width: 20px; height: 20px; }
 /* The picker: its choices around the button that opened it (anchored to it), a cross of edges, then
@@ -973,11 +974,11 @@ body.thumb-dragging * {
 .rs-picker[hidden] { display: none; }
 .rs-pick-cell {
   position: absolute; left: calc(var(--col) * 44px); top: calc(var(--row) * 44px); transform: translate(-50%, -50%);
-  background: var(--surface-raised); border-color: var(--border-strong); box-shadow: 0 8px 22px rgba(0, 0, 0, .5);
+  background: var(--secondary); border-color: var(--input); box-shadow: 0 8px 22px rgba(0, 0, 0, .5);
 }
-.rs-pick-cell.current { color: var(--accent); }
-.rs-pick-cell:is(:hover, .hot, :focus-visible) { border-color: var(--accent); color: var(--text); }
-.rs-pick-cell.current:is(:hover, .hot) { color: var(--accent); }
+.rs-pick-cell.current { color: var(--primary); }
+.rs-pick-cell:is(:hover, .hot, :focus-visible) { border-color: var(--primary); color: var(--foreground); }
+.rs-pick-cell.current:is(:hover, .hot) { color: var(--primary); }
 
 @media (max-width: 540px) {
   /* A sheet at the bottom, as tall as its tallest tab, so its top stays put from tab to tab: the tab
@@ -992,7 +993,7 @@ body.thumb-dragging * {
    no scroller, so reader-properties.js stops wheels and swipes there. */
 .pp-dialog {
   width: min(780px, calc(100vw - 32px)); max-height: min(860px, calc(100vh - 40px)); margin: auto; padding: 0;
-  color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px;
+  color: var(--foreground); background: var(--popover); border: 1px solid var(--input); border-radius: 12px;
   box-shadow: 0 18px 55px rgba(0,0,0,.45); overflow: hidden; overscroll-behavior: contain;
 }
 .pp-dialog[open] { display: flex; flex-direction: column; }
@@ -1002,61 +1003,61 @@ body.thumb-dragging * {
   padding: 16px 20px 13px; border-bottom: 1px solid var(--border);
 }
 .pp-title { margin: 0; font-size: 14px; font-weight: 700; }
-.pp-sub { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
+.pp-sub { margin: 4px 0 0; color: var(--muted-foreground); font-size: 11px; }
 .pp-actions { display: flex; align-items: center; gap: 8px; flex: none; }
 .pp-btn {
   height: 28px; border: 1px solid var(--border); border-radius: 6px; background: transparent;
-  color: var(--muted); font-family: inherit; font-size: 11px; line-height: 1; cursor: pointer; transition: border-color .12s, color .12s;
+  color: var(--muted-foreground); font-family: inherit; font-size: 11px; line-height: 1; cursor: pointer; transition: border-color .12s, color .12s;
 }
 .pp-btn { padding: 0 10px; }
-.pp-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+.pp-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--foreground); }
 .pp-btn:disabled { opacity: .4; cursor: default; }
 .pp-body { overflow: auto; overscroll-behavior: contain; padding: 0 20px 18px; }
-.pp-note { margin: 8px 0 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
-.pp-dim { color: var(--muted); }
+.pp-note { margin: 8px 0 0; color: var(--muted-foreground); font-size: 10px; line-height: 1.55; }
+.pp-dim { color: var(--muted-foreground); }
 
 .pp-hero { display: flex; gap: 16px; padding: 16px 0 14px; }
 .pp-thumb {
   flex: none; align-self: flex-start; width: 92px; max-height: 136px; object-fit: contain;
-  border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; background: var(--reader-background);
 }
 .pp-hero-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 9px; }
 .pp-hero-dims { font-size: 16px; font-weight: 700; }
 .pp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .pp-chip {
-  padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 10px;
+  padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted-foreground); font-size: 10px;
 }
 .pp-chip.translated { color: var(--success); border-color: color-mix(in srgb, var(--success) 45%, var(--border)); }
-.pp-chip.reverted { color: var(--accent2); border-color: color-mix(in srgb, var(--accent2) 45%, var(--border)); }
-.pp-chip.own { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
-.pp-total { color: var(--muted); font-size: 11px; }
-.pp-total b { color: var(--text); }
-.pp-bar { display: flex; gap: 2px; height: 8px; border-radius: 4px; overflow: hidden; background: var(--bg); }
+.pp-chip.reverted { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); }
+.pp-chip.own { color: var(--primary); border-color: color-mix(in srgb, var(--primary) 50%, var(--border)); }
+.pp-total { color: var(--muted-foreground); font-size: 11px; }
+.pp-total b { color: var(--foreground); }
+.pp-bar { display: flex; gap: 2px; height: 8px; border-radius: 4px; overflow: hidden; background: var(--reader-background); }
 .pp-seg { min-width: 3px; }
 .c-original { background: #7b8cff; }
 .c-translated { background: var(--success); }
-.c-steps { background: var(--accent2); }
-.c-study { background: var(--accent); }
-.pp-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: 10px; }
+.c-steps { background: var(--warning); }
+.c-study { background: var(--primary); }
+.pp-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none; color: var(--muted-foreground); font-size: 10px; }
 .pp-legend li { display: flex; align-items: center; gap: 5px; }
 .pp-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
-.pp-legend b { color: var(--text); font-weight: 600; }
+.pp-legend b { color: var(--foreground); font-weight: 600; }
 
 .pp-sec { padding: 13px 0; border-top: 1px solid var(--border); }
 .pp-sec h3 {
   display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 9px;
-  color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--muted-foreground); font-size: 9px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
 }
-.pp-sec-meta { color: var(--text); font-size: 10px; letter-spacing: 0; text-transform: none; }
+.pp-sec-meta { color: var(--foreground); font-size: 10px; letter-spacing: 0; text-transform: none; }
 .pp-grid { display: grid; grid-template-columns: minmax(120px, max-content) minmax(0, 1fr); gap: 6px 18px; margin: 0; font-size: 11px; }
-.pp-grid dt { color: var(--muted); }
+.pp-grid dt { color: var(--muted-foreground); }
 .pp-grid dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .pp-mono dd, .pp-mono dt, span.pp-mono { font-size: 10px; }
-.pp-mono dd { color: color-mix(in srgb, var(--text) 80%, var(--muted)); }
+.pp-mono dd { color: color-mix(in srgb, var(--foreground) 80%, var(--muted-foreground)); }
 .pp-wrap { word-break: break-all; }
 .pp-details { margin-top: 11px; }
-.pp-details > summary { color: var(--muted); font-size: 11px; cursor: pointer; }
-.pp-details > summary:hover { color: var(--text); }
+.pp-details > summary { color: var(--muted-foreground); font-size: 11px; cursor: pointer; }
+.pp-details > summary:hover { color: var(--foreground); }
 .pp-details[open] > summary { margin-bottom: 9px; }
 .pp-detail-scroll { max-height: 240px; overflow: auto; padding-right: 6px; }
 .pp-again { margin-top: 11px; }
@@ -1066,13 +1067,13 @@ body.thumb-dragging * {
   padding: 6px 10px 6px 0; text-align: left; vertical-align: top;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
 }
-.pp-steps th { width: 150px; color: var(--muted); font-weight: 500; }
+.pp-steps th { width: 150px; color: var(--muted-foreground); font-weight: 500; }
 .pp-num { text-align: right !important; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .pp-steps td.pp-num, .pp-text td.pp-num { padding-right: 0; }
 .pp-total-row th, .pp-total-row td { border-bottom: 0; padding-top: 8px; }
-.pp-text th { color: var(--muted); font-size: 10px; font-weight: 500; }
-.pp-text td.pp-num { width: 24px; color: var(--muted); text-align: left !important; }
-.pp-text td.pp-src { width: 45%; color: var(--muted); }
+.pp-text th { color: var(--muted-foreground); font-size: 10px; font-weight: 500; }
+.pp-text td.pp-num { width: 24px; color: var(--muted-foreground); text-align: left !important; }
+.pp-text td.pp-src { width: 45%; color: var(--muted-foreground); }
 .pp-text tr.filtered td { opacity: .55; }
 .pp-tag { margin-left: 6px; padding: 0 5px; border: 1px solid var(--border); border-radius: 3px; font-size: 9px; }
 .pp-details .pp-text { display: block; max-height: 320px; overflow: auto; }
@@ -1091,15 +1092,15 @@ body.thumb-dragging * {
 .page-menu .ctx-menu-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .page-status {
   position: fixed; left: 50%; bottom: 28px; z-index: 420; max-width: min(520px, calc(100vw - 32px));
-  padding: 8px 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface);
-  color: var(--text); font-size: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.45);
+  padding: 8px 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--popover);
+  color: var(--foreground); font-size: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.45);
   opacity: 0; pointer-events: none; transform: translate(-50%, 10px); transition: opacity .18s, transform .18s;
 }
 .page-status.show { opacity: 1; transform: translate(-50%, 0); }
-.page-status.error { border-color: var(--accent); }
+.page-status.error { border-color: var(--primary); }
 .page-status.busy::before {
   content: ''; display: inline-block; width: 9px; height: 9px; margin-right: 8px; vertical-align: -1px;
-  border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite;
+  border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin .8s linear infinite;
 }
 
 /* Unpinned: the header is a fixed overlay and contributes no document height. reader.js reveals
@@ -1129,7 +1130,7 @@ html.reader-scroll, body.reader-scroll { height: auto; }
 #scrollTopBtn {
   position: fixed; bottom: calc(var(--sn-bottom) + var(--top-btn-lift)); right: var(--sn-right); z-index: 300;
   width: var(--sn-size); height: var(--sn-size); border: 0; border-radius: 4px;
-  background: var(--sn-panel); box-shadow: var(--sn-shadow); color: var(--muted); cursor: pointer;
+  background: var(--sn-panel); box-shadow: var(--sn-shadow); color: var(--muted-foreground); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   opacity: 0; pointer-events: none;
   transition: opacity 0.2s, background 0.12s, color 0.12s, bottom 0.2s ease;
@@ -1137,25 +1138,25 @@ html.reader-scroll, body.reader-scroll { height: auto; }
 /* While the strip is pulled out of the progress bar, as far as it has come (--thumb-shown). */
 body.thumbs-open.thumb-revealing #scrollTopBtn { transition: opacity 0.2s, background 0.12s, color 0.12s; }
 #scrollTopBtn.visible { opacity: 1; pointer-events: all; }
-#scrollTopBtn:hover { background: var(--surface-raised); color: var(--text); }
+#scrollTopBtn:hover { background: var(--secondary); color: var(--foreground); }
 body.reader-side-nav #scrollTopBtn { display: none; }
 
 /* ── Loading / Empty ── */
 #loadingScreen {
   position: fixed; inset: 0; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 14px; background: var(--bg); z-index: 300;
+  align-items: center; justify-content: center; gap: 14px; background: var(--reader-background); z-index: 300;
   /* Stay invisible for the first 400ms — a fast load comes and goes without a spinner flash. */
   animation: loadingReveal 0.2s ease 0.4s backwards;
 }
 @keyframes loadingReveal { from { opacity: 0; } to { opacity: 1; } }
-.spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
-#loadingText { font-size: 11px; color: var(--muted); }
+.spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+#loadingText { font-size: 11px; color: var(--muted-foreground); }
 
-#emptyScreen { display: none; position: fixed; inset: 0; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: var(--bg); z-index: 300; }
+#emptyScreen { display: none; position: fixed; inset: 0; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: var(--reader-background); z-index: 300; }
 #emptyScreen.show { display: flex; }
 .empty-icon { font-size: 48px; }
-.empty-msg  { font-size: 12px; color: var(--muted); text-align: center; line-height: 1.8; }
-.empty-link { color: var(--accent); text-decoration: none; font-size: 11px; }
+.empty-msg  { font-size: 12px; color: var(--muted-foreground); text-align: center; line-height: 1.8; }
+.empty-link { color: var(--primary); text-decoration: none; font-size: 11px; }
 .empty-link:hover { text-decoration: underline; }
 
 /* ── Dim pages (Reader settings) ── */
@@ -1176,7 +1177,7 @@ body.reader-dim #doubleInner > * { filter: brightness(var(--reader-dim, 1)); }
 html.reader-side-nav #topbar, html.reader-side-nav #topbarReveal { display: none; }
 body {
   /* See-through panels in the reader's own colour, with no border; a soft shadow lifts them off the page. */
-  --sn-panel: color-mix(in srgb, var(--surface) 82%, transparent);
+  --sn-panel: color-mix(in srgb, var(--card) 82%, transparent);
   --sn-shadow: 0 16px 40px -16px rgba(0, 0, 0, 0.8);
   /* How far the panels stand from each edge of the window. */
   --sn-top: 12px;
@@ -1343,28 +1344,28 @@ html.sn-settling :is(#snChapter, #snRail, #sideZoom) { transition: none !importa
 .sn-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: var(--sn-size); height: var(--sn-size); padding: 0; border: 0; border-radius: 4px;
-  background: transparent; color: var(--muted); cursor: pointer; text-decoration: none;
+  background: transparent; color: var(--muted-foreground); cursor: pointer; text-decoration: none;
   transition: background 0.12s, color 0.12s;
 }
 .sn-btn svg { width: 18px; height: 18px; }
 .sn-btn[hidden] { display: none; }
-.sn-btn:hover:not(:disabled) { background: var(--surface-raised); color: var(--text); }
+.sn-btn:hover:not(:disabled) { background: var(--secondary); color: var(--foreground); }
 .sn-btn:disabled { color: var(--muted-dim); opacity: 0.5; cursor: not-allowed; }
-.sn-btn.is-on { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+.sn-btn.is-on { color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, var(--card)); }
 .sn-row > .sn-btn:first-child:not(:last-child) { border-radius: 4px 0 0 4px; }
 .sn-row > .sn-btn:last-child:not(:first-child) { border-radius: 0 4px 4px 0; }
 .sn-chap {
   display: inline-flex; align-items: center; gap: 4px; height: 100%; padding: 0 12px;
-  border: 0; background: transparent; color: var(--text); cursor: pointer;
+  border: 0; background: transparent; color: var(--foreground); cursor: pointer;
   font: inherit; font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums;
   transition: background 0.12s;
 }
-.sn-chap:hover:not(:disabled) { background: var(--surface-raised); }
+.sn-chap:hover:not(:disabled) { background: var(--secondary); }
 .sn-chap:disabled { cursor: default; }
 .sn-chap-total { color: var(--muted-dim); }
 .sn-zoom-value {
   display: inline-flex; align-items: center; justify-content: center; min-width: 48px;
-  font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums; user-select: none;
+  font-size: 12px; color: var(--foreground); font-variant-numeric: tabular-nums; user-select: none;
 }
 
 /* Hidden: nothing to see or press, until the pointer comes where they stand. */
@@ -1405,7 +1406,7 @@ html:is([data-sn-pos="top"], [data-sn-pos="bottom"]) #snZoneRail { left: calc(va
   position: fixed; z-index: 220; top: calc(var(--sn-top) + var(--pill-down) + var(--sn-pill-h, var(--sn-size)) + 8px); right: calc(var(--sn-right) + var(--pill-in));
   width: 320px; max-width: calc(100vw - 24px); max-height: min(70vh, 560px);
   flex-direction: column; overflow: hidden;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  background: var(--popover); border: 1px solid var(--border); border-radius: 12px;
   box-shadow: 0 40px 80px -20px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 html[data-sn-pos="left"] #snChapters { right: auto; left: calc(var(--sn-left) + var(--pill-in)); }
@@ -1417,12 +1418,12 @@ body.reader-side-nav.sn-pop-open #snChapters { display: flex; }
 .sn-chlist { overflow-y: auto; padding: 4px 8px 8px; }
 .sn-ch {
   display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 9px 10px;
-  border: 0; border-radius: 8px; background: transparent; color: var(--text); cursor: pointer;
+  border: 0; border-radius: 8px; background: transparent; color: var(--foreground); cursor: pointer;
   font: inherit; font-size: 13px; text-align: left;
 }
-.sn-ch:hover:not(:disabled, .current) { background: var(--surface-raised); }
-.sn-ch.current { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--accent); }
+.sn-ch:hover:not(:disabled, .current) { background: var(--secondary); }
+.sn-ch.current { background: color-mix(in srgb, var(--primary) 16%, var(--popover)); color: var(--primary); }
 .sn-ch:disabled { color: var(--muted-dim); cursor: default; }
 .sn-ch-num { flex-shrink: 0; font-weight: 700; }
-.sn-ch-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.sn-ch-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
 .sn-ch.current .sn-ch-title { color: inherit; }
