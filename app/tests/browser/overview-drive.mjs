@@ -131,7 +131,10 @@ export function read() {
       titleHref: link(row.querySelector('.ch-title-open')), titleLabel: row.querySelector('.ch-title-open').getAttribute('aria-label'),
       thumbHref: link(row.querySelector('.ch-thumb')), thumbImg: !!row.querySelector('.ch-thumb img'),
       meta: [...row.querySelector('.ch-meta').children].map((el) => ({ text: text(el), href: link(el), cls: el.className || null, target: el.getAttribute('target') })),
-      progress: shown(row.querySelector('.ch-progress')) ? { label: text(row.querySelector('.ch-prog-label')) } : null,
+      progress: shown(row.querySelector('.ch-progress')) ? { label: text(row.querySelector('.ch-prog-label')),
+        // The bar: how far it is filled (its share of the track, to a whole per cent once still), whether it moves, done.
+        fill: (() => { const fill = row.querySelector('.prog-fill'); return fill.classList.contains('indeterminate') ? 'moving' : `${Math.round(parseFloat(fill.style.width) || 0)}%`; })(),
+        done: row.querySelector('.prog-fill').classList.contains('done') } : null,
       grip: row.querySelector('.ch-grip')?.dataset.tip ?? null,
       actions: [...row.querySelectorAll('.ch-actions > button')].map((b) => ({
         kind: ['up', 'down', 'download', 'translate', 'detach', 'remove'].find((k) => b.hasAttribute(`data-${k}`)),
