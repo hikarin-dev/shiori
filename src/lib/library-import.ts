@@ -12,6 +12,7 @@
 //
 // The import, the backups and the batch are the app's modules, as 1.3's page called them.
 import { IMPORT_ACCEPT, droppedImports, groupImports, isImportable } from '@lib/import-files.js';
+import type { DropItems } from './drop-items';
 
 // What Import's picker offers: what imports, and the backups (1.3's #cbzFileInput).
 export const PICK_ACCEPT = `${IMPORT_ACCEPT},.shi,.shioridb,.crdownload,.crswap`;
@@ -36,10 +37,6 @@ export async function handleImportFiles(files: File[], folders: Folder[] = [], {
   const { importDropped } = await import('@lib/import-tracker.js');
   await (importDropped as (groups: unknown[], what: object) => Promise<void>)(groupImports(media, folders as never), { files: media, folders, leftOut });
 }
-
-// A drop's items as the drop event had them: they can only be listed while it lasts, and the page reads
-// them after this module has come.
-export type DropItems = { items: { kind: string; webkitGetAsEntry: () => FileSystemEntry | null; getAsFile: () => File | null }[] };
 
 // The drop's files and folders read (its folders' lists in full), the reading told as it goes:
 // `onFound(n)` with how many files the folders have shown so far.

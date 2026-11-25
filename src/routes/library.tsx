@@ -63,7 +63,7 @@ import { NO_FILTER, filtering, flagToken, sourceToken, stateToken, stepFilter, t
 import { createLibraryJobs, type LibraryJobs } from '@/lib/library-jobs';
 import type { BatchJob, BatchStore, Reading } from '@/lib/import-batches';
 import type { CardDrag } from '@/lib/card-drag';
-import type { DropItems } from '@/lib/library-import';
+import { dropItems } from '@/lib/drop-items';
 import { attachNativeBackupOnce } from '@/lib/native-backup';
 import { readAgain } from '@/lib/library-query';
 import { SAFE_MODE_KEY, createScrambler, type Scrambler } from '@/lib/safe-mode';
@@ -113,16 +113,6 @@ const keysTaken = (e: KeyboardEvent) => {
   const el = e.target as HTMLElement | null;
   return e.defaultPrevented || (!!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable || !!el.closest?.(KEYS_TAKEN)));
 };
-
-// A drop's items as the drop event has them, for reading after it (they can only be listed while it
-// lasts): each file's entry, and its file where it is not a folder.
-function dropItems(dt: DataTransfer): DropItems {
-  return { items: [...dt.items].filter((item) => item.kind === 'file').map((item) => {
-    const entry = item.webkitGetAsEntry?.() ?? null;
-    const file = entry?.isDirectory ? null : item.getAsFile();
-    return { kind: 'file', webkitGetAsEntry: () => entry, getAsFile: () => file };
-  }) };
-}
 
 // The address as 1.3 read it (initFromUrl): a page past the first, a search, a sort.
 function fromAddress(search: string) {
