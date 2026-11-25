@@ -26,6 +26,70 @@ import { openPageMenu, pageStatus } from './reader-page-menu.js';
 import { translationView } from './page-image.js';
 import { resumeAt } from './storage/personal.js';
 
+// What the reader writes on <html> and <body>, by name: the classes, data attributes and inline
+// style properties it sets, toggles or removes (reader-study.js writes study-sel-lock and
+// study-text-selecting for it). Its stop puts each of these back as it was when it started, and leaves
+// every other name alone: they are other owners' (scrollbar.js's --page-scrollbar-*, the language, a
+// page's own classes), and may have changed meanwhile. reader-init.js sets three of the names before
+// the reader starts (html.reader-side-nav, html.reader-controls-hidden, data-sn-pos and data-sn-align):
+// what it set is the page's, and is what stop puts back. The title is put back too.
+export const READER_DOCUMENT = {
+  html: {
+    classes: ['reader-scroll', 'reader-side-nav', 'reader-controls-hidden', 'sn-settling', 'reader-strip-gliding'],
+    data: ['snPos', 'snAlign'],
+    style: ['--page-zoom', '--thumb-h', '--thumb-shown', 'scroll-padding-top', '--sn-pill-w', '--sn-pill-h', '--sn-zoom-w', '--sn-zoom-h',
+      '--sn-rail-w', '--sn-rail-h', '--reader-dim', '--reader-page-gap', '--botbar-visual-h', '--reader-fit-max-width', '--zoom-inv'],
+  },
+  body: {
+    classes: ['study-mode', 'page-divider', 'study-bubbles-active', 'thumbs-open', 'thumb-dragging', 'thumb-resizing', 'thumb-revealing',
+      'reader-nav-auto', 'reader-scroll', 'reader-unpinned', 'reader-side-nav', 'reader-side-hidden', 'reader-nav-hover', 'sn-pop-open',
+      'reader-page-rtl', 'reader-dim', 'bar-hidden', 'bar-grown', 'reader-fit-width', 'reader-fit-height',
+      'study-sel-lock', 'study-text-selecting'],
+    data: ['bar'],
+    style: [],
+  },
+};
+// The values of those names now (and whether the element had a class or style attribute at all).
+function _readerDocumentNow() {
+  const at = { title: document.title };
+  for (const [tag, el] of [['html', document.documentElement], ['body', document.body]]) {
+    const own = READER_DOCUMENT[tag];
+    at[tag] = {
+      hadClass: el.hasAttribute('class'), hadStyle: el.hasAttribute('style'),
+      classes: own.classes.filter((c) => el.classList.contains(c)),
+      data: Object.fromEntries(own.data.map((k) => [k, el.dataset[k]])),
+      style: Object.fromEntries(own.style.map((p) => [p, [el.style.getPropertyValue(p), el.style.getPropertyPriority(p)]])),
+    };
+  }
+  return at;
+}
+// Puts the names back as `at` has them; returns those it had to change.
+function _putReaderDocumentBack(at) {
+  const undone = [];
+  for (const [tag, el] of [['html', document.documentElement], ['body', document.body]]) {
+    const own = READER_DOCUMENT[tag], was = at[tag];
+    for (const c of own.classes) {
+      const on = was.classes.includes(c);
+      if (el.classList.contains(c) !== on) { el.classList.toggle(c, on); undone.push(`${tag}.${c}`); }
+    }
+    for (const k of own.data) {
+      if (el.dataset[k] === was.data[k]) continue;
+      if (was.data[k] === undefined) delete el.dataset[k]; else el.dataset[k] = was.data[k];
+      undone.push(`${tag} data-${k}`);
+    }
+    for (const p of own.style) {
+      const [value, priority] = was.style[p];
+      if (el.style.getPropertyValue(p) === value && el.style.getPropertyPriority(p) === priority) continue;
+      if (value) el.style.setProperty(p, value, priority); else el.style.removeProperty(p);
+      undone.push(`${tag} ${p}`);
+    }
+    if (!was.hadClass && el.getAttribute('class') === '') el.removeAttribute('class');
+    if (!was.hadStyle && el.getAttribute('style') === '') el.removeAttribute('style');
+  }
+  if (document.title !== at.title) { document.title = at.title; undone.push('title'); }
+  return undone;
+}
+
 // ── Start and stop (made by plans/frontend-react-probes/8a/transform.mjs) ──
 // Everything below runs once per start. What would outlive the reader is made through the instance:
 // listeners on the window and the document take its signal, and the globals that make timers,
@@ -89,6 +153,7 @@ const URL = class extends _rsWin.URL {
   }
   static revokeObjectURL(url) { _rsUrls.delete(url); _rsWin.URL.revokeObjectURL(url); }
 };
+const _rsAtStart = _readerDocumentNow();   // put back by stop (READER_DOCUMENT)
 
 // Site names/links come from sites.js (runtime data + the localStorage warm start, so source
 // labels are correct on first paint instead of waiting for the bridge to answer).
@@ -5567,7 +5632,7 @@ function stop() {
     observers: _rsObservers.size, workers: _rsWorkers.size, objectUrls: _rsUrls.size, nodes: _rsNodes.size, subscriptions: _rsDisposers.length };
   for (const set of [_rsTimers, _rsIntervals, _rsFrames, _rsIdle, _rsObservers, _rsWorkers, _rsUrls, _rsNodes]) set.clear();
   _rsDisposers.length = 0;
-  return { released: counts };
+  return { released: counts, undone: _putReaderDocumentBack(_rsAtStart) };
 }
 return { stop };
 }

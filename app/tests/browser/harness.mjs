@@ -28,6 +28,32 @@ export function launch() {
     args: ['--no-first-run', '--no-default-browser-check', '--disable-extensions'] });
 }
 
+// Entries for the reader's page, in place of app/js/reader-page.js (openPage's `reader`). Each runs
+// boot.js as the page's own does, and keeps startReader as globalThis.__startReader and the running
+// engine as globalThis.__reader (its stop: globalThis.__reader.stop()).
+//   keep    started once, as the page's own entry does; <html>'s and <body>'s attributes and the title
+//           just before the start kept as globalThis.__beforeStart.
+//   strict  started, stopped and started again in one task, on the same frame: React's strict mode.
+//   again   started, stopped, the frame drawn again as the page had it, and started again.
+const READER_ENTRY_HEAD = `import './boot.js';
+import { startReader } from './reader.js';
+globalThis.__startReader = startReader;
+`;
+export const READER_ENTRIES = {
+  keep: `${READER_ENTRY_HEAD}const attrs = (el) => Object.fromEntries([...el.attributes].map((a) => [a.name, a.value]));
+globalThis.__beforeStart = { html: attrs(document.documentElement), body: attrs(document.body), title: document.title };
+globalThis.__reader = startReader();
+`,
+  strict: `${READER_ENTRY_HEAD}startReader().stop();
+globalThis.__reader = startReader();
+`,
+  again: `${READER_ENTRY_HEAD}const frame = document.body.innerHTML;
+startReader().stop();
+document.body.innerHTML = frame;
+globalThis.__reader = startReader();
+`,
+};
+
 // Where a refused socket is opened instead: a port the browser itself refuses to connect to.
 const NOWHERE = 'ws://127.0.0.1:9/';
 
@@ -37,7 +63,11 @@ const NOWHERE = 'ws://127.0.0.1:9/';
 // about loads sooner, and some tests' steps count on the time a full load takes.
 // `allow`: other origins a test serves itself (a stand-in translation server). Every refused request
 // is kept in `page.refused`, so a test can say nothing was asked of an address.
-export async function openPage(browser, origin, { allow = [] } = {}) {
+// `reader`: the reader's page starts its engine from app/js/reader-page.js; one of READER_ENTRIES
+// answers that file instead, so a test can hold the engine and stop it. READER_START=strict or again
+// in the environment does the same for every page a test opens: the reader's own tests run on an
+// engine started a second time.
+export async function openPage(browser, origin, { allow = [], reader = process.env.READER_START } = {}) {
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 900 });
   await page.setBypassServiceWorker(true);
@@ -53,8 +83,13 @@ export async function openPage(browser, origin, { allow = [] } = {}) {
   });
   const refused = [];
   await page.setRequestInterception(true);
+  if (reader && !READER_ENTRIES[reader]) throw new Error(`no reader entry "${reader}"`);
   page.on('request', (req) => {
     const url = req.url();
+    if (reader && url.startsWith(origin) && new URL(url).pathname === '/app/js/reader-page.js') {
+      req.respond({ status: 200, contentType: 'text/javascript', body: READER_ENTRIES[reader] });
+      return;
+    }
     if (url.startsWith(origin) || url.startsWith('data:') || url.startsWith('blob:') || allow.some((other) => url.startsWith(other))) req.continue();
     else { refused.push(url); req.abort(); }
   });
